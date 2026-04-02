@@ -47,3 +47,23 @@ func (s *TagService) FindOrCreate(ctx context.Context, name string) (*domain.Tag
 	}
 	return tag, nil
 }
+
+// AssignToTask finds-or-creates each tag by name and assigns them to the task.
+// An empty tagNames slice is a no-op.
+func (s *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
+	for _, name := range tagNames {
+		tag, err := s.FindOrCreate(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := s.tagRepo.AssignToTask(ctx, taskID, tag.ID); err != nil {
+			return fmt.Errorf("assigning tag %q to task: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// GetTaskTags returns all tags assigned to a task.
+func (s *TagService) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error) {
+	return s.tagRepo.GetTaskTags(ctx, taskID)
+}

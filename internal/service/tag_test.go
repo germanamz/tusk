@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/google/uuid"
@@ -76,5 +77,81 @@ func TestFindOrCreate_WhitespaceName(t *testing.T) {
 	_, err := tagSvc.FindOrCreate(ctx, "   ")
 	if err == nil {
 		t.Fatal("expected error for whitespace-only name")
+	}
+}
+
+// mustCreateTaskForTags creates a task via TaskService for use in tag tests.
+func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
+	t.Helper()
+	db := store.DB()
+	taskRepo := sqlite.NewTaskRepo(db)
+	annotationRepo := sqlite.NewAnnotationRepo(db)
+	projectRepo := sqlite.NewProjectRepo(db)
+	workflowRepo := sqlite.NewWorkflowRepo(db)
+	workflowSvc := NewWorkflowService(workflowRepo)
+	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
+
+	task := &domain.Task{Title: "test task"}
+	if err := taskSvc.Create(context.Background(), task); err != nil {
+		t.Fatalf("creating test task: %v", err)
+	}
+	return task
+}
+
+func TestAssignToTask_MultipleTags(t *testing.T) {
+	tagSvc, store := testTagEnv(t)
+	ctx := context.Background()
+	task := mustCreateTaskForTags(t, store)
+
+	err := tagSvc.AssignToTask(ctx, task.ID, []string{"bug", "urgent"})
+	if err != nil {
+		t.Fatalf("AssignToTask: %v", err)
+	}
+
+	tags, err := tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTaskTags: %v", err)
+	}
+	if len(tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(tags))
+	}
+
+	names := map[string]bool{}
+	for _, tg := range tags {
+		names[tg.Name] = true
+	}
+	if !names["bug"] || !names["urgent"] {
+		t.Fatalf("expected tags 'bug' and 'urgent', got %v", names)
+	}
+}
+
+func TestAssignToTask_EmptySlice(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	err := tagSvc.AssignToTask(ctx, uuid.New(), []string{})
+	if err != nil {
+		t.Fatalf("AssignToTask with empty slice should be no-op, got: %v", err)
+	}
+}
+
+func TestAssignToTask_Idempotent(t *testing.T) {
+	tagSvc, store := testTagEnv(t)
+	ctx := context.Background()
+	task := mustCreateTaskForTags(t, store)
+
+	if err := tagSvc.AssignToTask(ctx, task.ID, []string{"api"}); err != nil {
+		t.Fatalf("first AssignToTask: %v", err)
+	}
+	if err := tagSvc.AssignToTask(ctx, task.ID, []string{"api"}); err != nil {
+		t.Fatalf("second AssignToTask (should be idempotent): %v", err)
+	}
+
+	tags, err := tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTaskTags: %v", err)
+	}
+	if len(tags) != 1 {
+		t.Fatalf("expected 1 tag after idempotent assign, got %d", len(tags))
 	}
 }
