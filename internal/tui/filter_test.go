@@ -349,9 +349,12 @@ func TestBuildTaskFilter_Tags(t *testing.T) {
 		Tags:   []string{"api"},
 	}
 
-	_, err := buildTaskFilter(context.Background(), p, repo)
-	if err == nil || err.Error() != "tag filtering not yet supported" {
-		t.Fatalf("expected 'tag filtering not yet supported' error, got %v", err)
+	f, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Tags) != 1 || f.Tags[0] != "api" {
+		t.Fatalf("expected Tags=[\"api\"], got %v", f.Tags)
 	}
 }
 
@@ -362,8 +365,11 @@ func TestBuildTaskFilter_ExclTags(t *testing.T) {
 		ExclTags: []string{"docs"},
 	}
 
-	_, err := buildTaskFilter(context.Background(), p, repo)
-	if err == nil || err.Error() != "tag filtering not yet supported" {
-		t.Fatalf("expected 'tag filtering not yet supported' error, got %v", err)
+	f, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.ExcludeTags) != 1 || f.ExcludeTags[0] != "docs" {
+		t.Fatalf("expected ExcludeTags=[\"docs\"], got %v", f.ExcludeTags)
 	}
 }

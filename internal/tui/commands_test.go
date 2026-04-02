@@ -66,10 +66,13 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	projectRepo := sqlite.NewProjectRepo(db)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
+	tagRepo := sqlite.NewTagRepo(db)
+
 	workflowSvc := service.NewWorkflowService(workflowRepo)
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
+	tagSvc := service.NewTagService(tagRepo)
 
-	app := New(taskSvc, nil, projectRepo)
+	app := New(taskSvc, tagSvc, projectRepo)
 	return app, taskSvc
 }
 
@@ -306,16 +309,14 @@ func TestRunAdd_WithParent(t *testing.T) {
 	}
 }
 
-func TestRunAdd_TagsError(t *testing.T) {
+func TestRunAdd_Tags(t *testing.T) {
 	app, _ := testApp(t)
 
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
 	app.root.SetArgs([]string{"add", "Tagged", "task", "+api"})
-	err := app.root.Execute()
-	if err == nil {
-		t.Fatal("expected error for tags")
-	}
-	if !strings.Contains(err.Error(), "tags not yet supported") {
-		t.Fatalf("expected 'tags not yet supported', got %q", err.Error())
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("add with tag: %v", err)
 	}
 }
 
@@ -424,20 +425,18 @@ func TestRunModify_NotFound(t *testing.T) {
 	}
 }
 
-func TestRunModify_TagsError(t *testing.T) {
+func TestRunModify_Tags(t *testing.T) {
 	app, taskSvc := testApp(t)
 	ctx := context.Background()
 
 	task := &domain.Task{Title: "Tag test"}
 	taskSvc.Create(ctx, task)
 
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
 	app.root.SetArgs([]string{"modify", task.ShortID, "+api"})
-	err := app.root.Execute()
-	if err == nil {
-		t.Fatal("expected error for tags")
-	}
-	if !strings.Contains(err.Error(), "tags not yet supported") {
-		t.Fatalf("expected 'tags not yet supported', got %q", err.Error())
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify with tag: %v", err)
 	}
 }
 

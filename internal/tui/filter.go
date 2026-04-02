@@ -114,9 +114,12 @@ func parseDate(s string) (time.Time, error) {
 func buildTaskFilter(ctx context.Context, p ParsedArgs, projectRepo repository.ProjectRepository) (domain.TaskFilter, error) {
 	var f domain.TaskFilter
 
-	// Tags not yet supported
-	if len(p.Tags) > 0 || len(p.ExclTags) > 0 {
-		return f, fmt.Errorf("tag filtering not yet supported")
+	// Tag filters
+	if len(p.Tags) > 0 {
+		f.Tags = p.Tags
+	}
+	if len(p.ExclTags) > 0 {
+		f.ExcludeTags = p.ExclTags
 	}
 
 	// Status filter
