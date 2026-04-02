@@ -143,6 +143,118 @@ func (s *TaskService) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*
 	return s.taskRepo.GetDescendants(ctx, rootID)
 }
 
+// Update applies a partial update to a task. It validates the patched state,
+// enforces workflow transitions, and uses optimistic locking.
+// Returns the updated task with the new version number.
+func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domain.Task, error) {
+	// Load current task
+	task, err := s.taskRepo.GetByShortID(ctx, upd.ShortID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Early version check
+	if task.Version != upd.Version {
+		return nil, domain.ErrConflict
+	}
+
+	oldStatus := task.Status
+
+	// Apply patch
+	if upd.Title != nil {
+		task.Title = *upd.Title
+	}
+	if upd.Description != nil {
+		task.Description = *upd.Description
+	}
+	if upd.Status != nil {
+		task.Status = *upd.Status
+	}
+	if upd.Priority != nil {
+		task.Priority = *upd.Priority
+	}
+	if upd.ParentID != nil {
+		task.ParentID = *upd.ParentID
+	}
+	if upd.ProjectID != nil {
+		task.ProjectID = *upd.ProjectID
+	}
+	if upd.DueAt != nil {
+		task.DueAt = *upd.DueAt
+	}
+	if upd.WaitUntil != nil {
+		task.WaitUntil = *upd.WaitUntil
+	}
+	if upd.RecurrenceRule != nil {
+		task.RecurrenceRule = *upd.RecurrenceRule
+	}
+	if upd.UDA != nil {
+		task.UDA = *upd.UDA
+	}
+
+	// Validate patched state
+	if strings.TrimSpace(task.Title) == "" {
+		return nil, fmt.Errorf("title must not be empty")
+	}
+	if task.Priority < 0 || task.Priority > 4 {
+		return nil, fmt.Errorf("priority must be between 0 and 4")
+	}
+
+	// Validate parent if changed
+	if upd.ParentID != nil && task.ParentID != nil {
+		if *task.ParentID == task.ID {
+			return nil, fmt.Errorf("task cannot be its own parent")
+		}
+		_, err := s.taskRepo.GetByID(ctx, *task.ParentID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return nil, fmt.Errorf("parent task not found: %w", err)
+			}
+			return nil, fmt.Errorf("looking up parent task: %w", err)
+		}
+	}
+
+	// Validate project if changed
+	if upd.ProjectID != nil {
+		if task.ProjectID == nil {
+			return nil, fmt.Errorf("task must belong to a project")
+		}
+		_, err := s.projectRepo.GetByID(ctx, *task.ProjectID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return nil, fmt.Errorf("project not found: %w", err)
+			}
+			return nil, fmt.Errorf("looking up project: %w", err)
+		}
+	}
+
+	// Workflow validation for status changes
+	if task.Status != oldStatus {
+		project, err := s.projectRepo.GetByID(ctx, *task.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("looking up project for workflow: %w", err)
+		}
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, *task.ProjectID, project.DefaultWorkflow, oldStatus, task.Status)
+		if err != nil {
+			return nil, fmt.Errorf("checking transition: %w", err)
+		}
+		if !allowed {
+			return nil, fmt.Errorf("transition %q → %q not allowed: %w", oldStatus, task.Status, domain.ErrInvalidTransition)
+		}
+	}
+
+	// Update metadata
+	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+
+	// Persist (repo handles version increment)
+	if err := s.taskRepo.Update(ctx, task); err != nil {
+		return nil, err
+	}
+
+	// Re-read to get the persisted state with bumped version
+	return s.taskRepo.GetByID(ctx, task.ID)
+}
+
 // generateShortID derives a short ID from the task's UUID.
 // It starts with 8 hex characters and extends if a collision is detected.
 func (s *TaskService) generateShortID(ctx context.Context, id uuid.UUID) (string, error) {
