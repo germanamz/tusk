@@ -158,7 +158,7 @@ func TestRenderTaskInfo_Text_AllFields(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := renderTaskInfo(&buf, task, annotations, "", "text")
+	err := renderTaskInfo(&buf, task, annotations, nil, "", "text")
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestRenderTaskInfo_Text_NullableFieldsOmitted(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := renderTaskInfo(&buf, task, nil, "", "text")
+	err := renderTaskInfo(&buf, task, nil, nil, "", "text")
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestRenderTaskInfo_JSON(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := renderTaskInfo(&buf, task, nil, "", "json")
+	err := renderTaskInfo(&buf, task, nil, nil, "", "json")
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
 	}

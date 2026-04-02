@@ -153,7 +153,13 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, projectName, a.format)
+	// Fetch tags
+	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("loading tags: %w", err)
+	}
+
+	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, tags, projectName, a.format)
 }
 
 func (a *App) runModify(cmd *cobra.Command, args []string) error {

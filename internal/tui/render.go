@@ -179,9 +179,9 @@ type taskInfoJSON struct {
 // renderTaskInfo writes a single task's detail view to w.
 // For "text", it renders key-value pairs with optional annotations.
 // For "json", it renders the task as a JSON object including annotations.
-func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, projectName string, format string) error {
+func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, projectName string, format string) error {
 	if format == "json" {
-		info := taskInfoJSON{taskJSON: toTaskJSON(task, nil)}
+		info := taskInfoJSON{taskJSON: toTaskJSON(task, tags)}
 		for _, ann := range annotations {
 			info.Annotations = append(info.Annotations, annotationJSON{
 				ID:        ann.ID.String(),
@@ -206,6 +206,16 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 	}
 	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Priority:", formatPriorityName(task.Priority)); err != nil {
 		return err
+	}
+
+	if len(tags) > 0 {
+		tagStrs := make([]string, len(tags))
+		for i, tg := range tags {
+			tagStrs[i] = "+" + tg.Name
+		}
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Tags:", strings.Join(tagStrs, " ")); err != nil {
+			return err
+		}
 	}
 
 	if task.Description != "" {
