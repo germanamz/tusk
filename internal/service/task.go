@@ -229,7 +229,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	}
 
 	// Workflow validation for status changes
-	if task.Status != oldStatus {
+	if upd.Status != nil {
 		project, err := s.projectRepo.GetByID(ctx, *task.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)
@@ -253,6 +253,33 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 
 	// Re-read to get the persisted state with bumped version
 	return s.taskRepo.GetByID(ctx, task.ID)
+}
+
+// Start transitions a task from its current status to "active".
+func (s *TaskService) Start(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+	return s.Update(ctx, domain.TaskUpdate{
+		ShortID: shortID,
+		Version: version,
+		Status:  ptr("active"),
+	})
+}
+
+// Complete transitions a task from its current status to "completed".
+func (s *TaskService) Complete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+	return s.Update(ctx, domain.TaskUpdate{
+		ShortID: shortID,
+		Version: version,
+		Status:  ptr("completed"),
+	})
+}
+
+// Delete soft-deletes a task by transitioning its status to "deleted".
+func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+	return s.Update(ctx, domain.TaskUpdate{
+		ShortID: shortID,
+		Version: version,
+		Status:  ptr("deleted"),
+	})
 }
 
 // generateShortID derives a short ID from the task's UUID.
