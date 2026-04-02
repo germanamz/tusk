@@ -56,6 +56,7 @@ type taskJSON struct {
 	Status         string         `json:"status"`
 	Priority       int            `json:"priority"`
 	Version        int            `json:"version"`
+	Tags           []string       `json:"tags"`
 	DueAt          *string        `json:"due_at,omitempty"`
 	WaitUntil      *string        `json:"wait_until,omitempty"`
 	RecurrenceRule *string        `json:"recurrence_rule,omitempty"`
@@ -64,7 +65,7 @@ type taskJSON struct {
 	ModifiedAt     string         `json:"modified_at"`
 }
 
-func toTaskJSON(t *domain.Task) taskJSON {
+func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 	tj := taskJSON{
 		ID:          t.ID.String(),
 		ShortID:     t.ShortID,
@@ -94,6 +95,10 @@ func toTaskJSON(t *domain.Task) taskJSON {
 		tj.WaitUntil = &s
 	}
 	tj.RecurrenceRule = t.RecurrenceRule
+	tj.Tags = make([]string, len(tags))
+	for i, tg := range tags {
+		tj.Tags[i] = tg.Name
+	}
 	return tj
 }
 
@@ -104,7 +109,7 @@ func renderTaskList(w io.Writer, tasks []*domain.Task, format string) error {
 	if format == "json" {
 		items := make([]taskJSON, len(tasks))
 		for i, t := range tasks {
-			items[i] = toTaskJSON(t)
+			items[i] = toTaskJSON(t, nil)
 		}
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -167,7 +172,7 @@ type taskInfoJSON struct {
 // For "json", it renders the task as a JSON object including annotations.
 func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, projectName string, format string) error {
 	if format == "json" {
-		info := taskInfoJSON{taskJSON: toTaskJSON(task)}
+		info := taskInfoJSON{taskJSON: toTaskJSON(task, nil)}
 		for _, ann := range annotations {
 			info.Annotations = append(info.Annotations, annotationJSON{
 				ID:        ann.ID.String(),
@@ -262,7 +267,7 @@ func renderMutationResult(w io.Writer, action string, task *domain.Task, format 
 	if format == "json" {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(toTaskJSON(task))
+		return enc.Encode(toTaskJSON(task, nil))
 	}
 	_, err := fmt.Fprintf(w, "%s task %s\n", action, task.ShortID)
 	return err
