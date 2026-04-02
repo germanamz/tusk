@@ -1,0 +1,175 @@
+package sqlite
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
+	"github.com/google/uuid"
+)
+
+// Compile-time check: *AnnotationRepo must implement repository.AnnotationRepository.
+// If AnnotationRepo is missing any method, this line produces a compile error.
+// The nil pointer is never dereferenced — it costs nothing at runtime.
+var _ repository.AnnotationRepository = (*AnnotationRepo)(nil)
+
+// TestAnnotationCreate verifies that we can insert a new annotation and read it back
+// via GetByTask. It exercises Create and GetByTask together because you need
+// GetByTask to verify that Create actually persisted the data.
+//
+// Note: we must create a task first because annotations have a foreign key
+// (task_id) pointing to the tasks table. Without a valid task, the INSERT would
+// fail with a foreign key constraint error.
+func TestAnnotationCreate(t *testing.T) {
+	// testStore creates an in-memory SQLite database with all migrations applied.
+	s := testStore(t)
+
+	// We need a TaskRepo to create the parent task.
+	taskRepo := NewTaskRepo(s.DB())
+
+	// This is the repo we are actually testing.
+	repo := NewAnnotationRepo(s.DB())
+
+	ctx := context.Background()
+
+	// Create a parent task. newTestTask() returns a *domain.Task with all fields
+	// populated. mustCreateTask inserts it and calls t.Fatal if anything goes wrong.
+	task := newTestTask()
+	mustCreateTask(t, taskRepo, task)
+
+	// Build an annotation attached to the task we just created.
+	// time.Now().UTC().Truncate(time.Millisecond) matches SQLite's millisecond
+	// precision — without Truncate, the round-trip would lose sub-millisecond
+	// data and comparisons would fail.
+	ann := &domain.Annotation{
+		ID:        uuid.New(),
+		TaskID:    task.ID,
+		Body:      "Blocked by upstream API changes",
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	// Create should succeed with no error.
+	if err := repo.Create(ctx, ann); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Read back all annotations for this task and verify our annotation is there.
+	anns, err := repo.GetByTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anns) != 1 {
+		t.Fatalf("expected 1 annotation, got %d", len(anns))
+	}
+	if anns[0].Body != "Blocked by upstream API changes" {
+		t.Fatalf("wrong body: %q", anns[0].Body)
+	}
+}
+
+// TestAnnotationGetByTaskEmpty verifies that GetByTask returns an empty slice
+// (not an error) when a task has no annotations. This is important: "no results"
+// is not an error condition for a list query.
+func TestAnnotationGetByTaskEmpty(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	repo := NewAnnotationRepo(s.DB())
+	ctx := context.Background()
+
+	// Create a task but do NOT create any annotations for it.
+	task := newTestTask()
+	mustCreateTask(t, taskRepo, task)
+
+	anns, err := repo.GetByTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should be 0 annotations, not an error.
+	if len(anns) != 0 {
+		t.Fatalf("expected 0 annotations, got %d", len(anns))
+	}
+}
+
+// TestAnnotationGetByTaskMultiple verifies that GetByTask returns all annotations
+// for a given task, not just the first one.
+func TestAnnotationGetByTaskMultiple(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	repo := NewAnnotationRepo(s.DB())
+	ctx := context.Background()
+
+	task := newTestTask()
+	mustCreateTask(t, taskRepo, task)
+
+	// Create 3 annotations on the same task.
+	for _, body := range []string{"First", "Second", "Third"} {
+		ann := &domain.Annotation{
+			ID:        uuid.New(),
+			TaskID:    task.ID,
+			Body:      body,
+			CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+		}
+		if err := repo.Create(ctx, ann); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	anns, err := repo.GetByTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anns) != 3 {
+		t.Fatalf("expected 3 annotations, got %d", len(anns))
+	}
+}
+
+// TestAnnotationDelete verifies that Delete removes an annotation and that
+// GetByTask no longer returns it.
+func TestAnnotationDelete(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	repo := NewAnnotationRepo(s.DB())
+	ctx := context.Background()
+
+	task := newTestTask()
+	mustCreateTask(t, taskRepo, task)
+
+	ann := &domain.Annotation{
+		ID:        uuid.New(),
+		TaskID:    task.ID,
+		Body:      "To be deleted",
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, ann); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete the annotation we just created.
+	if err := repo.Delete(ctx, ann.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// Verify it is gone.
+	anns, err := repo.GetByTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anns) != 0 {
+		t.Fatalf("expected 0 after delete, got %d", len(anns))
+	}
+}
+
+// TestAnnotationDeleteNotFound verifies that deleting a non-existent annotation
+// returns domain.ErrNotFound. This uses the RowsAffected pattern: the DELETE
+// SQL succeeds but affects 0 rows, which we translate to ErrNotFound.
+func TestAnnotationDeleteNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewAnnotationRepo(s.DB())
+
+	// uuid.New() generates a random UUID that does not exist in the DB.
+	err := repo.Delete(context.Background(), uuid.New())
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
