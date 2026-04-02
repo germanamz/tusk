@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
 )
 
 // ParsedArgs holds the result of parsing CLI arguments.
@@ -101,4 +105,61 @@ func parseDate(s string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("invalid date %q: use YYYY-MM-DD, RFC3339, today, tomorrow, or a weekday name", s)
+}
+
+// buildTaskFilter converts parsed CLI args into a domain.TaskFilter.
+// If no status filter is specified, defaults to ["pending", "active"].
+// Project names are resolved to UUIDs via projectRepo.
+func buildTaskFilter(ctx context.Context, p ParsedArgs, projectRepo repository.ProjectRepository) (domain.TaskFilter, error) {
+	var f domain.TaskFilter
+
+	// Tags not yet supported
+	if len(p.Tags) > 0 || len(p.ExclTags) > 0 {
+		return f, fmt.Errorf("tag filtering not yet supported")
+	}
+
+	// Status filter
+	if s, ok := p.Fields["status"]; ok {
+		f.Statuses = strings.Split(s, ",")
+	} else {
+		f.Statuses = []string{"pending", "active"}
+	}
+
+	// Project filter
+	if name, ok := p.Fields["project"]; ok {
+		project, err := projectRepo.GetByName(ctx, name)
+		if err != nil {
+			return f, fmt.Errorf("project %q not found", name)
+		}
+		f.ProjectID = &project.ID
+	}
+
+	// Priority filter
+	if s, ok := p.Fields["priority"]; ok {
+		if strings.Contains(s, "..") {
+			parts := strings.SplitN(s, "..", 2)
+			min, err := parsePriority(parts[0])
+			if err != nil {
+				return f, err
+			}
+			max, err := parsePriority(parts[1])
+			if err != nil {
+				return f, err
+			}
+			f.PriorityMin = &min
+			f.PriorityMax = &max
+		} else {
+			v, err := parsePriority(s)
+			if err != nil {
+				return f, err
+			}
+			f.PriorityMin = &v
+			f.PriorityMax = &v
+		}
+	}
+
+	// Parent filter — requires short ID → UUID resolution.
+	// Handled in the command layer, not here.
+
+	return f, nil
 }

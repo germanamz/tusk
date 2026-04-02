@@ -1,8 +1,12 @@
 package tui
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/germanamz/tusk/internal/sqlite"
+	"github.com/germanamz/tusk/migrations"
 )
 
 func TestParseArgs_TitleOnly(t *testing.T) {
@@ -199,5 +203,151 @@ func TestParseDate_Invalid(t *testing.T) {
 	_, err := parseDate("notadate")
 	if err == nil {
 		t.Fatal("expected error for invalid date")
+	}
+}
+
+// testProjectRepo creates an in-memory SQLite store and returns its ProjectRepo.
+func testProjectRepo(t *testing.T) *sqlite.ProjectRepo {
+	t.Helper()
+	store, err := sqlite.New(":memory:", migrations.FS)
+	if err != nil {
+		t.Fatalf("opening test store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return sqlite.NewProjectRepo(store.DB())
+}
+
+func TestBuildTaskFilter_DefaultStatuses(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{Fields: map[string]string{}}
+
+	filter, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("buildTaskFilter: %v", err)
+	}
+	if len(filter.Statuses) != 2 {
+		t.Fatalf("expected 2 default statuses, got %d", len(filter.Statuses))
+	}
+	if filter.Statuses[0] != "pending" || filter.Statuses[1] != "active" {
+		t.Fatalf("expected [pending active], got %v", filter.Statuses)
+	}
+}
+
+func TestBuildTaskFilter_ExplicitStatus(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{"status": "completed"},
+	}
+
+	filter, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("buildTaskFilter: %v", err)
+	}
+	if len(filter.Statuses) != 1 || filter.Statuses[0] != "completed" {
+		t.Fatalf("expected [completed], got %v", filter.Statuses)
+	}
+}
+
+func TestBuildTaskFilter_MultipleStatuses(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{"status": "pending,active,completed"},
+	}
+
+	filter, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("buildTaskFilter: %v", err)
+	}
+	if len(filter.Statuses) != 3 {
+		t.Fatalf("expected 3 statuses, got %d", len(filter.Statuses))
+	}
+}
+
+func TestBuildTaskFilter_ProjectByName(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{"project": "_default"},
+	}
+
+	filter, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("buildTaskFilter: %v", err)
+	}
+	if filter.ProjectID == nil {
+		t.Fatal("expected ProjectID to be set")
+	}
+}
+
+func TestBuildTaskFilter_ProjectNotFound(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{"project": "nonexistent"},
+	}
+
+	_, err := buildTaskFilter(context.Background(), p, repo)
+	if err == nil {
+		t.Fatal("expected error for nonexistent project")
+	}
+}
+
+func TestBuildTaskFilter_PriorityRange(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{"priority": "2..4"},
+	}
+
+	filter, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("buildTaskFilter: %v", err)
+	}
+	if filter.PriorityMin == nil || *filter.PriorityMin != 2 {
+		t.Fatalf("expected PriorityMin=2, got %v", filter.PriorityMin)
+	}
+	if filter.PriorityMax == nil || *filter.PriorityMax != 4 {
+		t.Fatalf("expected PriorityMax=4, got %v", filter.PriorityMax)
+	}
+}
+
+func TestBuildTaskFilter_PrioritySingle(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{"priority": "3"},
+	}
+
+	filter, err := buildTaskFilter(context.Background(), p, repo)
+	if err != nil {
+		t.Fatalf("buildTaskFilter: %v", err)
+	}
+	if filter.PriorityMin == nil || *filter.PriorityMin != 3 {
+		t.Fatalf("expected PriorityMin=3, got %v", filter.PriorityMin)
+	}
+	if filter.PriorityMax == nil || *filter.PriorityMax != 3 {
+		t.Fatalf("expected PriorityMax=3, got %v", filter.PriorityMax)
+	}
+}
+
+func TestBuildTaskFilter_Tags(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{},
+		Tags:   []string{"api"},
+	}
+
+	_, err := buildTaskFilter(context.Background(), p, repo)
+	if err == nil || err.Error() != "tag filtering not yet supported" {
+		t.Fatalf("expected 'tag filtering not yet supported' error, got %v", err)
+	}
+}
+
+func TestBuildTaskFilter_ExclTags(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields:   map[string]string{},
+		ExclTags: []string{"docs"},
+	}
+
+	_, err := buildTaskFilter(context.Background(), p, repo)
+	if err == nil || err.Error() != "tag filtering not yet supported" {
+		t.Fatalf("expected 'tag filtering not yet supported' error, got %v", err)
 	}
 }
