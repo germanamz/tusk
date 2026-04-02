@@ -89,7 +89,13 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return renderMutationResult(cmd.OutOrStdout(), "Created", task, a.format)
+	// Fetch tags for output
+	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("loading tags: %w", err)
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Created", task, tags, a.format)
 }
 
 func (a *App) runList(cmd *cobra.Command, args []string) error {
@@ -115,16 +121,20 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Fetch tags for each task
-	taskTags := make(map[string][]*domain.Tag, len(tasks))
-	for _, t := range tasks {
-		tags, err := a.tagSvc.GetTaskTags(ctx, t.ID)
-		if err != nil {
-			return fmt.Errorf("loading tags for task %s: %w", t.ShortID, err)
-		}
-		if len(tags) > 0 {
-			taskTags[t.ID.String()] = tags
-		}
+	// Fetch tags for all tasks in one query
+	taskIDs := make([]uuid.UUID, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+	tagsByTaskID, err := a.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+	if err != nil {
+		return fmt.Errorf("loading tags: %w", err)
+	}
+
+	// Convert uuid.UUID keys to string keys for the render layer
+	taskTags := make(map[string][]*domain.Tag, len(tagsByTaskID))
+	for id, tags := range tagsByTaskID {
+		taskTags[id.String()] = tags
 	}
 
 	return renderTaskList(cmd.OutOrStdout(), tasks, taskTags, a.format)
@@ -259,7 +269,13 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return renderMutationResult(cmd.OutOrStdout(), "Modified", updated, a.format)
+	// Fetch tags for output
+	modTags, err := a.tagSvc.GetTaskTags(ctx, updated.ID)
+	if err != nil {
+		return fmt.Errorf("loading tags: %w", err)
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Modified", updated, modTags, a.format)
 }
 
 func (a *App) runStart(cmd *cobra.Command, args []string) error {
@@ -276,7 +292,7 @@ func (a *App) runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	return renderMutationResult(cmd.OutOrStdout(), "Started", updated, a.format)
+	return renderMutationResult(cmd.OutOrStdout(), "Started", updated, nil, a.format)
 }
 
 func (a *App) runDone(cmd *cobra.Command, args []string) error {
@@ -293,7 +309,7 @@ func (a *App) runDone(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	return renderMutationResult(cmd.OutOrStdout(), "Completed", updated, a.format)
+	return renderMutationResult(cmd.OutOrStdout(), "Completed", updated, nil, a.format)
 }
 
 func (a *App) runDelete(cmd *cobra.Command, args []string) error {
@@ -310,7 +326,7 @@ func (a *App) runDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	return renderMutationResult(cmd.OutOrStdout(), "Deleted", updated, a.format)
+	return renderMutationResult(cmd.OutOrStdout(), "Deleted", updated, nil, a.format)
 }
 
 func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
@@ -328,5 +344,5 @@ func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	return renderMutationResult(cmd.OutOrStdout(), "Annotated", task, a.format)
+	return renderMutationResult(cmd.OutOrStdout(), "Annotated", task, nil, a.format)
 }

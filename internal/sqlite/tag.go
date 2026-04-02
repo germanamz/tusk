@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/google/uuid"
@@ -92,6 +93,52 @@ func (r *TagRepo) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.
 			return nil, err
 		}
 		result = append(result, tag)
+	}
+	return result, rows.Err()
+}
+
+func (r *TagRepo) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) {
+	result := make(map[uuid.UUID][]*domain.Tag, len(taskIDs))
+	if len(taskIDs) == 0 {
+		return result, nil
+	}
+
+	placeholders := make([]string, len(taskIDs))
+	args := make([]any, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id.String()
+	}
+
+	query := `SELECT ta.task_id, t.id, t.name, t.color FROM tags t
+		JOIN tag_assignments ta ON t.id = ta.tag_id
+		WHERE ta.task_id IN (` + strings.Join(placeholders, ",") + `)`
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var taskIDStr, tagIDStr string
+		var tag domain.Tag
+		var color sql.NullString
+		if err := rows.Scan(&taskIDStr, &tagIDStr, &tag.Name, &color); err != nil {
+			return nil, err
+		}
+		taskID, err := uuid.Parse(taskIDStr)
+		if err != nil {
+			return nil, err
+		}
+		tag.ID, err = uuid.Parse(tagIDStr)
+		if err != nil {
+			return nil, err
+		}
+		if color.Valid {
+			tag.Color = &color.String
+		}
+		result[taskID] = append(result[taskID], &tag)
 	}
 	return result, rows.Err()
 }

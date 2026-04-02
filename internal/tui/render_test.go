@@ -93,6 +93,164 @@ func TestRenderTaskList_JSON(t *testing.T) {
 	}
 }
 
+func TestRenderTaskList_Text_WithTags(t *testing.T) {
+	now := time.Now().UTC()
+	taskID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tasks := []*domain.Task{
+		{
+			ID:        taskID,
+			ShortID:   "a3f8b2c1",
+			Status:    "pending",
+			Priority:  2,
+			Title:     "Build API",
+			CreatedAt: now.Add(-2 * 24 * time.Hour),
+		},
+	}
+	taskTags := map[string][]*domain.Tag{
+		taskID.String(): {
+			{Name: "api"},
+			{Name: "backend"},
+		},
+	}
+
+	var buf bytes.Buffer
+	err := renderTaskList(&buf, tasks, taskTags, "text")
+	if err != nil {
+		t.Fatalf("renderTaskList: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "+api") {
+		t.Fatalf("expected +api in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "+backend") {
+		t.Fatalf("expected +backend in output, got:\n%s", out)
+	}
+}
+
+func TestRenderTaskList_JSON_WithTags(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	taskID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tasks := []*domain.Task{
+		{
+			ID:         taskID,
+			ShortID:    "a3f8b2c1",
+			Status:     "pending",
+			Title:      "Build API",
+			Version:    1,
+			CreatedAt:  now,
+			ModifiedAt: now,
+		},
+	}
+	taskTags := map[string][]*domain.Tag{
+		taskID.String(): {
+			{Name: "api"},
+		},
+	}
+
+	var buf bytes.Buffer
+	err := renderTaskList(&buf, tasks, taskTags, "json")
+	if err != nil {
+		t.Fatalf("renderTaskList: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"api"`) {
+		t.Fatalf("expected tag 'api' in JSON output, got:\n%s", out)
+	}
+}
+
+func TestRenderTaskInfo_Text_WithTags(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	task := &domain.Task{
+		ShortID:    "a3f8b2c1",
+		Title:      "Build API",
+		Status:     "active",
+		Priority:   2,
+		Version:    1,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+	tags := []*domain.Tag{
+		{Name: "api"},
+		{Name: "backend"},
+	}
+
+	var buf bytes.Buffer
+	err := renderTaskInfo(&buf, task, nil, tags, "", "text")
+	if err != nil {
+		t.Fatalf("renderTaskInfo: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Tags:") {
+		t.Fatalf("expected Tags: row in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "+api") {
+		t.Fatalf("expected +api in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "+backend") {
+		t.Fatalf("expected +backend in output, got:\n%s", out)
+	}
+}
+
+func TestRenderTaskInfo_JSON_WithTags(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	task := &domain.Task{
+		ID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		ShortID:    "a3f8b2c1",
+		Title:      "Build API",
+		Status:     "active",
+		Priority:   2,
+		Version:    1,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+	tags := []*domain.Tag{
+		{Name: "api"},
+	}
+
+	var buf bytes.Buffer
+	err := renderTaskInfo(&buf, task, nil, tags, "", "json")
+	if err != nil {
+		t.Fatalf("renderTaskInfo: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"tags"`) {
+		t.Fatalf("expected tags field in JSON output, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"api"`) {
+		t.Fatalf("expected tag 'api' in JSON output, got:\n%s", out)
+	}
+}
+
+func TestRenderMutationResult_JSON_WithTags(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	task := &domain.Task{
+		ID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		ShortID:    "a3f8b2c1",
+		Title:      "Test",
+		Status:     "active",
+		Version:    2,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+	tags := []*domain.Tag{
+		{Name: "bug"},
+		{Name: "urgent"},
+	}
+
+	var buf bytes.Buffer
+	err := renderMutationResult(&buf, "Created", task, tags, "json")
+	if err != nil {
+		t.Fatalf("renderMutationResult: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"bug"`) {
+		t.Fatalf("expected tag 'bug' in JSON output, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"urgent"`) {
+		t.Fatalf("expected tag 'urgent' in JSON output, got:\n%s", out)
+	}
+}
+
 func TestFormatPriority(t *testing.T) {
 	tests := []struct {
 		input int
@@ -231,7 +389,7 @@ func TestRenderMutationResult_Text(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := renderMutationResult(&buf, "Created", task, "text")
+	err := renderMutationResult(&buf, "Created", task, nil, "text")
 	if err != nil {
 		t.Fatalf("renderMutationResult: %v", err)
 	}
@@ -254,7 +412,7 @@ func TestRenderMutationResult_JSON(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := renderMutationResult(&buf, "Created", task, "json")
+	err := renderMutationResult(&buf, "Created", task, nil, "json")
 	if err != nil {
 		t.Fatalf("renderMutationResult: %v", err)
 	}

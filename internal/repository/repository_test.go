@@ -48,6 +48,7 @@ func (s *stubTagRepo) List(_ context.Context) ([]*domain.Tag, error)            
 func (s *stubTagRepo) AssignToTask(_ context.Context, _, _ uuid.UUID) error                 { return nil }
 func (s *stubTagRepo) RemoveFromTask(_ context.Context, _, _ uuid.UUID) error               { return nil }
 func (s *stubTagRepo) GetTaskTags(_ context.Context, _ uuid.UUID) ([]*domain.Tag, error)    { return nil, nil }
+func (s *stubTagRepo) GetTaskTagsBatch(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) { return nil, nil }
 
 type stubWorkflowRepo struct{}
 

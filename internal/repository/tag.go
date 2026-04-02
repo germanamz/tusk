@@ -14,4 +14,5 @@ type TagRepository interface {
 	AssignToTask(ctx context.Context, taskID, tagID uuid.UUID) error
 	RemoveFromTask(ctx context.Context, taskID, tagID uuid.UUID) error
 	GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error)
+	GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error)
 }

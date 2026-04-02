@@ -282,11 +282,11 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 
 // renderMutationResult writes a one-line confirmation (text) or full task JSON.
 // action is a past-tense verb like "Created", "Modified", "Started", etc.
-func renderMutationResult(w io.Writer, action string, task *domain.Task, format string) error {
+func renderMutationResult(w io.Writer, action string, task *domain.Task, tags []*domain.Tag, format string) error {
 	if format == "json" {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(toTaskJSON(task, nil))
+		return enc.Encode(toTaskJSON(task, tags))
 	}
 	_, err := fmt.Fprintf(w, "%s task %s\n", action, task.ShortID)
 	return err

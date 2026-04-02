@@ -88,6 +88,11 @@ func (s *TagService) RemoveFromTask(ctx context.Context, taskID uuid.UUID, tagNa
 	return nil
 }
 
+// GetTaskTagsBatch returns tags for multiple tasks in a single query.
+func (s *TagService) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) {
+	return s.tagRepo.GetTaskTagsBatch(ctx, taskIDs)
+}
+
 // List returns all tags in the system.
 func (s *TagService) List(ctx context.Context) ([]*domain.Tag, error) {
 	return s.tagRepo.List(ctx)
