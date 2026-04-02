@@ -300,6 +300,44 @@ func (s *TaskService) generateShortID(ctx context.Context, id uuid.UUID) (string
 	return "", fmt.Errorf("could not generate unique short ID")
 }
 
+// Annotate adds a timestamped note to a task.
+func (s *TaskService) Annotate(ctx context.Context, taskShortID string, body string) (*domain.Annotation, error) {
+	if strings.TrimSpace(body) == "" {
+		return nil, fmt.Errorf("annotation body must not be empty")
+	}
+
+	task, err := s.taskRepo.GetByShortID(ctx, taskShortID)
+	if err != nil {
+		return nil, err
+	}
+
+	ann := &domain.Annotation{
+		ID:        uuid.New(),
+		TaskID:    task.ID,
+		Body:      body,
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	if err := s.annotationRepo.Create(ctx, ann); err != nil {
+		return nil, err
+	}
+	return ann, nil
+}
+
+// GetAnnotations returns all annotations for a task, identified by short ID.
+func (s *TaskService) GetAnnotations(ctx context.Context, taskShortID string) ([]*domain.Annotation, error) {
+	task, err := s.taskRepo.GetByShortID(ctx, taskShortID)
+	if err != nil {
+		return nil, err
+	}
+	return s.annotationRepo.GetByTask(ctx, task.ID)
+}
+
+// DeleteAnnotation removes an annotation by its ID.
+func (s *TaskService) DeleteAnnotation(ctx context.Context, annotationID uuid.UUID) error {
+	return s.annotationRepo.Delete(ctx, annotationID)
+}
+
 // ptr is a generic helper that returns a pointer to the given value.
 func ptr[T any](v T) *T {
 	return &v
