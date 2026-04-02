@@ -123,6 +123,26 @@ func (s *TaskService) GetByShortID(ctx context.Context, shortID string) (*domain
 	return s.taskRepo.GetByShortID(ctx, shortID)
 }
 
+// GetByID retrieves a task by its full UUID.
+func (s *TaskService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+	return s.taskRepo.GetByID(ctx, id)
+}
+
+// List returns tasks matching the given filter.
+func (s *TaskService) List(ctx context.Context, filter domain.TaskFilter) ([]*domain.Task, error) {
+	return s.taskRepo.List(ctx, filter)
+}
+
+// GetChildren returns the direct children of a task.
+func (s *TaskService) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error) {
+	return s.taskRepo.GetChildren(ctx, parentID)
+}
+
+// GetDescendants returns all descendants of a task (recursive).
+func (s *TaskService) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error) {
+	return s.taskRepo.GetDescendants(ctx, rootID)
+}
+
 // generateShortID derives a short ID from the task's UUID.
 // It starts with 8 hex characters and extends if a collision is detected.
 func (s *TaskService) generateShortID(ctx context.Context, id uuid.UUID) (string, error) {
