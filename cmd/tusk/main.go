@@ -43,10 +43,13 @@ func run() error {
 	projectRepo := sqlite.NewProjectRepo(db)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
+	tagRepo := sqlite.NewTagRepo(db)
+
 	workflowSvc := service.NewWorkflowService(workflowRepo)
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
+	tagSvc := service.NewTagService(tagRepo)
 
-	app := tui.New(taskSvc, projectRepo)
+	app := tui.New(taskSvc, tagSvc, projectRepo)
 	return app.Run(stripDBFlag(os.Args[1:]))
 }
 

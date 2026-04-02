@@ -9,6 +9,7 @@ import (
 // App holds the CLI's dependencies and Cobra command tree.
 type App struct {
 	taskSvc     *service.TaskService
+	tagSvc      *service.TagService
 	projectRepo repository.ProjectRepository
 	root        *cobra.Command
 	format      string
@@ -16,9 +17,10 @@ type App struct {
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc and projectRepo may be nil for testing command registration.
-func New(taskSvc *service.TaskService, projectRepo repository.ProjectRepository) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo repository.ProjectRepository) *App {
 	a := &App{
 		taskSvc:     taskSvc,
+		tagSvc:      tagSvc,
 		projectRepo: projectRepo,
 	}
 
