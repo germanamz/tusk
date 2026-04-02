@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/service"
@@ -34,8 +35,11 @@ func TestFormatError_Conflict(t *testing.T) {
 func TestFormatError_InvalidTransition(t *testing.T) {
 	err := fmt.Errorf("transition %q → %q not allowed: %w", "pending", "completed", domain.ErrInvalidTransition)
 	got := formatError(err, "abc12345")
-	if got != err.Error() {
-		t.Fatalf("expected original error message, got %q", got)
+	if !strings.Contains(got, "pending") || !strings.Contains(got, "completed") {
+		t.Fatalf("expected transition details in error, got %q", got)
+	}
+	if !strings.Contains(got, "not allowed") {
+		t.Fatalf("expected 'not allowed' in error, got %q", got)
 	}
 }
 
@@ -588,7 +592,232 @@ func TestRunAnnotate_JSON(t *testing.T) {
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("annotate --format json: %v", err)
 	}
-	if !strings.Contains(buf.String(), `"body"`) {
-		t.Fatalf("expected JSON output, got:\n%s", buf.String())
+	out := buf.String()
+	if !strings.Contains(out, `"short_id"`) {
+		t.Fatalf("expected task JSON with short_id, got:\n%s", out)
 	}
+	if !strings.Contains(out, `"version"`) {
+		t.Fatalf("expected task JSON with version, got:\n%s", out)
+	}
+}
+
+func TestRunModify_DueDate(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Due test"}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"modify", task.ShortID, "due:2026-04-15"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify due: %v", err)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+	if got.DueAt == nil {
+		t.Fatal("expected DueAt to be set")
+	}
+	if got.DueAt.Format("2006-01-02") != "2026-04-15" {
+		t.Fatalf("expected due 2026-04-15, got %s", got.DueAt.Format("2006-01-02"))
+	}
+}
+
+func TestRunModify_ClearDueDate(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	due := mustParseTime(t, "2026-04-15")
+	task := &domain.Task{Title: "Clear due", DueAt: &due}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"modify", task.ShortID, "due:"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify due clear: %v", err)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+	if got.DueAt != nil {
+		t.Fatal("expected DueAt to be cleared")
+	}
+}
+
+func TestRunModify_Parent(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	parent := &domain.Task{Title: "Parent"}
+	taskSvc.Create(ctx, parent)
+	child := &domain.Task{Title: "Child"}
+	taskSvc.Create(ctx, child)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"modify", child.ShortID, "parent:" + parent.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify parent: %v", err)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, child.ShortID)
+	if got.ParentID == nil || *got.ParentID != parent.ID {
+		t.Fatal("expected parent to be set")
+	}
+}
+
+func TestRunModify_ClearParent(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	parent := &domain.Task{Title: "Parent"}
+	taskSvc.Create(ctx, parent)
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	taskSvc.Create(ctx, child)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"modify", child.ShortID, "parent:"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify clear parent: %v", err)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, child.ShortID)
+	if got.ParentID != nil {
+		t.Fatal("expected parent to be cleared")
+	}
+}
+
+func TestRunModify_Project(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Project test"}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"modify", task.ShortID, "project:_default"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify project: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if !strings.Contains(out, "Modified task") {
+		t.Fatalf("expected 'Modified task', got %q", out)
+	}
+}
+
+func TestRunList_ParentFilter(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	parent := &domain.Task{Title: "Parent"}
+	taskSvc.Create(ctx, parent)
+	child := &domain.Task{Title: "Child of parent", ParentID: &parent.ID}
+	taskSvc.Create(ctx, child)
+	other := &domain.Task{Title: "Unrelated task"}
+	taskSvc.Create(ctx, other)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"list", "parent:" + parent.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("list parent: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, child.ShortID) {
+		t.Fatalf("expected child in output, got:\n%s", out)
+	}
+	if strings.Contains(out, other.ShortID) {
+		t.Fatalf("expected unrelated task to be excluded, got:\n%s", out)
+	}
+}
+
+func TestRunList_PriorityFilter(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	low := &domain.Task{Title: "Low pri", Priority: 1}
+	taskSvc.Create(ctx, low)
+	high := &domain.Task{Title: "High pri", Priority: 3}
+	taskSvc.Create(ctx, high)
+	urgent := &domain.Task{Title: "Urgent pri", Priority: 4}
+	taskSvc.Create(ctx, urgent)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"list", "priority:3..4"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("list priority: %v", err)
+	}
+
+	out := buf.String()
+	if strings.Contains(out, low.ShortID) {
+		t.Fatalf("expected low priority task to be excluded, got:\n%s", out)
+	}
+	if !strings.Contains(out, high.ShortID) {
+		t.Fatalf("expected high priority task in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, urgent.ShortID) {
+		t.Fatalf("expected urgent priority task in output, got:\n%s", out)
+	}
+}
+
+func TestRunInfo_ShowsProjectName(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Project display test"}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"info", task.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("info: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "_default") {
+		t.Fatalf("expected project name '_default' in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "00000000-0000-0000-0000-000000000000") {
+		t.Fatalf("expected project UUID in output, got:\n%s", out)
+	}
+}
+
+func TestRunInfo_JSON_IncludesAnnotations(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Annotated task"}
+	taskSvc.Create(ctx, task)
+	taskSvc.Annotate(ctx, task.ShortID, "Important note")
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"info", task.ShortID, "--format", "json"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("info json: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, `"annotations"`) {
+		t.Fatalf("expected annotations in JSON output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Important note") {
+		t.Fatalf("expected annotation body in JSON output, got:\n%s", out)
+	}
+}
+
+func mustParseTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	v, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		t.Fatalf("mustParseTime: %v", err)
+	}
+	return v
 }

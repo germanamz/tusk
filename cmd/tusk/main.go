@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
@@ -19,7 +20,10 @@ func main() {
 }
 
 func run() error {
-	dbPath := resolveDBPath()
+	dbPath, err := resolveDBPath()
+	if err != nil {
+		return err
+	}
 
 	// Ensure parent directory exists
 	dir := filepath.Dir(dbPath)
@@ -54,7 +58,7 @@ func stripDBFlag(args []string) []string {
 			i++ // skip value
 			continue
 		}
-		if len(args[i]) > 5 && args[i][:5] == "--db=" {
+		if strings.HasPrefix(args[i], "--db=") {
 			continue
 		}
 		out = append(out, args[i])
@@ -63,21 +67,28 @@ func stripDBFlag(args []string) []string {
 }
 
 // resolveDBPath returns the database path from: --db flag, TUSK_DB env, or default.
+// Returns path and an error if --db is present but has no value.
 // We check os.Args directly for --db because Cobra hasn't parsed yet at this point.
-func resolveDBPath() string {
-	// Check os.Args for --db flag
+func resolveDBPath() (string, error) {
 	for i, arg := range os.Args {
-		if arg == "--db" && i+1 < len(os.Args) {
-			return os.Args[i+1]
+		if arg == "--db" {
+			if i+1 >= len(os.Args) {
+				return "", fmt.Errorf("--db requires a value")
+			}
+			return os.Args[i+1], nil
 		}
-		if len(arg) > 5 && arg[:5] == "--db=" {
-			return arg[5:]
+		if strings.HasPrefix(arg, "--db=") {
+			val := arg[5:]
+			if val == "" {
+				return "", fmt.Errorf("--db requires a value")
+			}
+			return val, nil
 		}
 	}
 
 	// Check environment variable
 	if v := os.Getenv("TUSK_DB"); v != "" {
-		return v
+		return v, nil
 	}
 
 	// Default path
@@ -85,5 +96,5 @@ func resolveDBPath() string {
 	if err != nil {
 		home = "."
 	}
-	return filepath.Join(home, ".local", "share", "tusk", "tusk.db")
+	return filepath.Join(home, ".local", "share", "tusk", "tusk.db"), nil
 }

@@ -148,15 +148,37 @@ func formatPriorityName(p int) string {
 	}
 }
 
+// annotationJSON is the JSON serialization format for an annotation.
+type annotationJSON struct {
+	ID        string `json:"id"`
+	TaskID    string `json:"task_id"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+}
+
+// taskInfoJSON wraps a task with its annotations for the info JSON output.
+type taskInfoJSON struct {
+	taskJSON
+	Annotations []annotationJSON `json:"annotations,omitempty"`
+}
+
 // renderTaskInfo writes a single task's detail view to w.
 // For "text", it renders key-value pairs with optional annotations.
-// For "json", it renders the task as a JSON object.
-func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, format string) error {
+// For "json", it renders the task as a JSON object including annotations.
+func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, projectName string, format string) error {
 	if format == "json" {
-		tj := toTaskJSON(task)
+		info := taskInfoJSON{taskJSON: toTaskJSON(task)}
+		for _, ann := range annotations {
+			info.Annotations = append(info.Annotations, annotationJSON{
+				ID:        ann.ID.String(),
+				TaskID:    ann.TaskID.String(),
+				Body:      ann.Body,
+				CreatedAt: ann.CreatedAt.Format(time.RFC3339),
+			})
+		}
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(tj)
+		return enc.Encode(info)
 	}
 
 	if _, err := fmt.Fprintf(w, "%-13s %s\n", "ID:", task.ShortID); err != nil {
@@ -178,7 +200,11 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 		}
 	}
 	if task.ProjectID != nil {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Project:", task.ProjectID.String()); err != nil {
+		projectDisplay := task.ProjectID.String()
+		if projectName != "" {
+			projectDisplay = fmt.Sprintf("%s (%s)", projectName, task.ProjectID.String())
+		}
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Project:", projectDisplay); err != nil {
 			return err
 		}
 	}

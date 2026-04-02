@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,6 +18,8 @@ func formatError(err error, shortID string) string {
 		return fmt.Sprintf("Task not found: %s", shortID)
 	case errors.Is(err, domain.ErrConflict):
 		return "Version conflict - task was modified by another process"
+	case errors.Is(err, domain.ErrInvalidTransition):
+		return err.Error()
 	default:
 		return err.Error()
 	}
@@ -129,7 +130,16 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading annotations: %w", err)
 	}
 
-	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, a.format)
+	// Resolve project name for display
+	var projectName string
+	if task.ProjectID != nil {
+		project, err := a.projectRepo.GetByID(ctx, *task.ProjectID)
+		if err == nil {
+			projectName = project.Name
+		}
+	}
+
+	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, projectName, a.format)
 }
 
 func (a *App) runModify(cmd *cobra.Command, args []string) error {
@@ -278,22 +288,15 @@ func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
 	shortID := args[0]
 	body := strings.Join(args[1:], " ")
 
-	ann, err := a.taskSvc.Annotate(ctx, shortID, body)
+	_, err := a.taskSvc.Annotate(ctx, shortID, body)
 	if err != nil {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	if a.format == "json" {
-		enc := json.NewEncoder(cmd.OutOrStdout())
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]string{
-			"id":         ann.ID.String(),
-			"task_id":    ann.TaskID.String(),
-			"body":       ann.Body,
-			"created_at": ann.CreatedAt.Format(time.RFC3339),
-		})
+	task, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Annotated task %s\n", shortID)
-	return nil
+	return renderMutationResult(cmd.OutOrStdout(), "Annotated", task, a.format)
 }
