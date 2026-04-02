@@ -696,7 +696,7 @@ var (
 - [x] SQLite implementation with migrations
 - [x] TaskService with CRUD, workflow validation, optimistic locking
 - [x] Basic CLI: `add`, `list`, `info`, `modify`, `done`, `delete`, `annotate`
-- [ ] Tag support: TagService, wire into CLI `add`/`modify`/`list`
+- [x] Tag support: TagService, wire into CLI `add`/`modify`/`list`
 - [ ] Filter syntax parser
 - [ ] Automated end-to-end CLI tests
 
@@ -706,6 +706,7 @@ var (
 - [ ] Parent-child task creation and tree view
 - [ ] Completion propagation
 - [ ] `link`, `unlink`, `tree` CLI commands
+- [ ] `tusk tag` subcommand: create, list, delete, rename tags
 
 ### v0.3 — MCP server
 
@@ -721,6 +722,7 @@ var (
 - [ ] `tusk next` — pick the highest urgency task
 - [ ] Color-coded TUI output
 - [ ] `tusk undo` — last mutation rollback
+- [ ] Tag colors: assign and display colors in TUI
 
 ### v0.5 — Advanced features
 
