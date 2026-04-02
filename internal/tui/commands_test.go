@@ -206,6 +206,140 @@ func TestRunInfo_NotFound(t *testing.T) {
 	}
 }
 
+func TestRunAdd_HappyPath(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"add", "My", "new", "task"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Created task") {
+		t.Fatalf("expected 'Created task' in output, got %q", out)
+	}
+}
+
+func TestRunAdd_WithPriority(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"add", "Priority", "task", "priority:high"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	// Extract short ID from "Created task <id>\n"
+	out := strings.TrimSpace(buf.String())
+	parts := strings.Fields(out)
+	shortID := parts[len(parts)-1]
+
+	task, err := taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if task.Priority != 3 {
+		t.Fatalf("expected priority 3, got %d", task.Priority)
+	}
+}
+
+func TestRunAdd_WithDueDate(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"add", "Due", "task", "due:2026-04-10"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	parts := strings.Fields(out)
+	shortID := parts[len(parts)-1]
+
+	task, err := taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if task.DueAt == nil {
+		t.Fatal("expected DueAt to be set")
+	}
+	if task.DueAt.Format("2006-01-02") != "2026-04-10" {
+		t.Fatalf("expected due 2026-04-10, got %s", task.DueAt.Format("2006-01-02"))
+	}
+}
+
+func TestRunAdd_WithParent(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	parent := &domain.Task{Title: "Parent"}
+	if err := taskSvc.Create(ctx, parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"add", "Child", "task", "parent:" + parent.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	parts := strings.Fields(out)
+	shortID := parts[len(parts)-1]
+
+	child, err := taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if child.ParentID == nil || *child.ParentID != parent.ID {
+		t.Fatal("expected child to reference parent")
+	}
+}
+
+func TestRunAdd_TagsError(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"add", "Tagged", "task", "+api"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for tags")
+	}
+	if !strings.Contains(err.Error(), "tags not yet supported") {
+		t.Fatalf("expected 'tags not yet supported', got %q", err.Error())
+	}
+}
+
+func TestRunAdd_NoTitle(t *testing.T) {
+	app, _ := testApp(t)
+
+	// Only key:value args, no title words
+	app.root.SetArgs([]string{"add", "priority:3"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for missing title")
+	}
+}
+
+func TestRunAdd_JSON(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"add", "JSON", "task", "--format", "json"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("add --format json: %v", err)
+	}
+	if !strings.Contains(buf.String(), `"short_id"`) {
+		t.Fatalf("expected JSON output, got:\n%s", buf.String())
+	}
+}
+
 func TestRunInfo_JSON(t *testing.T) {
 	app, taskSvc := testApp(t)
 	ctx := context.Background()

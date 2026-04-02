@@ -21,7 +21,68 @@ func formatError(err error, shortID string) string {
 }
 
 func (a *App) runAdd(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	parsed := parseArgs(args)
+
+	if parsed.Title == "" {
+		return fmt.Errorf("title is required")
+	}
+
+	// Tags not yet supported
+	if len(parsed.Tags) > 0 || len(parsed.ExclTags) > 0 {
+		return fmt.Errorf("tags not yet supported")
+	}
+
+	task := &domain.Task{
+		Title: parsed.Title,
+	}
+
+	// Project
+	if name, ok := parsed.Fields["project"]; ok {
+		project, err := a.projectRepo.GetByName(ctx, name)
+		if err != nil {
+			return fmt.Errorf("project %q not found", name)
+		}
+		task.ProjectID = &project.ID
+	}
+
+	// Priority
+	if s, ok := parsed.Fields["priority"]; ok {
+		p, err := parsePriority(s)
+		if err != nil {
+			return err
+		}
+		task.Priority = p
+	}
+
+	// Status (rarely used, defaults to pending in service)
+	if s, ok := parsed.Fields["status"]; ok {
+		task.Status = s
+	}
+
+	// Due date
+	if s, ok := parsed.Fields["due"]; ok {
+		d, err := parseDate(s)
+		if err != nil {
+			return err
+		}
+		task.DueAt = &d
+	}
+
+	// Parent
+	if shortID, ok := parsed.Fields["parent"]; ok {
+		parent, err := a.taskSvc.GetByShortID(ctx, shortID)
+		if err != nil {
+			return fmt.Errorf("%s", formatError(err, shortID))
+		}
+		task.ParentID = &parent.ID
+	}
+
+	if err := a.taskSvc.Create(ctx, task); err != nil {
+		return fmt.Errorf("%s", err)
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Created", task, a.format)
 }
 
 func (a *App) runList(cmd *cobra.Command, args []string) error {
