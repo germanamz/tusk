@@ -689,3 +689,138 @@ func TestDelete_FromCompleted(t *testing.T) {
 		t.Fatalf("expected ErrInvalidTransition, got %v", err)
 	}
 }
+
+func TestAnnotate_HappyPath(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Annotate me")
+	mustCreateTask(t, env.taskSvc, task)
+
+	ann, err := env.taskSvc.Annotate(ctx, task.ShortID, "This is a note")
+	if err != nil {
+		t.Fatalf("Annotate: %v", err)
+	}
+	if ann.ID == uuid.Nil {
+		t.Fatal("expected non-nil annotation ID")
+	}
+	if ann.TaskID != task.ID {
+		t.Fatalf("expected TaskID %s, got %s", task.ID, ann.TaskID)
+	}
+	if ann.Body != "This is a note" {
+		t.Fatalf("expected body 'This is a note', got %q", ann.Body)
+	}
+	if ann.CreatedAt.IsZero() {
+		t.Fatal("expected CreatedAt to be set")
+	}
+}
+
+func TestAnnotate_EmptyBody(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Annotate me")
+	mustCreateTask(t, env.taskSvc, task)
+
+	_, err := env.taskSvc.Annotate(ctx, task.ShortID, "")
+	if err == nil {
+		t.Fatal("expected error for empty annotation body")
+	}
+}
+
+func TestAnnotate_TaskNotFound(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	_, err := env.taskSvc.Annotate(ctx, "nonexist", "Some note")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetAnnotations_WithResults(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Has annotations")
+	mustCreateTask(t, env.taskSvc, task)
+
+	_, err := env.taskSvc.Annotate(ctx, task.ShortID, "Note 1")
+	if err != nil {
+		t.Fatalf("Annotate 1: %v", err)
+	}
+	_, err = env.taskSvc.Annotate(ctx, task.ShortID, "Note 2")
+	if err != nil {
+		t.Fatalf("Annotate 2: %v", err)
+	}
+
+	annotations, err := env.taskSvc.GetAnnotations(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetAnnotations: %v", err)
+	}
+	if len(annotations) != 2 {
+		t.Fatalf("expected 2 annotations, got %d", len(annotations))
+	}
+}
+
+func TestGetAnnotations_Empty(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("No annotations")
+	mustCreateTask(t, env.taskSvc, task)
+
+	annotations, err := env.taskSvc.GetAnnotations(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetAnnotations: %v", err)
+	}
+	if len(annotations) != 0 {
+		t.Fatalf("expected 0 annotations, got %d", len(annotations))
+	}
+}
+
+func TestGetAnnotations_TaskNotFound(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	_, err := env.taskSvc.GetAnnotations(ctx, "nonexist")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteAnnotation_HappyPath(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Delete annotation")
+	mustCreateTask(t, env.taskSvc, task)
+
+	ann, err := env.taskSvc.Annotate(ctx, task.ShortID, "To be deleted")
+	if err != nil {
+		t.Fatalf("Annotate: %v", err)
+	}
+
+	if err := env.taskSvc.DeleteAnnotation(ctx, ann.ID); err != nil {
+		t.Fatalf("DeleteAnnotation: %v", err)
+	}
+
+	// Verify it's gone
+	annotations, err := env.taskSvc.GetAnnotations(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetAnnotations: %v", err)
+	}
+	if len(annotations) != 0 {
+		t.Fatalf("expected 0 annotations after delete, got %d", len(annotations))
+	}
+}
+
+func TestDeleteAnnotation_NotFound(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	err := env.taskSvc.DeleteAnnotation(ctx, uuid.New())
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
