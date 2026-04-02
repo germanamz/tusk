@@ -697,7 +697,7 @@ var (
 - [x] TaskService with CRUD, workflow validation, optimistic locking
 - [x] Basic CLI: `add`, `list`, `info`, `modify`, `done`, `delete`, `annotate`
 - [x] Tag support: TagService, wire into CLI `add`/`modify`/`list`
-- [ ] Filter syntax parser
+- [x] Filter syntax parser
 - [ ] Automated end-to-end CLI tests
 
 ### v0.2 — Relations and hierarchy
@@ -740,4 +740,4 @@ var (
 - [ ] Webhook notifications
 - [ ] Time tracking
 - [ ] Boolean operators in filter expressions (`AND`/`OR`/`NOT`, parentheses)
-- [ ] Quoted string support in filter expressions
+- [ ] Quoted string support in filter expressions (enables `title:` and `description:` fields)

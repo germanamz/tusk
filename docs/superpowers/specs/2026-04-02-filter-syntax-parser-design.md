@@ -294,4 +294,4 @@ MCP tools like `tusk_task_list` can accept a `filter` string parameter and run i
 The following are explicitly out of scope for this implementation but the design accommodates them:
 
 - **Boolean operators** (`AND`/`OR`/`NOT`, parentheses) — upgrade the parser from table-driven to recursive descent; wrap `FilterSet` in a `BoolExpr` AST node. The lexer, token types, and resolver stay the same.
-- **Quoted strings** — add a `TokenQuotedText` token type to the lexer for values/titles containing spaces or special characters (e.g., `"my task title"`, `project:"my project"`).
+- **Quoted strings** — add a `TokenQuotedText` token type to the lexer for values/titles containing spaces or special characters (e.g., `"my task title"`, `project:"my project"`). This also unblocks `title:` and `description:` as filter/add fields, since their values typically contain spaces and require quoting.
