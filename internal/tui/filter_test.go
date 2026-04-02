@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -323,6 +324,21 @@ func TestBuildTaskFilter_PrioritySingle(t *testing.T) {
 	}
 	if filter.PriorityMax == nil || *filter.PriorityMax != 3 {
 		t.Fatalf("expected PriorityMax=3, got %v", filter.PriorityMax)
+	}
+}
+
+func TestBuildTaskFilter_PriorityRangeInverted(t *testing.T) {
+	repo := testProjectRepo(t)
+	p := ParsedArgs{
+		Fields: map[string]string{"priority": "4..1"},
+	}
+
+	_, err := buildTaskFilter(context.Background(), p, repo)
+	if err == nil {
+		t.Fatal("expected error for inverted priority range")
+	}
+	if !strings.Contains(err.Error(), "min") {
+		t.Fatalf("expected min/max validation error, got %v", err)
 	}
 }
 

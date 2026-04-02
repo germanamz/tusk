@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -129,7 +130,10 @@ func buildTaskFilter(ctx context.Context, p ParsedArgs, projectRepo repository.P
 	if name, ok := p.Fields["project"]; ok {
 		project, err := projectRepo.GetByName(ctx, name)
 		if err != nil {
-			return f, fmt.Errorf("project %q not found", name)
+			if errors.Is(err, domain.ErrNotFound) {
+				return f, fmt.Errorf("project %q not found", name)
+			}
+			return f, fmt.Errorf("looking up project %q: %w", name, err)
 		}
 		f.ProjectID = &project.ID
 	}
@@ -145,6 +149,9 @@ func buildTaskFilter(ctx context.Context, p ParsedArgs, projectRepo repository.P
 			max, err := parsePriority(parts[1])
 			if err != nil {
 				return f, err
+			}
+			if min > max {
+				return f, fmt.Errorf("invalid priority range: min (%d) must be <= max (%d)", min, max)
 			}
 			f.PriorityMin = &min
 			f.PriorityMax = &max
