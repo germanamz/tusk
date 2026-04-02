@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -256,5 +257,133 @@ func TestCreate_WithAllFields(t *testing.T) {
 	}
 	if got.RecurrenceRule == nil || *got.RecurrenceRule != rrule {
 		t.Fatal("expected RecurrenceRule to be preserved")
+	}
+}
+
+func TestGetByShortID_Found(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Find me")
+	mustCreateTask(t, env.taskSvc, task)
+
+	got, err := env.taskSvc.GetByShortID(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if got.Title != "Find me" {
+		t.Fatalf("expected 'Find me', got %q", got.Title)
+	}
+}
+
+func TestGetByShortID_NotFound(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	_, err := env.taskSvc.GetByShortID(ctx, "nonexist")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetByID_Found(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Get by ID")
+	mustCreateTask(t, env.taskSvc, task)
+
+	got, err := env.taskSvc.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Title != "Get by ID" {
+		t.Fatalf("expected 'Get by ID', got %q", got.Title)
+	}
+}
+
+func TestList_Empty(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	tasks, err := env.taskSvc.List(ctx, domain.TaskFilter{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks, got %d", len(tasks))
+	}
+}
+
+func TestList_WithFilter(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	t1 := newMinimalTask("Task one")
+	t1.Priority = 3
+	mustCreateTask(t, env.taskSvc, t1)
+
+	t2 := newMinimalTask("Task two")
+	t2.Priority = 1
+	mustCreateTask(t, env.taskSvc, t2)
+
+	minPri := 3
+	tasks, err := env.taskSvc.List(ctx, domain.TaskFilter{PriorityMin: &minPri})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task with priority >= 3, got %d", len(tasks))
+	}
+	if tasks[0].Title != "Task one" {
+		t.Fatalf("expected 'Task one', got %q", tasks[0].Title)
+	}
+}
+
+func TestGetChildren(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	parent := newMinimalTask("Parent")
+	mustCreateTask(t, env.taskSvc, parent)
+
+	child1 := newMinimalTask("Child 1")
+	child1.ParentID = &parent.ID
+	mustCreateTask(t, env.taskSvc, child1)
+
+	child2 := newMinimalTask("Child 2")
+	child2.ParentID = &parent.ID
+	mustCreateTask(t, env.taskSvc, child2)
+
+	children, err := env.taskSvc.GetChildren(ctx, parent.ID)
+	if err != nil {
+		t.Fatalf("GetChildren: %v", err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+}
+
+func TestGetDescendants(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	root := newMinimalTask("Root")
+	mustCreateTask(t, env.taskSvc, root)
+
+	child := newMinimalTask("Child")
+	child.ParentID = &root.ID
+	mustCreateTask(t, env.taskSvc, child)
+
+	grandchild := newMinimalTask("Grandchild")
+	grandchild.ParentID = &child.ID
+	mustCreateTask(t, env.taskSvc, grandchild)
+
+	descendants, err := env.taskSvc.GetDescendants(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("GetDescendants: %v", err)
+	}
+	if len(descendants) != 2 {
+		t.Fatalf("expected 2 descendants, got %d", len(descendants))
 	}
 }
