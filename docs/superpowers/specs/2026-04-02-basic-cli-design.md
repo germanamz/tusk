@@ -1,7 +1,7 @@
 # Basic CLI Design
 
 **Date:** 2026-04-02
-**Scope:** v0.1 roadmap item — `add`, `list`, `info`, `modify`, `start`, `done`, `delete` commands
+**Scope:** v0.1 roadmap item — `add`, `list`, `info`, `modify`, `start`, `done`, `delete`, `annotate` commands
 **Status:** Approved
 
 ---
@@ -61,7 +61,7 @@ func (a *App) Run(args []string) error
 
 `New()` builds the Cobra command tree:
 - Root command `tusk` with persistent `--format` flag
-- Subcommands: `add`, `list`, `info`, `modify`, `start`, `done`, `delete`
+- Subcommands: `add`, `list`, `info`, `modify`, `start`, `done`, `delete`, `annotate`
 - Each subcommand's `RunE` calls a method in `commands.go`
 
 ### `internal/tui/commands.go` — Command implementations
@@ -75,6 +75,7 @@ One method per command on the `App` struct:
 - `(a *App) runStart(cmd *cobra.Command, args []string) error`
 - `(a *App) runDone(cmd *cobra.Command, args []string) error`
 - `(a *App) runDelete(cmd *cobra.Command, args []string) error`
+- `(a *App) runAnnotate(cmd *cobra.Command, args []string) error`
 
 Each method: parse args > call service > render output.
 
@@ -138,13 +139,14 @@ Annotations:
 
 Key-value pairs, left-aligned labels. Nullable fields omitted when empty. Annotations listed chronologically.
 
-**Text — mutations (`add`, `modify`, `start`, `done`, `delete`):**
+**Text — mutations (`add`, `modify`, `start`, `done`, `delete`, `annotate`):**
 ```
 Created task a3f8b2c1
 Modified task a3f8b2c1
 Started task a3f8b2c1
 Completed task a3f8b2c1
 Deleted task a3f8b2c1
+Annotated task a3f8b2c1
 ```
 
 **JSON output (`--format=json`):**
@@ -207,6 +209,12 @@ func (a *App) renderMutationResult(action string, task *domain.Task, format stri
 - Auto-fetches version, calls `TaskService.Delete`
 - Renders: `Deleted task <short_id>`
 
+### `tusk annotate <short_id> <message>`
+
+- Required: first positional arg is short ID, remaining positional args joined as annotation body
+- Calls `TaskService.Annotate`
+- Renders: `Annotated task <short_id>`
+
 ---
 
 ## Error Handling
@@ -229,7 +237,7 @@ v0.1 order becomes:
 1. ~~Domain types and repository interfaces~~ (done)
 2. ~~SQLite implementation with migrations~~ (done)
 3. ~~TaskService with CRUD, workflow validation, optimistic locking~~ (done)
-4. **Basic CLI: `add`, `list`, `info`, `modify`, `start`, `done`, `delete`** (this spec)
+4. **Basic CLI: `add`, `list`, `info`, `modify`, `start`, `done`, `delete`, `annotate`** (this spec)
 5. **Tag support: TagService, wire into CLI `add`/`modify`/`list`** (new item)
 6. Filter syntax parser
 
@@ -241,6 +249,5 @@ v0.1 order becomes:
 - Interactive TUI (bubbletea) — v0.4+
 - `--sort` flag — v0.4 with urgency engine
 - `tree` command — v0.2 with hierarchy work
-- `annotate` CLI command — could be added alongside this work but not in scope
 - Relation commands (`link`, `unlink`) — v0.2
 - `undo` — v0.4
