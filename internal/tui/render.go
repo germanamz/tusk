@@ -115,15 +115,19 @@ func renderTaskList(w io.Writer, tasks []*domain.Task, format string) error {
 		return nil
 	}
 
-	fmt.Fprintf(w, "%-8s %-9s %-4s %-5s %s\n", "ID", "Status", "Pri", "Age", "Title")
+	if _, err := fmt.Fprintf(w, "%-8s %-9s %-4s %-5s %s\n", "ID", "Status", "Pri", "Age", "Title"); err != nil {
+		return err
+	}
 	for _, t := range tasks {
-		fmt.Fprintf(w, "%-8s %-9s %-4s %-5s %s\n",
+		if _, err := fmt.Fprintf(w, "%-8s %-9s %-4s %-5s %s\n",
 			t.ShortID,
 			t.Status,
 			formatPriority(t.Priority),
 			formatAge(t.CreatedAt),
 			t.Title,
-		)
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
