@@ -67,3 +67,28 @@ func (s *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagName
 func (s *TagService) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error) {
 	return s.tagRepo.GetTaskTags(ctx, taskID)
 }
+
+// RemoveFromTask removes the named tags from the task.
+// If a tag name doesn't exist or isn't assigned, it's silently skipped.
+// An empty tagNames slice is a no-op.
+func (s *TagService) RemoveFromTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
+	for _, name := range tagNames {
+		tag, err := s.tagRepo.GetByName(ctx, name)
+		if errors.Is(err, domain.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("looking up tag %q: %w", name, err)
+		}
+		err = s.tagRepo.RemoveFromTask(ctx, taskID, tag.ID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("removing tag %q from task: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// List returns all tags in the system.
+func (s *TagService) List(ctx context.Context) ([]*domain.Tag, error) {
+	return s.tagRepo.List(ctx)
+}

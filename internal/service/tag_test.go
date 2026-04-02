@@ -155,3 +155,70 @@ func TestAssignToTask_Idempotent(t *testing.T) {
 		t.Fatalf("expected 1 tag after idempotent assign, got %d", len(tags))
 	}
 }
+
+func TestRemoveFromTask_ExistingTag(t *testing.T) {
+	tagSvc, store := testTagEnv(t)
+	ctx := context.Background()
+	task := mustCreateTaskForTags(t, store)
+
+	if err := tagSvc.AssignToTask(ctx, task.ID, []string{"bug", "urgent"}); err != nil {
+		t.Fatalf("AssignToTask: %v", err)
+	}
+
+	if err := tagSvc.RemoveFromTask(ctx, task.ID, []string{"bug"}); err != nil {
+		t.Fatalf("RemoveFromTask: %v", err)
+	}
+
+	tags, err := tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTaskTags: %v", err)
+	}
+	if len(tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(tags))
+	}
+	if tags[0].Name != "urgent" {
+		t.Fatalf("expected remaining tag 'urgent', got %q", tags[0].Name)
+	}
+}
+
+func TestRemoveFromTask_NonexistentTag(t *testing.T) {
+	tagSvc, store := testTagEnv(t)
+	ctx := context.Background()
+	task := mustCreateTaskForTags(t, store)
+
+	// Removing a tag that was never assigned — should be a silent no-op
+	err := tagSvc.RemoveFromTask(ctx, task.ID, []string{"nonexistent"})
+	if err != nil {
+		t.Fatalf("RemoveFromTask for nonexistent tag should be no-op, got: %v", err)
+	}
+}
+
+func TestRemoveFromTask_EmptySlice(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	err := tagSvc.RemoveFromTask(ctx, uuid.New(), []string{})
+	if err != nil {
+		t.Fatalf("RemoveFromTask with empty slice should be no-op, got: %v", err)
+	}
+}
+
+func TestList(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.FindOrCreate(ctx, "alpha"); err != nil {
+		t.Fatalf("FindOrCreate: %v", err)
+	}
+	if _, err := tagSvc.FindOrCreate(ctx, "beta"); err != nil {
+		t.Fatalf("FindOrCreate: %v", err)
+	}
+
+	tags, err := tagSvc.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(tags))
+	}
+}
