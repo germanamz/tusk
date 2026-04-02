@@ -387,3 +387,196 @@ func TestGetDescendants(t *testing.T) {
 		t.Fatalf("expected 2 descendants, got %d", len(descendants))
 	}
 }
+
+func TestUpdate_PartialUpdate(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Original title")
+	task.Priority = 1
+	mustCreateTask(t, env.taskSvc, task)
+
+	newTitle := "Updated title"
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		Title:   &newTitle,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Title != "Updated title" {
+		t.Fatalf("expected 'Updated title', got %q", updated.Title)
+	}
+	// Priority should be unchanged
+	if updated.Priority != 1 {
+		t.Fatalf("expected priority 1 unchanged, got %d", updated.Priority)
+	}
+	// Version should be bumped
+	if updated.Version != 2 {
+		t.Fatalf("expected version 2, got %d", updated.Version)
+	}
+}
+
+func TestUpdate_VersionConflict(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Conflict test")
+	mustCreateTask(t, env.taskSvc, task)
+
+	newTitle := "First update"
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		Title:   &newTitle,
+	})
+	if err != nil {
+		t.Fatalf("first Update: %v", err)
+	}
+
+	// Try to update with stale version
+	staleTitle := "Stale update"
+	_, err = env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		Title:   &staleTitle,
+	})
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected ErrConflict, got %v", err)
+	}
+}
+
+func TestUpdate_StatusTransitionAllowed(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Transition test")
+	mustCreateTask(t, env.taskSvc, task)
+
+	activeStatus := "active"
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		Status:  &activeStatus,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Status != "active" {
+		t.Fatalf("expected status 'active', got %q", updated.Status)
+	}
+}
+
+func TestUpdate_StatusTransitionDisallowed(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Bad transition")
+	mustCreateTask(t, env.taskSvc, task)
+
+	// pending → completed is not allowed in the default workflow
+	completedStatus := "completed"
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		Status:  &completedStatus,
+	})
+	if !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("expected ErrInvalidTransition, got %v", err)
+	}
+}
+
+func TestUpdate_EmptyTitleRejected(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Will be emptied")
+	mustCreateTask(t, env.taskSvc, task)
+
+	emptyTitle := ""
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		Title:   &emptyTitle,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty title")
+	}
+}
+
+func TestUpdate_InvalidPriorityRejected(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Bad priority update")
+	mustCreateTask(t, env.taskSvc, task)
+
+	badPriority := 5
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:  task.ShortID,
+		Version:  1,
+		Priority: &badPriority,
+	})
+	if err == nil {
+		t.Fatal("expected error for priority > 4")
+	}
+}
+
+func TestUpdate_ParentCannotBeSelf(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Self parent")
+	mustCreateTask(t, env.taskSvc, task)
+
+	selfRef := &task.ID
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:  task.ShortID,
+		Version:  1,
+		ParentID: &selfRef,
+	})
+	if err == nil {
+		t.Fatal("expected error when setting parent to self")
+	}
+}
+
+func TestUpdate_ClearNullableField(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	due := now.Add(24 * time.Hour)
+	task := newMinimalTask("Has due date")
+	task.DueAt = &due
+	mustCreateTask(t, env.taskSvc, task)
+
+	// Clear the due date by setting outer pointer to non-nil, inner to nil
+	var nilTime *time.Time
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		DueAt:   &nilTime,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.DueAt != nil {
+		t.Fatal("expected DueAt to be cleared")
+	}
+}
+
+func TestUpdate_NotFound(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	newTitle := "Doesn't matter"
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: "nonexist",
+		Version: 1,
+		Title:   &newTitle,
+	})
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
