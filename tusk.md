@@ -739,3 +739,5 @@ var (
 - [ ] REST API
 - [ ] Webhook notifications
 - [ ] Time tracking
+- [ ] Boolean operators in filter expressions (`AND`/`OR`/`NOT`, parentheses)
+- [ ] Quoted string support in filter expressions
