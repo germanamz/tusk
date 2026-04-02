@@ -221,3 +221,48 @@ func TestRenderTaskInfo_JSON(t *testing.T) {
 		t.Fatalf("expected snake_case JSON, got:\n%s", out)
 	}
 }
+
+func TestRenderMutationResult_Text(t *testing.T) {
+	task := &domain.Task{
+		ShortID: "a3f8b2c1",
+		Title:   "Test",
+		Status:  "active",
+		Version: 2,
+	}
+
+	var buf bytes.Buffer
+	err := renderMutationResult(&buf, "Created", task, "text")
+	if err != nil {
+		t.Fatalf("renderMutationResult: %v", err)
+	}
+	out := strings.TrimSpace(buf.String())
+	if out != "Created task a3f8b2c1" {
+		t.Fatalf("expected 'Created task a3f8b2c1', got %q", out)
+	}
+}
+
+func TestRenderMutationResult_JSON(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	task := &domain.Task{
+		ID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		ShortID:    "a3f8b2c1",
+		Title:      "Test",
+		Status:     "active",
+		Version:    2,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+
+	var buf bytes.Buffer
+	err := renderMutationResult(&buf, "Created", task, "json")
+	if err != nil {
+		t.Fatalf("renderMutationResult: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"short_id"`) {
+		t.Fatalf("expected JSON output with short_id, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"version"`) {
+		t.Fatalf("expected version in JSON output, got:\n%s", out)
+	}
+}
