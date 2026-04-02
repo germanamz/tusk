@@ -23,7 +23,7 @@ func TestRenderTaskList_Text_SingleTask(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := renderTaskList(&buf, tasks, "text")
+	err := renderTaskList(&buf, tasks, nil, "text")
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRenderTaskList_Text_SingleTask(t *testing.T) {
 
 func TestRenderTaskList_Text_Empty(t *testing.T) {
 	var buf bytes.Buffer
-	err := renderTaskList(&buf, []*domain.Task{}, "text")
+	err := renderTaskList(&buf, []*domain.Task{}, nil, "text")
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestRenderTaskList_JSON(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := renderTaskList(&buf, tasks, "json")
+	err := renderTaskList(&buf, tasks, nil, "json")
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
 	}

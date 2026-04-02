@@ -115,7 +115,19 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return renderTaskList(cmd.OutOrStdout(), tasks, a.format)
+	// Fetch tags for each task
+	taskTags := make(map[string][]*domain.Tag, len(tasks))
+	for _, t := range tasks {
+		tags, err := a.tagSvc.GetTaskTags(ctx, t.ID)
+		if err != nil {
+			return fmt.Errorf("loading tags for task %s: %w", t.ShortID, err)
+		}
+		if len(tags) > 0 {
+			taskTags[t.ID.String()] = tags
+		}
+	}
+
+	return renderTaskList(cmd.OutOrStdout(), tasks, taskTags, a.format)
 }
 
 func (a *App) runInfo(cmd *cobra.Command, args []string) error {

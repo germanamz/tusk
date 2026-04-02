@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -105,11 +106,11 @@ func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 // renderTaskList writes a list of tasks to w in the given format.
 // For "text", it renders a fixed-width table. For "json", it renders a JSON array.
 // If the list is empty and format is "text", nothing is written.
-func renderTaskList(w io.Writer, tasks []*domain.Task, format string) error {
+func renderTaskList(w io.Writer, tasks []*domain.Task, taskTags map[string][]*domain.Tag, format string) error {
 	if format == "json" {
 		items := make([]taskJSON, len(tasks))
 		for i, t := range tasks {
-			items[i] = toTaskJSON(t, nil)
+			items[i] = toTaskJSON(t, taskTags[t.ID.String()])
 		}
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -124,12 +125,20 @@ func renderTaskList(w io.Writer, tasks []*domain.Task, format string) error {
 		return err
 	}
 	for _, t := range tasks {
+		title := t.Title
+		if tags, ok := taskTags[t.ID.String()]; ok && len(tags) > 0 {
+			tagStrs := make([]string, len(tags))
+			for i, tg := range tags {
+				tagStrs[i] = "+" + tg.Name
+			}
+			title = title + "  " + strings.Join(tagStrs, " ")
+		}
 		if _, err := fmt.Fprintf(w, "%-8s %-9s %-4s %-5s %s\n",
 			t.ShortID,
 			t.Status,
 			formatPriority(t.Priority),
 			formatAge(t.CreatedAt),
-			t.Title,
+			title,
 		); err != nil {
 			return err
 		}
