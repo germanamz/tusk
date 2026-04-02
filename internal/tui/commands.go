@@ -148,11 +148,7 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
-	// Tags not yet supported
 	parsed := parseArgs(args[1:])
-	if len(parsed.Tags) > 0 || len(parsed.ExclTags) > 0 {
-		return fmt.Errorf("tags not yet supported")
-	}
 
 	// Auto-fetch current version
 	current, err := a.taskSvc.GetByShortID(ctx, shortID)
@@ -229,6 +225,20 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	updated, err := a.taskSvc.Update(ctx, upd)
 	if err != nil {
 		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	// Add new tags
+	if len(parsed.Tags) > 0 {
+		if err := a.tagSvc.AssignToTask(ctx, updated.ID, parsed.Tags); err != nil {
+			return fmt.Errorf("assigning tags: %w", err)
+		}
+	}
+
+	// Remove excluded tags
+	if len(parsed.ExclTags) > 0 {
+		if err := a.tagSvc.RemoveFromTask(ctx, updated.ID, parsed.ExclTags); err != nil {
+			return fmt.Errorf("removing tags: %w", err)
+		}
 	}
 
 	return renderMutationResult(cmd.OutOrStdout(), "Modified", updated, a.format)
