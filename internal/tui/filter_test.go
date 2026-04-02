@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 )
 
 func TestParseArgs_TitleOnly(t *testing.T) {
@@ -131,5 +132,72 @@ func TestParsePriority_Invalid(t *testing.T) {
 		if err == nil {
 			t.Fatalf("parsePriority(%q): expected error", input)
 		}
+	}
+}
+
+func TestParseDate_RFC3339(t *testing.T) {
+	got, err := parseDate("2026-04-10T15:30:00Z")
+	if err != nil {
+		t.Fatalf("parseDate: %v", err)
+	}
+	want := time.Date(2026, 4, 10, 15, 30, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+}
+
+func TestParseDate_DateOnly(t *testing.T) {
+	got, err := parseDate("2026-04-10")
+	if err != nil {
+		t.Fatalf("parseDate: %v", err)
+	}
+	want := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+}
+
+func TestParseDate_Today(t *testing.T) {
+	got, err := parseDate("today")
+	if err != nil {
+		t.Fatalf("parseDate: %v", err)
+	}
+	now := time.Now().UTC()
+	want := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+}
+
+func TestParseDate_Tomorrow(t *testing.T) {
+	got, err := parseDate("tomorrow")
+	if err != nil {
+		t.Fatalf("parseDate: %v", err)
+	}
+	now := time.Now().UTC().AddDate(0, 0, 1)
+	want := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+}
+
+func TestParseDate_Weekday(t *testing.T) {
+	// "monday" should return the next Monday from today
+	got, err := parseDate("monday")
+	if err != nil {
+		t.Fatalf("parseDate: %v", err)
+	}
+	if got.Weekday() != time.Monday {
+		t.Fatalf("expected Monday, got %s", got.Weekday())
+	}
+	if got.Before(time.Now().UTC().Truncate(24 * time.Hour)) {
+		t.Fatal("expected date in the future")
+	}
+}
+
+func TestParseDate_Invalid(t *testing.T) {
+	_, err := parseDate("notadate")
+	if err == nil {
+		t.Fatal("expected error for invalid date")
 	}
 }
