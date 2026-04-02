@@ -33,11 +33,6 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("title is required")
 	}
 
-	// Tags not yet supported
-	if len(parsed.Tags) > 0 || len(parsed.ExclTags) > 0 {
-		return fmt.Errorf("tags not yet supported")
-	}
-
 	task := &domain.Task{
 		Title: parsed.Title,
 	}
@@ -85,6 +80,13 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 
 	if err := a.taskSvc.Create(ctx, task); err != nil {
 		return fmt.Errorf("%s", err)
+	}
+
+	// Assign tags if any were specified
+	if len(parsed.Tags) > 0 {
+		if err := a.tagSvc.AssignToTask(ctx, task.ID, parsed.Tags); err != nil {
+			return fmt.Errorf("assigning tags: %w", err)
+		}
 	}
 
 	return renderMutationResult(cmd.OutOrStdout(), "Created", task, a.format)
