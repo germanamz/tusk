@@ -436,3 +436,59 @@ func TestRunModify_TagsError(t *testing.T) {
 		t.Fatalf("expected 'tags not yet supported', got %q", err.Error())
 	}
 }
+
+func TestRunAnnotate_HappyPath(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Annotate me"}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"annotate", task.ShortID, "This", "is", "a", "note"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("annotate: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if out != "Annotated task "+task.ShortID {
+		t.Fatalf("expected 'Annotated task %s', got %q", task.ShortID, out)
+	}
+
+	annotations, _ := taskSvc.GetAnnotations(ctx, task.ShortID)
+	if len(annotations) != 1 {
+		t.Fatalf("expected 1 annotation, got %d", len(annotations))
+	}
+	if annotations[0].Body != "This is a note" {
+		t.Fatalf("expected 'This is a note', got %q", annotations[0].Body)
+	}
+}
+
+func TestRunAnnotate_NotFound(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"annotate", "nonexist", "A", "note"})
+	err := app.root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found' error, got %v", err)
+	}
+}
+
+func TestRunAnnotate_JSON(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "JSON annotate"}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"annotate", task.ShortID, "A", "note", "--format", "json"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("annotate --format json: %v", err)
+	}
+	if !strings.Contains(buf.String(), `"body"`) {
+		t.Fatalf("expected JSON output, got:\n%s", buf.String())
+	}
+}

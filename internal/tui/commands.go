@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -233,5 +235,26 @@ func (a *App) runDelete(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	shortID := args[0]
+	body := strings.Join(args[1:], " ")
+
+	ann, err := a.taskSvc.Annotate(ctx, shortID, body)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	if a.format == "json" {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]string{
+			"id":         ann.ID.String(),
+			"task_id":    ann.TaskID.String(),
+			"body":       ann.Body,
+			"created_at": ann.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Annotated task %s\n", shortID)
+	return nil
 }
