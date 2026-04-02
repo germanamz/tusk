@@ -138,3 +138,9 @@ func validateBool(v string) error {
 	}
 	return nil
 }
+
+// ParsePriorityValue is the exported version of parsePriorityValue for use
+// by the TUI layer when creating tasks (not filtering).
+func ParsePriorityValue(s string) (int, error) {
+	return parsePriorityValue(s)
+}

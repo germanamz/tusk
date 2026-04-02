@@ -28,28 +28,34 @@ func formatError(err error, shortID string) string {
 
 func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	parsed := parseArgs(args)
 
-	if parsed.Title == "" {
+	input := strings.Join(args, " ")
+	fs, parseErrs := filter.Parse(input)
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("%s", filter.FormatErrors(parseErrs))
+	}
+
+	title := fs.Title()
+	if title == "" {
 		return fmt.Errorf("title is required")
 	}
 
 	task := &domain.Task{
-		Title: parsed.Title,
+		Title: title,
 	}
 
 	// Project
-	if name, ok := parsed.Fields["project"]; ok {
-		project, err := a.projectRepo.GetByName(ctx, name)
+	if f, ok := fs.GetField("project"); ok {
+		project, err := a.projectRepo.GetByName(ctx, f.Value)
 		if err != nil {
-			return fmt.Errorf("project %q not found", name)
+			return fmt.Errorf("project %q not found", f.Value)
 		}
 		task.ProjectID = &project.ID
 	}
 
 	// Priority
-	if s, ok := parsed.Fields["priority"]; ok {
-		p, err := parsePriority(s)
+	if f, ok := fs.GetField("priority"); ok {
+		p, err := filter.ParsePriorityValue(f.Value)
 		if err != nil {
 			return err
 		}
@@ -57,13 +63,13 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Status (rarely used, defaults to pending in service)
-	if s, ok := parsed.Fields["status"]; ok {
-		task.Status = s
+	if f, ok := fs.GetField("status"); ok {
+		task.Status = f.Value
 	}
 
 	// Due date
-	if s, ok := parsed.Fields["due"]; ok {
-		d, err := parseDate(s)
+	if f, ok := fs.GetField("due"); ok {
+		d, err := filter.ParseDateValue(f.Value)
 		if err != nil {
 			return err
 		}
@@ -71,10 +77,10 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parent
-	if shortID, ok := parsed.Fields["parent"]; ok {
-		parent, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if f, ok := fs.GetField("parent"); ok {
+		parent, err := a.taskSvc.GetByShortID(ctx, f.Value)
 		if err != nil {
-			return fmt.Errorf("%s", formatError(err, shortID))
+			return fmt.Errorf("%s", formatError(err, f.Value))
 		}
 		task.ParentID = &parent.ID
 	}
@@ -84,8 +90,9 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Assign tags if any were specified
-	if len(parsed.Tags) > 0 {
-		if err := a.tagSvc.AssignToTask(ctx, task.ID, parsed.Tags); err != nil {
+	incTags := fs.IncludeTags()
+	if len(incTags) > 0 {
+		if err := a.tagSvc.AssignToTask(ctx, task.ID, incTags); err != nil {
 			return fmt.Errorf("assigning tags: %w", err)
 		}
 	}

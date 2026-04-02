@@ -70,3 +70,9 @@ func parseDateRange(s string) (start, end time.Time, err error) {
 	}
 	return start, end, nil
 }
+
+// ParseDateValue is the exported version of parseDate for use by the TUI
+// layer when creating tasks (not filtering).
+func ParseDateValue(s string) (time.Time, error) {
+	return parseDate(s)
+}
