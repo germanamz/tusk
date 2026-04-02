@@ -20,7 +20,8 @@ func (fs *FilterSet) HasField(key string) bool {
 	return false
 }
 
-// GetField returns the first FieldFilter with the given key, or false if not found.
+// GetField returns the first FieldFilter with the given key.
+// The bool is false if no field with that key exists.
 func (fs *FilterSet) GetField(key string) (FieldFilter, bool) {
 	for _, f := range fs.Fields {
 		if f.Key == key {

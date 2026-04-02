@@ -169,6 +169,9 @@ func TestParse_LexErrorsPropagated(t *testing.T) {
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error from bare +, got %d: %v", len(errs), errs)
 	}
+	if errs[0].Pos != 0 {
+		t.Fatalf("expected error at pos 0 (bare +), got pos %d", errs[0].Pos)
+	}
 }
 
 func TestParse_FieldWithEmptyValue(t *testing.T) {
@@ -204,6 +207,13 @@ func TestParse_AllFieldTypes(t *testing.T) {
 	}
 	if len(fs.Fields) != 7 {
 		t.Fatalf("expected 7 fields, got %d: %+v", len(fs.Fields), fs.Fields)
+	}
+	// Spot-check a few field values
+	if f, ok := fs.GetField("waiting"); !ok || f.Value != "true" {
+		t.Fatalf("expected waiting=true, got %+v", f)
+	}
+	if f, ok := fs.GetField("project"); !ok || f.Value != "backend" {
+		t.Fatalf("expected project=backend, got %+v", f)
 	}
 }
 

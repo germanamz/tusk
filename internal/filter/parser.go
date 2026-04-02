@@ -2,6 +2,18 @@ package filter
 
 import "strings"
 
+// fieldValidators maps field names to their validation functions.
+// Do not modify after init.
+var fieldValidators = map[string]func(string) error{
+	"status":   validateStatus,
+	"project":  validateProject,
+	"priority": validatePriority,
+	"due":      validateDue,
+	"parent":   validateShortID,
+	"tree":     validateShortID,
+	"waiting":  validateBool,
+}
+
 // Parse takes a raw filter string and returns the AST plus any parse errors.
 // It always returns a FilterSet (possibly empty) even when errors are present,
 // so callers can use partial results if desired.
@@ -16,9 +28,8 @@ func Parse(input string) (*FilterSet, []ParseError) {
 		switch tok.Type {
 		case TokenTagInclude:
 			fs.Tags = append(fs.Tags, TagFilter{
-				Name:    tok.Value[1:], // strip leading '+'
-				Exclude: false,
-				Pos:     tok.Pos,
+				Name: tok.Value[1:], // strip leading '+'
+				Pos:  tok.Pos,
 			})
 
 		case TokenTagExclude:

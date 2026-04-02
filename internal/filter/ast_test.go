@@ -44,18 +44,44 @@ func TestFilterSet_GetField(t *testing.T) {
 	}
 }
 
+func TestFilterSet_GetFieldDuplicateKeys(t *testing.T) {
+	fs := &FilterSet{
+		Fields: []FieldFilter{
+			{Key: "status", Value: "active", Pos: 0},
+			{Key: "status", Value: "pending", Pos: 14},
+		},
+	}
+
+	// GetField returns the first match
+	f, ok := fs.GetField("status")
+	if !ok {
+		t.Fatal("expected GetField(\"status\") to return true")
+	}
+	if f.Value != "active" {
+		t.Fatalf("expected first match Value=\"active\", got %q", f.Value)
+	}
+}
+
 func TestFilterSet_IncludeTags(t *testing.T) {
 	fs := &FilterSet{
 		Tags: []TagFilter{
-			{Name: "api", Exclude: false},
-			{Name: "docs", Exclude: true},
-			{Name: "frontend", Exclude: false},
+			{Name: "api", Exclude: false, Pos: 0},
+			{Name: "docs", Exclude: true, Pos: 5},
+			{Name: "frontend", Exclude: false, Pos: 11},
 		},
 	}
 
 	got := fs.IncludeTags()
 	if len(got) != 2 || got[0] != "api" || got[1] != "frontend" {
 		t.Fatalf("expected [api frontend], got %v", got)
+	}
+
+	// Verify Pos is preserved on tags
+	if fs.Tags[0].Pos != 0 {
+		t.Fatalf("expected Tags[0].Pos=0, got %d", fs.Tags[0].Pos)
+	}
+	if fs.Tags[2].Pos != 11 {
+		t.Fatalf("expected Tags[2].Pos=11, got %d", fs.Tags[2].Pos)
 	}
 }
 

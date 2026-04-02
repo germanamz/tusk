@@ -7,16 +7,9 @@ import (
 	"time"
 )
 
-// fieldValidators maps field names to their validation functions.
-// The parser uses this table to validate field values.
-var fieldValidators = map[string]func(string) error{
-	"status":   validateStatus,
-	"project":  validateProject,
-	"priority": validatePriority,
-	"due":      validateDue,
-	"parent":   validateShortID,
-	"tree":     validateShortID,
-	"waiting":  validateBool,
+// priorityNames maps named priority levels to their numeric values.
+var priorityNames = map[string]int{
+	"none": 0, "low": 1, "medium": 2, "high": 3, "urgent": 4,
 }
 
 func validateStatus(v string) error {
@@ -25,7 +18,7 @@ func validateStatus(v string) error {
 	}
 	parts := strings.Split(v, ",")
 	for _, p := range parts {
-		if strings.TrimSpace(p) == "" {
+		if p == "" {
 			return fmt.Errorf("status contains empty value in %q", v)
 		}
 	}
@@ -70,10 +63,7 @@ func validatePriority(v string) error {
 // parsePriorityValue converts a single priority string to an int.
 // Accepts numeric (0-4) or named (none, low, medium, high, urgent).
 func parsePriorityValue(s string) (int, error) {
-	named := map[string]int{
-		"none": 0, "low": 1, "medium": 2, "high": 3, "urgent": 4,
-	}
-	if v, ok := named[strings.ToLower(s)]; ok {
+	if v, ok := priorityNames[strings.ToLower(s)]; ok {
 		return v, nil
 	}
 	v, err := strconv.Atoi(s)
@@ -110,18 +100,10 @@ func validateDue(v string) error {
 func validateSingleDue(v string) error {
 	lower := strings.ToLower(v)
 
-	// Relative keywords
 	switch lower {
-	case "today", "tomorrow", "thisweek":
+	case "today", "tomorrow", "thisweek",
+		"sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday":
 		return nil
-	}
-
-	// Weekday names
-	weekdays := []string{"sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"}
-	for _, w := range weekdays {
-		if lower == w {
-			return nil
-		}
 	}
 
 	// RFC 3339
@@ -141,7 +123,8 @@ func validateShortID(v string) error {
 	if len(v) < 4 {
 		return fmt.Errorf("short ID %q is too short: minimum 4 hex characters", v)
 	}
-	for _, c := range v {
+	for i := 0; i < len(v); i++ {
+		c := v[i]
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
 			return fmt.Errorf("short ID %q contains non-hex character %q", v, string(c))
 		}

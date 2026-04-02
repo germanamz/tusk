@@ -12,7 +12,7 @@ func TestValidateStatus(t *testing.T) {
 		}
 	}
 
-	invalid := []string{"", ",", ",active"}
+	invalid := []string{"", ",", ",active", "active,"}
 	for _, v := range invalid {
 		if err := validateStatus(v); err == nil {
 			t.Errorf("validateStatus(%q) expected error", v)
@@ -30,7 +30,7 @@ func TestValidateProject(t *testing.T) {
 }
 
 func TestValidatePriority(t *testing.T) {
-	valid := []string{"0", "1", "2", "3", "4", "none", "low", "medium", "high", "urgent", "2..4", "low..high"}
+	valid := []string{"0", "1", "2", "3", "4", "none", "low", "medium", "high", "urgent", "2..4", "low..high", "4..4"}
 	for _, v := range valid {
 		if err := validatePriority(v); err != nil {
 			t.Errorf("validatePriority(%q) unexpected error: %v", v, err)
@@ -49,6 +49,7 @@ func TestValidateDue(t *testing.T) {
 	valid := []string{
 		"2026-04-10",
 		"2026-04-10T15:30:00Z",
+		"2026-04-10T15:30:00+02:00",
 		"today",
 		"tomorrow",
 		"thisweek",
@@ -78,7 +79,7 @@ func TestValidateShortID(t *testing.T) {
 		}
 	}
 
-	invalid := []string{"", "xyz!", "ab", "not-hex!!"}
+	invalid := []string{"", "xyz!", "ab", "abc", "not-hex!!"}
 	for _, v := range invalid {
 		if err := validateShortID(v); err == nil {
 			t.Errorf("validateShortID(%q) expected error", v)
