@@ -51,7 +51,20 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runInfo(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	shortID := args[0]
+
+	task, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	annotations, err := a.taskSvc.GetAnnotations(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("loading annotations: %w", err)
+	}
+
+	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, a.format)
 }
 
 func (a *App) runModify(cmd *cobra.Command, args []string) error {

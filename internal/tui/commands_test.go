@@ -161,3 +161,67 @@ func TestRunList_JSON(t *testing.T) {
 		t.Fatalf("expected JSON output, got:\n%s", buf.String())
 	}
 }
+
+func TestRunInfo_HappyPath(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Info test", Priority: 2}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	taskSvc.Annotate(ctx, task.ShortID, "A note")
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"info", task.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("info: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, task.ShortID) {
+		t.Fatalf("expected short ID in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Info test") {
+		t.Fatalf("expected title in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "medium") {
+		t.Fatalf("expected priority name in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "A note") {
+		t.Fatalf("expected annotation in output, got:\n%s", out)
+	}
+}
+
+func TestRunInfo_NotFound(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"info", "nonexist"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found' in error, got %q", err.Error())
+	}
+}
+
+func TestRunInfo_JSON(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "JSON info test"}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"info", task.ShortID, "--format", "json"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("info --format json: %v", err)
+	}
+	if !strings.Contains(buf.String(), `"short_id"`) {
+		t.Fatalf("expected JSON output, got:\n%s", buf.String())
+	}
+}
