@@ -137,13 +137,12 @@ func (r *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*doma
 // of the given root task using a recursive CTE.
 func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error) {
 	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
-		WITH RECURSIVE descendants(id) AS (
-			SELECT id FROM tasks WHERE parent_id = ?
+		WITH RECURSIVE descendants AS (
+			SELECT %[1]s FROM tasks WHERE parent_id = ?
 			UNION ALL
-			SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+			SELECT %[2]s FROM tasks t JOIN descendants d ON t.parent_id = d.id
 		)
-		SELECT %s FROM tasks WHERE tasks.id IN (SELECT id FROM descendants)`,
-		taskColumns),
+		SELECT * FROM descendants`, taskColumns, prefixColumns("t", taskColumns)),
 		rootID.String(),
 	)
 	if err != nil {
@@ -251,6 +250,16 @@ func (r *TaskRepo) scanRows(rows *sql.Rows) ([]*domain.Task, error) {
 		result = append(result, t)
 	}
 	return result, rows.Err()
+}
+
+// prefixColumns adds a table alias prefix to each column name.
+// e.g. prefixColumns("t", "id, name") -> "t.id, t.name"
+func prefixColumns(alias, cols string) string {
+	parts := strings.Split(cols, ",")
+	for i, p := range parts {
+		parts[i] = alias + "." + strings.TrimSpace(p)
+	}
+	return strings.Join(parts, ", ")
 }
 
 type taskScanner interface {

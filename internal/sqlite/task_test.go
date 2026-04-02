@@ -359,3 +359,91 @@ func TestTaskListWaitingOnly(t *testing.T) {
 		t.Fatalf("expected 1 waiting task, got %d", len(tasks))
 	}
 }
+
+// ── Phase 5: Hierarchy tests ───────────────────────────────────────────
+
+func TestTaskGetChildren(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	parent := newTestTask(); mustCreateTask(t, repo, parent)
+	child1 := newTestTask(); child1.ParentID = &parent.ID; mustCreateTask(t, repo, child1)
+	child2 := newTestTask(); child2.ParentID = &parent.ID; mustCreateTask(t, repo, child2)
+	grandchild := newTestTask(); grandchild.ParentID = &child1.ID; mustCreateTask(t, repo, grandchild)
+	children, err := repo.GetChildren(ctx, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+}
+
+func TestTaskGetChildrenEmpty(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	task := newTestTask(); mustCreateTask(t, repo, task)
+	children, err := repo.GetChildren(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(children) != 0 {
+		t.Fatalf("expected 0 children, got %d", len(children))
+	}
+}
+
+func TestTaskGetDescendants(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	root := newTestTask(); mustCreateTask(t, repo, root)
+	child1 := newTestTask(); child1.ParentID = &root.ID; mustCreateTask(t, repo, child1)
+	child2 := newTestTask(); child2.ParentID = &root.ID; mustCreateTask(t, repo, child2)
+	grandchild := newTestTask(); grandchild.ParentID = &child1.ID; mustCreateTask(t, repo, grandchild)
+	descendants, err := repo.GetDescendants(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(descendants) != 3 {
+		t.Fatalf("expected 3 descendants, got %d", len(descendants))
+	}
+	ids := map[uuid.UUID]bool{}
+	for _, d := range descendants {
+		ids[d.ID] = true
+	}
+	for _, expected := range []uuid.UUID{child1.ID, child2.ID, grandchild.ID} {
+		if !ids[expected] {
+			t.Fatalf("missing descendant %s", expected)
+		}
+	}
+}
+
+func TestTaskGetDescendantsEmpty(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	task := newTestTask(); mustCreateTask(t, repo, task)
+	descendants, err := repo.GetDescendants(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(descendants) != 0 {
+		t.Fatalf("expected 0 descendants, got %d", len(descendants))
+	}
+}
+
+func TestTaskListByRootID(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	root := newTestTask(); mustCreateTask(t, repo, root)
+	child := newTestTask(); child.ParentID = &root.ID; mustCreateTask(t, repo, child)
+	grandchild := newTestTask(); grandchild.ParentID = &child.ID; mustCreateTask(t, repo, grandchild)
+	unrelated := newTestTask(); mustCreateTask(t, repo, unrelated)
+	tasks, err := repo.List(ctx, domain.TaskFilter{RootID: &root.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 descendants via List, got %d", len(tasks))
+	}
+}
