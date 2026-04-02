@@ -1,1 +1,91 @@
 package tui
+
+import (
+	"github.com/germanamz/tusk/internal/repository"
+	"github.com/germanamz/tusk/internal/service"
+	"github.com/spf13/cobra"
+)
+
+// App holds the CLI's dependencies and Cobra command tree.
+type App struct {
+	taskSvc     *service.TaskService
+	projectRepo repository.ProjectRepository
+	root        *cobra.Command
+	format      string
+}
+
+// New creates a new App and builds the Cobra command tree.
+// taskSvc and projectRepo may be nil for testing command registration.
+func New(taskSvc *service.TaskService, projectRepo repository.ProjectRepository) *App {
+	a := &App{
+		taskSvc:     taskSvc,
+		projectRepo: projectRepo,
+	}
+
+	a.root = &cobra.Command{
+		Use:   "tusk",
+		Short: "A concurrent-safe task management tool",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+
+	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text" or "json"`)
+
+	a.root.AddCommand(
+		&cobra.Command{
+			Use:   "add [title] [key:value...] [+tag...]",
+			Short: "Create a new task",
+			Args:  cobra.MinimumNArgs(1),
+			RunE:  a.runAdd,
+		},
+		&cobra.Command{
+			Use:   "list [filters...]",
+			Short: "List tasks",
+			RunE:  a.runList,
+		},
+		&cobra.Command{
+			Use:   "info <short_id>",
+			Short: "Show task details",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runInfo,
+		},
+		&cobra.Command{
+			Use:   "modify <short_id> [key:value...]",
+			Short: "Modify a task",
+			Args:  cobra.MinimumNArgs(1),
+			RunE:  a.runModify,
+		},
+		&cobra.Command{
+			Use:   "start <short_id>",
+			Short: "Transition task to active",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runStart,
+		},
+		&cobra.Command{
+			Use:   "done <short_id>",
+			Short: "Transition task to completed",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runDone,
+		},
+		&cobra.Command{
+			Use:   "delete <short_id>",
+			Short: "Transition task to deleted",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runDelete,
+		},
+		&cobra.Command{
+			Use:   "annotate <short_id> <message...>",
+			Short: "Add a note to a task",
+			Args:  cobra.MinimumNArgs(2),
+			RunE:  a.runAnnotate,
+		},
+	)
+
+	return a
+}
+
+// Run executes the Cobra command tree with the given arguments.
+func (a *App) Run(args []string) error {
+	a.root.SetArgs(args)
+	return a.root.Execute()
+}
