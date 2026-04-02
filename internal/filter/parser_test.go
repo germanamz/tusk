@@ -162,3 +162,61 @@ func TestParse_CommaStatuses(t *testing.T) {
 		t.Fatalf("expected status=pending,active,completed, got %+v", f)
 	}
 }
+
+func TestParse_LexErrorsPropagated(t *testing.T) {
+	// Bare "+" should produce a lex error that propagates through Parse
+	_, errs := Parse("+ status:active")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error from bare +, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestParse_FieldWithEmptyValue(t *testing.T) {
+	// "status:" has an empty value — validateStatus should reject it
+	_, errs := Parse("status:")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for empty status value, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestParse_DuplicateFields(t *testing.T) {
+	// Two status fields: both should be accepted (resolver decides how to handle)
+	fs, errs := Parse("status:active status:pending")
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	count := 0
+	for _, f := range fs.Fields {
+		if f.Key == "status" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 status fields, got %d", count)
+	}
+}
+
+func TestParse_AllFieldTypes(t *testing.T) {
+	input := "status:active project:backend priority:3 due:today parent:a3f8b2c1 tree:deadbeef waiting:true"
+	fs, errs := Parse(input)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(fs.Fields) != 7 {
+		t.Fatalf("expected 7 fields, got %d: %+v", len(fs.Fields), fs.Fields)
+	}
+}
+
+func TestParse_MixedErrorsAndValid(t *testing.T) {
+	// "foo:bar" is unknown, "priority:3" is valid, "waiting:yes" is invalid
+	fs, errs := Parse("foo:bar priority:3 waiting:yes")
+	if len(errs) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(errs), errs)
+	}
+	if len(fs.Fields) != 1 {
+		t.Fatalf("expected 1 valid field, got %d", len(fs.Fields))
+	}
+	if fs.Fields[0].Key != "priority" {
+		t.Fatalf("expected valid field to be priority, got %q", fs.Fields[0].Key)
+	}
+}
