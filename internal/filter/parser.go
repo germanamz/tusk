@@ -1,0 +1,62 @@
+package filter
+
+import "strings"
+
+// Parse takes a raw filter string and returns the AST plus any parse errors.
+// It always returns a FilterSet (possibly empty) even when errors are present,
+// so callers can use partial results if desired.
+func Parse(input string) (*FilterSet, []ParseError) {
+	tokens, lexErrs := Lex(input)
+
+	fs := &FilterSet{}
+	var errs []ParseError
+	errs = append(errs, lexErrs...)
+
+	for _, tok := range tokens {
+		switch tok.Type {
+		case TokenTagInclude:
+			fs.Tags = append(fs.Tags, TagFilter{
+				Name:    tok.Value[1:], // strip leading '+'
+				Exclude: false,
+				Pos:     tok.Pos,
+			})
+
+		case TokenTagExclude:
+			fs.Tags = append(fs.Tags, TagFilter{
+				Name:    tok.Value[1:], // strip leading '-'
+				Exclude: true,
+				Pos:     tok.Pos,
+			})
+
+		case TokenText:
+			fs.Text = append(fs.Text, tok.Value)
+
+		case TokenField:
+			key, value, _ := strings.Cut(tok.Value, ":")
+			validator, known := fieldValidators[key]
+			if !known {
+				errs = append(errs, ParseError{
+					Pos:     tok.Pos,
+					Field:   key,
+					Message: "unknown field",
+				})
+				continue
+			}
+			if err := validator(value); err != nil {
+				errs = append(errs, ParseError{
+					Pos:     tok.Pos,
+					Field:   key,
+					Message: err.Error(),
+				})
+				continue
+			}
+			fs.Fields = append(fs.Fields, FieldFilter{
+				Key:   key,
+				Value: value,
+				Pos:   tok.Pos,
+			})
+		}
+	}
+
+	return fs, errs
+}
