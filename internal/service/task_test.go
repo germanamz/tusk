@@ -612,10 +612,13 @@ func TestStart_AlreadyActive(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// active → active is not a valid transition
-	_, err = env.taskSvc.Start(ctx, task.ShortID, 2)
-	if !errors.Is(err, domain.ErrInvalidTransition) {
-		t.Fatalf("expected ErrInvalidTransition, got %v", err)
+	// active → active is a no-op (status unchanged), should succeed
+	updated, err := env.taskSvc.Start(ctx, task.ShortID, 2)
+	if err != nil {
+		t.Fatalf("Start on already-active task: %v", err)
+	}
+	if updated.Status != "active" {
+		t.Fatalf("expected status 'active', got %q", updated.Status)
 	}
 }
 

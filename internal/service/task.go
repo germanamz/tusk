@@ -229,7 +229,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	}
 
 	// Workflow validation for status changes
-	if upd.Status != nil {
+	if task.Status != oldStatus {
 		project, err := s.projectRepo.GetByID(ctx, *task.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)

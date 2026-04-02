@@ -694,7 +694,7 @@ var (
 
 - [x] Domain types and repository interfaces
 - [x] SQLite implementation with migrations
-- [ ] TaskService with CRUD, workflow validation, optimistic locking
+- [x] TaskService with CRUD, workflow validation, optimistic locking
 - [ ] Basic CLI: `add`, `list`, `info`, `modify`, `done`, `delete`
 - [ ] Filter syntax parser
 
