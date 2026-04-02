@@ -16,7 +16,7 @@ type App struct {
 }
 
 // New creates a new App and builds the Cobra command tree.
-// taskSvc and projectRepo may be nil for testing command registration.
+// taskSvc, tagSvc, and projectRepo may be nil for testing command registration.
 func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo repository.ProjectRepository) *App {
 	a := &App{
 		taskSvc:     taskSvc,
