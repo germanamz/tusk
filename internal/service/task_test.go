@@ -580,3 +580,112 @@ func TestUpdate_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestStart_HappyPath(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Start me")
+	mustCreateTask(t, env.taskSvc, task)
+
+	updated, err := env.taskSvc.Start(ctx, task.ShortID, 1)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if updated.Status != "active" {
+		t.Fatalf("expected status 'active', got %q", updated.Status)
+	}
+	if updated.Version != 2 {
+		t.Fatalf("expected version 2, got %d", updated.Version)
+	}
+}
+
+func TestStart_AlreadyActive(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Already active")
+	mustCreateTask(t, env.taskSvc, task)
+
+	_, err := env.taskSvc.Start(ctx, task.ShortID, 1)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// active → active is not a valid transition
+	_, err = env.taskSvc.Start(ctx, task.ShortID, 2)
+	if !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("expected ErrInvalidTransition, got %v", err)
+	}
+}
+
+func TestComplete_HappyPath(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Complete me")
+	mustCreateTask(t, env.taskSvc, task)
+
+	// Must start first: pending → active
+	started, err := env.taskSvc.Start(ctx, task.ShortID, 1)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Then complete: active → completed
+	completed, err := env.taskSvc.Complete(ctx, task.ShortID, started.Version)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if completed.Status != "completed" {
+		t.Fatalf("expected status 'completed', got %q", completed.Status)
+	}
+}
+
+func TestComplete_FromPending(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Skip start")
+	mustCreateTask(t, env.taskSvc, task)
+
+	// pending → completed is not allowed
+	_, err := env.taskSvc.Complete(ctx, task.ShortID, 1)
+	if !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("expected ErrInvalidTransition, got %v", err)
+	}
+}
+
+func TestDelete_HappyPath(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Delete me")
+	mustCreateTask(t, env.taskSvc, task)
+
+	// pending → deleted is allowed
+	deleted, err := env.taskSvc.Delete(ctx, task.ShortID, 1)
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if deleted.Status != "deleted" {
+		t.Fatalf("expected status 'deleted', got %q", deleted.Status)
+	}
+}
+
+func TestDelete_FromCompleted(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Complete then delete")
+	mustCreateTask(t, env.taskSvc, task)
+
+	started, _ := env.taskSvc.Start(ctx, task.ShortID, 1)
+	completed, _ := env.taskSvc.Complete(ctx, task.ShortID, started.Version)
+
+	// completed → deleted is not allowed in default workflow
+	_, err := env.taskSvc.Delete(ctx, task.ShortID, completed.Version)
+	if !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("expected ErrInvalidTransition, got %v", err)
+	}
+}
