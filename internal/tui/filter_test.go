@@ -78,3 +78,58 @@ func TestParseArgs_ColonInValue(t *testing.T) {
 		t.Fatalf("expected 'has:colons', got %q", got.Fields["title"])
 	}
 }
+
+func TestParsePriority_Numeric(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int
+	}{
+		{"0", 0},
+		{"1", 1},
+		{"2", 2},
+		{"3", 3},
+		{"4", 4},
+	}
+	for _, tt := range tests {
+		got, err := parsePriority(tt.input)
+		if err != nil {
+			t.Fatalf("parsePriority(%q): %v", tt.input, err)
+		}
+		if got != tt.want {
+			t.Fatalf("parsePriority(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParsePriority_Named(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int
+	}{
+		{"none", 0},
+		{"low", 1},
+		{"medium", 2},
+		{"high", 3},
+		{"urgent", 4},
+		{"None", 0},
+		{"HIGH", 3},
+	}
+	for _, tt := range tests {
+		got, err := parsePriority(tt.input)
+		if err != nil {
+			t.Fatalf("parsePriority(%q): %v", tt.input, err)
+		}
+		if got != tt.want {
+			t.Fatalf("parsePriority(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParsePriority_Invalid(t *testing.T) {
+	for _, input := range []string{"5", "-1", "critical", "abc"} {
+		_, err := parsePriority(input)
+		if err == nil {
+			t.Fatalf("parsePriority(%q): expected error", input)
+		}
+	}
+}

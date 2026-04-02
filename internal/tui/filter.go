@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // ParsedArgs holds the result of parsing CLI arguments.
 type ParsedArgs struct {
@@ -38,4 +42,20 @@ func parseArgs(args []string) ParsedArgs {
 
 	p.Title = strings.Join(titleParts, " ")
 	return p
+}
+
+// parsePriority converts a string to a priority int (0-4).
+// Accepts numeric ("0"-"4") or named ("none", "low", "medium", "high", "urgent").
+func parsePriority(s string) (int, error) {
+	named := map[string]int{
+		"none": 0, "low": 1, "medium": 2, "high": 3, "urgent": 4,
+	}
+	if v, ok := named[strings.ToLower(s)]; ok {
+		return v, nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 0 || v > 4 {
+		return 0, fmt.Errorf("invalid priority %q: must be 0-4 or none/low/medium/high/urgent", s)
+	}
+	return v, nil
 }
