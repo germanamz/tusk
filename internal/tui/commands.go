@@ -223,15 +223,54 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runStart(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	shortID := args[0]
+
+	current, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	updated, err := a.taskSvc.Start(ctx, shortID, current.Version)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Started", updated, a.format)
 }
 
 func (a *App) runDone(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	shortID := args[0]
+
+	current, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	updated, err := a.taskSvc.Complete(ctx, shortID, current.Version)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Completed", updated, a.format)
 }
 
 func (a *App) runDelete(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	shortID := args[0]
+
+	current, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	updated, err := a.taskSvc.Delete(ctx, shortID, current.Version)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Deleted", updated, a.format)
 }
 
 func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {

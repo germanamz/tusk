@@ -437,6 +437,106 @@ func TestRunModify_TagsError(t *testing.T) {
 	}
 }
 
+func TestRunStart_HappyPath(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Start me"}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"start", task.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if out != "Started task "+task.ShortID {
+		t.Fatalf("expected 'Started task %s', got %q", task.ShortID, out)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+	if got.Status != "active" {
+		t.Fatalf("expected active, got %q", got.Status)
+	}
+}
+
+func TestRunStart_NotFound(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"start", "nonexist"})
+	err := app.root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found' error, got %v", err)
+	}
+}
+
+func TestRunDone_HappyPath(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Complete me"}
+	taskSvc.Create(ctx, task)
+	taskSvc.Start(ctx, task.ShortID, 1)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"done", task.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("done: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if out != "Completed task "+task.ShortID {
+		t.Fatalf("expected 'Completed task %s', got %q", task.ShortID, out)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+	if got.Status != "completed" {
+		t.Fatalf("expected completed, got %q", got.Status)
+	}
+}
+
+func TestRunDone_FromPending(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Skip start"}
+	taskSvc.Create(ctx, task)
+
+	app.root.SetArgs([]string{"done", task.ShortID})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid transition")
+	}
+}
+
+func TestRunDelete_HappyPath(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Delete me"}
+	taskSvc.Create(ctx, task)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"delete", task.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if out != "Deleted task "+task.ShortID {
+		t.Fatalf("expected 'Deleted task %s', got %q", task.ShortID, out)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+	if got.Status != "deleted" {
+		t.Fatalf("expected deleted, got %q", got.Status)
+	}
+}
+
 func TestRunAnnotate_HappyPath(t *testing.T) {
 	app, taskSvc := testApp(t)
 	ctx := context.Background()
