@@ -692,7 +692,7 @@ var (
 
 ### v0.1 — Foundation
 
-- [ ] Domain types and repository interfaces
+- [x] Domain types and repository interfaces
 - [ ] SQLite implementation with migrations
 - [ ] TaskService with CRUD, workflow validation, optimistic locking
 - [ ] Basic CLI: `add`, `list`, `info`, `modify`, `done`, `delete`
