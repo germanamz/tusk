@@ -25,7 +25,29 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runList(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	parsed := parseArgs(args)
+
+	filter, err := buildTaskFilter(ctx, parsed, a.projectRepo)
+	if err != nil {
+		return err
+	}
+
+	// Handle parent filter if present
+	if shortID, ok := parsed.Fields["parent"]; ok {
+		parent, err := a.taskSvc.GetByShortID(ctx, shortID)
+		if err != nil {
+			return fmt.Errorf("%s", formatError(err, shortID))
+		}
+		filter.ParentID = &parent.ID
+	}
+
+	tasks, err := a.taskSvc.List(ctx, filter)
+	if err != nil {
+		return err
+	}
+
+	return renderTaskList(cmd.OutOrStdout(), tasks, a.format)
 }
 
 func (a *App) runInfo(cmd *cobra.Command, args []string) error {
