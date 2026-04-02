@@ -137,3 +137,93 @@ func TestLex(t *testing.T) {
 		})
 	}
 }
+
+func TestLex_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		want   []Token
+		errors int
+	}{
+		{
+			name:  "field with empty value",
+			input: "status:",
+			want: []Token{
+				{Type: TokenField, Value: "status:", Pos: 0},
+			},
+		},
+		{
+			name:  "colon at start is text not field",
+			input: ":value",
+			want: []Token{
+				{Type: TokenText, Value: ":value", Pos: 0},
+			},
+		},
+		{
+			name:  "tag with numbers",
+			input: "+v2 -v1",
+			want: []Token{
+				{Type: TokenTagInclude, Value: "+v2", Pos: 0},
+				{Type: TokenTagExclude, Value: "-v1", Pos: 4},
+			},
+		},
+		{
+			name:  "tag-like token with colon is a field",
+			input: "+api:test",
+			want: []Token{
+				{Type: TokenField, Value: "+api:test", Pos: 0},
+			},
+		},
+		{
+			name:  "multiple errors collected",
+			input: "+ text -",
+			want: []Token{
+				{Type: TokenText, Value: "text", Pos: 2},
+			},
+			errors: 2,
+		},
+		{
+			name:  "only whitespace",
+			input: "   \t  ",
+			want:  nil,
+		},
+		{
+			name:  "priority range is a field",
+			input: "priority:2..4",
+			want: []Token{
+				{Type: TokenField, Value: "priority:2..4", Pos: 0},
+			},
+		},
+		{
+			name:  "due date range is a field",
+			input: "due:today..friday",
+			want: []Token{
+				{Type: TokenField, Value: "due:today..friday", Pos: 0},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokens, errs := Lex(tt.input)
+			if len(errs) != tt.errors {
+				t.Fatalf("Lex(%q) returned %d errors, want %d: %v", tt.input, len(errs), tt.errors, errs)
+			}
+			if len(tokens) != len(tt.want) {
+				t.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
+					tt.input, len(tokens), len(tt.want), tokens, tt.want)
+			}
+			for i, tok := range tokens {
+				if tok.Type != tt.want[i].Type {
+					t.Errorf("token[%d].Type = %v, want %v", i, tok.Type, tt.want[i].Type)
+				}
+				if tok.Value != tt.want[i].Value {
+					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
+				}
+				if tok.Pos != tt.want[i].Pos {
+					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
+				}
+			}
+		})
+	}
+}

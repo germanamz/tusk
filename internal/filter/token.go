@@ -64,14 +64,14 @@ func Lex(input string) ([]Token, []ParseError) {
 				Message: fmt.Sprintf("bare %q is not a valid token; use %s<name> for tags", raw, raw),
 			})
 
+		case isFieldToken(raw):
+			tokens = append(tokens, Token{Type: TokenField, Value: raw, Pos: start})
+
 		case raw[0] == '+':
 			tokens = append(tokens, Token{Type: TokenTagInclude, Value: raw, Pos: start})
 
-		case raw[0] == '-' && !isFieldToken(raw):
+		case raw[0] == '-':
 			tokens = append(tokens, Token{Type: TokenTagExclude, Value: raw, Pos: start})
-
-		case isFieldToken(raw):
-			tokens = append(tokens, Token{Type: TokenField, Value: raw, Pos: start})
 
 		default:
 			tokens = append(tokens, Token{Type: TokenText, Value: raw, Pos: start})
