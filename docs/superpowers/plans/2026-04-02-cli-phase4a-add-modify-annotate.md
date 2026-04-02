@@ -1,14 +1,14 @@
-# CLI Phase 4: Write Commands (`add`, `modify`, `start`, `done`, `delete`, `annotate`)
+# CLI Phase 4a: Write Commands (`add`, `modify`, `annotate`)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement all mutation commands so users can create, modify, and transition tasks from the CLI.
+**Goal:** Implement the three mutation commands that have distinct arg parsing logic: `add` (positional title + fields), `modify` (short ID + key:value fields with auto-fetch version), and `annotate` (short ID + message body).
 
-**Architecture:** Each command parses args with `parseArgs()`, translates fields to domain types, calls the service layer, and renders a mutation result. The `start`, `done`, `delete` commands auto-fetch the task's current version before calling the service.
+**Architecture:** Each command method in `commands.go` parses args with `parseArgs()`, translates fields to domain types, calls the service layer, and renders a mutation result.
 
 **Tech Stack:** Existing `internal/tui` functions, `internal/service.TaskService`, `internal/repository.ProjectRepository`.
 
-**Depends on:** Phase 1 (arg parsing, rendering), Phase 2 (App struct, Cobra tree), Phase 3 (tests already use `testApp` helper).
+**Depends on:** Phase 1a (arg parsing), Phase 1b (rendering), Phase 2 (App struct, Cobra tree), Phase 3 (tests use `testApp` helper).
 
 ---
 
@@ -20,7 +20,7 @@
 
 - [ ] **Step 1: Replace the `runAdd` stub**
 
-In `internal/tui/commands.go`, replace the `runAdd` method. Make sure imports include `"context"`, `"strings"`, `"github.com/germanamz/tusk/internal/domain"`:
+In `internal/tui/commands.go`, replace the `runAdd` method. Make sure imports include `"strings"` and `"github.com/germanamz/tusk/internal/domain"`:
 
 ```go
 func (a *App) runAdd(cmd *cobra.Command, args []string) error {
@@ -251,7 +251,7 @@ git commit -m "feat(tui): implement add command with project, priority, due, par
 
 - [ ] **Step 1: Replace the `runModify` stub**
 
-In `internal/tui/commands.go`, replace the `runModify` method:
+In `internal/tui/commands.go`, replace the `runModify` method. Make sure imports include `"time"` and `"github.com/google/uuid"`:
 
 ```go
 func (a *App) runModify(cmd *cobra.Command, args []string) error {
@@ -294,62 +294,7 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		upd.Status = &s
 	}
 
-	// Due date
-	if s, ok := parsed.Fields["due"]; ok {
-		if s == "" {
-			// Clear due date
-			var nilTime *time.Time
-			upd.DueAt = &nilTime
-		} else {
-			d, err := parseDate(s)
-			if err != nil {
-				return err
-			}
-			upd.DueAt = &(&d)
-		}
-	}
-
-	// Project
-	if name, ok := parsed.Fields["project"]; ok {
-		project, err := a.projectRepo.GetByName(ctx, name)
-		if err != nil {
-			return fmt.Errorf("project %q not found", name)
-		}
-		upd.ProjectID = &(&project.ID)
-	}
-
-	// Parent
-	if s, ok := parsed.Fields["parent"]; ok {
-		if s == "" {
-			// Clear parent
-			var nilUUID *uuid.UUID
-			upd.ParentID = &nilUUID
-		} else {
-			parent, err := a.taskSvc.GetByShortID(ctx, s)
-			if err != nil {
-				return fmt.Errorf("%s", formatError(err, s))
-			}
-			upd.ParentID = &(&parent.ID)
-		}
-	}
-
-	updated, err := a.taskSvc.Update(ctx, upd)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
-	}
-
-	return renderMutationResult(cmd.OutOrStdout(), "Modified", updated, a.format)
-}
-```
-
-Make sure the imports in `commands.go` include `"time"` and `"github.com/google/uuid"`.
-
-Note: The double-pointer fields (`DueAt`, `ProjectID`, `ParentID`) use `&(&value)` pattern because `domain.TaskUpdate` uses `**Type`. You need to create a local variable first:
-
-Actually, `&(&d)` won't compile. Fix the pattern by using a helper or local variable:
-
-```go
-	// Due date
+	// Due date (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
 	if s, ok := parsed.Fields["due"]; ok {
 		if s == "" {
 			var nilTime *time.Time
@@ -375,7 +320,7 @@ Actually, `&(&d)` won't compile. Fix the pattern by using a helper or local vari
 		upd.ProjectID = &pp
 	}
 
-	// Parent
+	// Parent (double pointer: empty string = clear parent)
 	if s, ok := parsed.Fields["parent"]; ok {
 		if s == "" {
 			var nilUUID *uuid.UUID
@@ -390,6 +335,14 @@ Actually, `&(&d)` won't compile. Fix the pattern by using a helper or local vari
 			upd.ParentID = &pp
 		}
 	}
+
+	updated, err := a.taskSvc.Update(ctx, upd)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Modified", updated, a.format)
+}
 ```
 
 - [ ] **Step 2: Write integration tests**
@@ -489,190 +442,7 @@ git commit -m "feat(tui): implement modify command with auto-fetch version"
 
 ---
 
-### Task 3: Implement `start`, `done`, `delete` commands
-
-**Files:**
-- Modify: `internal/tui/commands.go`
-- Modify: `internal/tui/commands_test.go`
-
-- [ ] **Step 1: Replace the three stubs**
-
-In `internal/tui/commands.go`, replace `runStart`, `runDone`, and `runDelete`:
-
-```go
-func (a *App) runStart(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	shortID := args[0]
-
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
-	}
-
-	updated, err := a.taskSvc.Start(ctx, shortID, current.Version)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
-	}
-
-	return renderMutationResult(cmd.OutOrStdout(), "Started", updated, a.format)
-}
-
-func (a *App) runDone(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	shortID := args[0]
-
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
-	}
-
-	updated, err := a.taskSvc.Complete(ctx, shortID, current.Version)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
-	}
-
-	return renderMutationResult(cmd.OutOrStdout(), "Completed", updated, a.format)
-}
-
-func (a *App) runDelete(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	shortID := args[0]
-
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
-	}
-
-	updated, err := a.taskSvc.Delete(ctx, shortID, current.Version)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
-	}
-
-	return renderMutationResult(cmd.OutOrStdout(), "Deleted", updated, a.format)
-}
-```
-
-- [ ] **Step 2: Write integration tests**
-
-Append to `internal/tui/commands_test.go`:
-
-```go
-func TestRunStart_HappyPath(t *testing.T) {
-	app, taskSvc := testApp(t)
-	ctx := context.Background()
-
-	task := &domain.Task{Title: "Start me"}
-	taskSvc.Create(ctx, task)
-
-	var buf bytes.Buffer
-	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"start", task.ShortID})
-	if err := app.root.Execute(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-
-	out := strings.TrimSpace(buf.String())
-	if out != "Started task "+task.ShortID {
-		t.Fatalf("expected 'Started task %s', got %q", task.ShortID, out)
-	}
-
-	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
-	if got.Status != "active" {
-		t.Fatalf("expected active, got %q", got.Status)
-	}
-}
-
-func TestRunStart_NotFound(t *testing.T) {
-	app, _ := testApp(t)
-
-	app.root.SetArgs([]string{"start", "nonexist"})
-	err := app.root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected 'not found' error, got %v", err)
-	}
-}
-
-func TestRunDone_HappyPath(t *testing.T) {
-	app, taskSvc := testApp(t)
-	ctx := context.Background()
-
-	task := &domain.Task{Title: "Complete me"}
-	taskSvc.Create(ctx, task)
-	taskSvc.Start(ctx, task.ShortID, 1)
-
-	var buf bytes.Buffer
-	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"done", task.ShortID})
-	if err := app.root.Execute(); err != nil {
-		t.Fatalf("done: %v", err)
-	}
-
-	out := strings.TrimSpace(buf.String())
-	if out != "Completed task "+task.ShortID {
-		t.Fatalf("expected 'Completed task %s', got %q", task.ShortID, out)
-	}
-
-	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
-	if got.Status != "completed" {
-		t.Fatalf("expected completed, got %q", got.Status)
-	}
-}
-
-func TestRunDone_FromPending(t *testing.T) {
-	app, taskSvc := testApp(t)
-	ctx := context.Background()
-
-	task := &domain.Task{Title: "Skip start"}
-	taskSvc.Create(ctx, task)
-
-	app.root.SetArgs([]string{"done", task.ShortID})
-	err := app.root.Execute()
-	if err == nil {
-		t.Fatal("expected error for invalid transition")
-	}
-}
-
-func TestRunDelete_HappyPath(t *testing.T) {
-	app, taskSvc := testApp(t)
-	ctx := context.Background()
-
-	task := &domain.Task{Title: "Delete me"}
-	taskSvc.Create(ctx, task)
-
-	var buf bytes.Buffer
-	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"delete", task.ShortID})
-	if err := app.root.Execute(); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-
-	out := strings.TrimSpace(buf.String())
-	if out != "Deleted task "+task.ShortID {
-		t.Fatalf("expected 'Deleted task %s', got %q", task.ShortID, out)
-	}
-
-	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
-	if got.Status != "deleted" {
-		t.Fatalf("expected deleted, got %q", got.Status)
-	}
-}
-```
-
-- [ ] **Step 3: Run tests to verify they pass**
-
-Run: `cd /Users/germanamz/projects/tusk && go test ./internal/tui/ -v -run "TestRunStart|TestRunDone|TestRunDelete"`
-Expected: All 5 tests PASS.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add internal/tui/commands.go internal/tui/commands_test.go
-git commit -m "feat(tui): implement start, done, delete commands with auto-fetch version"
-```
-
----
-
-### Task 4: Implement `annotate` command
+### Task 3: Implement `annotate` command
 
 **Files:**
 - Modify: `internal/tui/commands.go`
@@ -680,7 +450,7 @@ git commit -m "feat(tui): implement start, done, delete commands with auto-fetch
 
 - [ ] **Step 1: Replace the `runAnnotate` stub**
 
-In `internal/tui/commands.go`, replace the `runAnnotate` method:
+In `internal/tui/commands.go`, replace the `runAnnotate` method. Make sure imports include `"encoding/json"`:
 
 ```go
 func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
@@ -708,8 +478,6 @@ func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 ```
-
-Make sure the imports in `commands.go` include `"encoding/json"`.
 
 - [ ] **Step 2: Write integration tests**
 
@@ -778,69 +546,9 @@ func TestRunAnnotate_JSON(t *testing.T) {
 Run: `cd /Users/germanamz/projects/tusk && go test ./internal/tui/ -v -run TestRunAnnotate`
 Expected: All 3 tests PASS.
 
-- [ ] **Step 4: Run the full test suite**
-
-Run: `cd /Users/germanamz/projects/tusk && go test ./... -v`
-Expected: All tests across all packages PASS.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add internal/tui/commands.go internal/tui/commands_test.go
 git commit -m "feat(tui): implement annotate command"
 ```
-
----
-
-### Task 5: End-to-end smoke test with the compiled binary
-
-**Files:** None (manual verification)
-
-- [ ] **Step 1: Build the binary**
-
-Run: `cd /Users/germanamz/projects/tusk && go build -o /tmp/tusk ./cmd/tusk/`
-Expected: Compiles without errors.
-
-- [ ] **Step 2: Run a full workflow**
-
-Run these commands in sequence:
-
-```bash
-export TUSK_DB=/tmp/tusk-e2e.db
-
-# Create tasks
-/tmp/tusk add "Implement auth middleware" priority:high
-/tmp/tusk add "Write tests for auth" priority:medium
-
-# List tasks
-/tmp/tusk list
-
-# Get info on first task (use the short ID from the add output)
-# /tmp/tusk info <short_id>
-
-# Start a task
-# /tmp/tusk start <short_id>
-
-# Complete a task
-# /tmp/tusk done <short_id>
-
-# Annotate
-# /tmp/tusk annotate <short_id> "Blocked by upstream API"
-
-# JSON output
-/tmp/tusk list --format json
-```
-
-Expected: Each command produces the expected output as described in the design spec.
-
-- [ ] **Step 3: Clean up**
-
-Run: `rm -f /tmp/tusk /tmp/tusk-e2e.db /tmp/tusk-e2e.db-wal /tmp/tusk-e2e.db-shm`
-
-- [ ] **Step 4: Remove empty stub files that were replaced**
-
-Verify that `internal/tui/render.go`, `internal/tui/filter.go`, and `internal/tui/tree.go` exist. If `tree.go` is still an empty stub (`package tui` only), leave it — it's for v0.2.
-
-- [ ] **Step 5: Final commit if any cleanup was needed**
-
-Only commit if changes were made in step 4. Otherwise skip.
