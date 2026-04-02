@@ -45,6 +45,22 @@ func parseArgs(args []string) ParsedArgs {
 	return p
 }
 
+// parsePriority converts a string to a priority int (0-4).
+// Accepts numeric ("0"-"4") or named ("none", "low", "medium", "high", "urgent").
+func parsePriority(s string) (int, error) {
+	named := map[string]int{
+		"none": 0, "low": 1, "medium": 2, "high": 3, "urgent": 4,
+	}
+	if v, ok := named[strings.ToLower(s)]; ok {
+		return v, nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 0 || v > 4 {
+		return 0, fmt.Errorf("invalid priority %q: must be 0-4 or none/low/medium/high/urgent", s)
+	}
+	return v, nil
+}
+
 // parseDate converts a string to a time.Time.
 // Accepts: RFC 3339 ("2026-04-10T15:30:00Z"), date-only ("2026-04-10"),
 // relative ("today", "tomorrow"), or weekday names ("monday"-"sunday").
@@ -85,20 +101,4 @@ func parseDate(s string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("invalid date %q: use YYYY-MM-DD, RFC3339, today, tomorrow, or a weekday name", s)
-}
-
-// parsePriority converts a string to a priority int (0-4).
-// Accepts numeric ("0"-"4") or named ("none", "low", "medium", "high", "urgent").
-func parsePriority(s string) (int, error) {
-	named := map[string]int{
-		"none": 0, "low": 1, "medium": 2, "high": 3, "urgent": 4,
-	}
-	if v, ok := named[strings.ToLower(s)]; ok {
-		return v, nil
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil || v < 0 || v > 4 {
-		return 0, fmt.Errorf("invalid priority %q: must be 0-4 or none/low/medium/high/urgent", s)
-	}
-	return v, nil
 }
