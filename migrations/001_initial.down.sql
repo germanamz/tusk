@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS workflow_transitions;
+DROP TABLE IF EXISTS workflows;
+DROP TABLE IF EXISTS tag_assignments;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS relations;
+DROP TABLE IF EXISTS annotations;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS projects;

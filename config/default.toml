@@ -1,0 +1,25 @@
+[storage]
+backend = "sqlite"
+path = "~/.local/share/tusk/tusk.db"
+
+[storage.postgres]
+dsn = "postgres://user:pass@host/tusk"
+
+[urgency]
+priority_weight = 6.0
+due_weight = 12.0
+age_weight = 2.0
+blocking_weight = 8.0
+blocked_weight = -5.0
+
+[mcp]
+transport = "stdio"
+port = 8080
+retry_max = 3
+retry_base_ms = 10
+
+[tui]
+date_format = "2006-01-02"
+color = true
+tree_indent = 2
+default_sort = "urgency"
