@@ -52,7 +52,8 @@ func (r *TaskRepo) GetByShortID(ctx context.Context, shortID string) (*domain.Ta
 }
 
 func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
-	now := time.Now().UTC().Format(timeFormat)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	nowStr := now.Format(timeFormat)
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE tasks SET
 			parent_id = ?, project_id = ?, title = ?, description = ?,
@@ -63,7 +64,7 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 		task.Title, task.Description, task.Status, task.Priority,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), marshalJSON(task.UDA),
-		now, task.ID.String(), task.Version,
+		nowStr, task.ID.String(), task.Version,
 	)
 	if err != nil {
 		return err
@@ -76,6 +77,7 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 		return domain.ErrConflict
 	}
 	task.Version++
+	task.ModifiedAt = now
 	return nil
 }
 
@@ -90,6 +92,11 @@ func (r *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error 
 		return err
 	}
 	if n == 0 {
+		var exists int
+		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound
+		}
 		return domain.ErrConflict
 	}
 	return nil

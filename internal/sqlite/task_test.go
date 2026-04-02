@@ -192,3 +192,12 @@ func TestTaskDeleteConflict(t *testing.T) {
 		t.Fatalf("expected ErrConflict, got %v", err)
 	}
 }
+
+func TestTaskDeleteNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	err := repo.Delete(context.Background(), uuid.New(), 1)
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
