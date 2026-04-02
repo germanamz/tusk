@@ -75,7 +75,7 @@ func parsePriorityValue(s string) (int, error) {
 
 func validateDue(v string) error {
 	if v == "" {
-		return fmt.Errorf("due value cannot be empty")
+		return nil // empty means "clear" in modify context
 	}
 
 	// Range: "today..friday" or "2026-04-01..2026-04-10"
@@ -120,6 +120,9 @@ func validateSingleDue(v string) error {
 }
 
 func validateShortID(v string) error {
+	if v == "" {
+		return nil // empty means "clear" in modify context
+	}
 	if len(v) < 4 {
 		return fmt.Errorf("short ID %q is too short: minimum 4 hex characters", v)
 	}

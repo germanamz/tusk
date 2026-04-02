@@ -47,6 +47,7 @@ func TestValidatePriority(t *testing.T) {
 
 func TestValidateDue(t *testing.T) {
 	valid := []string{
+		"",
 		"2026-04-10",
 		"2026-04-10T15:30:00Z",
 		"2026-04-10T15:30:00+02:00",
@@ -63,7 +64,7 @@ func TestValidateDue(t *testing.T) {
 		}
 	}
 
-	invalid := []string{"", "notadate", "13-13-2026", "..friday", "today.."}
+	invalid := []string{"notadate", "13-13-2026", "..friday", "today.."}
 	for _, v := range invalid {
 		if err := validateDue(v); err == nil {
 			t.Errorf("validateDue(%q) expected error", v)
@@ -72,14 +73,14 @@ func TestValidateDue(t *testing.T) {
 }
 
 func TestValidateShortID(t *testing.T) {
-	valid := []string{"a3f8b2c1", "DEADBEEF", "abcd1234", "abcdef012"}
+	valid := []string{"", "a3f8b2c1", "DEADBEEF", "abcd1234", "abcdef012"}
 	for _, v := range valid {
 		if err := validateShortID(v); err != nil {
 			t.Errorf("validateShortID(%q) unexpected error: %v", v, err)
 		}
 	}
 
-	invalid := []string{"", "xyz!", "ab", "abc", "not-hex!!"}
+	invalid := []string{"xyz!", "ab", "abc", "not-hex!!"}
 	for _, v := range invalid {
 		if err := validateShortID(v); err == nil {
 			t.Errorf("validateShortID(%q) expected error", v)

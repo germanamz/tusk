@@ -72,7 +72,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
 	tagSvc := service.NewTagService(tagRepo)
 
-	app := New(taskSvc, tagSvc, projectRepo)
+	app := New(taskSvc, tagSvc, projectRepo, taskRepo)
 	return app, taskSvc
 }
 
@@ -376,7 +376,7 @@ func TestRunModify_Title(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "title:Updated"})
+	app.root.SetArgs([]string{"modify", task.ShortID, "Updated"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestRunModify_Priority(t *testing.T) {
 func TestRunModify_NotFound(t *testing.T) {
 	app, _ := testApp(t)
 
-	app.root.SetArgs([]string{"modify", "nonexist", "title:Nope"})
+	app.root.SetArgs([]string{"modify", "nonexist", "Nope"})
 	err := app.root.Execute()
 	if err == nil {
 		t.Fatal("expected error")
