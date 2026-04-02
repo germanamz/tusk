@@ -359,3 +359,80 @@ func TestRunInfo_JSON(t *testing.T) {
 		t.Fatalf("expected JSON output, got:\n%s", buf.String())
 	}
 }
+
+func TestRunModify_Title(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Original"}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"modify", task.ShortID, "title:Updated"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify: %v", err)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+	if got.Title != "Updated" {
+		t.Fatalf("expected title 'Updated', got %q", got.Title)
+	}
+	if got.Version != 2 {
+		t.Fatalf("expected version 2, got %d", got.Version)
+	}
+}
+
+func TestRunModify_Priority(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Modify priority"}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"modify", task.ShortID, "priority:urgent"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify: %v", err)
+	}
+
+	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+	if got.Priority != 4 {
+		t.Fatalf("expected priority 4, got %d", got.Priority)
+	}
+}
+
+func TestRunModify_NotFound(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"modify", "nonexist", "title:Nope"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found', got %q", err.Error())
+	}
+}
+
+func TestRunModify_TagsError(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Tag test"}
+	taskSvc.Create(ctx, task)
+
+	app.root.SetArgs([]string{"modify", task.ShortID, "+api"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for tags")
+	}
+	if !strings.Contains(err.Error(), "tags not yet supported") {
+		t.Fatalf("expected 'tags not yet supported', got %q", err.Error())
+	}
+}

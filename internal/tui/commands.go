@@ -3,8 +3,10 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -129,7 +131,93 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runModify(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("not implemented")
+	ctx := cmd.Context()
+	shortID := args[0]
+
+	// Tags not yet supported
+	parsed := parseArgs(args[1:])
+	if len(parsed.Tags) > 0 || len(parsed.ExclTags) > 0 {
+		return fmt.Errorf("tags not yet supported")
+	}
+
+	// Auto-fetch current version
+	current, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	upd := domain.TaskUpdate{
+		ShortID: shortID,
+		Version: current.Version,
+	}
+
+	// Title
+	if s, ok := parsed.Fields["title"]; ok {
+		upd.Title = &s
+	}
+
+	// Priority
+	if s, ok := parsed.Fields["priority"]; ok {
+		p, err := parsePriority(s)
+		if err != nil {
+			return err
+		}
+		upd.Priority = &p
+	}
+
+	// Status
+	if s, ok := parsed.Fields["status"]; ok {
+		upd.Status = &s
+	}
+
+	// Due date (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
+	if s, ok := parsed.Fields["due"]; ok {
+		if s == "" {
+			var nilTime *time.Time
+			upd.DueAt = &nilTime
+		} else {
+			d, err := parseDate(s)
+			if err != nil {
+				return err
+			}
+			dp := &d
+			upd.DueAt = &dp
+		}
+	}
+
+	// Project
+	if name, ok := parsed.Fields["project"]; ok {
+		project, err := a.projectRepo.GetByName(ctx, name)
+		if err != nil {
+			return fmt.Errorf("project %q not found", name)
+		}
+		pid := project.ID
+		pp := &pid
+		upd.ProjectID = &pp
+	}
+
+	// Parent (double pointer: empty string = clear parent)
+	if s, ok := parsed.Fields["parent"]; ok {
+		if s == "" {
+			var nilUUID *uuid.UUID
+			upd.ParentID = &nilUUID
+		} else {
+			parent, err := a.taskSvc.GetByShortID(ctx, s)
+			if err != nil {
+				return fmt.Errorf("%s", formatError(err, s))
+			}
+			pid := parent.ID
+			pp := &pid
+			upd.ParentID = &pp
+		}
+	}
+
+	updated, err := a.taskSvc.Update(ctx, upd)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	return renderMutationResult(cmd.OutOrStdout(), "Modified", updated, a.format)
 }
 
 func (a *App) runStart(cmd *cobra.Command, args []string) error {
