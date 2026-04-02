@@ -184,7 +184,11 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
-	parsed := parseArgs(args[1:])
+	input := strings.Join(args[1:], " ")
+	fs, parseErrs := filter.Parse(input)
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("%s", filter.FormatErrors(parseErrs))
+	}
 
 	// Auto-fetch current version
 	current, err := a.taskSvc.GetByShortID(ctx, shortID)
@@ -197,14 +201,14 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		Version: current.Version,
 	}
 
-	// Title
-	if s, ok := parsed.Fields["title"]; ok {
-		upd.Title = &s
+	// Title from free text (if any)
+	if title := fs.Title(); title != "" {
+		upd.Title = &title
 	}
 
 	// Priority
-	if s, ok := parsed.Fields["priority"]; ok {
-		p, err := parsePriority(s)
+	if f, ok := fs.GetField("priority"); ok {
+		p, err := filter.ParsePriorityValue(f.Value)
 		if err != nil {
 			return err
 		}
@@ -212,17 +216,18 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	}
 
 	// Status
-	if s, ok := parsed.Fields["status"]; ok {
-		upd.Status = &s
+	if f, ok := fs.GetField("status"); ok {
+		v := f.Value
+		upd.Status = &v
 	}
 
 	// Due date (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
-	if s, ok := parsed.Fields["due"]; ok {
-		if s == "" {
+	if f, ok := fs.GetField("due"); ok {
+		if f.Value == "" {
 			var nilTime *time.Time
 			upd.DueAt = &nilTime
 		} else {
-			d, err := parseDate(s)
+			d, err := filter.ParseDateValue(f.Value)
 			if err != nil {
 				return err
 			}
@@ -232,10 +237,10 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	}
 
 	// Project
-	if name, ok := parsed.Fields["project"]; ok {
-		project, err := a.projectRepo.GetByName(ctx, name)
+	if f, ok := fs.GetField("project"); ok {
+		project, err := a.projectRepo.GetByName(ctx, f.Value)
 		if err != nil {
-			return fmt.Errorf("project %q not found", name)
+			return fmt.Errorf("project %q not found", f.Value)
 		}
 		pid := project.ID
 		pp := &pid
@@ -243,14 +248,14 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parent (double pointer: empty string = clear parent)
-	if s, ok := parsed.Fields["parent"]; ok {
-		if s == "" {
+	if f, ok := fs.GetField("parent"); ok {
+		if f.Value == "" {
 			var nilUUID *uuid.UUID
 			upd.ParentID = &nilUUID
 		} else {
-			parent, err := a.taskSvc.GetByShortID(ctx, s)
+			parent, err := a.taskSvc.GetByShortID(ctx, f.Value)
 			if err != nil {
-				return fmt.Errorf("%s", formatError(err, s))
+				return fmt.Errorf("%s", formatError(err, f.Value))
 			}
 			pid := parent.ID
 			pp := &pid
@@ -264,15 +269,17 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add new tags
-	if len(parsed.Tags) > 0 {
-		if err := a.tagSvc.AssignToTask(ctx, updated.ID, parsed.Tags); err != nil {
+	incTags := fs.IncludeTags()
+	if len(incTags) > 0 {
+		if err := a.tagSvc.AssignToTask(ctx, updated.ID, incTags); err != nil {
 			return fmt.Errorf("assigning tags: %w", err)
 		}
 	}
 
 	// Remove excluded tags
-	if len(parsed.ExclTags) > 0 {
-		if err := a.tagSvc.RemoveFromTask(ctx, updated.ID, parsed.ExclTags); err != nil {
+	excTags := fs.ExcludeTags()
+	if len(excTags) > 0 {
+		if err := a.tagSvc.RemoveFromTask(ctx, updated.ID, excTags); err != nil {
 			return fmt.Errorf("removing tags: %w", err)
 		}
 	}
