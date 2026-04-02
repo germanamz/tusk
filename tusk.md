@@ -695,8 +695,10 @@ var (
 - [x] Domain types and repository interfaces
 - [x] SQLite implementation with migrations
 - [x] TaskService with CRUD, workflow validation, optimistic locking
-- [ ] Basic CLI: `add`, `list`, `info`, `modify`, `done`, `delete`
+- [x] Basic CLI: `add`, `list`, `info`, `modify`, `done`, `delete`, `annotate`
+- [ ] Tag support: TagService, wire into CLI `add`/`modify`/`list`
 - [ ] Filter syntax parser
+- [ ] Automated end-to-end CLI tests
 
 ### v0.2 — Relations and hierarchy
 
