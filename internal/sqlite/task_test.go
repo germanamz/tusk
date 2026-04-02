@@ -152,6 +152,16 @@ func TestTaskUpdate(t *testing.T) {
 	}
 }
 
+func TestTaskUpdateNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	task := newTestTask()
+	err := repo.Update(context.Background(), task)
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestTaskUpdateConflict(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
@@ -357,6 +367,52 @@ func TestTaskListWaitingOnly(t *testing.T) {
 	}
 	if len(tasks) != 1 {
 		t.Fatalf("expected 1 waiting task, got %d", len(tasks))
+	}
+}
+
+func TestTaskListCombinedFilters(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	projRepo := NewProjectRepo(s.DB())
+	ctx := context.Background()
+
+	proj := &domain.Project{
+		ID: uuid.New(), Name: "combined", DefaultWorkflow: "default",
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := projRepo.Create(ctx, proj); err != nil {
+		t.Fatal(err)
+	}
+
+	// Task matches both filters: status=active AND project=proj
+	t1 := newTestTask()
+	t1.Status = "active"
+	t1.ProjectID = &proj.ID
+	mustCreateTask(t, repo, t1)
+
+	// Matches status but not project
+	t2 := newTestTask()
+	t2.Status = "active"
+	mustCreateTask(t, repo, t2)
+
+	// Matches project but not status
+	t3 := newTestTask()
+	t3.Status = "pending"
+	t3.ProjectID = &proj.ID
+	mustCreateTask(t, repo, t3)
+
+	tasks, err := repo.List(ctx, domain.TaskFilter{
+		Statuses:  []string{"active"},
+		ProjectID: &proj.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task matching both filters, got %d", len(tasks))
+	}
+	if tasks[0].ID != t1.ID {
+		t.Fatalf("expected task %s, got %s", t1.ID, tasks[0].ID)
 	}
 }
 

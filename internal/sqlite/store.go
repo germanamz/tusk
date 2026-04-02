@@ -30,7 +30,11 @@ type Store struct {
 // New creates a new Store by opening a SQLite database at dbPath, configuring
 // it for concurrent access, and running all pending migrations from migrationsFS.
 func New(dbPath string, migrationsFS fs.FS) (*Store, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	// Pragmas are set via DSN parameters so they apply to every connection
+	// opened by the pool, not just the first one. foreign_keys is per-connection
+	// and would silently default to OFF on new pooled connections without this.
+	dsn := dbPath + "?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON"
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
@@ -38,17 +42,6 @@ func New(dbPath string, migrationsFS fs.FS) (*Store, error) {
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("pinging database: %w", err)
-	}
-
-	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
-	} {
-		if _, err := db.Exec(pragma); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("setting %s: %w", pragma, err)
-		}
 	}
 
 	s := &Store{db: db}
@@ -216,10 +209,13 @@ func parseTime(ns sql.NullString) (*time.Time, error) {
 
 // marshalJSON converts a Go value to a JSON string for storage in a TEXT column.
 // If the value is nil, it returns "{}" (empty JSON object).
-func marshalJSON(v any) string {
+func marshalJSON(v any) (string, error) {
 	if v == nil {
-		return "{}"
+		return "{}", nil
 	}
-	b, _ := json.Marshal(v)
-	return string(b)
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("marshaling JSON: %w", err)
+	}
+	return string(b), nil
 }

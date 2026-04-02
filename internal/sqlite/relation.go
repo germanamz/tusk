@@ -123,39 +123,48 @@ func (r *RelationRepo) Exists(ctx context.Context, sourceID, targetID uuid.UUID,
 	return exists, err
 }
 
+type relationScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanRelation(s relationScanner) (*domain.Relation, error) {
+	var (
+		r                                 domain.Relation
+		id, sourceID, targetID, createdAt string
+	)
+	if err := s.Scan(&id, &sourceID, &targetID, &r.RelationType, &createdAt); err != nil {
+		return nil, err
+	}
+	var err error
+	r.ID, err = uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	r.SourceID, err = uuid.Parse(sourceID)
+	if err != nil {
+		return nil, err
+	}
+	r.TargetID, err = uuid.Parse(targetID)
+	if err != nil {
+		return nil, err
+	}
+	r.CreatedAt, err = time.Parse(timeFormat, createdAt)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 // scanRelations iterates over sql.Rows and assembles a slice of *domain.Relation.
-// This is a shared helper used by GetByTask, GetBlocking, and GetBlockedBy to
-// avoid duplicating the row-scanning loop three times.
-//
 // This function does NOT call rows.Close() — that is the caller's responsibility.
 func scanRelations(rows *sql.Rows) ([]*domain.Relation, error) {
-	var result []*domain.Relation
+	result := make([]*domain.Relation, 0)
 	for rows.Next() {
-		var (
-			r                                 domain.Relation
-			id, sourceID, targetID, createdAt string
-		)
-		if err := rows.Scan(&id, &sourceID, &targetID, &r.RelationType, &createdAt); err != nil {
-			return nil, err
-		}
-		var err error
-		r.ID, err = uuid.Parse(id)
+		rel, err := scanRelation(rows)
 		if err != nil {
 			return nil, err
 		}
-		r.SourceID, err = uuid.Parse(sourceID)
-		if err != nil {
-			return nil, err
-		}
-		r.TargetID, err = uuid.Parse(targetID)
-		if err != nil {
-			return nil, err
-		}
-		r.CreatedAt, err = time.Parse(timeFormat, createdAt)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, &r)
+		result = append(result, rel)
 	}
 	return result, rows.Err()
 }

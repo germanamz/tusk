@@ -76,7 +76,7 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*domain.Project, error) {
 	}
 	defer rows.Close()
 
-	var result []*domain.Project
+	result := make([]*domain.Project, 0)
 	for rows.Next() {
 		p, err := scanProject(rows)
 		if err != nil {

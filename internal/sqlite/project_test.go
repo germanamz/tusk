@@ -159,6 +159,41 @@ func TestProjectUpdate(t *testing.T) {
 	}
 }
 
+// TestProjectDeleteNotFound verifies that deleting a non-existent project
+// returns domain.ErrNotFound.
+func TestProjectDeleteNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewProjectRepo(s.DB())
+	err := repo.Delete(context.Background(), uuid.New())
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// TestProjectCreateDuplicate verifies that creating a project with a duplicate
+// name returns an error (UNIQUE constraint violation).
+func TestProjectCreateDuplicate(t *testing.T) {
+	s := testStore(t)
+	repo := NewProjectRepo(s.DB())
+	ctx := context.Background()
+	p1 := &domain.Project{
+		ID: uuid.New(), Name: "dupname", Description: "First",
+		DefaultWorkflow: "default",
+		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, p1); err != nil {
+		t.Fatal(err)
+	}
+	p2 := &domain.Project{
+		ID: uuid.New(), Name: "dupname", Description: "Second",
+		DefaultWorkflow: "default",
+		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, p2); err == nil {
+		t.Fatal("expected error for duplicate name, got nil")
+	}
+}
+
 // TestProjectDelete verifies that Delete removes a project, and that
 // GetByID returns ErrNotFound afterward.
 func TestProjectDelete(t *testing.T) {

@@ -45,6 +45,62 @@ func TestWorkflowGetTransitions(t *testing.T) {
 	if len(transitions) != 6 { t.Fatalf("expected 6, got %d", len(transitions)) }
 }
 
+func TestWorkflowGetTransitionsValidatePairs(t *testing.T) {
+	s := testStore(t)
+	repo := NewWorkflowRepo(s.DB())
+	ctx := context.Background()
+	defaultProjectID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	wf, err := repo.GetByProjectAndName(ctx, defaultProjectID, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transitions, err := repo.GetTransitions(ctx, wf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify specific known transitions exist in the seed data.
+	type pair struct{ from, to string }
+	expected := map[pair]bool{
+		{"pending", "active"}:    false,
+		{"active", "completed"}:  false,
+		{"active", "pending"}:    false,
+		{"completed", "pending"}: false,
+	}
+	for _, tr := range transitions {
+		p := pair{tr.FromStatus, tr.ToStatus}
+		if _, ok := expected[p]; ok {
+			expected[p] = true
+		}
+	}
+	for p, found := range expected {
+		if !found {
+			t.Errorf("expected transition %s → %s not found", p.from, p.to)
+		}
+	}
+}
+
+func TestWorkflowCreateEmptyStatuses(t *testing.T) {
+	s := testStore(t)
+	projRepo := NewProjectRepo(s.DB())
+	repo := NewWorkflowRepo(s.DB())
+	ctx := context.Background()
+	proj := &domain.Project{ID: uuid.New(), Name: "empty-statuses-proj", DefaultWorkflow: "minimal", CreatedAt: mustTimeNow()}
+	if err := projRepo.Create(ctx, proj); err != nil {
+		t.Fatal(err)
+	}
+	wf := &domain.Workflow{ID: uuid.New(), ProjectID: proj.ID, Name: "minimal", Statuses: []string{}}
+	if err := repo.Create(ctx, wf); err != nil {
+		t.Fatalf("Create with empty statuses: %v", err)
+	}
+	got, err := repo.GetByProjectAndName(ctx, proj.ID, "minimal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Statuses) != 0 {
+		t.Fatalf("expected 0 statuses, got %d", len(got.Statuses))
+	}
+}
+
 func TestWorkflowCreate(t *testing.T) {
 	s := testStore(t)
 	projRepo := NewProjectRepo(s.DB())

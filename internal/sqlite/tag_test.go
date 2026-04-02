@@ -68,6 +68,38 @@ func TestTagAssignToTask(t *testing.T) {
 	if tags[0].Name != "urgent" { t.Fatalf("expected urgent, got %s", tags[0].Name) }
 }
 
+func TestTagAssignToTaskDuplicate(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	tagRepo := NewTagRepo(s.DB())
+	ctx := context.Background()
+	task := newTestTask(); mustCreateTask(t, taskRepo, task)
+	tag := &domain.Tag{ID: uuid.New(), Name: "dup-assign"}
+	if err := tagRepo.Create(ctx, tag); err != nil { t.Fatal(err) }
+	if err := tagRepo.AssignToTask(ctx, task.ID, tag.ID); err != nil { t.Fatal(err) }
+	// Second assign should be idempotent (INSERT OR IGNORE).
+	if err := tagRepo.AssignToTask(ctx, task.ID, tag.ID); err != nil {
+		t.Fatalf("expected idempotent assign, got %v", err)
+	}
+	tags, err := tagRepo.GetTaskTags(ctx, task.ID)
+	if err != nil { t.Fatal(err) }
+	if len(tags) != 1 { t.Fatalf("expected 1 tag after duplicate assign, got %d", len(tags)) }
+}
+
+func TestTagRemoveFromTaskNotFound(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	tagRepo := NewTagRepo(s.DB())
+	ctx := context.Background()
+	task := newTestTask(); mustCreateTask(t, taskRepo, task)
+	tag := &domain.Tag{ID: uuid.New(), Name: "never-assigned"}
+	if err := tagRepo.Create(ctx, tag); err != nil { t.Fatal(err) }
+	err := tagRepo.RemoveFromTask(ctx, task.ID, tag.ID)
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestTagRemoveFromTask(t *testing.T) {
 	s := testStore(t)
 	taskRepo := NewTaskRepo(s.DB())

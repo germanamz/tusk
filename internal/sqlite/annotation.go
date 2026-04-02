@@ -59,10 +59,10 @@ func (r *AnnotationRepo) GetByTask(ctx context.Context, taskID uuid.UUID) ([]*do
 	}
 	defer rows.Close()
 
-	var result []*domain.Annotation
+	result := make([]*domain.Annotation, 0)
 	for rows.Next() {
 		var (
-			a                      domain.Annotation
+			a                  domain.Annotation
 			id, tid, createdAt string
 		)
 		if err := rows.Scan(&id, &tid, &a.Body, &createdAt); err != nil {

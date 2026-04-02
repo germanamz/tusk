@@ -131,6 +131,17 @@ func TestRelationDelete(t *testing.T) {
 	}
 }
 
+// TestRelationDeleteNotFound verifies that deleting a non-existent relation
+// returns domain.ErrNotFound.
+func TestRelationDeleteNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewRelationRepo(s.DB())
+	err := repo.Delete(context.Background(), uuid.New())
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 // TestRelationGetByTask verifies that GetByTask returns relations where the
 // task is EITHER the source OR the target.
 //

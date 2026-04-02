@@ -40,7 +40,7 @@ func (r *WorkflowRepo) GetTransitions(ctx context.Context, workflowID uuid.UUID)
 		workflowID.String())
 	if err != nil { return nil, err }
 	defer rows.Close()
-	var result []*domain.WorkflowTransition
+	result := make([]*domain.WorkflowTransition, 0)
 	for rows.Next() {
 		var (t domain.WorkflowTransition; id, wid string)
 		if err := rows.Scan(&id, &wid, &t.FromStatus, &t.ToStatus); err != nil { return nil, err }

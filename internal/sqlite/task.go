@@ -26,14 +26,18 @@ func NewTaskRepo(db *sql.DB) *TaskRepo {
 }
 
 func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
-	_, err := r.db.ExecContext(ctx, fmt.Sprintf(
+	udaJSON, err := marshalJSON(task.UDA)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, fmt.Sprintf(
 		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskColumns),
 		task.ID.String(), task.ShortID,
 		nullableUUID(task.ParentID), nullableUUID(task.ProjectID),
 		task.Title, task.Description, task.Status, task.Priority, task.Version,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
-		nullableString(task.RecurrenceRule), marshalJSON(task.UDA),
+		nullableString(task.RecurrenceRule), udaJSON,
 		task.CreatedAt.UTC().Format(timeFormat),
 		task.ModifiedAt.UTC().Format(timeFormat),
 	)
@@ -53,6 +57,10 @@ func (r *TaskRepo) GetByShortID(ctx context.Context, shortID string) (*domain.Ta
 }
 
 func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
+	udaJSON, err := marshalJSON(task.UDA)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	nowStr := now.Format(timeFormat)
 	res, err := r.db.ExecContext(ctx, `
@@ -64,7 +72,7 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 		nullableUUID(task.ParentID), nullableUUID(task.ProjectID),
 		task.Title, task.Description, task.Status, task.Priority,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
-		nullableString(task.RecurrenceRule), marshalJSON(task.UDA),
+		nullableString(task.RecurrenceRule), udaJSON,
 		nowStr, task.ID.String(), task.Version,
 	)
 	if err != nil {
@@ -75,6 +83,12 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 		return err
 	}
 	if n == 0 {
+		// Distinguish "task does not exist" from "version mismatch".
+		var exists int
+		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, task.ID.String()).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound
+		}
 		return domain.ErrConflict
 	}
 	task.Version++
@@ -135,6 +149,8 @@ func (r *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*doma
 
 // GetDescendants retrieves all descendants (children, grandchildren, etc.)
 // of the given root task using a recursive CTE.
+// SQLite's default SQLITE_MAX_RECURSIVE limit (1000) acts as a safety net
+// against cycles or excessively deep hierarchies.
 func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error) {
 	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
 		WITH RECURSIVE descendants AS (
@@ -241,7 +257,7 @@ func (r *TaskRepo) scanOne(row *sql.Row) (*domain.Task, error) {
 }
 
 func (r *TaskRepo) scanRows(rows *sql.Rows) ([]*domain.Task, error) {
-	var result []*domain.Task
+	result := make([]*domain.Task, 0)
 	for rows.Next() {
 		t, err := scanTask(rows)
 		if err != nil {
