@@ -201,3 +201,161 @@ func TestTaskDeleteNotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestTaskListEmpty(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	tasks, err := repo.List(context.Background(), domain.TaskFilter{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks, got %d", len(tasks))
+	}
+}
+
+func TestTaskListAll(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		mustCreateTask(t, repo, newTestTask())
+	}
+	tasks, err := repo.List(ctx, domain.TaskFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(tasks))
+	}
+}
+
+func TestTaskListByStatus(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	t1 := newTestTask(); t1.Status = "pending"; mustCreateTask(t, repo, t1)
+	t2 := newTestTask(); t2.Status = "active"; mustCreateTask(t, repo, t2)
+	tasks, err := repo.List(ctx, domain.TaskFilter{Statuses: []string{"active"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Status != "active" {
+		t.Fatalf("expected active, got %s", tasks[0].Status)
+	}
+}
+
+func TestTaskListByStatusMultiple(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	for _, status := range []string{"pending", "active", "completed"} {
+		task := newTestTask(); task.Status = status; mustCreateTask(t, repo, task)
+	}
+	tasks, err := repo.List(ctx, domain.TaskFilter{Statuses: []string{"pending", "active"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+}
+
+func TestTaskListByProject(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	projRepo := NewProjectRepo(s.DB())
+	ctx := context.Background()
+	proj := &domain.Project{
+		ID: uuid.New(), Name: "backend", DefaultWorkflow: "default",
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := projRepo.Create(ctx, proj); err != nil {
+		t.Fatal(err)
+	}
+	t1 := newTestTask(); t1.ProjectID = &proj.ID; mustCreateTask(t, repo, t1)
+	t2 := newTestTask(); mustCreateTask(t, repo, t2)
+	tasks, err := repo.List(ctx, domain.TaskFilter{ProjectID: &proj.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+}
+
+func TestTaskListByPriority(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	for _, p := range []int{1, 2, 3, 4} {
+		task := newTestTask(); task.Priority = p; mustCreateTask(t, repo, task)
+	}
+	min, max := 2, 3
+	tasks, err := repo.List(ctx, domain.TaskFilter{PriorityMin: &min, PriorityMax: &max})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+}
+
+func TestTaskListByDueDate(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	d1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	d3 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	for _, d := range []*time.Time{&d1, &d2, &d3} {
+		task := newTestTask(); task.DueAt = d; mustCreateTask(t, repo, task)
+	}
+	after := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
+	before := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	tasks, err := repo.List(ctx, domain.TaskFilter{DueAfter: &after, DueBefore: &before})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+}
+
+func TestTaskListByParent(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	parent := newTestTask(); mustCreateTask(t, repo, parent)
+	child := newTestTask(); child.ParentID = &parent.ID; mustCreateTask(t, repo, child)
+	orphan := newTestTask(); mustCreateTask(t, repo, orphan)
+	tasks, err := repo.List(ctx, domain.TaskFilter{ParentID: &parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(tasks))
+	}
+}
+
+func TestTaskListWaitingOnly(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	future := time.Now().UTC().Add(24 * time.Hour)
+	past := time.Now().UTC().Add(-24 * time.Hour)
+	t1 := newTestTask(); t1.WaitUntil = &future; mustCreateTask(t, repo, t1)
+	t2 := newTestTask(); t2.WaitUntil = &past; mustCreateTask(t, repo, t2)
+	t3 := newTestTask(); mustCreateTask(t, repo, t3)
+	waitingOnly := true
+	tasks, err := repo.List(ctx, domain.TaskFilter{WaitingOnly: &waitingOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 waiting task, got %d", len(tasks))
+	}
+}
