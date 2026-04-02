@@ -133,3 +133,91 @@ func TestFormatAge(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderTaskInfo_Text_AllFields(t *testing.T) {
+	projID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	parentID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	due := now.Add(24 * time.Hour)
+	task := &domain.Task{
+		ShortID:     "a3f8b2c1",
+		Title:       "Implement auth",
+		Description: "Build the auth middleware",
+		Status:      "active",
+		Priority:    3,
+		ProjectID:   &projID,
+		ParentID:    &parentID,
+		DueAt:       &due,
+		Version:     3,
+		CreatedAt:   now,
+		ModifiedAt:  now,
+	}
+	annotations := []*domain.Annotation{
+		{Body: "Blocked by upstream", CreatedAt: now},
+		{Body: "Unblocked", CreatedAt: now.Add(time.Hour)},
+	}
+
+	var buf bytes.Buffer
+	err := renderTaskInfo(&buf, task, annotations, "text")
+	if err != nil {
+		t.Fatalf("renderTaskInfo: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"a3f8b2c1", "Implement auth", "active", "high", "Blocked by upstream", "Unblocked"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderTaskInfo_Text_NullableFieldsOmitted(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	task := &domain.Task{
+		ShortID:    "b7c9d4e2",
+		Title:      "Simple task",
+		Status:     "pending",
+		Priority:   0,
+		Version:    1,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+
+	var buf bytes.Buffer
+	err := renderTaskInfo(&buf, task, nil, "text")
+	if err != nil {
+		t.Fatalf("renderTaskInfo: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "Due:") {
+		t.Fatalf("expected Due to be omitted, got:\n%s", out)
+	}
+	if strings.Contains(out, "Parent:") {
+		t.Fatalf("expected Parent to be omitted, got:\n%s", out)
+	}
+	if strings.Contains(out, "Annotations:") {
+		t.Fatalf("expected Annotations section to be omitted, got:\n%s", out)
+	}
+}
+
+func TestRenderTaskInfo_JSON(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	task := &domain.Task{
+		ID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		ShortID:    "a3f8b2c1",
+		Title:      "Test",
+		Status:     "pending",
+		Version:    1,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+
+	var buf bytes.Buffer
+	err := renderTaskInfo(&buf, task, nil, "json")
+	if err != nil {
+		t.Fatalf("renderTaskInfo: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"short_id"`) {
+		t.Fatalf("expected snake_case JSON, got:\n%s", out)
+	}
+}

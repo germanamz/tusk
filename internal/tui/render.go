@@ -131,3 +131,101 @@ func renderTaskList(w io.Writer, tasks []*domain.Task, format string) error {
 	}
 	return nil
 }
+
+// formatPriorityName converts a priority int to a full name for the info view.
+func formatPriorityName(p int) string {
+	switch p {
+	case 1:
+		return "low"
+	case 2:
+		return "medium"
+	case 3:
+		return "high"
+	case 4:
+		return "urgent"
+	default:
+		return "none"
+	}
+}
+
+// renderTaskInfo writes a single task's detail view to w.
+// For "text", it renders key-value pairs with optional annotations.
+// For "json", it renders the task as a JSON object.
+func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, format string) error {
+	if format == "json" {
+		tj := toTaskJSON(task)
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(tj)
+	}
+
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "ID:", task.ShortID); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Title:", task.Title); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Status:", task.Status); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Priority:", formatPriorityName(task.Priority)); err != nil {
+		return err
+	}
+
+	if task.Description != "" {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Description:", task.Description); err != nil {
+			return err
+		}
+	}
+	if task.ProjectID != nil {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Project:", task.ProjectID.String()); err != nil {
+			return err
+		}
+	}
+	if task.ParentID != nil {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Parent:", task.ParentID.String()); err != nil {
+			return err
+		}
+	}
+	if task.DueAt != nil {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Due:", task.DueAt.Format("2006-01-02")); err != nil {
+			return err
+		}
+	}
+	if task.WaitUntil != nil {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Wait:", task.WaitUntil.Format("2006-01-02 15:04:05")); err != nil {
+			return err
+		}
+	}
+	if task.RecurrenceRule != nil {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Recurrence:", *task.RecurrenceRule); err != nil {
+			return err
+		}
+	}
+
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Created:", task.CreatedAt.Format("2006-01-02 15:04:05")); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Modified:", task.ModifiedAt.Format("2006-01-02 15:04:05")); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%-13s %d\n", "Version:", task.Version); err != nil {
+		return err
+	}
+
+	if len(annotations) > 0 {
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, "Annotations:"); err != nil {
+			return err
+		}
+		for _, ann := range annotations {
+			if _, err := fmt.Fprintf(w, "  %s - %s\n", ann.CreatedAt.Format("2006-01-02 15:04"), ann.Body); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
