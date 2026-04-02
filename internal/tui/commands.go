@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/filter"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -100,23 +101,23 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 
 func (a *App) runList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	parsed := parseArgs(args)
 
-	filter, err := buildTaskFilter(ctx, parsed, a.projectRepo)
-	if err != nil {
-		return err
+	input := strings.Join(args, " ")
+	fs, parseErrs := filter.Parse(input)
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("%s", filter.FormatErrors(parseErrs))
 	}
 
-	// Handle parent filter if present
-	if shortID, ok := parsed.Fields["parent"]; ok {
-		parent, err := a.taskSvc.GetByShortID(ctx, shortID)
-		if err != nil {
-			return fmt.Errorf("%s", formatError(err, shortID))
+	tf, resolveErrs := a.resolver.Resolve(ctx, fs)
+	if len(resolveErrs) > 0 {
+		msgs := make([]string, len(resolveErrs))
+		for i, e := range resolveErrs {
+			msgs[i] = e.Error()
 		}
-		filter.ParentID = &parent.ID
+		return fmt.Errorf("%s", strings.Join(msgs, "\n"))
 	}
 
-	tasks, err := a.taskSvc.List(ctx, filter)
+	tasks, err := a.taskSvc.List(ctx, *tf)
 	if err != nil {
 		return err
 	}

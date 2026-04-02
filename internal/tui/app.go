@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/repository"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/spf13/cobra"
@@ -11,18 +12,22 @@ type App struct {
 	taskSvc     *service.TaskService
 	tagSvc      *service.TagService
 	projectRepo repository.ProjectRepository
+	taskRepo    repository.TaskRepository
+	resolver    *filter.Resolver
 	root        *cobra.Command
 	format      string
 }
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectRepo may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo repository.ProjectRepository) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo repository.ProjectRepository, taskRepo repository.TaskRepository) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
 		projectRepo: projectRepo,
+		taskRepo:    taskRepo,
 	}
+	a.resolver = filter.NewResolver(projectRepo, taskRepo)
 
 	a.root = &cobra.Command{
 		Use:   "tusk",

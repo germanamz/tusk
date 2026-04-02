@@ -49,7 +49,7 @@ func run() error {
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
 	tagSvc := service.NewTagService(tagRepo)
 
-	app := tui.New(taskSvc, tagSvc, projectRepo)
+	app := tui.New(taskSvc, tagSvc, projectRepo, taskRepo)
 	return app.Run(stripDBFlag(os.Args[1:]))
 }
 
