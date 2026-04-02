@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -102,15 +103,134 @@ func (r *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error 
 	return nil
 }
 
-// Stubs — implemented in Phase 4 and Phase 5
+// List retrieves tasks matching the given filter. An empty filter returns all
+// tasks. The filter fields are combined with AND logic — a task must match
+// every non-nil/non-empty filter field to be included.
 func (r *TaskRepo) List(ctx context.Context, filter domain.TaskFilter) ([]*domain.Task, error) {
-	return nil, fmt.Errorf("not implemented: see Phase 4")
+	ctePrefix, where, args := buildFilter(filter)
+	query := ctePrefix + fmt.Sprintf(`SELECT %s FROM tasks`, taskColumns)
+	if where != "" {
+		query += " WHERE " + where
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return r.scanRows(rows)
 }
+
+// GetChildren retrieves all direct children of the given parent task.
 func (r *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error) {
-	return nil, fmt.Errorf("not implemented: see Phase 5")
+	rows, err := r.db.QueryContext(ctx,
+		fmt.Sprintf(`SELECT %s FROM tasks WHERE parent_id = ?`, taskColumns),
+		parentID.String(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return r.scanRows(rows)
 }
+
+// GetDescendants retrieves all descendants (children, grandchildren, etc.)
+// of the given root task using a recursive CTE.
 func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error) {
-	return nil, fmt.Errorf("not implemented: see Phase 5")
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
+		WITH RECURSIVE descendants(id) AS (
+			SELECT id FROM tasks WHERE parent_id = ?
+			UNION ALL
+			SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+		)
+		SELECT %s FROM tasks WHERE tasks.id IN (SELECT id FROM descendants)`,
+		taskColumns),
+		rootID.String(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return r.scanRows(rows)
+}
+
+// buildFilter translates a TaskFilter struct into SQL fragments:
+//   - ctePrefix: a WITH RECURSIVE clause (only set when RootID is used)
+//   - where: the WHERE clause body (conditions joined by AND)
+//   - args: the parameter values corresponding to ? placeholders
+func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args []any) {
+	var conditions []string
+
+	if filter.ProjectID != nil {
+		conditions = append(conditions, "project_id = ?")
+		args = append(args, filter.ProjectID.String())
+	}
+	if filter.ParentID != nil {
+		conditions = append(conditions, "parent_id = ?")
+		args = append(args, filter.ParentID.String())
+	}
+	if filter.RootID != nil {
+		ctePrefix = `WITH RECURSIVE descendants(id) AS (
+			SELECT id FROM tasks WHERE parent_id = ?
+			UNION ALL
+			SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+		) `
+		args = append([]any{filter.RootID.String()}, args...)
+		conditions = append(conditions, "tasks.id IN (SELECT id FROM descendants)")
+	}
+	if len(filter.Statuses) > 0 {
+		placeholders := make([]string, len(filter.Statuses))
+		for i, s := range filter.Statuses {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ",")))
+	}
+	if len(filter.Tags) > 0 {
+		placeholders := make([]string, len(filter.Tags))
+		for i, tag := range filter.Tags {
+			placeholders[i] = "?"
+			args = append(args, tag)
+		}
+		conditions = append(conditions, fmt.Sprintf(
+			`(SELECT COUNT(DISTINCT tg.name) FROM tag_assignments ta
+			  JOIN tags tg ON ta.tag_id = tg.id
+			  WHERE ta.task_id = tasks.id AND tg.name IN (%s)) = ?`,
+			strings.Join(placeholders, ",")))
+		args = append(args, len(filter.Tags))
+	}
+	if len(filter.ExcludeTags) > 0 {
+		placeholders := make([]string, len(filter.ExcludeTags))
+		for i, tag := range filter.ExcludeTags {
+			placeholders[i] = "?"
+			args = append(args, tag)
+		}
+		conditions = append(conditions, fmt.Sprintf(
+			`NOT EXISTS (SELECT 1 FROM tag_assignments ta
+			 JOIN tags tg ON ta.tag_id = tg.id
+			 WHERE ta.task_id = tasks.id AND tg.name IN (%s))`,
+			strings.Join(placeholders, ",")))
+	}
+	if filter.PriorityMin != nil {
+		conditions = append(conditions, "priority >= ?")
+		args = append(args, *filter.PriorityMin)
+	}
+	if filter.PriorityMax != nil {
+		conditions = append(conditions, "priority <= ?")
+		args = append(args, *filter.PriorityMax)
+	}
+	if filter.DueAfter != nil {
+		conditions = append(conditions, "due_at > ?")
+		args = append(args, filter.DueAfter.UTC().Format(timeFormat))
+	}
+	if filter.DueBefore != nil {
+		conditions = append(conditions, "due_at < ?")
+		args = append(args, filter.DueBefore.UTC().Format(timeFormat))
+	}
+	if filter.WaitingOnly != nil && *filter.WaitingOnly {
+		conditions = append(conditions, "wait_until > ?")
+		args = append(args, time.Now().UTC().Format(timeFormat))
+	}
+	return ctePrefix, strings.Join(conditions, " AND "), args
 }
 
 func (r *TaskRepo) scanOne(row *sql.Row) (*domain.Task, error) {
