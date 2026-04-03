@@ -54,5 +54,5 @@ release:
   github:
     owner: germanamz
     name: tusk
-  draft: false
+  mode: keep-existing
   prerelease: auto
