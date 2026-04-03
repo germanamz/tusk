@@ -129,7 +129,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 ## Roadmap
 
 - [x] **v0.1** — Foundation: domain types, SQLite, TaskService, CLI, tags, filters, e2e tests
-- [ ] **v0.2** — Relations and hierarchy: cycle detection, tree view, completion propagation
+- [ ] **v0.2** — Relations and hierarchy: ~~cycle detection~~, tree view, completion propagation
 - [ ] **v0.3** — MCP server: stdio transport, all CLI commands as tools
 - [ ] **v0.4** — Urgency and UX: scoring engine, configurable weights, color output
 - [ ] **v0.5** — Advanced: recurrence, UDA, SSE transport, export
