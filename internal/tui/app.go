@@ -109,7 +109,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo P
 			Use:   "version",
 			Short: "Print version information",
 			Run: func(cmd *cobra.Command, args []string) {
-				fmt.Fprintf(cmd.OutOrStdout(), "tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date)
 			},
 		},
 	)
