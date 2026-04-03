@@ -143,3 +143,91 @@ func TestRelations(t *testing.T) {
 	}
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestRelationsCycleDetection(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "blocks_direct_cycle",
+			Steps: []Step{
+				// Step 0: Create task A
+				{
+					Args: []string{"add", "Task A"},
+				},
+				// Step 1: Create task B
+				{
+					Args: []string{"add", "Task B"},
+				},
+				// Step 2: A blocks B — succeeds
+				{
+					Args: []string{"link", "$0.short_id", "blocks", "$1.short_id"},
+				},
+				// Step 3: B blocks A — should fail (cycle)
+				{
+					Args:    []string{"link", "$1.short_id", "blocks", "$0.short_id"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "cycle")
+					},
+				},
+			},
+		},
+		{
+			Name: "blocks_transitive_cycle",
+			Steps: []Step{
+				// Step 0: Task A
+				{
+					Args: []string{"add", "Task A"},
+				},
+				// Step 1: Task B
+				{
+					Args: []string{"add", "Task B"},
+				},
+				// Step 2: Task C
+				{
+					Args: []string{"add", "Task C"},
+				},
+				// Step 3: A blocks B
+				{
+					Args: []string{"link", "$0.short_id", "blocks", "$1.short_id"},
+				},
+				// Step 4: B blocks C
+				{
+					Args: []string{"link", "$1.short_id", "blocks", "$2.short_id"},
+				},
+				// Step 5: C blocks A — should fail (cycle: A->B->C->A)
+				{
+					Args:    []string{"link", "$2.short_id", "blocks", "$0.short_id"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "cycle")
+					},
+				},
+			},
+		},
+		{
+			Name: "blocks_chain_no_cycle",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Task A"},
+				},
+				{
+					Args: []string{"add", "Task B"},
+				},
+				{
+					Args: []string{"add", "Task C"},
+				},
+				// A blocks B — ok
+				{
+					Args: []string{"link", "$0.short_id", "blocks", "$1.short_id"},
+				},
+				// B blocks C — ok (chain, not a cycle)
+				{
+					Args: []string{"link", "$1.short_id", "blocks", "$2.short_id"},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
