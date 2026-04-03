@@ -96,9 +96,19 @@ func (e *Env) Run(args ...string) Result {
 
 // SetDefaultProjectSettings updates the _default project's settings JSON
 // directly in the database. This is needed because there is no CLI command
-// to modify project settings yet.
+// to modify project settings yet. It runs a dummy CLI command first to
+// ensure the database and tables are initialized.
 func (e *Env) SetDefaultProjectSettings(settingsJSON string) {
 	e.t.Helper()
+
+	// Run a no-op command to initialize the database (migrations, default project).
+	// We don't store the result in env.results so $N references are unaffected.
+	initArgs := []string{"--db", e.dbPath, "list"}
+	cmd := exec.Command(e.binPath, initArgs...)
+	if err := cmd.Run(); err != nil {
+		e.t.Fatalf("initializing db for settings: %v", err)
+	}
+
 	db, err := sql.Open("sqlite", e.dbPath+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		e.t.Fatalf("opening db for settings: %v", err)
