@@ -153,12 +153,12 @@ type projectScanner interface {
 // does not need access to the database — it only needs the scanner.
 //
 // The function:
-// 1. Scans the 5 columns (id, name, description, default_workflow, created_at)
-//    into local variables. id and created_at are scanned as strings because
-//    SQLite stores them as TEXT.
-// 2. Parses the id string into a uuid.UUID.
-// 3. Parses the created_at string into a time.Time using timeFormat.
-// 4. Returns the assembled *domain.Project.
+//  1. Scans the 5 columns (id, name, description, default_workflow, created_at)
+//     into local variables. id and created_at are scanned as strings because
+//     SQLite stores them as TEXT.
+//  2. Parses the id string into a uuid.UUID.
+//  3. Parses the created_at string into a time.Time using timeFormat.
+//  4. Returns the assembled *domain.Project.
 func scanProject(s projectScanner) (*domain.Project, error) {
 	var (
 		p         domain.Project

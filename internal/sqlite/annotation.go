@@ -89,9 +89,9 @@ func (r *AnnotationRepo) GetByTask(ctx context.Context, taskID uuid.UUID) ([]*do
 // Returns domain.ErrNotFound if no annotation with that ID exists.
 //
 // This uses the RowsAffected pattern:
-// 1. Run the DELETE statement. Even if no rows match, the SQL itself succeeds.
-// 2. Check RowsAffected(). If it is 0, no row was deleted, meaning the ID
-//    did not exist. We return domain.ErrNotFound in that case.
+//  1. Run the DELETE statement. Even if no rows match, the SQL itself succeeds.
+//  2. Check RowsAffected(). If it is 0, no row was deleted, meaning the ID
+//     did not exist. We return domain.ErrNotFound in that case.
 func (r *AnnotationRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	res, err := r.db.ExecContext(ctx,
 		`DELETE FROM annotations WHERE id = ?`, id.String())

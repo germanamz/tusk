@@ -128,7 +128,7 @@ func validateShortID(v string) error {
 	}
 	for i := 0; i < len(v); i++ {
 		c := v[i]
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return fmt.Errorf("short ID %q contains non-hex character %q", v, string(c))
 		}
 	}

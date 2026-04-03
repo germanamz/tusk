@@ -267,10 +267,10 @@ func TestRelationGetBlockedBy(t *testing.T) {
 // specific (source, target, type) combination exists in the database.
 //
 // This test checks three scenarios:
-// 1. The exact combination exists — should return true.
-// 2. The reverse direction (swap source and target) — should return false
-//    because relations are directional.
-// 3. Same source and target but different type — should return false.
+//  1. The exact combination exists — should return true.
+//  2. The reverse direction (swap source and target) — should return false
+//     because relations are directional.
+//  3. Same source and target but different type — should return false.
 func TestRelationExists(t *testing.T) {
 	s := testStore(t)
 	taskRepo := NewTaskRepo(s.DB())

@@ -20,7 +20,7 @@ func NewWorkflowRepo(db *sql.DB) *WorkflowRepo {
 
 func (r *WorkflowRepo) GetByProjectAndName(ctx context.Context, projectID uuid.UUID, name string) (*domain.Workflow, error) {
 	var (
-		wf                       domain.Workflow
+		wf                    domain.Workflow
 		id, pid, statusesJSON string
 	)
 	err := r.db.QueryRowContext(ctx,
@@ -58,7 +58,7 @@ func (r *WorkflowRepo) GetTransitions(ctx context.Context, workflowID uuid.UUID)
 	result := make([]*domain.WorkflowTransition, 0)
 	for rows.Next() {
 		var (
-			t        domain.WorkflowTransition
+			t       domain.WorkflowTransition
 			id, wid string
 		)
 		if err := rows.Scan(&id, &wid, &t.FromStatus, &t.ToStatus); err != nil {

@@ -39,7 +39,7 @@ func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
 	if err != nil {
 		t.Fatalf("creating temp db: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	return &Env{
 		t:       t,
@@ -110,7 +110,7 @@ func (e *Env) expandRefs(arg string) string {
 			return match
 		}
 		idx := 0
-		fmt.Sscanf(parts[1], "%d", &idx)
+		_, _ = fmt.Sscanf(parts[1], "%d", &idx)
 		field := parts[2]
 
 		if idx >= len(e.results) {
@@ -251,42 +251,6 @@ func assertNotContains(t *testing.T, got, substr string) {
 	if strings.Contains(got, substr) {
 		t.Fatalf("assertNotContains: %q unexpectedly found in:\n%s", substr, got)
 	}
-}
-
-// assertMatches fails if got does not match the regex pattern.
-func assertMatches(t *testing.T, got, pattern string) {
-	t.Helper()
-	matched, err := regexp.MatchString(pattern, got)
-	if err != nil {
-		t.Fatalf("assertMatches: bad pattern %q: %v", pattern, err)
-	}
-	if !matched {
-		t.Fatalf("assertMatches: %q does not match pattern %q", got, pattern)
-	}
-}
-
-// jsonField extracts a field from a parsed JSON value.
-// Supports dot-separated paths like "tags.0" for array indexing.
-func jsonField(parsed any, path string) any {
-	parts := strings.Split(path, ".")
-	current := parsed
-	for _, part := range parts {
-		switch v := current.(type) {
-		case map[string]any:
-			current = v[part]
-		case []any:
-			idx := 0
-			fmt.Sscanf(part, "%d", &idx)
-			if idx < len(v) {
-				current = v[idx]
-			} else {
-				return nil
-			}
-		default:
-			return nil
-		}
-	}
-	return current
 }
 
 // jsonArray asserts the parsed value is a JSON array and returns it.

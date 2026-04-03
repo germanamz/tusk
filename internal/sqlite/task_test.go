@@ -244,8 +244,12 @@ func TestTaskListByStatus(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
-	t1 := newTestTask(); t1.Status = "pending"; mustCreateTask(t, repo, t1)
-	t2 := newTestTask(); t2.Status = "active"; mustCreateTask(t, repo, t2)
+	t1 := newTestTask()
+	t1.Status = "pending"
+	mustCreateTask(t, repo, t1)
+	t2 := newTestTask()
+	t2.Status = "active"
+	mustCreateTask(t, repo, t2)
 	tasks, err := repo.List(ctx, domain.TaskFilter{Statuses: []string{"active"}})
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +267,9 @@ func TestTaskListByStatusMultiple(t *testing.T) {
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
 	for _, status := range []string{"pending", "active", "completed"} {
-		task := newTestTask(); task.Status = status; mustCreateTask(t, repo, task)
+		task := newTestTask()
+		task.Status = status
+		mustCreateTask(t, repo, task)
 	}
 	tasks, err := repo.List(ctx, domain.TaskFilter{Statuses: []string{"pending", "active"}})
 	if err != nil {
@@ -286,8 +292,11 @@ func TestTaskListByProject(t *testing.T) {
 	if err := projRepo.Create(ctx, proj); err != nil {
 		t.Fatal(err)
 	}
-	t1 := newTestTask(); t1.ProjectID = &proj.ID; mustCreateTask(t, repo, t1)
-	t2 := newTestTask(); mustCreateTask(t, repo, t2)
+	t1 := newTestTask()
+	t1.ProjectID = &proj.ID
+	mustCreateTask(t, repo, t1)
+	t2 := newTestTask()
+	mustCreateTask(t, repo, t2)
 	tasks, err := repo.List(ctx, domain.TaskFilter{ProjectID: &proj.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -302,7 +311,9 @@ func TestTaskListByPriority(t *testing.T) {
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
 	for _, p := range []int{1, 2, 3, 4} {
-		task := newTestTask(); task.Priority = p; mustCreateTask(t, repo, task)
+		task := newTestTask()
+		task.Priority = p
+		mustCreateTask(t, repo, task)
 	}
 	min, max := 2, 3
 	tasks, err := repo.List(ctx, domain.TaskFilter{PriorityMin: &min, PriorityMax: &max})
@@ -322,7 +333,9 @@ func TestTaskListByDueDate(t *testing.T) {
 	d2 := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 	d3 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	for _, d := range []*time.Time{&d1, &d2, &d3} {
-		task := newTestTask(); task.DueAt = d; mustCreateTask(t, repo, task)
+		task := newTestTask()
+		task.DueAt = d
+		mustCreateTask(t, repo, task)
 	}
 	after := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
@@ -339,9 +352,13 @@ func TestTaskListByParent(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
-	parent := newTestTask(); mustCreateTask(t, repo, parent)
-	child := newTestTask(); child.ParentID = &parent.ID; mustCreateTask(t, repo, child)
-	orphan := newTestTask(); mustCreateTask(t, repo, orphan)
+	parent := newTestTask()
+	mustCreateTask(t, repo, parent)
+	child := newTestTask()
+	child.ParentID = &parent.ID
+	mustCreateTask(t, repo, child)
+	orphan := newTestTask()
+	mustCreateTask(t, repo, orphan)
 	tasks, err := repo.List(ctx, domain.TaskFilter{ParentID: &parent.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -357,9 +374,14 @@ func TestTaskListWaitingOnly(t *testing.T) {
 	ctx := context.Background()
 	future := time.Now().UTC().Add(24 * time.Hour)
 	past := time.Now().UTC().Add(-24 * time.Hour)
-	t1 := newTestTask(); t1.WaitUntil = &future; mustCreateTask(t, repo, t1)
-	t2 := newTestTask(); t2.WaitUntil = &past; mustCreateTask(t, repo, t2)
-	t3 := newTestTask(); mustCreateTask(t, repo, t3)
+	t1 := newTestTask()
+	t1.WaitUntil = &future
+	mustCreateTask(t, repo, t1)
+	t2 := newTestTask()
+	t2.WaitUntil = &past
+	mustCreateTask(t, repo, t2)
+	t3 := newTestTask()
+	mustCreateTask(t, repo, t3)
 	waitingOnly := true
 	tasks, err := repo.List(ctx, domain.TaskFilter{WaitingOnly: &waitingOnly})
 	if err != nil {
@@ -422,10 +444,17 @@ func TestTaskGetChildren(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
-	parent := newTestTask(); mustCreateTask(t, repo, parent)
-	child1 := newTestTask(); child1.ParentID = &parent.ID; mustCreateTask(t, repo, child1)
-	child2 := newTestTask(); child2.ParentID = &parent.ID; mustCreateTask(t, repo, child2)
-	grandchild := newTestTask(); grandchild.ParentID = &child1.ID; mustCreateTask(t, repo, grandchild)
+	parent := newTestTask()
+	mustCreateTask(t, repo, parent)
+	child1 := newTestTask()
+	child1.ParentID = &parent.ID
+	mustCreateTask(t, repo, child1)
+	child2 := newTestTask()
+	child2.ParentID = &parent.ID
+	mustCreateTask(t, repo, child2)
+	grandchild := newTestTask()
+	grandchild.ParentID = &child1.ID
+	mustCreateTask(t, repo, grandchild)
 	children, err := repo.GetChildren(ctx, parent.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -438,7 +467,8 @@ func TestTaskGetChildren(t *testing.T) {
 func TestTaskGetChildrenEmpty(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
-	task := newTestTask(); mustCreateTask(t, repo, task)
+	task := newTestTask()
+	mustCreateTask(t, repo, task)
 	children, err := repo.GetChildren(context.Background(), task.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -452,10 +482,17 @@ func TestTaskGetDescendants(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
-	root := newTestTask(); mustCreateTask(t, repo, root)
-	child1 := newTestTask(); child1.ParentID = &root.ID; mustCreateTask(t, repo, child1)
-	child2 := newTestTask(); child2.ParentID = &root.ID; mustCreateTask(t, repo, child2)
-	grandchild := newTestTask(); grandchild.ParentID = &child1.ID; mustCreateTask(t, repo, grandchild)
+	root := newTestTask()
+	mustCreateTask(t, repo, root)
+	child1 := newTestTask()
+	child1.ParentID = &root.ID
+	mustCreateTask(t, repo, child1)
+	child2 := newTestTask()
+	child2.ParentID = &root.ID
+	mustCreateTask(t, repo, child2)
+	grandchild := newTestTask()
+	grandchild.ParentID = &child1.ID
+	mustCreateTask(t, repo, grandchild)
 	descendants, err := repo.GetDescendants(ctx, root.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -477,7 +514,8 @@ func TestTaskGetDescendants(t *testing.T) {
 func TestTaskGetDescendantsEmpty(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
-	task := newTestTask(); mustCreateTask(t, repo, task)
+	task := newTestTask()
+	mustCreateTask(t, repo, task)
 	descendants, err := repo.GetDescendants(context.Background(), task.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -491,10 +529,16 @@ func TestTaskListByRootID(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
-	root := newTestTask(); mustCreateTask(t, repo, root)
-	child := newTestTask(); child.ParentID = &root.ID; mustCreateTask(t, repo, child)
-	grandchild := newTestTask(); grandchild.ParentID = &child.ID; mustCreateTask(t, repo, grandchild)
-	unrelated := newTestTask(); mustCreateTask(t, repo, unrelated)
+	root := newTestTask()
+	mustCreateTask(t, repo, root)
+	child := newTestTask()
+	child.ParentID = &root.ID
+	mustCreateTask(t, repo, child)
+	grandchild := newTestTask()
+	grandchild.ParentID = &child.ID
+	mustCreateTask(t, repo, grandchild)
+	unrelated := newTestTask()
+	mustCreateTask(t, repo, unrelated)
 	tasks, err := repo.List(ctx, domain.TaskFilter{RootID: &root.ID})
 	if err != nil {
 		t.Fatal(err)
