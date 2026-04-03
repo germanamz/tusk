@@ -1081,6 +1081,86 @@ func TestRunInfo_JSON_IncludesRelations(t *testing.T) {
 	}
 }
 
+func TestRunTree_Empty(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"tree"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("tree: %v", err)
+	}
+	if buf.String() != "" {
+		t.Fatalf("expected empty output, got %q", buf.String())
+	}
+}
+
+func TestRunTree_WithHierarchy(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	parent := &domain.Task{Title: "Parent task"}
+	if err := taskSvc.Create(ctx, parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	child := &domain.Task{Title: "Child task", ParentID: &parent.ID}
+	if err := taskSvc.Create(ctx, child); err != nil {
+		t.Fatalf("Create child: %v", err)
+	}
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"tree"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("tree: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, parent.ShortID) {
+		t.Fatalf("expected parent short_id in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "  "+child.ShortID) {
+		t.Fatalf("expected child with indent in output, got:\n%s", output)
+	}
+}
+
+func TestRunTree_Subtree(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	rootA := &domain.Task{Title: "Root A"}
+	if err := taskSvc.Create(ctx, rootA); err != nil {
+		t.Fatalf("Create rootA: %v", err)
+	}
+	childA := &domain.Task{Title: "Child of A", ParentID: &rootA.ID}
+	if err := taskSvc.Create(ctx, childA); err != nil {
+		t.Fatalf("Create childA: %v", err)
+	}
+
+	rootB := &domain.Task{Title: "Root B"}
+	if err := taskSvc.Create(ctx, rootB); err != nil {
+		t.Fatalf("Create rootB: %v", err)
+	}
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"tree", rootA.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("tree subtree: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, rootA.ShortID) {
+		t.Fatalf("expected rootA in subtree output, got:\n%s", output)
+	}
+	if !strings.Contains(output, childA.ShortID) {
+		t.Fatalf("expected childA in subtree output, got:\n%s", output)
+	}
+	if strings.Contains(output, rootB.ShortID) {
+		t.Fatalf("rootB should not appear in subtree of rootA, got:\n%s", output)
+	}
+}
+
 func mustParseTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	v, err := time.Parse("2006-01-02", s)
