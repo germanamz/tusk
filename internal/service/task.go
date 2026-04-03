@@ -289,12 +289,16 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 	})
 }
 
+// maxParentDepth is the maximum ancestor chain length detectParentCycle will walk
+// before returning an error. This guards against corrupted data causing infinite loops.
+const maxParentDepth = 100
+
 // detectParentCycle walks up the ancestor chain from proposedParentID.
 // If it encounters taskID, the proposed parent relationship would create a cycle.
 // Returns ErrCyclicParent if a cycle is detected, nil otherwise.
 func (s *TaskService) detectParentCycle(ctx context.Context, taskID, proposedParentID uuid.UUID) error {
 	current := proposedParentID
-	for {
+	for depth := 0; depth < maxParentDepth; depth++ {
 		if current == taskID {
 			return domain.ErrCyclicParent
 		}
@@ -307,6 +311,7 @@ func (s *TaskService) detectParentCycle(ctx context.Context, taskID, proposedPar
 		}
 		current = *parent.ParentID
 	}
+	return fmt.Errorf("parent chain exceeds maximum depth (%d)", maxParentDepth)
 }
 
 // generateShortID derives a short ID from the task's UUID.

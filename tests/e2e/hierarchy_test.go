@@ -208,7 +208,7 @@ func TestTree(t *testing.T) {
 		{
 			Name: "tree_empty",
 			Steps: []Step{
-				// No tasks created — tree should produce no output (text) or empty array (json)
+				// No tasks created — text prints "No tasks." to stderr, json prints empty array
 				{
 					Args: []string{"tree"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -218,10 +218,11 @@ func TestTree(t *testing.T) {
 							t.Fatalf("expected empty tree, got %d roots", len(arr))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
+					Assert: func(t *testing.T, r Result) {
 						t.Helper()
-						if output != "" {
-							t.Fatalf("expected empty output for empty tree, got %q", output)
+						// In text mode, "No tasks." goes to stderr; stdout stays empty
+						if r.Stdout == "" && r.Stderr != "" {
+							assertStderrContains(t, r, "No tasks.")
 						}
 					},
 				},

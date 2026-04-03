@@ -1085,14 +1085,18 @@ func TestRunInfo_JSON_IncludesRelations(t *testing.T) {
 func TestRunTree_Empty(t *testing.T) {
 	app, _ := testApp(t)
 
-	var buf bytes.Buffer
-	app.root.SetOut(&buf)
+	var stdout, stderr bytes.Buffer
+	app.root.SetOut(&stdout)
+	app.root.SetErr(&stderr)
 	app.root.SetArgs([]string{"tree"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("tree: %v", err)
 	}
-	if buf.String() != "" {
-		t.Fatalf("expected empty output, got %q", buf.String())
+	if stdout.String() != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "No tasks.") {
+		t.Fatalf("expected 'No tasks.' on stderr, got %q", stderr.String())
 	}
 }
 
@@ -1190,7 +1194,20 @@ func TestRunTree_JSON(t *testing.T) {
 	if len(parsed) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(parsed))
 	}
-	children, ok := parsed[0]["children"].([]any)
+
+	root := parsed[0]
+	// Verify all task fields are present (matching taskJSON in render.go)
+	for _, field := range []string{"id", "short_id", "title", "description", "status", "priority", "version", "created_at", "modified_at", "children"} {
+		if _, ok := root[field]; !ok {
+			t.Fatalf("expected field %q in tree JSON, got keys: %v", field, root)
+		}
+	}
+	// parent_id should be present and null for root task
+	if _, ok := root["parent_id"]; !ok {
+		t.Fatal("expected parent_id field in tree JSON (should be null for root)")
+	}
+
+	children, ok := root["children"].([]any)
 	if !ok {
 		t.Fatalf("expected children array")
 	}
