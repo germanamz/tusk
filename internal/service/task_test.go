@@ -1211,3 +1211,168 @@ func TestAutoComplete_Recursive(t *testing.T) {
 		t.Fatalf("expected grandparent 'completed', got %q", grandparentCheck.Status)
 	}
 }
+
+func TestAutoRevert_ChildReopened(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Enable both auto-complete and auto-revert
+	// Note: default workflow allows completed -> pending (not completed -> active)
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+		AutoRevertParent: &domain.AutoRevertConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "pending",
+		},
+	}
+	projRepo.Update(ctx, proj)
+
+	// Create parent + child
+	parent := newMinimalTask("Parent")
+	mustCreateTask(t, env.taskSvc, parent)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+
+	// Complete child -> parent auto-completes
+	child, err := env.taskSvc.Complete(ctx, child.ShortID, child.Version)
+	if err != nil {
+		t.Fatalf("Complete child: %v", err)
+	}
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "completed" {
+		t.Fatalf("expected parent 'completed' after child completed, got %q", parentCheck.Status)
+	}
+
+	// Re-open child (completed -> pending)
+	child, _ = env.taskSvc.GetByShortID(ctx, child.ShortID)
+	_, err = env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: child.ShortID,
+		Version: child.Version,
+		Status:  ptr("pending"),
+	})
+	if err != nil {
+		t.Fatalf("Reopen child: %v", err)
+	}
+
+	// Parent should be reverted to "pending"
+	parentCheck, _ = env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "pending" {
+		t.Fatalf("expected parent 'pending' after child reopened, got %q", parentCheck.Status)
+	}
+}
+
+func TestAutoRevert_Disabled(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Enable auto-complete but NOT auto-revert
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+		// AutoRevertParent intentionally nil
+	}
+	projRepo.Update(ctx, proj)
+
+	parent := newMinimalTask("Parent")
+	mustCreateTask(t, env.taskSvc, parent)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+
+	// Complete child -> parent auto-completes
+	child, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "completed" {
+		t.Fatalf("expected parent 'completed', got %q", parentCheck.Status)
+	}
+
+	// Re-open child — parent should NOT revert (auto-revert disabled)
+	child, _ = env.taskSvc.GetByShortID(ctx, child.ShortID)
+	env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: child.ShortID,
+		Version: child.Version,
+		Status:  ptr("pending"),
+	})
+
+	parentCheck, _ = env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "completed" {
+		t.Fatalf("expected parent still 'completed' (revert disabled), got %q", parentCheck.Status)
+	}
+}
+
+func TestAutoRevert_Recursive(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Enable both auto-complete and auto-revert
+	// Note: default workflow allows completed -> pending (not completed -> active)
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+		AutoRevertParent: &domain.AutoRevertConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "pending",
+		},
+	}
+	projRepo.Update(ctx, proj)
+
+	// grandparent -> parent -> child
+	grandparent := newMinimalTask("Grandparent")
+	mustCreateTask(t, env.taskSvc, grandparent)
+	grandparent, _ = env.taskSvc.Start(ctx, grandparent.ShortID, grandparent.Version)
+
+	parent := &domain.Task{Title: "Parent", ParentID: &grandparent.ID}
+	mustCreateTask(t, env.taskSvc, parent)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+
+	// Complete child — cascades up
+	child, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	grandparentCheck, _ := env.taskSvc.GetByShortID(ctx, grandparent.ShortID)
+	if parentCheck.Status != "completed" || grandparentCheck.Status != "completed" {
+		t.Fatalf("expected both completed, got parent=%q grandparent=%q", parentCheck.Status, grandparentCheck.Status)
+	}
+
+	// Re-open child — should cascade revert
+	child, _ = env.taskSvc.GetByShortID(ctx, child.ShortID)
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: child.ShortID,
+		Version: child.Version,
+		Status:  ptr("pending"),
+	})
+	if err != nil {
+		t.Fatalf("Reopen child: %v", err)
+	}
+
+	parentCheck, _ = env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "pending" {
+		t.Fatalf("expected parent 'pending' after revert, got %q", parentCheck.Status)
+	}
+
+	grandparentCheck, _ = env.taskSvc.GetByShortID(ctx, grandparent.ShortID)
+	if grandparentCheck.Status != "pending" {
+		t.Fatalf("expected grandparent 'pending' after revert, got %q", grandparentCheck.Status)
+	}
+}
