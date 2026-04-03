@@ -895,8 +895,22 @@ func TestRunLink_NotFound(t *testing.T) {
 
 	app.root.SetArgs([]string{"link", "nonexist", "blocks", "also_non"})
 	err := app.root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected 'not found' error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "Source task not found: nonexist") {
+		t.Fatalf("expected 'Source task not found: nonexist' error, got %v", err)
+	}
+}
+
+func TestRunLink_TargetNotFound(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Exists"}
+	taskSvc.Create(ctx, src)
+
+	app.root.SetArgs([]string{"link", src.ShortID, "blocks", "nonexist"})
+	err := app.root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "Target task not found: nonexist") {
+		t.Fatalf("expected 'Target task not found: nonexist' error, got %v", err)
 	}
 }
 
@@ -993,6 +1007,13 @@ func TestRunInfo_ShowsRelations(t *testing.T) {
 	if !strings.Contains(out, "blocks") {
 		t.Fatalf("expected 'blocks' label, got:\n%s", out)
 	}
+	// Verify related task short ID and title are shown
+	if !strings.Contains(out, tgt.ShortID) {
+		t.Fatalf("expected target short ID %q in relations, got:\n%s", tgt.ShortID, out)
+	}
+	if !strings.Contains(out, "Blocked") {
+		t.Fatalf("expected target title 'Blocked' in relations, got:\n%s", out)
+	}
 
 	// Info on target should show "blocked_by"
 	buf.Reset()
@@ -1004,6 +1025,13 @@ func TestRunInfo_ShowsRelations(t *testing.T) {
 	out = buf.String()
 	if !strings.Contains(out, "blocked_by") {
 		t.Fatalf("expected 'blocked_by' label, got:\n%s", out)
+	}
+	// Verify source task short ID and title shown for inverse relation
+	if !strings.Contains(out, src.ShortID) {
+		t.Fatalf("expected source short ID %q in relations, got:\n%s", src.ShortID, out)
+	}
+	if !strings.Contains(out, "Blocker") {
+		t.Fatalf("expected source title 'Blocker' in relations, got:\n%s", out)
 	}
 }
 
@@ -1032,6 +1060,15 @@ func TestRunInfo_JSON_IncludesRelations(t *testing.T) {
 	}
 	if !strings.Contains(out, `"relation_type"`) {
 		t.Fatalf("expected relation_type in JSON, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"related_short_id"`) {
+		t.Fatalf("expected related_short_id in JSON, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"related_title"`) {
+		t.Fatalf("expected related_title in JSON, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"direction_label"`) {
+		t.Fatalf("expected direction_label in JSON, got:\n%s", out)
 	}
 }
 

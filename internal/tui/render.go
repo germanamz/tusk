@@ -180,7 +180,7 @@ type taskInfoJSON struct {
 // renderTaskInfo writes a single task's detail view to w.
 // For "text", it renders key-value pairs with optional annotations.
 // For "json", it renders the task as a JSON object including annotations.
-func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []*domain.Relation, projectName string, format string) error {
+func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []resolvedRelation, projectName string, format string) error {
 	if format == "json" {
 		info := taskInfoJSON{taskJSON: toTaskJSON(task, tags)}
 		for _, ann := range annotations {
@@ -191,13 +191,16 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 				CreatedAt: ann.CreatedAt.Format(time.RFC3339),
 			})
 		}
-		for _, rel := range relations {
+		for _, rr := range relations {
 			info.Relations = append(info.Relations, relationJSON{
-				ID:           rel.ID.String(),
-				SourceID:     rel.SourceID.String(),
-				TargetID:     rel.TargetID.String(),
-				RelationType: rel.RelationType,
-				CreatedAt:    rel.CreatedAt.Format(time.RFC3339),
+				ID:             rr.Relation.ID.String(),
+				SourceID:       rr.Relation.SourceID.String(),
+				TargetID:       rr.Relation.TargetID.String(),
+				RelationType:   rr.Relation.RelationType,
+				RelatedShortID: rr.RelatedShortID,
+				RelatedTitle:   rr.RelatedTitle,
+				DirectionLabel: rr.Label,
+				CreatedAt:      rr.Relation.CreatedAt.Format(time.RFC3339),
 			})
 		}
 		enc := json.NewEncoder(w)
@@ -294,21 +297,8 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 		if _, err := fmt.Fprintln(w, "Relations:"); err != nil {
 			return err
 		}
-		for _, rel := range relations {
-			label := rel.RelationType
-			relatedID := rel.TargetID.String()[:8]
-			if rel.TargetID == task.ID {
-				switch rel.RelationType {
-				case "blocks":
-					label = "blocked_by"
-				case "relates_to":
-					label = "related_to"
-				case "duplicates":
-					label = "duplicated_by"
-				}
-				relatedID = rel.SourceID.String()[:8]
-			}
-			if _, err := fmt.Fprintf(w, "  %-14s %s\n", label, relatedID); err != nil {
+		for _, rr := range relations {
+			if _, err := fmt.Fprintf(w, "  %-14s %-8s  %s\n", rr.Label, rr.RelatedShortID, rr.RelatedTitle); err != nil {
 				return err
 			}
 		}
@@ -329,13 +319,24 @@ func renderMutationResult(w io.Writer, action string, task *domain.Task, tags []
 	return err
 }
 
+// resolvedRelation holds a relation with its resolved display info.
+type resolvedRelation struct {
+	Relation       *domain.Relation
+	RelatedShortID string // short ID of the other task
+	RelatedTitle   string // title of the other task
+	Label          string // display label (e.g. "blocks", "blocked_by")
+}
+
 // relationJSON is the JSON serialization format for a relation.
 type relationJSON struct {
-	ID           string `json:"id"`
-	SourceID     string `json:"source_id"`
-	TargetID     string `json:"target_id"`
-	RelationType string `json:"relation_type"`
-	CreatedAt    string `json:"created_at"`
+	ID             string `json:"id"`
+	SourceID       string `json:"source_id"`
+	TargetID       string `json:"target_id"`
+	RelationType   string `json:"relation_type"`
+	RelatedShortID string `json:"related_short_id"`
+	RelatedTitle   string `json:"related_title"`
+	DirectionLabel string `json:"direction_label"`
+	CreatedAt      string `json:"created_at"`
 }
 
 // renderLinkResult writes a link confirmation (text) or full relation JSON.

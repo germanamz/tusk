@@ -34,6 +34,9 @@ type stubRelationRepo struct{}
 
 func (s *stubRelationRepo) Create(_ context.Context, _ *domain.Relation) error { return nil }
 func (s *stubRelationRepo) Delete(_ context.Context, _ uuid.UUID) error        { return nil }
+func (s *stubRelationRepo) DeleteByFields(_ context.Context, _, _ uuid.UUID, _ string) error {
+	return nil
+}
 func (s *stubRelationRepo) GetByTask(_ context.Context, _ uuid.UUID) ([]*domain.Relation, error) {
 	return nil, nil
 }
