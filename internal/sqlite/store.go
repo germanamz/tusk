@@ -117,7 +117,7 @@ func (s *Store) migrate(migrationsFS fs.FS) error {
 		}
 
 		if _, err := tx.Exec(statements); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("executing %s: %w", name, err)
 		}
 
@@ -125,7 +125,7 @@ func (s *Store) migrate(migrationsFS fs.FS) error {
 			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
 			version, time.Now().UTC().Format(timeFormat),
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("recording %s: %w", name, err)
 		}
 
