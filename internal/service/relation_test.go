@@ -125,3 +125,103 @@ func TestRelationAddDuplicate(t *testing.T) {
 		t.Fatalf("expected ErrDuplicateRelation, got: %v", err)
 	}
 }
+
+func TestRelationAddBlocksSelfReference(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+
+	_, err := env.relationSvc.Add(ctx, taskA.ShortID, taskA.ShortID, "blocks")
+	if !errors.Is(err, domain.ErrCyclicBlock) {
+		t.Fatalf("expected ErrCyclicBlock for self-reference, got: %v", err)
+	}
+}
+
+func TestRelationAddBlocksDirectCycle(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+	taskB := env.createTask(t, "Task B")
+
+	// A blocks B — should succeed
+	_, err := env.relationSvc.Add(ctx, taskA.ShortID, taskB.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("A blocks B: %v", err)
+	}
+
+	// B blocks A — should fail (cycle: A->B->A)
+	_, err = env.relationSvc.Add(ctx, taskB.ShortID, taskA.ShortID, "blocks")
+	if !errors.Is(err, domain.ErrCyclicBlock) {
+		t.Fatalf("expected ErrCyclicBlock for B blocks A, got: %v", err)
+	}
+}
+
+func TestRelationAddBlocksTransitiveCycle(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+	taskB := env.createTask(t, "Task B")
+	taskC := env.createTask(t, "Task C")
+
+	// A blocks B
+	_, err := env.relationSvc.Add(ctx, taskA.ShortID, taskB.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("A blocks B: %v", err)
+	}
+
+	// B blocks C
+	_, err = env.relationSvc.Add(ctx, taskB.ShortID, taskC.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("B blocks C: %v", err)
+	}
+
+	// C blocks A — should fail (cycle: A->B->C->A)
+	_, err = env.relationSvc.Add(ctx, taskC.ShortID, taskA.ShortID, "blocks")
+	if !errors.Is(err, domain.ErrCyclicBlock) {
+		t.Fatalf("expected ErrCyclicBlock for C blocks A, got: %v", err)
+	}
+}
+
+func TestRelationAddBlocksNoCycle(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+	taskB := env.createTask(t, "Task B")
+	taskC := env.createTask(t, "Task C")
+
+	// A blocks B
+	_, err := env.relationSvc.Add(ctx, taskA.ShortID, taskB.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("A blocks B: %v", err)
+	}
+
+	// B blocks C — should succeed (A->B->C is a chain, not a cycle)
+	_, err = env.relationSvc.Add(ctx, taskB.ShortID, taskC.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("B blocks C: %v", err)
+	}
+}
+
+func TestRelationNonBlocksAllowsBidirectional(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+	taskB := env.createTask(t, "Task B")
+
+	// A relates_to B
+	_, err := env.relationSvc.Add(ctx, taskA.ShortID, taskB.ShortID, "relates_to")
+	if err != nil {
+		t.Fatalf("A relates_to B: %v", err)
+	}
+
+	// B relates_to A — should succeed (no cycle check for non-blocks)
+	_, err = env.relationSvc.Add(ctx, taskB.ShortID, taskA.ShortID, "relates_to")
+	if err != nil {
+		t.Fatalf("B relates_to A: %v", err)
+	}
+}
