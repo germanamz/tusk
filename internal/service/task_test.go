@@ -36,7 +36,7 @@ func testTaskEnv(t *testing.T) *testEnv {
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
 	workflowSvc := NewWorkflowService(workflowRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
+	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
 
 	return &testEnv{
 		taskSvc:     taskSvc,
@@ -871,6 +871,42 @@ func TestUpdate_CyclicParentDirectRejected(t *testing.T) {
 	})
 	if !errors.Is(err, domain.ErrCyclicParent) {
 		t.Fatalf("expected ErrCyclicParent, got %v", err)
+	}
+}
+
+func TestTaskService_WithTxProvider(t *testing.T) {
+	store, err := sqlite.New(":memory:", migrations.FS)
+	if err != nil {
+		t.Fatalf("opening store: %v", err)
+	}
+	defer store.Close()
+
+	db := store.DB()
+	taskRepo := sqlite.NewTaskRepo(db)
+	annotationRepo := sqlite.NewAnnotationRepo(db)
+	projectRepo := sqlite.NewProjectRepo(db)
+	workflowRepo := sqlite.NewWorkflowRepo(db)
+
+	workflowSvc := NewWorkflowService(workflowRepo)
+	// Pass store as the TaskTxProvider (5th argument)
+	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
+
+	ctx := context.Background()
+	task := newMinimalTask("Test with tx provider")
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Start and complete — basic lifecycle still works
+	_, err = taskSvc.Start(ctx, task.ShortID, task.Version)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	started, _ := taskSvc.GetByShortID(ctx, task.ShortID)
+
+	_, err = taskSvc.Complete(ctx, started.ShortID, started.Version)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
 	}
 }
 

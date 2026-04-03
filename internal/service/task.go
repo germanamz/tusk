@@ -16,6 +16,13 @@ import (
 // Tasks created without an explicit ProjectID are assigned to this project.
 var DefaultProjectID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
 
+// TaskTxProvider gives TaskService a way to run task + project operations
+// inside a database transaction for atomic propagation.
+// The SQLite Store implements this via its WithTaskTx method.
+type TaskTxProvider interface {
+	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, pr repository.ProjectRepository) error) error
+}
+
 // TaskService implements task business logic including validation,
 // workflow enforcement, and optimistic locking.
 type TaskService struct {
@@ -23,6 +30,7 @@ type TaskService struct {
 	annotationRepo repository.AnnotationRepository
 	projectRepo    repository.ProjectRepository
 	workflowSvc    *WorkflowService
+	txProvider     TaskTxProvider
 }
 
 // NewTaskService creates a new TaskService with the given dependencies.
@@ -31,12 +39,14 @@ func NewTaskService(
 	ar repository.AnnotationRepository,
 	pr repository.ProjectRepository,
 	ws *WorkflowService,
+	txp TaskTxProvider,
 ) *TaskService {
 	return &TaskService{
 		taskRepo:       tr,
 		annotationRepo: ar,
 		projectRepo:    pr,
 		workflowSvc:    ws,
+		txProvider:     txp,
 	}
 }
 
