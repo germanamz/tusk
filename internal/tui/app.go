@@ -28,6 +28,7 @@ type ProjectLookup interface {
 type App struct {
 	taskSvc     *service.TaskService
 	tagSvc      *service.TagService
+	relationSvc *service.RelationService
 	projectRepo ProjectLookup
 	resolver    *filter.Resolver
 	root        *cobra.Command
@@ -37,10 +38,11 @@ type App struct {
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectRepo may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo ProjectLookup, vi VersionInfo) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectRepo ProjectLookup, vi VersionInfo) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
+		relationSvc: relationSvc,
 		projectRepo: projectRepo,
 		version:     vi,
 	}

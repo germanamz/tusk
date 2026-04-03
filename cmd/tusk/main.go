@@ -51,12 +51,14 @@ func run() error {
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
 	tagRepo := sqlite.NewTagRepo(db)
+	relationRepo := sqlite.NewRelationRepo(db)
 
 	workflowSvc := service.NewWorkflowService(workflowRepo)
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
 	tagSvc := service.NewTagService(tagRepo)
+	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
-	app := tui.New(taskSvc, tagSvc, projectRepo, tui.VersionInfo{
+	app := tui.New(taskSvc, tagSvc, relationSvc, projectRepo, tui.VersionInfo{
 		Version: version,
 		Commit:  commit,
 		Date:    date,
