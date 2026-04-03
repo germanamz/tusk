@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -78,5 +81,86 @@ func TestBuildTree_Empty(t *testing.T) {
 	nodes := buildTree([]*domain.Task{}, nil)
 	if len(nodes) != 0 {
 		t.Fatalf("expected 0 roots, got %d", len(nodes))
+	}
+}
+
+func TestRenderTree_Text(t *testing.T) {
+	root := &domain.Task{ID: uuid.New(), ShortID: "aaaaaaaa", Title: "Root task", Status: "active"}
+	child := &domain.Task{ID: uuid.New(), ShortID: "bbbbbbbb", Title: "Child task", Status: "pending", ParentID: &root.ID}
+	grandchild := &domain.Task{ID: uuid.New(), ShortID: "cccccccc", Title: "Grandchild", Status: "pending", ParentID: &child.ID}
+
+	nodes := buildTree([]*domain.Task{root, child, grandchild}, nil)
+
+	var buf bytes.Buffer
+	if err := renderTree(&buf, nodes, "text"); err != nil {
+		t.Fatalf("renderTree: %v", err)
+	}
+
+	output := buf.String()
+	// Root at indent 0
+	if !strings.Contains(output, "aaaaaaaa [active] Root task") {
+		t.Fatalf("expected root line, got:\n%s", output)
+	}
+	// Child at indent 2
+	if !strings.Contains(output, "  bbbbbbbb [pending] Child task") {
+		t.Fatalf("expected child line with 2-space indent, got:\n%s", output)
+	}
+	// Grandchild at indent 4
+	if !strings.Contains(output, "    cccccccc [pending] Grandchild") {
+		t.Fatalf("expected grandchild line with 4-space indent, got:\n%s", output)
+	}
+}
+
+func TestRenderTree_TextEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderTree(&buf, nil, "text"); err != nil {
+		t.Fatalf("renderTree: %v", err)
+	}
+	if buf.String() != "" {
+		t.Fatalf("expected empty output for nil nodes, got %q", buf.String())
+	}
+}
+
+func TestRenderTree_JSON(t *testing.T) {
+	root := &domain.Task{ID: uuid.New(), ShortID: "aaaaaaaa", Title: "Root", Status: "active"}
+	child := &domain.Task{ID: uuid.New(), ShortID: "bbbbbbbb", Title: "Child", Status: "pending", ParentID: &root.ID}
+
+	nodes := buildTree([]*domain.Task{root, child}, nil)
+
+	var buf bytes.Buffer
+	if err := renderTree(&buf, nodes, "json"); err != nil {
+		t.Fatalf("renderTree: %v", err)
+	}
+
+	var parsed []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("JSON unmarshal: %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 root in JSON, got %d", len(parsed))
+	}
+	if parsed[0]["short_id"] != "aaaaaaaa" {
+		t.Fatalf("expected root short_id aaaaaaaa, got %v", parsed[0]["short_id"])
+	}
+	children, ok := parsed[0]["children"].([]any)
+	if !ok {
+		t.Fatalf("expected children array, got %T", parsed[0]["children"])
+	}
+	if len(children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(children))
+	}
+}
+
+func TestRenderTree_JSONEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderTree(&buf, nil, "json"); err != nil {
+		t.Fatalf("renderTree: %v", err)
+	}
+	var parsed []any
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("JSON unmarshal: %v", err)
+	}
+	if len(parsed) != 0 {
+		t.Fatalf("expected empty JSON array, got %d elements", len(parsed))
 	}
 }

@@ -1,6 +1,11 @@
 package tui
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/google/uuid"
 )
@@ -47,4 +52,71 @@ func buildTree(tasks []*domain.Task, rootID *uuid.UUID) []*treeNode {
 	}
 
 	return roots
+}
+
+// treeNodeJSON is the JSON serialization format for a tree node.
+type treeNodeJSON struct {
+	ShortID  string         `json:"short_id"`
+	Title    string         `json:"title"`
+	Status   string         `json:"status"`
+	Priority int            `json:"priority"`
+	ParentID *string        `json:"parent_id,omitempty"`
+	Children []treeNodeJSON `json:"children"`
+}
+
+// toTreeNodeJSON converts a treeNode to its JSON representation recursively.
+func toTreeNodeJSON(node *treeNode) treeNodeJSON {
+	tj := treeNodeJSON{
+		ShortID:  node.Task.ShortID,
+		Title:    node.Task.Title,
+		Status:   node.Task.Status,
+		Priority: node.Task.Priority,
+		Children: make([]treeNodeJSON, len(node.Children)),
+	}
+	if node.Task.ParentID != nil {
+		s := node.Task.ParentID.String()
+		tj.ParentID = &s
+	}
+	for i, child := range node.Children {
+		tj.Children[i] = toTreeNodeJSON(child)
+	}
+	return tj
+}
+
+// renderTree writes the tree to w in the given format.
+// For "text", each task is rendered as: {indent}{short_id} [{status}] {title}
+// For "json", the tree is rendered as a nested JSON array with children.
+func renderTree(w io.Writer, nodes []*treeNode, format string) error {
+	if format == "json" {
+		jsonNodes := make([]treeNodeJSON, len(nodes))
+		for i, n := range nodes {
+			jsonNodes[i] = toTreeNodeJSON(n)
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(jsonNodes)
+	}
+
+	// Text format
+	for _, node := range nodes {
+		if err := renderTreeNode(w, node, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderTreeNode recursively renders a single tree node and its children.
+// depth controls the indentation level (2 spaces per level).
+func renderTreeNode(w io.Writer, node *treeNode, depth int) error {
+	indent := strings.Repeat("  ", depth)
+	if _, err := fmt.Fprintf(w, "%s%s [%s] %s\n", indent, node.Task.ShortID, node.Task.Status, node.Task.Title); err != nil {
+		return err
+	}
+	for _, child := range node.Children {
+		if err := renderTreeNode(w, child, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
 }
