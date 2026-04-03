@@ -97,12 +97,29 @@ func (r *TagRepo) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.
 	return result, rows.Err()
 }
 
+// batchSize is the maximum number of placeholders per SQL IN clause,
+// chosen to stay well under SQLite's default SQLITE_MAX_VARIABLE_NUMBER (999).
+const tagBatchSize = 500
+
 func (r *TagRepo) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) {
 	result := make(map[uuid.UUID][]*domain.Tag, len(taskIDs))
 	if len(taskIDs) == 0 {
 		return result, nil
 	}
 
+	for start := 0; start < len(taskIDs); start += tagBatchSize {
+		end := start + tagBatchSize
+		if end > len(taskIDs) {
+			end = len(taskIDs)
+		}
+		if err := r.fetchTagBatch(ctx, taskIDs[start:end], result); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func (r *TagRepo) fetchTagBatch(ctx context.Context, taskIDs []uuid.UUID, dest map[uuid.UUID][]*domain.Tag) error {
 	placeholders := make([]string, len(taskIDs))
 	args := make([]any, len(taskIDs))
 	for i, id := range taskIDs {
@@ -116,7 +133,7 @@ func (r *TagRepo) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (ma
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 
@@ -125,22 +142,22 @@ func (r *TagRepo) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (ma
 		var tag domain.Tag
 		var color sql.NullString
 		if err := rows.Scan(&taskIDStr, &tagIDStr, &tag.Name, &color); err != nil {
-			return nil, err
+			return err
 		}
 		taskID, err := uuid.Parse(taskIDStr)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		tag.ID, err = uuid.Parse(tagIDStr)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if color.Valid {
 			tag.Color = &color.String
 		}
-		result[taskID] = append(result[taskID], &tag)
+		dest[taskID] = append(dest[taskID], &tag)
 	}
-	return result, rows.Err()
+	return rows.Err()
 }
 
 type tagScanner interface {

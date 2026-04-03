@@ -234,7 +234,7 @@ func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args
 		args = append(args, *filter.PriorityMax)
 	}
 	if filter.DueAfter != nil {
-		conditions = append(conditions, "due_at > ?")
+		conditions = append(conditions, "due_at >= ?")
 		args = append(args, filter.DueAfter.UTC().Format(timeFormat))
 	}
 	if filter.DueBefore != nil {

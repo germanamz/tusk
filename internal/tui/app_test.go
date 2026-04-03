@@ -4,7 +4,7 @@ import "testing"
 
 func TestNewApp_NotNil(t *testing.T) {
 	// Pass nil dependencies — we only check that New() builds the command tree
-	app := New(nil, nil, nil, nil)
+	app := New(nil, nil, nil)
 	if app == nil {
 		t.Fatal("expected non-nil App")
 	}
@@ -14,7 +14,7 @@ func TestNewApp_NotNil(t *testing.T) {
 }
 
 func TestApp_SubcommandsRegistered(t *testing.T) {
-	app := New(nil, nil, nil, nil)
+	app := New(nil, nil, nil)
 	want := []string{"add", "list", "info", "modify", "start", "done", "delete", "annotate"}
 	cmds := app.root.Commands()
 	names := make(map[string]bool)

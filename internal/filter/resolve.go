@@ -7,20 +7,29 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/domain"
-	"github.com/germanamz/tusk/internal/repository"
 )
+
+// ProjectLookup is the subset of project operations the Resolver needs.
+type ProjectLookup interface {
+	GetByName(ctx context.Context, name string) (*domain.Project, error)
+}
+
+// TaskLookup is the subset of task operations the Resolver needs.
+type TaskLookup interface {
+	GetByShortID(ctx context.Context, shortID string) (*domain.Task, error)
+}
 
 // Resolver converts a parsed FilterSet into a domain.TaskFilter.
 type Resolver struct {
-	projectRepo repository.ProjectRepository
-	taskRepo    repository.TaskRepository
+	projectLookup ProjectLookup
+	taskLookup    TaskLookup
 }
 
-// NewResolver creates a Resolver with the given repositories.
-func NewResolver(projectRepo repository.ProjectRepository, taskRepo repository.TaskRepository) *Resolver {
+// NewResolver creates a Resolver with the given lookup dependencies.
+func NewResolver(projectLookup ProjectLookup, taskLookup TaskLookup) *Resolver {
 	return &Resolver{
-		projectRepo: projectRepo,
-		taskRepo:    taskRepo,
+		projectLookup: projectLookup,
+		taskLookup:    taskLookup,
 	}
 }
 
@@ -48,7 +57,7 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 			tf.Statuses = strings.Split(field.Value, ",")
 
 		case "project":
-			project, err := r.projectRepo.GetByName(ctx, field.Value)
+			project, err := r.projectLookup.GetByName(ctx, field.Value)
 			if err != nil {
 				if errors.Is(err, domain.ErrNotFound) {
 					errs = append(errs, fmt.Errorf("project %q not found", field.Value))
@@ -105,7 +114,7 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 			}
 
 		case "parent":
-			task, err := r.taskRepo.GetByShortID(ctx, field.Value)
+			task, err := r.taskLookup.GetByShortID(ctx, field.Value)
 			if err != nil {
 				if errors.Is(err, domain.ErrNotFound) {
 					errs = append(errs, fmt.Errorf("parent task %q not found", field.Value))
@@ -117,7 +126,7 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 			tf.ParentID = &task.ID
 
 		case "tree":
-			task, err := r.taskRepo.GetByShortID(ctx, field.Value)
+			task, err := r.taskLookup.GetByShortID(ctx, field.Value)
 			if err != nil {
 				if errors.Is(err, domain.ErrNotFound) {
 					errs = append(errs, fmt.Errorf("tree root task %q not found", field.Value))
