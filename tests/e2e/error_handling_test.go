@@ -166,6 +166,98 @@ func TestErrorHandling(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "invalid_filter_field",
+			Steps: []Step{
+				{
+					Args:    []string{"list", "badfield:value"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "unknown field")
+					},
+				},
+			},
+		},
+		{
+			Name: "start_already_active_is_idempotent",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Will be active"},
+				},
+				{
+					Args: []string{"start", "$0.short_id"},
+				},
+				{
+					// active -> active: service skips workflow check for same-status,
+					// so this succeeds as a no-op (just bumps version)
+					Args: []string{"start", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["status"], "active")
+						assertEqual(t, m["version"], float64(3))
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Started task")
+					},
+				},
+			},
+		},
+		{
+			Name: "done_already_completed_is_idempotent",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Will be completed"},
+				},
+				{
+					Args: []string{"start", "$0.short_id"},
+				},
+				{
+					Args: []string{"done", "$0.short_id"},
+				},
+				{
+					// completed -> completed: same-status, succeeds as no-op
+					Args: []string{"done", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["status"], "completed")
+						assertEqual(t, m["version"], float64(4))
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Completed task")
+					},
+				},
+			},
+		},
+		{
+			Name: "delete_already_deleted_is_idempotent",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Will be deleted"},
+				},
+				{
+					Args: []string{"delete", "$0.short_id"},
+				},
+				{
+					// deleted -> deleted: same-status, succeeds as no-op
+					Args: []string{"delete", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["status"], "deleted")
+						assertEqual(t, m["version"], float64(3))
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Deleted task")
+					},
+				},
+			},
+		},
 	}
 
 	runScenarios(t, binPath, scenarios)
