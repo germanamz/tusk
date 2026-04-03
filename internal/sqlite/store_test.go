@@ -70,8 +70,8 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 migration applied, got %d", count)
+	if count != 2 {
+		t.Fatalf("expected 2 migrations applied, got %d", count)
 	}
 
 	var name string
@@ -106,7 +106,7 @@ func TestMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 migration after idempotent call, got %d", count)
+	if count != 2 {
+		t.Fatalf("expected 2 migrations after idempotent call, got %d", count)
 	}
 }
