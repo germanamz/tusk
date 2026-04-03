@@ -67,8 +67,8 @@ func (e *Env) Run(args ...string) Result {
 	if e.dbMode == "flag" {
 		fullArgs = append(fullArgs, "--db", e.dbPath)
 	}
-	fullArgs = append(fullArgs, expanded...)
 	fullArgs = append(fullArgs, "--format", e.format)
+	fullArgs = append(fullArgs, expanded...)
 
 	cmd := exec.Command(e.binPath, fullArgs...)
 
