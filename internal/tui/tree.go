@@ -123,19 +123,6 @@ func renderTreeNode(w io.Writer, node *treeNode, depth int) error {
 	return nil
 }
 
-// treeCmd builds the Cobra command for `tusk tree`.
-func (a *App) treeCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "tree [short_id]",
-		Short: "Display tasks as a tree hierarchy",
-		Long:  "Show all tasks in a tree hierarchy. Optionally specify a short_id to show only that subtree.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  a.runTree,
-	}
-	cmd.Flags().Bool("all", false, "include deleted tasks")
-	return cmd
-}
-
 // runTree handles the `tusk tree` and `tusk tree <short_id>` commands.
 func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()

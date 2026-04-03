@@ -59,6 +59,15 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	a.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
 	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text" or "json"`)
 
+	treeCmd := &cobra.Command{
+		Use:   "tree [short_id]",
+		Short: "Display tasks as a tree hierarchy",
+		Long:  "Show all tasks in a tree hierarchy. Optionally specify a short_id to show only that subtree.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  a.runTree,
+	}
+	treeCmd.Flags().Bool("all", false, "include deleted tasks")
+
 	a.root.AddCommand(
 		&cobra.Command{
 			Use:   "add [title] [key:value...] [+tag...]",
@@ -107,7 +116,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 			Args:  cobra.MinimumNArgs(2),
 			RunE:  a.runAnnotate,
 		},
-		a.treeCmd(),
+		treeCmd,
 		&cobra.Command{
 			Use:   "link <short_id> <relation_type> <short_id>",
 			Short: "Create a relation between two tasks",
