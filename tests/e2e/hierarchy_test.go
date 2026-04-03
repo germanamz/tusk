@@ -113,3 +113,83 @@ func TestHierarchy(t *testing.T) {
 	}
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestHierarchyErrors(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "circular_parent_direct",
+			Steps: []Step{
+				// Step 0: Create A
+				{
+					Args: []string{"add", "Task A"},
+				},
+				// Step 1: Create B with parent A
+				{
+					Args: []string{"add", "Task B", "parent:$0.short_id"},
+				},
+				// Step 2: Try to set A's parent to B — should fail (A->B->A cycle)
+				{
+					Args:    []string{"modify", "$0.short_id", "parent:$1.short_id"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "cycle")
+					},
+				},
+			},
+		},
+		{
+			Name: "circular_parent_transitive",
+			Steps: []Step{
+				// Step 0: Create A
+				{
+					Args: []string{"add", "Task A"},
+				},
+				// Step 1: Create B with parent A
+				{
+					Args: []string{"add", "Task B", "parent:$0.short_id"},
+				},
+				// Step 2: Create C with parent B
+				{
+					Args: []string{"add", "Task C", "parent:$1.short_id"},
+				},
+				// Step 3: Try to set A's parent to C — should fail (A->B->C->A cycle)
+				{
+					Args:    []string{"modify", "$0.short_id", "parent:$2.short_id"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "cycle")
+					},
+				},
+			},
+		},
+		{
+			Name: "parent_invalid_short_id",
+			Steps: []Step{
+				{
+					Args:    []string{"add", "Orphan task", "parent:nonexist"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "non-hex character")
+					},
+				},
+			},
+		},
+		{
+			Name: "parent_not_found",
+			Steps: []Step{
+				{
+					Args:    []string{"add", "Orphan task", "parent:deadbeef"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "not found")
+					},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
