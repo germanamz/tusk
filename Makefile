@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race test-e2e vet lint run install
+.PHONY: all build clean test test-race test-e2e vet lint run install setup-hooks
 
 all: build
 
@@ -33,3 +33,9 @@ run: build
 
 install:
 	$(GO) install $(GOFLAGS) ./cmd/tusk
+
+setup-hooks:
+	go install github.com/evilmartians/lefthook@latest
+	go install github.com/siderolabs/conform/cmd/conform@latest
+	lefthook install
+	@echo "Git hooks installed via lefthook"
