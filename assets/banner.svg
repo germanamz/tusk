@@ -38,14 +38,107 @@
   <!-- Accent line top -->
   <rect x="0" y="0" width="900" height="3" rx="0" fill="url(#accent)"/>
 
-  <!-- Tusk icon (stylized tusk/fang shape) -->
-  <g transform="translate(160, 60)" filter="url(#glow)">
-    <!-- Left tusk -->
-    <path d="M 60 10 Q 55 80, 30 150 Q 28 158, 32 160 Q 38 162, 42 155 Q 62 95, 72 30 Z" fill="url(#tusk-grad)" opacity="0.9"/>
-    <!-- Right tusk -->
-    <path d="M 80 10 Q 85 80, 110 150 Q 112 158, 108 160 Q 102 162, 98 155 Q 78 95, 68 30 Z" fill="url(#tusk-grad)" opacity="0.9"/>
-    <!-- Bridge -->
-    <ellipse cx="70" cy="18" rx="22" ry="14" fill="url(#tusk-grad)" opacity="0.7"/>
+  <!-- Paired mammoth tusks traced from reference -->
+  <g transform="translate(100, 30)" filter="url(#glow)">
+
+    <!-- LEFT TUSK (mirrored): rough base top-right, curves down-left to sharp tip -->
+    <g transform="translate(70, 0) scale(-1, 1) translate(-70, 0)">
+      <!-- Drop shadow -->
+      <path d="
+        M 56 0 C 52 2, 48 0, 46 4 C 44 8, 48 10, 44 14
+        C 40 18, 42 12, 38 16 C 34 20, 38 24, 36 26
+        C 34 30, 44 32, 42 38 C 40 46, 36 42, 34 50
+        C 30 62, 24 78, 18 96
+        C 10 118, 4 140, 2 158
+        C 0 170, 2 176, 4 174
+        C 8 170, 20 146, 30 120
+        C 38 98, 44 76, 48 58
+        C 50 48, 54 34, 56 20
+        C 58 10, 58 4, 56 0 Z
+      " fill="#000000" opacity="0.25" transform="translate(3,4)"/>
+
+      <!-- Main tusk shape -->
+      <path d="
+        M 56 0 C 52 2, 48 0, 46 4 C 44 8, 48 10, 44 14
+        C 40 18, 42 12, 38 16 C 34 20, 38 24, 36 26
+        C 34 30, 44 32, 42 38 C 40 46, 36 42, 34 50
+        C 30 62, 24 78, 18 96
+        C 10 118, 4 140, 2 158
+        C 0 170, 2 176, 4 174
+        C 8 170, 20 146, 30 120
+        C 38 98, 44 76, 48 58
+        C 50 48, 54 34, 56 20
+        C 58 10, 58 4, 56 0 Z
+      " fill="url(#tusk-grad)" opacity="0.95"/>
+
+      <!-- Highlight along outer curve -->
+      <path d="
+        M 38 22
+        C 34 34, 28 56, 20 84
+        C 12 112, 6 140, 4 160
+        C 6 148, 12 124, 18 100
+        C 26 72, 34 42, 38 22 Z
+      " fill="#ffffff" opacity="0.15"/>
+
+      <!-- Inner shadow for depth -->
+      <path d="
+        M 50 30
+        C 48 44, 44 62, 38 84
+        C 30 108, 22 134, 14 156
+        C 20 140, 28 116, 34 92
+        C 40 68, 46 46, 50 30 Z
+      " fill="#0f172a" opacity="0.18"/>
+    </g>
+
+    <!-- RIGHT TUSK: rough base top-left, curves down-right to sharp tip -->
+    <g transform="translate(70, 0)">
+      <!-- Drop shadow -->
+      <path d="
+        M 56 0 C 52 2, 48 0, 46 4 C 44 8, 48 10, 44 14
+        C 40 18, 42 12, 38 16 C 34 20, 38 24, 36 26
+        C 34 30, 44 32, 42 38 C 40 46, 36 42, 34 50
+        C 30 62, 24 78, 18 96
+        C 10 118, 4 140, 2 158
+        C 0 170, 2 176, 4 174
+        C 8 170, 20 146, 30 120
+        C 38 98, 44 76, 48 58
+        C 50 48, 54 34, 56 20
+        C 58 10, 58 4, 56 0 Z
+      " fill="#000000" opacity="0.25" transform="translate(-3,4)"/>
+
+      <!-- Main tusk shape -->
+      <path d="
+        M 56 0 C 52 2, 48 0, 46 4 C 44 8, 48 10, 44 14
+        C 40 18, 42 12, 38 16 C 34 20, 38 24, 36 26
+        C 34 30, 44 32, 42 38 C 40 46, 36 42, 34 50
+        C 30 62, 24 78, 18 96
+        C 10 118, 4 140, 2 158
+        C 0 170, 2 176, 4 174
+        C 8 170, 20 146, 30 120
+        C 38 98, 44 76, 48 58
+        C 50 48, 54 34, 56 20
+        C 58 10, 58 4, 56 0 Z
+      " fill="url(#tusk-grad)" opacity="0.95"/>
+
+      <!-- Highlight along outer curve -->
+      <path d="
+        M 38 22
+        C 34 34, 28 56, 20 84
+        C 12 112, 6 140, 4 160
+        C 6 148, 12 124, 18 100
+        C 26 72, 34 42, 38 22 Z
+      " fill="#ffffff" opacity="0.15"/>
+
+      <!-- Inner shadow for depth -->
+      <path d="
+        M 50 30
+        C 48 44, 44 62, 38 84
+        C 30 108, 22 134, 14 156
+        C 20 140, 28 116, 34 92
+        C 40 68, 46 46, 50 30 Z
+      " fill="#0f172a" opacity="0.18"/>
+    </g>
+
   </g>
 
   <!-- Title -->
@@ -78,7 +171,7 @@
     <text font-family="ui-monospace, monospace" font-size="13" fill="#475569">$</text>
     <text x="16" font-family="ui-monospace, monospace" font-size="13" fill="#38bdf8">tusk add</text>
     <text x="88" font-family="ui-monospace, monospace" font-size="13" fill="#94a3b8">"Ship it"</text>
-    <text x="160" font-family="ui-monospace, monospace" font-size="13" fill="#818cf8">priority:4</text>
-    <text x="252" font-family="ui-monospace, monospace" font-size="13" fill="#4ade80">+release</text>
+    <text x="168" font-family="ui-monospace, monospace" font-size="13" fill="#818cf8">priority:4</text>
+    <text x="260" font-family="ui-monospace, monospace" font-size="13" fill="#4ade80">+release</text>
   </g>
 </svg>
