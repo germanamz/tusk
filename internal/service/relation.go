@@ -101,6 +101,49 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 	return rel, nil
 }
 
+// Remove deletes an existing relation between two tasks.
+//
+// It finds the relation by matching (sourceID, targetID, relType) among the
+// source task's relations, then deletes by the relation's ID.
+//
+// Returns domain.ErrNotFound if the relation doesn't exist or if either
+// task short ID is invalid.
+func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShortID, relType string) error {
+	source, err := s.taskRepo.GetByShortID(ctx, sourceShortID)
+	if err != nil {
+		return fmt.Errorf("resolving source task: %w", err)
+	}
+
+	target, err := s.taskRepo.GetByShortID(ctx, targetShortID)
+	if err != nil {
+		return fmt.Errorf("resolving target task: %w", err)
+	}
+
+	// Find the relation by scanning all relations for the source task
+	rels, err := s.relationRepo.GetByTask(ctx, source.ID)
+	if err != nil {
+		return fmt.Errorf("loading relations: %w", err)
+	}
+
+	for _, rel := range rels {
+		if rel.SourceID == source.ID && rel.TargetID == target.ID && rel.RelationType == relType {
+			return s.relationRepo.Delete(ctx, rel.ID)
+		}
+	}
+
+	return domain.ErrNotFound
+}
+
+// GetByTask returns all relations involving a task (as source or target).
+// The task is identified by short ID.
+func (s *RelationService) GetByTask(ctx context.Context, shortID string) ([]*domain.Relation, error) {
+	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, err
+	}
+	return s.relationRepo.GetByTask(ctx, task.ID)
+}
+
 // checkCycle performs a DFS from targetID following outgoing "blocks" edges.
 // If it reaches sourceID, that means inserting sourceID->targetID would form a cycle.
 //

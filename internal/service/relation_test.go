@@ -225,3 +225,46 @@ func TestRelationNonBlocksAllowsBidirectional(t *testing.T) {
 		t.Fatalf("B relates_to A: %v", err)
 	}
 }
+
+func TestRelationRemove(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+	taskB := env.createTask(t, "Task B")
+
+	// Create a relation
+	_, err := env.relationSvc.Add(ctx, taskA.ShortID, taskB.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Remove it
+	err = env.relationSvc.Remove(ctx, taskA.ShortID, taskB.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	// Verify it's gone
+	rels, err := env.relationSvc.GetByTask(ctx, taskA.ShortID)
+	if err != nil {
+		t.Fatalf("GetByTask: %v", err)
+	}
+	if len(rels) != 0 {
+		t.Fatalf("expected 0 relations after remove, got %d", len(rels))
+	}
+}
+
+func TestRelationRemoveNotFound(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+	taskB := env.createTask(t, "Task B")
+
+	// Try to remove a relation that doesn't exist
+	err := env.relationSvc.Remove(ctx, taskA.ShortID, taskB.ShortID, "blocks")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}
