@@ -814,6 +814,227 @@ func TestRunInfo_JSON_IncludesAnnotations(t *testing.T) {
 	}
 }
 
+func TestRunLink_HappyPath(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Source"}
+	taskSvc.Create(ctx, src)
+	tgt := &domain.Task{Title: "Target"}
+	taskSvc.Create(ctx, tgt)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if !strings.Contains(out, "Linked") {
+		t.Fatalf("expected 'Linked' in output, got %q", out)
+	}
+	if !strings.Contains(out, src.ShortID) || !strings.Contains(out, tgt.ShortID) {
+		t.Fatalf("expected both short IDs in output, got %q", out)
+	}
+}
+
+func TestRunLink_JSON(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Source"}
+	taskSvc.Create(ctx, src)
+	tgt := &domain.Task{Title: "Target"}
+	taskSvc.Create(ctx, tgt)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"link", src.ShortID, "relates_to", tgt.ShortID, "--format", "json"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("link json: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, `"source_id"`) {
+		t.Fatalf("expected source_id in JSON, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"relation_type"`) {
+		t.Fatalf("expected relation_type in JSON, got:\n%s", out)
+	}
+}
+
+func TestRunLink_DuplicateRelation(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Source"}
+	taskSvc.Create(ctx, src)
+	tgt := &domain.Task{Title: "Target"}
+	taskSvc.Create(ctx, tgt)
+
+	// First link succeeds
+	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("first link: %v", err)
+	}
+
+	// Second link should fail
+	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for duplicate relation")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected 'already exists', got %q", err.Error())
+	}
+}
+
+func TestRunLink_NotFound(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"link", "nonexist", "blocks", "also_non"})
+	err := app.root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found' error, got %v", err)
+	}
+}
+
+func TestRunUnlink_HappyPath(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Source"}
+	taskSvc.Create(ctx, src)
+	tgt := &domain.Task{Title: "Target"}
+	taskSvc.Create(ctx, tgt)
+
+	// Link first
+	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	// Unlink
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"unlink", src.ShortID, "blocks", tgt.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("unlink: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if !strings.Contains(out, "Unlinked") {
+		t.Fatalf("expected 'Unlinked' in output, got %q", out)
+	}
+}
+
+func TestRunUnlink_JSON(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Source"}
+	taskSvc.Create(ctx, src)
+	tgt := &domain.Task{Title: "Target"}
+	taskSvc.Create(ctx, tgt)
+
+	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	app.root.Execute()
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"unlink", src.ShortID, "blocks", tgt.ShortID, "--format", "json"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("unlink json: %v", err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if out != "{}" {
+		t.Fatalf("expected '{}', got %q", out)
+	}
+}
+
+func TestRunUnlink_NotFound(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"unlink", "nonexist", "blocks", "also_non"})
+	err := app.root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found' error, got %v", err)
+	}
+}
+
+func TestRunInfo_ShowsRelations(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Blocker"}
+	taskSvc.Create(ctx, src)
+	tgt := &domain.Task{Title: "Blocked"}
+	taskSvc.Create(ctx, tgt)
+
+	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	// Info on source should show "blocks"
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"info", src.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("info source: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Relations:") {
+		t.Fatalf("expected Relations: section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "blocks") {
+		t.Fatalf("expected 'blocks' label, got:\n%s", out)
+	}
+
+	// Info on target should show "blocked_by"
+	buf.Reset()
+	app.root.SetArgs([]string{"info", tgt.ShortID})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("info target: %v", err)
+	}
+
+	out = buf.String()
+	if !strings.Contains(out, "blocked_by") {
+		t.Fatalf("expected 'blocked_by' label, got:\n%s", out)
+	}
+}
+
+func TestRunInfo_JSON_IncludesRelations(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	src := &domain.Task{Title: "Source"}
+	taskSvc.Create(ctx, src)
+	tgt := &domain.Task{Title: "Target"}
+	taskSvc.Create(ctx, tgt)
+
+	app.root.SetArgs([]string{"link", src.ShortID, "relates_to", tgt.ShortID})
+	app.root.Execute()
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"info", src.ShortID, "--format", "json"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("info json: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, `"relations"`) {
+		t.Fatalf("expected relations in JSON, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"relation_type"`) {
+		t.Fatalf("expected relation_type in JSON, got:\n%s", out)
+	}
+}
+
 func mustParseTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	v, err := time.Parse("2006-01-02", s)
