@@ -54,7 +54,7 @@ func run() error {
 	relationRepo := sqlite.NewRelationRepo(db)
 
 	workflowSvc := service.NewWorkflowService(workflowRepo)
-	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
+	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
 	tagSvc := service.NewTagService(tagRepo)
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
