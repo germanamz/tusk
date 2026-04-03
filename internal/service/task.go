@@ -263,12 +263,34 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	// Update metadata
 	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
 
-	// Persist (repo handles version increment)
+	statusChanged := task.Status != oldStatus
+
+	// If status changed, wrap persist + propagation in a transaction.
+	// Otherwise, persist directly (no transaction needed).
+	if statusChanged && s.txProvider != nil {
+		var result *domain.Task
+		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository, txProjectRepo repository.ProjectRepository) error {
+			if err := txTaskRepo.Update(ctx, task); err != nil {
+				return err
+			}
+			updated, err := txTaskRepo.GetByID(ctx, task.ID)
+			if err != nil {
+				return err
+			}
+			result = updated
+			// Propagation will be added in the next task
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
+	// Non-status-change path: persist directly
 	if err := s.taskRepo.Update(ctx, task); err != nil {
 		return nil, err
 	}
-
-	// Re-read to get the persisted state with bumped version
 	return s.taskRepo.GetByID(ctx, task.ID)
 }
 
