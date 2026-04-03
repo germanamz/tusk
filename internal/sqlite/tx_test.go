@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
 	"github.com/google/uuid"
 )
 
@@ -61,5 +63,41 @@ func TestWithTxRollback(t *testing.T) {
 	_, err = tagRepo.GetByName(ctx, "rollback-test")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after rollback, got: %v", err)
+	}
+}
+
+func TestWithRelationTxCommit(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create two tasks first (relations need valid task FKs)
+	taskRepo := NewTaskRepo(store.DB())
+	task1 := newTestTask()
+	task2 := newTestTask()
+	mustCreateTask(t, taskRepo, task1)
+	mustCreateTask(t, taskRepo, task2)
+
+	// Create a relation inside WithRelationTx
+	err := store.WithRelationTx(ctx, func(rr repository.RelationRepository) error {
+		return rr.Create(ctx, &domain.Relation{
+			ID:           uuid.New(),
+			SourceID:     task1.ID,
+			TargetID:     task2.ID,
+			RelationType: "blocks",
+			CreatedAt:    time.Now().UTC(),
+		})
+	})
+	if err != nil {
+		t.Fatalf("WithRelationTx: %v", err)
+	}
+
+	// Verify the relation persisted
+	relationRepo := NewRelationRepo(store.DB())
+	rels, err := relationRepo.GetByTask(ctx, task1.ID)
+	if err != nil {
+		t.Fatalf("GetByTask: %v", err)
+	}
+	if len(rels) != 1 {
+		t.Fatalf("expected 1 relation, got %d", len(rels))
 	}
 }

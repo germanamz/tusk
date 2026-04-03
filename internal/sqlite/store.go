@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/germanamz/tusk/internal/repository"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
@@ -109,6 +110,14 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx *Tx) error) error {
 		return err
 	}
 	return sqlTx.Commit()
+}
+
+// WithRelationTx executes fn with a RelationRepository backed by a transaction.
+// This is the concrete implementation of service.RelationTxProvider.
+func (s *Store) WithRelationTx(ctx context.Context, fn func(rr repository.RelationRepository) error) error {
+	return s.WithTx(ctx, func(tx *Tx) error {
+		return fn(tx.Relations())
+	})
 }
 
 // migrate applies pending database migrations from the provided filesystem.
