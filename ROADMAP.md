@@ -112,9 +112,25 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] E2E tests for tree display
 
 - [ ] **Story: Completion propagation**
-  - [ ] Auto-transition parent to `completed` when all children complete
-  - [ ] Make propagation configurable per project
-  - [ ] Handle edge cases (re-opening a child, mixed statuses)
+  - [ ] Add JSON `settings` column to projects table (migration)
+  - [ ] `ProjectSettings` with `AutoCompleteConfig` and `AutoRevertConfig` (configurable trigger/target statuses)
+  - [ ] `TaskTxProvider` for atomic propagation within same transaction
+  - [ ] Auto-transition parent when all non-deleted children reach trigger status
+  - [ ] Auto-revert parent when a child moves away from trigger status
+  - [ ] Recursive propagation up ancestor chain
+  - [ ] Workflow validation respected — propagation silently stops if transition invalid
+  - [ ] Disabled by default, opt-in per project via settings
+  - [ ] E2E tests for propagation scenarios
+
+### Initiative: Project Management
+
+> CLI commands for project CRUD and settings configuration.
+
+- [ ] **Story: `tusk project` subcommand**
+  - [ ] `tusk project list` — list all projects
+  - [ ] `tusk project create <name>` — create a project
+  - [ ] `tusk project modify <name>` — update project fields and settings
+  - [ ] Dot-path `--set` flag for JSON settings (e.g., `--set auto_complete_parent.trigger_status=completed`)
 
 ### Initiative: Tag Management
 
