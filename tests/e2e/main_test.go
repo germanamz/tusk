@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/tusk")
 	// Build from the project root. The test runs from tests/e2e/, so go up two levels.
 	cmd.Dir = filepath.Join(mustGetwd(), "..", "..")
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=1")
+	cmd.Env = os.Environ()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

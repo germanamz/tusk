@@ -29,7 +29,7 @@ Tusk combines the speed and CLI ergonomics of TaskWarrior with structured hierar
 
 ### From source
 
-Requires Go 1.26+ and CGO (for SQLite):
+Requires Go 1.26+:
 
 ```bash
 git clone https://github.com/germanamz/tusk.git

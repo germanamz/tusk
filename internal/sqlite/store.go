@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // timeFormat defines the timestamp format used throughout the application.
@@ -33,8 +33,8 @@ func New(dbPath string, migrationsFS fs.FS) (*Store, error) {
 	// Pragmas are set via DSN parameters so they apply to every connection
 	// opened by the pool, not just the first one. foreign_keys is per-connection
 	// and would silently default to OFF on new pooled connections without this.
-	dsn := dbPath + "?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON"
-	db, err := sql.Open("sqlite3", dsn)
+	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}

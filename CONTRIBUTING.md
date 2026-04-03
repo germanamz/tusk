@@ -7,7 +7,6 @@ Thank you for your interest in contributing to Tusk! This document provides guid
 ### Prerequisites
 
 - Go 1.26+
-- CGO enabled (required for SQLite)
 - golangci-lint (for linting)
 
 ### Setup

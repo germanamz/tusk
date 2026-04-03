@@ -9,7 +9,7 @@ Tusk is a concurrent-safe task management CLI written in Go with MCP server supp
 ## Commands
 
 ```bash
-make build          # Compile to bin/tusk (CGO required for SQLite)
+make build          # Compile to bin/tusk
 make test           # Unit + e2e tests
 make test-race      # Tests with race detector
 make test-e2e       # E2e tests only

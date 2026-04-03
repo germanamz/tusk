@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/filter"
@@ -9,6 +10,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
+
+// VersionInfo holds build-time version metadata injected via ldflags.
+type VersionInfo struct {
+	Version string
+	Commit  string
+	Date    string
+}
 
 // ProjectLookup is the subset of project operations the TUI needs.
 type ProjectLookup interface {
@@ -24,25 +32,29 @@ type App struct {
 	resolver    *filter.Resolver
 	root        *cobra.Command
 	format      string
+	version     VersionInfo
 }
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectRepo may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo ProjectLookup) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo ProjectLookup, vi VersionInfo) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
 		projectRepo: projectRepo,
+		version:     vi,
 	}
 	a.resolver = filter.NewResolver(projectRepo, taskSvc)
 
 	a.root = &cobra.Command{
-		Use:   "tusk",
-		Short: "A concurrent-safe task management tool",
+		Use:     "tusk",
+		Short:   "A concurrent-safe task management tool",
+		Version: vi.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
+	a.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
 	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text" or "json"`)
 
 	a.root.AddCommand(
@@ -92,6 +104,13 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo P
 			Short: "Add a note to a task",
 			Args:  cobra.MinimumNArgs(2),
 			RunE:  a.runAnnotate,
+		},
+		&cobra.Command{
+			Use:   "version",
+			Short: "Print version information",
+			Run: func(cmd *cobra.Command, args []string) {
+				fmt.Fprintf(cmd.OutOrStdout(), "tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date)
+			},
 		},
 	)
 

@@ -12,6 +12,13 @@ import (
 	"github.com/germanamz/tusk/migrations"
 )
 
+// version, commit, and date are set by goreleaser at build time via -ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
@@ -49,7 +56,11 @@ func run() error {
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
 	tagSvc := service.NewTagService(tagRepo)
 
-	app := tui.New(taskSvc, tagSvc, projectRepo)
+	app := tui.New(taskSvc, tagSvc, projectRepo, tui.VersionInfo{
+		Version: version,
+		Commit:  commit,
+		Date:    date,
+	})
 	return app.Run(stripDBFlag(os.Args[1:]))
 }
 
