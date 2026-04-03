@@ -70,6 +70,47 @@ func (s *Store) DB() *sql.DB { return s.db }
 // Close closes the database connection.
 func (s *Store) Close() error { return s.db.Close() }
 
+// Tx wraps an active database transaction and provides access to
+// transactional repository instances. Repos created from a Tx share
+// the same underlying *sql.Tx, so all their operations are atomic.
+type Tx struct {
+	tx *sql.Tx
+}
+
+// Tasks returns a TaskRepo operating within this transaction.
+func (t *Tx) Tasks() *TaskRepo { return NewTaskRepo(t.tx) }
+
+// Relations returns a RelationRepo operating within this transaction.
+func (t *Tx) Relations() *RelationRepo { return NewRelationRepo(t.tx) }
+
+// Annotations returns an AnnotationRepo operating within this transaction.
+func (t *Tx) Annotations() *AnnotationRepo { return NewAnnotationRepo(t.tx) }
+
+// Projects returns a ProjectRepo operating within this transaction.
+func (t *Tx) Projects() *ProjectRepo { return NewProjectRepo(t.tx) }
+
+// Tags returns a TagRepo operating within this transaction.
+func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
+
+// Workflows returns a WorkflowRepo operating within this transaction.
+func (t *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(t.tx) }
+
+// WithTx executes fn within a database transaction. If fn returns nil,
+// the transaction is committed. If fn returns an error (or panics),
+// the transaction is rolled back and the error is returned.
+func (s *Store) WithTx(ctx context.Context, fn func(tx *Tx) error) error {
+	sqlTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer sqlTx.Rollback() //nolint:errcheck // Rollback after commit returns sql.ErrTxDone, which is expected.
+
+	if err := fn(&Tx{tx: sqlTx}); err != nil {
+		return err
+	}
+	return sqlTx.Commit()
+}
+
 // migrate applies pending database migrations from the provided filesystem.
 func (s *Store) migrate(migrationsFS fs.FS) error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
