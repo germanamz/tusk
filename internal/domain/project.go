@@ -11,5 +11,6 @@ type Project struct {
 	Name            string
 	Description     string
 	DefaultWorkflow string
+	Settings        ProjectSettings
 	CreatedAt       time.Time
 }
