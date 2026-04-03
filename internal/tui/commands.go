@@ -388,3 +388,21 @@ func (a *App) runLink(cmd *cobra.Command, args []string) error {
 
 	return renderLinkResult(cmd.OutOrStdout(), rel, sourceShortID, targetShortID, a.format)
 }
+
+func (a *App) runUnlink(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	sourceShortID := args[0]
+	relType := args[1]
+	targetShortID := args[2]
+
+	if err := a.relationSvc.Remove(ctx, sourceShortID, targetShortID, relType); err != nil {
+		return fmt.Errorf("%s", formatRelationError(err, sourceShortID, targetShortID))
+	}
+
+	if a.format == "json" {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "{}")
+		return err
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Unlinked %s %s %s\n", sourceShortID, relType, targetShortID)
+	return err
+}

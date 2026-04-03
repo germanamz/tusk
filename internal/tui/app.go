@@ -115,6 +115,13 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 			RunE:  a.runLink,
 		},
 		&cobra.Command{
+			Use:   "unlink <short_id> <relation_type> <short_id>",
+			Short: "Remove a relation between two tasks",
+			Long:  `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
+			Args:  cobra.ExactArgs(3),
+			RunE:  a.runUnlink,
+		},
+		&cobra.Command{
 			Use:   "version",
 			Short: "Print version information",
 			Run: func(cmd *cobra.Command, args []string) {
