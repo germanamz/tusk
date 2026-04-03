@@ -177,7 +177,16 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading tags: %w", err)
 	}
 
-	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, tags, projectName, a.format)
+	// Fetch relations
+	var relations []*domain.Relation
+	if a.relationSvc != nil {
+		relations, err = a.relationSvc.GetByTask(ctx, shortID)
+		if err != nil {
+			return fmt.Errorf("loading relations: %w", err)
+		}
+	}
+
+	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, tags, relations, projectName, a.format)
 }
 
 func (a *App) runModify(cmd *cobra.Command, args []string) error {
