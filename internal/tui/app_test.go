@@ -15,7 +15,7 @@ func TestNewApp_NotNil(t *testing.T) {
 
 func TestApp_SubcommandsRegistered(t *testing.T) {
 	app := New(nil, nil, nil, nil, VersionInfo{})
-	want := []string{"add", "list", "info", "modify", "start", "done", "delete", "annotate", "version"}
+	want := []string{"add", "list", "info", "modify", "start", "done", "delete", "annotate", "link", "unlink", "version"}
 	cmds := app.root.Commands()
 	names := make(map[string]bool)
 	for _, c := range cmds {
