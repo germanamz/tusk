@@ -43,6 +43,15 @@ func TestFormatError_InvalidTransition(t *testing.T) {
 	}
 }
 
+func TestFormatError_CyclicParent(t *testing.T) {
+	err := fmt.Errorf("setting parent: %w", domain.ErrCyclicParent)
+	got := formatError(err, "abc12345")
+	want := "parent would create a cycle in task hierarchy"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestFormatError_Generic(t *testing.T) {
 	err := fmt.Errorf("something went wrong")
 	got := formatError(err, "abc12345")

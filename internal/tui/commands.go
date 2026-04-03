@@ -21,6 +21,8 @@ func formatError(err error, shortID string) string {
 		return "Version conflict - task was modified by another process"
 	case errors.Is(err, domain.ErrInvalidTransition):
 		return err.Error()
+	case errors.Is(err, domain.ErrCyclicParent):
+		return domain.ErrCyclicParent.Error()
 	default:
 		return err.Error()
 	}
