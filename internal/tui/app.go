@@ -108,6 +108,13 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 			RunE:  a.runAnnotate,
 		},
 		&cobra.Command{
+			Use:   "link <short_id> <relation_type> <short_id>",
+			Short: "Create a relation between two tasks",
+			Long:  `Create a typed relation. Types: blocks, relates_to, duplicates.`,
+			Args:  cobra.ExactArgs(3),
+			RunE:  a.runLink,
+		},
+		&cobra.Command{
 			Use:   "version",
 			Short: "Print version information",
 			Run: func(cmd *cobra.Command, args []string) {
