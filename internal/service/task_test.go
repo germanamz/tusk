@@ -874,6 +874,38 @@ func TestUpdate_CyclicParentDirectRejected(t *testing.T) {
 	}
 }
 
+func TestUpdate_StatusChange_Transactional(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Transactional test")
+	mustCreateTask(t, env.taskSvc, task)
+
+	// Start the task (pending -> active) — this triggers the transactional path
+	updated, err := env.taskSvc.Start(ctx, task.ShortID, task.Version)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if updated.Status != "active" {
+		t.Fatalf("expected status 'active', got %q", updated.Status)
+	}
+	if updated.Version != 2 {
+		t.Fatalf("expected version 2, got %d", updated.Version)
+	}
+
+	// Complete it (active -> completed)
+	completed, err := env.taskSvc.Complete(ctx, updated.ShortID, updated.Version)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if completed.Status != "completed" {
+		t.Fatalf("expected status 'completed', got %q", completed.Status)
+	}
+	if completed.Version != 3 {
+		t.Fatalf("expected version 3, got %d", completed.Version)
+	}
+}
+
 func TestTaskService_WithTxProvider(t *testing.T) {
 	store, err := sqlite.New(":memory:", migrations.FS)
 	if err != nil {
