@@ -68,7 +68,7 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		return fmt.Errorf("looking up project: %w", err)
 	}
 
-	// Validate parent exists
+	// Validate parent exists and would not create a cycle
 	if task.ParentID != nil {
 		_, err := s.taskRepo.GetByID(ctx, *task.ParentID)
 		if err != nil {
@@ -77,6 +77,9 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 			}
 			return fmt.Errorf("looking up parent task: %w", err)
 		}
+		// Note: On Create, cycles are impossible because the new task has no ID yet
+		// that other tasks could reference as a parent. The cycle check is only
+		// meaningful in Update. We keep the existence check here for clarity.
 	}
 
 	// Default and validate status
@@ -212,6 +215,10 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 			}
 			return nil, fmt.Errorf("looking up parent task: %w", err)
 		}
+		// Check for cycles: walk up from proposed parent — if we reach this task, it's a cycle
+		if err := s.detectParentCycle(ctx, task.ID, *task.ParentID); err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate project if changed
@@ -280,6 +287,26 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 		Version: version,
 		Status:  ptr("deleted"),
 	})
+}
+
+// detectParentCycle walks up the ancestor chain from proposedParentID.
+// If it encounters taskID, the proposed parent relationship would create a cycle.
+// Returns ErrCyclicParent if a cycle is detected, nil otherwise.
+func (s *TaskService) detectParentCycle(ctx context.Context, taskID, proposedParentID uuid.UUID) error {
+	current := proposedParentID
+	for {
+		if current == taskID {
+			return domain.ErrCyclicParent
+		}
+		parent, err := s.taskRepo.GetByID(ctx, current)
+		if err != nil {
+			return fmt.Errorf("checking parent cycle: %w", err)
+		}
+		if parent.ParentID == nil {
+			return nil
+		}
+		current = *parent.ParentID
+	}
 }
 
 // generateShortID derives a short ID from the task's UUID.

@@ -827,3 +827,106 @@ func TestDeleteAnnotation_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestCreate_CyclicParentRejected(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Create A
+	taskA := newMinimalTask("Task A")
+	mustCreateTask(t, env.taskSvc, taskA)
+
+	// Create B with parent A
+	taskB := newMinimalTask("Task B")
+	taskB.ParentID = &taskA.ID
+	mustCreateTask(t, env.taskSvc, taskB)
+
+	// Create C with parent B — valid chain A -> B -> C, should succeed
+	taskC := newMinimalTask("Task C")
+	taskC.ParentID = &taskB.ID
+	if err := env.taskSvc.Create(ctx, taskC); err != nil {
+		t.Fatalf("Create with valid parent chain should succeed: %v", err)
+	}
+}
+
+func TestUpdate_CyclicParentDirectRejected(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Create A
+	taskA := newMinimalTask("Task A")
+	mustCreateTask(t, env.taskSvc, taskA)
+
+	// Create B with parent A
+	taskB := newMinimalTask("Task B")
+	taskB.ParentID = &taskA.ID
+	mustCreateTask(t, env.taskSvc, taskB)
+
+	// Try to set A's parent to B — should fail (cycle: A->B->A)
+	parentRef := &taskB.ID
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:  taskA.ShortID,
+		Version:  taskA.Version,
+		ParentID: &parentRef,
+	})
+	if !errors.Is(err, domain.ErrCyclicParent) {
+		t.Fatalf("expected ErrCyclicParent, got %v", err)
+	}
+}
+
+func TestUpdate_CyclicParentTransitiveRejected(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Create chain: A -> B -> C (A is root, B's parent is A, C's parent is B)
+	taskA := newMinimalTask("Task A")
+	mustCreateTask(t, env.taskSvc, taskA)
+
+	taskB := newMinimalTask("Task B")
+	taskB.ParentID = &taskA.ID
+	mustCreateTask(t, env.taskSvc, taskB)
+
+	taskC := newMinimalTask("Task C")
+	taskC.ParentID = &taskB.ID
+	mustCreateTask(t, env.taskSvc, taskC)
+
+	// Try to set A's parent to C — should fail (cycle: A->B->C->A)
+	parentRef := &taskC.ID
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:  taskA.ShortID,
+		Version:  taskA.Version,
+		ParentID: &parentRef,
+	})
+	if !errors.Is(err, domain.ErrCyclicParent) {
+		t.Fatalf("expected ErrCyclicParent, got %v", err)
+	}
+}
+
+func TestUpdate_ReparentNoCycle(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Create three independent tasks
+	taskA := newMinimalTask("Task A")
+	mustCreateTask(t, env.taskSvc, taskA)
+
+	taskB := newMinimalTask("Task B")
+	mustCreateTask(t, env.taskSvc, taskB)
+
+	taskC := newMinimalTask("Task C")
+	mustCreateTask(t, env.taskSvc, taskC)
+
+	// Set B's parent to A — should succeed (no cycle)
+	parentRef := &taskA.ID
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:  taskB.ShortID,
+		Version:  taskB.Version,
+		ParentID: &parentRef,
+	})
+	if err != nil {
+		t.Fatalf("expected reparent to succeed, got %v", err)
+	}
+	if updated.ParentID == nil || *updated.ParentID != taskA.ID {
+		t.Fatalf("expected parent to be task A")
+	}
+}
