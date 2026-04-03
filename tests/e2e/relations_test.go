@@ -231,3 +231,87 @@ func TestRelationsCycleDetection(t *testing.T) {
 	}
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestRelationsErrors(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "link_task_not_found",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Existing task"},
+				},
+				{
+					Args:    []string{"link", "$0.short_id", "blocks", "nonexist"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "not found")
+					},
+				},
+			},
+		},
+		{
+			Name: "link_duplicate",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Task A"},
+				},
+				{
+					Args: []string{"add", "Task B"},
+				},
+				// First link — ok
+				{
+					Args: []string{"link", "$0.short_id", "blocks", "$1.short_id"},
+				},
+				// Second identical link — error
+				{
+					Args:    []string{"link", "$0.short_id", "blocks", "$1.short_id"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "already exists")
+					},
+				},
+			},
+		},
+		{
+			Name: "link_invalid_type",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Task A"},
+				},
+				{
+					Args: []string{"add", "Task B"},
+				},
+				{
+					Args:    []string{"link", "$0.short_id", "depends_on", "$1.short_id"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "invalid relation type")
+					},
+				},
+			},
+		},
+		{
+			Name: "unlink_not_found",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Task A"},
+				},
+				{
+					Args: []string{"add", "Task B"},
+				},
+				{
+					Args:    []string{"unlink", "$0.short_id", "blocks", "$1.short_id"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "not found")
+					},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
