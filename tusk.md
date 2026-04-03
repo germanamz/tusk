@@ -702,10 +702,10 @@ var (
 
 ### v0.2 — Relations and hierarchy
 
-- [ ] RelationService with cycle detection
-- [ ] Parent-child task creation and tree view
+- [x] RelationService with cycle detection
+- [x] `link`, `unlink` CLI commands
+- [ ] Parent-child task creation and `tree` CLI command
 - [ ] Completion propagation
-- [ ] `link`, `unlink`, `tree` CLI commands
 - [ ] `tusk tag` subcommand: create, list, delete, rename tags
 
 ### v0.3 — MCP server
