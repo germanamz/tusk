@@ -116,6 +116,8 @@ func TestRenderTree_TextEmpty(t *testing.T) {
 	if err := renderTree(&buf, nil, "text"); err != nil {
 		t.Fatalf("renderTree: %v", err)
 	}
+	// renderTree itself produces no output for nil nodes;
+	// the "No tasks." message is printed by runTree at a higher level.
 	if buf.String() != "" {
 		t.Fatalf("expected empty output for nil nodes, got %q", buf.String())
 	}
@@ -141,6 +143,13 @@ func TestRenderTree_JSON(t *testing.T) {
 	}
 	if parsed[0]["short_id"] != "aaaaaaaa" {
 		t.Fatalf("expected root short_id aaaaaaaa, got %v", parsed[0]["short_id"])
+	}
+	// parent_id should be present and null for root (not omitted)
+	if _, ok := parsed[0]["parent_id"]; !ok {
+		t.Fatal("expected parent_id field in root JSON (should be null)")
+	}
+	if parsed[0]["parent_id"] != nil {
+		t.Fatalf("expected null parent_id for root, got %v", parsed[0]["parent_id"])
 	}
 	children, ok := parsed[0]["children"].([]any)
 	if !ok {

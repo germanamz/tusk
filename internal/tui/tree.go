@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/google/uuid"
@@ -57,28 +58,59 @@ func buildTree(tasks []*domain.Task, rootID *uuid.UUID) []*treeNode {
 }
 
 // treeNodeJSON is the JSON serialization format for a tree node.
+// It includes all task fields (matching taskJSON in render.go) plus a children array.
 type treeNodeJSON struct {
-	ShortID  string         `json:"short_id"`
-	Title    string         `json:"title"`
-	Status   string         `json:"status"`
-	Priority int            `json:"priority"`
-	ParentID *string        `json:"parent_id,omitempty"`
-	Children []treeNodeJSON `json:"children"`
+	ID             string         `json:"id"`
+	ShortID        string         `json:"short_id"`
+	ParentID       *string        `json:"parent_id"`
+	ProjectID      *string        `json:"project_id,omitempty"`
+	Title          string         `json:"title"`
+	Description    string         `json:"description"`
+	Status         string         `json:"status"`
+	Priority       int            `json:"priority"`
+	Version        int            `json:"version"`
+	DueAt          *string        `json:"due_at,omitempty"`
+	WaitUntil      *string        `json:"wait_until,omitempty"`
+	RecurrenceRule *string        `json:"recurrence_rule,omitempty"`
+	UDA            map[string]any `json:"uda,omitempty"`
+	CreatedAt      string         `json:"created_at"`
+	ModifiedAt     string         `json:"modified_at"`
+	Children       []treeNodeJSON `json:"children"`
 }
 
 // toTreeNodeJSON converts a treeNode to its JSON representation recursively.
 func toTreeNodeJSON(node *treeNode) treeNodeJSON {
+	t := node.Task
 	tj := treeNodeJSON{
-		ShortID:  node.Task.ShortID,
-		Title:    node.Task.Title,
-		Status:   node.Task.Status,
-		Priority: node.Task.Priority,
-		Children: make([]treeNodeJSON, len(node.Children)),
+		ID:          t.ID.String(),
+		ShortID:     t.ShortID,
+		Title:       t.Title,
+		Description: t.Description,
+		Status:      t.Status,
+		Priority:    t.Priority,
+		Version:     t.Version,
+		UDA:         t.UDA,
+		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+		ModifiedAt:  t.ModifiedAt.Format(time.RFC3339),
+		Children:    make([]treeNodeJSON, len(node.Children)),
 	}
-	if node.Task.ParentID != nil {
-		s := node.Task.ParentID.String()
+	if t.ParentID != nil {
+		s := t.ParentID.String()
 		tj.ParentID = &s
 	}
+	if t.ProjectID != nil {
+		s := t.ProjectID.String()
+		tj.ProjectID = &s
+	}
+	if t.DueAt != nil {
+		s := t.DueAt.Format(time.RFC3339)
+		tj.DueAt = &s
+	}
+	if t.WaitUntil != nil {
+		s := t.WaitUntil.Format(time.RFC3339)
+		tj.WaitUntil = &s
+	}
+	tj.RecurrenceRule = t.RecurrenceRule
 	for i, child := range node.Children {
 		tj.Children[i] = toTreeNodeJSON(child)
 	}
@@ -152,6 +184,12 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	}
 
 	nodes := buildTree(tasks, rootID)
+
+	if len(nodes) == 0 && a.format != "json" {
+		_, err := fmt.Fprintln(cmd.ErrOrStderr(), "No tasks.")
+		return err
+	}
+
 	return renderTree(cmd.OutOrStdout(), nodes, a.format)
 }
 
