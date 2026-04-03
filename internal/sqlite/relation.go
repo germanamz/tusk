@@ -22,11 +22,11 @@ const relationColumns = `id, source_id, target_id, relation_type, created_at`
 // task and a target task, plus a type ("blocks", "relates_to", "duplicates").
 // The direction matters: "A blocks B" is different from "B blocks A".
 type RelationRepo struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewRelationRepo creates a RelationRepo. Pass in the *sql.DB from Store.DB().
-func NewRelationRepo(db *sql.DB) *RelationRepo {
+func NewRelationRepo(db DBTX) *RelationRepo {
 	return &RelationRepo{db: db}
 }
 

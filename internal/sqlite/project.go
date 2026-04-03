@@ -16,7 +16,7 @@ import (
 // database abstraction. The Store is responsible for opening the DB and running
 // migrations; ProjectRepo just runs queries.
 type ProjectRepo struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewProjectRepo creates a ProjectRepo. Pass in the *sql.DB from Store.DB().
@@ -25,7 +25,7 @@ type ProjectRepo struct {
 //
 //	store, _ := sqlite.New("tusk.db", migrations.FS)
 //	repo := sqlite.NewProjectRepo(store.DB())
-func NewProjectRepo(db *sql.DB) *ProjectRepo {
+func NewProjectRepo(db DBTX) *ProjectRepo {
 	return &ProjectRepo{db: db}
 }
 

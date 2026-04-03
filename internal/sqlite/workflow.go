@@ -11,10 +11,10 @@ import (
 )
 
 type WorkflowRepo struct {
-	db *sql.DB
+	db DBTX
 }
 
-func NewWorkflowRepo(db *sql.DB) *WorkflowRepo {
+func NewWorkflowRepo(db DBTX) *WorkflowRepo {
 	return &WorkflowRepo{db: db}
 }
 
