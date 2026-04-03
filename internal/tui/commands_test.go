@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -1158,6 +1159,83 @@ func TestRunTree_Subtree(t *testing.T) {
 	}
 	if strings.Contains(output, rootB.ShortID) {
 		t.Fatalf("rootB should not appear in subtree of rootA, got:\n%s", output)
+	}
+}
+
+func TestRunTree_JSON(t *testing.T) {
+	app, taskSvc := testApp(t)
+	app.format = "json"
+	ctx := context.Background()
+
+	parent := &domain.Task{Title: "JSON Parent"}
+	if err := taskSvc.Create(ctx, parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	child := &domain.Task{Title: "JSON Child", ParentID: &parent.ID}
+	if err := taskSvc.Create(ctx, child); err != nil {
+		t.Fatalf("Create child: %v", err)
+	}
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetArgs([]string{"tree"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("tree: %v", err)
+	}
+
+	var parsed []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("JSON unmarshal: %v\nraw: %s", err, buf.String())
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 root, got %d", len(parsed))
+	}
+	children, ok := parsed[0]["children"].([]any)
+	if !ok {
+		t.Fatalf("expected children array")
+	}
+	if len(children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(children))
+	}
+}
+
+func TestRunTree_AllFlag(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	alive := &domain.Task{Title: "Alive task"}
+	if err := taskSvc.Create(ctx, alive); err != nil {
+		t.Fatalf("Create alive: %v", err)
+	}
+
+	doomed := &domain.Task{Title: "Doomed task"}
+	if err := taskSvc.Create(ctx, doomed); err != nil {
+		t.Fatalf("Create doomed: %v", err)
+	}
+	if _, err := taskSvc.Delete(ctx, doomed.ShortID, doomed.Version); err != nil {
+		t.Fatalf("Delete doomed: %v", err)
+	}
+
+	// Without --all, deleted task should not appear
+	var buf1 bytes.Buffer
+	app.root.SetOut(&buf1)
+	app.root.SetArgs([]string{"tree"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("tree: %v", err)
+	}
+	if strings.Contains(buf1.String(), doomed.ShortID) {
+		t.Fatalf("deleted task should not appear without --all:\n%s", buf1.String())
+	}
+
+	// With --all, deleted task should appear
+	var buf2 bytes.Buffer
+	app.root.SetOut(&buf2)
+	app.root.SetArgs([]string{"tree", "--all"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("tree --all: %v", err)
+	}
+	if !strings.Contains(buf2.String(), doomed.ShortID) {
+		t.Fatalf("deleted task should appear with --all:\n%s", buf2.String())
 	}
 }
 
