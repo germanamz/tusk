@@ -20,7 +20,7 @@ var DefaultProjectID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
 // inside a database transaction for atomic propagation.
 // The SQLite Store implements this via its WithTaskTx method.
 type TaskTxProvider interface {
-	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, pr repository.ProjectRepository) error) error
+	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, pr repository.ProjectRepository, wr repository.WorkflowRepository) error) error
 }
 
 // TaskService implements task business logic including validation,
@@ -269,7 +269,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	// Otherwise, persist directly (no transaction needed).
 	if statusChanged && s.txProvider != nil {
 		var result *domain.Task
-		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository, txProjectRepo repository.ProjectRepository) error {
+		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository, txProjectRepo repository.ProjectRepository, txWorkflowRepo repository.WorkflowRepository) error {
 			if err := txTaskRepo.Update(ctx, task); err != nil {
 				return err
 			}
@@ -278,8 +278,8 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				return err
 			}
 			result = updated
-			// Propagation will be added in the next task
-			return nil
+			// Auto-complete propagation: check if parent should be auto-completed
+			return s.checkAutoComplete(ctx, updated, txTaskRepo, txProjectRepo, txWorkflowRepo)
 		})
 		if err != nil {
 			return nil, err
@@ -400,6 +400,86 @@ func (s *TaskService) GetAnnotations(ctx context.Context, taskShortID string) ([
 // DeleteAnnotation removes an annotation by its ID.
 func (s *TaskService) DeleteAnnotation(ctx context.Context, annotationID uuid.UUID) error {
 	return s.annotationRepo.Delete(ctx, annotationID)
+}
+
+// checkAutoComplete checks whether completing a task should trigger automatic
+// completion of its parent. If the task has a parent, all non-deleted siblings
+// are at the trigger status, and the workflow allows the transition, the parent
+// is auto-completed. This recurses up the ancestor chain.
+func (s *TaskService) checkAutoComplete(
+	ctx context.Context,
+	task *domain.Task,
+	txTaskRepo repository.TaskRepository,
+	txProjectRepo repository.ProjectRepository,
+	txWorkflowRepo repository.WorkflowRepository,
+) error {
+	if task.ParentID == nil {
+		return nil
+	}
+
+	parent, err := txTaskRepo.GetByID(ctx, *task.ParentID)
+	if err != nil {
+		return fmt.Errorf("loading parent for propagation: %w", err)
+	}
+
+	if parent.ProjectID == nil {
+		return nil
+	}
+
+	project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
+	if err != nil {
+		return fmt.Errorf("loading project for propagation: %w", err)
+	}
+
+	cfg := project.Settings.AutoCompleteParent
+	if cfg == nil {
+		return nil
+	}
+
+	// Check if the completed task reached the trigger status
+	if task.Status != cfg.TriggerStatus {
+		return nil
+	}
+
+	// Load all children of the parent
+	children, err := txTaskRepo.GetChildren(ctx, parent.ID)
+	if err != nil {
+		return fmt.Errorf("loading siblings for propagation: %w", err)
+	}
+
+	// Check if all non-deleted children are at the trigger status
+	for _, child := range children {
+		if child.Status == "deleted" {
+			continue
+		}
+		if child.Status != cfg.TriggerStatus {
+			return nil // not all children ready
+		}
+	}
+
+	// Validate workflow transition for the parent using the tx-backed workflow repo
+	txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
+	allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, cfg.TargetStatus)
+	if err != nil {
+		return fmt.Errorf("checking propagation transition: %w", err)
+	}
+	if !allowed {
+		return nil // workflow doesn't allow it — silently skip
+	}
+
+	// Auto-complete the parent
+	parent.Status = cfg.TargetStatus
+	parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+	if err := txTaskRepo.Update(ctx, parent); err != nil {
+		return fmt.Errorf("auto-completing parent: %w", err)
+	}
+
+	// Recurse up the ancestor chain
+	updatedParent, err := txTaskRepo.GetByID(ctx, parent.ID)
+	if err != nil {
+		return fmt.Errorf("re-reading parent after propagation: %w", err)
+	}
+	return s.checkAutoComplete(ctx, updatedParent, txTaskRepo, txProjectRepo, txWorkflowRepo)
 }
 
 // ptr is a generic helper that returns a pointer to the given value.

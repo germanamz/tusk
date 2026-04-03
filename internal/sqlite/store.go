@@ -114,9 +114,9 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx *Tx) error) error {
 
 // WithTaskTx executes fn with TaskRepository and ProjectRepository backed by
 // a transaction. This is the concrete implementation of service.TaskTxProvider.
-func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, pr repository.ProjectRepository) error) error {
+func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, pr repository.ProjectRepository, wr repository.WorkflowRepository) error) error {
 	return s.WithTx(ctx, func(tx *Tx) error {
-		return fn(tx.Tasks(), tx.Projects())
+		return fn(tx.Tasks(), tx.Projects(), tx.Workflows())
 	})
 }
 

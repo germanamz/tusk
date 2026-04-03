@@ -998,3 +998,171 @@ func TestUpdate_ReparentNoCycle(t *testing.T) {
 		t.Fatalf("expected parent to be task A")
 	}
 }
+
+func TestAutoComplete_AllChildrenCompleted(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Enable auto-complete on the default project
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, err := projRepo.GetByID(ctx, DefaultProjectID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+	}
+	if err := projRepo.Update(ctx, proj); err != nil {
+		t.Fatalf("Update project: %v", err)
+	}
+
+	// Create parent
+	parent := newMinimalTask("Parent")
+	mustCreateTask(t, env.taskSvc, parent)
+	// Start parent (pending -> active) so it can later transition to completed
+	parent, err = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	if err != nil {
+		t.Fatalf("Start parent: %v", err)
+	}
+
+	// Create two children
+	child1 := &domain.Task{Title: "Child 1", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child1)
+	child2 := &domain.Task{Title: "Child 2", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child2)
+
+	// Start and complete child1
+	child1, err = env.taskSvc.Start(ctx, child1.ShortID, child1.Version)
+	if err != nil {
+		t.Fatalf("Start child1: %v", err)
+	}
+	_, err = env.taskSvc.Complete(ctx, child1.ShortID, child1.Version)
+	if err != nil {
+		t.Fatalf("Complete child1: %v", err)
+	}
+
+	// Parent should NOT be auto-completed yet (child2 still pending)
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "active" {
+		t.Fatalf("expected parent still 'active' after first child completed, got %q", parentCheck.Status)
+	}
+
+	// Start and complete child2
+	child2, err = env.taskSvc.Start(ctx, child2.ShortID, child2.Version)
+	if err != nil {
+		t.Fatalf("Start child2: %v", err)
+	}
+	_, err = env.taskSvc.Complete(ctx, child2.ShortID, child2.Version)
+	if err != nil {
+		t.Fatalf("Complete child2: %v", err)
+	}
+
+	// Parent SHOULD be auto-completed now
+	parentCheck, _ = env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "completed" {
+		t.Fatalf("expected parent 'completed' after all children completed, got %q", parentCheck.Status)
+	}
+}
+
+func TestAutoComplete_Disabled_ByDefault(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Do NOT enable auto-complete — default settings
+
+	parent := newMinimalTask("Parent")
+	mustCreateTask(t, env.taskSvc, parent)
+	parent, err := env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	if err != nil {
+		t.Fatalf("Start parent: %v", err)
+	}
+
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child)
+	child, err = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	if err != nil {
+		t.Fatalf("Start child: %v", err)
+	}
+	_, err = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
+	if err != nil {
+		t.Fatalf("Complete child: %v", err)
+	}
+
+	// Parent should NOT be auto-completed (feature disabled)
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "active" {
+		t.Fatalf("expected parent still 'active' (propagation disabled), got %q", parentCheck.Status)
+	}
+}
+
+func TestAutoComplete_DeletedChildrenIgnored(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Enable auto-complete
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+	}
+	projRepo.Update(ctx, proj)
+
+	parent := newMinimalTask("Parent")
+	mustCreateTask(t, env.taskSvc, parent)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+
+	child1 := &domain.Task{Title: "Child 1", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child1)
+	child2 := &domain.Task{Title: "Child 2", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child2)
+
+	// Delete child2
+	_, _ = env.taskSvc.Delete(ctx, child2.ShortID, child2.Version)
+
+	// Start and complete child1
+	child1, _ = env.taskSvc.Start(ctx, child1.ShortID, child1.Version)
+	_, _ = env.taskSvc.Complete(ctx, child1.ShortID, child1.Version)
+
+	// Parent should be auto-completed (deleted child ignored)
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "completed" {
+		t.Fatalf("expected parent 'completed' (deleted child ignored), got %q", parentCheck.Status)
+	}
+}
+
+func TestAutoComplete_WorkflowGuard(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Enable auto-complete
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+	}
+	projRepo.Update(ctx, proj)
+
+	// Create parent but do NOT start it — leave in "pending"
+	parent := newMinimalTask("Parent pending")
+	mustCreateTask(t, env.taskSvc, parent)
+
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	_, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
+
+	// Parent should NOT be auto-completed (pending -> completed is not allowed)
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "pending" {
+		t.Fatalf("expected parent still 'pending' (workflow blocks transition), got %q", parentCheck.Status)
+	}
+}
