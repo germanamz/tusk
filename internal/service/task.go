@@ -278,8 +278,12 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				return err
 			}
 			result = updated
-			// Auto-complete propagation: check if parent should be auto-completed
-			return s.checkAutoComplete(ctx, updated, txTaskRepo, txProjectRepo, txWorkflowRepo)
+			// Auto-complete propagation
+			if err := s.checkAutoComplete(ctx, updated, txTaskRepo, txProjectRepo, txWorkflowRepo); err != nil {
+				return err
+			}
+			// Auto-revert propagation
+			return s.checkAutoRevert(ctx, updated, oldStatus, txTaskRepo, txProjectRepo, txWorkflowRepo)
 		})
 		if err != nil {
 			return nil, err
@@ -480,6 +484,85 @@ func (s *TaskService) checkAutoComplete(
 		return fmt.Errorf("re-reading parent after propagation: %w", err)
 	}
 	return s.checkAutoComplete(ctx, updatedParent, txTaskRepo, txProjectRepo, txWorkflowRepo)
+}
+
+// checkAutoRevert checks whether a task moving away from the trigger status
+// should revert its parent. If the parent was at the auto-complete target
+// status (presumably auto-completed) and the workflow allows the revert
+// transition, the parent is reverted. Recurses up the ancestor chain.
+func (s *TaskService) checkAutoRevert(
+	ctx context.Context,
+	task *domain.Task,
+	oldStatus string,
+	txTaskRepo repository.TaskRepository,
+	txProjectRepo repository.ProjectRepository,
+	txWorkflowRepo repository.WorkflowRepository,
+) error {
+	if task.ParentID == nil {
+		return nil
+	}
+
+	parent, err := txTaskRepo.GetByID(ctx, *task.ParentID)
+	if err != nil {
+		return fmt.Errorf("loading parent for revert: %w", err)
+	}
+
+	if parent.ProjectID == nil {
+		return nil
+	}
+
+	project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
+	if err != nil {
+		return fmt.Errorf("loading project for revert: %w", err)
+	}
+
+	revertCfg := project.Settings.AutoRevertParent
+	if revertCfg == nil {
+		return nil
+	}
+
+	// Only trigger if the child moved AWAY FROM the trigger status
+	if oldStatus != revertCfg.TriggerStatus {
+		return nil
+	}
+	// And the child is no longer at the trigger status
+	if task.Status == revertCfg.TriggerStatus {
+		return nil
+	}
+
+	// Only revert if the parent is at the auto-complete target status
+	completeCfg := project.Settings.AutoCompleteParent
+	if completeCfg == nil {
+		return nil
+	}
+	if parent.Status != completeCfg.TargetStatus {
+		return nil
+	}
+
+	// Validate workflow transition
+	txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
+	allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, revertCfg.TargetStatus)
+	if err != nil {
+		return fmt.Errorf("checking revert transition: %w", err)
+	}
+	if !allowed {
+		return nil
+	}
+
+	// Revert the parent
+	oldParentStatus := parent.Status
+	parent.Status = revertCfg.TargetStatus
+	parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+	if err := txTaskRepo.Update(ctx, parent); err != nil {
+		return fmt.Errorf("reverting parent: %w", err)
+	}
+
+	// Recurse up the ancestor chain
+	updatedParent, err := txTaskRepo.GetByID(ctx, parent.ID)
+	if err != nil {
+		return fmt.Errorf("re-reading parent after revert: %w", err)
+	}
+	return s.checkAutoRevert(ctx, updatedParent, oldParentStatus, txTaskRepo, txProjectRepo, txWorkflowRepo)
 }
 
 // ptr is a generic helper that returns a pointer to the given value.
