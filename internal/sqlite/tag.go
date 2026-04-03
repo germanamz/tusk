@@ -11,10 +11,10 @@ import (
 )
 
 type TagRepo struct {
-	db *sql.DB
+	db DBTX
 }
 
-func NewTagRepo(db *sql.DB) *TagRepo {
+func NewTagRepo(db DBTX) *TagRepo {
 	return &TagRepo{db: db}
 }
 

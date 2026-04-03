@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -15,7 +14,7 @@ import (
 // database abstraction. The Store is responsible for opening the DB and running
 // migrations; AnnotationRepo just runs queries.
 type AnnotationRepo struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewAnnotationRepo creates an AnnotationRepo. Pass in the *sql.DB from Store.DB().
@@ -24,7 +23,7 @@ type AnnotationRepo struct {
 //
 //	store, _ := sqlite.New("tusk.db", migrations.FS)
 //	repo := sqlite.NewAnnotationRepo(store.DB())
-func NewAnnotationRepo(db *sql.DB) *AnnotationRepo {
+func NewAnnotationRepo(db DBTX) *AnnotationRepo {
 	return &AnnotationRepo{db: db}
 }
 

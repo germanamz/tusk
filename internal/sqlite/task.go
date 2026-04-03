@@ -18,10 +18,10 @@ const taskColumns = `id, short_id, parent_id, project_id, title, description,
 	created_at, modified_at`
 
 type TaskRepo struct {
-	db *sql.DB
+	db DBTX
 }
 
-func NewTaskRepo(db *sql.DB) *TaskRepo {
+func NewTaskRepo(db DBTX) *TaskRepo {
 	return &TaskRepo{db: db}
 }
 

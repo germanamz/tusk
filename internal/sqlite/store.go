@@ -5,6 +5,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,15 @@ import (
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
+
+// DBTX is the common interface between *sql.DB and *sql.Tx.
+// All repository implementations use only these three methods, so they can
+// operate on either a raw connection pool or an active transaction.
+type DBTX interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
 
 // timeFormat defines the timestamp format used throughout the application.
 // It matches SQLite's strftime('%Y-%m-%dT%H:%M:%fZ', 'now') output.
