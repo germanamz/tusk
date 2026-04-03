@@ -361,3 +361,30 @@ func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
 
 	return renderMutationResult(cmd.OutOrStdout(), "Annotated", task, nil, a.format)
 }
+
+func formatRelationError(err error, sourceShortID, targetShortID string) string {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		return fmt.Sprintf("Task not found: %s or %s", sourceShortID, targetShortID)
+	case errors.Is(err, domain.ErrCyclicBlock):
+		return "relation would create a cycle in blocks graph"
+	case errors.Is(err, domain.ErrDuplicateRelation):
+		return "relation already exists"
+	default:
+		return err.Error()
+	}
+}
+
+func (a *App) runLink(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	sourceShortID := args[0]
+	relType := args[1]
+	targetShortID := args[2]
+
+	rel, err := a.relationSvc.Add(ctx, sourceShortID, targetShortID, relType)
+	if err != nil {
+		return fmt.Errorf("%s", formatRelationError(err, sourceShortID, targetShortID))
+	}
+
+	return renderLinkResult(cmd.OutOrStdout(), rel, sourceShortID, targetShortID, a.format)
+}

@@ -291,3 +291,29 @@ func renderMutationResult(w io.Writer, action string, task *domain.Task, tags []
 	_, err := fmt.Fprintf(w, "%s task %s\n", action, task.ShortID)
 	return err
 }
+
+// relationJSON is the JSON serialization format for a relation.
+type relationJSON struct {
+	ID           string `json:"id"`
+	SourceID     string `json:"source_id"`
+	TargetID     string `json:"target_id"`
+	RelationType string `json:"relation_type"`
+	CreatedAt    string `json:"created_at"`
+}
+
+// renderLinkResult writes a link confirmation (text) or full relation JSON.
+func renderLinkResult(w io.Writer, rel *domain.Relation, sourceShortID, targetShortID, format string) error {
+	if format == "json" {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(relationJSON{
+			ID:           rel.ID.String(),
+			SourceID:     rel.SourceID.String(),
+			TargetID:     rel.TargetID.String(),
+			RelationType: rel.RelationType,
+			CreatedAt:    rel.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	_, err := fmt.Fprintf(w, "Linked %s %s %s\n", sourceShortID, rel.RelationType, targetShortID)
+	return err
+}
