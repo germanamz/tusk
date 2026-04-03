@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -65,11 +66,17 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 
 	source, err := s.taskRepo.GetByShortID(ctx, sourceShortID)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.ErrSourceNotFound
+		}
 		return nil, fmt.Errorf("resolving source task: %w", err)
 	}
 
 	target, err := s.taskRepo.GetByShortID(ctx, targetShortID)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.ErrTargetNotFound
+		}
 		return nil, fmt.Errorf("resolving target task: %w", err)
 	}
 
@@ -103,35 +110,31 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 
 // Remove deletes an existing relation between two tasks.
 //
-// It finds the relation by matching (sourceID, targetID, relType) among the
-// source task's relations, then deletes by the relation's ID.
+// Uses a direct delete by (source, target, type) fields rather than
+// fetching all relations and scanning.
 //
-// Returns domain.ErrNotFound if the relation doesn't exist or if either
-// task short ID is invalid.
+// Returns:
+//   - domain.ErrSourceNotFound if the source task short ID doesn't exist
+//   - domain.ErrTargetNotFound if the target task short ID doesn't exist
+//   - domain.ErrNotFound if the relation doesn't exist
 func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShortID, relType string) error {
 	source, err := s.taskRepo.GetByShortID(ctx, sourceShortID)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrSourceNotFound
+		}
 		return fmt.Errorf("resolving source task: %w", err)
 	}
 
 	target, err := s.taskRepo.GetByShortID(ctx, targetShortID)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrTargetNotFound
+		}
 		return fmt.Errorf("resolving target task: %w", err)
 	}
 
-	// Find the relation by scanning all relations for the source task
-	rels, err := s.relationRepo.GetByTask(ctx, source.ID)
-	if err != nil {
-		return fmt.Errorf("loading relations: %w", err)
-	}
-
-	for _, rel := range rels {
-		if rel.SourceID == source.ID && rel.TargetID == target.ID && rel.RelationType == relType {
-			return s.relationRepo.Delete(ctx, rel.ID)
-		}
-	}
-
-	return domain.ErrNotFound
+	return s.relationRepo.DeleteByFields(ctx, source.ID, target.ID, relType)
 }
 
 // GetByTask returns all relations involving a task (as source or target).

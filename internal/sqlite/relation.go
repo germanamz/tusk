@@ -69,6 +69,25 @@ func (r *RelationRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// DeleteByFields removes a relation matching the exact (source, target, type) triple.
+// Returns domain.ErrNotFound if no such relation exists.
+func (r *RelationRepo) DeleteByFields(ctx context.Context, sourceID, targetID uuid.UUID, relType string) error {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?`,
+		sourceID.String(), targetID.String(), relType)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 // GetByTask retrieves ALL relations where the given task is involved, regardless
 // of whether it is the source or the target.
 //

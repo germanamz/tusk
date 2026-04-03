@@ -177,16 +177,41 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading tags: %w", err)
 	}
 
-	// Fetch relations
-	var relations []*domain.Relation
+	// Fetch and resolve relations
+	var resolved []resolvedRelation
 	if a.relationSvc != nil {
-		relations, err = a.relationSvc.GetByTask(ctx, shortID)
-		if err != nil {
-			return fmt.Errorf("loading relations: %w", err)
+		rels, relErr := a.relationSvc.GetByTask(ctx, shortID)
+		if relErr != nil {
+			return fmt.Errorf("loading relations: %w", relErr)
+		}
+		for _, rel := range rels {
+			rr := resolvedRelation{Relation: rel}
+			if rel.TargetID == task.ID {
+				// This task is the target — show inverse label and source task info
+				switch rel.RelationType {
+				case "blocks":
+					rr.Label = "blocked_by"
+				case "relates_to":
+					rr.Label = "related_to"
+				case "duplicates":
+					rr.Label = "duplicated_by"
+				}
+				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
+					rr.RelatedShortID = other.ShortID
+					rr.RelatedTitle = other.Title
+				}
+			} else {
+				rr.Label = rel.RelationType
+				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
+					rr.RelatedShortID = other.ShortID
+					rr.RelatedTitle = other.Title
+				}
+			}
+			resolved = append(resolved, rr)
 		}
 	}
 
-	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, tags, relations, projectName, a.format)
+	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, tags, resolved, projectName, a.format)
 }
 
 func (a *App) runModify(cmd *cobra.Command, args []string) error {
@@ -373,6 +398,10 @@ func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
 
 func formatRelationError(err error, sourceShortID, targetShortID string) string {
 	switch {
+	case errors.Is(err, domain.ErrSourceNotFound):
+		return fmt.Sprintf("Source task not found: %s", sourceShortID)
+	case errors.Is(err, domain.ErrTargetNotFound):
+		return fmt.Sprintf("Target task not found: %s", targetShortID)
 	case errors.Is(err, domain.ErrNotFound):
 		return fmt.Sprintf("Task not found: %s or %s", sourceShortID, targetShortID)
 	case errors.Is(err, domain.ErrCyclicBlock):

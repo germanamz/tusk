@@ -142,6 +142,48 @@ func TestRelationDeleteNotFound(t *testing.T) {
 	}
 }
 
+// TestRelationDeleteByFields verifies that DeleteByFields removes a relation
+// matching the exact (source, target, type) triple.
+func TestRelationDeleteByFields(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	repo := NewRelationRepo(s.DB())
+	ctx := context.Background()
+
+	t1 := newTestTask()
+	t2 := newTestTask()
+	mustCreateTask(t, taskRepo, t1)
+	mustCreateTask(t, taskRepo, t2)
+
+	rel := newTestRelation(t1.ID, t2.ID, "blocks")
+	if err := repo.Create(ctx, rel); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.DeleteByFields(ctx, t1.ID, t2.ID, "blocks"); err != nil {
+		t.Fatalf("DeleteByFields: %v", err)
+	}
+
+	rels, err := repo.GetByTask(ctx, t1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rels) != 0 {
+		t.Fatalf("expected 0 after delete, got %d", len(rels))
+	}
+}
+
+// TestRelationDeleteByFieldsNotFound verifies that DeleteByFields returns
+// domain.ErrNotFound when no matching relation exists.
+func TestRelationDeleteByFieldsNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewRelationRepo(s.DB())
+	err := repo.DeleteByFields(context.Background(), uuid.New(), uuid.New(), "blocks")
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 // TestRelationGetByTask verifies that GetByTask returns relations where the
 // task is EITHER the source OR the target.
 //

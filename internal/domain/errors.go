@@ -1,6 +1,9 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrNotFound          = errors.New("not found")
@@ -8,4 +11,6 @@ var (
 	ErrCyclicBlock       = errors.New("relation would create a cycle in blocks graph")
 	ErrInvalidTransition = errors.New("status transition not allowed by workflow")
 	ErrDuplicateRelation = errors.New("relation already exists")
+	ErrSourceNotFound    = fmt.Errorf("source task: %w", ErrNotFound)
+	ErrTargetNotFound    = fmt.Errorf("target task: %w", ErrNotFound)
 )
