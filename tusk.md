@@ -704,7 +704,7 @@ var (
 
 - [x] RelationService with cycle detection
 - [x] `link`, `unlink` CLI commands
-- [ ] Parent-child task creation and `tree` CLI command
+- [x] Parent-child task creation and `tree` CLI command
 - [ ] Completion propagation
 - [ ] `tusk tag` subcommand: create, list, delete, rename tags
 
