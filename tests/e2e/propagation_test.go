@@ -33,6 +33,11 @@ func TestPropagation_Disabled(t *testing.T) {
 				// Step 5: Check parent — should still be active
 				{
 					Args: []string{"info", "$0.short_id"},
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertContains(t, r.Stdout, "active")
+						assertNotContains(t, r.Stdout, "completed")
+					},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -334,4 +339,56 @@ func TestPropagation_AutoRevert(t *testing.T) {
 	}
 
 	runPropagationScenarios(t, scenarios, bothPropagationSettings)
+}
+
+func TestPropagation_CustomTargetStatus(t *testing.T) {
+	// Use a non-default revert target to prove configurability.
+	// Default workflow allows completed -> pending, so we configure revert
+	// to target "pending" (same as bothPropagationSettings) but pair it with
+	// a fresh auto-complete to verify both configs are read independently.
+	customSettings := `{"auto_complete_parent":{"trigger_status":"completed","target_status":"completed"},"auto_revert_parent":{"trigger_status":"completed","target_status":"pending"}}`
+
+	scenarios := []Scenario{
+		{
+			Name: "custom_revert_target_pending",
+			Steps: []Step{
+				// Step 0: Create parent
+				{Args: []string{"add", "Parent"}},
+				// Step 1: Start parent
+				{Args: []string{"start", "$0.short_id"}},
+				// Step 2: Create child
+				{Args: []string{"add", "Child", "parent:$0.short_id"}},
+				// Step 3: Start child
+				{Args: []string{"start", "$2.short_id"}},
+				// Step 4: Complete child — parent auto-completes
+				{Args: []string{"done", "$2.short_id"}},
+				// Step 5: Verify parent completed
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						if m["status"] != "completed" {
+							t.Fatalf("expected parent 'completed', got %v", m["status"])
+						}
+					},
+				},
+				// Step 6: Re-open child
+				{Args: []string{"modify", "$2.short_id", "status:pending"}},
+				// Step 7: Parent should revert to "pending" (custom target), not "active"
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						if m["status"] != "pending" {
+							t.Fatalf("expected parent 'pending' (custom revert target), got %v", m["status"])
+						}
+					},
+				},
+			},
+		},
+	}
+
+	runPropagationScenarios(t, scenarios, customSettings)
 }
