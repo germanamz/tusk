@@ -174,12 +174,13 @@ type annotationJSON struct {
 type taskInfoJSON struct {
 	taskJSON
 	Annotations []annotationJSON `json:"annotations,omitempty"`
+	Relations   []relationJSON   `json:"relations,omitempty"`
 }
 
 // renderTaskInfo writes a single task's detail view to w.
 // For "text", it renders key-value pairs with optional annotations.
 // For "json", it renders the task as a JSON object including annotations.
-func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, projectName string, format string) error {
+func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []*domain.Relation, projectName string, format string) error {
 	if format == "json" {
 		info := taskInfoJSON{taskJSON: toTaskJSON(task, tags)}
 		for _, ann := range annotations {
@@ -188,6 +189,15 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 				TaskID:    ann.TaskID.String(),
 				Body:      ann.Body,
 				CreatedAt: ann.CreatedAt.Format(time.RFC3339),
+			})
+		}
+		for _, rel := range relations {
+			info.Relations = append(info.Relations, relationJSON{
+				ID:           rel.ID.String(),
+				SourceID:     rel.SourceID.String(),
+				TargetID:     rel.TargetID.String(),
+				RelationType: rel.RelationType,
+				CreatedAt:    rel.CreatedAt.Format(time.RFC3339),
 			})
 		}
 		enc := json.NewEncoder(w)
@@ -272,6 +282,33 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 		}
 		for _, ann := range annotations {
 			if _, err := fmt.Fprintf(w, "  %s - %s\n", ann.CreatedAt.Format("2006-01-02 15:04"), ann.Body); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(relations) > 0 {
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, "Relations:"); err != nil {
+			return err
+		}
+		for _, rel := range relations {
+			label := rel.RelationType
+			relatedID := rel.TargetID.String()[:8]
+			if rel.TargetID == task.ID {
+				switch rel.RelationType {
+				case "blocks":
+					label = "blocked_by"
+				case "relates_to":
+					label = "related_to"
+				case "duplicates":
+					label = "duplicated_by"
+				}
+				relatedID = rel.SourceID.String()[:8]
+			}
+			if _, err := fmt.Fprintf(w, "  %-14s %s\n", label, relatedID); err != nil {
 				return err
 			}
 		}
