@@ -268,3 +268,58 @@ func TestRelationRemoveNotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got: %v", err)
 	}
 }
+
+func TestRelationGetByTask(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+	taskB := env.createTask(t, "Task B")
+	taskC := env.createTask(t, "Task C")
+
+	// A blocks B
+	_, err := env.relationSvc.Add(ctx, taskA.ShortID, taskB.ShortID, "blocks")
+	if err != nil {
+		t.Fatalf("A blocks B: %v", err)
+	}
+
+	// C relates_to A
+	_, err = env.relationSvc.Add(ctx, taskC.ShortID, taskA.ShortID, "relates_to")
+	if err != nil {
+		t.Fatalf("C relates_to A: %v", err)
+	}
+
+	// GetByTask for A should return both relations
+	rels, err := env.relationSvc.GetByTask(ctx, taskA.ShortID)
+	if err != nil {
+		t.Fatalf("GetByTask: %v", err)
+	}
+	if len(rels) != 2 {
+		t.Fatalf("expected 2 relations, got %d", len(rels))
+	}
+}
+
+func TestRelationGetByTaskNotFound(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	_, err := env.relationSvc.GetByTask(ctx, "nonexist")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestRelationGetByTaskEmpty(t *testing.T) {
+	env := newTestRelationEnv(t)
+	ctx := context.Background()
+
+	taskA := env.createTask(t, "Task A")
+
+	rels, err := env.relationSvc.GetByTask(ctx, taskA.ShortID)
+	if err != nil {
+		t.Fatalf("GetByTask: %v", err)
+	}
+	if len(rels) != 0 {
+		t.Fatalf("expected 0 relations, got %d", len(rels))
+	}
+}
