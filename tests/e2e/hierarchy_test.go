@@ -114,6 +114,136 @@ func TestHierarchy(t *testing.T) {
 	runScenarios(t, binPath, scenarios)
 }
 
+func TestTree(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "tree_full_view",
+			Steps: []Step{
+				// Step 0: Create parent
+				{
+					Args: []string{"add", "Root task"},
+				},
+				// Step 1: Create child 1
+				{
+					Args: []string{"add", "Child one", "parent:$0.short_id"},
+				},
+				// Step 2: Create child 2
+				{
+					Args: []string{"add", "Child two", "parent:$0.short_id"},
+				},
+				// Step 3: Run tree — should show all three
+				{
+					Args: []string{"tree"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 root in tree, got %d", len(arr))
+						}
+						root := arr[0].(map[string]any)
+						children := root["children"].([]any)
+						if len(children) != 2 {
+							t.Fatalf("expected 2 children, got %d", len(children))
+						}
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Root task")
+						assertContains(t, output, "Child one")
+						assertContains(t, output, "Child two")
+					},
+				},
+			},
+		},
+		{
+			Name: "tree_subtree_view",
+			Steps: []Step{
+				// Step 0: Create root A
+				{
+					Args: []string{"add", "Root A"},
+				},
+				// Step 1: Create child of A
+				{
+					Args: []string{"add", "Child of A", "parent:$0.short_id"},
+				},
+				// Step 2: Create grandchild of A
+				{
+					Args: []string{"add", "Grandchild of A", "parent:$1.short_id"},
+				},
+				// Step 3: Create root B (separate tree)
+				{
+					Args: []string{"add", "Root B"},
+				},
+				// Step 4: Run tree with root A — should show A's subtree only
+				{
+					Args: []string{"tree", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 root, got %d", len(arr))
+						}
+						root := arr[0].(map[string]any)
+						assertEqual(t, root["title"], "Root A")
+						children := root["children"].([]any)
+						if len(children) != 1 {
+							t.Fatalf("expected 1 child, got %d", len(children))
+						}
+						child := children[0].(map[string]any)
+						grandchildren := child["children"].([]any)
+						if len(grandchildren) != 1 {
+							t.Fatalf("expected 1 grandchild, got %d", len(grandchildren))
+						}
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Root A")
+						assertContains(t, output, "Child of A")
+						assertContains(t, output, "Grandchild of A")
+						assertNotContains(t, output, "Root B")
+					},
+				},
+			},
+		},
+		{
+			Name: "tree_empty",
+			Steps: []Step{
+				// No tasks created — tree should produce no output (text) or empty array (json)
+				{
+					Args: []string{"tree"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 0 {
+							t.Fatalf("expected empty tree, got %d roots", len(arr))
+						}
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						if output != "" {
+							t.Fatalf("expected empty output for empty tree, got %q", output)
+						}
+					},
+				},
+			},
+		},
+		{
+			Name: "tree_subtree_not_found",
+			Steps: []Step{
+				{
+					Args:    []string{"tree", "nonexist"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertStderrContains(t, r, "not found")
+					},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
+
 func TestHierarchyErrors(t *testing.T) {
 	scenarios := []Scenario{
 		{
