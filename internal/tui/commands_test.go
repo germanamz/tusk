@@ -72,7 +72,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
 	tagSvc := service.NewTagService(tagRepo)
 
-	app := New(taskSvc, tagSvc, projectRepo)
+	app := New(taskSvc, tagSvc, projectRepo, VersionInfo{})
 	return app, taskSvc
 }
 
