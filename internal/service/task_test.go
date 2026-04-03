@@ -1166,3 +1166,48 @@ func TestAutoComplete_WorkflowGuard(t *testing.T) {
 		t.Fatalf("expected parent still 'pending' (workflow blocks transition), got %q", parentCheck.Status)
 	}
 }
+
+func TestAutoComplete_Recursive(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Enable auto-complete
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+	}
+	projRepo.Update(ctx, proj)
+
+	// Create grandparent -> parent -> child chain
+	grandparent := newMinimalTask("Grandparent")
+	mustCreateTask(t, env.taskSvc, grandparent)
+	grandparent, _ = env.taskSvc.Start(ctx, grandparent.ShortID, grandparent.Version)
+
+	parent := &domain.Task{Title: "Parent", ParentID: &grandparent.ID}
+	mustCreateTask(t, env.taskSvc, parent)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+
+	// Complete child — should cascade: child done -> parent auto-done -> grandparent auto-done
+	_, err := env.taskSvc.Complete(ctx, child.ShortID, child.Version)
+	if err != nil {
+		t.Fatalf("Complete child: %v", err)
+	}
+
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "completed" {
+		t.Fatalf("expected parent 'completed', got %q", parentCheck.Status)
+	}
+
+	grandparentCheck, _ := env.taskSvc.GetByShortID(ctx, grandparent.ShortID)
+	if grandparentCheck.Status != "completed" {
+		t.Fatalf("expected grandparent 'completed', got %q", grandparentCheck.Status)
+	}
+}
