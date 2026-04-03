@@ -67,12 +67,14 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
 	tagRepo := sqlite.NewTagRepo(db)
+	relationRepo := sqlite.NewRelationRepo(db)
 
 	workflowSvc := service.NewWorkflowService(workflowRepo)
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc)
 	tagSvc := service.NewTagService(tagRepo)
+	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
-	app := New(taskSvc, tagSvc, projectRepo, VersionInfo{})
+	app := New(taskSvc, tagSvc, relationSvc, projectRepo, VersionInfo{})
 	return app, taskSvc
 }
 
