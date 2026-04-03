@@ -1,0 +1,21 @@
+pre-commit:
+  parallel: true
+  commands:
+    gofmt:
+      glob: "*.go"
+      run: test -z "$(gofmt -l {staged_files})"
+      fail_text: "Run 'gofmt -w .' to fix formatting"
+    vet:
+      glob: "*.go"
+      run: go vet ./...
+    lint:
+      glob: "*.go"
+      run: golangci-lint run ./...
+    test:
+      glob: "*.go"
+      run: go test ./internal/... ./cmd/...
+
+commit-msg:
+  commands:
+    conform:
+      run: conform enforce --commit-msg-file {1}

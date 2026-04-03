@@ -8,12 +8,14 @@ Thank you for your interest in contributing to Tusk! This document provides guid
 
 - Go 1.26+
 - golangci-lint (for linting)
+- lefthook and conform are installed automatically by `make setup-hooks`
 
 ### Setup
 
 ```bash
 git clone https://github.com/germanamz/tusk.git
 cd tusk
+make setup-hooks
 make build
 make test
 ```
