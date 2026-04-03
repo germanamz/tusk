@@ -47,9 +47,9 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, projectRepo P
 	a.resolver = filter.NewResolver(projectRepo, taskSvc)
 
 	a.root = &cobra.Command{
-		Use:     "tusk",
-		Short:   "A concurrent-safe task management tool",
-		Version: vi.Version,
+		Use:           "tusk",
+		Short:         "A concurrent-safe task management tool",
+		Version:       vi.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

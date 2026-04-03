@@ -30,8 +30,8 @@ type Task struct {
 // a double pointer is used: outer nil = don't change, outer non-nil + inner nil = set to NULL,
 // outer non-nil + inner non-nil = set to value.
 type TaskUpdate struct {
-	ShortID        string          // required — identifies the task to update
-	Version        int             // required — optimistic locking check
+	ShortID        string // required — identifies the task to update
+	Version        int    // required — optimistic locking check
 	Title          *string
 	Description    *string
 	Status         *string
