@@ -278,11 +278,12 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				return err
 			}
 			result = updated
-			// Auto-complete propagation
+			// Propagation: auto-complete and auto-revert are mutually exclusive
+			// in practice — a single status change cannot simultaneously reach
+			// and leave the trigger status — so at most one of these fires.
 			if err := s.checkAutoComplete(ctx, updated, txTaskRepo, txProjectRepo, txWorkflowRepo); err != nil {
 				return err
 			}
-			// Auto-revert propagation
 			return s.checkAutoRevert(ctx, updated, oldStatus, txTaskRepo, txProjectRepo, txWorkflowRepo)
 		})
 		if err != nil {
@@ -409,7 +410,8 @@ func (s *TaskService) DeleteAnnotation(ctx context.Context, annotationID uuid.UU
 // checkAutoComplete checks whether completing a task should trigger automatic
 // completion of its parent. If the task has a parent, all non-deleted siblings
 // are at the trigger status, and the workflow allows the transition, the parent
-// is auto-completed. This recurses up the ancestor chain.
+// is auto-completed. Walks up the ancestor chain iteratively, bounded by
+// maxParentDepth to guard against corrupted data.
 func (s *TaskService) checkAutoComplete(
 	ctx context.Context,
 	task *domain.Task,
@@ -417,79 +419,88 @@ func (s *TaskService) checkAutoComplete(
 	txProjectRepo repository.ProjectRepository,
 	txWorkflowRepo repository.WorkflowRepository,
 ) error {
-	if task.ParentID == nil {
-		return nil
-	}
-
-	parent, err := txTaskRepo.GetByID(ctx, *task.ParentID)
-	if err != nil {
-		return fmt.Errorf("loading parent for propagation: %w", err)
-	}
-
-	if parent.ProjectID == nil {
-		return nil
-	}
-
-	project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
-	if err != nil {
-		return fmt.Errorf("loading project for propagation: %w", err)
-	}
-
-	cfg := project.Settings.AutoCompleteParent
-	if cfg == nil {
-		return nil
-	}
-
-	// Check if the completed task reached the trigger status
-	if task.Status != cfg.TriggerStatus {
-		return nil
-	}
-
-	// Load all children of the parent
-	children, err := txTaskRepo.GetChildren(ctx, parent.ID)
-	if err != nil {
-		return fmt.Errorf("loading siblings for propagation: %w", err)
-	}
-
-	// Check if all non-deleted children are at the trigger status
-	for _, child := range children {
-		if child.Status == "deleted" {
-			continue
+	current := task
+	for depth := 0; depth < maxParentDepth; depth++ {
+		if current.ParentID == nil {
+			return nil
 		}
-		if child.Status != cfg.TriggerStatus {
-			return nil // not all children ready
+
+		parent, err := txTaskRepo.GetByID(ctx, *current.ParentID)
+		if err != nil {
+			return fmt.Errorf("loading parent for propagation: %w", err)
+		}
+
+		if parent.ProjectID == nil {
+			return nil
+		}
+
+		project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
+		if err != nil {
+			return fmt.Errorf("loading project for propagation: %w", err)
+		}
+
+		cfg := project.Settings.AutoCompleteParent
+		if cfg == nil {
+			return nil
+		}
+
+		// Check if the completed task reached the trigger status
+		if current.Status != cfg.TriggerStatus {
+			return nil
+		}
+
+		// Load all children of the parent
+		children, err := txTaskRepo.GetChildren(ctx, parent.ID)
+		if err != nil {
+			return fmt.Errorf("loading siblings for propagation: %w", err)
+		}
+
+		// Check if all non-deleted children are at the trigger status
+		allReady := true
+		for _, child := range children {
+			if child.Status == "deleted" {
+				continue
+			}
+			if child.Status != cfg.TriggerStatus {
+				allReady = false
+				break
+			}
+		}
+		if !allReady {
+			return nil
+		}
+
+		// Validate workflow transition for the parent using the tx-backed workflow repo
+		txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
+		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, cfg.TargetStatus)
+		if err != nil {
+			return fmt.Errorf("checking propagation transition: %w", err)
+		}
+		if !allowed {
+			return nil // workflow doesn't allow it — silently skip
+		}
+
+		// Auto-complete the parent
+		parent.Status = cfg.TargetStatus
+		parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+		if err := txTaskRepo.Update(ctx, parent); err != nil {
+			return fmt.Errorf("auto-completing parent: %w", err)
+		}
+
+		// Re-read to get bumped version, then continue up the chain
+		current, err = txTaskRepo.GetByID(ctx, parent.ID)
+		if err != nil {
+			return fmt.Errorf("re-reading parent after propagation: %w", err)
 		}
 	}
-
-	// Validate workflow transition for the parent using the tx-backed workflow repo
-	txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
-	allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, cfg.TargetStatus)
-	if err != nil {
-		return fmt.Errorf("checking propagation transition: %w", err)
-	}
-	if !allowed {
-		return nil // workflow doesn't allow it — silently skip
-	}
-
-	// Auto-complete the parent
-	parent.Status = cfg.TargetStatus
-	parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
-	if err := txTaskRepo.Update(ctx, parent); err != nil {
-		return fmt.Errorf("auto-completing parent: %w", err)
-	}
-
-	// Recurse up the ancestor chain
-	updatedParent, err := txTaskRepo.GetByID(ctx, parent.ID)
-	if err != nil {
-		return fmt.Errorf("re-reading parent after propagation: %w", err)
-	}
-	return s.checkAutoComplete(ctx, updatedParent, txTaskRepo, txProjectRepo, txWorkflowRepo)
+	return fmt.Errorf("auto-complete propagation exceeded maximum depth (%d)", maxParentDepth)
 }
 
 // checkAutoRevert checks whether a task moving away from the trigger status
 // should revert its parent. If the parent was at the auto-complete target
 // status (presumably auto-completed) and the workflow allows the revert
-// transition, the parent is reverted. Recurses up the ancestor chain.
+// transition, the parent is reverted. Walks up the ancestor chain iteratively,
+// bounded by maxParentDepth to guard against corrupted data.
 func (s *TaskService) checkAutoRevert(
 	ctx context.Context,
 	task *domain.Task,
@@ -498,71 +509,76 @@ func (s *TaskService) checkAutoRevert(
 	txProjectRepo repository.ProjectRepository,
 	txWorkflowRepo repository.WorkflowRepository,
 ) error {
-	if task.ParentID == nil {
-		return nil
-	}
+	current := task
+	currentOldStatus := oldStatus
+	for depth := 0; depth < maxParentDepth; depth++ {
+		if current.ParentID == nil {
+			return nil
+		}
 
-	parent, err := txTaskRepo.GetByID(ctx, *task.ParentID)
-	if err != nil {
-		return fmt.Errorf("loading parent for revert: %w", err)
-	}
+		parent, err := txTaskRepo.GetByID(ctx, *current.ParentID)
+		if err != nil {
+			return fmt.Errorf("loading parent for revert: %w", err)
+		}
 
-	if parent.ProjectID == nil {
-		return nil
-	}
+		if parent.ProjectID == nil {
+			return nil
+		}
 
-	project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
-	if err != nil {
-		return fmt.Errorf("loading project for revert: %w", err)
-	}
+		project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
+		if err != nil {
+			return fmt.Errorf("loading project for revert: %w", err)
+		}
 
-	revertCfg := project.Settings.AutoRevertParent
-	if revertCfg == nil {
-		return nil
-	}
+		revertCfg := project.Settings.AutoRevertParent
+		if revertCfg == nil {
+			return nil
+		}
 
-	// Only trigger if the child moved AWAY FROM the trigger status
-	if oldStatus != revertCfg.TriggerStatus {
-		return nil
-	}
-	// And the child is no longer at the trigger status
-	if task.Status == revertCfg.TriggerStatus {
-		return nil
-	}
+		// Only trigger if the child moved AWAY FROM the trigger status
+		if currentOldStatus != revertCfg.TriggerStatus {
+			return nil
+		}
+		// And the child is no longer at the trigger status
+		if current.Status == revertCfg.TriggerStatus {
+			return nil
+		}
 
-	// Only revert if the parent is at the auto-complete target status
-	completeCfg := project.Settings.AutoCompleteParent
-	if completeCfg == nil {
-		return nil
-	}
-	if parent.Status != completeCfg.TargetStatus {
-		return nil
-	}
+		// Only revert if the parent is at the auto-complete target status
+		completeCfg := project.Settings.AutoCompleteParent
+		if completeCfg == nil {
+			return nil
+		}
+		if parent.Status != completeCfg.TargetStatus {
+			return nil
+		}
 
-	// Validate workflow transition
-	txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
-	allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, revertCfg.TargetStatus)
-	if err != nil {
-		return fmt.Errorf("checking revert transition: %w", err)
-	}
-	if !allowed {
-		return nil
-	}
+		// Validate workflow transition
+		txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
+		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, revertCfg.TargetStatus)
+		if err != nil {
+			return fmt.Errorf("checking revert transition: %w", err)
+		}
+		if !allowed {
+			return nil
+		}
 
-	// Revert the parent
-	oldParentStatus := parent.Status
-	parent.Status = revertCfg.TargetStatus
-	parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
-	if err := txTaskRepo.Update(ctx, parent); err != nil {
-		return fmt.Errorf("reverting parent: %w", err)
-	}
+		// Revert the parent
+		prevParentStatus := parent.Status
+		parent.Status = revertCfg.TargetStatus
+		parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+		if err := txTaskRepo.Update(ctx, parent); err != nil {
+			return fmt.Errorf("reverting parent: %w", err)
+		}
 
-	// Recurse up the ancestor chain
-	updatedParent, err := txTaskRepo.GetByID(ctx, parent.ID)
-	if err != nil {
-		return fmt.Errorf("re-reading parent after revert: %w", err)
+		// Re-read to get bumped version, then continue up the chain
+		current, err = txTaskRepo.GetByID(ctx, parent.ID)
+		if err != nil {
+			return fmt.Errorf("re-reading parent after revert: %w", err)
+		}
+		currentOldStatus = prevParentStatus
 	}
-	return s.checkAutoRevert(ctx, updatedParent, oldParentStatus, txTaskRepo, txProjectRepo, txWorkflowRepo)
+	return fmt.Errorf("auto-revert propagation exceeded maximum depth (%d)", maxParentDepth)
 }
 
 // ptr is a generic helper that returns a pointer to the given value.
