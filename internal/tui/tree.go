@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 )
 
 // treeNode represents a task in the tree with its children.
@@ -119,4 +121,61 @@ func renderTreeNode(w io.Writer, node *treeNode, depth int) error {
 		}
 	}
 	return nil
+}
+
+// treeCmd builds the Cobra command for `tusk tree`.
+func (a *App) treeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tree [short_id]",
+		Short: "Display tasks as a tree hierarchy",
+		Long:  "Show all tasks in a tree hierarchy. Optionally specify a short_id to show only that subtree.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  a.runTree,
+	}
+	cmd.Flags().Bool("all", false, "include deleted tasks")
+	return cmd
+}
+
+// runTree handles the `tusk tree` and `tusk tree <short_id>` commands.
+func (a *App) runTree(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
+	var tasks []*domain.Task
+	var rootID *uuid.UUID
+
+	if len(args) > 0 {
+		// Subtree mode: fetch root + descendants
+		root, err := a.taskSvc.GetByShortID(ctx, args[0])
+		if err != nil {
+			return fmt.Errorf("%s", formatError(err, args[0]))
+		}
+		descendants, err := a.taskSvc.GetDescendants(ctx, root.ID)
+		if err != nil {
+			return fmt.Errorf("loading descendants: %w", err)
+		}
+		tasks = append([]*domain.Task{root}, descendants...)
+		rootID = &root.ID
+	} else {
+		// Full tree: fetch all non-deleted tasks
+		var err error
+		tasks, err = a.fetchTreeTasks(ctx, cmd)
+		if err != nil {
+			return err
+		}
+	}
+
+	nodes := buildTree(tasks, rootID)
+	return renderTree(cmd.OutOrStdout(), nodes, a.format)
+}
+
+// fetchTreeTasks loads all tasks for the full tree view.
+// By default, excludes deleted tasks. If --all is set, includes all statuses.
+func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command) ([]*domain.Task, error) {
+	showAll, _ := cmd.Flags().GetBool("all")
+
+	filter := domain.TaskFilter{}
+	if !showAll {
+		filter.Statuses = []string{"pending", "active", "completed"}
+	}
+	return a.taskSvc.List(ctx, filter)
 }

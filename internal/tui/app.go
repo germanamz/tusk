@@ -107,6 +107,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 			Args:  cobra.MinimumNArgs(2),
 			RunE:  a.runAnnotate,
 		},
+		a.treeCmd(),
 		&cobra.Command{
 			Use:   "link <short_id> <relation_type> <short_id>",
 			Short: "Create a relation between two tasks",
