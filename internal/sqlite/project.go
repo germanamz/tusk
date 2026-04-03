@@ -3,7 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -38,11 +40,15 @@ func NewProjectRepo(db DBTX) *ProjectRepo {
 // If a project with the same name already exists, SQLite returns a UNIQUE
 // constraint error (because the name column has a UNIQUE constraint).
 func (r *ProjectRepo) Create(ctx context.Context, project *domain.Project) error {
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO projects (id, name, description, default_workflow, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
+	settingsJSON, err := json.Marshal(project.Settings)
+	if err != nil {
+		return fmt.Errorf("marshaling project settings: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx,
+		`INSERT INTO projects (id, name, description, default_workflow, settings, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
 		project.ID.String(), project.Name, project.Description,
-		project.DefaultWorkflow,
+		project.DefaultWorkflow, string(settingsJSON),
 		project.CreatedAt.UTC().Format(timeFormat),
 	)
 	return err
@@ -52,7 +58,7 @@ func (r *ProjectRepo) Create(ctx context.Context, project *domain.Project) error
 // Returns domain.ErrNotFound if no project has that ID.
 func (r *ProjectRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
 	return r.scanOne(r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, default_workflow, created_at
+		`SELECT id, name, description, default_workflow, settings, created_at
 		 FROM projects WHERE id = ?`, id.String()))
 }
 
@@ -60,7 +66,7 @@ func (r *ProjectRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Projec
 // Returns domain.ErrNotFound if no project has that name.
 func (r *ProjectRepo) GetByName(ctx context.Context, name string) (*domain.Project, error) {
 	return r.scanOne(r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, default_workflow, created_at
+		`SELECT id, name, description, default_workflow, settings, created_at
 		 FROM projects WHERE name = ?`, name))
 }
 
@@ -70,7 +76,7 @@ func (r *ProjectRepo) GetByName(ctx context.Context, name string) (*domain.Proje
 // though in practice the seeded project is always present.
 func (r *ProjectRepo) List(ctx context.Context) ([]*domain.Project, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, default_workflow, created_at FROM projects`)
+		`SELECT id, name, description, default_workflow, settings, created_at FROM projects`)
 	if err != nil {
 		return nil, err
 	}
@@ -94,11 +100,15 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*domain.Project, error) {
 // the UPDATE silently affects 0 rows. This is intentional — Update is typically
 // called right after GetByID, so the project is known to exist.
 func (r *ProjectRepo) Update(ctx context.Context, project *domain.Project) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE projects SET name = ?, description = ?, default_workflow = ?
+	settingsJSON, err := json.Marshal(project.Settings)
+	if err != nil {
+		return fmt.Errorf("marshaling project settings: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx,
+		`UPDATE projects SET name = ?, description = ?, default_workflow = ?, settings = ?
 		 WHERE id = ?`,
 		project.Name, project.Description, project.DefaultWorkflow,
-		project.ID.String(),
+		string(settingsJSON), project.ID.String(),
 	)
 	return err
 }
@@ -161,17 +171,21 @@ type projectScanner interface {
 //  4. Returns the assembled *domain.Project.
 func scanProject(s projectScanner) (*domain.Project, error) {
 	var (
-		p         domain.Project
-		id        string
-		createdAt string
+		p            domain.Project
+		id           string
+		settingsJSON string
+		createdAt    string
 	)
-	err := s.Scan(&id, &p.Name, &p.Description, &p.DefaultWorkflow, &createdAt)
+	err := s.Scan(&id, &p.Name, &p.Description, &p.DefaultWorkflow, &settingsJSON, &createdAt)
 	if err != nil {
 		return nil, err
 	}
 	p.ID, err = uuid.Parse(id)
 	if err != nil {
 		return nil, err
+	}
+	if err := json.Unmarshal([]byte(settingsJSON), &p.Settings); err != nil {
+		return nil, fmt.Errorf("parsing project settings: %w", err)
 	}
 	p.CreatedAt, err = time.Parse(timeFormat, createdAt)
 	if err != nil {
