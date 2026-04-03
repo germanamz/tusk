@@ -698,7 +698,7 @@ var (
 - [x] Basic CLI: `add`, `list`, `info`, `modify`, `done`, `delete`, `annotate`
 - [x] Tag support: TagService, wire into CLI `add`/`modify`/`list`
 - [x] Filter syntax parser
-- [ ] Automated end-to-end CLI tests
+- [x] Automated end-to-end CLI tests
 
 ### v0.2 — Relations and hierarchy
 
