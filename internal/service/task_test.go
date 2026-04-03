@@ -1376,3 +1376,55 @@ func TestAutoRevert_Recursive(t *testing.T) {
 		t.Fatalf("expected grandparent 'pending' after revert, got %q", grandparentCheck.Status)
 	}
 }
+
+func TestAutoRevert_CustomTargetStatus(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	// Auto-revert targets "pending" (the only valid revert transition
+	// from "completed" in the default workflow: completed -> pending)
+	projRepo := sqlite.NewProjectRepo(env.store.DB())
+	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
+	proj.Settings = domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "completed",
+		},
+		AutoRevertParent: &domain.AutoRevertConfig{
+			TriggerStatus: "completed",
+			TargetStatus:  "pending",
+		},
+	}
+	projRepo.Update(ctx, proj)
+
+	parent := newMinimalTask("Parent")
+	mustCreateTask(t, env.taskSvc, parent)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+
+	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, child)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+
+	// Complete child -> parent auto-completes
+	child, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
+	parentCheck, _ := env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "completed" {
+		t.Fatalf("expected parent 'completed', got %q", parentCheck.Status)
+	}
+
+	// Re-open child -> parent should revert to "pending" (custom revert target)
+	child, _ = env.taskSvc.GetByShortID(ctx, child.ShortID)
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: child.ShortID,
+		Version: child.Version,
+		Status:  ptr("pending"),
+	})
+	if err != nil {
+		t.Fatalf("Reopen child: %v", err)
+	}
+
+	parentCheck, _ = env.taskSvc.GetByShortID(ctx, parent.ShortID)
+	if parentCheck.Status != "pending" {
+		t.Fatalf("expected parent 'pending' (custom revert target), got %q", parentCheck.Status)
+	}
+}
