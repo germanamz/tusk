@@ -369,7 +369,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Task Queue
 
-> Atomic pop operation for efficient agent orchestration.
+> Atomic pop operation for efficient agent orchestration. Depends on urgency scoring (v0.6) to rank tasks.
 
 - [ ] **Story: `tusk pop`**
   - [ ] TaskService.Pop — atomically find highest-urgency unclaimed unblocked task, claim for player, return it
@@ -498,7 +498,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 ### Initiative: Integrations & Extensions
 
 - [ ] **Story: Webhook notifications**
-  - [ ] Fire webhooks on task state changes
+  - [ ] Fire webhooks on task state changes (powered by event log from v0.8)
 
 - [ ] **Story: Time tracking**
   - [ ] Start/stop timer on tasks
