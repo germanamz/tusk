@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -259,7 +260,7 @@ func TestTagGetByIDNotFound(t *testing.T) {
 	repo := NewTagRepo(s.DB())
 
 	_, err := repo.GetByID(context.Background(), uuid.New())
-	if err != domain.ErrNotFound {
+	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -299,7 +300,7 @@ func TestTagUpdateNotFound(t *testing.T) {
 
 	tag := &domain.Tag{ID: uuid.New(), Name: "ghost"}
 	err := repo.Update(context.Background(), tag)
-	if err != domain.ErrNotFound {
+	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -319,7 +320,7 @@ func TestTagDelete(t *testing.T) {
 	}
 
 	_, err := repo.GetByID(ctx, tag.ID)
-	if err != domain.ErrNotFound {
+	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }
@@ -329,7 +330,7 @@ func TestTagDeleteNotFound(t *testing.T) {
 	repo := NewTagRepo(s.DB())
 
 	err := repo.Delete(context.Background(), uuid.New())
-	if err != domain.ErrNotFound {
+	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
