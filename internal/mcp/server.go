@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -8,12 +9,15 @@ import (
 
 // Server wraps an MCP server that exposes tusk capabilities as tools and resources.
 type Server struct {
-	taskSvc     *service.TaskService
-	tagSvc      *service.TagService
-	relationSvc *service.RelationService
-	projectSvc  *service.ProjectService
-	workflowSvc *service.WorkflowService
-	server      *server.MCPServer
+	taskSvc        *service.TaskService
+	tagSvc         *service.TagService
+	relationSvc    *service.RelationService
+	projectSvc     *service.ProjectService
+	workflowSvc    *service.WorkflowService
+	server         *server.MCPServer
+	cfg            config.MCPConfig
+	toolGroups     map[string]string // tool name → group
+	resourceGroups map[string]string // resource URI template → group
 }
 
 // New creates a new MCP Server and registers all tools and resources.
@@ -24,13 +28,17 @@ func New(
 	projectSvc *service.ProjectService,
 	workflowSvc *service.WorkflowService,
 	version string,
+	cfg config.MCPConfig,
 ) *Server {
 	s := &Server{
-		taskSvc:     taskSvc,
-		tagSvc:      tagSvc,
-		relationSvc: relationSvc,
-		projectSvc:  projectSvc,
-		workflowSvc: workflowSvc,
+		taskSvc:        taskSvc,
+		tagSvc:         tagSvc,
+		relationSvc:    relationSvc,
+		projectSvc:     projectSvc,
+		workflowSvc:    workflowSvc,
+		cfg:            cfg,
+		toolGroups:     make(map[string]string),
+		resourceGroups: make(map[string]string),
 	}
 
 	s.server = server.NewMCPServer(

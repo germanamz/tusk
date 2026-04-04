@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
@@ -34,7 +35,7 @@ func testServer(t *testing.T) *Server {
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 	projectSvc := service.NewProjectService(projectRepo)
 
-	return New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, "test")
+	return New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, "test", config.MCPConfig{})
 }
 
 // callToolRequest builds a CallToolRequest with the given arguments.
