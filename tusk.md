@@ -798,17 +798,25 @@ var (
 
 ### v0.7 — Advanced Features
 
+### v0.7 — Live Dashboard
+
+- [ ] Event log infrastructure (append-only events table)
+- [ ] `tusk dashboard` — live task board + player activity feed
+- [ ] Bubbletea-based TUI with polling updates
+
+### v0.8 — Advanced Features
+
 - [ ] UDA CLI surface and schema validation
 - [ ] Export (JSON, CSV)
 - [ ] Recurrence (RRULE parsing, instance generation)
 - [ ] Streamable HTTP transport for MCP
-- [ ] Undo (mutation log and rollback)
+- [ ] Undo (powered by event log)
 
 ### Future
 
 - [ ] PostgreSQL repository implementation
-- [ ] Interactive TUI (bubbletea-based)
+- [ ] Interactive TUI (inline editing from dashboard)
 - [ ] REST API
-- [ ] Webhook notifications
+- [ ] Webhook notifications (powered by event log)
 - [ ] Time tracking
 - [ ] Bidirectional sync

@@ -351,9 +351,46 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.7 — Advanced Features
+## v0.7 — Live Dashboard
 
-**Goal:** Recurrence, user-defined attributes, additional transports, and data portability.
+**Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by an event log.
+
+### Initiative: Event Log
+
+> Append-only event table recording all mutations. Foundation for dashboard, undo, and future webhooks.
+
+- [ ] **Story: Event log infrastructure**
+  - [ ] Define event types (task_created, task_modified, status_changed, task_claimed, task_released, task_completed, task_deleted, relation_added, relation_removed)
+  - [ ] Migration adding `events` table (id, event_type, entity_id, player_id, payload JSON, created_at)
+  - [ ] EventRepository interface and SQLite implementation
+  - [ ] Emit events from TaskService, RelationService on every mutation
+  - [ ] Bounded retention (configurable max events, prune on write)
+
+### Initiative: TUI Dashboard
+
+> Bubbletea-based live dashboard for orchestrator situational awareness.
+
+- [ ] **Story: Task board view**
+  - [ ] `tusk dashboard` �� long-running TUI command
+  - [ ] Tasks organized by status columns (kanban-style)
+  - [ ] Live updates via event log polling (1-2 second interval)
+  - [ ] Color-coded by priority and claim status
+
+- [ ] **Story: Player activity feed**
+  - [ ] Activity stream panel showing recent events ("agent-1 claimed X", "german completed Y")
+  - [ ] Filter by player or event type
+  - [ ] Highlight stuck/idle players (claimed but no activity for configurable duration)
+
+- [ ] **Story: Dashboard layout**
+  - [ ] Split view: task board + activity feed
+  - [ ] Keyboard navigation between panels
+  - [ ] Configurable via `[dashboard]` config section (refresh interval, layout, visible columns)
+
+---
+
+## v0.8 — Advanced Features
+
+**Goal:** Recurrence, user-defined attributes, additional transports, data portability, and undo.
 
 ### Initiative: User-Defined Attributes
 
@@ -395,12 +432,11 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Undo
 
-> Revert the last mutation for safe experimentation.
+> Revert the last mutation using the event log from v0.7.
 
-- [ ] **Story: Mutation log and rollback**
-  - [ ] Store mutation log (schema addition for operation history)
-  - [ ] `tusk undo` — revert last mutation
-  - [ ] Bounded log retention (configurable max entries)
+- [ ] **Story: Undo command**
+  - [ ] `tusk undo` — revert last mutation by reading event log and applying inverse
+  - [ ] Support undo for task CRUD, status transitions, and claim operations
 
 ---
 
@@ -426,9 +462,9 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Interactive TUI
 
-- [ ] **Story: Bubbletea-based interactive TUI**
-  - [ ] Task list with keyboard navigation
-  - [ ] Inline editing and status transitions
+- [ ] **Story: Interactive task management**
+  - [ ] Extend dashboard with inline task editing and status transitions
+  - [ ] Task creation and modification without leaving the TUI
 
 ### Initiative: REST API
 
