@@ -112,3 +112,54 @@ func TestProjectService_GetByNameNotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestProjectService_ModifyDescription(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", "Old description"); err != nil {
+		t.Fatal(err)
+	}
+
+	desc := "New description"
+	updated, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Description: &desc,
+	})
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if updated.Description != "New description" {
+		t.Fatalf("expected 'New description', got %q", updated.Description)
+	}
+	// Version should have incremented
+	if updated.Version != 2 {
+		t.Fatalf("expected version 2, got %d", updated.Version)
+	}
+}
+
+func TestProjectService_ModifyNotFound(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	desc := "whatever"
+	_, err := svc.Modify(ctx, "nonexistent", ModifyOptions{
+		Description: &desc,
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent project")
+	}
+}
+
+func TestProjectService_ModifyNoOptions(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", "Desc"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.Modify(ctx, "proj", ModifyOptions{})
+	if err == nil {
+		t.Fatal("expected error when no modifications provided")
+	}
+}
