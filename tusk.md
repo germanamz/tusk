@@ -267,6 +267,7 @@ On retry, the service re-reads the entity, reapplies the intended change, and wr
 - **WAL mode** enabled at database open. Allows concurrent readers.
 - **`busy_timeout = 5000`** — writers retry for 5 seconds before failing.
 - **Single writer** — SQLite serializes writes, so the optimistic lock is checked inside the write transaction. No phantom reads.
+- **Dashboard coexistence** — The live dashboard (`tusk dashboard`) runs as a separate process polling the same SQLite file. In WAL mode, readers never block writers and vice versa, so dashboard polling does not interfere with MCP server writes. The dashboard must use short-lived read transactions (poll-query-close) to avoid preventing WAL checkpointing and unbounded WAL growth.
 
 ### MCP version passing
 
