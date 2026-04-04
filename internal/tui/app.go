@@ -28,11 +28,13 @@ type App struct {
 	root        *cobra.Command
 	format      string
 	version     VersionInfo
+	tuiCfg      config.TUIConfig
+	mcpCfg      config.MCPConfig
 }
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectSvc may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, vi VersionInfo) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
@@ -40,6 +42,8 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		projectSvc:  projectSvc,
 		workflowSvc: workflowSvc,
 		version:     vi,
+		tuiCfg:      tuiCfg,
+		mcpCfg:      mcpCfg,
 	}
 	a.resolver = filter.NewResolver(projectSvc, taskSvc)
 
@@ -146,7 +150,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		Use:   "serve",
 		Short: "Start MCP server with stdio transport",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mcpServer, err := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, vi.Version, config.MCPConfig{})
+			mcpServer, err := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, vi.Version, a.mcpCfg)
 			if err != nil {
 				return fmt.Errorf("initializing MCP server: %w", err)
 			}
