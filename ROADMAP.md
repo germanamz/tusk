@@ -136,11 +136,11 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Dedicated tag subcommand for CRUD operations.
 
-- [ ] **Story: `tusk tag` subcommand**
-  - [ ] `tusk tag create <name>` — create a tag
-  - [ ] `tusk tag list` — list all tags
-  - [ ] `tusk tag delete <name>` — delete a tag
-  - [ ] `tusk tag rename <old> <new>` — rename a tag
+- [x] **Story: `tusk tag` subcommand**
+  - [x] `tusk tag create <name>` — create a tag
+  - [x] `tusk tag list` — list all tags
+  - [x] `tusk tag delete <name>` — delete a tag
+  - [x] `tusk tag rename <old> <new>` — rename a tag
 
 ---
 
