@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/germanamz/tusk/internal/filter"
+	tuskmcp "github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -133,6 +134,20 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 
 	a.root.AddCommand(a.buildProjectCmd())
 	a.root.AddCommand(a.buildTagCmd())
+
+	mcpCmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "MCP server commands",
+	}
+	mcpCmd.AddCommand(&cobra.Command{
+		Use:   "serve",
+		Short: "Start MCP server with stdio transport",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mcpServer := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc)
+			return mcpServer.Serve()
+		},
+	})
+	a.root.AddCommand(mcpCmd)
 
 	return a
 }
