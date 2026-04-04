@@ -33,6 +33,96 @@ func toProjectJSON(p *domain.Project) projectJSON {
 	}
 }
 
+// tagJSON is the JSON serialization format for a tag.
+type tagJSON struct {
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	Color *string `json:"color"`
+}
+
+// tagWithUsageJSON is the JSON serialization format for a tag with usage count.
+type tagWithUsageJSON struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Color     *string `json:"color"`
+	TaskCount int     `json:"task_count"`
+}
+
+func toTagJSON(t *domain.Tag) tagJSON {
+	return tagJSON{
+		ID:    t.ID.String(),
+		Name:  t.Name,
+		Color: t.Color,
+	}
+}
+
+func toTagWithUsageJSON(tw domain.TagWithUsage) tagWithUsageJSON {
+	return tagWithUsageJSON{
+		ID:        tw.Tag.ID.String(),
+		Name:      tw.Tag.Name,
+		Color:     tw.Tag.Color,
+		TaskCount: tw.TaskCount,
+	}
+}
+
+// renderTagList writes a list of tags to w.
+// If showUsage is true, includes the task count column.
+func renderTagList(w io.Writer, tags []domain.TagWithUsage, showUsage bool, format string) error {
+	if format == "json" {
+		items := make([]tagWithUsageJSON, len(tags))
+		for i, tw := range tags {
+			items[i] = toTagWithUsageJSON(tw)
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(items)
+	}
+
+	if len(tags) == 0 {
+		return nil
+	}
+
+	if showUsage {
+		if _, err := fmt.Fprintf(w, "%-20s %-10s %s\n", "NAME", "COLOR", "TASKS"); err != nil {
+			return err
+		}
+		for _, tw := range tags {
+			color := "-"
+			if tw.Tag.Color != nil {
+				color = *tw.Tag.Color
+			}
+			if _, err := fmt.Fprintf(w, "%-20s %-10s %d\n", tw.Tag.Name, color, tw.TaskCount); err != nil {
+				return err
+			}
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, "%-20s %s\n", "NAME", "COLOR"); err != nil {
+			return err
+		}
+		for _, tw := range tags {
+			color := "-"
+			if tw.Tag.Color != nil {
+				color = *tw.Tag.Color
+			}
+			if _, err := fmt.Fprintf(w, "%-20s %s\n", tw.Tag.Name, color); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// renderTagResult writes a single tag mutation result.
+func renderTagResult(w io.Writer, action string, tag *domain.Tag, format string) error {
+	if format == "json" {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(toTagJSON(tag))
+	}
+	_, err := fmt.Fprintf(w, "%s tag %s\n", action, tag.Name)
+	return err
+}
+
 // renderProjectList writes a list of projects to w.
 // Text format renders a table; JSON format renders an array.
 func renderProjectList(w io.Writer, projects []*domain.Project, format string) error {
