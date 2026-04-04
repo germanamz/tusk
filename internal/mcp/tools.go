@@ -552,3 +552,142 @@ func (s *Server) handleTaskAnnotate(ctx context.Context, request mcp.CallToolReq
 		CreatedAt: ann.CreatedAt.Format(time.RFC3339),
 	})
 }
+
+// treeNodeResponse is the nested JSON structure for the tree tool.
+type treeNodeResponse struct {
+	ID             string             `json:"id"`
+	ShortID        string             `json:"short_id"`
+	ParentID       *string            `json:"parent_id,omitempty"`
+	ProjectID      *string            `json:"project_id,omitempty"`
+	Title          string             `json:"title"`
+	Description    string             `json:"description"`
+	Status         string             `json:"status"`
+	Priority       int                `json:"priority"`
+	Version        int                `json:"version"`
+	DueAt          *string            `json:"due_at,omitempty"`
+	WaitUntil      *string            `json:"wait_until,omitempty"`
+	RecurrenceRule *string            `json:"recurrence_rule,omitempty"`
+	CreatedAt      string             `json:"created_at"`
+	ModifiedAt     string             `json:"modified_at"`
+	Children       []treeNodeResponse `json:"children"`
+}
+
+func toTreeNodeResponse(task *domain.Task) treeNodeResponse {
+	r := treeNodeResponse{
+		ID:          task.ID.String(),
+		ShortID:     task.ShortID,
+		Title:       task.Title,
+		Description: task.Description,
+		Status:      task.Status,
+		Priority:    task.Priority,
+		Version:     task.Version,
+		CreatedAt:   task.CreatedAt.Format(time.RFC3339),
+		ModifiedAt:  task.ModifiedAt.Format(time.RFC3339),
+		Children:    []treeNodeResponse{},
+	}
+	if task.ParentID != nil {
+		s := task.ParentID.String()
+		r.ParentID = &s
+	}
+	if task.ProjectID != nil {
+		s := task.ProjectID.String()
+		r.ProjectID = &s
+	}
+	if task.DueAt != nil {
+		s := task.DueAt.Format(time.RFC3339)
+		r.DueAt = &s
+	}
+	if task.WaitUntil != nil {
+		s := task.WaitUntil.Format(time.RFC3339)
+		r.WaitUntil = &s
+	}
+	r.RecurrenceRule = task.RecurrenceRule
+	return r
+}
+
+// buildTreeResponse constructs a nested tree from a flat task list.
+// If rootID is non-nil, only that task is the root. Otherwise, tasks without
+// a parent (or whose parent is not in the set) become roots.
+func buildTreeResponse(tasks []*domain.Task, rootID *uuid.UUID) []treeNodeResponse {
+	type node struct {
+		resp     treeNodeResponse
+		children []*node
+	}
+
+	byID := make(map[uuid.UUID]*node, len(tasks))
+	for _, t := range tasks {
+		n := &node{resp: toTreeNodeResponse(t)}
+		byID[t.ID] = n
+	}
+
+	var roots []*node
+	for _, t := range tasks {
+		n := byID[t.ID]
+		if rootID != nil && t.ID == *rootID {
+			roots = append(roots, n)
+			continue
+		}
+		if t.ParentID != nil {
+			if parent, ok := byID[*t.ParentID]; ok {
+				parent.children = append(parent.children, n)
+				continue
+			}
+		}
+		if rootID == nil {
+			roots = append(roots, n)
+		}
+	}
+
+	var flatten func(n *node) treeNodeResponse
+	flatten = func(n *node) treeNodeResponse {
+		r := n.resp
+		r.Children = make([]treeNodeResponse, len(n.children))
+		for i, child := range n.children {
+			r.Children[i] = flatten(child)
+		}
+		return r
+	}
+
+	result := make([]treeNodeResponse, len(roots))
+	for i, root := range roots {
+		result[i] = flatten(root)
+	}
+	return result
+}
+
+// handleTaskTree handles the tusk_task_tree tool.
+func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var tasks []*domain.Task
+	var rootID *uuid.UUID
+
+	if shortID, err := request.RequireString("short_id"); err == nil {
+		// Subtree mode
+		root, lookupErr := s.taskSvc.GetByShortID(ctx, shortID)
+		if lookupErr != nil {
+			return toolError(lookupErr, "task "+shortID), nil
+		}
+		descendants, err := s.taskSvc.GetDescendants(ctx, root.ID)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append([]*domain.Task{root}, descendants...)
+		rootID = &root.ID
+	} else {
+		// Full tree mode
+		filter := domain.TaskFilter{
+			Statuses: []string{"pending", "active", "completed"},
+		}
+		// Check include_deleted flag
+		if val, err := request.RequireString("include_deleted"); err == nil && val == "true" {
+			filter = domain.TaskFilter{}
+		}
+		var listErr error
+		tasks, listErr = s.taskSvc.List(ctx, filter)
+		if listErr != nil {
+			return nil, listErr
+		}
+	}
+
+	tree := buildTreeResponse(tasks, rootID)
+	return toolResultJSON(tree)
+}

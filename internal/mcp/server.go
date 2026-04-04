@@ -233,6 +233,19 @@ func (s *Server) registerTools() {
 		),
 		s.handleTaskAnnotate,
 	)
+
+	s.server.AddTool(
+		mcp.NewTool("tusk_task_tree",
+			mcp.WithDescription("Get tasks as a nested tree hierarchy"),
+			mcp.WithString("short_id",
+				mcp.Description("Root task short_id (omit for full tree)"),
+			),
+			mcp.WithString("include_deleted",
+				mcp.Description("Set to \"true\" to include deleted tasks"),
+			),
+		),
+		s.handleTaskTree,
+	)
 }
 
 // Serve starts the MCP server using stdio transport.
