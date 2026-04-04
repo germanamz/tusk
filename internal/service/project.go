@@ -105,13 +105,64 @@ func (s *ProjectService) Modify(ctx context.Context, name string, opts ModifyOpt
 	return s.projectRepo.GetByName(ctx, name)
 }
 
+// validSetPaths lists all dot-paths that can be used with --set.
+// This is NOT a generic JSON walker — it maps a known set of paths
+// to ProjectSettings struct fields.
+var validSetPaths = map[string]bool{
+	"auto_complete_parent.trigger_status": true,
+	"auto_complete_parent.target_status":  true,
+	"auto_revert_parent.trigger_status":   true,
+	"auto_revert_parent.target_status":    true,
+}
+
+// validUnsetPaths lists all top-level keys that can be used with --unset.
+var validUnsetPaths = map[string]bool{
+	"auto_complete_parent": true,
+	"auto_revert_parent":   true,
+}
+
 // applySettingsChanges applies dot-path --set and --unset operations to settings.
 // Returns an error for unknown dot-paths.
 func applySettingsChanges(settings *domain.ProjectSettings, sets map[string]string, unsets []string) error {
-	// Settings merge logic will be implemented in the next task.
-	// For now, this is a no-op if no sets/unsets are provided.
-	if len(sets) > 0 || len(unsets) > 0 {
-		return fmt.Errorf("settings changes not yet implemented")
+	for _, key := range unsets {
+		if !validUnsetPaths[key] {
+			return fmt.Errorf("unknown settings key %q (valid: auto_complete_parent, auto_revert_parent)", key)
+		}
+		switch key {
+		case "auto_complete_parent":
+			settings.AutoCompleteParent = nil
+		case "auto_revert_parent":
+			settings.AutoRevertParent = nil
+		}
 	}
+
+	for path, value := range sets {
+		if !validSetPaths[path] {
+			return fmt.Errorf("unknown settings path %q", path)
+		}
+		switch path {
+		case "auto_complete_parent.trigger_status":
+			if settings.AutoCompleteParent == nil {
+				settings.AutoCompleteParent = &domain.AutoCompleteConfig{}
+			}
+			settings.AutoCompleteParent.TriggerStatus = value
+		case "auto_complete_parent.target_status":
+			if settings.AutoCompleteParent == nil {
+				settings.AutoCompleteParent = &domain.AutoCompleteConfig{}
+			}
+			settings.AutoCompleteParent.TargetStatus = value
+		case "auto_revert_parent.trigger_status":
+			if settings.AutoRevertParent == nil {
+				settings.AutoRevertParent = &domain.AutoRevertConfig{}
+			}
+			settings.AutoRevertParent.TriggerStatus = value
+		case "auto_revert_parent.target_status":
+			if settings.AutoRevertParent == nil {
+				settings.AutoRevertParent = &domain.AutoRevertConfig{}
+			}
+			settings.AutoRevertParent.TargetStatus = value
+		}
+	}
+
 	return nil
 }
