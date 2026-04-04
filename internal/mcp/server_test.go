@@ -6,7 +6,7 @@ import (
 
 func TestNewServer(t *testing.T) {
 	// New should not panic with nil services (used for testing tool registration).
-	s := New(nil, nil, nil, nil)
+	s := New(nil, nil, nil, nil, "test")
 	if s == nil {
 		t.Fatal("New() returned nil")
 	}
