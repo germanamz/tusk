@@ -35,7 +35,11 @@ func testServer(t *testing.T) *Server {
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 	projectSvc := service.NewProjectService(projectRepo)
 
-	return New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, "test", config.MCPConfig{})
+	s, err := New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, "test", config.MCPConfig{})
+	if err != nil {
+		t.Fatalf("creating MCP server: %v", err)
+	}
+	return s
 }
 
 // callToolRequest builds a CallToolRequest with the given arguments.
