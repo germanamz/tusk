@@ -41,6 +41,7 @@ func TestProjectCreate(t *testing.T) {
 		Name:            "backend",
 		Description:     "Backend services",
 		DefaultWorkflow: "default",
+		Version:         1,
 		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
 	}
 
@@ -112,6 +113,7 @@ func TestProjectList(t *testing.T) {
 	p := &domain.Project{
 		ID: uuid.New(), Name: "frontend", Description: "Frontend app",
 		DefaultWorkflow: "default",
+		Version:         1,
 		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
 	}
 	if err := repo.Create(ctx, p); err != nil {
@@ -137,6 +139,7 @@ func TestProjectUpdate(t *testing.T) {
 	p := &domain.Project{
 		ID: uuid.New(), Name: "mobile", Description: "Mobile app",
 		DefaultWorkflow: "default",
+		Version:         1,
 		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
 	}
 	if err := repo.Create(ctx, p); err != nil {
@@ -179,6 +182,7 @@ func TestProjectCreateDuplicate(t *testing.T) {
 	p1 := &domain.Project{
 		ID: uuid.New(), Name: "dupname", Description: "First",
 		DefaultWorkflow: "default",
+		Version:         1,
 		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
 	}
 	if err := repo.Create(ctx, p1); err != nil {
@@ -187,6 +191,7 @@ func TestProjectCreateDuplicate(t *testing.T) {
 	p2 := &domain.Project{
 		ID: uuid.New(), Name: "dupname", Description: "Second",
 		DefaultWorkflow: "default",
+		Version:         1,
 		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
 	}
 	if err := repo.Create(ctx, p2); err == nil {
@@ -303,6 +308,7 @@ func TestProjectDelete(t *testing.T) {
 	p := &domain.Project{
 		ID: uuid.New(), Name: "temp", Description: "Temporary",
 		DefaultWorkflow: "default",
+		Version:         1,
 		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
 	}
 	if err := repo.Create(ctx, p); err != nil {
