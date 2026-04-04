@@ -22,6 +22,7 @@ type App struct {
 	tagSvc      *service.TagService
 	relationSvc *service.RelationService
 	projectSvc  *service.ProjectService
+	workflowSvc *service.WorkflowService
 	resolver    *filter.Resolver
 	root        *cobra.Command
 	format      string
@@ -30,12 +31,13 @@ type App struct {
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectSvc may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, vi VersionInfo) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, vi VersionInfo) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
 		relationSvc: relationSvc,
 		projectSvc:  projectSvc,
+		workflowSvc: workflowSvc,
 		version:     vi,
 	}
 	a.resolver = filter.NewResolver(projectSvc, taskSvc)
@@ -143,7 +145,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		Use:   "serve",
 		Short: "Start MCP server with stdio transport",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mcpServer := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, vi.Version)
+			mcpServer := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, vi.Version)
 			return mcpServer.Serve()
 		},
 	})

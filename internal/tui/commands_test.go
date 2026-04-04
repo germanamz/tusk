@@ -85,7 +85,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
 	projectSvc := service.NewProjectService(projectRepo)
-	app := New(taskSvc, tagSvc, relationSvc, projectSvc, VersionInfo{})
+	app := New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, VersionInfo{})
 	return app, taskSvc
 }
 

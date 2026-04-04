@@ -60,7 +60,7 @@ func run() error {
 
 	projectSvc := service.NewProjectService(projectRepo)
 
-	app := tui.New(taskSvc, tagSvc, relationSvc, projectSvc, tui.VersionInfo{
+	app := tui.New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, tui.VersionInfo{
 		Version: version,
 		Commit:  commit,
 		Date:    date,
