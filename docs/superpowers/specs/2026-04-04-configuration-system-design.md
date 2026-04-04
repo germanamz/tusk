@@ -162,7 +162,7 @@ Same pattern for `isResourceEnabled`.
 
 ### Validation
 
-On startup, warn to stderr if any disabled tool/resource/group name doesn't match a known registration. This catches typos without failing hard.
+On startup, return an error if any disabled tool/resource/group name doesn't match a known registration. This catches typos and prevents silent misconfiguration — fail fast rather than running with unexpected behavior.
 
 ## DI Wiring Changes
 
@@ -221,7 +221,7 @@ The existing `config/default.toml` is updated to match the final schema and serv
 | `TestToolFiltering_DisabledGroup` | Disable group `relation` — both relation tools gone |
 | `TestResourceFiltering_DisabledResource` | Disable specific resource template — not registered |
 | `TestResourceFiltering_DisabledGroup` | Disable group `workflow` — workflow resource gone |
-| `TestValidation_UnknownGroup` | Disable `nonexistent_group` — stderr warning |
+| `TestValidation_UnknownGroup` | Disable `nonexistent_group` — error returned |
 
 ### E2E Tests
 

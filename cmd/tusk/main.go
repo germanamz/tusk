@@ -90,8 +90,9 @@ func stripDBFlag(args []string) []string {
 	return out
 }
 
-// resolveDBPath returns the database path from: --db flag > TUSK_DB env > config value > default.
-// We check os.Args directly for --db because Cobra hasn't parsed yet at this point.
+// resolveDBPath returns the database path from: --db flag > TUSK_DB env > config value.
+// The config value always has a default ("~/.local/share/tusk/tusk.db") so it acts as
+// the final fallback. We check os.Args directly for --db because Cobra hasn't parsed yet.
 func resolveDBPath(configPath string) (string, error) {
 	for i, arg := range os.Args {
 		if arg == "--db" {
@@ -114,15 +115,7 @@ func resolveDBPath(configPath string) (string, error) {
 		return v, nil
 	}
 
-	// Config file value (with tilde expansion)
-	if configPath != "" {
-		return config.ExpandPath(configPath), nil
-	}
-
-	// Default path
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return filepath.Join(home, ".local", "share", "tusk", "tusk.db"), nil
+	// Config value (with tilde expansion). Always populated — Viper provides
+	// the default "~/.local/share/tusk/tusk.db" when no config file is present.
+	return config.ExpandPath(configPath), nil
 }
