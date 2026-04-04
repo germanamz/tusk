@@ -103,16 +103,17 @@ func (r *TagRepo) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, err
 	for rows.Next() {
 		var (
 			tw    domain.TagWithUsage
-			id    string
+			rawID string
 			color sql.NullString
 		)
-		if err := rows.Scan(&id, &tw.Tag.Name, &color, &tw.TaskCount); err != nil {
+		if err := rows.Scan(&rawID, &tw.Tag.Name, &color, &tw.TaskCount); err != nil {
 			return nil, err
 		}
-		tw.Tag.ID, err = uuid.Parse(id)
+		parsed, err := uuid.Parse(rawID)
 		if err != nil {
 			return nil, err
 		}
+		tw.Tag.ID = parsed
 		if color.Valid {
 			tw.Tag.Color = &color.String
 		}
