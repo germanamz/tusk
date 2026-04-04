@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/config"
@@ -113,5 +114,65 @@ func TestRegisterResources_FiltersDisabledResources(t *testing.T) {
 	}
 	if len(filtered.resourceGroups) != 2 {
 		t.Errorf("filtered server: expected 2 resources (workflow disabled), got %d", len(filtered.resourceGroups))
+	}
+}
+
+func TestValidation_UnknownEntries(t *testing.T) {
+	var buf strings.Builder
+
+	cfg := config.MCPConfig{
+		DisabledTools:          []string{"tusk_nonexistent_tool"},
+		DisabledToolGroups:     []string{"nonexistent_group"},
+		DisabledResources:      []string{"tusk://nonexistent/resource"},
+		DisabledResourceGroups: []string{"nonexistent_res_group"},
+	}
+
+	s := &Server{
+		cfg:            cfg,
+		toolGroups:     map[string]string{"tusk_task_create": "task"},
+		resourceGroups: map[string]string{"tusk://tasks/{short_id}": "task"},
+	}
+
+	s.validateConfig(&buf)
+
+	output := buf.String()
+	if !strings.Contains(output, "tusk_nonexistent_tool") {
+		t.Errorf("expected warning about unknown tool, got: %s", output)
+	}
+	if !strings.Contains(output, "nonexistent_group") {
+		t.Errorf("expected warning about unknown tool group, got: %s", output)
+	}
+	if !strings.Contains(output, "tusk://nonexistent/resource") {
+		t.Errorf("expected warning about unknown resource, got: %s", output)
+	}
+	if !strings.Contains(output, "nonexistent_res_group") {
+		t.Errorf("expected warning about unknown resource group, got: %s", output)
+	}
+}
+
+func TestValidation_NoWarningsForValidEntries(t *testing.T) {
+	var buf strings.Builder
+
+	cfg := config.MCPConfig{
+		DisabledToolGroups:     []string{"relation"},
+		DisabledResourceGroups: []string{"workflow"},
+	}
+
+	s := &Server{
+		cfg: cfg,
+		toolGroups: map[string]string{
+			"tusk_task_create":  "task",
+			"tusk_relation_add": "relation",
+		},
+		resourceGroups: map[string]string{
+			"tusk://tasks/{short_id}":         "task",
+			"tusk://projects/{name}/workflow": "workflow",
+		},
+	}
+
+	s.validateConfig(&buf)
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no warnings, got: %s", buf.String())
 	}
 }

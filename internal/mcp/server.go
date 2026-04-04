@@ -1,6 +1,9 @@
 package mcp
 
 import (
+	"fmt"
+	"io"
+	"os"
 	"slices"
 
 	"github.com/germanamz/tusk/internal/config"
@@ -54,6 +57,7 @@ func New(
 
 	s.registerTools()
 	s.registerResources()
+	s.validateConfig(os.Stderr)
 
 	return s
 }
@@ -73,6 +77,58 @@ func (s *Server) isResourceEnabled(uriTemplate, group string) bool {
 // containsStr returns true if slice contains the given string.
 func containsStr(slice []string, s string) bool {
 	return slices.Contains(slice, s)
+}
+
+// validateConfig warns about disable list entries that don't match any
+// registered tool or resource. Writes warnings to w (typically os.Stderr).
+func (s *Server) validateConfig(w io.Writer) {
+	validToolNames := map[string]bool{
+		"tusk_task_create":     true,
+		"tusk_task_get":        true,
+		"tusk_task_list":       true,
+		"tusk_task_modify":     true,
+		"tusk_task_start":      true,
+		"tusk_task_done":       true,
+		"tusk_task_delete":     true,
+		"tusk_task_annotate":   true,
+		"tusk_task_tree":       true,
+		"tusk_relation_add":    true,
+		"tusk_relation_remove": true,
+		"tusk_project_list":    true,
+		"tusk_project_create":  true,
+	}
+	validToolGroups := map[string]bool{
+		"task": true, "relation": true, "project": true,
+	}
+	validResourceURIs := map[string]bool{
+		"tusk://tasks/{short_id}":         true,
+		"tusk://projects/{name}":          true,
+		"tusk://projects/{name}/workflow": true,
+	}
+	validResourceGroups := map[string]bool{
+		"task": true, "project": true, "workflow": true,
+	}
+
+	for _, name := range s.cfg.DisabledTools {
+		if !validToolNames[name] {
+			_, _ = fmt.Fprintf(w, "tusk: config warning: disabled_tools contains unknown tool %q\n", name)
+		}
+	}
+	for _, group := range s.cfg.DisabledToolGroups {
+		if !validToolGroups[group] {
+			_, _ = fmt.Fprintf(w, "tusk: config warning: disabled_tool_groups contains unknown group %q\n", group)
+		}
+	}
+	for _, uri := range s.cfg.DisabledResources {
+		if !validResourceURIs[uri] {
+			_, _ = fmt.Fprintf(w, "tusk: config warning: disabled_resources contains unknown resource %q\n", uri)
+		}
+	}
+	for _, group := range s.cfg.DisabledResourceGroups {
+		if !validResourceGroups[group] {
+			_, _ = fmt.Fprintf(w, "tusk: config warning: disabled_resource_groups contains unknown group %q\n", group)
+		}
+	}
 }
 
 // addTool registers a tool with the MCP server if it's enabled by config.
