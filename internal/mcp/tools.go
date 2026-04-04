@@ -185,38 +185,30 @@ type taskGetResponse struct {
 	Relations   []relationResponse   `json:"relations"`
 }
 
-// handleTaskGet handles the tusk_task_get tool. Returns the full task with
-// tags, relations, and annotations.
-func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	shortID, err := request.RequireString("short_id")
-	if err != nil {
-		return mcp.NewToolResultError("short_id is required"), nil
-	}
-
+// buildTaskGetResponse builds a full taskGetResponse with tags, annotations,
+// and resolved relations. Shared by handleTaskGet and handleTaskResource.
+func (s *Server) buildTaskGetResponse(ctx context.Context, shortID string) (*taskGetResponse, error) {
 	task, err := s.taskSvc.GetByShortID(ctx, shortID)
 	if err != nil {
-		return toolError(err, "task "+shortID), nil
+		return nil, err
 	}
 
-	// Fetch tags
 	tags, err := s.tagSvc.GetTaskTags(ctx, task.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch annotations
 	annotations, err := s.taskSvc.GetAnnotations(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch and resolve relations
 	rels, err := s.relationSvc.GetByTask(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := taskGetResponse{
+	resp := &taskGetResponse{
 		taskResponse: toTaskResponse(task, tags),
 		Annotations:  make([]annotationResponse, len(annotations)),
 		Relations:    make([]relationResponse, 0, len(rels)),
@@ -260,6 +252,22 @@ func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest)
 			}
 		}
 		resp.Relations = append(resp.Relations, rr)
+	}
+
+	return resp, nil
+}
+
+// handleTaskGet handles the tusk_task_get tool. Returns the full task with
+// tags, relations, and annotations.
+func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+
+	resp, err := s.buildTaskGetResponse(ctx, shortID)
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
 	}
 
 	return toolResultJSON(resp)
@@ -472,8 +480,8 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 	return toolResultJSON(toTaskResponse(updated, taskTags))
 }
 
-// handleTaskStart handles the tusk_task_start tool.
-func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleTaskTransition is a shared helper for start/done/delete handlers.
+func (s *Server) handleTaskTransition(ctx context.Context, request mcp.CallToolRequest, transition func(context.Context, string, int) (*domain.Task, error)) (*mcp.CallToolResult, error) {
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -483,50 +491,32 @@ func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError("version is required"), nil
 	}
 
-	updated, err := s.taskSvc.Start(ctx, shortID, int(version))
+	updated, err := transition(ctx, shortID, int(version))
 	if err != nil {
 		return toolError(err, "task "+shortID), nil
 	}
 
-	return toolResultJSON(toTaskResponse(updated, nil))
+	tags, err := s.tagSvc.GetTaskTags(ctx, updated.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return toolResultJSON(toTaskResponse(updated, tags))
+}
+
+// handleTaskStart handles the tusk_task_start tool.
+func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleTaskTransition(ctx, request, s.taskSvc.Start)
 }
 
 // handleTaskDone handles the tusk_task_done tool.
 func (s *Server) handleTaskDone(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	shortID, err := request.RequireString("short_id")
-	if err != nil {
-		return mcp.NewToolResultError("short_id is required"), nil
-	}
-	version, err := request.RequireFloat("version")
-	if err != nil {
-		return mcp.NewToolResultError("version is required"), nil
-	}
-
-	updated, err := s.taskSvc.Complete(ctx, shortID, int(version))
-	if err != nil {
-		return toolError(err, "task "+shortID), nil
-	}
-
-	return toolResultJSON(toTaskResponse(updated, nil))
+	return s.handleTaskTransition(ctx, request, s.taskSvc.Complete)
 }
 
 // handleTaskDelete handles the tusk_task_delete tool.
 func (s *Server) handleTaskDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	shortID, err := request.RequireString("short_id")
-	if err != nil {
-		return mcp.NewToolResultError("short_id is required"), nil
-	}
-	version, err := request.RequireFloat("version")
-	if err != nil {
-		return mcp.NewToolResultError("version is required"), nil
-	}
-
-	updated, err := s.taskSvc.Delete(ctx, shortID, int(version))
-	if err != nil {
-		return toolError(err, "task "+shortID), nil
-	}
-
-	return toolResultJSON(toTaskResponse(updated, nil))
+	return s.handleTaskTransition(ctx, request, s.taskSvc.Delete)
 }
 
 // handleTaskAnnotate handles the tusk_task_annotate tool.
@@ -796,7 +786,7 @@ func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest
 			Statuses: []string{"pending", "active", "completed"},
 		}
 		// Check include_deleted flag
-		if val, err := request.RequireString("include_deleted"); err == nil && val == "true" {
+		if request.GetBool("include_deleted", false) {
 			filter = domain.TaskFilter{}
 		}
 		var listErr error

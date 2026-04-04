@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -53,70 +52,9 @@ func (s *Server) handleTaskResource(ctx context.Context, request mcp.ReadResourc
 		return nil, &resourceError{msg: "missing short_id in URI"}
 	}
 
-	task, err := s.taskSvc.GetByShortID(ctx, shortID)
+	resp, err := s.buildTaskGetResponse(ctx, shortID)
 	if err != nil {
 		return nil, err
-	}
-
-	tags, err := s.tagSvc.GetTaskTags(ctx, task.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	annotations, err := s.taskSvc.GetAnnotations(ctx, shortID)
-	if err != nil {
-		return nil, err
-	}
-
-	rels, err := s.relationSvc.GetByTask(ctx, shortID)
-	if err != nil {
-		return nil, err
-	}
-
-	resp := taskGetResponse{
-		taskResponse: toTaskResponse(task, tags),
-		Annotations:  make([]annotationResponse, len(annotations)),
-		Relations:    make([]relationResponse, 0, len(rels)),
-	}
-
-	for i, ann := range annotations {
-		resp.Annotations[i] = annotationResponse{
-			ID:        ann.ID.String(),
-			TaskID:    ann.TaskID.String(),
-			Body:      ann.Body,
-			CreatedAt: ann.CreatedAt.Format(time.RFC3339),
-		}
-	}
-
-	for _, rel := range rels {
-		rr := relationResponse{
-			ID:           rel.ID.String(),
-			SourceID:     rel.SourceID.String(),
-			TargetID:     rel.TargetID.String(),
-			RelationType: rel.RelationType,
-			CreatedAt:    rel.CreatedAt.Format(time.RFC3339),
-		}
-		if rel.TargetID == task.ID {
-			switch rel.RelationType {
-			case "blocks":
-				rr.DirectionLabel = "blocked_by"
-			case "relates_to":
-				rr.DirectionLabel = "related_to"
-			case "duplicates":
-				rr.DirectionLabel = "duplicated_by"
-			}
-			if other, lookupErr := s.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
-				rr.RelatedShortID = other.ShortID
-				rr.RelatedTitle = other.Title
-			}
-		} else {
-			rr.DirectionLabel = rel.RelationType
-			if other, lookupErr := s.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
-				rr.RelatedShortID = other.ShortID
-				rr.RelatedTitle = other.Title
-			}
-		}
-		resp.Relations = append(resp.Relations, rr)
 	}
 
 	b, err := json.MarshalIndent(resp, "", "  ")
