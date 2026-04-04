@@ -171,6 +171,138 @@ func TestLoad_MalformedFile(t *testing.T) {
 	}
 }
 
+func TestLoad_WorkflowConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
+
+[[workflows.kanban.transitions]]
+from = "active"
+to = "completed"
+
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+`)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	wf, ok := cfg.Workflows["kanban"]
+	if !ok {
+		t.Fatal("Workflows[\"kanban\"] not found")
+	}
+
+	if len(wf.Statuses) != 4 {
+		t.Errorf("kanban.Statuses len = %d, want 4", len(wf.Statuses))
+	}
+	if wf.Statuses[0] != "pending" {
+		t.Errorf("kanban.Statuses[0] = %q, want %q", wf.Statuses[0], "pending")
+	}
+	if wf.Statuses[2] != "completed" {
+		t.Errorf("kanban.Statuses[2] = %q, want %q", wf.Statuses[2], "completed")
+	}
+
+	if len(wf.Transitions) != 2 {
+		t.Errorf("kanban.Transitions len = %d, want 2", len(wf.Transitions))
+	}
+	if wf.Transitions[0].From != "pending" || wf.Transitions[0].To != "active" {
+		t.Errorf("kanban.Transitions[0] = {%q, %q}, want {pending, active}", wf.Transitions[0].From, wf.Transitions[0].To)
+	}
+	if wf.Transitions[1].From != "active" || wf.Transitions[1].To != "completed" {
+		t.Errorf("kanban.Transitions[1] = {%q, %q}, want {active, completed}", wf.Transitions[1].From, wf.Transitions[1].To)
+	}
+}
+
+func TestLoad_ProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`
+[projects.default]
+workflow = "kanban"
+
+[projects.backend]
+workflow = "kanban"
+
+[projects.backend.settings.auto_complete_parent]
+trigger_status = "completed"
+target_status = "completed"
+`)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	def, ok := cfg.Projects["default"]
+	if !ok {
+		t.Fatal("Projects[\"default\"] not found")
+	}
+	if def.Workflow != "kanban" {
+		t.Errorf("default.Workflow = %q, want %q", def.Workflow, "kanban")
+	}
+	if def.Settings.AutoCompleteParent != nil {
+		t.Errorf("default.Settings.AutoCompleteParent = %v, want nil", def.Settings.AutoCompleteParent)
+	}
+
+	backend, ok := cfg.Projects["backend"]
+	if !ok {
+		t.Fatal("Projects[\"backend\"] not found")
+	}
+	if backend.Workflow != "kanban" {
+		t.Errorf("backend.Workflow = %q, want %q", backend.Workflow, "kanban")
+	}
+	if backend.Settings.AutoCompleteParent == nil {
+		t.Fatal("backend.Settings.AutoCompleteParent is nil, want non-nil")
+	}
+	if backend.Settings.AutoCompleteParent.TriggerStatus != "completed" {
+		t.Errorf("backend.Settings.AutoCompleteParent.TriggerStatus = %q, want %q", backend.Settings.AutoCompleteParent.TriggerStatus, "completed")
+	}
+	if backend.Settings.AutoCompleteParent.TargetStatus != "completed" {
+		t.Errorf("backend.Settings.AutoCompleteParent.TargetStatus = %q, want %q", backend.Settings.AutoCompleteParent.TargetStatus, "completed")
+	}
+	if backend.Settings.AutoRevertParent != nil {
+		t.Errorf("backend.Settings.AutoRevertParent = %v, want nil", backend.Settings.AutoRevertParent)
+	}
+}
+
+func TestLoad_BuiltinDefaults(t *testing.T) {
+	// Load with an empty config — should inject builtin kanban workflow and default project.
+	cfg, err := Load(WithSearchPath(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Builtin kanban workflow
+	kanban, ok := cfg.Workflows["kanban"]
+	if !ok {
+		t.Fatal("Workflows[\"kanban\"] not found in builtin defaults")
+	}
+	if len(kanban.Statuses) != 4 {
+		t.Errorf("kanban.Statuses len = %d, want 4", len(kanban.Statuses))
+	}
+	if len(kanban.Transitions) != 6 {
+		t.Errorf("kanban.Transitions len = %d, want 6", len(kanban.Transitions))
+	}
+
+	// Builtin default project
+	def, ok := cfg.Projects["default"]
+	if !ok {
+		t.Fatal("Projects[\"default\"] not found in builtin defaults")
+	}
+	if def.Workflow != "kanban" {
+		t.Errorf("default.Workflow = %q, want %q", def.Workflow, "kanban")
+	}
+}
+
 func TestExpandPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

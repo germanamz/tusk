@@ -11,10 +11,48 @@ import (
 
 // Config is the top-level Tusk configuration.
 type Config struct {
-	Storage StorageConfig `mapstructure:"storage"`
-	Urgency UrgencyConfig `mapstructure:"urgency"`
-	TUI     TUIConfig     `mapstructure:"tui"`
-	MCP     MCPConfig     `mapstructure:"mcp"`
+	Storage   StorageConfig             `mapstructure:"storage"`
+	Urgency   UrgencyConfig             `mapstructure:"urgency"`
+	TUI       TUIConfig                 `mapstructure:"tui"`
+	MCP       MCPConfig                 `mapstructure:"mcp"`
+	Workflows map[string]WorkflowConfig `mapstructure:"workflows"`
+	Projects  map[string]ProjectConfig  `mapstructure:"projects"`
+}
+
+// WorkflowTransitionConfig defines a single allowed status transition.
+type WorkflowTransitionConfig struct {
+	From string `mapstructure:"from"`
+	To   string `mapstructure:"to"`
+}
+
+// WorkflowConfig defines a named workflow with statuses and transitions.
+type WorkflowConfig struct {
+	Statuses    []string                   `mapstructure:"statuses"`
+	Transitions []WorkflowTransitionConfig `mapstructure:"transitions"`
+}
+
+// AutoCompleteParentConfig configures automatic parent task completion.
+type AutoCompleteParentConfig struct {
+	TriggerStatus string `mapstructure:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"`
+}
+
+// AutoRevertParentConfig configures automatic parent task reversion.
+type AutoRevertParentConfig struct {
+	TriggerStatus string `mapstructure:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"`
+}
+
+// ProjectSettingsConfig holds optional automation settings for a project.
+type ProjectSettingsConfig struct {
+	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent"`
+	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"`
+}
+
+// ProjectConfig defines a named project with its associated workflow and settings.
+type ProjectConfig struct {
+	Workflow string                `mapstructure:"workflow"`
+	Settings ProjectSettingsConfig `mapstructure:"settings"`
 }
 
 // StorageConfig configures the database backend.
@@ -133,6 +171,30 @@ func Load(opts ...Option) (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+
+	// Inject builtin workflow if no workflows configured.
+	if len(cfg.Workflows) == 0 {
+		cfg.Workflows = map[string]WorkflowConfig{
+			"kanban": {
+				Statuses: []string{"pending", "active", "completed", "deleted"},
+				Transitions: []WorkflowTransitionConfig{
+					{From: "pending", To: "active"},
+					{From: "pending", To: "deleted"},
+					{From: "active", To: "completed"},
+					{From: "active", To: "pending"},
+					{From: "active", To: "deleted"},
+					{From: "completed", To: "pending"},
+				},
+			},
+		}
+	}
+
+	// Inject builtin project if no projects configured.
+	if len(cfg.Projects) == 0 {
+		cfg.Projects = map[string]ProjectConfig{
+			"default": {Workflow: "kanban"},
+		}
 	}
 
 	return &cfg, nil
