@@ -781,7 +781,13 @@ var (
 - [ ] MCP workflow tools
 - [ ] MCP visibility wiring
 
-### v0.5 — Urgency & UX
+### v0.5 — Rich Content
+
+- [ ] File-based description input (`--description @file.md`)
+- [ ] UDA CLI/MCP surface (`--uda key=value`)
+- [ ] UDA filter support (`uda.key:value`)
+
+### v0.6 — Urgency & UX
 
 - [ ] Quoted string and boolean operator filter support
 - [ ] Color-coded output (priority, status, tags)
@@ -789,7 +795,7 @@ var (
 - [ ] Configurable urgency weights + per-project overrides
 - [ ] `tusk next` — highest-urgency actionable task
 
-### v0.6 — Player Management
+### v0.7 — Player Management
 
 - [ ] Player entity and self-registration
 - [ ] Task claiming (explicit + auto-claim on start)
@@ -797,17 +803,15 @@ var (
 - [ ] `tusk pop` — atomic claim-next-best-task queue
 - [ ] MCP player tools
 
-### v0.7 — Advanced Features
-
-### v0.7 — Live Dashboard
+### v0.8 — Live Dashboard
 
 - [ ] Event log infrastructure (append-only events table)
 - [ ] `tusk dashboard` — live task board + player activity feed
 - [ ] Bubbletea-based TUI with polling updates
 
-### v0.8 — Advanced Features
+### v0.9 — Advanced Features
 
-- [ ] UDA CLI surface and schema validation
+- [ ] UDA schema validation (per-project)
 - [ ] Export (JSON, CSV)
 - [ ] Recurrence (RRULE parsing, instance generation)
 - [ ] Streamable HTTP transport for MCP
@@ -820,4 +824,5 @@ var (
 - [ ] REST API
 - [ ] Webhook notifications (powered by event log)
 - [ ] Time tracking
+- [ ] Binary attachments
 - [ ] Bidirectional sync
