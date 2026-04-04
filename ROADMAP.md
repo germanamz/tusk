@@ -152,45 +152,45 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > stdio-transport MCP server mapping tools to service methods.
 
-- [ ] **Story: MCP server with stdio transport**
-  - [ ] Server setup and lifecycle management
-  - [ ] stdio transport implementation
-  - [ ] Tool registration framework
+- [x] **Story: MCP server with stdio transport**
+  - [x] Server setup and lifecycle management
+  - [x] stdio transport implementation
+  - [x] Tool registration framework
 
-- [ ] **Story: Task tools**
-  - [ ] `tusk_task_create` — TaskService.Create
-  - [ ] `tusk_task_list` — TaskService.List
-  - [ ] `tusk_task_get` — TaskService.GetByShortID
-  - [ ] `tusk_task_modify` — TaskService.Update
-  - [ ] `tusk_task_start` — TaskService.Start
-  - [ ] `tusk_task_done` — TaskService.Complete
-  - [ ] `tusk_task_delete` — TaskService.Delete
-  - [ ] `tusk_task_annotate` — TaskService.Annotate
-  - [ ] `tusk_task_tree` — TaskService.Tree
+- [x] **Story: Task tools**
+  - [x] `tusk_task_create` — TaskService.Create
+  - [x] `tusk_task_list` — TaskService.List
+  - [x] `tusk_task_get` — TaskService.GetByShortID
+  - [x] `tusk_task_modify` — TaskService.Update
+  - [x] `tusk_task_start` — TaskService.Start
+  - [x] `tusk_task_done` — TaskService.Complete
+  - [x] `tusk_task_delete` — TaskService.Delete
+  - [x] `tusk_task_annotate` — TaskService.Annotate
+  - [x] `tusk_task_tree` — TaskService.Tree
 
-- [ ] **Story: Relation & project tools**
-  - [ ] `tusk_relation_add` — RelationService.Add
-  - [ ] `tusk_relation_remove` — RelationService.Remove
-  - [ ] `tusk_project_list` — ProjectService.List
-  - [ ] `tusk_project_create` — ProjectService.Create
+- [x] **Story: Relation & project tools**
+  - [x] `tusk_relation_add` — RelationService.Add
+  - [x] `tusk_relation_remove` — RelationService.Remove
+  - [x] `tusk_project_list` — ProjectService.List
+  - [x] `tusk_project_create` — ProjectService.Create
 
 ### Initiative: MCP Resources
 
 > Expose tasks, projects, and workflows as readable resources.
 
-- [ ] **Story: MCP resource definitions**
-  - [ ] `tusk://tasks/{short_id}` resource
-  - [ ] `tusk://projects/{name}` resource
-  - [ ] `tusk://projects/{name}/workflow` resource
+- [x] **Story: MCP resource definitions**
+  - [x] `tusk://tasks/{short_id}` resource
+  - [x] `tusk://projects/{name}` resource
+  - [x] `tusk://projects/{name}/workflow` resource
 
 ### Initiative: MCP Concurrency
 
 > End-to-end optimistic locking through MCP tool I/O.
 
-- [ ] **Story: Version passing**
-  - [ ] Include `version` in all task tool responses
-  - [ ] Accept `version` in modify/start/done/delete tool inputs
-  - [ ] Return ErrConflict on version mismatch
+- [x] **Story: Version passing**
+  - [x] Include `version` in all task tool responses
+  - [x] Accept `version` in modify/start/done/delete tool inputs
+  - [x] Return ErrConflict on version mismatch
 
 ---
 
