@@ -67,9 +67,20 @@ type stubTagRepo struct{}
 
 func (s *stubTagRepo) Create(_ context.Context, _ *domain.Tag) error              { return nil }
 func (s *stubTagRepo) GetByName(_ context.Context, _ string) (*domain.Tag, error) { return nil, nil }
-func (s *stubTagRepo) List(_ context.Context) ([]*domain.Tag, error)              { return nil, nil }
-func (s *stubTagRepo) AssignToTask(_ context.Context, _, _ uuid.UUID) error       { return nil }
-func (s *stubTagRepo) RemoveFromTask(_ context.Context, _, _ uuid.UUID) error     { return nil }
+func (s *stubTagRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Tag, error) {
+	return nil, nil
+}
+func (s *stubTagRepo) List(_ context.Context) ([]*domain.Tag, error) { return nil, nil }
+func (s *stubTagRepo) ListWithUsage(_ context.Context) ([]domain.TagWithUsage, error) {
+	return nil, nil
+}
+func (s *stubTagRepo) Update(_ context.Context, _ *domain.Tag) error { return nil }
+func (s *stubTagRepo) Delete(_ context.Context, _ uuid.UUID) error   { return nil }
+func (s *stubTagRepo) CountTasksByTagID(_ context.Context, _ uuid.UUID) (int, error) {
+	return 0, nil
+}
+func (s *stubTagRepo) AssignToTask(_ context.Context, _, _ uuid.UUID) error   { return nil }
+func (s *stubTagRepo) RemoveFromTask(_ context.Context, _, _ uuid.UUID) error { return nil }
 func (s *stubTagRepo) GetTaskTags(_ context.Context, _ uuid.UUID) ([]*domain.Tag, error) {
 	return nil, nil
 }
