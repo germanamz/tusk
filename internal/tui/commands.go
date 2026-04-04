@@ -48,7 +48,7 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 
 	// Project
 	if f, ok := fs.GetField("project"); ok {
-		project, err := a.projectRepo.GetByName(ctx, f.Value)
+		project, err := a.projectSvc.GetByName(ctx, f.Value)
 		if err != nil {
 			return fmt.Errorf("project %q not found", f.Value)
 		}
@@ -167,7 +167,7 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 	// Resolve project name for display
 	var projectName string
 	if task.ProjectID != nil {
-		project, err := a.projectRepo.GetByID(ctx, *task.ProjectID)
+		project, err := a.projectSvc.GetByID(ctx, *task.ProjectID)
 		if err == nil {
 			projectName = project.Name
 		}
@@ -274,7 +274,7 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 
 	// Project
 	if f, ok := fs.GetField("project"); ok {
-		project, err := a.projectRepo.GetByName(ctx, f.Value)
+		project, err := a.projectSvc.GetByName(ctx, f.Value)
 		if err != nil {
 			return fmt.Errorf("project %q not found", f.Value)
 		}

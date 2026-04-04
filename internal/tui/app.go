@@ -1,13 +1,10 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/service"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -18,18 +15,12 @@ type VersionInfo struct {
 	Date    string
 }
 
-// ProjectLookup is the subset of project operations the TUI needs.
-type ProjectLookup interface {
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error)
-	GetByName(ctx context.Context, name string) (*domain.Project, error)
-}
-
 // App holds the CLI's dependencies and Cobra command tree.
 type App struct {
 	taskSvc     *service.TaskService
 	tagSvc      *service.TagService
 	relationSvc *service.RelationService
-	projectRepo ProjectLookup
+	projectSvc  *service.ProjectService
 	resolver    *filter.Resolver
 	root        *cobra.Command
 	format      string
@@ -37,16 +28,16 @@ type App struct {
 }
 
 // New creates a new App and builds the Cobra command tree.
-// taskSvc, tagSvc, and projectRepo may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectRepo ProjectLookup, vi VersionInfo) *App {
+// taskSvc, tagSvc, and projectSvc may be nil for testing command registration.
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, vi VersionInfo) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
 		relationSvc: relationSvc,
-		projectRepo: projectRepo,
+		projectSvc:  projectSvc,
 		version:     vi,
 	}
-	a.resolver = filter.NewResolver(projectRepo, taskSvc)
+	a.resolver = filter.NewResolver(projectSvc, taskSvc)
 
 	a.root = &cobra.Command{
 		Use:           "tusk",
