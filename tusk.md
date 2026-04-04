@@ -52,7 +52,7 @@ Tusk occupies the gap:
 ┌──────────────────────────────────────────────┐
 │           Repository Layer (interfaces)      │
 │  ┌──────────┐ ┌──────────────┐ ┌──────────┐ │
-│  │ TaskRepo │ │ RelationRepo │ │ProjectRepo│ │
+│  │ TaskRepo │ │ RelationRepo │ │ TagRepo  │ │
 │  └──────────┘ └──────────────┘ └──────────┘ │
 └──────────────────────┬───────────────────────┘
                        │
@@ -92,7 +92,7 @@ The central entity. Every trackable item is a Task.
 | `id`              | UUID                | Primary key. Immutable, globally unique.                     |
 | `short_id`        | string              | First 8 hex chars of UUID. Unique, used in CLI.              |
 | `parent_id`       | UUID (nullable)     | Self-referential FK for hierarchy.                           |
-| `project_id`      | UUID (nullable)     | FK to Project.                                               |
+| `project_id`      | string (nullable)   | Human-readable project ID. Validated against config at service layer. |
 | `title`           | string              | Required. Short summary.                                     |
 | `description`     | string              | Optional. Longer context, supports markdown.                 |
 | `status`          | string              | Validated against project workflow. Default: `pending`.      |
@@ -166,15 +166,13 @@ Typed directed edge between two tasks. Separate from parent-child hierarchy.
 
 ### Project
 
-A container for tasks with its own workflow definition.
+A container for tasks with its own workflow assignment. Projects are **config-driven in-memory entities** — defined in `config.toml`, not stored in the database. A builtin `default` project exists when no config is present.
 
-| Field              | Type     | Description                                                     |
-| ------------------ | -------- | --------------------------------------------------------------- |
-| `id`               | UUID     | Primary key.                                                    |
-| `name`             | string   | Unique. Used in CLI filters (e.g. `tusk list project:backend`). |
-| `description`      | string   | Optional.                                                       |
-| `default_workflow` | string   | Name of the workflow to use for tasks in this project.          |
-| `created_at`       | datetime | When the project was created.                                   |
+| Field      | Type            | Description                                                      |
+| ---------- | --------------- | ---------------------------------------------------------------- |
+| `id`       | string          | Human-readable identifier (e.g. `default`, `backend`). Config key. |
+| `workflow` | string          | Name of the workflow to use for tasks in this project.           |
+| `settings` | ProjectSettings | Automation config (auto-complete/revert parent propagation).     |
 
 ### Tag
 
@@ -192,14 +190,13 @@ Join table between Task and Tag. Composite key: `(task_id, tag_id)`.
 
 ### Workflow
 
-A named set of statuses and allowed transitions, scoped to a project.
+A named set of statuses and allowed transitions. Workflows are **config-driven in-memory entities** — defined in `config.toml`, not stored in the database. A builtin `kanban` workflow exists when no config is present. Projects reference a workflow by name.
 
-| Field        | Type   | Description                                            |
-| ------------ | ------ | ------------------------------------------------------ |
-| `id`         | UUID   | Primary key.                                           |
-| `project_id` | UUID   | FK to Project.                                         |
-| `name`       | string | Identifier (e.g. `default`, `kanban`, `bug-tracking`). |
-| `statuses`   | JSON   | Ordered list of valid status strings.                  |
+| Field         | Type                  | Description                                            |
+| ------------- | --------------------- | ------------------------------------------------------ |
+| `name`        | string                | Identifier (e.g. `kanban`, `bug-tracking`). Config key. |
+| `statuses`    | []string              | Ordered list of valid status strings.                  |
+| `transitions` | []WorkflowTransition  | Allowed status changes.                                |
 
 ### WorkflowTransition
 
@@ -207,12 +204,10 @@ Defines which status changes are allowed.
 
 | Field         | Type   | Description         |
 | ------------- | ------ | ------------------- |
-| `id`          | UUID   | Primary key.        |
-| `workflow_id` | UUID   | FK to Workflow.     |
 | `from_status` | string | Source status.      |
 | `to_status`   | string | Destination status. |
 
-The default workflow ships with:
+The builtin `kanban` workflow ships with:
 
 ```
 statuses: ["pending", "active", "completed", "deleted"]
@@ -226,7 +221,7 @@ transitions:
   completed → pending   (reopen)
 ```
 
-Any transition not in this table is rejected by WorkflowService.
+Any transition not defined in the workflow config is rejected by WorkflowService.
 
 ---
 
@@ -340,14 +335,12 @@ tusk link a3f8b2c1 blocks b7c9d4e2
 tusk link a3f8b2c1 relates_to c5e1f3a8
 tusk unlink a3f8b2c1 blocks b7c9d4e2
 
-# Projects
-tusk project add backend "Backend services"
+# Projects (read-only, defined in config)
 tusk project list
 
-# Workflow
-tusk workflow show backend
-tusk workflow add-status backend "in_review"
-tusk workflow add-transition backend active in_review
+# Workflow (read-only, defined in config)
+tusk workflow list
+tusk workflow info kanban
 
 # Player management
 tusk player register german --type human  # explicit registration
@@ -411,8 +404,8 @@ Every tool maps 1:1 to a service method:
 | `tusk_task_tree`       | TaskService.Tree         | Get hierarchical view   |
 | `tusk_relation_add`    | RelationService.Add      | Create a relation       |
 | `tusk_relation_remove` | RelationService.Remove   | Remove a relation       |
-| `tusk_project_list`    | ProjectService.List      | List projects           |
-| `tusk_project_create`  | ProjectService.Create    | Create project          |
+| `tusk_project_list`    | ProjectService.List      | List projects (from config) |
+| `tusk_workflow_list`   | WorkflowService.List     | List workflows (from config) |
 | `tusk_player_register` | PlayerService.Register   | Register a player       |
 | `tusk_task_claim`      | TaskService.Claim        | Claim a task            |
 | `tusk_task_release`    | TaskService.Release      | Release a claim         |
@@ -457,14 +450,14 @@ tusk/
 │   ├── repository/              # Interfaces
 │   │   ├── task.go
 │   │   ├── relation.go
-│   │   ├── project.go
 │   │   └── tag.go
 │   ├── sqlite/                  # SQLite implementation
 │   │   ├── store.go             # Connection, migrations
 │   │   ├── task.go
 │   │   ├── relation.go
-│   │   ├── project.go
 │   │   └── tag.go
+│   ├── config/                  # Viper-based configuration
+│   │   └── config.go            # Config struct, Load(), projects & workflows
 │   ├── mcp/                     # MCP server
 │   │   ├── server.go
 │   │   ├── tools.go             # Tool definitions
@@ -519,6 +512,40 @@ date_format = "2006-01-02"
 color = true
 tree_indent = 2
 default_sort = "urgency"
+
+# Workflows — config-driven, no DB tables. Builtin "kanban" exists without config.
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+transitions = [
+  { from = "pending",   to = "active" },
+  { from = "pending",   to = "deleted" },
+  { from = "active",    to = "completed" },
+  { from = "active",    to = "pending" },
+  { from = "active",    to = "deleted" },
+  { from = "completed", to = "pending" },
+]
+
+[workflows.bug-tracking]
+statuses = ["open", "investigating", "fixed", "verified", "closed"]
+transitions = [
+  { from = "open",          to = "investigating" },
+  { from = "investigating", to = "fixed" },
+  { from = "fixed",         to = "verified" },
+  { from = "verified",      to = "closed" },
+  { from = "fixed",         to = "open" },
+  { from = "closed",        to = "open" },
+]
+
+# Projects — config-driven, no DB tables. Builtin "default" exists without config.
+[projects.default]
+workflow = "kanban"
+
+[projects.backend]
+workflow = "kanban"
+# settings follow the same structure as ProjectSettings
+[projects.backend.settings.auto_complete_parent]
+trigger_status = "completed"
+target_status = "completed"
 ```
 
 ---
@@ -532,19 +559,11 @@ PRAGMA journal_mode=WAL;
 PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 
-CREATE TABLE projects (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT NOT NULL DEFAULT '',
-    default_workflow TEXT NOT NULL DEFAULT 'default',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
 CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     short_id TEXT NOT NULL UNIQUE,
     parent_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
-    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    project_id TEXT NOT NULL DEFAULT 'default',
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
@@ -600,39 +619,8 @@ CREATE TABLE tag_assignments (
 
 CREATE INDEX idx_tag_assignments_tag ON tag_assignments(tag_id);
 
-CREATE TABLE workflows (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    statuses TEXT NOT NULL DEFAULT '["pending","active","completed","deleted"]',
-    UNIQUE(project_id, name)
-);
-
-CREATE TABLE workflow_transitions (
-    id TEXT PRIMARY KEY,
-    workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-    from_status TEXT NOT NULL,
-    to_status TEXT NOT NULL,
-    UNIQUE(workflow_id, from_status, to_status)
-);
-
--- Default global project with default workflow
-INSERT INTO projects (id, name, description, default_workflow)
-VALUES ('00000000-0000-0000-0000-000000000000', '_default', 'Global default project', 'default');
-
-INSERT INTO workflows (id, project_id, name, statuses)
-VALUES ('00000000-0000-0000-0000-000000000001',
-        '00000000-0000-0000-0000-000000000000',
-        'default',
-        '["pending","active","completed","deleted"]');
-
-INSERT INTO workflow_transitions (id, workflow_id, from_status, to_status) VALUES
-    ('00000000-0000-0000-0000-100000000001', '00000000-0000-0000-0000-000000000001', 'pending', 'active'),
-    ('00000000-0000-0000-0000-100000000002', '00000000-0000-0000-0000-000000000001', 'pending', 'deleted'),
-    ('00000000-0000-0000-0000-100000000003', '00000000-0000-0000-0000-000000000001', 'active', 'completed'),
-    ('00000000-0000-0000-0000-100000000004', '00000000-0000-0000-0000-000000000001', 'active', 'pending'),
-    ('00000000-0000-0000-0000-100000000005', '00000000-0000-0000-0000-000000000001', 'active', 'deleted'),
-    ('00000000-0000-0000-0000-100000000006', '00000000-0000-0000-0000-000000000001', 'completed', 'pending');
+-- Projects and workflows are config-driven (no DB tables).
+-- tasks.project_id is validated at the service layer against config.
 ```
 
 ---
@@ -665,14 +653,7 @@ type RelationRepository interface {
     Exists(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (bool, error)
 }
 
-type ProjectRepository interface {
-    Create(ctx context.Context, project *domain.Project) error
-    GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error)
-    GetByName(ctx context.Context, name string) (*domain.Project, error)
-    List(ctx context.Context) ([]*domain.Project, error)
-    Update(ctx context.Context, project *domain.Project) error
-    Delete(ctx context.Context, id uuid.UUID) error
-}
+// ProjectRepository — removed. Projects are config-driven in-memory entities.
 
 type TagRepository interface {
     Create(ctx context.Context, tag *domain.Tag) error
@@ -683,12 +664,7 @@ type TagRepository interface {
     GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error)
 }
 
-type WorkflowRepository interface {
-    GetByProjectAndName(ctx context.Context, projectID uuid.UUID, name string) (*domain.Workflow, error)
-    GetTransitions(ctx context.Context, workflowID uuid.UUID) ([]*domain.WorkflowTransition, error)
-    Create(ctx context.Context, wf *domain.Workflow) error
-    AddTransition(ctx context.Context, t *domain.WorkflowTransition) error
-}
+// WorkflowRepository — removed. Workflows are config-driven in-memory entities.
 
 type PlayerRepository interface {
     Register(ctx context.Context, player *domain.Player) error
@@ -730,7 +706,7 @@ var (
 | Hierarchy         | Optional `parent_id` on Task         | Typed hierarchy (Epic/Story/Task)       | Forced types add schema complexity without CLI benefit. A task is an epic if it has children.                |
 | Relations         | Separate `relations` table, directed | Embedded UUID list in Task              | Typed relations enable cycle detection and richer queries. Separate table is normalized.                     |
 | Inverse relations | Derived at query time                | Stored as duplicate rows                | Avoids consistency bugs. One row per logical relation.                                                       |
-| Workflow          | Per-project state machine            | Global enum                             | Projects have different needs. A kanban board and a bug tracker don't share status sets.                     |
+| Workflow          | Config-driven, in-memory per-project | DB-stored workflows / Global enum       | Config is the single source of truth. No DB tables needed — workflows rarely change at runtime. Projects reference workflows by name. |
 | Status field type | String (validated by workflow)       | Go enum/iota                            | Enum at Go level would require recompilation to add statuses. String + workflow validation is flexible.      |
 | Concurrency       | Optimistic locking (`version`)       | Pessimistic locking (mutexes)           | Pessimistic locking doesn't work across process boundaries (MCP, scripts). Optimistic locking is portable.   |
 | Storage default   | SQLite (WAL)                         | PostgreSQL                              | Single-binary philosophy. No external dependencies for default use case.                                     |
