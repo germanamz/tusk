@@ -5,13 +5,27 @@ import (
 	"testing"
 )
 
-// autoCompleteSettings is the JSON to enable auto-complete on the default project.
-const autoCompleteSettings = `{"auto_complete_parent":{"trigger_status":"completed","target_status":"completed"}}`
+// autoCompleteSetup configures auto-complete on the _default project via CLI.
+var autoCompleteSetup = []Step{
+	{Args: []string{
+		"project", "modify", "_default",
+		"--set", "auto_complete_parent.trigger_status=completed",
+		"--set", "auto_complete_parent.target_status=completed",
+	}},
+}
 
-// bothPropagationSettings enables both auto-complete and auto-revert.
+// bothPropagationSetup enables both auto-complete and auto-revert on _default.
 // Note: default workflow only allows completed -> pending (not completed -> active),
 // so the revert target must be "pending".
-const bothPropagationSettings = `{"auto_complete_parent":{"trigger_status":"completed","target_status":"completed"},"auto_revert_parent":{"trigger_status":"completed","target_status":"pending"}}`
+var bothPropagationSetup = []Step{
+	{Args: []string{
+		"project", "modify", "_default",
+		"--set", "auto_complete_parent.trigger_status=completed",
+		"--set", "auto_complete_parent.target_status=completed",
+		"--set", "auto_revert_parent.trigger_status=completed",
+		"--set", "auto_revert_parent.target_status=pending",
+	}},
+}
 
 func TestPropagation_Disabled(t *testing.T) {
 	// Propagation is disabled by default — completing all children should NOT
@@ -52,9 +66,9 @@ func TestPropagation_Disabled(t *testing.T) {
 	runScenarios(t, binPath, scenarios)
 }
 
-// runPropagationScenarios runs scenarios with custom project settings.
+// runPropagationScenarios runs scenarios after configuring project settings via CLI.
 // JSON-only since assertions use AssertJSON.
-func runPropagationScenarios(t *testing.T, scenarios []Scenario, settings string) {
+func runPropagationScenarios(t *testing.T, scenarios []Scenario, setupSteps []Step) {
 	t.Helper()
 	combos := combinations(
 		[]string{"flag", "env"},
@@ -67,7 +81,17 @@ func runPropagationScenarios(t *testing.T, scenarios []Scenario, settings string
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				env := newEnv(t, binPath, dbMode, "json")
-				env.SetDefaultProjectSettings(settings)
+
+				// Run setup steps to configure project settings
+				for i, step := range setupSteps {
+					r := env.Run(step.Args...)
+					if r.Err != nil {
+						t.Fatalf("setup step %d: %v\nstderr: %s", i, r.Err, r.Stderr)
+					}
+				}
+				// Clear results so scenario step references ($0, $1) start fresh
+				env.results = nil
+
 				for i, step := range sc.Steps {
 					r := env.Run(step.Args...)
 					if step.WantErr && r.Err == nil {
@@ -190,7 +214,7 @@ func TestPropagation_AutoComplete(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, autoCompleteSettings)
+	runPropagationScenarios(t, scenarios, autoCompleteSetup)
 }
 
 func TestPropagation_Recursive(t *testing.T) {
@@ -238,7 +262,7 @@ func TestPropagation_Recursive(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, autoCompleteSettings)
+	runPropagationScenarios(t, scenarios, autoCompleteSetup)
 }
 
 func TestPropagation_AutoRevert(t *testing.T) {
@@ -338,15 +362,23 @@ func TestPropagation_AutoRevert(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, bothPropagationSettings)
+	runPropagationScenarios(t, scenarios, bothPropagationSetup)
 }
 
 func TestPropagation_CustomTargetStatus(t *testing.T) {
 	// Use a non-default revert target to prove configurability.
 	// Default workflow allows completed -> pending, so we configure revert
-	// to target "pending" (same as bothPropagationSettings) but pair it with
+	// to target "pending" (same as bothPropagationSetup) but pair it with
 	// a fresh auto-complete to verify both configs are read independently.
-	customSettings := `{"auto_complete_parent":{"trigger_status":"completed","target_status":"completed"},"auto_revert_parent":{"trigger_status":"completed","target_status":"pending"}}`
+	customSetup := []Step{
+		{Args: []string{
+			"project", "modify", "_default",
+			"--set", "auto_complete_parent.trigger_status=completed",
+			"--set", "auto_complete_parent.target_status=completed",
+			"--set", "auto_revert_parent.trigger_status=completed",
+			"--set", "auto_revert_parent.target_status=pending",
+		}},
+	}
 
 	scenarios := []Scenario{
 		{
@@ -390,5 +422,5 @@ func TestPropagation_CustomTargetStatus(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, customSettings)
+	runPropagationScenarios(t, scenarios, customSetup)
 }
