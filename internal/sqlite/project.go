@@ -171,9 +171,9 @@ type projectScanner interface {
 // does not need access to the database — it only needs the scanner.
 //
 // The function:
-//  1. Scans the 6 columns (id, name, description, default_workflow, settings, created_at)
+//  1. Scans the 7 columns (id, name, description, default_workflow, settings, version, created_at)
 //     into local variables. id, settings, and created_at are scanned as strings
-//     because SQLite stores them as TEXT.
+//     because SQLite stores them as TEXT. version is scanned directly into p.Version.
 //  2. Parses the id string into a uuid.UUID.
 //  3. Unmarshals the settings JSON string into domain.ProjectSettings.
 //  4. Parses the created_at string into a time.Time using timeFormat.
