@@ -97,6 +97,34 @@ func (s *TagService) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
+// Rename changes a tag's name. Returns ErrNotFound if the old name doesn't
+// exist, ErrConflict if the new name is already taken.
+func (s *TagService) Rename(ctx context.Context, oldName, newName string) error {
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return fmt.Errorf("new tag name must not be empty")
+	}
+
+	tag, err := s.tagRepo.GetByName(ctx, oldName)
+	if err != nil {
+		return fmt.Errorf("looking up tag %q: %w", oldName, err)
+	}
+
+	_, err = s.tagRepo.GetByName(ctx, newName)
+	if err == nil {
+		return fmt.Errorf("tag %q already exists: %w", newName, domain.ErrConflict)
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("checking tag %q: %w", newName, err)
+	}
+
+	tag.Name = newName
+	if err := s.tagRepo.Update(ctx, tag); err != nil {
+		return fmt.Errorf("renaming tag to %q: %w", newName, err)
+	}
+	return nil
+}
+
 // AssignToTask finds-or-creates each tag by name and assigns them to the task.
 // An empty tagNames slice is a no-op.
 func (s *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
