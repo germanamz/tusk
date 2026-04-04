@@ -112,7 +112,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] E2E tests for tree display
 
 - [x] **Story: Completion propagation**
-  - [x] Add JSON `settings` column to projects table (migration)
+  - [x] Add JSON `settings` column to projects table (migration) — _note: settings move to config in v0.4_
   - [x] `ProjectSettings` with `AutoCompleteConfig` and `AutoRevertConfig` (configurable trigger/target statuses)
   - [x] `TaskTxProvider` for atomic propagation within same transaction
   - [x] Auto-transition parent when all non-deleted children reach trigger status
@@ -180,8 +180,8 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 - [x] **Story: MCP resource definitions**
   - [x] `tusk://tasks/{short_id}` resource
-  - [x] `tusk://projects/{name}` resource
-  - [x] `tusk://projects/{name}/workflow` resource
+  - [x] `tusk://projects/{id}` resource
+  - [x] `tusk://projects/{id}/workflow` resource
 
 ### Initiative: MCP Concurrency
 
@@ -268,7 +268,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 - [ ] **Story: MCP workflow tools**
   - [ ] `tusk_workflow_list` — list all workflows from config
-  - [ ] Expose workflow assignment in `tusk_project_create` and project modify tools
+  - [ ] Expose workflow name in project resource responses
 
 ### Initiative: MCP Configurability
 
@@ -352,9 +352,9 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] `tusk next` — display highest-urgency actionable task (can ship with engine story using hardcoded defaults if needed earlier)
 
 - [ ] **Story: Per-project urgency overrides**
-  - [ ] Extend `ProjectSettings` with urgency weight overrides
+  - [ ] Extend `ProjectSettings` with urgency weight overrides in config
   - [ ] Merge project-level weights on top of global config at scoring time
-  - [ ] Expose overrides via `tusk project modify --set` and MCP project tools
+  - [ ] Expose overrides via `[projects.<id>.settings]` config section
 
 ---
 
@@ -508,13 +508,13 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 - [ ] **Story: Core PostgreSQL repositories**
   - [ ] TaskRepository for PostgreSQL
-  - [ ] ProjectRepository for PostgreSQL
-  - [ ] WorkflowRepository for PostgreSQL
 
 - [ ] **Story: Supporting PostgreSQL repositories**
   - [ ] TagRepository for PostgreSQL
   - [ ] RelationRepository for PostgreSQL
   - [ ] AnnotationRepository for PostgreSQL
+
+Note: ProjectRepository and WorkflowRepository are in-memory (config-backed) and do not need PostgreSQL implementations.
 
 ### Initiative: Interactive TUI
 
