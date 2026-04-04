@@ -230,3 +230,196 @@ func TestTagFilterIntegration(t *testing.T) {
 		t.Fatalf("expected 2 excluding docs, got %d", len(tasks))
 	}
 }
+
+func TestTagGetByID(t *testing.T) {
+	s := testStore(t)
+	repo := NewTagRepo(s.DB())
+	ctx := context.Background()
+
+	color := "#00ff00"
+	tag := &domain.Tag{ID: uuid.New(), Name: "getbyid", Color: &color}
+	if err := repo.Create(ctx, tag); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repo.GetByID(ctx, tag.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Name != "getbyid" {
+		t.Fatalf("expected 'getbyid', got %q", got.Name)
+	}
+	if got.Color == nil || *got.Color != "#00ff00" {
+		t.Fatalf("expected color '#00ff00', got %v", got.Color)
+	}
+}
+
+func TestTagGetByIDNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewTagRepo(s.DB())
+
+	_, err := repo.GetByID(context.Background(), uuid.New())
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestTagUpdate(t *testing.T) {
+	s := testStore(t)
+	repo := NewTagRepo(s.DB())
+	ctx := context.Background()
+
+	tag := &domain.Tag{ID: uuid.New(), Name: "old-name"}
+	if err := repo.Create(ctx, tag); err != nil {
+		t.Fatal(err)
+	}
+
+	newColor := "#abcdef"
+	tag.Name = "new-name"
+	tag.Color = &newColor
+	if err := repo.Update(ctx, tag); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, tag.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "new-name" {
+		t.Fatalf("expected 'new-name', got %q", got.Name)
+	}
+	if got.Color == nil || *got.Color != "#abcdef" {
+		t.Fatalf("expected color '#abcdef', got %v", got.Color)
+	}
+}
+
+func TestTagUpdateNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewTagRepo(s.DB())
+
+	tag := &domain.Tag{ID: uuid.New(), Name: "ghost"}
+	err := repo.Update(context.Background(), tag)
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestTagDelete(t *testing.T) {
+	s := testStore(t)
+	repo := NewTagRepo(s.DB())
+	ctx := context.Background()
+
+	tag := &domain.Tag{ID: uuid.New(), Name: "deleteme"}
+	if err := repo.Create(ctx, tag); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.Delete(ctx, tag.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	_, err := repo.GetByID(ctx, tag.ID)
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestTagDeleteNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewTagRepo(s.DB())
+
+	err := repo.Delete(context.Background(), uuid.New())
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestTagCountTasksByTagID(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	tagRepo := NewTagRepo(s.DB())
+	ctx := context.Background()
+
+	tag := &domain.Tag{ID: uuid.New(), Name: "counted"}
+	if err := tagRepo.Create(ctx, tag); err != nil {
+		t.Fatal(err)
+	}
+
+	// No assignments yet
+	count, err := tagRepo.CountTasksByTagID(ctx, tag.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0, got %d", count)
+	}
+
+	// Assign to two tasks
+	t1 := newTestTask()
+	t2 := newTestTask()
+	mustCreateTask(t, taskRepo, t1)
+	mustCreateTask(t, taskRepo, t2)
+	if err := tagRepo.AssignToTask(ctx, t1.ID, tag.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tagRepo.AssignToTask(ctx, t2.ID, tag.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err = tagRepo.CountTasksByTagID(ctx, tag.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2, got %d", count)
+	}
+}
+
+func TestTagListWithUsage(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	tagRepo := NewTagRepo(s.DB())
+	ctx := context.Background()
+
+	color := "#ff0000"
+	tag1 := &domain.Tag{ID: uuid.New(), Name: "used", Color: &color}
+	tag2 := &domain.Tag{ID: uuid.New(), Name: "unused"}
+	if err := tagRepo.Create(ctx, tag1); err != nil {
+		t.Fatal(err)
+	}
+	if err := tagRepo.Create(ctx, tag2); err != nil {
+		t.Fatal(err)
+	}
+
+	task := newTestTask()
+	mustCreateTask(t, taskRepo, task)
+	if err := tagRepo.AssignToTask(ctx, task.ID, tag1.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := tagRepo.ListWithUsage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(results))
+	}
+
+	byName := map[string]domain.TagWithUsage{}
+	for _, tw := range results {
+		byName[tw.Tag.Name] = tw
+	}
+
+	usedTW := byName["used"]
+	if usedTW.TaskCount != 1 {
+		t.Fatalf("expected 'used' task count 1, got %d", usedTW.TaskCount)
+	}
+	if usedTW.Tag.Color == nil || *usedTW.Tag.Color != "#ff0000" {
+		t.Fatalf("expected color '#ff0000', got %v", usedTW.Tag.Color)
+	}
+
+	unusedTW := byName["unused"]
+	if unusedTW.TaskCount != 0 {
+		t.Fatalf("expected 'unused' task count 0, got %d", unusedTW.TaskCount)
+	}
+}
