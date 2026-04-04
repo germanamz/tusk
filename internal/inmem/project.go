@@ -6,7 +6,11 @@ import (
 
 	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
 )
+
+// Compile-time interface satisfaction check.
+var _ repository.ProjectRepository = (*ProjectRepository)(nil)
 
 // ProjectRepository is a read-only, in-memory implementation of
 // repository.ProjectRepository backed by config data.
@@ -48,14 +52,16 @@ func (r *ProjectRepository) GetByID(_ context.Context, id string) (*domain.Proje
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	return p, nil
+	copy := *p
+	return &copy, nil
 }
 
 // List returns all projects sorted by ID for deterministic output.
 func (r *ProjectRepository) List(_ context.Context) ([]*domain.Project, error) {
 	result := make([]*domain.Project, 0, len(r.projects))
 	for _, p := range r.projects {
-		result = append(result, p)
+		copy := *p
+		result = append(result, &copy)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].ID < result[j].ID
