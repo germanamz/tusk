@@ -45,10 +45,10 @@ func (r *ProjectRepo) Create(ctx context.Context, project *domain.Project) error
 		return fmt.Errorf("marshaling project settings: %w", err)
 	}
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO projects (id, name, description, default_workflow, settings, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (id, name, description, default_workflow, settings, version, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		project.ID.String(), project.Name, project.Description,
-		project.DefaultWorkflow, string(settingsJSON),
+		project.DefaultWorkflow, string(settingsJSON), project.Version,
 		project.CreatedAt.UTC().Format(timeFormat),
 	)
 	return err
@@ -58,7 +58,7 @@ func (r *ProjectRepo) Create(ctx context.Context, project *domain.Project) error
 // Returns domain.ErrNotFound if no project has that ID.
 func (r *ProjectRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
 	return r.scanOne(r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, default_workflow, settings, created_at
+		`SELECT id, name, description, default_workflow, settings, version, created_at
 		 FROM projects WHERE id = ?`, id.String()))
 }
 
@@ -66,7 +66,7 @@ func (r *ProjectRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Projec
 // Returns domain.ErrNotFound if no project has that name.
 func (r *ProjectRepo) GetByName(ctx context.Context, name string) (*domain.Project, error) {
 	return r.scanOne(r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, default_workflow, settings, created_at
+		`SELECT id, name, description, default_workflow, settings, version, created_at
 		 FROM projects WHERE name = ?`, name))
 }
 
@@ -76,7 +76,7 @@ func (r *ProjectRepo) GetByName(ctx context.Context, name string) (*domain.Proje
 // though in practice the seeded project is always present.
 func (r *ProjectRepo) List(ctx context.Context) ([]*domain.Project, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, default_workflow, settings, created_at FROM projects`)
+		`SELECT id, name, description, default_workflow, settings, version, created_at FROM projects`)
 	if err != nil {
 		return nil, err
 	}
@@ -93,24 +93,32 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*domain.Project, error) {
 	return result, rows.Err()
 }
 
-// Update modifies an existing project's name, description, and default_workflow.
-// The project is identified by its ID. CreatedAt is NOT updated (it is immutable).
-//
-// Note: this method does NOT check RowsAffected. If the ID does not exist,
-// the UPDATE silently affects 0 rows. This is intentional — Update is typically
-// called right after GetByID, so the project is known to exist.
+// Update modifies an existing project's mutable fields (name, description,
+// default_workflow, settings). It uses optimistic locking: the UPDATE includes
+// WHERE version = ? and increments the version on success. If the version
+// does not match (concurrent modification), it returns domain.ErrConflict.
 func (r *ProjectRepo) Update(ctx context.Context, project *domain.Project) error {
 	settingsJSON, err := json.Marshal(project.Settings)
 	if err != nil {
 		return fmt.Errorf("marshaling project settings: %w", err)
 	}
-	_, err = r.db.ExecContext(ctx,
-		`UPDATE projects SET name = ?, description = ?, default_workflow = ?, settings = ?
-		 WHERE id = ?`,
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE projects SET name = ?, description = ?, default_workflow = ?, settings = ?, version = version + 1
+		 WHERE id = ? AND version = ?`,
 		project.Name, project.Description, project.DefaultWorkflow,
-		string(settingsJSON), project.ID.String(),
+		string(settingsJSON), project.ID.String(), project.Version,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrConflict
+	}
+	return nil
 }
 
 // Delete removes a project by ID.
@@ -177,7 +185,7 @@ func scanProject(s projectScanner) (*domain.Project, error) {
 		settingsJSON string
 		createdAt    string
 	)
-	err := s.Scan(&id, &p.Name, &p.Description, &p.DefaultWorkflow, &settingsJSON, &createdAt)
+	err := s.Scan(&id, &p.Name, &p.Description, &p.DefaultWorkflow, &settingsJSON, &p.Version, &createdAt)
 	if err != nil {
 		return nil, err
 	}
