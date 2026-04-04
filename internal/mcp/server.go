@@ -12,6 +12,7 @@ type Server struct {
 	tagSvc      *service.TagService
 	relationSvc *service.RelationService
 	projectSvc  *service.ProjectService
+	workflowSvc *service.WorkflowService
 	server      *server.MCPServer
 }
 
@@ -21,6 +22,7 @@ func New(
 	tagSvc *service.TagService,
 	relationSvc *service.RelationService,
 	projectSvc *service.ProjectService,
+	workflowSvc *service.WorkflowService,
 	version string,
 ) *Server {
 	s := &Server{
@@ -28,6 +30,7 @@ func New(
 		tagSvc:      tagSvc,
 		relationSvc: relationSvc,
 		projectSvc:  projectSvc,
+		workflowSvc: workflowSvc,
 	}
 
 	s.server = server.NewMCPServer(
@@ -40,6 +43,7 @@ func New(
 	)
 
 	s.registerTools()
+	s.registerResources()
 
 	return s
 }

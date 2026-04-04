@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/repository"
 	"github.com/google/uuid"
 )
@@ -47,4 +48,14 @@ func (s *WorkflowService) GetStatuses(ctx context.Context, projectID uuid.UUID, 
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
 	return wf.Statuses, nil
+}
+
+// GetTransitions returns all allowed transitions for the workflow
+// identified by projectID and workflowName.
+func (s *WorkflowService) GetTransitions(ctx context.Context, projectID uuid.UUID, workflowName string) ([]*domain.WorkflowTransition, error) {
+	wf, err := s.workflowRepo.GetByProjectAndName(ctx, projectID, workflowName)
+	if err != nil {
+		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	return s.workflowRepo.GetTransitions(ctx, wf.ID)
 }
