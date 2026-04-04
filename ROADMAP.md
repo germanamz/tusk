@@ -194,23 +194,74 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.4 — Urgency & UX
+## v0.4 — Configuration & Customization
+
+**Goal:** Viper-based configuration system with declarative workflow definitions, enabling custom statuses, transitions, and per-project workflow assignment.
+
+### Initiative: Configuration System
+
+> Viper-based config loading as foundation for all runtime settings.
+
+- [ ] **Story: Viper config loader**
+  - [ ] Add Viper dependency
+  - [ ] Load config from `~/.config/tusk/config.toml` with fallback to hardcoded defaults
+  - [ ] Support `TUSK_` environment variable prefix for all config keys
+  - [ ] Wire config into `cmd/tusk/main.go` DI setup
+  - [ ] Define `Config` struct covering `[urgency]`, `[tui]`, `[storage]`, `[workflows]`, and `[mcp]` sections
+
+- [ ] **Story: MCP visibility config schema**
+  - [ ] `[mcp.disabled_tool_groups]` — hide tools by group (e.g., `["workflow", "relation"]`)
+  - [ ] `[mcp.disabled_tools]` — hide individual tools (e.g., `["tusk_workflow_list"]`)
+  - [ ] `[mcp.disabled_resource_groups]` — hide resources by group
+  - [ ] `[mcp.disabled_resources]` — hide individual resource templates
+
+### Initiative: Declarative Workflows
+
+> Config-driven workflow definitions synced to the database on startup.
+
+- [ ] **Story: Workflow definitions in config**
+  - [ ] Define `[workflows.<name>]` TOML schema for custom statuses and transitions
+  - [ ] Sync config-defined workflows to DB on startup (create/update, respect existing data)
+  - [ ] Preserve seed default workflow when no config is present
+
+- [ ] **Story: Workflow CLI commands**
+  - [ ] `tusk workflow list` — list all workflows with their statuses and transitions
+  - [ ] `tusk workflow info <name>` — detailed view of a single workflow
+
+- [ ] **Story: Per-project workflow assignment**
+  - [ ] `[projects.<name>]` config section with `workflow` key
+  - [ ] `tusk project modify <name> --workflow <workflow_name>` CLI support
+  - [ ] Validate workflow exists before assignment
+
+- [ ] **Story: MCP workflow tools**
+  - [ ] `tusk_workflow_list` — list all workflows
+  - [ ] Expose workflow assignment in `tusk_project_create` and project modify tools
+
+### Initiative: MCP Configurability
+
+> Config-driven control over which MCP tools and resources are exposed to agents.
+
+- [ ] **Story: MCP visibility wiring**
+  - [ ] Expose tool/resource groups as a convention in MCP registration (tag or prefix-based)
+  - [ ] Filter tool and resource registration at server startup based on config
+  - [ ] Validate config values against known tools/resources on startup (warn on unknown entries)
+
+---
+
+## v0.5 — Urgency & UX
 
 **Goal:** Smart task prioritization and polished terminal experience.
 
-### Initiative: Urgency Scoring
+### Initiative: Advanced Filters
 
-> Weighted multi-factor urgency algorithm for task ranking.
+> Richer filter expressions for complex queries.
 
-- [ ] **Story: Urgency engine**
-  - [ ] Implement scoring with default weights (priority, due, age, status, blocking, blocked, tags, project, annotations, waiting)
-  - [ ] Sigmoid curve for due-date urgency
-  - [ ] Integrate urgency into default list sort
+- [ ] **Story: Quoted string support in filters**
+  - [ ] Enable `title:"some text"` and `description:"some text"` fields
 
-- [ ] **Story: Configurable urgency weights**
-  - [ ] Load weights from `~/.config/tusk/config.toml`
-  - [ ] Allow per-project weight overrides
-  - [ ] `tusk next` — display highest-urgency actionable task
+- [ ] **Story: Boolean operators in filters**
+  - [ ] `AND` / `OR` / `NOT` operators
+  - [ ] Parenthesized grouping
 
 ### Initiative: TUI Polish
 
@@ -222,18 +273,54 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] Respect `NO_COLOR` / `--no-color` flag
 
 - [ ] **Story: Tag colors**
-  - [ ] Assign hex colors to tags
+  - [ ] CLI support for setting tag color (`tusk tag modify <name> --color <hex>`)
   - [ ] Display colored tags in list/info/tree output
+  - [ ] Read default color settings from `[tui]` config section
 
-- [ ] **Story: Undo**
-  - [ ] `tusk undo` — revert last mutation
-  - [ ] Store mutation log for rollback
+### Initiative: Urgency Scoring
+
+> Weighted multi-factor urgency algorithm for task ranking.
+
+- [ ] **Story: Urgency engine**
+  - [ ] Implement scoring with default weights (priority, due, age, status, blocking, blocked, tags, project, annotations, waiting)
+  - [ ] Sigmoid curve for due-date urgency
+  - [ ] Integrate urgency into default list sort
+
+- [ ] **Story: Configurable urgency weights**
+  - [ ] Read weights from config system (global defaults)
+  - [ ] `tusk next` — display highest-urgency actionable task
+
+- [ ] **Story: Per-project urgency overrides**
+  - [ ] Extend `ProjectSettings` with urgency weight overrides
+  - [ ] Merge project-level weights on top of global config at scoring time
+  - [ ] Expose overrides via `tusk project modify --set` and MCP project tools
 
 ---
 
-## v0.5 — Advanced Features
+## v0.6 — Advanced Features
 
 **Goal:** Recurrence, user-defined attributes, additional transports, and data portability.
+
+### Initiative: User-Defined Attributes
+
+> Schemaless custom fields with optional per-project validation. Note: `Task.UDA` field and `tasks.uda` JSON column already exist in the domain and schema.
+
+- [ ] **Story: UDA CLI surface**
+  - [ ] `--uda key=value` on `tusk add` and `tusk modify`
+  - [ ] Display UDAs in `tusk info`
+  - [ ] UDA-based filter support
+
+- [ ] **Story: UDA schema validation**
+  - [ ] Per-project UDA schema definition in `ProjectSettings`
+  - [ ] Validate UDA values against schema on create/update
+
+### Initiative: Data Portability
+
+> Export capabilities for data backup and migration.
+
+- [ ] **Story: Export**
+  - [ ] `tusk export --format json` — full dump
+  - [ ] `tusk export --format csv` — flat export
 
 ### Initiative: Recurrence
 
@@ -244,31 +331,22 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] Generate next instance on task completion
   - [ ] Handle recurrence edge cases (end date, count limit)
 
-### Initiative: User-Defined Attributes
+### Initiative: MCP Streamable HTTP Transport
 
-> Schemaless custom fields with optional per-project validation.
+> Network-accessible MCP server for multi-client scenarios. Targets Streamable HTTP (successor to deprecated SSE transport).
 
-- [ ] **Story: UDA support**
-  - [ ] Store/retrieve UDA JSON on tasks
-  - [ ] Per-project UDA schema validation
-  - [ ] Display UDAs in `tusk info`
+- [ ] **Story: Streamable HTTP transport**
+  - [ ] Streamable HTTP transport implementation
+  - [ ] `tusk mcp serve --transport http --port <port>`
 
-### Initiative: MCP SSE Transport
+### Initiative: Undo
 
-> Network-accessible MCP server for multi-client scenarios.
+> Revert the last mutation for safe experimentation.
 
-- [ ] **Story: SSE transport**
-  - [ ] SSE transport implementation
-  - [ ] `tusk mcp serve --transport sse --port <port>`
-
-### Initiative: Data Portability
-
-> Export and sync capabilities.
-
-- [ ] **Story: Export**
-  - [ ] `tusk export --format json` — full dump
-  - [ ] `tusk export --format csv` — flat export
-  - [ ] `tusk sync` — import/export for offline use
+- [ ] **Story: Mutation log and rollback**
+  - [ ] Store mutation log (schema addition for operation history)
+  - [ ] `tusk undo` — revert last mutation
+  - [ ] Bounded log retention (configurable max entries)
 
 ---
 
@@ -278,9 +356,19 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: PostgreSQL Backend
 
-- [ ] **Story: PostgreSQL repository implementation**
-  - [ ] Implement all repository interfaces for PostgreSQL
-  - [ ] Connection pooling and migration support
+- [ ] **Story: PostgreSQL infrastructure**
+  - [ ] Connection pooling, migration support, and test harness
+  - [ ] PostgreSQL migration files mirroring SQLite schema
+
+- [ ] **Story: Core PostgreSQL repositories**
+  - [ ] TaskRepository for PostgreSQL
+  - [ ] ProjectRepository for PostgreSQL
+  - [ ] WorkflowRepository for PostgreSQL
+
+- [ ] **Story: Supporting PostgreSQL repositories**
+  - [ ] TagRepository for PostgreSQL
+  - [ ] RelationRepository for PostgreSQL
+  - [ ] AnnotationRepository for PostgreSQL
 
 ### Initiative: Interactive TUI
 
@@ -303,11 +391,8 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] Start/stop timer on tasks
   - [ ] Report time spent
 
-### Initiative: Advanced Filters
+### Initiative: Bidirectional Sync
 
-- [ ] **Story: Boolean operators in filters**
-  - [ ] `AND` / `OR` / `NOT` operators
-  - [ ] Parenthesized grouping
-
-- [ ] **Story: Quoted string support in filters**
-  - [ ] Enable `title:"some text"` and `description:"some text"` fields
+- [ ] **Story: Sync protocol**
+  - [ ] Define sync format and conflict resolution strategy
+  - [ ] `tusk sync export` / `tusk sync import` with merge semantics
