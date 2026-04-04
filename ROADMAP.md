@@ -316,7 +316,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 - [ ] **Story: Configurable urgency weights**
   - [ ] Read weights from config system (global defaults)
-  - [ ] `tusk next` — display highest-urgency actionable task
+  - [ ] `tusk next` — display highest-urgency actionable task (can ship with engine story using hardcoded defaults if needed earlier)
 
 - [ ] **Story: Per-project urgency overrides**
   - [ ] Extend `ProjectSettings` with urgency weight overrides
@@ -402,7 +402,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] `tusk dashboard` �� long-running TUI command
   - [ ] Tasks organized by status columns (kanban-style)
   - [ ] Live updates via event log polling (1-2 second interval)
-  - [ ] Color-coded by priority and claim status
+  - [ ] Color-coded by priority and claim status (bubbletea owns its own styling, independent of v0.6 TUI Polish)
 
 - [ ] **Story: Player activity feed**
   - [ ] Activity stream panel showing recent events ("agent-1 claimed X", "german completed Y")
