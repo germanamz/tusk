@@ -197,7 +197,21 @@ func Load(opts ...Option) (*Config, error) {
 		}
 	}
 
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	return &cfg, nil
+}
+
+// validate checks cross-references between config sections.
+func (c *Config) validate() error {
+	for id, proj := range c.Projects {
+		if _, ok := c.Workflows[proj.Workflow]; !ok {
+			return fmt.Errorf("project %q references unknown workflow %q", id, proj.Workflow)
+		}
+	}
+	return nil
 }
 
 // ExpandPath replaces a leading ~ with the user's home directory.

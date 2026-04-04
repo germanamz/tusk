@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -304,6 +305,49 @@ func TestLoad_BuiltinDefaults(t *testing.T) {
 	}
 	if def.Workflow != "kanban" {
 		t.Errorf("default.Workflow = %q, want %q", def.Workflow, "kanban")
+	}
+}
+
+func TestLoad_ValidationProjectReferencesValidWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+transitions = []
+
+[projects.default]
+workflow = "kanban"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("expected no error for valid config, got: %v", err)
+	}
+}
+
+func TestLoad_ValidationProjectReferencesUnknownWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+transitions = []
+
+[projects.backend]
+workflow = "nonexistent"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(WithSearchPath(dir))
+	if err == nil {
+		t.Fatal("expected error for project referencing unknown workflow")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("expected error to mention 'nonexistent', got: %v", err)
 	}
 }
 
