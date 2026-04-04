@@ -126,11 +126,11 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > CLI commands for project CRUD and settings configuration.
 
-- [ ] **Story: `tusk project` subcommand**
-  - [ ] `tusk project list` — list all projects
-  - [ ] `tusk project create <name>` — create a project
-  - [ ] `tusk project modify <name>` — update project fields and settings
-  - [ ] Dot-path `--set` flag for JSON settings (e.g., `--set auto_complete_parent.trigger_status=completed`)
+- [x] **Story: `tusk project` subcommand**
+  - [x] `tusk project list` — list all projects
+  - [x] `tusk project create <name>` — create a project
+  - [x] `tusk project modify <name>` — update project fields and settings
+  - [x] Dot-path `--set` flag for JSON settings (e.g., `--set auto_complete_parent.trigger_status=completed`)
 
 ### Initiative: Tag Management
 
