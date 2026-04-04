@@ -127,6 +127,7 @@ func TestProjectRepo_SettingsCreate(t *testing.T) {
 		ID:              uuid.New(),
 		Name:            "test-project",
 		DefaultWorkflow: "default",
+		Version:         1,
 		Settings: domain.ProjectSettings{
 			AutoCompleteParent: &domain.AutoCompleteConfig{
 				TriggerStatus: "done",
