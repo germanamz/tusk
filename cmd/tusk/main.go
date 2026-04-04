@@ -58,7 +58,9 @@ func run() error {
 	tagSvc := service.NewTagService(tagRepo)
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
-	app := tui.New(taskSvc, tagSvc, relationSvc, projectRepo, tui.VersionInfo{
+	projectSvc := service.NewProjectService(projectRepo)
+
+	app := tui.New(taskSvc, tagSvc, relationSvc, projectSvc, tui.VersionInfo{
 		Version: version,
 		Commit:  commit,
 		Date:    date,
