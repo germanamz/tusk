@@ -62,3 +62,56 @@ func (s *ProjectService) GetByName(ctx context.Context, name string) (*domain.Pr
 func (s *ProjectService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
 	return s.projectRepo.GetByID(ctx, id)
 }
+
+// ModifyOptions specifies what to change on a project.
+// All fields are optional — nil means "don't change".
+type ModifyOptions struct {
+	Description *string           // New description (never nullable, just changeable)
+	Sets        map[string]string // Dot-path key → value for settings
+	Unsets      []string          // Dot-path keys to nil out in settings
+}
+
+// isEmpty returns true if no modifications are specified.
+func (o ModifyOptions) isEmpty() bool {
+	return o.Description == nil && len(o.Sets) == 0 && len(o.Unsets) == 0
+}
+
+// Modify updates a project's fields and/or settings. It fetches the project
+// by name, applies the changes, and persists via optimistic-locked update.
+// Returns the updated project as read back from the database.
+func (s *ProjectService) Modify(ctx context.Context, name string, opts ModifyOptions) (*domain.Project, error) {
+	if opts.isEmpty() {
+		return nil, fmt.Errorf("no modifications specified")
+	}
+
+	project, err := s.projectRepo.GetByName(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("looking up project %q: %w", name, err)
+	}
+
+	if opts.Description != nil {
+		project.Description = *opts.Description
+	}
+
+	if err := applySettingsChanges(&project.Settings, opts.Sets, opts.Unsets); err != nil {
+		return nil, err
+	}
+
+	if err := s.projectRepo.Update(ctx, project); err != nil {
+		return nil, fmt.Errorf("updating project %q: %w", name, err)
+	}
+
+	// Re-read to get the incremented version
+	return s.projectRepo.GetByName(ctx, name)
+}
+
+// applySettingsChanges applies dot-path --set and --unset operations to settings.
+// Returns an error for unknown dot-paths.
+func applySettingsChanges(settings *domain.ProjectSettings, sets map[string]string, unsets []string) error {
+	// Settings merge logic will be implemented in the next task.
+	// For now, this is a no-op if no sets/unsets are provided.
+	if len(sets) > 0 || len(unsets) > 0 {
+		return fmt.Errorf("settings changes not yet implemented")
+	}
+	return nil
+}
