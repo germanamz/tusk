@@ -275,6 +275,27 @@ func (s *Server) registerTools() {
 	)
 
 	s.server.AddTool(
+		mcp.NewTool("tusk_project_list",
+			mcp.WithDescription("List all projects"),
+		),
+		s.handleProjectList,
+	)
+
+	s.server.AddTool(
+		mcp.NewTool("tusk_project_create",
+			mcp.WithDescription("Create a new project"),
+			mcp.WithString("name",
+				mcp.Required(),
+				mcp.Description("Project name (must be unique)"),
+			),
+			mcp.WithString("description",
+				mcp.Description("Project description"),
+			),
+		),
+		s.handleProjectCreate,
+	)
+
+	s.server.AddTool(
 		mcp.NewTool("tusk_task_tree",
 			mcp.WithDescription("Get tasks as a nested tree hierarchy"),
 			mcp.WithString("short_id",
