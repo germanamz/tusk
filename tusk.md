@@ -653,7 +653,10 @@ type RelationRepository interface {
     Exists(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (bool, error)
 }
 
-// ProjectRepository — removed. Projects are config-driven in-memory entities.
+type ProjectRepository interface {
+    GetByID(ctx context.Context, id string) (*domain.Project, error)
+    List(ctx context.Context) ([]*domain.Project, error)
+}
 
 type TagRepository interface {
     Create(ctx context.Context, tag *domain.Tag) error
@@ -664,7 +667,11 @@ type TagRepository interface {
     GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error)
 }
 
-// WorkflowRepository — removed. Workflows are config-driven in-memory entities.
+type WorkflowRepository interface {
+    GetByName(ctx context.Context, name string) (*domain.Workflow, error)
+    GetTransitions(ctx context.Context, name string) ([]*domain.WorkflowTransition, error)
+    List(ctx context.Context) ([]*domain.Workflow, error)
+}
 
 type PlayerRepository interface {
     Register(ctx context.Context, player *domain.Player) error

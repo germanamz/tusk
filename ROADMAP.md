@@ -231,11 +231,12 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] Builtin `default` project with `kanban` workflow when no config is present
   - [ ] Validate project config on load (referenced workflow must exist in config)
 
-- [ ] **Story: In-memory project service**
+- [ ] **Story: In-memory project repository and service**
   - [ ] Rewrite `domain.Project` as config struct — `ID` (string), `Workflow` (string), `Settings` (ProjectSettings)
-  - [ ] Remove `ProjectRepository` interface and SQLite implementation
-  - [ ] Rewrite `ProjectService` to resolve projects from config instead of DB
-  - [ ] Update `TaskService` to validate `project_id` against config
+  - [ ] Simplify `ProjectRepository` interface to read-only (`GetByID`, `List`)
+  - [ ] Implement in-memory `ProjectRepository` backed by config
+  - [ ] Remove SQLite `ProjectRepository` implementation
+  - [ ] Update `ProjectService` and `TaskService` for new interface
   - [ ] Update CLI commands (`tusk project list`, remove `tusk project create`/`modify`)
   - [ ] Update MCP tools (remove `tusk_project_create`, make project tools read-only)
 
@@ -251,13 +252,14 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 - [ ] **Story: Drop workflow DB tables**
   - [ ] Migration to drop `workflow_transitions` and `workflows` tables
-  - [ ] Remove `WorkflowRepository` interface and SQLite implementation
+  - [ ] Remove SQLite `WorkflowRepository` implementation
   - [ ] Remove workflow seed data from migrations
 
-- [ ] **Story: In-memory workflow service**
-  - [ ] Rewrite `WorkflowService` to resolve workflows from config instead of DB
-  - [ ] `IsTransitionAllowed`, `GetStatuses`, `GetTransitions` read from in-memory config map
-  - [ ] Wire new service into DI in `cmd/tusk/main.go`
+- [ ] **Story: In-memory workflow repository and service**
+  - [ ] Simplify `WorkflowRepository` interface (`GetByName`, `GetTransitions`, `List`)
+  - [ ] Implement in-memory `WorkflowRepository` backed by config
+  - [ ] Update `WorkflowService` for new interface
+  - [ ] Wire into DI in `cmd/tusk/main.go`
   - [ ] Update `TaskService` if interface changes
 
 - [ ] **Story: Workflow CLI commands**
