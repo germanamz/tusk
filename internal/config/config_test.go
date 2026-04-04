@@ -242,6 +242,10 @@ target_status = "completed"
 		t.Fatalf("Load() error: %v", err)
 	}
 
+	if len(cfg.Projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(cfg.Projects))
+	}
+
 	def, ok := cfg.Projects["default"]
 	if !ok {
 		t.Fatal("Projects[\"default\"] not found")
