@@ -334,3 +334,69 @@ func TestList(t *testing.T) {
 		t.Fatalf("expected 2 tags, got %d", len(tags))
 	}
 }
+
+func TestRename_Success(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.Create(ctx, "oldname", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tagSvc.Rename(ctx, "oldname", "newname"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+
+	// Old name should not exist
+	tags, err := tagSvc.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) != 1 {
+		t.Fatalf("expected 1 tag, got %d", len(tags))
+	}
+	if tags[0].Name != "newname" {
+		t.Fatalf("expected 'newname', got %q", tags[0].Name)
+	}
+}
+
+func TestRename_Conflict(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.Create(ctx, "aaa", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tagSvc.Create(ctx, "bbb", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	err := tagSvc.Rename(ctx, "aaa", "bbb")
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected ErrConflict, got %v", err)
+	}
+}
+
+func TestRename_NotFound(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	err := tagSvc.Rename(ctx, "nonexistent", "whatever")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestRename_EmptyNewName(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.Create(ctx, "src", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	err := tagSvc.Rename(ctx, "src", "")
+	if err == nil {
+		t.Fatal("expected error for empty new name")
+	}
+}
