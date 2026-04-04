@@ -149,29 +149,25 @@ func (a *App) runTagDelete(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 
-	if err := a.tagSvc.Delete(ctx, name); err != nil {
+	tag, err := a.tagSvc.Delete(ctx, name)
+	if err != nil {
 		return err
 	}
-
-	// For JSON, create a minimal tag to render (we don't have it after deletion)
-	if a.format == "json" {
-		return renderTagResult(cmd.OutOrStdout(), "Deleted", &domain.Tag{Name: name}, a.format)
-	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Deleted tag %s\n", name)
-	return err
+	return renderTagResult(cmd.OutOrStdout(), "Deleted", tag, a.format)
 }
 
 func (a *App) runTagRename(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	oldName, newName := args[0], args[1]
 
-	if err := a.tagSvc.Rename(ctx, oldName, newName); err != nil {
+	tag, err := a.tagSvc.Rename(ctx, oldName, newName)
+	if err != nil {
 		return err
 	}
 
 	if a.format == "json" {
-		return renderTagResult(cmd.OutOrStdout(), "Renamed", &domain.Tag{Name: newName}, a.format)
+		return renderTagResult(cmd.OutOrStdout(), "Renamed", tag, a.format)
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Renamed tag %s to %s\n", oldName, newName)
-	return err
+	_, fmtErr := fmt.Fprintf(cmd.OutOrStdout(), "Renamed tag %s to %s\n", oldName, newName)
+	return fmtErr
 }

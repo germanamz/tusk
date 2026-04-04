@@ -107,6 +107,11 @@ func TestTagManagement(t *testing.T) {
 						}
 						assertEqual(t, arr[0].(map[string]any)["name"], "red")
 					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "red")
+						assertNotContains(t, output, "plain")
+					},
 				},
 				// Filter: only uncolored tags
 				{
@@ -118,6 +123,11 @@ func TestTagManagement(t *testing.T) {
 							t.Fatalf("expected 1 uncolored tag, got %d", len(arr))
 						}
 						assertEqual(t, arr[0].(map[string]any)["name"], "plain")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "plain")
+						assertNotContains(t, output, "red")
 					},
 				},
 			},
