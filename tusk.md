@@ -4,6 +4,8 @@
 
 Tusk combines the speed and CLI ergonomics of TaskWarrior with the structured hierarchy of Linear and the workflow flexibility of Jira — without the bloat of either. It ships as a single binary with SQLite persistence by default and exposes every capability through both a terminal interface and an MCP (Model Context Protocol) server, so AI agents can manage tasks alongside humans.
 
+Beyond basic task management, tusk serves as a **player state manager** — tracking which player (human or AI agent) is working on which task at any given time. Players self-register and claim tasks, preventing overlapping work and race conditions. A built-in task queue lets agents pop the next highest-priority available task in a single atomic operation, minimizing coordination overhead and token usage.
+
 Licensed under **Apache 2.0**.
 
 ---
@@ -21,6 +23,7 @@ Tusk occupies the gap:
 - **Concurrent-safe** — optimistic locking via version fields. Two MCP calls modifying the same task won't silently clobber each other.
 - **Pluggable storage** — SQLite out of the box, but the repository layer is an interface. Swap in PostgreSQL, a JSON file, or a remote API without touching the service layer.
 - **Built-in MCP server** — every CLI command is also an MCP tool. AI agents can create, query, modify, and relate tasks through the same service layer humans use.
+- **Player state management** — players (humans or agents) self-register and claim tasks. Prevents overlapping work. `tusk pop` atomically picks and claims the highest-urgency available task.
 
 ---
 
@@ -99,6 +102,8 @@ The central entity. Every trackable item is a Task.
 | `wait_until`      | datetime (nullable) | Hidden from default views until this time.                   |
 | `recurrence_rule` | string (nullable)   | RFC 5545 RRULE. Service creates next instance on completion. |
 | `uda`             | JSON (nullable)     | User Defined Attributes. Schemaless, validated per project.  |
+| `claimed_by`      | string (nullable)   | FK to Player. Who has reserved/is working on this task.      |
+| `claimed_at`      | datetime (nullable) | When the claim was made.                                     |
 | `created_at`      | datetime            | Set once on creation.                                        |
 | `modified_at`     | datetime            | Updated on every write.                                      |
 
@@ -107,6 +112,30 @@ The central entity. Every trackable item is a Task.
 **Hierarchy**: A task with `parent_id = NULL` is top-level. There are no forced types (no "epic" vs "story" distinction at the schema level). A task is an "epic" if it has children; a task is a "subtask" if it has a parent. Nesting depth is unlimited but the TUI indents, so practical depth is ~4 levels.
 
 **Completion propagation** (configurable per project): when all children of a parent complete, the parent auto-transitions to `completed`. This can be disabled for cases where the parent represents ongoing work.
+
+### Player
+
+A human or AI agent that interacts with tusk. Players self-register on first contact.
+
+| Field           | Type     | Description                                            |
+| --------------- | -------- | ------------------------------------------------------ |
+| `id`            | string   | Primary key. Self-declared unique identifier.          |
+| `type`          | string   | `human` or `agent`.                                    |
+| `registered_at` | datetime | First seen.                                            |
+| `last_seen_at`  | datetime | Updated on every action.                               |
+
+**Registration**: Players announce themselves by providing an ID on any action (CLI `--player` flag, MCP tool parameter). If the ID is new, the player is auto-registered. No predefined roster needed.
+
+**Claim mechanics**: Players claim tasks to signal intent and prevent overlapping work.
+
+- **Explicit claim** — `tusk claim <id>` reserves a task. The task's `claimed_by` is set to the player's ID.
+- **Auto-claim on start** — `tusk start <id>` claims the task if unclaimed. If already claimed by someone else, returns `ErrTaskClaimed`.
+- **Release** — `tusk release <id>` clears the claim. Also auto-released on `done` and `delete`.
+- **No force-steal, no TTL** — if a player goes stale, managing that is the consumer's responsibility.
+
+**Visibility**: `claimed_by` and `claimed_at` are included in all task responses. Filter support: `claimed_by:<player_id>`, `unclaimed:true`. `tusk available` lists unclaimed + actionable + unblocked tasks.
+
+**Task queue**: `tusk pop` atomically finds the highest-urgency unclaimed unblocked task, claims it for the calling player, and returns it. One operation instead of list → filter → pick → claim. Critical for minimizing agent token usage.
 
 ### Annotation
 
@@ -319,6 +348,13 @@ tusk workflow show backend
 tusk workflow add-status backend "in_review"
 tusk workflow add-transition backend active in_review
 
+# Player management
+tusk player register german --type human  # explicit registration
+tusk claim a3f8b2c1 --player german       # reserve a task
+tusk release a3f8b2c1                     # release claim
+tusk available                            # unclaimed + actionable + unblocked
+tusk pop --player german                  # atomic: pick highest-urgency + claim
+
 # Undo
 tusk undo                          # reverts last mutation
 
@@ -343,6 +379,8 @@ tusk list project:backend +api -docs priority:3..4 due:today..friday
 - `status:pending,active` — comma-separated OR
 - `parent:short_id` — direct children only
 - `tree:short_id` — all descendants
+- `claimed_by:player_id` — tasks claimed by a specific player
+- `unclaimed:true` — tasks with no active claim
 
 ---
 
@@ -374,6 +412,11 @@ Every tool maps 1:1 to a service method:
 | `tusk_relation_remove` | RelationService.Remove   | Remove a relation       |
 | `tusk_project_list`    | ProjectService.List      | List projects           |
 | `tusk_project_create`  | ProjectService.Create    | Create project          |
+| `tusk_player_register` | PlayerService.Register   | Register a player       |
+| `tusk_task_claim`      | TaskService.Claim        | Claim a task            |
+| `tusk_task_release`    | TaskService.Release      | Release a claim         |
+| `tusk_task_available`  | TaskService.Available    | List available tasks    |
+| `tusk_task_pop`        | TaskService.Pop          | Claim next best task    |
 
 ### MCP resource support
 
@@ -646,6 +689,13 @@ type WorkflowRepository interface {
     AddTransition(ctx context.Context, t *domain.WorkflowTransition) error
 }
 
+type PlayerRepository interface {
+    Register(ctx context.Context, player *domain.Player) error
+    GetByID(ctx context.Context, id string) (*domain.Player, error)
+    UpdateLastSeen(ctx context.Context, id string) error
+    List(ctx context.Context) ([]*domain.Player, error)
+}
+
 type AnnotationRepository interface {
     Create(ctx context.Context, ann *domain.Annotation) error
     GetByTask(ctx context.Context, taskID uuid.UUID) ([]*domain.Annotation, error)
@@ -665,6 +715,7 @@ var (
     ErrCyclicBlock    = errors.New("relation would create a cycle in blocks graph")
     ErrInvalidTransition = errors.New("status transition not allowed by workflow")
     ErrDuplicateRelation = errors.New("relation already exists")
+    ErrTaskClaimed       = errors.New("task is already claimed by another player")
 )
 ```
 
@@ -685,6 +736,9 @@ var (
 | UDA               | JSON column                          | Separate key-value table                | Simpler queries, atomic read/write of all UDAs per task.                                                     |
 | Recurrence        | RFC 5545 RRULE string                | Custom DSL                              | Industry standard. Libraries exist for parsing. No invention needed.                                         |
 | MCP transport     | stdio + SSE                          | WebSocket                               | stdio for IDE integration (standard MCP), SSE for network access. WebSocket adds complexity without benefit. |
+| Player identity   | Self-declared string ID              | UUID or named entity with resolution    | Consumers own their naming. Tusk shouldn't add name resolution burden for identifiers it doesn't control.    |
+| Claim conflict    | Hard reject (`ErrTaskClaimed`)       | Force-steal, TTL-based expiry           | Stale player management is the consumer's concern. Keeps tusk's claim semantics simple and predictable.      |
+| Task queue        | Atomic `pop` (urgency-based)         | Client-side list → filter → claim       | Single atomic operation minimizes agent token usage and eliminates race conditions between list and claim.    |
 
 ---
 
@@ -705,32 +759,50 @@ var (
 - [x] RelationService with cycle detection
 - [x] `link`, `unlink` CLI commands
 - [x] Parent-child task creation and `tree` CLI command
-- [ ] Completion propagation
-- [ ] `tusk tag` subcommand: create, list, delete, rename tags
+- [x] Completion propagation
+- [x] `tusk tag` subcommand: create, list, delete, rename tags
+- [x] Project management CLI commands
 
 ### v0.3 — MCP server
 
-- [ ] MCP server with stdio transport
-- [ ] All CLI commands as MCP tools
-- [ ] Task/project resources
-- [ ] Version passing in MCP tool I/O
+- [x] MCP server with stdio transport
+- [x] All CLI commands as MCP tools
+- [x] Task/project/workflow resources
+- [x] Version passing in MCP tool I/O
 
-### v0.4 — Urgency and UX
+### v0.4 — Configuration & Customization
 
-- [ ] Urgency scoring engine
-- [ ] Configurable weights
-- [ ] `tusk next` — pick the highest urgency task
-- [ ] Color-coded TUI output
-- [ ] `tusk undo` — last mutation rollback
-- [ ] Tag colors: assign and display colors in TUI
+- [ ] Viper-based config loader (`~/.config/tusk/config.toml`)
+- [ ] MCP visibility config schema (tool/resource group + individual toggles)
+- [ ] Declarative workflow definitions in config
+- [ ] Workflow CLI commands (`list`, `info`)
+- [ ] Per-project workflow assignment
+- [ ] MCP workflow tools
+- [ ] MCP visibility wiring
 
-### v0.5 — Advanced features
+### v0.5 — Urgency & UX
 
-- [ ] Recurrence (RRULE parsing, instance generation)
-- [ ] UDA with per-project schema validation
-- [ ] SSE transport for MCP
+- [ ] Quoted string and boolean operator filter support
+- [ ] Color-coded output (priority, status, tags)
+- [ ] Urgency scoring engine with sigmoid due-date curve
+- [ ] Configurable urgency weights + per-project overrides
+- [ ] `tusk next` — highest-urgency actionable task
+
+### v0.6 — Player Management
+
+- [ ] Player entity and self-registration
+- [ ] Task claiming (explicit + auto-claim on start)
+- [ ] Player visibility (filters, `tusk available`)
+- [ ] `tusk pop` — atomic claim-next-best-task queue
+- [ ] MCP player tools
+
+### v0.7 — Advanced Features
+
+- [ ] UDA CLI surface and schema validation
 - [ ] Export (JSON, CSV)
-- [ ] `tusk sync` — import/export for offline use
+- [ ] Recurrence (RRULE parsing, instance generation)
+- [ ] Streamable HTTP transport for MCP
+- [ ] Undo (mutation log and rollback)
 
 ### Future
 
@@ -739,5 +811,4 @@ var (
 - [ ] REST API
 - [ ] Webhook notifications
 - [ ] Time tracking
-- [ ] Boolean operators in filter expressions (`AND`/`OR`/`NOT`, parentheses)
-- [ ] Quoted string support in filter expressions (enables `title:` and `description:` fields)
+- [ ] Bidirectional sync

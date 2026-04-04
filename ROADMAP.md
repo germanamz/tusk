@@ -297,7 +297,61 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.6 — Advanced Features
+## v0.6 — Player Management
+
+**Goal:** Track which player (human or agent) is working on which task, preventing overlapping work and enabling atomic task queue operations.
+
+### Initiative: Player Entity & Registration
+
+> Self-registering player model persisted to DB.
+
+- [ ] **Story: Player domain and storage**
+  - [ ] Define Player entity (`id` string PK, `type`, `registered_at`, `last_seen_at`)
+  - [ ] PlayerRepository interface and SQLite implementation
+  - [ ] Migration adding `players` table and `claimed_by`/`claimed_at` columns to `tasks`
+  - [ ] PlayerService with Register and UpdateLastSeen methods
+  - [ ] `ErrTaskClaimed` sentinel error
+
+- [ ] **Story: Player CLI**
+  - [ ] `tusk player register <id> --type human|agent` — explicit registration
+  - [ ] `--player <id>` global flag for CLI (auto-registers on first use)
+
+- [ ] **Story: MCP player registration**
+  - [ ] `tusk_player_register` tool
+  - [ ] `player_id` parameter on MCP tool calls (auto-registers on first use)
+  - [ ] Update `last_seen_at` on every player action
+
+### Initiative: Task Claiming
+
+> Claim mechanics to prevent overlapping work between players.
+
+- [ ] **Story: Claim and release**
+  - [ ] TaskService.Claim — set `claimed_by`/`claimed_at`, reject if already claimed (`ErrTaskClaimed`)
+  - [ ] TaskService.Release — clear claim, validate caller is the claimant
+  - [ ] Auto-claim on `tusk start` if unclaimed, reject if claimed by another
+  - [ ] Auto-release on `done` and `delete`
+  - [ ] `tusk claim <id>` / `tusk release <id>` CLI commands
+  - [ ] `tusk_task_claim` / `tusk_task_release` MCP tools
+
+- [ ] **Story: Player visibility**
+  - [ ] Include `claimed_by` and `claimed_at` in all task responses (CLI + MCP)
+  - [ ] Filter support: `claimed_by:<player_id>`, `unclaimed:true`
+  - [ ] `tusk available` — convenience: unclaimed + actionable status + not blocked
+  - [ ] `tusk_task_available` MCP tool
+
+### Initiative: Task Queue
+
+> Atomic pop operation for efficient agent orchestration.
+
+- [ ] **Story: `tusk pop`**
+  - [ ] TaskService.Pop — atomically find highest-urgency unclaimed unblocked task, claim for player, return it
+  - [ ] `tusk pop --player <id>` CLI command
+  - [ ] `tusk_task_pop` MCP tool with `player_id` input
+  - [ ] Respect filters (optional: `tusk pop project:backend`)
+
+---
+
+## v0.7 — Advanced Features
 
 **Goal:** Recurrence, user-defined attributes, additional transports, and data portability.
 
