@@ -125,6 +125,26 @@ func (s *TagService) Rename(ctx context.Context, oldName, newName string) error 
 	return nil
 }
 
+// Modify updates a tag's color. Pass a non-nil pointer to set a color,
+// or nil to clear it. Returns ErrNotFound if the tag doesn't exist.
+func (s *TagService) Modify(ctx context.Context, name string, color *string) (*domain.Tag, error) {
+	tag, err := s.tagRepo.GetByName(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("looking up tag %q: %w", name, err)
+	}
+
+	tag.Color = color
+	if err := s.tagRepo.Update(ctx, tag); err != nil {
+		return nil, fmt.Errorf("updating tag %q: %w", name, err)
+	}
+	return tag, nil
+}
+
+// ListWithUsage returns all tags with their task assignment counts.
+func (s *TagService) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, error) {
+	return s.tagRepo.ListWithUsage(ctx)
+}
+
 // AssignToTask finds-or-creates each tag by name and assigns them to the task.
 // An empty tagNames slice is a no-op.
 func (s *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {

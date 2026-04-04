@@ -400,3 +400,86 @@ func TestRename_EmptyNewName(t *testing.T) {
 		t.Fatal("expected error for empty new name")
 	}
 }
+
+func TestModify_SetColor(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.Create(ctx, "plain", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	color := "#00ff00"
+	tag, err := tagSvc.Modify(ctx, "plain", &color)
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if tag.Color == nil || *tag.Color != "#00ff00" {
+		t.Fatalf("expected color '#00ff00', got %v", tag.Color)
+	}
+}
+
+func TestModify_ClearColor(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	color := "#ff0000"
+	if _, err := tagSvc.Create(ctx, "colored", &color); err != nil {
+		t.Fatal(err)
+	}
+
+	tag, err := tagSvc.Modify(ctx, "colored", nil)
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if tag.Color != nil {
+		t.Fatalf("expected nil color after clearing, got %v", tag.Color)
+	}
+}
+
+func TestModify_NotFound(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	color := "#aabbcc"
+	_, err := tagSvc.Modify(ctx, "ghost", &color)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestListWithUsage(t *testing.T) {
+	tagSvc, store := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.Create(ctx, "active", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tagSvc.Create(ctx, "idle", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	task := mustCreateTaskForTags(t, store)
+	if err := tagSvc.AssignToTask(ctx, task.ID, []string{"active"}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := tagSvc.ListWithUsage(ctx)
+	if err != nil {
+		t.Fatalf("ListWithUsage: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(results))
+	}
+
+	byName := map[string]domain.TagWithUsage{}
+	for _, tw := range results {
+		byName[tw.Tag.Name] = tw
+	}
+	if byName["active"].TaskCount != 1 {
+		t.Fatalf("expected 'active' task count 1, got %d", byName["active"].TaskCount)
+	}
+	if byName["idle"].TaskCount != 0 {
+		t.Fatalf("expected 'idle' task count 0, got %d", byName["idle"].TaskCount)
+	}
+}
