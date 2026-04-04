@@ -131,6 +131,8 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		},
 	)
 
+	a.root.AddCommand(a.buildProjectCmd())
+
 	return a
 }
 
