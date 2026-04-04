@@ -276,8 +276,12 @@ func TestDelete_UnusedTag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := tagSvc.Delete(ctx, "removable"); err != nil {
+	deleted, err := tagSvc.Delete(ctx, "removable")
+	if err != nil {
 		t.Fatalf("Delete: %v", err)
+	}
+	if deleted.Name != "removable" {
+		t.Fatalf("expected deleted tag name 'removable', got %q", deleted.Name)
 	}
 
 	// Verify it's gone
@@ -299,7 +303,7 @@ func TestDelete_TagInUse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := tagSvc.Delete(ctx, "busy")
+	_, err := tagSvc.Delete(ctx, "busy")
 	if !errors.Is(err, domain.ErrTagInUse) {
 		t.Fatalf("expected ErrTagInUse, got %v", err)
 	}
@@ -309,7 +313,7 @@ func TestDelete_NotFound(t *testing.T) {
 	tagSvc, _ := testTagEnv(t)
 	ctx := context.Background()
 
-	err := tagSvc.Delete(ctx, "nonexistent")
+	_, err := tagSvc.Delete(ctx, "nonexistent")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -343,8 +347,12 @@ func TestRename_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := tagSvc.Rename(ctx, "oldname", "newname"); err != nil {
+	renamed, err := tagSvc.Rename(ctx, "oldname", "newname")
+	if err != nil {
 		t.Fatalf("Rename: %v", err)
+	}
+	if renamed.Name != "newname" {
+		t.Fatalf("expected renamed tag name 'newname', got %q", renamed.Name)
 	}
 
 	// Old name should not exist
@@ -371,7 +379,7 @@ func TestRename_Conflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := tagSvc.Rename(ctx, "aaa", "bbb")
+	_, err := tagSvc.Rename(ctx, "aaa", "bbb")
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("expected ErrConflict, got %v", err)
 	}
@@ -381,7 +389,7 @@ func TestRename_NotFound(t *testing.T) {
 	tagSvc, _ := testTagEnv(t)
 	ctx := context.Background()
 
-	err := tagSvc.Rename(ctx, "nonexistent", "whatever")
+	_, err := tagSvc.Rename(ctx, "nonexistent", "whatever")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -395,7 +403,7 @@ func TestRename_EmptyNewName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := tagSvc.Rename(ctx, "src", "")
+	_, err := tagSvc.Rename(ctx, "src", "")
 	if err == nil {
 		t.Fatal("expected error for empty new name")
 	}

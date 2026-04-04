@@ -75,54 +75,56 @@ func (s *TagService) Create(ctx context.Context, name string, color *string) (*d
 	return tag, nil
 }
 
-// Delete removes a tag by name. Returns ErrTagInUse if the tag is still
-// assigned to any tasks. Returns ErrNotFound if the tag doesn't exist.
-func (s *TagService) Delete(ctx context.Context, name string) error {
+// Delete removes a tag by name. Returns the deleted tag on success.
+// Returns ErrTagInUse if the tag is still assigned to any tasks.
+// Returns ErrNotFound if the tag doesn't exist.
+func (s *TagService) Delete(ctx context.Context, name string) (*domain.Tag, error) {
 	tag, err := s.tagRepo.GetByName(ctx, name)
 	if err != nil {
-		return fmt.Errorf("looking up tag %q: %w", name, err)
+		return nil, fmt.Errorf("looking up tag %q: %w", name, err)
 	}
 
 	count, err := s.tagRepo.CountTasksByTagID(ctx, tag.ID)
 	if err != nil {
-		return fmt.Errorf("counting tasks for tag %q: %w", name, err)
+		return nil, fmt.Errorf("counting tasks for tag %q: %w", name, err)
 	}
 	if count > 0 {
-		return fmt.Errorf("tag %q is assigned to %d task(s): %w", name, count, domain.ErrTagInUse)
+		return nil, fmt.Errorf("tag %q is assigned to %d task(s): %w", name, count, domain.ErrTagInUse)
 	}
 
 	if err := s.tagRepo.Delete(ctx, tag.ID); err != nil {
-		return fmt.Errorf("deleting tag %q: %w", name, err)
+		return nil, fmt.Errorf("deleting tag %q: %w", name, err)
 	}
-	return nil
+	return tag, nil
 }
 
-// Rename changes a tag's name. Returns ErrNotFound if the old name doesn't
-// exist, ErrConflict if the new name is already taken.
-func (s *TagService) Rename(ctx context.Context, oldName, newName string) error {
+// Rename changes a tag's name. Returns the renamed tag on success.
+// Returns ErrNotFound if the old name doesn't exist, ErrConflict if
+// the new name is already taken.
+func (s *TagService) Rename(ctx context.Context, oldName, newName string) (*domain.Tag, error) {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
-		return fmt.Errorf("new tag name must not be empty")
+		return nil, fmt.Errorf("new tag name must not be empty")
 	}
 
 	tag, err := s.tagRepo.GetByName(ctx, oldName)
 	if err != nil {
-		return fmt.Errorf("looking up tag %q: %w", oldName, err)
+		return nil, fmt.Errorf("looking up tag %q: %w", oldName, err)
 	}
 
 	_, err = s.tagRepo.GetByName(ctx, newName)
 	if err == nil {
-		return fmt.Errorf("tag %q already exists: %w", newName, domain.ErrConflict)
+		return nil, fmt.Errorf("tag %q already exists: %w", newName, domain.ErrConflict)
 	}
 	if !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("checking tag %q: %w", newName, err)
+		return nil, fmt.Errorf("checking tag %q: %w", newName, err)
 	}
 
 	tag.Name = newName
 	if err := s.tagRepo.Update(ctx, tag); err != nil {
-		return fmt.Errorf("renaming tag to %q: %w", newName, err)
+		return nil, fmt.Errorf("renaming tag to %q: %w", newName, err)
 	}
-	return nil
+	return tag, nil
 }
 
 // Modify updates a tag's color. Pass a non-nil pointer to set a color,
