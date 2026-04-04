@@ -248,7 +248,35 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.5 — Urgency & UX
+## v0.5 — Rich Content
+
+**Goal:** Enable rich task descriptions and structured metadata for agent orchestration.
+
+### Initiative: Rich Descriptions
+
+> Full markdown descriptions with file-based input for detailed task specs.
+
+- [ ] **Story: File-based description input**
+  - [ ] `--description @file.md` syntax on `tusk add` and `tusk modify` to read content from a file
+  - [ ] `tusk_task_create` and `tusk_task_modify` MCP tools accept full markdown descriptions
+  - [ ] `tusk info` renders description in full (no truncation)
+
+### Initiative: User-Defined Attributes
+
+> Expose the existing `uda` JSON column via CLI and MCP. Note: `Task.UDA` field and `tasks.uda` JSON column already exist in the domain and schema.
+
+- [ ] **Story: UDA CLI surface**
+  - [ ] `--uda key=value` on `tusk add` and `tusk modify`
+  - [ ] Display UDAs in `tusk info`
+  - [ ] `tusk_task_create` and `tusk_task_modify` MCP tools accept UDA fields
+
+- [ ] **Story: UDA filter support**
+  - [ ] `uda.key:value` filter syntax
+  - [ ] Expose in both CLI and MCP task list
+
+---
+
+## v0.6 — Urgency & UX
 
 **Goal:** Smart task prioritization and polished terminal experience.
 
@@ -297,7 +325,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.6 — Player Management
+## v0.7 — Player Management
 
 **Goal:** Track which player (human or agent) is working on which task, preventing overlapping work and enabling atomic task queue operations.
 
@@ -351,7 +379,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.7 — Live Dashboard
+## v0.8 — Live Dashboard
 
 **Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by an event log.
 
@@ -388,18 +416,13 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.8 — Advanced Features
+## v0.9 — Advanced Features
 
-**Goal:** Recurrence, user-defined attributes, additional transports, data portability, and undo.
+**Goal:** Recurrence, additional transports, data portability, and undo.
 
-### Initiative: User-Defined Attributes
+### Initiative: UDA Schema Validation
 
-> Schemaless custom fields with optional per-project validation. Note: `Task.UDA` field and `tasks.uda` JSON column already exist in the domain and schema.
-
-- [ ] **Story: UDA CLI surface**
-  - [ ] `--uda key=value` on `tusk add` and `tusk modify`
-  - [ ] Display UDAs in `tusk info`
-  - [ ] UDA-based filter support
+> Per-project validation for user-defined attributes. Builds on the UDA CLI surface from v0.5.
 
 - [ ] **Story: UDA schema validation**
   - [ ] Per-project UDA schema definition in `ProjectSettings`
@@ -432,7 +455,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Undo
 
-> Revert the last mutation using the event log from v0.7.
+> Revert the last mutation using the event log from v0.8.
 
 - [ ] **Story: Undo command**
   - [ ] `tusk undo` — revert last mutation by reading event log and applying inverse
@@ -480,6 +503,13 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 - [ ] **Story: Time tracking**
   - [ ] Start/stop timer on tasks
   - [ ] Report time spent
+
+### Initiative: Binary Attachments
+
+- [ ] **Story: File attachments**
+  - [ ] Attach binary files to tasks (stored on filesystem, referenced in DB)
+  - [ ] `tusk attach <id> <file>` / `tusk_task_attach` MCP tool
+  - [ ] List and retrieve attachments via CLI and MCP
 
 ### Initiative: Bidirectional Sync
 
