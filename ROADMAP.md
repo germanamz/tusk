@@ -202,18 +202,18 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Viper-based config loading as foundation for all runtime settings.
 
-- [ ] **Story: Viper config loader**
-  - [ ] Add Viper dependency
-  - [ ] Load config from `~/.config/tusk/config.toml` with fallback to hardcoded defaults
-  - [ ] Support `TUSK_` environment variable prefix for all config keys
-  - [ ] Wire config into `cmd/tusk/main.go` DI setup
-  - [ ] Define `Config` struct covering `[urgency]`, `[tui]`, `[storage]`, `[workflows]`, and `[mcp]` sections
+- [x] **Story: Viper config loader**
+  - [x] Add Viper dependency
+  - [x] Load config from `~/.config/tusk/config.toml` with fallback to hardcoded defaults
+  - [x] Support `TUSK_` environment variable prefix for all config keys
+  - [x] Wire config into `cmd/tusk/main.go` DI setup
+  - [x] Define `Config` struct covering `[urgency]`, `[tui]`, `[storage]`, `[workflows]`, and `[mcp]` sections
 
-- [ ] **Story: MCP visibility config schema**
-  - [ ] `[mcp.disabled_tool_groups]` — hide tools by group (e.g., `["workflow", "relation"]`)
-  - [ ] `[mcp.disabled_tools]` — hide individual tools (e.g., `["tusk_workflow_list"]`)
-  - [ ] `[mcp.disabled_resource_groups]` — hide resources by group
-  - [ ] `[mcp.disabled_resources]` — hide individual resource templates
+- [x] **Story: MCP visibility config schema**
+  - [x] `[mcp.disabled_tool_groups]` — hide tools by group (e.g., `["workflow", "relation"]`)
+  - [x] `[mcp.disabled_tools]` — hide individual tools (e.g., `["tusk_workflow_list"]`)
+  - [x] `[mcp.disabled_resource_groups]` — hide resources by group
+  - [x] `[mcp.disabled_resources]` — hide individual resource templates
 
 ### Initiative: Declarative Workflows
 
@@ -241,10 +241,10 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Config-driven control over which MCP tools and resources are exposed to agents.
 
-- [ ] **Story: MCP visibility wiring**
-  - [ ] Expose tool/resource groups as a convention in MCP registration (tag or prefix-based)
-  - [ ] Filter tool and resource registration at server startup based on config
-  - [ ] Validate config values against known tools/resources on startup (warn on unknown entries)
+- [x] **Story: MCP visibility wiring**
+  - [x] Expose tool/resource groups as a convention in MCP registration (tag or prefix-based)
+  - [x] Filter tool and resource registration at server startup based on config
+  - [x] Validate config values against known tools/resources on startup (error on unknown entries)
 
 ---
 
