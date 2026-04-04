@@ -163,3 +163,182 @@ func TestProjectService_ModifyNoOptions(t *testing.T) {
 		t.Fatal("expected error when no modifications provided")
 	}
 }
+
+func TestProjectService_ModifySetAutoComplete(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Sets: map[string]string{
+			"auto_complete_parent.trigger_status": "completed",
+			"auto_complete_parent.target_status":  "completed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if updated.Settings.AutoCompleteParent == nil {
+		t.Fatal("expected AutoCompleteParent to be set")
+	}
+	if updated.Settings.AutoCompleteParent.TriggerStatus != "completed" {
+		t.Fatalf("expected trigger_status 'completed', got %q", updated.Settings.AutoCompleteParent.TriggerStatus)
+	}
+	if updated.Settings.AutoCompleteParent.TargetStatus != "completed" {
+		t.Fatalf("expected target_status 'completed', got %q", updated.Settings.AutoCompleteParent.TargetStatus)
+	}
+}
+
+func TestProjectService_ModifySetAutoRevert(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Sets: map[string]string{
+			"auto_revert_parent.trigger_status": "completed",
+			"auto_revert_parent.target_status":  "pending",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if updated.Settings.AutoRevertParent == nil {
+		t.Fatal("expected AutoRevertParent to be set")
+	}
+	if updated.Settings.AutoRevertParent.TriggerStatus != "completed" {
+		t.Fatalf("expected trigger_status 'completed', got %q", updated.Settings.AutoRevertParent.TriggerStatus)
+	}
+	if updated.Settings.AutoRevertParent.TargetStatus != "pending" {
+		t.Fatalf("expected target_status 'pending', got %q", updated.Settings.AutoRevertParent.TargetStatus)
+	}
+}
+
+func TestProjectService_ModifySetAutoInitNilConfig(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Setting just one field should auto-initialize the parent struct
+	updated, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Sets: map[string]string{
+			"auto_complete_parent.trigger_status": "completed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if updated.Settings.AutoCompleteParent == nil {
+		t.Fatal("expected AutoCompleteParent to be auto-initialized")
+	}
+	if updated.Settings.AutoCompleteParent.TriggerStatus != "completed" {
+		t.Fatalf("expected trigger_status 'completed', got %q", updated.Settings.AutoCompleteParent.TriggerStatus)
+	}
+	// target_status should be zero value (empty string) since we didn't set it
+	if updated.Settings.AutoCompleteParent.TargetStatus != "" {
+		t.Fatalf("expected empty target_status, got %q", updated.Settings.AutoCompleteParent.TargetStatus)
+	}
+}
+
+func TestProjectService_ModifyUnsetAutoComplete(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// First, set auto-complete
+	if _, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Sets: map[string]string{
+			"auto_complete_parent.trigger_status": "completed",
+			"auto_complete_parent.target_status":  "completed",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then unset it
+	updated, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Unsets: []string{"auto_complete_parent"},
+	})
+	if err != nil {
+		t.Fatalf("Modify unset: %v", err)
+	}
+	if updated.Settings.AutoCompleteParent != nil {
+		t.Fatal("expected AutoCompleteParent to be nil after unset")
+	}
+}
+
+func TestProjectService_ModifyUnsetAutoRevert(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set auto-revert
+	if _, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Sets: map[string]string{
+			"auto_revert_parent.trigger_status": "completed",
+			"auto_revert_parent.target_status":  "pending",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Unset it
+	updated, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Unsets: []string{"auto_revert_parent"},
+	})
+	if err != nil {
+		t.Fatalf("Modify unset: %v", err)
+	}
+	if updated.Settings.AutoRevertParent != nil {
+		t.Fatal("expected AutoRevertParent to be nil after unset")
+	}
+}
+
+func TestProjectService_ModifyUnknownDotPath(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Sets: map[string]string{
+			"unknown.path": "value",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown dot-path")
+	}
+}
+
+func TestProjectService_ModifyUnknownUnsetPath(t *testing.T) {
+	svc := testProjectService(t)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "proj", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.Modify(ctx, "proj", ModifyOptions{
+		Unsets: []string{"unknown_key"},
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown unset path")
+	}
+}
