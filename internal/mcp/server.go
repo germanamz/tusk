@@ -235,6 +235,46 @@ func (s *Server) registerTools() {
 	)
 
 	s.server.AddTool(
+		mcp.NewTool("tusk_relation_add",
+			mcp.WithDescription("Create a typed relation between two tasks"),
+			mcp.WithString("source",
+				mcp.Required(),
+				mcp.Description("Source task short_id"),
+			),
+			mcp.WithString("target",
+				mcp.Required(),
+				mcp.Description("Target task short_id"),
+			),
+			mcp.WithString("type",
+				mcp.Required(),
+				mcp.Description("Relation type"),
+				mcp.Enum("blocks", "relates_to", "duplicates"),
+			),
+		),
+		s.handleRelationAdd,
+	)
+
+	s.server.AddTool(
+		mcp.NewTool("tusk_relation_remove",
+			mcp.WithDescription("Remove a relation between two tasks"),
+			mcp.WithString("source",
+				mcp.Required(),
+				mcp.Description("Source task short_id"),
+			),
+			mcp.WithString("target",
+				mcp.Required(),
+				mcp.Description("Target task short_id"),
+			),
+			mcp.WithString("type",
+				mcp.Required(),
+				mcp.Description("Relation type"),
+				mcp.Enum("blocks", "relates_to", "duplicates"),
+			),
+		),
+		s.handleRelationRemove,
+	)
+
+	s.server.AddTool(
 		mcp.NewTool("tusk_task_tree",
 			mcp.WithDescription("Get tasks as a nested tree hierarchy"),
 			mcp.WithString("short_id",

@@ -655,6 +655,66 @@ func buildTreeResponse(tasks []*domain.Task, rootID *uuid.UUID) []treeNodeRespon
 	return result
 }
 
+// relationAddResponse is the JSON structure returned by the relation add tool.
+type relationAddResponse struct {
+	ID           string `json:"id"`
+	SourceID     string `json:"source_id"`
+	TargetID     string `json:"target_id"`
+	RelationType string `json:"relation_type"`
+	CreatedAt    string `json:"created_at"`
+}
+
+// handleRelationAdd handles the tusk_relation_add tool.
+func (s *Server) handleRelationAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	source, err := request.RequireString("source")
+	if err != nil {
+		return mcp.NewToolResultError("source is required"), nil
+	}
+	target, err := request.RequireString("target")
+	if err != nil {
+		return mcp.NewToolResultError("target is required"), nil
+	}
+	relType, err := request.RequireString("type")
+	if err != nil {
+		return mcp.NewToolResultError("type is required"), nil
+	}
+
+	rel, err := s.relationSvc.Add(ctx, source, target, relType)
+	if err != nil {
+		return toolError(err, ""), nil
+	}
+
+	return toolResultJSON(relationAddResponse{
+		ID:           rel.ID.String(),
+		SourceID:     rel.SourceID.String(),
+		TargetID:     rel.TargetID.String(),
+		RelationType: rel.RelationType,
+		CreatedAt:    rel.CreatedAt.Format(time.RFC3339),
+	})
+}
+
+// handleRelationRemove handles the tusk_relation_remove tool.
+func (s *Server) handleRelationRemove(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	source, err := request.RequireString("source")
+	if err != nil {
+		return mcp.NewToolResultError("source is required"), nil
+	}
+	target, err := request.RequireString("target")
+	if err != nil {
+		return mcp.NewToolResultError("target is required"), nil
+	}
+	relType, err := request.RequireString("type")
+	if err != nil {
+		return mcp.NewToolResultError("type is required"), nil
+	}
+
+	if err := s.relationSvc.Remove(ctx, source, target, relType); err != nil {
+		return toolError(err, ""), nil
+	}
+
+	return mcp.NewToolResultText("relation removed"), nil
+}
+
 // handleTaskTree handles the tusk_task_tree tool.
 func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var tasks []*domain.Task
