@@ -36,6 +36,91 @@ func (r *TagRepo) GetByName(ctx context.Context, name string) (*domain.Tag, erro
 	return tag, err
 }
 
+func (r *TagRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tag, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, name, color FROM tags WHERE id = ?`, id.String())
+	tag, err := scanTag(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	return tag, err
+}
+
+func (r *TagRepo) Update(ctx context.Context, tag *domain.Tag) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tags SET name = ?, color = ? WHERE id = ?`,
+		tag.Name, nullableString(tag.Color), tag.ID.String(),
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *TagRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM tags WHERE id = ?`, id.String())
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *TagRepo) CountTasksByTagID(ctx context.Context, id uuid.UUID) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tag_assignments WHERE tag_id = ?`, id.String(),
+	).Scan(&count)
+	return count, err
+}
+
+func (r *TagRepo) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT t.id, t.name, t.color, COUNT(ta.task_id)
+		 FROM tags t
+		 LEFT JOIN tag_assignments ta ON t.id = ta.tag_id
+		 GROUP BY t.id, t.name, t.color`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]domain.TagWithUsage, 0)
+	for rows.Next() {
+		var (
+			tw    domain.TagWithUsage
+			id    string
+			color sql.NullString
+		)
+		if err := rows.Scan(&id, &tw.Tag.Name, &color, &tw.TaskCount); err != nil {
+			return nil, err
+		}
+		tw.Tag.ID, err = uuid.Parse(id)
+		if err != nil {
+			return nil, err
+		}
+		if color.Valid {
+			tw.Tag.Color = &color.String
+		}
+		result = append(result, tw)
+	}
+	return result, rows.Err()
+}
+
 func (r *TagRepo) List(ctx context.Context) ([]*domain.Tag, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, name, color FROM tags`)
 	if err != nil {
