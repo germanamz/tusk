@@ -7,8 +7,18 @@ import (
 	"github.com/germanamz/tusk/internal/config"
 )
 
+// mustNew calls New and fails the test on error.
+func mustNew(t *testing.T, cfg config.MCPConfig) *Server {
+	t.Helper()
+	s, err := New(nil, nil, nil, nil, nil, "test", cfg)
+	if err != nil {
+		t.Fatalf("New() returned unexpected error: %v", err)
+	}
+	return s
+}
+
 func TestNewServer(t *testing.T) {
-	s := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{})
+	s := mustNew(t, config.MCPConfig{})
 	if s == nil {
 		t.Fatal("New() returned nil")
 	}
@@ -21,7 +31,7 @@ func TestNewServer_WithConfig(t *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledTools: []string{"tusk_task_delete"},
 	}
-	s := New(nil, nil, nil, nil, nil, "test", cfg)
+	s := mustNew(t, cfg)
 	if s == nil {
 		t.Fatal("New() returned nil")
 	}
@@ -34,7 +44,7 @@ func TestToolFiltering_DisabledTool(t *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledTools: []string{"tusk_task_delete"},
 	}
-	s := New(nil, nil, nil, nil, nil, "test", cfg)
+	s := mustNew(t, cfg)
 
 	if s.isToolEnabled("tusk_task_delete", "task") {
 		t.Error("tusk_task_delete should be disabled")
@@ -48,7 +58,7 @@ func TestToolFiltering_DisabledGroup(t *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledToolGroups: []string{"relation"},
 	}
-	s := New(nil, nil, nil, nil, nil, "test", cfg)
+	s := mustNew(t, cfg)
 
 	if s.isToolEnabled("tusk_relation_add", "relation") {
 		t.Error("tusk_relation_add should be disabled (group 'relation' disabled)")
@@ -65,7 +75,7 @@ func TestResourceFiltering_DisabledResource(t *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledResources: []string{"tusk://projects/{name}/workflow"},
 	}
-	s := New(nil, nil, nil, nil, nil, "test", cfg)
+	s := mustNew(t, cfg)
 
 	if s.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
 		t.Error("workflow resource should be disabled")
@@ -79,7 +89,7 @@ func TestResourceFiltering_DisabledGroup(t *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledResourceGroups: []string{"workflow"},
 	}
-	s := New(nil, nil, nil, nil, nil, "test", cfg)
+	s := mustNew(t, cfg)
 
 	if s.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
 		t.Error("workflow resource should be disabled (group disabled)")
@@ -90,8 +100,8 @@ func TestResourceFiltering_DisabledGroup(t *testing.T) {
 }
 
 func TestRegisterTools_FiltersDisabledTools(t *testing.T) {
-	full := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{})
-	filtered := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{
+	full := mustNew(t, config.MCPConfig{})
+	filtered := mustNew(t, config.MCPConfig{
 		DisabledToolGroups: []string{"relation"},
 	})
 
@@ -104,8 +114,8 @@ func TestRegisterTools_FiltersDisabledTools(t *testing.T) {
 }
 
 func TestRegisterResources_FiltersDisabledResources(t *testing.T) {
-	full := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{})
-	filtered := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{
+	full := mustNew(t, config.MCPConfig{})
+	filtered := mustNew(t, config.MCPConfig{
 		DisabledResourceGroups: []string{"workflow"},
 	})
 
@@ -118,8 +128,6 @@ func TestRegisterResources_FiltersDisabledResources(t *testing.T) {
 }
 
 func TestValidation_UnknownEntries(t *testing.T) {
-	var buf strings.Builder
-
 	cfg := config.MCPConfig{
 		DisabledTools:          []string{"tusk_nonexistent_tool"},
 		DisabledToolGroups:     []string{"nonexistent_group"},
@@ -127,52 +135,32 @@ func TestValidation_UnknownEntries(t *testing.T) {
 		DisabledResourceGroups: []string{"nonexistent_res_group"},
 	}
 
-	s := &Server{
-		cfg:            cfg,
-		toolGroups:     map[string]string{"tusk_task_create": "task"},
-		resourceGroups: map[string]string{"tusk://tasks/{short_id}": "task"},
+	_, err := New(nil, nil, nil, nil, nil, "test", cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown config entries, got nil")
 	}
 
-	s.validateConfig(&buf)
-
-	output := buf.String()
-	if !strings.Contains(output, "tusk_nonexistent_tool") {
-		t.Errorf("expected warning about unknown tool, got: %s", output)
-	}
-	if !strings.Contains(output, "nonexistent_group") {
-		t.Errorf("expected warning about unknown tool group, got: %s", output)
-	}
-	if !strings.Contains(output, "tusk://nonexistent/resource") {
-		t.Errorf("expected warning about unknown resource, got: %s", output)
-	}
-	if !strings.Contains(output, "nonexistent_res_group") {
-		t.Errorf("expected warning about unknown resource group, got: %s", output)
+	msg := err.Error()
+	for _, want := range []string{
+		"tusk_nonexistent_tool",
+		"nonexistent_group",
+		"tusk://nonexistent/resource",
+		"nonexistent_res_group",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("expected error to mention %q, got: %s", want, msg)
+		}
 	}
 }
 
-func TestValidation_NoWarningsForValidEntries(t *testing.T) {
-	var buf strings.Builder
-
+func TestValidation_NoErrorForValidEntries(t *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledToolGroups:     []string{"relation"},
 		DisabledResourceGroups: []string{"workflow"},
 	}
 
-	s := &Server{
-		cfg: cfg,
-		toolGroups: map[string]string{
-			"tusk_task_create":  "task",
-			"tusk_relation_add": "relation",
-		},
-		resourceGroups: map[string]string{
-			"tusk://tasks/{short_id}":         "task",
-			"tusk://projects/{name}/workflow": "workflow",
-		},
-	}
-
-	s.validateConfig(&buf)
-
-	if buf.Len() != 0 {
-		t.Errorf("expected no warnings, got: %s", buf.String())
+	_, err := New(nil, nil, nil, nil, nil, "test", cfg)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
 	}
 }
