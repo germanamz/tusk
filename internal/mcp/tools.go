@@ -715,6 +715,64 @@ func (s *Server) handleRelationRemove(ctx context.Context, request mcp.CallToolR
 	return mcp.NewToolResultText("relation removed"), nil
 }
 
+// projectResponse is the JSON structure returned by project tools.
+type projectResponse struct {
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	DefaultWorkflow string                 `json:"default_workflow"`
+	Settings        domain.ProjectSettings `json:"settings"`
+	Version         int                    `json:"version"`
+	CreatedAt       string                 `json:"created_at"`
+}
+
+func toProjectResponse(p *domain.Project) projectResponse {
+	return projectResponse{
+		ID:              p.ID.String(),
+		Name:            p.Name,
+		Description:     p.Description,
+		DefaultWorkflow: p.DefaultWorkflow,
+		Settings:        p.Settings,
+		Version:         p.Version,
+		CreatedAt:       p.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+// handleProjectList handles the tusk_project_list tool.
+func (s *Server) handleProjectList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	projects, err := s.projectSvc.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]projectResponse, len(projects))
+	for i, p := range projects {
+		results[i] = toProjectResponse(p)
+	}
+
+	return toolResultJSON(results)
+}
+
+// handleProjectCreate handles the tusk_project_create tool.
+func (s *Server) handleProjectCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name, err := request.RequireString("name")
+	if err != nil {
+		return mcp.NewToolResultError("name is required"), nil
+	}
+
+	var description string
+	if desc, err := request.RequireString("description"); err == nil {
+		description = desc
+	}
+
+	project, err := s.projectSvc.Create(ctx, name, description)
+	if err != nil {
+		return toolError(err, "project "+name), nil
+	}
+
+	return toolResultJSON(toProjectResponse(project))
+}
+
 // handleTaskTree handles the tusk_task_tree tool.
 func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var tasks []*domain.Task
