@@ -54,14 +54,18 @@ type TUIConfig struct {
 	DefaultSort string `mapstructure:"default_sort"`
 }
 
-// Option configures the Load function for testing.
-type Option func(v *viper.Viper)
+// Option configures the Load function.
+type Option func(o *loadOptions)
+
+type loadOptions struct {
+	searchPath string
+}
 
 // WithSearchPath overrides the config file search path.
-// Used in tests to point at a temp directory.
+// Used in tests to point at a temp directory instead of ~/.config/tusk/.
 func WithSearchPath(path string) Option {
-	return func(v *viper.Viper) {
-		v.AddConfigPath(path)
+	return func(o *loadOptions) {
+		o.searchPath = path
 	}
 }
 
@@ -98,18 +102,20 @@ func Load(opts ...Option) (*Config, error) {
 	v.SetConfigName("config")
 	v.SetConfigType("toml")
 
-	// Default search path: ~/.config/tusk/
-	hasCustomPath := len(opts) > 0
-	if !hasCustomPath {
+	// Apply options.
+	var lo loadOptions
+	for _, opt := range opts {
+		opt(&lo)
+	}
+
+	// Use custom search path if provided, otherwise default to ~/.config/tusk/.
+	if lo.searchPath != "" {
+		v.AddConfigPath(lo.searchPath)
+	} else {
 		home, err := os.UserHomeDir()
 		if err == nil {
 			v.AddConfigPath(filepath.Join(home, ".config", "tusk"))
 		}
-	}
-
-	// Apply options (e.g., WithSearchPath for tests)
-	for _, opt := range opts {
-		opt(v)
 	}
 
 	// Environment variables: TUSK_STORAGE_PATH, TUSK_TUI_COLOR, etc.
