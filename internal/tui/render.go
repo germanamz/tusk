@@ -10,6 +10,100 @@ import (
 	"github.com/germanamz/tusk/internal/domain"
 )
 
+// projectJSON is the JSON serialization format for a project.
+type projectJSON struct {
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	DefaultWorkflow string                 `json:"default_workflow"`
+	Settings        domain.ProjectSettings `json:"settings"`
+	Version         int                    `json:"version"`
+	CreatedAt       string                 `json:"created_at"`
+}
+
+func toProjectJSON(p *domain.Project) projectJSON {
+	return projectJSON{
+		ID:              p.ID.String(),
+		Name:            p.Name,
+		Description:     p.Description,
+		DefaultWorkflow: p.DefaultWorkflow,
+		Settings:        p.Settings,
+		Version:         p.Version,
+		CreatedAt:       p.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+// renderProjectList writes a list of projects to w.
+// Text format renders a table; JSON format renders an array.
+func renderProjectList(w io.Writer, projects []*domain.Project, format string) error {
+	if format == "json" {
+		items := make([]projectJSON, len(projects))
+		for i, p := range projects {
+			items[i] = toProjectJSON(p)
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(items)
+	}
+
+	if len(projects) == 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(w, "%-20s %-30s %-10s %s\n", "NAME", "DESCRIPTION", "WORKFLOW", "SETTINGS"); err != nil {
+		return err
+	}
+	for _, p := range projects {
+		if _, err := fmt.Fprintf(w, "%-20s %-30s %-10s %s\n",
+			p.Name,
+			truncate(p.Description, 30),
+			p.DefaultWorkflow,
+			formatSettingsSummary(p.Settings),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderProjectResult writes a single project mutation result.
+// Text format shows key-value pairs; JSON format shows the full object.
+func renderProjectResult(w io.Writer, action string, project *domain.Project, format string) error {
+	if format == "json" {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(toProjectJSON(project))
+	}
+	_, err := fmt.Fprintf(w, "%s project %s\n", action, project.Name)
+	return err
+}
+
+// formatSettingsSummary returns a compact text summary of project settings.
+func formatSettingsSummary(s domain.ProjectSettings) string {
+	var parts []string
+	if s.AutoCompleteParent != nil {
+		parts = append(parts, "auto-complete:on")
+	}
+	if s.AutoRevertParent != nil {
+		parts = append(parts, "auto-revert:on")
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " ")
+}
+
+// truncate shortens a string to maxLen characters, adding "..." if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
 // formatPriority converts a priority int (0-4) to a single display character.
 func formatPriority(p int) string {
 	switch p {
