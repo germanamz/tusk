@@ -75,9 +75,30 @@ func containsStr(slice []string, s string) bool {
 	return slices.Contains(slice, s)
 }
 
+// addTool registers a tool with the MCP server if it's enabled by config.
+// It also records the tool's group in the toolGroups map.
+func (s *Server) addTool(group string, tool mcp.Tool, handler server.ToolHandlerFunc) {
+	name := tool.Name
+	if !s.isToolEnabled(name, group) {
+		return
+	}
+	s.toolGroups[name] = group
+	s.server.AddTool(tool, handler)
+}
+
+// addResource registers a resource template if it's enabled by config.
+func (s *Server) addResource(group string, tmpl mcp.ResourceTemplate, handler server.ResourceTemplateHandlerFunc) {
+	uri := tmpl.URITemplate.Raw()
+	if !s.isResourceEnabled(uri, group) {
+		return
+	}
+	s.resourceGroups[uri] = group
+	s.server.AddResourceTemplate(tmpl, handler)
+}
+
 // registerTools registers all MCP tool definitions and their handlers.
 func (s *Server) registerTools() {
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_create",
 			mcp.WithDescription("Create a new task"),
 			mcp.WithString("title",
@@ -110,7 +131,7 @@ func (s *Server) registerTools() {
 		s.handleTaskCreate,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_get",
 			mcp.WithDescription("Get a task with full details including tags, relations, and annotations"),
 			mcp.WithString("short_id",
@@ -121,7 +142,7 @@ func (s *Server) registerTools() {
 		s.handleTaskGet,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_list",
 			mcp.WithDescription("List tasks with optional filters"),
 			mcp.WithArray("status",
@@ -161,7 +182,7 @@ func (s *Server) registerTools() {
 		s.handleTaskList,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_modify",
 			mcp.WithDescription("Modify task fields. Requires version for optimistic locking."),
 			mcp.WithString("short_id",
@@ -205,7 +226,7 @@ func (s *Server) registerTools() {
 		s.handleTaskModify,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_start",
 			mcp.WithDescription("Transition a task to active status"),
 			mcp.WithString("short_id",
@@ -220,7 +241,7 @@ func (s *Server) registerTools() {
 		s.handleTaskStart,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_done",
 			mcp.WithDescription("Transition a task to completed status"),
 			mcp.WithString("short_id",
@@ -235,7 +256,7 @@ func (s *Server) registerTools() {
 		s.handleTaskDone,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_delete",
 			mcp.WithDescription("Soft-delete a task (transitions to deleted status)"),
 			mcp.WithString("short_id",
@@ -250,7 +271,7 @@ func (s *Server) registerTools() {
 		s.handleTaskDelete,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_annotate",
 			mcp.WithDescription("Add an annotation (note) to a task"),
 			mcp.WithString("short_id",
@@ -265,7 +286,7 @@ func (s *Server) registerTools() {
 		s.handleTaskAnnotate,
 	)
 
-	s.server.AddTool(
+	s.addTool("relation",
 		mcp.NewTool("tusk_relation_add",
 			mcp.WithDescription("Create a typed relation between two tasks"),
 			mcp.WithString("source",
@@ -285,7 +306,7 @@ func (s *Server) registerTools() {
 		s.handleRelationAdd,
 	)
 
-	s.server.AddTool(
+	s.addTool("relation",
 		mcp.NewTool("tusk_relation_remove",
 			mcp.WithDescription("Remove a relation between two tasks"),
 			mcp.WithString("source",
@@ -305,14 +326,14 @@ func (s *Server) registerTools() {
 		s.handleRelationRemove,
 	)
 
-	s.server.AddTool(
+	s.addTool("project",
 		mcp.NewTool("tusk_project_list",
 			mcp.WithDescription("List all projects"),
 		),
 		s.handleProjectList,
 	)
 
-	s.server.AddTool(
+	s.addTool("project",
 		mcp.NewTool("tusk_project_create",
 			mcp.WithDescription("Create a new project"),
 			mcp.WithString("name",
@@ -326,7 +347,7 @@ func (s *Server) registerTools() {
 		s.handleProjectCreate,
 	)
 
-	s.server.AddTool(
+	s.addTool("task",
 		mcp.NewTool("tusk_task_tree",
 			mcp.WithDescription("Get tasks as a nested tree hierarchy"),
 			mcp.WithString("short_id",

@@ -87,3 +87,31 @@ func TestResourceFiltering_DisabledGroup(t *testing.T) {
 		t.Error("project resource should be enabled")
 	}
 }
+
+func TestRegisterTools_FiltersDisabledTools(t *testing.T) {
+	full := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{})
+	filtered := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{
+		DisabledToolGroups: []string{"relation"},
+	})
+
+	if len(full.toolGroups) != 13 {
+		t.Errorf("full server: expected 13 tools, got %d", len(full.toolGroups))
+	}
+	if len(filtered.toolGroups) != 11 {
+		t.Errorf("filtered server: expected 11 tools (relation group disabled), got %d", len(filtered.toolGroups))
+	}
+}
+
+func TestRegisterResources_FiltersDisabledResources(t *testing.T) {
+	full := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{})
+	filtered := New(nil, nil, nil, nil, nil, "test", config.MCPConfig{
+		DisabledResourceGroups: []string{"workflow"},
+	})
+
+	if len(full.resourceGroups) != 3 {
+		t.Errorf("full server: expected 3 resources, got %d", len(full.resourceGroups))
+	}
+	if len(filtered.resourceGroups) != 2 {
+		t.Errorf("filtered server: expected 2 resources (workflow disabled), got %d", len(filtered.resourceGroups))
+	}
+}
