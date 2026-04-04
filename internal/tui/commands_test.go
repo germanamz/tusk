@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
@@ -85,7 +86,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
 	projectSvc := service.NewProjectService(projectRepo)
-	app := New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, VersionInfo{})
+	app := New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, VersionInfo{}, config.TUIConfig{}, config.MCPConfig{})
 	return app, taskSvc
 }
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/internal/tui"
@@ -27,7 +28,12 @@ func main() {
 }
 
 func run() error {
-	dbPath, err := resolveDBPath()
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	dbPath, err := resolveDBPath(cfg.Storage.Path)
 	if err != nil {
 		return err
 	}
@@ -64,7 +70,7 @@ func run() error {
 		Version: version,
 		Commit:  commit,
 		Date:    date,
-	})
+	}, cfg.TUI, cfg.MCP)
 	return app.Run(stripDBFlag(os.Args[1:]))
 }
 
@@ -84,10 +90,9 @@ func stripDBFlag(args []string) []string {
 	return out
 }
 
-// resolveDBPath returns the database path from: --db flag, TUSK_DB env, or default.
-// Returns path and an error if --db is present but has no value.
+// resolveDBPath returns the database path from: --db flag > TUSK_DB env > config value > default.
 // We check os.Args directly for --db because Cobra hasn't parsed yet at this point.
-func resolveDBPath() (string, error) {
+func resolveDBPath(configPath string) (string, error) {
 	for i, arg := range os.Args {
 		if arg == "--db" {
 			if i+1 >= len(os.Args) {
@@ -107,6 +112,11 @@ func resolveDBPath() (string, error) {
 	// Check environment variable
 	if v := os.Getenv("TUSK_DB"); v != "" {
 		return v, nil
+	}
+
+	// Config file value (with tilde expansion)
+	if configPath != "" {
+		return config.ExpandPath(configPath), nil
 	}
 
 	// Default path
