@@ -351,6 +351,85 @@ workflow = "nonexistent"
 	}
 }
 
+func TestLoad_AutoCreateConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	// Verify file does NOT exist before Load
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatal("config file should not exist before Load")
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Verify file WAS created
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("config file should exist after Load: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("config file should not be empty")
+	}
+
+	// Verify the config loaded correctly (builtins should be present)
+	if _, ok := cfg.Projects["default"]; !ok {
+		t.Fatal("expected builtin default project")
+	}
+	if _, ok := cfg.Workflows["kanban"]; !ok {
+		t.Fatal("expected builtin kanban workflow")
+	}
+
+	// Verify file contains expected content
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading created config: %v", err)
+	}
+	if !strings.Contains(string(content), "[storage]") {
+		t.Error("expected config file to contain [storage] section")
+	}
+	if !strings.Contains(string(content), "[projects.default]") {
+		t.Error("expected config file to contain [projects.default] section")
+	}
+	if !strings.Contains(string(content), "[workflows.kanban]") {
+		t.Error("expected config file to contain [workflows.kanban] section")
+	}
+}
+
+func TestLoad_AutoCreateDoesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	// Write a custom config
+	custom := `[tui]
+color = false
+`
+	if err := os.WriteFile(configPath, []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Custom value should be preserved
+	if cfg.TUI.Color != false {
+		t.Error("expected color=false from custom config")
+	}
+
+	// File should NOT have been overwritten
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != custom {
+		t.Error("config file was overwritten")
+	}
+}
+
 func TestExpandPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

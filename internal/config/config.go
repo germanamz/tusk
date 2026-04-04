@@ -92,6 +92,90 @@ type TUIConfig struct {
 	DefaultSort string `mapstructure:"default_sort"`
 }
 
+// defaultConfigContent is written to disk when no config file exists.
+const defaultConfigContent = `# Tusk Configuration
+#
+# All values shown below are the defaults — you only need to
+# include settings you want to override.
+#
+# Every key can also be set via environment variable with the
+# TUSK_ prefix. Nesting uses underscores:
+#   storage.path       → TUSK_STORAGE_PATH
+#   tui.color          → TUSK_TUI_COLOR
+#   urgency.due_weight → TUSK_URGENCY_DUE_WEIGHT
+
+[storage]
+backend = "sqlite"                         # "sqlite" (only supported backend currently)
+path    = "~/.local/share/tusk/tusk.db"    # SQLite database file path
+
+[storage.postgres]
+dsn = ""  # PostgreSQL connection string (future use)
+
+[urgency]
+priority_weight = 6.0    # Weight for task priority in urgency score
+due_weight      = 12.0   # Weight for due date proximity
+age_weight      = 2.0    # Weight for task age
+blocking_weight = 8.0    # Weight for tasks that block others
+blocked_weight  = -5.0   # Weight for tasks that are blocked
+
+[tui]
+date_format  = "2006-01-02"  # Go time format for date display
+color        = true           # Enable colored output (respects NO_COLOR)
+tree_indent  = 2              # Spaces per indent level in tree view
+default_sort = "urgency"      # Default sort field for task lists
+
+[mcp]
+# Disable MCP tool groups: ["task", "relation", "project"]
+disabled_tool_groups = []
+# Disable individual MCP tools by name
+disabled_tools = []
+# Disable MCP resource groups: ["task", "project", "workflow"]
+disabled_resource_groups = []
+# Disable individual MCP resources by URI template
+disabled_resources = []
+
+# Workflows define allowed status transitions.
+# The builtin "kanban" workflow is always available even without config.
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+transitions = [
+  { from = "pending",   to = "active" },
+  { from = "pending",   to = "deleted" },
+  { from = "active",    to = "completed" },
+  { from = "active",    to = "pending" },
+  { from = "active",    to = "deleted" },
+  { from = "completed", to = "pending" },
+]
+
+# Projects group tasks and assign workflows.
+# The builtin "default" project uses the "kanban" workflow.
+[projects.default]
+workflow = "kanban"
+
+# Example: custom project with auto-completion
+# [projects.backend]
+# workflow = "kanban"
+# [projects.backend.settings.auto_complete_parent]
+# trigger_status = "completed"
+# target_status = "completed"
+`
+
+// ensureConfigFile creates the config file with default content if it doesn't exist.
+func ensureConfigFile(searchPath string) error {
+	configPath := filepath.Join(searchPath, "config.toml")
+	if _, err := os.Stat(configPath); err == nil {
+		return nil // file exists
+	}
+	// Create directory if needed
+	if err := os.MkdirAll(searchPath, 0o755); err != nil {
+		return fmt.Errorf("creating config directory %s: %w", searchPath, err)
+	}
+	if err := os.WriteFile(configPath, []byte(defaultConfigContent), 0o644); err != nil {
+		return fmt.Errorf("writing default config: %w", err)
+	}
+	return nil
+}
+
 // Option configures the Load function.
 type Option func(o *loadOptions)
 
@@ -147,12 +231,21 @@ func Load(opts ...Option) (*Config, error) {
 	}
 
 	// Use custom search path if provided, otherwise default to ~/.config/tusk/.
+	var searchPath string
 	if lo.searchPath != "" {
-		v.AddConfigPath(lo.searchPath)
+		searchPath = lo.searchPath
 	} else {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			v.AddConfigPath(filepath.Join(home, ".config", "tusk"))
+			searchPath = filepath.Join(home, ".config", "tusk")
+		}
+	}
+
+	if searchPath != "" {
+		v.AddConfigPath(searchPath)
+		// Auto-create config file with defaults if it doesn't exist
+		if err := ensureConfigFile(searchPath); err != nil {
+			return nil, err
 		}
 	}
 
