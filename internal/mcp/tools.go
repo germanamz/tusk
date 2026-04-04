@@ -471,3 +471,84 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 
 	return toolResultJSON(toTaskResponse(updated, taskTags))
 }
+
+// handleTaskStart handles the tusk_task_start tool.
+func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+	version, err := request.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
+
+	updated, err := s.taskSvc.Start(ctx, shortID, int(version))
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
+	}
+
+	return toolResultJSON(toTaskResponse(updated, nil))
+}
+
+// handleTaskDone handles the tusk_task_done tool.
+func (s *Server) handleTaskDone(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+	version, err := request.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
+
+	updated, err := s.taskSvc.Complete(ctx, shortID, int(version))
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
+	}
+
+	return toolResultJSON(toTaskResponse(updated, nil))
+}
+
+// handleTaskDelete handles the tusk_task_delete tool.
+func (s *Server) handleTaskDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+	version, err := request.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
+
+	updated, err := s.taskSvc.Delete(ctx, shortID, int(version))
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
+	}
+
+	return toolResultJSON(toTaskResponse(updated, nil))
+}
+
+// handleTaskAnnotate handles the tusk_task_annotate tool.
+func (s *Server) handleTaskAnnotate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+	body, err := request.RequireString("body")
+	if err != nil {
+		return mcp.NewToolResultError("body is required"), nil
+	}
+
+	ann, err := s.taskSvc.Annotate(ctx, shortID, body)
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
+	}
+
+	return toolResultJSON(annotationResponse{
+		ID:        ann.ID.String(),
+		TaskID:    ann.TaskID.String(),
+		Body:      ann.Body,
+		CreatedAt: ann.CreatedAt.Format(time.RFC3339),
+	})
+}

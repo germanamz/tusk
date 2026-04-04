@@ -173,6 +173,66 @@ func (s *Server) registerTools() {
 		),
 		s.handleTaskModify,
 	)
+
+	s.server.AddTool(
+		mcp.NewTool("tusk_task_start",
+			mcp.WithDescription("Transition a task to active status"),
+			mcp.WithString("short_id",
+				mcp.Required(),
+				mcp.Description("Task short ID"),
+			),
+			mcp.WithNumber("version",
+				mcp.Required(),
+				mcp.Description("Current task version (for optimistic locking)"),
+			),
+		),
+		s.handleTaskStart,
+	)
+
+	s.server.AddTool(
+		mcp.NewTool("tusk_task_done",
+			mcp.WithDescription("Transition a task to completed status"),
+			mcp.WithString("short_id",
+				mcp.Required(),
+				mcp.Description("Task short ID"),
+			),
+			mcp.WithNumber("version",
+				mcp.Required(),
+				mcp.Description("Current task version (for optimistic locking)"),
+			),
+		),
+		s.handleTaskDone,
+	)
+
+	s.server.AddTool(
+		mcp.NewTool("tusk_task_delete",
+			mcp.WithDescription("Soft-delete a task (transitions to deleted status)"),
+			mcp.WithString("short_id",
+				mcp.Required(),
+				mcp.Description("Task short ID"),
+			),
+			mcp.WithNumber("version",
+				mcp.Required(),
+				mcp.Description("Current task version (for optimistic locking)"),
+			),
+		),
+		s.handleTaskDelete,
+	)
+
+	s.server.AddTool(
+		mcp.NewTool("tusk_task_annotate",
+			mcp.WithDescription("Add an annotation (note) to a task"),
+			mcp.WithString("short_id",
+				mcp.Required(),
+				mcp.Description("Task short ID"),
+			),
+			mcp.WithString("body",
+				mcp.Required(),
+				mcp.Description("Annotation text"),
+			),
+		),
+		s.handleTaskAnnotate,
+	)
 }
 
 // Serve starts the MCP server using stdio transport.
