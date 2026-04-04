@@ -11,7 +11,7 @@ import (
 // registerResources registers all MCP resource templates.
 func (s *Server) registerResources() {
 	// tusk://tasks/{short_id}
-	s.server.AddResourceTemplate(
+	s.addResource("task",
 		mcp.NewResourceTemplate(
 			"tusk://tasks/{short_id}",
 			"Task Detail",
@@ -22,7 +22,7 @@ func (s *Server) registerResources() {
 	)
 
 	// tusk://projects/{name}
-	s.server.AddResourceTemplate(
+	s.addResource("project",
 		mcp.NewResourceTemplate(
 			"tusk://projects/{name}",
 			"Project Detail",
@@ -33,7 +33,7 @@ func (s *Server) registerResources() {
 	)
 
 	// tusk://projects/{name}/workflow
-	s.server.AddResourceTemplate(
+	s.addResource("workflow",
 		mcp.NewResourceTemplate(
 			"tusk://projects/{name}/workflow",
 			"Project Workflow",
