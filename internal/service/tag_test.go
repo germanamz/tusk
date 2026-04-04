@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -200,6 +201,70 @@ func TestRemoveFromTask_EmptySlice(t *testing.T) {
 	err := tagSvc.RemoveFromTask(ctx, uuid.New(), []string{})
 	if err != nil {
 		t.Fatalf("RemoveFromTask with empty slice should be no-op, got: %v", err)
+	}
+}
+
+func TestCreate_NewTag(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	tag, err := tagSvc.Create(ctx, "feature", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if tag.Name != "feature" {
+		t.Fatalf("expected name 'feature', got %q", tag.Name)
+	}
+	if tag.Color != nil {
+		t.Fatalf("expected nil color, got %v", tag.Color)
+	}
+}
+
+func TestCreate_WithColor(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	color := "#ff0000"
+	tag, err := tagSvc.Create(ctx, "urgent", &color)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if tag.Color == nil || *tag.Color != "#ff0000" {
+		t.Fatalf("expected color '#ff0000', got %v", tag.Color)
+	}
+}
+
+func TestCreate_Duplicate(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.Create(ctx, "dup", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := tagSvc.Create(ctx, "dup", nil)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected ErrConflict, got %v", err)
+	}
+}
+
+func TestCreate_EmptyName(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	_, err := tagSvc.Create(ctx, "", nil)
+	if err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestCreate_WhitespaceName(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	_, err := tagSvc.Create(ctx, "   ", nil)
+	if err == nil {
+		t.Fatal("expected error for whitespace-only name")
 	}
 }
 
