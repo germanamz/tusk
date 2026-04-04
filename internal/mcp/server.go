@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"slices"
+
 	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -54,6 +56,23 @@ func New(
 	s.registerResources()
 
 	return s
+}
+
+// isToolEnabled returns true if the tool should be registered based on config.
+func (s *Server) isToolEnabled(name, group string) bool {
+	return !containsStr(s.cfg.DisabledTools, name) &&
+		!containsStr(s.cfg.DisabledToolGroups, group)
+}
+
+// isResourceEnabled returns true if the resource should be registered based on config.
+func (s *Server) isResourceEnabled(uriTemplate, group string) bool {
+	return !containsStr(s.cfg.DisabledResources, uriTemplate) &&
+		!containsStr(s.cfg.DisabledResourceGroups, group)
+}
+
+// containsStr returns true if slice contains the given string.
+func containsStr(slice []string, s string) bool {
+	return slices.Contains(slice, s)
 }
 
 // registerTools registers all MCP tool definitions and their handlers.
