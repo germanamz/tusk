@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/filter"
 	tuskmcp "github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/internal/service"
@@ -145,7 +146,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		Use:   "serve",
 		Short: "Start MCP server with stdio transport",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mcpServer := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, vi.Version)
+			mcpServer := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, vi.Version, config.MCPConfig{})
 			return mcpServer.Serve()
 		},
 	})
