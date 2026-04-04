@@ -196,7 +196,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ## v0.4 — Configuration & Customization
 
-**Goal:** Viper-based configuration system with declarative workflow definitions, enabling custom statuses, transitions, and per-project workflow assignment.
+**Goal:** Viper-based configuration system, config-driven projects and workflows, enabling custom statuses, transitions, and per-project workflow assignment — all without runtime DB tables for workflows.
 
 ### Initiative: Configuration System
 
@@ -215,26 +215,57 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] `[mcp.disabled_resource_groups]` — hide resources by group
   - [x] `[mcp.disabled_resources]` — hide individual resource templates
 
+### Initiative: Config-based Projects
+
+> Projects become purely config-driven in-memory entities, same as workflows. Drop the `projects` table entirely. Project IDs become human-readable strings (e.g., `"default"`, `"backend"`). Tasks store `project_id` as a plain string column validated at the service layer against config — no FK constraint. A builtin `default` project exists when no config is present.
+
+- [ ] **Story: Drop projects table and migrate task references**
+  - [ ] Migration to drop `projects` table and remove FK constraint from `tasks.project_id`
+  - [ ] Migrate existing `tasks.project_id` UUID values to human-readable project IDs
+  - [ ] Update `tasks.project_id` column to plain TEXT (no FK)
+  - [ ] Drop `workflows.project_id` FK reference (handled by Declarative Workflows initiative)
+
+- [ ] **Story: Project config schema**
+  - [ ] Define `[projects.<id>]` TOML section with `workflow` and `settings` keys
+  - [ ] Add `ProjectsConfig` to `Config` struct
+  - [ ] Builtin `default` project with `kanban` workflow when no config is present
+  - [ ] Validate project config on load (referenced workflow must exist in config)
+
+- [ ] **Story: In-memory project service**
+  - [ ] Rewrite `domain.Project` as config struct — `ID` (string), `Workflow` (string), `Settings` (ProjectSettings)
+  - [ ] Remove `ProjectRepository` interface and SQLite implementation
+  - [ ] Rewrite `ProjectService` to resolve projects from config instead of DB
+  - [ ] Update `TaskService` to validate `project_id` against config
+  - [ ] Update CLI commands (`tusk project list`, remove `tusk project create`/`modify`)
+  - [ ] Update MCP tools (remove `tusk_project_create`, make project tools read-only)
+
 ### Initiative: Declarative Workflows
 
-> Config-driven workflow definitions synced to the database on startup.
+> Workflows become purely config-driven in-memory entities. Drop workflow DB tables entirely. A builtin `kanban` workflow provides the default. Projects reference a workflow by name, resolved from config at runtime.
 
-- [ ] **Story: Workflow definitions in config**
-  - [ ] Define `[workflows.<name>]` TOML schema for custom statuses and transitions
-  - [ ] Sync config-defined workflows to DB on startup (create/update, respect existing data)
-  - [ ] Preserve seed default workflow when no config is present
+- [ ] **Story: Workflow config schema**
+  - [ ] Define `[workflows.<name>]` TOML schema with `statuses` and `transitions` keys
+  - [ ] Add `WorkflowsConfig` map to `Config` struct
+  - [ ] Builtin `kanban` workflow as default (pending, active, completed, deleted) when no config is present
+  - [ ] Validate workflow config on load (statuses referenced in transitions must exist, no orphan transitions)
+
+- [ ] **Story: Drop workflow DB tables**
+  - [ ] Migration to drop `workflow_transitions` and `workflows` tables
+  - [ ] Remove `WorkflowRepository` interface and SQLite implementation
+  - [ ] Remove workflow seed data from migrations
+
+- [ ] **Story: In-memory workflow service**
+  - [ ] Rewrite `WorkflowService` to resolve workflows from config instead of DB
+  - [ ] `IsTransitionAllowed`, `GetStatuses`, `GetTransitions` read from in-memory config map
+  - [ ] Wire new service into DI in `cmd/tusk/main.go`
+  - [ ] Update `TaskService` if interface changes
 
 - [ ] **Story: Workflow CLI commands**
-  - [ ] `tusk workflow list` — list all workflows with their statuses and transitions
+  - [ ] `tusk workflow list` — list all workflows from config with their statuses and transitions
   - [ ] `tusk workflow info <name>` — detailed view of a single workflow
 
-- [ ] **Story: Per-project workflow assignment**
-  - [ ] `[projects.<name>]` config section with `workflow` key
-  - [ ] `tusk project modify <name> --workflow <workflow_name>` CLI support
-  - [ ] Validate workflow exists before assignment
-
 - [ ] **Story: MCP workflow tools**
-  - [ ] `tusk_workflow_list` — list all workflows
+  - [ ] `tusk_workflow_list` — list all workflows from config
   - [ ] Expose workflow assignment in `tusk_project_create` and project modify tools
 
 ### Initiative: MCP Configurability
