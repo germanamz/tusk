@@ -19,7 +19,7 @@ Tusk occupies the gap:
 - **Single binary** — no runtime, no daemon, no browser. Install and go.
 - **Hierarchical tasks** — optional parent-child nesting to arbitrary depth. An "epic" is just a task with children.
 - **Typed relations** — `blocks`, `relates_to`, `duplicates` as first-class edges between tasks. Cycle detection on `blocks`.
-- **Configurable workflows** — define allowed status transitions per project. Default: `pending → active → completed | deleted`.
+- **Configurable workflows** — define allowed status transitions per project in config. Builtin `kanban` workflow: `pending → active → completed | deleted`.
 - **Concurrent-safe** — optimistic locking via version fields. Two MCP calls modifying the same task won't silently clobber each other.
 - **Pluggable storage** — SQLite out of the box, but the repository layer is an interface. Swap in PostgreSQL, a JSON file, or a remote API without touching the service layer.
 - **Built-in MCP server** — every CLI command is also an MCP tool. AI agents can create, query, modify, and relate tasks through the same service layer humans use.
@@ -49,20 +49,26 @@ Tusk occupies the gap:
 └──────────────────────┬───────────────────────┘
                        │
                        ▼
-┌──────────────────────────────────────────────┐
-│           Repository Layer (interfaces)      │
-│  ┌──────────┐ ┌──────────────┐ ┌──────────┐ │
-│  │ TaskRepo │ │ RelationRepo │ │ TagRepo  │ │
-│  └──────────┘ └──────────────┘ └──────────┘ │
-└──────────────────────┬───────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│              Repository Layer (interfaces)                │
+│  ┌──────────┐ ┌──────────────┐ ┌──────────┐             │
+│  │ TaskRepo │ │ RelationRepo │ │ TagRepo  │  (DB-backed) │
+│  └──────────┘ └──────────────┘ └──────────┘             │
+│  ┌─────────────┐ ┌───────────────┐                       │
+│  │ ProjectRepo │ │ WorkflowRepo  │  (in-memory, config)  │
+│  └─────────────┘ └───────────────┘                       │
+└──────────────────────┬───────────────────────────────────┘
                        │
                        ▼
-┌──────────────────────────────────────────────┐
-│          Storage Implementations             │
-│  ┌────────┐  ┌────────────┐  ┌───────────┐  │
-│  │ SQLite │  │ PostgreSQL │  │ JSON File │  │
-│  └────────┘  └────────────┘  └───────────┘  │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│             Storage Implementations                       │
+│  ┌────────┐  ┌────────────┐  ┌───────────┐               │
+│  │ SQLite │  │ PostgreSQL │  │ JSON File │  (DB-backed)   │
+│  └────────┘  └────────────┘  └───────────┘               │
+│  ┌───────────────────┐                                    │
+│  │ In-Memory (config)│  (projects, workflows)             │
+│  └───────────────────┘                                    │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### Layer responsibilities
@@ -73,7 +79,7 @@ Tusk occupies the gap:
 
 **Repository layer** — Go interfaces defining CRUD + query operations. Each storage backend implements these interfaces. The repository is the transaction boundary: a single repository method call is atomic.
 
-**Storage implementations** — concrete adapters. SQLite (default, WAL mode), PostgreSQL (future), JSON file (for portable/offline use). Each implementation handles its own connection pooling, migration, and locking semantics.
+**Storage implementations** — concrete adapters. SQLite (default, WAL mode), PostgreSQL (future), JSON file (for portable/offline use) for DB-backed repositories. In-memory adapters backed by config for projects and workflows. Each DB implementation handles its own connection pooling, migration, and locking semantics.
 
 ### Dependency rule
 
@@ -450,12 +456,17 @@ tusk/
 │   ├── repository/              # Interfaces
 │   │   ├── task.go
 │   │   ├── relation.go
+│   │   ├── project.go
+│   │   ├── workflow.go
 │   │   └── tag.go
-│   ├── sqlite/                  # SQLite implementation
+│   ├── sqlite/                  # SQLite implementation (DB-backed repos)
 │   │   ├── store.go             # Connection, migrations
 │   │   ├── task.go
 │   │   ├── relation.go
 │   │   └── tag.go
+│   ├── inmem/                   # In-memory implementation (config-backed repos)
+│   │   ├── project.go           # ProjectRepository from config
+│   │   └── workflow.go          # WorkflowRepository from config
 │   ├── config/                  # Viper-based configuration
 │   │   └── config.go            # Config struct, Load(), projects & workflows
 │   ├── mcp/                     # MCP server
