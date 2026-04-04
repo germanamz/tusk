@@ -12,6 +12,7 @@ var (
 	ErrCyclicParent      = errors.New("parent would create a cycle in task hierarchy")
 	ErrInvalidTransition = errors.New("status transition not allowed by workflow")
 	ErrDuplicateRelation = errors.New("relation already exists")
+	ErrTagInUse          = errors.New("tag is assigned to tasks")
 	ErrSourceNotFound    = fmt.Errorf("source task: %w", ErrNotFound)
 	ErrTargetNotFound    = fmt.Errorf("target task: %w", ErrNotFound)
 )
