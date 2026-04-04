@@ -48,6 +48,33 @@ func (s *TagService) FindOrCreate(ctx context.Context, name string) (*domain.Tag
 	return tag, nil
 }
 
+// Create explicitly creates a new tag with the given name and optional color.
+// Unlike FindOrCreate, this fails with ErrConflict if the tag already exists.
+func (s *TagService) Create(ctx context.Context, name string, color *string) (*domain.Tag, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("tag name must not be empty")
+	}
+
+	_, err := s.tagRepo.GetByName(ctx, name)
+	if err == nil {
+		return nil, fmt.Errorf("tag %q already exists: %w", name, domain.ErrConflict)
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return nil, fmt.Errorf("looking up tag %q: %w", name, err)
+	}
+
+	tag := &domain.Tag{
+		ID:    uuid.New(),
+		Name:  name,
+		Color: color,
+	}
+	if err := s.tagRepo.Create(ctx, tag); err != nil {
+		return nil, fmt.Errorf("creating tag %q: %w", name, err)
+	}
+	return tag, nil
+}
+
 // AssignToTask finds-or-creates each tag by name and assigns them to the task.
 // An empty tagNames slice is a no-op.
 func (s *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
