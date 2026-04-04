@@ -268,6 +268,53 @@ func TestCreate_WhitespaceName(t *testing.T) {
 	}
 }
 
+func TestDelete_UnusedTag(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	if _, err := tagSvc.Create(ctx, "removable", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tagSvc.Delete(ctx, "removable"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// Verify it's gone
+	tags, err := tagSvc.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) != 0 {
+		t.Fatalf("expected 0 tags after delete, got %d", len(tags))
+	}
+}
+
+func TestDelete_TagInUse(t *testing.T) {
+	tagSvc, store := testTagEnv(t)
+	ctx := context.Background()
+
+	task := mustCreateTaskForTags(t, store)
+	if err := tagSvc.AssignToTask(ctx, task.ID, []string{"busy"}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := tagSvc.Delete(ctx, "busy")
+	if !errors.Is(err, domain.ErrTagInUse) {
+		t.Fatalf("expected ErrTagInUse, got %v", err)
+	}
+}
+
+func TestDelete_NotFound(t *testing.T) {
+	tagSvc, _ := testTagEnv(t)
+	ctx := context.Background()
+
+	err := tagSvc.Delete(ctx, "nonexistent")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestList(t *testing.T) {
 	tagSvc, _ := testTagEnv(t)
 	ctx := context.Background()

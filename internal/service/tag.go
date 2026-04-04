@@ -75,6 +75,28 @@ func (s *TagService) Create(ctx context.Context, name string, color *string) (*d
 	return tag, nil
 }
 
+// Delete removes a tag by name. Returns ErrTagInUse if the tag is still
+// assigned to any tasks. Returns ErrNotFound if the tag doesn't exist.
+func (s *TagService) Delete(ctx context.Context, name string) error {
+	tag, err := s.tagRepo.GetByName(ctx, name)
+	if err != nil {
+		return fmt.Errorf("looking up tag %q: %w", name, err)
+	}
+
+	count, err := s.tagRepo.CountTasksByTagID(ctx, tag.ID)
+	if err != nil {
+		return fmt.Errorf("counting tasks for tag %q: %w", name, err)
+	}
+	if count > 0 {
+		return fmt.Errorf("tag %q is assigned to %d task(s): %w", name, count, domain.ErrTagInUse)
+	}
+
+	if err := s.tagRepo.Delete(ctx, tag.ID); err != nil {
+		return fmt.Errorf("deleting tag %q: %w", name, err)
+	}
+	return nil
+}
+
 // AssignToTask finds-or-creates each tag by name and assigns them to the task.
 // An empty tagNames slice is a no-op.
 func (s *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
