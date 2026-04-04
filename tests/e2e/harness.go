@@ -2,7 +2,6 @@
 package e2e
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,8 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	_ "modernc.org/sqlite"
 )
 
 // Result holds the output of a single CLI invocation.
@@ -92,34 +89,6 @@ func (e *Env) Run(args ...string) Result {
 	}
 	e.results = append(e.results, r)
 	return r
-}
-
-// SetDefaultProjectSettings updates the _default project's settings JSON
-// directly in the database. This is needed because there is no CLI command
-// to modify project settings yet. It runs a dummy CLI command first to
-// ensure the database and tables are initialized.
-func (e *Env) SetDefaultProjectSettings(settingsJSON string) {
-	e.t.Helper()
-
-	// Run a no-op command to initialize the database (migrations, default project).
-	// We don't store the result in env.results so $N references are unaffected.
-	initArgs := []string{"--db", e.dbPath, "list"}
-	cmd := exec.Command(e.binPath, initArgs...)
-	if err := cmd.Run(); err != nil {
-		e.t.Fatalf("initializing db for settings: %v", err)
-	}
-
-	db, err := sql.Open("sqlite", e.dbPath+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		e.t.Fatalf("opening db for settings: %v", err)
-	}
-	defer db.Close()
-
-	defaultProjectID := "00000000-0000-0000-0000-000000000000"
-	_, err = db.Exec(`UPDATE projects SET settings = ? WHERE id = ?`, settingsJSON, defaultProjectID)
-	if err != nil {
-		e.t.Fatalf("setting project settings: %v", err)
-	}
 }
 
 // shortIDPattern matches 8+ hex character short IDs in mutation output lines.
