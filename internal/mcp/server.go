@@ -20,6 +20,7 @@ func New(
 	tagSvc *service.TagService,
 	relationSvc *service.RelationService,
 	projectSvc *service.ProjectService,
+	version string,
 ) *Server {
 	s := &Server{
 		taskSvc:     taskSvc,
@@ -30,7 +31,7 @@ func New(
 
 	s.server = server.NewMCPServer(
 		"tusk",
-		"0.3.0",
+		version,
 		server.WithToolCapabilities(false),
 		server.WithResourceCapabilities(false, false),
 		server.WithRecovery(),
