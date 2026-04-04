@@ -194,6 +194,105 @@ func TestProjectCreateDuplicate(t *testing.T) {
 	}
 }
 
+// TestProjectUpdateVersion verifies that Update increments the version field
+// and that the new version is persisted.
+func TestProjectUpdateVersion(t *testing.T) {
+	s := testStore(t)
+	repo := NewProjectRepo(s.DB())
+	ctx := context.Background()
+
+	p := &domain.Project{
+		ID:              uuid.New(),
+		Name:            "versioned",
+		Description:     "Test versioning",
+		DefaultWorkflow: "default",
+		Version:         1,
+		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Read back to confirm version is 1
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Version != 1 {
+		t.Fatalf("expected version 1, got %d", got.Version)
+	}
+
+	// Update should increment version to 2
+	got.Description = "Updated"
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got2, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID after update: %v", err)
+	}
+	if got2.Version != 2 {
+		t.Fatalf("expected version 2, got %d", got2.Version)
+	}
+	if got2.Description != "Updated" {
+		t.Fatalf("expected description 'Updated', got %q", got2.Description)
+	}
+}
+
+// TestProjectUpdateConflict verifies that updating with a stale version
+// returns domain.ErrConflict.
+func TestProjectUpdateConflict(t *testing.T) {
+	s := testStore(t)
+	repo := NewProjectRepo(s.DB())
+	ctx := context.Background()
+
+	p := &domain.Project{
+		ID:              uuid.New(),
+		Name:            "conflict-test",
+		Description:     "Original",
+		DefaultWorkflow: "default",
+		Version:         1,
+		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Simulate a stale read: read the project, then update it once
+	// so the DB version is now 2, but our copy still says 1.
+	stale, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	// First update succeeds (version 1 -> 2)
+	fresh, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	fresh.Description = "Fresh update"
+	if err := repo.Update(ctx, fresh); err != nil {
+		t.Fatalf("Update (fresh): %v", err)
+	}
+
+	// Stale update should fail with ErrConflict (version is still 1, DB is 2)
+	stale.Description = "Stale update"
+	err = repo.Update(ctx, stale)
+	if err != domain.ErrConflict {
+		t.Fatalf("expected ErrConflict, got %v", err)
+	}
+
+	// Verify the fresh update persisted, not the stale one
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID after conflict: %v", err)
+	}
+	if got.Description != "Fresh update" {
+		t.Fatalf("expected 'Fresh update', got %q", got.Description)
+	}
+}
+
 // TestProjectDelete verifies that Delete removes a project, and that
 // GetByID returns ErrNotFound afterward.
 func TestProjectDelete(t *testing.T) {
