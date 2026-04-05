@@ -64,3 +64,18 @@ func ValidateUDAKey(key string) error {
 	}
 	return nil
 }
+
+// ValidateUDA checks that all keys are valid and all values are strings.
+// A nil map is valid (no UDAs). Returns a descriptive error naming the
+// offending key or value type.
+func ValidateUDA(uda map[string]any) error {
+	for k, v := range uda {
+		if err := ValidateUDAKey(k); err != nil {
+			return err
+		}
+		if _, ok := v.(string); !ok {
+			return fmt.Errorf("UDA value for %q must be a string, got %T", k, v)
+		}
+	}
+	return nil
+}
