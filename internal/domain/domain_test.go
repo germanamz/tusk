@@ -49,7 +49,7 @@ func TestTypesCompile(t *testing.T) {
 
 	_ = domain.Project{
 		ID:       "backend",
-		Workflow: "default",
+		Workflow: "kanban",
 	}
 
 	color := "#ff0000"

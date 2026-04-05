@@ -15,12 +15,12 @@ func TestWorkflowGetByProjectAndName(t *testing.T) {
 	s := testStore(t)
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	wf, err := repo.GetByProjectAndName(ctx, "default", "default")
+	wf, err := repo.GetByProjectAndName(ctx, "default", "kanban")
 	if err != nil {
 		t.Fatalf("GetByProjectAndName: %v", err)
 	}
-	if wf.Name != "default" {
-		t.Fatalf("expected default, got %s", wf.Name)
+	if wf.Name != "kanban" {
+		t.Fatalf("expected kanban, got %s", wf.Name)
 	}
 	if len(wf.Statuses) != 4 {
 		t.Fatalf("expected 4 statuses, got %d", len(wf.Statuses))
@@ -46,7 +46,7 @@ func TestWorkflowGetTransitions(t *testing.T) {
 	s := testStore(t)
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	wf, err := repo.GetByProjectAndName(ctx, "default", "default")
+	wf, err := repo.GetByProjectAndName(ctx, "default", "kanban")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestWorkflowGetTransitionsValidatePairs(t *testing.T) {
 	s := testStore(t)
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	wf, err := repo.GetByProjectAndName(ctx, "default", "default")
+	wf, err := repo.GetByProjectAndName(ctx, "default", "kanban")
 	if err != nil {
 		t.Fatal(err)
 	}

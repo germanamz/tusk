@@ -29,7 +29,7 @@ func TestIsTransitionAllowed_Allowed(t *testing.T) {
 	svc := testWorkflowService(t)
 	ctx := context.Background()
 
-	allowed, err := svc.IsTransitionAllowed(ctx, defaultProjectID, "default", "pending", "active")
+	allowed, err := svc.IsTransitionAllowed(ctx, defaultProjectID, "kanban", "pending", "active")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestIsTransitionAllowed_Disallowed(t *testing.T) {
 	svc := testWorkflowService(t)
 	ctx := context.Background()
 
-	allowed, err := svc.IsTransitionAllowed(ctx, defaultProjectID, "default", "pending", "completed")
+	allowed, err := svc.IsTransitionAllowed(ctx, defaultProjectID, "kanban", "pending", "completed")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestGetStatuses(t *testing.T) {
 	svc := testWorkflowService(t)
 	ctx := context.Background()
 
-	statuses, err := svc.GetStatuses(ctx, defaultProjectID, "default")
+	statuses, err := svc.GetStatuses(ctx, defaultProjectID, "kanban")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

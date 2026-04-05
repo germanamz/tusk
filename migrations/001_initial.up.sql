@@ -84,7 +84,7 @@ CREATE TABLE workflow_transitions (
 INSERT INTO workflows (id, project_id, name, statuses)
 VALUES ('00000000-0000-0000-0000-000000000001',
         'default',
-        'default',
+        'kanban',
         '["pending","active","completed","deleted"]');
 
 INSERT INTO workflow_transitions (id, workflow_id, from_status, to_status) VALUES

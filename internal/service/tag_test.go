@@ -90,7 +90,7 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "default"},
+		"default": {Workflow: "kanban"},
 	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	workflowSvc := NewWorkflowService(workflowRepo)
