@@ -1,592 +1,453 @@
-# Declarative Workflows — Phase 3: CLI, MCP, DI Wiring & E2E Tests
+# Declarative Workflows — Phase 3: Clean Up Public API
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `tusk workflow list` and `tusk workflow info <name>` CLI commands, add `tusk_workflow_list` MCP tool, update DI wiring in `main.go`, update MCP resource handler, and add E2E tests.
+**Goal:** Remove the transitional `projectID` parameter from `WorkflowService` method signatures, add new methods (`List`, `GetByName`, `GetWorkflowWithProjects`), and update all call sites.
 
-**Architecture:** New CLI commands delegate to `WorkflowService`. The MCP tool uses the existing `addTool` pattern. `main.go` swaps the SQLite workflow repo for the in-memory one. The MCP workflow resource handler is updated for the new service signature.
+**Architecture:** `WorkflowService` gains a `projectRepo` dependency for `GetWorkflowWithProjects`. All callers drop `projectID`. The project-to-workflow resolution already happens before workflow calls, so this is purely a signature cleanup.
 
-**Tech Stack:** Go, Cobra (CLI), mcp-go (MCP)
+**Tech Stack:** Go, standard library only
 
-**Prerequisites:** Phase 1 and Phase 2 must be complete.
+**Prerequisites:** Phase 2 must be complete (SQLite deleted, TaskTxProvider simplified, full compilation green).
 
 ---
 
-### Task 1: DI wiring and MCP resource handler update
+### Task 1: Rewrite WorkflowService — final API
 
-Update `main.go` to use in-memory workflow repo and update `NewWorkflowService` call. Update the MCP workflow resource handler for the new service API.
+Drop `projectID` from all method signatures, add `projectRepo` dependency and three new methods.
 
 **Files:**
-- Modify: `cmd/tusk/main.go:58,63` (workflow repo and service creation)
-- Modify: `internal/mcp/resources.go:132-137` (workflow resource handler)
-- Modify: `internal/mcp/server.go:88-104` (validate config — add workflow tool group)
+- Modify: `internal/service/workflow.go` (full rewrite from transitional version)
+- Modify: `internal/service/workflow_test.go` (full rewrite)
 
-- [ ] **Step 1: Update `cmd/tusk/main.go`**
+- [ ] **Step 1: Rewrite `internal/service/workflow_test.go`**
 
-Replace line 58:
+Replace the entire file with:
 
 ```go
-	workflowRepo := sqlite.NewWorkflowRepo(db)
+package service
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/inmem"
+)
+
+func testWorkflowEnv(t *testing.T) *WorkflowService {
+	t.Helper()
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"default": {Workflow: "kanban"},
+		"backend": {Workflow: "kanban"},
+	})
+	return NewWorkflowService(workflowRepo, projectRepo)
+}
+
+func TestIsTransitionAllowed_Allowed(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	allowed, err := svc.IsTransitionAllowed(ctx, "kanban", "pending", "active")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected pending->active to be allowed")
+	}
+}
+
+func TestIsTransitionAllowed_Disallowed(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	allowed, err := svc.IsTransitionAllowed(ctx, "kanban", "pending", "completed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if allowed {
+		t.Fatal("expected pending->completed to be disallowed")
+	}
+}
+
+func TestIsTransitionAllowed_WorkflowNotFound(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	_, err := svc.IsTransitionAllowed(ctx, "nonexistent", "pending", "active")
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
+}
+
+func TestGetStatuses(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	statuses, err := svc.GetStatuses(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []string{"pending", "active", "completed", "deleted"}
+	if len(statuses) != len(expected) {
+		t.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
+	}
+	for i, s := range statuses {
+		if s != expected[i] {
+			t.Fatalf("status[%d]: expected %q, got %q", i, expected[i], s)
+		}
+	}
+}
+
+func TestGetStatuses_WorkflowNotFound(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	_, err := svc.GetStatuses(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
+}
+
+func TestGetTransitions(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	transitions, err := svc.GetTransitions(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(transitions) != 6 {
+		t.Fatalf("expected 6 transitions, got %d", len(transitions))
+	}
+}
+
+func TestWorkflowList(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	workflows, err := svc.List(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(workflows) != 1 {
+		t.Fatalf("expected 1 workflow, got %d", len(workflows))
+	}
+	if workflows[0].Name != "kanban" {
+		t.Fatalf("expected 'kanban', got %q", workflows[0].Name)
+	}
+}
+
+func TestGetByName(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	wf, err := svc.GetByName(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wf.Name != "kanban" {
+		t.Fatalf("expected 'kanban', got %q", wf.Name)
+	}
+}
+
+func TestGetByName_NotFound(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	_, err := svc.GetByName(ctx, "nonexistent")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetWorkflowWithProjects(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	wf, projectIDs, err := svc.GetWorkflowWithProjects(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wf.Name != "kanban" {
+		t.Fatalf("expected 'kanban', got %q", wf.Name)
+	}
+	if len(projectIDs) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projectIDs))
+	}
+	if projectIDs[0] != "backend" || projectIDs[1] != "default" {
+		t.Fatalf("expected [backend, default], got %v", projectIDs)
+	}
+}
+
+func TestGetWorkflowWithProjects_NotFound(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	_, _, err := svc.GetWorkflowWithProjects(ctx, "nonexistent")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
 ```
 
+- [ ] **Step 2: Rewrite `internal/service/workflow.go`**
+
+Replace the entire file with:
+
+```go
+package service
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
+)
+
+// WorkflowService validates status transitions and provides read access
+// to workflow definitions from config.
+type WorkflowService struct {
+	workflowRepo repository.WorkflowRepository
+	projectRepo  repository.ProjectRepository
+}
+
+// NewWorkflowService creates a new WorkflowService.
+func NewWorkflowService(wr repository.WorkflowRepository, pr repository.ProjectRepository) *WorkflowService {
+	return &WorkflowService{workflowRepo: wr, projectRepo: pr}
+}
+
+// IsTransitionAllowed checks whether a status transition is permitted
+// by the named workflow.
+func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, workflowName string, from string, to string) (bool, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return false, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+
+	for _, t := range wf.Transitions {
+		if t.FromStatus == from && t.ToStatus == to {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetStatuses returns the ordered list of valid statuses for the named workflow.
+func (s *WorkflowService) GetStatuses(ctx context.Context, workflowName string) ([]string, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	return wf.Statuses, nil
+}
+
+// GetTransitions returns all allowed transitions for the named workflow.
+func (s *WorkflowService) GetTransitions(ctx context.Context, workflowName string) ([]domain.WorkflowTransition, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	return wf.Transitions, nil
+}
+
+// List returns all workflows from config.
+func (s *WorkflowService) List(ctx context.Context) ([]*domain.Workflow, error) {
+	return s.workflowRepo.List(ctx)
+}
+
+// GetByName returns a single workflow by name.
+// Returns domain.ErrNotFound if the workflow does not exist.
+func (s *WorkflowService) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
+	return s.workflowRepo.GetByName(ctx, name)
+}
+
+// GetWorkflowWithProjects returns a workflow and the sorted list of project IDs
+// that reference it. Returns domain.ErrNotFound if the workflow does not exist.
+func (s *WorkflowService) GetWorkflowWithProjects(ctx context.Context, name string) (*domain.Workflow, []string, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, name)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	projects, err := s.projectRepo.List(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing projects: %w", err)
+	}
+
+	var projectIDs []string
+	for _, p := range projects {
+		if p.Workflow == name {
+			projectIDs = append(projectIDs, p.ID)
+		}
+	}
+	return wf, projectIDs, nil
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add internal/service/workflow.go internal/service/workflow_test.go
+git commit -m "refactor(service): drop projectID from WorkflowService, add new methods
+
+Remove transitional projectID params. Add List, GetByName, and
+GetWorkflowWithProjects. Add projectRepo dependency."
+```
+
+---
+
+### Task 2: Update all call sites
+
+Drop `projectID` from all workflow calls in TaskService, MCP, and update `main.go` constructor.
+
+**Files:**
+- Modify: `internal/service/task.go` (4 call sites)
+- Modify: `internal/mcp/resources.go` (2 call sites)
+- Modify: `cmd/tusk/main.go` (constructor call)
+
+- [ ] **Step 1: Update TaskService call sites in `internal/service/task.go`**
+
+Replace in `Create` (around line 98):
+
+```go
+	statuses, err := s.workflowSvc.GetStatuses(ctx, task.ProjectID, project.Workflow)
+```
 With:
-
 ```go
-	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
+	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
 ```
 
-Replace line 63:
+Replace in `Update` (around line 253):
+
+```go
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, task.ProjectID, project.Workflow, oldStatus, task.Status)
+```
+With:
+```go
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, oldStatus, task.Status)
+```
+
+Replace in `checkAutoComplete` (around line 473):
+
+```go
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
+```
+With:
+```go
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, cfg.TargetStatus)
+```
+
+Replace in `checkAutoRevert` (around line 554):
+
+```go
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
+```
+With:
+```go
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, revertCfg.TargetStatus)
+```
+
+- [ ] **Step 2: Update MCP resource handler in `internal/mcp/resources.go`**
+
+Replace (around lines 132-137):
+
+```go
+	statuses, err := s.workflowSvc.GetStatuses(ctx, project.ID, project.Workflow)
+```
+With:
+```go
+	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
+```
+
+Replace:
+```go
+	transitions, err := s.workflowSvc.GetTransitions(ctx, project.ID, project.Workflow)
+```
+With:
+```go
+	transitions, err := s.workflowSvc.GetTransitions(ctx, project.Workflow)
+```
+
+- [ ] **Step 3: Update `cmd/tusk/main.go` constructor**
+
+Replace (around line 63):
 
 ```go
 	workflowSvc := service.NewWorkflowService(workflowRepo)
 ```
-
 With:
-
 ```go
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 ```
 
-Also remove the `sqlite.NewWorkflowRepo` import usage — the `sqlite` package is still imported for `NewTaskRepo` etc., so the import stays. But `workflowRepo` no longer comes from `sqlite`. Add `"github.com/germanamz/tusk/internal/inmem"` to the import if not already there (it is — line 10 imports it for `inmem.NewProjectRepository`).
-
-- [ ] **Step 2: Update `handleWorkflowResource` in `internal/mcp/resources.go`**
-
-Replace lines 132-137:
-
-```go
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.ID, project.Workflow)
-	if err != nil {
-		return nil, err
-	}
-
-	transitions, err := s.workflowSvc.GetTransitions(ctx, project.ID, project.Workflow)
-	if err != nil {
-		return nil, err
-	}
-```
-
-With:
-
-```go
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
-	if err != nil {
-		return nil, err
-	}
-
-	transitions, err := s.workflowSvc.GetTransitions(ctx, project.Workflow)
-	if err != nil {
-		return nil, err
-	}
-```
-
-- [ ] **Step 3: Update `validateConfig` in `internal/mcp/server.go`**
-
-Add `"tusk_workflow_list": true` to the `validToolNames` map (around line 101):
-
-```go
-	validToolNames := map[string]bool{
-		"tusk_task_create":     true,
-		"tusk_task_get":        true,
-		"tusk_task_list":       true,
-		"tusk_task_modify":     true,
-		"tusk_task_start":      true,
-		"tusk_task_done":       true,
-		"tusk_task_delete":     true,
-		"tusk_task_annotate":   true,
-		"tusk_task_tree":       true,
-		"tusk_relation_add":    true,
-		"tusk_relation_remove": true,
-		"tusk_project_list":    true,
-		"tusk_workflow_list":   true,
-	}
-```
-
-Add `"workflow": true` to the `validToolGroups` map (around line 103):
-
-```go
-	validToolGroups := map[string]bool{
-		"task": true, "relation": true, "project": true, "workflow": true,
-	}
-```
-
-- [ ] **Step 4: Verify compilation**
-
-Run: `cd /Users/germanamz/projects/tusk && go build ./...`
-
-Expected: PASS. The full project should compile.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add cmd/tusk/main.go internal/mcp/resources.go internal/mcp/server.go
-git commit -m "refactor: wire in-memory workflow repo and update MCP resource handler
+git add internal/service/task.go internal/mcp/resources.go cmd/tusk/main.go
+git commit -m "refactor: drop projectID from all workflow call sites
 
-Switch main.go from sqlite.WorkflowRepo to inmem.WorkflowRepository.
-Update MCP workflow resource handler for new service signatures.
-Add workflow tool group to MCP config validation."
+Update TaskService, MCP resource handler, and main.go DI to use
+the final WorkflowService signatures."
 ```
 
 ---
 
-### Task 2: Add `tusk_workflow_list` MCP tool
+### Task 3: Update tests and verify
 
-Register the new MCP tool and implement its handler.
+Update task_test.go for the new constructor and run the full suite.
 
 **Files:**
-- Modify: `internal/mcp/server.go` (add tool registration in `registerTools`)
-- Modify: `internal/mcp/tools.go` (add handler and response types)
+- Modify: `internal/service/task_test.go`
 
-- [ ] **Step 1: Add tool registration in `internal/mcp/server.go`**
+- [ ] **Step 1: Update `testTaskEnvWithSettings`**
 
-Add the following at the end of the `registerTools` method, just before the closing brace (after the `tusk_task_tree` block around line 411):
-
-```go
-	s.addTool("workflow",
-		mcp.NewTool("tusk_workflow_list",
-			mcp.WithDescription("List all workflows with their statuses, transitions, and referencing projects"),
-		),
-		s.handleWorkflowList,
-	)
-```
-
-- [ ] **Step 2: Add handler and response types in `internal/mcp/tools.go`**
-
-Add at the end of the file:
+Find the line:
 
 ```go
-// workflowListResponse is the JSON structure returned by the workflow list tool.
-type workflowListResponse struct {
-	Name        string               `json:"name"`
-	Statuses    []string             `json:"statuses"`
-	Transitions []transitionResponse `json:"transitions"`
-	Projects    []string             `json:"projects"`
-}
-
-// handleWorkflowList handles the tusk_workflow_list tool.
-func (s *Server) handleWorkflowList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	workflows, err := s.workflowSvc.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	results := make([]workflowListResponse, len(workflows))
-	for i, wf := range workflows {
-		// Get projects that reference this workflow
-		_, projectIDs, err := s.workflowSvc.GetWorkflowWithProjects(ctx, wf.Name)
-		if err != nil {
-			return nil, err
-		}
-
-		transitions := make([]transitionResponse, len(wf.Transitions))
-		for j, t := range wf.Transitions {
-			transitions[j] = transitionResponse{From: t.FromStatus, To: t.ToStatus}
-		}
-
-		if projectIDs == nil {
-			projectIDs = []string{}
-		}
-		results[i] = workflowListResponse{
-			Name:        wf.Name,
-			Statuses:    wf.Statuses,
-			Transitions: transitions,
-			Projects:    projectIDs,
-		}
-	}
-
-	return toolResultJSON(results)
-}
+	workflowSvc := NewWorkflowService(workflowRepo)
 ```
 
-Note: `transitionResponse` is already defined in `resources.go` (lines 111-114). Reuse it here.
+Replace with:
 
-- [ ] **Step 3: Verify compilation**
+```go
+	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
+```
 
-Run: `cd /Users/germanamz/projects/tusk && go build ./internal/mcp/...`
+- [ ] **Step 2: Run full test suite**
+
+Run: `cd /Users/germanamz/projects/tusk && go build ./... && make test`
+
+Expected: full compilation PASS, all tests PASS.
+
+- [ ] **Step 3: Run with race detector**
+
+Run: `cd /Users/germanamz/projects/tusk && make test-race`
 
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add internal/mcp/server.go internal/mcp/tools.go
-git commit -m "feat(mcp): add tusk_workflow_list tool
+git add internal/service/task_test.go
+git commit -m "test(service): update TaskService tests for final WorkflowService API
 
-Lists all workflows with statuses, transitions, and referencing
-projects. Registered in the 'workflow' tool group."
+Pass projectRepo to NewWorkflowService in test setup."
 ```
-
----
-
-### Task 3: Add CLI workflow commands
-
-Add `tusk workflow list` and `tusk workflow info <name>` commands.
-
-**Files:**
-- Create: `internal/tui/workflow.go`
-- Modify: `internal/tui/render.go` (add workflow rendering functions)
-- Modify: `internal/tui/app.go:142` (register workflow command)
-
-- [ ] **Step 1: Add workflow rendering to `internal/tui/render.go`**
-
-Add at the end of the file:
-
-```go
-// workflowJSON is the JSON serialization format for a workflow.
-type workflowJSON struct {
-	Name        string               `json:"name"`
-	Statuses    []string             `json:"statuses"`
-	Transitions []workflowTransJSON  `json:"transitions"`
-}
-
-// workflowTransJSON is the JSON serialization format for a workflow transition.
-type workflowTransJSON struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
-
-// workflowInfoJSON extends workflowJSON with referencing projects.
-type workflowInfoJSON struct {
-	workflowJSON
-	Projects []string `json:"projects"`
-}
-
-func toWorkflowJSON(wf *domain.Workflow) workflowJSON {
-	transitions := make([]workflowTransJSON, len(wf.Transitions))
-	for i, t := range wf.Transitions {
-		transitions[i] = workflowTransJSON{From: t.FromStatus, To: t.ToStatus}
-	}
-	return workflowJSON{
-		Name:        wf.Name,
-		Statuses:    wf.Statuses,
-		Transitions: transitions,
-	}
-}
-
-// renderWorkflowList writes a list of workflows to w.
-func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, format string) error {
-	if format == "json" {
-		items := make([]workflowJSON, len(workflows))
-		for i, wf := range workflows {
-			items[i] = toWorkflowJSON(wf)
-		}
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(items)
-	}
-
-	if len(workflows) == 0 {
-		return nil
-	}
-
-	if _, err := fmt.Fprintf(w, "%-20s %s\n", "NAME", "STATUSES"); err != nil {
-		return err
-	}
-	for _, wf := range workflows {
-		if _, err := fmt.Fprintf(w, "%-20s %s\n",
-			wf.Name,
-			strings.Join(wf.Statuses, ", "),
-		); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// renderWorkflowInfo writes a detailed workflow view to w.
-func renderWorkflowInfo(w io.Writer, wf *domain.Workflow, projectIDs []string, format string) error {
-	if format == "json" {
-		info := workflowInfoJSON{
-			workflowJSON: toWorkflowJSON(wf),
-			Projects:     projectIDs,
-		}
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(info)
-	}
-
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Workflow:", wf.Name); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Statuses:", strings.Join(wf.Statuses, ", ")); err != nil {
-		return err
-	}
-
-	if len(wf.Transitions) > 0 {
-		if _, err := fmt.Fprintln(w, "Transitions:"); err != nil {
-			return err
-		}
-		// Find max from-status length for alignment
-		maxLen := 0
-		for _, t := range wf.Transitions {
-			if len(t.FromStatus) > maxLen {
-				maxLen = len(t.FromStatus)
-			}
-		}
-		fmtStr := fmt.Sprintf("  %%-%ds -> %%s\n", maxLen)
-		for _, t := range wf.Transitions {
-			if _, err := fmt.Fprintf(w, fmtStr, t.FromStatus, t.ToStatus); err != nil {
-				return err
-			}
-		}
-	}
-
-	if len(projectIDs) > 0 {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Projects:", strings.Join(projectIDs, ", ")); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-```
-
-- [ ] **Step 2: Create `internal/tui/workflow.go`**
-
-```go
-package tui
-
-import (
-	"fmt"
-
-	"github.com/spf13/cobra"
-)
-
-// buildWorkflowCmd creates the `tusk workflow` command group.
-// Workflows are config-driven — only list and info are available.
-func (a *App) buildWorkflowCmd() *cobra.Command {
-	workflowCmd := &cobra.Command{
-		Use:   "workflow",
-		Short: "Manage workflows",
-	}
-
-	workflowCmd.AddCommand(
-		&cobra.Command{
-			Use:   "list",
-			Short: "List all workflows",
-			Args:  cobra.NoArgs,
-			RunE:  a.runWorkflowList,
-		},
-		&cobra.Command{
-			Use:   "info <name>",
-			Short: "Show workflow details",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runWorkflowInfo,
-		},
-	)
-
-	return workflowCmd
-}
-
-func (a *App) runWorkflowList(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	workflows, err := a.workflowSvc.List(ctx)
-	if err != nil {
-		return err
-	}
-	return renderWorkflowList(cmd.OutOrStdout(), workflows, a.format)
-}
-
-func (a *App) runWorkflowInfo(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	name := args[0]
-
-	wf, projectIDs, err := a.workflowSvc.GetWorkflowWithProjects(ctx, name)
-	if err != nil {
-		return fmt.Errorf("workflow %q not found", name)
-	}
-	return renderWorkflowInfo(cmd.OutOrStdout(), wf, projectIDs, a.format)
-}
-```
-
-- [ ] **Step 3: Register workflow command in `internal/tui/app.go`**
-
-After line 142 (`a.root.AddCommand(a.buildProjectCmd())`), add:
-
-```go
-	a.root.AddCommand(a.buildWorkflowCmd())
-```
-
-- [ ] **Step 4: Verify compilation and run binary**
-
-Run:
-
-```bash
-cd /Users/germanamz/projects/tusk && go build -o bin/tusk ./cmd/tusk/
-bin/tusk workflow list
-bin/tusk workflow info kanban
-```
-
-Expected: `workflow list` shows the kanban workflow. `workflow info kanban` shows detailed view with statuses, transitions, and projects.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add internal/tui/workflow.go internal/tui/render.go internal/tui/app.go
-git commit -m "feat(cli): add tusk workflow list and workflow info commands
-
-Config-driven workflow commands showing statuses, transitions, and
-referencing projects. Supports text and JSON output formats."
-```
-
----
-
-### Task 4: E2E tests and ROADMAP update
-
-Add E2E tests for the new CLI commands and update ROADMAP to mark stories complete.
-
-**Files:**
-- Create: `tests/e2e/workflow_test.go`
-- Modify: `ROADMAP.md` (mark Declarative Workflows stories as done)
-
-- [ ] **Step 1: Create `tests/e2e/workflow_test.go`**
-
-```go
-package e2e
-
-import (
-	"testing"
-)
-
-func TestWorkflowCommands(t *testing.T) {
-	scenarios := []Scenario{
-		{
-			Name: "workflow_list_default",
-			Steps: []Step{
-				{
-					Args: []string{"workflow", "list"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "kanban")
-						assertContains(t, output, "pending")
-					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						if len(arr) < 1 {
-							t.Fatal("expected at least 1 workflow")
-						}
-						found := false
-						for _, item := range arr {
-							m := item.(map[string]any)
-							if m["name"] == "kanban" {
-								found = true
-								statuses, ok := m["statuses"].([]any)
-								if !ok {
-									t.Fatal("expected statuses array")
-								}
-								if len(statuses) != 4 {
-									t.Fatalf("expected 4 statuses, got %d", len(statuses))
-								}
-								transitions, ok := m["transitions"].([]any)
-								if !ok {
-									t.Fatal("expected transitions array")
-								}
-								if len(transitions) != 6 {
-									t.Fatalf("expected 6 transitions, got %d", len(transitions))
-								}
-								break
-							}
-						}
-						if !found {
-							t.Fatal("expected kanban workflow in list")
-						}
-					},
-				},
-			},
-		},
-		{
-			Name: "workflow_info_kanban",
-			Steps: []Step{
-				{
-					Args: []string{"workflow", "info", "kanban"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "kanban")
-						assertContains(t, output, "pending")
-						assertContains(t, output, "active")
-						assertContains(t, output, "completed")
-						assertContains(t, output, "deleted")
-						assertContains(t, output, "->")
-						assertContains(t, output, "default")
-					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["name"] != "kanban" {
-							t.Fatalf("expected name 'kanban', got %v", m["name"])
-						}
-						statuses, ok := m["statuses"].([]any)
-						if !ok || len(statuses) != 4 {
-							t.Fatalf("expected 4 statuses, got %v", m["statuses"])
-						}
-						transitions, ok := m["transitions"].([]any)
-						if !ok || len(transitions) != 6 {
-							t.Fatalf("expected 6 transitions, got %v", m["transitions"])
-						}
-						projects, ok := m["projects"].([]any)
-						if !ok || len(projects) < 1 {
-							t.Fatalf("expected at least 1 project, got %v", m["projects"])
-						}
-					},
-				},
-			},
-		},
-		{
-			Name: "workflow_info_nonexistent",
-			Steps: []Step{
-				{
-					Args:    []string{"workflow", "info", "nonexistent"},
-					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						combined := r.Stdout + r.Stderr
-						assertContains(t, combined, "not found")
-					},
-				},
-			},
-		},
-	}
-
-	runScenarios(t, binPath, scenarios)
-}
-```
-
-- [ ] **Step 2: Build and run E2E tests**
-
-Run:
-
-```bash
-cd /Users/germanamz/projects/tusk && make build && go test ./tests/e2e/ -run TestWorkflowCommands -v
-```
-
-Expected: all scenarios PASS across all 4 combinations (flag/env x text/json).
-
-- [ ] **Step 3: Run the full test suite**
-
-Run: `cd /Users/germanamz/projects/tusk && make test`
-
-Expected: all tests PASS (unit + e2e).
-
-- [ ] **Step 4: Update ROADMAP.md**
-
-In `ROADMAP.md`, under `## v0.4 — Configuration & Customization`, find the `### Initiative: Declarative Workflows` section (lines 239-266) and mark all stories and tasks as complete by changing `- [ ]` to `- [x]`.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/e2e/workflow_test.go ROADMAP.md
-git commit -m "test(e2e): add workflow CLI tests and mark initiative complete
-
-Add E2E tests for tusk workflow list and tusk workflow info.
-Mark Declarative Workflows initiative complete in ROADMAP.md."
-```
-
-- [ ] **Step 6: Final verification**
-
-Run:
-
-```bash
-cd /Users/germanamz/projects/tusk && make test-race
-```
-
-Expected: all tests PASS with race detector enabled.

@@ -1,21 +1,24 @@
-# Declarative Workflows — Phase 1: Domain, Repository & In-Memory Implementation
+# Declarative Workflows — Phase 1: Domain, In-Memory Repo & Transitional Service
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the workflow domain types and repository interface with config-driven equivalents, implement an in-memory repository backed by config, and remove the SQLite workflow implementation.
+**Goal:** Build the new workflow infrastructure layer: simplified domain types, read-only repository interface, config-backed in-memory implementation, and a transitional WorkflowService that uses the new repo internally while keeping its old public API. After this phase, the new layer is complete and tested at the package level. The old SQLite workflow code still exists (removed in Phase 2).
 
-**Architecture:** Workflows become simple structs identified by name (no UUIDs). The repository interface becomes read-only (`GetByName`, `List`). An in-memory implementation backed by `config.WorkflowConfig` replaces the SQLite implementation. This mirrors the existing pattern in `internal/inmem/project.go`.
+**Architecture:** Domain types lose UUID fields. Repository interface becomes read-only (GetByName, List). In-memory implementation mirrors `inmem/project.go`. WorkflowService is rewritten to use the new repo but keeps `projectID` in method signatures (ignored) so callers don't break.
 
-**Tech Stack:** Go, standard library only (no new dependencies)
+**Tech Stack:** Go, standard library only
+
+**Note:** After this phase, `go build ./...` will not pass because `internal/sqlite/workflow.go` and `internal/service/task_test.go` still reference the old domain types and SQLite workflow repo. Phase 2 deletes the old code and wires everything together. Package-level builds (`go build ./internal/domain/...`, `go build ./internal/inmem/...`) all pass.
 
 ---
 
-### Task 1: Rewrite domain types
+### Task 1: Rewrite domain types and repository interface
 
-Remove DB artifacts from `domain.Workflow` and `domain.WorkflowTransition`. Transitions move from a separate entity to an embedded slice on `Workflow`.
+These are two small, tightly coupled files (17 and 15 lines respectively). Change both together since the repo interface references domain types.
 
 **Files:**
-- Modify: `internal/domain/workflow.go` (full rewrite, currently 17 lines)
+- Modify: `internal/domain/workflow.go` (full rewrite)
+- Modify: `internal/repository/workflow.go` (full rewrite)
 
 - [ ] **Step 1: Rewrite `internal/domain/workflow.go`**
 
@@ -39,35 +42,7 @@ type WorkflowTransition struct {
 }
 ```
 
-This removes `ID uuid.UUID`, `ProjectID string` from `Workflow` and `ID uuid.UUID`, `WorkflowID uuid.UUID` from `WorkflowTransition`. The `uuid` import is also removed.
-
-- [ ] **Step 2: Verify the file compiles**
-
-Run: `cd /Users/germanamz/projects/tusk && go build ./internal/domain/...`
-
-Expected: compilation errors in other packages that reference the removed fields (`internal/sqlite/workflow.go`, `internal/service/workflow.go`, `internal/service/task_test.go`, `internal/sqlite/workflow_test.go`). This is expected — those files are updated in later tasks/phases. The domain package itself should compile cleanly.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add internal/domain/workflow.go
-git commit -m "refactor(domain): simplify Workflow and WorkflowTransition types
-
-Remove DB-specific fields (UUID IDs, ProjectID, WorkflowID) in
-preparation for config-driven in-memory workflows. Transitions
-are now embedded in the Workflow struct."
-```
-
----
-
-### Task 2: Rewrite repository interface
-
-Simplify `WorkflowRepository` to a read-only, name-keyed interface. Remove all write methods and the composite `(projectID, name)` lookup.
-
-**Files:**
-- Modify: `internal/repository/workflow.go` (full rewrite, currently 15 lines)
-
-- [ ] **Step 1: Rewrite `internal/repository/workflow.go`**
+- [ ] **Step 2: Rewrite `internal/repository/workflow.go`**
 
 Replace the entire file contents with:
 
@@ -92,28 +67,26 @@ type WorkflowRepository interface {
 }
 ```
 
-This removes `GetByProjectAndName`, `GetTransitions`, `Create`, and `AddTransition`. The `uuid` import is also removed.
+- [ ] **Step 3: Verify domain and repository packages compile**
 
-- [ ] **Step 2: Verify the interface file compiles**
+Run: `cd /Users/germanamz/projects/tusk && go build ./internal/domain/... && go build ./internal/repository/...`
 
-Run: `cd /Users/germanamz/projects/tusk && go build ./internal/repository/...`
+Expected: PASS.
 
-Expected: PASS (the repository package has no dependencies on other internal packages beyond domain).
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add internal/repository/workflow.go
-git commit -m "refactor(repository): simplify WorkflowRepository to read-only interface
+git add internal/domain/workflow.go internal/repository/workflow.go
+git commit -m "refactor(domain): simplify Workflow types and WorkflowRepository interface
 
-Replace (projectID, name) composite lookup with name-only GetByName.
-Remove write methods (Create, AddTransition) and GetTransitions —
-transitions are now embedded in the Workflow struct."
+Remove DB-specific fields (UUID IDs, ProjectID, WorkflowID).
+Transitions are now embedded in the Workflow struct.
+Repository interface is read-only: GetByName, List."
 ```
 
 ---
 
-### Task 3: Implement in-memory workflow repository
+### Task 2: Implement in-memory workflow repository
 
 Create `internal/inmem/workflow.go` following the exact pattern of `internal/inmem/project.go`.
 
@@ -234,13 +207,7 @@ func TestWorkflowRepository_EmptyConfig(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `cd /Users/germanamz/projects/tusk && go test ./internal/inmem/ -run TestWorkflow -v`
-
-Expected: compilation failure — `inmem.NewWorkflowRepository` does not exist yet.
-
-- [ ] **Step 3: Implement `internal/inmem/workflow.go`**
+- [ ] **Step 2: Implement `internal/inmem/workflow.go`**
 
 ```go
 package inmem
@@ -316,13 +283,13 @@ func copyWorkflow(wf *domain.Workflow) *domain.Workflow {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 3: Run tests**
 
 Run: `cd /Users/germanamz/projects/tusk && go test ./internal/inmem/ -run TestWorkflow -v`
 
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add internal/inmem/workflow.go internal/inmem/workflow_test.go
@@ -335,74 +302,191 @@ Mirrors the pattern from inmem.ProjectRepository."
 
 ---
 
-### Task 4: Delete SQLite workflow implementation and clean up migration
+### Task 3: Rewrite WorkflowService (transitional)
 
-Remove the SQLite workflow repo, its tests, and the workflow tables from the migration.
+Rewrite `WorkflowService` to use the new repository interface internally. **Keep the old public method signatures** (`projectID` parameter) so callers in `TaskService` don't need to change yet. Phase 2 removes the old call sites, Phase 3 drops `projectID`.
 
 **Files:**
-- Delete: `internal/sqlite/workflow.go`
-- Delete: `internal/sqlite/workflow_test.go`
-- Modify: `internal/sqlite/store.go:93-94` (remove `Tx.Workflows()`)
-- Modify: `migrations/001_initial.up.sql:65-96` (remove workflow tables and seed data)
-- Modify: `migrations/001_initial.down.sql:1-2` (remove workflow table drops)
+- Modify: `internal/service/workflow.go` (full rewrite)
+- Modify: `internal/service/workflow_test.go` (full rewrite)
 
-- [ ] **Step 1: Delete `internal/sqlite/workflow.go`**
+- [ ] **Step 1: Rewrite `internal/service/workflow_test.go`**
 
-```bash
-rm internal/sqlite/workflow.go
-```
-
-- [ ] **Step 2: Delete `internal/sqlite/workflow_test.go`**
-
-```bash
-rm internal/sqlite/workflow_test.go
-```
-
-- [ ] **Step 3: Remove `Tx.Workflows()` from `internal/sqlite/store.go`**
-
-Remove lines 93-94:
+Replace the entire file with:
 
 ```go
-// Workflows returns a WorkflowRepo operating within this transaction.
-func (t *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(t.tx) }
+package service
+
+import (
+	"context"
+	"testing"
+
+	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/inmem"
+)
+
+func testWorkflowService(t *testing.T) *WorkflowService {
+	t.Helper()
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
+	return NewWorkflowService(workflowRepo)
+}
+
+func TestIsTransitionAllowed_Allowed(t *testing.T) {
+	svc := testWorkflowService(t)
+	ctx := context.Background()
+
+	allowed, err := svc.IsTransitionAllowed(ctx, "default", "kanban", "pending", "active")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected pending->active to be allowed")
+	}
+}
+
+func TestIsTransitionAllowed_Disallowed(t *testing.T) {
+	svc := testWorkflowService(t)
+	ctx := context.Background()
+
+	allowed, err := svc.IsTransitionAllowed(ctx, "default", "kanban", "pending", "completed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if allowed {
+		t.Fatal("expected pending->completed to be disallowed")
+	}
+}
+
+func TestIsTransitionAllowed_WorkflowNotFound(t *testing.T) {
+	svc := testWorkflowService(t)
+	ctx := context.Background()
+
+	_, err := svc.IsTransitionAllowed(ctx, "default", "nonexistent", "pending", "active")
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
+}
+
+func TestGetStatuses(t *testing.T) {
+	svc := testWorkflowService(t)
+	ctx := context.Background()
+
+	statuses, err := svc.GetStatuses(ctx, "default", "kanban")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []string{"pending", "active", "completed", "deleted"}
+	if len(statuses) != len(expected) {
+		t.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
+	}
+	for i, s := range statuses {
+		if s != expected[i] {
+			t.Fatalf("status[%d]: expected %q, got %q", i, expected[i], s)
+		}
+	}
+}
+
+func TestGetStatuses_WorkflowNotFound(t *testing.T) {
+	svc := testWorkflowService(t)
+	ctx := context.Background()
+
+	_, err := svc.GetStatuses(ctx, "default", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
+}
 ```
 
-- [ ] **Step 4: Rewrite `migrations/001_initial.up.sql`**
+- [ ] **Step 2: Rewrite `internal/service/workflow.go`**
 
-Remove everything from line 65 onwards (the workflow tables comment, `CREATE TABLE workflows`, `CREATE TABLE workflow_transitions`, and all seed `INSERT` statements). The file should end after the `tag_assignments` index on line 63.
+Replace the entire file with:
 
-The final file should contain only: tasks, annotations, relations, tags, and tag_assignments tables with their indexes. No workflow tables. No seed data.
+```go
+package service
 
-- [ ] **Step 5: Rewrite `migrations/001_initial.down.sql`**
+import (
+	"context"
+	"fmt"
 
-Remove the first two lines that drop workflow tables:
+	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
+)
 
-```sql
-DROP TABLE IF EXISTS workflow_transitions;
-DROP TABLE IF EXISTS workflows;
+// WorkflowService validates status transitions against workflow definitions.
+type WorkflowService struct {
+	workflowRepo repository.WorkflowRepository
+}
+
+// NewWorkflowService creates a new WorkflowService.
+func NewWorkflowService(wr repository.WorkflowRepository) *WorkflowService {
+	return &WorkflowService{workflowRepo: wr}
+}
+
+// IsTransitionAllowed checks whether a status transition is permitted
+// by the named workflow.
+// Note: projectID is accepted for backward compatibility but ignored.
+// It will be removed in Phase 3 when all call sites are updated.
+func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, projectID string, workflowName string, from string, to string) (bool, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return false, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+
+	for _, t := range wf.Transitions {
+		if t.FromStatus == from && t.ToStatus == to {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetStatuses returns the ordered list of valid statuses for the named workflow.
+// Note: projectID is accepted for backward compatibility but ignored.
+func (s *WorkflowService) GetStatuses(ctx context.Context, projectID string, workflowName string) ([]string, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	return wf.Statuses, nil
+}
+
+// GetTransitions returns all allowed transitions for the named workflow.
+// Note: projectID is accepted for backward compatibility but ignored.
+func (s *WorkflowService) GetTransitions(ctx context.Context, projectID string, workflowName string) ([]domain.WorkflowTransition, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	return wf.Transitions, nil
+}
 ```
 
-The file should start with `DROP TABLE IF EXISTS tag_assignments;`.
+- [ ] **Step 3: Run workflow tests**
 
-- [ ] **Step 6: Verify the SQLite package compiles**
+Run: `cd /Users/germanamz/projects/tusk && go test ./internal/service/ -run "TestIsTransition|TestGetStatuses" -v`
 
-Run: `cd /Users/germanamz/projects/tusk && go build ./internal/sqlite/...`
+Expected: PASS.
 
-Expected: compilation errors related to `WithTaskTx` signature (still references `repository.WorkflowRepository`). This is expected — Phase 2 Task 1 will fix it.
-
-- [ ] **Step 7: Verify SQLite tests pass (excluding store-level integration)**
-
-Run: `cd /Users/germanamz/projects/tusk && go test ./internal/sqlite/ -run "TestTask|TestAnnotation|TestRelation|TestTag" -v`
-
-Expected: PASS. Workflow tests are deleted, remaining tests should work since the migration no longer creates workflow tables but that doesn't affect other tables.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add -u internal/sqlite/workflow.go internal/sqlite/workflow_test.go internal/sqlite/store.go migrations/001_initial.up.sql migrations/001_initial.down.sql
-git commit -m "refactor(sqlite): remove workflow tables and SQLite implementation
+git add internal/service/workflow.go internal/service/workflow_test.go
+git commit -m "refactor(service): rewrite WorkflowService for config-driven workflows
 
-Delete WorkflowRepo, its tests, and Tx.Workflows(). Remove workflow
-and workflow_transitions tables from the migration. Workflows are
-now config-driven via inmem.WorkflowRepository."
+Uses new WorkflowRepository.GetByName internally. Keeps old public
+API with projectID params as transitional bridge — callers unchanged.
+Tests now use inmem.WorkflowRepository."
 ```
