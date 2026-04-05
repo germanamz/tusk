@@ -84,15 +84,11 @@ func (s *stubTagRepo) GetTaskTagsBatch(_ context.Context, _ []uuid.UUID) (map[uu
 
 type stubWorkflowRepo struct{}
 
-func (s *stubWorkflowRepo) GetByProjectAndName(_ context.Context, _ string, _ string) (*domain.Workflow, error) {
+func (s *stubWorkflowRepo) GetByName(_ context.Context, _ string) (*domain.Workflow, error) {
 	return nil, nil
 }
-func (s *stubWorkflowRepo) GetTransitions(_ context.Context, _ uuid.UUID) ([]*domain.WorkflowTransition, error) {
+func (s *stubWorkflowRepo) List(_ context.Context) ([]*domain.Workflow, error) {
 	return nil, nil
-}
-func (s *stubWorkflowRepo) Create(_ context.Context, _ *domain.Workflow) error { return nil }
-func (s *stubWorkflowRepo) AddTransition(_ context.Context, _ *domain.WorkflowTransition) error {
-	return nil
 }
 
 type stubAnnotationRepo struct{}
