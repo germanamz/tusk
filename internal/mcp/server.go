@@ -98,9 +98,10 @@ func (s *Server) validateConfig() error {
 		"tusk_relation_add":    true,
 		"tusk_relation_remove": true,
 		"tusk_project_list":    true,
+		"tusk_workflow_list":   true,
 	}
 	validToolGroups := map[string]bool{
-		"task": true, "relation": true, "project": true,
+		"task": true, "relation": true, "project": true, "workflow": true,
 	}
 	validResourceURIs := map[string]bool{
 		"tusk://tasks/{short_id}":         true,
@@ -408,6 +409,13 @@ func (s *Server) registerTools() {
 			),
 		),
 		s.handleTaskTree,
+	)
+
+	s.addTool("workflow",
+		mcp.NewTool("tusk_workflow_list",
+			mcp.WithDescription("List all workflows with their statuses, transitions, and referencing projects"),
+		),
+		s.handleWorkflowList,
 	)
 }
 
