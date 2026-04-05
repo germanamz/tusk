@@ -185,6 +185,16 @@ disabled_tool_groups = ["workflow"]
 disabled_tools = ["tusk_task_tree"]
 ```
 
+### Claude Code
+
+Add Tusk as an MCP server in Claude Code:
+
+```bash
+claude mcp add tusk -- tusk mcp serve
+```
+
+Claude will then have access to all Tusk tools for task management during conversations.
+
 ## Development
 
 ```bash
