@@ -152,9 +152,7 @@ func TestTaskLifecycle(t *testing.T) {
 						t.Helper()
 						m := parsed.(map[string]any)
 						assertEqual(t, m["title"], "Project task")
-						if m["project_id"] == nil {
-							t.Fatal("expected project_id to be set")
-						}
+						assertEqual(t, m["project_id"], "default")
 					},
 				},
 			},

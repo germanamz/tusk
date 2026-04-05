@@ -39,7 +39,7 @@ func TestIntegration_DefaultFilter(t *testing.T) {
 
 func TestIntegration_ComplexFilter(t *testing.T) {
 	r, _ := testSetup(t)
-	fs, parseErrs := Parse("status:completed project:_default priority:2..4 +api -docs")
+	fs, parseErrs := Parse("status:completed project:default priority:2..4 +api -docs")
 	if len(parseErrs) != 0 {
 		t.Fatalf("parse errors: %v", parseErrs)
 	}

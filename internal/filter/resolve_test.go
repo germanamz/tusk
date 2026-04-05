@@ -68,10 +68,10 @@ func TestResolve_MultipleStatuses(t *testing.T) {
 	}
 }
 
-func TestResolve_ProjectByName(t *testing.T) {
+func TestResolve_ProjectByID(t *testing.T) {
 	r, _ := testResolver(t)
 	fs := &FilterSet{
-		Fields: []FieldFilter{{Key: "project", Value: "_default"}},
+		Fields: []FieldFilter{{Key: "project", Value: "default"}},
 	}
 
 	tf, errs := r.Resolve(context.Background(), fs)
@@ -81,8 +81,8 @@ func TestResolve_ProjectByName(t *testing.T) {
 	if tf.ProjectID == nil {
 		t.Fatal("expected ProjectID to be set")
 	}
-	if *tf.ProjectID != "_default" {
-		t.Fatalf("expected ProjectID=%q, got %q", "_default", *tf.ProjectID)
+	if *tf.ProjectID != "default" {
+		t.Fatalf("expected ProjectID=%q, got %q", "default", *tf.ProjectID)
 	}
 }
 

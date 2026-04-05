@@ -160,9 +160,6 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading annotations: %w", err)
 	}
 
-	// Project ID is now the human-readable name
-	projectName := task.ProjectID
-
 	// Fetch tags
 	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
 	if err != nil {
@@ -203,7 +200,7 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, tags, resolved, projectName, a.format)
+	return renderTaskInfo(cmd.OutOrStdout(), task, annotations, tags, resolved, a.format)
 }
 
 func (a *App) runModify(cmd *cobra.Command, args []string) error {

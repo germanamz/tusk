@@ -50,7 +50,7 @@ type testEnv struct {
 }
 
 // testTaskEnv creates a fully wired test environment with an in-memory SQLite DB.
-// The DB has all migrations applied, including the _default project and default workflow.
+// The DB has all migrations applied, including the default project and kanban workflow.
 func testTaskEnv(t *testing.T) *testEnv {
 	t.Helper()
 	store, err := sqlite.New(":memory:", migrations.FS)
