@@ -314,6 +314,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 - [ ] **Story: Quoted string support in filters**
   - [ ] Enable `title:"some text"` and `description:"some text"` fields
+  - [ ] `description:` filter field for CLI and MCP task list
 
 - [ ] **Story: Boolean operators in filters**
   - [ ] `AND` / `OR` / `NOT` operators
@@ -332,6 +333,10 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] CLI support for setting tag color (`tusk tag modify <name> --color <hex>`)
   - [ ] Display colored tags in list/info/tree output
   - [ ] Read default color settings from `[tui]` config section
+
+- [ ] **Story: Markdown description rendering**
+  - [ ] Terminal-rendered markdown in `tusk info` using glamour (charmbracelet)
+  - [ ] Respect `NO_COLOR` / `--no-color` flag for plain text fallback
 
 ### Initiative: Urgency Scoring
 
