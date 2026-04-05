@@ -11,6 +11,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
@@ -74,7 +75,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := sqlite.NewProjectRepo(db)
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{"default": {Workflow: "default"}})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
 	tagRepo := sqlite.NewTagRepo(db)
@@ -711,7 +712,7 @@ func TestRunModify_Project(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "project:_default"})
+	app.root.SetArgs([]string{"modify", task.ShortID, "project:default"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify project: %v", err)
 	}
@@ -794,11 +795,8 @@ func TestRunInfo_ShowsProjectName(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "_default") {
-		t.Fatalf("expected project name '_default' in output, got:\n%s", out)
-	}
-	if !strings.Contains(out, "00000000-0000-0000-0000-000000000000") {
-		t.Fatalf("expected project UUID in output, got:\n%s", out)
+	if !strings.Contains(out, "default") {
+		t.Fatalf("expected project name 'default' in output, got:\n%s", out)
 	}
 }
 

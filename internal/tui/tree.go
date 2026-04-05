@@ -98,9 +98,8 @@ func toTreeNodeJSON(node *treeNode) treeNodeJSON {
 		s := t.ParentID.String()
 		tj.ParentID = &s
 	}
-	if t.ProjectID != nil {
-		s := t.ProjectID.String()
-		tj.ProjectID = &s
+	if t.ProjectID != "" {
+		tj.ProjectID = &t.ProjectID
 	}
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)

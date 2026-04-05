@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
@@ -24,7 +25,7 @@ func testServer(t *testing.T) *Server {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := sqlite.NewProjectRepo(db)
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{"default": {Workflow: "default"}})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	tagRepo := sqlite.NewTagRepo(db)
 	relationRepo := sqlite.NewRelationRepo(db)
@@ -370,26 +371,6 @@ func TestHandleRelationAdd(t *testing.T) {
 	})
 }
 
-func TestHandleProjectCreate(t *testing.T) {
-	s := testServer(t)
-	ctx := context.Background()
-
-	result, err := s.handleProjectCreate(ctx, callToolRequest(map[string]any{
-		"name":        "test-proj",
-		"description": "A test project",
-	}))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	parsed := parseToolResult(t, result)
-	if parsed["name"] != "test-proj" {
-		t.Fatalf("expected name 'test-proj', got %v", parsed["name"])
-	}
-	if parsed["description"] != "A test project" {
-		t.Fatalf("expected description, got %v", parsed["description"])
-	}
-}
-
 func TestHandleProjectList(t *testing.T) {
 	s := testServer(t)
 	ctx := context.Background()
@@ -399,15 +380,15 @@ func TestHandleProjectList(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	items := parseToolResultArray(t, result)
-	// Should have at least _default
+	// Should have at least "default"
 	found := false
 	for _, p := range items {
-		if p["name"] == "_default" {
+		if p["id"] == "default" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("_default project not found in list")
+		t.Fatal("default project not found in list")
 	}
 }
 

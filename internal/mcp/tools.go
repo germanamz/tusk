@@ -60,9 +60,8 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
 		s := t.ParentID.String()
 		r.ParentID = &s
 	}
-	if t.ProjectID != nil {
-		s := t.ProjectID.String()
-		r.ProjectID = &s
+	if t.ProjectID != "" {
+		r.ProjectID = &t.ProjectID
 	}
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
@@ -101,13 +100,9 @@ func (s *Server) handleTaskCreate(ctx context.Context, request mcp.CallToolReque
 		task.Priority = int(p)
 	}
 
-	// Optional: project (by name)
-	if projectName, err := request.RequireString("project"); err == nil {
-		project, lookupErr := s.projectSvc.GetByName(ctx, projectName)
-		if lookupErr != nil {
-			return toolError(lookupErr, "project "+projectName), nil
-		}
-		task.ProjectID = &project.ID
+	// Optional: project (by ID)
+	if projectID, err := request.RequireString("project"); err == nil {
+		task.ProjectID = projectID
 	}
 
 	// Optional: parent (by short_id)
@@ -292,13 +287,9 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		filter.PriorityMax = &v
 	}
 
-	// Optional: project (by name → ID)
-	if projectName, err := request.RequireString("project"); err == nil {
-		project, lookupErr := s.projectSvc.GetByName(ctx, projectName)
-		if lookupErr != nil {
-			return toolError(lookupErr, "project "+projectName), nil
-		}
-		filter.ProjectID = &project.ID
+	// Optional: project (by ID)
+	if projectID, err := request.RequireString("project"); err == nil {
+		filter.ProjectID = &projectID
 	}
 
 	// Optional: tags include/exclude
@@ -395,15 +386,9 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 		upd.Priority = &v
 	}
 
-	// Optional: project (by name)
-	if projectName, err := request.RequireString("project"); err == nil {
-		project, lookupErr := s.projectSvc.GetByName(ctx, projectName)
-		if lookupErr != nil {
-			return toolError(lookupErr, "project "+projectName), nil
-		}
-		pid := project.ID
-		pp := &pid
-		upd.ProjectID = &pp
+	// Optional: project (by ID)
+	if projectID, err := request.RequireString("project"); err == nil {
+		upd.ProjectID = &projectID
 	}
 
 	// Optional: parent (by short_id, empty string clears parent)
@@ -579,9 +564,8 @@ func toTreeNodeResponse(task *domain.Task) treeNodeResponse {
 		s := task.ParentID.String()
 		r.ParentID = &s
 	}
-	if task.ProjectID != nil {
-		s := task.ProjectID.String()
-		r.ProjectID = &s
+	if task.ProjectID != "" {
+		r.ProjectID = &task.ProjectID
 	}
 	if task.DueAt != nil {
 		s := task.DueAt.Format(time.RFC3339)
@@ -707,24 +691,16 @@ func (s *Server) handleRelationRemove(ctx context.Context, request mcp.CallToolR
 
 // projectResponse is the JSON structure returned by project tools.
 type projectResponse struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Description     string                 `json:"description"`
-	DefaultWorkflow string                 `json:"default_workflow"`
-	Settings        domain.ProjectSettings `json:"settings"`
-	Version         int                    `json:"version"`
-	CreatedAt       string                 `json:"created_at"`
+	ID       string                 `json:"id"`
+	Workflow string                 `json:"workflow"`
+	Settings domain.ProjectSettings `json:"settings"`
 }
 
 func toProjectResponse(p *domain.Project) projectResponse {
 	return projectResponse{
-		ID:              p.ID.String(),
-		Name:            p.Name,
-		Description:     p.Description,
-		DefaultWorkflow: p.DefaultWorkflow,
-		Settings:        p.Settings,
-		Version:         p.Version,
-		CreatedAt:       p.CreatedAt.Format(time.RFC3339),
+		ID:       p.ID,
+		Workflow: p.Workflow,
+		Settings: p.Settings,
 	}
 }
 
@@ -741,26 +717,6 @@ func (s *Server) handleProjectList(ctx context.Context, request mcp.CallToolRequ
 	}
 
 	return toolResultJSON(results)
-}
-
-// handleProjectCreate handles the tusk_project_create tool.
-func (s *Server) handleProjectCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	name, err := request.RequireString("name")
-	if err != nil {
-		return mcp.NewToolResultError("name is required"), nil
-	}
-
-	var description string
-	if desc, err := request.RequireString("description"); err == nil {
-		description = desc
-	}
-
-	project, err := s.projectSvc.Create(ctx, name, description)
-	if err != nil {
-		return toolError(err, "project "+name), nil
-	}
-
-	return toolResultJSON(toProjectResponse(project))
 }
 
 // handleTaskTree handles the tusk_task_tree tool.

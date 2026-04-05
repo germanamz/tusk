@@ -9,11 +9,6 @@ import (
 	"github.com/germanamz/tusk/internal/domain"
 )
 
-// ProjectLookup is the subset of project operations the Resolver needs.
-type ProjectLookup interface {
-	GetByName(ctx context.Context, name string) (*domain.Project, error)
-}
-
 // TaskLookup is the subset of task operations the Resolver needs.
 type TaskLookup interface {
 	GetByShortID(ctx context.Context, shortID string) (*domain.Task, error)
@@ -21,15 +16,13 @@ type TaskLookup interface {
 
 // Resolver converts a parsed FilterSet into a domain.TaskFilter.
 type Resolver struct {
-	projectLookup ProjectLookup
-	taskLookup    TaskLookup
+	taskLookup TaskLookup
 }
 
 // NewResolver creates a Resolver with the given lookup dependencies.
-func NewResolver(projectLookup ProjectLookup, taskLookup TaskLookup) *Resolver {
+func NewResolver(taskLookup TaskLookup) *Resolver {
 	return &Resolver{
-		projectLookup: projectLookup,
-		taskLookup:    taskLookup,
+		taskLookup: taskLookup,
 	}
 }
 
@@ -57,16 +50,8 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 			tf.Statuses = strings.Split(field.Value, ",")
 
 		case "project":
-			project, err := r.projectLookup.GetByName(ctx, field.Value)
-			if err != nil {
-				if errors.Is(err, domain.ErrNotFound) {
-					errs = append(errs, fmt.Errorf("project %q not found", field.Value))
-				} else {
-					errs = append(errs, fmt.Errorf("looking up project %q: %w", field.Value, err))
-				}
-				continue
-			}
-			tf.ProjectID = &project.ID
+			id := field.Value
+			tf.ProjectID = &id
 
 		case "priority":
 			if strings.Contains(field.Value, "..") {

@@ -45,7 +45,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		tuiCfg:      tuiCfg,
 		mcpCfg:      mcpCfg,
 	}
-	a.resolver = filter.NewResolver(projectSvc, taskSvc)
+	a.resolver = filter.NewResolver(taskSvc)
 
 	a.root = &cobra.Command{
 		Use:           "tusk",

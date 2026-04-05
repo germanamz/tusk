@@ -12,24 +12,16 @@ import (
 
 // projectJSON is the JSON serialization format for a project.
 type projectJSON struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Description     string                 `json:"description"`
-	DefaultWorkflow string                 `json:"default_workflow"`
-	Settings        domain.ProjectSettings `json:"settings"`
-	Version         int                    `json:"version"`
-	CreatedAt       string                 `json:"created_at"`
+	ID       string                 `json:"id"`
+	Workflow string                 `json:"workflow"`
+	Settings domain.ProjectSettings `json:"settings"`
 }
 
 func toProjectJSON(p *domain.Project) projectJSON {
 	return projectJSON{
-		ID:              p.ID.String(),
-		Name:            p.Name,
-		Description:     p.Description,
-		DefaultWorkflow: p.DefaultWorkflow,
-		Settings:        p.Settings,
-		Version:         p.Version,
-		CreatedAt:       p.CreatedAt.Format(time.RFC3339),
+		ID:       p.ID,
+		Workflow: p.Workflow,
+		Settings: p.Settings,
 	}
 }
 
@@ -140,32 +132,19 @@ func renderProjectList(w io.Writer, projects []*domain.Project, format string) e
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(w, "%-20s %-30s %-10s %s\n", "NAME", "DESCRIPTION", "WORKFLOW", "SETTINGS"); err != nil {
+	if _, err := fmt.Fprintf(w, "%-20s %-10s %s\n", "ID", "WORKFLOW", "SETTINGS"); err != nil {
 		return err
 	}
 	for _, p := range projects {
-		if _, err := fmt.Fprintf(w, "%-20s %-30s %-10s %s\n",
-			p.Name,
-			truncate(p.Description, 30),
-			p.DefaultWorkflow,
+		if _, err := fmt.Fprintf(w, "%-20s %-10s %s\n",
+			p.ID,
+			p.Workflow,
 			formatSettingsSummary(p.Settings),
 		); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// renderProjectResult writes a single project mutation result.
-// Text format shows key-value pairs; JSON format shows the full object.
-func renderProjectResult(w io.Writer, action string, project *domain.Project, format string) error {
-	if format == "json" {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(toProjectJSON(project))
-	}
-	_, err := fmt.Fprintf(w, "%s project %s\n", action, project.Name)
-	return err
 }
 
 // formatSettingsSummary returns a compact text summary of project settings.
@@ -181,17 +160,6 @@ func formatSettingsSummary(s domain.ProjectSettings) string {
 		return "-"
 	}
 	return strings.Join(parts, " ")
-}
-
-// truncate shortens a string to maxLen characters, adding "..." if truncated.
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // formatPriority converts a priority int (0-4) to a single display character.
@@ -267,9 +235,8 @@ func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 		s := t.ParentID.String()
 		tj.ParentID = &s
 	}
-	if t.ProjectID != nil {
-		s := t.ProjectID.String()
-		tj.ProjectID = &s
+	if t.ProjectID != "" {
+		tj.ProjectID = &t.ProjectID
 	}
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
@@ -420,12 +387,8 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 			return err
 		}
 	}
-	if task.ProjectID != nil {
-		projectDisplay := task.ProjectID.String()
-		if projectName != "" {
-			projectDisplay = fmt.Sprintf("%s (%s)", projectName, task.ProjectID.String())
-		}
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Project:", projectDisplay); err != nil {
+	if task.ProjectID != "" {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Project:", task.ProjectID); err != nil {
 			return err
 		}
 	}
