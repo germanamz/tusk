@@ -17,5 +17,6 @@ type TaskFilter struct {
 	PriorityMax *int
 	DueAfter    *time.Time
 	DueBefore   *time.Time
-	WaitingOnly *bool // if true, only tasks with wait_until in future
+	WaitingOnly *bool             // if true, only tasks with wait_until in future
+	UDA         map[string]string // filter by UDA key=value pairs (AND semantics); empty value = absent/empty match
 }
