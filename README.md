@@ -193,7 +193,7 @@ Add Tusk as an MCP server in Claude Code:
 claude mcp add tusk -- tusk mcp serve
 ```
 
-Claude will then have access to all Tusk tools for task management during conversations.
+No URL or network setup needed — Tusk uses stdio transport by default, so Claude Code launches it as a subprocess and communicates over stdin/stdout.
 
 ## Development
 
