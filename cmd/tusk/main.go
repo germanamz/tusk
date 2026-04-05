@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/internal/tui"
@@ -53,7 +54,7 @@ func run() error {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := sqlite.NewProjectRepo(db)
+	projectRepo := inmem.NewProjectRepository(cfg.Projects)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
 	tagRepo := sqlite.NewTagRepo(db)

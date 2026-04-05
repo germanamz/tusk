@@ -2,7 +2,6 @@ package filter
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -22,9 +21,8 @@ func testResolver(t *testing.T) (*Resolver, *sqlite.Store) {
 	}
 	t.Cleanup(func() { store.Close() })
 
-	projectRepo := sqlite.NewProjectRepo(store.DB())
 	taskRepo := sqlite.NewTaskRepo(store.DB())
-	return NewResolver(projectRepo, taskRepo), store
+	return NewResolver(taskRepo), store
 }
 
 func TestResolve_DefaultStatuses(t *testing.T) {
@@ -72,7 +70,6 @@ func TestResolve_MultipleStatuses(t *testing.T) {
 
 func TestResolve_ProjectByName(t *testing.T) {
 	r, _ := testResolver(t)
-	// The _default project is created by the migration
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "project", Value: "_default"}},
 	}
@@ -84,20 +81,23 @@ func TestResolve_ProjectByName(t *testing.T) {
 	if tf.ProjectID == nil {
 		t.Fatal("expected ProjectID to be set")
 	}
+	if *tf.ProjectID != "_default" {
+		t.Fatalf("expected ProjectID=%q, got %q", "_default", *tf.ProjectID)
+	}
 }
 
-func TestResolve_ProjectNotFound(t *testing.T) {
+func TestResolve_ProjectStringValue(t *testing.T) {
 	r, _ := testResolver(t)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "project", Value: "nonexistent"}},
 	}
 
-	_, errs := r.Resolve(context.Background(), fs)
-	if len(errs) != 1 {
-		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	tf, errs := r.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
 	}
-	if !strings.Contains(errs[0].Error(), "nonexistent") {
-		t.Fatalf("expected error mentioning project name, got %v", errs[0])
+	if tf.ProjectID == nil || *tf.ProjectID != "nonexistent" {
+		t.Fatalf("expected ProjectID=%q, got %v", "nonexistent", tf.ProjectID)
 	}
 }
 
@@ -320,8 +320,8 @@ func TestResolve_MultipleErrors(t *testing.T) {
 	r, _ := testResolver(t)
 	fs := &FilterSet{
 		Fields: []FieldFilter{
-			{Key: "project", Value: "nonexistent"},
 			{Key: "parent", Value: "ffffffff"},
+			{Key: "tree", Value: "eeeeeeee"},
 		},
 	}
 

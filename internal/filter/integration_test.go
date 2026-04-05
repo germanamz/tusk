@@ -18,9 +18,8 @@ func testSetup(t *testing.T) (*Resolver, *sqlite.TaskRepo) {
 	}
 	t.Cleanup(func() { store.Close() })
 
-	projectRepo := sqlite.NewProjectRepo(store.DB())
 	taskRepo := sqlite.NewTaskRepo(store.DB())
-	return NewResolver(projectRepo, taskRepo), taskRepo
+	return NewResolver(taskRepo), taskRepo
 }
 
 func TestIntegration_DefaultFilter(t *testing.T) {
@@ -130,8 +129,8 @@ func TestIntegration_TreeFilter(t *testing.T) {
 
 func TestIntegration_ParseAndResolveErrors(t *testing.T) {
 	r, _ := testSetup(t)
-	// "foo:bar" triggers a parse error; "project:nonexistent" triggers a resolve error
-	fs, parseErrs := Parse("foo:bar project:nonexistent status:active")
+	// "foo:bar" triggers a parse error; "parent:ffffffff" triggers a resolve error
+	fs, parseErrs := Parse("foo:bar parent:ffffffff status:active")
 	if len(parseErrs) != 1 {
 		t.Fatalf("expected 1 parse error, got %d: %v", len(parseErrs), parseErrs)
 	}

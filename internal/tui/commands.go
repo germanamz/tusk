@@ -48,11 +48,7 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 
 	// Project
 	if f, ok := fs.GetField("project"); ok {
-		project, err := a.projectSvc.GetByName(ctx, f.Value)
-		if err != nil {
-			return fmt.Errorf("project %q not found", f.Value)
-		}
-		task.ProjectID = &project.ID
+		task.ProjectID = f.Value
 	}
 
 	// Priority
@@ -164,14 +160,8 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading annotations: %w", err)
 	}
 
-	// Resolve project name for display
-	var projectName string
-	if task.ProjectID != nil {
-		project, err := a.projectSvc.GetByID(ctx, *task.ProjectID)
-		if err == nil {
-			projectName = project.Name
-		}
-	}
+	// Project ID is now the human-readable name
+	projectName := task.ProjectID
 
 	// Fetch tags
 	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
@@ -274,13 +264,7 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 
 	// Project
 	if f, ok := fs.GetField("project"); ok {
-		project, err := a.projectSvc.GetByName(ctx, f.Value)
-		if err != nil {
-			return fmt.Errorf("project %q not found", f.Value)
-		}
-		pid := project.ID
-		pp := &pid
-		upd.ProjectID = &pp
+		upd.ProjectID = &f.Value
 	}
 
 	// Parent (double pointer: empty string = clear parent)

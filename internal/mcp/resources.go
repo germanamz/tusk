@@ -81,7 +81,7 @@ func (s *Server) handleProjectResource(ctx context.Context, request mcp.ReadReso
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, err := s.projectSvc.GetByName(ctx, name)
+	project, err := s.projectSvc.GetByID(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -124,24 +124,24 @@ func (s *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadRes
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, err := s.projectSvc.GetByName(ctx, name)
+	project, err := s.projectSvc.GetByID(ctx, name)
 	if err != nil {
 		return nil, err
 	}
 
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.ID, project.DefaultWorkflow)
+	statuses, err := s.workflowSvc.GetStatuses(ctx, project.ID, project.Workflow)
 	if err != nil {
 		return nil, err
 	}
 
-	transitions, err := s.workflowSvc.GetTransitions(ctx, project.ID, project.DefaultWorkflow)
+	transitions, err := s.workflowSvc.GetTransitions(ctx, project.ID, project.Workflow)
 	if err != nil {
 		return nil, err
 	}
 
 	resp := workflowResponse{
-		ProjectName: project.Name,
-		Workflow:    project.DefaultWorkflow,
+		ProjectName: project.ID,
+		Workflow:    project.Workflow,
 		Statuses:    statuses,
 		Transitions: make([]transitionResponse, len(transitions)),
 	}

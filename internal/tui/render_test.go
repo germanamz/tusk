@@ -63,13 +63,12 @@ func TestRenderTaskList_Text_Empty(t *testing.T) {
 }
 
 func TestRenderTaskList_JSON(t *testing.T) {
-	projID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	tasks := []*domain.Task{
 		{
 			ID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 			ShortID:    "a3f8b2c1",
-			ProjectID:  &projID,
+			ProjectID:  "default",
 			Status:     "pending",
 			Priority:   0,
 			Title:      "Test task",
@@ -293,7 +292,6 @@ func TestFormatAge(t *testing.T) {
 }
 
 func TestRenderTaskInfo_Text_AllFields(t *testing.T) {
-	projID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
 	parentID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	due := now.Add(24 * time.Hour)
@@ -303,7 +301,7 @@ func TestRenderTaskInfo_Text_AllFields(t *testing.T) {
 		Description: "Build the auth middleware",
 		Status:      "active",
 		Priority:    3,
-		ProjectID:   &projID,
+		ProjectID:   "default",
 		ParentID:    &parentID,
 		DueAt:       &due,
 		Version:     3,

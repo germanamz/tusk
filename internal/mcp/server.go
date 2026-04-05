@@ -98,7 +98,6 @@ func (s *Server) validateConfig() error {
 		"tusk_relation_add":    true,
 		"tusk_relation_remove": true,
 		"tusk_project_list":    true,
-		"tusk_project_create":  true,
 	}
 	validToolGroups := map[string]bool{
 		"task": true, "relation": true, "project": true,
@@ -396,20 +395,6 @@ func (s *Server) registerTools() {
 			mcp.WithDescription("List all projects"),
 		),
 		s.handleProjectList,
-	)
-
-	s.addTool("project",
-		mcp.NewTool("tusk_project_create",
-			mcp.WithDescription("Create a new project"),
-			mcp.WithString("name",
-				mcp.Required(),
-				mcp.Description("Project name (must be unique)"),
-			),
-			mcp.WithString("description",
-				mcp.Description("Project description"),
-			),
-		),
-		s.handleProjectCreate,
 	)
 
 	s.addTool("task",
