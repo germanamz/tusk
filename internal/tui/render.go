@@ -500,3 +500,110 @@ func renderLinkResult(w io.Writer, rel *domain.Relation, sourceShortID, targetSh
 	_, err := fmt.Fprintf(w, "Linked %s %s %s\n", sourceShortID, rel.RelationType, targetShortID)
 	return err
 }
+
+// workflowJSON is the JSON serialization format for a workflow.
+type workflowJSON struct {
+	Name        string              `json:"name"`
+	Statuses    []string            `json:"statuses"`
+	Transitions []workflowTransJSON `json:"transitions"`
+}
+
+// workflowTransJSON is the JSON serialization format for a workflow transition.
+type workflowTransJSON struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// workflowInfoJSON extends workflowJSON with referencing projects.
+type workflowInfoJSON struct {
+	workflowJSON
+	Projects []string `json:"projects"`
+}
+
+func toWorkflowJSON(wf *domain.Workflow) workflowJSON {
+	transitions := make([]workflowTransJSON, len(wf.Transitions))
+	for i, t := range wf.Transitions {
+		transitions[i] = workflowTransJSON{From: t.FromStatus, To: t.ToStatus}
+	}
+	return workflowJSON{
+		Name:        wf.Name,
+		Statuses:    wf.Statuses,
+		Transitions: transitions,
+	}
+}
+
+// renderWorkflowList writes a list of workflows to w.
+func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, format string) error {
+	if format == "json" {
+		items := make([]workflowJSON, len(workflows))
+		for i, wf := range workflows {
+			items[i] = toWorkflowJSON(wf)
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(items)
+	}
+
+	if len(workflows) == 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(w, "%-20s %s\n", "NAME", "STATUSES"); err != nil {
+		return err
+	}
+	for _, wf := range workflows {
+		if _, err := fmt.Fprintf(w, "%-20s %s\n", wf.Name, strings.Join(wf.Statuses, ", ")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderWorkflowInfo writes a detailed workflow view to w.
+func renderWorkflowInfo(w io.Writer, wf *domain.Workflow, projectIDs []string, format string) error {
+	if format == "json" {
+		if projectIDs == nil {
+			projectIDs = []string{}
+		}
+		info := workflowInfoJSON{
+			workflowJSON: toWorkflowJSON(wf),
+			Projects:     projectIDs,
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(info)
+	}
+
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Workflow:", wf.Name); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Statuses:", strings.Join(wf.Statuses, ", ")); err != nil {
+		return err
+	}
+
+	if len(wf.Transitions) > 0 {
+		if _, err := fmt.Fprintln(w, "Transitions:"); err != nil {
+			return err
+		}
+		maxLen := 0
+		for _, t := range wf.Transitions {
+			if len(t.FromStatus) > maxLen {
+				maxLen = len(t.FromStatus)
+			}
+		}
+		fmtStr := fmt.Sprintf("  %%-%ds -> %%s\n", maxLen)
+		for _, t := range wf.Transitions {
+			if _, err := fmt.Fprintf(w, fmtStr, t.FromStatus, t.ToStatus); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(projectIDs) > 0 {
+		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Projects:", strings.Join(projectIDs, ", ")); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

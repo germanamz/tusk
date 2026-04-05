@@ -141,6 +141,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 
 	a.root.AddCommand(a.buildProjectCmd())
 	a.root.AddCommand(a.buildTagCmd())
+	a.root.AddCommand(a.buildWorkflowCmd())
 
 	mcpCmd := &cobra.Command{
 		Use:   "mcp",
