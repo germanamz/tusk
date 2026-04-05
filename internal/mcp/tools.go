@@ -27,21 +27,22 @@ func toolError(err error, context string) *mcp.CallToolResult {
 
 // taskResponse is the JSON structure returned by task tools.
 type taskResponse struct {
-	ID             string   `json:"id"`
-	ShortID        string   `json:"short_id"`
-	ParentID       *string  `json:"parent_id,omitempty"`
-	ProjectID      string   `json:"project_id"`
-	Title          string   `json:"title"`
-	Description    string   `json:"description"`
-	Status         string   `json:"status"`
-	Priority       int      `json:"priority"`
-	Version        int      `json:"version"`
-	Tags           []string `json:"tags"`
-	DueAt          *string  `json:"due_at,omitempty"`
-	WaitUntil      *string  `json:"wait_until,omitempty"`
-	RecurrenceRule *string  `json:"recurrence_rule,omitempty"`
-	CreatedAt      string   `json:"created_at"`
-	ModifiedAt     string   `json:"modified_at"`
+	ID             string         `json:"id"`
+	ShortID        string         `json:"short_id"`
+	ParentID       *string        `json:"parent_id,omitempty"`
+	ProjectID      string         `json:"project_id"`
+	Title          string         `json:"title"`
+	Description    string         `json:"description"`
+	Status         string         `json:"status"`
+	Priority       int            `json:"priority"`
+	Version        int            `json:"version"`
+	Tags           []string       `json:"tags"`
+	DueAt          *string        `json:"due_at,omitempty"`
+	WaitUntil      *string        `json:"wait_until,omitempty"`
+	RecurrenceRule *string        `json:"recurrence_rule,omitempty"`
+	UDA            map[string]any `json:"uda,omitempty"`
+	CreatedAt      string         `json:"created_at"`
+	ModifiedAt     string         `json:"modified_at"`
 }
 
 func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
@@ -70,6 +71,7 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
 		r.WaitUntil = &s
 	}
 	r.RecurrenceRule = t.RecurrenceRule
+	r.UDA = t.UDA
 	r.Tags = make([]string, len(tags))
 	for i, tg := range tags {
 		r.Tags[i] = tg.Name
