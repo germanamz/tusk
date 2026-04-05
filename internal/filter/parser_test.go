@@ -230,3 +230,74 @@ func TestParse_MixedErrorsAndValid(t *testing.T) {
 		t.Fatalf("expected valid field to be priority, got %q", fs.Fields[0].Key)
 	}
 }
+
+func TestParse_UDAField(t *testing.T) {
+	fs, errs := Parse("uda.env:prod status:active")
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if len(fs.Fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fs.Fields))
+	}
+	f, ok := fs.GetField("uda.env")
+	if !ok || f.Value != "prod" {
+		t.Fatalf("expected uda.env=prod, got %+v", f)
+	}
+}
+
+func TestParse_UDAFieldEmptyValue(t *testing.T) {
+	fs, errs := Parse("uda.env:")
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	f, ok := fs.GetField("uda.env")
+	if !ok || f.Value != "" {
+		t.Fatalf("expected uda.env with empty value, got %+v ok=%v", f, ok)
+	}
+}
+
+func TestParse_UDAFieldMultiple(t *testing.T) {
+	fs, errs := Parse("uda.env:prod uda.team:backend")
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	count := 0
+	for _, f := range fs.Fields {
+		if f.Key == "uda.env" || f.Key == "uda.team" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 uda fields, got %d", count)
+	}
+}
+
+func TestParse_UDAFieldInvalidKey(t *testing.T) {
+	_, errs := Parse("uda.:value")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for empty UDA key name, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestParse_UDAFieldBadKeyChars(t *testing.T) {
+	_, errs := Parse("uda.bad$key:value")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for invalid UDA key chars, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestParse_UDAMixedWithOtherFields(t *testing.T) {
+	fs, errs := Parse("My task uda.env:prod priority:3 +api")
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if fs.Title() != "My task" {
+		t.Fatalf("expected title 'My task', got %q", fs.Title())
+	}
+	if len(fs.Fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fs.Fields))
+	}
+	if len(fs.IncludeTags()) != 1 {
+		t.Fatalf("expected 1 include tag, got %d", len(fs.IncludeTags()))
+	}
+}

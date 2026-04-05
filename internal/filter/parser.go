@@ -1,6 +1,10 @@
 package filter
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/germanamz/tusk/internal/domain"
+)
 
 // fieldValidators maps field names to their validation functions.
 // Do not modify after init.
@@ -44,6 +48,31 @@ func Parse(input string) (*FilterSet, []ParseError) {
 
 		case TokenField:
 			key, value, _ := strings.Cut(tok.Value, ":")
+			// Check for uda.* prefix before static field lookup
+			if udaKey, ok := strings.CutPrefix(key, "uda."); ok {
+				if udaKey == "" {
+					errs = append(errs, ParseError{
+						Pos:     tok.Pos,
+						Field:   key,
+						Message: "empty UDA key name",
+					})
+					continue
+				}
+				if err := domain.ValidateUDAKey(udaKey); err != nil {
+					errs = append(errs, ParseError{
+						Pos:     tok.Pos,
+						Field:   key,
+						Message: err.Error(),
+					})
+					continue
+				}
+				fs.Fields = append(fs.Fields, FieldFilter{
+					Key:   key,
+					Value: value,
+					Pos:   tok.Pos,
+				})
+				continue
+			}
 			validator, known := fieldValidators[key]
 			if !known {
 				errs = append(errs, ParseError{
