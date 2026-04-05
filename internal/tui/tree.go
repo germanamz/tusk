@@ -63,7 +63,7 @@ type treeNodeJSON struct {
 	ID             string         `json:"id"`
 	ShortID        string         `json:"short_id"`
 	ParentID       *string        `json:"parent_id"`
-	ProjectID      *string        `json:"project_id,omitempty"`
+	ProjectID      string         `json:"project_id"`
 	Title          string         `json:"title"`
 	Description    string         `json:"description"`
 	Status         string         `json:"status"`
@@ -98,9 +98,7 @@ func toTreeNodeJSON(node *treeNode) treeNodeJSON {
 		s := t.ParentID.String()
 		tj.ParentID = &s
 	}
-	if t.ProjectID != "" {
-		tj.ProjectID = &t.ProjectID
-	}
+	tj.ProjectID = t.ProjectID
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
 		tj.DueAt = &s

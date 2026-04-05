@@ -203,7 +203,7 @@ type taskJSON struct {
 	ID             string         `json:"id"`
 	ShortID        string         `json:"short_id"`
 	ParentID       *string        `json:"parent_id,omitempty"`
-	ProjectID      *string        `json:"project_id,omitempty"`
+	ProjectID      string         `json:"project_id"`
 	Title          string         `json:"title"`
 	Description    string         `json:"description"`
 	Status         string         `json:"status"`
@@ -235,9 +235,7 @@ func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 		s := t.ParentID.String()
 		tj.ParentID = &s
 	}
-	if t.ProjectID != "" {
-		tj.ProjectID = &t.ProjectID
-	}
+	tj.ProjectID = t.ProjectID
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
 		tj.DueAt = &s
@@ -331,7 +329,7 @@ type taskInfoJSON struct {
 // renderTaskInfo writes a single task's detail view to w.
 // For "text", it renders key-value pairs with optional annotations.
 // For "json", it renders the task as a JSON object including annotations.
-func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []resolvedRelation, projectName string, format string) error {
+func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []resolvedRelation, format string) error {
 	if format == "json" {
 		info := taskInfoJSON{taskJSON: toTaskJSON(task, tags)}
 		for _, ann := range annotations {

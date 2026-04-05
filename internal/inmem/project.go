@@ -49,20 +49,31 @@ func (r *ProjectRepository) GetByID(_ context.Context, id string) (*domain.Proje
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	// Return a copy so callers can't mutate our internal state
-	cp := *p
-	return &cp, nil
+	return copyProject(p), nil
 }
 
 // List returns all projects sorted by ID. Each project is a defensive copy.
 func (r *ProjectRepository) List(_ context.Context) ([]*domain.Project, error) {
 	result := make([]*domain.Project, 0, len(r.projects))
 	for _, p := range r.projects {
-		cp := *p
-		result = append(result, &cp)
+		result = append(result, copyProject(p))
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].ID < result[j].ID
 	})
 	return result, nil
+}
+
+// copyProject returns a deep copy of a Project, including pointer fields in Settings.
+func copyProject(p *domain.Project) *domain.Project {
+	cp := *p
+	if p.Settings.AutoCompleteParent != nil {
+		acc := *p.Settings.AutoCompleteParent
+		cp.Settings.AutoCompleteParent = &acc
+	}
+	if p.Settings.AutoRevertParent != nil {
+		arc := *p.Settings.AutoRevertParent
+		cp.Settings.AutoRevertParent = &arc
+	}
+	return &cp
 }

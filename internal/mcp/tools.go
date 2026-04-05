@@ -30,7 +30,7 @@ type taskResponse struct {
 	ID             string   `json:"id"`
 	ShortID        string   `json:"short_id"`
 	ParentID       *string  `json:"parent_id,omitempty"`
-	ProjectID      *string  `json:"project_id,omitempty"`
+	ProjectID      string   `json:"project_id"`
 	Title          string   `json:"title"`
 	Description    string   `json:"description"`
 	Status         string   `json:"status"`
@@ -60,9 +60,7 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
 		s := t.ParentID.String()
 		r.ParentID = &s
 	}
-	if t.ProjectID != "" {
-		r.ProjectID = &t.ProjectID
-	}
+	r.ProjectID = t.ProjectID
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
 		r.DueAt = &s
@@ -533,7 +531,7 @@ type treeNodeResponse struct {
 	ID             string             `json:"id"`
 	ShortID        string             `json:"short_id"`
 	ParentID       *string            `json:"parent_id,omitempty"`
-	ProjectID      *string            `json:"project_id,omitempty"`
+	ProjectID      string             `json:"project_id"`
 	Title          string             `json:"title"`
 	Description    string             `json:"description"`
 	Status         string             `json:"status"`
@@ -564,9 +562,7 @@ func toTreeNodeResponse(task *domain.Task) treeNodeResponse {
 		s := task.ParentID.String()
 		r.ParentID = &s
 	}
-	if task.ProjectID != "" {
-		r.ProjectID = &task.ProjectID
-	}
+	r.ProjectID = task.ProjectID
 	if task.DueAt != nil {
 		s := task.DueAt.Format(time.RFC3339)
 		r.DueAt = &s

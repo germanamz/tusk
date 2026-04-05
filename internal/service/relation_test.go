@@ -19,7 +19,7 @@ type testRelationEnv struct {
 }
 
 // testRelationEnv creates a fully wired test environment for RelationService tests.
-// The DB has all migrations applied, including the _default project and default workflow.
+// The DB has all migrations applied, including the default project and kanban workflow.
 func newTestRelationEnv(t *testing.T) *testRelationEnv {
 	t.Helper()
 	store, err := sqlite.New(":memory:", migrations.FS)
