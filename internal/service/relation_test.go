@@ -32,7 +32,7 @@ func newTestRelationEnv(t *testing.T) *testRelationEnv {
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "default"},
+		"default": {Workflow: "kanban"},
 	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	relationRepo := sqlite.NewRelationRepo(db)

@@ -25,7 +25,7 @@ func testServer(t *testing.T) *Server {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{"default": {Workflow: "default"}})
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{"default": {Workflow: "kanban"}})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	tagRepo := sqlite.NewTagRepo(db)
 	relationRepo := sqlite.NewRelationRepo(db)

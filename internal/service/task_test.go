@@ -28,7 +28,7 @@ func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "default", Settings: settings},
+		"default": {Workflow: "kanban", Settings: settings},
 	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
@@ -63,7 +63,7 @@ func testTaskEnv(t *testing.T) *testEnv {
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "default"},
+		"default": {Workflow: "kanban"},
 	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
@@ -946,7 +946,7 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "default"},
+		"default": {Workflow: "kanban"},
 	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 

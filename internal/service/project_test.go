@@ -13,7 +13,7 @@ import (
 func testProjectService(t *testing.T) *ProjectService {
 	t.Helper()
 	cfgProjects := map[string]config.ProjectConfig{
-		"default": {Workflow: "default"},
+		"default": {Workflow: "kanban"},
 		"backend": {Workflow: "kanban"},
 	}
 	repo := inmem.NewProjectRepository(cfgProjects)
@@ -31,8 +31,8 @@ func TestProjectService_GetByID(t *testing.T) {
 	if p.ID != "default" {
 		t.Fatalf("expected ID 'default', got %q", p.ID)
 	}
-	if p.Workflow != "default" {
-		t.Fatalf("expected Workflow 'default', got %q", p.Workflow)
+	if p.Workflow != "kanban" {
+		t.Fatalf("expected Workflow 'kanban', got %q", p.Workflow)
 	}
 }
 

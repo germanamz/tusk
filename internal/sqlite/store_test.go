@@ -73,8 +73,8 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wfName != "default" {
-		t.Fatalf("expected default workflow, got %s", wfName)
+	if wfName != "kanban" {
+		t.Fatalf("expected kanban workflow, got %s", wfName)
 	}
 
 	tables := []string{"tasks", "annotations", "relations", "tags", "tag_assignments", "workflows", "workflow_transitions"}
