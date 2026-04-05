@@ -75,6 +75,14 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	}
 	addCmd.Flags().StringP("description", "d", "", `task description (use @file to read from file, @- for stdin)`)
 
+	modifyCmd := &cobra.Command{
+		Use:   "modify <short_id> [key:value...]",
+		Short: "Modify a task",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  a.runModify,
+	}
+	modifyCmd.Flags().StringP("description", "d", "", `new description (use @file to read from file, @- for stdin, "" to clear)`)
+
 	a.root.AddCommand(
 		addCmd,
 		&cobra.Command{
@@ -88,12 +96,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 			Args:  cobra.ExactArgs(1),
 			RunE:  a.runInfo,
 		},
-		&cobra.Command{
-			Use:   "modify <short_id> [key:value...]",
-			Short: "Modify a task",
-			Args:  cobra.MinimumNArgs(1),
-			RunE:  a.runModify,
-		},
+		modifyCmd,
 		&cobra.Command{
 			Use:   "start <short_id>",
 			Short: "Transition task to active",
