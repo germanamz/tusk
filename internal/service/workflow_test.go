@@ -6,11 +6,10 @@ import (
 
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
-	"github.com/google/uuid"
 )
 
-// defaultProjectID matches the seeded _default project in the migration.
-var defaultProjectID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+// defaultProjectID matches the seeded default project in the migration.
+const defaultProjectID = "default"
 
 // testWorkflowService creates a WorkflowService backed by a real in-memory
 // SQLite database with all migrations applied (including seed data).

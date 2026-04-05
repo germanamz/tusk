@@ -6,7 +6,6 @@ import (
 
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/repository"
-	"github.com/google/uuid"
 )
 
 // WorkflowService validates status transitions against project workflows.
@@ -21,7 +20,7 @@ func NewWorkflowService(wr repository.WorkflowRepository) *WorkflowService {
 
 // IsTransitionAllowed checks whether a status transition is permitted by the
 // workflow identified by projectID and workflowName.
-func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, projectID uuid.UUID, workflowName string, from string, to string) (bool, error) {
+func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, projectID string, workflowName string, from string, to string) (bool, error) {
 	wf, err := s.workflowRepo.GetByProjectAndName(ctx, projectID, workflowName)
 	if err != nil {
 		return false, fmt.Errorf("loading workflow %q: %w", workflowName, err)
@@ -42,7 +41,7 @@ func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, projectID uui
 
 // GetStatuses returns the ordered list of valid statuses for the workflow
 // identified by projectID and workflowName.
-func (s *WorkflowService) GetStatuses(ctx context.Context, projectID uuid.UUID, workflowName string) ([]string, error) {
+func (s *WorkflowService) GetStatuses(ctx context.Context, projectID string, workflowName string) ([]string, error) {
 	wf, err := s.workflowRepo.GetByProjectAndName(ctx, projectID, workflowName)
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
@@ -52,7 +51,7 @@ func (s *WorkflowService) GetStatuses(ctx context.Context, projectID uuid.UUID, 
 
 // GetTransitions returns all allowed transitions for the workflow
 // identified by projectID and workflowName.
-func (s *WorkflowService) GetTransitions(ctx context.Context, projectID uuid.UUID, workflowName string) ([]*domain.WorkflowTransition, error) {
+func (s *WorkflowService) GetTransitions(ctx context.Context, projectID string, workflowName string) ([]*domain.WorkflowTransition, error) {
 	wf, err := s.workflowRepo.GetByProjectAndName(ctx, projectID, workflowName)
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
