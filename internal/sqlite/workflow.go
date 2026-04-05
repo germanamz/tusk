@@ -18,14 +18,14 @@ func NewWorkflowRepo(db DBTX) *WorkflowRepo {
 	return &WorkflowRepo{db: db}
 }
 
-func (r *WorkflowRepo) GetByProjectAndName(ctx context.Context, projectID uuid.UUID, name string) (*domain.Workflow, error) {
+func (r *WorkflowRepo) GetByProjectAndName(ctx context.Context, projectID string, name string) (*domain.Workflow, error) {
 	var (
 		wf                    domain.Workflow
 		id, pid, statusesJSON string
 	)
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, project_id, name, statuses FROM workflows WHERE project_id = ? AND name = ?`,
-		projectID.String(), name,
+		projectID, name,
 	).Scan(&id, &pid, &wf.Name, &statusesJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -37,10 +37,7 @@ func (r *WorkflowRepo) GetByProjectAndName(ctx context.Context, projectID uuid.U
 	if err != nil {
 		return nil, err
 	}
-	wf.ProjectID, err = uuid.Parse(pid)
-	if err != nil {
-		return nil, err
-	}
+	wf.ProjectID = pid
 	if err := json.Unmarshal([]byte(statusesJSON), &wf.Statuses); err != nil {
 		return nil, err
 	}
@@ -84,7 +81,7 @@ func (r *WorkflowRepo) Create(ctx context.Context, wf *domain.Workflow) error {
 	}
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO workflows (id, project_id, name, statuses) VALUES (?, ?, ?, ?)`,
-		wf.ID.String(), wf.ProjectID.String(), wf.Name, string(statusesJSON))
+		wf.ID.String(), wf.ProjectID, wf.Name, string(statusesJSON))
 	return err
 }
 

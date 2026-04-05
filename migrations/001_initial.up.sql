@@ -2,19 +2,11 @@ PRAGMA journal_mode=WAL;
 PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 
-CREATE TABLE projects (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT NOT NULL DEFAULT '',
-    default_workflow TEXT NOT NULL DEFAULT 'default',
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
 CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     short_id TEXT NOT NULL UNIQUE,
     parent_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
-    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    project_id TEXT NOT NULL DEFAULT 'default',
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
@@ -70,9 +62,11 @@ CREATE TABLE tag_assignments (
 
 CREATE INDEX idx_tag_assignments_tag ON tag_assignments(tag_id);
 
+-- Workflow tables kept until Declarative Workflows initiative.
+-- project_id is a plain string (no FK — projects are config-driven).
 CREATE TABLE workflows (
     id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL,
     name TEXT NOT NULL,
     statuses TEXT NOT NULL DEFAULT '["pending","active","completed","deleted"]',
     UNIQUE(project_id, name)
@@ -86,13 +80,10 @@ CREATE TABLE workflow_transitions (
     UNIQUE(workflow_id, from_status, to_status)
 );
 
--- Default global project with default workflow
-INSERT INTO projects (id, name, description, default_workflow)
-VALUES ('00000000-0000-0000-0000-000000000000', '_default', 'Global default project', 'default');
-
+-- Seed default workflow for the "default" project (string ID, not UUID)
 INSERT INTO workflows (id, project_id, name, statuses)
 VALUES ('00000000-0000-0000-0000-000000000001',
-        '00000000-0000-0000-0000-000000000000',
+        'default',
         'default',
         '["pending","active","completed","deleted"]');
 

@@ -34,7 +34,7 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskColumns),
 		task.ID.String(), task.ShortID,
-		nullableUUID(task.ParentID), nullableUUID(task.ProjectID),
+		nullableUUID(task.ParentID), task.ProjectID,
 		task.Title, task.Description, task.Status, task.Priority, task.Version,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), udaJSON,
@@ -69,7 +69,7 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 			status = ?, priority = ?, due_at = ?, wait_until = ?,
 			recurrence_rule = ?, uda = ?, version = version + 1, modified_at = ?
 		WHERE id = ? AND version = ?`,
-		nullableUUID(task.ParentID), nullableUUID(task.ProjectID),
+		nullableUUID(task.ParentID), task.ProjectID,
 		task.Title, task.Description, task.Status, task.Priority,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), udaJSON,
@@ -177,7 +177,7 @@ func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args
 
 	if filter.ProjectID != nil {
 		conditions = append(conditions, "project_id = ?")
-		args = append(args, filter.ProjectID.String())
+		args = append(args, *filter.ProjectID)
 	}
 	if filter.ParentID != nil {
 		conditions = append(conditions, "parent_id = ?")
@@ -287,7 +287,7 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 		t          domain.Task
 		id         string
 		parentID   sql.NullString
-		projectID  sql.NullString
+		projectID  string
 		dueAt      sql.NullString
 		waitUntil  sql.NullString
 		recurrence sql.NullString
@@ -312,10 +312,7 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing parent_id: %w", err)
 	}
-	t.ProjectID, err = parseUUID(projectID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing project_id: %w", err)
-	}
+	t.ProjectID = projectID
 	t.DueAt, err = parseTime(dueAt)
 	if err != nil {
 		return nil, fmt.Errorf("parsing due_at: %w", err)

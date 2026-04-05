@@ -15,8 +15,7 @@ func TestWorkflowGetByProjectAndName(t *testing.T) {
 	s := testStore(t)
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	defaultProjectID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
-	wf, err := repo.GetByProjectAndName(ctx, defaultProjectID, "default")
+	wf, err := repo.GetByProjectAndName(ctx, "default", "default")
 	if err != nil {
 		t.Fatalf("GetByProjectAndName: %v", err)
 	}
@@ -37,7 +36,7 @@ func TestWorkflowGetByProjectAndName(t *testing.T) {
 func TestWorkflowGetByProjectAndNameNotFound(t *testing.T) {
 	s := testStore(t)
 	repo := NewWorkflowRepo(s.DB())
-	_, err := repo.GetByProjectAndName(context.Background(), uuid.New(), "nonexistent")
+	_, err := repo.GetByProjectAndName(context.Background(), "nonexistent-project", "nonexistent")
 	if err != domain.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -47,8 +46,7 @@ func TestWorkflowGetTransitions(t *testing.T) {
 	s := testStore(t)
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	defaultProjectID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
-	wf, err := repo.GetByProjectAndName(ctx, defaultProjectID, "default")
+	wf, err := repo.GetByProjectAndName(ctx, "default", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +63,7 @@ func TestWorkflowGetTransitionsValidatePairs(t *testing.T) {
 	s := testStore(t)
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	defaultProjectID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
-	wf, err := repo.GetByProjectAndName(ctx, defaultProjectID, "default")
+	wf, err := repo.GetByProjectAndName(ctx, "default", "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,18 +94,13 @@ func TestWorkflowGetTransitionsValidatePairs(t *testing.T) {
 
 func TestWorkflowCreateEmptyStatuses(t *testing.T) {
 	s := testStore(t)
-	projRepo := NewProjectRepo(s.DB())
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	proj := &domain.Project{ID: uuid.New(), Name: "empty-statuses-proj", DefaultWorkflow: "minimal", CreatedAt: mustTimeNow()}
-	if err := projRepo.Create(ctx, proj); err != nil {
-		t.Fatal(err)
-	}
-	wf := &domain.Workflow{ID: uuid.New(), ProjectID: proj.ID, Name: "minimal", Statuses: []string{}}
+	wf := &domain.Workflow{ID: uuid.New(), ProjectID: "empty-statuses-proj", Name: "minimal", Statuses: []string{}}
 	if err := repo.Create(ctx, wf); err != nil {
 		t.Fatalf("Create with empty statuses: %v", err)
 	}
-	got, err := repo.GetByProjectAndName(ctx, proj.ID, "minimal")
+	got, err := repo.GetByProjectAndName(ctx, "empty-statuses-proj", "minimal")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,18 +111,13 @@ func TestWorkflowCreateEmptyStatuses(t *testing.T) {
 
 func TestWorkflowCreate(t *testing.T) {
 	s := testStore(t)
-	projRepo := NewProjectRepo(s.DB())
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	proj := &domain.Project{ID: uuid.New(), Name: "kanban-project", DefaultWorkflow: "kanban", CreatedAt: mustTimeNow()}
-	if err := projRepo.Create(ctx, proj); err != nil {
-		t.Fatal(err)
-	}
-	wf := &domain.Workflow{ID: uuid.New(), ProjectID: proj.ID, Name: "kanban", Statuses: []string{"backlog", "in_progress", "review", "done"}}
+	wf := &domain.Workflow{ID: uuid.New(), ProjectID: "kanban-project", Name: "kanban", Statuses: []string{"backlog", "in_progress", "review", "done"}}
 	if err := repo.Create(ctx, wf); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	got, err := repo.GetByProjectAndName(ctx, proj.ID, "kanban")
+	got, err := repo.GetByProjectAndName(ctx, "kanban-project", "kanban")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,14 +131,9 @@ func TestWorkflowCreate(t *testing.T) {
 
 func TestWorkflowAddTransition(t *testing.T) {
 	s := testStore(t)
-	projRepo := NewProjectRepo(s.DB())
 	repo := NewWorkflowRepo(s.DB())
 	ctx := context.Background()
-	proj := &domain.Project{ID: uuid.New(), Name: "test-proj", DefaultWorkflow: "simple", CreatedAt: mustTimeNow()}
-	if err := projRepo.Create(ctx, proj); err != nil {
-		t.Fatal(err)
-	}
-	wf := &domain.Workflow{ID: uuid.New(), ProjectID: proj.ID, Name: "simple", Statuses: []string{"open", "closed"}}
+	wf := &domain.Workflow{ID: uuid.New(), ProjectID: "test-proj", Name: "simple", Statuses: []string{"open", "closed"}}
 	if err := repo.Create(ctx, wf); err != nil {
 		t.Fatal(err)
 	}
