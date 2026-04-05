@@ -4,24 +4,30 @@ import (
 	"context"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/sqlite"
-	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/inmem"
 )
 
 // defaultProjectID matches the seeded default project in the migration.
 const defaultProjectID = "default"
 
-// testWorkflowService creates a WorkflowService backed by a real in-memory
-// SQLite database with all migrations applied (including seed data).
+// testWorkflowService creates a WorkflowService backed by an in-memory
+// workflow repository with the default kanban workflow.
 func testWorkflowService(t *testing.T) *WorkflowService {
 	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
-
-	workflowRepo := sqlite.NewWorkflowRepo(store.DB())
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
 	return NewWorkflowService(workflowRepo)
 }
 
