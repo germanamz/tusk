@@ -1489,3 +1489,129 @@ func TestAutoRevert_CustomTargetStatus(t *testing.T) {
 		t.Fatalf("expected parent 'pending' (custom revert target), got %q", parentCheck.Status)
 	}
 }
+
+func TestUpdate_UDAMerge_AddKeys(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "UDA test", UDA: map[string]any{"existing": "value"}}
+	mustCreateTask(t, env.taskSvc, task)
+
+	mergeUDA := map[string]any{"new_key": "new_value"}
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UDA:     &mergeUDA,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UDA["existing"] != "value" {
+		t.Fatalf("expected existing key preserved, got %v", updated.UDA["existing"])
+	}
+	if updated.UDA["new_key"] != "new_value" {
+		t.Fatalf("expected new key added, got %v", updated.UDA["new_key"])
+	}
+}
+
+func TestUpdate_UDAMerge_OverwriteKey(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "UDA test", UDA: map[string]any{"env": "dev"}}
+	mustCreateTask(t, env.taskSvc, task)
+
+	mergeUDA := map[string]any{"env": "prod"}
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UDA:     &mergeUDA,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UDA["env"] != "prod" {
+		t.Fatalf("expected env=prod, got %v", updated.UDA["env"])
+	}
+}
+
+func TestUpdate_UDAMerge_DeleteKey(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "UDA test", UDA: map[string]any{"env": "prod", "team": "backend"}}
+	mustCreateTask(t, env.taskSvc, task)
+
+	mergeUDA := map[string]any{"env": ""}
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UDA:     &mergeUDA,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if _, exists := updated.UDA["env"]; exists {
+		t.Fatalf("expected env key removed, got %v", updated.UDA["env"])
+	}
+	if updated.UDA["team"] != "backend" {
+		t.Fatalf("expected team preserved, got %v", updated.UDA["team"])
+	}
+}
+
+func TestUpdate_UDAMerge_WithNilExisting(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("UDA nil test")
+	mustCreateTask(t, env.taskSvc, task)
+
+	mergeUDA := map[string]any{"env": "prod"}
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UDA:     &mergeUDA,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UDA["env"] != "prod" {
+		t.Fatalf("expected env=prod, got %v", updated.UDA["env"])
+	}
+}
+
+func TestUpdate_UDAMerge_InvalidKey(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("UDA invalid key test")
+	mustCreateTask(t, env.taskSvc, task)
+
+	mergeUDA := map[string]any{"invalid.key": "value"}
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UDA:     &mergeUDA,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid UDA key")
+	}
+}
+
+func TestUpdate_UDAMerge_NonStringValue(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("UDA non-string test")
+	mustCreateTask(t, env.taskSvc, task)
+
+	mergeUDA := map[string]any{"count": 42}
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UDA:     &mergeUDA,
+	})
+	if err == nil {
+		t.Fatal("expected error for non-string UDA value")
+	}
+}

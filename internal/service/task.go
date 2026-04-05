@@ -205,7 +205,19 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		task.RecurrenceRule = *upd.RecurrenceRule
 	}
 	if upd.UDA != nil {
-		task.UDA = *upd.UDA
+		if err := domain.ValidateUDA(*upd.UDA); err != nil {
+			return nil, err
+		}
+		if task.UDA == nil {
+			task.UDA = map[string]any{}
+		}
+		for k, v := range *upd.UDA {
+			if v == "" {
+				delete(task.UDA, k)
+			} else {
+				task.UDA[k] = v
+			}
+		}
 	}
 
 	// Validate patched state
