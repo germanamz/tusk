@@ -60,7 +60,7 @@ func (fs *FilterSet) Title() string {
 
 // FieldFilter represents a key:value or key:min..max term.
 type FieldFilter struct {
-	Key   string // "status", "project", "priority", "due", "parent", "tree", "waiting"
+	Key   string // "status", "project", "priority", "due", "parent", "tree", "waiting", "uda.<key>"
 	Value string // raw value string, unparsed
 	Pos   int    // byte offset in input
 }
