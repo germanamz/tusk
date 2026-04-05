@@ -715,6 +715,47 @@ func (s *Server) handleProjectList(ctx context.Context, request mcp.CallToolRequ
 	return toolResultJSON(results)
 }
 
+// workflowListResponse is the JSON structure returned by the workflow list tool.
+type workflowListResponse struct {
+	Name        string               `json:"name"`
+	Statuses    []string             `json:"statuses"`
+	Transitions []transitionResponse `json:"transitions"`
+	Projects    []string             `json:"projects"`
+}
+
+// handleWorkflowList handles the tusk_workflow_list tool.
+func (s *Server) handleWorkflowList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	workflows, err := s.workflowSvc.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]workflowListResponse, len(workflows))
+	for i, wf := range workflows {
+		_, projectIDs, err := s.workflowSvc.GetWorkflowWithProjects(ctx, wf.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		transitions := make([]transitionResponse, len(wf.Transitions))
+		for j, t := range wf.Transitions {
+			transitions[j] = transitionResponse{From: t.FromStatus, To: t.ToStatus}
+		}
+
+		if projectIDs == nil {
+			projectIDs = []string{}
+		}
+		results[i] = workflowListResponse{
+			Name:        wf.Name,
+			Statuses:    wf.Statuses,
+			Transitions: transitions,
+			Projects:    projectIDs,
+		}
+	}
+
+	return toolResultJSON(results)
+}
+
 // handleTaskTree handles the tusk_task_tree tool.
 func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var tasks []*domain.Task
