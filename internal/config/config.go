@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +10,9 @@ import (
 
 	"github.com/spf13/viper"
 )
+
+//go:embed default.toml
+var defaultConfig []byte
 
 // WorkflowTransitionConfig defines an allowed status transition.
 type WorkflowTransitionConfig struct {
@@ -107,54 +112,6 @@ func WithSearchPath(path string) Option {
 	}
 }
 
-// defaultConfigContent is written to disk when no config file exists.
-const defaultConfigContent = `# Tusk Configuration
-# Place this file at ~/.config/tusk/config.toml
-# All values shown are defaults — only include settings you want to override.
-
-[storage]
-backend = "sqlite"
-path    = "~/.local/share/tusk/tusk.db"
-
-[storage.postgres]
-dsn = ""
-
-[urgency]
-priority_weight = 6.0
-due_weight      = 12.0
-age_weight      = 2.0
-blocking_weight = 8.0
-blocked_weight  = -5.0
-
-[tui]
-date_format  = "2006-01-02"
-color        = true
-tree_indent  = 2
-default_sort = "urgency"
-
-[mcp]
-disabled_tool_groups = []
-disabled_tools = []
-disabled_resource_groups = []
-disabled_resources = []
-
-# Workflows define allowed status transitions.
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
-transitions = [
-  { from = "pending",   to = "active" },
-  { from = "pending",   to = "deleted" },
-  { from = "active",    to = "completed" },
-  { from = "active",    to = "pending" },
-  { from = "active",    to = "deleted" },
-  { from = "completed", to = "pending" },
-]
-
-# Projects group tasks and assign workflows.
-[projects.default]
-workflow = "kanban"
-`
-
 // ensureConfigFile creates the config file with default content if it doesn't exist.
 func ensureConfigFile(searchPath string) error {
 	configPath := filepath.Join(searchPath, "config.toml")
@@ -164,7 +121,7 @@ func ensureConfigFile(searchPath string) error {
 	if err := os.MkdirAll(searchPath, 0o755); err != nil {
 		return fmt.Errorf("creating config directory %s: %w", searchPath, err)
 	}
-	if err := os.WriteFile(configPath, []byte(defaultConfigContent), 0o644); err != nil {
+	if err := os.WriteFile(configPath, defaultConfig, 0o644); err != nil {
 		return fmt.Errorf("writing default config: %w", err)
 	}
 	return nil
@@ -180,28 +137,12 @@ func ensureConfigFile(searchPath string) error {
 // If no config file is found, defaults are used without error.
 func Load(opts ...Option) (*Config, error) {
 	v := viper.New()
-
-	// Hardcoded defaults
-	v.SetDefault("storage.backend", "sqlite")
-	v.SetDefault("storage.path", "~/.local/share/tusk/tusk.db")
-	v.SetDefault("storage.postgres.dsn", "")
-
-	v.SetDefault("urgency.priority_weight", 6.0)
-	v.SetDefault("urgency.due_weight", 12.0)
-	v.SetDefault("urgency.age_weight", 2.0)
-	v.SetDefault("urgency.blocking_weight", 8.0)
-	v.SetDefault("urgency.blocked_weight", -5.0)
-
-	v.SetDefault("tui.date_format", "2006-01-02")
-	v.SetDefault("tui.color", true)
-	v.SetDefault("tui.tree_indent", 2)
-	v.SetDefault("tui.default_sort", "urgency")
-
-	// MCP defaults — empty slices are the zero value, no SetDefault needed.
-
-	// Config file
-	v.SetConfigName("config")
 	v.SetConfigType("toml")
+
+	// Load embedded default.toml as the base configuration.
+	if err := v.ReadConfig(bytes.NewReader(defaultConfig)); err != nil {
+		return nil, fmt.Errorf("reading embedded defaults: %w", err)
+	}
 
 	// Apply options.
 	var lo loadOptions
@@ -221,9 +162,17 @@ func Load(opts ...Option) (*Config, error) {
 	}
 
 	if searchPath != "" {
+		v.SetConfigName("config")
 		v.AddConfigPath(searchPath)
 		if err := ensureConfigFile(searchPath); err != nil {
 			return nil, err
+		}
+
+		// Merge user config on top of embedded defaults.
+		if err := v.MergeInConfig(); err != nil {
+			if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+				return nil, fmt.Errorf("reading config file: %w", err)
+			}
 		}
 	}
 
@@ -232,40 +181,9 @@ func Load(opts ...Option) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	// Read config file (ignore "not found" — config is optional)
-	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("reading config file: %w", err)
-		}
-	}
-
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
-	}
-
-	// Inject builtin workflow if no workflows configured
-	if len(cfg.Workflows) == 0 {
-		cfg.Workflows = map[string]WorkflowConfig{
-			"kanban": {
-				Statuses: []string{"pending", "active", "completed", "deleted"},
-				Transitions: []WorkflowTransitionConfig{
-					{From: "pending", To: "active"},
-					{From: "pending", To: "deleted"},
-					{From: "active", To: "completed"},
-					{From: "active", To: "pending"},
-					{From: "active", To: "deleted"},
-					{From: "completed", To: "pending"},
-				},
-			},
-		}
-	}
-
-	// Inject builtin project if no projects configured
-	if len(cfg.Projects) == 0 {
-		cfg.Projects = map[string]ProjectConfig{
-			"default": {Workflow: "kanban"},
-		}
 	}
 
 	// Validate cross-references
