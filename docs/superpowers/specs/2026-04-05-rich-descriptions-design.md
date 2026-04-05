@@ -27,7 +27,7 @@ Enable rich task descriptions via CLI and MCP. Descriptions support full markdow
 **`tusk add`:**
 - Add `--description` / `-d` flag (string type).
 - If value starts with `@`, treat the remainder as a file path and read its contents.
-- `@-` reads from stdin (enables piping: `cat spec.md | tusk add "My task" -d @-`). If stdin is a TTY (no piped input), return an error: `stdin is a terminal, not a pipe`.
+- `@-` reads from stdin (enables piping: `cat spec.md | tusk add "My task" -d @-`). If stdin is a TTY (no piped input), return an error: `stdin is a terminal, not a pipe`. TTY detection uses `golang.org/x/term.IsTerminal`. Note: when bubbletea is introduced in v0.6, the TTY detection strategy may need to change since bubbletea manages its own terminal state.
 - Omitting the flag or passing empty string means no description.
 
 **`tusk modify`:**
