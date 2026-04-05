@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -21,12 +22,13 @@ type Result struct {
 // Env is the test environment for a single scenario run.
 // Each Env gets its own temp SQLite database file.
 type Env struct {
-	t       *testing.T
-	binPath string   // path to compiled tusk binary
-	dbPath  string   // path to temp SQLite file
-	dbMode  string   // "flag" or "env"
-	format  string   // "text" or "json"
-	results []Result // stored results for inter-step references
+	t         *testing.T
+	binPath   string   // path to compiled tusk binary
+	dbPath    string   // path to temp SQLite file
+	configDir string   // path to temp config directory (optional)
+	dbMode    string   // "flag" or "env"
+	format    string   // "text" or "json"
+	results   []Result // stored results for inter-step references
 }
 
 // newEnv creates a new Env with a fresh temp DB file.
@@ -48,6 +50,18 @@ func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
 		dbMode:  dbMode,
 		format:  format,
 	}
+}
+
+// withConfig writes a config.toml to a temp directory and sets TUSK_CONFIG_DIR
+// on future commands so the tusk binary uses it.
+func (e *Env) withConfig(configContent string) {
+	e.t.Helper()
+	dir := e.t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		e.t.Fatalf("writing test config: %v", err)
+	}
+	e.configDir = dir
 }
 
 // Run executes the tusk binary with the given arguments.
@@ -72,10 +86,15 @@ func (e *Env) Run(args ...string) Result {
 
 	cmd := exec.Command(e.binPath, fullArgs...)
 
-	// Set TUSK_DB env var if using env mode
+	// Set environment variables
+	env := os.Environ()
 	if e.dbMode == "env" {
-		cmd.Env = append(os.Environ(), "TUSK_DB="+e.dbPath)
+		env = append(env, "TUSK_DB="+e.dbPath)
 	}
+	if e.configDir != "" {
+		env = append(env, "TUSK_CONFIG_DIR="+e.configDir)
+	}
+	cmd.Env = env
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

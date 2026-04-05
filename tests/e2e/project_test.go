@@ -40,6 +40,20 @@ func TestProjectCommands(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "project_create_removed",
+			Steps: []Step{
+				{
+					Args: []string{"project", "create", "myproject"},
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						// "project create" no longer exists — Cobra prints usage
+						combined := r.Stdout + r.Stderr
+						assertContains(t, combined, "Usage")
+					},
+				},
+			},
+		},
 	}
 
 	runScenarios(t, binPath, scenarios)

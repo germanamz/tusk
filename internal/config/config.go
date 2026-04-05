@@ -154,6 +154,8 @@ func Load(opts ...Option) (*Config, error) {
 	var searchPath string
 	if lo.searchPath != "" {
 		searchPath = lo.searchPath
+	} else if envDir := os.Getenv("TUSK_CONFIG_DIR"); envDir != "" {
+		searchPath = envDir
 	} else {
 		home, err := os.UserHomeDir()
 		if err == nil {
