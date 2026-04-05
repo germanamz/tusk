@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -244,6 +245,26 @@ func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args
 	if filter.WaitingOnly != nil && *filter.WaitingOnly {
 		conditions = append(conditions, "wait_until > ?")
 		args = append(args, time.Now().UTC().Format(timeFormat))
+	}
+	if len(filter.UDA) > 0 {
+		// Sort keys for deterministic query generation (important for tests)
+		udaKeys := make([]string, 0, len(filter.UDA))
+		for k := range filter.UDA {
+			udaKeys = append(udaKeys, k)
+		}
+		sort.Strings(udaKeys)
+		for _, k := range udaKeys {
+			v := filter.UDA[k]
+			jsonPath := "$." + k
+			if v == "" {
+				// Empty value = key absent or empty string
+				conditions = append(conditions, "(json_extract(uda, ?) IS NULL OR json_extract(uda, ?) = '')")
+				args = append(args, jsonPath, jsonPath)
+			} else {
+				conditions = append(conditions, "json_extract(uda, ?) = ?")
+				args = append(args, jsonPath, v)
+			}
+		}
 	}
 	return ctePrefix, strings.Join(conditions, " AND "), args
 }
