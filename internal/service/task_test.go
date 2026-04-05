@@ -584,6 +584,84 @@ func TestUpdate_ClearNullableField(t *testing.T) {
 	}
 }
 
+func TestUpdate_SetDescription(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Has no description")
+	mustCreateTask(t, env.taskSvc, task)
+
+	// Set description via double-pointer
+	desc := "A detailed description"
+	dp := &desc
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:     task.ShortID,
+		Version:     1,
+		Description: &dp,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Description != "A detailed description" {
+		t.Fatalf("expected description %q, got %q", "A detailed description", updated.Description)
+	}
+}
+
+func TestUpdate_ClearDescription(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Has description")
+	task.Description = "Will be cleared"
+	mustCreateTask(t, env.taskSvc, task)
+
+	// Verify description was set
+	created, err := env.taskSvc.GetByShortID(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if created.Description != "Will be cleared" {
+		t.Fatalf("expected description %q, got %q", "Will be cleared", created.Description)
+	}
+
+	// Clear description via double-pointer (outer non-nil, inner nil)
+	var nilStr *string
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:     task.ShortID,
+		Version:     1,
+		Description: &nilStr,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Description != "" {
+		t.Fatalf("expected empty description, got %q", updated.Description)
+	}
+}
+
+func TestUpdate_NilDescriptionNoChange(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("Keep description")
+	task.Description = "Should not change"
+	mustCreateTask(t, env.taskSvc, task)
+
+	// Update title only, leave description nil (no change)
+	newTitle := "New title"
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: 1,
+		Title:   &newTitle,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Description != "Should not change" {
+		t.Fatalf("expected description unchanged, got %q", updated.Description)
+	}
+}
+
 func TestUpdate_NotFound(t *testing.T) {
 	env := testTaskEnv(t)
 	ctx := context.Background()
