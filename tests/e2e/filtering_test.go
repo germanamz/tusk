@@ -184,21 +184,21 @@ func TestFiltering(t *testing.T) {
 			Name: "list_project_filter",
 			Steps: []Step{
 				{
-					// _default project is seeded by migration; tasks without an explicit
-					// project are also assigned to _default, so both tasks appear.
-					Args: []string{"add", "First task", "project:_default"},
+					// default project is seeded by config; tasks without an explicit
+					// project are also assigned to default, so both tasks appear.
+					Args: []string{"add", "First task", "project:default"},
 				},
 				{
-					// No project:_ arg — still gets _default by the service layer.
+					// No project arg — still gets default by the service layer.
 					Args: []string{"add", "Second task"},
 				},
 				{
-					Args: []string{"list", "project:_default"},
+					Args: []string{"list", "project:default"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
 						if len(arr) != 2 {
-							t.Fatalf("expected 2 tasks in _default project, got %d", len(arr))
+							t.Fatalf("expected 2 tasks in default project, got %d", len(arr))
 						}
 					},
 					AssertText: func(t *testing.T, output string) {

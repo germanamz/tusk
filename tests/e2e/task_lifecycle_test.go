@@ -146,8 +146,8 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_with_project",
 			Steps: []Step{
 				{
-					// _default project is seeded by the migration
-					Args: []string{"add", "Project task", "project:_default"},
+					// default project is seeded by config
+					Args: []string{"add", "Project task", "project:default"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
