@@ -177,7 +177,11 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		task.Title = *upd.Title
 	}
 	if upd.Description != nil {
-		task.Description = *upd.Description
+		if *upd.Description == nil {
+			task.Description = ""
+		} else {
+			task.Description = **upd.Description
+		}
 	}
 	if upd.Status != nil {
 		task.Status = *upd.Status
