@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -416,6 +417,14 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 			return err
 		}
 	}
+	if len(task.UDA) > 0 {
+		if _, err := fmt.Fprintln(w, "UDA:"); err != nil {
+			return err
+		}
+		if err := renderUDASection(w, task.UDA); err != nil {
+			return err
+		}
+	}
 
 	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Created:", task.CreatedAt.Format("2006-01-02 15:04:05")); err != nil {
 		return err
@@ -455,6 +464,46 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 		}
 	}
 
+	return nil
+}
+
+// renderUDASection writes UDA key-value pairs as an indented block.
+// Keys are sorted alphabetically. Single-line values appear inline;
+// multi-line values appear indented below the key.
+func renderUDASection(w io.Writer, uda map[string]any) error {
+	keys := make([]string, 0, len(uda))
+	for k := range uda {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Calculate max key length for alignment
+	maxKeyLen := 0
+	for _, k := range keys {
+		if len(k) > maxKeyLen {
+			maxKeyLen = len(k)
+		}
+	}
+
+	for _, k := range keys {
+		v := fmt.Sprintf("%v", uda[k])
+		if strings.Contains(v, "\n") {
+			// Multi-line: key on its own line, value indented below
+			if _, err := fmt.Fprintf(w, "  %s:\n", k); err != nil {
+				return err
+			}
+			for _, line := range strings.Split(v, "\n") {
+				if _, err := fmt.Fprintf(w, "    %s\n", line); err != nil {
+					return err
+				}
+			}
+		} else {
+			// Single-line: inline after key with aligned padding
+			if _, err := fmt.Fprintf(w, "  %-*s  %s\n", maxKeyLen+1, k+":", v); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
