@@ -8,7 +8,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -46,16 +46,54 @@ jobs:
         with:
           version: latest
 
-      - name: Run unit tests
-        run: go test -race ./internal/... ./cmd/...
-
-      - name: Run e2e tests
-        run: go test -race ./tests/e2e/
-
       - name: Validate commit messages
         run: |
           go install github.com/siderolabs/conform/cmd/conform@v0.1.0-alpha.31
           conform enforce
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Run unit tests
+        run: go test -race ./internal/... ./cmd/...
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Run e2e tests
+        run: go test -race ./tests/e2e/
 
   pr-title:
     runs-on: ubuntu-latest
