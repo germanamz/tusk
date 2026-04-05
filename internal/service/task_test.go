@@ -30,7 +30,19 @@ func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
 		"default": {Workflow: "kanban", Settings: settings},
 	})
-	workflowRepo := sqlite.NewWorkflowRepo(db)
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
 
 	workflowSvc := NewWorkflowService(workflowRepo)
 	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
@@ -49,32 +61,9 @@ type testEnv struct {
 	store       *sqlite.Store
 }
 
-// testTaskEnv creates a fully wired test environment with an in-memory SQLite DB.
-// The DB has all migrations applied, including the default project and kanban workflow.
 func testTaskEnv(t *testing.T) *testEnv {
 	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
-
-	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-	})
-	workflowRepo := sqlite.NewWorkflowRepo(db)
-
-	workflowSvc := NewWorkflowService(workflowRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
-
-	return &testEnv{
-		taskSvc:     taskSvc,
-		workflowSvc: workflowSvc,
-		store:       store,
-	}
+	return testTaskEnvWithSettings(t, config.ProjectSettingsConfig{})
 }
 
 // newMinimalTask returns a Task with only the required fields set.
@@ -948,7 +937,19 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
 		"default": {Workflow: "kanban"},
 	})
-	workflowRepo := sqlite.NewWorkflowRepo(db)
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
 
 	workflowSvc := NewWorkflowService(workflowRepo)
 	// Pass store as the TaskTxProvider (5th argument)
