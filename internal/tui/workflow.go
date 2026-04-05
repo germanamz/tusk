@@ -46,7 +46,7 @@ func (a *App) runWorkflowInfo(cmd *cobra.Command, args []string) error {
 
 	wf, projectIDs, err := a.workflowSvc.GetWorkflowWithProjects(ctx, name)
 	if err != nil {
-		return fmt.Errorf("workflow %q not found", name)
+		return fmt.Errorf("workflow %q: %w", name, err)
 	}
 	return renderWorkflowInfo(cmd.OutOrStdout(), wf, projectIDs, a.format)
 }
