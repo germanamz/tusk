@@ -22,6 +22,7 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 		RunE:  a.runAdd,
 	}
 	addCmd.Flags().StringP("description", "d", "", `task description (use @file to read from file, @- for stdin)`)
+	addCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value)`)
 
 	modifyCmd := &cobra.Command{
 		Use:   "modify <short_id> [key:value...]",
@@ -30,6 +31,7 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 		RunE:  a.runModify,
 	}
 	modifyCmd.Flags().StringP("description", "d", "", `new description (use @file to read from file, @- for stdin, "" to clear)`)
+	modifyCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value, key= to clear)`)
 
 	treeCmd := &cobra.Command{
 		Use:   "tree [short_id]",
