@@ -276,6 +276,116 @@ func TestTaskLifecycle(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "add_with_inline_description",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Described task", "--description", "This is the description"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["title"], "Described task")
+						assertEqual(t, m["description"], "This is the description")
+					},
+				},
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "This is the description")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Description:")
+						assertContains(t, output, "This is the description")
+					},
+				},
+			},
+		},
+		{
+			Name: "modify_set_description",
+			Steps: []Step{
+				{
+					Args: []string{"add", "No description yet"},
+				},
+				{
+					Args: []string{"modify", "$0.short_id", "--description", "Added later"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "Added later")
+					},
+				},
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "Added later")
+					},
+				},
+			},
+		},
+		{
+			Name: "modify_clear_description",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Has description", "--description", "Will be cleared"},
+				},
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "Will be cleared")
+					},
+				},
+				{
+					Args: []string{"modify", "$0.short_id", "--description", ""},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "")
+					},
+				},
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertNotContains(t, output, "Description:")
+					},
+				},
+			},
+		},
+		{
+			Name: "add_with_file_description",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Multi-line task", "--description", "Line one\nLine two\nLine three"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "Line one\nLine two\nLine three")
+					},
+				},
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Description:")
+						assertContains(t, output, "Line one")
+						assertContains(t, output, "Line two")
+						assertContains(t, output, "Line three")
+					},
+				},
+			},
+		},
 	}
 
 	runScenarios(t, binPath, scenarios)
