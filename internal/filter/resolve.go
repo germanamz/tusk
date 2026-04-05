@@ -125,6 +125,14 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 		case "waiting":
 			v := field.Value == "true"
 			tf.WaitingOnly = &v
+
+		default:
+			if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
+				if tf.UDA == nil {
+					tf.UDA = make(map[string]string)
+				}
+				tf.UDA[udaKey] = field.Value
+			}
 		}
 	}
 
