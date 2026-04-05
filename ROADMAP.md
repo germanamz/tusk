@@ -284,10 +284,10 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Full markdown descriptions with file-based input for detailed task specs.
 
-- [ ] **Story: File-based description input**
-  - [ ] `--description @file.md` syntax on `tusk add` and `tusk modify` to read content from a file
-  - [ ] `tusk_task_create` and `tusk_task_modify` MCP tools accept full markdown descriptions
-  - [ ] `tusk info` renders description in full (no truncation)
+- [x] **Story: File-based description input**
+  - [x] `--description @file.md` syntax on `tusk add` and `tusk modify` to read content from a file
+  - [x] `tusk_task_create` and `tusk_task_modify` MCP tools accept full markdown descriptions
+  - [x] `tusk info` renders description in full (no truncation)
 
 ### Initiative: User-Defined Attributes
 
