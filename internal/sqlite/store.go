@@ -87,9 +87,6 @@ func (t *Tx) Relations() *RelationRepo { return NewRelationRepo(t.tx) }
 // Annotations returns an AnnotationRepo operating within this transaction.
 func (t *Tx) Annotations() *AnnotationRepo { return NewAnnotationRepo(t.tx) }
 
-// Projects returns a ProjectRepo operating within this transaction.
-func (t *Tx) Projects() *ProjectRepo { return NewProjectRepo(t.tx) }
-
 // Tags returns a TagRepo operating within this transaction.
 func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
 
@@ -112,11 +109,11 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx *Tx) error) error {
 	return sqlTx.Commit()
 }
 
-// WithTaskTx executes fn with TaskRepository and ProjectRepository backed by
+// WithTaskTx executes fn with TaskRepository and WorkflowRepository backed by
 // a transaction. This is the concrete implementation of service.TaskTxProvider.
-func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, pr repository.ProjectRepository, wr repository.WorkflowRepository) error) error {
+func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, wr repository.WorkflowRepository) error) error {
 	return s.WithTx(ctx, func(tx *Tx) error {
-		return fn(tx.Tasks(), tx.Projects(), tx.Workflows())
+		return fn(tx.Tasks(), tx.Workflows())
 	})
 }
 

@@ -59,12 +59,11 @@ func TestTaskCreateWithNullables(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
-	defaultProjectID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
 	due := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	wait := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	rrule := "FREQ=WEEKLY;BYDAY=MO"
 	task := newTestTask()
-	task.ProjectID = &defaultProjectID
+	task.ProjectID = "default"
 	task.DueAt = &due
 	task.WaitUntil = &wait
 	task.RecurrenceRule = &rrule
@@ -76,8 +75,8 @@ func TestTaskCreateWithNullables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if got.ProjectID == nil || *got.ProjectID != defaultProjectID {
-		t.Fatalf("expected project ID %s, got %v", defaultProjectID, got.ProjectID)
+	if got.ProjectID != "default" {
+		t.Fatalf("expected project ID 'default', got %q", got.ProjectID)
 	}
 	if got.DueAt == nil || !got.DueAt.Equal(due) {
 		t.Fatalf("expected due %v, got %v", due, got.DueAt)
@@ -283,21 +282,17 @@ func TestTaskListByStatusMultiple(t *testing.T) {
 func TestTaskListByProject(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
-	projRepo := NewProjectRepo(s.DB())
 	ctx := context.Background()
-	proj := &domain.Project{
-		ID: uuid.New(), Name: "backend", DefaultWorkflow: "default",
-		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
-	}
-	if err := projRepo.Create(ctx, proj); err != nil {
-		t.Fatal(err)
-	}
+
+	projID := "backend"
 	t1 := newTestTask()
-	t1.ProjectID = &proj.ID
+	t1.ProjectID = projID
 	mustCreateTask(t, repo, t1)
+
 	t2 := newTestTask()
 	mustCreateTask(t, repo, t2)
-	tasks, err := repo.List(ctx, domain.TaskFilter{ProjectID: &proj.ID})
+
+	tasks, err := repo.List(ctx, domain.TaskFilter{ProjectID: &projID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,21 +390,14 @@ func TestTaskListWaitingOnly(t *testing.T) {
 func TestTaskListCombinedFilters(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
-	projRepo := NewProjectRepo(s.DB())
 	ctx := context.Background()
 
-	proj := &domain.Project{
-		ID: uuid.New(), Name: "combined", DefaultWorkflow: "default",
-		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
-	}
-	if err := projRepo.Create(ctx, proj); err != nil {
-		t.Fatal(err)
-	}
+	projID := "combined"
 
-	// Task matches both filters: status=active AND project=proj
+	// Task matches both filters: status=active AND project=combined
 	t1 := newTestTask()
 	t1.Status = "active"
-	t1.ProjectID = &proj.ID
+	t1.ProjectID = projID
 	mustCreateTask(t, repo, t1)
 
 	// Matches status but not project
@@ -420,12 +408,12 @@ func TestTaskListCombinedFilters(t *testing.T) {
 	// Matches project but not status
 	t3 := newTestTask()
 	t3.Status = "pending"
-	t3.ProjectID = &proj.ID
+	t3.ProjectID = projID
 	mustCreateTask(t, repo, t3)
 
 	tasks, err := repo.List(ctx, domain.TaskFilter{
 		Statuses:  []string{"active"},
-		ProjectID: &proj.ID,
+		ProjectID: &projID,
 	})
 	if err != nil {
 		t.Fatal(err)

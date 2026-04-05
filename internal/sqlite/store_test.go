@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"testing"
-	"time"
 
 	"github.com/germanamz/tusk/migrations"
 )
@@ -17,12 +16,6 @@ func testStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
-}
-
-// mustTimeNow returns the current UTC time truncated to millisecond precision
-// to match SQLite's timestamp resolution.
-func mustTimeNow() time.Time {
-	return time.Now().UTC().Truncate(time.Millisecond)
 }
 
 func TestNew(t *testing.T) {
@@ -70,20 +63,21 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 3 {
-		t.Fatalf("expected 3 migrations applied, got %d", count)
+	if count != 1 {
+		t.Fatalf("expected 1 migration applied, got %d", count)
 	}
 
-	var name string
-	err = s.DB().QueryRow("SELECT name FROM projects WHERE id = '00000000-0000-0000-0000-000000000000'").Scan(&name)
+	// Verify default workflow was seeded (projects are now config-driven, not in DB)
+	var wfName string
+	err = s.DB().QueryRow("SELECT name FROM workflows WHERE project_id = 'default'").Scan(&wfName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if name != "_default" {
-		t.Fatalf("expected _default project, got %s", name)
+	if wfName != "default" {
+		t.Fatalf("expected default workflow, got %s", wfName)
 	}
 
-	tables := []string{"projects", "tasks", "annotations", "relations", "tags", "tag_assignments", "workflows", "workflow_transitions"}
+	tables := []string{"tasks", "annotations", "relations", "tags", "tag_assignments", "workflows", "workflow_transitions"}
 	for _, table := range tables {
 		var n string
 		err := s.DB().QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n)
@@ -106,7 +100,7 @@ func TestMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 3 {
-		t.Fatalf("expected 3 migrations after idempotent call, got %d", count)
+	if count != 1 {
+		t.Fatalf("expected 1 migration after idempotent call, got %d", count)
 	}
 }
