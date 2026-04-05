@@ -18,14 +18,32 @@ Tusk combines the speed and CLI ergonomics of TaskWarrior with structured hierar
 
 - **Single binary** — no runtime, no daemon, no browser. Install and go.
 - **Hierarchical tasks** — optional parent-child nesting to arbitrary depth.
-- **Typed relations** — `blocks`, `relates_to`, `duplicates` as first-class edges with cycle detection.
-- **Configurable workflows** — define allowed status transitions per project.
+- **Typed relations** — `blocks`, `relates_to`, `duplicates` as first-class edges with DFS cycle detection.
+- **Configurable workflows** — declarative TOML-based workflows with per-project assignment.
 - **Concurrent-safe** — optimistic locking via version fields.
 - **Pluggable storage** — SQLite out of the box; repository layer is an interface.
-- **Built-in MCP server** — every CLI command is also an MCP tool for AI agent integration.
-- **TaskWarrior-like filters** — `status:pending,active`, `priority:2..4`, `due:today`, `+tag`, `-tag`.
+- **Built-in MCP server** — 14 MCP tools + 3 resource templates for AI agent integration (stdio transport).
+- **TaskWarrior-like filters** — `status:pending,active`, `priority:2..4`, `due:today`, `+tag`, `-tag`, `uda.key:value`.
+- **User-defined attributes (UDA)** — arbitrary key-value metadata on tasks with merge semantics.
+- **Configuration system** — Viper-based TOML config with env var overrides and auto-creation.
+- **Completion propagation** — auto-complete/revert parents based on children status, configurable per project.
+- **Tree views** — full task hierarchy rendering with subtree support.
 
 ## Installation
+
+### Quick install (Linux / macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+```
+
+This downloads the latest release binary for your platform to `~/.local/bin/tusk`. Override the install directory with `INSTALL_DIR`:
+
+```bash
+INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+```
+
+Supported platforms: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`.
 
 ### From source
 
@@ -49,23 +67,45 @@ Default path: `~/.local/share/tusk/tusk.db`. Override with `--db` flag or `TUSK_
 # Create tasks
 tusk add "Implement auth middleware" priority:3 +api
 tusk add "Write tests for auth" +testing
+tusk add "Deploy to staging" --uda env=staging --uda team=backend
 
 # List and filter
-tusk list                          # all pending tasks, sorted by urgency
+tusk list                          # all pending tasks
 tusk list status:active +api       # filtered by status and tag
 tusk list priority:2..4            # priority range
+tusk list uda.env:staging          # filter by user-defined attribute
 
 # Update tasks
 tusk modify a3f8b2c1 priority:4 +urgent
+tusk modify a3f8b2c1 --uda env=prod   # merge UDA key
 tusk start a3f8b2c1               # pending -> active
 tusk done a3f8b2c1                # active -> completed
 tusk delete a3f8b2c1              # -> deleted
+
+# Hierarchy
+tusk add "Parent task" parent:a3f8b2c1
+tusk tree                          # full task tree
+tusk tree a3f8b2c1                 # subtree from task
+
+# Relations
+tusk link a3f8b2c1 blocks b4e9c3d2
+tusk unlink a3f8b2c1 blocks b4e9c3d2
 
 # Annotate
 tusk annotate a3f8b2c1 "Blocked by upstream API changes"
 
 # Task details
 tusk info a3f8b2c1
+
+# Projects and workflows
+tusk project list
+tusk workflow list
+tusk workflow info kanban
+
+# Tags
+tusk tag list --usage
+tusk tag create sprint-1 --color blue
+tusk tag rename sprint-1 sprint-2
 ```
 
 ## Filter Syntax
@@ -81,6 +121,30 @@ Inspired by TaskWarrior:
 | `-tag` | Exclude tag |
 | `parent:<short_id>` | Direct children |
 | `tree:<short_id>` | All descendants |
+| `uda.key:value` | UDA exact match |
+| `uda.key:` | UDA key absent or empty |
+
+## Configuration
+
+On first run, Tusk creates `~/.config/tusk/config.toml` with sensible defaults. Config is loaded in priority order:
+
+1. Environment variables (`TUSK_*` prefix)
+2. Config file (`~/.config/tusk/config.toml`)
+3. Embedded defaults
+
+Define custom workflows and projects in the config:
+
+```toml
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+
+[[workflows.kanban.transitions]]
+from = "pending"
+to = ["active", "deleted"]
+
+[projects.backend]
+workflow = "kanban"
+```
 
 ## Architecture
 
@@ -93,25 +157,33 @@ Service Layer (business logic, validation)
     |
 Repository Layer (Go interfaces only)
     |
-Storage Implementations (SQLite with WAL mode)
+Storage Implementations (SQLite with WAL mode, in-memory for config entities)
 ```
 
 Key design choices:
 - **Optimistic locking** with version fields for concurrent access
 - **UUID + 8-char short ID** for task identity (UUID internally, short ID for CLI)
 - **Soft delete** via workflow status transitions
-- **Per-project workflows** with configurable status transitions
+- **Declarative workflows** — TOML-defined, with per-project assignment
+- **Config-driven projects** — projects and workflows live in config, not the database
 
 ## MCP Server
 
 Start the MCP server for AI agent integration:
 
 ```bash
-tusk mcp serve                                    # stdio transport (IDE integration)
-tusk mcp serve --transport sse --port 8080        # SSE transport (network)
+tusk mcp serve              # stdio transport (IDE integration)
 ```
 
-All CLI commands are available as MCP tools with optimistic locking via version passing.
+14 MCP tools expose full task management: create, get, list, modify, start, done, delete, annotate, tree, relation add/remove, project list, and workflow list. 3 resource templates provide read-only views of tasks, projects, and workflows.
+
+All mutation tools require a `version` parameter for optimistic locking. Tool and resource visibility is configurable via `config.toml`:
+
+```toml
+[mcp]
+disabled_tool_groups = ["workflow"]
+disabled_tools = ["tusk_task_tree"]
+```
 
 ## Development
 
@@ -128,11 +200,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## Roadmap
 
-- [x] **v0.1** — Foundation: domain types, SQLite, TaskService, CLI, tags, filters, e2e tests
-- [ ] **v0.2** — Relations and hierarchy: ~~cycle detection~~, tree view, completion propagation
-- [ ] **v0.3** — MCP server: stdio transport, all CLI commands as tools
-- [ ] **v0.4** — Urgency and UX: scoring engine, configurable weights, color output
-- [ ] **v0.5** — Advanced: recurrence, UDA, SSE transport, export
+**Current: v0.5 complete** — foundation, relations, MCP server, config system, and rich content are all shipped.
+
+See [ROADMAP.md](ROADMAP.md) for the full roadmap with initiatives and stories.
 
 See [tusk.md](tusk.md) for the full design spec.
 
