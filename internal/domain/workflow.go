@@ -4,7 +4,7 @@ import "github.com/google/uuid"
 
 type Workflow struct {
 	ID        uuid.UUID
-	ProjectID uuid.UUID
+	ProjectID string
 	Name      string
 	Statuses  []string
 }

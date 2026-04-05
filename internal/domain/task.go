@@ -10,7 +10,7 @@ type Task struct {
 	ID             uuid.UUID
 	ShortID        string
 	ParentID       *uuid.UUID
-	ProjectID      *uuid.UUID
+	ProjectID      string
 	Title          string
 	Description    string
 	Status         string
@@ -37,7 +37,7 @@ type TaskUpdate struct {
 	Status         *string
 	Priority       *int
 	ParentID       **uuid.UUID
-	ProjectID      **uuid.UUID
+	ProjectID      *string
 	DueAt          **time.Time
 	WaitUntil      **time.Time
 	RecurrenceRule **string
