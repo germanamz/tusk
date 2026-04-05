@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -423,6 +424,53 @@ func TestTaskListCombinedFilters(t *testing.T) {
 	}
 	if tasks[0].ID != t1.ID {
 		t.Fatalf("expected task %s, got %s", t1.ID, tasks[0].ID)
+	}
+}
+
+// ── UDA filter tests ───────────────────────────────────────────────────
+
+func TestBuildFilter_UDA(t *testing.T) {
+	filter := domain.TaskFilter{
+		UDA: map[string]string{"env": "prod"},
+	}
+	_, where, args := buildFilter(filter)
+	if !strings.Contains(where, "json_extract") {
+		t.Fatalf("expected json_extract in WHERE clause, got %q", where)
+	}
+	if len(args) != 2 {
+		t.Fatalf("expected 2 args, got %d", len(args))
+	}
+	if args[0] != "$.env" {
+		t.Fatalf("expected first arg $.env, got %v", args[0])
+	}
+	if args[1] != "prod" {
+		t.Fatalf("expected second arg prod, got %v", args[1])
+	}
+}
+
+func TestBuildFilter_UDAEmptyValue(t *testing.T) {
+	filter := domain.TaskFilter{
+		UDA: map[string]string{"env": ""},
+	}
+	_, where, args := buildFilter(filter)
+	if !strings.Contains(where, "IS NULL") {
+		t.Fatalf("expected IS NULL in WHERE clause for empty value, got %q", where)
+	}
+	if len(args) != 2 {
+		t.Fatalf("expected 2 args, got %d: %v", len(args), args)
+	}
+}
+
+func TestBuildFilter_UDAMultiple(t *testing.T) {
+	filter := domain.TaskFilter{
+		UDA: map[string]string{"env": "prod", "team": "backend"},
+	}
+	_, where, args := buildFilter(filter)
+	if strings.Count(where, "json_extract") != 2 {
+		t.Fatalf("expected 2 json_extract conditions, got %q", where)
+	}
+	if len(args) != 4 {
+		t.Fatalf("expected 4 args, got %d", len(args))
 	}
 }
 
