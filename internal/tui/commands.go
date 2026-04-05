@@ -13,6 +13,89 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// buildTaskCmds creates the top-level task management commands.
+func (a *App) buildTaskCmds() []*cobra.Command {
+	addCmd := &cobra.Command{
+		Use:   "add [title] [key:value...] [+tag...]",
+		Short: "Create a new task",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  a.runAdd,
+	}
+	addCmd.Flags().StringP("description", "d", "", `task description (use @file to read from file, @- for stdin)`)
+
+	modifyCmd := &cobra.Command{
+		Use:   "modify <short_id> [key:value...]",
+		Short: "Modify a task",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  a.runModify,
+	}
+	modifyCmd.Flags().StringP("description", "d", "", `new description (use @file to read from file, @- for stdin, "" to clear)`)
+
+	treeCmd := &cobra.Command{
+		Use:   "tree [short_id]",
+		Short: "Display tasks as a tree hierarchy",
+		Long:  "Show all tasks in a tree hierarchy. Optionally specify a short_id to show only that subtree.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  a.runTree,
+	}
+	treeCmd.Flags().Bool("all", false, "include deleted tasks")
+
+	return []*cobra.Command{
+		addCmd,
+		{
+			Use:   "list [filters...]",
+			Short: "List tasks",
+			RunE:  a.runList,
+		},
+		{
+			Use:   "info <short_id>",
+			Short: "Show task details",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runInfo,
+		},
+		modifyCmd,
+		{
+			Use:   "start <short_id>",
+			Short: "Transition task to active",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runStart,
+		},
+		{
+			Use:   "done <short_id>",
+			Short: "Transition task to completed",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runDone,
+		},
+		{
+			Use:   "delete <short_id>",
+			Short: "Transition task to deleted",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runDelete,
+		},
+		{
+			Use:   "annotate <short_id> <message...>",
+			Short: "Add a note to a task",
+			Args:  cobra.MinimumNArgs(2),
+			RunE:  a.runAnnotate,
+		},
+		treeCmd,
+		{
+			Use:   "link <short_id> <relation_type> <short_id>",
+			Short: "Create a relation between two tasks",
+			Long:  `Create a typed relation. Types: blocks, relates_to, duplicates.`,
+			Args:  cobra.ExactArgs(3),
+			RunE:  a.runLink,
+		},
+		{
+			Use:   "unlink <short_id> <relation_type> <short_id>",
+			Short: "Remove a relation between two tasks",
+			Long:  `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
+			Args:  cobra.ExactArgs(3),
+			RunE:  a.runUnlink,
+		},
+	}
+}
+
 // formatError translates domain errors into user-friendly messages.
 func formatError(err error, shortID string) string {
 	switch {
