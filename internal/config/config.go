@@ -9,12 +9,50 @@ import (
 	"github.com/spf13/viper"
 )
 
+// WorkflowTransitionConfig defines an allowed status transition.
+type WorkflowTransitionConfig struct {
+	From string `mapstructure:"from"`
+	To   string `mapstructure:"to"`
+}
+
+// WorkflowConfig defines a named workflow with its statuses and transitions.
+type WorkflowConfig struct {
+	Statuses    []string                   `mapstructure:"statuses"`
+	Transitions []WorkflowTransitionConfig `mapstructure:"transitions"`
+}
+
+// AutoCompleteParentConfig controls automatic parent completion.
+type AutoCompleteParentConfig struct {
+	TriggerStatus string `mapstructure:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"`
+}
+
+// AutoRevertParentConfig controls automatic parent revert.
+type AutoRevertParentConfig struct {
+	TriggerStatus string `mapstructure:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"`
+}
+
+// ProjectSettingsConfig holds per-project automation settings.
+type ProjectSettingsConfig struct {
+	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent"`
+	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"`
+}
+
+// ProjectConfig defines a named project with its workflow assignment and settings.
+type ProjectConfig struct {
+	Workflow string                `mapstructure:"workflow"`
+	Settings ProjectSettingsConfig `mapstructure:"settings"`
+}
+
 // Config is the top-level Tusk configuration.
 type Config struct {
-	Storage StorageConfig `mapstructure:"storage"`
-	Urgency UrgencyConfig `mapstructure:"urgency"`
-	TUI     TUIConfig     `mapstructure:"tui"`
-	MCP     MCPConfig     `mapstructure:"mcp"`
+	Storage   StorageConfig             `mapstructure:"storage"`
+	Urgency   UrgencyConfig             `mapstructure:"urgency"`
+	TUI       TUIConfig                 `mapstructure:"tui"`
+	MCP       MCPConfig                 `mapstructure:"mcp"`
+	Workflows map[string]WorkflowConfig `mapstructure:"workflows"`
+	Projects  map[string]ProjectConfig  `mapstructure:"projects"`
 }
 
 // StorageConfig configures the database backend.
@@ -69,6 +107,69 @@ func WithSearchPath(path string) Option {
 	}
 }
 
+// defaultConfigContent is written to disk when no config file exists.
+const defaultConfigContent = `# Tusk Configuration
+# Place this file at ~/.config/tusk/config.toml
+# All values shown are defaults — only include settings you want to override.
+
+[storage]
+backend = "sqlite"
+path    = "~/.local/share/tusk/tusk.db"
+
+[storage.postgres]
+dsn = ""
+
+[urgency]
+priority_weight = 6.0
+due_weight      = 12.0
+age_weight      = 2.0
+blocking_weight = 8.0
+blocked_weight  = -5.0
+
+[tui]
+date_format  = "2006-01-02"
+color        = true
+tree_indent  = 2
+default_sort = "urgency"
+
+[mcp]
+disabled_tool_groups = []
+disabled_tools = []
+disabled_resource_groups = []
+disabled_resources = []
+
+# Workflows define allowed status transitions.
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+transitions = [
+  { from = "pending",   to = "active" },
+  { from = "pending",   to = "deleted" },
+  { from = "active",    to = "completed" },
+  { from = "active",    to = "pending" },
+  { from = "active",    to = "deleted" },
+  { from = "completed", to = "pending" },
+]
+
+# Projects group tasks and assign workflows.
+[projects.default]
+workflow = "kanban"
+`
+
+// ensureConfigFile creates the config file with default content if it doesn't exist.
+func ensureConfigFile(searchPath string) error {
+	configPath := filepath.Join(searchPath, "config.toml")
+	if _, err := os.Stat(configPath); err == nil {
+		return nil // file already exists
+	}
+	if err := os.MkdirAll(searchPath, 0o755); err != nil {
+		return fmt.Errorf("creating config directory %s: %w", searchPath, err)
+	}
+	if err := os.WriteFile(configPath, []byte(defaultConfigContent), 0o644); err != nil {
+		return fmt.Errorf("writing default config: %w", err)
+	}
+	return nil
+}
+
 // Load reads configuration from file, environment, and defaults.
 //
 // Precedence (highest to lowest):
@@ -109,12 +210,20 @@ func Load(opts ...Option) (*Config, error) {
 	}
 
 	// Use custom search path if provided, otherwise default to ~/.config/tusk/.
+	var searchPath string
 	if lo.searchPath != "" {
-		v.AddConfigPath(lo.searchPath)
+		searchPath = lo.searchPath
 	} else {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			v.AddConfigPath(filepath.Join(home, ".config", "tusk"))
+			searchPath = filepath.Join(home, ".config", "tusk")
+		}
+	}
+
+	if searchPath != "" {
+		v.AddConfigPath(searchPath)
+		if err := ensureConfigFile(searchPath); err != nil {
+			return nil, err
 		}
 	}
 
@@ -135,7 +244,46 @@ func Load(opts ...Option) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
+	// Inject builtin workflow if no workflows configured
+	if len(cfg.Workflows) == 0 {
+		cfg.Workflows = map[string]WorkflowConfig{
+			"kanban": {
+				Statuses: []string{"pending", "active", "completed", "deleted"},
+				Transitions: []WorkflowTransitionConfig{
+					{From: "pending", To: "active"},
+					{From: "pending", To: "deleted"},
+					{From: "active", To: "completed"},
+					{From: "active", To: "pending"},
+					{From: "active", To: "deleted"},
+					{From: "completed", To: "pending"},
+				},
+			},
+		}
+	}
+
+	// Inject builtin project if no projects configured
+	if len(cfg.Projects) == 0 {
+		cfg.Projects = map[string]ProjectConfig{
+			"default": {Workflow: "kanban"},
+		}
+	}
+
+	// Validate cross-references
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	return &cfg, nil
+}
+
+// validate checks cross-references between config sections.
+func (c *Config) validate() error {
+	for id, proj := range c.Projects {
+		if _, ok := c.Workflows[proj.Workflow]; !ok {
+			return fmt.Errorf("project %q references unknown workflow %q", id, proj.Workflow)
+		}
+	}
+	return nil
 }
 
 // ExpandPath replaces a leading ~ with the user's home directory.

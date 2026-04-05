@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -192,5 +193,207 @@ func TestExpandPath(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("ExpandPath(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestLoad_WorkflowConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
+
+[[workflows.kanban.transitions]]
+from = "active"
+to = "completed"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	wf, ok := cfg.Workflows["kanban"]
+	if !ok {
+		t.Fatal("expected workflows.kanban to exist")
+	}
+	if len(wf.Statuses) != 4 {
+		t.Errorf("expected 4 statuses, got %d", len(wf.Statuses))
+	}
+	if len(wf.Transitions) != 2 {
+		t.Errorf("expected 2 transitions, got %d", len(wf.Transitions))
+	}
+	if wf.Transitions[0].From != "pending" || wf.Transitions[0].To != "active" {
+		t.Errorf("unexpected first transition: %+v", wf.Transitions[0])
+	}
+}
+
+func TestLoad_ProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+transitions = []
+
+[projects.default]
+workflow = "kanban"
+
+[projects.backend]
+workflow = "kanban"
+
+[projects.backend.settings.auto_complete_parent]
+trigger_status = "completed"
+target_status = "completed"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(cfg.Projects))
+	}
+
+	def, ok := cfg.Projects["default"]
+	if !ok {
+		t.Fatal("expected projects.default to exist")
+	}
+	if def.Workflow != "kanban" {
+		t.Errorf("expected workflow 'kanban', got %q", def.Workflow)
+	}
+
+	backend, ok := cfg.Projects["backend"]
+	if !ok {
+		t.Fatal("expected projects.backend to exist")
+	}
+	if backend.Settings.AutoCompleteParent == nil {
+		t.Fatal("expected auto_complete_parent settings")
+	}
+	if backend.Settings.AutoCompleteParent.TriggerStatus != "completed" {
+		t.Errorf("expected trigger_status 'completed', got %q", backend.Settings.AutoCompleteParent.TriggerStatus)
+	}
+}
+
+func TestLoad_BuiltinDefaults(t *testing.T) {
+	dir := t.TempDir()
+	// Empty config file — no [projects] or [workflows] sections
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	wf, ok := cfg.Workflows["kanban"]
+	if !ok {
+		t.Fatal("expected builtin kanban workflow")
+	}
+	if len(wf.Statuses) != 4 {
+		t.Errorf("expected 4 kanban statuses, got %d", len(wf.Statuses))
+	}
+
+	proj, ok := cfg.Projects["default"]
+	if !ok {
+		t.Fatal("expected builtin default project")
+	}
+	if proj.Workflow != "kanban" {
+		t.Errorf("expected default project workflow 'kanban', got %q", proj.Workflow)
+	}
+}
+
+func TestLoad_ValidationProjectReferencesUnknownWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[workflows.kanban]
+statuses = ["pending", "active", "completed", "deleted"]
+transitions = []
+
+[projects.backend]
+workflow = "nonexistent"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(WithSearchPath(dir))
+	if err == nil {
+		t.Fatal("expected error for project referencing unknown workflow")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("expected error to mention 'nonexistent', got: %v", err)
+	}
+}
+
+func TestLoad_AutoCreateConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	// Verify file does NOT exist before Load
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatal("config file should not exist before Load")
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Verify file WAS created
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("config file should exist after Load: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("config file should not be empty")
+	}
+
+	// Builtins should be present (the auto-created file defines them)
+	if _, ok := cfg.Projects["default"]; !ok {
+		t.Fatal("expected default project")
+	}
+	if _, ok := cfg.Workflows["kanban"]; !ok {
+		t.Fatal("expected kanban workflow")
+	}
+}
+
+func TestLoad_AutoCreateDoesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	custom := `[tui]
+color = false
+`
+	if err := os.WriteFile(configPath, []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.TUI.Color != false {
+		t.Error("expected color=false from custom config")
+	}
+
+	// File should NOT have been overwritten
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != custom {
+		t.Error("config file was overwritten")
 	}
 }
