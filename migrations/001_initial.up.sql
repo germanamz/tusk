@@ -61,36 +61,3 @@ CREATE TABLE tag_assignments (
 );
 
 CREATE INDEX idx_tag_assignments_tag ON tag_assignments(tag_id);
-
--- Workflow tables kept until Declarative Workflows initiative.
--- project_id is a plain string (no FK — projects are config-driven).
-CREATE TABLE workflows (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    statuses TEXT NOT NULL DEFAULT '["pending","active","completed","deleted"]',
-    UNIQUE(project_id, name)
-);
-
-CREATE TABLE workflow_transitions (
-    id TEXT PRIMARY KEY,
-    workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-    from_status TEXT NOT NULL,
-    to_status TEXT NOT NULL,
-    UNIQUE(workflow_id, from_status, to_status)
-);
-
--- Seed default workflow for the "default" project (string ID, not UUID)
-INSERT INTO workflows (id, project_id, name, statuses)
-VALUES ('00000000-0000-0000-0000-000000000001',
-        'default',
-        'kanban',
-        '["pending","active","completed","deleted"]');
-
-INSERT INTO workflow_transitions (id, workflow_id, from_status, to_status) VALUES
-    ('00000000-0000-0000-0000-100000000001', '00000000-0000-0000-0000-000000000001', 'pending', 'active'),
-    ('00000000-0000-0000-0000-100000000002', '00000000-0000-0000-0000-000000000001', 'pending', 'deleted'),
-    ('00000000-0000-0000-0000-100000000003', '00000000-0000-0000-0000-000000000001', 'active', 'completed'),
-    ('00000000-0000-0000-0000-100000000004', '00000000-0000-0000-0000-000000000001', 'active', 'pending'),
-    ('00000000-0000-0000-0000-100000000005', '00000000-0000-0000-0000-000000000001', 'active', 'deleted'),
-    ('00000000-0000-0000-0000-100000000006', '00000000-0000-0000-0000-000000000001', 'completed', 'pending');
