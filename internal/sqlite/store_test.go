@@ -67,17 +67,7 @@ func TestMigrations(t *testing.T) {
 		t.Fatalf("expected 1 migration applied, got %d", count)
 	}
 
-	// Verify default workflow was seeded (projects are now config-driven, not in DB)
-	var wfName string
-	err = s.DB().QueryRow("SELECT name FROM workflows WHERE project_id = 'default'").Scan(&wfName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if wfName != "kanban" {
-		t.Fatalf("expected kanban workflow, got %s", wfName)
-	}
-
-	tables := []string{"tasks", "annotations", "relations", "tags", "tag_assignments", "workflows", "workflow_transitions"}
+	tables := []string{"tasks", "annotations", "relations", "tags", "tag_assignments"}
 	for _, table := range tables {
 		var n string
 		err := s.DB().QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n)

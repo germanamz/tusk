@@ -1,5 +1,3 @@
-DROP TABLE IF EXISTS workflow_transitions;
-DROP TABLE IF EXISTS workflows;
 DROP TABLE IF EXISTS tag_assignments;
 DROP TABLE IF EXISTS tags;
 DROP TABLE IF EXISTS relations;
