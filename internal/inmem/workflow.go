@@ -70,7 +70,12 @@ func (r *WorkflowRepository) GetTransitions(_ context.Context, workflowID uuid.U
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	return ts, nil
+	out := make([]*domain.WorkflowTransition, len(ts))
+	for i, t := range ts {
+		cp := *t
+		out[i] = &cp
+	}
+	return out, nil
 }
 
 // Create is a no-op. Workflows are defined in config.
