@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -44,6 +45,20 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 
 	task := &domain.Task{
 		Title: title,
+	}
+
+	// Description
+	if cmd.Flags().Changed("description") {
+		descVal, _ := cmd.Flags().GetString("description")
+		var stdinFile *os.File
+		if f, ok := cmd.InOrStdin().(*os.File); ok {
+			stdinFile = f
+		}
+		desc, err := readDescription(descVal, stdinFile)
+		if err != nil {
+			return err
+		}
+		task.Description = desc
 	}
 
 	// Project

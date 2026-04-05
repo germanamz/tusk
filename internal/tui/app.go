@@ -67,13 +67,16 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	}
 	treeCmd.Flags().Bool("all", false, "include deleted tasks")
 
+	addCmd := &cobra.Command{
+		Use:   "add [title] [key:value...] [+tag...]",
+		Short: "Create a new task",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  a.runAdd,
+	}
+	addCmd.Flags().StringP("description", "d", "", `task description (use @file to read from file, @- for stdin)`)
+
 	a.root.AddCommand(
-		&cobra.Command{
-			Use:   "add [title] [key:value...] [+tag...]",
-			Short: "Create a new task",
-			Args:  cobra.MinimumNArgs(1),
-			RunE:  a.runAdd,
-		},
+		addCmd,
 		&cobra.Command{
 			Use:   "list [filters...]",
 			Short: "List tasks",
