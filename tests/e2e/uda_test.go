@@ -157,3 +157,121 @@ func TestUDA(t *testing.T) {
 	}
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestUDAFilter(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "filter_uda_match",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Prod task", "--uda", "env=prod"},
+				},
+				{
+					Args: []string{"add", "Dev task", "--uda", "env=dev"},
+				},
+				{
+					Args: []string{"list", "uda.env:prod"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 task, got %d", len(arr))
+						}
+						assertEqual(t, arr[0].(map[string]any)["title"], "Prod task")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Prod task")
+						assertNotContains(t, output, "Dev task")
+					},
+				},
+			},
+		},
+		{
+			Name: "filter_uda_and",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Prod backend", "--uda", "env=prod", "--uda", "team=backend"},
+				},
+				{
+					Args: []string{"add", "Prod frontend", "--uda", "env=prod", "--uda", "team=frontend"},
+				},
+				{
+					Args: []string{"list", "uda.env:prod", "uda.team:backend"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 task, got %d", len(arr))
+						}
+						assertEqual(t, arr[0].(map[string]any)["title"], "Prod backend")
+					},
+				},
+			},
+		},
+		{
+			Name: "filter_uda_absent",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Has env", "--uda", "env=prod"},
+				},
+				{
+					Args: []string{"add", "No env"},
+				},
+				{
+					Args: []string{"list", "uda.env:"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 task (without env), got %d", len(arr))
+						}
+						assertEqual(t, arr[0].(map[string]any)["title"], "No env")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "No env")
+						assertNotContains(t, output, "Has env")
+					},
+				},
+			},
+		},
+		{
+			Name: "filter_uda_no_match",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Some task", "--uda", "env=prod"},
+				},
+				{
+					Args: []string{"list", "uda.env:staging"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 0 {
+							t.Fatalf("expected 0 tasks, got %d", len(arr))
+						}
+					},
+				},
+			},
+		},
+		{
+			Name: "filter_uda_nonexistent_key",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Some task"},
+				},
+				{
+					Args: []string{"list", "uda.nonexistent:value"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 0 {
+							t.Fatalf("expected 0 tasks, got %d", len(arr))
+						}
+					},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
