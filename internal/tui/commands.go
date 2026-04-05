@@ -239,6 +239,26 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		Version: current.Version,
 	}
 
+	// Description (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
+	if cmd.Flags().Changed("description") {
+		descVal, _ := cmd.Flags().GetString("description")
+		var stdinFile *os.File
+		if f, ok := cmd.InOrStdin().(*os.File); ok {
+			stdinFile = f
+		}
+		desc, err := readDescription(descVal, stdinFile)
+		if err != nil {
+			return err
+		}
+		if desc == "" {
+			var nilStr *string
+			upd.Description = &nilStr
+		} else {
+			dp := &desc
+			upd.Description = &dp
+		}
+	}
+
 	// Title from free text (if any)
 	if title := fs.Title(); title != "" {
 		upd.Title = &title
