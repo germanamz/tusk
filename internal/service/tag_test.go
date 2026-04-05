@@ -5,7 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/google/uuid"
@@ -87,7 +89,9 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := sqlite.NewProjectRepo(db)
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"default": {Workflow: "default"},
+	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	workflowSvc := NewWorkflowService(workflowRepo)
 	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)

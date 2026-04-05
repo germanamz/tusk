@@ -12,15 +12,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// DefaultProjectID is the UUID of the seeded _default project.
+// DefaultProjectID is the string ID of the default project from config.
 // Tasks created without an explicit ProjectID are assigned to this project.
-var DefaultProjectID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+const DefaultProjectID = "default"
 
 // TaskTxProvider gives TaskService a way to run task + project operations
 // inside a database transaction for atomic propagation.
 // The SQLite Store implements this via its WithTaskTx method.
 type TaskTxProvider interface {
-	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, pr repository.ProjectRepository, wr repository.WorkflowRepository) error) error
+	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, wr repository.WorkflowRepository) error) error
 }
 
 // TaskService implements task business logic including validation,
@@ -64,13 +64,12 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 	}
 
 	// Assign default project if not set
-	if task.ProjectID == nil {
-		id := DefaultProjectID
-		task.ProjectID = &id
+	if task.ProjectID == "" {
+		task.ProjectID = DefaultProjectID
 	}
 
 	// Validate project exists
-	project, err := s.projectRepo.GetByID(ctx, *task.ProjectID)
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("project not found: %w", err)
@@ -96,7 +95,7 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 	if task.Status == "" {
 		task.Status = "pending"
 	}
-	statuses, err := s.workflowSvc.GetStatuses(ctx, *task.ProjectID, project.DefaultWorkflow)
+	statuses, err := s.workflowSvc.GetStatuses(ctx, task.ProjectID, project.Workflow)
 	if err != nil {
 		return fmt.Errorf("loading workflow statuses: %w", err)
 	}
@@ -108,7 +107,7 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		}
 	}
 	if !validStatus {
-		return fmt.Errorf("status %q is not valid for workflow %q", task.Status, project.DefaultWorkflow)
+		return fmt.Errorf("status %q is not valid for workflow %q", task.Status, project.Workflow)
 	}
 
 	// Generate ID and ShortID
@@ -233,10 +232,10 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 
 	// Validate project if changed
 	if upd.ProjectID != nil {
-		if task.ProjectID == nil {
+		if task.ProjectID == "" {
 			return nil, fmt.Errorf("task must belong to a project")
 		}
-		_, err := s.projectRepo.GetByID(ctx, *task.ProjectID)
+		_, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return nil, fmt.Errorf("project not found: %w", err)
@@ -247,11 +246,11 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 
 	// Workflow validation for status changes
 	if task.Status != oldStatus {
-		project, err := s.projectRepo.GetByID(ctx, *task.ProjectID)
+		project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)
 		}
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, *task.ProjectID, project.DefaultWorkflow, oldStatus, task.Status)
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, task.ProjectID, project.Workflow, oldStatus, task.Status)
 		if err != nil {
 			return nil, fmt.Errorf("checking transition: %w", err)
 		}
@@ -269,7 +268,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	// Otherwise, persist directly (no transaction needed).
 	if statusChanged && s.txProvider != nil {
 		var result *domain.Task
-		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository, txProjectRepo repository.ProjectRepository, txWorkflowRepo repository.WorkflowRepository) error {
+		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository, txWorkflowRepo repository.WorkflowRepository) error {
 			if err := txTaskRepo.Update(ctx, task); err != nil {
 				return err
 			}
@@ -278,13 +277,14 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				return err
 			}
 			result = updated
+			txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
 			// Propagation: auto-complete and auto-revert are mutually exclusive
 			// in practice — a single status change cannot simultaneously reach
 			// and leave the trigger status — so at most one of these fires.
-			if err := s.checkAutoComplete(ctx, updated, txTaskRepo, txProjectRepo, txWorkflowRepo); err != nil {
+			if err := s.checkAutoComplete(ctx, updated, txTaskRepo, txWorkflowSvc); err != nil {
 				return err
 			}
-			return s.checkAutoRevert(ctx, updated, oldStatus, txTaskRepo, txProjectRepo, txWorkflowRepo)
+			return s.checkAutoRevert(ctx, updated, oldStatus, txTaskRepo, txWorkflowSvc)
 		})
 		if err != nil {
 			return nil, err
@@ -416,8 +416,7 @@ func (s *TaskService) checkAutoComplete(
 	ctx context.Context,
 	task *domain.Task,
 	txTaskRepo repository.TaskRepository,
-	txProjectRepo repository.ProjectRepository,
-	txWorkflowRepo repository.WorkflowRepository,
+	txWorkflowSvc *WorkflowService,
 ) error {
 	current := task
 	for depth := 0; depth < maxParentDepth; depth++ {
@@ -430,11 +429,11 @@ func (s *TaskService) checkAutoComplete(
 			return fmt.Errorf("loading parent for propagation: %w", err)
 		}
 
-		if parent.ProjectID == nil {
+		if parent.ProjectID == "" {
 			return nil
 		}
 
-		project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
+		project, err := s.projectRepo.GetByID(ctx, parent.ProjectID)
 		if err != nil {
 			return fmt.Errorf("loading project for propagation: %w", err)
 		}
@@ -470,9 +469,8 @@ func (s *TaskService) checkAutoComplete(
 			return nil
 		}
 
-		// Validate workflow transition for the parent using the tx-backed workflow repo
-		txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
-		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, cfg.TargetStatus)
+		// Validate workflow transition for the parent
+		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking propagation transition: %w", err)
 		}
@@ -506,8 +504,7 @@ func (s *TaskService) checkAutoRevert(
 	task *domain.Task,
 	oldStatus string,
 	txTaskRepo repository.TaskRepository,
-	txProjectRepo repository.ProjectRepository,
-	txWorkflowRepo repository.WorkflowRepository,
+	txWorkflowSvc *WorkflowService,
 ) error {
 	current := task
 	currentOldStatus := oldStatus
@@ -521,11 +518,11 @@ func (s *TaskService) checkAutoRevert(
 			return fmt.Errorf("loading parent for revert: %w", err)
 		}
 
-		if parent.ProjectID == nil {
+		if parent.ProjectID == "" {
 			return nil
 		}
 
-		project, err := txProjectRepo.GetByID(ctx, *parent.ProjectID)
+		project, err := s.projectRepo.GetByID(ctx, parent.ProjectID)
 		if err != nil {
 			return fmt.Errorf("loading project for revert: %w", err)
 		}
@@ -554,8 +551,7 @@ func (s *TaskService) checkAutoRevert(
 		}
 
 		// Validate workflow transition
-		txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
-		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, *parent.ProjectID, project.DefaultWorkflow, parent.Status, revertCfg.TargetStatus)
+		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking revert transition: %w", err)
 		}

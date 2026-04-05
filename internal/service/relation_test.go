@@ -5,7 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
 )
@@ -29,7 +31,9 @@ func newTestRelationEnv(t *testing.T) *testRelationEnv {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := sqlite.NewProjectRepo(db)
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"default": {Workflow: "default"},
+	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	relationRepo := sqlite.NewRelationRepo(db)
 

@@ -6,11 +6,41 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/google/uuid"
 )
+
+// testTaskEnvWithSettings creates a test environment with custom project settings.
+// This replaces the old pattern of creating a sqlite.ProjectRepo and calling Update.
+func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig) *testEnv {
+	t.Helper()
+	store, err := sqlite.New(":memory:", migrations.FS)
+	if err != nil {
+		t.Fatalf("opening test store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	db := store.DB()
+	taskRepo := sqlite.NewTaskRepo(db)
+	annotationRepo := sqlite.NewAnnotationRepo(db)
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"default": {Workflow: "default", Settings: settings},
+	})
+	workflowRepo := sqlite.NewWorkflowRepo(db)
+
+	workflowSvc := NewWorkflowService(workflowRepo)
+	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
+
+	return &testEnv{
+		taskSvc:     taskSvc,
+		workflowSvc: workflowSvc,
+		store:       store,
+	}
+}
 
 // testEnv holds all the services and repos needed for TaskService tests.
 type testEnv struct {
@@ -32,7 +62,9 @@ func testTaskEnv(t *testing.T) *testEnv {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := sqlite.NewProjectRepo(db)
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"default": {Workflow: "default"},
+	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
 	workflowSvc := NewWorkflowService(workflowRepo)
@@ -87,10 +119,10 @@ func TestCreate_HappyPath(t *testing.T) {
 	if task.Status != "pending" {
 		t.Fatalf("expected status 'pending', got %q", task.Status)
 	}
-	if task.ProjectID == nil {
+	if task.ProjectID == "" {
 		t.Fatal("expected ProjectID to be set to default")
 	}
-	if *task.ProjectID != defaultProjectID {
+	if task.ProjectID != DefaultProjectID {
 		t.Fatalf("expected default project ID, got %s", task.ProjectID)
 	}
 	if task.CreatedAt.IsZero() {
@@ -165,9 +197,8 @@ func TestCreate_InvalidProject(t *testing.T) {
 	env := testTaskEnv(t)
 	ctx := context.Background()
 
-	nonexistent := uuid.New()
 	task := newMinimalTask("Bad project")
-	task.ProjectID = &nonexistent
+	task.ProjectID = "nonexistent-project"
 	err := env.taskSvc.Create(ctx, task)
 	if err == nil {
 		t.Fatal("expected error for nonexistent project")
@@ -211,7 +242,7 @@ func TestCreate_DefaultsToDefaultProject(t *testing.T) {
 	if err := env.taskSvc.Create(ctx, task); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if task.ProjectID == nil || *task.ProjectID != defaultProjectID {
+	if task.ProjectID == "" || task.ProjectID != DefaultProjectID {
 		t.Fatalf("expected default project, got %v", task.ProjectID)
 	}
 }
@@ -224,14 +255,12 @@ func TestCreate_WithAllFields(t *testing.T) {
 	due := now.Add(24 * time.Hour)
 	wait := now.Add(1 * time.Hour)
 	rrule := "FREQ=DAILY;COUNT=5"
-	projID := defaultProjectID
-
 	task := &domain.Task{
 		Title:          "Full task",
 		Description:    "All fields populated",
 		Status:         "pending",
 		Priority:       3,
-		ProjectID:      &projID,
+		ProjectID:      DefaultProjectID,
 		DueAt:          &due,
 		WaitUntil:      &wait,
 		RecurrenceRule: &rrule,
@@ -916,7 +945,9 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := sqlite.NewProjectRepo(db)
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"default": {Workflow: "default"},
+	})
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 
 	workflowSvc := NewWorkflowService(workflowRepo)
@@ -1000,30 +1031,19 @@ func TestUpdate_ReparentNoCycle(t *testing.T) {
 }
 
 func TestAutoComplete_AllChildrenCompleted(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
-	// Enable auto-complete on the default project
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, err := projRepo.GetByID(ctx, DefaultProjectID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
-	}
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-	}
-	if err := projRepo.Update(ctx, proj); err != nil {
-		t.Fatalf("Update project: %v", err)
-	}
+	})
+	ctx := context.Background()
 
 	// Create parent
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
 	// Start parent (pending -> active) so it can later transition to completed
-	parent, err = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, err := env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
 	if err != nil {
 		t.Fatalf("Start parent: %v", err)
 	}
@@ -1099,19 +1119,13 @@ func TestAutoComplete_Disabled_ByDefault(t *testing.T) {
 }
 
 func TestAutoComplete_DeletedChildrenIgnored(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
-	// Enable auto-complete
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-	}
-	projRepo.Update(ctx, proj)
+	})
+	ctx := context.Background()
 
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
@@ -1137,19 +1151,13 @@ func TestAutoComplete_DeletedChildrenIgnored(t *testing.T) {
 }
 
 func TestAutoComplete_WorkflowGuard(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
-	// Enable auto-complete
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-	}
-	projRepo.Update(ctx, proj)
+	})
+	ctx := context.Background()
 
 	// Create parent but do NOT start it — leave in "pending"
 	parent := newMinimalTask("Parent pending")
@@ -1168,19 +1176,13 @@ func TestAutoComplete_WorkflowGuard(t *testing.T) {
 }
 
 func TestAutoComplete_Recursive(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
-	// Enable auto-complete
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-	}
-	projRepo.Update(ctx, proj)
+	})
+	ctx := context.Background()
 
 	// Create grandparent -> parent -> child chain
 	grandparent := newMinimalTask("Grandparent")
@@ -1213,24 +1215,19 @@ func TestAutoComplete_Recursive(t *testing.T) {
 }
 
 func TestAutoRevert_ChildReopened(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
 	// Enable both auto-complete and auto-revert
 	// Note: default workflow allows completed -> pending (not completed -> active)
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-		AutoRevertParent: &domain.AutoRevertConfig{
+		AutoRevertParent: &config.AutoRevertParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "pending",
 		},
-	}
-	projRepo.Update(ctx, proj)
+	})
+	ctx := context.Background()
 
 	// Create parent + child
 	parent := newMinimalTask("Parent")
@@ -1270,20 +1267,15 @@ func TestAutoRevert_ChildReopened(t *testing.T) {
 }
 
 func TestAutoRevert_Disabled(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
 	// Enable auto-complete but NOT auto-revert
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
 		// AutoRevertParent intentionally nil
-	}
-	projRepo.Update(ctx, proj)
+	})
+	ctx := context.Background()
 
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
@@ -1315,24 +1307,19 @@ func TestAutoRevert_Disabled(t *testing.T) {
 }
 
 func TestAutoRevert_Recursive(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
 	// Enable both auto-complete and auto-revert
 	// Note: default workflow allows completed -> pending (not completed -> active)
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-		AutoRevertParent: &domain.AutoRevertConfig{
+		AutoRevertParent: &config.AutoRevertParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "pending",
 		},
-	}
-	projRepo.Update(ctx, proj)
+	})
+	ctx := context.Background()
 
 	// grandparent -> parent -> child
 	grandparent := newMinimalTask("Grandparent")
@@ -1378,24 +1365,19 @@ func TestAutoRevert_Recursive(t *testing.T) {
 }
 
 func TestAutoRevert_CustomTargetStatus(t *testing.T) {
-	env := testTaskEnv(t)
-	ctx := context.Background()
-
 	// Auto-revert targets "pending" (the only valid revert transition
 	// from "completed" in the default workflow: completed -> pending)
-	projRepo := sqlite.NewProjectRepo(env.store.DB())
-	proj, _ := projRepo.GetByID(ctx, DefaultProjectID)
-	proj.Settings = domain.ProjectSettings{
-		AutoCompleteParent: &domain.AutoCompleteConfig{
+	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
+		AutoCompleteParent: &config.AutoCompleteParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-		AutoRevertParent: &domain.AutoRevertConfig{
+		AutoRevertParent: &config.AutoRevertParentConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "pending",
 		},
-	}
-	projRepo.Update(ctx, proj)
+	})
+	ctx := context.Background()
 
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
