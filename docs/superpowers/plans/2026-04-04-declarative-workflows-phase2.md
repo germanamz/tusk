@@ -1,76 +1,30 @@
-# Declarative Workflows — Phase 2: SQLite Cleanup, TaskTxProvider & Wiring
+# Declarative Workflows — Phase 2: Delete SQLite Workflow + Simplify TaskTxProvider
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Delete the SQLite workflow implementation, simplify `TaskTxProvider`, update TaskService propagation code, wire the in-memory repo in `main.go`, and clean the migration. After this phase, `go build ./...` passes and all tests are green.
+**Goal:** Delete the now-dead SQLite workflow code, simplify `TaskTxProvider` to drop the `WorkflowRepository` parameter (no longer needed since workflows are in-memory), and clean the migration. Each task produces a compilable commit.
 
-**Architecture:** The SQLite workflow code is deleted. `TaskTxProvider` drops its `WorkflowRepository` parameter since the in-memory repo has no transactional state. Propagation code uses the service-level `workflowSvc`. `main.go` swaps to `inmem.NewWorkflowRepository`.
+**Architecture:** Task 1 simplifies the transaction infrastructure first (making `Tx.Workflows()` dead code), Task 2 deletes the dead SQLite files, Task 3 cleans the migration. This ordering ensures each commit compiles.
 
 **Tech Stack:** Go, standard library only
 
-**Prerequisites:** Phase 1 must be complete (domain types simplified, inmem repo created, transitional WorkflowService in place).
+**Prerequisites:** Phase 1 must be complete (inmem repo wired, SQLite workflow code is dead code).
 
 ---
 
-### Task 1: Delete SQLite workflow + simplify TaskTxProvider
+### Task 1: Simplify TaskTxProvider + propagation code
 
-Delete the old SQLite workflow code and update the transaction infrastructure. These must change together because `Tx.Workflows()` returns `*WorkflowRepo` (being deleted), and `Store.WithTaskTx` calls `Tx.Workflows()`.
+Remove `WorkflowRepository` from the `TaskTxProvider` callback since in-memory repos have no transactional state. Update propagation code to use the service-level `workflowSvc` instead of a transactional one. After this task, `Tx.Workflows()` and `sqlite/workflow.go` are dead code.
 
 **Files:**
-- Delete: `internal/sqlite/workflow.go`
-- Delete: `internal/sqlite/workflow_test.go`
-- Modify: `internal/sqlite/store.go` (remove Tx.Workflows, simplify WithTaskTx)
-- Modify: `internal/service/task.go` (TaskTxProvider interface)
+- Modify: `internal/service/task.go` (TaskTxProvider, WithTaskTx callback, checkAutoComplete, checkAutoRevert)
+- Modify: `internal/sqlite/store.go` (WithTaskTx implementation)
 
-- [ ] **Step 1: Delete SQLite workflow files**
+- [ ] **Step 1: Simplify `TaskTxProvider` in `internal/service/task.go` (lines 19-24)**
 
-```bash
-rm internal/sqlite/workflow.go internal/sqlite/workflow_test.go
-```
-
-- [ ] **Step 2: Remove `Tx.Workflows()` from `internal/sqlite/store.go`**
-
-Remove lines 93-94:
+Replace:
 
 ```go
-// Workflows returns a WorkflowRepo operating within this transaction.
-func (t *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(t.tx) }
-```
-
-- [ ] **Step 3: Simplify `WithTaskTx` in `internal/sqlite/store.go`**
-
-Replace lines 112-118:
-
-```go
-// WithTaskTx executes fn with TaskRepository and WorkflowRepository backed by
-// a transaction. This is the concrete implementation of service.TaskTxProvider.
-func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, wr repository.WorkflowRepository) error) error {
-	return s.WithTx(ctx, func(tx *Tx) error {
-		return fn(tx.Tasks(), tx.Workflows())
-	})
-}
-```
-
-With:
-
-```go
-// WithTaskTx executes fn with a TaskRepository backed by a transaction.
-// This is the concrete implementation of service.TaskTxProvider.
-func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository) error) error {
-	return s.WithTx(ctx, func(tx *Tx) error {
-		return fn(tx.Tasks())
-	})
-}
-```
-
-- [ ] **Step 4: Simplify `TaskTxProvider` in `internal/service/task.go`**
-
-Replace lines 19-24:
-
-```go
-// TaskTxProvider gives TaskService a way to run task + project operations
-// inside a database transaction for atomic propagation.
-// The SQLite Store implements this via its WithTaskTx method.
 type TaskTxProvider interface {
 	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, wr repository.WorkflowRepository) error) error
 }
@@ -79,37 +33,12 @@ type TaskTxProvider interface {
 With:
 
 ```go
-// TaskTxProvider gives TaskService a way to run task operations
-// inside a database transaction for atomic propagation.
-// The SQLite Store implements this via its WithTaskTx method.
 type TaskTxProvider interface {
 	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository) error) error
 }
 ```
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add -u internal/sqlite/ internal/service/task.go
-git commit -m "refactor: delete SQLite workflow code and simplify TaskTxProvider
-
-Remove sqlite.WorkflowRepo, Tx.Workflows(), workflow DB tables.
-Simplify TaskTxProvider to single TaskRepository param — in-memory
-workflow repos have no transactional state."
-```
-
----
-
-### Task 2: Update TaskService propagation code + MCP + main.go
-
-Update the `WithTaskTx` callback in `TaskService.Update`, the propagation function signatures, the MCP resource handler, and wire the inmem repo in `main.go`.
-
-**Files:**
-- Modify: `internal/service/task.go` (WithTaskTx callback, checkAutoComplete, checkAutoRevert)
-- Modify: `internal/mcp/resources.go` (GetTransitions return type)
-- Modify: `cmd/tusk/main.go` (wire inmem workflow repo)
-
-- [ ] **Step 1: Update `WithTaskTx` callback in `TaskService.Update` (lines 271-288)**
+- [ ] **Step 2: Update `WithTaskTx` callback + propagation calls in `TaskService.Update` (lines 271-288)**
 
 Replace:
 
@@ -124,9 +53,6 @@ Replace:
 			}
 			result = updated
 			txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
-			// Propagation: auto-complete and auto-revert are mutually exclusive
-			// in practice — a single status change cannot simultaneously reach
-			// and leave the trigger status — so at most one of these fires.
 			if err := s.checkAutoComplete(ctx, updated, txTaskRepo, txWorkflowSvc); err != nil {
 				return err
 			}
@@ -146,9 +72,6 @@ With:
 				return err
 			}
 			result = updated
-			// Propagation: auto-complete and auto-revert are mutually exclusive
-			// in practice — a single status change cannot simultaneously reach
-			// and leave the trigger status — so at most one of these fires.
 			if err := s.checkAutoComplete(ctx, updated, txTaskRepo); err != nil {
 				return err
 			}
@@ -156,20 +79,9 @@ With:
 		})
 ```
 
-- [ ] **Step 2: Update `checkAutoComplete` signature and `IsTransitionAllowed` call**
+- [ ] **Step 3: Update `checkAutoComplete` (lines 415-419, 473)**
 
-Replace the signature (line 415-419):
-
-```go
-func (s *TaskService) checkAutoComplete(
-	ctx context.Context,
-	task *domain.Task,
-	txTaskRepo repository.TaskRepository,
-	txWorkflowSvc *WorkflowService,
-) error {
-```
-
-With:
+Remove `txWorkflowSvc` parameter from signature:
 
 ```go
 func (s *TaskService) checkAutoComplete(
@@ -182,30 +94,14 @@ func (s *TaskService) checkAutoComplete(
 Replace the `IsTransitionAllowed` call (line 473):
 
 ```go
-		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
-```
-
-With:
-
-```go
 		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
 ```
 
-- [ ] **Step 3: Update `checkAutoRevert` signature and `IsTransitionAllowed` call**
+(Same call, just using `s.workflowSvc` instead of `txWorkflowSvc`.)
 
-Replace the signature (line 502-508):
+- [ ] **Step 4: Update `checkAutoRevert` (lines 502-508, 554)**
 
-```go
-func (s *TaskService) checkAutoRevert(
-	ctx context.Context,
-	task *domain.Task,
-	oldStatus string,
-	txTaskRepo repository.TaskRepository,
-	txWorkflowSvc *WorkflowService,
-) error {
-```
-
-With:
+Remove `txWorkflowSvc` parameter from signature:
 
 ```go
 func (s *TaskService) checkAutoRevert(
@@ -219,144 +115,110 @@ func (s *TaskService) checkAutoRevert(
 Replace the `IsTransitionAllowed` call (line 554):
 
 ```go
-		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
-```
-
-With:
-
-```go
 		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
 ```
 
-- [ ] **Step 4: Update `cmd/tusk/main.go` (line 58)**
+(Same call, just using `s.workflowSvc` instead of `txWorkflowSvc`.)
+
+- [ ] **Step 5: Simplify `Store.WithTaskTx` in `internal/sqlite/store.go` (lines 112-118)**
 
 Replace:
 
 ```go
-	workflowRepo := sqlite.NewWorkflowRepo(db)
+func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, wr repository.WorkflowRepository) error) error {
+	return s.WithTx(ctx, func(tx *Tx) error {
+		return fn(tx.Tasks(), tx.Workflows())
+	})
+}
 ```
 
 With:
 
 ```go
-	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
+func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository) error) error {
+	return s.WithTx(ctx, func(tx *Tx) error {
+		return fn(tx.Tasks())
+	})
+}
 ```
 
-The `inmem` package is already imported (line 10).
+- [ ] **Step 6: Verify compilation and tests**
 
-- [ ] **Step 5: Commit**
+Run: `cd /Users/germanamz/projects/tusk && go build ./... && make test`
+
+Expected: PASS. `Tx.Workflows()` and `sqlite/workflow.go` are now dead code but still compile.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add internal/service/task.go internal/mcp/resources.go cmd/tusk/main.go
-git commit -m "refactor: update TaskService propagation, MCP, and wire inmem workflow repo
+git add internal/service/task.go internal/sqlite/store.go
+git commit -m "refactor: simplify TaskTxProvider to drop WorkflowRepository param
 
-Simplify WithTaskTx callback, propagation functions use service-level
-workflowSvc. Wire inmem.WorkflowRepository in main.go."
+In-memory workflow repos have no transactional state. Propagation
+code now uses service-level workflowSvc. Tx.Workflows() is dead code."
 ```
 
 ---
 
-### Task 3: Update tests, clean migration, verify
+### Task 2: Delete SQLite workflow files
 
-Update `task_test.go` to use inmem workflow repo, clean the migration, and run the full test suite.
+Remove the now-dead SQLite workflow implementation and `Tx.Workflows()`.
 
 **Files:**
-- Modify: `internal/service/task_test.go` (test setup)
-- Modify: `migrations/001_initial.up.sql` (remove workflow tables/seed)
-- Modify: `migrations/001_initial.down.sql` (remove workflow table drops)
+- Delete: `internal/sqlite/workflow.go`
+- Delete: `internal/sqlite/workflow_test.go`
+- Modify: `internal/sqlite/store.go` (remove Tx.Workflows)
 
-- [ ] **Step 1: Update `testTaskEnvWithSettings` in `internal/service/task_test.go`**
+- [ ] **Step 1: Delete files**
 
-Replace the function (lines 19-43):
-
-```go
-func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig) *testEnv {
-	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
-
-	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban", Settings: settings},
-	})
-	workflowRepo := sqlite.NewWorkflowRepo(db)
-
-	workflowSvc := NewWorkflowService(workflowRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
-
-	return &testEnv{
-		taskSvc:     taskSvc,
-		workflowSvc: workflowSvc,
-		store:       store,
-	}
-}
+```bash
+rm internal/sqlite/workflow.go internal/sqlite/workflow_test.go
 ```
 
-With:
+- [ ] **Step 2: Remove `Tx.Workflows()` from `internal/sqlite/store.go` (lines 93-94)**
+
+Remove:
 
 ```go
-func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig) *testEnv {
-	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
-
-	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban", Settings: settings},
-	})
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: []string{"pending", "active", "completed", "deleted"},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
-
-	workflowSvc := NewWorkflowService(workflowRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
-
-	return &testEnv{
-		taskSvc:     taskSvc,
-		workflowSvc: workflowSvc,
-		store:       store,
-	}
-}
+// Workflows returns a WorkflowRepo operating within this transaction.
+func (t *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(t.tx) }
 ```
 
-Replace `testTaskEnv` (lines 54-78) with:
+- [ ] **Step 3: Verify compilation and tests**
 
-```go
-func testTaskEnv(t *testing.T) *testEnv {
-	t.Helper()
-	return testTaskEnvWithSettings(t, config.ProjectSettingsConfig{})
-}
+Run: `cd /Users/germanamz/projects/tusk && go build ./... && make test`
+
+Expected: PASS. Nothing references the deleted code.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add -u internal/sqlite/
+git commit -m "refactor(sqlite): delete dead workflow repo and Tx.Workflows()
+
+No production or test code references these after the DI swap
+to inmem.WorkflowRepository and TaskTxProvider simplification."
 ```
 
-- [ ] **Step 2: Remove workflow tables from `migrations/001_initial.up.sql`**
+---
 
-Remove everything from line 65 onwards (the workflow comment, `CREATE TABLE workflows`, `CREATE TABLE workflow_transitions`, and all seed `INSERT` statements). The file should end after:
+### Task 3: Clean migration + verify
+
+Remove workflow tables and seed data from the migration.
+
+**Files:**
+- Modify: `migrations/001_initial.up.sql` (remove lines 65-96)
+- Modify: `migrations/001_initial.down.sql` (remove first 2 lines)
+
+- [ ] **Step 1: Clean `migrations/001_initial.up.sql`**
+
+Remove everything from line 65 onwards: the comment, `CREATE TABLE workflows`, `CREATE TABLE workflow_transitions`, and all `INSERT` seed data. The file should end after:
 
 ```sql
 CREATE INDEX idx_tag_assignments_tag ON tag_assignments(tag_id);
 ```
 
-- [ ] **Step 3: Remove workflow drops from `migrations/001_initial.down.sql`**
+- [ ] **Step 2: Clean `migrations/001_initial.down.sql`**
 
 Remove the first two lines:
 
@@ -367,24 +229,18 @@ DROP TABLE IF EXISTS workflows;
 
 The file should start with `DROP TABLE IF EXISTS tag_assignments;`.
 
-- [ ] **Step 4: Run full test suite**
-
-Run: `cd /Users/germanamz/projects/tusk && go build ./... && make test`
-
-Expected: full compilation PASS, all tests PASS.
-
-- [ ] **Step 5: Run with race detector**
+- [ ] **Step 3: Run full test suite with race detector**
 
 Run: `cd /Users/germanamz/projects/tusk && make test-race`
 
-Expected: PASS with no data races.
+Expected: all PASS, no data races.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add internal/service/task_test.go migrations/
-git commit -m "refactor: update task tests for inmem workflow repo, clean migration
+git add migrations/
+git commit -m "refactor(migrations): remove workflow tables and seed data
 
-Use inmem.WorkflowRepository in test setup. Remove workflow tables
-and seed data from 001_initial migration."
+Workflows are now config-driven in-memory entities.
+No DB tables needed."
 ```

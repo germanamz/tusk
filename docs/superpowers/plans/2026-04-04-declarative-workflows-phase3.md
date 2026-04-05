@@ -1,31 +1,164 @@
-# Declarative Workflows — Phase 3: Clean Up Public API
+# Declarative Workflows — Phase 3: Simplify Types, Repo Interface & Service Internals
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the transitional `projectID` parameter from `WorkflowService` method signatures, add new methods (`List`, `GetByName`, `GetWorkflowWithProjects`), and update all call sites.
+**Goal:** Replace the bridge implementation with its final form: simplified domain types (no UUIDs), read-only repository interface (`GetByName`, `List`), clean in-memory implementation, and updated `WorkflowService` internals. The `WorkflowService` **keeps its old public API** (`projectID` parameter, accepted but ignored) so callers don't change — Phase 4 drops `projectID`.
 
-**Architecture:** `WorkflowService` gains a `projectRepo` dependency for `GetWorkflowWithProjects`. All callers drop `projectID`. The project-to-workflow resolution already happens before workflow calls, so this is purely a signature cleanup.
+**Architecture:** Domain types, repo interface, inmem implementation, and WorkflowService internals are rewritten as a coordinated change. These four files are tightly coupled by Go's type system — they must be updated together for compilation. The public API surface (`IsTransitionAllowed(ctx, projectID, workflowName, from, to)`) stays the same, so `TaskService`, MCP, and `main.go` don't change.
 
 **Tech Stack:** Go, standard library only
 
-**Prerequisites:** Phase 2 must be complete (SQLite deleted, TaskTxProvider simplified, full compilation green).
+**Prerequisites:** Phase 2 must be complete (SQLite deleted, TaskTxProvider simplified).
+
+**Note:** Tasks 1 and 2 in this phase form a single atomic commit. Intermediate state between them may not compile.
 
 ---
 
-### Task 1: Rewrite WorkflowService — final API
+### Task 1: Rewrite domain + repo + inmem + service internals
 
-Drop `projectID` from all method signatures, add `projectRepo` dependency and three new methods.
+Coordinated rewrite of the four tightly-coupled files. The WorkflowService keeps its old public method signatures (with `projectID`) for now.
 
 **Files:**
-- Modify: `internal/service/workflow.go` (full rewrite from transitional version)
+- Modify: `internal/domain/workflow.go` (full rewrite)
+- Modify: `internal/repository/workflow.go` (full rewrite)
+- Modify: `internal/inmem/workflow.go` (full rewrite)
+- Modify: `internal/inmem/workflow_test.go` (full rewrite)
+- Modify: `internal/service/workflow.go` (rewrite internals, keep public API)
 - Modify: `internal/service/workflow_test.go` (full rewrite)
 
-- [ ] **Step 1: Rewrite `internal/service/workflow_test.go`**
+- [ ] **Step 1: Rewrite `internal/domain/workflow.go`**
 
 Replace the entire file with:
 
 ```go
-package service
+package domain
+
+// Workflow is a named set of statuses and allowed transitions.
+// Workflows are config-driven in-memory entities identified by Name.
+type Workflow struct {
+	Name        string
+	Statuses    []string
+	Transitions []WorkflowTransition
+}
+
+// WorkflowTransition defines an allowed status change within a workflow.
+type WorkflowTransition struct {
+	FromStatus string
+	ToStatus   string
+}
+```
+
+- [ ] **Step 2: Rewrite `internal/repository/workflow.go`**
+
+Replace the entire file with:
+
+```go
+package repository
+
+import (
+	"context"
+
+	"github.com/germanamz/tusk/internal/domain"
+)
+
+// WorkflowRepository provides read-only access to workflow definitions.
+// Implementations are backed by config, not a database.
+type WorkflowRepository interface {
+	// GetByName returns the workflow with the given name.
+	// Returns domain.ErrNotFound if no workflow with that name exists.
+	GetByName(ctx context.Context, name string) (*domain.Workflow, error)
+
+	// List returns all workflows, sorted alphabetically by name.
+	List(ctx context.Context) ([]*domain.Workflow, error)
+}
+```
+
+- [ ] **Step 3: Rewrite `internal/inmem/workflow.go`**
+
+Replace the entire file with:
+
+```go
+package inmem
+
+import (
+	"context"
+	"sort"
+
+	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
+)
+
+// Compile-time check that WorkflowRepository implements the interface.
+var _ repository.WorkflowRepository = (*WorkflowRepository)(nil)
+
+// WorkflowRepository is a read-only, in-memory implementation of
+// repository.WorkflowRepository backed by config data.
+type WorkflowRepository struct {
+	workflows map[string]*domain.Workflow
+}
+
+// NewWorkflowRepository builds an in-memory workflow repository from config.
+func NewWorkflowRepository(cfgWorkflows map[string]config.WorkflowConfig) *WorkflowRepository {
+	workflows := make(map[string]*domain.Workflow, len(cfgWorkflows))
+	for name, cfg := range cfgWorkflows {
+		wf := &domain.Workflow{
+			Name:        name,
+			Statuses:    make([]string, len(cfg.Statuses)),
+			Transitions: make([]domain.WorkflowTransition, len(cfg.Transitions)),
+		}
+		copy(wf.Statuses, cfg.Statuses)
+		for i, t := range cfg.Transitions {
+			wf.Transitions[i] = domain.WorkflowTransition{
+				FromStatus: t.From,
+				ToStatus:   t.To,
+			}
+		}
+		workflows[name] = wf
+	}
+	return &WorkflowRepository{workflows: workflows}
+}
+
+// GetByName returns a defensive copy of the workflow. Returns domain.ErrNotFound if not found.
+func (r *WorkflowRepository) GetByName(_ context.Context, name string) (*domain.Workflow, error) {
+	wf, ok := r.workflows[name]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return copyWorkflow(wf), nil
+}
+
+// List returns all workflows sorted alphabetically by name. Each is a defensive copy.
+func (r *WorkflowRepository) List(_ context.Context) ([]*domain.Workflow, error) {
+	result := make([]*domain.Workflow, 0, len(r.workflows))
+	for _, wf := range r.workflows {
+		result = append(result, copyWorkflow(wf))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+	return result, nil
+}
+
+// copyWorkflow returns a deep copy of a Workflow, including slices.
+func copyWorkflow(wf *domain.Workflow) *domain.Workflow {
+	cp := *wf
+	cp.Statuses = make([]string, len(wf.Statuses))
+	copy(cp.Statuses, wf.Statuses)
+	cp.Transitions = make([]domain.WorkflowTransition, len(wf.Transitions))
+	copy(cp.Transitions, wf.Transitions)
+	return &cp
+}
+```
+
+Note: `NewWorkflowRepository` keeps the same constructor signature (`map[string]config.WorkflowConfig`), so `main.go` doesn't need to change.
+
+- [ ] **Step 4: Rewrite `internal/inmem/workflow_test.go`**
+
+Replace the entire file with:
+
+```go
+package inmem_test
 
 import (
 	"context"
@@ -37,177 +170,74 @@ import (
 	"github.com/germanamz/tusk/internal/inmem"
 )
 
-func testWorkflowEnv(t *testing.T) *WorkflowService {
-	t.Helper()
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+func TestWorkflowRepository_GetByName(t *testing.T) {
+	workflows := map[string]config.WorkflowConfig{
 		"kanban": {
 			Statuses: []string{"pending", "active", "completed", "deleted"},
 			Transitions: []config.WorkflowTransitionConfig{
 				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
 				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
 			},
 		},
-	})
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-		"backend": {Workflow: "kanban"},
-	})
-	return NewWorkflowService(workflowRepo, projectRepo)
-}
+	}
 
-func TestIsTransitionAllowed_Allowed(t *testing.T) {
-	svc := testWorkflowEnv(t)
+	repo := inmem.NewWorkflowRepository(workflows)
 	ctx := context.Background()
 
-	allowed, err := svc.IsTransitionAllowed(ctx, "kanban", "pending", "active")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed {
-		t.Fatal("expected pending->active to be allowed")
-	}
-}
-
-func TestIsTransitionAllowed_Disallowed(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	allowed, err := svc.IsTransitionAllowed(ctx, "kanban", "pending", "completed")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if allowed {
-		t.Fatal("expected pending->completed to be disallowed")
-	}
-}
-
-func TestIsTransitionAllowed_WorkflowNotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	_, err := svc.IsTransitionAllowed(ctx, "nonexistent", "pending", "active")
-	if err == nil {
-		t.Fatal("expected error for nonexistent workflow")
-	}
-}
-
-func TestGetStatuses(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	statuses, err := svc.GetStatuses(ctx, "kanban")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := []string{"pending", "active", "completed", "deleted"}
-	if len(statuses) != len(expected) {
-		t.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
-	}
-	for i, s := range statuses {
-		if s != expected[i] {
-			t.Fatalf("status[%d]: expected %q, got %q", i, expected[i], s)
+	t.Run("existing workflow", func(t *testing.T) {
+		wf, err := repo.GetByName(ctx, "kanban")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
+		if wf.Name != "kanban" {
+			t.Errorf("expected Name 'kanban', got %q", wf.Name)
+		}
+		if len(wf.Statuses) != 4 {
+			t.Errorf("expected 4 statuses, got %d", len(wf.Statuses))
+		}
+		if len(wf.Transitions) != 2 {
+			t.Errorf("expected 2 transitions, got %d", len(wf.Transitions))
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		_, err := repo.GetByName(ctx, "nonexistent")
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("returns defensive copy", func(t *testing.T) {
+		wf1, _ := repo.GetByName(ctx, "kanban")
+		wf1.Name = "mutated"
+		wf2, _ := repo.GetByName(ctx, "kanban")
+		if wf2.Name != "kanban" {
+			t.Errorf("defensive copy failed: got %q", wf2.Name)
+		}
+	})
 }
 
-func TestGetStatuses_WorkflowNotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	_, err := svc.GetStatuses(ctx, "nonexistent")
-	if err == nil {
-		t.Fatal("expected error for nonexistent workflow")
+func TestWorkflowRepository_List(t *testing.T) {
+	workflows := map[string]config.WorkflowConfig{
+		"kanban":       {Statuses: []string{"pending", "active"}},
+		"bug-tracking": {Statuses: []string{"open", "closed"}},
 	}
-}
 
-func TestGetTransitions(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	transitions, err := svc.GetTransitions(ctx, "kanban")
+	repo := inmem.NewWorkflowRepository(workflows)
+	list, err := repo.List(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(transitions) != 6 {
-		t.Fatalf("expected 6 transitions, got %d", len(transitions))
+	if len(list) != 2 {
+		t.Fatalf("expected 2 workflows, got %d", len(list))
 	}
-}
-
-func TestWorkflowList(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	workflows, err := svc.List(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(workflows) != 1 {
-		t.Fatalf("expected 1 workflow, got %d", len(workflows))
-	}
-	if workflows[0].Name != "kanban" {
-		t.Fatalf("expected 'kanban', got %q", workflows[0].Name)
-	}
-}
-
-func TestGetByName(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	wf, err := svc.GetByName(ctx, "kanban")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wf.Name != "kanban" {
-		t.Fatalf("expected 'kanban', got %q", wf.Name)
-	}
-}
-
-func TestGetByName_NotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	_, err := svc.GetByName(ctx, "nonexistent")
-	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
-	}
-}
-
-func TestGetWorkflowWithProjects(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	wf, projectIDs, err := svc.GetWorkflowWithProjects(ctx, "kanban")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wf.Name != "kanban" {
-		t.Fatalf("expected 'kanban', got %q", wf.Name)
-	}
-	if len(projectIDs) != 2 {
-		t.Fatalf("expected 2 projects, got %d", len(projectIDs))
-	}
-	if projectIDs[0] != "backend" || projectIDs[1] != "default" {
-		t.Fatalf("expected [backend, default], got %v", projectIDs)
-	}
-}
-
-func TestGetWorkflowWithProjects_NotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	ctx := context.Background()
-
-	_, _, err := svc.GetWorkflowWithProjects(ctx, "nonexistent")
-	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+	if list[0].Name != "bug-tracking" || list[1].Name != "kanban" {
+		t.Errorf("expected alphabetical order, got [%s, %s]", list[0].Name, list[1].Name)
 	}
 }
 ```
 
-- [ ] **Step 2: Rewrite `internal/service/workflow.go`**
+- [ ] **Step 5: Rewrite `internal/service/workflow.go` (keep old public API)**
 
 Replace the entire file with:
 
@@ -222,21 +252,21 @@ import (
 	"github.com/germanamz/tusk/internal/repository"
 )
 
-// WorkflowService validates status transitions and provides read access
-// to workflow definitions from config.
+// WorkflowService validates status transitions against workflow definitions.
 type WorkflowService struct {
 	workflowRepo repository.WorkflowRepository
-	projectRepo  repository.ProjectRepository
 }
 
 // NewWorkflowService creates a new WorkflowService.
-func NewWorkflowService(wr repository.WorkflowRepository, pr repository.ProjectRepository) *WorkflowService {
-	return &WorkflowService{workflowRepo: wr, projectRepo: pr}
+func NewWorkflowService(wr repository.WorkflowRepository) *WorkflowService {
+	return &WorkflowService{workflowRepo: wr}
 }
 
 // IsTransitionAllowed checks whether a status transition is permitted
 // by the named workflow.
-func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, workflowName string, from string, to string) (bool, error) {
+// Note: projectID is accepted for backward compatibility but ignored.
+// Phase 4 removes it from the signature.
+func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, projectID string, workflowName string, from string, to string) (bool, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
 	if err != nil {
 		return false, fmt.Errorf("loading workflow %q: %w", workflowName, err)
@@ -251,7 +281,8 @@ func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, workflowName 
 }
 
 // GetStatuses returns the ordered list of valid statuses for the named workflow.
-func (s *WorkflowService) GetStatuses(ctx context.Context, workflowName string) ([]string, error) {
+// Note: projectID is accepted for backward compatibility but ignored.
+func (s *WorkflowService) GetStatuses(ctx context.Context, projectID string, workflowName string) ([]string, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
@@ -260,194 +291,132 @@ func (s *WorkflowService) GetStatuses(ctx context.Context, workflowName string) 
 }
 
 // GetTransitions returns all allowed transitions for the named workflow.
-func (s *WorkflowService) GetTransitions(ctx context.Context, workflowName string) ([]domain.WorkflowTransition, error) {
+// Note: projectID is accepted for backward compatibility but ignored.
+// Return type is []domain.WorkflowTransition (value slice, not pointer slice).
+// Callers that iterate and access fields work identically with both types.
+func (s *WorkflowService) GetTransitions(ctx context.Context, projectID string, workflowName string) ([]domain.WorkflowTransition, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
 	return wf.Transitions, nil
 }
+```
 
-// List returns all workflows from config.
-func (s *WorkflowService) List(ctx context.Context) ([]*domain.Workflow, error) {
-	return s.workflowRepo.List(ctx)
+Important: `GetTransitions` now returns `[]domain.WorkflowTransition` (value slice) instead of `[]*domain.WorkflowTransition` (pointer slice). The only caller (`handleWorkflowResource` in `resources.go`) iterates with range and accesses `.FromStatus`/`.ToStatus` — this works identically for both value and pointer element types.
+
+- [ ] **Step 6: Rewrite `internal/service/workflow_test.go`**
+
+Replace the entire file with:
+
+```go
+package service
+
+import (
+	"context"
+	"testing"
+
+	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/inmem"
+)
+
+func testWorkflowService(t *testing.T) *WorkflowService {
+	t.Helper()
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
+	return NewWorkflowService(workflowRepo)
 }
 
-// GetByName returns a single workflow by name.
-// Returns domain.ErrNotFound if the workflow does not exist.
-func (s *WorkflowService) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
-	return s.workflowRepo.GetByName(ctx, name)
+func TestIsTransitionAllowed_Allowed(t *testing.T) {
+	svc := testWorkflowService(t)
+	allowed, err := svc.IsTransitionAllowed(context.Background(), "default", "kanban", "pending", "active")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected pending->active to be allowed")
+	}
 }
 
-// GetWorkflowWithProjects returns a workflow and the sorted list of project IDs
-// that reference it. Returns domain.ErrNotFound if the workflow does not exist.
-func (s *WorkflowService) GetWorkflowWithProjects(ctx context.Context, name string) (*domain.Workflow, []string, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, name)
+func TestIsTransitionAllowed_Disallowed(t *testing.T) {
+	svc := testWorkflowService(t)
+	allowed, err := svc.IsTransitionAllowed(context.Background(), "default", "kanban", "pending", "completed")
 	if err != nil {
-		return nil, nil, err
+		t.Fatalf("unexpected error: %v", err)
 	}
+	if allowed {
+		t.Fatal("expected pending->completed to be disallowed")
+	}
+}
 
-	projects, err := s.projectRepo.List(ctx)
+func TestIsTransitionAllowed_WorkflowNotFound(t *testing.T) {
+	svc := testWorkflowService(t)
+	_, err := svc.IsTransitionAllowed(context.Background(), "default", "nonexistent", "pending", "active")
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
+}
+
+func TestGetStatuses(t *testing.T) {
+	svc := testWorkflowService(t)
+	statuses, err := svc.GetStatuses(context.Background(), "default", "kanban")
 	if err != nil {
-		return nil, nil, fmt.Errorf("listing projects: %w", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	var projectIDs []string
-	for _, p := range projects {
-		if p.Workflow == name {
-			projectIDs = append(projectIDs, p.ID)
+	expected := []string{"pending", "active", "completed", "deleted"}
+	if len(statuses) != len(expected) {
+		t.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
+	}
+	for i, s := range statuses {
+		if s != expected[i] {
+			t.Fatalf("status[%d]: expected %q, got %q", i, expected[i], s)
 		}
 	}
-	return wf, projectIDs, nil
+}
+
+func TestGetStatuses_WorkflowNotFound(t *testing.T) {
+	svc := testWorkflowService(t)
+	_, err := svc.GetStatuses(context.Background(), "default", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
 }
 ```
+
+---
+
+### Task 2: Verify full compilation and tests
+
+- [ ] **Step 1: Verify compilation**
+
+Run: `cd /Users/germanamz/projects/tusk && go build ./...`
+
+Expected: PASS. The `GetTransitions` return type change from `[]*domain.WorkflowTransition` to `[]domain.WorkflowTransition` is transparent to `resources.go` because range iteration and field access work identically for both.
+
+- [ ] **Step 2: Run full test suite with race detector**
+
+Run: `cd /Users/germanamz/projects/tusk && make test-race`
+
+Expected: all PASS.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add internal/service/workflow.go internal/service/workflow_test.go
-git commit -m "refactor(service): drop projectID from WorkflowService, add new methods
+git add internal/domain/workflow.go internal/repository/workflow.go internal/inmem/workflow.go internal/inmem/workflow_test.go internal/service/workflow.go internal/service/workflow_test.go
+git commit -m "refactor: simplify workflow types, repo interface, and service internals
 
-Remove transitional projectID params. Add List, GetByName, and
-GetWorkflowWithProjects. Add projectRepo dependency."
-```
-
----
-
-### Task 2: Update all call sites
-
-Drop `projectID` from all workflow calls in TaskService, MCP, and update `main.go` constructor.
-
-**Files:**
-- Modify: `internal/service/task.go` (4 call sites)
-- Modify: `internal/mcp/resources.go` (2 call sites)
-- Modify: `cmd/tusk/main.go` (constructor call)
-
-- [ ] **Step 1: Update TaskService call sites in `internal/service/task.go`**
-
-Replace in `Create` (around line 98):
-
-```go
-	statuses, err := s.workflowSvc.GetStatuses(ctx, task.ProjectID, project.Workflow)
-```
-With:
-```go
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
-```
-
-Replace in `Update` (around line 253):
-
-```go
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, task.ProjectID, project.Workflow, oldStatus, task.Status)
-```
-With:
-```go
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, oldStatus, task.Status)
-```
-
-Replace in `checkAutoComplete` (around line 473):
-
-```go
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
-```
-With:
-```go
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, cfg.TargetStatus)
-```
-
-Replace in `checkAutoRevert` (around line 554):
-
-```go
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
-```
-With:
-```go
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, revertCfg.TargetStatus)
-```
-
-- [ ] **Step 2: Update MCP resource handler in `internal/mcp/resources.go`**
-
-Replace (around lines 132-137):
-
-```go
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.ID, project.Workflow)
-```
-With:
-```go
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
-```
-
-Replace:
-```go
-	transitions, err := s.workflowSvc.GetTransitions(ctx, project.ID, project.Workflow)
-```
-With:
-```go
-	transitions, err := s.workflowSvc.GetTransitions(ctx, project.Workflow)
-```
-
-- [ ] **Step 3: Update `cmd/tusk/main.go` constructor**
-
-Replace (around line 63):
-
-```go
-	workflowSvc := service.NewWorkflowService(workflowRepo)
-```
-With:
-```go
-	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add internal/service/task.go internal/mcp/resources.go cmd/tusk/main.go
-git commit -m "refactor: drop projectID from all workflow call sites
-
-Update TaskService, MCP resource handler, and main.go DI to use
-the final WorkflowService signatures."
-```
-
----
-
-### Task 3: Update tests and verify
-
-Update task_test.go for the new constructor and run the full suite.
-
-**Files:**
-- Modify: `internal/service/task_test.go`
-
-- [ ] **Step 1: Update `testTaskEnvWithSettings`**
-
-Find the line:
-
-```go
-	workflowSvc := NewWorkflowService(workflowRepo)
-```
-
-Replace with:
-
-```go
-	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-```
-
-- [ ] **Step 2: Run full test suite**
-
-Run: `cd /Users/germanamz/projects/tusk && go build ./... && make test`
-
-Expected: full compilation PASS, all tests PASS.
-
-- [ ] **Step 3: Run with race detector**
-
-Run: `cd /Users/germanamz/projects/tusk && make test-race`
-
-Expected: PASS.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add internal/service/task_test.go
-git commit -m "test(service): update TaskService tests for final WorkflowService API
-
-Pass projectRepo to NewWorkflowService in test setup."
+Remove UUID fields from domain types. Simplify WorkflowRepository to
+GetByName + List. Rewrite inmem and service to use new interface.
+Public WorkflowService API unchanged (projectID still accepted)."
 ```
