@@ -250,6 +250,32 @@ func TestTaskLifecycle(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "create_task_has_empty_description",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Task without description"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "")
+					},
+				},
+				{
+					Args: []string{"info", "$0.short_id"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["description"], "")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						// Empty description should not appear in text output
+						assertNotContains(t, output, "Description:")
+					},
+				},
+			},
+		},
 	}
 
 	runScenarios(t, binPath, scenarios)
