@@ -33,34 +33,14 @@ default_sort = "urgency"      # Default sort field for task lists
 [mcp]
 # Disable MCP tool groups: ["task", "relation", "project"]
 disabled_tool_groups = []
-# Disable individual MCP tools by name
+
+# Disable individual MCP tools by name, e.g.:
+# disabled_tools = ["tusk_task_delete", "tusk_task_tree"]
 disabled_tools = []
+
 # Disable MCP resource groups: ["task", "project", "workflow"]
 disabled_resource_groups = []
-# Disable individual MCP resources by URI template
+
+# Disable individual MCP resources by URI template, e.g.:
+# disabled_resources = ["tusk://projects/{name}/workflow"]
 disabled_resources = []
-
-# Workflows define allowed status transitions.
-# The builtin "kanban" workflow is always available even without config.
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
-transitions = [
-  { from = "pending",   to = "active" },
-  { from = "pending",   to = "deleted" },
-  { from = "active",    to = "completed" },
-  { from = "active",    to = "pending" },
-  { from = "active",    to = "deleted" },
-  { from = "completed", to = "pending" },
-]
-
-# Projects group tasks and assign workflows.
-# The builtin "default" project uses the "kanban" workflow.
-[projects.default]
-workflow = "kanban"
-
-# Example: custom project with auto-completion
-# [projects.backend]
-# workflow = "kanban"
-# [projects.backend.settings.auto_complete_parent]
-# trigger_status = "completed"
-# target_status = "completed"
