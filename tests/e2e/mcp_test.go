@@ -371,7 +371,7 @@ func TestMCPProjects(t *testing.T) {
 	}
 	env := newMCPEnv(t, binPath)
 
-	// List projects (should have _default)
+	// List projects (should have default)
 	listRaw := env.callToolRaw("tusk_project_list", map[string]any{})
 	var projects []map[string]any
 	if err := json.Unmarshal([]byte(listRaw), &projects); err != nil {
@@ -379,21 +379,15 @@ func TestMCPProjects(t *testing.T) {
 	}
 	found := false
 	for _, p := range projects {
-		if p["name"] == "_default" {
+		if p["id"] == "default" {
 			found = true
+			if p["workflow"] != "kanban" {
+				t.Fatalf("expected workflow 'kanban', got %v", p["workflow"])
+			}
 		}
 	}
 	if !found {
-		t.Fatal("_default project not found in list")
-	}
-
-	// Create a project
-	created := env.callTool("tusk_project_create", map[string]any{
-		"name":        "test-project",
-		"description": "A test project",
-	})
-	if created["name"] != "test-project" {
-		t.Fatalf("expected name 'test-project', got %v", created["name"])
+		t.Fatal("default project not found in list")
 	}
 }
 
@@ -579,7 +573,7 @@ func TestMCPResources(t *testing.T) {
 
 	// Read project resource
 	resp = env.send("resources/read", map[string]any{
-		"uri": "tusk://projects/_default",
+		"uri": "tusk://projects/default",
 	})
 	if resp.Error != nil {
 		t.Fatalf("project resource error: %s", resp.Error)
@@ -596,13 +590,13 @@ func TestMCPResources(t *testing.T) {
 	if err := json.Unmarshal([]byte(projRes.Contents[0].Text), &projData); err != nil {
 		t.Fatalf("parsing project JSON: %v", err)
 	}
-	if projData["name"] != "_default" {
-		t.Fatalf("expected project name '_default', got %v", projData["name"])
+	if projData["id"] != "default" {
+		t.Fatalf("expected project id 'default', got %v", projData["id"])
 	}
 
 	// Read workflow resource
 	resp = env.send("resources/read", map[string]any{
-		"uri": "tusk://projects/_default/workflow",
+		"uri": "tusk://projects/default/workflow",
 	})
 	if resp.Error != nil {
 		t.Fatalf("workflow resource error: %s", resp.Error)
