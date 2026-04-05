@@ -4,15 +4,14 @@ import (
 	"context"
 
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/google/uuid"
 )
 
-// ProjectRepository provides read-only access to projects.
-// Projects are config-driven and immutable at runtime.
 type ProjectRepository interface {
-	// GetByID returns a project by its human-readable ID (e.g. "default", "backend").
-	// Returns domain.ErrNotFound if the project doesn't exist in config.
-	GetByID(ctx context.Context, id string) (*domain.Project, error)
-
-	// List returns all projects defined in config, sorted by ID.
+	Create(ctx context.Context, project *domain.Project) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error)
+	GetByName(ctx context.Context, name string) (*domain.Project, error)
 	List(ctx context.Context) ([]*domain.Project, error)
+	Update(ctx context.Context, project *domain.Project) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
