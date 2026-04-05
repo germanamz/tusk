@@ -23,7 +23,6 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] Implement SQLite store with WAL mode, busy_timeout, foreign keys
   - [x] Write initial migration (001_initial.up.sql / down.sql)
   - [x] Implement TaskRepository for SQLite
-  - [x] Implement ProjectRepository for SQLite
   - [x] Implement TagRepository for SQLite
   - [x] Implement AnnotationRepository for SQLite
   - [x] Implement WorkflowRepository for SQLite
@@ -112,7 +111,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] E2E tests for tree display
 
 - [x] **Story: Completion propagation**
-  - [x] Add JSON `settings` column to projects table (migration) — _note: settings move to config in v0.4_
+  - [x] Add JSON `settings` column to projects table (migration) — _settings moved to config in v0.4_
   - [x] `ProjectSettings` with `AutoCompleteConfig` and `AutoRevertConfig` (configurable trigger/target statuses)
   - [x] `TaskTxProvider` for atomic propagation within same transaction
   - [x] Auto-transition parent when all non-deleted children reach trigger status
@@ -124,13 +123,10 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Project Management
 
-> CLI commands for project CRUD and settings configuration.
+> CLI commands for project listing. Projects are config-driven (see v0.4 Config-based Projects); `create` and `modify` were removed in v0.4.
 
 - [x] **Story: `tusk project` subcommand**
   - [x] `tusk project list` — list all projects
-  - [x] `tusk project create <name>` — create a project
-  - [x] `tusk project modify <name>` — update project fields and settings
-  - [x] Dot-path `--set` flag for JSON settings (e.g., `--set auto_complete_parent.trigger_status=completed`)
 
 ### Initiative: Tag Management
 
@@ -172,7 +168,6 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] `tusk_relation_add` — RelationService.Add
   - [x] `tusk_relation_remove` — RelationService.Remove
   - [x] `tusk_project_list` — ProjectService.List
-  - [x] `tusk_project_create` — ProjectService.Create
 
 ### Initiative: MCP Resources
 
@@ -219,26 +214,26 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Projects become purely config-driven in-memory entities, same as workflows. Drop the `projects` table entirely. Project IDs become human-readable strings (e.g., `"default"`, `"backend"`). Tasks store `project_id` as a plain string column validated at the service layer against config — no FK constraint. A builtin `default` project exists when no config is present.
 
-- [ ] **Story: Drop projects table and migrate task references**
-  - [ ] Migration to drop `projects` table and remove FK constraint from `tasks.project_id`
-  - [ ] Migrate existing `tasks.project_id` UUID values to human-readable project IDs
-  - [ ] Update `tasks.project_id` column to plain TEXT (no FK)
-  - [ ] Drop `workflows.project_id` FK reference (handled by Declarative Workflows initiative)
+- [x] **Story: Drop projects table and migrate task references**
+  - [x] Migration to drop `projects` table and remove FK constraint from `tasks.project_id`
+  - [x] Migrate existing `tasks.project_id` UUID values to human-readable project IDs
+  - [x] Update `tasks.project_id` column to plain TEXT (no FK)
+  - [x] Drop `workflows.project_id` FK reference (handled by Declarative Workflows initiative)
 
-- [ ] **Story: Project config schema**
-  - [ ] Define `[projects.<id>]` TOML section with `workflow` and `settings` keys
-  - [ ] Add `ProjectsConfig` to `Config` struct
-  - [ ] Builtin `default` project with `kanban` workflow when no config is present
-  - [ ] Validate project config on load (referenced workflow must exist in config)
+- [x] **Story: Project config schema**
+  - [x] Define `[projects.<id>]` TOML section with `workflow` and `settings` keys
+  - [x] Add `ProjectsConfig` to `Config` struct
+  - [x] Builtin `default` project with `kanban` workflow when no config is present
+  - [x] Validate project config on load (referenced workflow must exist in config)
 
-- [ ] **Story: In-memory project repository and service**
-  - [ ] Rewrite `domain.Project` as config struct — `ID` (string), `Workflow` (string), `Settings` (ProjectSettings)
-  - [ ] Simplify `ProjectRepository` interface to read-only (`GetByID`, `List`)
-  - [ ] Implement in-memory `ProjectRepository` backed by config
-  - [ ] Remove SQLite `ProjectRepository` implementation
-  - [ ] Update `ProjectService` and `TaskService` for new interface
-  - [ ] Update CLI commands (`tusk project list`, remove `tusk project create`/`modify`)
-  - [ ] Update MCP tools (remove `tusk_project_create`, make project tools read-only)
+- [x] **Story: In-memory project repository and service**
+  - [x] Rewrite `domain.Project` as config struct — `ID` (string), `Workflow` (string), `Settings` (ProjectSettings)
+  - [x] Simplify `ProjectRepository` interface to read-only (`GetByID`, `List`)
+  - [x] Implement in-memory `ProjectRepository` backed by config
+  - [x] Remove SQLite `ProjectRepository` implementation
+  - [x] Update `ProjectService` and `TaskService` for new interface
+  - [x] Update CLI commands (`tusk project list`, remove `tusk project create`/`modify`)
+  - [x] Update MCP tools (remove `tusk_project_create`, make project tools read-only)
 
 ### Initiative: Declarative Workflows
 
