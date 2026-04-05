@@ -49,7 +49,7 @@ func newTestRelationEnv(t *testing.T) *testRelationEnv {
 	})
 	relationRepo := sqlite.NewRelationRepo(db)
 
-	workflowSvc := NewWorkflowService(workflowRepo)
+	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
 	relationSvc := NewRelationService(relationRepo, taskRepo, store)
 

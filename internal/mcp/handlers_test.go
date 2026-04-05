@@ -42,7 +42,7 @@ func testServer(t *testing.T) *Server {
 	tagRepo := sqlite.NewTagRepo(db)
 	relationRepo := sqlite.NewRelationRepo(db)
 
-	workflowSvc := service.NewWorkflowService(workflowRepo)
+	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
 	tagSvc := service.NewTagService(tagRepo)
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)

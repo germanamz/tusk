@@ -95,7 +95,7 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 	if task.Status == "" {
 		task.Status = "pending"
 	}
-	statuses, err := s.workflowSvc.GetStatuses(ctx, task.ProjectID, project.Workflow)
+	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
 	if err != nil {
 		return fmt.Errorf("loading workflow statuses: %w", err)
 	}
@@ -250,7 +250,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)
 		}
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, task.ProjectID, project.Workflow, oldStatus, task.Status)
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, oldStatus, task.Status)
 		if err != nil {
 			return nil, fmt.Errorf("checking transition: %w", err)
 		}
@@ -468,7 +468,7 @@ func (s *TaskService) checkAutoComplete(
 		}
 
 		// Validate workflow transition for the parent
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, cfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking propagation transition: %w", err)
 		}
@@ -548,7 +548,7 @@ func (s *TaskService) checkAutoRevert(
 		}
 
 		// Validate workflow transition
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, revertCfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking revert transition: %w", err)
 		}
