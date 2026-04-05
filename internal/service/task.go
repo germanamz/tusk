@@ -20,7 +20,7 @@ const DefaultProjectID = "default"
 // inside a database transaction for atomic propagation.
 // The SQLite Store implements this via its WithTaskTx method.
 type TaskTxProvider interface {
-	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository, wr repository.WorkflowRepository) error) error
+	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository) error) error
 }
 
 // TaskService implements task business logic including validation,
@@ -268,7 +268,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	// Otherwise, persist directly (no transaction needed).
 	if statusChanged && s.txProvider != nil {
 		var result *domain.Task
-		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository, txWorkflowRepo repository.WorkflowRepository) error {
+		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository) error {
 			if err := txTaskRepo.Update(ctx, task); err != nil {
 				return err
 			}
@@ -277,14 +277,13 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				return err
 			}
 			result = updated
-			txWorkflowSvc := NewWorkflowService(txWorkflowRepo)
 			// Propagation: auto-complete and auto-revert are mutually exclusive
 			// in practice — a single status change cannot simultaneously reach
 			// and leave the trigger status — so at most one of these fires.
-			if err := s.checkAutoComplete(ctx, updated, txTaskRepo, txWorkflowSvc); err != nil {
+			if err := s.checkAutoComplete(ctx, updated, txTaskRepo); err != nil {
 				return err
 			}
-			return s.checkAutoRevert(ctx, updated, oldStatus, txTaskRepo, txWorkflowSvc)
+			return s.checkAutoRevert(ctx, updated, oldStatus, txTaskRepo)
 		})
 		if err != nil {
 			return nil, err
@@ -416,7 +415,6 @@ func (s *TaskService) checkAutoComplete(
 	ctx context.Context,
 	task *domain.Task,
 	txTaskRepo repository.TaskRepository,
-	txWorkflowSvc *WorkflowService,
 ) error {
 	current := task
 	for depth := 0; depth < maxParentDepth; depth++ {
@@ -470,7 +468,7 @@ func (s *TaskService) checkAutoComplete(
 		}
 
 		// Validate workflow transition for the parent
-		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, cfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking propagation transition: %w", err)
 		}
@@ -504,7 +502,6 @@ func (s *TaskService) checkAutoRevert(
 	task *domain.Task,
 	oldStatus string,
 	txTaskRepo repository.TaskRepository,
-	txWorkflowSvc *WorkflowService,
 ) error {
 	current := task
 	currentOldStatus := oldStatus
@@ -551,7 +548,7 @@ func (s *TaskService) checkAutoRevert(
 		}
 
 		// Validate workflow transition
-		allowed, err := txWorkflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, parent.ProjectID, project.Workflow, parent.Status, revertCfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking revert transition: %w", err)
 		}
