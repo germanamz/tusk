@@ -381,7 +381,13 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 	}
 
 	if task.Description != "" {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Description:", task.Description); err != nil {
+		if _, err := fmt.Fprintln(w, "Description:"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, task.Description); err != nil {
 			return err
 		}
 	}
