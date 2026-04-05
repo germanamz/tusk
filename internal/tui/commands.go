@@ -183,6 +183,16 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 		task.ParentID = &parent.ID
 	}
 
+	// UDA
+	if cmd.Flags().Changed("uda") {
+		udaVals, _ := cmd.Flags().GetStringArray("uda")
+		udaMap, err := parseUDAFlags(udaVals)
+		if err != nil {
+			return err
+		}
+		task.UDA = udaMap
+	}
+
 	if err := a.taskSvc.Create(ctx, task); err != nil {
 		return fmt.Errorf("%s", err)
 	}
@@ -398,6 +408,16 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 			pp := &pid
 			upd.ParentID = &pp
 		}
+	}
+
+	// UDA
+	if cmd.Flags().Changed("uda") {
+		udaVals, _ := cmd.Flags().GetStringArray("uda")
+		udaMap, err := parseUDAFlags(udaVals)
+		if err != nil {
+			return err
+		}
+		upd.UDA = &udaMap
 	}
 
 	updated, err := a.taskSvc.Update(ctx, upd)
