@@ -1615,3 +1615,46 @@ func TestUpdate_UDAMerge_NonStringValue(t *testing.T) {
 		t.Fatal("expected error for non-string UDA value")
 	}
 }
+
+func TestCreate_UDAValidation_InvalidKey(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Bad UDA key", UDA: map[string]any{"invalid.key": "value"}}
+	err := env.taskSvc.Create(ctx, task)
+	if err == nil {
+		t.Fatal("expected error for invalid UDA key on create")
+	}
+}
+
+func TestCreate_UDAValidation_NonStringValue(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Bad UDA value", UDA: map[string]any{"count": 42}}
+	err := env.taskSvc.Create(ctx, task)
+	if err == nil {
+		t.Fatal("expected error for non-string UDA value on create")
+	}
+}
+
+func TestCreate_UDAValidation_ValidUDA(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "Good UDA", UDA: map[string]any{"env": "prod", "team": "backend"}}
+	if err := env.taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := env.taskSvc.GetByShortID(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if got.UDA["env"] != "prod" {
+		t.Fatalf("expected env=prod, got %v", got.UDA["env"])
+	}
+	if got.UDA["team"] != "backend" {
+		t.Fatalf("expected team=backend, got %v", got.UDA["team"])
+	}
+}
