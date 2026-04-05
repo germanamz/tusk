@@ -76,7 +76,19 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{"default": {Workflow: "kanban"}})
-	workflowRepo := sqlite.NewWorkflowRepo(db)
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
 
 	tagRepo := sqlite.NewTagRepo(db)
 	relationRepo := sqlite.NewRelationRepo(db)
