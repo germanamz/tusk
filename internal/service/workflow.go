@@ -8,21 +8,21 @@ import (
 	"github.com/germanamz/tusk/internal/repository"
 )
 
-// WorkflowService validates status transitions against workflow definitions.
+// WorkflowService validates status transitions and provides read access
+// to workflow definitions from config.
 type WorkflowService struct {
 	workflowRepo repository.WorkflowRepository
+	projectRepo  repository.ProjectRepository
 }
 
 // NewWorkflowService creates a new WorkflowService.
-func NewWorkflowService(wr repository.WorkflowRepository) *WorkflowService {
-	return &WorkflowService{workflowRepo: wr}
+func NewWorkflowService(wr repository.WorkflowRepository, pr repository.ProjectRepository) *WorkflowService {
+	return &WorkflowService{workflowRepo: wr, projectRepo: pr}
 }
 
 // IsTransitionAllowed checks whether a status transition is permitted
 // by the named workflow.
-// Note: projectID is accepted for backward compatibility but ignored.
-// Phase 4 removes it from the signature.
-func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, projectID string, workflowName string, from string, to string) (bool, error) {
+func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, workflowName string, from string, to string) (bool, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
 	if err != nil {
 		return false, fmt.Errorf("loading workflow %q: %w", workflowName, err)
@@ -37,8 +37,7 @@ func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, projectID str
 }
 
 // GetStatuses returns the ordered list of valid statuses for the named workflow.
-// Note: projectID is accepted for backward compatibility but ignored.
-func (s *WorkflowService) GetStatuses(ctx context.Context, projectID string, workflowName string) ([]string, error) {
+func (s *WorkflowService) GetStatuses(ctx context.Context, workflowName string) ([]string, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
@@ -47,13 +46,43 @@ func (s *WorkflowService) GetStatuses(ctx context.Context, projectID string, wor
 }
 
 // GetTransitions returns all allowed transitions for the named workflow.
-// Note: projectID is accepted for backward compatibility but ignored.
-// Return type is []domain.WorkflowTransition (value slice, not pointer slice).
-// Callers that iterate and access fields work identically with both types.
-func (s *WorkflowService) GetTransitions(ctx context.Context, projectID string, workflowName string) ([]domain.WorkflowTransition, error) {
+func (s *WorkflowService) GetTransitions(ctx context.Context, workflowName string) ([]domain.WorkflowTransition, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
 	return wf.Transitions, nil
+}
+
+// List returns all workflows from config.
+func (s *WorkflowService) List(ctx context.Context) ([]*domain.Workflow, error) {
+	return s.workflowRepo.List(ctx)
+}
+
+// GetByName returns a single workflow by name.
+// Returns domain.ErrNotFound if the workflow does not exist.
+func (s *WorkflowService) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
+	return s.workflowRepo.GetByName(ctx, name)
+}
+
+// GetWorkflowWithProjects returns a workflow and the sorted list of project IDs
+// that reference it. Returns domain.ErrNotFound if the workflow does not exist.
+func (s *WorkflowService) GetWorkflowWithProjects(ctx context.Context, name string) (*domain.Workflow, []string, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, name)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	projects, err := s.projectRepo.List(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing projects: %w", err)
+	}
+
+	var projectIDs []string
+	for _, p := range projects {
+		if p.Workflow == name {
+			projectIDs = append(projectIDs, p.ID)
+		}
+	}
+	return wf, projectIDs, nil
 }

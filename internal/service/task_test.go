@@ -44,7 +44,7 @@ func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig
 		},
 	})
 
-	workflowSvc := NewWorkflowService(workflowRepo)
+	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
 
 	return &testEnv{
@@ -951,7 +951,7 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 		},
 	})
 
-	workflowSvc := NewWorkflowService(workflowRepo)
+	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	// Pass store as the TaskTxProvider (5th argument)
 	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
 

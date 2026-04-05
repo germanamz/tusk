@@ -129,12 +129,12 @@ func (s *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadRes
 		return nil, err
 	}
 
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.ID, project.Workflow)
+	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
 	if err != nil {
 		return nil, err
 	}
 
-	transitions, err := s.workflowSvc.GetTransitions(ctx, project.ID, project.Workflow)
+	transitions, err := s.workflowSvc.GetTransitions(ctx, project.Workflow)
 	if err != nil {
 		return nil, err
 	}
