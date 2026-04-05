@@ -377,7 +377,13 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 		upd.Title = &title
 	}
 	if desc, err := request.RequireString("description"); err == nil {
-		upd.Description = &desc
+		if desc == "" {
+			var nilStr *string
+			upd.Description = &nilStr
+		} else {
+			dp := &desc
+			upd.Description = &dp
+		}
 	}
 	if p, err := request.RequireFloat("priority"); err == nil {
 		v := int(p)
