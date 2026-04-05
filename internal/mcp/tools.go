@@ -79,6 +79,25 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
 	return r
 }
 
+// extractUDA extracts and validates the "uda" object parameter from the request.
+// Returns nil if the parameter is not present. Returns an MCP error result if
+// the parameter is present but invalid (wrong type, invalid keys, non-string values).
+func extractUDA(request mcp.CallToolRequest) (map[string]any, *mcp.CallToolResult) {
+	args := request.GetArguments()
+	raw, ok := args["uda"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	udaMap, ok := raw.(map[string]any)
+	if !ok {
+		return nil, mcp.NewToolResultError("\"uda\" must be an object")
+	}
+	if err := domain.ValidateUDA(udaMap); err != nil {
+		return nil, mcp.NewToolResultError(err.Error())
+	}
+	return udaMap, nil
+}
+
 // handleTaskCreate handles the tusk_task_create tool.
 func (s *Server) handleTaskCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	title, err := request.RequireString("title")
@@ -130,6 +149,13 @@ func (s *Server) handleTaskCreate(ctx context.Context, request mcp.CallToolReque
 			return mcp.NewToolResultError("invalid wait_until format, expected ISO 8601 (RFC3339)"), nil
 		}
 		task.WaitUntil = &w
+	}
+
+	// Optional: uda
+	if udaMap, errResult := extractUDA(request); errResult != nil {
+		return errResult, nil
+	} else if udaMap != nil {
+		task.UDA = udaMap
 	}
 
 	if err := s.taskSvc.Create(ctx, task); err != nil {
@@ -441,6 +467,13 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 			wp := &w
 			upd.WaitUntil = &wp
 		}
+	}
+
+	// Optional: uda (merge semantics — empty string value removes key)
+	if udaMap, errResult := extractUDA(request); errResult != nil {
+		return errResult, nil
+	} else if udaMap != nil {
+		upd.UDA = &udaMap
 	}
 
 	updated, err := s.taskSvc.Update(ctx, upd)
