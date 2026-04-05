@@ -90,9 +90,6 @@ func (t *Tx) Annotations() *AnnotationRepo { return NewAnnotationRepo(t.tx) }
 // Tags returns a TagRepo operating within this transaction.
 func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
 
-// Workflows returns a WorkflowRepo operating within this transaction.
-func (t *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(t.tx) }
-
 // WithTx executes fn within a database transaction. If fn returns nil,
 // the transaction is committed. If fn returns an error (or panics),
 // the transaction is rolled back and the error is returned.
