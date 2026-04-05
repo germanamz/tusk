@@ -4,12 +4,15 @@ import (
 	"context"
 
 	"github.com/germanamz/tusk/internal/domain"
-	"github.com/google/uuid"
 )
 
+// WorkflowRepository provides read-only access to workflow definitions.
+// Implementations are backed by config, not a database.
 type WorkflowRepository interface {
-	GetByProjectAndName(ctx context.Context, projectID string, name string) (*domain.Workflow, error)
-	GetTransitions(ctx context.Context, workflowID uuid.UUID) ([]*domain.WorkflowTransition, error)
-	Create(ctx context.Context, wf *domain.Workflow) error
-	AddTransition(ctx context.Context, t *domain.WorkflowTransition) error
+	// GetByName returns the workflow with the given name.
+	// Returns domain.ErrNotFound if no workflow with that name exists.
+	GetByName(ctx context.Context, name string) (*domain.Workflow, error)
+
+	// List returns all workflows, sorted alphabetically by name.
+	List(ctx context.Context) ([]*domain.Workflow, error)
 }

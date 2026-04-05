@@ -8,11 +8,6 @@ import (
 	"github.com/germanamz/tusk/internal/inmem"
 )
 
-// defaultProjectID matches the seeded default project in the migration.
-const defaultProjectID = "default"
-
-// testWorkflowService creates a WorkflowService backed by an in-memory
-// workflow repository with the default kanban workflow.
 func testWorkflowService(t *testing.T) *WorkflowService {
 	t.Helper()
 	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
@@ -33,35 +28,29 @@ func testWorkflowService(t *testing.T) *WorkflowService {
 
 func TestIsTransitionAllowed_Allowed(t *testing.T) {
 	svc := testWorkflowService(t)
-	ctx := context.Background()
-
-	allowed, err := svc.IsTransitionAllowed(ctx, defaultProjectID, "kanban", "pending", "active")
+	allowed, err := svc.IsTransitionAllowed(context.Background(), "default", "kanban", "pending", "active")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !allowed {
-		t.Fatal("expected pending→active to be allowed")
+		t.Fatal("expected pending->active to be allowed")
 	}
 }
 
 func TestIsTransitionAllowed_Disallowed(t *testing.T) {
 	svc := testWorkflowService(t)
-	ctx := context.Background()
-
-	allowed, err := svc.IsTransitionAllowed(ctx, defaultProjectID, "kanban", "pending", "completed")
+	allowed, err := svc.IsTransitionAllowed(context.Background(), "default", "kanban", "pending", "completed")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if allowed {
-		t.Fatal("expected pending→completed to be disallowed")
+		t.Fatal("expected pending->completed to be disallowed")
 	}
 }
 
 func TestIsTransitionAllowed_WorkflowNotFound(t *testing.T) {
 	svc := testWorkflowService(t)
-	ctx := context.Background()
-
-	_, err := svc.IsTransitionAllowed(ctx, defaultProjectID, "nonexistent", "pending", "active")
+	_, err := svc.IsTransitionAllowed(context.Background(), "default", "nonexistent", "pending", "active")
 	if err == nil {
 		t.Fatal("expected error for nonexistent workflow")
 	}
@@ -69,13 +58,10 @@ func TestIsTransitionAllowed_WorkflowNotFound(t *testing.T) {
 
 func TestGetStatuses(t *testing.T) {
 	svc := testWorkflowService(t)
-	ctx := context.Background()
-
-	statuses, err := svc.GetStatuses(ctx, defaultProjectID, "kanban")
+	statuses, err := svc.GetStatuses(context.Background(), "default", "kanban")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	expected := []string{"pending", "active", "completed", "deleted"}
 	if len(statuses) != len(expected) {
 		t.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
@@ -89,9 +75,7 @@ func TestGetStatuses(t *testing.T) {
 
 func TestGetStatuses_WorkflowNotFound(t *testing.T) {
 	svc := testWorkflowService(t)
-	ctx := context.Background()
-
-	_, err := svc.GetStatuses(ctx, defaultProjectID, "nonexistent")
+	_, err := svc.GetStatuses(context.Background(), "default", "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent workflow")
 	}
