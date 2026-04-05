@@ -123,7 +123,11 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 	task.Version = 1
 	task.CreatedAt = now
 	task.ModifiedAt = now
-	if task.UDA == nil {
+	if task.UDA != nil {
+		if err := domain.ValidateUDA(task.UDA); err != nil {
+			return err
+		}
+	} else {
 		task.UDA = map[string]any{}
 	}
 
