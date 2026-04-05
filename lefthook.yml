@@ -19,3 +19,18 @@ commit-msg:
   commands:
     conform:
       run: conform enforce --commit-msg-file {1}
+
+pre-push:
+  commands:
+    branch-name:
+      run: |
+        branch=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$branch" = "main" ]; then
+          exit 0
+        fi
+        if ! echo "$branch" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)/[a-z0-9]+(-[a-z0-9]+)*$'; then
+          echo "Branch name '$branch' does not match required pattern: <type>/<kebab-case-description>"
+          echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+          echo "Example: feat/add-filters, fix/null-pointer"
+          exit 1
+        fi
