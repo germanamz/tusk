@@ -35,6 +35,10 @@ func TestWorkflowCommands(t *testing.T) {
 								if len(transitions) != 6 {
 									t.Fatalf("expected 6 transitions, got %d", len(transitions))
 								}
+								projects := m["projects"].([]any)
+								if len(projects) < 1 {
+									t.Fatalf("expected at least 1 project, got %d", len(projects))
+								}
 								break
 							}
 						}
