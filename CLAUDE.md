@@ -95,4 +95,4 @@ Conventional commits with scope: `test(e2e):`, `fix:`, `docs:`, `feat:`.
 
 - `tusk.md` — full design spec (architecture, data model, CLI, MCP, roadmap)
 - `docs/v0.1-status.md` — v0.1 implementation recap
-- `config/default.toml` — configuration template (not loaded at runtime yet)
+- `internal/config/default.toml` — embedded default configuration (source of truth for all defaults)
