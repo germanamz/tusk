@@ -18,7 +18,7 @@ func TestTypesCompile(t *testing.T) {
 		ID:             id,
 		ShortID:        "a3f8b2c1",
 		ParentID:       &id,
-		ProjectID:      &id,
+		ProjectID:      "default",
 		Title:          "test",
 		Description:    "desc",
 		Status:         "pending",
@@ -48,11 +48,8 @@ func TestTypesCompile(t *testing.T) {
 	}
 
 	_ = domain.Project{
-		ID:              id,
-		Name:            "backend",
-		Description:     "desc",
-		DefaultWorkflow: "default",
-		CreatedAt:       now,
+		ID:       "backend",
+		Workflow: "default",
 	}
 
 	color := "#ff0000"
@@ -64,7 +61,7 @@ func TestTypesCompile(t *testing.T) {
 
 	_ = domain.Workflow{
 		ID:        id,
-		ProjectID: id,
+		ProjectID: "default",
 		Name:      "default",
 		Statuses:  []string{"pending", "active", "completed", "deleted"},
 	}
@@ -76,8 +73,9 @@ func TestTypesCompile(t *testing.T) {
 		ToStatus:   "active",
 	}
 
+	projID := "default"
 	_ = domain.TaskFilter{
-		ProjectID:   &id,
+		ProjectID:   &projID,
 		ParentID:    &id,
 		RootID:      &id,
 		Statuses:    []string{"pending"},

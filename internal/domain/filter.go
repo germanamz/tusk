@@ -7,7 +7,7 @@ import (
 )
 
 type TaskFilter struct {
-	ProjectID   *uuid.UUID
+	ProjectID   *string
 	ParentID    *uuid.UUID
 	RootID      *uuid.UUID // for tree: all descendants
 	Statuses    []string   // OR match

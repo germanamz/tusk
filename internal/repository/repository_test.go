@@ -52,16 +52,10 @@ func (s *stubRelationRepo) Exists(_ context.Context, _, _ uuid.UUID, _ string) (
 
 type stubProjectRepo struct{}
 
-func (s *stubProjectRepo) Create(_ context.Context, _ *domain.Project) error { return nil }
-func (s *stubProjectRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Project, error) {
-	return nil, nil
-}
-func (s *stubProjectRepo) GetByName(_ context.Context, _ string) (*domain.Project, error) {
+func (s *stubProjectRepo) GetByID(_ context.Context, _ string) (*domain.Project, error) {
 	return nil, nil
 }
 func (s *stubProjectRepo) List(_ context.Context) ([]*domain.Project, error) { return nil, nil }
-func (s *stubProjectRepo) Update(_ context.Context, _ *domain.Project) error { return nil }
-func (s *stubProjectRepo) Delete(_ context.Context, _ uuid.UUID) error       { return nil }
 
 type stubTagRepo struct{}
 
@@ -90,7 +84,7 @@ func (s *stubTagRepo) GetTaskTagsBatch(_ context.Context, _ []uuid.UUID) (map[uu
 
 type stubWorkflowRepo struct{}
 
-func (s *stubWorkflowRepo) GetByProjectAndName(_ context.Context, _ uuid.UUID, _ string) (*domain.Workflow, error) {
+func (s *stubWorkflowRepo) GetByProjectAndName(_ context.Context, _ string, _ string) (*domain.Workflow, error) {
 	return nil, nil
 }
 func (s *stubWorkflowRepo) GetTransitions(_ context.Context, _ uuid.UUID) ([]*domain.WorkflowTransition, error) {
