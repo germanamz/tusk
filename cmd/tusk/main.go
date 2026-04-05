@@ -55,7 +55,7 @@ func run() error {
 	taskRepo := sqlite.NewTaskRepo(db)
 	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(cfg.Projects)
-	workflowRepo := sqlite.NewWorkflowRepo(db)
+	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
 
 	tagRepo := sqlite.NewTagRepo(db)
 	relationRepo := sqlite.NewRelationRepo(db)
