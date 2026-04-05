@@ -239,31 +239,31 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Workflows become purely config-driven in-memory entities. Drop workflow DB tables entirely. A builtin `kanban` workflow provides the default. Projects reference a workflow by name, resolved from config at runtime.
 
-- [ ] **Story: Workflow config schema**
-  - [ ] Define `[workflows.<name>]` TOML schema with `statuses` and `transitions` keys
-  - [ ] Add `WorkflowsConfig` map to `Config` struct
-  - [ ] Builtin `kanban` workflow as default (pending, active, completed, deleted) when no config is present
-  - [ ] Validate workflow config on load (statuses referenced in transitions must exist, no orphan transitions)
+- [x] **Story: Workflow config schema**
+  - [x] Define `[workflows.<name>]` TOML schema with `statuses` and `transitions` keys
+  - [x] Add `WorkflowsConfig` map to `Config` struct
+  - [x] Builtin `kanban` workflow as default (pending, active, completed, deleted) when no config is present
+  - [x] Validate workflow config on load (statuses referenced in transitions must exist, no orphan transitions)
 
-- [ ] **Story: Drop workflow DB tables**
-  - [ ] Migration to drop `workflow_transitions` and `workflows` tables
-  - [ ] Remove SQLite `WorkflowRepository` implementation
-  - [ ] Remove workflow seed data from migrations
+- [x] **Story: Drop workflow DB tables**
+  - [x] Migration to drop `workflow_transitions` and `workflows` tables
+  - [x] Remove SQLite `WorkflowRepository` implementation
+  - [x] Remove workflow seed data from migrations
 
-- [ ] **Story: In-memory workflow repository and service**
-  - [ ] Simplify `WorkflowRepository` interface (`GetByName`, `GetTransitions`, `List`)
-  - [ ] Implement in-memory `WorkflowRepository` backed by config
-  - [ ] Update `WorkflowService` for new interface
-  - [ ] Wire into DI in `cmd/tusk/main.go`
-  - [ ] Update `TaskService` if interface changes
+- [x] **Story: In-memory workflow repository and service**
+  - [x] Simplify `WorkflowRepository` interface (`GetByName`, `GetTransitions`, `List`)
+  - [x] Implement in-memory `WorkflowRepository` backed by config
+  - [x] Update `WorkflowService` for new interface
+  - [x] Wire into DI in `cmd/tusk/main.go`
+  - [x] Update `TaskService` if interface changes
 
-- [ ] **Story: Workflow CLI commands**
-  - [ ] `tusk workflow list` — list all workflows from config with their statuses and transitions
-  - [ ] `tusk workflow info <name>` — detailed view of a single workflow
+- [x] **Story: Workflow CLI commands**
+  - [x] `tusk workflow list` — list all workflows from config with their statuses and transitions
+  - [x] `tusk workflow info <name>` — detailed view of a single workflow
 
-- [ ] **Story: MCP workflow tools**
-  - [ ] `tusk_workflow_list` — list all workflows from config
-  - [ ] Expose workflow name in project resource responses
+- [x] **Story: MCP workflow tools**
+  - [x] `tusk_workflow_list` — list all workflows from config
+  - [x] Expose workflow name in project resource responses
 
 ### Initiative: MCP Configurability
 
