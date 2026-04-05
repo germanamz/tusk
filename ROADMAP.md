@@ -293,14 +293,14 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Expose the existing `uda` JSON column via CLI and MCP. Note: `Task.UDA` field and `tasks.uda` JSON column already exist in the domain and schema.
 
-- [ ] **Story: UDA CLI surface**
-  - [ ] `--uda key=value` on `tusk add` and `tusk modify`
-  - [ ] Display UDAs in `tusk info`
-  - [ ] `tusk_task_create` and `tusk_task_modify` MCP tools accept UDA fields
+- [x] **Story: UDA CLI surface**
+  - [x] `--uda key=value` on `tusk add` and `tusk modify`
+  - [x] Display UDAs in `tusk info`
+  - [x] `tusk_task_create` and `tusk_task_modify` MCP tools accept UDA fields
 
-- [ ] **Story: UDA filter support**
-  - [ ] `uda.key:value` filter syntax
-  - [ ] Expose in both CLI and MCP task list
+- [x] **Story: UDA filter support**
+  - [x] `uda.key:value` filter syntax
+  - [x] Expose in both CLI and MCP task list
 
 ---
 
