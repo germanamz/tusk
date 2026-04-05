@@ -66,6 +66,16 @@ func TestReadDescription_EmptyString(t *testing.T) {
 	}
 }
 
+func TestReadDescription_FromStdinNil(t *testing.T) {
+	_, err := readDescription("@-", nil)
+	if err == nil {
+		t.Fatal("expected error for nil stdin")
+	}
+	if !strings.Contains(err.Error(), "stdin is a terminal, not a pipe") {
+		t.Fatalf("expected stdin error, got: %v", err)
+	}
+}
+
 func TestReadDescription_FromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "desc.md")
@@ -94,8 +104,15 @@ func TestReadDescription_FromFileMissing(t *testing.T) {
 }
 
 func TestReadDescription_FromStdin(t *testing.T) {
-	stdin := strings.NewReader("piped content")
-	result, err := readDescription("@-", stdin)
+	// Use a pipe (not a TTY) to simulate piped input
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("creating pipe: %v", err)
+	}
+	_, _ = w.WriteString("piped content")
+	w.Close()
+
+	result, err := readDescription("@-", r)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,10 +121,18 @@ func TestReadDescription_FromStdin(t *testing.T) {
 	}
 }
 
-func TestReadDescription_FromStdinNil(t *testing.T) {
-	_, err := readDescription("@-", nil)
+func TestReadDescription_FromStdinTTY(t *testing.T) {
+	// Open /dev/tty to get a real terminal file descriptor for the TTY check.
+	// Skip on CI or environments without a TTY.
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		t.Skip("no /dev/tty available (CI environment)")
+	}
+	defer tty.Close()
+
+	_, err = readDescription("@-", tty)
 	if err == nil {
-		t.Fatal("expected error for nil stdin")
+		t.Fatal("expected error for TTY stdin")
 	}
 	if !strings.Contains(err.Error(), "stdin is a terminal, not a pipe") {
 		t.Fatalf("expected stdin error, got: %v", err)
@@ -133,7 +158,11 @@ Expected: FAIL — `readDescription` is not defined.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `internal/tui/description.go`:
+First, add the `golang.org/x/term` dependency:
+
+Run: `cd /Users/germanamz/projects/tusk && go get golang.org/x/term`
+
+Then create `internal/tui/description.go`:
 
 ```go
 package tui
@@ -143,14 +172,19 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // readDescription resolves a --description flag value to its content.
 // If value starts with "@", it reads from a file path (or stdin for "@-").
 // Otherwise, the value is returned as-is.
-// stdin should be os.Stdin for production use, or a *strings.Reader for tests.
-// Pass nil for stdin when not available (TTY check).
-func readDescription(value string, stdin io.Reader) (string, error) {
+// stdin should be an *os.File (e.g. os.Stdin) for production use, or an
+// *os.File from os.Pipe() for tests. The TTY check uses term.IsTerminal
+// on the file descriptor.
+// NOTE: When bubbletea is introduced in v0.6, the TTY detection strategy
+// may need to change since bubbletea manages its own terminal state.
+func readDescription(value string, stdin *os.File) (string, error) {
 	if !strings.HasPrefix(value, "@") {
 		return value, nil
 	}
@@ -158,7 +192,7 @@ func readDescription(value string, stdin io.Reader) (string, error) {
 	path := value[1:]
 
 	if path == "-" {
-		if stdin == nil {
+		if stdin == nil || term.IsTerminal(int(stdin.Fd())) {
 			return "", fmt.Errorf("stdin is a terminal, not a pipe")
 		}
 		data, err := io.ReadAll(stdin)
@@ -180,7 +214,7 @@ func readDescription(value string, stdin io.Reader) (string, error) {
 
 Run: `cd /Users/germanamz/projects/tusk && go test ./internal/tui/ -run TestReadDescription -v -count=1`
 
-Expected: All 7 tests PASS.
+Expected: All 8 tests PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -237,13 +271,34 @@ with:
 
 - [ ] **Step 2: Wire the flag into `runAdd`**
 
-In `internal/tui/commands.go`, add the description handling after the task creation (line 45-47) and before the project field (line 49). Insert after `task := &domain.Task{Title: title}` (line 45-47):
+First, add `"os"` to the imports in `internal/tui/commands.go`:
+
+```go
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/filter"
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
+)
+```
+
+Then add the description handling after the task creation (line 45-47) and before the project field (line 49). Insert after `task := &domain.Task{Title: title}` (line 45-47):
 
 ```go
 	// Description
 	if cmd.Flags().Changed("description") {
 		descVal, _ := cmd.Flags().GetString("description")
-		desc, err := readDescription(descVal, cmd.InOrStdin())
+		var stdinFile *os.File
+		if f, ok := cmd.InOrStdin().(*os.File); ok {
+			stdinFile = f
+		}
+		desc, err := readDescription(descVal, stdinFile)
 		if err != nil {
 			return err
 		}
@@ -321,7 +376,11 @@ In `internal/tui/commands.go`, in `runModify`, add description handling after th
 	// Description (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
 	if cmd.Flags().Changed("description") {
 		descVal, _ := cmd.Flags().GetString("description")
-		desc, err := readDescription(descVal, cmd.InOrStdin())
+		var stdinFile *os.File
+		if f, ok := cmd.InOrStdin().(*os.File); ok {
+			stdinFile = f
+		}
+		desc, err := readDescription(descVal, stdinFile)
 		if err != nil {
 			return err
 		}
