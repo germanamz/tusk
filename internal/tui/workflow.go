@@ -37,7 +37,17 @@ func (a *App) runWorkflowList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return renderWorkflowList(cmd.OutOrStdout(), workflows, a.format)
+
+	workflowProjects := make(map[string][]string, len(workflows))
+	for _, wf := range workflows {
+		_, projectIDs, err := a.workflowSvc.GetWorkflowWithProjects(ctx, wf.Name)
+		if err != nil {
+			return err
+		}
+		workflowProjects[wf.Name] = projectIDs
+	}
+
+	return renderWorkflowList(cmd.OutOrStdout(), workflows, workflowProjects, a.format)
 }
 
 func (a *App) runWorkflowInfo(cmd *cobra.Command, args []string) error {

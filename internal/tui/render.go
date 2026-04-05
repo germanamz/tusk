@@ -533,11 +533,19 @@ func toWorkflowJSON(wf *domain.Workflow) workflowJSON {
 }
 
 // renderWorkflowList writes a list of workflows to w.
-func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, format string) error {
+// workflowProjects maps workflow name to referencing project IDs.
+func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, workflowProjects map[string][]string, format string) error {
 	if format == "json" {
-		items := make([]workflowJSON, len(workflows))
+		items := make([]workflowInfoJSON, len(workflows))
 		for i, wf := range workflows {
-			items[i] = toWorkflowJSON(wf)
+			projectIDs := workflowProjects[wf.Name]
+			if projectIDs == nil {
+				projectIDs = []string{}
+			}
+			items[i] = workflowInfoJSON{
+				workflowJSON: toWorkflowJSON(wf),
+				Projects:     projectIDs,
+			}
 		}
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")

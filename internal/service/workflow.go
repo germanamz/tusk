@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/germanamz/tusk/internal/domain"
 	"github.com/germanamz/tusk/internal/repository"
@@ -84,5 +85,6 @@ func (s *WorkflowService) GetWorkflowWithProjects(ctx context.Context, name stri
 			projectIDs = append(projectIDs, p.ID)
 		}
 	}
+	sort.Strings(projectIDs)
 	return wf, projectIDs, nil
 }
