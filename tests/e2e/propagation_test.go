@@ -42,19 +42,3 @@ func TestPropagation_Disabled(t *testing.T) {
 	}
 	runScenarios(t, binPath, scenarios)
 }
-
-func TestPropagation_AutoComplete(t *testing.T) {
-	t.Skip("propagation settings are now config-driven, not testable via CLI")
-}
-
-func TestPropagation_Recursive(t *testing.T) {
-	t.Skip("propagation settings are now config-driven, not testable via CLI")
-}
-
-func TestPropagation_AutoRevert(t *testing.T) {
-	t.Skip("propagation settings are now config-driven, not testable via CLI")
-}
-
-func TestPropagation_CustomTargetStatus(t *testing.T) {
-	t.Skip("propagation settings are now config-driven, not testable via CLI")
-}
