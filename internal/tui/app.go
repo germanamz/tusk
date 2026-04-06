@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/filter"
@@ -27,9 +28,22 @@ type App struct {
 	resolver    *filter.Resolver
 	root        *cobra.Command
 	format      string
+	noColor     bool
 	version     VersionInfo
 	tuiCfg      config.TUIConfig
 	mcpCfg      config.MCPConfig
+}
+
+// colorEnabled resolves whether color output is active.
+// Precedence: --no-color flag > NO_COLOR env > tui.color config.
+func (a *App) colorEnabled() bool {
+	if a.noColor {
+		return false
+	}
+	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+		return false
+	}
+	return a.tuiCfg.Color
 }
 
 // New creates a new App and builds the Cobra command tree.
@@ -57,6 +71,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 
 	a.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
 	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text" or "json"`)
+	a.root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output")
 
 	a.root.AddCommand(a.buildTaskCmds()...)
 	a.root.AddCommand(a.buildProjectCmd())
