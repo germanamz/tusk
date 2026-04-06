@@ -360,6 +360,16 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		filter.RootID = &root.ID
 	}
 
+	// Optional: title substring
+	if title, err := request.RequireString("title"); err == nil {
+		filter.TitleContains = &title
+	}
+
+	// Optional: description substring
+	if desc, err := request.RequireString("description"); err == nil {
+		filter.DescriptionContains = &desc
+	}
+
 	tasks, err := s.taskSvc.List(ctx, filter)
 	if err != nil {
 		return nil, err

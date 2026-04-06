@@ -247,6 +247,12 @@ func (s *Server) registerTools() {
 			mcp.WithString("root",
 				mcp.Description("List all descendants of this task (short_id)"),
 			),
+			mcp.WithString("title",
+				mcp.Description("Filter tasks whose title contains this substring (case-insensitive)"),
+			),
+			mcp.WithString("description",
+				mcp.Description("Filter tasks whose description contains this substring (case-insensitive)"),
+			),
 		),
 		s.handleTaskList,
 	)
