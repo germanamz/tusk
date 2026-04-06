@@ -28,25 +28,34 @@ type TaskTxProvider interface {
 type TaskService struct {
 	taskRepo       repository.TaskRepository
 	annotationRepo repository.AnnotationRepository
+	relationRepo   repository.RelationRepository
+	tagRepo        repository.TagRepository
 	projectRepo    repository.ProjectRepository
 	workflowSvc    *WorkflowService
 	txProvider     TaskTxProvider
+	urgencyEngine  *UrgencyEngine
 }
 
 // NewTaskService creates a new TaskService with the given dependencies.
 func NewTaskService(
 	tr repository.TaskRepository,
 	ar repository.AnnotationRepository,
+	rr repository.RelationRepository,
+	tagr repository.TagRepository,
 	pr repository.ProjectRepository,
 	ws *WorkflowService,
 	txp TaskTxProvider,
+	ue *UrgencyEngine,
 ) *TaskService {
 	return &TaskService{
 		taskRepo:       tr,
 		annotationRepo: ar,
+		relationRepo:   rr,
+		tagRepo:        tagr,
 		projectRepo:    pr,
 		workflowSvc:    ws,
 		txProvider:     txp,
+		urgencyEngine:  ue,
 	}
 }
 
