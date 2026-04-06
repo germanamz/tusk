@@ -473,7 +473,10 @@ func (r *Resolver) resolveTerm(ctx context.Context, term TermExpr, errs *[]error
 
 		default:
 			if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
-				tf.UDA = map[string]string{udaKey: field.Value}
+				if tf.UDA == nil {
+					tf.UDA = make(map[string]string)
+				}
+				tf.UDA[udaKey] = field.Value
 			}
 		}
 	}
@@ -657,9 +660,9 @@ func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*do
 
 - [ ] **Step 5: Fix all compilation errors**
 
-After changing the interface, callers must wrap `domain.TaskFilter` in `&domain.TermFilter{}`. The places that need updating:
+After changing the interface, callers must wrap `domain.TaskFilter` in `&domain.TermFilter{}`. Every caller is listed below — do not rely on search, this is the exhaustive list:
 
-1. **`internal/tui/commands.go`** — `runList` (line 235): currently passes `*tf` (a `domain.TaskFilter`). This will be fully rewritten in Task 5 to use `ParseExpr`. For now, change:
+1. **`internal/tui/commands.go`** — `runList` (line 235): currently passes `*tf` (a `domain.TaskFilter`). This will be fully rewritten in Task 4 to use `ParseExpr`. For now, change:
    ```go
    tasks, err := a.taskSvc.List(ctx, *tf)
    ```
@@ -668,7 +671,16 @@ After changing the interface, callers must wrap `domain.TaskFilter` in `&domain.
    tasks, err := a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: *tf})
    ```
 
-2. **`internal/mcp/tools.go`** — `handleTaskList` (line 363): currently passes `filter` (a `domain.TaskFilter`). Change:
+2. **`internal/tui/tree.go`** — `fetchTreeTasks` (line 202): currently passes `filter` (a `domain.TaskFilter`). Change:
+   ```go
+   return a.taskSvc.List(ctx, filter)
+   ```
+   to:
+   ```go
+   return a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
+   ```
+
+3. **`internal/mcp/tools.go`** — `handleTaskList` (line 363): currently passes `filter` (a `domain.TaskFilter`). Change:
    ```go
    tasks, err := s.taskSvc.List(ctx, filter)
    ```
@@ -677,11 +689,20 @@ After changing the interface, callers must wrap `domain.TaskFilter` in `&domain.
    tasks, err := s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
    ```
 
-3. **Any other callers** — search for `.List(ctx,` in the codebase and update similarly. Check `internal/service/task.go` for internal calls (e.g., completion propagation may call List).
+4. **`internal/mcp/tools.go`** — `handleTaskTree` (line 827): currently passes `filter` (a `domain.TaskFilter`). Change:
+   ```go
+   tasks, listErr = s.taskSvc.List(ctx, filter)
+   ```
+   to:
+   ```go
+   tasks, listErr = s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
+   ```
 
-- [ ] **Step 6: Update existing sqlite tests**
+- [ ] **Step 6: Update existing tests**
 
-In `internal/sqlite/task_test.go`, all calls to `repo.List(ctx, domain.TaskFilter{...})` must wrap the filter. For example, change:
+All test files that call `List` with `domain.TaskFilter` must wrap in `&domain.TermFilter{}`. The affected files and calls:
+
+**`internal/sqlite/task_test.go`** — all `repo.List(ctx, domain.TaskFilter{...})` calls. For example, change:
 
 ```go
 tasks, err := repo.List(ctx, domain.TaskFilter{TitleContains: &v})
@@ -693,7 +714,35 @@ to:
 tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{TitleContains: &v}})
 ```
 
-Apply this pattern to ALL `repo.List` calls in the test file.
+Apply this pattern to ALL `repo.List` calls in the file.
+
+**`internal/sqlite/tag_test.go`** — two calls (lines 219 and 226). Change:
+
+```go
+tasks, err := taskRepo.List(ctx, domain.TaskFilter{Tags: []string{"bug", "api"}})
+```
+
+to:
+
+```go
+tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Tags: []string{"bug", "api"}}})
+```
+
+Apply the same pattern to the `ExcludeTags` call on line 226.
+
+**`internal/service/task_test.go`** — two calls (lines 327 and 349). Change:
+
+```go
+tasks, err := env.taskSvc.List(ctx, domain.TaskFilter{})
+```
+
+to:
+
+```go
+tasks, err := env.taskSvc.List(ctx, &domain.TermFilter{})
+```
+
+Apply the same pattern to the `PriorityMin` call on line 349.
 
 - [ ] **Step 7: Add buildFilterExpr tests**
 
@@ -751,7 +800,7 @@ Expected: ALL PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add internal/repository/task.go internal/sqlite/task.go internal/sqlite/task_test.go internal/service/task.go internal/tui/commands.go internal/mcp/tools.go
+git add internal/repository/task.go internal/sqlite/task.go internal/sqlite/task_test.go internal/sqlite/tag_test.go internal/service/task.go internal/service/task_test.go internal/tui/commands.go internal/tui/tree.go internal/mcp/tools.go
 git commit -m "$(cat <<'EOF'
 feat(sqlite): implement buildFilterExpr and update List to use FilterExpr
 
@@ -1013,11 +1062,14 @@ EOF
 - `internal/repository/task.go` — `TaskRepository.List` signature changed from `domain.TaskFilter` to `domain.FilterExpr`
 - `internal/sqlite/task.go` — Added `buildFilterExpr()` function; updated `List()` to use `buildFilterExpr`
 - `internal/sqlite/task_test.go` — Updated all `List` calls to use `&domain.TermFilter{}`; added `buildFilterExpr` tests
+- `internal/sqlite/tag_test.go` — Updated `List` calls to use `&domain.TermFilter{}`
 - `internal/service/task.go` — Updated `List` signature to `domain.FilterExpr`
+- `internal/service/task_test.go` — Updated `List` calls to use `&domain.TermFilter{}`
 - `internal/filter/resolve.go` — Added `ResolveExpr()`, `resolveNode()`, `resolveTerm()`, `exprHasStatus()`
 - `internal/tui/commands.go` — `runList` switched from `Parse`/`Resolve` to `ParseExpr`/`ResolveExpr`
+- `internal/tui/tree.go` — `fetchTreeTasks` wraps `TaskFilter` in `&domain.TermFilter{}`
 - `internal/mcp/server.go` — Added `filter` string parameter to `tusk_task_list`
-- `internal/mcp/tools.go` — Handle `filter` parameter with `ParseExpr`/`ResolveExpr`; added `filter` import
+- `internal/mcp/tools.go` — Handle `filter` parameter with `ParseExpr`/`ResolveExpr`; wrapped `handleTaskList` and `handleTaskTree` callers in `TermFilter`; added `filter` import
 - `tests/e2e/filtering_test.go` — E2E scenarios for OR, NOT, and parenthesized filters
 
 **No new dependencies, migrations, or environment variables.**
