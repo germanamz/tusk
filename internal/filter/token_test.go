@@ -266,7 +266,7 @@ func TestLex_EdgeCases(t *testing.T) {
 			want: []Token{
 				{Type: TokenTagInclude, Value: "+api", Pos: 0},
 				{Type: TokenText, Value: "my task", Pos: 5},
-				{Type: TokenField, Value: "status:active", Pos: 14},
+				{Type: TokenField, Value: "status:active", Pos: 15},
 			},
 		},
 		{
