@@ -92,7 +92,7 @@ func TestRenderTree_Text(t *testing.T) {
 	nodes := buildTree([]*domain.Task{root, child, grandchild}, nil)
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	if err := r.renderTree(nodes); err != nil {
 		t.Fatalf("renderTree: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestRenderTree_Text(t *testing.T) {
 
 func TestRenderTree_TextEmpty(t *testing.T) {
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	if err := r.renderTree(nil); err != nil {
 		t.Fatalf("renderTree: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestRenderTree_JSON(t *testing.T) {
 	nodes := buildTree([]*domain.Task{root, child}, nil)
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	if err := r.renderTree(nodes); err != nil {
 		t.Fatalf("renderTree: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestRenderTree_JSON(t *testing.T) {
 
 func TestRenderTree_JSONEmpty(t *testing.T) {
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	if err := r.renderTree(nil); err != nil {
 		t.Fatalf("renderTree: %v", err)
 	}

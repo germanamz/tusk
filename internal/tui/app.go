@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -103,6 +104,21 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	a.root.AddCommand(mcpCmd)
 
 	return a
+}
+
+// buildDimStatuses collects all dim statuses from all workflow configs into a lookup set.
+func (a *App) buildDimStatuses() map[string]bool {
+	workflows, err := a.workflowSvc.List(context.Background())
+	if err != nil {
+		return nil
+	}
+	dim := make(map[string]bool)
+	for _, wf := range workflows {
+		for _, s := range wf.DimStatuses {
+			dim[s] = true
+		}
+	}
+	return dim
 }
 
 // Run executes the Cobra command tree with the given arguments.

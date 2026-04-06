@@ -186,7 +186,7 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderTree(nodes)
 }
 

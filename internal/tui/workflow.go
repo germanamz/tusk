@@ -47,7 +47,7 @@ func (a *App) runWorkflowList(cmd *cobra.Command, args []string) error {
 		workflowProjects[wf.Name] = projectIDs
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderWorkflowList(workflows, workflowProjects)
 }
 
@@ -59,6 +59,6 @@ func (a *App) runWorkflowInfo(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("workflow %q: %w", name, err)
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderWorkflowInfo(wf, projectIDs)
 }

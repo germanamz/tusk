@@ -23,7 +23,7 @@ func TestRenderTaskList_Text_SingleTask(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	err := r.renderTaskList(tasks, nil)
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
@@ -54,7 +54,7 @@ func TestRenderTaskList_Text_SingleTask(t *testing.T) {
 
 func TestRenderTaskList_Text_Empty(t *testing.T) {
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	err := r.renderTaskList([]*domain.Task{}, nil)
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
@@ -81,7 +81,7 @@ func TestRenderTaskList_JSON(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	err := r.renderTaskList(tasks, nil)
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
@@ -116,7 +116,7 @@ func TestRenderTaskList_Text_WithTags(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	err := r.renderTaskList(tasks, taskTags)
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
@@ -151,7 +151,7 @@ func TestRenderTaskList_JSON_WithTags(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	err := r.renderTaskList(tasks, taskTags)
 	if err != nil {
 		t.Fatalf("renderTaskList: %v", err)
@@ -179,7 +179,7 @@ func TestRenderTaskInfo_Text_WithTags(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	err := r.renderTaskInfo(task, nil, tags, nil)
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
@@ -213,7 +213,7 @@ func TestRenderTaskInfo_JSON_WithTags(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	err := r.renderTaskInfo(task, nil, tags, nil)
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
@@ -244,7 +244,7 @@ func TestRenderMutationResult_JSON_WithTags(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	err := r.renderMutationResult("Created", task, tags)
 	if err != nil {
 		t.Fatalf("renderMutationResult: %v", err)
@@ -322,7 +322,7 @@ func TestRenderTaskInfo_Text_AllFields(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	err := r.renderTaskInfo(task, annotations, nil, nil)
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
@@ -348,7 +348,7 @@ func TestRenderTaskInfo_Text_NullableFieldsOmitted(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	err := r.renderTaskInfo(task, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
@@ -378,7 +378,7 @@ func TestRenderTaskInfo_JSON(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	err := r.renderTaskInfo(task, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("renderTaskInfo: %v", err)
@@ -398,7 +398,7 @@ func TestRenderMutationResult_Text(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "text", false)
+	r := NewRenderer(&buf, "text", false, nil)
 	err := r.renderMutationResult("Created", task, nil)
 	if err != nil {
 		t.Fatalf("renderMutationResult: %v", err)
@@ -422,7 +422,7 @@ func TestRenderMutationResult_JSON(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "json", false)
+	r := NewRenderer(&buf, "json", false, nil)
 	err := r.renderMutationResult("Created", task, nil)
 	if err != nil {
 		t.Fatalf("renderMutationResult: %v", err)
