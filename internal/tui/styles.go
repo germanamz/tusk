@@ -2,6 +2,7 @@ package tui
 
 import (
 	"io"
+	"regexp"
 	"strings"
 
 	"charm.land/glamour/v2"
@@ -138,6 +139,15 @@ func markdownStyle() ansi.StyleConfig {
 
 func boolPtr(b bool) *bool { return &b }
 
+// codeBlockLangRe matches fenced code blocks with a language identifier.
+var codeBlockLangRe = regexp.MustCompile("(?m)^(```)(\\w+)\\s*$")
+
+// labelCodeBlocks rewrites ```lang to ```lang\n// lang so the language
+// appears inside the rendered code block (glamour strips the info string).
+func labelCodeBlocks(text string) string {
+	return codeBlockLangRe.ReplaceAllString(text, "${1}${2}\n// ${2}")
+}
+
 // renderMarkdown renders markdown text for terminal display using glamour.
 // When color is disabled, uses NoTTY style for plain ASCII formatting.
 func (r *Renderer) renderMarkdown(text string) (string, error) {
@@ -155,7 +165,7 @@ func (r *Renderer) renderMarkdown(text string) (string, error) {
 		return text, err
 	}
 
-	rendered, err := renderer.Render(text)
+	rendered, err := renderer.Render(labelCodeBlocks(text))
 	if err != nil {
 		return text, err
 	}
