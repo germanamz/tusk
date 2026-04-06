@@ -102,14 +102,9 @@ func (r *Renderer) styledTag(tag *domain.Tag) string {
 func markdownStyle() ansi.StyleConfig {
 	s := styles.DarkStyleConfig
 
-	// Headings: bold + color only, no markdown prefixes or background blocks.
+	// Headings: bold only, no markdown prefixes, backgrounds, or vibrant colors.
 	noPrefix := ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: ""}}
-	s.H1 = ansi.StyleBlock{
-		StylePrimitive: ansi.StylePrimitive{
-			Bold:  boolPtr(true),
-			Color: stringPtr("228"),
-		},
-	}
+	s.H1 = noPrefix
 	s.H2 = noPrefix
 	s.H3 = noPrefix
 	s.H4 = noPrefix
@@ -117,17 +112,16 @@ func markdownStyle() ansi.StyleConfig {
 	s.H6 = ansi.StyleBlock{
 		StylePrimitive: ansi.StylePrimitive{
 			Prefix: "",
-			Color:  stringPtr("35"),
 			Bold:   boolPtr(false),
 		},
 	}
 
-	// Inline code: colored text without dark background.
+	// Inline code: bold with backtick delimiters, no color or background.
 	s.Code = ansi.StyleBlock{
 		StylePrimitive: ansi.StylePrimitive{
 			Prefix: "`",
 			Suffix: "`",
-			Color:  stringPtr("203"),
+			Bold:   boolPtr(true),
 		},
 	}
 
