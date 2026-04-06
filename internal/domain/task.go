@@ -24,6 +24,7 @@ type Task struct {
 	UDA            map[string]any
 	CreatedAt      time.Time
 	ModifiedAt     time.Time
+	Urgency        float64 // Computed at read time, not persisted in DB.
 }
 
 // TaskUpdate represents a partial update to a task.
