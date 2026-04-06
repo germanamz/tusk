@@ -2,6 +2,8 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -105,4 +107,45 @@ func (r *AnnotationRepo) Delete(ctx context.Context, id uuid.UUID) error {
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// CountByTasks returns annotation counts for each task ID in a single query.
+// Tasks with zero annotations are not included in the returned map.
+func (r *AnnotationRepo) CountByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	if len(taskIDs) == 0 {
+		return map[uuid.UUID]int{}, nil
+	}
+
+	placeholders := make([]string, len(taskIDs))
+	args := make([]any, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id.String()
+	}
+
+	query := fmt.Sprintf(
+		`SELECT task_id, COUNT(*) FROM annotations WHERE task_id IN (%s) GROUP BY task_id`,
+		strings.Join(placeholders, ","),
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[uuid.UUID]int)
+	for rows.Next() {
+		var idStr string
+		var count int
+		if err := rows.Scan(&idStr, &count); err != nil {
+			return nil, err
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing task_id %q: %w", idStr, err)
+		}
+		counts[id] = count
+	}
+	return counts, rows.Err()
 }

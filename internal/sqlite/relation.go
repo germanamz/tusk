@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 
@@ -140,6 +141,59 @@ func (r *RelationRepo) Exists(ctx context.Context, sourceID, targetID uuid.UUID,
 		`SELECT EXISTS(SELECT 1 FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?)`,
 		sourceID.String(), targetID.String(), relType).Scan(&exists)
 	return exists, err
+}
+
+// CountBlockingByTasks returns, for each task ID, how many other tasks it blocks.
+// Tasks that block nothing are not included in the returned map.
+func (r *RelationRepo) CountBlockingByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	return r.countRelationsByTasks(ctx, taskIDs, "source_id")
+}
+
+// CountBlockedByTasks returns, for each task ID, how many other tasks block it.
+// Tasks that are not blocked are not included in the returned map.
+func (r *RelationRepo) CountBlockedByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	return r.countRelationsByTasks(ctx, taskIDs, "target_id")
+}
+
+// countRelationsByTasks is a shared helper for counting blocking relations.
+// column is either "source_id" (for blocking count) or "target_id" (for blocked-by count).
+func (r *RelationRepo) countRelationsByTasks(ctx context.Context, taskIDs []uuid.UUID, column string) (map[uuid.UUID]int, error) {
+	if len(taskIDs) == 0 {
+		return map[uuid.UUID]int{}, nil
+	}
+
+	placeholders := make([]string, len(taskIDs))
+	args := make([]any, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id.String()
+	}
+
+	query := fmt.Sprintf(
+		`SELECT %s, COUNT(*) FROM relations WHERE %s IN (%s) AND relation_type = 'blocks' GROUP BY %s`,
+		column, column, strings.Join(placeholders, ","), column,
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[uuid.UUID]int)
+	for rows.Next() {
+		var idStr string
+		var count int
+		if err := rows.Scan(&idStr, &count); err != nil {
+			return nil, err
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing id %q: %w", idStr, err)
+		}
+		counts[id] = count
+	}
+	return counts, rows.Err()
 }
 
 type relationScanner interface {
