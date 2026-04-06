@@ -290,7 +290,7 @@ func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*d
 		if tags, ok := taskTags[t.ID.String()]; ok && len(tags) > 0 {
 			tagStrs := make([]string, len(tags))
 			for i, tg := range tags {
-				tagStrs[i] = "+" + tg.Name
+				tagStrs[i] = r.styledTag(tg)
 			}
 			title = title + "  " + strings.Join(tagStrs, " ")
 		}
@@ -400,7 +400,7 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 	if len(tags) > 0 {
 		tagStrs := make([]string, len(tags))
 		for i, tg := range tags {
-			tagStrs[i] = "+" + tg.Name
+			tagStrs[i] = r.styledTag(tg)
 		}
 		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Tags:", 13), strings.Join(tagStrs, " ")); err != nil {
 			return err
