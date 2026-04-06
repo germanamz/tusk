@@ -168,6 +168,32 @@ func TestUrgencyScoreAndSort(t *testing.T) {
 	}
 }
 
+func TestMergeWeights(t *testing.T) {
+	defaults := defaultWeights()
+
+	// Nil overrides returns defaults unchanged
+	merged := MergeWeights(defaults, nil)
+	if merged.Priority != 6.0 {
+		t.Errorf("expected 6.0, got %.1f", merged.Priority)
+	}
+
+	// Override one field
+	override := 20.0
+	overrides := &domain.UrgencyOverrides{
+		BlockingWeight: &override,
+	}
+	merged = MergeWeights(defaults, overrides)
+	if merged.Blocking != 20.0 {
+		t.Errorf("expected blocking 20.0, got %.1f", merged.Blocking)
+	}
+	if merged.Priority != 6.0 {
+		t.Errorf("expected priority 6.0, got %.1f", merged.Priority)
+	}
+	if merged.Due != 12.0 {
+		t.Errorf("expected due 12.0, got %.1f", merged.Due)
+	}
+}
+
 func TestUrgencyProjectWeightOverride(t *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 

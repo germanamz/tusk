@@ -145,6 +145,45 @@ func (e *UrgencyEngine) weightsFor(projectID string, ctx ScoringContext) Urgency
 	return e.defaults
 }
 
+// MergeWeights returns a copy of defaults with any non-nil overrides applied.
+func MergeWeights(defaults UrgencyWeights, overrides *domain.UrgencyOverrides) UrgencyWeights {
+	if overrides == nil {
+		return defaults
+	}
+	merged := defaults
+	if overrides.PriorityWeight != nil {
+		merged.Priority = *overrides.PriorityWeight
+	}
+	if overrides.DueWeight != nil {
+		merged.Due = *overrides.DueWeight
+	}
+	if overrides.AgeWeight != nil {
+		merged.Age = *overrides.AgeWeight
+	}
+	if overrides.ActiveWeight != nil {
+		merged.Active = *overrides.ActiveWeight
+	}
+	if overrides.BlockingWeight != nil {
+		merged.Blocking = *overrides.BlockingWeight
+	}
+	if overrides.BlockedWeight != nil {
+		merged.Blocked = *overrides.BlockedWeight
+	}
+	if overrides.TagsWeight != nil {
+		merged.Tags = *overrides.TagsWeight
+	}
+	if overrides.ProjectWeight != nil {
+		merged.Project = *overrides.ProjectWeight
+	}
+	if overrides.AnnotationsWeight != nil {
+		merged.Annotations = *overrides.AnnotationsWeight
+	}
+	if overrides.WaitingWeight != nil {
+		merged.Waiting = *overrides.WaitingWeight
+	}
+	return merged
+}
+
 // dueDateCoefficient returns a value between 0 and 1 based on how close the due date is.
 // Uses a sigmoid curve: coefficient = 1 / (1 + e^(-k * (midpoint - days_until_due)))
 // k = 0.5 (steepness), midpoint = 14 (days, inflection point).

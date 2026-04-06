@@ -205,11 +205,42 @@ func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*do
 		BlockedByCount:  blockedByCounts,
 		AnnotationCount: annotationCounts,
 		TagCount:        tagCounts,
-		ProjectWeights:  map[string]*UrgencyWeights{},
+		ProjectWeights:  s.buildProjectWeights(ctx, tasks),
 	}
 
 	s.urgencyEngine.ScoreAndSort(tasks, sctx)
 	return tasks, nil
+}
+
+// buildProjectWeights constructs per-project merged urgency weights
+// for all distinct projects found in the task list.
+func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.Task) map[string]*UrgencyWeights {
+	if s.urgencyEngine == nil {
+		return nil
+	}
+
+	// Collect distinct project IDs
+	seen := make(map[string]bool)
+	for _, t := range tasks {
+		seen[t.ProjectID] = true
+	}
+
+	weights := make(map[string]*UrgencyWeights, len(seen))
+	for projectID := range seen {
+		if projectID == "" {
+			continue
+		}
+		project, err := s.projectRepo.GetByID(ctx, projectID)
+		if err != nil {
+			continue // use engine defaults if project not found
+		}
+		if project.Settings.Urgency == nil {
+			continue // no overrides, engine will use defaults
+		}
+		merged := MergeWeights(s.urgencyEngine.defaults, project.Settings.Urgency)
+		weights[projectID] = &merged
+	}
+	return weights
 }
 
 // GetChildren returns the direct children of a task.
