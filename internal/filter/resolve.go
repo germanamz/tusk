@@ -126,6 +126,14 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 			v := field.Value == "true"
 			tf.WaitingOnly = &v
 
+		case "title":
+			v := field.Value
+			tf.TitleContains = &v
+
+		case "description":
+			v := field.Value
+			tf.DescriptionContains = &v
+
 		default:
 			if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
 				if tf.UDA == nil {
