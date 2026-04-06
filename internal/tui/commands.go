@@ -211,7 +211,7 @@ func (a *App) runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading tags: %w", err)
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderMutationResult("Created", task, tags)
 }
 
@@ -259,7 +259,7 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 		taskTags[id.String()] = tags
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderTaskList(tasks, taskTags)
 }
 
@@ -317,7 +317,7 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderTaskInfo(task, annotations, tags, resolved)
 }
 
@@ -455,7 +455,7 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading tags: %w", err)
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderMutationResult("Modified", updated, modTags)
 }
 
@@ -473,7 +473,7 @@ func (a *App) runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderMutationResult("Started", updated, nil)
 }
 
@@ -491,7 +491,7 @@ func (a *App) runDone(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderMutationResult("Completed", updated, nil)
 }
 
@@ -509,7 +509,7 @@ func (a *App) runDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderMutationResult("Deleted", updated, nil)
 }
 
@@ -528,7 +528,7 @@ func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderMutationResult("Annotated", task, nil)
 }
 
@@ -560,7 +560,7 @@ func (a *App) runLink(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatRelationError(err, sourceShortID, targetShortID))
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
 	return r.renderLinkResult(rel, sourceShortID, targetShortID)
 }
 

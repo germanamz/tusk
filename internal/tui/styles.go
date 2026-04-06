@@ -19,23 +19,31 @@ type Styles struct {
 
 // Renderer encapsulates output formatting and styling for CLI commands.
 type Renderer struct {
-	w      io.Writer
-	format string // "text" or "json"
-	color  bool
-	styles *Styles // nil when color=false
+	w           io.Writer
+	format      string // "text" or "json"
+	color       bool
+	styles      *Styles // nil when color=false
+	dimStatuses map[string]bool
 }
 
 // NewRenderer creates a Renderer. When color is true, styles are initialized.
-func NewRenderer(w io.Writer, format string, color bool) *Renderer {
+// dimStatuses is a set of status names that should be rendered faint.
+func NewRenderer(w io.Writer, format string, color bool, dimStatuses map[string]bool) *Renderer {
 	r := &Renderer{
-		w:      w,
-		format: format,
-		color:  color,
+		w:           w,
+		format:      format,
+		color:       color,
+		dimStatuses: dimStatuses,
 	}
 	if color {
 		r.styles = newStyles()
 	}
 	return r
+}
+
+// isDimStatus returns true if the given status should be rendered faint.
+func (r *Renderer) isDimStatus(status string) bool {
+	return r.styles != nil && r.dimStatuses[status]
 }
 
 // styledPriority returns the priority symbol with color applied if styles are active.

@@ -9,7 +9,7 @@ import (
 )
 
 func TestStyledPriority_NoColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", false)
+	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
 	tests := []struct {
 		priority int
 		want     string
@@ -29,7 +29,7 @@ func TestStyledPriority_NoColor(t *testing.T) {
 }
 
 func TestStyledPriority_WithColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true)
+	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	tests := []struct {
 		priority int
 		wantText string // the visible text inside the ANSI codes
@@ -54,7 +54,7 @@ func TestStyledPriority_WithColor(t *testing.T) {
 }
 
 func TestStyledHeader_NoColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", false)
+	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
 	got := r.styledHeader("Title")
 	if got != "Title" {
 		t.Errorf("styledHeader(\"Title\") = %q, want \"Title\"", got)
@@ -62,7 +62,7 @@ func TestStyledHeader_NoColor(t *testing.T) {
 }
 
 func TestStyledHeader_WithColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true)
+	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	got := r.styledHeader("Title")
 	if !strings.Contains(got, "Title") {
 		t.Errorf("styledHeader should contain \"Title\", got %q", got)
@@ -70,6 +70,40 @@ func TestStyledHeader_WithColor(t *testing.T) {
 	if !strings.Contains(got, "\x1b[") {
 		t.Errorf("styledHeader should contain ANSI codes, got %q", got)
 	}
+}
+
+func TestIsDimStatus(t *testing.T) {
+	dim := map[string]bool{"completed": true, "deleted": true}
+
+	t.Run("dim status with color", func(t *testing.T) {
+		r := NewRenderer(&bytes.Buffer{}, "text", true, dim)
+		if !r.isDimStatus("completed") {
+			t.Error("expected completed to be dim")
+		}
+		if !r.isDimStatus("deleted") {
+			t.Error("expected deleted to be dim")
+		}
+		if r.isDimStatus("active") {
+			t.Error("expected active to not be dim")
+		}
+		if r.isDimStatus("pending") {
+			t.Error("expected pending to not be dim")
+		}
+	})
+
+	t.Run("no color disables dim", func(t *testing.T) {
+		r := NewRenderer(&bytes.Buffer{}, "text", false, dim)
+		if r.isDimStatus("completed") {
+			t.Error("expected dim to be disabled when color is off")
+		}
+	})
+
+	t.Run("nil dim map", func(t *testing.T) {
+		r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+		if r.isDimStatus("completed") {
+			t.Error("expected false for nil map")
+		}
+	})
 }
 
 func TestColorEnabled(t *testing.T) {
