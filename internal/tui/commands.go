@@ -95,6 +95,12 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 			Args:  cobra.ExactArgs(3),
 			RunE:  a.runUnlink,
 		},
+		{
+			Use:   "next",
+			Short: "Show the highest-urgency actionable task",
+			Args:  cobra.NoArgs,
+			RunE:  a.runNext,
+		},
 	}
 }
 
@@ -294,6 +300,61 @@ func (a *App) runInfo(cmd *cobra.Command, args []string) error {
 			rr := resolvedRelation{Relation: rel}
 			if rel.TargetID == task.ID {
 				// This task is the target — show inverse label and source task info
+				switch rel.RelationType {
+				case "blocks":
+					rr.Label = "blocked_by"
+				case "relates_to":
+					rr.Label = "related_to"
+				case "duplicates":
+					rr.Label = "duplicated_by"
+				}
+				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
+					rr.RelatedShortID = other.ShortID
+					rr.RelatedTitle = other.Title
+				}
+			} else {
+				rr.Label = rel.RelationType
+				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
+					rr.RelatedShortID = other.ShortID
+					rr.RelatedTitle = other.Title
+				}
+			}
+			resolved = append(resolved, rr)
+		}
+	}
+
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
+	return r.renderTaskInfo(task, annotations, tags, resolved)
+}
+
+func (a *App) runNext(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
+	task, err := a.taskSvc.Next(ctx)
+	if err != nil {
+		return err
+	}
+
+	annotations, err := a.taskSvc.GetAnnotations(ctx, task.ShortID)
+	if err != nil {
+		return fmt.Errorf("loading annotations: %w", err)
+	}
+
+	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("loading tags: %w", err)
+	}
+
+	// Fetch and resolve relations (same pattern as runInfo)
+	var resolved []resolvedRelation
+	if a.relationSvc != nil {
+		rels, relErr := a.relationSvc.GetByTask(ctx, task.ShortID)
+		if relErr != nil {
+			return fmt.Errorf("loading relations: %w", relErr)
+		}
+		for _, rel := range rels {
+			rr := resolvedRelation{Relation: rel}
+			if rel.TargetID == task.ID {
 				switch rel.RelationType {
 				case "blocks":
 					rr.Label = "blocked_by"
