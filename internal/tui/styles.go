@@ -142,10 +142,11 @@ func boolPtr(b bool) *bool { return &b }
 // codeBlockLangRe matches fenced code blocks with a language identifier.
 var codeBlockLangRe = regexp.MustCompile("(?m)^(```)(\\w+)\\s*$")
 
-// labelCodeBlocks rewrites ```lang to ```lang\n// lang so the language
-// appears inside the rendered code block (glamour strips the info string).
+// labelCodeBlocks rewrites ```lang to ```lang\n```lang so the opening
+// fence with language appears as the first line inside the rendered block
+// (glamour strips the info string from its output).
 func labelCodeBlocks(text string) string {
-	return codeBlockLangRe.ReplaceAllString(text, "${1}${2}\n// ${2}")
+	return codeBlockLangRe.ReplaceAllString(text, "${1}${2}\n${1}${2}")
 }
 
 // renderMarkdown renders markdown text for terminal display using glamour.
