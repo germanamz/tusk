@@ -7,16 +7,18 @@ import (
 )
 
 type TaskFilter struct {
-	ProjectID   *string
-	ParentID    *uuid.UUID
-	RootID      *uuid.UUID // for tree: all descendants
-	Statuses    []string   // OR match
-	Tags        []string   // include
-	ExcludeTags []string   // exclude
-	PriorityMin *int
-	PriorityMax *int
-	DueAfter    *time.Time
-	DueBefore   *time.Time
-	WaitingOnly *bool             // if true, only tasks with wait_until in future
-	UDA         map[string]string // filter by UDA key=value pairs (AND semantics); empty value = absent/empty match
+	ProjectID           *string
+	ParentID            *uuid.UUID
+	RootID              *uuid.UUID // for tree: all descendants
+	Statuses            []string   // OR match
+	Tags                []string   // include
+	ExcludeTags         []string   // exclude
+	PriorityMin         *int
+	PriorityMax         *int
+	DueAfter            *time.Time
+	DueBefore           *time.Time
+	WaitingOnly         *bool             // if true, only tasks with wait_until in future
+	TitleContains       *string           // substring match (case-insensitive)
+	DescriptionContains *string           // substring match (case-insensitive)
+	UDA                 map[string]string // filter by UDA key=value pairs (AND semantics); empty value = absent/empty match
 }
