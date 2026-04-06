@@ -368,6 +368,77 @@ func TestLoad_AutoCreateConfigFile(t *testing.T) {
 	}
 }
 
+func TestLoad_WorkflowStatusDisplay(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.toml")
+
+	t.Run("valid highlight and dim statuses", func(t *testing.T) {
+		err := os.WriteFile(cfgFile, []byte(`
+[workflows.test]
+statuses = ["todo", "doing", "done", "archived"]
+transitions = [{ from = "todo", to = "doing" }, { from = "doing", to = "done" }]
+highlight_statuses = ["doing"]
+dim_statuses = ["done", "archived"]
+
+[projects.default]
+workflow = "test"
+`), 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(WithSearchPath(dir))
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		wf := cfg.Workflows["test"]
+		if len(wf.HighlightStatuses) != 1 || wf.HighlightStatuses[0] != "doing" {
+			t.Errorf("HighlightStatuses = %v, want [doing]", wf.HighlightStatuses)
+		}
+		if len(wf.DimStatuses) != 2 {
+			t.Errorf("DimStatuses = %v, want [done archived]", wf.DimStatuses)
+		}
+	})
+
+	t.Run("dim status not in statuses list", func(t *testing.T) {
+		err := os.WriteFile(cfgFile, []byte(`
+[workflows.test]
+statuses = ["todo", "doing", "done"]
+transitions = [{ from = "todo", to = "doing" }]
+dim_statuses = ["archived"]
+
+[projects.default]
+workflow = "test"
+`), 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Load(WithSearchPath(dir))
+		if err == nil {
+			t.Fatal("expected validation error for unknown dim status")
+		}
+	})
+
+	t.Run("status in both highlight and dim", func(t *testing.T) {
+		err := os.WriteFile(cfgFile, []byte(`
+[workflows.test]
+statuses = ["todo", "doing", "done"]
+transitions = [{ from = "todo", to = "doing" }]
+highlight_statuses = ["doing"]
+dim_statuses = ["doing"]
+
+[projects.default]
+workflow = "test"
+`), 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Load(WithSearchPath(dir))
+		if err == nil {
+			t.Fatal("expected validation error for status in both lists")
+		}
+	})
+}
+
 func TestLoad_AutoCreateDoesNotOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
