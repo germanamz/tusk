@@ -76,7 +76,14 @@ func (r *Renderer) renderTagList(tags []domain.TagWithUsage, showUsage bool) err
 	}
 
 	if showUsage {
-		if _, err := fmt.Fprintf(r.w, "%-20s %-10s %s\n", "NAME", "COLOR", "TASKS"); err != nil {
+		nameH := r.styledHeader("NAME")
+		colorH := r.styledHeader("COLOR")
+		tasksH := r.styledHeader("TASKS")
+		if _, err := fmt.Fprintf(r.w, "%s%s %s%s %s\n",
+			nameH, strings.Repeat(" ", max(0, 20-lipgloss.Width(nameH))),
+			colorH, strings.Repeat(" ", max(0, 10-lipgloss.Width(colorH))),
+			tasksH,
+		); err != nil {
 			return err
 		}
 		for _, tw := range tags {
@@ -89,7 +96,12 @@ func (r *Renderer) renderTagList(tags []domain.TagWithUsage, showUsage bool) err
 			}
 		}
 	} else {
-		if _, err := fmt.Fprintf(r.w, "%-20s %s\n", "NAME", "COLOR"); err != nil {
+		nameH := r.styledHeader("NAME")
+		colorH := r.styledHeader("COLOR")
+		if _, err := fmt.Fprintf(r.w, "%s%s %s\n",
+			nameH, strings.Repeat(" ", max(0, 20-lipgloss.Width(nameH))),
+			colorH,
+		); err != nil {
 			return err
 		}
 		for _, tw := range tags {
@@ -116,6 +128,17 @@ func (r *Renderer) renderTagResult(action string, tag *domain.Tag) error {
 	return err
 }
 
+// renderTagRenameResult writes a tag rename confirmation (text) or tag JSON.
+func (r *Renderer) renderTagRenameResult(oldName string, tag *domain.Tag) error {
+	if r.format == "json" {
+		enc := json.NewEncoder(r.w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(toTagJSON(tag))
+	}
+	_, err := fmt.Fprintf(r.w, "Renamed tag %s to %s\n", oldName, tag.Name)
+	return err
+}
+
 // renderProjectList writes a list of projects to w.
 // Text format renders a table; JSON format renders an array.
 func (r *Renderer) renderProjectList(projects []*domain.Project) error {
@@ -133,7 +156,14 @@ func (r *Renderer) renderProjectList(projects []*domain.Project) error {
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(r.w, "%-20s %-10s %s\n", "ID", "WORKFLOW", "SETTINGS"); err != nil {
+	idH := r.styledHeader("ID")
+	wfH := r.styledHeader("WORKFLOW")
+	settH := r.styledHeader("SETTINGS")
+	if _, err := fmt.Fprintf(r.w, "%s%s %s%s %s\n",
+		idH, strings.Repeat(" ", max(0, 20-lipgloss.Width(idH))),
+		wfH, strings.Repeat(" ", max(0, 10-lipgloss.Width(wfH))),
+		settH,
+	); err != nil {
 		return err
 	}
 	for _, p := range projects {
@@ -569,6 +599,16 @@ type relationJSON struct {
 	CreatedAt      string `json:"created_at"`
 }
 
+// renderUnlinkResult writes an unlink confirmation (text) or empty JSON object.
+func (r *Renderer) renderUnlinkResult(sourceShortID, relType, targetShortID string) error {
+	if r.format == "json" {
+		_, err := fmt.Fprintln(r.w, "{}")
+		return err
+	}
+	_, err := fmt.Fprintf(r.w, "Unlinked %s %s %s\n", sourceShortID, relType, targetShortID)
+	return err
+}
+
 // renderLinkResult writes a link confirmation (text) or full relation JSON.
 func (r *Renderer) renderLinkResult(rel *domain.Relation, sourceShortID, targetShortID string) error {
 	if r.format == "json" {
@@ -641,7 +681,12 @@ func (r *Renderer) renderWorkflowList(workflows []*domain.Workflow, workflowProj
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(r.w, "%-20s %s\n", "NAME", "STATUSES"); err != nil {
+	nameH := r.styledHeader("NAME")
+	statusesH := r.styledHeader("STATUSES")
+	if _, err := fmt.Fprintf(r.w, "%s%s %s\n",
+		nameH, strings.Repeat(" ", max(0, 20-lipgloss.Width(nameH))),
+		statusesH,
+	); err != nil {
 		return err
 	}
 	for _, wf := range workflows {
@@ -667,15 +712,15 @@ func (r *Renderer) renderWorkflowInfo(wf *domain.Workflow, projectIDs []string) 
 		return enc.Encode(info)
 	}
 
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Workflow:", wf.Name); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Workflow:", 13), wf.Name); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Statuses:", strings.Join(wf.Statuses, ", ")); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Statuses:", 13), strings.Join(wf.Statuses, ", ")); err != nil {
 		return err
 	}
 
 	if len(wf.Transitions) > 0 {
-		if _, err := fmt.Fprintln(r.w, "Transitions:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, r.styledLabel("Transitions:")); err != nil {
 			return err
 		}
 		maxLen := 0
@@ -693,7 +738,7 @@ func (r *Renderer) renderWorkflowInfo(wf *domain.Workflow, projectIDs []string) 
 	}
 
 	if len(projectIDs) > 0 {
-		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Projects:", strings.Join(projectIDs, ", ")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Projects:", 13), strings.Join(projectIDs, ", ")); err != nil {
 			return err
 		}
 	}
