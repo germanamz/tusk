@@ -13,6 +13,11 @@ func TestTokenType_String(t *testing.T) {
 		{TokenTagInclude, "TagInclude"},
 		{TokenTagExclude, "TagExclude"},
 		{TokenText, "Text"},
+		{TokenAnd, "And"},
+		{TokenOr, "Or"},
+		{TokenNot, "Not"},
+		{TokenLParen, "LParen"},
+		{TokenRParen, "RParen"},
 	}
 	for _, tc := range tests {
 		got := tc.tt.String()
@@ -148,6 +153,61 @@ func TestLex(t *testing.T) {
 				{Type: TokenText, Value: "My cool task", Pos: 0},
 				{Type: TokenField, Value: "project:backend", Pos: 15},
 				{Type: TokenTagInclude, Value: "+api", Pos: 31},
+			},
+		},
+		{
+			name:  "AND keyword",
+			input: "status:active AND +api",
+			want: []Token{
+				{Type: TokenField, Value: "status:active", Pos: 0},
+				{Type: TokenAnd, Value: "AND", Pos: 14},
+				{Type: TokenTagInclude, Value: "+api", Pos: 18},
+			},
+		},
+		{
+			name:  "OR keyword",
+			input: "status:active OR status:pending",
+			want: []Token{
+				{Type: TokenField, Value: "status:active", Pos: 0},
+				{Type: TokenOr, Value: "OR", Pos: 14},
+				{Type: TokenField, Value: "status:pending", Pos: 17},
+			},
+		},
+		{
+			name:  "NOT keyword",
+			input: "NOT status:deleted",
+			want: []Token{
+				{Type: TokenNot, Value: "NOT", Pos: 0},
+				{Type: TokenField, Value: "status:deleted", Pos: 4},
+			},
+		},
+		{
+			name:  "parentheses",
+			input: "(status:active OR +urgent)",
+			want: []Token{
+				{Type: TokenLParen, Value: "(", Pos: 0},
+				{Type: TokenField, Value: "status:active", Pos: 1},
+				{Type: TokenOr, Value: "OR", Pos: 15},
+				{Type: TokenTagInclude, Value: "+urgent", Pos: 18},
+				{Type: TokenRParen, Value: ")", Pos: 25},
+			},
+		},
+		{
+			name:  "lowercase and is text not keyword",
+			input: "and or not",
+			want: []Token{
+				{Type: TokenText, Value: "and", Pos: 0},
+				{Type: TokenText, Value: "or", Pos: 4},
+				{Type: TokenText, Value: "not", Pos: 7},
+			},
+		},
+		{
+			name:  "parens attached to tokens",
+			input: "(status:active)",
+			want: []Token{
+				{Type: TokenLParen, Value: "(", Pos: 0},
+				{Type: TokenField, Value: "status:active", Pos: 1},
+				{Type: TokenRParen, Value: ")", Pos: 14},
 			},
 		},
 	}
