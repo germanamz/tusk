@@ -44,8 +44,11 @@ func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig
 		},
 	})
 
+	tagRepo := sqlite.NewTagRepo(db)
+	relationRepo := sqlite.NewRelationRepo(db)
+
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
+	taskSvc := NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil)
 
 	return &testEnv{
 		taskSvc:     taskSvc,
@@ -1030,8 +1033,8 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 	})
 
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	// Pass store as the TaskTxProvider (5th argument)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
+	// Pass store as the TaskTxProvider
+	taskSvc := NewTaskService(taskRepo, annotationRepo, nil, nil, projectRepo, workflowSvc, store, nil)
 
 	ctx := context.Background()
 	task := newMinimalTask("Test with tx provider")

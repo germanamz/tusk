@@ -61,7 +61,21 @@ func run() error {
 	relationRepo := sqlite.NewRelationRepo(db)
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := service.NewTaskService(taskRepo, annotationRepo, projectRepo, workflowSvc, store)
+
+	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{
+		Priority:    cfg.Urgency.PriorityWeight,
+		Due:         cfg.Urgency.DueWeight,
+		Age:         cfg.Urgency.AgeWeight,
+		Active:      cfg.Urgency.ActiveWeight,
+		Blocking:    cfg.Urgency.BlockingWeight,
+		Blocked:     cfg.Urgency.BlockedWeight,
+		Tags:        cfg.Urgency.TagsWeight,
+		Project:     cfg.Urgency.ProjectWeight,
+		Annotations: cfg.Urgency.AnnotationsWeight,
+		Waiting:     cfg.Urgency.WaitingWeight,
+	})
+
+	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, urgencyEngine)
 	tagSvc := service.NewTagService(tagRepo)
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
