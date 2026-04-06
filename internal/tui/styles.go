@@ -130,8 +130,8 @@ func markdownStyle() ansi.StyleConfig {
 		},
 	}
 
-	// Code blocks: delimiter lines above and below so they're easy to spot.
-	s.CodeBlock.BlockPrefix = "```\n"
+	// Code blocks: closing fence delimiter. The opening ```lang is injected
+	// by labelCodeBlocks since glamour strips the info string.
 	s.CodeBlock.BlockSuffix = "```"
 
 	return s
