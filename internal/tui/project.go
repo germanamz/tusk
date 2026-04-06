@@ -28,5 +28,6 @@ func (a *App) runProjectList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return renderProjectList(cmd.OutOrStdout(), projects, a.format)
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	return r.renderProjectList(projects)
 }

@@ -79,7 +79,8 @@ func (a *App) runTagList(cmd *cobra.Command, args []string) error {
 		tags = filterTagsByColor(tags, colorFilter)
 	}
 
-	return renderTagList(cmd.OutOrStdout(), tags, showUsage, a.format)
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	return r.renderTagList(tags, showUsage)
 }
 
 // filterTagsByColor filters tags based on the color flag value.
@@ -120,7 +121,8 @@ func (a *App) runTagCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return renderTagResult(cmd.OutOrStdout(), "Created", tag, a.format)
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	return r.renderTagResult("Created", tag)
 }
 
 func (a *App) runTagModify(cmd *cobra.Command, args []string) error {
@@ -142,7 +144,8 @@ func (a *App) runTagModify(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return renderTagResult(cmd.OutOrStdout(), "Modified", tag, a.format)
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	return r.renderTagResult("Modified", tag)
 }
 
 func (a *App) runTagDelete(cmd *cobra.Command, args []string) error {
@@ -153,7 +156,8 @@ func (a *App) runTagDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return renderTagResult(cmd.OutOrStdout(), "Deleted", tag, a.format)
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	return r.renderTagResult("Deleted", tag)
 }
 
 func (a *App) runTagRename(cmd *cobra.Command, args []string) error {
@@ -166,7 +170,8 @@ func (a *App) runTagRename(cmd *cobra.Command, args []string) error {
 	}
 
 	if a.format == "json" {
-		return renderTagResult(cmd.OutOrStdout(), "Renamed", tag, a.format)
+		r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+		return r.renderTagResult("Renamed", tag)
 	}
 	_, fmtErr := fmt.Fprintf(cmd.OutOrStdout(), "Renamed tag %s to %s\n", oldName, newName)
 	return fmtErr
