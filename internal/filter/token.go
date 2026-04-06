@@ -10,6 +10,11 @@ const (
 	TokenTagInclude                  // +word
 	TokenTagExclude                  // -word
 	TokenText                        // anything else
+	TokenAnd                         // AND
+	TokenOr                          // OR
+	TokenNot                         // NOT
+	TokenLParen                      // (
+	TokenRParen                      // )
 )
 
 func (t TokenType) String() string {
@@ -22,6 +27,16 @@ func (t TokenType) String() string {
 		return "TagExclude"
 	case TokenText:
 		return "Text"
+	case TokenAnd:
+		return "And"
+	case TokenOr:
+		return "Or"
+	case TokenNot:
+		return "Not"
+	case TokenLParen:
+		return "LParen"
+	case TokenRParen:
+		return "RParen"
 	default:
 		return "Unknown"
 	}
@@ -65,11 +80,23 @@ func Lex(input string) ([]Token, []ParseError) {
 			continue
 		}
 
+		// Parentheses are always single-character tokens
+		if input[i] == '(' {
+			tokens = append(tokens, Token{Type: TokenLParen, Value: "(", Pos: i})
+			i++
+			continue
+		}
+		if input[i] == ')' {
+			tokens = append(tokens, Token{Type: TokenRParen, Value: ")", Pos: i})
+			i++
+			continue
+		}
+
 		// Scan unquoted portion until whitespace
 		// But if we encounter a quote mid-token (e.g. key:"value"), handle it
 		var buf []byte
 		unclosedQuote := false
-		for i < len(input) && input[i] != ' ' && input[i] != '\t' {
+		for i < len(input) && input[i] != ' ' && input[i] != '\t' && input[i] != '(' && input[i] != ')' {
 			if input[i] == '"' {
 				// Quote inside a token: key:"value with spaces"
 				content, end, err := scanQuoted(input, i)
@@ -114,6 +141,15 @@ func Lex(input string) ([]Token, []ParseError) {
 
 		case raw[0] == '-':
 			tokens = append(tokens, Token{Type: TokenTagExclude, Value: raw, Pos: start})
+
+		case raw == "AND":
+			tokens = append(tokens, Token{Type: TokenAnd, Value: raw, Pos: start})
+
+		case raw == "OR":
+			tokens = append(tokens, Token{Type: TokenOr, Value: raw, Pos: start})
+
+		case raw == "NOT":
+			tokens = append(tokens, Token{Type: TokenNot, Value: raw, Pos: start})
 
 		default:
 			tokens = append(tokens, Token{Type: TokenText, Value: raw, Pos: start})
