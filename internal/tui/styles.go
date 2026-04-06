@@ -4,6 +4,8 @@ import (
 	"io"
 	"strings"
 
+	"charm.land/glamour/v2"
+	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 	"github.com/germanamz/tusk/internal/domain"
 )
@@ -91,6 +93,31 @@ func (r *Renderer) styledTag(tag *domain.Tag) string {
 		return text
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(*tag.Color)).Render(text)
+}
+
+// renderMarkdown renders markdown text for terminal display using glamour.
+// When color is disabled, uses NoTTY style for plain ASCII formatting.
+func (r *Renderer) renderMarkdown(text string) (string, error) {
+	var opts []glamour.TermRendererOption
+
+	if r.color {
+		opts = append(opts, glamour.WithEnvironmentConfig())
+	} else {
+		opts = append(opts, glamour.WithStyles(styles.NoTTYStyleConfig))
+	}
+	opts = append(opts, glamour.WithWordWrap(0))
+
+	renderer, err := glamour.NewTermRenderer(opts...)
+	if err != nil {
+		return text, err
+	}
+
+	rendered, err := renderer.Render(text)
+	if err != nil {
+		return text, err
+	}
+
+	return strings.TrimRight(rendered, "\n"), nil
 }
 
 // newStyles initializes the default color styles.

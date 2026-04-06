@@ -408,13 +408,17 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 	}
 
 	if task.Description != "" {
-		if _, err := fmt.Fprintln(r.w, r.styledLabel("Description:")); err != nil {
+		if _, err := fmt.Fprintln(r.w, r.paddedLabel("Description:", 13)); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintln(r.w); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(r.w, task.Description); err != nil {
+		rendered, err := r.renderMarkdown(task.Description)
+		if err != nil {
+			rendered = task.Description
+		}
+		if _, err := fmt.Fprintln(r.w, rendered); err != nil {
 			return err
 		}
 	}
