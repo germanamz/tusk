@@ -296,14 +296,18 @@ func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*d
 		}
 		priStr := r.styledPriority(t.Priority)
 		priPad := strings.Repeat(" ", max(0, 4-lipgloss.Width(priStr)))
-		if _, err := fmt.Fprintf(r.w, "%-8s %-9s %s%s %-5s %s\n",
+		line := fmt.Sprintf("%-8s %-9s %s%s %-5s %s",
 			t.ShortID,
 			t.Status,
 			priStr,
 			priPad,
 			formatAge(t.CreatedAt),
 			title,
-		); err != nil {
+		)
+		if r.isDimStatus(t.Status) {
+			line = r.styles.Dim.Render(line)
+		}
+		if _, err := fmt.Fprintln(r.w, line); err != nil {
 			return err
 		}
 	}

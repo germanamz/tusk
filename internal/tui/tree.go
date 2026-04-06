@@ -140,7 +140,11 @@ func (r *Renderer) renderTree(nodes []*treeNode) error {
 // depth controls the indentation level (2 spaces per level).
 func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 	indent := strings.Repeat("  ", depth)
-	if _, err := fmt.Fprintf(r.w, "%s%s [%s] %s\n", indent, node.Task.ShortID, node.Task.Status, node.Task.Title); err != nil {
+	line := fmt.Sprintf("%s%s [%s] %s", indent, node.Task.ShortID, node.Task.Status, node.Task.Title)
+	if r.isDimStatus(node.Task.Status) {
+		line = r.styles.Dim.Render(line)
+	}
+	if _, err := fmt.Fprintln(r.w, line); err != nil {
 		return err
 	}
 	for _, child := range node.Children {
