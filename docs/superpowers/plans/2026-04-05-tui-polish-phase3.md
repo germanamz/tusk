@@ -17,7 +17,7 @@
 ## Inherits From
 
 **Phase 1 introduced:**
-- `internal/tui/styles.go` — `Renderer` struct, `Styles`, `NewRenderer(w, format, color, dimStatuses)`, helpers: `styledPriority`, `styledHeader`, `styledLabel`, `paddedLabel`
+- `internal/tui/styles.go` — `Renderer` struct, `Styles`, `NewRenderer(w, format, color)` (3-param, extended to 4-param in Phase 2), helpers: `styledPriority`, `styledHeader`, `styledLabel`, `paddedLabel`
 - All render functions are methods on `*Renderer`
 - `App.colorEnabled()` resolves `--no-color` > `NO_COLOR` env > `tui.color` config
 - `charm.land/lipgloss/v2` in `go.mod`
@@ -71,9 +71,10 @@ git commit -m "feat(tui): add charm.land/glamour/v2 dependency"
 
 **Files:**
 - Modify: `internal/tui/styles.go` (add `styledTag` helper)
-- Modify: `internal/tui/render.go` (apply tag colors in list, info, mutation results)
-- Modify: `internal/tui/tree.go` (apply tag colors in tree view)
+- Modify: `internal/tui/render.go` (apply tag colors in list and info views)
 - Modify: `internal/tui/styles_test.go` (add tests)
+
+Note: `tree.go` is not modified here — the tree view does not display tags.
 
 - [ ] **Step 1: Write tests for `styledTag`**
 
@@ -577,10 +578,11 @@ And some \`inline code\`." +critical --priority 4
 - `charm.land/glamour/v2` (and its transitive dependencies)
 
 **User-visible behavior preserved:**
-- All existing commands produce identical output when `NO_COLOR=1` is set
 - JSON output unchanged
-- All existing e2e tests pass
+- All existing e2e tests pass (see note below)
 - Tag color set/clear via `tusk tag modify --color` works as before (flag already existed)
+
+**Behavior change note:** When `NO_COLOR=1` is set, glamour still reformats description text using ASCII conventions (e.g., heading underlines, list prefixes). Plain text descriptions pass through largely unchanged, but descriptions with markdown syntax will look different from before (formatted rather than raw). Existing e2e tests that assert on description text (e.g., `assertContains(t, output, "This is the description")` in `task_lifecycle_test.go`) should still pass since glamour preserves plain text content. If any fail due to whitespace changes, adjust the assertions to match glamour's output.
 
 **New user-visible behavior:**
 - Tags with hex colors render in that foreground color in list, info, and tree views
