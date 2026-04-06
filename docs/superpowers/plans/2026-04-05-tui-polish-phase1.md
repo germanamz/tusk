@@ -381,7 +381,22 @@ if _, err := fmt.Fprintf(r.w, "%-8s %-9s %s%s %-5s %s\n",
 ); err != nil {
 ```
 
-Apply the same padding approach for header columns that use `styledHeader`.
+Apply the same ANSI-aware padding approach for the header row. Each header column that uses `styledHeader` needs manual padding instead of `%-Ns` format specifiers. Use `lipgloss.Width()` to calculate visible width and pad with spaces, the same way as `priStr`/`priPad` above. Example for the header:
+
+```go
+idH := r.styledHeader("ID")
+statusH := r.styledHeader("Status")
+priH := r.styledHeader("Pri")
+ageH := r.styledHeader("Age")
+titleH := r.styledHeader("Title")
+fmt.Fprintf(r.w, "%s%s %s%s %s%s %s%s %s\n",
+	idH, strings.Repeat(" ", max(0, 8-lipgloss.Width(idH))),
+	statusH, strings.Repeat(" ", max(0, 9-lipgloss.Width(statusH))),
+	priH, strings.Repeat(" ", max(0, 4-lipgloss.Width(priH))),
+	ageH, strings.Repeat(" ", max(0, 5-lipgloss.Width(ageH))),
+	titleH,
+)
+```
 
 - [ ] **Step 3: Apply priority color in `renderTaskInfo`**
 
