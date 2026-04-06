@@ -583,3 +583,81 @@ func TestTaskListByRootID(t *testing.T) {
 		t.Fatalf("expected 2 descendants via List, got %d", len(tasks))
 	}
 }
+
+func TestBuildFilter_TitleContains(t *testing.T) {
+	v := "auth"
+	filter := domain.TaskFilter{TitleContains: &v}
+	_, where, args := buildFilter(filter)
+	if !strings.Contains(where, "LOWER(title)") {
+		t.Fatalf("expected LOWER(title) in WHERE clause, got %q", where)
+	}
+	if len(args) != 1 || args[0] != "auth" {
+		t.Fatalf("expected args [auth], got %v", args)
+	}
+}
+
+func TestBuildFilter_DescriptionContains(t *testing.T) {
+	v := "implement"
+	filter := domain.TaskFilter{DescriptionContains: &v}
+	_, where, args := buildFilter(filter)
+	if !strings.Contains(where, "LOWER(description)") {
+		t.Fatalf("expected LOWER(description) in WHERE clause, got %q", where)
+	}
+	if len(args) != 1 || args[0] != "implement" {
+		t.Fatalf("expected args [implement], got %v", args)
+	}
+}
+
+func TestList_TitleContains(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+
+	t1 := newTestTask()
+	t1.Title = "Implement auth middleware"
+	mustCreateTask(t, repo, t1)
+
+	t2 := newTestTask()
+	t2.Title = "Write unit tests"
+	mustCreateTask(t, repo, t2)
+
+	v := "auth"
+	tasks, err := repo.List(ctx, domain.TaskFilter{TitleContains: &v})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Title != "Implement auth middleware" {
+		t.Fatalf("expected auth task, got %q", tasks[0].Title)
+	}
+}
+
+func TestList_DescriptionContains(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+
+	t1 := newTestTask()
+	t1.Title = "Task A"
+	t1.Description = "This handles authentication"
+	mustCreateTask(t, repo, t1)
+
+	t2 := newTestTask()
+	t2.Title = "Task B"
+	t2.Description = "This handles logging"
+	mustCreateTask(t, repo, t2)
+
+	v := "authentication"
+	tasks, err := repo.List(ctx, domain.TaskFilter{DescriptionContains: &v})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Title != "Task A" {
+		t.Fatalf("expected Task A, got %q", tasks[0].Title)
+	}
+}

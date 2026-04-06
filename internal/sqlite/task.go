@@ -246,6 +246,14 @@ func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args
 		conditions = append(conditions, "wait_until > ?")
 		args = append(args, time.Now().UTC().Format(timeFormat))
 	}
+	if filter.TitleContains != nil {
+		conditions = append(conditions, "LOWER(title) LIKE '%' || LOWER(?) || '%'")
+		args = append(args, *filter.TitleContains)
+	}
+	if filter.DescriptionContains != nil {
+		conditions = append(conditions, "LOWER(description) LIKE '%' || LOWER(?) || '%'")
+		args = append(args, *filter.DescriptionContains)
+	}
 	if len(filter.UDA) > 0 {
 		// Sort keys for deterministic query generation (important for tests)
 		udaKeys := make([]string, 0, len(filter.UDA))
