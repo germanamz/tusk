@@ -63,29 +63,43 @@ func (p *exprParser) advance() Token {
 
 // parseOr: or_expr = and_expr ("OR" and_expr)*
 func (p *exprParser) parseOr() Expr {
+	var children []Expr
+
+	// Parse the first AND group, skipping validation errors
+	posBefore := p.pos
 	left := p.parseAnd()
-	if left == nil {
+	if left != nil {
+		children = append(children, left)
+	} else if p.pos == posBefore {
 		return nil
 	}
+	// If left is nil but tokens were consumed, continue to look for OR
 
-	children := []Expr{left}
 	for {
 		tok, ok := p.peek()
 		if !ok || tok.Type != TokenOr {
 			break
 		}
 		p.advance() // consume OR
+		posBefore := p.pos
 		right := p.parseAnd()
 		if right == nil {
-			p.errs = append(p.errs, ParseError{
-				Pos:     tok.Pos,
-				Message: "expected expression after OR",
-			})
-			break
+			if p.pos == posBefore {
+				p.errs = append(p.errs, ParseError{
+					Pos:     tok.Pos,
+					Message: "expected expression after OR",
+				})
+				break
+			}
+			// Tokens consumed but validation failed — continue looking for more OR
+			continue
 		}
 		children = append(children, right)
 	}
 
+	if len(children) == 0 {
+		return nil
+	}
 	if len(children) == 1 {
 		return children[0]
 	}
@@ -95,12 +109,22 @@ func (p *exprParser) parseOr() Expr {
 // parseAnd: and_expr = unary (("AND")? unary)*
 // Adjacent terms without explicit AND are implicit AND.
 func (p *exprParser) parseAnd() Expr {
-	left := p.parseUnary()
-	if left == nil {
-		return nil
-	}
+	var children []Expr
 
-	children := []Expr{left}
+	// Parse the first term, skipping validation errors
+	for {
+		posBefore := p.pos
+		left := p.parseUnary()
+		if left != nil {
+			children = append(children, left)
+			break
+		}
+		if p.pos == posBefore {
+			// No tokens consumed — nothing to parse
+			return nil
+		}
+		// Tokens consumed but validation failed — try the next term
+	}
 	for {
 		tok, ok := p.peek()
 		if !ok {
@@ -110,13 +134,19 @@ func (p *exprParser) parseAnd() Expr {
 		// Explicit AND
 		if tok.Type == TokenAnd {
 			p.advance() // consume AND
+			posBefore := p.pos
 			right := p.parseUnary()
 			if right == nil {
-				p.errs = append(p.errs, ParseError{
-					Pos:     tok.Pos,
-					Message: "expected expression after AND",
-				})
-				break
+				if p.pos == posBefore {
+					// No tokens consumed — nothing after AND
+					p.errs = append(p.errs, ParseError{
+						Pos:     tok.Pos,
+						Message: "expected expression after AND",
+					})
+					break
+				}
+				// Tokens consumed but validation failed — error already recorded, continue
+				continue
 			}
 			children = append(children, right)
 			continue
@@ -129,9 +159,15 @@ func (p *exprParser) parseAnd() Expr {
 		}
 
 		// Must be a term-starting token (Field, TagInclude, TagExclude, Text, Not, LParen)
+		posBefore := p.pos
 		right := p.parseUnary()
 		if right == nil {
-			break
+			if p.pos == posBefore {
+				// No tokens consumed — not a term-starting token
+				break
+			}
+			// Tokens consumed but validation failed — error already recorded, continue
+			continue
 		}
 		children = append(children, right)
 	}

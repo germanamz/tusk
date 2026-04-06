@@ -44,103 +44,11 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 	hasStatus := false
 
 	for _, field := range fs.Fields {
-		switch field.Key {
-		case "status":
+		if field.Key == "status" {
 			hasStatus = true
-			tf.Statuses = strings.Split(field.Value, ",")
-
-		case "project":
-			id := field.Value
-			tf.ProjectID = &id
-
-		case "priority":
-			if strings.Contains(field.Value, "..") {
-				parts := strings.SplitN(field.Value, "..", 2)
-				min, err := parsePriorityValue(parts[0])
-				if err != nil {
-					errs = append(errs, fmt.Errorf("priority range min: %w", err))
-					continue
-				}
-				max, err := parsePriorityValue(parts[1])
-				if err != nil {
-					errs = append(errs, fmt.Errorf("priority range max: %w", err))
-					continue
-				}
-				tf.PriorityMin = &min
-				tf.PriorityMax = &max
-			} else {
-				v, err := parsePriorityValue(field.Value)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("priority: %w", err))
-					continue
-				}
-				tf.PriorityMin = &v
-				tf.PriorityMax = &v
-			}
-
-		case "due":
-			if strings.Contains(field.Value, "..") {
-				start, end, err := parseDateRange(field.Value)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("due range: %w", err))
-					continue
-				}
-				tf.DueAfter = &start
-				tf.DueBefore = &end
-			} else {
-				d, err := parseDate(field.Value)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("due: %w", err))
-					continue
-				}
-				tf.DueAfter = &d
-				end := d.AddDate(0, 0, 1)
-				tf.DueBefore = &end
-			}
-
-		case "parent":
-			task, err := r.taskLookup.GetByShortID(ctx, field.Value)
-			if err != nil {
-				if errors.Is(err, domain.ErrNotFound) {
-					errs = append(errs, fmt.Errorf("parent task %q not found", field.Value))
-				} else {
-					errs = append(errs, fmt.Errorf("looking up parent %q: %w", field.Value, err))
-				}
-				continue
-			}
-			tf.ParentID = &task.ID
-
-		case "tree":
-			task, err := r.taskLookup.GetByShortID(ctx, field.Value)
-			if err != nil {
-				if errors.Is(err, domain.ErrNotFound) {
-					errs = append(errs, fmt.Errorf("tree root task %q not found", field.Value))
-				} else {
-					errs = append(errs, fmt.Errorf("looking up tree root %q: %w", field.Value, err))
-				}
-				continue
-			}
-			tf.RootID = &task.ID
-
-		case "waiting":
-			v := field.Value == "true"
-			tf.WaitingOnly = &v
-
-		case "title":
-			v := field.Value
-			tf.TitleContains = &v
-
-		case "description":
-			v := field.Value
-			tf.DescriptionContains = &v
-
-		default:
-			if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
-				if tf.UDA == nil {
-					tf.UDA = make(map[string]string)
-				}
-				tf.UDA[udaKey] = field.Value
-			}
+		}
+		if err := r.resolveField(ctx, field, &tf); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
@@ -229,6 +137,11 @@ func (r *Resolver) resolveNode(ctx context.Context, expr Expr, errs *[]error) do
 }
 
 func (r *Resolver) resolveTerm(ctx context.Context, term TermExpr, errs *[]error) domain.FilterExpr {
+	if term.Text != "" {
+		*errs = append(*errs, fmt.Errorf("free text %q is not supported in filter expressions", term.Text))
+		return nil
+	}
+
 	var tf domain.TaskFilter
 
 	if term.Tag != nil {
@@ -240,107 +153,108 @@ func (r *Resolver) resolveTerm(ctx context.Context, term TermExpr, errs *[]error
 	}
 
 	if term.Field != nil {
-		field := *term.Field
-		switch field.Key {
-		case "status":
-			tf.Statuses = strings.Split(field.Value, ",")
-
-		case "project":
-			id := field.Value
-			tf.ProjectID = &id
-
-		case "priority":
-			if strings.Contains(field.Value, "..") {
-				parts := strings.SplitN(field.Value, "..", 2)
-				min, err := parsePriorityValue(parts[0])
-				if err != nil {
-					*errs = append(*errs, fmt.Errorf("priority range min: %w", err))
-					return nil
-				}
-				max, err := parsePriorityValue(parts[1])
-				if err != nil {
-					*errs = append(*errs, fmt.Errorf("priority range max: %w", err))
-					return nil
-				}
-				tf.PriorityMin = &min
-				tf.PriorityMax = &max
-			} else {
-				v, err := parsePriorityValue(field.Value)
-				if err != nil {
-					*errs = append(*errs, fmt.Errorf("priority: %w", err))
-					return nil
-				}
-				tf.PriorityMin = &v
-				tf.PriorityMax = &v
-			}
-
-		case "due":
-			if strings.Contains(field.Value, "..") {
-				start, end, err := parseDateRange(field.Value)
-				if err != nil {
-					*errs = append(*errs, fmt.Errorf("due range: %w", err))
-					return nil
-				}
-				tf.DueAfter = &start
-				tf.DueBefore = &end
-			} else {
-				d, err := parseDate(field.Value)
-				if err != nil {
-					*errs = append(*errs, fmt.Errorf("due: %w", err))
-					return nil
-				}
-				tf.DueAfter = &d
-				end := d.AddDate(0, 0, 1)
-				tf.DueBefore = &end
-			}
-
-		case "parent":
-			task, err := r.taskLookup.GetByShortID(ctx, field.Value)
-			if err != nil {
-				if errors.Is(err, domain.ErrNotFound) {
-					*errs = append(*errs, fmt.Errorf("parent task %q not found", field.Value))
-				} else {
-					*errs = append(*errs, fmt.Errorf("looking up parent %q: %w", field.Value, err))
-				}
-				return nil
-			}
-			tf.ParentID = &task.ID
-
-		case "tree":
-			task, err := r.taskLookup.GetByShortID(ctx, field.Value)
-			if err != nil {
-				if errors.Is(err, domain.ErrNotFound) {
-					*errs = append(*errs, fmt.Errorf("tree root task %q not found", field.Value))
-				} else {
-					*errs = append(*errs, fmt.Errorf("looking up tree root %q: %w", field.Value, err))
-				}
-				return nil
-			}
-			tf.RootID = &task.ID
-
-		case "waiting":
-			v := field.Value == "true"
-			tf.WaitingOnly = &v
-
-		case "title":
-			v := field.Value
-			tf.TitleContains = &v
-
-		case "description":
-			v := field.Value
-			tf.DescriptionContains = &v
-
-		default:
-			if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
-				if tf.UDA == nil {
-					tf.UDA = make(map[string]string)
-				}
-				tf.UDA[udaKey] = field.Value
-			}
+		if err := r.resolveField(ctx, *term.Field, &tf); err != nil {
+			*errs = append(*errs, err)
+			return nil
 		}
 	}
 
 	return &domain.TermFilter{TaskFilter: tf}
+}
+
+// resolveField applies a single FieldFilter to the given TaskFilter.
+// Returns a non-nil error if resolution fails (e.g., task lookup not found).
+func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *domain.TaskFilter) error {
+	switch field.Key {
+	case "status":
+		tf.Statuses = strings.Split(field.Value, ",")
+
+	case "project":
+		id := field.Value
+		tf.ProjectID = &id
+
+	case "priority":
+		if strings.Contains(field.Value, "..") {
+			parts := strings.SplitN(field.Value, "..", 2)
+			min, err := parsePriorityValue(parts[0])
+			if err != nil {
+				return fmt.Errorf("priority range min: %w", err)
+			}
+			max, err := parsePriorityValue(parts[1])
+			if err != nil {
+				return fmt.Errorf("priority range max: %w", err)
+			}
+			tf.PriorityMin = &min
+			tf.PriorityMax = &max
+		} else {
+			v, err := parsePriorityValue(field.Value)
+			if err != nil {
+				return fmt.Errorf("priority: %w", err)
+			}
+			tf.PriorityMin = &v
+			tf.PriorityMax = &v
+		}
+
+	case "due":
+		if strings.Contains(field.Value, "..") {
+			start, end, err := parseDateRange(field.Value)
+			if err != nil {
+				return fmt.Errorf("due range: %w", err)
+			}
+			tf.DueAfter = &start
+			tf.DueBefore = &end
+		} else {
+			d, err := parseDate(field.Value)
+			if err != nil {
+				return fmt.Errorf("due: %w", err)
+			}
+			tf.DueAfter = &d
+			end := d.AddDate(0, 0, 1)
+			tf.DueBefore = &end
+		}
+
+	case "parent":
+		task, err := r.taskLookup.GetByShortID(ctx, field.Value)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return fmt.Errorf("parent task %q not found", field.Value)
+			}
+			return fmt.Errorf("looking up parent %q: %w", field.Value, err)
+		}
+		tf.ParentID = &task.ID
+
+	case "tree":
+		task, err := r.taskLookup.GetByShortID(ctx, field.Value)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return fmt.Errorf("tree root task %q not found", field.Value)
+			}
+			return fmt.Errorf("looking up tree root %q: %w", field.Value, err)
+		}
+		tf.RootID = &task.ID
+
+	case "waiting":
+		v := field.Value == "true"
+		tf.WaitingOnly = &v
+
+	case "title":
+		v := field.Value
+		tf.TitleContains = &v
+
+	case "description":
+		v := field.Value
+		tf.DescriptionContains = &v
+
+	default:
+		if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
+			if tf.UDA == nil {
+				tf.UDA = make(map[string]string)
+			}
+			tf.UDA[udaKey] = field.Value
+		}
+	}
+
+	return nil
 }
 
 // exprHasStatus checks if any TermExpr in the tree has a status field.

@@ -312,13 +312,13 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Richer filter expressions for complex queries.
 
-- [ ] **Story: Quoted string support in filters**
-  - [ ] Enable `title:"some text"` and `description:"some text"` fields
-  - [ ] `description:` filter field for CLI and MCP task list
+- [x] **Story: Quoted string support in filters**
+  - [x] Enable `title:"some text"` and `description:"some text"` fields
+  - [x] `description:` filter field for CLI and MCP task list
 
-- [ ] **Story: Boolean operators in filters**
-  - [ ] `AND` / `OR` / `NOT` operators
-  - [ ] Parenthesized grouping
+- [x] **Story: Boolean operators in filters**
+  - [x] `AND` / `OR` / `NOT` operators
+  - [x] Parenthesized grouping
 
 ### Initiative: TUI Polish
 
