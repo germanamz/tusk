@@ -209,6 +209,14 @@ func formatPriority(p int) string {
 	}
 }
 
+// formatUrgency formats an urgency score for display.
+func formatUrgency(u float64) string {
+	if u == 0 {
+		return "  0"
+	}
+	return fmt.Sprintf("%.1f", u)
+}
+
 // formatAge converts a creation time to a human-readable relative age string.
 func formatAge(created time.Time) string {
 	d := time.Since(created)
@@ -307,12 +315,14 @@ func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*d
 	statusH := r.styledHeader("Status")
 	priH := r.styledHeader("Pri")
 	ageH := r.styledHeader("Age")
+	urgH := r.styledHeader("Urg")
 	titleH := r.styledHeader("Title")
-	if _, err := fmt.Fprintf(r.w, "%s%s %s%s %s%s %s%s %s\n",
+	if _, err := fmt.Fprintf(r.w, "%s%s %s%s %s%s %s%s %s%s %s\n",
 		idH, strings.Repeat(" ", max(0, 8-lipgloss.Width(idH))),
 		statusH, strings.Repeat(" ", max(0, 9-lipgloss.Width(statusH))),
 		priH, strings.Repeat(" ", max(0, 4-lipgloss.Width(priH))),
 		ageH, strings.Repeat(" ", max(0, 5-lipgloss.Width(ageH))),
+		urgH, strings.Repeat(" ", max(0, 6-lipgloss.Width(urgH))),
 		titleH,
 	); err != nil {
 		return err
@@ -328,12 +338,13 @@ func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*d
 		}
 		priStr := r.styledPriority(t.Priority)
 		priPad := strings.Repeat(" ", max(0, 4-lipgloss.Width(priStr)))
-		line := fmt.Sprintf("%-8s %-9s %s%s %-5s %s",
+		line := fmt.Sprintf("%-8s %-9s %s%s %-5s %-6s %s",
 			t.ShortID,
 			t.Status,
 			priStr,
 			priPad,
 			formatAge(t.CreatedAt),
+			formatUrgency(t.Urgency),
 			title,
 		)
 		if r.isDimStatus(t.Status) {
