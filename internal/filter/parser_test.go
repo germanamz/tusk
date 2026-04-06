@@ -301,3 +301,29 @@ func TestParse_UDAMixedWithOtherFields(t *testing.T) {
 		t.Fatalf("expected 1 include tag, got %d", len(fs.IncludeTags()))
 	}
 }
+
+func TestParse_QuotedTextTitle(t *testing.T) {
+	fs, errs := Parse(`"My complex task"`)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if fs.Title() != "My complex task" {
+		t.Fatalf("expected title %q, got %q", "My complex task", fs.Title())
+	}
+}
+
+func TestParse_QuotedTextWithFields(t *testing.T) {
+	fs, errs := Parse(`"My task" project:backend +api`)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if fs.Title() != "My task" {
+		t.Fatalf("expected title %q, got %q", "My task", fs.Title())
+	}
+	if len(fs.Fields) != 1 || fs.Fields[0].Key != "project" {
+		t.Fatalf("expected 1 field (project), got %+v", fs.Fields)
+	}
+	if len(fs.IncludeTags()) != 1 || fs.IncludeTags()[0] != "api" {
+		t.Fatalf("expected include tags [api], got %v", fs.IncludeTags())
+	}
+}
