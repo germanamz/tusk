@@ -212,6 +212,39 @@ func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*do
 	return tasks, nil
 }
 
+// Next returns the highest-urgency actionable task. Actionable means:
+// non-terminal status (pending or active), not waiting, not blocked.
+// Returns domain.ErrNotFound if no actionable task exists.
+func (s *TaskService) Next(ctx context.Context) (*domain.Task, error) {
+	// List pending and active tasks
+	filter := &domain.TermFilter{TaskFilter: domain.TaskFilter{
+		Statuses: []string{"pending", "active"},
+	}}
+	tasks, err := s.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	// Tasks are already sorted by urgency (descending) from List.
+	// Filter out waiting and blocked tasks.
+	now := time.Now()
+	for _, t := range tasks {
+		if t.WaitUntil != nil && t.WaitUntil.After(now) {
+			continue
+		}
+		// Check if blocked
+		blockedBy, err := s.relationRepo.CountBlockedByTasks(ctx, []uuid.UUID{t.ID})
+		if err != nil {
+			return nil, fmt.Errorf("checking blocked status: %w", err)
+		}
+		if blockedBy[t.ID] > 0 {
+			continue
+		}
+		return t, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
 // buildProjectWeights constructs per-project merged urgency weights
 // for all distinct projects found in the task list.
 func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.Task) map[string]*UrgencyWeights {
