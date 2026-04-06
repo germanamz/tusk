@@ -40,10 +40,26 @@ type AutoRevertParentConfig struct {
 	TargetStatus  string `mapstructure:"target_status"`
 }
 
+// ProjectUrgencyConfig holds per-project urgency weight overrides.
+// Nil fields inherit from the global [urgency] config.
+type ProjectUrgencyConfig struct {
+	PriorityWeight    *float64 `mapstructure:"priority_weight"`
+	DueWeight         *float64 `mapstructure:"due_weight"`
+	AgeWeight         *float64 `mapstructure:"age_weight"`
+	ActiveWeight      *float64 `mapstructure:"active_weight"`
+	BlockingWeight    *float64 `mapstructure:"blocking_weight"`
+	BlockedWeight     *float64 `mapstructure:"blocked_weight"`
+	TagsWeight        *float64 `mapstructure:"tags_weight"`
+	ProjectWeight     *float64 `mapstructure:"project_weight"`
+	AnnotationsWeight *float64 `mapstructure:"annotations_weight"`
+	WaitingWeight     *float64 `mapstructure:"waiting_weight"`
+}
+
 // ProjectSettingsConfig holds per-project automation settings.
 type ProjectSettingsConfig struct {
 	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent"`
 	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"`
+	Urgency            *ProjectUrgencyConfig     `mapstructure:"urgency"`
 }
 
 // ProjectConfig defines a named project with its workflow assignment and settings.
