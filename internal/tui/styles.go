@@ -102,7 +102,11 @@ func (r *Renderer) styledTag(tag *domain.Tag) string {
 func markdownStyle() ansi.StyleConfig {
 	s := styles.DarkStyleConfig
 
+	// Document: use terminal default foreground instead of hardcoded light gray.
+	s.Document.Color = nil
+
 	// Headings: bold only, no markdown prefixes, backgrounds, or vibrant colors.
+	s.Heading.Color = nil
 	noPrefix := ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: ""}}
 	s.H1 = noPrefix
 	s.H2 = noPrefix
