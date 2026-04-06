@@ -37,6 +37,7 @@ type TaskService struct {
 }
 
 // NewTaskService creates a new TaskService with the given dependencies.
+// If urgencyEngine is non-nil, relationRepo and tagRepo must also be non-nil.
 func NewTaskService(
 	tr repository.TaskRepository,
 	ar repository.AnnotationRepository,
@@ -47,6 +48,9 @@ func NewTaskService(
 	txp TaskTxProvider,
 	ue *UrgencyEngine,
 ) *TaskService {
+	if ue != nil && (rr == nil || tagr == nil) {
+		panic("NewTaskService: urgencyEngine requires relationRepo and tagRepo")
+	}
 	return &TaskService{
 		taskRepo:       tr,
 		annotationRepo: ar,
