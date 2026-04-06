@@ -324,7 +324,7 @@ func TestList_Empty(t *testing.T) {
 	env := testTaskEnv(t)
 	ctx := context.Background()
 
-	tasks, err := env.taskSvc.List(ctx, domain.TaskFilter{})
+	tasks, err := env.taskSvc.List(ctx, &domain.TermFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestList_WithFilter(t *testing.T) {
 	mustCreateTask(t, env.taskSvc, t2)
 
 	minPri := 3
-	tasks, err := env.taskSvc.List(ctx, domain.TaskFilter{PriorityMin: &minPri})
+	tasks, err := env.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{PriorityMin: &minPri}})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

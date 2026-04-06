@@ -215,7 +215,7 @@ func TestTaskDeleteNotFound(t *testing.T) {
 func TestTaskListEmpty(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
-	tasks, err := repo.List(context.Background(), domain.TaskFilter{})
+	tasks, err := repo.List(context.Background(), &domain.TermFilter{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestTaskListAll(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		mustCreateTask(t, repo, newTestTask())
 	}
-	tasks, err := repo.List(ctx, domain.TaskFilter{})
+	tasks, err := repo.List(ctx, &domain.TermFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestTaskListByStatus(t *testing.T) {
 	t2 := newTestTask()
 	t2.Status = "active"
 	mustCreateTask(t, repo, t2)
-	tasks, err := repo.List(ctx, domain.TaskFilter{Statuses: []string{"active"}})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestTaskListByStatusMultiple(t *testing.T) {
 		task.Status = status
 		mustCreateTask(t, repo, task)
 	}
-	tasks, err := repo.List(ctx, domain.TaskFilter{Statuses: []string{"pending", "active"}})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending", "active"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestTaskListByProject(t *testing.T) {
 	t2 := newTestTask()
 	mustCreateTask(t, repo, t2)
 
-	tasks, err := repo.List(ctx, domain.TaskFilter{ProjectID: &projID})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{ProjectID: &projID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestTaskListByPriority(t *testing.T) {
 		mustCreateTask(t, repo, task)
 	}
 	min, max := 2, 3
-	tasks, err := repo.List(ctx, domain.TaskFilter{PriorityMin: &min, PriorityMax: &max})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{PriorityMin: &min, PriorityMax: &max}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestTaskListByDueDate(t *testing.T) {
 	}
 	after := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
-	tasks, err := repo.List(ctx, domain.TaskFilter{DueAfter: &after, DueBefore: &before})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{DueAfter: &after, DueBefore: &before}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestTaskListByParent(t *testing.T) {
 	mustCreateTask(t, repo, child)
 	orphan := newTestTask()
 	mustCreateTask(t, repo, orphan)
-	tasks, err := repo.List(ctx, domain.TaskFilter{ParentID: &parent.ID})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{ParentID: &parent.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func TestTaskListWaitingOnly(t *testing.T) {
 	t3 := newTestTask()
 	mustCreateTask(t, repo, t3)
 	waitingOnly := true
-	tasks, err := repo.List(ctx, domain.TaskFilter{WaitingOnly: &waitingOnly})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{WaitingOnly: &waitingOnly}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,10 +412,10 @@ func TestTaskListCombinedFilters(t *testing.T) {
 	t3.ProjectID = projID
 	mustCreateTask(t, repo, t3)
 
-	tasks, err := repo.List(ctx, domain.TaskFilter{
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{
 		Statuses:  []string{"active"},
 		ProjectID: &projID,
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +575,7 @@ func TestTaskListByRootID(t *testing.T) {
 	mustCreateTask(t, repo, grandchild)
 	unrelated := newTestTask()
 	mustCreateTask(t, repo, unrelated)
-	tasks, err := repo.List(ctx, domain.TaskFilter{RootID: &root.ID})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &root.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +622,7 @@ func TestList_TitleContains(t *testing.T) {
 	mustCreateTask(t, repo, t2)
 
 	v := "auth"
-	tasks, err := repo.List(ctx, domain.TaskFilter{TitleContains: &v})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{TitleContains: &v}})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -650,7 +650,7 @@ func TestList_DescriptionContains(t *testing.T) {
 	mustCreateTask(t, repo, t2)
 
 	v := "authentication"
-	tasks, err := repo.List(ctx, domain.TaskFilter{DescriptionContains: &v})
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{DescriptionContains: &v}})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -659,5 +659,47 @@ func TestList_DescriptionContains(t *testing.T) {
 	}
 	if tasks[0].Title != "Task A" {
 		t.Fatalf("expected Task A, got %q", tasks[0].Title)
+	}
+}
+
+func TestBuildFilterExpr_And(t *testing.T) {
+	expr := &domain.AndFilter{Children: []domain.FilterExpr{
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{Tags: []string{"api"}}},
+	}}
+	_, where, _ := buildFilterExpr(expr)
+	if !strings.Contains(where, " AND ") {
+		t.Fatalf("expected AND in WHERE, got %q", where)
+	}
+}
+
+func TestBuildFilterExpr_Or(t *testing.T) {
+	expr := &domain.OrFilter{Children: []domain.FilterExpr{
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending"}}},
+	}}
+	_, where, _ := buildFilterExpr(expr)
+	if !strings.Contains(where, " OR ") {
+		t.Fatalf("expected OR in WHERE, got %q", where)
+	}
+}
+
+func TestBuildFilterExpr_Not(t *testing.T) {
+	expr := &domain.NotFilter{
+		Child: &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"deleted"}}},
+	}
+	_, where, _ := buildFilterExpr(expr)
+	if !strings.Contains(where, "NOT (") {
+		t.Fatalf("expected NOT in WHERE, got %q", where)
+	}
+}
+
+func TestBuildFilterExpr_Nil(t *testing.T) {
+	_, where, args := buildFilterExpr(nil)
+	if where != "" {
+		t.Fatalf("expected empty WHERE for nil, got %q", where)
+	}
+	if len(args) != 0 {
+		t.Fatalf("expected no args for nil, got %v", args)
 	}
 }

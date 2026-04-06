@@ -199,5 +199,5 @@ func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command) ([]*domain
 	if !showAll {
 		filter.Statuses = []string{"pending", "active", "completed"}
 	}
-	return a.taskSvc.List(ctx, filter)
+	return a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
 }

@@ -216,14 +216,14 @@ func TestTagFilterIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tasks, err := taskRepo.List(ctx, domain.TaskFilter{Tags: []string{"bug", "api"}})
+	tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Tags: []string{"bug", "api"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(tasks) != 1 || tasks[0].ID != t1.ID {
 		t.Fatalf("expected only t1, got %d tasks", len(tasks))
 	}
-	tasks, err = taskRepo.List(ctx, domain.TaskFilter{ExcludeTags: []string{"docs"}})
+	tasks, err = taskRepo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{ExcludeTags: []string{"docs"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

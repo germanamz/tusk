@@ -370,7 +370,7 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		filter.DescriptionContains = &desc
 	}
 
-	tasks, err := s.taskSvc.List(ctx, filter)
+	tasks, err := s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
 	if err != nil {
 		return nil, err
 	}
@@ -834,7 +834,7 @@ func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest
 			filter = domain.TaskFilter{}
 		}
 		var listErr error
-		tasks, listErr = s.taskSvc.List(ctx, filter)
+		tasks, listErr = s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
 		if listErr != nil {
 			return nil, listErr
 		}
