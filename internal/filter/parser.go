@@ -48,6 +48,11 @@ func Parse(input string) (*FilterSet, []ParseError) {
 		case TokenText:
 			fs.Text = append(fs.Text, tok.Value)
 
+		case TokenAnd, TokenOr, TokenNot, TokenLParen, TokenRParen:
+			// In Parse (input building for tusk add/modify), boolean keywords
+			// and parens are plain text, not operators. Preserve them as title words.
+			fs.Text = append(fs.Text, tok.Value)
+
 		case TokenField:
 			key, value, _ := strings.Cut(tok.Value, ":")
 			// Check for uda.* prefix before static field lookup
