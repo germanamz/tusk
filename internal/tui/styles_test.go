@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/internal/domain"
 )
 
 func TestStyledPriority_NoColor(t *testing.T) {
@@ -104,6 +105,38 @@ func TestIsDimStatus(t *testing.T) {
 			t.Error("expected false for nil map")
 		}
 	})
+}
+
+func TestStyledTag_NoColor(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
+	tag := &domain.Tag{Name: "bug"}
+	got := r.styledTag(tag)
+	if got != "+bug" {
+		t.Errorf("styledTag = %q, want \"+bug\"", got)
+	}
+}
+
+func TestStyledTag_WithColorNoTagColor(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+	tag := &domain.Tag{Name: "bug"}
+	got := r.styledTag(tag)
+	// No tag color set — should return plain "+bug" without ANSI codes
+	if got != "+bug" {
+		t.Errorf("styledTag = %q, want \"+bug\"", got)
+	}
+}
+
+func TestStyledTag_WithColorAndTagColor(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+	color := "#ff4444"
+	tag := &domain.Tag{Name: "urgent", Color: &color}
+	got := r.styledTag(tag)
+	if !strings.Contains(got, "urgent") {
+		t.Errorf("styledTag should contain \"urgent\", got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[") {
+		t.Errorf("styledTag should contain ANSI codes when tag has color, got %q", got)
+	}
 }
 
 func TestColorEnabled(t *testing.T) {

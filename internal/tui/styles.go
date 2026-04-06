@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/germanamz/tusk/internal/domain"
 )
 
 // Styles holds precomputed lipgloss styles for colored terminal output.
@@ -80,6 +81,16 @@ func (r *Renderer) paddedLabel(text string, width int) string {
 	styled := r.styledLabel(text)
 	pad := max(0, width-lipgloss.Width(styled))
 	return styled + strings.Repeat(" ", pad)
+}
+
+// styledTag returns "+tagname" with the tag's hex color applied as foreground if color is enabled
+// and the tag has a color set. Otherwise returns plain "+tagname".
+func (r *Renderer) styledTag(tag *domain.Tag) string {
+	text := "+" + tag.Name
+	if r.styles == nil || tag.Color == nil {
+		return text
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(*tag.Color)).Render(text)
 }
 
 // newStyles initializes the default color styles.
