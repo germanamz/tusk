@@ -88,6 +88,7 @@ func (e *Env) Run(args ...string) Result {
 
 	// Set environment variables
 	env := os.Environ()
+	env = append(env, "NO_COLOR=1")
 	if e.dbMode == "env" {
 		env = append(env, "TUSK_DB="+e.dbPath)
 	}
