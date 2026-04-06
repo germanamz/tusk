@@ -142,6 +142,13 @@ func validateBool(v string) error {
 	return nil
 }
 
+func validateNonEmpty(v string) error {
+	if v == "" {
+		return fmt.Errorf("value cannot be empty")
+	}
+	return nil
+}
+
 // ParsePriorityValue is the exported version of parsePriorityValue for use
 // by the TUI layer when creating tasks (not filtering).
 func ParsePriorityValue(s string) (int, error) {

@@ -327,3 +327,39 @@ func TestParse_QuotedTextWithFields(t *testing.T) {
 		t.Fatalf("expected include tags [api], got %v", fs.IncludeTags())
 	}
 }
+
+func TestParse_TitleField(t *testing.T) {
+	fs, errs := Parse(`title:"auth middleware"`)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	f, ok := fs.GetField("title")
+	if !ok || f.Value != "auth middleware" {
+		t.Fatalf("expected title=auth middleware, got %+v ok=%v", f, ok)
+	}
+}
+
+func TestParse_DescriptionField(t *testing.T) {
+	fs, errs := Parse(`description:"implement the feature"`)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	f, ok := fs.GetField("description")
+	if !ok || f.Value != "implement the feature" {
+		t.Fatalf("expected description=implement the feature, got %+v ok=%v", f, ok)
+	}
+}
+
+func TestParse_TitleFieldEmpty(t *testing.T) {
+	_, errs := Parse("title:")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for empty title, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestParse_DescriptionFieldEmpty(t *testing.T) {
+	_, errs := Parse("description:")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for empty description, got %d: %v", len(errs), errs)
+	}
+}

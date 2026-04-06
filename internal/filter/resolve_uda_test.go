@@ -69,3 +69,35 @@ func TestResolve_UDAEmptyValue(t *testing.T) {
 		t.Fatalf("expected UDA env with empty value, got %v", tf.UDA)
 	}
 }
+
+func TestResolve_TitleContains(t *testing.T) {
+	resolver := NewResolver(mockTaskLookup{})
+	fs := &FilterSet{
+		Fields: []FieldFilter{
+			{Key: "title", Value: "auth middleware"},
+		},
+	}
+	tf, errs := resolver.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if tf.TitleContains == nil || *tf.TitleContains != "auth middleware" {
+		t.Fatalf("expected TitleContains=auth middleware, got %v", tf.TitleContains)
+	}
+}
+
+func TestResolve_DescriptionContains(t *testing.T) {
+	resolver := NewResolver(mockTaskLookup{})
+	fs := &FilterSet{
+		Fields: []FieldFilter{
+			{Key: "description", Value: "implement feature"},
+		},
+	}
+	tf, errs := resolver.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if tf.DescriptionContains == nil || *tf.DescriptionContains != "implement feature" {
+		t.Fatalf("expected DescriptionContains=implement feature, got %v", tf.DescriptionContains)
+	}
+}

@@ -9,13 +9,15 @@ import (
 // fieldValidators maps field names to their validation functions.
 // Do not modify after init.
 var fieldValidators = map[string]func(string) error{
-	"status":   validateStatus,
-	"project":  validateProject,
-	"priority": validatePriority,
-	"due":      validateDue,
-	"parent":   validateShortID,
-	"tree":     validateShortID,
-	"waiting":  validateBool,
+	"status":      validateStatus,
+	"project":     validateProject,
+	"priority":    validatePriority,
+	"due":         validateDue,
+	"parent":      validateShortID,
+	"tree":        validateShortID,
+	"waiting":     validateBool,
+	"title":       validateNonEmpty,
+	"description": validateNonEmpty,
 }
 
 // Parse takes a raw filter string and returns the AST plus any parse errors.
