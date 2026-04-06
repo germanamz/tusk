@@ -247,6 +247,7 @@ type taskJSON struct {
 	UDA            map[string]any `json:"uda,omitempty"`
 	CreatedAt      string         `json:"created_at"`
 	ModifiedAt     string         `json:"modified_at"`
+	Urgency        float64        `json:"urgency"`
 }
 
 func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
@@ -261,6 +262,7 @@ func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 		UDA:         t.UDA,
 		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
 		ModifiedAt:  t.ModifiedAt.Format(time.RFC3339),
+		Urgency:     t.Urgency,
 	}
 	if t.ParentID != nil {
 		s := t.ParentID.String()

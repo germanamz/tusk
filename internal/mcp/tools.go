@@ -44,6 +44,7 @@ type taskResponse struct {
 	UDA            map[string]any `json:"uda,omitempty"`
 	CreatedAt      string         `json:"created_at"`
 	ModifiedAt     string         `json:"modified_at"`
+	Urgency        float64        `json:"urgency"`
 }
 
 func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
@@ -57,6 +58,7 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
 		Version:     t.Version,
 		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
 		ModifiedAt:  t.ModifiedAt.Format(time.RFC3339),
+		Urgency:     t.Urgency,
 	}
 	if t.ParentID != nil {
 		s := t.ParentID.String()
