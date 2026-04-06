@@ -121,8 +121,8 @@ func (r *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error 
 // List retrieves tasks matching the given filter expression. A nil filter
 // returns all tasks.
 func (r *TaskRepo) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
-	ctePrefix, where, args := buildFilterExpr(filter)
-	query := ctePrefix + fmt.Sprintf(`SELECT %s FROM tasks`, taskColumns)
+	where, args := buildFilterExpr(filter)
+	query := fmt.Sprintf(`SELECT %s FROM tasks`, taskColumns)
 	if where != "" {
 		query += " WHERE " + where
 	}
@@ -168,11 +168,8 @@ func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*dom
 	return r.scanRows(rows)
 }
 
-// buildFilter translates a TaskFilter struct into SQL fragments:
-//   - ctePrefix: a WITH RECURSIVE clause (only set when RootID is used)
-//   - where: the WHERE clause body (conditions joined by AND)
-//   - args: the parameter values corresponding to ? placeholders
-func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args []any) {
+// buildFilter translates a TaskFilter struct into a WHERE clause body and args.
+func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 	var conditions []string
 
 	if filter.ProjectID != nil {
@@ -184,13 +181,15 @@ func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args
 		args = append(args, filter.ParentID.String())
 	}
 	if filter.RootID != nil {
-		ctePrefix = `WITH RECURSIVE descendants(id) AS (
-			SELECT id FROM tasks WHERE parent_id = ?
-			UNION ALL
-			SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
-		) `
-		args = append([]any{filter.RootID.String()}, args...)
-		conditions = append(conditions, "tasks.id IN (SELECT id FROM descendants)")
+		conditions = append(conditions, `tasks.id IN (
+			WITH RECURSIVE descendants(id) AS (
+				SELECT id FROM tasks WHERE parent_id = ?
+				UNION ALL
+				SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+			)
+			SELECT id FROM descendants
+		)`)
+		args = append(args, filter.RootID.String())
 	}
 	if len(filter.Statuses) > 0 {
 		placeholders := make([]string, len(filter.Statuses))
@@ -273,14 +272,13 @@ func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args
 			}
 		}
 	}
-	return ctePrefix, strings.Join(conditions, " AND "), args
+	return strings.Join(conditions, " AND "), args
 }
 
 // buildFilterExpr recursively translates a domain.FilterExpr tree into SQL.
-// It returns a CTE prefix (for tree: filters), WHERE clause body, and args.
-func buildFilterExpr(expr domain.FilterExpr) (ctePrefix string, where string, args []any) {
+func buildFilterExpr(expr domain.FilterExpr) (where string, args []any) {
 	if expr == nil {
-		return "", "", nil
+		return "", nil
 	}
 
 	switch e := expr.(type) {
@@ -288,56 +286,42 @@ func buildFilterExpr(expr domain.FilterExpr) (ctePrefix string, where string, ar
 		return buildFilter(e.TaskFilter)
 
 	case *domain.AndFilter:
-		var ctes []string
 		var conditions []string
 		for _, child := range e.Children {
-			cte, w, a := buildFilterExpr(child)
-			if cte != "" {
-				ctes = append(ctes, cte)
-			}
+			w, a := buildFilterExpr(child)
 			if w != "" {
 				conditions = append(conditions, w)
 				args = append(args, a...)
 			}
 		}
-		if len(ctes) > 0 {
-			ctePrefix = ctes[0]
-		}
 		if len(conditions) == 0 {
-			return ctePrefix, "", args
+			return "", args
 		}
-		return ctePrefix, "(" + strings.Join(conditions, " AND ") + ")", args
+		return "(" + strings.Join(conditions, " AND ") + ")", args
 
 	case *domain.OrFilter:
-		var ctes []string
 		var conditions []string
 		for _, child := range e.Children {
-			cte, w, a := buildFilterExpr(child)
-			if cte != "" {
-				ctes = append(ctes, cte)
-			}
+			w, a := buildFilterExpr(child)
 			if w != "" {
 				conditions = append(conditions, w)
 				args = append(args, a...)
 			}
 		}
-		if len(ctes) > 0 {
-			ctePrefix = ctes[0]
-		}
 		if len(conditions) == 0 {
-			return ctePrefix, "", args
+			return "", args
 		}
-		return ctePrefix, "(" + strings.Join(conditions, " OR ") + ")", args
+		return "(" + strings.Join(conditions, " OR ") + ")", args
 
 	case *domain.NotFilter:
-		cte, w, a := buildFilterExpr(e.Child)
+		w, a := buildFilterExpr(e.Child)
 		if w == "" {
-			return cte, "", a
+			return "", a
 		}
-		return cte, "NOT (" + w + ")", a
+		return "NOT (" + w + ")", a
 
 	default:
-		return "", "", nil
+		return "", nil
 	}
 }
 

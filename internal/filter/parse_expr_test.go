@@ -244,8 +244,43 @@ func TestParseExpr_ComplexExpression(t *testing.T) {
 
 func TestParseExpr_FieldValidation(t *testing.T) {
 	// Unknown field should produce an error but continue
-	_, errs := ParseExpr("foo:bar OR status:active")
+	expr, errs := ParseExpr("foo:bar OR status:active")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
+	}
+	// The valid status:active side of OR should still be preserved
+	if expr == nil {
+		t.Fatal("expected non-nil expr — valid terms should survive validation errors")
+	}
+}
+
+func TestParseExpr_FieldValidation_ImplicitAnd(t *testing.T) {
+	// "foo:bar status:active" — bad field should not truncate the AND chain
+	expr, errs := ParseExpr("foo:bar status:active")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
+	}
+	if expr == nil {
+		t.Fatal("expected non-nil expr — status:active should survive")
+	}
+	// The surviving expression should be the status:active term
+	want := TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}}
+	if !exprEqual(expr, want) {
+		t.Fatalf("expected status:active term to survive, got %+v", expr)
+	}
+}
+
+func TestParseExpr_FieldValidation_MiddleBadTerm(t *testing.T) {
+	// "+api foo:bar status:active" — bad field in the middle should not affect surrounding terms
+	expr, errs := ParseExpr("+api foo:bar status:active")
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+	want := AndExpr{Children: []Expr{
+		TermExpr{Tag: &TagFilter{Name: "api"}},
+		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
+	}}
+	if !exprEqual(expr, want) {
+		t.Fatalf("expected AND(+api, status:active), got %+v", expr)
 	}
 }

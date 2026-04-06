@@ -433,7 +433,7 @@ func TestBuildFilter_UDA(t *testing.T) {
 	filter := domain.TaskFilter{
 		UDA: map[string]string{"env": "prod"},
 	}
-	_, where, args := buildFilter(filter)
+	where, args := buildFilter(filter)
 	if !strings.Contains(where, "json_extract") {
 		t.Fatalf("expected json_extract in WHERE clause, got %q", where)
 	}
@@ -452,7 +452,7 @@ func TestBuildFilter_UDAEmptyValue(t *testing.T) {
 	filter := domain.TaskFilter{
 		UDA: map[string]string{"env": ""},
 	}
-	_, where, args := buildFilter(filter)
+	where, args := buildFilter(filter)
 	if !strings.Contains(where, "IS NULL") {
 		t.Fatalf("expected IS NULL in WHERE clause for empty value, got %q", where)
 	}
@@ -465,7 +465,7 @@ func TestBuildFilter_UDAMultiple(t *testing.T) {
 	filter := domain.TaskFilter{
 		UDA: map[string]string{"env": "prod", "team": "backend"},
 	}
-	_, where, args := buildFilter(filter)
+	where, args := buildFilter(filter)
 	if strings.Count(where, "json_extract") != 2 {
 		t.Fatalf("expected 2 json_extract conditions, got %q", where)
 	}
@@ -587,7 +587,7 @@ func TestTaskListByRootID(t *testing.T) {
 func TestBuildFilter_TitleContains(t *testing.T) {
 	v := "auth"
 	filter := domain.TaskFilter{TitleContains: &v}
-	_, where, args := buildFilter(filter)
+	where, args := buildFilter(filter)
 	if !strings.Contains(where, "LOWER(title)") {
 		t.Fatalf("expected LOWER(title) in WHERE clause, got %q", where)
 	}
@@ -599,7 +599,7 @@ func TestBuildFilter_TitleContains(t *testing.T) {
 func TestBuildFilter_DescriptionContains(t *testing.T) {
 	v := "implement"
 	filter := domain.TaskFilter{DescriptionContains: &v}
-	_, where, args := buildFilter(filter)
+	where, args := buildFilter(filter)
 	if !strings.Contains(where, "LOWER(description)") {
 		t.Fatalf("expected LOWER(description) in WHERE clause, got %q", where)
 	}
@@ -667,7 +667,7 @@ func TestBuildFilterExpr_And(t *testing.T) {
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Tags: []string{"api"}}},
 	}}
-	_, where, _ := buildFilterExpr(expr)
+	where, _ := buildFilterExpr(expr)
 	if !strings.Contains(where, " AND ") {
 		t.Fatalf("expected AND in WHERE, got %q", where)
 	}
@@ -678,7 +678,7 @@ func TestBuildFilterExpr_Or(t *testing.T) {
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending"}}},
 	}}
-	_, where, _ := buildFilterExpr(expr)
+	where, _ := buildFilterExpr(expr)
 	if !strings.Contains(where, " OR ") {
 		t.Fatalf("expected OR in WHERE, got %q", where)
 	}
@@ -688,18 +688,76 @@ func TestBuildFilterExpr_Not(t *testing.T) {
 	expr := &domain.NotFilter{
 		Child: &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"deleted"}}},
 	}
-	_, where, _ := buildFilterExpr(expr)
+	where, _ := buildFilterExpr(expr)
 	if !strings.Contains(where, "NOT (") {
 		t.Fatalf("expected NOT in WHERE, got %q", where)
 	}
 }
 
 func TestBuildFilterExpr_Nil(t *testing.T) {
-	_, where, args := buildFilterExpr(nil)
+	where, args := buildFilterExpr(nil)
 	if where != "" {
 		t.Fatalf("expected empty WHERE for nil, got %q", where)
 	}
 	if len(args) != 0 {
 		t.Fatalf("expected no args for nil, got %v", args)
+	}
+}
+
+func TestBuildFilterExpr_TreeWithOtherFilters(t *testing.T) {
+	rootID := uuid.New()
+	expr := &domain.AndFilter{Children: []domain.FilterExpr{
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &rootID}},
+	}}
+	where, args := buildFilterExpr(expr)
+	if !strings.Contains(where, "WITH RECURSIVE") {
+		t.Fatalf("expected inline CTE in WHERE, got %q", where)
+	}
+	// Args must be in placeholder order: status first, then root ID
+	if len(args) != 2 {
+		t.Fatalf("expected 2 args, got %d: %v", len(args), args)
+	}
+	if args[0] != "active" {
+		t.Fatalf("expected first arg 'active', got %v", args[0])
+	}
+	if args[1] != rootID.String() {
+		t.Fatalf("expected second arg root ID, got %v", args[1])
+	}
+}
+
+func TestListByRootID_WithStatusFilter(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+
+	root := newTestTask()
+	root.Status = "active"
+	mustCreateTask(t, repo, root)
+
+	activeChild := newTestTask()
+	activeChild.ParentID = &root.ID
+	activeChild.Status = "active"
+	mustCreateTask(t, repo, activeChild)
+
+	pendingChild := newTestTask()
+	pendingChild.ParentID = &root.ID
+	pendingChild.Status = "pending"
+	mustCreateTask(t, repo, pendingChild)
+
+	// Compound: status:active AND tree:<root> — should return only the active child
+	expr := &domain.AndFilter{Children: []domain.FilterExpr{
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
+		&domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &root.ID}},
+	}}
+	tasks, err := repo.List(ctx, expr)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 active descendant, got %d", len(tasks))
+	}
+	if tasks[0].ID != activeChild.ID {
+		t.Fatalf("expected active child, got %v", tasks[0].ID)
 	}
 }

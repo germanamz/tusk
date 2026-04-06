@@ -167,3 +167,12 @@ func TestResolveExpr_NilExpr(t *testing.T) {
 		t.Fatalf("expected nil result for nil input, got %+v", result)
 	}
 }
+
+func TestResolveExpr_FreeTextError(t *testing.T) {
+	resolver := NewResolver(mockTaskLookup{})
+	expr := TermExpr{Text: "someword"}
+	_, errs := resolver.ResolveExpr(context.Background(), expr)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for free text, got %d: %v", len(errs), errs)
+	}
+}
