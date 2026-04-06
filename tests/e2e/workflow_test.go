@@ -104,3 +104,45 @@ func TestWorkflowCommands(t *testing.T) {
 
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestWorkflowStatusDisplay(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	configContent := `
+[workflows.custom]
+statuses = ["pending", "in_progress", "review", "done", "archived"]
+transitions = [
+  { from = "pending", to = "in_progress" },
+  { from = "in_progress", to = "review" },
+  { from = "review", to = "done" },
+]
+highlight_statuses = ["in_progress", "review"]
+dim_statuses = ["done", "archived"]
+
+[projects.default]
+workflow = "custom"
+`
+
+	for _, dbMode := range []string{"flag", "env"} {
+		t.Run(dbMode, func(t *testing.T) {
+			t.Parallel()
+			env := newEnv(t, binPath, dbMode, "json")
+			env.withConfig(configContent)
+
+			// Create a task — verifies config loads without error
+			r := env.Run("add", "Test task")
+			if r.Err != nil {
+				t.Fatalf("add failed: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+
+			// List tasks — verifies task is returned
+			r = env.Run("list")
+			if r.Err != nil {
+				t.Fatalf("list failed: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+			assertContains(t, r.Stdout, "Test task")
+		})
+	}
+}
