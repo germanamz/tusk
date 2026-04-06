@@ -232,13 +232,16 @@ func (s *TaskService) Next(ctx context.Context) (*domain.Task, error) {
 		if t.WaitUntil != nil && t.WaitUntil.After(now) {
 			continue
 		}
-		// Check if blocked
-		blockedBy, err := s.relationRepo.CountBlockedByTasks(ctx, []uuid.UUID{t.ID})
-		if err != nil {
-			return nil, fmt.Errorf("checking blocked status: %w", err)
-		}
-		if blockedBy[t.ID] > 0 {
-			continue
+		// Check if blocked (relationRepo is always non-nil when urgencyEngine is set,
+		// but guard against nil for minimal-dependency usage).
+		if s.relationRepo != nil {
+			blockedBy, err := s.relationRepo.CountBlockedByTasks(ctx, []uuid.UUID{t.ID})
+			if err != nil {
+				return nil, fmt.Errorf("checking blocked status: %w", err)
+			}
+			if blockedBy[t.ID] > 0 {
+				continue
+			}
 		}
 		return t, nil
 	}

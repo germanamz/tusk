@@ -332,6 +332,9 @@ func (a *App) runNext(cmd *cobra.Command, args []string) error {
 
 	task, err := a.taskSvc.Next(ctx)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("no actionable tasks")
+		}
 		return err
 	}
 
