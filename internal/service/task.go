@@ -153,9 +153,59 @@ func (s *TaskService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, 
 	return s.taskRepo.GetByID(ctx, id)
 }
 
-// List returns tasks matching the given filter.
+// List returns tasks matching the given filter, scored and sorted by urgency.
 func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
-	return s.taskRepo.List(ctx, filter)
+	tasks, err := s.taskRepo.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tasks) == 0 || s.urgencyEngine == nil {
+		return tasks, nil
+	}
+
+	// Collect task IDs for batch queries
+	taskIDs := make([]uuid.UUID, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+
+	// Batch-load relation counts
+	blockingCounts, err := s.relationRepo.CountBlockingByTasks(ctx, taskIDs)
+	if err != nil {
+		return nil, fmt.Errorf("loading blocking counts: %w", err)
+	}
+	blockedByCounts, err := s.relationRepo.CountBlockedByTasks(ctx, taskIDs)
+	if err != nil {
+		return nil, fmt.Errorf("loading blocked-by counts: %w", err)
+	}
+
+	// Batch-load annotation counts
+	annotationCounts, err := s.annotationRepo.CountByTasks(ctx, taskIDs)
+	if err != nil {
+		return nil, fmt.Errorf("loading annotation counts: %w", err)
+	}
+
+	// Batch-load tag counts
+	tagsByTask, err := s.tagRepo.GetTaskTagsBatch(ctx, taskIDs)
+	if err != nil {
+		return nil, fmt.Errorf("loading tag counts: %w", err)
+	}
+	tagCounts := make(map[uuid.UUID]int, len(tagsByTask))
+	for id, tags := range tagsByTask {
+		tagCounts[id] = len(tags)
+	}
+
+	sctx := ScoringContext{
+		BlockingCount:   blockingCounts,
+		BlockedByCount:  blockedByCounts,
+		AnnotationCount: annotationCounts,
+		TagCount:        tagCounts,
+		ProjectWeights:  map[string]*UrgencyWeights{},
+	}
+
+	s.urgencyEngine.ScoreAndSort(tasks, sctx)
+	return tasks, nil
 }
 
 // GetChildren returns the direct children of a task.
