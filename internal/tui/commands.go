@@ -218,21 +218,26 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	input := strings.Join(args, " ")
-	fs, parseErrs := filter.Parse(input)
+	expr, parseErrs := filter.ParseExpr(input)
 	if len(parseErrs) > 0 {
-		return fmt.Errorf("%s", filter.FormatErrors(parseErrs))
+		return fmt.Errorf("filter errors:\n%s", filter.FormatErrors(parseErrs))
 	}
 
-	tf, resolveErrs := a.resolver.Resolve(ctx, fs)
-	if len(resolveErrs) > 0 {
-		msgs := make([]string, len(resolveErrs))
-		for i, e := range resolveErrs {
-			msgs[i] = e.Error()
+	var filterExpr domain.FilterExpr
+	if expr != nil {
+		var resolveErrs []error
+		filterExpr, resolveErrs = a.resolver.ResolveExpr(ctx, expr)
+		if len(resolveErrs) > 0 {
+			return resolveErrs[0]
 		}
-		return fmt.Errorf("%s", strings.Join(msgs, "\n"))
+	} else {
+		// No filter input — apply default statuses
+		filterExpr = &domain.TermFilter{TaskFilter: domain.TaskFilter{
+			Statuses: []string{"pending", "active"},
+		}}
 	}
 
-	tasks, err := a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: *tf})
+	tasks, err := a.taskSvc.List(ctx, filterExpr)
 	if err != nil {
 		return err
 	}
