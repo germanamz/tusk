@@ -20,7 +20,7 @@ func (s *stubTaskRepo) GetByShortID(_ context.Context, _ string) (*domain.Task, 
 }
 func (s *stubTaskRepo) Update(_ context.Context, _ *domain.Task) error     { return nil }
 func (s *stubTaskRepo) Delete(_ context.Context, _ uuid.UUID, _ int) error { return nil }
-func (s *stubTaskRepo) List(_ context.Context, _ domain.TaskFilter) ([]*domain.Task, error) {
+func (s *stubTaskRepo) List(_ context.Context, _ domain.FilterExpr) ([]*domain.Task, error) {
 	return nil, nil
 }
 func (s *stubTaskRepo) GetChildren(_ context.Context, _ uuid.UUID) ([]*domain.Task, error) {

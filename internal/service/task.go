@@ -145,7 +145,7 @@ func (s *TaskService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, 
 }
 
 // List returns tasks matching the given filter.
-func (s *TaskService) List(ctx context.Context, filter domain.TaskFilter) ([]*domain.Task, error) {
+func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
 	return s.taskRepo.List(ctx, filter)
 }
 

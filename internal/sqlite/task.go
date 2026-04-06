@@ -118,11 +118,10 @@ func (r *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error 
 	return nil
 }
 
-// List retrieves tasks matching the given filter. An empty filter returns all
-// tasks. The filter fields are combined with AND logic — a task must match
-// every non-nil/non-empty filter field to be included.
-func (r *TaskRepo) List(ctx context.Context, filter domain.TaskFilter) ([]*domain.Task, error) {
-	ctePrefix, where, args := buildFilter(filter)
+// List retrieves tasks matching the given filter expression. A nil filter
+// returns all tasks.
+func (r *TaskRepo) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
+	ctePrefix, where, args := buildFilterExpr(filter)
 	query := ctePrefix + fmt.Sprintf(`SELECT %s FROM tasks`, taskColumns)
 	if where != "" {
 		query += " WHERE " + where
@@ -275,6 +274,71 @@ func buildFilter(filter domain.TaskFilter) (ctePrefix string, where string, args
 		}
 	}
 	return ctePrefix, strings.Join(conditions, " AND "), args
+}
+
+// buildFilterExpr recursively translates a domain.FilterExpr tree into SQL.
+// It returns a CTE prefix (for tree: filters), WHERE clause body, and args.
+func buildFilterExpr(expr domain.FilterExpr) (ctePrefix string, where string, args []any) {
+	if expr == nil {
+		return "", "", nil
+	}
+
+	switch e := expr.(type) {
+	case *domain.TermFilter:
+		return buildFilter(e.TaskFilter)
+
+	case *domain.AndFilter:
+		var ctes []string
+		var conditions []string
+		for _, child := range e.Children {
+			cte, w, a := buildFilterExpr(child)
+			if cte != "" {
+				ctes = append(ctes, cte)
+			}
+			if w != "" {
+				conditions = append(conditions, w)
+				args = append(args, a...)
+			}
+		}
+		if len(ctes) > 0 {
+			ctePrefix = ctes[0]
+		}
+		if len(conditions) == 0 {
+			return ctePrefix, "", args
+		}
+		return ctePrefix, "(" + strings.Join(conditions, " AND ") + ")", args
+
+	case *domain.OrFilter:
+		var ctes []string
+		var conditions []string
+		for _, child := range e.Children {
+			cte, w, a := buildFilterExpr(child)
+			if cte != "" {
+				ctes = append(ctes, cte)
+			}
+			if w != "" {
+				conditions = append(conditions, w)
+				args = append(args, a...)
+			}
+		}
+		if len(ctes) > 0 {
+			ctePrefix = ctes[0]
+		}
+		if len(conditions) == 0 {
+			return ctePrefix, "", args
+		}
+		return ctePrefix, "(" + strings.Join(conditions, " OR ") + ")", args
+
+	case *domain.NotFilter:
+		cte, w, a := buildFilterExpr(e.Child)
+		if w == "" {
+			return cte, "", a
+		}
+		return cte, "NOT (" + w + ")", a
+
+	default:
+		return "", "", nil
+	}
 }
 
 func (r *TaskRepo) scanOne(row *sql.Row) (*domain.Task, error) {

@@ -232,7 +232,7 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", strings.Join(msgs, "\n"))
 	}
 
-	tasks, err := a.taskSvc.List(ctx, *tf)
+	tasks, err := a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: *tf})
 	if err != nil {
 		return err
 	}
