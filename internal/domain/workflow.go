@@ -3,9 +3,11 @@ package domain
 // Workflow is a named set of statuses and allowed transitions.
 // Workflows are config-driven in-memory entities identified by Name.
 type Workflow struct {
-	Name        string
-	Statuses    []string
-	Transitions []WorkflowTransition
+	Name              string
+	Statuses          []string
+	Transitions       []WorkflowTransition
+	HighlightStatuses []string
+	DimStatuses       []string
 }
 
 // WorkflowTransition defines an allowed status change within a workflow.

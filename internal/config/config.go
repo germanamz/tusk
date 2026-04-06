@@ -22,8 +22,10 @@ type WorkflowTransitionConfig struct {
 
 // WorkflowConfig defines a named workflow with its statuses and transitions.
 type WorkflowConfig struct {
-	Statuses    []string                   `mapstructure:"statuses"`
-	Transitions []WorkflowTransitionConfig `mapstructure:"transitions"`
+	Statuses          []string                   `mapstructure:"statuses"`
+	Transitions       []WorkflowTransitionConfig `mapstructure:"transitions"`
+	HighlightStatuses []string                   `mapstructure:"highlight_statuses"`
+	DimStatuses       []string                   `mapstructure:"dim_statuses"`
 }
 
 // AutoCompleteParentConfig controls automatic parent completion.
@@ -198,6 +200,29 @@ func Load(opts ...Option) (*Config, error) {
 
 // validate checks cross-references between config sections.
 func (c *Config) validate() error {
+	for name, wf := range c.Workflows {
+		statusSet := make(map[string]bool, len(wf.Statuses))
+		for _, s := range wf.Statuses {
+			statusSet[s] = true
+		}
+		for _, s := range wf.HighlightStatuses {
+			if !statusSet[s] {
+				return fmt.Errorf("workflow %q: highlight_statuses references unknown status %q", name, s)
+			}
+		}
+		dimSet := make(map[string]bool, len(wf.DimStatuses))
+		for _, s := range wf.DimStatuses {
+			if !statusSet[s] {
+				return fmt.Errorf("workflow %q: dim_statuses references unknown status %q", name, s)
+			}
+			dimSet[s] = true
+		}
+		for _, s := range wf.HighlightStatuses {
+			if dimSet[s] {
+				return fmt.Errorf("workflow %q: status %q cannot be in both highlight_statuses and dim_statuses", name, s)
+			}
+		}
+	}
 	for id, proj := range c.Projects {
 		if _, ok := c.Workflows[proj.Workflow]; !ok {
 			return fmt.Errorf("project %q references unknown workflow %q", id, proj.Workflow)

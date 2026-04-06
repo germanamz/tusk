@@ -57,6 +57,8 @@ transitions = [
   { from = "active",    to = "deleted" },
   { from = "completed", to = "pending" },
 ]
+highlight_statuses = ["active"]
+dim_statuses = ["completed", "deleted"]
 
 # Projects group tasks and assign workflows.
 # The builtin "default" project uses the "kanban" workflow.

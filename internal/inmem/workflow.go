@@ -34,6 +34,10 @@ func NewWorkflowRepository(cfgWorkflows map[string]config.WorkflowConfig) *Workf
 				ToStatus:   t.To,
 			}
 		}
+		wf.HighlightStatuses = make([]string, len(cfg.HighlightStatuses))
+		copy(wf.HighlightStatuses, cfg.HighlightStatuses)
+		wf.DimStatuses = make([]string, len(cfg.DimStatuses))
+		copy(wf.DimStatuses, cfg.DimStatuses)
 		workflows[name] = wf
 	}
 	return &WorkflowRepository{workflows: workflows}
@@ -67,5 +71,9 @@ func copyWorkflow(wf *domain.Workflow) *domain.Workflow {
 	copy(cp.Statuses, wf.Statuses)
 	cp.Transitions = make([]domain.WorkflowTransition, len(wf.Transitions))
 	copy(cp.Transitions, wf.Transitions)
+	cp.HighlightStatuses = make([]string, len(wf.HighlightStatuses))
+	copy(cp.HighlightStatuses, wf.HighlightStatuses)
+	cp.DimStatuses = make([]string, len(wf.DimStatuses))
+	copy(cp.DimStatuses, wf.DimStatuses)
 	return &cp
 }
