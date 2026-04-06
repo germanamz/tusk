@@ -70,9 +70,11 @@ dim_statuses = ["completed", "deleted"]
 [projects.default]
 workflow = "kanban"
 
-# Example: custom project with auto-completion
+# Example: custom project with auto-completion and urgency overrides
 # [projects.backend]
 # workflow = "kanban"
 # [projects.backend.settings.auto_complete_parent]
 # trigger_status = "completed"
 # target_status = "completed"
+# [projects.backend.settings.urgency]
+# blocking_weight = 15.0

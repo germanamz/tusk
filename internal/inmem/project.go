@@ -38,6 +38,20 @@ func NewProjectRepository(cfgProjects map[string]config.ProjectConfig) *ProjectR
 				TargetStatus:  cfg.Settings.AutoRevertParent.TargetStatus,
 			}
 		}
+		if cfg.Settings.Urgency != nil {
+			p.Settings.Urgency = &domain.UrgencyOverrides{
+				PriorityWeight:    cfg.Settings.Urgency.PriorityWeight,
+				DueWeight:         cfg.Settings.Urgency.DueWeight,
+				AgeWeight:         cfg.Settings.Urgency.AgeWeight,
+				ActiveWeight:      cfg.Settings.Urgency.ActiveWeight,
+				BlockingWeight:    cfg.Settings.Urgency.BlockingWeight,
+				BlockedWeight:     cfg.Settings.Urgency.BlockedWeight,
+				TagsWeight:        cfg.Settings.Urgency.TagsWeight,
+				ProjectWeight:     cfg.Settings.Urgency.ProjectWeight,
+				AnnotationsWeight: cfg.Settings.Urgency.AnnotationsWeight,
+				WaitingWeight:     cfg.Settings.Urgency.WaitingWeight,
+			}
+		}
 		projects[id] = p
 	}
 	return &ProjectRepository{projects: projects}
@@ -74,6 +88,10 @@ func copyProject(p *domain.Project) *domain.Project {
 	if p.Settings.AutoRevertParent != nil {
 		arc := *p.Settings.AutoRevertParent
 		cp.Settings.AutoRevertParent = &arc
+	}
+	if p.Settings.Urgency != nil {
+		uo := *p.Settings.Urgency
+		cp.Settings.Urgency = &uo
 	}
 	return &cp
 }
