@@ -139,6 +139,48 @@ func TestStyledTag_WithColorAndTagColor(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdown_WithColor(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+	input := "# Hello\n\nThis is **bold** text."
+	got, err := r.renderMarkdown(input)
+	if err != nil {
+		t.Fatalf("renderMarkdown error: %v", err)
+	}
+	if !strings.Contains(got, "Hello") {
+		t.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
+	}
+	if !strings.Contains(got, "bold") {
+		t.Errorf("renderMarkdown should contain \"bold\", got %q", got)
+	}
+}
+
+func TestRenderMarkdown_NoColor(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
+	input := "# Hello\n\nSome text."
+	got, err := r.renderMarkdown(input)
+	if err != nil {
+		t.Fatalf("renderMarkdown error: %v", err)
+	}
+	if !strings.Contains(got, "Hello") {
+		t.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
+	}
+	if strings.Contains(got, "\x1b[") {
+		t.Errorf("renderMarkdown with no color should not contain ANSI codes, got %q", got)
+	}
+}
+
+func TestRenderMarkdown_PlainText(t *testing.T) {
+	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+	input := "Just a plain description with no markdown."
+	got, err := r.renderMarkdown(input)
+	if err != nil {
+		t.Fatalf("renderMarkdown error: %v", err)
+	}
+	if !strings.Contains(got, "plain description") {
+		t.Errorf("renderMarkdown should contain original text, got %q", got)
+	}
+}
+
 func TestColorEnabled(t *testing.T) {
 	tests := []struct {
 		name     string
