@@ -28,7 +28,7 @@ The implementer can rely on:
 - `annotationRepo.CountByTasks(ctx, taskIDs) (map[uuid.UUID]int, error)`
 - `relationRepo.CountBlockingByTasks(ctx, taskIDs) (map[uuid.UUID]int, error)`
 - `relationRepo.CountBlockedByTasks(ctx, taskIDs) (map[uuid.UUID]int, error)`
-- `tagSvc.GetTaskTagsBatch(ctx, taskIDs) (map[uuid.UUID][]*domain.Tag, error)` — existing method
+- `tagRepo.GetTaskTagsBatch(ctx, taskIDs) (map[uuid.UUID][]*domain.Tag, error)` — existing method on `repository.TagRepository`
 
 ---
 

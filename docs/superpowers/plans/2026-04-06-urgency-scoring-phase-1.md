@@ -190,7 +190,7 @@ git commit -m "feat(domain): add Urgency field to Task and JSON serialization ty
 
 - [ ] **Step 1: Write tests for batch annotation count**
 
-Create `internal/sqlite/annotation_test.go` (or add to it if it exists). Since the SQLite tests need a database, write a test that:
+Create `internal/sqlite/annotation_count_test.go`. Since the SQLite tests need a database, write a test that:
 
 ```go
 // In internal/sqlite/annotation_count_test.go
@@ -348,6 +348,7 @@ package sqlite_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 

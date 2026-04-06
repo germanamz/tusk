@@ -262,7 +262,7 @@ In `internal/service/task.go`, in the `List` method, replace the line that build
 ```go
 	// Before: ProjectWeights: map[string]*UrgencyWeights{},
 	// After:
-	projectWeights := s.buildProjectWeights(tasks)
+	projectWeights := s.buildProjectWeights(ctx, tasks)
 ```
 
 And use it in the `ScoringContext`:
@@ -282,7 +282,7 @@ Add the helper method to `TaskService`:
 ```go
 // buildProjectWeights constructs per-project merged urgency weights
 // for all distinct projects found in the task list.
-func (s *TaskService) buildProjectWeights(tasks []*domain.Task) map[string]*UrgencyWeights {
+func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.Task) map[string]*UrgencyWeights {
 	if s.urgencyEngine == nil {
 		return nil
 	}
@@ -295,7 +295,10 @@ func (s *TaskService) buildProjectWeights(tasks []*domain.Task) map[string]*Urge
 
 	weights := make(map[string]*UrgencyWeights, len(seen))
 	for projectID := range seen {
-		project, err := s.projectRepo.GetByID(context.Background(), projectID)
+		if projectID == "" {
+			continue
+		}
+		project, err := s.projectRepo.GetByID(ctx, projectID)
 		if err != nil {
 			continue // use engine defaults if project not found
 		}
@@ -308,8 +311,6 @@ func (s *TaskService) buildProjectWeights(tasks []*domain.Task) map[string]*Urge
 	return weights
 }
 ```
-
-You will need to add `"context"` to the imports if the `context` import is not already present (it should be from the method signatures).
 
 - [ ] **Step 6: Verify compilation and run all tests**
 
@@ -573,7 +574,7 @@ git commit -m "feat(mcp): add tusk_task_next tool and E2E tests for next command
 **New functions:**
 - `service.MergeWeights(defaults UrgencyWeights, overrides *domain.UrgencyOverrides) UrgencyWeights`
 - `service.TaskService.Next(ctx) (*domain.Task, error)`
-- `service.TaskService.buildProjectWeights(tasks) map[string]*UrgencyWeights`
+- `service.TaskService.buildProjectWeights(ctx, tasks) map[string]*UrgencyWeights`
 - `mcp.Server.handleTaskNext`
 
 **New CLI command:** `tusk next` — shows highest-urgency actionable task
