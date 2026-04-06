@@ -210,3 +210,24 @@ func TestOutputFormat(t *testing.T) {
 
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestMarkdownDescriptionInInfo(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "info_renders_description",
+			Steps: []Step{
+				{
+					Args: []string{"add", "Markdown test", "--description", "# Heading\n\nSome **bold** text."},
+				},
+				{
+					Args: []string{"info", "$0.short_id"},
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertContains(t, r.Stdout, "Heading")
+					},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
