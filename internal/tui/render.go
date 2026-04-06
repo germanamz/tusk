@@ -3,7 +3,6 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 	"time"
@@ -60,13 +59,13 @@ func toTagWithUsageJSON(tw domain.TagWithUsage) tagWithUsageJSON {
 
 // renderTagList writes a list of tags to w.
 // If showUsage is true, includes the task count column.
-func renderTagList(w io.Writer, tags []domain.TagWithUsage, showUsage bool, format string) error {
-	if format == "json" {
+func (r *Renderer) renderTagList(tags []domain.TagWithUsage, showUsage bool) error {
+	if r.format == "json" {
 		items := make([]tagWithUsageJSON, len(tags))
 		for i, tw := range tags {
 			items[i] = toTagWithUsageJSON(tw)
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(items)
 	}
@@ -76,7 +75,7 @@ func renderTagList(w io.Writer, tags []domain.TagWithUsage, showUsage bool, form
 	}
 
 	if showUsage {
-		if _, err := fmt.Fprintf(w, "%-20s %-10s %s\n", "NAME", "COLOR", "TASKS"); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-20s %-10s %s\n", "NAME", "COLOR", "TASKS"); err != nil {
 			return err
 		}
 		for _, tw := range tags {
@@ -84,12 +83,12 @@ func renderTagList(w io.Writer, tags []domain.TagWithUsage, showUsage bool, form
 			if tw.Tag.Color != nil {
 				color = *tw.Tag.Color
 			}
-			if _, err := fmt.Fprintf(w, "%-20s %-10s %d\n", tw.Tag.Name, color, tw.TaskCount); err != nil {
+			if _, err := fmt.Fprintf(r.w, "%-20s %-10s %d\n", tw.Tag.Name, color, tw.TaskCount); err != nil {
 				return err
 			}
 		}
 	} else {
-		if _, err := fmt.Fprintf(w, "%-20s %s\n", "NAME", "COLOR"); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-20s %s\n", "NAME", "COLOR"); err != nil {
 			return err
 		}
 		for _, tw := range tags {
@@ -97,7 +96,7 @@ func renderTagList(w io.Writer, tags []domain.TagWithUsage, showUsage bool, form
 			if tw.Tag.Color != nil {
 				color = *tw.Tag.Color
 			}
-			if _, err := fmt.Fprintf(w, "%-20s %s\n", tw.Tag.Name, color); err != nil {
+			if _, err := fmt.Fprintf(r.w, "%-20s %s\n", tw.Tag.Name, color); err != nil {
 				return err
 			}
 		}
@@ -106,25 +105,25 @@ func renderTagList(w io.Writer, tags []domain.TagWithUsage, showUsage bool, form
 }
 
 // renderTagResult writes a single tag mutation result.
-func renderTagResult(w io.Writer, action string, tag *domain.Tag, format string) error {
-	if format == "json" {
-		enc := json.NewEncoder(w)
+func (r *Renderer) renderTagResult(action string, tag *domain.Tag) error {
+	if r.format == "json" {
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(toTagJSON(tag))
 	}
-	_, err := fmt.Fprintf(w, "%s tag %s\n", action, tag.Name)
+	_, err := fmt.Fprintf(r.w, "%s tag %s\n", action, tag.Name)
 	return err
 }
 
 // renderProjectList writes a list of projects to w.
 // Text format renders a table; JSON format renders an array.
-func renderProjectList(w io.Writer, projects []*domain.Project, format string) error {
-	if format == "json" {
+func (r *Renderer) renderProjectList(projects []*domain.Project) error {
+	if r.format == "json" {
 		items := make([]projectJSON, len(projects))
 		for i, p := range projects {
 			items[i] = toProjectJSON(p)
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(items)
 	}
@@ -133,11 +132,11 @@ func renderProjectList(w io.Writer, projects []*domain.Project, format string) e
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(w, "%-20s %-10s %s\n", "ID", "WORKFLOW", "SETTINGS"); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-20s %-10s %s\n", "ID", "WORKFLOW", "SETTINGS"); err != nil {
 		return err
 	}
 	for _, p := range projects {
-		if _, err := fmt.Fprintf(w, "%-20s %-10s %s\n",
+		if _, err := fmt.Fprintf(r.w, "%-20s %-10s %s\n",
 			p.ID,
 			p.Workflow,
 			formatSettingsSummary(p.Settings),
@@ -256,13 +255,13 @@ func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 // renderTaskList writes a list of tasks to w in the given format.
 // For "text", it renders a fixed-width table. For "json", it renders a JSON array.
 // If the list is empty and format is "text", nothing is written.
-func renderTaskList(w io.Writer, tasks []*domain.Task, taskTags map[string][]*domain.Tag, format string) error {
-	if format == "json" {
+func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*domain.Tag) error {
+	if r.format == "json" {
 		items := make([]taskJSON, len(tasks))
 		for i, t := range tasks {
 			items[i] = toTaskJSON(t, taskTags[t.ID.String()])
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(items)
 	}
@@ -271,7 +270,7 @@ func renderTaskList(w io.Writer, tasks []*domain.Task, taskTags map[string][]*do
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(w, "%-8s %-9s %-4s %-5s %s\n", "ID", "Status", "Pri", "Age", "Title"); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-8s %-9s %-4s %-5s %s\n", "ID", "Status", "Pri", "Age", "Title"); err != nil {
 		return err
 	}
 	for _, t := range tasks {
@@ -283,7 +282,7 @@ func renderTaskList(w io.Writer, tasks []*domain.Task, taskTags map[string][]*do
 			}
 			title = title + "  " + strings.Join(tagStrs, " ")
 		}
-		if _, err := fmt.Fprintf(w, "%-8s %-9s %-4s %-5s %s\n",
+		if _, err := fmt.Fprintf(r.w, "%-8s %-9s %-4s %-5s %s\n",
 			t.ShortID,
 			t.Status,
 			formatPriority(t.Priority),
@@ -330,8 +329,8 @@ type taskInfoJSON struct {
 // renderTaskInfo writes a single task's detail view to w.
 // For "text", it renders key-value pairs with optional annotations.
 // For "json", it renders the task as a JSON object including annotations.
-func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []resolvedRelation, format string) error {
-	if format == "json" {
+func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []resolvedRelation) error {
+	if r.format == "json" {
 		info := taskInfoJSON{taskJSON: toTaskJSON(task, tags)}
 		for _, ann := range annotations {
 			info.Annotations = append(info.Annotations, annotationJSON{
@@ -353,21 +352,21 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 				CreatedAt:      rr.Relation.CreatedAt.Format(time.RFC3339),
 			})
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(info)
 	}
 
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "ID:", task.ShortID); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "ID:", task.ShortID); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Title:", task.Title); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Title:", task.Title); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Status:", task.Status); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Status:", task.Status); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Priority:", formatPriorityName(task.Priority)); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Priority:", formatPriorityName(task.Priority)); err != nil {
 		return err
 	}
 
@@ -376,89 +375,89 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 		for i, tg := range tags {
 			tagStrs[i] = "+" + tg.Name
 		}
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Tags:", strings.Join(tagStrs, " ")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Tags:", strings.Join(tagStrs, " ")); err != nil {
 			return err
 		}
 	}
 
 	if task.Description != "" {
-		if _, err := fmt.Fprintln(w, "Description:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, "Description:"); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w); err != nil {
+		if _, err := fmt.Fprintln(r.w); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, task.Description); err != nil {
+		if _, err := fmt.Fprintln(r.w, task.Description); err != nil {
 			return err
 		}
 	}
 	if task.ProjectID != "" {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Project:", task.ProjectID); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Project:", task.ProjectID); err != nil {
 			return err
 		}
 	}
 	if task.ParentID != nil {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Parent:", task.ParentID.String()); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Parent:", task.ParentID.String()); err != nil {
 			return err
 		}
 	}
 	if task.DueAt != nil {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Due:", task.DueAt.Format("2006-01-02")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Due:", task.DueAt.Format("2006-01-02")); err != nil {
 			return err
 		}
 	}
 	if task.WaitUntil != nil {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Wait:", task.WaitUntil.Format("2006-01-02 15:04:05")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Wait:", task.WaitUntil.Format("2006-01-02 15:04:05")); err != nil {
 			return err
 		}
 	}
 	if task.RecurrenceRule != nil {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Recurrence:", *task.RecurrenceRule); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Recurrence:", *task.RecurrenceRule); err != nil {
 			return err
 		}
 	}
 	if len(task.UDA) > 0 {
-		if _, err := fmt.Fprintln(w, "UDA:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, "UDA:"); err != nil {
 			return err
 		}
-		if err := renderUDASection(w, task.UDA); err != nil {
+		if err := r.renderUDASection(task.UDA); err != nil {
 			return err
 		}
 	}
 
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Created:", task.CreatedAt.Format("2006-01-02 15:04:05")); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Created:", task.CreatedAt.Format("2006-01-02 15:04:05")); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Modified:", task.ModifiedAt.Format("2006-01-02 15:04:05")); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Modified:", task.ModifiedAt.Format("2006-01-02 15:04:05")); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%-13s %d\n", "Version:", task.Version); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %d\n", "Version:", task.Version); err != nil {
 		return err
 	}
 
 	if len(annotations) > 0 {
-		if _, err := fmt.Fprintln(w); err != nil {
+		if _, err := fmt.Fprintln(r.w); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, "Annotations:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, "Annotations:"); err != nil {
 			return err
 		}
 		for _, ann := range annotations {
-			if _, err := fmt.Fprintf(w, "  %s - %s\n", ann.CreatedAt.Format("2006-01-02 15:04"), ann.Body); err != nil {
+			if _, err := fmt.Fprintf(r.w, "  %s - %s\n", ann.CreatedAt.Format("2006-01-02 15:04"), ann.Body); err != nil {
 				return err
 			}
 		}
 	}
 
 	if len(relations) > 0 {
-		if _, err := fmt.Fprintln(w); err != nil {
+		if _, err := fmt.Fprintln(r.w); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, "Relations:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, "Relations:"); err != nil {
 			return err
 		}
 		for _, rr := range relations {
-			if _, err := fmt.Fprintf(w, "  %-14s %-8s  %s\n", rr.Label, rr.RelatedShortID, rr.RelatedTitle); err != nil {
+			if _, err := fmt.Fprintf(r.w, "  %-14s %-8s  %s\n", rr.Label, rr.RelatedShortID, rr.RelatedTitle); err != nil {
 				return err
 			}
 		}
@@ -470,7 +469,7 @@ func renderTaskInfo(w io.Writer, task *domain.Task, annotations []*domain.Annota
 // renderUDASection writes UDA key-value pairs as an indented block.
 // Keys are sorted alphabetically. Single-line values appear inline;
 // multi-line values appear indented below the key.
-func renderUDASection(w io.Writer, uda map[string]any) error {
+func (r *Renderer) renderUDASection(uda map[string]any) error {
 	keys := make([]string, 0, len(uda))
 	for k := range uda {
 		keys = append(keys, k)
@@ -489,17 +488,17 @@ func renderUDASection(w io.Writer, uda map[string]any) error {
 		v := fmt.Sprintf("%v", uda[k])
 		if strings.Contains(v, "\n") {
 			// Multi-line: key on its own line, value indented below
-			if _, err := fmt.Fprintf(w, "  %s:\n", k); err != nil {
+			if _, err := fmt.Fprintf(r.w, "  %s:\n", k); err != nil {
 				return err
 			}
 			for _, line := range strings.Split(v, "\n") {
-				if _, err := fmt.Fprintf(w, "    %s\n", line); err != nil {
+				if _, err := fmt.Fprintf(r.w, "    %s\n", line); err != nil {
 					return err
 				}
 			}
 		} else {
 			// Single-line: inline after key with aligned padding
-			if _, err := fmt.Fprintf(w, "  %-*s  %s\n", maxKeyLen+1, k+":", v); err != nil {
+			if _, err := fmt.Fprintf(r.w, "  %-*s  %s\n", maxKeyLen+1, k+":", v); err != nil {
 				return err
 			}
 		}
@@ -509,13 +508,13 @@ func renderUDASection(w io.Writer, uda map[string]any) error {
 
 // renderMutationResult writes a one-line confirmation (text) or full task JSON.
 // action is a past-tense verb like "Created", "Modified", "Started", etc.
-func renderMutationResult(w io.Writer, action string, task *domain.Task, tags []*domain.Tag, format string) error {
-	if format == "json" {
-		enc := json.NewEncoder(w)
+func (r *Renderer) renderMutationResult(action string, task *domain.Task, tags []*domain.Tag) error {
+	if r.format == "json" {
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(toTaskJSON(task, tags))
 	}
-	_, err := fmt.Fprintf(w, "%s task %s\n", action, task.ShortID)
+	_, err := fmt.Fprintf(r.w, "%s task %s\n", action, task.ShortID)
 	return err
 }
 
@@ -540,9 +539,9 @@ type relationJSON struct {
 }
 
 // renderLinkResult writes a link confirmation (text) or full relation JSON.
-func renderLinkResult(w io.Writer, rel *domain.Relation, sourceShortID, targetShortID, format string) error {
-	if format == "json" {
-		enc := json.NewEncoder(w)
+func (r *Renderer) renderLinkResult(rel *domain.Relation, sourceShortID, targetShortID string) error {
+	if r.format == "json" {
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(relationJSON{
 			ID:           rel.ID.String(),
@@ -552,7 +551,7 @@ func renderLinkResult(w io.Writer, rel *domain.Relation, sourceShortID, targetSh
 			CreatedAt:    rel.CreatedAt.Format(time.RFC3339),
 		})
 	}
-	_, err := fmt.Fprintf(w, "Linked %s %s %s\n", sourceShortID, rel.RelationType, targetShortID)
+	_, err := fmt.Fprintf(r.w, "Linked %s %s %s\n", sourceShortID, rel.RelationType, targetShortID)
 	return err
 }
 
@@ -589,8 +588,8 @@ func toWorkflowJSON(wf *domain.Workflow) workflowJSON {
 
 // renderWorkflowList writes a list of workflows to w.
 // workflowProjects maps workflow name to referencing project IDs.
-func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, workflowProjects map[string][]string, format string) error {
-	if format == "json" {
+func (r *Renderer) renderWorkflowList(workflows []*domain.Workflow, workflowProjects map[string][]string) error {
+	if r.format == "json" {
 		items := make([]workflowInfoJSON, len(workflows))
 		for i, wf := range workflows {
 			projectIDs := workflowProjects[wf.Name]
@@ -602,7 +601,7 @@ func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, workflowProje
 				Projects:     projectIDs,
 			}
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(items)
 	}
@@ -611,11 +610,11 @@ func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, workflowProje
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(w, "%-20s %s\n", "NAME", "STATUSES"); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-20s %s\n", "NAME", "STATUSES"); err != nil {
 		return err
 	}
 	for _, wf := range workflows {
-		if _, err := fmt.Fprintf(w, "%-20s %s\n", wf.Name, strings.Join(wf.Statuses, ", ")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-20s %s\n", wf.Name, strings.Join(wf.Statuses, ", ")); err != nil {
 			return err
 		}
 	}
@@ -623,8 +622,8 @@ func renderWorkflowList(w io.Writer, workflows []*domain.Workflow, workflowProje
 }
 
 // renderWorkflowInfo writes a detailed workflow view to w.
-func renderWorkflowInfo(w io.Writer, wf *domain.Workflow, projectIDs []string, format string) error {
-	if format == "json" {
+func (r *Renderer) renderWorkflowInfo(wf *domain.Workflow, projectIDs []string) error {
+	if r.format == "json" {
 		if projectIDs == nil {
 			projectIDs = []string{}
 		}
@@ -632,20 +631,20 @@ func renderWorkflowInfo(w io.Writer, wf *domain.Workflow, projectIDs []string, f
 			workflowJSON: toWorkflowJSON(wf),
 			Projects:     projectIDs,
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(info)
 	}
 
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Workflow:", wf.Name); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Workflow:", wf.Name); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%-13s %s\n", "Statuses:", strings.Join(wf.Statuses, ", ")); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Statuses:", strings.Join(wf.Statuses, ", ")); err != nil {
 		return err
 	}
 
 	if len(wf.Transitions) > 0 {
-		if _, err := fmt.Fprintln(w, "Transitions:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, "Transitions:"); err != nil {
 			return err
 		}
 		maxLen := 0
@@ -656,14 +655,14 @@ func renderWorkflowInfo(w io.Writer, wf *domain.Workflow, projectIDs []string, f
 		}
 		fmtStr := fmt.Sprintf("  %%-%ds -> %%s\n", maxLen)
 		for _, t := range wf.Transitions {
-			if _, err := fmt.Fprintf(w, fmtStr, t.FromStatus, t.ToStatus); err != nil {
+			if _, err := fmt.Fprintf(r.w, fmtStr, t.FromStatus, t.ToStatus); err != nil {
 				return err
 			}
 		}
 	}
 
 	if len(projectIDs) > 0 {
-		if _, err := fmt.Fprintf(w, "%-13s %s\n", "Projects:", strings.Join(projectIDs, ", ")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Projects:", strings.Join(projectIDs, ", ")); err != nil {
 			return err
 		}
 	}

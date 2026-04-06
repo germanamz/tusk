@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -117,20 +116,20 @@ func toTreeNodeJSON(node *treeNode) treeNodeJSON {
 // renderTree writes the tree to w in the given format.
 // For "text", each task is rendered as: {indent}{short_id} [{status}] {title}
 // For "json", the tree is rendered as a nested JSON array with children.
-func renderTree(w io.Writer, nodes []*treeNode, format string) error {
-	if format == "json" {
+func (r *Renderer) renderTree(nodes []*treeNode) error {
+	if r.format == "json" {
 		jsonNodes := make([]treeNodeJSON, len(nodes))
 		for i, n := range nodes {
 			jsonNodes[i] = toTreeNodeJSON(n)
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(jsonNodes)
 	}
 
 	// Text format
 	for _, node := range nodes {
-		if err := renderTreeNode(w, node, 0); err != nil {
+		if err := r.renderTreeNode(node, 0); err != nil {
 			return err
 		}
 	}
@@ -139,13 +138,13 @@ func renderTree(w io.Writer, nodes []*treeNode, format string) error {
 
 // renderTreeNode recursively renders a single tree node and its children.
 // depth controls the indentation level (2 spaces per level).
-func renderTreeNode(w io.Writer, node *treeNode, depth int) error {
+func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 	indent := strings.Repeat("  ", depth)
-	if _, err := fmt.Fprintf(w, "%s%s [%s] %s\n", indent, node.Task.ShortID, node.Task.Status, node.Task.Title); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s%s [%s] %s\n", indent, node.Task.ShortID, node.Task.Status, node.Task.Title); err != nil {
 		return err
 	}
 	for _, child := range node.Children {
-		if err := renderTreeNode(w, child, depth+1); err != nil {
+		if err := r.renderTreeNode(child, depth+1); err != nil {
 			return err
 		}
 	}
@@ -187,7 +186,8 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return renderTree(cmd.OutOrStdout(), nodes, a.format)
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled())
+	return r.renderTree(nodes)
 }
 
 // fetchTreeTasks loads all tasks for the full tree view.
