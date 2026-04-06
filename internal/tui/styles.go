@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/glamour/v2"
+	"charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 	"github.com/germanamz/tusk/internal/domain"
@@ -95,13 +96,61 @@ func (r *Renderer) styledTag(tag *domain.Tag) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(*tag.Color)).Render(text)
 }
 
+// markdownStyle returns a glamour style customized for tusk's terminal output.
+// Based on DarkStyleConfig with cleaner headings, subtler inline code, and
+// visible code block backgrounds.
+func markdownStyle() ansi.StyleConfig {
+	s := styles.DarkStyleConfig
+
+	// Headings: bold + color only, no markdown prefixes or background blocks.
+	noPrefix := ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: ""}}
+	s.H1 = ansi.StyleBlock{
+		StylePrimitive: ansi.StylePrimitive{
+			Bold:  boolPtr(true),
+			Color: stringPtr("228"),
+		},
+	}
+	s.H2 = noPrefix
+	s.H3 = noPrefix
+	s.H4 = noPrefix
+	s.H5 = noPrefix
+	s.H6 = ansi.StyleBlock{
+		StylePrimitive: ansi.StylePrimitive{
+			Prefix: "",
+			Color:  stringPtr("35"),
+			Bold:   boolPtr(false),
+		},
+	}
+
+	// Inline code: colored text without dark background.
+	s.Code = ansi.StyleBlock{
+		StylePrimitive: ansi.StylePrimitive{
+			Prefix: "`",
+			Suffix: "`",
+			Color:  stringPtr("203"),
+		},
+	}
+
+	// Code blocks: add a subtle background so they stand out.
+	if s.CodeBlock.Chroma != nil {
+		s.CodeBlock.Chroma.Background = ansi.StylePrimitive{
+			BackgroundColor: stringPtr("#303030"),
+		}
+	}
+
+	return s
+}
+
+func boolPtr(b bool) *bool       { return &b }
+func stringPtr(s string) *string { return &s }
+
 // renderMarkdown renders markdown text for terminal display using glamour.
 // When color is disabled, uses NoTTY style for plain ASCII formatting.
 func (r *Renderer) renderMarkdown(text string) (string, error) {
 	var opts []glamour.TermRendererOption
 
 	if r.color {
-		opts = append(opts, glamour.WithEnvironmentConfig())
+		opts = append(opts, glamour.WithStyles(markdownStyle()))
 	} else {
 		opts = append(opts, glamour.WithStyles(styles.NoTTYStyleConfig))
 	}
