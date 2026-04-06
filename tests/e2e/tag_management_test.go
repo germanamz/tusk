@@ -266,3 +266,51 @@ func TestTagManagement(t *testing.T) {
 
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestTagColorSetAndClear(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "tag_color_set_and_clear",
+			Steps: []Step{
+				{Args: []string{"tag", "create", "urgent"}},
+				{
+					Args: []string{"tag", "modify", "urgent", "--color", "#ff4444"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["color"], "#ff4444")
+					},
+				},
+				{
+					Args: []string{"tag", "list"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						found := false
+						for _, item := range arr {
+							m := item.(map[string]any)
+							if m["name"] == "urgent" {
+								assertEqual(t, m["color"], "#ff4444")
+								found = true
+							}
+						}
+						if !found {
+							t.Fatal("tag 'urgent' not found in list")
+						}
+					},
+				},
+				{
+					Args: []string{"tag", "modify", "urgent", "--color", ""},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						if m["color"] != nil {
+							t.Errorf("expected color to be null after clear, got %v", m["color"])
+						}
+					},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
