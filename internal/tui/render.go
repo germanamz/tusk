@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	_ "charm.land/lipgloss/v2"
 	"github.com/germanamz/tusk/internal/domain"
 )
 
