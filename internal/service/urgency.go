@@ -33,6 +33,29 @@ type ScoringContext struct {
 	ProjectWeights  map[string]*UrgencyWeights // per-project weight overrides (fully merged)
 }
 
+const (
+	// maxPriority is the highest priority value, used to normalize priority to [0, 1].
+	maxPriority = 4.0
+
+	// ageCeilingDays is the number of days after which age contribution is capped at 1.0.
+	ageCeilingDays = 365.0
+
+	// hoursPerDay converts hours to days for age and due-date calculations.
+	hoursPerDay = 24.0
+
+	// maxTagsForFullWeight is the tag count at which the tags factor reaches 1.0.
+	maxTagsForFullWeight = 3.0
+
+	// maxAnnotationsForFullWeight is the annotation count at which the annotations factor reaches 1.0.
+	maxAnnotationsForFullWeight = 2.0
+
+	// dueSigmoidSteepness controls how sharply the due-date coefficient transitions.
+	dueSigmoidSteepness = 0.5
+
+	// dueSigmoidMidpointDays is the inflection point (in days until due) of the sigmoid curve.
+	dueSigmoidMidpointDays = 14.0
+)
+
 // UrgencyEngine computes urgency scores for tasks.
 type UrgencyEngine struct {
 	defaults UrgencyWeights
@@ -49,19 +72,19 @@ func (e *UrgencyEngine) Score(task *domain.Task, ctx ScoringContext) float64 {
 
 	var score float64
 
-	// Priority: priority / 4.0 * weight
+	// Priority: normalized to [0, 1] then scaled by weight.
 	if task.Priority > 0 {
-		score += (float64(task.Priority) / 4.0) * w.Priority
+		score += (float64(task.Priority) / maxPriority) * w.Priority
 	}
 
-	// Due date: sigmoid curve
+	// Due date: sigmoid curve maps proximity to [0, 1].
 	if task.DueAt != nil {
 		score += dueDateCoefficient(*task.DueAt) * w.Due
 	}
 
-	// Age: min(days / 365, 1.0) * weight
-	age := time.Since(task.CreatedAt).Hours() / 24.0
-	score += math.Min(age/365.0, 1.0) * w.Age
+	// Age: days since creation capped at ageCeilingDays, scaled by weight.
+	age := time.Since(task.CreatedAt).Hours() / hoursPerDay
+	score += math.Min(age/ageCeilingDays, 1.0) * w.Age
 
 	// Active status
 	if task.Status == "active" {
@@ -81,7 +104,7 @@ func (e *UrgencyEngine) Score(task *domain.Task, ctx ScoringContext) float64 {
 	// Tags
 	tagCount := ctx.TagCount[task.ID]
 	if tagCount > 0 {
-		score += math.Min(float64(tagCount)/3.0, 1.0) * w.Tags
+		score += math.Min(float64(tagCount)/maxTagsForFullWeight, 1.0) * w.Tags
 	}
 
 	// Project
@@ -92,7 +115,7 @@ func (e *UrgencyEngine) Score(task *domain.Task, ctx ScoringContext) float64 {
 	// Annotations
 	annCount := ctx.AnnotationCount[task.ID]
 	if annCount > 0 {
-		score += math.Min(float64(annCount)/2.0, 1.0) * w.Annotations
+		score += math.Min(float64(annCount)/maxAnnotationsForFullWeight, 1.0) * w.Annotations
 	}
 
 	// Waiting
@@ -127,8 +150,6 @@ func (e *UrgencyEngine) weightsFor(projectID string, ctx ScoringContext) Urgency
 // k = 0.5 (steepness), midpoint = 14 (days, inflection point).
 // Past-due tasks approach 1.0. Far-future tasks approach 0.0.
 func dueDateCoefficient(dueAt time.Time) float64 {
-	daysUntilDue := time.Until(dueAt).Hours() / 24.0
-	const k = 0.5
-	const midpoint = 14.0
-	return 1.0 / (1.0 + math.Exp(-k*(midpoint-daysUntilDue)))
+	daysUntilDue := time.Until(dueAt).Hours() / hoursPerDay
+	return 1.0 / (1.0 + math.Exp(-dueSigmoidSteepness*(dueSigmoidMidpointDays-daysUntilDue)))
 }
