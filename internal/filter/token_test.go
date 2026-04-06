@@ -111,6 +111,45 @@ func TestLex(t *testing.T) {
 				{Type: TokenTagInclude, Value: "+api", Pos: 16},
 			},
 		},
+		{
+			name:  "quoted text standalone",
+			input: `"fix the bug"`,
+			want: []Token{
+				{Type: TokenText, Value: "fix the bug", Pos: 0},
+			},
+		},
+		{
+			name:  "quoted field value",
+			input: `title:"fix the bug"`,
+			want: []Token{
+				{Type: TokenField, Value: `title:fix the bug`, Pos: 0},
+			},
+		},
+		{
+			name:  "mixed quoted and unquoted",
+			input: `status:active title:"fix the bug" +api`,
+			want: []Token{
+				{Type: TokenField, Value: "status:active", Pos: 0},
+				{Type: TokenField, Value: `title:fix the bug`, Pos: 14},
+				{Type: TokenTagInclude, Value: "+api", Pos: 34},
+			},
+		},
+		{
+			name:  "escaped quote inside quoted string",
+			input: `title:"say \"hello\""`,
+			want: []Token{
+				{Type: TokenField, Value: `title:say "hello"`, Pos: 0},
+			},
+		},
+		{
+			name:  "quoted text with existing tokens",
+			input: `"My cool task" project:backend +api`,
+			want: []Token{
+				{Type: TokenText, Value: "My cool task", Pos: 0},
+				{Type: TokenField, Value: "project:backend", Pos: 15},
+				{Type: TokenTagInclude, Value: "+api", Pos: 31},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -199,6 +238,42 @@ func TestLex_EdgeCases(t *testing.T) {
 			input: "due:today..friday",
 			want: []Token{
 				{Type: TokenField, Value: "due:today..friday", Pos: 0},
+			},
+		},
+		{
+			name:   "unclosed quote",
+			input:  `title:"fix the bug`,
+			want:   nil,
+			errors: 1,
+		},
+		{
+			name:  "empty quoted string is text",
+			input: `""`,
+			want: []Token{
+				{Type: TokenText, Value: "", Pos: 0},
+			},
+		},
+		{
+			name:  "quoted string with only spaces",
+			input: `"  "`,
+			want: []Token{
+				{Type: TokenText, Value: "  ", Pos: 0},
+			},
+		},
+		{
+			name:  "adjacent quoted and unquoted",
+			input: `+api "my task" status:active`,
+			want: []Token{
+				{Type: TokenTagInclude, Value: "+api", Pos: 0},
+				{Type: TokenText, Value: "my task", Pos: 5},
+				{Type: TokenField, Value: "status:active", Pos: 14},
+			},
+		},
+		{
+			name:  "field with quoted value containing colon",
+			input: `title:"step 1: do things"`,
+			want: []Token{
+				{Type: TokenField, Value: `title:step 1: do things`, Pos: 0},
 			},
 		},
 	}
