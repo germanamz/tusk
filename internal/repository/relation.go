@@ -15,4 +15,6 @@ type RelationRepository interface {
 	GetBlocking(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error)
 	GetBlockedBy(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error)
 	Exists(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (bool, error)
+	CountBlockingByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error)
+	CountBlockedByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error)
 }

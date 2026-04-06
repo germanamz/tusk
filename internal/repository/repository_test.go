@@ -49,6 +49,12 @@ func (s *stubRelationRepo) GetBlockedBy(_ context.Context, _ uuid.UUID) ([]*doma
 func (s *stubRelationRepo) Exists(_ context.Context, _, _ uuid.UUID, _ string) (bool, error) {
 	return false, nil
 }
+func (s *stubRelationRepo) CountBlockingByTasks(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]int, error) {
+	return nil, nil
+}
+func (s *stubRelationRepo) CountBlockedByTasks(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]int, error) {
+	return nil, nil
+}
 
 type stubProjectRepo struct{}
 
@@ -98,6 +104,9 @@ func (s *stubAnnotationRepo) GetByTask(_ context.Context, _ uuid.UUID) ([]*domai
 	return nil, nil
 }
 func (s *stubAnnotationRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
+func (s *stubAnnotationRepo) CountByTasks(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]int, error) {
+	return nil, nil
+}
 
 func TestInterfaceSatisfaction(t *testing.T) {
 	var _ repository.TaskRepository = (*stubTaskRepo)(nil)
