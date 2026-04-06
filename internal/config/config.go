@@ -76,11 +76,16 @@ type PostgresConfig struct {
 
 // UrgencyConfig holds weights for the urgency scoring algorithm.
 type UrgencyConfig struct {
-	PriorityWeight float64 `mapstructure:"priority_weight"`
-	DueWeight      float64 `mapstructure:"due_weight"`
-	AgeWeight      float64 `mapstructure:"age_weight"`
-	BlockingWeight float64 `mapstructure:"blocking_weight"`
-	BlockedWeight  float64 `mapstructure:"blocked_weight"`
+	PriorityWeight    float64 `mapstructure:"priority_weight"`
+	DueWeight         float64 `mapstructure:"due_weight"`
+	AgeWeight         float64 `mapstructure:"age_weight"`
+	ActiveWeight      float64 `mapstructure:"active_weight"`
+	BlockingWeight    float64 `mapstructure:"blocking_weight"`
+	BlockedWeight     float64 `mapstructure:"blocked_weight"`
+	TagsWeight        float64 `mapstructure:"tags_weight"`
+	ProjectWeight     float64 `mapstructure:"project_weight"`
+	AnnotationsWeight float64 `mapstructure:"annotations_weight"`
+	WaitingWeight     float64 `mapstructure:"waiting_weight"`
 }
 
 // MCPConfig controls which tools and resources the MCP server exposes.

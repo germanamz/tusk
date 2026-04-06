@@ -18,11 +18,16 @@ path    = "~/.local/share/tusk/tusk.db"    # SQLite database file path
 dsn = ""  # PostgreSQL connection string (future use)
 
 [urgency]
-priority_weight = 6.0    # Weight for task priority in urgency score
-due_weight      = 12.0   # Weight for due date proximity
-age_weight      = 2.0    # Weight for task age
-blocking_weight = 8.0    # Weight for tasks that block others
-blocked_weight  = -5.0   # Weight for tasks that are blocked
+priority_weight    = 6.0    # Weight for task priority in urgency score
+due_weight         = 12.0   # Weight for due date proximity
+age_weight         = 2.0    # Weight for task age
+active_weight      = 4.0    # Weight for active status
+blocking_weight    = 8.0    # Weight for tasks that block others
+blocked_weight     = -5.0   # Weight for tasks that are blocked
+tags_weight        = 1.0    # Weight for tag count
+project_weight     = 1.0    # Weight for having a project
+annotations_weight = 1.0    # Weight for annotation count
+waiting_weight     = -3.0   # Weight for waiting tasks
 
 [tui]
 date_format  = "2006-01-02"  # Go time format for date display
