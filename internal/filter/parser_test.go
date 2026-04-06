@@ -363,3 +363,30 @@ func TestParse_DescriptionFieldEmpty(t *testing.T) {
 		t.Fatalf("expected 1 error for empty description, got %d: %v", len(errs), errs)
 	}
 }
+
+func TestParse_KeywordsPreservedAsText(t *testing.T) {
+	// Parse is for input building (tusk add/modify). Boolean keywords
+	// must be preserved as title text, not silently dropped.
+	tests := []struct {
+		name  string
+		input string
+		title string
+	}{
+		{"AND in title", "Fix AND cleanup", "Fix AND cleanup"},
+		{"OR in title", "Read OR write", "Read OR write"},
+		{"NOT in title", "NOT a bug", "NOT a bug"},
+		{"parens in title", "(draft) My task", "( draft ) My task"},
+		{"mixed keywords", "Do AND OR NOT things", "Do AND OR NOT things"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs, errs := Parse(tt.input)
+			if len(errs) != 0 {
+				t.Fatalf("expected no errors, got %v", errs)
+			}
+			if fs.Title() != tt.title {
+				t.Fatalf("expected title %q, got %q", tt.title, fs.Title())
+			}
+		})
+	}
+}
