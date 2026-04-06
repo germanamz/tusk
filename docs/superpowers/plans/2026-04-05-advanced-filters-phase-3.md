@@ -35,7 +35,7 @@ The implementer can rely on:
 - Modify: `internal/filter/token.go`
 - Modify: `internal/filter/token_test.go`
 
-- [ ] **Step 1: Add token type constants**
+- [x] **Step 1: Add token type constants**
 
 In `internal/filter/token.go`, add 5 new constants after `TokenText` (line 12):
 
@@ -53,7 +53,7 @@ const (
 )
 ```
 
-- [ ] **Step 2: Update TokenType.String()**
+- [x] **Step 2: Update TokenType.String()**
 
 Add cases to the `String()` method (inside the switch, after the `TokenText` case):
 
@@ -70,7 +70,7 @@ Add cases to the `String()` method (inside the switch, after the `TokenText` cas
 		return "RParen"
 ```
 
-- [ ] **Step 3: Write failing lexer tests for new tokens**
+- [x] **Step 3: Write failing lexer tests for new tokens**
 
 Add these test cases to the `tests` slice inside `TestLex` in `internal/filter/token_test.go`:
 
@@ -132,12 +132,12 @@ Add these test cases to the `tests` slice inside `TestLex` in `internal/filter/t
 },
 ```
 
-- [ ] **Step 4: Run to verify failure**
+- [x] **Step 4: Run to verify failure**
 
 Run: `cd /Users/germanamz/projects/tusk && go test -v ./internal/filter/ -run "TestLex$" -count=1`
 Expected: FAIL — lexer doesn't recognize new token types.
 
-- [ ] **Step 5: Modify Lex() to recognize keywords and parentheses**
+- [x] **Step 5: Modify Lex() to recognize keywords and parentheses**
 
 In `internal/filter/token.go`, modify the `Lex` function. The changes are:
 
@@ -185,19 +185,19 @@ for i < len(input) && input[i] != ' ' && input[i] != '\t' && input[i] != '(' && 
 
 These cases must come after the `isFieldToken(raw)` check (so `AND:value` is still a field) and after the tag checks (so `+AND` is still a tag), but before the `default:` text fallback.
 
-- [ ] **Step 6: Run all lexer tests**
+- [x] **Step 6: Run all lexer tests**
 
 Run: `cd /Users/germanamz/projects/tusk && go test -v ./internal/filter/ -run "TestLex|TestTokenType"`
 Expected: ALL PASS.
 
-- [ ] **Step 7: Run the full test suite**
+- [x] **Step 7: Run the full test suite**
 
 Run: `cd /Users/germanamz/projects/tusk && make test`
 Expected: ALL PASS. Existing tests should not break because `AND`, `OR`, `NOT` were previously `TokenText` and the existing `Parse` function treats unknown text as `TokenText` anyway — they just become `fs.Text` entries. The `Parse` function ignores unknown token types gracefully.
 
 **Important:** If any existing test expects `AND`, `OR`, or `NOT` to be `TokenText`, update it to expect the new token type. Check `TestLex` and `TestLex_EdgeCases` test cases — if any include these exact strings as text inputs, they may need updating.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/filter/token.go internal/filter/token_test.go
@@ -218,7 +218,7 @@ EOF
 - Create: `internal/filter/expr.go`
 - Test: `internal/filter/expr_test.go`
 
-- [ ] **Step 1: Create the expression tree types**
+- [x] **Step 1: Create the expression tree types**
 
 Create `internal/filter/expr.go`:
 
@@ -261,7 +261,7 @@ func (NotExpr) exprNode()  {}
 func (TermExpr) exprNode() {}
 ```
 
-- [ ] **Step 2: Write basic AST construction tests**
+- [x] **Step 2: Write basic AST construction tests**
 
 Create `internal/filter/expr_test.go`:
 
@@ -336,12 +336,12 @@ func TestTermExpr_Variants(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run AST tests**
+- [x] **Step 3: Run AST tests**
 
 Run: `cd /Users/germanamz/projects/tusk && go test -v ./internal/filter/ -run "TestExpr|TestAndExpr|TestOrExpr|TestNotExpr|TestTermExpr"`
 Expected: ALL PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/filter/expr.go internal/filter/expr_test.go
@@ -362,7 +362,7 @@ EOF
 - Create: `internal/filter/parse_expr.go`
 - Test: `internal/filter/parse_expr_test.go`
 
-- [ ] **Step 1: Write failing tests for ParseExpr**
+- [x] **Step 1: Write failing tests for ParseExpr**
 
 Create `internal/filter/parse_expr_test.go`:
 
@@ -620,12 +620,12 @@ func TestParseExpr_FieldValidation(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd /Users/germanamz/projects/tusk && go test -v ./internal/filter/ -run "TestParseExpr"`
 Expected: FAIL — `ParseExpr` doesn't exist yet.
 
-- [ ] **Step 3: Implement ParseExpr**
+- [x] **Step 3: Implement ParseExpr**
 
 Create `internal/filter/parse_expr.go`:
 
@@ -897,17 +897,17 @@ func (p *exprParser) parseTerm() Expr {
 }
 ```
 
-- [ ] **Step 4: Run ParseExpr tests**
+- [x] **Step 4: Run ParseExpr tests**
 
 Run: `cd /Users/germanamz/projects/tusk && go test -v ./internal/filter/ -run "TestParseExpr"`
 Expected: ALL PASS.
 
-- [ ] **Step 5: Run the full test suite**
+- [x] **Step 5: Run the full test suite**
 
 Run: `cd /Users/germanamz/projects/tusk && make test`
 Expected: ALL PASS — `ParseExpr` is new code, not wired to anything yet.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/filter/parse_expr.go internal/filter/parse_expr_test.go
@@ -923,59 +923,78 @@ EOF
 
 ---
 
-### Task 4: Verify Full Suite and Handle Parse() Compatibility
+### Task 4: Preserve Parse() Behavior for Keyword Tokens
 
 **Files:**
-- Modify: `internal/filter/parser.go` (if needed)
-- Modify: `internal/filter/parser_test.go` (if needed)
+- Modify: `internal/filter/parser.go`
+- Modify: `internal/filter/parser_test.go`
 
-The existing `Parse()` function may now receive tokens of type `TokenAnd`, `TokenOr`, `TokenNot`, `TokenLParen`, `TokenRParen` from the updated lexer. Since `Parse()` uses a `switch tok.Type` that only handles `TokenField`, `TokenTagInclude`, `TokenTagExclude`, and `TokenText`, the new token types fall through silently (they're not in any case). This means they're ignored, which is correct for `Parse()` — it's used for input building (`tusk add`, `tusk modify`), not for queries.
+The existing `Parse()` function is used for input building (`tusk add`, `tusk modify`). After the lexer changes in Task 1, words like `AND`, `OR`, `NOT` now produce keyword tokens instead of `TokenText`. If left unhandled, `Parse()` would silently drop these words — e.g., `tusk add "Fix AND cleanup"` would produce title `"Fix cleanup"` instead of `"Fix AND cleanup"`. This is an unacceptable behavior change. `Parse()` must treat keyword and paren tokens as text to preserve existing behavior.
 
-- [ ] **Step 1: Verify Parse() handles new tokens gracefully**
+- [x] **Step 1: Add explicit text handling for keyword/paren tokens in Parse()**
+
+In `internal/filter/parser.go`, add a case in the `switch tok.Type` block (after the `case TokenText:` block) that treats keyword and paren tokens as text:
+
+```go
+		case TokenAnd, TokenOr, TokenNot, TokenLParen, TokenRParen:
+			// In Parse (input building for tusk add/modify), boolean keywords
+			// and parens are plain text, not operators. Preserve them as title words.
+			fs.Text = append(fs.Text, tok.Value)
+```
+
+- [x] **Step 2: Write tests verifying keywords are preserved as text**
 
 Add at the end of `internal/filter/parser_test.go`:
 
 ```go
-func TestParse_IgnoresKeywordsAndParens(t *testing.T) {
+func TestParse_KeywordsPreservedAsText(t *testing.T) {
 	// Parse is for input building (tusk add/modify). Boolean keywords
-	// should be ignored — they'll be treated as unknown tokens and silently skipped.
-	fs, errs := Parse("My AND task")
-	if len(errs) != 0 {
-		t.Fatalf("expected no errors, got %v", errs)
+	// must be preserved as title text, not silently dropped.
+	tests := []struct {
+		name  string
+		input string
+		title string
+	}{
+		{"AND in title", "Fix AND cleanup", "Fix AND cleanup"},
+		{"OR in title", "Read OR write", "Read OR write"},
+		{"NOT in title", "NOT a bug", "NOT a bug"},
+		{"parens in title", "(draft) My task", "( draft ) My task"},
+		{"mixed keywords", "Do AND OR NOT things", "Do AND OR NOT things"},
 	}
-	// AND is a keyword token, not TokenText, so Parse ignores it
-	if fs.Title() != "My task" {
-		t.Fatalf("expected title %q, got %q", "My task", fs.Title())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs, errs := Parse(tt.input)
+			if len(errs) != 0 {
+				t.Fatalf("expected no errors, got %v", errs)
+			}
+			if fs.Title() != tt.title {
+				t.Fatalf("expected title %q, got %q", tt.title, fs.Title())
+			}
+		})
 	}
 }
 ```
 
-- [ ] **Step 2: Run to check**
+- [x] **Step 3: Run tests**
 
-Run: `cd /Users/germanamz/projects/tusk && go test -v ./internal/filter/ -run "TestParse_IgnoresKeywordsAndParens"`
-Expected: PASS — `Parse()` ignores tokens it doesn't recognize.
+Run: `cd /Users/germanamz/projects/tusk && go test -v ./internal/filter/ -run "TestParse_KeywordsPreservedAsText"`
+Expected: ALL PASS.
 
-If it fails because the token falls through to a case that misbehaves, add an explicit no-op handling for the new token types in the `switch tok.Type` block in `Parse()` (parser.go line 32):
-
-```go
-		case TokenAnd, TokenOr, TokenNot, TokenLParen, TokenRParen:
-			// Ignored in Parse — these are for ParseExpr
-```
-
-- [ ] **Step 3: Run the full test suite including E2E**
+- [x] **Step 4: Run the full test suite including E2E**
 
 Run: `cd /Users/germanamz/projects/tusk && make test`
 Expected: ALL PASS.
 
-- [ ] **Step 4: Commit if changes were needed**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/filter/parser.go internal/filter/parser_test.go
 git commit -m "$(cat <<'EOF'
-test(filter): verify Parse ignores boolean keyword tokens
+fix(filter): preserve AND/OR/NOT/parens as text in Parse
 
 Parse is for input building (tusk add/modify), not queries.
-AND/OR/NOT/parens tokens are silently ignored.
+Keyword and paren tokens must be treated as plain text so that
+titles like "Fix AND cleanup" are not silently truncated.
 EOF
 )"
 ```
@@ -993,8 +1012,8 @@ EOF
 **Modified files:**
 - `internal/filter/token.go` — 5 new `TokenType` constants (`TokenAnd`, `TokenOr`, `TokenNot`, `TokenLParen`, `TokenRParen`), updated `String()`, updated `Lex()` with keyword detection and paren delimiters
 - `internal/filter/token_test.go` — Test cases for new token types
-- `internal/filter/parser.go` — May have explicit no-op case for new token types (if needed)
-- `internal/filter/parser_test.go` — Test for Parse ignoring keywords
+- `internal/filter/parser.go` — Added case for `TokenAnd`/`TokenOr`/`TokenNot`/`TokenLParen`/`TokenRParen` to treat them as text in `Parse()`
+- `internal/filter/parser_test.go` — Tests verifying keyword tokens are preserved as title text in `Parse()`
 
 **No new dependencies, migrations, or environment variables.**
 
@@ -1002,7 +1021,7 @@ EOF
 
 **User-visible behaviors preserved:**
 - All existing CLI commands work unchanged
-- `tusk add`, `tusk modify` work unchanged (Parse/FilterSet path)
+- `tusk add`, `tusk modify` work unchanged — `Parse()` treats `AND`/`OR`/`NOT`/`(`/`)` tokens as plain text so titles like `"Fix AND cleanup"` are preserved
 - `tusk list` still uses `Parse` → `Resolve` → `List` path (Phase 4 switches it)
 - All existing MCP tools work unchanged
 - All E2E tests pass unchanged
