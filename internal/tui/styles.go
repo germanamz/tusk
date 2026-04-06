@@ -2,6 +2,7 @@ package tui
 
 import (
 	"io"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -35,6 +36,42 @@ func NewRenderer(w io.Writer, format string, color bool) *Renderer {
 		r.styles = newStyles()
 	}
 	return r
+}
+
+// styledPriority returns the priority symbol with color applied if styles are active.
+func (r *Renderer) styledPriority(priority int) string {
+	sym := formatPriority(priority)
+	if r.styles == nil {
+		return sym
+	}
+	idx := priority
+	if idx < 0 || idx > 4 {
+		idx = 0
+	}
+	return r.styles.Priority[idx].Render(sym)
+}
+
+// styledHeader returns text with bold styling if styles are active.
+func (r *Renderer) styledHeader(text string) string {
+	if r.styles == nil {
+		return text
+	}
+	return r.styles.Header.Render(text)
+}
+
+// styledLabel returns text with bold styling if styles are active (same as styledHeader, used for info labels).
+func (r *Renderer) styledLabel(text string) string {
+	if r.styles == nil {
+		return text
+	}
+	return r.styles.Header.Render(text)
+}
+
+// paddedLabel returns a label styled and padded to a fixed visible width.
+func (r *Renderer) paddedLabel(text string, width int) string {
+	styled := r.styledLabel(text)
+	pad := max(0, width-lipgloss.Width(styled))
+	return styled + strings.Repeat(" ", pad)
 }
 
 // newStyles initializes the default color styles.

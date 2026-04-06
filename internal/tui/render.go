@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/germanamz/tusk/internal/domain"
 )
 
@@ -270,7 +271,18 @@ func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*d
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(r.w, "%-8s %-9s %-4s %-5s %s\n", "ID", "Status", "Pri", "Age", "Title"); err != nil {
+	idH := r.styledHeader("ID")
+	statusH := r.styledHeader("Status")
+	priH := r.styledHeader("Pri")
+	ageH := r.styledHeader("Age")
+	titleH := r.styledHeader("Title")
+	if _, err := fmt.Fprintf(r.w, "%s%s %s%s %s%s %s%s %s\n",
+		idH, strings.Repeat(" ", max(0, 8-lipgloss.Width(idH))),
+		statusH, strings.Repeat(" ", max(0, 9-lipgloss.Width(statusH))),
+		priH, strings.Repeat(" ", max(0, 4-lipgloss.Width(priH))),
+		ageH, strings.Repeat(" ", max(0, 5-lipgloss.Width(ageH))),
+		titleH,
+	); err != nil {
 		return err
 	}
 	for _, t := range tasks {
@@ -282,10 +294,13 @@ func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*d
 			}
 			title = title + "  " + strings.Join(tagStrs, " ")
 		}
-		if _, err := fmt.Fprintf(r.w, "%-8s %-9s %-4s %-5s %s\n",
+		priStr := r.styledPriority(t.Priority)
+		priPad := strings.Repeat(" ", max(0, 4-lipgloss.Width(priStr)))
+		if _, err := fmt.Fprintf(r.w, "%-8s %-9s %s%s %-5s %s\n",
 			t.ShortID,
 			t.Status,
-			formatPriority(t.Priority),
+			priStr,
+			priPad,
 			formatAge(t.CreatedAt),
 			title,
 		); err != nil {
@@ -357,16 +372,24 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 		return enc.Encode(info)
 	}
 
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "ID:", task.ShortID); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("ID:", 13), task.ShortID); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Title:", task.Title); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Title:", 13), task.Title); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Status:", task.Status); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Status:", 13), task.Status); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Priority:", formatPriorityName(task.Priority)); err != nil {
+	priName := formatPriorityName(task.Priority)
+	if r.styles != nil {
+		idx := task.Priority
+		if idx < 0 || idx > 4 {
+			idx = 0
+		}
+		priName = r.styles.Priority[idx].Render(priName)
+	}
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Priority:", 13), priName); err != nil {
 		return err
 	}
 
@@ -375,13 +398,13 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 		for i, tg := range tags {
 			tagStrs[i] = "+" + tg.Name
 		}
-		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Tags:", strings.Join(tagStrs, " ")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Tags:", 13), strings.Join(tagStrs, " ")); err != nil {
 			return err
 		}
 	}
 
 	if task.Description != "" {
-		if _, err := fmt.Fprintln(r.w, "Description:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, r.styledLabel("Description:")); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintln(r.w); err != nil {
@@ -392,32 +415,32 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 		}
 	}
 	if task.ProjectID != "" {
-		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Project:", task.ProjectID); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Project:", 13), task.ProjectID); err != nil {
 			return err
 		}
 	}
 	if task.ParentID != nil {
-		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Parent:", task.ParentID.String()); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Parent:", 13), task.ParentID.String()); err != nil {
 			return err
 		}
 	}
 	if task.DueAt != nil {
-		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Due:", task.DueAt.Format("2006-01-02")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Due:", 13), task.DueAt.Format("2006-01-02")); err != nil {
 			return err
 		}
 	}
 	if task.WaitUntil != nil {
-		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Wait:", task.WaitUntil.Format("2006-01-02 15:04:05")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Wait:", 13), task.WaitUntil.Format("2006-01-02 15:04:05")); err != nil {
 			return err
 		}
 	}
 	if task.RecurrenceRule != nil {
-		if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Recurrence:", *task.RecurrenceRule); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Recurrence:", 13), *task.RecurrenceRule); err != nil {
 			return err
 		}
 	}
 	if len(task.UDA) > 0 {
-		if _, err := fmt.Fprintln(r.w, "UDA:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, r.styledLabel("UDA:")); err != nil {
 			return err
 		}
 		if err := r.renderUDASection(task.UDA); err != nil {
@@ -425,13 +448,13 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 		}
 	}
 
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Created:", task.CreatedAt.Format("2006-01-02 15:04:05")); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Created:", 13), task.CreatedAt.Format("2006-01-02 15:04:05")); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.w, "%-13s %s\n", "Modified:", task.ModifiedAt.Format("2006-01-02 15:04:05")); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Modified:", 13), task.ModifiedAt.Format("2006-01-02 15:04:05")); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.w, "%-13s %d\n", "Version:", task.Version); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %d\n", r.paddedLabel("Version:", 13), task.Version); err != nil {
 		return err
 	}
 
@@ -439,7 +462,7 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 		if _, err := fmt.Fprintln(r.w); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(r.w, "Annotations:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, r.styledLabel("Annotations:")); err != nil {
 			return err
 		}
 		for _, ann := range annotations {
@@ -453,7 +476,7 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 		if _, err := fmt.Fprintln(r.w); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(r.w, "Relations:"); err != nil {
+		if _, err := fmt.Fprintln(r.w, r.styledLabel("Relations:")); err != nil {
 			return err
 		}
 		for _, rr := range relations {
