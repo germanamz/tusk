@@ -352,6 +352,78 @@ func TestFiltering(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "filter_or_operator",
+			Steps: []Step{
+				{Args: []string{"add", "Active task"}},
+				{Args: []string{"start", "$0.short_id"}},
+				{Args: []string{"add", "Pending task"}},
+				{Args: []string{"add", "Done task"}},
+				{Args: []string{"start", "$3.short_id"}},
+				{Args: []string{"done", "$3.short_id"}},
+				{
+					Args: []string{"list", "status:active", "OR", "status:completed"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						arr := jsonArray(t, parsed)
+						if len(arr) != 2 {
+							t.Fatalf("expected 2 tasks (active + completed), got %d", len(arr))
+						}
+					},
+					AssertText: func(t *testing.T, output string) {
+						assertContains(t, output, "Active task")
+						assertContains(t, output, "Done task")
+						assertNotContains(t, output, "Pending task")
+					},
+				},
+			},
+		},
+		{
+			Name: "filter_not_operator",
+			Steps: []Step{
+				{Args: []string{"add", "Keep this"}},
+				{Args: []string{"add", "Delete this"}},
+				{Args: []string{"delete", "$1.short_id"}},
+				{
+					Args: []string{"list", "NOT", "status:deleted"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 task, got %d", len(arr))
+						}
+						assertEqual(t, arr[0].(map[string]any)["title"], "Keep this")
+					},
+					AssertText: func(t *testing.T, output string) {
+						assertContains(t, output, "Keep this")
+						assertNotContains(t, output, "Delete this")
+					},
+				},
+			},
+		},
+		{
+			Name: "filter_parenthesized_grouping",
+			Steps: []Step{
+				{Args: []string{"add", "Active tagged", "+api"}},
+				{Args: []string{"start", "$0.short_id"}},
+				{Args: []string{"add", "Pending tagged", "+api"}},
+				{Args: []string{"add", "Active untagged"}},
+				{Args: []string{"start", "$3.short_id"}},
+				{
+					// Only active tasks with +api tag, or any pending task
+					Args: []string{"list", "(", "status:active", "AND", "+api", ")", "OR", "status:pending"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						arr := jsonArray(t, parsed)
+						if len(arr) != 2 {
+							t.Fatalf("expected 2 tasks, got %d", len(arr))
+						}
+					},
+					AssertText: func(t *testing.T, output string) {
+						assertContains(t, output, "Active tagged")
+						assertContains(t, output, "Pending tagged")
+						assertNotContains(t, output, "Active untagged")
+					},
+				},
+			},
+		},
 	}
 
 	runScenarios(t, binPath, scenarios)

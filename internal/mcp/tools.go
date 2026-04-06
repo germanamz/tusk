@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/filter"
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -296,34 +297,73 @@ func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest)
 
 // handleTaskList handles the tusk_task_list tool.
 func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filter := domain.TaskFilter{}
+	// If a filter string is provided, use ParseExpr for full boolean support
+	if filterStr, err := request.RequireString("filter"); err == nil {
+		expr, parseErrs := filter.ParseExpr(filterStr)
+		if len(parseErrs) > 0 {
+			return mcp.NewToolResultError("filter parse error: " + filter.FormatErrors(parseErrs)), nil
+		}
+
+		var filterExpr domain.FilterExpr
+		if expr != nil {
+			resolver := filter.NewResolver(s.taskSvc)
+			var resolveErrs []error
+			filterExpr, resolveErrs = resolver.ResolveExpr(ctx, expr)
+			if len(resolveErrs) > 0 {
+				return mcp.NewToolResultError(resolveErrs[0].Error()), nil
+			}
+		}
+
+		tasks, err := s.taskSvc.List(ctx, filterExpr)
+		if err != nil {
+			return nil, err
+		}
+
+		taskIDs := make([]uuid.UUID, len(tasks))
+		for i, t := range tasks {
+			taskIDs[i] = t.ID
+		}
+		tagsByTask, err := s.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+		if err != nil {
+			return nil, err
+		}
+
+		results := make([]taskResponse, len(tasks))
+		for i, t := range tasks {
+			results[i] = toTaskResponse(t, tagsByTask[t.ID])
+		}
+
+		return toolResultJSON(results)
+	}
+
+	tf := domain.TaskFilter{}
 
 	// Optional: status (string array)
 	if statuses := request.GetStringSlice("status", nil); len(statuses) > 0 {
-		filter.Statuses = statuses
+		tf.Statuses = statuses
 	}
 
 	// Optional: priority range
 	if pMin, err := request.RequireFloat("priority_min"); err == nil {
 		v := int(pMin)
-		filter.PriorityMin = &v
+		tf.PriorityMin = &v
 	}
 	if pMax, err := request.RequireFloat("priority_max"); err == nil {
 		v := int(pMax)
-		filter.PriorityMax = &v
+		tf.PriorityMax = &v
 	}
 
 	// Optional: project (by ID)
 	if projectID, err := request.RequireString("project"); err == nil {
-		filter.ProjectID = &projectID
+		tf.ProjectID = &projectID
 	}
 
 	// Optional: tags include/exclude
 	if tags := request.GetStringSlice("tags", nil); len(tags) > 0 {
-		filter.Tags = tags
+		tf.Tags = tags
 	}
 	if exTags := request.GetStringSlice("exclude_tags", nil); len(exTags) > 0 {
-		filter.ExcludeTags = exTags
+		tf.ExcludeTags = exTags
 	}
 
 	// Optional: due date range
@@ -332,14 +372,14 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		if parseErr != nil {
 			return mcp.NewToolResultError("invalid due_after format, expected ISO 8601 (RFC3339)"), nil
 		}
-		filter.DueAfter = &d
+		tf.DueAfter = &d
 	}
 	if before, err := request.RequireString("due_before"); err == nil {
 		d, parseErr := time.Parse(time.RFC3339, before)
 		if parseErr != nil {
 			return mcp.NewToolResultError("invalid due_before format, expected ISO 8601 (RFC3339)"), nil
 		}
-		filter.DueBefore = &d
+		tf.DueBefore = &d
 	}
 
 	// Optional: parent (direct children)
@@ -348,7 +388,7 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		if lookupErr != nil {
 			return toolError(lookupErr, "parent task "+parentShortID), nil
 		}
-		filter.ParentID = &parent.ID
+		tf.ParentID = &parent.ID
 	}
 
 	// Optional: root (all descendants)
@@ -357,20 +397,20 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		if lookupErr != nil {
 			return toolError(lookupErr, "root task "+rootShortID), nil
 		}
-		filter.RootID = &root.ID
+		tf.RootID = &root.ID
 	}
 
 	// Optional: title substring
 	if title, err := request.RequireString("title"); err == nil {
-		filter.TitleContains = &title
+		tf.TitleContains = &title
 	}
 
 	// Optional: description substring
 	if desc, err := request.RequireString("description"); err == nil {
-		filter.DescriptionContains = &desc
+		tf.DescriptionContains = &desc
 	}
 
-	tasks, err := s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
+	tasks, err := s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: tf})
 	if err != nil {
 		return nil, err
 	}
