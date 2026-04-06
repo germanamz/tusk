@@ -129,18 +129,14 @@ func markdownStyle() ansi.StyleConfig {
 		},
 	}
 
-	// Code blocks: add a subtle background so they stand out.
-	if s.CodeBlock.Chroma != nil {
-		s.CodeBlock.Chroma.Background = ansi.StylePrimitive{
-			BackgroundColor: stringPtr("#303030"),
-		}
-	}
+	// Code blocks: delimiter lines above and below so they're easy to spot.
+	s.CodeBlock.BlockPrefix = "```\n"
+	s.CodeBlock.BlockSuffix = "```"
 
 	return s
 }
 
-func boolPtr(b bool) *bool       { return &b }
-func stringPtr(s string) *string { return &s }
+func boolPtr(b bool) *bool { return &b }
 
 // renderMarkdown renders markdown text for terminal display using glamour.
 // When color is disabled, uses NoTTY style for plain ASCII formatting.
