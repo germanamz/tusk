@@ -342,19 +342,19 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Weighted multi-factor urgency algorithm for task ranking.
 
-- [ ] **Story: Urgency engine**
-  - [ ] Implement scoring with default weights (priority, due, age, status, blocking, blocked, tags, project, annotations, waiting)
-  - [ ] Sigmoid curve for due-date urgency
-  - [ ] Integrate urgency into default list sort
+- [x] **Story: Urgency engine**
+  - [x] Implement scoring with default weights (priority, due, age, status, blocking, blocked, tags, project, annotations, waiting)
+  - [x] Sigmoid curve for due-date urgency
+  - [x] Integrate urgency into default list sort
 
-- [ ] **Story: Configurable urgency weights**
-  - [ ] Read weights from config system (global defaults)
-  - [ ] `tusk next` — display highest-urgency actionable task (can ship with engine story using hardcoded defaults if needed earlier)
+- [x] **Story: Configurable urgency weights**
+  - [x] Read weights from config system (global defaults)
+  - [x] `tusk next` — display highest-urgency actionable task (can ship with engine story using hardcoded defaults if needed earlier)
 
-- [ ] **Story: Per-project urgency overrides**
-  - [ ] Extend `ProjectSettings` with urgency weight overrides in config
-  - [ ] Merge project-level weights on top of global config at scoring time
-  - [ ] Expose overrides via `[projects.<id>.settings]` config section
+- [x] **Story: Per-project urgency overrides**
+  - [x] Extend `ProjectSettings` with urgency weight overrides in config
+  - [x] Merge project-level weights on top of global config at scoring time
+  - [x] Expose overrides via `[projects.<id>.settings]` config section
 
 ---
 
