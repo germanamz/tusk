@@ -95,6 +95,7 @@ func (s *Server) validateConfig() error {
 		"tusk_task_delete":     true,
 		"tusk_task_annotate":   true,
 		"tusk_task_tree":       true,
+		"tusk_task_next":       true,
 		"tusk_relation_add":    true,
 		"tusk_relation_remove": true,
 		"tusk_project_list":    true,
@@ -427,6 +428,11 @@ func (s *Server) registerTools() {
 		),
 		s.handleTaskTree,
 	)
+
+	s.addTool("task", mcp.NewTool(
+		"tusk_task_next",
+		mcp.WithDescription("Get the highest-urgency actionable task (not waiting, not blocked)"),
+	), s.handleTaskNext)
 
 	s.addTool("workflow",
 		mcp.NewTool("tusk_workflow_list",

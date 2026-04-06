@@ -297,6 +297,20 @@ func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest)
 	return toolResultJSON(resp)
 }
 
+// handleTaskNext returns the highest-urgency actionable task.
+func (s *Server) handleTaskNext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	task, err := s.taskSvc.Next(ctx)
+	if err != nil {
+		return toolError(err, "next task"), nil
+	}
+
+	resp, err := s.buildTaskGetResponse(ctx, task.ShortID)
+	if err != nil {
+		return nil, err
+	}
+	return toolResultJSON(resp)
+}
+
 // handleTaskList handles the tusk_task_list tool.
 func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// If a filter string is provided, use ParseExpr for full boolean support

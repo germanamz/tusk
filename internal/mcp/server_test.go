@@ -105,11 +105,11 @@ func TestRegisterTools_FiltersDisabledTools(t *testing.T) {
 		DisabledToolGroups: []string{"relation"},
 	})
 
-	if len(full.toolGroups) != 13 {
-		t.Errorf("full server: expected 13 tools, got %d", len(full.toolGroups))
+	if len(full.toolGroups) != 14 {
+		t.Errorf("full server: expected 14 tools, got %d", len(full.toolGroups))
 	}
-	if len(filtered.toolGroups) != 11 {
-		t.Errorf("filtered server: expected 11 tools (relation group disabled), got %d", len(filtered.toolGroups))
+	if len(filtered.toolGroups) != 12 {
+		t.Errorf("filtered server: expected 12 tools (relation group disabled), got %d", len(filtered.toolGroups))
 	}
 }
 

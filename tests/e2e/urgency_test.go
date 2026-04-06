@@ -85,3 +85,41 @@ func TestUrgencySorting(t *testing.T) {
 
 	runScenarios(t, binPath, scenarios)
 }
+
+func TestTaskNext(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "next_returns_highest_urgency",
+			Steps: []Step{
+				{Args: []string{"add", "Low prio", "priority:1"}},
+				{Args: []string{"add", "High prio", "priority:4"}},
+				{
+					Args: []string{"next"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["title"], "High prio")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "High prio")
+					},
+				},
+			},
+		},
+		{
+			Name: "next_no_actionable_tasks",
+			Steps: []Step{
+				{Args: []string{"add", "Task 1"}},
+				{Args: []string{"start", "$0.short_id"}},
+				{Args: []string{"done", "$0.short_id"}},
+				{
+					Args:    []string{"next"},
+					WantErr: true,
+				},
+			},
+		},
+	}
+
+	runScenarios(t, binPath, scenarios)
+}
