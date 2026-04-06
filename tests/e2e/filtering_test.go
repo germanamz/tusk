@@ -306,6 +306,52 @@ func TestFiltering(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "filter_by_title",
+			Steps: []Step{
+				{Args: []string{"add", "Implement auth middleware"}},
+				{Args: []string{"add", "Write unit tests"}},
+				{
+					Args: []string{"list", `title:"auth"`, "status:pending"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 task, got %d", len(arr))
+						}
+						assertEqual(t, arr[0].(map[string]any)["title"], "Implement auth middleware")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "auth middleware")
+						assertNotContains(t, output, "unit tests")
+					},
+				},
+			},
+		},
+		{
+			Name: "filter_by_description",
+			Steps: []Step{
+				{Args: []string{"add", "Task A", "--description", "handles authentication"}},
+				{Args: []string{"add", "Task B", "--description", "handles logging"}},
+				{
+					Args: []string{"list", `description:"authentication"`, "status:pending"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						arr := jsonArray(t, parsed)
+						if len(arr) != 1 {
+							t.Fatalf("expected 1 task, got %d", len(arr))
+						}
+						assertEqual(t, arr[0].(map[string]any)["title"], "Task A")
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Task A")
+						assertNotContains(t, output, "Task B")
+					},
+				},
+			},
+		},
 	}
 
 	runScenarios(t, binPath, scenarios)
