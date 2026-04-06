@@ -72,12 +72,9 @@ func (r *Renderer) styledHeader(text string) string {
 	return r.styles.Header.Render(text)
 }
 
-// styledLabel returns text with bold styling if styles are active (same as styledHeader, used for info labels).
+// styledLabel returns text with bold styling if styles are active (used for info labels).
 func (r *Renderer) styledLabel(text string) string {
-	if r.styles == nil {
-		return text
-	}
-	return r.styles.Header.Render(text)
+	return r.styledHeader(text)
 }
 
 // paddedLabel returns a label styled and padded to a fixed visible width.

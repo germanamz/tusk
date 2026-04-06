@@ -324,19 +324,19 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Color, formatting, and quality-of-life improvements.
 
-- [ ] **Story: Color-coded output**
-  - [ ] Color by priority level
-  - [ ] Color by status
-  - [ ] Respect `NO_COLOR` / `--no-color` flag
+- [x] **Story: Color-coded output**
+  - [x] Color by priority level
+  - [x] Color by status
+  - [x] Respect `NO_COLOR` / `--no-color` flag
 
-- [ ] **Story: Tag colors**
-  - [ ] CLI support for setting tag color (`tusk tag modify <name> --color <hex>`)
-  - [ ] Display colored tags in list/info/tree output
-  - [ ] Read default color settings from `[tui]` config section
+- [x] **Story: Tag colors**
+  - [x] CLI support for setting tag color (`tusk tag modify <name> --color <hex>`)
+  - [x] Display colored tags in list/info/tree output
+  - [x] Read default color settings from `[tui]` config section
 
-- [ ] **Story: Markdown description rendering**
-  - [ ] Terminal-rendered markdown in `tusk info` using glamour (charmbracelet)
-  - [ ] Respect `NO_COLOR` / `--no-color` flag for plain text fallback
+- [x] **Story: Markdown description rendering**
+  - [x] Terminal-rendered markdown in `tusk info` using glamour (charmbracelet)
+  - [x] Respect `NO_COLOR` / `--no-color` flag for plain text fallback
 
 ### Initiative: Urgency Scoring
 
