@@ -312,3 +312,94 @@ Environment variables with the `TUSK_` prefix can override any config value. The
 Tusk uses SQLite by default with WAL mode enabled. The database is a single file at `~/.local/share/tusk/tusk.db` (configurable). Migrations are embedded in the binary and run automatically.
 
 The storage layer is designed as a set of interfaces — the SQLite implementation is the shipped default, but the architecture supports alternative backends.
+
+---
+
+## Planned Features
+
+The following features are planned but not yet implemented.
+
+### Live Dashboard
+
+A real-time terminal dashboard for monitoring task state and player activity.
+
+- **Task board** — kanban-style columns showing tasks by status, refreshing live
+- **Player activity feed** — stream of recent actions ("agent-1 claimed X", "german completed Y") with filtering by player or event type
+- **Idle player detection** — highlight players who claimed tasks but haven't acted for a configurable duration
+
+The dashboard is powered by an **event log** — an append-only record of all mutations (task created, status changed, claimed, released, etc.) with bounded retention.
+
+### Undo
+
+Revert the last mutation using the event log. Supports undoing task changes, status transitions, and claim operations.
+
+```bash
+tusk undo    # revert last mutation
+```
+
+### Recurrence
+
+Automatic generation of recurring tasks using RFC 5545 RRULE strings. When a recurring task is completed, tusk creates the next instance based on the recurrence rule. Handles end dates and count limits.
+
+### UDA Schema Validation
+
+Per-project schemas for user-defined attributes. Projects can define which UDA keys are allowed and what types/values they accept, so invalid metadata is rejected on create and update.
+
+### Data Export
+
+Full data portability via export:
+
+```bash
+tusk export --format json    # full dump
+tusk export --format csv     # flat export
+```
+
+### MCP Streamable HTTP Transport
+
+Network-accessible MCP server for multi-client scenarios, using the Streamable HTTP transport (successor to SSE):
+
+```bash
+tusk mcp serve --transport http --port 8080
+```
+
+### PostgreSQL Backend
+
+A PostgreSQL storage backend for multi-user and networked deployments, with connection pooling and its own migration path.
+
+### Interactive TUI
+
+Extend the dashboard into a full interactive terminal interface — inline task editing, status transitions, and task creation without leaving the TUI.
+
+### REST API
+
+RESTful HTTP endpoints mirroring CLI and MCP capabilities, with authentication and authorization.
+
+### Webhook Notifications
+
+Fire webhooks on task state changes, powered by the event log. Enables integration with external systems like Slack, email, or CI pipelines.
+
+### Time Tracking
+
+Start and stop timers on tasks, and report time spent:
+
+```bash
+tusk timer start a3f8b2c1
+tusk timer stop a3f8b2c1
+```
+
+### File Attachments
+
+Attach binary files to tasks, stored on the filesystem and referenced in the database:
+
+```bash
+tusk attach a3f8b2c1 spec.pdf
+```
+
+### Bidirectional Sync
+
+A sync protocol for merging task data across instances, with conflict resolution:
+
+```bash
+tusk sync export
+tusk sync import
+```
