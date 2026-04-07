@@ -402,15 +402,15 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Atomic pop operation for efficient agent orchestration. Depends on urgency scoring (v0.6) to rank tasks.
 
-- [ ] **Story: Available tasks**
-  - [ ] `tusk available` — convenience: unclaimed + actionable status + not blocked
-  - [ ] `tusk_task_available` MCP tool
+- [x] **Story: Available tasks**
+  - [x] `tusk available` — convenience: unclaimed + actionable status + not blocked
+  - [x] `tusk_task_available` MCP tool
 
-- [ ] **Story: `tusk pop`**
-  - [ ] TaskService.Pop — atomically find highest-urgency unclaimed unblocked task, claim for player, return it
-  - [ ] `tusk pop --player <id>` CLI command
-  - [ ] `tusk_task_pop` MCP tool with `player_id` input
-  - [ ] Respect filters (optional: `tusk pop project:backend`)
+- [x] **Story: `tusk pop`**
+  - [x] TaskService.Pop — atomically find highest-urgency unclaimed unblocked task, claim for player, return it
+  - [x] `tusk pop --player <id>` CLI command
+  - [x] `tusk_task_pop` MCP tool with `player_id` input
+  - [x] Respect filters (optional: `tusk pop project:backend`)
 
 ---
 
