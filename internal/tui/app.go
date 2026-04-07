@@ -26,6 +26,8 @@ type App struct {
 	relationSvc *service.RelationService
 	projectSvc  *service.ProjectService
 	workflowSvc *service.WorkflowService
+	playerSvc   *service.PlayerService
+	playerID    string // from --player flag
 	resolver    *filter.Resolver
 	root        *cobra.Command
 	format      string
@@ -49,13 +51,15 @@ func (a *App) colorEnabled() bool {
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectSvc may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, playerSvc *service.PlayerService, playerID string, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
 		relationSvc: relationSvc,
 		projectSvc:  projectSvc,
 		workflowSvc: workflowSvc,
+		playerSvc:   playerSvc,
+		playerID:    playerID,
 		version:     vi,
 		tuiCfg:      tuiCfg,
 		mcpCfg:      mcpCfg,
@@ -78,6 +82,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	a.root.AddCommand(a.buildProjectCmd())
 	a.root.AddCommand(a.buildTagCmd())
 	a.root.AddCommand(a.buildWorkflowCmd())
+	a.root.AddCommand(a.buildPlayerCmd())
 	a.root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print version information",

@@ -81,13 +81,15 @@ func run() error {
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
 	projectSvc := service.NewProjectService(projectRepo)
+	playerSvc := service.NewPlayerService(playerRepo)
+	playerID := resolvePlayerID()
 
-	app := tui.New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, tui.VersionInfo{
+	app := tui.New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, playerID, tui.VersionInfo{
 		Version: version,
 		Commit:  commit,
 		Date:    date,
 	}, cfg.TUI, cfg.MCP)
-	return app.Run(stripDBFlag(os.Args[1:]))
+	return app.Run(stripPlayerFlag(stripDBFlag(os.Args[1:])))
 }
 
 // stripDBFlag removes --db and its value from args so Cobra doesn't see them.
@@ -99,6 +101,37 @@ func stripDBFlag(args []string) []string {
 			continue
 		}
 		if strings.HasPrefix(args[i], "--db=") {
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
+}
+
+// resolvePlayerID reads the --player flag from os.Args (before Cobra parsing).
+func resolvePlayerID() string {
+	for i, arg := range os.Args {
+		if arg == "--player" {
+			if i+1 < len(os.Args) {
+				return os.Args[i+1]
+			}
+		}
+		if strings.HasPrefix(arg, "--player=") {
+			return arg[9:]
+		}
+	}
+	return ""
+}
+
+// stripPlayerFlag removes --player and its value from args.
+func stripPlayerFlag(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--player" && i+1 < len(args) {
+			i++ // skip value
+			continue
+		}
+		if strings.HasPrefix(args[i], "--player=") {
 			continue
 		}
 		out = append(out, args[i])
