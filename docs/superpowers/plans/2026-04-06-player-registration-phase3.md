@@ -30,6 +30,7 @@
 - `claimed_by:<id>` and `unclaimed:true` filters
 - `taskJSON` and `toTaskJSON` include `ClaimedBy`/`ClaimedAt`
 - MCP `taskResponse` struct does NOT yet include `ClaimedBy`/`ClaimedAt` (added in this phase)
+- MCP `handleTaskStart` uses a closure wrapper to adapt the 4-arg `Start` to the 3-arg `handleTaskTransition` helper (bridge code — replaced with dedicated handler in this phase, Task 3)
 
 ---
 
@@ -364,7 +365,7 @@ mcp.WithString("player_id",
 
 - [ ] **Step 3: Update `handleTaskStart` handler**
 
-The existing `handleTaskStart` uses the shared `handleTaskTransition` pattern. Since `Start` now has a different signature (4 args), it can no longer share the generic transition handler. Replace it with a dedicated handler:
+The existing `handleTaskStart` (from Phase 2) uses a closure wrapper around `handleTaskTransition` to adapt the 4-arg `Start` signature. Replace it with a dedicated handler that passes the actual `player_id` and handles auto-registration:
 
 ```go
 func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -402,7 +403,7 @@ func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolReques
 }
 ```
 
-**IMPORTANT:** Remove the old `handleTaskStart` if it was defined as a one-liner calling `handleTaskTransition`. Check if `handleTaskDone` and `handleTaskDelete` also used `handleTaskTransition` — if so, they should still work since `Complete` and `Delete` signatures haven't changed.
+**NOTE:** This replaces the Phase 2 closure wrapper (bridge code removal). `handleTaskDone` and `handleTaskDelete` still use `handleTaskTransition` — their signatures haven't changed.
 
 - [ ] **Step 4: Add `player_id` liveness tracking to read handlers**
 
@@ -736,39 +737,190 @@ git commit -m "test(e2e): add CLI E2E tests for player registration, claiming, a
 **Files:**
 - Create: `tests/e2e/mcp_player_test.go`
 
-Check how existing MCP E2E tests work. Look at `tests/e2e/` for any existing MCP test files (e.g., `mcp_test.go` or `mcp_*.go`). Follow the same pattern for MCP tool invocation.
+Uses the existing `mcpEnv` harness from `tests/e2e/mcp_test.go` — `newMCPEnv(t, binPath)` starts a `tusk mcp serve` subprocess, `env.callTool(name, args)` sends a JSON-RPC `tools/call` and returns parsed JSON, `env.callToolExpectError(name, args)` expects an `isError=true` result and returns the error text.
 
-- [ ] **Step 1: Explore existing MCP E2E patterns**
+- [ ] **Step 1: Write MCP E2E tests in `tests/e2e/mcp_player_test.go`**
 
-```bash
-ls tests/e2e/mcp_*
-grep -l "mcp\|MCP\|CallTool" tests/e2e/*.go
+```go
+package e2e
+
+import (
+	"testing"
+)
+
+func TestMCPPlayerRegister(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	env := newMCPEnv(t, binPath)
+
+	result := env.callTool("tusk_player_register", map[string]any{
+		"player_id": "mcp-agent-1",
+	})
+	if result["id"] != "mcp-agent-1" {
+		t.Fatalf("expected id 'mcp-agent-1', got %v", result["id"])
+	}
+	if result["type"] != "agent" {
+		t.Fatalf("expected type 'agent', got %v", result["type"])
+	}
+	if result["registered_at"] == nil {
+		t.Fatal("expected registered_at to be set")
+	}
+
+	// Duplicate registration should fail
+	errMsg := env.callToolExpectError("tusk_player_register", map[string]any{
+		"player_id": "mcp-agent-1",
+	})
+	if errMsg == "" {
+		t.Fatal("expected error on duplicate registration")
+	}
+}
+
+func TestMCPTaskClaim(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	env := newMCPEnv(t, binPath)
+
+	// Register player and create task
+	env.callTool("tusk_player_register", map[string]any{"player_id": "claimer-1"})
+	created := env.callTool("tusk_task_create", map[string]any{"title": "MCP claim test"})
+	shortID := created["short_id"].(string)
+	version := created["version"].(float64)
+
+	// Claim the task
+	claimed := env.callTool("tusk_task_claim", map[string]any{
+		"short_id":  shortID,
+		"player_id": "claimer-1",
+		"version":   version,
+	})
+	if claimed["claimed_by"] != "claimer-1" {
+		t.Fatalf("expected claimed_by 'claimer-1', got %v", claimed["claimed_by"])
+	}
+	if claimed["claimed_at"] == nil {
+		t.Fatal("expected claimed_at to be set")
+	}
+}
+
+func TestMCPTaskRelease(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	env := newMCPEnv(t, binPath)
+
+	env.callTool("tusk_player_register", map[string]any{"player_id": "releaser-1"})
+	created := env.callTool("tusk_task_create", map[string]any{"title": "MCP release test"})
+	shortID := created["short_id"].(string)
+	version := created["version"].(float64)
+
+	// Claim then release
+	claimed := env.callTool("tusk_task_claim", map[string]any{
+		"short_id":  shortID,
+		"player_id": "releaser-1",
+		"version":   version,
+	})
+	claimedVersion := claimed["version"].(float64)
+
+	released := env.callTool("tusk_task_release", map[string]any{
+		"short_id":  shortID,
+		"player_id": "releaser-1",
+		"version":   claimedVersion,
+	})
+	if released["claimed_by"] != nil {
+		t.Fatalf("expected claimed_by nil after release, got %v", released["claimed_by"])
+	}
+	if released["claimed_at"] != nil {
+		t.Fatalf("expected claimed_at nil after release, got %v", released["claimed_at"])
+	}
+}
+
+func TestMCPTaskStartWithPlayer(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	env := newMCPEnv(t, binPath)
+
+	// Create task — do NOT pre-register player (auto-register should handle it)
+	created := env.callTool("tusk_task_create", map[string]any{"title": "MCP start auto-claim"})
+	shortID := created["short_id"].(string)
+	version := created["version"].(float64)
+
+	// Start with player_id — should auto-register as agent and auto-claim
+	started := env.callTool("tusk_task_start", map[string]any{
+		"short_id":  shortID,
+		"version":   version,
+		"player_id": "auto-agent",
+	})
+	if started["status"] != "active" {
+		t.Fatalf("expected status 'active', got %v", started["status"])
+	}
+	if started["claimed_by"] != "auto-agent" {
+		t.Fatalf("expected claimed_by 'auto-agent', got %v", started["claimed_by"])
+	}
+}
+
+func TestMCPTaskClaimAlreadyClaimed(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	env := newMCPEnv(t, binPath)
+
+	env.callTool("tusk_player_register", map[string]any{"player_id": "first"})
+	env.callTool("tusk_player_register", map[string]any{"player_id": "second"})
+	created := env.callTool("tusk_task_create", map[string]any{"title": "MCP contested"})
+	shortID := created["short_id"].(string)
+	version := created["version"].(float64)
+
+	// First player claims
+	claimed := env.callTool("tusk_task_claim", map[string]any{
+		"short_id":  shortID,
+		"player_id": "first",
+		"version":   version,
+	})
+	claimedVersion := claimed["version"].(float64)
+
+	// Second player tries to claim — should fail
+	errMsg := env.callToolExpectError("tusk_task_claim", map[string]any{
+		"short_id":  shortID,
+		"player_id": "second",
+		"version":   claimedVersion,
+	})
+	if errMsg == "" {
+		t.Fatal("expected error when second player claims")
+	}
+}
+
+func TestMCPReadToolLiveness(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	env := newMCPEnv(t, binPath)
+
+	// Register player
+	env.callTool("tusk_player_register", map[string]any{"player_id": "liveness-agent"})
+	created := env.callTool("tusk_task_create", map[string]any{"title": "Liveness test"})
+	shortID := created["short_id"].(string)
+
+	// Call tusk_task_get with player_id — should not error
+	fetched := env.callTool("tusk_task_get", map[string]any{
+		"short_id":  shortID,
+		"player_id": "liveness-agent",
+	})
+	if fetched["title"] != "Liveness test" {
+		t.Fatalf("expected title 'Liveness test', got %v", fetched["title"])
+	}
+}
 ```
 
-Read the existing MCP test file to understand how MCP tools are invoked in E2E tests (likely via a helper that sends JSON-RPC to the MCP server).
-
-- [ ] **Step 2: Write MCP E2E tests in `tests/e2e/mcp_player_test.go`**
-
-Follow the existing MCP test pattern discovered in step 1. The tests should cover:
-
-1. `tusk_player_register` — register a player, verify response has `id`, `type: "agent"`
-2. `tusk_task_claim` — create task, register player, claim task, verify `claimed_by` in response
-3. `tusk_task_release` — claim then release, verify `claimed_by` is null
-4. `tusk_task_start` with `player_id` — create task, start with player_id, verify auto-registered + auto-claimed
-5. `tusk_task_get` with `player_id` — call with player_id, verify liveness updated (check player's `last_seen_at` changed)
-6. `tusk_task_claim` already claimed — two players, first claims, second gets error
-
-The exact test code depends on the existing MCP E2E helper patterns. Write tests that match those patterns exactly.
-
-- [ ] **Step 3: Run MCP E2E tests**
+- [ ] **Step 2: Run MCP E2E tests**
 
 ```bash
-go test -v ./tests/e2e/ -run "TestMCPPlayer"
+go test -v ./tests/e2e/ -run "TestMCPPlayer|TestMCPTaskClaim|TestMCPTaskRelease|TestMCPTaskStartWithPlayer|TestMCPReadToolLiveness"
 ```
 
-Expected: all tests pass.
+Expected: all 6 tests pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add tests/e2e/mcp_player_test.go

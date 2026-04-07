@@ -616,8 +616,27 @@ grep -rn "\.Start(" --include="*.go"
 
 Every caller of `taskSvc.Start(ctx, shortID, version)` must become `taskSvc.Start(ctx, shortID, version, "")` (pass empty string for no-player behavior). This includes:
 - `internal/tui/commands.go` — `runStart` method
-- `internal/mcp/tools.go` — `handleTaskStart` handler
+- `internal/mcp/tools.go` — `handleTaskStart` handler (see Step 4b)
 - Any test files
+
+- [ ] **Step 4b: Fix MCP `handleTaskStart` for new `Start` signature**
+
+In `internal/mcp/tools.go`, the current `handleTaskStart` (line 598) passes `s.taskSvc.Start` as a method reference to `handleTaskTransition`. The new 4-arg `Start` signature no longer matches the `func(context.Context, string, int) (*domain.Task, error)` type expected by `handleTaskTransition`. Replace the `handleTaskStart` function:
+
+```go
+// handleTaskStart handles the tusk_task_start tool.
+func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleTaskTransition(ctx, request, func(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+		return s.taskSvc.Start(ctx, shortID, version, "")
+	})
+}
+```
+
+Also update `internal/mcp/handlers_test.go` — the `testServer` function (line 46) calls `service.NewTaskService` without a `playerRepo` argument. Add `nil` as the last argument:
+
+```go
+taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil, nil)
+```
 
 - [ ] **Step 5: Add `Claim` and `Release` methods**
 
@@ -720,7 +739,7 @@ if upd.ClaimedAt != nil {
 - [ ] **Step 7: Run all tests**
 
 ```bash
-go test ./internal/service/... -v
+go test ./internal/service/... ./internal/mcp/... -v
 ```
 
 Expected: all tests pass (both existing and new claim tests).
@@ -728,8 +747,8 @@ Expected: all tests pass (both existing and new claim tests).
 - [ ] **Step 8: Commit**
 
 ```bash
-git add internal/service/task.go internal/service/task_claim_test.go cmd/tusk/main.go
-git add -u  # catch any other files with updated Start() calls
+git add internal/service/task.go internal/service/task_claim_test.go cmd/tusk/main.go internal/mcp/tools.go internal/mcp/handlers_test.go
+git add -u  # catch any other files with updated Start()/NewTaskService() calls
 git commit -m "feat(service): add Claim/Release to TaskService, auto-claim on Start"
 ```
 
@@ -1192,17 +1211,20 @@ git commit -m "feat(filter): add claimed_by and unclaimed filter support"
 - `internal/domain/filter.go` — added `ClaimedBy` and `Unclaimed` to TaskFilter
 - `internal/filter/resolve.go` — added `claimed_by` and `unclaimed` cases
 - `internal/sqlite/task.go` — added `claimed_by`/`unclaimed` filter conditions
+- `internal/mcp/tools.go` — updated `handleTaskStart` to wrap `Start` with closure (adapts to new 4-arg signature)
+- `internal/mcp/handlers_test.go` — updated `NewTaskService` call to include `playerRepo` (nil)
 
 **New dependencies:** None.
 
 **Bridge code:**
 - MCP server constructor (`tuskmcp.New`) is NOT updated in this phase — MCP still works without player support. Phase 3 adds MCP player tools and the `playerSvc` dependency.
+- MCP `handleTaskStart` uses a closure wrapper to adapt the new 4-arg `Start` to the 3-arg `handleTaskTransition` helper. Phase 3 replaces this with a dedicated handler that passes the actual `player_id`.
 
 **User-visible behavior preserved:**
 - All existing CLI commands work identically when `--player` is not specified
 - `tusk start` without `--player` behaves exactly as before
 - All existing E2E tests pass
-- MCP server works identically (no changes to MCP layer)
+- MCP `tusk_task_start` works identically (closure passes empty `playerID`, preserving no-claim behavior)
 
 **New user-visible behavior:**
 - `tusk player register <id> --type human|agent` — register a player
