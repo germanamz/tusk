@@ -1001,6 +1001,113 @@ func (s *Server) handleTaskRelease(ctx context.Context, request mcp.CallToolRequ
 	return toolResultJSON(toTaskResponse(updated, tags))
 }
 
+// handleTaskAvailable handles the tusk_task_available tool.
+func (s *Server) handleTaskAvailable(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.updatePlayerLiveness(ctx, request)
+
+	playerID, err := request.RequireString("player_id")
+	if err != nil {
+		return mcp.NewToolResultError("player_id is required"), nil
+	}
+
+	// Auto-register player as agent
+	if s.playerSvc != nil {
+		if _, regErr := s.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
+			if !errors.Is(regErr, domain.ErrConflict) {
+				return toolError(regErr, "auto-registering player"), nil
+			}
+		}
+	}
+
+	var filterExpr domain.FilterExpr
+
+	if filterStr, err := request.RequireString("filter"); err == nil {
+		expr, parseErrs := filter.ParseExpr(filterStr)
+		if len(parseErrs) > 0 {
+			return mcp.NewToolResultError("filter parse error: " + filter.FormatErrors(parseErrs)), nil
+		}
+
+		if expr != nil {
+			resolver := filter.NewResolver(s.taskSvc)
+			var resolveErrs []error
+			filterExpr, resolveErrs = resolver.ResolveExpr(ctx, expr)
+			if len(resolveErrs) > 0 {
+				return mcp.NewToolResultError(resolveErrs[0].Error()), nil
+			}
+		}
+	}
+
+	tasks, err := s.taskSvc.Available(ctx, filterExpr)
+	if err != nil {
+		return nil, err
+	}
+
+	taskIDs := make([]uuid.UUID, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+	tagsByTask, err := s.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]taskResponse, len(tasks))
+	for i, t := range tasks {
+		results[i] = toTaskResponse(t, tagsByTask[t.ID])
+	}
+
+	return toolResultJSON(results)
+}
+
+// handleTaskPop handles the tusk_task_pop tool.
+func (s *Server) handleTaskPop(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	playerID, err := request.RequireString("player_id")
+	if err != nil {
+		return mcp.NewToolResultError("player_id is required"), nil
+	}
+
+	// Auto-register player as agent
+	if s.playerSvc != nil {
+		if _, regErr := s.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
+			if !errors.Is(regErr, domain.ErrConflict) {
+				return toolError(regErr, "auto-registering player"), nil
+			}
+		}
+	}
+
+	// Parse optional filter
+	var filterExpr domain.FilterExpr
+	if filterStr, err := request.RequireString("filter"); err == nil {
+		expr, parseErrs := filter.ParseExpr(filterStr)
+		if len(parseErrs) > 0 {
+			return mcp.NewToolResultError("filter parse error: " + filter.FormatErrors(parseErrs)), nil
+		}
+		if expr != nil {
+			resolver := filter.NewResolver(s.taskSvc)
+			var resolveErrs []error
+			filterExpr, resolveErrs = resolver.ResolveExpr(ctx, expr)
+			if len(resolveErrs) > 0 {
+				return mcp.NewToolResultError(resolveErrs[0].Error()), nil
+			}
+		}
+	}
+
+	task, err := s.taskSvc.Pop(ctx, playerID, filterExpr)
+	if err != nil {
+		if errors.Is(err, domain.ErrNoAvailableTasks) {
+			return mcp.NewToolResultText("No available tasks matching the given filters"), nil
+		}
+		return toolError(err, "pop"), nil
+	}
+
+	tags, err := s.tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return toolResultJSON(toTaskResponse(task, tags))
+}
+
 // handleTaskTree handles the tusk_task_tree tool.
 func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	s.updatePlayerLiveness(ctx, request)
