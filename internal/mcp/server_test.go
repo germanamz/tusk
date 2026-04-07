@@ -10,7 +10,7 @@ import (
 // mustNew calls New and fails the test on error.
 func mustNew(t *testing.T, cfg config.MCPConfig) *Server {
 	t.Helper()
-	s, err := New(nil, nil, nil, nil, nil, "test", cfg)
+	s, err := New(nil, nil, nil, nil, nil, nil, "test", cfg)
 	if err != nil {
 		t.Fatalf("New() returned unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestValidation_UnknownEntries(t *testing.T) {
 		DisabledResourceGroups: []string{"nonexistent_res_group"},
 	}
 
-	_, err := New(nil, nil, nil, nil, nil, "test", cfg)
+	_, err := New(nil, nil, nil, nil, nil, nil, "test", cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown config entries, got nil")
 	}
@@ -159,7 +159,7 @@ func TestValidation_NoErrorForValidEntries(t *testing.T) {
 		DisabledResourceGroups: []string{"workflow"},
 	}
 
-	_, err := New(nil, nil, nil, nil, nil, "test", cfg)
+	_, err := New(nil, nil, nil, nil, nil, nil, "test", cfg)
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}

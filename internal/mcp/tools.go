@@ -45,6 +45,8 @@ type taskResponse struct {
 	CreatedAt      string         `json:"created_at"`
 	ModifiedAt     string         `json:"modified_at"`
 	Urgency        float64        `json:"urgency"`
+	ClaimedBy      *string        `json:"claimed_by,omitempty"`
+	ClaimedAt      *string        `json:"claimed_at,omitempty"`
 }
 
 func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
@@ -78,6 +80,13 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
 	r.Tags = make([]string, len(tags))
 	for i, tg := range tags {
 		r.Tags[i] = tg.Name
+	}
+	if t.ClaimedBy != nil {
+		r.ClaimedBy = t.ClaimedBy
+	}
+	if t.ClaimedAt != nil {
+		s := t.ClaimedAt.Format(time.RFC3339)
+		r.ClaimedAt = &s
 	}
 	return r
 }
