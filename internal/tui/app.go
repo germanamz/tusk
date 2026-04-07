@@ -51,7 +51,7 @@ func (a *App) colorEnabled() bool {
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectSvc may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, playerSvc *service.PlayerService, playerID string, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, playerSvc *service.PlayerService, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
@@ -59,7 +59,6 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		projectSvc:  projectSvc,
 		workflowSvc: workflowSvc,
 		playerSvc:   playerSvc,
-		playerID:    playerID,
 		version:     vi,
 		tuiCfg:      tuiCfg,
 		mcpCfg:      mcpCfg,
@@ -77,6 +76,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	a.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
 	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text" or "json"`)
 	a.root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output")
+	a.root.PersistentFlags().StringVar(&a.playerID, "player", "", "player ID for claim/release operations")
 
 	a.root.AddCommand(a.buildTaskCmds()...)
 	a.root.AddCommand(a.buildProjectCmd())
