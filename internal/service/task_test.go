@@ -48,7 +48,7 @@ func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig
 	relationRepo := sqlite.NewRelationRepo(db)
 
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil)
+	taskSvc := NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil, nil)
 
 	return &testEnv{
 		taskSvc:     taskSvc,
@@ -687,7 +687,7 @@ func TestStart_HappyPath(t *testing.T) {
 	task := newMinimalTask("Start me")
 	mustCreateTask(t, env.taskSvc, task)
 
-	updated, err := env.taskSvc.Start(ctx, task.ShortID, 1)
+	updated, err := env.taskSvc.Start(ctx, task.ShortID, 1, "")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -706,13 +706,13 @@ func TestStart_AlreadyActive(t *testing.T) {
 	task := newMinimalTask("Already active")
 	mustCreateTask(t, env.taskSvc, task)
 
-	_, err := env.taskSvc.Start(ctx, task.ShortID, 1)
+	_, err := env.taskSvc.Start(ctx, task.ShortID, 1, "")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
 	// active → active is a no-op (status unchanged), should succeed
-	updated, err := env.taskSvc.Start(ctx, task.ShortID, 2)
+	updated, err := env.taskSvc.Start(ctx, task.ShortID, 2, "")
 	if err != nil {
 		t.Fatalf("Start on already-active task: %v", err)
 	}
@@ -729,7 +729,7 @@ func TestComplete_HappyPath(t *testing.T) {
 	mustCreateTask(t, env.taskSvc, task)
 
 	// Must start first: pending → active
-	started, err := env.taskSvc.Start(ctx, task.ShortID, 1)
+	started, err := env.taskSvc.Start(ctx, task.ShortID, 1, "")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -782,7 +782,7 @@ func TestDelete_FromCompleted(t *testing.T) {
 	task := newMinimalTask("Complete then delete")
 	mustCreateTask(t, env.taskSvc, task)
 
-	started, _ := env.taskSvc.Start(ctx, task.ShortID, 1)
+	started, _ := env.taskSvc.Start(ctx, task.ShortID, 1, "")
 	completed, _ := env.taskSvc.Complete(ctx, task.ShortID, started.Version)
 
 	// completed → deleted is not allowed in default workflow
@@ -981,7 +981,7 @@ func TestUpdate_StatusChange_Transactional(t *testing.T) {
 	mustCreateTask(t, env.taskSvc, task)
 
 	// Start the task (pending -> active) — this triggers the transactional path
-	updated, err := env.taskSvc.Start(ctx, task.ShortID, task.Version)
+	updated, err := env.taskSvc.Start(ctx, task.ShortID, task.Version, "")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1034,7 +1034,7 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	// Pass store as the TaskTxProvider
-	taskSvc := NewTaskService(taskRepo, annotationRepo, nil, nil, projectRepo, workflowSvc, store, nil)
+	taskSvc := NewTaskService(taskRepo, annotationRepo, nil, nil, projectRepo, workflowSvc, store, nil, nil)
 
 	ctx := context.Background()
 	task := newMinimalTask("Test with tx provider")
@@ -1043,7 +1043,7 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 	}
 
 	// Start and complete — basic lifecycle still works
-	_, err = taskSvc.Start(ctx, task.ShortID, task.Version)
+	_, err = taskSvc.Start(ctx, task.ShortID, task.Version, "")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1125,7 +1125,7 @@ func TestAutoComplete_AllChildrenCompleted(t *testing.T) {
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
 	// Start parent (pending -> active) so it can later transition to completed
-	parent, err := env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, err := env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 	if err != nil {
 		t.Fatalf("Start parent: %v", err)
 	}
@@ -1137,7 +1137,7 @@ func TestAutoComplete_AllChildrenCompleted(t *testing.T) {
 	mustCreateTask(t, env.taskSvc, child2)
 
 	// Start and complete child1
-	child1, err = env.taskSvc.Start(ctx, child1.ShortID, child1.Version)
+	child1, err = env.taskSvc.Start(ctx, child1.ShortID, child1.Version, "")
 	if err != nil {
 		t.Fatalf("Start child1: %v", err)
 	}
@@ -1153,7 +1153,7 @@ func TestAutoComplete_AllChildrenCompleted(t *testing.T) {
 	}
 
 	// Start and complete child2
-	child2, err = env.taskSvc.Start(ctx, child2.ShortID, child2.Version)
+	child2, err = env.taskSvc.Start(ctx, child2.ShortID, child2.Version, "")
 	if err != nil {
 		t.Fatalf("Start child2: %v", err)
 	}
@@ -1177,14 +1177,14 @@ func TestAutoComplete_Disabled_ByDefault(t *testing.T) {
 
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
-	parent, err := env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, err := env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 	if err != nil {
 		t.Fatalf("Start parent: %v", err)
 	}
 
 	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child)
-	child, err = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	child, err = env.taskSvc.Start(ctx, child.ShortID, child.Version, "")
 	if err != nil {
 		t.Fatalf("Start child: %v", err)
 	}
@@ -1211,7 +1211,7 @@ func TestAutoComplete_DeletedChildrenIgnored(t *testing.T) {
 
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
-	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 
 	child1 := &domain.Task{Title: "Child 1", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child1)
@@ -1222,7 +1222,7 @@ func TestAutoComplete_DeletedChildrenIgnored(t *testing.T) {
 	_, _ = env.taskSvc.Delete(ctx, child2.ShortID, child2.Version)
 
 	// Start and complete child1
-	child1, _ = env.taskSvc.Start(ctx, child1.ShortID, child1.Version)
+	child1, _ = env.taskSvc.Start(ctx, child1.ShortID, child1.Version, "")
 	_, _ = env.taskSvc.Complete(ctx, child1.ShortID, child1.Version)
 
 	// Parent should be auto-completed (deleted child ignored)
@@ -1247,7 +1247,7 @@ func TestAutoComplete_WorkflowGuard(t *testing.T) {
 
 	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child)
-	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version, "")
 	_, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
 
 	// Parent should NOT be auto-completed (pending -> completed is not allowed)
@@ -1269,15 +1269,15 @@ func TestAutoComplete_Recursive(t *testing.T) {
 	// Create grandparent -> parent -> child chain
 	grandparent := newMinimalTask("Grandparent")
 	mustCreateTask(t, env.taskSvc, grandparent)
-	grandparent, _ = env.taskSvc.Start(ctx, grandparent.ShortID, grandparent.Version)
+	grandparent, _ = env.taskSvc.Start(ctx, grandparent.ShortID, grandparent.Version, "")
 
 	parent := &domain.Task{Title: "Parent", ParentID: &grandparent.ID}
 	mustCreateTask(t, env.taskSvc, parent)
-	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 
 	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child)
-	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version, "")
 
 	// Complete child — should cascade: child done -> parent auto-done -> grandparent auto-done
 	_, err := env.taskSvc.Complete(ctx, child.ShortID, child.Version)
@@ -1314,11 +1314,11 @@ func TestAutoRevert_ChildReopened(t *testing.T) {
 	// Create parent + child
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
-	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 
 	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child)
-	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version, "")
 
 	// Complete child -> parent auto-completes
 	child, err := env.taskSvc.Complete(ctx, child.ShortID, child.Version)
@@ -1361,11 +1361,11 @@ func TestAutoRevert_Disabled(t *testing.T) {
 
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
-	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 
 	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child)
-	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version, "")
 
 	// Complete child -> parent auto-completes
 	child, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
@@ -1406,15 +1406,15 @@ func TestAutoRevert_Recursive(t *testing.T) {
 	// grandparent -> parent -> child
 	grandparent := newMinimalTask("Grandparent")
 	mustCreateTask(t, env.taskSvc, grandparent)
-	grandparent, _ = env.taskSvc.Start(ctx, grandparent.ShortID, grandparent.Version)
+	grandparent, _ = env.taskSvc.Start(ctx, grandparent.ShortID, grandparent.Version, "")
 
 	parent := &domain.Task{Title: "Parent", ParentID: &grandparent.ID}
 	mustCreateTask(t, env.taskSvc, parent)
-	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 
 	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child)
-	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version, "")
 
 	// Complete child — cascades up
 	child, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)
@@ -1463,11 +1463,11 @@ func TestAutoRevert_CustomTargetStatus(t *testing.T) {
 
 	parent := newMinimalTask("Parent")
 	mustCreateTask(t, env.taskSvc, parent)
-	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version)
+	parent, _ = env.taskSvc.Start(ctx, parent.ShortID, parent.Version, "")
 
 	child := &domain.Task{Title: "Child", ParentID: &parent.ID}
 	mustCreateTask(t, env.taskSvc, child)
-	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version)
+	child, _ = env.taskSvc.Start(ctx, child.ShortID, child.Version, "")
 
 	// Complete child -> parent auto-completes
 	child, _ = env.taskSvc.Complete(ctx, child.ShortID, child.Version)

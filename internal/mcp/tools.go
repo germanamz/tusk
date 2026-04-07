@@ -596,7 +596,9 @@ func (s *Server) handleTaskTransition(ctx context.Context, request mcp.CallToolR
 
 // handleTaskStart handles the tusk_task_start tool.
 func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleTaskTransition(ctx, request, s.taskSvc.Start)
+	return s.handleTaskTransition(ctx, request, func(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+		return s.taskSvc.Start(ctx, shortID, version, "")
+	})
 }
 
 // handleTaskDone handles the tusk_task_done tool.

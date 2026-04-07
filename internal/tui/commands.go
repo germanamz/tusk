@@ -532,7 +532,7 @@ func (a *App) runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	updated, err := a.taskSvc.Start(ctx, shortID, current.Version)
+	updated, err := a.taskSvc.Start(ctx, shortID, current.Version, "")
 	if err != nil {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}

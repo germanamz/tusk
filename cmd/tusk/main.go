@@ -75,7 +75,8 @@ func run() error {
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
 
-	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, urgencyEngine)
+	playerRepo := sqlite.NewPlayerRepo(db)
+	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, urgencyEngine, playerRepo)
 	tagSvc := service.NewTagService(tagRepo)
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 

@@ -94,7 +94,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	relationRepo := sqlite.NewRelationRepo(db)
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil)
+	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil, nil)
 	tagSvc := service.NewTagService(tagRepo)
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 
@@ -151,7 +151,7 @@ func TestRunList_StatusFilter(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	// Start then complete
-	taskSvc.Start(ctx, task.ShortID, 1)
+	taskSvc.Start(ctx, task.ShortID, 1, "")
 	taskSvc.Complete(ctx, task.ShortID, 2)
 
 	// Default list should NOT show completed tasks
@@ -508,7 +508,7 @@ func TestRunDone_HappyPath(t *testing.T) {
 
 	task := &domain.Task{Title: "Complete me"}
 	taskSvc.Create(ctx, task)
-	taskSvc.Start(ctx, task.ShortID, 1)
+	taskSvc.Start(ctx, task.ShortID, 1, "")
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
