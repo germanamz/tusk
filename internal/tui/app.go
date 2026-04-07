@@ -99,7 +99,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		Use:   "serve",
 		Short: "Start MCP server with stdio transport",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mcpServer, err := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, vi.Version, a.mcpCfg)
+			mcpServer, err := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, a.playerSvc, vi.Version, a.mcpCfg)
 			if err != nil {
 				return fmt.Errorf("initializing MCP server: %w", err)
 			}

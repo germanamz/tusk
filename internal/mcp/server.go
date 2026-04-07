@@ -18,6 +18,7 @@ type Server struct {
 	relationSvc    *service.RelationService
 	projectSvc     *service.ProjectService
 	workflowSvc    *service.WorkflowService
+	playerSvc      *service.PlayerService
 	server         *server.MCPServer
 	cfg            config.MCPConfig
 	toolGroups     map[string]string // tool name → group
@@ -32,6 +33,7 @@ func New(
 	relationSvc *service.RelationService,
 	projectSvc *service.ProjectService,
 	workflowSvc *service.WorkflowService,
+	playerSvc *service.PlayerService,
 	version string,
 	cfg config.MCPConfig,
 ) (*Server, error) {
@@ -41,6 +43,7 @@ func New(
 		relationSvc:    relationSvc,
 		projectSvc:     projectSvc,
 		workflowSvc:    workflowSvc,
+		playerSvc:      playerSvc,
 		cfg:            cfg,
 		toolGroups:     make(map[string]string),
 		resourceGroups: make(map[string]string),
@@ -100,9 +103,12 @@ func (s *Server) validateConfig() error {
 		"tusk_relation_remove": true,
 		"tusk_project_list":    true,
 		"tusk_workflow_list":   true,
+		"tusk_player_register": true,
+		"tusk_task_claim":      true,
+		"tusk_task_release":    true,
 	}
 	validToolGroups := map[string]bool{
-		"task": true, "relation": true, "project": true, "workflow": true,
+		"task": true, "relation": true, "project": true, "workflow": true, "player": true,
 	}
 	validResourceURIs := map[string]bool{
 		"tusk://tasks/{short_id}":         true,

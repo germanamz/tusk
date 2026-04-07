@@ -48,7 +48,7 @@ func testServer(t *testing.T) *Server {
 	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
 	projectSvc := service.NewProjectService(projectRepo)
 
-	s, err := New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, "test", config.MCPConfig{})
+	s, err := New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil, "test", config.MCPConfig{})
 	if err != nil {
 		t.Fatalf("creating MCP server: %v", err)
 	}
