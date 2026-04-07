@@ -77,7 +77,9 @@ Added to `internal/domain/errors.go`.
 1. Build base filter: `(status:pending OR status:active) AND unclaimed:true`
 2. If caller provides additional filters, AND them onto the base
 3. Call existing `List` logic (repo query + urgency scoring + sorting)
-4. Post-filter: call `CountBlockedByIncompleteTasks` on the result set, remove tasks with count > 0
+4. Post-filter to remove non-actionable tasks:
+   a. Call `CountBlockedByIncompleteTasks` on the result set, remove tasks with count > 0
+   b. Remove waiting tasks: skip any task where `wait_until` is in the future (same as `Next`)
 5. Return the filtered, urgency-sorted list
 
 Player auto-registration happens at the CLI/MCP layer before calling this method.
