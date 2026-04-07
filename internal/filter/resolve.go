@@ -245,6 +245,14 @@ func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *doma
 		v := field.Value
 		tf.DescriptionContains = &v
 
+	case "claimed_by":
+		v := field.Value
+		tf.ClaimedBy = &v
+
+	case "unclaimed":
+		v := field.Value == "true"
+		tf.Unclaimed = &v
+
 	default:
 		if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
 			if tf.UDA == nil {
