@@ -18,6 +18,8 @@ var fieldValidators = map[string]func(string) error{
 	"waiting":     validateBool,
 	"title":       validateNonEmpty,
 	"description": validateNonEmpty,
+	"claimed_by":  validateNonEmpty,
+	"unclaimed":   validateBool,
 }
 
 // Parse takes a raw filter string and returns the AST plus any parse errors.
