@@ -93,6 +93,6 @@ Conventional commits with scope: `test(e2e):`, `fix:`, `docs:`, `feat:`.
 
 ## References
 
-- `tusk.md` — full design spec (architecture, data model, CLI, MCP, roadmap)
+- `PRODUCT.md` — product-level description of implemented features
 - `docs/v0.1-status.md` — v0.1 implementation recap
 - `internal/config/default.toml` — embedded default configuration (source of truth for all defaults)
