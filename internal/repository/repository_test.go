@@ -55,6 +55,9 @@ func (s *stubRelationRepo) CountBlockingByTasks(_ context.Context, _ []uuid.UUID
 func (s *stubRelationRepo) CountBlockedByTasks(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]int, error) {
 	return nil, nil
 }
+func (s *stubRelationRepo) CountBlockedByIncompleteTasks(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]int, error) {
+	return map[uuid.UUID]int{}, nil
+}
 
 type stubProjectRepo struct{}
 
