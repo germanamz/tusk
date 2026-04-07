@@ -8,196 +8,120 @@ Licensed under **Apache 2.0**.
 
 ---
 
-## What Tusk Does
+## Why Tusk
 
-Tusk is a task management tool that works equally well from the terminal and from AI agents via MCP. Every feature is available through both interfaces.
+Existing tools force a choice. TaskWarrior is fast but flat — no real hierarchy, no typed relations, file-level locking that breaks under concurrency. Jira and Linear are powerful but browser-bound and opaque to automation. None of them ship with an MCP interface.
 
-At its core, tusk tracks tasks — but it goes further by managing **who** is working on **what**. Players (humans or agents) register, claim tasks, and coordinate through a built-in task queue. This prevents overlapping work and makes multi-agent workflows practical.
+Tusk occupies the gap:
+
+- **Single binary** — no runtime, no daemon, no browser.
+- **Dual interface** — every operation works from both the terminal and the MCP server. Humans and AI agents share one system with no translation layer.
+- **Player coordination** — tusk doesn't just track tasks, it tracks *who is working on what*. Players claim tasks, and the system prevents overlapping work. A built-in task queue lets agents pop the next best task atomically.
+- **Structured relationships** — hierarchical nesting, typed directed edges between tasks (blocks, relates_to, duplicates), and cycle detection on blocking chains.
+- **Concurrent-safe by default** — optimistic locking on every mutable entity. Concurrent CLI invocations, scripts, and MCP agents can all hit the same database without clobbering each other.
 
 ---
 
-## Tasks
+## Core Concepts
 
-A task is the central unit in tusk. Every trackable item — from a one-off todo to an epic spanning dozens of subtasks — is a task.
+### Tasks
 
-Each task has:
+Everything in tusk is a task. There are no epics, stories, or subtasks as distinct types — a task is an "epic" if it has children, and a "subtask" if it has a parent. This keeps the model flat where simple is enough and hierarchical where structure is needed, without forcing a taxonomy.
 
-- A **title** and optional **description** (supports markdown)
-- A **status** governed by the project's workflow
-- A **priority** from none (0) to urgent (4)
-- An optional **due date** and **wait-until date** (hidden from views until that time)
-- A computed **urgency score** that determines sort order
-- **User-defined attributes** for project-specific metadata
+Each task carries a title, optional markdown description, status, priority (none through urgent), optional due date, and a computed urgency score. Tasks can hold arbitrary key-value metadata through user-defined attributes.
 
-Tasks are identified by an 8-character short ID derived from their UUID. Short IDs are stable for the lifetime of the task and used in all CLI interactions.
+Tasks are identified by an 8-character short ID derived from their UUID. The short ID is stable for the task's lifetime and used in all human-facing interactions. The full UUID is used internally and in programmatic contexts.
+
+Tasks are never physically removed. Deletion is a status transition through the project's workflow, preserving full history.
 
 ### Hierarchy
 
-Tasks can be nested. A task with children is effectively an "epic" — there are no forced types or distinctions at the data level. Nesting depth is unlimited.
+Tasks can nest to arbitrary depth via an optional parent reference. When all children of a parent reach a trigger status, the parent can auto-transition (e.g., auto-complete when all children complete). The reverse works too — reopening a child can auto-revert a completed parent. Both behaviors are configurable per project and disabled by default.
 
-When all children of a parent complete, the parent can auto-complete (configurable per project). The reverse also works: if a completed parent's child reopens, the parent can auto-revert.
+### Relations
 
-### Soft Delete
+Tasks can be linked with typed, directed edges independent of the parent-child hierarchy:
 
-Tasks are never removed from storage. Deletion transitions a task to `deleted` status through the workflow, preserving history.
+- **blocks** — A must complete before B can proceed. Before creating a blocks edge, tusk runs a depth-first search through existing blocks edges to prevent cycles.
+- **relates_to** — informational association between related tasks.
+- **duplicates** — marks one task as a duplicate of another.
 
----
+Inverse relations (blocked_by, related_to, duplicated_by) are derived at query time by swapping source and target. One row per logical relation, no duplicate storage.
 
-## Relations
+### Players
 
-Tasks can be linked with typed, directed relations:
+A player is any entity that works with tusk — a human at a terminal, an AI agent via MCP, or a script. Players self-register by providing an ID on any operation; no predefined roster is required. Each player is typed as `human` or `agent`, and tusk tracks when they were last active.
 
-- **blocks** — task A must complete before task B can proceed
-- **relates_to** — informational link between related tasks
-- **duplicates** — marks a task as a duplicate of another
+### Claiming
 
-Inverse relations (`blocked_by`, `related_to`, `duplicated_by`) are derived automatically — no duplicate data.
+Players claim tasks to signal intent and prevent collisions. Starting a task auto-claims it if unclaimed; if another player already holds the claim, the operation is rejected. There is no force-steal and no TTL — stale player management is the consumer's concern. Claims are preserved after task completion and deletion for historical attribution.
 
-**Cycle detection** prevents deadlocks: before creating a `blocks` relation from A to B, tusk checks whether B already transitively blocks A. If it does, the relation is rejected.
+### Task Queue
 
----
+The **pop** operation atomically finds the highest-urgency unclaimed, unblocked task, claims it for the calling player, and starts it. One operation replaces what would otherwise be a list-filter-pick-claim sequence — eliminating race conditions and minimizing token usage in multi-agent setups. The **available** command provides the same filtered view without committing to a claim.
 
-## Workflows
+Both operations accept filters, so an agent can pop from a specific project, tag scope, or priority range.
 
-Workflows define which statuses exist and which transitions between them are allowed. They are defined in configuration, not in the database.
+### Workflows
+
+Workflows define which statuses exist and which transitions between them are valid. They are declared in configuration, not stored in the database.
 
 Tusk ships with a built-in **kanban** workflow:
 
 ```
 pending → active → completed
                  → deleted
-active  → pending (reopen)
-completed → pending (reopen)
+active  → pending
+completed → pending
 ```
 
-Custom workflows can define any set of statuses and transitions. Each project references a workflow by name.
+Custom workflows can define any status set and transition graph. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
+
+### Projects
+
+Projects group tasks and bind them to a workflow. Like workflows, projects live in configuration. A built-in **default** project provides a zero-config starting point.
+
+Projects can override urgency scoring weights and configure parent-child automation (auto-complete, auto-revert) independently.
+
+### Tags
+
+Flat labels for cross-cutting categorization. Tags carry an optional color for terminal rendering and can be filtered with `+tag` / `-tag` syntax. They exist independently of projects and can be applied to any task.
+
+### Annotations
+
+Timestamped, immutable notes attached to tasks. They serve as a running log of context, decisions, or status updates that shouldn't modify the task itself.
+
+### Urgency Scoring
+
+Every task receives a numeric urgency score computed from weighted factors: priority, proximity to due date (sigmoid curve), age, active status, whether it blocks or is blocked by other tasks, tags, project membership, annotation count, and waiting state. The score determines default sort order across all views.
+
+Weights are configurable globally and can be overridden per project, so different projects can express different prioritization philosophies without custom sort logic.
+
+### User-Defined Attributes
+
+Tasks support arbitrary key-value metadata via UDAs. Any string key-value pair can be attached, overwritten, or removed. UDAs are filterable (`uda.key:value`) and appear in all task responses across both interfaces.
 
 ---
 
-## Projects
+## Interfaces
 
-Projects group tasks and assign them a workflow. Like workflows, projects are defined in configuration.
+### CLI
 
-A built-in **default** project exists without any configuration. Projects can override urgency scoring weights and configure parent task auto-completion behavior.
-
----
-
-## Tags
-
-Tags are flat labels for cross-cutting categorization. They support color assignment for visual distinction in terminal output.
-
-Tags are managed independently and assigned to tasks. CLI syntax uses `+tag` to include and `-tag` to exclude when filtering.
-
----
-
-## Annotations
-
-Timestamped notes attached to tasks. Immutable after creation — they serve as a log of context, decisions, or status updates.
-
----
-
-## Urgency Scoring
-
-Every task gets a numeric urgency score computed from weighted factors:
-
-| Factor        | Effect                                              |
-| ------------- | --------------------------------------------------- |
-| Priority      | Higher priority increases urgency                   |
-| Due date      | Urgency rises sharply as the due date approaches    |
-| Age           | Older tasks gradually gain urgency (caps at 1 year) |
-| Active status | Active tasks get a boost                            |
-| Blocking      | Tasks that block others are more urgent             |
-| Blocked       | Tasks blocked by others are deprioritized           |
-| Tags          | Configurable urgency tags add weight                |
-| Project       | Having a project adds slight urgency                |
-| Annotations   | Annotated tasks get a small boost                   |
-| Waiting       | Tasks with a future wait-until date are deprioritized |
-
-Urgency determines default sort order across all views. Weights are configurable globally and per project.
-
----
-
-## Players and Task Claiming
-
-A **player** is any entity — human or AI agent — that interacts with tusk. Players self-register on first contact by providing an ID. No predefined roster is needed.
-
-### Claiming
-
-Players claim tasks to signal intent and prevent overlapping work:
-
-- **Explicit claim** — reserve a task for yourself
-- **Auto-claim on start** — starting a task claims it if unclaimed; if claimed by someone else, the operation is rejected
-- **Release** — clear a claim when you're done or changing focus
-- **No force-steal** — if a player goes stale, managing that is the consumer's responsibility
-
-Claims are preserved after task completion or deletion for historical attribution.
-
-### Task Queue
-
-The **pop** operation atomically finds the highest-urgency unclaimed, unblocked task, claims it, and starts it — all in one step. This replaces the list-filter-pick-claim dance that wastes tokens and introduces race conditions in multi-agent setups.
-
-The **available** command lists all unclaimed, actionable, unblocked tasks sorted by urgency — useful for browsing before committing.
-
-Both operations support filters, so agents can pop from a specific project or tag scope.
-
----
-
-## Filtering
-
-Tusk provides a rich filter syntax inspired by TaskWarrior:
-
-```
-tusk list project:backend +api priority:3..4 due:today..friday
-```
-
-Supported filters:
-
-- `project:name` — by project
-- `+tag` / `-tag` — include or exclude tags
-- `status:pending,active` — comma-separated status values
-- `priority:2..4` — numeric ranges
-- `due:today`, `due:tomorrow`, `due:thisweek` — relative dates
-- `parent:<short_id>` — direct children
-- `tree:<short_id>` — all descendants
-- `claimed_by:<player_id>` — tasks claimed by a player
-- `unclaimed:true` — unclaimed tasks
-- `title:"some text"` / `description:"text"` — text search
-- `uda.key:value` — user-defined attribute filter
-- `waiting:true` — tasks with a future wait-until date
-
-Filters support boolean operators (`AND`, `OR`, `NOT`) and parenthesized grouping for complex queries.
-
-When no status filter is specified, tusk defaults to showing `pending` and `active` tasks.
-
----
-
-## Concurrency
-
-Tusk is built for concurrent access. Multiple CLI invocations, scripts, and MCP agents can safely operate on the same database simultaneously.
-
-Every mutable entity carries a **version** field. Updates only succeed if the version matches — if someone else wrote first, the operation fails with a conflict error rather than silently overwriting. MCP responses include the current version so agents can pass it back on subsequent modifications.
-
-SQLite runs in WAL mode, allowing concurrent readers without blocking writers.
-
----
-
-## CLI
-
-Tusk provides a command-line interface for all operations:
+Tusk exposes all operations through a command-line interface:
 
 ```bash
-# Task lifecycle
+# Lifecycle
 tusk add "Implement auth middleware" project:backend +api priority:3
 tusk start a3f8b2c1
 tusk done a3f8b2c1
 tusk delete a3f8b2c1
 
-# Viewing tasks
+# Viewing
 tusk list                              # pending + active, sorted by urgency
 tusk list project:backend +api         # filtered
-tusk info a3f8b2c1                     # full detail
+tusk info a3f8b2c1                     # full task detail
 tusk tree                              # hierarchical view
-tusk next                              # single highest-urgency actionable task
+tusk next                              # highest-urgency actionable task
 
 # Modification
 tusk modify a3f8b2c1 priority:4 +urgent
@@ -207,16 +131,16 @@ tusk annotate a3f8b2c1 "Blocked by upstream API changes"
 tusk link a3f8b2c1 blocks b7c9d4e2
 tusk unlink a3f8b2c1 blocks b7c9d4e2
 
-# Tags
-tusk tag list
-tusk tag create bug --color "#ff0000"
-
-# Player management
+# Player coordination
 tusk player register german --type human
 tusk claim a3f8b2c1 --player german
 tusk release a3f8b2c1
 tusk available
 tusk pop --player german
+
+# Tags
+tusk tag list
+tusk tag create bug --color "#ff0000"
 
 # Configuration entities
 tusk project list
@@ -224,47 +148,19 @@ tusk workflow list
 tusk workflow info kanban
 ```
 
-Output supports both human-readable text (with color) and JSON (`--output json`) for scripting. Color respects the `NO_COLOR` environment variable and `--no-color` flag. Markdown descriptions are rendered with syntax highlighting in the terminal.
+Output is available in human-readable text (with color, markdown rendering) and JSON (`--output json`) for scripting. Color respects `NO_COLOR` and `--no-color`.
 
----
+### MCP Server
 
-## MCP Server
-
-The MCP server exposes every capability through tool calls, enabling AI agents to manage tasks programmatically.
+The MCP server mirrors the CLI through tool calls over stdio, so AI agents interact with the same system through the same service layer:
 
 ```bash
-tusk mcp serve    # stdio transport for IDE integration
+tusk mcp serve    # stdio transport
 ```
 
-### Tools
+**Tools** — 19 tools covering task CRUD, lifecycle transitions, annotations, tree views, relations, player registration, claiming, available tasks, pop, and read-only project/workflow listing. All mutation tools accept a `version` parameter for end-to-end optimistic locking. All tools accept an optional `player_id` for liveness tracking and auto-registration.
 
-| Tool                   | Description                        |
-| ---------------------- | ---------------------------------- |
-| `tusk_task_create`     | Create a new task                  |
-| `tusk_task_get`        | Get a single task by short ID      |
-| `tusk_task_list`       | List and filter tasks              |
-| `tusk_task_modify`     | Modify task fields                 |
-| `tusk_task_start`      | Transition to active               |
-| `tusk_task_done`       | Transition to completed            |
-| `tusk_task_delete`     | Transition to deleted              |
-| `tusk_task_annotate`   | Add an annotation                  |
-| `tusk_task_tree`       | Get hierarchical task view         |
-| `tusk_task_next`       | Get highest-urgency actionable task |
-| `tusk_task_claim`      | Claim a task for a player          |
-| `tusk_task_release`    | Release a claim                    |
-| `tusk_task_available`  | List available tasks               |
-| `tusk_task_pop`        | Atomically claim next best task    |
-| `tusk_relation_add`    | Create a relation between tasks    |
-| `tusk_relation_remove` | Remove a relation                  |
-| `tusk_project_list`    | List projects                      |
-| `tusk_workflow_list`   | List workflows                     |
-| `tusk_player_register` | Register a player                  |
-
-All mutation tools accept a `version` parameter for optimistic locking. All tools accept an optional `player_id` parameter for player liveness tracking.
-
-### Resources
-
-Tasks, projects, and workflows are also available as MCP resources:
+**Resources** — tasks, projects, and workflows are also exposed as MCP resources for agents that prefer reading state over tool calls:
 
 ```
 tusk://tasks/{short_id}
@@ -272,134 +168,124 @@ tusk://projects/{name}
 tusk://projects/{name}/workflow
 ```
 
-Tool and resource visibility can be configured to hide specific tools or groups from agents.
+Tool and resource visibility is configurable — individual tools, resource templates, or entire groups can be hidden from agents.
 
 ---
 
-## User-Defined Attributes
+## Filtering
 
-Tasks support arbitrary key-value metadata through user-defined attributes (UDAs). These are schemaless — any string key-value pair can be attached.
+Tusk provides a filter language inspired by TaskWarrior, extended with boolean logic:
 
 ```bash
-tusk add "Deploy service" --uda environment=production --uda region=us-east-1
-tusk modify a3f8b2c1 --uda environment=staging    # overwrite
-tusk list uda.environment:production               # filter by UDA
+tusk list project:backend +api priority:3..4 due:today..friday
+tusk list (status:active AND +urgent) OR priority:4
+tusk list claimed_by:agent-1
+tusk available unclaimed:true project:backend
 ```
 
-UDAs appear in task info and are included in all MCP responses. File-based input is supported for descriptions: `--description @file.md`.
+Filter capabilities:
+
+- **Field match** — `project:name`, `status:pending,active`, `claimed_by:player`
+- **Tags** — `+tag` to require, `-tag` to exclude
+- **Ranges** — `priority:2..4`, `due:today..friday`
+- **Relative dates** — `due:today`, `due:tomorrow`, `due:thisweek`
+- **Hierarchy** — `parent:<short_id>` (direct children), `tree:<short_id>` (all descendants)
+- **Text search** — `title:"some text"`, `description:"text"`
+- **UDA** — `uda.key:value`
+- **Boolean operators** — `AND`, `OR`, `NOT` with parenthesized grouping
+- **Claim state** — `claimed_by:<player_id>`, `unclaimed:true`, `waiting:true`
+
+When no status filter is specified, tusk defaults to `status:pending,active`.
+
+---
+
+## Concurrency Model
+
+Tusk is designed for concurrent access from day one — multiple CLI invocations, parallel script commands, and rapid MCP tool calls from AI agents.
+
+Every mutable entity carries a **version** field. Updates use optimistic locking: the write succeeds only if the version matches what was last read. On mismatch, the operation fails with a conflict error rather than silently overwriting. MCP responses include the current version so agents can pass it back on subsequent modifications, enabling end-to-end optimistic locking even across separate tool calls.
+
+SQLite runs in WAL mode, allowing concurrent readers without blocking writers.
 
 ---
 
 ## Configuration
 
-Tusk is configured via `~/.config/tusk/config.toml`. A default configuration is embedded in the binary and written on first run.
+Tusk is configured via `~/.config/tusk/config.toml`. A default configuration is embedded in the binary and auto-created on first run.
 
-Configurable areas:
+Configuration governs:
 
 - **Storage** — database path
-- **Urgency weights** — global and per-project scoring adjustments
-- **Workflows** — custom status sets and transitions
-- **Projects** — workflow assignment, automation settings, urgency overrides
+- **Workflows** — custom status sets and allowed transitions
+- **Projects** — workflow binding, automation settings, urgency weight overrides
+- **Urgency weights** — global scoring adjustments
 - **MCP** — transport settings, tool/resource visibility
-- **TUI** — date format, color, tree indentation, default sort
+- **TUI** — date format, color, tree indentation, default sort order
 
-Environment variables with the `TUSK_` prefix can override any config value. The `--db` flag overrides the database path.
+Environment variables with the `TUSK_` prefix override any config key. The `--db` flag overrides the database path directly.
 
 ---
 
 ## Storage
 
-Tusk uses SQLite by default with WAL mode enabled. The database is a single file at `~/.local/share/tusk/tusk.db` (configurable). Migrations are embedded in the binary and run automatically.
+Tusk uses SQLite by default. The database is a single file (default: `~/.local/share/tusk/tusk.db`), migrations are embedded in the binary and run automatically, and WAL mode is enabled for concurrent access.
 
-The storage layer is designed as a set of interfaces — the SQLite implementation is the shipped default, but the architecture supports alternative backends.
+The storage layer is defined as a set of interfaces. The SQLite implementation is the shipped default, but the architecture allows plugging in alternative backends without touching the service layer.
 
 ---
 
-## Planned Features
+## Planned
 
-The following features are planned but not yet implemented.
+### Event Log and Live Dashboard
 
-### Live Dashboard
+An append-only event log recording all mutations — task creation, status changes, claims, releases, relation changes. Bounded retention with configurable pruning.
 
-A real-time terminal dashboard for monitoring task state and player activity.
-
-- **Task board** — kanban-style columns showing tasks by status, refreshing live
-- **Player activity feed** — stream of recent actions ("agent-1 claimed X", "german completed Y") with filtering by player or event type
-- **Idle player detection** — highlight players who claimed tasks but haven't acted for a configurable duration
-
-The dashboard is powered by an **event log** — an append-only record of all mutations (task created, status changed, claimed, released, etc.) with bounded retention.
+Built on top of the event log: a real-time terminal dashboard with kanban-style task columns, a player activity feed, and idle-player detection. Refreshes by polling the event log.
 
 ### Undo
 
-Revert the last mutation using the event log. Supports undoing task changes, status transitions, and claim operations.
-
-```bash
-tusk undo    # revert last mutation
-```
+Revert the last mutation by reading the event log and applying the inverse operation. Covers task changes, status transitions, and claim operations.
 
 ### Recurrence
 
-Automatic generation of recurring tasks using RFC 5545 RRULE strings. When a recurring task is completed, tusk creates the next instance based on the recurrence rule. Handles end dates and count limits.
+RFC 5545 RRULE strings on tasks. On completion of a recurring task, tusk auto-generates the next instance. Handles end dates and count limits.
 
 ### UDA Schema Validation
 
-Per-project schemas for user-defined attributes. Projects can define which UDA keys are allowed and what types/values they accept, so invalid metadata is rejected on create and update.
+Per-project schemas for user-defined attributes. Projects define which UDA keys are allowed and what types/values they accept. Invalid metadata is rejected on create and update.
 
 ### Data Export
 
-Full data portability via export:
-
-```bash
-tusk export --format json    # full dump
-tusk export --format csv     # flat export
-```
+Full dump in JSON or flat export in CSV for backup and migration.
 
 ### MCP Streamable HTTP Transport
 
-Network-accessible MCP server for multi-client scenarios, using the Streamable HTTP transport (successor to SSE):
-
-```bash
-tusk mcp serve --transport http --port 8080
-```
+Network-accessible MCP server using Streamable HTTP (successor to SSE) for multi-client scenarios.
 
 ### PostgreSQL Backend
 
-A PostgreSQL storage backend for multi-user and networked deployments, with connection pooling and its own migration path.
+A PostgreSQL storage implementation for multi-user and networked deployments, with connection pooling and its own migration path.
 
 ### Interactive TUI
 
-Extend the dashboard into a full interactive terminal interface — inline task editing, status transitions, and task creation without leaving the TUI.
+Extend the dashboard into a full interactive terminal interface — inline editing, status transitions, and task creation without leaving the TUI.
 
 ### REST API
 
 RESTful HTTP endpoints mirroring CLI and MCP capabilities, with authentication and authorization.
 
-### Webhook Notifications
+### Webhooks
 
-Fire webhooks on task state changes, powered by the event log. Enables integration with external systems like Slack, email, or CI pipelines.
+Fire webhooks on task state changes, powered by the event log. Integration point for Slack, email, CI pipelines, and external systems.
 
 ### Time Tracking
 
-Start and stop timers on tasks, and report time spent:
-
-```bash
-tusk timer start a3f8b2c1
-tusk timer stop a3f8b2c1
-```
+Start/stop timers on tasks, report time spent.
 
 ### File Attachments
 
-Attach binary files to tasks, stored on the filesystem and referenced in the database:
-
-```bash
-tusk attach a3f8b2c1 spec.pdf
-```
+Attach binary files to tasks, stored on the filesystem and referenced in the database.
 
 ### Bidirectional Sync
 
-A sync protocol for merging task data across instances, with conflict resolution:
-
-```bash
-tusk sync export
-tusk sync import
-```
+A sync protocol for merging task data across tusk instances, with conflict resolution.
