@@ -16,7 +16,7 @@ import (
 
 const taskColumns = `id, short_id, parent_id, project_id, title, description,
 	status, priority, version, due_at, wait_until, recurrence_rule, uda,
-	created_at, modified_at`
+	created_at, modified_at, claimed_by, claimed_at`
 
 type TaskRepo struct {
 	db DBTX
@@ -32,7 +32,7 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 		return err
 	}
 	_, err = r.db.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskColumns),
 		task.ID.String(), task.ShortID,
 		nullableUUID(task.ParentID), task.ProjectID,
@@ -41,6 +41,7 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 		nullableString(task.RecurrenceRule), udaJSON,
 		task.CreatedAt.UTC().Format(timeFormat),
 		task.ModifiedAt.UTC().Format(timeFormat),
+		nullableString(task.ClaimedBy), nullableTime(task.ClaimedAt),
 	)
 	return err
 }
@@ -68,13 +69,15 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 		UPDATE tasks SET
 			parent_id = ?, project_id = ?, title = ?, description = ?,
 			status = ?, priority = ?, due_at = ?, wait_until = ?,
-			recurrence_rule = ?, uda = ?, version = version + 1, modified_at = ?
+			recurrence_rule = ?, uda = ?, version = version + 1, modified_at = ?,
+			claimed_by = ?, claimed_at = ?
 		WHERE id = ? AND version = ?`,
 		nullableUUID(task.ParentID), task.ProjectID,
 		task.Title, task.Description, task.Status, task.Priority,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), udaJSON,
-		nowStr, task.ID.String(), task.Version,
+		nowStr, nullableString(task.ClaimedBy), nullableTime(task.ClaimedAt),
+		task.ID.String(), task.Version,
 	)
 	if err != nil {
 		return err
@@ -371,12 +374,14 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 		udaJSON    string
 		createdAt  string
 		modifiedAt string
+		claimedBy  sql.NullString
+		claimedAt  sql.NullString
 	)
 	err := s.Scan(
 		&id, &t.ShortID, &parentID, &projectID,
 		&t.Title, &t.Description, &t.Status, &t.Priority, &t.Version,
 		&dueAt, &waitUntil, &recurrence, &udaJSON,
-		&createdAt, &modifiedAt,
+		&createdAt, &modifiedAt, &claimedBy, &claimedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -411,6 +416,13 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 	t.ModifiedAt, err = time.Parse(timeFormat, modifiedAt)
 	if err != nil {
 		return nil, fmt.Errorf("parsing modified_at: %w", err)
+	}
+	if claimedBy.Valid {
+		t.ClaimedBy = &claimedBy.String
+	}
+	t.ClaimedAt, err = parseTime(claimedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parsing claimed_at: %w", err)
 	}
 	return &t, nil
 }
