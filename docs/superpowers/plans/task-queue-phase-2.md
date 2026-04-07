@@ -35,17 +35,22 @@ func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) (
 
 Implementation:
 
-1. Build the base filter as an `AndFilter` containing:
+1. Define a local pointer helper at the top of the method or as a package-level unexported function (no `boolPtr` exists in the `service` package):
+   ```go
+   func boolPtr(b bool) *bool { return &b }
+   ```
+2. Build the base filter as an `AndFilter` containing:
    - An `OrFilter` with two `TermFilter`s: `{Statuses: ["pending"]}` and `{Statuses: ["active"]}`
    - A `TermFilter` with `Unclaimed: boolPtr(true)`
-2. If `filter` is non-nil, wrap it into the `AndFilter` as an additional child
-3. Call the existing `s.List(ctx, combinedFilter)` — this handles repo query, urgency scoring, and sorting
-4. Collect all task IDs from the result
-5. Call `s.relationRepo.CountBlockedByIncompleteTasks(ctx, taskIDs)`
-6. Filter out tasks where count > 0
-7. Return the remaining list (urgency order is preserved since we only remove elements)
+3. If `filter` is non-nil, wrap it into the `AndFilter` as an additional child
+4. Call the existing `s.List(ctx, combinedFilter)` — this handles repo query, urgency scoring, and sorting
+5. Post-filter the results to remove non-actionable tasks:
+   a. Collect all task IDs from the result
+   b. Call `s.relationRepo.CountBlockedByIncompleteTasks(ctx, taskIDs)` — remove tasks with count > 0
+   c. Remove waiting tasks: skip any task where `task.WaitUntil != nil && task.WaitUntil.After(time.Now())` (same logic as `TaskService.Next` at line 235)
+6. Return the remaining list (urgency order is preserved since we only remove elements)
 
-Use the existing `boolPtr` helper if available, or add a local one. Check `internal/service/task.go` for existing pointer helpers.
+**Important:** The waiting-task filter matches the existing `Next` method behavior. An available task with `wait_until` in the future is not actionable.
 
 ### Task 2: Implement `TaskService.Pop`
 

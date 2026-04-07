@@ -98,7 +98,7 @@ Also add `"tusk_task_pop": true` to the known tools map.
 
 ### Task 3: Add CLI E2E tests for `available` and `pop`
 
-**File:** `tests/e2e/player_test.go` (or a new `tests/e2e/task_queue_test.go` — check if player_test.go already has claim/release scenarios and decide whether to extend or create a new file)
+**File:** `tests/e2e/task_queue_test.go` (new file — keeps task queue scenarios separate from player registration/claiming tests in `player_test.go`)
 
 Use the existing E2E harness pattern. Each scenario runs across DB config modes x output formats automatically.
 
@@ -144,7 +144,7 @@ Use the existing E2E harness pattern. Each scenario runs across DB config modes 
 
 ### Task 4: Add MCP E2E tests for `available` and `pop`
 
-**File:** `tests/e2e/mcp_player_test.go` (or a new `tests/e2e/mcp_task_queue_test.go` — check existing file and decide)
+**File:** `tests/e2e/mcp_task_queue_test.go` (new file — keeps MCP task queue scenarios separate from player MCP tests in `mcp_player_test.go`)
 
 Follow the MCP E2E test pattern used in `mcp_player_test.go`. MCP tests call tools via the MCP harness and verify JSON responses.
 
@@ -200,6 +200,6 @@ All existing CLI commands and MCP tools continue to work identically. The only a
 | New MCP tool | `tusk_task_available` — handler in `internal/mcp/tools.go`, registration in `internal/mcp/server.go` |
 | New MCP tool | `tusk_task_pop` — handler in `internal/mcp/tools.go`, registration in `internal/mcp/server.go` |
 | Modified known tools map | `internal/mcp/server.go` — added entries for both new tools |
-| New E2E tests | CLI scenarios in `tests/e2e/task_queue_test.go` (or `player_test.go`) |
-| New E2E tests | MCP scenarios in `tests/e2e/mcp_task_queue_test.go` (or `mcp_player_test.go`) |
+| New E2E tests | CLI scenarios in `tests/e2e/task_queue_test.go` |
+| New E2E tests | MCP scenarios in `tests/e2e/mcp_task_queue_test.go` |
 | No bridge code | All additions are final implementations. No bridge code from prior phases to remove. |
