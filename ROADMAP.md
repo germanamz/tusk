@@ -366,43 +366,45 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Self-registering player model persisted to DB.
 
-- [ ] **Story: Player domain and storage**
-  - [ ] Define Player entity (`id` string PK, `type`, `registered_at`, `last_seen_at`)
-  - [ ] PlayerRepository interface and SQLite implementation
-  - [ ] Migration adding `players` table and `claimed_by`/`claimed_at` columns to `tasks`
-  - [ ] PlayerService with Register and UpdateLastSeen methods
-  - [ ] `ErrTaskClaimed` sentinel error
+- [x] **Story: Player domain and storage**
+  - [x] Define Player entity (`id` string PK, `type`, `registered_at`, `last_seen_at`)
+  - [x] PlayerRepository interface and SQLite implementation
+  - [x] Migration adding `players` table and `claimed_by`/`claimed_at` columns to `tasks`
+  - [x] PlayerService with Register and UpdateLastSeen methods
+  - [x] `ErrTaskClaimed` sentinel error
 
-- [ ] **Story: Player CLI**
-  - [ ] `tusk player register <id> --type human|agent` — explicit registration
-  - [ ] `--player <id>` global flag for CLI (auto-registers on first use)
+- [x] **Story: Player CLI**
+  - [x] `tusk player register <id> --type human|agent` — explicit registration
+  - [x] `--player <id>` global flag for CLI (auto-registers on first use)
 
-- [ ] **Story: MCP player registration**
-  - [ ] `tusk_player_register` tool
-  - [ ] `player_id` parameter on MCP tool calls (auto-registers on first use)
-  - [ ] Update `last_seen_at` on every player action
+- [x] **Story: MCP player registration**
+  - [x] `tusk_player_register` tool
+  - [x] `player_id` parameter on MCP tool calls (auto-registers on first use)
+  - [x] Update `last_seen_at` on every player action
 
 ### Initiative: Task Claiming
 
 > Claim mechanics to prevent overlapping work between players.
 
-- [ ] **Story: Claim and release**
-  - [ ] TaskService.Claim — set `claimed_by`/`claimed_at`, reject if already claimed (`ErrTaskClaimed`)
-  - [ ] TaskService.Release — clear claim, validate caller is the claimant
-  - [ ] Auto-claim on `tusk start` if unclaimed, reject if claimed by another
-  - [ ] Auto-release on `done` and `delete`
-  - [ ] `tusk claim <id>` / `tusk release <id>` CLI commands
-  - [ ] `tusk_task_claim` / `tusk_task_release` MCP tools
+- [x] **Story: Claim and release**
+  - [x] TaskService.Claim — set `claimed_by`/`claimed_at`, reject if already claimed (`ErrTaskClaimed`)
+  - [x] TaskService.Release — clear claim, validate caller is the claimant
+  - [x] Auto-claim on `tusk start` if unclaimed, reject if claimed by another
+  - [x] Claims preserved after `done` and `delete` (historical attribution — design decision, replaces auto-release)
+  - [x] `tusk claim <id>` / `tusk release <id>` CLI commands
+  - [x] `tusk_task_claim` / `tusk_task_release` MCP tools
 
-- [ ] **Story: Player visibility**
-  - [ ] Include `claimed_by` and `claimed_at` in all task responses (CLI + MCP)
-  - [ ] Filter support: `claimed_by:<player_id>`, `unclaimed:true`
-  - [ ] `tusk available` — convenience: unclaimed + actionable status + not blocked
-  - [ ] `tusk_task_available` MCP tool
+- [x] **Story: Player visibility**
+  - [x] Include `claimed_by` and `claimed_at` in all task responses (CLI + MCP)
+  - [x] Filter support: `claimed_by:<player_id>`, `unclaimed:true`
 
 ### Initiative: Task Queue
 
 > Atomic pop operation for efficient agent orchestration. Depends on urgency scoring (v0.6) to rank tasks.
+
+- [ ] **Story: Available tasks**
+  - [ ] `tusk available` — convenience: unclaimed + actionable status + not blocked
+  - [ ] `tusk_task_available` MCP tool
 
 - [ ] **Story: `tusk pop`**
   - [ ] TaskService.Pop — atomically find highest-urgency unclaimed unblocked task, claim for player, return it

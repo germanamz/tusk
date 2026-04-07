@@ -291,8 +291,6 @@ func (s *Server) buildTaskGetResponse(ctx context.Context, shortID string) (*tas
 	return resp, nil
 }
 
-// handleTaskGet handles the tusk_task_get tool. Returns the full task with
-// tags, relations, and annotations.
 // updatePlayerLiveness updates last_seen_at for a player if the player_id is provided and valid.
 func (s *Server) updatePlayerLiveness(ctx context.Context, request mcp.CallToolRequest) {
 	playerID := request.GetString("player_id", "")
@@ -301,6 +299,8 @@ func (s *Server) updatePlayerLiveness(ctx context.Context, request mcp.CallToolR
 	}
 }
 
+// handleTaskGet handles the tusk_task_get tool. Returns the full task with
+// tags, relations, and annotations.
 func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	s.updatePlayerLiveness(ctx, request)
 	shortID, err := request.RequireString("short_id")
