@@ -12,6 +12,114 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestRelationRepo_CountBlockedByIncompleteTasks(t *testing.T) {
+	store, err := sqlite.New(":memory:", migrations.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	db := store.DB()
+
+	taskRepo := sqlite.NewTaskRepo(db)
+	relRepo := sqlite.NewRelationRepo(db)
+	ctx := context.Background()
+
+	// Helper to create a task with a given status.
+	makeTask := func(name, status string) *domain.Task {
+		task := &domain.Task{
+			ID: uuid.New(), ShortID: uuid.New().String()[:8], ProjectID: "default",
+			Title: name, Status: status, Version: 1,
+			UDA:       map[string]any{},
+			CreatedAt: time.Now().UTC(), ModifiedAt: time.Now().UTC(),
+		}
+		if err := taskRepo.Create(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+		return task
+	}
+
+	// Helper to create a "blocks" relation: source blocks target.
+	block := func(source, target *domain.Task) {
+		if err := relRepo.Create(ctx, &domain.Relation{
+			ID: uuid.New(), SourceID: source.ID, TargetID: target.ID,
+			RelationType: "blocks", CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	taskA := makeTask("A", "pending")
+	taskB := makeTask("B", "pending")
+	taskC := makeTask("C", "active")
+	taskD := makeTask("D", "completed")
+	taskE := makeTask("E", "deleted")
+
+	// A (pending) blocks B → incomplete blocker
+	block(taskA, taskB)
+	// D (completed) blocks B → NOT incomplete
+	block(taskD, taskB)
+	// E (deleted) blocks B → NOT incomplete
+	block(taskE, taskB)
+	// C (active) blocks B → incomplete blocker
+	block(taskC, taskB)
+
+	t.Run("pending blocker counts as incomplete", func(t *testing.T) {
+		counts, err := relRepo.CountBlockedByIncompleteTasks(ctx, []uuid.UUID{taskB.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if counts[taskB.ID] != 2 {
+			t.Fatalf("expected B to have 2 incomplete blockers (A+C), got %d", counts[taskB.ID])
+		}
+	})
+
+	t.Run("completed blocker excluded", func(t *testing.T) {
+		// D blocks B but D is completed — only A and C count
+		counts, err := relRepo.CountBlockedByIncompleteTasks(ctx, []uuid.UUID{taskB.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if counts[taskB.ID] != 2 {
+			t.Fatalf("expected 2 (completed excluded), got %d", counts[taskB.ID])
+		}
+	})
+
+	t.Run("task with no incomplete blockers absent from map", func(t *testing.T) {
+		// taskA has no blockers at all
+		counts, err := relRepo.CountBlockedByIncompleteTasks(ctx, []uuid.UUID{taskA.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := counts[taskA.ID]; ok {
+			t.Fatalf("expected A absent from map, got count %d", counts[taskA.ID])
+		}
+	})
+
+	t.Run("mixed: only incomplete blockers counted", func(t *testing.T) {
+		// Query both A (0 incomplete blockers) and B (2 incomplete blockers)
+		counts, err := relRepo.CountBlockedByIncompleteTasks(ctx, []uuid.UUID{taskA.ID, taskB.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := counts[taskA.ID]; ok {
+			t.Fatalf("expected A absent, got %d", counts[taskA.ID])
+		}
+		if counts[taskB.ID] != 2 {
+			t.Fatalf("expected B=2, got %d", counts[taskB.ID])
+		}
+	})
+
+	t.Run("empty input returns empty map", func(t *testing.T) {
+		counts, err := relRepo.CountBlockedByIncompleteTasks(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(counts) != 0 {
+			t.Fatalf("expected empty map, got %v", counts)
+		}
+	})
+}
+
 func TestRelationRepo_CountBlockingByTasks(t *testing.T) {
 	store, err := sqlite.New(":memory:", migrations.FS)
 	if err != nil {

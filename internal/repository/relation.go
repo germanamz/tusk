@@ -17,4 +17,5 @@ type RelationRepository interface {
 	Exists(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (bool, error)
 	CountBlockingByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error)
 	CountBlockedByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error)
+	CountBlockedByIncompleteTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error)
 }

@@ -155,6 +155,54 @@ func (r *RelationRepo) CountBlockedByTasks(ctx context.Context, taskIDs []uuid.U
 	return r.countRelationsByTasks(ctx, taskIDs, "target_id")
 }
 
+// CountBlockedByIncompleteTasks returns, for each task ID, how many incomplete
+// tasks block it. A blocker is "incomplete" if its status is NOT 'completed' or
+// 'deleted'. Tasks with zero incomplete blockers are absent from the map.
+func (r *RelationRepo) CountBlockedByIncompleteTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	if len(taskIDs) == 0 {
+		return map[uuid.UUID]int{}, nil
+	}
+
+	placeholders := make([]string, len(taskIDs))
+	args := make([]any, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id.String()
+	}
+
+	query := fmt.Sprintf(
+		`SELECT r.target_id, COUNT(*)
+		 FROM relations r
+		 JOIN tasks t ON r.source_id = t.id
+		 WHERE r.target_id IN (%s)
+		   AND r.relation_type = 'blocks'
+		   AND t.status NOT IN ('completed', 'deleted')
+		 GROUP BY r.target_id`,
+		strings.Join(placeholders, ","),
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[uuid.UUID]int)
+	for rows.Next() {
+		var idStr string
+		var count int
+		if err := rows.Scan(&idStr, &count); err != nil {
+			return nil, err
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing id %q: %w", idStr, err)
+		}
+		counts[id] = count
+	}
+	return counts, rows.Err()
+}
+
 // countRelationsByTasks is a shared helper for counting blocking relations.
 // column is either "source_id" (for blocking count) or "target_id" (for blocked-by count).
 func (r *RelationRepo) countRelationsByTasks(ctx context.Context, taskIDs []uuid.UUID, column string) (map[uuid.UUID]int, error) {

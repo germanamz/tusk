@@ -14,6 +14,7 @@ var (
 	ErrDuplicateRelation = errors.New("relation already exists")
 	ErrTagInUse          = errors.New("tag is assigned to tasks")
 	ErrTaskClaimed       = errors.New("task is already claimed by another player")
+	ErrNoAvailableTasks  = errors.New("no available tasks")
 	ErrSourceNotFound    = fmt.Errorf("source task: %w", ErrNotFound)
 	ErrTargetNotFound    = fmt.Errorf("target task: %w", ErrNotFound)
 )
