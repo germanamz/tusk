@@ -2,13 +2,17 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/internal/repository"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
 )
+
+var _ repository.PlayerRepository = (*sqlite.PlayerRepo)(nil)
 
 func newTestPlayerRepo(t *testing.T) *sqlite.PlayerRepo {
 	t.Helper()
@@ -57,7 +61,7 @@ func TestPlayerRepo_CreateDuplicate(t *testing.T) {
 		t.Fatalf("first Create: %v", err)
 	}
 	err := repo.Create(ctx, player)
-	if err != domain.ErrConflict {
+	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("second Create: got %v, want ErrConflict", err)
 	}
 }
@@ -67,7 +71,7 @@ func TestPlayerRepo_GetByID_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.GetByID(ctx, "nonexistent")
-	if err != domain.ErrNotFound {
+	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("GetByID: got %v, want ErrNotFound", err)
 	}
 }
@@ -98,7 +102,7 @@ func TestPlayerRepo_UpdateLastSeen_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	err := repo.UpdateLastSeen(ctx, "ghost")
-	if err != domain.ErrNotFound {
+	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("UpdateLastSeen: got %v, want ErrNotFound", err)
 	}
 }

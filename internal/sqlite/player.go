@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -98,7 +99,7 @@ func scanPlayer(s playerScanner) (*domain.Player, error) {
 	)
 	err := s.Scan(&p.ID, &p.Type, &registeredAt, &lastSeenAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
