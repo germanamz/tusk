@@ -641,3 +641,35 @@ func (a *App) runUnlink(cmd *cobra.Command, args []string) error {
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
 	return r.renderUnlinkResult(sourceShortID, relType, targetShortID)
 }
+
+// buildPlayerCmd creates the `tusk player` subcommand group.
+func (a *App) buildPlayerCmd() *cobra.Command {
+	registerCmd := &cobra.Command{
+		Use:   "register <id>",
+		Short: "Register a new player",
+		Args:  cobra.ExactArgs(1),
+		RunE:  a.runPlayerRegister,
+	}
+	registerCmd.Flags().String("type", "agent", `player type: "human" or "agent"`)
+
+	playerCmd := &cobra.Command{
+		Use:   "player",
+		Short: "Player management",
+	}
+	playerCmd.AddCommand(registerCmd)
+	return playerCmd
+}
+
+func (a *App) runPlayerRegister(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	id := args[0]
+	playerType, _ := cmd.Flags().GetString("type")
+
+	player, err := a.playerSvc.Register(ctx, id, playerType)
+	if err != nil {
+		return fmt.Errorf("%s", err)
+	}
+
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
+	return r.renderPlayerResult("Registered", player)
+}

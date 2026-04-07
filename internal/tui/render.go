@@ -758,3 +758,31 @@ func (r *Renderer) renderWorkflowInfo(wf *domain.Workflow, projectIDs []string) 
 
 	return nil
 }
+
+// playerJSON is the JSON serialization format for a player.
+type playerJSON struct {
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	RegisteredAt string `json:"registered_at"`
+	LastSeenAt   string `json:"last_seen_at"`
+}
+
+func toPlayerJSON(p *domain.Player) playerJSON {
+	return playerJSON{
+		ID:           p.ID,
+		Type:         p.Type,
+		RegisteredAt: p.RegisteredAt.Format(time.RFC3339),
+		LastSeenAt:   p.LastSeenAt.Format(time.RFC3339),
+	}
+}
+
+// renderPlayerResult writes a player mutation result.
+func (r *Renderer) renderPlayerResult(action string, player *domain.Player) error {
+	if r.format == "json" {
+		enc := json.NewEncoder(r.w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(toPlayerJSON(player))
+	}
+	_, err := fmt.Fprintf(r.w, "%s player %s (type: %s)\n", action, player.ID, player.Type)
+	return err
+}
