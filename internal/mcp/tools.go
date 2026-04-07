@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/germanamz/tusk/internal/domain"
@@ -292,7 +293,16 @@ func (s *Server) buildTaskGetResponse(ctx context.Context, shortID string) (*tas
 
 // handleTaskGet handles the tusk_task_get tool. Returns the full task with
 // tags, relations, and annotations.
+// updatePlayerLiveness updates last_seen_at for a player if the player_id is provided and valid.
+func (s *Server) updatePlayerLiveness(ctx context.Context, request mcp.CallToolRequest) {
+	playerID := request.GetString("player_id", "")
+	if playerID != "" && s.playerSvc != nil {
+		s.playerSvc.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+	}
+}
+
 func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.updatePlayerLiveness(ctx, request)
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -322,6 +332,7 @@ func (s *Server) handleTaskNext(ctx context.Context, request mcp.CallToolRequest
 
 // handleTaskList handles the tusk_task_list tool.
 func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.updatePlayerLiveness(ctx, request)
 	// If a filter string is provided, use ParseExpr for full boolean support
 	if filterStr, err := request.RequireString("filter"); err == nil {
 		expr, parseErrs := filter.ParseExpr(filterStr)
@@ -605,9 +616,37 @@ func (s *Server) handleTaskTransition(ctx context.Context, request mcp.CallToolR
 
 // handleTaskStart handles the tusk_task_start tool.
 func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleTaskTransition(ctx, request, func(ctx context.Context, shortID string, version int) (*domain.Task, error) {
-		return s.taskSvc.Start(ctx, shortID, version, "")
-	})
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+	version, err := request.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
+
+	playerID := request.GetString("player_id", "")
+
+	// Auto-register player as agent if provided
+	if playerID != "" && s.playerSvc != nil {
+		if _, regErr := s.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
+			if !errors.Is(regErr, domain.ErrConflict) {
+				return toolError(regErr, "auto-registering player"), nil
+			}
+		}
+	}
+
+	updated, err := s.taskSvc.Start(ctx, shortID, int(version), playerID)
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
+	}
+
+	tags, err := s.tagSvc.GetTaskTags(ctx, updated.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return toolResultJSON(toTaskResponse(updated, tags))
 }
 
 // handleTaskDone handles the tusk_task_done tool.
@@ -964,6 +1003,7 @@ func (s *Server) handleTaskRelease(ctx context.Context, request mcp.CallToolRequ
 
 // handleTaskTree handles the tusk_task_tree tool.
 func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.updatePlayerLiveness(ctx, request)
 	var tasks []*domain.Task
 	var rootID *uuid.UUID
 
