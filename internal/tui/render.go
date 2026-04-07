@@ -253,6 +253,8 @@ type taskJSON struct {
 	WaitUntil      *string        `json:"wait_until,omitempty"`
 	RecurrenceRule *string        `json:"recurrence_rule,omitempty"`
 	UDA            map[string]any `json:"uda,omitempty"`
+	ClaimedBy      *string        `json:"claimed_by,omitempty"`
+	ClaimedAt      *string        `json:"claimed_at,omitempty"`
 	CreatedAt      string         `json:"created_at"`
 	ModifiedAt     string         `json:"modified_at"`
 	Urgency        float64        `json:"urgency"`
@@ -286,6 +288,13 @@ func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 		tj.WaitUntil = &s
 	}
 	tj.RecurrenceRule = t.RecurrenceRule
+	if t.ClaimedBy != nil {
+		tj.ClaimedBy = t.ClaimedBy
+	}
+	if t.ClaimedAt != nil {
+		s := t.ClaimedAt.Format(time.RFC3339)
+		tj.ClaimedAt = &s
+	}
 	tj.Tags = make([]string, len(tags))
 	for i, tg := range tags {
 		tj.Tags[i] = tg.Name
@@ -487,6 +496,16 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 	}
 	if task.RecurrenceRule != nil {
 		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Recurrence:", 13), *task.RecurrenceRule); err != nil {
+			return err
+		}
+	}
+	if task.ClaimedBy != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Claimed By:", 13), *task.ClaimedBy); err != nil {
+			return err
+		}
+	}
+	if task.ClaimedAt != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Claimed At:", 13), task.ClaimedAt.Format("2006-01-02 15:04:05")); err != nil {
 			return err
 		}
 	}

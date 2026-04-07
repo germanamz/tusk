@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -100,6 +101,18 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 			Short: "Show the highest-urgency actionable task",
 			Args:  cobra.NoArgs,
 			RunE:  a.runNext,
+		},
+		{
+			Use:   "claim <short_id>",
+			Short: "Claim a task for the current player",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runClaim,
+		},
+		{
+			Use:   "release <short_id>",
+			Short: "Release a task claim",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runRelease,
 		},
 	}
 }
@@ -527,13 +540,23 @@ func (a *App) runStart(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
+	// Auto-register player if --player is set
+	if a.playerID != "" {
+		if err := a.ensurePlayer(ctx); err != nil {
+			return err
+		}
+	}
+
 	current, err := a.taskSvc.GetByShortID(ctx, shortID)
 	if err != nil {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
-	updated, err := a.taskSvc.Start(ctx, shortID, current.Version, "")
+	updated, err := a.taskSvc.Start(ctx, shortID, current.Version, a.playerID)
 	if err != nil {
+		if errors.Is(err, domain.ErrTaskClaimed) {
+			return fmt.Errorf("%s", formatClaimError(err, shortID))
+		}
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 
@@ -640,6 +663,87 @@ func (a *App) runUnlink(cmd *cobra.Command, args []string) error {
 
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
 	return r.renderUnlinkResult(sourceShortID, relType, targetShortID)
+}
+
+func (a *App) runClaim(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	shortID := args[0]
+
+	if a.playerID == "" {
+		return fmt.Errorf("--player flag is required for claim")
+	}
+
+	// Auto-register player if not already registered
+	if err := a.ensurePlayer(ctx); err != nil {
+		return err
+	}
+
+	current, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	updated, err := a.taskSvc.Claim(ctx, shortID, a.playerID, current.Version)
+	if err != nil {
+		return fmt.Errorf("%s", formatClaimError(err, shortID))
+	}
+
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
+	return r.renderMutationResult("Claimed", updated, nil)
+}
+
+func (a *App) runRelease(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	shortID := args[0]
+
+	if a.playerID == "" {
+		return fmt.Errorf("--player flag is required for release")
+	}
+
+	current, err := a.taskSvc.GetByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, shortID))
+	}
+
+	updated, err := a.taskSvc.Release(ctx, shortID, a.playerID, current.Version)
+	if err != nil {
+		return fmt.Errorf("%s", formatClaimError(err, shortID))
+	}
+
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
+	return r.renderMutationResult("Released", updated, nil)
+}
+
+// ensurePlayer auto-registers the current --player as "human" if not yet registered.
+func (a *App) ensurePlayer(ctx context.Context) error {
+	if a.playerSvc == nil || a.playerID == "" {
+		return nil
+	}
+	_, err := a.playerSvc.GetByID(ctx, a.playerID)
+	if err == nil {
+		return nil // already registered
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		_, regErr := a.playerSvc.Register(ctx, a.playerID, "human")
+		if regErr != nil && !errors.Is(regErr, domain.ErrConflict) {
+			return fmt.Errorf("auto-registering player: %w", regErr)
+		}
+		return nil
+	}
+	return fmt.Errorf("checking player: %w", err)
+}
+
+func formatClaimError(err error, shortID string) string {
+	switch {
+	case errors.Is(err, domain.ErrTaskClaimed):
+		return fmt.Sprintf("Task %s is already claimed by another player", shortID)
+	case errors.Is(err, domain.ErrNotFound):
+		return fmt.Sprintf("Task not found: %s", shortID)
+	case errors.Is(err, domain.ErrConflict):
+		return "Version conflict - task was modified by another process"
+	default:
+		return err.Error()
+	}
 }
 
 // buildPlayerCmd creates the `tusk player` subcommand group.
