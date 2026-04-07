@@ -24,7 +24,9 @@ type Task struct {
 	UDA            map[string]any
 	CreatedAt      time.Time
 	ModifiedAt     time.Time
-	Urgency        float64 // Computed at read time, not persisted in DB.
+	ClaimedBy      *string    // FK to Player.ID — who holds the claim
+	ClaimedAt      *time.Time // when the claim was made
+	Urgency        float64    // Computed at read time, not persisted in DB.
 }
 
 // TaskUpdate represents a partial update to a task.
@@ -46,6 +48,8 @@ type TaskUpdate struct {
 	WaitUntil      **time.Time
 	RecurrenceRule **string
 	UDA            *map[string]any
+	ClaimedBy      **string    // nil = don't change, *nil = clear, *"value" = set
+	ClaimedAt      **time.Time // nil = don't change, *nil = clear, *value = set
 }
 
 // udaKeyPattern matches valid UDA key names: starts with letter or underscore,
