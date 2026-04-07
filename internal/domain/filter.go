@@ -21,6 +21,8 @@ type TaskFilter struct {
 	TitleContains       *string           // substring match (case-insensitive)
 	DescriptionContains *string           // substring match (case-insensitive)
 	UDA                 map[string]string // filter by UDA key=value pairs (AND semantics); empty value = absent/empty match
+	ClaimedBy           *string           // filter by player ID
+	Unclaimed           *bool             // if true, only tasks where claimed_by IS NULL
 }
 
 // FilterExpr is the interface for boolean filter expression nodes.

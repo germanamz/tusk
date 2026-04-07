@@ -255,6 +255,13 @@ func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 		conditions = append(conditions, "LOWER(description) LIKE '%' || LOWER(?) || '%'")
 		args = append(args, *filter.DescriptionContains)
 	}
+	if filter.ClaimedBy != nil {
+		conditions = append(conditions, "claimed_by = ?")
+		args = append(args, *filter.ClaimedBy)
+	}
+	if filter.Unclaimed != nil && *filter.Unclaimed {
+		conditions = append(conditions, "claimed_by IS NULL")
+	}
 	if len(filter.UDA) > 0 {
 		// Sort keys for deterministic query generation (important for tests)
 		udaKeys := make([]string, 0, len(filter.UDA))
