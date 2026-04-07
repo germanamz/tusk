@@ -598,6 +598,101 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 	})
 }
 
+// Available returns unclaimed, actionable, unblocked tasks sorted by urgency.
+// An optional filter expression is combined with the base constraints.
+func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
+	// Base filter: (pending OR active) AND unclaimed
+	baseFilter := &domain.AndFilter{
+		Children: []domain.FilterExpr{
+			&domain.OrFilter{
+				Children: []domain.FilterExpr{
+					&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending"}}},
+					&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
+				},
+			},
+			&domain.TermFilter{TaskFilter: domain.TaskFilter{Unclaimed: ptr(true)}},
+		},
+	}
+
+	// Merge caller filter if provided
+	if filter != nil {
+		baseFilter.Children = append(baseFilter.Children, filter)
+	}
+
+	tasks, err := s.List(ctx, baseFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tasks) == 0 {
+		return tasks, nil
+	}
+
+	// Post-filter: remove blocked and waiting tasks
+	taskIDs := make([]uuid.UUID, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+
+	blockedCounts, err := s.relationRepo.CountBlockedByIncompleteTasks(ctx, taskIDs)
+	if err != nil {
+		return nil, fmt.Errorf("checking blocked status: %w", err)
+	}
+
+	now := time.Now()
+	result := make([]*domain.Task, 0, len(tasks))
+	for _, t := range tasks {
+		if blockedCounts[t.ID] > 0 {
+			continue
+		}
+		if t.WaitUntil != nil && t.WaitUntil.After(now) {
+			continue
+		}
+		result = append(result, t)
+	}
+
+	return result, nil
+}
+
+// Pop claims and starts the highest-urgency available task for the given player.
+// Returns domain.ErrNoAvailableTasks if no task can be claimed.
+func (s *TaskService) Pop(ctx context.Context, playerID string, filter domain.FilterExpr) (*domain.Task, error) {
+	tasks, err := s.Available(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return nil, domain.ErrNoAvailableTasks
+	}
+
+	for _, task := range tasks {
+		claimed, err := s.Claim(ctx, task.ShortID, playerID, task.Version)
+		if err != nil {
+			if errors.Is(err, domain.ErrTaskClaimed) || errors.Is(err, domain.ErrConflict) {
+				continue
+			}
+			return nil, err
+		}
+
+		started, err := s.Start(ctx, task.ShortID, claimed.Version, playerID)
+		if err != nil {
+			if errors.Is(err, domain.ErrConflict) {
+				// Best-effort cleanup
+				_, relErr := s.Release(ctx, task.ShortID, playerID, claimed.Version)
+				if relErr != nil {
+					_ = relErr // log but don't propagate
+				}
+				continue
+			}
+			return nil, err
+		}
+
+		return started, nil
+	}
+
+	return nil, domain.ErrNoAvailableTasks
+}
+
 // maxParentDepth is the maximum ancestor chain length detectParentCycle will walk
 // before returning an error. This guards against corrupted data causing infinite loops.
 const maxParentDepth = 100

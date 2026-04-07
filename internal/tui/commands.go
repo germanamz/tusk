@@ -114,6 +114,16 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 			Args:  cobra.ExactArgs(1),
 			RunE:  a.runRelease,
 		},
+		{
+			Use:   "available [filters...]",
+			Short: "List unclaimed, actionable, unblocked tasks",
+			RunE:  a.runAvailable,
+		},
+		{
+			Use:   "pop [filters...]",
+			Short: "Claim and start the highest-urgency available task",
+			RunE:  a.runPop,
+		},
 	}
 }
 
@@ -128,6 +138,8 @@ func formatError(err error, shortID string) string {
 		return err.Error()
 	case errors.Is(err, domain.ErrCyclicParent):
 		return domain.ErrCyclicParent.Error()
+	case errors.Is(err, domain.ErrNoAvailableTasks):
+		return "No available tasks"
 	default:
 		return err.Error()
 	}
@@ -744,6 +756,135 @@ func formatClaimError(err error, shortID string) string {
 	default:
 		return err.Error()
 	}
+}
+
+func (a *App) runAvailable(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
+	if a.playerID == "" {
+		return fmt.Errorf("--player flag is required for available")
+	}
+
+	if err := a.ensurePlayer(ctx); err != nil {
+		return err
+	}
+
+	input := strings.Join(args, " ")
+	expr, parseErrs := filter.ParseExpr(input)
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("filter errors:\n%s", filter.FormatErrors(parseErrs))
+	}
+
+	var filterExpr domain.FilterExpr
+	if expr != nil {
+		var resolveErrs []error
+		filterExpr, resolveErrs = a.resolver.ResolveExpr(ctx, expr)
+		if len(resolveErrs) > 0 {
+			return resolveErrs[0]
+		}
+	}
+
+	tasks, err := a.taskSvc.Available(ctx, filterExpr)
+	if err != nil {
+		return err
+	}
+
+	// Fetch tags for all tasks in one query
+	taskIDs := make([]uuid.UUID, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+	tagsByTaskID, err := a.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+	if err != nil {
+		return fmt.Errorf("loading tags: %w", err)
+	}
+
+	taskTags := make(map[string][]*domain.Tag, len(tagsByTaskID))
+	for id, tags := range tagsByTaskID {
+		taskTags[id.String()] = tags
+	}
+
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
+	return r.renderTaskList(tasks, taskTags)
+}
+
+func (a *App) runPop(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
+	if a.playerID == "" {
+		return fmt.Errorf("--player flag is required for pop")
+	}
+
+	if err := a.ensurePlayer(ctx); err != nil {
+		return err
+	}
+
+	input := strings.Join(args, " ")
+	expr, parseErrs := filter.ParseExpr(input)
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("filter errors:\n%s", filter.FormatErrors(parseErrs))
+	}
+
+	var filterExpr domain.FilterExpr
+	if expr != nil {
+		var resolveErrs []error
+		filterExpr, resolveErrs = a.resolver.ResolveExpr(ctx, expr)
+		if len(resolveErrs) > 0 {
+			return resolveErrs[0]
+		}
+	}
+
+	task, err := a.taskSvc.Pop(ctx, a.playerID, filterExpr)
+	if err != nil {
+		return fmt.Errorf("%s", formatError(err, ""))
+	}
+
+	// Load tags for the task
+	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("loading tags: %w", err)
+	}
+
+	annotations, err := a.taskSvc.GetAnnotations(ctx, task.ShortID)
+	if err != nil {
+		return fmt.Errorf("loading annotations: %w", err)
+	}
+
+	// Fetch and resolve relations
+	var resolved []resolvedRelation
+	if a.relationSvc != nil {
+		rels, relErr := a.relationSvc.GetByTask(ctx, task.ShortID)
+		if relErr != nil {
+			return fmt.Errorf("loading relations: %w", relErr)
+		}
+		for _, rel := range rels {
+			rr := resolvedRelation{Relation: rel}
+			if rel.TargetID == task.ID {
+				switch rel.RelationType {
+				case "blocks":
+					rr.Label = "blocked_by"
+				case "relates_to":
+					rr.Label = "related_to"
+				case "duplicates":
+					rr.Label = "duplicated_by"
+				}
+				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
+					rr.RelatedShortID = other.ShortID
+					rr.RelatedTitle = other.Title
+				}
+			} else {
+				rr.Label = rel.RelationType
+				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
+					rr.RelatedShortID = other.ShortID
+					rr.RelatedTitle = other.Title
+				}
+			}
+			resolved = append(resolved, rr)
+		}
+	}
+
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
+	return r.renderTaskInfo(task, annotations, tags, resolved)
 }
 
 // buildPlayerCmd creates the `tusk player` subcommand group.
