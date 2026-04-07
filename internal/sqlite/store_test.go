@@ -63,11 +63,11 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 migration applied, got %d", count)
+	if count != 2 {
+		t.Fatalf("expected 2 migrations applied, got %d", count)
 	}
 
-	tables := []string{"tasks", "annotations", "relations", "tags", "tag_assignments"}
+	tables := []string{"tasks", "annotations", "relations", "tags", "tag_assignments", "players"}
 	for _, table := range tables {
 		var n string
 		err := s.DB().QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n)
@@ -90,7 +90,7 @@ func TestMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 migration after idempotent call, got %d", count)
+	if count != 2 {
+		t.Fatalf("expected 2 migrations after idempotent call, got %d", count)
 	}
 }
