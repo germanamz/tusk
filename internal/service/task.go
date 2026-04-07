@@ -34,6 +34,7 @@ type TaskService struct {
 	workflowSvc    *WorkflowService
 	txProvider     TaskTxProvider
 	urgencyEngine  *UrgencyEngine
+	playerRepo     repository.PlayerRepository
 }
 
 // NewTaskService creates a new TaskService with the given dependencies.
@@ -47,6 +48,7 @@ func NewTaskService(
 	ws *WorkflowService,
 	txp TaskTxProvider,
 	ue *UrgencyEngine,
+	playerRepo repository.PlayerRepository,
 ) *TaskService {
 	if ue != nil && (rr == nil || tagr == nil) {
 		panic("NewTaskService: urgencyEngine requires relationRepo and tagRepo")
@@ -60,6 +62,7 @@ func NewTaskService(
 		workflowSvc:    ws,
 		txProvider:     txp,
 		urgencyEngine:  ue,
+		playerRepo:     playerRepo,
 	}
 }
 
@@ -338,6 +341,12 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	if upd.RecurrenceRule != nil {
 		task.RecurrenceRule = *upd.RecurrenceRule
 	}
+	if upd.ClaimedBy != nil {
+		task.ClaimedBy = *upd.ClaimedBy
+	}
+	if upd.ClaimedAt != nil {
+		task.ClaimedAt = *upd.ClaimedAt
+	}
 	if upd.UDA != nil {
 		if err := domain.ValidateUDA(*upd.UDA); err != nil {
 			return nil, err
@@ -449,12 +458,126 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 }
 
 // Start transitions a task from its current status to "active".
-func (s *TaskService) Start(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+// If playerID is non-empty and playerRepo is configured, it auto-claims
+// the task for the player. Returns ErrTaskClaimed if claimed by another player.
+func (s *TaskService) Start(ctx context.Context, shortID string, version int, playerID string) (*domain.Task, error) {
+	if playerID != "" && s.playerRepo != nil {
+		// Validate player exists
+		if _, err := s.playerRepo.GetByID(ctx, playerID); err != nil {
+			return nil, fmt.Errorf("player %q: %w", playerID, err)
+		}
+
+		// Check if task is claimed by someone else
+		task, err := s.taskRepo.GetByShortID(ctx, shortID)
+		if err != nil {
+			return nil, err
+		}
+		if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
+			return nil, domain.ErrTaskClaimed
+		}
+
+		// Auto-claim if unclaimed
+		upd := domain.TaskUpdate{
+			ShortID: shortID,
+			Version: version,
+			Status:  ptr("active"),
+		}
+		if task.ClaimedBy == nil {
+			now := time.Now().UTC().Truncate(time.Millisecond)
+			claimedBy := ptr(playerID)
+			claimedAt := ptr(now)
+			upd.ClaimedBy = &claimedBy
+			upd.ClaimedAt = &claimedAt
+		}
+
+		result, err := s.Update(ctx, upd)
+		if err != nil {
+			return nil, err
+		}
+
+		s.playerRepo.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+		return result, nil
+	}
+
 	return s.Update(ctx, domain.TaskUpdate{
 		ShortID: shortID,
 		Version: version,
 		Status:  ptr("active"),
 	})
+}
+
+// Claim assigns a task to a player. Returns ErrTaskClaimed if claimed by another player.
+// Re-claiming by the same player is idempotent.
+func (s *TaskService) Claim(ctx context.Context, shortID, playerID string, version int) (*domain.Task, error) {
+	if s.playerRepo == nil {
+		return nil, fmt.Errorf("player support not configured")
+	}
+
+	// Validate player exists
+	if _, err := s.playerRepo.GetByID(ctx, playerID); err != nil {
+		return nil, fmt.Errorf("player %q: %w", playerID, err)
+	}
+
+	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check current claim
+	if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
+		return nil, domain.ErrTaskClaimed
+	}
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	claimedBy := ptr(playerID)
+	claimedAt := ptr(now)
+	result, err := s.Update(ctx, domain.TaskUpdate{
+		ShortID:   shortID,
+		Version:   version,
+		ClaimedBy: &claimedBy,
+		ClaimedAt: &claimedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.playerRepo.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+	return result, nil
+}
+
+// Release clears a task's claim. Only the current claimant can release.
+func (s *TaskService) Release(ctx context.Context, shortID, playerID string, version int) (*domain.Task, error) {
+	if s.playerRepo == nil {
+		return nil, fmt.Errorf("player support not configured")
+	}
+
+	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Can only release if you are the claimant
+	if task.ClaimedBy == nil {
+		return nil, fmt.Errorf("task is not claimed")
+	}
+	if *task.ClaimedBy != playerID {
+		return nil, fmt.Errorf("task is claimed by a different player")
+	}
+
+	var nilStr *string
+	var nilTime *time.Time
+	result, err := s.Update(ctx, domain.TaskUpdate{
+		ShortID:   shortID,
+		Version:   version,
+		ClaimedBy: &nilStr,
+		ClaimedAt: &nilTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.playerRepo.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+	return result, nil
 }
 
 // Complete transitions a task from its current status to "completed".
