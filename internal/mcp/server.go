@@ -106,6 +106,8 @@ func (s *Server) validateConfig() error {
 		"tusk_player_register": true,
 		"tusk_task_claim":      true,
 		"tusk_task_release":    true,
+		"tusk_task_available":  true,
+		"tusk_task_pop":        true,
 	}
 	validToolGroups := map[string]bool{
 		"task": true, "relation": true, "project": true, "workflow": true, "player": true,
@@ -506,6 +508,34 @@ func (s *Server) registerTools() {
 			),
 		),
 		s.handleTaskRelease,
+	)
+
+	s.addTool("task",
+		mcp.NewTool("tusk_task_available",
+			mcp.WithDescription("List unclaimed, actionable, unblocked tasks sorted by urgency"),
+			mcp.WithString("player_id",
+				mcp.Required(),
+				mcp.Description("Player ID — auto-registers as agent on first use"),
+			),
+			mcp.WithString("filter",
+				mcp.Description("Boolean filter expression (e.g. 'project:backend AND +api')"),
+			),
+		),
+		s.handleTaskAvailable,
+	)
+
+	s.addTool("task",
+		mcp.NewTool("tusk_task_pop",
+			mcp.WithDescription("Claim and start the highest-urgency available task for the given player"),
+			mcp.WithString("player_id",
+				mcp.Required(),
+				mcp.Description("Player ID — auto-registers as agent on first use"),
+			),
+			mcp.WithString("filter",
+				mcp.Description("Optional boolean filter to narrow candidates (e.g. 'project:backend')"),
+			),
+		),
+		s.handleTaskPop,
 	)
 }
 
