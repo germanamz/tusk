@@ -446,6 +446,55 @@ func (s *Server) registerTools() {
 		),
 		s.handleWorkflowList,
 	)
+
+	s.addTool("player",
+		mcp.NewTool("tusk_player_register",
+			mcp.WithDescription("Register a new player (agent). Player type is always 'agent' for MCP."),
+			mcp.WithString("player_id",
+				mcp.Required(),
+				mcp.Description("Unique player identifier"),
+			),
+		),
+		s.handlePlayerRegister,
+	)
+
+	s.addTool("task",
+		mcp.NewTool("tusk_task_claim",
+			mcp.WithDescription("Claim a task for a player. Returns error if already claimed by another player."),
+			mcp.WithString("short_id",
+				mcp.Required(),
+				mcp.Description("Task short ID"),
+			),
+			mcp.WithString("player_id",
+				mcp.Required(),
+				mcp.Description("Player ID claiming the task"),
+			),
+			mcp.WithNumber("version",
+				mcp.Required(),
+				mcp.Description("Current task version (for optimistic locking)"),
+			),
+		),
+		s.handleTaskClaim,
+	)
+
+	s.addTool("task",
+		mcp.NewTool("tusk_task_release",
+			mcp.WithDescription("Release a task claim. Only the current claimant can release."),
+			mcp.WithString("short_id",
+				mcp.Required(),
+				mcp.Description("Task short ID"),
+			),
+			mcp.WithString("player_id",
+				mcp.Required(),
+				mcp.Description("Player ID releasing the claim"),
+			),
+			mcp.WithNumber("version",
+				mcp.Required(),
+				mcp.Description("Current task version (for optimistic locking)"),
+			),
+		),
+		s.handleTaskRelease,
+	)
 }
 
 // Serve starts the MCP server using stdio transport.
