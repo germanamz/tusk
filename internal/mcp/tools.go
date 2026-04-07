@@ -874,6 +874,94 @@ func (s *Server) handleWorkflowList(ctx context.Context, request mcp.CallToolReq
 	return toolResultJSON(results)
 }
 
+// playerResponse is the JSON structure returned by player tools.
+type playerResponse struct {
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	RegisteredAt string `json:"registered_at"`
+	LastSeenAt   string `json:"last_seen_at"`
+}
+
+func toPlayerResponse(p *domain.Player) playerResponse {
+	return playerResponse{
+		ID:           p.ID,
+		Type:         p.Type,
+		RegisteredAt: p.RegisteredAt.Format(time.RFC3339),
+		LastSeenAt:   p.LastSeenAt.Format(time.RFC3339),
+	}
+}
+
+// handlePlayerRegister handles the tusk_player_register tool.
+func (s *Server) handlePlayerRegister(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	playerID, err := request.RequireString("player_id")
+	if err != nil {
+		return mcp.NewToolResultError("player_id is required"), nil
+	}
+
+	player, err := s.playerSvc.Register(ctx, playerID, "agent")
+	if err != nil {
+		return toolError(err, "player "+playerID), nil
+	}
+
+	return toolResultJSON(toPlayerResponse(player))
+}
+
+// handleTaskClaim handles the tusk_task_claim tool.
+func (s *Server) handleTaskClaim(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+	playerID, err := request.RequireString("player_id")
+	if err != nil {
+		return mcp.NewToolResultError("player_id is required"), nil
+	}
+	version, err := request.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
+
+	updated, err := s.taskSvc.Claim(ctx, shortID, playerID, int(version))
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
+	}
+
+	tags, err := s.tagSvc.GetTaskTags(ctx, updated.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return toolResultJSON(toTaskResponse(updated, tags))
+}
+
+// handleTaskRelease handles the tusk_task_release tool.
+func (s *Server) handleTaskRelease(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	shortID, err := request.RequireString("short_id")
+	if err != nil {
+		return mcp.NewToolResultError("short_id is required"), nil
+	}
+	playerID, err := request.RequireString("player_id")
+	if err != nil {
+		return mcp.NewToolResultError("player_id is required"), nil
+	}
+	version, err := request.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
+
+	updated, err := s.taskSvc.Release(ctx, shortID, playerID, int(version))
+	if err != nil {
+		return toolError(err, "task "+shortID), nil
+	}
+
+	tags, err := s.tagSvc.GetTaskTags(ctx, updated.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return toolResultJSON(toTaskResponse(updated, tags))
+}
+
 // handleTaskTree handles the tusk_task_tree tool.
 func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var tasks []*domain.Task
