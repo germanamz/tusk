@@ -12,8 +12,8 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
-	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
 )
 
