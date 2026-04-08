@@ -9,8 +9,8 @@ import (
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/service"
-	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/sqlite"
 )
 
 // newClaimTestEnv creates a full service environment for claim tests.

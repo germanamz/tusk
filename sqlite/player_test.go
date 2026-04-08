@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/repository"
+	"github.com/germanamz/tusk/sqlite"
 )
 
 var _ repository.PlayerRepository = (*sqlite.PlayerRepo)(nil)

@@ -9,9 +9,9 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/internal/inmem"
 	"github.com/germanamz/tusk/internal/service"
-	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/internal/tui"
 	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/sqlite"
 )
 
 // version, commit, and date are set by goreleaser at build time via -ldflags.

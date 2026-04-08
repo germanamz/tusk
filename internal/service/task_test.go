@@ -9,8 +9,8 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/inmem"
-	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
 
