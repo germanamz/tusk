@@ -212,15 +212,15 @@ func Load(opts ...Option) (*Config, error) {
 	}
 
 	// Validate cross-references
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &cfg, nil
 }
 
-// validate checks cross-references between config sections.
-func (c *Config) validate() error {
+// Validate checks cross-references between config sections.
+func (c *Config) Validate() error {
 	for name, wf := range c.Workflows {
 		statusSet := make(map[string]bool, len(wf.Statuses))
 		for _, s := range wf.Statuses {
