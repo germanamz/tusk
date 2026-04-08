@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/filter"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )

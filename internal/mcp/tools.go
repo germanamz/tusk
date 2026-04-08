@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/filter"
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 )
