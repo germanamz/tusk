@@ -17,7 +17,7 @@ make vet            # go vet
 make lint           # golangci-lint run ./...
 
 # Single unit test
-go test -v ./internal/service -run TestTaskCreate
+go test -v ./service -run TestTaskCreate
 
 # Single e2e scenario
 go test -v ./tests/e2e -run TestErrorHandling
@@ -39,11 +39,13 @@ Storage Implementations (SQLite with WAL mode)
 
 **Key packages:**
 - `cmd/tusk/` — entry point, DI wiring, flag/env parsing
-- `internal/domain/` — core types and sentinel errors, no dependencies
-- `internal/service/` — business logic (TaskService, ProjectService, WorkflowService, RelationService, TagService, UrgencyEngine)
-- `internal/repository/` — interface definitions only
-- `internal/sqlite/` — SQLite implementations of repository interfaces
-- `internal/filter/` — 3-stage filter parser: Lexer → Parser → Resolver
+- `domain/` — core types and sentinel errors, no dependencies
+- `service/` — business logic (TaskService, ProjectService, WorkflowService, RelationService, TagService, UrgencyEngine)
+- `repository/` — interface definitions only
+- `sqlite/` — SQLite implementations of repository interfaces
+- `filter/` — 3-stage filter parser: Lexer → Parser → Resolver
+- `config/` — Viper-based config loading
+- `inmem/` — in-memory repository implementations (project, workflow)
 - `internal/mcp/` — MCP server (stdio + SSE transports)
 - `internal/tui/` — CLI commands + output rendering (text and JSON)
 - `migrations/` — embedded SQL migration files
@@ -55,7 +57,7 @@ Storage Implementations (SQLite with WAL mode)
 
 **Double-pointer updates:** `TaskUpdate` uses `**string`/`**uuid.UUID` for nullable fields — `nil` = don't change, `*nil` = set NULL, `*"value"` = set value.
 
-**Error handling:** Sentinel errors in `internal/domain/errors.go` (`ErrNotFound`, `ErrConflict`, `ErrCyclicBlock`, `ErrInvalidTransition`, `ErrDuplicateRelation`). Always check with `errors.Is()`.
+**Error handling:** Sentinel errors in `domain/errors.go` (`ErrNotFound`, `ErrConflict`, `ErrCyclicBlock`, `ErrInvalidTransition`, `ErrDuplicateRelation`). Always check with `errors.Is()`.
 
 **UUID + 8-char short ID:** Tasks get both — UUID for internal use, short ID for CLI display. Short ID collisions are handled.
 
@@ -95,4 +97,4 @@ Conventional commits with scope: `test(e2e):`, `fix:`, `docs:`, `feat:`.
 
 - `PRODUCT.md` — product-level description of implemented features
 - `docs/v0.1-status.md` — v0.1 implementation recap
-- `internal/config/default.toml` — embedded default configuration (source of truth for all defaults)
+- `config/default.toml` — embedded default configuration (source of truth for all defaults)

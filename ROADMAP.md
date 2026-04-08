@@ -422,22 +422,22 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Move core packages out of `internal/` to top-level, making them importable by external Go programs.
 
-- [ ] **Story: Move foundational packages (domain, config)**
-  - [ ] Move `internal/domain` → `domain`
-  - [ ] Move `internal/config` → `config`
-  - [ ] Update all import paths across the codebase
+- [x] **Story: Move foundational packages (domain, config)**
+  - [x] Move `internal/domain` → `domain`
+  - [x] Move `internal/config` → `config`
+  - [x] Update all import paths across the codebase
 
-- [ ] **Story: Move interface and filter packages (repository, filter)**
-  - [ ] Move `internal/repository` → `repository`
-  - [ ] Move `internal/filter` → `filter`
-  - [ ] Update all import paths across the codebase
+- [x] **Story: Move interface and filter packages (repository, filter)**
+  - [x] Move `internal/repository` → `repository`
+  - [x] Move `internal/filter` → `filter`
+  - [x] Update all import paths across the codebase
 
-- [ ] **Story: Move service and storage packages (service, sqlite, inmem)**
-  - [ ] Move `internal/service` → `service`
-  - [ ] Move `internal/sqlite` → `sqlite`
-  - [ ] Move `internal/inmem` → `inmem`
-  - [ ] Update all import paths across the codebase
-  - [ ] Verify `internal/tui` and `internal/mcp` remain in `internal/`
+- [x] **Story: Move service and storage packages (service, sqlite, inmem)**
+  - [x] Move `internal/service` → `service`
+  - [x] Move `internal/sqlite` → `sqlite`
+  - [x] Move `internal/inmem` → `inmem`
+  - [x] Update all import paths across the codebase
+  - [x] Verify `internal/tui` and `internal/mcp` remain in `internal/`
 
 ### Initiative: High-level Client
 
