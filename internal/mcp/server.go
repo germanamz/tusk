@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/germanamz/tusk/config"
-	"github.com/germanamz/tusk/internal/service"
+	"github.com/germanamz/tusk/service"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
