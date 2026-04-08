@@ -101,6 +101,30 @@ Weights are configurable globally and can be overridden per project, so differen
 
 Tasks support arbitrary key-value metadata via UDAs. Any string key-value pair can be attached, overwritten, or removed. UDAs are filterable (`uda.key:value`) and appear in all task responses across both interfaces.
 
+Projects can define UDA schemas — which keys are allowed, what types and values they accept. When a schema is defined, invalid metadata is rejected on create and update. Without a schema, UDAs are free-form.
+
+### Recurrence
+
+Tasks can carry an RFC 5545 RRULE string describing a recurrence pattern. When a recurring task is completed, tusk generates the next instance automatically based on the rule. End dates and count limits are respected — a recurring task stops generating instances once its rule is exhausted.
+
+### Event Log
+
+Tusk maintains an append-only event log recording every mutation — task creation, status changes, field modifications, claims, releases, relation changes. Each event captures what happened, to which entity, by which player, and when.
+
+The event log has bounded retention with configurable pruning, so it doesn't grow without limit. It serves as the foundation for undo, the live dashboard, and webhook notifications.
+
+### Undo
+
+The **undo** operation reverts the last mutation by reading the most recent event from the log and applying its inverse. It covers task field changes, status transitions, and claim operations. Undo is a single-step revert, not a full history traversal.
+
+### Time Tracking
+
+Tasks support start/stop timers for tracking time spent. A player starts a timer on a task, works, and stops it. Accumulated time is recorded per task and reportable. This is distinct from task status — a task can be active without a running timer, and a timer can run across status transitions.
+
+### File Attachments
+
+Binary files can be attached to tasks. Attachments are stored on the filesystem and referenced in the database. They are accessible through both CLI and MCP, and included in export operations.
+
 ---
 
 ## Interfaces
@@ -126,6 +150,7 @@ tusk next                              # highest-urgency actionable task
 # Modification
 tusk modify a3f8b2c1 priority:4 +urgent
 tusk annotate a3f8b2c1 "Blocked by upstream API changes"
+tusk undo                              # revert last mutation
 
 # Relations
 tusk link a3f8b2c1 blocks b7c9d4e2
@@ -142,6 +167,17 @@ tusk pop --player german
 tusk tag list
 tusk tag create bug --color "#ff0000"
 
+# Time tracking
+tusk timer start a3f8b2c1
+tusk timer stop a3f8b2c1
+
+# Attachments
+tusk attach a3f8b2c1 spec.pdf
+
+# Data portability
+tusk export --format json              # full dump
+tusk export --format csv               # flat export
+
 # Configuration entities
 tusk project list
 tusk workflow list
@@ -152,13 +188,14 @@ Output is available in human-readable text (with color, markdown rendering) and 
 
 ### MCP Server
 
-The MCP server mirrors the CLI through tool calls over stdio, so AI agents interact with the same system through the same service layer:
+The MCP server mirrors the CLI through tool calls, so AI agents interact with the same system through the same service layer:
 
 ```bash
-tusk mcp serve    # stdio transport
+tusk mcp serve                                     # stdio transport
+tusk mcp serve --transport http --port 8080        # Streamable HTTP transport
 ```
 
-**Tools** — 19 tools covering task CRUD, lifecycle transitions, annotations, tree views, relations, player registration, claiming, available tasks, pop, and read-only project/workflow listing. All mutation tools accept a `version` parameter for end-to-end optimistic locking. All tools accept an optional `player_id` for liveness tracking and auto-registration.
+**Tools** cover task CRUD, lifecycle transitions, annotations, tree views, relations, player registration, claiming, available tasks, pop, and read-only project/workflow listing. All mutation tools accept a `version` parameter for end-to-end optimistic locking. All tools accept an optional `player_id` for liveness tracking and auto-registration.
 
 **Resources** — tasks, projects, and workflows are also exposed as MCP resources for agents that prefer reading state over tool calls:
 
@@ -169,6 +206,24 @@ tusk://projects/{name}/workflow
 ```
 
 Tool and resource visibility is configurable — individual tools, resource templates, or entire groups can be hidden from agents.
+
+### Live Dashboard
+
+A real-time terminal dashboard for monitoring task state and player activity:
+
+- **Task board** — kanban-style columns organized by status, refreshing live by polling the event log.
+- **Player activity feed** — a stream of recent actions ("agent-1 claimed X", "german completed Y"), filterable by player or event type.
+- **Idle player detection** — highlights players who claimed tasks but haven't acted for a configurable duration.
+
+The dashboard is a read-only view — it polls the same database that CLI and MCP write to, without interfering with their operations. Layout, refresh interval, and visible columns are configurable.
+
+### REST API
+
+RESTful HTTP endpoints mirror CLI and MCP capabilities for integration with web applications and external services. Supports authentication and authorization for multi-user deployments.
+
+### Webhooks
+
+Task state changes fire webhook notifications to configured endpoints, powered by the event log. This is the integration point for Slack, email, CI pipelines, and external systems that need to react to task activity without polling.
 
 ---
 
@@ -215,12 +270,13 @@ Tusk is configured via `~/.config/tusk/config.toml`. A default configuration is 
 
 Configuration governs:
 
-- **Storage** — database path
+- **Storage** — database backend and connection settings
 - **Workflows** — custom status sets and allowed transitions
-- **Projects** — workflow binding, automation settings, urgency weight overrides
+- **Projects** — workflow binding, automation settings, UDA schemas, urgency weight overrides
 - **Urgency weights** — global scoring adjustments
 - **MCP** — transport settings, tool/resource visibility
 - **TUI** — date format, color, tree indentation, default sort order
+- **Dashboard** — refresh interval, layout, visible columns
 
 Environment variables with the `TUSK_` prefix override any config key. The `--db` flag overrides the database path directly.
 
@@ -230,62 +286,15 @@ Environment variables with the `TUSK_` prefix override any config key. The `--db
 
 Tusk uses SQLite by default. The database is a single file (default: `~/.local/share/tusk/tusk.db`), migrations are embedded in the binary and run automatically, and WAL mode is enabled for concurrent access.
 
-The storage layer is defined as a set of interfaces. The SQLite implementation is the shipped default, but the architecture allows plugging in alternative backends without touching the service layer.
+The storage layer is defined as a set of interfaces. SQLite is the shipped default. PostgreSQL is supported as an alternative backend for multi-user and networked deployments, with its own connection pooling and migration path. The interface boundary means adding a new backend requires no changes to the service layer.
 
 ---
 
-## Planned
+## Data Portability
 
-### Event Log and Live Dashboard
+Tusk supports full data export for backup, migration, and interoperability:
 
-An append-only event log recording all mutations — task creation, status changes, claims, releases, relation changes. Bounded retention with configurable pruning.
+- **JSON export** — complete dump of all tasks, relations, annotations, tags, and players.
+- **CSV export** — flat tabular export of tasks for spreadsheet workflows.
 
-Built on top of the event log: a real-time terminal dashboard with kanban-style task columns, a player activity feed, and idle-player detection. Refreshes by polling the event log.
-
-### Undo
-
-Revert the last mutation by reading the event log and applying the inverse operation. Covers task changes, status transitions, and claim operations.
-
-### Recurrence
-
-RFC 5545 RRULE strings on tasks. On completion of a recurring task, tusk auto-generates the next instance. Handles end dates and count limits.
-
-### UDA Schema Validation
-
-Per-project schemas for user-defined attributes. Projects define which UDA keys are allowed and what types/values they accept. Invalid metadata is rejected on create and update.
-
-### Data Export
-
-Full dump in JSON or flat export in CSV for backup and migration.
-
-### MCP Streamable HTTP Transport
-
-Network-accessible MCP server using Streamable HTTP (successor to SSE) for multi-client scenarios.
-
-### PostgreSQL Backend
-
-A PostgreSQL storage implementation for multi-user and networked deployments, with connection pooling and its own migration path.
-
-### Interactive TUI
-
-Extend the dashboard into a full interactive terminal interface — inline editing, status transitions, and task creation without leaving the TUI.
-
-### REST API
-
-RESTful HTTP endpoints mirroring CLI and MCP capabilities, with authentication and authorization.
-
-### Webhooks
-
-Fire webhooks on task state changes, powered by the event log. Integration point for Slack, email, CI pipelines, and external systems.
-
-### Time Tracking
-
-Start/stop timers on tasks, report time spent.
-
-### File Attachments
-
-Attach binary files to tasks, stored on the filesystem and referenced in the database.
-
-### Bidirectional Sync
-
-A sync protocol for merging task data across tusk instances, with conflict resolution.
+Bidirectional sync allows merging task data across tusk instances. The sync protocol defines a conflict resolution strategy so that two instances that have diverged can be reconciled without data loss.
