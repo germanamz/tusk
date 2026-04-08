@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/config"
-	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/filter"
 	tuskmcp "github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/spf13/cobra"
