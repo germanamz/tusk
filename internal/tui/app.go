@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/internal/filter"
 	tuskmcp "github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/internal/service"

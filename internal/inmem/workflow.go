@@ -4,8 +4,8 @@ import (
 	"context"
 	"sort"
 
+	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/config"
 	"github.com/germanamz/tusk/internal/repository"
 )
 

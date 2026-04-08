@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/config"
 )
 
 // mustNew calls New and fails the test on error.
