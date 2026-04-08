@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 // parseUDAFlags parses --uda flag values into a map.

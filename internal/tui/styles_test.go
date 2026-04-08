@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/config"
-	"github.com/germanamz/tusk/internal/domain"
 )
 
 func TestStyledPriority_NoColor(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 const playerColumns = `id, type, registered_at, last_seen_at`

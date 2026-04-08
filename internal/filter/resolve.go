@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 // TaskLookup is the subset of task operations the Resolver needs.

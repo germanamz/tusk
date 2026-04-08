@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 func TestResolveExpr_SingleTerm(t *testing.T) {

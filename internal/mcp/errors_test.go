@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 func TestMapError(t *testing.T) {
