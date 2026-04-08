@@ -443,18 +443,18 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Convenience `Client` type in the root package that wires up config, DB, and services for consumers.
 
-- [ ] **Story: Client type and constructor**
-  - [ ] Define `Config` struct (DBPath, Workflows, Projects, Urgency)
-  - [ ] Implement `NewClient(Config) (*Client, error)` — open DB, run migrations, wire services
-  - [ ] Implement `Close() error` for cleanup
-  - [ ] Expose services as public fields (Tasks, Tags, Relations, Projects, Workflows, Players)
-  - [ ] Default to builtin kanban workflow and default project when config fields are zero-valued
+- [x] **Story: Client type and constructor**
+  - [x] Define `Config` struct (DBPath, Workflows, Projects, Urgency)
+  - [x] Implement `NewClient(Config) (*Client, error)` — open DB, run migrations, wire services
+  - [x] Implement `Close() error` for cleanup
+  - [x] Expose services as public fields (Tasks, Tags, Relations, Projects, Workflows, Players)
+  - [x] Default to builtin kanban workflow and default project when config fields are zero-valued
 
-- [ ] **Story: Client tests**
-  - [ ] Test NewClient opens DB and creates task successfully
-  - [ ] Test NewClient with zero-valued config uses defaults
-  - [ ] Test NewClient with empty DBPath returns error
-  - [ ] Test Close releases DB connection
+- [x] **Story: Client tests**
+  - [x] Test NewClient opens DB and creates task successfully
+  - [x] Test NewClient with zero-valued config uses defaults
+  - [x] Test NewClient with empty DBPath returns error
+  - [x] Test Close releases DB connection
 
 ---
 
