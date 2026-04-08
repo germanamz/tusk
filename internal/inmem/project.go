@@ -6,7 +6,7 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/repository"
+	"github.com/germanamz/tusk/repository"
 )
 
 // Compile-time check that ProjectRepository implements the interface.

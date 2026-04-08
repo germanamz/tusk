@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/repository"
+	"github.com/germanamz/tusk/repository"
 	"github.com/google/uuid"
 )
 
