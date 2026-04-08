@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/service"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"

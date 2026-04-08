@@ -3,7 +3,7 @@ package filter
 import (
 	"strings"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 // ParseExpr parses a filter string into a boolean expression tree.

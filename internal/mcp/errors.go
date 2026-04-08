@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 // mapError translates domain sentinel errors into user-facing MCP error strings.

@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 // PlayerRepository defines storage operations for Player entities.

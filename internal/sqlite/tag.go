@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 	"github.com/google/uuid"
 )
 

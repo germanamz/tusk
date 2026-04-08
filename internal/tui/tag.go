@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 	"github.com/spf13/cobra"
 )
 

@@ -3,7 +3,7 @@ package filter
 import (
 	"strings"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 )
 
 // fieldValidators maps field names to their validation functions.

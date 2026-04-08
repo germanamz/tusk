@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/sqlite"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/google/uuid"

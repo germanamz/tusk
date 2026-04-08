@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/germanamz/tusk/internal/domain"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/repository"
 )
 
