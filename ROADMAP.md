@@ -414,7 +414,51 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.8 — Live Dashboard
+## v0.8 — Programmatic Access
+
+**Goal:** Expose tusk's core APIs as importable Go packages so other programs can embed tusk as a library.
+
+### Initiative: Package Restructure
+
+> Move core packages out of `internal/` to top-level, making them importable by external Go programs.
+
+- [ ] **Story: Move foundational packages (domain, config)**
+  - [ ] Move `internal/domain` → `domain`
+  - [ ] Move `internal/config` → `config`
+  - [ ] Update all import paths across the codebase
+
+- [ ] **Story: Move interface and filter packages (repository, filter)**
+  - [ ] Move `internal/repository` → `repository`
+  - [ ] Move `internal/filter` → `filter`
+  - [ ] Update all import paths across the codebase
+
+- [ ] **Story: Move service and storage packages (service, sqlite, inmem)**
+  - [ ] Move `internal/service` → `service`
+  - [ ] Move `internal/sqlite` → `sqlite`
+  - [ ] Move `internal/inmem` → `inmem`
+  - [ ] Update all import paths across the codebase
+  - [ ] Verify `internal/tui` and `internal/mcp` remain in `internal/`
+
+### Initiative: High-level Client
+
+> Convenience `Client` type in the root package that wires up config, DB, and services for consumers.
+
+- [ ] **Story: Client type and constructor**
+  - [ ] Define `Config` struct (DBPath, Workflows, Projects, Urgency)
+  - [ ] Implement `NewClient(Config) (*Client, error)` — open DB, run migrations, wire services
+  - [ ] Implement `Close() error` for cleanup
+  - [ ] Expose services as public fields (Tasks, Tags, Relations, Projects, Workflows, Players)
+  - [ ] Default to builtin kanban workflow and default project when config fields are zero-valued
+
+- [ ] **Story: Client tests**
+  - [ ] Test NewClient opens DB and creates task successfully
+  - [ ] Test NewClient with zero-valued config uses defaults
+  - [ ] Test NewClient with empty DBPath returns error
+  - [ ] Test Close releases DB connection
+
+---
+
+## v0.9 — Live Dashboard
 
 **Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by an event log.
 
@@ -451,7 +495,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.9 — Advanced Features
+## v0.10 — Advanced Features
 
 **Goal:** Recurrence, additional transports, data portability, and undo.
 

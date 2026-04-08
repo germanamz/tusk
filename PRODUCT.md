@@ -186,6 +186,30 @@ tusk workflow info kanban
 
 Output is available in human-readable text (with color, markdown rendering) and JSON (`--output json`) for scripting. Color respects `NO_COLOR` and `--no-color`.
 
+### Go Library
+
+Tusk's core packages are importable, so other Go programs can embed tusk directly as a library without shelling out to the CLI or speaking MCP.
+
+A high-level `Client` type in the root package wires up the database, migrations, and all services from a single `Config` struct:
+
+```go
+client, err := tusk.NewClient(tusk.Config{
+    DBPath: "/tmp/my-tasks.db",
+})
+defer client.Close()
+
+task, _ := client.Tasks.Create(ctx, service.CreateTaskInput{
+    Title:   "Build the thing",
+    Project: "default",
+})
+```
+
+The `Client` exposes service instances as public fields (`Tasks`, `Tags`, `Relations`, `Projects`, `Workflows`, `Players`), so every operation available through CLI and MCP is available programmatically.
+
+For consumers who need full control, the building-block packages (`domain`, `service`, `repository`, `sqlite`, `inmem`, `filter`, `config`) are importable directly. Custom storage backends can implement the repository interfaces without using the `Client` at all.
+
+Configuration is purely programmatic — no file loading, no environment variables. When config fields are omitted, the built-in kanban workflow and default project apply, same as a fresh CLI install.
+
 ### MCP Server
 
 The MCP server mirrors the CLI through tool calls, so AI agents interact with the same system through the same service layer:
