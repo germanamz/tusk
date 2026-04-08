@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/germanamz/tusk/internal/config"
+	"github.com/germanamz/tusk/config"
 )
 
 func TestNewApp_NotNil(t *testing.T) {
