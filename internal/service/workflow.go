@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/repository"
+	"github.com/germanamz/tusk/repository"
 )
 
 // WorkflowService validates status transitions and provides read access

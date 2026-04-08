@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/repository"
+	"github.com/germanamz/tusk/repository"
 )
 
 // ProjectService provides read-only access to projects.

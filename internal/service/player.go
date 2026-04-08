@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/internal/repository"
+	"github.com/germanamz/tusk/repository"
 )
 
 // PlayerService handles player registration and liveness tracking.

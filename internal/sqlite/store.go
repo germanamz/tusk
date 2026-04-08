@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/germanamz/tusk/internal/repository"
+	"github.com/germanamz/tusk/repository"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
