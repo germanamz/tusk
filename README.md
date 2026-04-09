@@ -5,6 +5,7 @@
 <p align="center">
   <a href="#installation"><strong>Install</strong></a> &middot;
   <a href="#quick-start"><strong>Quick Start</strong></a> &middot;
+  <a href="#go-library"><strong>Go Library</strong></a> &middot;
   <a href="#mcp-server"><strong>MCP Server</strong></a> &middot;
   <a href="#development"><strong>Development</strong></a> &middot;
   <a href="tusk.md"><strong>Design Spec</strong></a>
@@ -166,6 +167,24 @@ Key design choices:
 - **Soft delete** via workflow status transitions
 - **Declarative workflows** — TOML-defined, with per-project assignment
 - **Config-driven projects** — projects and workflows live in config, not the database
+
+## Go Library
+
+Tusk's core packages are importable, so other Go programs can embed task management directly without shelling out to the CLI or speaking MCP. A high-level `Client` type wires up the database, migrations, and all services from a single config struct:
+
+```go
+client, err := tusk.NewClient(tusk.Config{
+    DBPath: "/tmp/my-tasks.db",
+})
+defer client.Close()
+
+task := &domain.Task{Title: "Build the thing", Priority: 3}
+client.Tasks.Create(ctx, task)
+```
+
+The `Client` exposes service instances as public fields (`Tasks`, `Tags`, `Relations`, `Projects`, `Workflows`, `Players`), giving programmatic access to every operation available through CLI and MCP. Requires **v0.8.0+**.
+
+See [docs/programmatic-usage.md](docs/programmatic-usage.md) for the full API guide.
 
 ## MCP Server
 
