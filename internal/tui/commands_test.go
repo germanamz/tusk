@@ -167,9 +167,9 @@ func TestRunList_StatusFilter(t *testing.T) {
 
 	// Explicit status filter should show it
 	buf.Reset()
-	app.root.SetArgs([]string{"list", "status:completed"})
+	app.root.SetArgs([]string{"list", "status=completed"})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("list status:completed: %v", err)
+		t.Fatalf("list status=completed: %v", err)
 	}
 	if !strings.Contains(buf.String(), task.ShortID) {
 		t.Fatalf("expected completed task in filtered list, got:\n%s", buf.String())
@@ -261,7 +261,7 @@ func TestRunAdd_WithPriority(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "Priority", "task", "priority:high"})
+	app.root.SetArgs([]string{"add", "Priority", "task", "priority=high"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -350,8 +350,8 @@ func TestRunAdd_Tags(t *testing.T) {
 func TestRunAdd_NoTitle(t *testing.T) {
 	app, _ := testApp(t)
 
-	// Only key:value args, no title words
-	app.root.SetArgs([]string{"add", "priority:3"})
+	// Only key=value args, no title words
+	app.root.SetArgs([]string{"add", "priority=3"})
 	err := app.root.Execute()
 	if err == nil {
 		t.Fatal("expected error for missing title")
@@ -428,7 +428,7 @@ func TestRunModify_Priority(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "priority:urgent"})
+	app.root.SetArgs([]string{"modify", task.ShortID, "priority=urgent"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify: %v", err)
 	}
@@ -724,7 +724,7 @@ func TestRunModify_Project(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "project:default"})
+	app.root.SetArgs([]string{"modify", task.ShortID, "project=default"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify project: %v", err)
 	}

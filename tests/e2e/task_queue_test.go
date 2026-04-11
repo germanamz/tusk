@@ -10,11 +10,11 @@ func TestTaskQueue(t *testing.T) {
 			Name: "available_basic_filtering",
 			Steps: []Step{
 				// Step 0: Add task A (priority 3)
-				{Args: []string{"add", "Task A", "priority:3"}},
+				{Args: []string{"add", "Task A", "priority=3"}},
 				// Step 1: Add task B (priority 1)
-				{Args: []string{"add", "Task B", "priority:1"}},
+				{Args: []string{"add", "Task B", "priority=1"}},
 				// Step 2: Add task C (priority 2)
-				{Args: []string{"add", "Task C", "priority:2"}},
+				{Args: []string{"add", "Task C", "priority=2"}},
 				// Step 3: Claim task A by p1
 				{Args: []string{"claim", "$0.short_id", "--player", "p1"}},
 				// Step 4: List available for p2 — should see only B and C (unclaimed)
@@ -97,9 +97,9 @@ func TestTaskQueue(t *testing.T) {
 			Name: "pop_claims_highest_urgency",
 			Steps: []Step{
 				// Step 0: Add low priority task
-				{Args: []string{"add", "Low task", "priority:1"}},
+				{Args: []string{"add", "Low task", "priority=1"}},
 				// Step 1: Add high priority task
-				{Args: []string{"add", "High task", "priority:3"}},
+				{Args: []string{"add", "High task", "priority=3"}},
 				// Step 2: Pop should return the highest urgency task
 				{
 					Args: []string{"pop", "--player", "p1"},

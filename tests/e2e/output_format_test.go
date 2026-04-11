@@ -31,16 +31,16 @@ func TestOutputFormat(t *testing.T) {
 					Args: []string{"add", "No priority"},
 				},
 				{
-					Args: []string{"add", "Low pri task", "priority:1"},
+					Args: []string{"add", "Low pri task", "priority=1"},
 				},
 				{
-					Args: []string{"add", "Med pri task", "priority:2"},
+					Args: []string{"add", "Med pri task", "priority=2"},
 				},
 				{
-					Args: []string{"add", "High pri task", "priority:3"},
+					Args: []string{"add", "High pri task", "priority=3"},
 				},
 				{
-					Args: []string{"add", "Urgent pri task", "priority:4"},
+					Args: []string{"add", "Urgent pri task", "priority=4"},
 				},
 				{
 					Args: []string{"list"},
@@ -79,7 +79,7 @@ func TestOutputFormat(t *testing.T) {
 			Name: "json_snake_case_keys",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Key check", "priority:2"},
+					Args: []string{"add", "Key check", "priority=2"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -102,7 +102,7 @@ func TestOutputFormat(t *testing.T) {
 			Name: "json_info_has_all_fields",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Info fields check", "priority:3"},
+					Args: []string{"add", "Info fields check", "priority=3"},
 				},
 				{
 					Args: []string{"info", "$0.short_id"},
@@ -162,7 +162,7 @@ func TestOutputFormat(t *testing.T) {
 			Name: "text_info_priority_names",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Low check", "priority:1"},
+					Args: []string{"add", "Low check", "priority=1"},
 				},
 				{
 					Args: []string{"info", "$0.short_id"},
