@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -82,4 +84,59 @@ func WriteConfig(cfg *Config, path string) error {
 	}
 
 	return nil
+}
+
+// IsValidKey checks whether a dot-path key corresponds to a leaf field in the Config struct.
+// For map-keyed sections (workflows, projects), any map key is accepted.
+func IsValidKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	parts := strings.Split(key, ".")
+	return isValidKeyPath(reflect.TypeOf(Config{}), parts)
+}
+
+// isValidKeyPath recursively walks the struct type tree to validate a dot-path.
+func isValidKeyPath(t reflect.Type, parts []string) bool {
+	if len(parts) == 0 {
+		return false
+	}
+
+	// Unwrap pointer types.
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	switch t.Kind() {
+	case reflect.Struct:
+		// Find the field matching the mapstructure tag.
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			tag := f.Tag.Get("mapstructure")
+			if tag == parts[0] {
+				if len(parts) == 1 {
+					// Valid only if this is a leaf (not a struct, or is a slice/basic type).
+					ft := f.Type
+					for ft.Kind() == reflect.Ptr {
+						ft = ft.Elem()
+					}
+					return ft.Kind() != reflect.Struct
+				}
+				return isValidKeyPath(f.Type, parts[1:])
+			}
+		}
+		return false
+
+	case reflect.Map:
+		// Map key can be anything (e.g., workflows.<anyname>).
+		// Continue validating the value type with remaining parts.
+		if len(parts) == 1 {
+			return false // map itself is not a leaf
+		}
+		return isValidKeyPath(t.Elem(), parts[1:])
+
+	default:
+		// Leaf type — valid only if no more parts.
+		return len(parts) == 0
+	}
 }
