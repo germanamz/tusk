@@ -49,17 +49,17 @@ func TestLex(t *testing.T) {
 			},
 		},
 		{
-			name:  "field key:value",
-			input: "status:active",
+			name:  "field key=value",
+			input: "status=active",
 			want: []Token{
-				{Type: TokenField, Value: "status:active", Pos: 0},
+				{Type: TokenField, Value: "status=active", Pos: 0},
 			},
 		},
 		{
 			name:  "field with colon in value",
-			input: "due:2026-04-10T15:30:00Z",
+			input: "due=2026-04-10T15:30:00Z",
 			want: []Token{
-				{Type: TokenField, Value: "due:2026-04-10T15:30:00Z", Pos: 0},
+				{Type: TokenField, Value: "due=2026-04-10T15:30:00Z", Pos: 0},
 			},
 		},
 		{
@@ -80,14 +80,14 @@ func TestLex(t *testing.T) {
 		},
 		{
 			name:  "mixed input",
-			input: "My task project:backend +api -docs priority:3",
+			input: "My task project=backend +api -docs priority=3",
 			want: []Token{
 				{Type: TokenText, Value: "My", Pos: 0},
 				{Type: TokenText, Value: "task", Pos: 3},
-				{Type: TokenField, Value: "project:backend", Pos: 8},
+				{Type: TokenField, Value: "project=backend", Pos: 8},
 				{Type: TokenTagInclude, Value: "+api", Pos: 24},
 				{Type: TokenTagExclude, Value: "-docs", Pos: 29},
-				{Type: TokenField, Value: "priority:3", Pos: 35},
+				{Type: TokenField, Value: "priority=3", Pos: 35},
 			},
 		},
 		{
@@ -110,9 +110,9 @@ func TestLex(t *testing.T) {
 		},
 		{
 			name:  "multiple spaces between tokens",
-			input: "status:active   +api",
+			input: "status=active   +api",
 			want: []Token{
-				{Type: TokenField, Value: "status:active", Pos: 0},
+				{Type: TokenField, Value: "status=active", Pos: 0},
 				{Type: TokenTagInclude, Value: "+api", Pos: 16},
 			},
 		},
@@ -125,68 +125,68 @@ func TestLex(t *testing.T) {
 		},
 		{
 			name:  "quoted field value",
-			input: `title:"fix the bug"`,
+			input: `title="fix the bug"`,
 			want: []Token{
-				{Type: TokenField, Value: `title:fix the bug`, Pos: 0},
+				{Type: TokenField, Value: `title=fix the bug`, Pos: 0},
 			},
 		},
 		{
 			name:  "mixed quoted and unquoted",
-			input: `status:active title:"fix the bug" +api`,
+			input: `status=active title="fix the bug" +api`,
 			want: []Token{
-				{Type: TokenField, Value: "status:active", Pos: 0},
-				{Type: TokenField, Value: `title:fix the bug`, Pos: 14},
+				{Type: TokenField, Value: "status=active", Pos: 0},
+				{Type: TokenField, Value: `title=fix the bug`, Pos: 14},
 				{Type: TokenTagInclude, Value: "+api", Pos: 34},
 			},
 		},
 		{
 			name:  "escaped quote inside quoted string",
-			input: `title:"say \"hello\""`,
+			input: `title="say \"hello\""`,
 			want: []Token{
-				{Type: TokenField, Value: `title:say "hello"`, Pos: 0},
+				{Type: TokenField, Value: `title=say "hello"`, Pos: 0},
 			},
 		},
 		{
 			name:  "quoted text with existing tokens",
-			input: `"My cool task" project:backend +api`,
+			input: `"My cool task" project=backend +api`,
 			want: []Token{
 				{Type: TokenText, Value: "My cool task", Pos: 0},
-				{Type: TokenField, Value: "project:backend", Pos: 15},
+				{Type: TokenField, Value: "project=backend", Pos: 15},
 				{Type: TokenTagInclude, Value: "+api", Pos: 31},
 			},
 		},
 		{
 			name:  "AND keyword",
-			input: "status:active AND +api",
+			input: "status=active AND +api",
 			want: []Token{
-				{Type: TokenField, Value: "status:active", Pos: 0},
+				{Type: TokenField, Value: "status=active", Pos: 0},
 				{Type: TokenAnd, Value: "AND", Pos: 14},
 				{Type: TokenTagInclude, Value: "+api", Pos: 18},
 			},
 		},
 		{
 			name:  "OR keyword",
-			input: "status:active OR status:pending",
+			input: "status=active OR status=pending",
 			want: []Token{
-				{Type: TokenField, Value: "status:active", Pos: 0},
+				{Type: TokenField, Value: "status=active", Pos: 0},
 				{Type: TokenOr, Value: "OR", Pos: 14},
-				{Type: TokenField, Value: "status:pending", Pos: 17},
+				{Type: TokenField, Value: "status=pending", Pos: 17},
 			},
 		},
 		{
 			name:  "NOT keyword",
-			input: "NOT status:deleted",
+			input: "NOT status=deleted",
 			want: []Token{
 				{Type: TokenNot, Value: "NOT", Pos: 0},
-				{Type: TokenField, Value: "status:deleted", Pos: 4},
+				{Type: TokenField, Value: "status=deleted", Pos: 4},
 			},
 		},
 		{
 			name:  "parentheses",
-			input: "(status:active OR +urgent)",
+			input: "(status=active OR +urgent)",
 			want: []Token{
 				{Type: TokenLParen, Value: "(", Pos: 0},
-				{Type: TokenField, Value: "status:active", Pos: 1},
+				{Type: TokenField, Value: "status=active", Pos: 1},
 				{Type: TokenOr, Value: "OR", Pos: 15},
 				{Type: TokenTagInclude, Value: "+urgent", Pos: 18},
 				{Type: TokenRParen, Value: ")", Pos: 25},
@@ -203,10 +203,10 @@ func TestLex(t *testing.T) {
 		},
 		{
 			name:  "parens attached to tokens",
-			input: "(status:active)",
+			input: "(status=active)",
 			want: []Token{
 				{Type: TokenLParen, Value: "(", Pos: 0},
-				{Type: TokenField, Value: "status:active", Pos: 1},
+				{Type: TokenField, Value: "status=active", Pos: 1},
 				{Type: TokenRParen, Value: ")", Pos: 14},
 			},
 		},
@@ -246,16 +246,16 @@ func TestLex_EdgeCases(t *testing.T) {
 	}{
 		{
 			name:  "field with empty value",
-			input: "status:",
+			input: "status=",
 			want: []Token{
-				{Type: TokenField, Value: "status:", Pos: 0},
+				{Type: TokenField, Value: "status=", Pos: 0},
 			},
 		},
 		{
-			name:  "colon at start is text not field",
-			input: ":value",
+			name:  "equals at start is text not field",
+			input: "=value",
 			want: []Token{
-				{Type: TokenText, Value: ":value", Pos: 0},
+				{Type: TokenText, Value: "=value", Pos: 0},
 			},
 		},
 		{
@@ -267,10 +267,10 @@ func TestLex_EdgeCases(t *testing.T) {
 			},
 		},
 		{
-			name:  "tag-like token with colon is a field",
-			input: "+api:test",
+			name:  "additive modifier field",
+			input: "+api=test",
 			want: []Token{
-				{Type: TokenField, Value: "+api:test", Pos: 0},
+				{Type: TokenField, Value: "+api=test", Pos: 0},
 			},
 		},
 		{
@@ -288,21 +288,21 @@ func TestLex_EdgeCases(t *testing.T) {
 		},
 		{
 			name:  "priority range is a field",
-			input: "priority:2..4",
+			input: "priority=2..4",
 			want: []Token{
-				{Type: TokenField, Value: "priority:2..4", Pos: 0},
+				{Type: TokenField, Value: "priority=2..4", Pos: 0},
 			},
 		},
 		{
 			name:  "due date range is a field",
-			input: "due:today..friday",
+			input: "due=today..friday",
 			want: []Token{
-				{Type: TokenField, Value: "due:today..friday", Pos: 0},
+				{Type: TokenField, Value: "due=today..friday", Pos: 0},
 			},
 		},
 		{
 			name:   "unclosed quote",
-			input:  `title:"fix the bug`,
+			input:  `title="fix the bug`,
 			want:   nil,
 			errors: 1,
 		},
@@ -322,18 +322,18 @@ func TestLex_EdgeCases(t *testing.T) {
 		},
 		{
 			name:  "adjacent quoted and unquoted",
-			input: `+api "my task" status:active`,
+			input: `+api "my task" status=active`,
 			want: []Token{
 				{Type: TokenTagInclude, Value: "+api", Pos: 0},
 				{Type: TokenText, Value: "my task", Pos: 5},
-				{Type: TokenField, Value: "status:active", Pos: 15},
+				{Type: TokenField, Value: "status=active", Pos: 15},
 			},
 		},
 		{
 			name:  "field with quoted value containing colon",
-			input: `title:"step 1: do things"`,
+			input: `title="step 1: do things"`,
 			want: []Token{
-				{Type: TokenField, Value: `title:step 1: do things`, Pos: 0},
+				{Type: TokenField, Value: `title=step 1: do things`, Pos: 0},
 			},
 		},
 	}

@@ -39,7 +39,7 @@ func TestIntegration_DefaultFilter(t *testing.T) {
 
 func TestIntegration_ComplexFilter(t *testing.T) {
 	r, _ := testSetup(t)
-	fs, parseErrs := Parse("status:completed project:default priority:2..4 +api -docs")
+	fs, parseErrs := Parse("status=completed project=default priority=2..4 +api -docs")
 	if len(parseErrs) != 0 {
 		t.Fatalf("parse errors: %v", parseErrs)
 	}
@@ -83,7 +83,7 @@ func TestIntegration_ParentFilter(t *testing.T) {
 		t.Fatalf("creating task: %v", err)
 	}
 
-	fs, parseErrs := Parse("parent:abcd1234 status:active")
+	fs, parseErrs := Parse("parent=abcd1234 status=active")
 	if len(parseErrs) != 0 {
 		t.Fatalf("parse errors: %v", parseErrs)
 	}
@@ -114,7 +114,7 @@ func TestIntegration_TreeFilter(t *testing.T) {
 		t.Fatalf("creating task: %v", err)
 	}
 
-	fs, parseErrs := Parse("tree:deadbeef")
+	fs, parseErrs := Parse("tree=deadbeef")
 	if len(parseErrs) != 0 {
 		t.Fatalf("parse errors: %v", parseErrs)
 	}
@@ -129,8 +129,8 @@ func TestIntegration_TreeFilter(t *testing.T) {
 
 func TestIntegration_ParseAndResolveErrors(t *testing.T) {
 	r, _ := testSetup(t)
-	// "foo:bar" triggers a parse error; "parent:ffffffff" triggers a resolve error
-	fs, parseErrs := Parse("foo:bar parent:ffffffff status:active")
+	// "foo=bar" triggers a parse error; "parent=ffffffff" triggers a resolve error
+	fs, parseErrs := Parse("foo=bar parent=ffffffff status=active")
 	if len(parseErrs) != 1 {
 		t.Fatalf("expected 1 parse error, got %d: %v", len(parseErrs), parseErrs)
 	}
@@ -141,7 +141,7 @@ func TestIntegration_ParseAndResolveErrors(t *testing.T) {
 }
 
 func TestIntegration_TitleExtraction(t *testing.T) {
-	fs, parseErrs := Parse("Implement auth middleware project:backend +api priority:3")
+	fs, parseErrs := Parse("Implement auth middleware project=backend +api priority=3")
 	if len(parseErrs) != 0 {
 		t.Fatalf("parse errors: %v", parseErrs)
 	}
