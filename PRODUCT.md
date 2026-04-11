@@ -64,18 +64,18 @@ Both operations accept filters, so an agent can pop from a specific project, tag
 
 ### Workflows
 
-Workflows define which statuses exist and which transitions between them are valid. They are declared in configuration, not stored in the database.
+Workflows define which statuses exist, which transitions between them are valid, and which status is the **initial status** — the default for newly created tasks. They are declared in configuration, not stored in the database.
 
 Tusk ships with a built-in **kanban** workflow:
 
 ```
-pending → active → completed
-                 → deleted
+pending (initial) → active → completed
+                           → deleted
 active  → pending
 completed → pending
 ```
 
-Custom workflows can define any status set and transition graph. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
+Custom workflows can define any status set, transition graph, and initial status. When `initial_status` is omitted from config, the first entry in the statuses list is used. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
 
 ### Projects
 
