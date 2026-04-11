@@ -28,7 +28,7 @@ func TestParse_TextOnly(t *testing.T) {
 }
 
 func TestParse_FieldsOnly(t *testing.T) {
-	fs, errs := Parse("status:active priority:3")
+	fs, errs := Parse("status=active priority=3")
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -63,7 +63,7 @@ func TestParse_TagsOnly(t *testing.T) {
 }
 
 func TestParse_MixedInput(t *testing.T) {
-	fs, errs := Parse("My task project:backend +api -docs priority:3")
+	fs, errs := Parse("My task project=backend +api -docs priority=3")
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -82,7 +82,7 @@ func TestParse_MixedInput(t *testing.T) {
 }
 
 func TestParse_UnknownField(t *testing.T) {
-	fs, errs := Parse("foo:bar status:active")
+	fs, errs := Parse("foo=bar status=active")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
 	}
@@ -96,7 +96,7 @@ func TestParse_UnknownField(t *testing.T) {
 }
 
 func TestParse_InvalidFieldValue(t *testing.T) {
-	fs, errs := Parse("priority:xyz status:active")
+	fs, errs := Parse("priority=xyz status=active")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
 	}
@@ -110,18 +110,18 @@ func TestParse_InvalidFieldValue(t *testing.T) {
 }
 
 func TestParse_MultipleErrors(t *testing.T) {
-	_, errs := Parse("foo:bar priority:xyz baz:qux")
+	_, errs := Parse("foo=bar priority=xyz baz=qux")
 	if len(errs) != 3 {
 		t.Fatalf("expected 3 errors, got %d: %v", len(errs), errs)
 	}
 }
 
 func TestParse_FieldPosition(t *testing.T) {
-	fs, errs := Parse("status:active priority:3")
+	fs, errs := Parse("status=active priority=3")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
-	// "status:active" starts at 0, "priority:3" starts at 14
+	// "status=active" starts at 0, "priority=3" starts at 14
 	if fs.Fields[0].Pos != 0 {
 		t.Fatalf("expected Fields[0].Pos=0, got %d", fs.Fields[0].Pos)
 	}
@@ -131,7 +131,7 @@ func TestParse_FieldPosition(t *testing.T) {
 }
 
 func TestParse_PriorityRange(t *testing.T) {
-	fs, errs := Parse("priority:2..4")
+	fs, errs := Parse("priority=2..4")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -142,7 +142,7 @@ func TestParse_PriorityRange(t *testing.T) {
 }
 
 func TestParse_DueRange(t *testing.T) {
-	fs, errs := Parse("due:today..friday")
+	fs, errs := Parse("due=today..friday")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -153,7 +153,7 @@ func TestParse_DueRange(t *testing.T) {
 }
 
 func TestParse_CommaStatuses(t *testing.T) {
-	fs, errs := Parse("status:pending,active,completed")
+	fs, errs := Parse("status=pending,active,completed")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -165,7 +165,7 @@ func TestParse_CommaStatuses(t *testing.T) {
 
 func TestParse_LexErrorsPropagated(t *testing.T) {
 	// Bare "+" should produce a lex error that propagates through Parse
-	_, errs := Parse("+ status:active")
+	_, errs := Parse("+ status=active")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error from bare +, got %d: %v", len(errs), errs)
 	}
@@ -175,8 +175,8 @@ func TestParse_LexErrorsPropagated(t *testing.T) {
 }
 
 func TestParse_FieldWithEmptyValue(t *testing.T) {
-	// "status:" has an empty value — validateStatus should reject it
-	_, errs := Parse("status:")
+	// "status=" has an empty value — validateStatus should reject it
+	_, errs := Parse("status=")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for empty status value, got %d: %v", len(errs), errs)
 	}
@@ -184,7 +184,7 @@ func TestParse_FieldWithEmptyValue(t *testing.T) {
 
 func TestParse_DuplicateFields(t *testing.T) {
 	// Two status fields: both should be accepted (resolver decides how to handle)
-	fs, errs := Parse("status:active status:pending")
+	fs, errs := Parse("status=active status=pending")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -200,7 +200,7 @@ func TestParse_DuplicateFields(t *testing.T) {
 }
 
 func TestParse_AllFieldTypes(t *testing.T) {
-	input := "status:active project:backend priority:3 due:today parent:a3f8b2c1 tree:deadbeef waiting:true"
+	input := "status=active project=backend priority=3 due=today parent=a3f8b2c1 tree=deadbeef waiting=true"
 	fs, errs := Parse(input)
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
@@ -218,8 +218,8 @@ func TestParse_AllFieldTypes(t *testing.T) {
 }
 
 func TestParse_MixedErrorsAndValid(t *testing.T) {
-	// "foo:bar" is unknown, "priority:3" is valid, "waiting:yes" is invalid
-	fs, errs := Parse("foo:bar priority:3 waiting:yes")
+	// "foo=bar" is unknown, "priority=3" is valid, "waiting=yes" is invalid
+	fs, errs := Parse("foo=bar priority=3 waiting=yes")
 	if len(errs) != 2 {
 		t.Fatalf("expected 2 errors, got %d: %v", len(errs), errs)
 	}
@@ -232,7 +232,7 @@ func TestParse_MixedErrorsAndValid(t *testing.T) {
 }
 
 func TestParse_UDAField(t *testing.T) {
-	fs, errs := Parse("uda.env:prod status:active")
+	fs, errs := Parse("uda.env=prod status=active")
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -246,7 +246,7 @@ func TestParse_UDAField(t *testing.T) {
 }
 
 func TestParse_UDAFieldEmptyValue(t *testing.T) {
-	fs, errs := Parse("uda.env:")
+	fs, errs := Parse("uda.env=")
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -257,7 +257,7 @@ func TestParse_UDAFieldEmptyValue(t *testing.T) {
 }
 
 func TestParse_UDAFieldMultiple(t *testing.T) {
-	fs, errs := Parse("uda.env:prod uda.team:backend")
+	fs, errs := Parse("uda.env=prod uda.team=backend")
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -273,21 +273,21 @@ func TestParse_UDAFieldMultiple(t *testing.T) {
 }
 
 func TestParse_UDAFieldInvalidKey(t *testing.T) {
-	_, errs := Parse("uda.:value")
+	_, errs := Parse("uda.=value")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for empty UDA key name, got %d: %v", len(errs), errs)
 	}
 }
 
 func TestParse_UDAFieldBadKeyChars(t *testing.T) {
-	_, errs := Parse("uda.bad$key:value")
+	_, errs := Parse("uda.bad$key=value")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for invalid UDA key chars, got %d: %v", len(errs), errs)
 	}
 }
 
 func TestParse_UDAMixedWithOtherFields(t *testing.T) {
-	fs, errs := Parse("My task uda.env:prod priority:3 +api")
+	fs, errs := Parse("My task uda.env=prod priority=3 +api")
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -313,7 +313,7 @@ func TestParse_QuotedTextTitle(t *testing.T) {
 }
 
 func TestParse_QuotedTextWithFields(t *testing.T) {
-	fs, errs := Parse(`"My task" project:backend +api`)
+	fs, errs := Parse(`"My task" project=backend +api`)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -329,7 +329,7 @@ func TestParse_QuotedTextWithFields(t *testing.T) {
 }
 
 func TestParse_TitleField(t *testing.T) {
-	fs, errs := Parse(`title:"auth middleware"`)
+	fs, errs := Parse(`title="auth middleware"`)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -340,7 +340,7 @@ func TestParse_TitleField(t *testing.T) {
 }
 
 func TestParse_DescriptionField(t *testing.T) {
-	fs, errs := Parse(`description:"implement the feature"`)
+	fs, errs := Parse(`description="implement the feature"`)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -351,14 +351,14 @@ func TestParse_DescriptionField(t *testing.T) {
 }
 
 func TestParse_TitleFieldEmpty(t *testing.T) {
-	_, errs := Parse("title:")
+	_, errs := Parse("title=")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for empty title, got %d: %v", len(errs), errs)
 	}
 }
 
 func TestParse_DescriptionFieldEmpty(t *testing.T) {
-	_, errs := Parse("description:")
+	_, errs := Parse("description=")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for empty description, got %d: %v", len(errs), errs)
 	}

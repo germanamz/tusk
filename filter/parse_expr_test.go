@@ -60,7 +60,7 @@ func exprEqual(a, b Expr) bool {
 }
 
 func TestParseExpr_SingleTerm(t *testing.T) {
-	expr, errs := ParseExpr("status:active")
+	expr, errs := ParseExpr("status=active")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -71,7 +71,7 @@ func TestParseExpr_SingleTerm(t *testing.T) {
 }
 
 func TestParseExpr_ImplicitAnd(t *testing.T) {
-	expr, errs := ParseExpr("status:active +api")
+	expr, errs := ParseExpr("status=active +api")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -85,7 +85,7 @@ func TestParseExpr_ImplicitAnd(t *testing.T) {
 }
 
 func TestParseExpr_ExplicitAnd(t *testing.T) {
-	expr, errs := ParseExpr("status:active AND +api")
+	expr, errs := ParseExpr("status=active AND +api")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -99,7 +99,7 @@ func TestParseExpr_ExplicitAnd(t *testing.T) {
 }
 
 func TestParseExpr_Or(t *testing.T) {
-	expr, errs := ParseExpr("status:active OR status:pending")
+	expr, errs := ParseExpr("status=active OR status=pending")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -113,7 +113,7 @@ func TestParseExpr_Or(t *testing.T) {
 }
 
 func TestParseExpr_Not(t *testing.T) {
-	expr, errs := ParseExpr("NOT status:deleted")
+	expr, errs := ParseExpr("NOT status=deleted")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -128,7 +128,7 @@ func TestParseExpr_Not(t *testing.T) {
 func TestParseExpr_Precedence_AndBeforeOr(t *testing.T) {
 	// "a OR b AND c" should parse as "a OR (b AND c)"
 	// because AND binds tighter than OR
-	expr, errs := ParseExpr("status:active OR +api priority:3")
+	expr, errs := ParseExpr("status=active OR +api priority=3")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -146,7 +146,7 @@ func TestParseExpr_Precedence_AndBeforeOr(t *testing.T) {
 
 func TestParseExpr_Parentheses(t *testing.T) {
 	// "(a OR b) AND c" — parens override default precedence
-	expr, errs := ParseExpr("(status:active OR status:pending) +api")
+	expr, errs := ParseExpr("(status=active OR status=pending) +api")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -163,7 +163,7 @@ func TestParseExpr_Parentheses(t *testing.T) {
 }
 
 func TestParseExpr_NestedNot(t *testing.T) {
-	expr, errs := ParseExpr("NOT NOT status:active")
+	expr, errs := ParseExpr("NOT NOT status=active")
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -188,14 +188,14 @@ func TestParseExpr_EmptyInput(t *testing.T) {
 }
 
 func TestParseExpr_MismatchedParen(t *testing.T) {
-	_, errs := ParseExpr("(status:active")
+	_, errs := ParseExpr("(status=active")
 	if len(errs) == 0 {
 		t.Fatal("expected error for unclosed paren")
 	}
 }
 
 func TestParseExpr_UnexpectedRParen(t *testing.T) {
-	_, errs := ParseExpr("status:active)")
+	_, errs := ParseExpr("status=active)")
 	if len(errs) == 0 {
 		t.Fatal("expected error for unexpected )")
 	}
@@ -224,8 +224,8 @@ func TestParseExpr_TextTerm(t *testing.T) {
 }
 
 func TestParseExpr_ComplexExpression(t *testing.T) {
-	// (project:backend OR project:frontend) AND +api AND NOT status:deleted
-	expr, errs := ParseExpr(`(project:backend OR project:frontend) AND +api AND NOT status:deleted`)
+	// (project=backend OR project=frontend) AND +api AND NOT status=deleted
+	expr, errs := ParseExpr(`(project=backend OR project=frontend) AND +api AND NOT status=deleted`)
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -244,35 +244,35 @@ func TestParseExpr_ComplexExpression(t *testing.T) {
 
 func TestParseExpr_FieldValidation(t *testing.T) {
 	// Unknown field should produce an error but continue
-	expr, errs := ParseExpr("foo:bar OR status:active")
+	expr, errs := ParseExpr("foo=bar OR status=active")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
 	}
-	// The valid status:active side of OR should still be preserved
+	// The valid status=active side of OR should still be preserved
 	if expr == nil {
 		t.Fatal("expected non-nil expr — valid terms should survive validation errors")
 	}
 }
 
 func TestParseExpr_FieldValidation_ImplicitAnd(t *testing.T) {
-	// "foo:bar status:active" — bad field should not truncate the AND chain
-	expr, errs := ParseExpr("foo:bar status:active")
+	// "foo=bar status=active" — bad field should not truncate the AND chain
+	expr, errs := ParseExpr("foo=bar status=active")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
 	}
 	if expr == nil {
-		t.Fatal("expected non-nil expr — status:active should survive")
+		t.Fatal("expected non-nil expr — status=active should survive")
 	}
-	// The surviving expression should be the status:active term
+	// The surviving expression should be the status=active term
 	want := TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected status:active term to survive, got %+v", expr)
+		t.Fatalf("expected status=active term to survive, got %+v", expr)
 	}
 }
 
 func TestParseExpr_FieldValidation_MiddleBadTerm(t *testing.T) {
-	// "+api foo:bar status:active" — bad field in the middle should not affect surrounding terms
-	expr, errs := ParseExpr("+api foo:bar status:active")
+	// "+api foo=bar status=active" — bad field in the middle should not affect surrounding terms
+	expr, errs := ParseExpr("+api foo=bar status=active")
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
 	}
@@ -281,6 +281,6 @@ func TestParseExpr_FieldValidation_MiddleBadTerm(t *testing.T) {
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected AND(+api, status:active), got %+v", expr)
+		t.Fatalf("expected AND(+api, status=active), got %+v", expr)
 	}
 }
