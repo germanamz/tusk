@@ -75,8 +75,8 @@ Each status carries a set of **roles** that determine how tusk treats it:
 | `terminal` | Task is finished; excluded from `available`/`pop` | At least one per workflow |
 | `done` | Target for `tusk done` | Exactly one; must also be `terminal` |
 | `delete` | Target for `tusk delete` | Exactly one; must also be `terminal` |
-| `highlight` | Emphasized in terminal output | Any number |
-| `dim` | Deemphasized in terminal output | Any number |
+| `highlight` | Emphasized in terminal output | Any number; combinable with any other role |
+| `dim` | Deemphasized in terminal output | Any number; combinable with any other role |
 
 Tusk ships with a built-in **kanban** workflow:
 
@@ -225,8 +225,8 @@ tusk project modify backend urgency.blocking-weight=15
 tusk project delete backend
 tusk workflow list
 tusk workflow info kanban
-tusk workflow create sprint status=pending(initial) status=active(start) status=done(terminal,done) transition=pending:active,active:done
-tusk workflow modify sprint status=active(start,highlight)
+tusk workflow create sprint status=pending(initial) status=active(start,highlight) status=done(terminal,done,dim) transition=pending:active,active:done
+tusk workflow modify sprint +status=in-review +transition=active:in-review
 tusk workflow delete sprint
 ```
 
