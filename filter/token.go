@@ -1,53 +1,26 @@
 package filter
 
-import "fmt"
+import (
+	"fmt"
 
-// TokenType classifies a lexed token.
-type TokenType int
-
-const (
-	TokenField      TokenType = iota // key:value
-	TokenTagInclude                  // +word
-	TokenTagExclude                  // -word
-	TokenText                        // anything else
-	TokenAnd                         // AND
-	TokenOr                          // OR
-	TokenNot                         // NOT
-	TokenLParen                      // (
-	TokenRParen                      // )
+	"github.com/germanamz/tusk/syntax"
 )
 
-func (t TokenType) String() string {
-	switch t {
-	case TokenField:
-		return "Field"
-	case TokenTagInclude:
-		return "TagInclude"
-	case TokenTagExclude:
-		return "TagExclude"
-	case TokenText:
-		return "Text"
-	case TokenAnd:
-		return "And"
-	case TokenOr:
-		return "Or"
-	case TokenNot:
-		return "Not"
-	case TokenLParen:
-		return "LParen"
-	case TokenRParen:
-		return "RParen"
-	default:
-		return "Unknown"
-	}
-}
+// Re-export token types from syntax package.
+type TokenType = syntax.TokenType
+type Token = syntax.Token
 
-// Token is a single lexed element from a filter input string.
-type Token struct {
-	Type  TokenType
-	Value string // raw text of the token
-	Pos   int    // byte offset in the original input
-}
+const (
+	TokenField      = syntax.TokenField
+	TokenTagInclude = syntax.TokenTagInclude
+	TokenTagExclude = syntax.TokenTagExclude
+	TokenText       = syntax.TokenText
+	TokenAnd        = syntax.TokenAnd
+	TokenOr         = syntax.TokenOr
+	TokenNot        = syntax.TokenNot
+	TokenLParen     = syntax.TokenLParen
+	TokenRParen     = syntax.TokenRParen
+)
 
 // Lex splits the input string into tokens. It returns all tokens it could
 // produce plus any errors encountered (e.g., bare +/- signs, unclosed quotes).
@@ -181,9 +154,17 @@ func scanQuoted(input string, pos int) (string, int, error) {
 	return "", pos, fmt.Errorf("unclosed quoted string")
 }
 
-// isFieldToken returns true if the raw token contains a colon and has a
-// non-empty key (i.e., it's not just ":value").
+// isFieldToken returns true if the raw token contains a field separator
+// with a non-empty key.
+// BRIDGE: accepts both = (new) and : (legacy). Remove : check in Phase 3.
 func isFieldToken(raw string) bool {
+	// Check = first (new syntax)
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '=' {
+			return i > 0
+		}
+	}
+	// BRIDGE: also accept : (legacy syntax)
 	for i := 0; i < len(raw); i++ {
 		if raw[i] == ':' {
 			return i > 0
