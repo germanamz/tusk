@@ -238,12 +238,7 @@ func (p *exprParser) parseTerm() Expr {
 	switch tok.Type {
 	case TokenField:
 		p.advance()
-		// BRIDGE: try = first (new syntax), fall back to : (legacy).
-		// Remove fallback in Phase 3.
-		key, value, found := strings.Cut(tok.Value, "=")
-		if !found {
-			key, value, _ = strings.Cut(tok.Value, ":")
-		}
+		key, value, _ := strings.Cut(tok.Value, "=")
 
 		// Validate field — same logic as Parse() in parser.go
 		if udaKey, ok := strings.CutPrefix(key, "uda."); ok {

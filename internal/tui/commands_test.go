@@ -47,7 +47,7 @@ func TestFormatError_InvalidTransition(t *testing.T) {
 }
 
 func TestFormatError_CyclicParent(t *testing.T) {
-	err := fmt.Errorf("setting parent: %w", domain.ErrCyclicParent)
+	err := fmt.Errorf("setting parent= %w", domain.ErrCyclicParent)
 	got := formatError(err, "abc12345")
 	want := "parent would create a cycle in task hierarchy"
 	if got != want {
@@ -286,7 +286,7 @@ func TestRunAdd_WithDueDate(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "Due", "task", "due:2026-04-10"})
+	app.root.SetArgs([]string{"add", "Due", "task", "due=2026-04-10"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -313,12 +313,12 @@ func TestRunAdd_WithParent(t *testing.T) {
 
 	parent := &domain.Task{Title: "Parent"}
 	if err := taskSvc.Create(ctx, parent); err != nil {
-		t.Fatalf("Create parent: %v", err)
+		t.Fatalf("Create parent= %v", err)
 	}
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "Child", "task", "parent:" + parent.ShortID})
+	app.root.SetArgs([]string{"add", "Child", "task", "parent=" + parent.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -636,9 +636,9 @@ func TestRunModify_DueDate(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "due:2026-04-15"})
+	app.root.SetArgs([]string{"modify", task.ShortID, "due=2026-04-15"})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("modify due: %v", err)
+		t.Fatalf("modify due= %v", err)
 	}
 
 	got, _ := taskSvc.GetByShortID(ctx, task.ShortID)
@@ -660,7 +660,7 @@ func TestRunModify_ClearDueDate(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "due:"})
+	app.root.SetArgs([]string{"modify", task.ShortID, "due="})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify due clear: %v", err)
 	}
@@ -682,9 +682,9 @@ func TestRunModify_Parent(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", child.ShortID, "parent:" + parent.ShortID})
+	app.root.SetArgs([]string{"modify", child.ShortID, "parent=" + parent.ShortID})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("modify parent: %v", err)
+		t.Fatalf("modify parent= %v", err)
 	}
 
 	got, _ := taskSvc.GetByShortID(ctx, child.ShortID)
@@ -704,9 +704,9 @@ func TestRunModify_ClearParent(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", child.ShortID, "parent:"})
+	app.root.SetArgs([]string{"modify", child.ShortID, "parent="})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("modify clear parent: %v", err)
+		t.Fatalf("modify clear parent= %v", err)
 	}
 
 	got, _ := taskSvc.GetByShortID(ctx, child.ShortID)
@@ -748,9 +748,9 @@ func TestRunList_ParentFilter(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list", "parent:" + parent.ShortID})
+	app.root.SetArgs([]string{"list", "parent=" + parent.ShortID})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("list parent: %v", err)
+		t.Fatalf("list parent= %v", err)
 	}
 
 	out := buf.String()
@@ -775,7 +775,7 @@ func TestRunList_PriorityFilter(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list", "priority:3..4"})
+	app.root.SetArgs([]string{"list", "priority=3..4"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list priority: %v", err)
 	}
@@ -1118,7 +1118,7 @@ func TestRunTree_WithHierarchy(t *testing.T) {
 
 	parent := &domain.Task{Title: "Parent task"}
 	if err := taskSvc.Create(ctx, parent); err != nil {
-		t.Fatalf("Create parent: %v", err)
+		t.Fatalf("Create parent= %v", err)
 	}
 	child := &domain.Task{Title: "Child task", ParentID: &parent.ID}
 	if err := taskSvc.Create(ctx, child); err != nil {
@@ -1185,7 +1185,7 @@ func TestRunTree_JSON(t *testing.T) {
 
 	parent := &domain.Task{Title: "JSON Parent"}
 	if err := taskSvc.Create(ctx, parent); err != nil {
-		t.Fatalf("Create parent: %v", err)
+		t.Fatalf("Create parent= %v", err)
 	}
 	child := &domain.Task{Title: "JSON Child", ParentID: &parent.ID}
 	if err := taskSvc.Create(ctx, child); err != nil {
