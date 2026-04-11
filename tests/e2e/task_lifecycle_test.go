@@ -8,7 +8,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_single_task",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Buy milk", "priority:3"},
+					Args: []string{"add", "Buy milk", "priority=3"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -97,7 +97,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "status:pending"},
+					Args: []string{"modify", "$0.short_id", "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -128,7 +128,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "status:pending"},
+					Args: []string{"modify", "$0.short_id", "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -147,7 +147,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Steps: []Step{
 				{
 					// default project is seeded by config
-					Args: []string{"add", "Project task", "project:default"},
+					Args: []string{"add", "Project task", "project=default"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -191,7 +191,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "info_shows_task_details",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Detail task", "priority:2"},
+					Args: []string{"add", "Detail task", "priority=2"},
 				},
 				{
 					Args: []string{"info", "$0.short_id"},
@@ -222,10 +222,10 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "modify_title_and_priority",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Original title", "priority:1"},
+					Args: []string{"add", "Original title", "priority=1"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "New title", "priority:4"},
+					Args: []string{"modify", "$0.short_id", "New title", "priority=4"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)

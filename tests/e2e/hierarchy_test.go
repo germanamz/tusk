@@ -15,7 +15,7 @@ func TestHierarchy(t *testing.T) {
 				},
 				// Step 1: Create child with parent reference
 				{
-					Args: []string{"add", "Child task", "parent:$0.short_id"},
+					Args: []string{"add", "Child task", "parent=$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Created task")
@@ -51,7 +51,7 @@ func TestHierarchy(t *testing.T) {
 				},
 				// Step 2: Set B's parent to A
 				{
-					Args: []string{"modify", "$1.short_id", "parent:$0.short_id"},
+					Args: []string{"modify", "$1.short_id", "parent=$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Modified task")
@@ -83,11 +83,11 @@ func TestHierarchy(t *testing.T) {
 				},
 				// Step 1: Create child with parent
 				{
-					Args: []string{"add", "The child", "parent:$0.short_id"},
+					Args: []string{"add", "The child", "parent=$0.short_id"},
 				},
 				// Step 2: Clear child's parent
 				{
-					Args: []string{"modify", "$1.short_id", "parent:"},
+					Args: []string{"modify", "$1.short_id", "parent="},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Modified task")
@@ -125,11 +125,11 @@ func TestTree(t *testing.T) {
 				},
 				// Step 1: Create child 1
 				{
-					Args: []string{"add", "Child one", "parent:$0.short_id"},
+					Args: []string{"add", "Child one", "parent=$0.short_id"},
 				},
 				// Step 2: Create child 2
 				{
-					Args: []string{"add", "Child two", "parent:$0.short_id"},
+					Args: []string{"add", "Child two", "parent=$0.short_id"},
 				},
 				// Step 3: Run tree — should show all three
 				{
@@ -164,11 +164,11 @@ func TestTree(t *testing.T) {
 				},
 				// Step 1: Create child of A
 				{
-					Args: []string{"add", "Child of A", "parent:$0.short_id"},
+					Args: []string{"add", "Child of A", "parent=$0.short_id"},
 				},
 				// Step 2: Create grandchild of A
 				{
-					Args: []string{"add", "Grandchild of A", "parent:$1.short_id"},
+					Args: []string{"add", "Grandchild of A", "parent=$1.short_id"},
 				},
 				// Step 3: Create root B (separate tree)
 				{
@@ -256,11 +256,11 @@ func TestHierarchyErrors(t *testing.T) {
 				},
 				// Step 1: Create B with parent A
 				{
-					Args: []string{"add", "Task B", "parent:$0.short_id"},
+					Args: []string{"add", "Task B", "parent=$0.short_id"},
 				},
 				// Step 2: Try to set A's parent to B — should fail (A->B->A cycle)
 				{
-					Args:    []string{"modify", "$0.short_id", "parent:$1.short_id"},
+					Args:    []string{"modify", "$0.short_id", "parent=$1.short_id"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -278,15 +278,15 @@ func TestHierarchyErrors(t *testing.T) {
 				},
 				// Step 1: Create B with parent A
 				{
-					Args: []string{"add", "Task B", "parent:$0.short_id"},
+					Args: []string{"add", "Task B", "parent=$0.short_id"},
 				},
 				// Step 2: Create C with parent B
 				{
-					Args: []string{"add", "Task C", "parent:$1.short_id"},
+					Args: []string{"add", "Task C", "parent=$1.short_id"},
 				},
 				// Step 3: Try to set A's parent to C — should fail (A->B->C->A cycle)
 				{
-					Args:    []string{"modify", "$0.short_id", "parent:$2.short_id"},
+					Args:    []string{"modify", "$0.short_id", "parent=$2.short_id"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -299,7 +299,7 @@ func TestHierarchyErrors(t *testing.T) {
 			Name: "parent_invalid_short_id",
 			Steps: []Step{
 				{
-					Args:    []string{"add", "Orphan task", "parent:nonexist"},
+					Args:    []string{"add", "Orphan task", "parent=nonexist"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -312,7 +312,7 @@ func TestHierarchyErrors(t *testing.T) {
 			Name: "parent_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"add", "Orphan task", "parent:deadbeef"},
+					Args:    []string{"add", "Orphan task", "parent=deadbeef"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
