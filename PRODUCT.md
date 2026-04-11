@@ -91,6 +91,18 @@ Flat labels for cross-cutting categorization. Tags carry an optional color for t
 
 Timestamped, immutable notes attached to tasks. They serve as a running log of context, decisions, or status updates that shouldn't modify the task itself.
 
+### Notes
+
+A persistent notebook for players to record what they've learned, what worked, what didn't, and any context worth preserving. Unlike annotations (which are task-scoped and immutable), notes are player-scoped and support archiving.
+
+Notes can be attached to a specific task or exist at the project level as free-standing entries. Each note carries a markdown body and optional key-value metadata for structured tagging (e.g., `topic:auth`, `type:discovery`).
+
+To avoid context overload, tusk displays only a **trailing window** of recent notes — the N most recent entries. The window size is configurable at four levels: global config, per-project config, per-player (stored in the player's DB record), and CLI flag override. A `--since` filter provides optional time-bounded queries on top of the count-based window.
+
+By default, players see only their own notes. The `--all-players` flag or `--player <id>` flag reveals other players' notes, with the same trailing window applied.
+
+Notes are append-only. They cannot be edited after creation, but can be **archived** — removing them from the active window without deleting them. The `--archived` flag includes archived notes in listings.
+
 ### Urgency Scoring
 
 Every task receives a numeric urgency score computed from weighted factors: priority, proximity to due date (sigmoid curve), age, active status, whether it blocks or is blocked by other tasks, tags, project membership, annotation count, and waiting state. The score determines default sort order across all views.
@@ -167,6 +179,16 @@ tusk pop --player german
 tusk tag list
 tusk tag create bug --color "#ff0000"
 
+# Notes
+tusk note add "caching strategy won't work" project:backend
+tusk note add "retry logic needed" --task a3f8b2c1 topic:auth
+tusk note list                             # own notes, trailing window
+tusk note list --all-players               # all players' notes
+tusk note list --player agent-1            # specific player
+tusk note list --window 50 --since 7d      # overrides
+tusk note list --archived                  # include archived
+tusk note archive <note_id>
+
 # Time tracking
 tusk timer start a3f8b2c1
 tusk timer stop a3f8b2c1
@@ -231,7 +253,7 @@ tusk mcp serve                                     # stdio transport
 tusk mcp serve --transport http --port 8080        # Streamable HTTP transport
 ```
 
-**Tools** cover task CRUD, lifecycle transitions, annotations, tree views, relations, player registration, claiming, available tasks, pop, project/workflow management, and configuration. All mutation tools accept a `version` parameter for end-to-end optimistic locking. All tools accept an optional `player_id` for liveness tracking and auto-registration.
+**Tools** cover task CRUD, lifecycle transitions, annotations, tree views, relations, player registration, claiming, available tasks, pop, project/workflow management, configuration, and notes. All mutation tools accept a `version` parameter for end-to-end optimistic locking. All tools accept an optional `player_id` for liveness tracking and auto-registration. Configurable field-level restrictions prevent agents from modifying sensitive fields via MCP.
 
 **Resources** — tasks, projects, and workflows are also exposed as MCP resources for agents that prefer reading state over tool calls:
 

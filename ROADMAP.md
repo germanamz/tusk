@@ -534,7 +534,79 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.10 — Live Dashboard
+## v0.10 — Trailing Window Notes
+
+**Goal:** A persistent notebook system where players record learnings, context, and decisions — scoped by project and player, with a configurable trailing window that shows only the most recent entries to avoid context overload.
+
+### Initiative: Note Entity & Storage
+
+> Domain type, repository interface, and SQLite implementation for notes.
+
+- [ ] **Story: Note domain and storage**
+  - [ ] Define `Note` entity (`id` UUID, `project_id`, `player_id`, `task_id` nullable, `body`, `metadata` JSON, `archived_at` nullable, `created_at`)
+  - [ ] `NoteRepository` interface (`Create`, `Archive`, `GetByID`, `List`)
+  - [ ] Migration adding `notes` table with composite index on `(project_id, player_id, created_at DESC)` and partial index on `task_id`
+  - [ ] SQLite `NoteRepository` implementation with window-aware `List` query (`LIMIT` in SQL, not post-fetch)
+
+### Initiative: Note Service
+
+> Business logic for note creation, listing with trailing window, and archiving.
+
+- [ ] **Story: NoteService**
+  - [ ] `Create` — validate player exists, project exists, optional task exists and belongs to project, body non-empty
+  - [ ] `List` — resolve effective window size (CLI flag → player DB setting → project config → global config → default 20), apply `--since` filter, default to caller's notes only
+  - [ ] `Archive` — set `archived_at`, validate caller is author
+
+- [ ] **Story: Window size resolution**
+  - [ ] Add `note_window_size` nullable column to `players` table (migration)
+  - [ ] Add `[notes].window_size` to global config schema
+  - [ ] Add `[projects.<name>.notes].window_size` to project config schema
+  - [ ] Resolution chain: CLI flag → player DB → project config → global config → hardcoded default (20)
+
+### Initiative: Note CLI
+
+> `tusk note` subcommand for writing, reading, and archiving notes.
+
+- [ ] **Story: Note write commands**
+  - [ ] `tusk note add "<body>" [project:<name>] [--task <short_id>] [key:value...]` — create a note with optional task scope and metadata
+  - [ ] `tusk note archive <note_id>` — archive a note
+
+- [ ] **Story: Note read commands**
+  - [ ] `tusk note list` — list own notes in current/default project, trailing window applied
+  - [ ] `tusk note list project:<name>` — specific project
+  - [ ] `tusk note list --all-players` — all players' notes
+  - [ ] `tusk note list --player <id>` — specific player's notes
+  - [ ] `tusk note list --task <short_id>` — task-scoped notes
+  - [ ] `tusk note list --window <N>` — override window size
+  - [ ] `tusk note list --since <duration>` — time-bounded filter (e.g., `7d`, `24h`)
+  - [ ] `tusk note list --archived` — include archived notes
+  - [ ] Markdown rendering via glamour in CLI output
+
+- [ ] **Story: Player window size preference**
+  - [ ] `tusk player modify <id> note-window-size:<N>` — set per-player window size
+  - [ ] Display `note_window_size` in player info output
+
+### Initiative: Note MCP Tools
+
+> Expose note operations to AI agents via MCP.
+
+- [ ] **Story: Note MCP tools**
+  - [ ] `tusk_note_add` — create note (project, player, optional task, body, metadata)
+  - [ ] `tusk_note_list` — list with window/since/player/task/archived filters
+  - [ ] `tusk_note_archive` — archive a note
+
+### Initiative: MCP Field Restrictions
+
+> Configurable field-level write restrictions for MCP tools — prevent agents from modifying sensitive player or system settings.
+
+- [ ] **Story: MCP blocked fields**
+  - [ ] Define `[mcp.blocked_fields]` config section mapping tool names to lists of restricted fields
+  - [ ] Enforce restrictions at the MCP layer before service calls
+  - [ ] Default blocked fields for player modification (e.g., `note_window_size`)
+
+---
+
+## v0.11 — Live Dashboard
 
 **Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by an event log.
 
@@ -571,7 +643,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.11 — Advanced Features
+## v0.12 — Advanced Features
 
 **Goal:** Recurrence, additional transports, data portability, and undo.
 
@@ -610,7 +682,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Undo
 
-> Revert the last mutation using the event log from v0.10.
+> Revert the last mutation using the event log from v0.11.
 
 - [ ] **Story: Undo command**
   - [ ] `tusk undo` — revert last mutation by reading event log and applying inverse
