@@ -185,6 +185,226 @@ func TestCLI_ConfigShow(t *testing.T) {
 	}
 }
 
+func TestCLI_ConfigGet(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	// Init config first.
+	initCmd := exec.Command(binPath, "config", "init")
+	initCmd.Env = envWithHome(homeDir)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("config init: %v\n%s", err, out)
+	}
+
+	t.Run("scalar_bool", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "get", "tui.color")
+		cmd.Env = envWithHome(homeDir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("config get: %v\n%s", err, out)
+		}
+		if strings.TrimSpace(string(out)) != "true" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "true")
+		}
+	})
+
+	t.Run("scalar_float", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "get", "urgency.due_weight")
+		cmd.Env = envWithHome(homeDir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("config get: %v\n%s", err, out)
+		}
+		if strings.TrimSpace(string(out)) != "12" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "12")
+		}
+	})
+
+	t.Run("complex_value", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "get", "workflows.kanban.statuses")
+		cmd.Env = envWithHome(homeDir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("config get: %v\n%s", err, out)
+		}
+		// Should be JSON array.
+		var arr []string
+		if err := json.Unmarshal(out, &arr); err != nil {
+			t.Fatalf("expected JSON array, got: %s", out)
+		}
+		if len(arr) != 4 {
+			t.Errorf("expected 4 statuses, got %d", len(arr))
+		}
+	})
+
+	t.Run("unknown_key", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "get", "nonexistent.key")
+		cmd.Env = envWithHome(homeDir)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatal("expected error for unknown key")
+		}
+		if !strings.Contains(string(out), "unknown config key") {
+			t.Errorf("expected 'unknown config key' error, got: %s", out)
+		}
+	})
+}
+
+func TestCLI_ConfigSet(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	env := envWithHome(homeDir)
+
+	// Init config first.
+	initCmd := exec.Command(binPath, "config", "init")
+	initCmd.Env = env
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("config init: %v\n%s", err, out)
+	}
+
+	t.Run("set_scalar", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "set", "tui.color", "false")
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("config set: %v\n%s", err, out)
+		}
+
+		// Verify the change persisted.
+		getCmd := exec.Command(binPath, "config", "get", "tui.color")
+		getCmd.Env = env
+		out, err := getCmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("config get: %v\n%s", err, out)
+		}
+		if strings.TrimSpace(string(out)) != "false" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "false")
+		}
+	})
+
+	t.Run("set_list", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "set", "mcp.disabled_tools", "tusk_task_delete,tusk_task_tree")
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("config set: %v\n%s", err, out)
+		}
+
+		// Verify.
+		getCmd := exec.Command(binPath, "config", "get", "mcp.disabled_tools")
+		getCmd.Env = env
+		out, err := getCmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("config get: %v\n%s", err, out)
+		}
+		var arr []string
+		if err := json.Unmarshal(out, &arr); err != nil {
+			t.Fatalf("expected JSON array, got: %s", out)
+		}
+		if len(arr) != 2 || arr[0] != "tusk_task_delete" || arr[1] != "tusk_task_tree" {
+			t.Errorf("unexpected disabled_tools: %v", arr)
+		}
+	})
+
+	t.Run("reject_unknown_key", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "set", "nonexistent.key", "value")
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatal("expected error for unknown key")
+		}
+		if !strings.Contains(string(out), "unknown config key") {
+			t.Errorf("expected 'unknown config key' error, got: %s", out)
+		}
+	})
+
+	t.Run("reject_invalid_config", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "set", "projects.default.workflow", "nonexistent_workflow")
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatal("expected error for invalid config")
+		}
+		if !strings.Contains(string(out), "unknown workflow") {
+			t.Errorf("expected workflow validation error, got: %s", out)
+		}
+	})
+
+	t.Run("works_with_auto_created_config", func(t *testing.T) {
+		// Even with a fresh HOME (no pre-existing config), config set works
+		// because Load() in main.go auto-creates the file via ensureConfigFile().
+		freshHome := t.TempDir()
+		cmd := exec.Command(binPath, "config", "set", "tui.color", "false")
+		cmd.Env = envWithHome(freshHome)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("config set with fresh home: %v\n%s", err, out)
+		}
+
+		// Verify it persisted.
+		getCmd := exec.Command(binPath, "config", "get", "tui.color")
+		getCmd.Env = envWithHome(freshHome)
+		out, err := getCmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("config get: %v\n%s", err, out)
+		}
+		if strings.TrimSpace(string(out)) != "false" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "false")
+		}
+	})
+}
+
+func TestCLI_ConfigValidate(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	t.Run("valid_config", func(t *testing.T) {
+		homeDir := t.TempDir()
+		// Init config (writes valid defaults).
+		initCmd := exec.Command(binPath, "config", "init")
+		initCmd.Env = envWithHome(homeDir)
+		if out, err := initCmd.CombinedOutput(); err != nil {
+			t.Fatalf("config init: %v\n%s", err, out)
+		}
+
+		cmd := exec.Command(binPath, "config", "validate")
+		cmd.Env = envWithHome(homeDir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("config validate: %v\n%s", err, out)
+		}
+		if !strings.Contains(string(out), "Config valid") {
+			t.Errorf("expected 'Config valid', got: %s", out)
+		}
+	})
+
+	t.Run("invalid_config", func(t *testing.T) {
+		homeDir := t.TempDir()
+		tuskConfigDir := filepath.Join(homeDir, ".config", "tusk")
+		if err := os.MkdirAll(tuskConfigDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Write config with project referencing nonexistent workflow.
+		badConfig := []byte("[projects.default]\nworkflow = \"nonexistent\"\n")
+		if err := os.WriteFile(filepath.Join(tuskConfigDir, "config.toml"), badConfig, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command(binPath, "config", "validate")
+		cmd.Env = envWithHome(homeDir)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatal("expected error for invalid config")
+		}
+		if !strings.Contains(string(out), "unknown workflow") {
+			t.Errorf("expected workflow validation error, got: %s", out)
+		}
+	})
+}
+
 // envWithHome builds an env slice with HOME overridden and TUSK_DB removed.
 func envWithHome(home string) []string {
 	var env []string
