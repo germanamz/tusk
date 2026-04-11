@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/germanamz/tusk/config"
 	toml "github.com/pelletier/go-toml/v2"
@@ -57,6 +58,12 @@ func (a *App) buildConfigCmd() *cobra.Command {
 			Short: "Open config file in $EDITOR",
 			Args:  cobra.NoArgs,
 			RunE:  a.runConfigEdit,
+		},
+		&cobra.Command{
+			Use:   "set <key> <value>",
+			Short: "Set a config value and write to file",
+			Args:  cobra.ExactArgs(2),
+			RunE:  a.runConfigSet,
 		},
 	)
 
@@ -210,4 +217,65 @@ func (a *App) runConfigEdit(cmd *cobra.Command, args []string) error {
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return c.Run()
+}
+
+func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
+	key := args[0]
+	value := args[1]
+
+	if !config.IsValidKey(key) {
+		return fmt.Errorf("unknown config key: %q", key)
+	}
+
+	// Resolve config file path.
+	path, err := config.ConfigFilePath(a.loadOpts...)
+	if err != nil {
+		return err
+	}
+
+	// Reject if no config file exists.
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("no config file found; run \"tusk config init\" to create one")
+	}
+
+	// Load the file contents (no defaults, no env).
+	fileCfg, err := config.LoadFile(path)
+	if err != nil {
+		return err
+	}
+
+	// Marshal to TOML, load into Viper for dot-path Set().
+	data, err := toml.Marshal(fileCfg)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	v := viper.New()
+	v.SetConfigType("toml")
+	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("reading config into viper: %w", err)
+	}
+
+	// Determine if this is a slice field and parse accordingly.
+	var parsedValue any
+	if config.IsSliceKey(key) {
+		parsedValue = strings.Split(value, ",")
+	} else {
+		parsedValue = value
+	}
+
+	v.Set(key, parsedValue)
+
+	// Unmarshal back to Config.
+	var newCfg config.Config
+	if err := v.Unmarshal(&newCfg); err != nil {
+		return fmt.Errorf("applying config change: %w", err)
+	}
+
+	// Validate before writing.
+	if err := newCfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	return config.WriteConfig(&newCfg, path)
 }

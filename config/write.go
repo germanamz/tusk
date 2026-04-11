@@ -86,6 +86,51 @@ func WriteConfig(cfg *Config, path string) error {
 	return nil
 }
 
+// IsSliceKey checks whether a dot-path key corresponds to a slice field in the Config struct.
+func IsSliceKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	parts := strings.Split(key, ".")
+	return isSliceKeyPath(reflect.TypeOf(Config{}), parts)
+}
+
+func isSliceKeyPath(t reflect.Type, parts []string) bool {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	if len(parts) == 0 {
+		return false
+	}
+
+	switch t.Kind() {
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			tag := f.Tag.Get("mapstructure")
+			if tag == parts[0] {
+				if len(parts) == 1 {
+					ft := f.Type
+					for ft.Kind() == reflect.Ptr {
+						ft = ft.Elem()
+					}
+					return ft.Kind() == reflect.Slice
+				}
+				return isSliceKeyPath(f.Type, parts[1:])
+			}
+		}
+		return false
+	case reflect.Map:
+		if len(parts) < 2 {
+			return false
+		}
+		return isSliceKeyPath(t.Elem(), parts[1:])
+	default:
+		return false
+	}
+}
+
 // IsValidKey checks whether a dot-path key corresponds to a leaf field in the Config struct.
 // For map-keyed sections (workflows, projects), any map key is accepted.
 func IsValidKey(key string) bool {
