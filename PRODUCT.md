@@ -333,7 +333,7 @@ Tusk uses a shared inline syntax across all commands — filters, task creation,
   - `:` — Ordered sequence. `transition=pending:active` preserves order and allows duplicates — items appear in the sequence they were placed (from → to).
   - `..` — Range. `priority=2..4` defines a range in filters.
   - `()` — Group. Attaches structured metadata to a value. `status=pending(initial,highlight)` groups roles onto a status. Modifiers nest inside groups — the `,` inside `()` is a set within the group. Distinguished from boolean grouping by position: `(` immediately after a value (no whitespace) is a group modifier; `(` preceded by whitespace is a boolean grouping operator.
-- **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes.
+- **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes. Quoted values are opaque string literals — no modifier tokenization occurs inside them. `title="pending(initial)"` yields the plain string `pending(initial)`, not a value with a group.
 
 Modifiers are composable — groups can contain sets, sets can contain sequences, enabling recursive structure from the same primitives. Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
 
