@@ -64,26 +64,30 @@ Both operations accept filters, so an agent can pop from a specific project, tag
 
 ### Workflows
 
-Workflows define which statuses exist, which transitions between them are valid, and how statuses are classified by role. They are declared in configuration, not stored in the database.
+Workflows define which statuses exist, which transitions between them are valid, and how each status behaves. They are declared in configuration, not stored in the database.
 
-Each workflow designates:
+Each status carries a set of **roles** that determine how tusk treats it:
 
-- **`initial_status`** — the default for newly created tasks. Must have exactly one non-terminal outgoing transition so that `start` and `pop` can advance unambiguously. Defaults to first entry in `statuses` when omitted.
-- **`terminal_statuses`** — statuses that indicate a task is finished (e.g., `completed`, `canceled`, `deleted`). Multiple allowed. `available` and `pop` derive actionable tasks as those not in a terminal status.
-- **`start_status`** — the status that `tusk start` and `tusk pop` transition to. Must be a non-terminal status with a valid transition from `initial_status`. Defaults to the single non-terminal outgoing transition from `initial_status` when omitted.
-- **`done_status`** — the terminal status that `tusk done` transitions to. Must be in `terminal_statuses`. Defaults to first entry in `terminal_statuses` when omitted.
-- **`delete_status`** — the terminal status that `tusk delete` transitions to. Must be in `terminal_statuses`. Defaults to last entry in `terminal_statuses` when omitted.
+| Role | Meaning | Constraint |
+|------|---------|------------|
+| `initial` | Default status for newly created tasks | Exactly one per workflow |
+| `start` | Target for `tusk start` and `tusk pop` | Exactly one; must have valid transition from `initial` |
+| `terminal` | Task is finished; excluded from `available`/`pop` | At least one per workflow |
+| `done` | Target for `tusk done` | Exactly one; must also be `terminal` |
+| `delete` | Target for `tusk delete` | Exactly one; must also be `terminal` |
+| `highlight` | Emphasized in terminal output | Any number |
+| `dim` | Deemphasized in terminal output | Any number |
 
 Tusk ships with a built-in **kanban** workflow:
 
 ```
-pending (initial) → active → completed (done)
-                           → deleted (delete)
+pending (initial) → active (start, highlight) → completed (terminal, done)
+                                               → deleted (terminal, delete, dim)
 active  → pending
-completed → pending
+completed (dim) → pending
 ```
 
-Custom workflows can define any status set, transition graph, and status roles. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
+Custom workflows can define any status set, transition graph, and role assignments. Roles are attached directly to individual statuses in the config — no separate top-level fields. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
 
 ### Projects
 
@@ -221,8 +225,8 @@ tusk project modify backend urgency.blocking-weight=15
 tusk project delete backend
 tusk workflow list
 tusk workflow info kanban
-tusk workflow create sprint status=pending,active,done transition=pending:active,active:done
-tusk workflow modify sprint highlight=active dim=done
+tusk workflow create sprint status=pending(initial) status=active(start) status=done(terminal,done) transition=pending:active,active:done
+tusk workflow modify sprint status=active(start,highlight)
 tusk workflow delete sprint
 ```
 
@@ -383,10 +387,12 @@ Workflow and project management commands also write to the config file, using th
 
 ```bash
 # Workflows
-tusk workflow create sprint status=pending,active,done \
-  transition=pending:active,active:done highlight=active
+tusk workflow create sprint \
+  status=pending(initial) status=active(start,highlight) \
+  status=done(terminal,done,dim) \
+  transition=pending:active,active:done
 tusk workflow modify sprint +status=in-review +transition=active:in-review
-tusk workflow modify sprint dim=done,archived
+tusk workflow modify sprint status=active(start,highlight)  # update roles
 tusk workflow delete sprint
 
 # Projects

@@ -501,23 +501,21 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 > Create, modify, and remove workflows via CLI commands that write to the config file. Mutation logic lives in the `config` package for reuse by MCP tools.
 
 - [ ] **Story: Workflow CRUD commands**
-  - [ ] `tusk workflow create <name> [fields...]` — all-inline syntax: `status=pending,active,done transition=pending:active,active:done highlight=active dim=done`
-  - [ ] `tusk workflow modify <name> [fields...]` — replace: `highlight=active,in-review`; additive: `+status=review +transition=active:review`; subtractive: `-status=review -transition=active:review -dim=done`
+  - [ ] `tusk workflow create <name> [fields...]` — all-inline syntax: `status=pending(initial) status=active(start) status=completed(terminal,done) status=deleted(terminal,delete) transition=pending:active,active:completed,active:deleted`
+  - [ ] `tusk workflow modify <name> [fields...]` — replace: `status=active(start,highlight)`; additive: `+status=review +transition=active:review`; subtractive: `-status=review -transition=active:review`
   - [ ] `tusk workflow delete <name>` — remove workflow from config (reject if referenced by a project)
 
-- [ ] **Story: Workflow status roles**
-  - [ ] Add `initial_status` field to `WorkflowConfig` — the status assigned to new tasks when none is specified; defaults to first entry in `statuses` when omitted
-  - [ ] Add `terminal_statuses` field to `WorkflowConfig` — statuses that indicate a task is finished (e.g., `completed,canceled,deleted`); multiple allowed
-  - [ ] Add `start_status` field to `WorkflowConfig` — the status that `tusk start` and `tusk pop` transition to; must be a non-terminal status with a valid transition from `initial_status`; defaults to the single non-terminal outgoing transition from `initial_status` when omitted
-  - [ ] Add `done_status` field to `WorkflowConfig` — the terminal status that `tusk done` transitions to; must be in `terminal_statuses`; defaults to first entry in `terminal_statuses` when omitted
-  - [ ] Add `delete_status` field to `WorkflowConfig` — the terminal status that `tusk delete` transitions to; must be in `terminal_statuses`; defaults to last entry in `terminal_statuses` when omitted
-  - [ ] Replace hardcoded `"pending"` fallback in `TaskService.Create` with the workflow's `initial_status`
-  - [ ] Replace hardcoded `"active"` in `TaskService.Start`/`Pop` with the workflow's `start_status`
-  - [ ] Replace hardcoded `"completed"` in `TaskService.Complete` with the workflow's `done_status`
-  - [ ] Replace hardcoded `"deleted"` in `TaskService.Delete` with the workflow's `delete_status`
-  - [ ] Replace hardcoded `"pending","active"` in `TaskService.Available`/`Pop` — derive actionable statuses as non-terminal statuses from the workflow
-  - [ ] Validate: `initial_status` and all `terminal_statuses` reference statuses in the workflow's `statuses` list; `start_status` is non-terminal with valid transition from `initial_status`; `done_status` and `delete_status` are in `terminal_statuses`
-  - [ ] Expose in `workflow create`/`modify` inline syntax: `initial-status=pending start-status=active terminal-statuses=completed,canceled,deleted done-status=completed delete-status=deleted`
+- [ ] **Story: Status roles schema**
+  - [ ] Change `WorkflowConfig.Statuses` from `[]string` to `map[string]StatusConfig` — each status carries a `roles` list
+  - [ ] Built-in roles: `initial` (default for new tasks), `start` (target for `tusk start`/`pop`), `terminal` (task is finished), `done` (target for `tusk done`), `delete` (target for `tusk delete`), `highlight` (emphasized in output), `dim` (deemphasized in output)
+  - [ ] Remove top-level `highlight_statuses` and `dim_statuses` fields — replaced by `highlight` and `dim` roles on individual statuses
+  - [ ] Migration of existing `WorkflowConfig`: map `highlight_statuses`/`dim_statuses` lists to roles on the corresponding status entries
+  - [ ] Replace hardcoded `"pending"` fallback in `TaskService.Create` — look up the status with `initial` role
+  - [ ] Replace hardcoded `"active"` in `TaskService.Start`/`Pop` — look up the status with `start` role
+  - [ ] Replace hardcoded `"completed"` in `TaskService.Complete` — look up the status with `done` role
+  - [ ] Replace hardcoded `"deleted"` in `TaskService.Delete` — look up the status with `delete` role
+  - [ ] Replace hardcoded `"pending","active"` in `TaskService.Available`/`Pop` — derive actionable statuses as those without the `terminal` role
+  - [ ] Validation: exactly one `initial` status; exactly one `start` status with valid transition from `initial`; at least one `terminal` status; `done` and `delete` roles must be on statuses that also have `terminal`; at most one status per `initial`, `start`, `done`, `delete` role
 
 - [ ] **Story: Config package workflow mutations**
   - [ ] `config.CreateWorkflow(name, WorkflowConfig)` — add workflow to config, validate, write
