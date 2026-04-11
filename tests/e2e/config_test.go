@@ -100,6 +100,91 @@ func TestMCP_DisabledTools(t *testing.T) {
 	}
 }
 
+func TestCLI_ConfigInit(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	configPath := filepath.Join(homeDir, ".config", "tusk", "config.toml")
+
+	// Run config init: startup auto-creates the file via ensureConfigFile in config.Load,
+	// so config init will always report "already exists" and succeed.
+	cmd := exec.Command(binPath, "config", "init")
+	cmd.Env = envWithHome(homeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config init failed: %v\noutput: %s", err, out)
+	}
+
+	// Verify file exists (created by startup or by config init itself).
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("config file was not created")
+	}
+
+	// Second run: should also succeed and report already exists.
+	cmd = exec.Command(binPath, "config", "init")
+	cmd.Env = envWithHome(homeDir)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config init (second run) failed: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(string(out), "already exists") {
+		t.Errorf("expected 'already exists' in output, got: %s", out)
+	}
+}
+
+func TestCLI_ConfigPath(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	cmd := exec.Command(binPath, "config", "path")
+	cmd.Env = envWithHome(homeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config path failed: %v\noutput: %s", err, out)
+	}
+	expected := filepath.Join(homeDir, ".config", "tusk", "config.toml")
+	if strings.TrimSpace(string(out)) != expected {
+		t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), expected)
+	}
+}
+
+func TestCLI_ConfigShow(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	// Config init first to create the file.
+	initCmd := exec.Command(binPath, "config", "init")
+	initCmd.Env = envWithHome(homeDir)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("config init failed: %v\noutput: %s", err, out)
+	}
+
+	cmd := exec.Command(binPath, "config", "show")
+	cmd.Env = envWithHome(homeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config show failed: %v\noutput: %s", err, out)
+	}
+
+	output := string(out)
+	// Should contain key TOML sections.
+	if !strings.Contains(output, "[storage]") {
+		t.Error("config show output missing [storage] section")
+	}
+	if !strings.Contains(output, "[urgency]") {
+		t.Error("config show output missing [urgency] section")
+	}
+	if !strings.Contains(output, "[tui]") {
+		t.Error("config show output missing [tui] section")
+	}
+}
+
 // envWithHome builds an env slice with HOME overridden and TUSK_DB removed.
 func envWithHome(home string) []string {
 	var env []string
