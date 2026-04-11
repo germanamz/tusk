@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/germanamz/tusk/config"
@@ -44,6 +45,18 @@ func (a *App) buildConfigCmd() *cobra.Command {
 			Short: "Get a specific config value by dot-path key",
 			Args:  cobra.ExactArgs(1),
 			RunE:  a.runConfigGet,
+		},
+		&cobra.Command{
+			Use:   "validate",
+			Short: "Validate config file for errors",
+			Args:  cobra.NoArgs,
+			RunE:  a.runConfigValidate,
+		},
+		&cobra.Command{
+			Use:   "edit",
+			Short: "Open config file in $EDITOR",
+			Args:  cobra.NoArgs,
+			RunE:  a.runConfigEdit,
 		},
 	)
 
@@ -157,4 +170,44 @@ func (a *App) buildConfigViper() (*viper.Viper, error) {
 	}
 
 	return v, nil
+}
+
+func (a *App) runConfigValidate(cmd *cobra.Command, args []string) error {
+	path, err := config.ConfigFilePath(a.loadOpts...)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		return err
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), "Config valid")
+	return err
+}
+
+func (a *App) runConfigEdit(cmd *cobra.Command, args []string) error {
+	editor := os.Getenv("VISUAL")
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		return fmt.Errorf("$EDITOR is not set")
+	}
+
+	path, err := config.ConfigFilePath(a.loadOpts...)
+	if err != nil {
+		return err
+	}
+
+	c := exec.Command(editor, path)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
 }
