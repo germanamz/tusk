@@ -496,6 +496,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 - [ ] **Story: Migrate `key:value` to `key=value` across CLI**
   - [ ] Update lexer field detection from `:` to `=` separator
   - [ ] Update all CLI commands (`add`, `modify`, `list`, `available`, `pop`, etc.)
+  - [ ] Covers all `key:value` patterns across the codebase: filter fields from v0.1 (`status:`, `priority:`, `project:`, `due:`), quoted strings from v0.6 (`title:`, `description:`), claim filters from v0.7 (`claimed_by:`, `unclaimed:`), UDA filters from v0.5 (`uda.key:`), and inline syntax on `add`/`modify`
   - [ ] Update filter syntax documentation and help text
   - [ ] Update E2E tests for new syntax
 
@@ -604,12 +605,12 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 > `tusk note` subcommand for writing, reading, and archiving notes.
 
 - [ ] **Story: Note write commands**
-  - [ ] `tusk note add "<body>" [project:<name>] [--task <short_id>] [key:value...]` — create a note with optional task scope and metadata
+  - [ ] `tusk note add "<body>" [project=<name>] [--task <short_id>] [key=value...]` — create a note with optional task scope and metadata
   - [ ] `tusk note archive <note_id>` — archive a note
 
 - [ ] **Story: Note read commands**
   - [ ] `tusk note list` — list own notes in current/default project, trailing window applied
-  - [ ] `tusk note list project:<name>` — specific project
+  - [ ] `tusk note list project=<name>` — specific project
   - [ ] `tusk note list --all-players` — all players' notes
   - [ ] `tusk note list --player <id>` — specific player's notes
   - [ ] `tusk note list --task <short_id>` — task-scoped notes
@@ -619,7 +620,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] Markdown rendering via glamour in CLI output
 
 - [ ] **Story: Player window size preference**
-  - [ ] `tusk player modify <id> note-window-size:<N>` — set per-player window size
+  - [ ] `tusk player modify <id> note-window-size=<N>` — set per-player window size
   - [ ] Display `note_window_size` in player info output
 
 ### Initiative: Note MCP Tools
