@@ -85,6 +85,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	a.root.AddCommand(a.buildTagCmd())
 	a.root.AddCommand(a.buildWorkflowCmd())
 	a.root.AddCommand(a.buildPlayerCmd())
+	a.root.AddCommand(a.buildConfigCmd())
 	a.root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
