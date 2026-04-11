@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +10,7 @@ import (
 	"github.com/germanamz/tusk/config"
 	toml "github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // buildConfigCmd creates the `tusk config` command group.
@@ -35,6 +38,12 @@ func (a *App) buildConfigCmd() *cobra.Command {
 			Short: "Create config file with defaults if none exists",
 			Args:  cobra.NoArgs,
 			RunE:  a.runConfigInit,
+		},
+		&cobra.Command{
+			Use:   "get <key>",
+			Short: "Get a specific config value by dot-path key",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runConfigGet,
 		},
 	)
 
@@ -92,4 +101,60 @@ func (a *App) runConfigInit(cmd *cobra.Command, args []string) error {
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", path)
 	return err
+}
+
+func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
+	key := args[0]
+
+	if !config.IsValidKey(key) {
+		return fmt.Errorf("unknown config key: %q", key)
+	}
+
+	// Build a Viper instance with the same config as Load() to get dot-path resolution.
+	v, err := a.buildConfigViper()
+	if err != nil {
+		return err
+	}
+
+	val := v.Get(key)
+	if val == nil {
+		return fmt.Errorf("unknown config key: %q", key)
+	}
+
+	// Determine output format.
+	switch v := val.(type) {
+	case string, bool, int, int64, float64:
+		if a.format == "json" {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			return enc.Encode(val)
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), v)
+		return err
+	default:
+		// Complex value — always JSON.
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(val)
+	}
+}
+
+// buildConfigViper creates a Viper instance mirroring the Load() setup for dot-path access.
+func (a *App) buildConfigViper() (*viper.Viper, error) {
+	cfg, err := config.Load(a.loadOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
+
+	data, err := toml.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling config: %w", err)
+	}
+
+	v := viper.New()
+	v.SetConfigType("toml")
+	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+		return nil, fmt.Errorf("reading config into viper: %w", err)
+	}
+
+	return v, nil
 }
