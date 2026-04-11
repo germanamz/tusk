@@ -505,6 +505,13 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] `tusk workflow modify <name> [fields...]` — replace: `highlight=active,in-review`; additive: `+status=review +transition=active:review`; subtractive: `-status=review -transition=active:review -dim=done`
   - [ ] `tusk workflow delete <name>` — remove workflow from config (reject if referenced by a project)
 
+- [ ] **Story: Explicit initial status**
+  - [ ] Add `initial_status` field to `WorkflowConfig` — the status assigned to new tasks when none is specified
+  - [ ] Replace hardcoded `"pending"` fallback in `TaskService.Create` with the workflow's `initial_status`
+  - [ ] Validate that `initial_status` references a status in the workflow's `statuses` list
+  - [ ] Default `initial_status` to first entry in `statuses` when omitted from config
+  - [ ] Expose in `workflow create`/`modify` inline syntax: `initial-status=pending`
+
 - [ ] **Story: Config package workflow mutations**
   - [ ] `config.CreateWorkflow(name, WorkflowConfig)` — add workflow to config, validate, write
   - [ ] `config.ModifyWorkflow(name, WorkflowMutation)` — apply field changes (replace/add/remove), validate, write
