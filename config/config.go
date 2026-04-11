@@ -16,108 +16,108 @@ var defaultConfig []byte
 
 // WorkflowTransitionConfig defines an allowed status transition.
 type WorkflowTransitionConfig struct {
-	From string `mapstructure:"from"`
-	To   string `mapstructure:"to"`
+	From string `mapstructure:"from" toml:"from"`
+	To   string `mapstructure:"to"   toml:"to"`
 }
 
 // WorkflowConfig defines a named workflow with its statuses and transitions.
 type WorkflowConfig struct {
-	Statuses          []string                   `mapstructure:"statuses"`
-	Transitions       []WorkflowTransitionConfig `mapstructure:"transitions"`
-	HighlightStatuses []string                   `mapstructure:"highlight_statuses"`
-	DimStatuses       []string                   `mapstructure:"dim_statuses"`
+	Statuses          []string                   `mapstructure:"statuses"           toml:"statuses"`
+	Transitions       []WorkflowTransitionConfig `mapstructure:"transitions"        toml:"transitions"`
+	HighlightStatuses []string                   `mapstructure:"highlight_statuses" toml:"highlight_statuses"`
+	DimStatuses       []string                   `mapstructure:"dim_statuses"       toml:"dim_statuses"`
 }
 
 // AutoCompleteParentConfig controls automatic parent completion.
 type AutoCompleteParentConfig struct {
-	TriggerStatus string `mapstructure:"trigger_status"`
-	TargetStatus  string `mapstructure:"target_status"`
+	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"`
 }
 
 // AutoRevertParentConfig controls automatic parent revert.
 type AutoRevertParentConfig struct {
-	TriggerStatus string `mapstructure:"trigger_status"`
-	TargetStatus  string `mapstructure:"target_status"`
+	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"`
 }
 
 // ProjectUrgencyConfig holds per-project urgency weight overrides.
 // Nil fields inherit from the global [urgency] config.
 type ProjectUrgencyConfig struct {
-	PriorityWeight    *float64 `mapstructure:"priority_weight"`
-	DueWeight         *float64 `mapstructure:"due_weight"`
-	AgeWeight         *float64 `mapstructure:"age_weight"`
-	ActiveWeight      *float64 `mapstructure:"active_weight"`
-	BlockingWeight    *float64 `mapstructure:"blocking_weight"`
-	BlockedWeight     *float64 `mapstructure:"blocked_weight"`
-	TagsWeight        *float64 `mapstructure:"tags_weight"`
-	ProjectWeight     *float64 `mapstructure:"project_weight"`
-	AnnotationsWeight *float64 `mapstructure:"annotations_weight"`
-	WaitingWeight     *float64 `mapstructure:"waiting_weight"`
+	PriorityWeight    *float64 `mapstructure:"priority_weight"    toml:"priority_weight,omitempty"`
+	DueWeight         *float64 `mapstructure:"due_weight"         toml:"due_weight,omitempty"`
+	AgeWeight         *float64 `mapstructure:"age_weight"         toml:"age_weight,omitempty"`
+	ActiveWeight      *float64 `mapstructure:"active_weight"      toml:"active_weight,omitempty"`
+	BlockingWeight    *float64 `mapstructure:"blocking_weight"    toml:"blocking_weight,omitempty"`
+	BlockedWeight     *float64 `mapstructure:"blocked_weight"     toml:"blocked_weight,omitempty"`
+	TagsWeight        *float64 `mapstructure:"tags_weight"        toml:"tags_weight,omitempty"`
+	ProjectWeight     *float64 `mapstructure:"project_weight"     toml:"project_weight,omitempty"`
+	AnnotationsWeight *float64 `mapstructure:"annotations_weight" toml:"annotations_weight,omitempty"`
+	WaitingWeight     *float64 `mapstructure:"waiting_weight"     toml:"waiting_weight,omitempty"`
 }
 
 // ProjectSettingsConfig holds per-project automation settings.
 type ProjectSettingsConfig struct {
-	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent"`
-	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"`
-	Urgency            *ProjectUrgencyConfig     `mapstructure:"urgency"`
+	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent" toml:"auto_complete_parent,omitempty"`
+	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"   toml:"auto_revert_parent,omitempty"`
+	Urgency            *ProjectUrgencyConfig     `mapstructure:"urgency"              toml:"urgency,omitempty"`
 }
 
 // ProjectConfig defines a named project with its workflow assignment and settings.
 type ProjectConfig struct {
-	Workflow string                `mapstructure:"workflow"`
-	Settings ProjectSettingsConfig `mapstructure:"settings"`
+	Workflow string                `mapstructure:"workflow" toml:"workflow"`
+	Settings ProjectSettingsConfig `mapstructure:"settings" toml:"settings"`
 }
 
 // Config is the top-level Tusk configuration.
 type Config struct {
-	Storage   StorageConfig             `mapstructure:"storage"`
-	Urgency   UrgencyConfig             `mapstructure:"urgency"`
-	TUI       TUIConfig                 `mapstructure:"tui"`
-	MCP       MCPConfig                 `mapstructure:"mcp"`
-	Workflows map[string]WorkflowConfig `mapstructure:"workflows"`
-	Projects  map[string]ProjectConfig  `mapstructure:"projects"`
+	Storage   StorageConfig             `mapstructure:"storage"   toml:"storage"`
+	Urgency   UrgencyConfig             `mapstructure:"urgency"   toml:"urgency"`
+	TUI       TUIConfig                 `mapstructure:"tui"       toml:"tui"`
+	MCP       MCPConfig                 `mapstructure:"mcp"       toml:"mcp"`
+	Workflows map[string]WorkflowConfig `mapstructure:"workflows" toml:"workflows"`
+	Projects  map[string]ProjectConfig  `mapstructure:"projects"  toml:"projects"`
 }
 
 // StorageConfig configures the database backend.
 type StorageConfig struct {
-	Backend  string         `mapstructure:"backend"`
-	Path     string         `mapstructure:"path"`
-	Postgres PostgresConfig `mapstructure:"postgres"`
+	Backend  string         `mapstructure:"backend"  toml:"backend"`
+	Path     string         `mapstructure:"path"     toml:"path"`
+	Postgres PostgresConfig `mapstructure:"postgres" toml:"postgres"`
 }
 
 // PostgresConfig holds PostgreSQL connection settings (future use).
 type PostgresConfig struct {
-	DSN string `mapstructure:"dsn"`
+	DSN string `mapstructure:"dsn" toml:"dsn"`
 }
 
 // UrgencyConfig holds weights for the urgency scoring algorithm.
 type UrgencyConfig struct {
-	PriorityWeight    float64 `mapstructure:"priority_weight"`
-	DueWeight         float64 `mapstructure:"due_weight"`
-	AgeWeight         float64 `mapstructure:"age_weight"`
-	ActiveWeight      float64 `mapstructure:"active_weight"`
-	BlockingWeight    float64 `mapstructure:"blocking_weight"`
-	BlockedWeight     float64 `mapstructure:"blocked_weight"`
-	TagsWeight        float64 `mapstructure:"tags_weight"`
-	ProjectWeight     float64 `mapstructure:"project_weight"`
-	AnnotationsWeight float64 `mapstructure:"annotations_weight"`
-	WaitingWeight     float64 `mapstructure:"waiting_weight"`
+	PriorityWeight    float64 `mapstructure:"priority_weight"    toml:"priority_weight"`
+	DueWeight         float64 `mapstructure:"due_weight"         toml:"due_weight"`
+	AgeWeight         float64 `mapstructure:"age_weight"         toml:"age_weight"`
+	ActiveWeight      float64 `mapstructure:"active_weight"      toml:"active_weight"`
+	BlockingWeight    float64 `mapstructure:"blocking_weight"    toml:"blocking_weight"`
+	BlockedWeight     float64 `mapstructure:"blocked_weight"     toml:"blocked_weight"`
+	TagsWeight        float64 `mapstructure:"tags_weight"        toml:"tags_weight"`
+	ProjectWeight     float64 `mapstructure:"project_weight"     toml:"project_weight"`
+	AnnotationsWeight float64 `mapstructure:"annotations_weight" toml:"annotations_weight"`
+	WaitingWeight     float64 `mapstructure:"waiting_weight"     toml:"waiting_weight"`
 }
 
 // MCPConfig controls which tools and resources the MCP server exposes.
 type MCPConfig struct {
-	DisabledToolGroups     []string `mapstructure:"disabled_tool_groups"`
-	DisabledTools          []string `mapstructure:"disabled_tools"`
-	DisabledResourceGroups []string `mapstructure:"disabled_resource_groups"`
-	DisabledResources      []string `mapstructure:"disabled_resources"`
+	DisabledToolGroups     []string `mapstructure:"disabled_tool_groups"     toml:"disabled_tool_groups"`
+	DisabledTools          []string `mapstructure:"disabled_tools"           toml:"disabled_tools"`
+	DisabledResourceGroups []string `mapstructure:"disabled_resource_groups" toml:"disabled_resource_groups"`
+	DisabledResources      []string `mapstructure:"disabled_resources"       toml:"disabled_resources"`
 }
 
 // TUIConfig controls CLI output formatting.
 type TUIConfig struct {
-	DateFormat  string `mapstructure:"date_format"`
-	Color       bool   `mapstructure:"color"`
-	TreeIndent  int    `mapstructure:"tree_indent"`
-	DefaultSort string `mapstructure:"default_sort"`
+	DateFormat  string `mapstructure:"date_format"  toml:"date_format"`
+	Color       bool   `mapstructure:"color"        toml:"color"`
+	TreeIndent  int    `mapstructure:"tree_indent"  toml:"tree_indent"`
+	DefaultSort string `mapstructure:"default_sort" toml:"default_sort"`
 }
 
 // Option configures the Load function.
