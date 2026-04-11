@@ -35,6 +35,7 @@ type App struct {
 	version     VersionInfo
 	tuiCfg      config.TUIConfig
 	mcpCfg      config.MCPConfig
+	loadOpts    []config.Option
 }
 
 // colorEnabled resolves whether color output is active.
@@ -51,7 +52,7 @@ func (a *App) colorEnabled() bool {
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectSvc may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, playerSvc *service.PlayerService, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig) *App {
+func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, playerSvc *service.PlayerService, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig, loadOpts []config.Option) *App {
 	a := &App{
 		taskSvc:     taskSvc,
 		tagSvc:      tagSvc,
@@ -62,6 +63,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		version:     vi,
 		tuiCfg:      tuiCfg,
 		mcpCfg:      mcpCfg,
+		loadOpts:    loadOpts,
 	}
 	a.resolver = filter.NewResolver(taskSvc)
 

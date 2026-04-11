@@ -87,7 +87,7 @@ func run() error {
 		Version: version,
 		Commit:  commit,
 		Date:    date,
-	}, cfg.TUI, cfg.MCP)
+	}, cfg.TUI, cfg.MCP, nil)
 	return app.Run(stripDBFlag(os.Args[1:]))
 }
 
