@@ -170,7 +170,7 @@ func TestUDAFilter(t *testing.T) {
 					Args: []string{"add", "Dev task", "--uda", "env=dev"},
 				},
 				{
-					Args: []string{"list", "uda.env:prod"},
+					Args: []string{"list", "uda.env=prod"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -197,7 +197,7 @@ func TestUDAFilter(t *testing.T) {
 					Args: []string{"add", "Prod frontend", "--uda", "env=prod", "--uda", "team=frontend"},
 				},
 				{
-					Args: []string{"list", "uda.env:prod", "uda.team:backend"},
+					Args: []string{"list", "uda.env=prod", "uda.team=backend"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -219,7 +219,7 @@ func TestUDAFilter(t *testing.T) {
 					Args: []string{"add", "No env"},
 				},
 				{
-					Args: []string{"list", "uda.env:"},
+					Args: []string{"list", "uda.env="},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -243,7 +243,7 @@ func TestUDAFilter(t *testing.T) {
 					Args: []string{"add", "Some task", "--uda", "env=prod"},
 				},
 				{
-					Args: []string{"list", "uda.env:staging"},
+					Args: []string{"list", "uda.env=staging"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -261,7 +261,7 @@ func TestUDAFilter(t *testing.T) {
 					Args: []string{"add", "Some task"},
 				},
 				{
-					Args: []string{"list", "uda.nonexistent:value"},
+					Args: []string{"list", "uda.nonexistent=value"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
