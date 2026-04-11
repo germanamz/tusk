@@ -480,29 +480,50 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] `tusk config validate` — parse and validate config, report errors (unknown keys, invalid references, type mismatches)
   - [x] Run validation on `config set` before writing
 
+### Initiative: Inline Syntax Migration
+
+> Extract shared parsing infrastructure from the filter package and migrate all CLI inline syntax from `key:value` to `key=value`, freeing `:` for use within values (e.g., workflow transitions `pending:active`). Prerequisite for Workflow and Project Management CLI initiatives.
+
+- [ ] **Story: Extract shared lexer and AST**
+  - [ ] Extract generic lexer (tokenization, quoted strings, `key=value` fields) from `filter/` into a shared parsing package
+  - [ ] First-class modifier support in the lexer — `+`, `-`, `,`, `:`, `..` (and extensible to future modifiers) attached as token metadata rather than hardcoded classification rules; `,` denotes unordered sets with deduplication (`status=pending,active`), `:` denotes ordered sequences without deduplication (`transition=pending:active`), `+`/`-` denote additive/subtractive intent, `..` denotes ranges; each application defines which modifiers it accepts and what they mean in its context
+  - [ ] Extract AST types (`FieldFilter`, `TagFilter`, free text) into the shared package
+  - [ ] Filter package and future consumers define domain-specific token lists and field validators on top of the shared foundation
+
+- [ ] **Story: Migrate `key:value` to `key=value` across CLI**
+  - [ ] Update lexer field detection from `:` to `=` separator
+  - [ ] Update all CLI commands (`add`, `modify`, `list`, `available`, `pop`, etc.)
+  - [ ] Update filter syntax documentation and help text
+  - [ ] Update E2E tests for new syntax
+
 ### Initiative: Workflow Management CLI
 
-> Create, modify, and remove workflows via CLI commands that write to the config file.
+> Create, modify, and remove workflows via CLI commands that write to the config file. Mutation logic lives in the `config` package for reuse by MCP tools.
 
 - [ ] **Story: Workflow CRUD commands**
-  - [ ] `tusk workflow create <name> [key:value...] --status <status> --transition from:to` — inline key:value for simple fields (e.g., `highlight:active`, `dim:completed,deleted`); `--status` and `--transition` flags for structural parts (repeatable)
-  - [ ] `tusk workflow modify <name> [key:value...]` — inline key:value syntax (e.g., `highlight:active,in-review`, `dim:completed,deleted`); transitions use `--transition from:to` / `--rm-transition from:to` flags, statuses use `--add-status` / `--rm-status`
+  - [ ] `tusk workflow create <name> [fields...]` — all-inline syntax: `status=pending,active,done transition=pending:active,active:done highlight=active dim=done`
+  - [ ] `tusk workflow modify <name> [fields...]` — replace: `highlight=active,in-review`; additive: `+status=review +transition=active:review`; subtractive: `-status=review -transition=active:review -dim=done`
   - [ ] `tusk workflow delete <name>` — remove workflow from config (reject if referenced by a project)
+
+- [ ] **Story: Config package workflow mutations**
+  - [ ] `config.CreateWorkflow(name, WorkflowConfig)` — add workflow to config, validate, write
+  - [ ] `config.ModifyWorkflow(name, WorkflowMutation)` — apply field changes (replace/add/remove), validate, write
+  - [ ] `config.DeleteWorkflow(name)` — validate no project references, remove, write
 
 ### Initiative: Project Management CLI
 
 > Create, modify, and remove projects via CLI commands that write to the config file.
 
 - [ ] **Story: Project CRUD commands**
-  - [ ] `tusk project create <name> [key:value...]` — inline key:value syntax (e.g., `workflow:kanban`, `db-path:/data/b.db`, `auto-complete.trigger:completed`, `urgency.blocking-weight:15`)
-  - [ ] `tusk project modify <name> [key:value...]` — inline key:value syntax matching task modify (e.g., `workflow:scrum`, `db-path:/data/b.db`, `auto-complete.trigger:completed`, `urgency.blocking-weight:15`)
+  - [ ] `tusk project create <name> [fields...]` — inline syntax: `workflow=kanban db-path=/data/b.db auto-complete.trigger=completed urgency.blocking-weight=15`
+  - [ ] `tusk project modify <name> [fields...]` — inline syntax with `+`/`-` prefix for list field add/remove, bare for replace
   - [ ] `tusk project delete <name>` — remove project from config (reject if tasks reference it)
 
 - [ ] **Story: Per-project database path**
   - [ ] `[projects.<name>].db_path` config key — optional SQLite file path per project
   - [ ] Projects without `db_path` use the global `storage.path`
   - [ ] Open and migrate per-project DB on first access, reuse connection for subsequent operations
-  - [ ] `db-path:/path/to/file.db` supported in project create/modify inline syntax
+  - [ ] `db-path=/path/to/file.db` supported in project create/modify inline syntax
   - [ ] Cross-project commands (e.g., unfiltered `tusk list`) query all project databases and merge results
 
 ### Initiative: Local Config Discovery

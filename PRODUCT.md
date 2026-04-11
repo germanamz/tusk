@@ -95,7 +95,7 @@ Timestamped, immutable notes attached to tasks. They serve as a running log of c
 
 A persistent notebook for players to record what they've learned, what worked, what didn't, and any context worth preserving. Unlike annotations (which are task-scoped and immutable), notes are player-scoped and support archiving.
 
-Notes can be attached to a specific task or exist at the project level as free-standing entries. Each note carries a markdown body and optional key-value metadata for structured tagging (e.g., `topic:auth`, `type:discovery`).
+Notes can be attached to a specific task or exist at the project level as free-standing entries. Each note carries a markdown body and optional key-value metadata for structured tagging (e.g., `topic=auth`, `type=discovery`).
 
 To avoid context overload, tusk displays only a **trailing window** of recent notes — the N most recent entries. The window size is configurable at four levels: global config, per-project config, per-player (stored in the player's DB record), and CLI flag override. A `--since` filter provides optional time-bounded queries on top of the count-based window.
 
@@ -111,7 +111,7 @@ Weights are configurable globally and can be overridden per project, so differen
 
 ### User-Defined Attributes
 
-Tasks support arbitrary key-value metadata via UDAs. Any string key-value pair can be attached, overwritten, or removed. UDAs are filterable (`uda.key:value`) and appear in all task responses across both interfaces.
+Tasks support arbitrary key-value metadata via UDAs. Any string key-value pair can be attached, overwritten, or removed. UDAs are filterable (`uda.key=value`) and appear in all task responses across both interfaces.
 
 Projects can define UDA schemas — which keys are allowed, what types and values they accept. When a schema is defined, invalid metadata is rejected on create and update. Without a schema, UDAs are free-form.
 
@@ -147,20 +147,20 @@ Tusk exposes all operations through a command-line interface:
 
 ```bash
 # Lifecycle
-tusk add "Implement auth middleware" project:backend +api priority:3
+tusk add "Implement auth middleware" project=backend +api priority=3
 tusk start a3f8b2c1
 tusk done a3f8b2c1
 tusk delete a3f8b2c1
 
 # Viewing
 tusk list                              # pending + active, sorted by urgency
-tusk list project:backend +api         # filtered
+tusk list project=backend +api         # filtered
 tusk info a3f8b2c1                     # full task detail
 tusk tree                              # hierarchical view
 tusk next                              # highest-urgency actionable task
 
 # Modification
-tusk modify a3f8b2c1 priority:4 +urgent
+tusk modify a3f8b2c1 priority=4 +urgent
 tusk annotate a3f8b2c1 "Blocked by upstream API changes"
 tusk undo                              # revert last mutation
 
@@ -180,8 +180,8 @@ tusk tag list
 tusk tag create bug --color "#ff0000"
 
 # Notes
-tusk note add "caching strategy won't work" project:backend
-tusk note add "retry logic needed" --task a3f8b2c1 topic:auth
+tusk note add "caching strategy won't work" project=backend
+tusk note add "retry logic needed" --task a3f8b2c1 topic=auth
 tusk note list                             # own notes, trailing window
 tusk note list --all-players               # all players' notes
 tusk note list --player agent-1            # specific player
@@ -208,13 +208,13 @@ tusk config init --local                 # create local tusk.toml
 
 # Projects & workflows
 tusk project list
-tusk project create backend workflow:kanban db-path:/data/b.db
-tusk project modify backend urgency.blocking-weight:15
+tusk project create backend workflow=kanban db-path=/data/b.db
+tusk project modify backend urgency.blocking-weight=15
 tusk project delete backend
 tusk workflow list
 tusk workflow info kanban
-tusk workflow create sprint --status pending --status done --transition pending:done
-tusk workflow modify sprint highlight:active dim:done
+tusk workflow create sprint status=pending,active,done transition=pending:active,active:done
+tusk workflow modify sprint highlight=active dim=done
 tusk workflow delete sprint
 ```
 
@@ -290,25 +290,39 @@ Task state changes fire webhook notifications to configured endpoints, powered b
 Tusk provides a filter language inspired by TaskWarrior, extended with boolean logic:
 
 ```bash
-tusk list project:backend +api priority:3..4 due:today..friday
-tusk list (status:active AND +urgent) OR priority:4
-tusk list claimed_by:agent-1
-tusk available unclaimed:true project:backend
+tusk list project=backend +api priority=3..4 due=today..friday
+tusk list (status=active AND +urgent) OR priority=4
+tusk list claimed_by=agent-1
+tusk available unclaimed=true project=backend
 ```
 
 Filter capabilities:
 
-- **Field match** — `project:name`, `status:pending,active`, `claimed_by:player`
+- **Field match** — `project=name`, `status=pending,active`, `claimed_by=player`
 - **Tags** — `+tag` to require, `-tag` to exclude
-- **Ranges** — `priority:2..4`, `due:today..friday`
-- **Relative dates** — `due:today`, `due:tomorrow`, `due:thisweek`
-- **Hierarchy** — `parent:<short_id>` (direct children), `tree:<short_id>` (all descendants)
-- **Text search** — `title:"some text"`, `description:"text"`
-- **UDA** — `uda.key:value`
+- **Ranges** — `priority=2..4`, `due=today..friday`
+- **Relative dates** — `due=today`, `due=tomorrow`, `due=thisweek`
+- **Hierarchy** — `parent=<short_id>` (direct children), `tree=<short_id>` (all descendants)
+- **Text search** — `title="some text"`, `description="text"`
+- **UDA** — `uda.key=value`
 - **Boolean operators** — `AND`, `OR`, `NOT` with parenthesized grouping
-- **Claim state** — `claimed_by:<player_id>`, `unclaimed:true`, `waiting:true`
+- **Claim state** — `claimed_by=<player_id>`, `unclaimed=true`, `waiting=true`
 
-When no status filter is specified, tusk defaults to `status:pending,active`.
+When no status filter is specified, tusk defaults to `status=pending,active`.
+
+### Inline Syntax
+
+Tusk uses a shared inline syntax across all commands — filters, task creation, modification, and config management. The syntax is built on a common lexer that understands three primitives:
+
+- **Fields** — `key=value` pairs. The `=` separates key from value.
+- **Modifiers** — `+`, `-`, `,`, `:`, and `..` are first-class modifiers attached as token metadata, not hardcoded behaviors. Each command context decides what a modifier means:
+  - `+` / `-` — In filters: `+tag` includes, `-tag` excludes. In task commands: `+tag` adds, `-tag` removes. In config commands: `+status=review` adds to a list, `-status=review` removes from it.
+  - `,` — Unordered set. `status=pending,active` is a set — order doesn't matter and duplicates are deduplicated.
+  - `:` — Ordered sequence. `transition=pending:active` preserves order and allows duplicates — items appear in the sequence they were placed (from → to).
+  - `..` — Range. `priority=2..4` defines a range in filters.
+- **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes.
+
+Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
 
 ---
 
@@ -357,18 +371,19 @@ tusk config edit                          # open config in $EDITOR
 tusk config validate                      # check for errors
 ```
 
-Workflow and project management commands also write to the config file, using the same inline `key:value` syntax as task modify:
+Workflow and project management commands also write to the config file, using the same inline `key=value` syntax as task modify. List fields support `+`/`-` prefixes for additive/subtractive operations on modify:
 
 ```bash
 # Workflows
-tusk workflow create sprint --status pending --status active --status done \
-  --transition pending:active --transition active:done highlight:active
-tusk workflow modify sprint dim:done,archived
+tusk workflow create sprint status=pending,active,done \
+  transition=pending:active,active:done highlight=active
+tusk workflow modify sprint +status=in-review +transition=active:in-review
+tusk workflow modify sprint dim=done,archived
 tusk workflow delete sprint
 
 # Projects
-tusk project create backend workflow:kanban db-path:/data/backend.db
-tusk project modify backend urgency.blocking-weight:15 auto-complete.trigger:completed
+tusk project create backend workflow=kanban db-path=/data/backend.db
+tusk project modify backend urgency.blocking-weight=15 auto-complete.trigger=completed
 tusk project delete backend
 ```
 
