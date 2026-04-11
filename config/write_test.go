@@ -166,6 +166,33 @@ func TestWriteConfig_AtomicWrite(t *testing.T) {
 	}
 }
 
+func TestIsSliceKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"mcp.disabled_tools", true},
+		{"mcp.disabled_tool_groups", true},
+		{"mcp.disabled_resources", true},
+		{"workflows.kanban.statuses", true},
+		{"workflows.kanban.highlight_statuses", true},
+		{"workflows.kanban.dim_statuses", true},
+		{"tui.color", false},
+		{"storage.path", false},
+		{"urgency.due_weight", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			got := IsSliceKey(tt.key)
+			if got != tt.want {
+				t.Errorf("IsSliceKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsValidKey(t *testing.T) {
 	tests := []struct {
 		key  string
