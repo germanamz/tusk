@@ -458,7 +458,83 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.9 — Live Dashboard
+## v0.9 — Configuration Management
+
+**Goal:** CLI commands for managing configuration without manual TOML editing — create, modify, and inspect workflows, projects, and settings from the terminal.
+
+### Initiative: Config CLI
+
+> Read, write, and validate configuration from the command line.
+
+- [ ] **Story: Config inspection**
+  - [ ] `tusk config show` — display current effective configuration (merged defaults + file + env)
+  - [ ] `tusk config get <key>` — get a specific value using dot notation (e.g., `urgency.due_weight`)
+  - [ ] `tusk config path` — print resolved config file path
+
+- [ ] **Story: Config mutation**
+  - [ ] `tusk config set <key> <value>` — set a config value and write to file
+  - [ ] `tusk config edit` — open config file in `$EDITOR`
+  - [ ] `tusk config init` — create config file with defaults if none exists (no-op if file present)
+
+- [ ] **Story: Config validation**
+  - [ ] `tusk config validate` — parse and validate config, report errors (unknown keys, invalid references, type mismatches)
+  - [ ] Run validation on `config set` before writing
+
+### Initiative: Workflow Management CLI
+
+> Create, modify, and remove workflows via CLI commands that write to the config file.
+
+- [ ] **Story: Workflow CRUD commands**
+  - [ ] `tusk workflow create <name> [key:value...] --status <status> --transition from:to` — inline key:value for simple fields (e.g., `highlight:active`, `dim:completed,deleted`); `--status` and `--transition` flags for structural parts (repeatable)
+  - [ ] `tusk workflow modify <name> [key:value...]` — inline key:value syntax (e.g., `highlight:active,in-review`, `dim:completed,deleted`); transitions use `--transition from:to` / `--rm-transition from:to` flags, statuses use `--add-status` / `--rm-status`
+  - [ ] `tusk workflow delete <name>` — remove workflow from config (reject if referenced by a project)
+
+### Initiative: Project Management CLI
+
+> Create, modify, and remove projects via CLI commands that write to the config file.
+
+- [ ] **Story: Project CRUD commands**
+  - [ ] `tusk project create <name> [key:value...]` — inline key:value syntax (e.g., `workflow:kanban`, `db-path:/data/b.db`, `auto-complete.trigger:completed`, `urgency.blocking-weight:15`)
+  - [ ] `tusk project modify <name> [key:value...]` — inline key:value syntax matching task modify (e.g., `workflow:scrum`, `db-path:/data/b.db`, `auto-complete.trigger:completed`, `urgency.blocking-weight:15`)
+  - [ ] `tusk project delete <name>` — remove project from config (reject if tasks reference it)
+
+- [ ] **Story: Per-project database path**
+  - [ ] `[projects.<name>].db_path` config key — optional SQLite file path per project
+  - [ ] Projects without `db_path` use the global `storage.path`
+  - [ ] Open and migrate per-project DB on first access, reuse connection for subsequent operations
+  - [ ] `db-path:/path/to/file.db` supported in project create/modify inline syntax
+  - [ ] Cross-project commands (e.g., unfiltered `tusk list`) query all project databases and merge results
+
+### Initiative: Local Config Discovery
+
+> Walk-up config resolution analogous to `package.json` in Node.js — tusk uses the nearest config file from the CWD upwards, enabling project-scoped configuration alongside the global config.
+
+- [ ] **Story: Config resolution chain**
+  - [ ] Resolution order (highest to lowest priority): CWD `tusk.toml` → `~/.config/tusk/config.toml` → walk upward from CWD to filesystem root looking for `tusk.toml`
+  - [ ] `--config <path>` flag bypasses discovery and uses the given file directly
+
+- [ ] **Story: Config layering**
+  - [ ] Merge all discovered configs in resolution order — local overrides global, global overrides ancestor
+  - [ ] `tusk config show` displays effective merged config with source annotations (local / global / ancestor path)
+  - [ ] `tusk config set` writes to the local config when present, global otherwise; `--global` flag forces global
+
+- [ ] **Story: Config init for local projects**
+  - [ ] `tusk config init --local` creates a `tusk.toml` in CWD with minimal defaults
+  - [ ] Local config can scope storage path, projects, workflows, and urgency weights to the directory tree
+
+### Initiative: MCP Config Tools
+
+> Expose configuration management to AI agents via MCP tools.
+
+- [ ] **Story: Config MCP tools**
+  - [ ] `tusk_config_show` — read effective configuration
+  - [ ] `tusk_config_set` — set a config value
+  - [ ] `tusk_workflow_create` / `tusk_workflow_modify` / `tusk_workflow_delete` — workflow management
+  - [ ] `tusk_project_create` / `tusk_project_modify` / `tusk_project_delete` — project management
+
+---
+
+## v0.10 — Live Dashboard
 
 **Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by an event log.
 
@@ -495,7 +571,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.10 — Advanced Features
+## v0.11 — Advanced Features
 
 **Goal:** Recurrence, additional transports, data portability, and undo.
 
@@ -534,7 +610,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Undo
 
-> Revert the last mutation using the event log from v0.8.
+> Revert the last mutation using the event log from v0.10.
 
 - [ ] **Story: Undo command**
   - [ ] `tusk undo` — revert last mutation by reading event log and applying inverse
@@ -577,7 +653,7 @@ Note: ProjectRepository and WorkflowRepository are in-memory (config-backed) and
 ### Initiative: Integrations & Extensions
 
 - [ ] **Story: Webhook notifications**
-  - [ ] Fire webhooks on task state changes (powered by event log from v0.8)
+  - [ ] Fire webhooks on task state changes (powered by event log from v0.10)
 
 - [ ] **Story: Time tracking**
   - [ ] Start/stop timer on tasks

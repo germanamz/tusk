@@ -178,10 +178,22 @@ tusk attach a3f8b2c1 spec.pdf
 tusk export --format json              # full dump
 tusk export --format csv               # flat export
 
-# Configuration entities
+# Configuration
+tusk config show                         # effective merged config
+tusk config get urgency.due_weight       # single value
+tusk config set urgency.due_weight 10.0  # write to config
+tusk config init --local                 # create local tusk.toml
+
+# Projects & workflows
 tusk project list
+tusk project create backend workflow:kanban db-path:/data/b.db
+tusk project modify backend urgency.blocking-weight:15
+tusk project delete backend
 tusk workflow list
 tusk workflow info kanban
+tusk workflow create sprint --status pending --status done --transition pending:done
+tusk workflow modify sprint highlight:active dim:done
+tusk workflow delete sprint
 ```
 
 Output is available in human-readable text (with color, markdown rendering) and JSON (`--output json`) for scripting. Color respects `NO_COLOR` and `--no-color`.
@@ -219,7 +231,7 @@ tusk mcp serve                                     # stdio transport
 tusk mcp serve --transport http --port 8080        # Streamable HTTP transport
 ```
 
-**Tools** cover task CRUD, lifecycle transitions, annotations, tree views, relations, player registration, claiming, available tasks, pop, and read-only project/workflow listing. All mutation tools accept a `version` parameter for end-to-end optimistic locking. All tools accept an optional `player_id` for liveness tracking and auto-registration.
+**Tools** cover task CRUD, lifecycle transitions, annotations, tree views, relations, player registration, claiming, available tasks, pop, project/workflow management, and configuration. All mutation tools accept a `version` parameter for end-to-end optimistic locking. All tools accept an optional `player_id` for liveness tracking and auto-registration.
 
 **Resources** — tasks, projects, and workflows are also exposed as MCP resources for agents that prefer reading state over tool calls:
 
@@ -290,19 +302,57 @@ SQLite runs in WAL mode, allowing concurrent readers without blocking writers.
 
 ## Configuration
 
-Tusk is configured via `~/.config/tusk/config.toml`. A default configuration is embedded in the binary and auto-created on first run.
+Tusk uses TOML configuration files with a layered resolution chain. Configuration is discovered in priority order:
+
+1. **Local** — `tusk.toml` in the current working directory
+2. **Global** — `~/.config/tusk/config.toml`
+3. **Ancestor** — walk upward from CWD to filesystem root, looking for `tusk.toml`
+
+Each layer merges on top of the next — local overrides global, global overrides ancestor. The `--config <path>` flag bypasses discovery entirely. Environment variables with the `TUSK_` prefix override any config key. The `--db` flag overrides the database path directly.
+
+A default configuration is embedded in the binary. Running `tusk config init` creates a global config file with defaults; `tusk config init --local` creates a `tusk.toml` in CWD for project-scoped configuration.
 
 Configuration governs:
 
-- **Storage** — database backend and connection settings
+- **Storage** — database backend and connection settings (including per-project database paths)
 - **Workflows** — custom status sets and allowed transitions
-- **Projects** — workflow binding, automation settings, UDA schemas, urgency weight overrides
+- **Projects** — workflow binding, automation settings, UDA schemas, urgency weight overrides, optional per-project DB path
 - **Urgency weights** — global scoring adjustments
 - **MCP** — transport settings, tool/resource visibility
 - **TUI** — date format, color, tree indentation, default sort order
 - **Dashboard** — refresh interval, layout, visible columns
 
-Environment variables with the `TUSK_` prefix override any config key. The `--db` flag overrides the database path directly.
+### Config Management
+
+Configuration can be inspected and modified from the CLI without manual file editing:
+
+```bash
+tusk config show                          # effective merged config with source annotations
+tusk config get urgency.due_weight        # single value lookup
+tusk config set urgency.due_weight 10.0   # write to local config (or global if no local)
+tusk config set --global tui.color false  # force write to global config
+tusk config edit                          # open config in $EDITOR
+tusk config validate                      # check for errors
+```
+
+Workflow and project management commands also write to the config file, using the same inline `key:value` syntax as task modify:
+
+```bash
+# Workflows
+tusk workflow create sprint --status pending --status active --status done \
+  --transition pending:active --transition active:done highlight:active
+tusk workflow modify sprint dim:done,archived
+tusk workflow delete sprint
+
+# Projects
+tusk project create backend workflow:kanban db-path:/data/backend.db
+tusk project modify backend urgency.blocking-weight:15 auto-complete.trigger:completed
+tusk project delete backend
+```
+
+### Per-Project Database
+
+Each project can optionally specify its own SQLite database file via `db-path`. Projects without a `db-path` use the global storage path. Cross-project commands query all project databases and merge results.
 
 ---
 
