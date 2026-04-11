@@ -64,18 +64,18 @@ Both operations accept filters, so an agent can pop from a specific project, tag
 
 ### Workflows
 
-Workflows define which statuses exist, which transitions between them are valid, and which status is the **initial status** — the default for newly created tasks. They are declared in configuration, not stored in the database.
+Workflows define which statuses exist, which transitions between them are valid, which status is the **initial status** — the default for newly created tasks — and which statuses are **terminal** — indicating a task is finished. They are declared in configuration, not stored in the database.
 
 Tusk ships with a built-in **kanban** workflow:
 
 ```
-pending (initial) → active → completed
-                           → deleted
+pending (initial) → active → completed (terminal)
+                           → deleted (terminal)
 active  → pending
 completed → pending
 ```
 
-Custom workflows can define any status set, transition graph, and initial status. When `initial_status` is omitted from config, the first entry in the statuses list is used. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
+Custom workflows can define any status set, transition graph, initial status, and terminal statuses. When `initial_status` is omitted from config, the first entry in the statuses list is used. Multiple terminal statuses are allowed (e.g., `completed`, `canceled`, `deleted`). Terminal statuses drive behavior throughout tusk: `tusk done` transitions to the first terminal status, `tusk available` and `tusk pop` derive actionable tasks as those not in a terminal status. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
 
 ### Projects
 

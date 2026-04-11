@@ -505,12 +505,15 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] `tusk workflow modify <name> [fields...]` — replace: `highlight=active,in-review`; additive: `+status=review +transition=active:review`; subtractive: `-status=review -transition=active:review -dim=done`
   - [ ] `tusk workflow delete <name>` — remove workflow from config (reject if referenced by a project)
 
-- [ ] **Story: Explicit initial status**
-  - [ ] Add `initial_status` field to `WorkflowConfig` — the status assigned to new tasks when none is specified
+- [ ] **Story: Explicit initial and terminal statuses**
+  - [ ] Add `initial_status` field to `WorkflowConfig` — the status assigned to new tasks when none is specified; defaults to first entry in `statuses` when omitted
+  - [ ] Add `terminal_statuses` field to `WorkflowConfig` — statuses that indicate a task is finished (e.g., `completed,canceled,deleted`); multiple allowed
   - [ ] Replace hardcoded `"pending"` fallback in `TaskService.Create` with the workflow's `initial_status`
-  - [ ] Validate that `initial_status` references a status in the workflow's `statuses` list
-  - [ ] Default `initial_status` to first entry in `statuses` when omitted from config
-  - [ ] Expose in `workflow create`/`modify` inline syntax: `initial-status=pending`
+  - [ ] Replace hardcoded `"completed"` in `TaskService.Complete` — target the first terminal status (or a configurable `done_status`?)
+  - [ ] Replace hardcoded `"deleted"` in `TaskService.Delete` — target a designated terminal status
+  - [ ] Replace hardcoded `"pending","active"` in `TaskService.Available`/`Pop` — derive actionable statuses as non-terminal statuses from the workflow
+  - [ ] Validate that `initial_status` and all `terminal_statuses` reference statuses in the workflow's `statuses` list
+  - [ ] Expose in `workflow create`/`modify` inline syntax: `initial-status=pending terminal-statuses=completed,canceled,deleted`
 
 - [ ] **Story: Config package workflow mutations**
   - [ ] `config.CreateWorkflow(name, WorkflowConfig)` — add workflow to config, validate, write
