@@ -56,7 +56,12 @@ func Parse(input string) (*FilterSet, []ParseError) {
 			fs.Text = append(fs.Text, tok.Value)
 
 		case TokenField:
-			key, value, _ := strings.Cut(tok.Value, ":")
+			// BRIDGE: try = first (new syntax), fall back to : (legacy).
+			// Remove fallback in Phase 3.
+			key, value, found := strings.Cut(tok.Value, "=")
+			if !found {
+				key, value, _ = strings.Cut(tok.Value, ":")
+			}
 			// Check for uda.* prefix before static field lookup
 			if udaKey, ok := strings.CutPrefix(key, "uda."); ok {
 				if udaKey == "" {
