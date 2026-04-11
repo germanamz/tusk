@@ -327,14 +327,15 @@ When no status filter is specified, tusk defaults to `status=pending,active`.
 Tusk uses a shared inline syntax across all commands — filters, task creation, modification, and config management. The syntax is built on a common lexer that understands three primitives:
 
 - **Fields** — `key=value` pairs. The `=` separates key from value.
-- **Modifiers** — `+`, `-`, `,`, `:`, and `..` are first-class modifiers attached as token metadata, not hardcoded behaviors. Each command context decides what a modifier means:
-  - `+` / `-` — In filters: `+tag` includes, `-tag` excludes. In task commands: `+tag` adds, `-tag` removes. In config commands: `+status=review` adds to a list, `-status=review` removes from it.
+- **Modifiers** — first-class primitives attached as token metadata, not hardcoded behaviors:
+  - `+` / `-` — Additive/subtractive. In filters: `+tag` includes, `-tag` excludes. In task commands: `+tag` adds, `-tag` removes. In config commands: `+status=review` adds to a list, `-status=review` removes from it.
   - `,` — Unordered set. `status=pending,active` is a set — order doesn't matter and duplicates are deduplicated.
   - `:` — Ordered sequence. `transition=pending:active` preserves order and allows duplicates — items appear in the sequence they were placed (from → to).
   - `..` — Range. `priority=2..4` defines a range in filters.
+  - `()` — Group. Attaches structured metadata to a value. `status=pending(initial,highlight)` groups roles onto a status. Modifiers nest inside groups — the `,` inside `()` is a set within the group. Distinguished from boolean grouping by position: `(` immediately after a value (no whitespace) is a group modifier; `(` preceded by whitespace is a boolean grouping operator.
 - **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes.
 
-Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
+Modifiers are composable — groups can contain sets, sets can contain sequences, enabling recursive structure from the same primitives. Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
 
 ---
 
