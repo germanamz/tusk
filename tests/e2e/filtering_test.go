@@ -17,7 +17,7 @@ func TestFiltering(t *testing.T) {
 					Args: []string{"start", "$1.short_id"},
 				},
 				{
-					Args: []string{"list", "status:active"},
+					Args: []string{"list", "status=active"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -47,7 +47,7 @@ func TestFiltering(t *testing.T) {
 					Args: []string{"start", "$1.short_id"},
 				},
 				{
-					Args: []string{"list", "status:pending,active"},
+					Args: []string{"list", "status=pending,active"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -122,13 +122,13 @@ func TestFiltering(t *testing.T) {
 			Name: "list_priority_exact",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Low pri", "priority:1"},
+					Args: []string{"add", "Low pri", "priority=1"},
 				},
 				{
-					Args: []string{"add", "High pri", "priority:3"},
+					Args: []string{"add", "High pri", "priority=3"},
 				},
 				{
-					Args: []string{"list", "priority:3"},
+					Args: []string{"list", "priority=3"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -149,19 +149,19 @@ func TestFiltering(t *testing.T) {
 			Name: "list_priority_range",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Low", "priority:1"},
+					Args: []string{"add", "Low", "priority=1"},
 				},
 				{
-					Args: []string{"add", "Medium", "priority:2"},
+					Args: []string{"add", "Medium", "priority=2"},
 				},
 				{
-					Args: []string{"add", "High", "priority:3"},
+					Args: []string{"add", "High", "priority=3"},
 				},
 				{
-					Args: []string{"add", "Urgent", "priority:4"},
+					Args: []string{"add", "Urgent", "priority=4"},
 				},
 				{
-					Args: []string{"list", "priority:3..4"},
+					Args: []string{"list", "priority=3..4"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -186,14 +186,14 @@ func TestFiltering(t *testing.T) {
 				{
 					// default project is seeded by config; tasks without an explicit
 					// project are also assigned to default, so both tasks appear.
-					Args: []string{"add", "First task", "project:default"},
+					Args: []string{"add", "First task", "project=default"},
 				},
 				{
 					// No project arg — still gets default by the service layer.
 					Args: []string{"add", "Second task"},
 				},
 				{
-					Args: []string{"list", "project:default"},
+					Args: []string{"list", "project=default"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -213,19 +213,19 @@ func TestFiltering(t *testing.T) {
 			Name: "list_combined_filters",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Match all", "priority:3", "+api"},
+					Args: []string{"add", "Match all", "priority=3", "+api"},
 				},
 				{
-					Args: []string{"add", "Wrong priority", "priority:1", "+api"},
+					Args: []string{"add", "Wrong priority", "priority=1", "+api"},
 				},
 				{
-					Args: []string{"add", "Wrong tag", "priority:3", "+docs"},
+					Args: []string{"add", "Wrong tag", "priority=3", "+docs"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
 				},
 				{
-					Args: []string{"list", "status:active", "+api", "priority:3"},
+					Args: []string{"list", "status=active", "+api", "priority=3"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -312,7 +312,7 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"add", "Implement auth middleware"}},
 				{Args: []string{"add", "Write unit tests"}},
 				{
-					Args: []string{"list", `title:"auth"`, "status:pending"},
+					Args: []string{"list", `title="auth"`, "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -335,7 +335,7 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"add", "Task A", "--description", "handles authentication"}},
 				{Args: []string{"add", "Task B", "--description", "handles logging"}},
 				{
-					Args: []string{"list", `description:"authentication"`, "status:pending"},
+					Args: []string{"list", `description="authentication"`, "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -362,7 +362,7 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"start", "$3.short_id"}},
 				{Args: []string{"done", "$3.short_id"}},
 				{
-					Args: []string{"list", "status:active", "OR", "status:completed"},
+					Args: []string{"list", "status=active", "OR", "status=completed"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						arr := jsonArray(t, parsed)
 						if len(arr) != 2 {
@@ -384,7 +384,7 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"add", "Delete this"}},
 				{Args: []string{"delete", "$1.short_id"}},
 				{
-					Args: []string{"list", "NOT", "status:deleted"},
+					Args: []string{"list", "NOT", "status=deleted"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						arr := jsonArray(t, parsed)
 						if len(arr) != 1 {
@@ -409,7 +409,7 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"start", "$3.short_id"}},
 				{
 					// Only active tasks with +api tag, or any pending task
-					Args: []string{"list", "(", "status:active", "AND", "+api", ")", "OR", "status:pending"},
+					Args: []string{"list", "(", "status=active", "AND", "+api", ")", "OR", "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						arr := jsonArray(t, parsed)
 						if len(arr) != 2 {

@@ -60,7 +60,7 @@ func TestPropagation_Disabled(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"add", "Parent task"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child task", "parent:$0.short_id"}},
+				{Args: []string{"add", "Child task", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
 				{
@@ -129,8 +129,8 @@ func TestPropagation_AutoComplete(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"add", "Parent task"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child one", "parent:$0.short_id"}},
-				{Args: []string{"add", "Child two", "parent:$0.short_id"}},
+				{Args: []string{"add", "Child one", "parent=$0.short_id"}},
+				{Args: []string{"add", "Child two", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
 				{
@@ -162,8 +162,8 @@ func TestPropagation_AutoComplete(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"add", "Parent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child 1", "parent:$0.short_id"}},
-				{Args: []string{"add", "Child 2", "parent:$0.short_id"}},
+				{Args: []string{"add", "Child 1", "parent=$0.short_id"}},
+				{Args: []string{"add", "Child 2", "parent=$0.short_id"}},
 				{Args: []string{"delete", "$3.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
@@ -183,7 +183,7 @@ func TestPropagation_AutoComplete(t *testing.T) {
 			Name: "auto_complete_workflow_guard",
 			Steps: []Step{
 				{Args: []string{"add", "Parent pending"}},
-				{Args: []string{"add", "Child", "parent:$0.short_id"}},
+				{Args: []string{"add", "Child", "parent=$0.short_id"}},
 				{Args: []string{"start", "$1.short_id"}},
 				{Args: []string{"done", "$1.short_id"}},
 				{
@@ -210,9 +210,9 @@ func TestPropagation_Recursive(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"add", "Grandparent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Parent", "parent:$0.short_id"}},
+				{Args: []string{"add", "Parent", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
-				{Args: []string{"add", "Child", "parent:$2.short_id"}},
+				{Args: []string{"add", "Child", "parent=$2.short_id"}},
 				{Args: []string{"start", "$4.short_id"}},
 				{Args: []string{"done", "$4.short_id"}},
 				{
@@ -249,7 +249,7 @@ func TestPropagation_AutoRevert(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"add", "Parent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child", "parent:$0.short_id"}},
+				{Args: []string{"add", "Child", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
 				{
@@ -262,7 +262,7 @@ func TestPropagation_AutoRevert(t *testing.T) {
 						}
 					},
 				},
-				{Args: []string{"modify", "$2.short_id", "status:pending"}},
+				{Args: []string{"modify", "$2.short_id", "status=pending"}},
 				{
 					Args: []string{"info", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -280,9 +280,9 @@ func TestPropagation_AutoRevert(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"add", "Grandparent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Parent", "parent:$0.short_id"}},
+				{Args: []string{"add", "Parent", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
-				{Args: []string{"add", "Child", "parent:$2.short_id"}},
+				{Args: []string{"add", "Child", "parent=$2.short_id"}},
 				{Args: []string{"start", "$4.short_id"}},
 				{Args: []string{"done", "$4.short_id"}},
 				{
@@ -295,7 +295,7 @@ func TestPropagation_AutoRevert(t *testing.T) {
 						}
 					},
 				},
-				{Args: []string{"modify", "$4.short_id", "status:pending"}},
+				{Args: []string{"modify", "$4.short_id", "status=pending"}},
 				{
 					Args: []string{"info", "$2.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
