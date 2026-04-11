@@ -17,7 +17,7 @@ import (
 // buildTaskCmds creates the top-level task management commands.
 func (a *App) buildTaskCmds() []*cobra.Command {
 	addCmd := &cobra.Command{
-		Use:   "add [title] [key:value...] [+tag...]",
+		Use:   "add [title] [key=value...] [+tag...]",
 		Short: "Create a new task",
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  a.runAdd,
@@ -26,7 +26,7 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 	addCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value)`)
 
 	modifyCmd := &cobra.Command{
-		Use:   "modify <short_id> [key:value...]",
+		Use:   "modify <short_id> [key=value...]",
 		Short: "Modify a task",
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  a.runModify,

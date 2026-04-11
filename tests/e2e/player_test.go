@@ -226,7 +226,7 @@ func TestClaimFilters(t *testing.T) {
 				{Args: []string{"add", "Task B"}},
 				{Args: []string{"claim", "$0.short_id", "--player", "agent-filter"}},
 				{
-					Args: []string{"list", "claimed_by:agent-filter"},
+					Args: []string{"list", "claimed_by=agent-filter"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := parsed.([]any)
@@ -246,7 +246,7 @@ func TestClaimFilters(t *testing.T) {
 				{Args: []string{"add", "Claimed task"}},
 				{Args: []string{"claim", "$1.short_id", "--player", "agent-unc"}},
 				{
-					Args: []string{"list", "unclaimed:true"},
+					Args: []string{"list", "unclaimed=true"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := parsed.([]any)

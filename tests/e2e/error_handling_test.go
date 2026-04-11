@@ -107,8 +107,8 @@ func TestErrorHandling(t *testing.T) {
 			Name: "add_no_title_only_filters",
 			Steps: []Step{
 				{
-					// Only key:value args, no free text for title
-					Args:    []string{"add", "priority:3"},
+					// Only key=value args, no free text for title
+					Args:    []string{"add", "priority=3"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -157,7 +157,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "add_invalid_project",
 			Steps: []Step{
 				{
-					Args:    []string{"add", "Bad project", "project:nonexistent_project"},
+					Args:    []string{"add", "Bad project", "project=nonexistent_project"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -170,7 +170,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "invalid_filter_field",
 			Steps: []Step{
 				{
-					Args:    []string{"list", "badfield:value"},
+					Args:    []string{"list", "badfield=value"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
