@@ -486,7 +486,9 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 - [ ] **Story: Extract shared lexer and AST**
   - [ ] Extract generic lexer (tokenization, quoted strings, `key=value` fields) from `filter/` into a shared parsing package
-  - [ ] First-class modifier support in the lexer — `+`, `-`, `,`, `:`, `..` (and extensible to future modifiers) attached as token metadata rather than hardcoded classification rules; `,` denotes unordered sets with deduplication (`status=pending,active`), `:` denotes ordered sequences without deduplication (`transition=pending:active`), `+`/`-` denote additive/subtractive intent, `..` denotes ranges; each application defines which modifiers it accepts and what they mean in its context
+  - [ ] First-class modifier support in the lexer — primitives: `+` (additive), `-` (subtractive), `,` (unordered set, deduplicated), `:` (ordered sequence, no dedup), `..` (range), `()` (group); extensible to future modifiers
+  - [ ] Composable modifiers — modifiers nest within groups: `status=pending(initial,highlight)` contains a `,` set inside a `()` group; the lexer's modifier system is recursive
+  - [ ] Position-based `()` disambiguation — `(` immediately after a value (no whitespace) is a group modifier on that value; `(` preceded by whitespace is a boolean grouping operator; no per-application configuration needed
   - [ ] Extract AST types (`FieldFilter`, `TagFilter`, free text) into the shared package
   - [ ] Filter package and future consumers define domain-specific token lists and field validators on top of the shared foundation
 
