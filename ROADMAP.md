@@ -466,19 +466,19 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Read, write, and validate configuration from the command line.
 
-- [ ] **Story: Config inspection**
-  - [ ] `tusk config show` — display current effective configuration (merged defaults + file + env)
-  - [ ] `tusk config get <key>` — get a specific value using dot notation (e.g., `urgency.due_weight`)
-  - [ ] `tusk config path` — print resolved config file path
+- [x] **Story: Config inspection**
+  - [x] `tusk config show` — display current effective configuration (merged defaults + file + env)
+  - [x] `tusk config get <key>` — get a specific value using dot notation (e.g., `urgency.due_weight`)
+  - [x] `tusk config path` — print resolved config file path
 
-- [ ] **Story: Config mutation**
-  - [ ] `tusk config set <key> <value>` — set a config value and write to file
-  - [ ] `tusk config edit` — open config file in `$EDITOR`
-  - [ ] `tusk config init` — create config file with defaults if none exists (no-op if file present)
+- [x] **Story: Config mutation**
+  - [x] `tusk config set <key> <value>` — set a config value and write to file
+  - [x] `tusk config edit` — open config file in `$EDITOR`
+  - [x] `tusk config init` — create config file with defaults if none exists (no-op if file present)
 
-- [ ] **Story: Config validation**
-  - [ ] `tusk config validate` — parse and validate config, report errors (unknown keys, invalid references, type mismatches)
-  - [ ] Run validation on `config set` before writing
+- [x] **Story: Config validation**
+  - [x] `tusk config validate` — parse and validate config, report errors (unknown keys, invalid references, type mismatches)
+  - [x] Run validation on `config set` before writing
 
 ### Initiative: Workflow Management CLI
 
