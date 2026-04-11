@@ -489,6 +489,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] First-class modifier support in the lexer — primitives: `+` (additive), `-` (subtractive), `,` (unordered set, deduplicated), `:` (ordered sequence, no dedup), `..` (range), `()` (group); extensible to future modifiers
   - [ ] Composable modifiers — modifiers nest within groups: `status=pending(initial,highlight)` contains a `,` set inside a `()` group; the lexer's modifier system is recursive
   - [ ] Position-based `()` disambiguation — `(` immediately after a value (no whitespace) is a group modifier on that value; `(` preceded by whitespace is a boolean grouping operator; no per-application configuration needed
+  - [ ] Quoted strings are opaque — `"value"` is a literal string, no modifier tokenization inside; `title="pending(initial)"` yields the plain string `pending(initial)`
   - [ ] Extract AST types (`FieldFilter`, `TagFilter`, free text) into the shared package
   - [ ] Filter package and future consumers define domain-specific token lists and field validators on top of the shared foundation
 
