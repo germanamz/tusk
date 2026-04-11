@@ -165,3 +165,42 @@ func TestWriteConfig_AtomicWrite(t *testing.T) {
 		t.Errorf("got %q, want %q", loaded.Storage.Path, "/tmp/b.db")
 	}
 }
+
+func TestIsValidKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		// Scalar fields
+		{"storage.backend", true},
+		{"storage.path", true},
+		{"tui.color", true},
+		{"tui.date_format", true},
+		{"urgency.due_weight", true},
+		{"mcp.disabled_tools", true},
+		// Map-keyed paths
+		{"workflows.kanban.statuses", true},
+		{"workflows.kanban.transitions", true},
+		{"workflows.kanban.highlight_statuses", true},
+		{"workflows.myworkflow.statuses", true},
+		{"projects.default.workflow", true},
+		{"projects.backend.settings.urgency.blocking_weight", true},
+		{"projects.myproj.settings.auto_complete_parent.trigger_status", true},
+		// Invalid keys
+		{"nonexistent", false},
+		{"storage.nonexistent", false},
+		{"workflows.kanban.nonexistent", false},
+		{"tui.nonexistent", false},
+		{"", false},
+		{"storage", false}, // not a leaf
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			got := IsValidKey(tt.key)
+			if got != tt.want {
+				t.Errorf("IsValidKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
