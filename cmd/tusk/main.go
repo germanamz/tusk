@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
-	"sync"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/inmem"
@@ -47,11 +47,18 @@ func run() error {
 		baseDir = filepath.Dir(configPath)
 	}
 
-	registry, err := sqlite.NewStoreRegistry(dbPath, baseDir, cfg.Projects, migrations.FS)
+	absDB, err := sqlite.ResolveWorkspacePath(dbPath, baseDir)
+	if err != nil {
+		return fmt.Errorf("resolving db path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(absDB), 0o755); err != nil {
+		return fmt.Errorf("creating db dir: %w", err)
+	}
+	store, err := sqlite.New(absDB, migrations.FS)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer registry.Close()
+	defer store.Close()
 
 	projectRepo := inmem.NewProjectRepository(cfg.Projects)
 	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
@@ -71,36 +78,29 @@ func run() error {
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
 
-	var bundleMu sync.Mutex
-	bundleCache := map[*sqlite.Store]*service.RepoBundle{}
-	bundleFor := func(store *sqlite.Store) *service.RepoBundle {
-		bundleMu.Lock()
-		defer bundleMu.Unlock()
-		if b, ok := bundleCache[store]; ok {
-			return b
-		}
-		db := store.DB()
-		b := &service.RepoBundle{
-			Store:       store,
-			Tasks:       sqlite.NewTaskRepo(db),
-			Annotations: sqlite.NewAnnotationRepo(db),
-			Relations:   sqlite.NewRelationRepo(db),
-			Tags:        sqlite.NewTagRepo(db),
-			Players:     sqlite.NewPlayerRepo(db),
-		}
-		bundleCache[store] = b
-		return b
+	db := store.DB()
+	bundle := &service.RepoBundle{
+		Store:       store,
+		Tasks:       sqlite.NewTaskRepo(db),
+		Annotations: sqlite.NewAnnotationRepo(db),
+		Relations:   sqlite.NewRelationRepo(db),
+		Tags:        sqlite.NewTagRepo(db),
+		Players:     sqlite.NewPlayerRepo(db),
 	}
 
 	resolver := func(_ context.Context, projectID string) (*service.RepoBundle, error) {
-		store, err := registry.Get(projectID)
-		if err != nil {
-			return nil, err
+		if _, ok := cfg.Projects[projectID]; !ok {
+			return nil, fmt.Errorf("unknown project %q", projectID)
 		}
-		return bundleFor(store), nil
+		return bundle, nil
 	}
 	projectLister := func(context.Context) ([]string, error) {
-		return registry.ProjectIDs(), nil
+		ids := make([]string, 0, len(cfg.Projects))
+		for id := range cfg.Projects {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		return ids, nil
 	}
 
 	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, workflowSvc, urgencyEngine)

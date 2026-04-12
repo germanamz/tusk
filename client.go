@@ -144,15 +144,15 @@ func NewClient(cfg Config) (*Client, error) {
 		Tags:        sqlite.NewTagRepo(db),
 		Players:     sqlite.NewPlayerRepo(db),
 	}
-	projectIDs := make([]string, 0, len(cfg.Projects))
-	for id := range cfg.Projects {
-		projectIDs = append(projectIDs, id)
-	}
 	resolver := func(context.Context, string) (*service.RepoBundle, error) {
 		return bundle, nil
 	}
 	projectLister := func(context.Context) ([]string, error) {
-		return projectIDs, nil
+		ids := make([]string, 0, len(cfg.Projects))
+		for id := range cfg.Projects {
+			ids = append(ids, id)
+		}
+		return ids, nil
 	}
 
 	projectRepo := inmem.NewProjectRepository(cfg.Projects)
