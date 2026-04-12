@@ -56,3 +56,14 @@ func DeleteProject(path string, name string, hasRefs TaskRefChecker, force bool)
 	delete(cfg.Projects, name)
 	return WriteConfig(cfg, path)
 }
+
+// ResolveWeightDelta returns the new per-project urgency weight after
+// applying a delta relative to the effective current value. When
+// override is nil, the delta is applied against the global weight.
+func ResolveWeightDelta(globalWeight float64, override *float64, delta float64) float64 {
+	base := globalWeight
+	if override != nil {
+		base = *override
+	}
+	return base + delta
+}
