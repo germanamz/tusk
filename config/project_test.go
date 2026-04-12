@@ -129,3 +129,128 @@ func TestResolveWeightDelta(t *testing.T) {
 }
 
 func floatPtr(v float64) *float64 { return &v }
+
+func TestModifyProject_SetWorkflow(t *testing.T) {
+	path := writeTestConfig(t, baseConfig+`
+[projects.backend]
+workflow = "kanban"
+`)
+	mut := ProjectMutation{Workflow: strPtr("kanban")}
+	if err := ModifyProject(path, "backend", mut); err != nil {
+		t.Fatalf("ModifyProject: %v", err)
+	}
+	cfg, _ := LoadFile(path)
+	if cfg.Projects["backend"].Workflow != "kanban" {
+		t.Fatalf("workflow not updated: %+v", cfg.Projects["backend"])
+	}
+}
+
+func TestModifyProject_SetAndClearDBPath(t *testing.T) {
+	path := writeTestConfig(t, baseConfig+`
+[projects.backend]
+workflow = "kanban"
+db_path = "/old.db"
+`)
+	mut := ProjectMutation{DBPath: strPtr("/new.db")}
+	if err := ModifyProject(path, "backend", mut); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	cfg, _ := LoadFile(path)
+	if got := cfg.Projects["backend"].DBPath; got != "/new.db" {
+		t.Fatalf("expected /new.db, got %q", got)
+	}
+
+	empty := ""
+	mut = ProjectMutation{DBPath: &empty}
+	if err := ModifyProject(path, "backend", mut); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	cfg, _ = LoadFile(path)
+	if got := cfg.Projects["backend"].DBPath; got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+func TestModifyProject_UrgencyAbsolute(t *testing.T) {
+	path := writeTestConfig(t, baseConfig+`
+[projects.backend]
+workflow = "kanban"
+`)
+	mut := ProjectMutation{
+		UrgencySet: map[string]float64{"blocking_weight": 15},
+	}
+	if err := ModifyProject(path, "backend", mut); err != nil {
+		t.Fatalf("ModifyProject: %v", err)
+	}
+	cfg, _ := LoadFile(path)
+	u := cfg.Projects["backend"].Settings.Urgency
+	if u == nil || u.BlockingWeight == nil || *u.BlockingWeight != 15 {
+		t.Fatalf("expected blocking_weight=15 override, got %+v", u)
+	}
+}
+
+func TestModifyProject_UrgencyDeltaFromGlobal(t *testing.T) {
+	path := writeTestConfig(t, baseConfig+`
+[projects.backend]
+workflow = "kanban"
+`)
+	cfg, _ := LoadFile(path)
+	globalBlocking := cfg.Urgency.BlockingWeight
+
+	mut := ProjectMutation{UrgencyDelta: map[string]float64{"blocking_weight": 2}}
+	if err := ModifyProject(path, "backend", mut); err != nil {
+		t.Fatalf("ModifyProject: %v", err)
+	}
+	cfg, _ = LoadFile(path)
+	got := *cfg.Projects["backend"].Settings.Urgency.BlockingWeight
+	if got != globalBlocking+2 {
+		t.Fatalf("expected %v, got %v", globalBlocking+2, got)
+	}
+}
+
+func TestModifyProject_UrgencyDeltaStacks(t *testing.T) {
+	path := writeTestConfig(t, baseConfig+`
+[projects.backend]
+workflow = "kanban"
+[projects.backend.settings.urgency]
+blocking_weight = 10.0
+`)
+	mut := ProjectMutation{UrgencyDelta: map[string]float64{"blocking_weight": 2}}
+	if err := ModifyProject(path, "backend", mut); err != nil {
+		t.Fatalf("ModifyProject: %v", err)
+	}
+	cfg, _ := LoadFile(path)
+	got := *cfg.Projects["backend"].Settings.Urgency.BlockingWeight
+	if got != 12 {
+		t.Fatalf("expected 12, got %v", got)
+	}
+}
+
+func TestModifyProject_SetAndDeltaConflict(t *testing.T) {
+	path := writeTestConfig(t, baseConfig+`
+[projects.backend]
+workflow = "kanban"
+`)
+	mut := ProjectMutation{
+		UrgencySet:   map[string]float64{"blocking_weight": 10},
+		UrgencyDelta: map[string]float64{"blocking_weight": 2},
+	}
+	err := ModifyProject(path, "backend", mut)
+	if err == nil || !strings.Contains(err.Error(), "blocking_weight") {
+		t.Fatalf("expected conflict error, got %v", err)
+	}
+}
+
+func TestModifyProject_UnknownUrgencyKey(t *testing.T) {
+	path := writeTestConfig(t, baseConfig+`
+[projects.backend]
+workflow = "kanban"
+`)
+	mut := ProjectMutation{UrgencySet: map[string]float64{"ghost": 1}}
+	err := ModifyProject(path, "backend", mut)
+	if err == nil || !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("expected unknown-key error, got %v", err)
+	}
+}
+
+func strPtr(s string) *string { return &s }
