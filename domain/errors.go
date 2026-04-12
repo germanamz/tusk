@@ -17,4 +17,5 @@ var (
 	ErrNoAvailableTasks  = errors.New("no available tasks")
 	ErrSourceNotFound    = fmt.Errorf("source task: %w", ErrNotFound)
 	ErrTargetNotFound    = fmt.Errorf("target task: %w", ErrNotFound)
+	ErrWorkflowInUse     = errors.New("workflow is referenced by one or more projects")
 )
