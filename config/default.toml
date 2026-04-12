@@ -52,18 +52,44 @@ disabled_resources = []
 
 # Workflows define allowed status transitions.
 # The builtin "kanban" workflow is always available even without config.
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
-transitions = [
-  { from = "pending",   to = "active" },
-  { from = "pending",   to = "deleted" },
-  { from = "active",    to = "completed" },
-  { from = "active",    to = "pending" },
-  { from = "active",    to = "deleted" },
-  { from = "completed", to = "pending" },
-]
-highlight_statuses = ["active"]
-dim_statuses = ["completed", "deleted"]
+# Each status carries a list of roles that control how tusk treats it.
+# Roles: initial, start, terminal, done, delete, highlight, dim.
+
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+
+[workflows.kanban.statuses.active]
+roles = ["start", "highlight"]
+
+[workflows.kanban.statuses.completed]
+roles = ["terminal", "done", "dim"]
+
+[workflows.kanban.statuses.deleted]
+roles = ["terminal", "delete", "dim"]
+
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
+
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "deleted"
+
+[[workflows.kanban.transitions]]
+from = "active"
+to = "completed"
+
+[[workflows.kanban.transitions]]
+from = "active"
+to = "pending"
+
+[[workflows.kanban.transitions]]
+from = "active"
+to = "deleted"
+
+[[workflows.kanban.transitions]]
+from = "completed"
+to = "pending"
 
 # Projects group tasks and assign workflows.
 # The builtin "default" project uses the "kanban" workflow.
