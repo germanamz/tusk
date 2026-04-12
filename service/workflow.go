@@ -46,6 +46,34 @@ func (s *WorkflowService) GetStatuses(ctx context.Context, workflowName string) 
 	return wf.StatusNames(), nil
 }
 
+// GetStatusByRole returns the name of the status with the given role in the named workflow.
+// Returns an error if the workflow doesn't exist or no status has the role.
+func (s *WorkflowService) GetStatusByRole(ctx context.Context, workflowName string, role domain.StatusRole) (string, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return "", fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	name, ok := wf.StatusByRole(role)
+	if !ok {
+		return "", fmt.Errorf("workflow %q has no status with role %q", workflowName, role)
+	}
+	return name, nil
+}
+
+// GetNonTerminalStatuses returns status names without the terminal role, sorted.
+func (s *WorkflowService) GetNonTerminalStatuses(ctx context.Context, workflowName string) ([]string, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	return wf.NonTerminalStatuses(), nil
+}
+
+// GetDeleteStatus returns the name of the status with the delete role.
+func (s *WorkflowService) GetDeleteStatus(ctx context.Context, workflowName string) (string, error) {
+	return s.GetStatusByRole(ctx, workflowName, domain.RoleDelete)
+}
+
 // GetTransitions returns all allowed transitions for the named workflow.
 func (s *WorkflowService) GetTransitions(ctx context.Context, workflowName string) ([]domain.WorkflowTransition, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
