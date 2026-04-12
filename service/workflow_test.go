@@ -155,3 +155,97 @@ func TestGetWorkflowWithProjects_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func roleWorkflowEnv(t *testing.T) *WorkflowService {
+	t.Helper()
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: map[string]config.StatusConfig{
+				"pending":   {Roles: []string{"initial"}},
+				"active":    {Roles: []string{"start", "highlight"}},
+				"completed": {Roles: []string{"terminal", "done", "dim"}},
+				"deleted":   {Roles: []string{"terminal", "delete", "dim"}},
+			},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "deleted"},
+			},
+		},
+	})
+	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"default": {Workflow: "kanban"},
+	})
+	return NewWorkflowService(workflowRepo, projectRepo)
+}
+
+func TestGetStatusByRole(t *testing.T) {
+	svc := roleWorkflowEnv(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		role     domain.StatusRole
+		expected string
+	}{
+		{domain.RoleInitial, "pending"},
+		{domain.RoleStart, "active"},
+		{domain.RoleDone, "completed"},
+		{domain.RoleDelete, "deleted"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.role), func(t *testing.T) {
+			name, err := svc.GetStatusByRole(ctx, "kanban", tt.role)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if name != tt.expected {
+				t.Fatalf("expected %q, got %q", tt.expected, name)
+			}
+		})
+	}
+}
+
+func TestGetStatusByRole_UnknownWorkflow(t *testing.T) {
+	svc := roleWorkflowEnv(t)
+	_, err := svc.GetStatusByRole(context.Background(), "nonexistent", domain.RoleInitial)
+	if err == nil {
+		t.Fatal("expected error for unknown workflow")
+	}
+}
+
+func TestGetStatusByRole_NoMatchingRole(t *testing.T) {
+	svc := roleWorkflowEnv(t)
+	_, err := svc.GetStatusByRole(context.Background(), "kanban", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent role")
+	}
+}
+
+func TestGetNonTerminalStatuses(t *testing.T) {
+	svc := roleWorkflowEnv(t)
+	statuses, err := svc.GetNonTerminalStatuses(context.Background(), "kanban")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := []string{"active", "pending"}
+	if len(statuses) != len(expected) {
+		t.Fatalf("expected %d non-terminal statuses, got %d: %v", len(expected), len(statuses), statuses)
+	}
+	for i, s := range statuses {
+		if s != expected[i] {
+			t.Fatalf("index %d: expected %q, got %q", i, expected[i], s)
+		}
+	}
+}
+
+func TestGetDeleteStatus(t *testing.T) {
+	svc := roleWorkflowEnv(t)
+	name, err := svc.GetDeleteStatus(context.Background(), "kanban")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != "deleted" {
+		t.Fatalf("expected %q, got %q", "deleted", name)
+	}
+}
