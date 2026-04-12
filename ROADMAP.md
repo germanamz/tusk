@@ -484,21 +484,21 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Extract shared parsing infrastructure from the filter package and migrate all CLI inline syntax from `key:value` to `key=value`, freeing `:` for use within values (e.g., workflow transitions `pending:active`). Prerequisite for Workflow and Project Management CLI initiatives.
 
-- [ ] **Story: Extract shared lexer and AST**
-  - [ ] Extract generic lexer (tokenization, quoted strings, `key=value` fields) from `filter/` into a shared parsing package
-  - [ ] First-class modifier support in the lexer — primitives: `+` (additive), `-` (subtractive), `,` (unordered set, deduplicated), `:` (ordered sequence, no dedup), `..` (range), `()` (group); extensible to future modifiers
-  - [ ] Composable modifiers — modifiers nest within groups: `status=pending(initial,highlight)` contains a `,` set inside a `()` group; the lexer's modifier system is recursive
-  - [ ] Position-based `()` disambiguation — `(` immediately after a value (no whitespace) is a group modifier on that value; `(` preceded by whitespace is a boolean grouping operator; no per-application configuration needed
-  - [ ] Quoted strings are opaque — `"value"` is a literal string, no modifier tokenization inside; `title="pending(initial)"` yields the plain string `pending(initial)`
-  - [ ] Extract AST types (`FieldFilter`, `TagFilter`, free text) into the shared package
-  - [ ] Filter package and future consumers define domain-specific token lists and field validators on top of the shared foundation
+- [x] **Story: Extract shared lexer and AST**
+  - [x] Extract generic lexer (tokenization, quoted strings, `key=value` fields) from `filter/` into a shared parsing package
+  - [x] First-class modifier support in the lexer — primitives: `+` (additive), `-` (subtractive), `,` (unordered set, deduplicated), `:` (ordered sequence, no dedup), `..` (range), `()` (group); extensible to future modifiers
+  - [x] Composable modifiers — modifiers nest within groups: `status=pending(initial,highlight)` contains a `,` set inside a `()` group; the lexer's modifier system is recursive
+  - [x] Position-based `()` disambiguation — `(` immediately after a value (no whitespace) is a group modifier on that value; `(` preceded by whitespace is a boolean grouping operator; no per-application configuration needed
+  - [x] Quoted strings are opaque — `"value"` is a literal string, no modifier tokenization inside; `title="pending(initial)"` yields the plain string `pending(initial)`
+  - [x] Extract AST types (`FieldFilter`, `TagFilter`, free text) into the shared package
+  - [x] Filter package and future consumers define domain-specific token lists and field validators on top of the shared foundation
 
-- [ ] **Story: Migrate `key:value` to `key=value` across CLI**
-  - [ ] Update lexer field detection from `:` to `=` separator
-  - [ ] Update all CLI commands (`add`, `modify`, `list`, `available`, `pop`, etc.)
-  - [ ] Covers all `key:value` patterns across the codebase: filter fields from v0.1 (`status:`, `priority:`, `project:`, `due:`), quoted strings from v0.6 (`title:`, `description:`), claim filters from v0.7 (`claimed_by:`, `unclaimed:`), UDA filters from v0.5 (`uda.key:`), and inline syntax on `add`/`modify`
-  - [ ] Update filter syntax documentation and help text
-  - [ ] Update E2E tests for new syntax
+- [x] **Story: Migrate `key:value` to `key=value` across CLI**
+  - [x] Update lexer field detection from `:` to `=` separator
+  - [x] Update all CLI commands (`add`, `modify`, `list`, `available`, `pop`, etc.)
+  - [x] Covers all `key:value` patterns across the codebase: filter fields from v0.1 (`status:`, `priority:`, `project:`, `due:`), quoted strings from v0.6 (`title:`, `description:`), claim filters from v0.7 (`claimed_by:`, `unclaimed:`), UDA filters from v0.5 (`uda.key:`), and inline syntax on `add`/`modify`
+  - [x] Update filter syntax documentation and help text
+  - [x] Update E2E tests for new syntax
 
 ### Initiative: Workflow Management CLI
 

@@ -63,7 +63,7 @@ Storage Implementations (SQLite with WAL mode)
 
 **Soft delete:** Tasks transition to `deleted` status via workflow, not removed from DB.
 
-**Filter syntax:** TaskWarrior-like — `status:pending,active`, `priority:2..4`, `due:today`, `+tag`, `-tag`, `parent:<short_id>`, `tree:<short_id>`.
+**Filter syntax:** TaskWarrior-inspired — `status=pending,active`, `priority=2..4`, `due=today`, `+tag`, `-tag`, `parent=<short_id>`, `tree=<short_id>`. Uses `=` as the field separator (`:` is reserved for value modifiers like ordered sequences).
 
 ## E2E Test Harness
 
