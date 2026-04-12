@@ -904,7 +904,7 @@ func (s *Server) handleWorkflowList(ctx context.Context, request mcp.CallToolReq
 		}
 		results[i] = workflowListResponse{
 			Name:        wf.Name,
-			Statuses:    wf.Statuses,
+			Statuses:    wf.StatusNames(),
 			Transitions: transitions,
 			Projects:    projectIDs,
 		}

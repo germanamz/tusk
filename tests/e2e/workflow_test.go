@@ -111,15 +111,26 @@ func TestWorkflowStatusDisplay(t *testing.T) {
 	}
 
 	configContent := `
-[workflows.custom]
-statuses = ["pending", "in_progress", "review", "done", "archived"]
-transitions = [
-  { from = "pending", to = "in_progress" },
-  { from = "in_progress", to = "review" },
-  { from = "review", to = "done" },
-]
-highlight_statuses = ["in_progress", "review"]
-dim_statuses = ["done", "archived"]
+[workflows.custom.statuses.pending]
+roles = ["initial"]
+[workflows.custom.statuses.in_progress]
+roles = ["start", "highlight"]
+[workflows.custom.statuses.review]
+roles = ["highlight"]
+[workflows.custom.statuses.done]
+roles = ["terminal", "done", "dim"]
+[workflows.custom.statuses.archived]
+roles = ["terminal", "delete", "dim"]
+
+[[workflows.custom.transitions]]
+from = "pending"
+to = "in_progress"
+[[workflows.custom.transitions]]
+from = "in_progress"
+to = "review"
+[[workflows.custom.transitions]]
+from = "review"
+to = "done"
 
 [projects.default]
 workflow = "custom"

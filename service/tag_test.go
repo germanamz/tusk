@@ -94,7 +94,12 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 	})
 	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
 		"kanban": {
-			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Statuses: map[string]config.StatusConfig{
+				"pending":   {},
+				"active":    {},
+				"completed": {},
+				"deleted":   {},
+			},
 			Transitions: []config.WorkflowTransitionConfig{
 				{From: "pending", To: "active"},
 				{From: "pending", To: "deleted"},

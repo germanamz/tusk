@@ -60,8 +60,13 @@ func TestTypesCompile(t *testing.T) {
 	}
 
 	_ = domain.Workflow{
-		Name:     "default",
-		Statuses: []string{"pending", "active", "completed", "deleted"},
+		Name: "default",
+		Statuses: map[string]domain.StatusConfig{
+			"pending":   {},
+			"active":    {},
+			"completed": {},
+			"deleted":   {},
+		},
 		Transitions: []domain.WorkflowTransition{
 			{FromStatus: "pending", ToStatus: "active"},
 		},

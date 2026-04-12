@@ -47,7 +47,12 @@ type Client struct {
 func defaultWorkflows() map[string]config.WorkflowConfig {
 	return map[string]config.WorkflowConfig{
 		"kanban": {
-			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Statuses: map[string]config.StatusConfig{
+				"pending":   {Roles: []string{config.RoleInitial}},
+				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
+				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
+				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
+			},
 			Transitions: []config.WorkflowTransitionConfig{
 				{From: "pending", To: "active"},
 				{From: "pending", To: "deleted"},
@@ -56,8 +61,6 @@ func defaultWorkflows() map[string]config.WorkflowConfig {
 				{From: "active", To: "deleted"},
 				{From: "completed", To: "pending"},
 			},
-			HighlightStatuses: []string{"active"},
-			DimStatuses:       []string{"completed", "deleted"},
 		},
 	}
 }

@@ -229,13 +229,13 @@ func TestCLI_ConfigGet(t *testing.T) {
 		if err != nil {
 			t.Fatalf("config get: %v\n%s", err, out)
 		}
-		// Should be JSON array.
-		var arr []string
-		if err := json.Unmarshal(out, &arr); err != nil {
-			t.Fatalf("expected JSON array, got: %s", out)
+		// Should be a JSON object (map[string]StatusConfig).
+		var obj map[string]interface{}
+		if err := json.Unmarshal(out, &obj); err != nil {
+			t.Fatalf("expected JSON object, got: %s", out)
 		}
-		if len(arr) != 4 {
-			t.Errorf("expected 4 statuses, got %d", len(arr))
+		if len(obj) != 4 {
+			t.Errorf("expected 4 statuses, got %d", len(obj))
 		}
 	})
 

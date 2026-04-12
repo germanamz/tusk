@@ -199,8 +199,14 @@ func TestExpandPath(t *testing.T) {
 func TestLoad_WorkflowConfig(t *testing.T) {
 	dir := t.TempDir()
 	content := `
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+[workflows.kanban.statuses.active]
+roles = ["start", "highlight"]
+[workflows.kanban.statuses.completed]
+roles = ["terminal", "done", "dim"]
+[workflows.kanban.statuses.deleted]
+roles = ["terminal", "delete", "dim"]
 
 [[workflows.kanban.transitions]]
 from = "pending"
@@ -209,6 +215,9 @@ to = "active"
 [[workflows.kanban.transitions]]
 from = "active"
 to = "completed"
+
+[projects.default]
+workflow = "kanban"
 `
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -237,9 +246,18 @@ to = "completed"
 func TestLoad_ProjectConfig(t *testing.T) {
 	dir := t.TempDir()
 	content := `
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
-transitions = []
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+[workflows.kanban.statuses.active]
+roles = ["start"]
+[workflows.kanban.statuses.completed]
+roles = ["terminal", "done"]
+[workflows.kanban.statuses.deleted]
+roles = ["terminal", "delete"]
+
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
 
 [projects.default]
 workflow = "kanban"
@@ -316,9 +334,18 @@ func TestLoad_BuiltinDefaults(t *testing.T) {
 func TestLoad_ValidationProjectReferencesUnknownWorkflow(t *testing.T) {
 	dir := t.TempDir()
 	content := `
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
-transitions = []
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+[workflows.kanban.statuses.active]
+roles = ["start"]
+[workflows.kanban.statuses.completed]
+roles = ["terminal", "done"]
+[workflows.kanban.statuses.deleted]
+roles = ["terminal", "delete"]
+
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
 
 [projects.backend]
 workflow = "nonexistent"
@@ -372,13 +399,23 @@ func TestLoad_WorkflowStatusDisplay(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.toml")
 
-	t.Run("valid highlight and dim statuses", func(t *testing.T) {
+	t.Run("valid highlight and dim roles", func(t *testing.T) {
 		err := os.WriteFile(cfgFile, []byte(`
-[workflows.test]
-statuses = ["todo", "doing", "done", "archived"]
-transitions = [{ from = "todo", to = "doing" }, { from = "doing", to = "done" }]
-highlight_statuses = ["doing"]
-dim_statuses = ["done", "archived"]
+[workflows.test.statuses.todo]
+roles = ["initial"]
+[workflows.test.statuses.doing]
+roles = ["start", "highlight"]
+[workflows.test.statuses.done]
+roles = ["terminal", "done", "dim"]
+[workflows.test.statuses.archived]
+roles = ["terminal", "delete", "dim"]
+
+[[workflows.test.transitions]]
+from = "todo"
+to = "doing"
+[[workflows.test.transitions]]
+from = "doing"
+to = "done"
 
 [projects.default]
 workflow = "test"
@@ -391,20 +428,43 @@ workflow = "test"
 			t.Fatalf("Load() error: %v", err)
 		}
 		wf := cfg.Workflows["test"]
-		if len(wf.HighlightStatuses) != 1 || wf.HighlightStatuses[0] != "doing" {
-			t.Errorf("HighlightStatuses = %v, want [doing]", wf.HighlightStatuses)
+		doingCfg, ok := wf.Statuses["doing"]
+		if !ok {
+			t.Fatal("expected status 'doing' in workflow")
 		}
-		if len(wf.DimStatuses) != 2 {
-			t.Errorf("DimStatuses = %v, want [done archived]", wf.DimStatuses)
+		hasHighlight := false
+		for _, r := range doingCfg.Roles {
+			if r == RoleHighlight {
+				hasHighlight = true
+			}
+		}
+		if !hasHighlight {
+			t.Errorf("expected 'doing' to have role %q, got roles %v", RoleHighlight, doingCfg.Roles)
+		}
+		doneCfg := wf.Statuses["done"]
+		hasDim := false
+		for _, r := range doneCfg.Roles {
+			if r == RoleDim {
+				hasDim = true
+			}
+		}
+		if !hasDim {
+			t.Errorf("expected 'done' to have role %q, got roles %v", RoleDim, doneCfg.Roles)
 		}
 	})
 
-	t.Run("dim status not in statuses list", func(t *testing.T) {
+	t.Run("status with both highlight and dim roles", func(t *testing.T) {
 		err := os.WriteFile(cfgFile, []byte(`
-[workflows.test]
-statuses = ["todo", "doing", "done"]
-transitions = [{ from = "todo", to = "doing" }]
-dim_statuses = ["archived"]
+[workflows.test.statuses.todo]
+roles = ["initial"]
+[workflows.test.statuses.doing]
+roles = ["start", "highlight", "dim"]
+[workflows.test.statuses.done]
+roles = ["terminal", "done"]
+
+[[workflows.test.transitions]]
+from = "todo"
+to = "doing"
 
 [projects.default]
 workflow = "test"
@@ -414,27 +474,7 @@ workflow = "test"
 		}
 		_, err = Load(WithSearchPath(dir))
 		if err == nil {
-			t.Fatal("expected validation error for unknown dim status")
-		}
-	})
-
-	t.Run("status in both highlight and dim", func(t *testing.T) {
-		err := os.WriteFile(cfgFile, []byte(`
-[workflows.test]
-statuses = ["todo", "doing", "done"]
-transitions = [{ from = "todo", to = "doing" }]
-highlight_statuses = ["doing"]
-dim_statuses = ["doing"]
-
-[projects.default]
-workflow = "test"
-`), 0o644)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = Load(WithSearchPath(dir))
-		if err == nil {
-			t.Fatal("expected validation error for status in both lists")
+			t.Fatal("expected validation error for status with both highlight and dim roles")
 		}
 	})
 }
