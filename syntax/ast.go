@@ -59,10 +59,16 @@ func (fs *FilterSet) Title() string {
 }
 
 // FieldFilter represents a key=value term.
+//
+// Modifier carries any registered prefix rune recognised by the lexer
+// (e.g. '+', '-'). 0 means "no modifier". The syntax package attaches no
+// semantics — consumers interpret it however they like (include/exclude,
+// add/remove, numeric delta, ...).
 type FieldFilter struct {
-	Key   string // field name (e.g. "status", "project", "uda.env")
-	Value string // raw value string, unparsed
-	Pos   int    // byte offset in input
+	Key      string // field name (e.g. "status", "project", "uda.env")
+	Value    string // raw value string, unparsed
+	Modifier byte   // registered prefix marker ('+' / '-' / ...); 0 if none
+	Pos      int    // byte offset in input
 }
 
 // TagFilter represents +tag or -tag.

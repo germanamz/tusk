@@ -56,3 +56,10 @@ func TestFilterSet_Tags(t *testing.T) {
 		t.Errorf("ExcludeTags() = %v, want [docs]", exc)
 	}
 }
+
+func TestFieldFilterModifierFieldExistsAndDefaultsToZero(t *testing.T) {
+	f := FieldFilter{Key: "priority", Value: "3"}
+	if f.Modifier != 0 {
+		t.Errorf("zero-value FieldFilter.Modifier = %q, want 0", f.Modifier)
+	}
+}
