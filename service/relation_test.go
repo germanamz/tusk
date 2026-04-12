@@ -8,7 +8,6 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
-	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/sqlite"
 )
 
@@ -22,15 +21,8 @@ type testRelationEnv struct {
 // The DB has all migrations applied, including the default project and kanban workflow.
 func newTestRelationEnv(t *testing.T) *testRelationEnv {
 	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
+	bundle := newTestBundle(t)
 
-	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
 		"default": {Workflow: "kanban"},
 	})
@@ -52,16 +44,16 @@ func newTestRelationEnv(t *testing.T) *testRelationEnv {
 			},
 		},
 	})
-	relationRepo := sqlite.NewRelationRepo(db)
 
+	resolver, projects := singleBundleResolver(bundle, "default")
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, relationRepo, nil, projectRepo, workflowSvc, store, nil, nil)
-	relationSvc := NewRelationService(relationRepo, taskRepo, store)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	relationSvc := NewRelationService(resolver, projects)
 
 	return &testRelationEnv{
 		relationSvc: relationSvc,
 		taskSvc:     taskSvc,
-		store:       store,
+		store:       bundle.Store,
 	}
 }
 

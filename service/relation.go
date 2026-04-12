@@ -18,53 +18,57 @@ var validRelationTypes = map[string]bool{
 	"duplicates": true,
 }
 
-// RelationTxProvider gives the service a way to run relation operations
-// inside a database transaction without importing a concrete storage package.
-// The SQLite Store implements this via its WithRelationTx method.
-type RelationTxProvider interface {
-	WithRelationTx(ctx context.Context, fn func(rr repository.RelationRepository) error) error
-}
-
-// RelationService implements relation business logic including validation
-// and cycle detection for "blocks" relations.
+// RelationService implements relation business logic including
+// validation and cycle detection for "blocks" relations. Operations
+// route through a BundleResolver: both endpoints of a relation must
+// live in the same project store.
 type RelationService struct {
-	relationRepo repository.RelationRepository
-	taskRepo     repository.TaskRepository
-	txProvider   RelationTxProvider
+	resolve  BundleResolver
+	projects ProjectLister
 }
 
-// NewRelationService creates a new RelationService with the given dependencies.
-//   - rr: for non-transactional reads (GetByTask, Remove lookups)
-//   - tr: to resolve short IDs to full task UUIDs
-//   - txp: for atomic cycle-check + insert on "blocks" relations
-func NewRelationService(
-	rr repository.RelationRepository,
-	tr repository.TaskRepository,
-	txp RelationTxProvider,
-) *RelationService {
-	return &RelationService{
-		relationRepo: rr,
-		taskRepo:     tr,
-		txProvider:   txp,
+// NewRelationService creates a new RelationService wired to the given
+// resolver and project lister.
+func NewRelationService(resolve BundleResolver, projects ProjectLister) *RelationService {
+	return &RelationService{resolve: resolve, projects: projects}
+}
+
+// findTask searches every known project store for a task by short ID
+// and returns the owning bundle along with the task.
+func (s *RelationService) findTask(ctx context.Context, shortID string) (*RepoBundle, *domain.Task, error) {
+	ids, err := s.projects(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
+	for _, pid := range ids {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return nil, nil, err
+		}
+		task, err := bundle.Tasks.GetByShortID(ctx, shortID)
+		if err == nil {
+			return bundle, task, nil
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return nil, nil, err
+		}
+	}
+	return nil, nil, domain.ErrNotFound
 }
 
 // Add creates a new relation between two tasks identified by short IDs.
 //
-// For "blocks" relations, the creation is wrapped in a transaction with
-// cycle detection (see checkCycle). For other types, no cycle check is needed.
+// Both endpoints must live in the same project store; cross-store
+// relations return domain.ErrCrossStoreRelation.
 //
-// Returns the created Relation or an error:
-//   - domain.ErrNotFound if either task short ID doesn't exist
-//   - domain.ErrCyclicBlock if adding a "blocks" relation would create a cycle
-//   - domain.ErrDuplicateRelation if the exact relation already exists
-//   - a validation error if relType is not one of: blocks, relates_to, duplicates
+// For "blocks" relations, the creation is wrapped in a transaction with
+// cycle detection. For other types, no cycle check is needed.
 func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID, relType string) (*domain.Relation, error) {
 	if !validRelationTypes[relType] {
 		return nil, fmt.Errorf("invalid relation type %q: must be one of blocks, relates_to, duplicates", relType)
 	}
 
-	source, err := s.taskRepo.GetByShortID(ctx, sourceShortID)
+	sourceBundle, source, err := s.findTask(ctx, sourceShortID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, domain.ErrSourceNotFound
@@ -72,12 +76,16 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 		return nil, fmt.Errorf("resolving source task: %w", err)
 	}
 
-	target, err := s.taskRepo.GetByShortID(ctx, targetShortID)
+	targetBundle, target, err := s.findTask(ctx, targetShortID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, domain.ErrTargetNotFound
 		}
 		return nil, fmt.Errorf("resolving target task: %w", err)
+	}
+
+	if sourceBundle != targetBundle {
+		return nil, domain.ErrCrossStoreRelation
 	}
 
 	rel := &domain.Relation{
@@ -89,8 +97,7 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 	}
 
 	if relType == "blocks" {
-		// Cycle check + insert must be atomic
-		if err := s.txProvider.WithRelationTx(ctx, func(txRepo repository.RelationRepository) error {
+		if err := sourceBundle.Store.WithRelationTx(ctx, func(txRepo repository.RelationRepository) error {
 			if err := s.checkCycle(ctx, txRepo, source.ID, target.ID); err != nil {
 				return err
 			}
@@ -101,24 +108,16 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 		return rel, nil
 	}
 
-	// Non-blocks: no cycle concern, insert directly
-	if err := s.relationRepo.Create(ctx, rel); err != nil {
+	if err := sourceBundle.Relations.Create(ctx, rel); err != nil {
 		return nil, err
 	}
 	return rel, nil
 }
 
-// Remove deletes an existing relation between two tasks.
-//
-// Uses a direct delete by (source, target, type) fields rather than
-// fetching all relations and scanning.
-//
-// Returns:
-//   - domain.ErrSourceNotFound if the source task short ID doesn't exist
-//   - domain.ErrTargetNotFound if the target task short ID doesn't exist
-//   - domain.ErrNotFound if the relation doesn't exist
+// Remove deletes an existing relation between two tasks. Both endpoints
+// must live in the same project store.
 func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShortID, relType string) error {
-	source, err := s.taskRepo.GetByShortID(ctx, sourceShortID)
+	sourceBundle, source, err := s.findTask(ctx, sourceShortID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return domain.ErrSourceNotFound
@@ -126,7 +125,7 @@ func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShort
 		return fmt.Errorf("resolving source task: %w", err)
 	}
 
-	target, err := s.taskRepo.GetByShortID(ctx, targetShortID)
+	targetBundle, target, err := s.findTask(ctx, targetShortID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return domain.ErrTargetNotFound
@@ -134,24 +133,26 @@ func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShort
 		return fmt.Errorf("resolving target task: %w", err)
 	}
 
-	return s.relationRepo.DeleteByFields(ctx, source.ID, target.ID, relType)
+	if sourceBundle != targetBundle {
+		return domain.ErrCrossStoreRelation
+	}
+
+	return sourceBundle.Relations.DeleteByFields(ctx, source.ID, target.ID, relType)
 }
 
-// GetByTask returns all relations involving a task (as source or target).
-// The task is identified by short ID.
+// GetByTask returns all relations involving a task (as source or
+// target). The task is identified by short ID.
 func (s *RelationService) GetByTask(ctx context.Context, shortID string) ([]*domain.Relation, error) {
-	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	bundle, task, err := s.findTask(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
-	return s.relationRepo.GetByTask(ctx, task.ID)
+	return bundle.Relations.GetByTask(ctx, task.ID)
 }
 
-// checkCycle performs a DFS from targetID following outgoing "blocks" edges.
-// If it reaches sourceID, that means inserting sourceID->targetID would form a cycle.
-//
-// Must be called inside a transaction so that no concurrent writer can insert
-// a conflicting edge between the check and the subsequent insert.
+// checkCycle performs a DFS from targetID following outgoing "blocks"
+// edges. If it reaches sourceID, that means inserting sourceID->targetID
+// would form a cycle.
 func (s *RelationService) checkCycle(ctx context.Context, txRepo repository.RelationRepository, sourceID, targetID uuid.UUID) error {
 	visited := map[uuid.UUID]bool{}
 	stack := []uuid.UUID{targetID}

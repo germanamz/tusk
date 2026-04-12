@@ -1,6 +1,7 @@
 package tusk
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -132,12 +133,28 @@ func NewClient(cfg Config) (*Client, error) {
 
 	db := store.DB()
 
-	// Create repositories.
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
-	tagRepo := sqlite.NewTagRepo(db)
-	relationRepo := sqlite.NewRelationRepo(db)
-	playerRepo := sqlite.NewPlayerRepo(db)
+	// Programmatic clients use a single-store bundle resolved from the
+	// same SQLite file. Per-project per-file routing is a CLI-only
+	// concern for now.
+	bundle := &service.RepoBundle{
+		Store:       store,
+		Tasks:       sqlite.NewTaskRepo(db),
+		Annotations: sqlite.NewAnnotationRepo(db),
+		Relations:   sqlite.NewRelationRepo(db),
+		Tags:        sqlite.NewTagRepo(db),
+		Players:     sqlite.NewPlayerRepo(db),
+	}
+	projectIDs := make([]string, 0, len(cfg.Projects))
+	for id := range cfg.Projects {
+		projectIDs = append(projectIDs, id)
+	}
+	resolver := func(context.Context, string) (*service.RepoBundle, error) {
+		return bundle, nil
+	}
+	projectLister := func(context.Context) ([]string, error) {
+		return projectIDs, nil
+	}
+
 	projectRepo := inmem.NewProjectRepository(cfg.Projects)
 	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
 
@@ -155,14 +172,11 @@ func NewClient(cfg Config) (*Client, error) {
 		Annotations: cfg.Urgency.AnnotationsWeight,
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
-	taskSvc := service.NewTaskService(
-		taskRepo, annotationRepo, relationRepo, tagRepo,
-		projectRepo, workflowSvc, store, urgencyEngine, playerRepo,
-	)
-	tagSvc := service.NewTagService(tagRepo)
-	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
+	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, workflowSvc, urgencyEngine)
+	tagSvc := service.NewTagService(resolver)
+	relationSvc := service.NewRelationService(resolver, projectLister)
 	projectSvc := service.NewProjectService(projectRepo)
-	playerSvc := service.NewPlayerService(playerRepo)
+	playerSvc := service.NewPlayerService(bundle.Players)
 
 	return &Client{
 		Tasks:     taskSvc,

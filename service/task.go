@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,75 +17,106 @@ import (
 // Tasks created without an explicit ProjectID are assigned to this project.
 const DefaultProjectID = "default"
 
-// TaskTxProvider gives TaskService a way to run task + project operations
-// inside a database transaction for atomic propagation.
-// The SQLite Store implements this via its WithTaskTx method.
-type TaskTxProvider interface {
-	WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository) error) error
-}
-
 // TaskService implements task business logic including validation,
-// workflow enforcement, and optimistic locking.
+// workflow enforcement, and optimistic locking. It routes per-task
+// operations to the SQLite store that owns the task's project via a
+// BundleResolver.
 type TaskService struct {
-	taskRepo       repository.TaskRepository
-	annotationRepo repository.AnnotationRepository
-	relationRepo   repository.RelationRepository
-	tagRepo        repository.TagRepository
-	projectRepo    repository.ProjectRepository
-	workflowSvc    *WorkflowService
-	txProvider     TaskTxProvider
-	urgencyEngine  *UrgencyEngine
-	playerRepo     repository.PlayerRepository
+	resolve     BundleResolver
+	projects    ProjectLister
+	projectRepo repository.ProjectRepository
+	workflowSvc *WorkflowService
+	engine      *UrgencyEngine
 }
 
-// NewTaskService creates a new TaskService with the given dependencies.
-// If urgencyEngine is non-nil, relationRepo and tagRepo must also be non-nil.
+// NewTaskService creates a new TaskService wired to the given resolver,
+// project lister, project repo, workflow service, and optional urgency
+// engine.
 func NewTaskService(
-	tr repository.TaskRepository,
-	ar repository.AnnotationRepository,
-	rr repository.RelationRepository,
-	tagr repository.TagRepository,
-	pr repository.ProjectRepository,
-	ws *WorkflowService,
-	txp TaskTxProvider,
-	ue *UrgencyEngine,
-	playerRepo repository.PlayerRepository,
+	resolve BundleResolver,
+	projects ProjectLister,
+	projectRepo repository.ProjectRepository,
+	workflowSvc *WorkflowService,
+	engine *UrgencyEngine,
 ) *TaskService {
-	if ue != nil && (rr == nil || tagr == nil) {
-		panic("NewTaskService: urgencyEngine requires relationRepo and tagRepo")
-	}
 	return &TaskService{
-		taskRepo:       tr,
-		annotationRepo: ar,
-		relationRepo:   rr,
-		tagRepo:        tagr,
-		projectRepo:    pr,
-		workflowSvc:    ws,
-		txProvider:     txp,
-		urgencyEngine:  ue,
-		playerRepo:     playerRepo,
+		resolve:     resolve,
+		projects:    projects,
+		projectRepo: projectRepo,
+		workflowSvc: workflowSvc,
+		engine:      engine,
 	}
+}
+
+// defaultBundle resolves the bundle backing the default project. Player
+// records and tag definitions are global resources kept in the default
+// store, so operations involving them go through this bundle regardless
+// of which project a task lives in.
+func (s *TaskService) defaultBundle(ctx context.Context) (*RepoBundle, error) {
+	return s.resolve(ctx, DefaultProjectID)
+}
+
+// bundleForShortID searches every known project store for a task with
+// the given short ID. Returns the owning bundle and task, or ErrNotFound
+// if no store holds the task.
+func (s *TaskService) bundleForShortID(ctx context.Context, shortID string) (*RepoBundle, *domain.Task, error) {
+	ids, err := s.projects(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, pid := range ids {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return nil, nil, err
+		}
+		task, err := bundle.Tasks.GetByShortID(ctx, shortID)
+		if err == nil {
+			return bundle, task, nil
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return nil, nil, err
+		}
+	}
+	return nil, nil, domain.ErrNotFound
+}
+
+// bundleForID searches every known project store for a task with the
+// given UUID.
+func (s *TaskService) bundleForID(ctx context.Context, id uuid.UUID) (*RepoBundle, *domain.Task, error) {
+	ids, err := s.projects(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, pid := range ids {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return nil, nil, err
+		}
+		task, err := bundle.Tasks.GetByID(ctx, id)
+		if err == nil {
+			return bundle, task, nil
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return nil, nil, err
+		}
+	}
+	return nil, nil, domain.ErrNotFound
 }
 
 // Create validates and persists a new task. It populates the task's ID,
 // ShortID, Version, timestamps, and default ProjectID before saving.
 func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
-	// Validate title
 	if strings.TrimSpace(task.Title) == "" {
 		return fmt.Errorf("title must not be empty")
 	}
-
-	// Validate priority
 	if task.Priority < 0 || task.Priority > 4 {
 		return fmt.Errorf("priority must be between 0 and 4")
 	}
 
-	// Assign default project if not set
 	if task.ProjectID == "" {
 		task.ProjectID = DefaultProjectID
 	}
 
-	// Validate project exists
 	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -93,21 +125,21 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		return fmt.Errorf("looking up project: %w", err)
 	}
 
-	// Validate parent exists and would not create a cycle
+	bundle, err := s.resolve(ctx, task.ProjectID)
+	if err != nil {
+		return fmt.Errorf("resolving project store: %w", err)
+	}
+
 	if task.ParentID != nil {
-		_, err := s.taskRepo.GetByID(ctx, *task.ParentID)
+		_, err := bundle.Tasks.GetByID(ctx, *task.ParentID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return fmt.Errorf("parent task not found: %w", err)
 			}
 			return fmt.Errorf("looking up parent task: %w", err)
 		}
-		// Note: On Create, cycles are impossible because the new task has no ID yet
-		// that other tasks could reference as a parent. The cycle check is only
-		// meaningful in Update. We keep the existence check here for clarity.
 	}
 
-	// Default and validate status
 	if task.Status == "" {
 		initialStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleInitial)
 		if err != nil {
@@ -130,7 +162,6 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		return fmt.Errorf("status %q is not valid for workflow %q", task.Status, project.Workflow)
 	}
 
-	// Generate ID and ShortID
 	task.ID = uuid.New()
 	shortID, err := s.generateShortID(ctx, task.ID)
 	if err != nil {
@@ -138,7 +169,6 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 	}
 	task.ShortID = shortID
 
-	// Set metadata
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	task.Version = 1
 	task.CreatedAt = now
@@ -151,54 +181,79 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		task.UDA = map[string]any{}
 	}
 
-	return s.taskRepo.Create(ctx, task)
+	return bundle.Tasks.Create(ctx, task)
 }
 
-// GetByShortID retrieves a task by its short ID.
+// GetByShortID retrieves a task by its short ID, searching every known
+// project store.
 func (s *TaskService) GetByShortID(ctx context.Context, shortID string) (*domain.Task, error) {
-	return s.taskRepo.GetByShortID(ctx, shortID)
+	_, task, err := s.bundleForShortID(ctx, shortID)
+	return task, err
 }
 
-// GetByID retrieves a task by its full UUID.
+// GetByID retrieves a task by its full UUID, searching every known
+// project store.
 func (s *TaskService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
-	return s.taskRepo.GetByID(ctx, id)
+	_, task, err := s.bundleForID(ctx, id)
+	return task, err
 }
 
-// List returns tasks matching the given filter, scored and sorted by urgency.
+// List returns tasks matching the given filter across every project
+// store (or a subset when the filter narrows by project), scored and
+// sorted by urgency.
 func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
-	tasks, err := s.taskRepo.List(ctx, filter)
+	projectIDs, err := s.targetProjects(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+	var all []*domain.Task
+	for _, pid := range projectIDs {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := s.listInBundle(ctx, bundle, filter)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, rows...)
+	}
+	if len(all) > 1 && s.engine != nil {
+		sortTasksByUrgency(all)
+	}
+	return all, nil
+}
 
-	if len(tasks) == 0 || s.urgencyEngine == nil {
+// listInBundle runs the filter against a single bundle and scores the
+// resulting tasks using that bundle's own relation, annotation, and tag
+// repos.
+func (s *TaskService) listInBundle(ctx context.Context, bundle *RepoBundle, filter domain.FilterExpr) ([]*domain.Task, error) {
+	tasks, err := bundle.Tasks.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 || s.engine == nil {
 		return tasks, nil
 	}
 
-	// Collect task IDs for batch queries
 	taskIDs := make([]uuid.UUID, len(tasks))
 	for i, t := range tasks {
 		taskIDs[i] = t.ID
 	}
 
-	// Batch-load relation counts
-	blockingCounts, err := s.relationRepo.CountBlockingByTasks(ctx, taskIDs)
+	blockingCounts, err := bundle.Relations.CountBlockingByTasks(ctx, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("loading blocking counts: %w", err)
 	}
-	blockedByCounts, err := s.relationRepo.CountBlockedByTasks(ctx, taskIDs)
+	blockedByCounts, err := bundle.Relations.CountBlockedByTasks(ctx, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("loading blocked-by counts: %w", err)
 	}
-
-	// Batch-load annotation counts
-	annotationCounts, err := s.annotationRepo.CountByTasks(ctx, taskIDs)
+	annotationCounts, err := bundle.Annotations.CountByTasks(ctx, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("loading annotation counts: %w", err)
 	}
-
-	// Batch-load tag counts
-	tagsByTask, err := s.tagRepo.GetTaskTagsBatch(ctx, taskIDs)
+	tagsByTask, err := bundle.Tags.GetTaskTagsBatch(ctx, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("loading tag counts: %w", err)
 	}
@@ -214,53 +269,130 @@ func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*do
 		TagCount:        tagCounts,
 		ProjectWeights:  s.buildProjectWeights(ctx, tasks),
 	}
-
-	s.urgencyEngine.ScoreAndSort(tasks, sctx)
+	s.engine.ScoreAndSort(tasks, sctx)
 	return tasks, nil
 }
 
-// Next returns the highest-urgency actionable task. Actionable means:
-// non-terminal status, not waiting, not blocked.
-// Returns domain.ErrNotFound if no actionable task exists.
+// sortTasksByUrgency stable-sorts tasks in place by descending urgency.
+func sortTasksByUrgency(tasks []*domain.Task) {
+	sort.SliceStable(tasks, func(i, j int) bool {
+		return tasks[i].Urgency > tasks[j].Urgency
+	})
+}
+
+// targetProjects returns the project IDs whose stores should be queried
+// for this filter. If the filter narrows by project=<name>, only that
+// project's store is queried; otherwise every known project is fanned
+// out to.
+func (s *TaskService) targetProjects(ctx context.Context, filter domain.FilterExpr) ([]string, error) {
+	if names := projectNamesFromFilter(filter); len(names) > 0 {
+		return names, nil
+	}
+	return s.projects(ctx)
+}
+
+// projectNamesFromFilter walks a filter expression tree and collects
+// every ProjectID constraint found in leaf TermFilter nodes. Returns
+// a de-duplicated slice, or nil if the filter does not constrain by
+// project.
+func projectNamesFromFilter(expr domain.FilterExpr) []string {
+	seen := map[string]bool{}
+	var out []string
+	var walk func(domain.FilterExpr)
+	walk = func(e domain.FilterExpr) {
+		switch f := e.(type) {
+		case nil:
+			return
+		case *domain.TermFilter:
+			if f.ProjectID != nil && *f.ProjectID != "" && !seen[*f.ProjectID] {
+				seen[*f.ProjectID] = true
+				out = append(out, *f.ProjectID)
+			}
+		case domain.TermFilter:
+			if f.ProjectID != nil && *f.ProjectID != "" && !seen[*f.ProjectID] {
+				seen[*f.ProjectID] = true
+				out = append(out, *f.ProjectID)
+			}
+		case *domain.AndFilter:
+			for _, c := range f.Children {
+				walk(c)
+			}
+		case domain.AndFilter:
+			for _, c := range f.Children {
+				walk(c)
+			}
+		case *domain.OrFilter:
+			for _, c := range f.Children {
+				walk(c)
+			}
+		case domain.OrFilter:
+			for _, c := range f.Children {
+				walk(c)
+			}
+		case *domain.NotFilter:
+			walk(f.Child)
+		case domain.NotFilter:
+			walk(f.Child)
+		}
+	}
+	walk(expr)
+	return out
+}
+
+// Next returns the highest-urgency actionable task across every known
+// project store. Actionable means: non-terminal status, not waiting, not
+// blocked. Returns domain.ErrNotFound if no actionable task exists.
 func (s *TaskService) Next(ctx context.Context) (*domain.Task, error) {
 	nonTerminal, err := s.collectNonTerminalStatuses(ctx)
 	if err != nil {
 		return nil, err
 	}
-	filter := &domain.TermFilter{TaskFilter: domain.TaskFilter{
-		Statuses: nonTerminal,
-	}}
-	tasks, err := s.List(ctx, filter)
+	filter := &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: nonTerminal}}
+
+	projectIDs, err := s.projects(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var all []*domain.Task
+	for _, pid := range projectIDs {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := s.listInBundle(ctx, bundle, filter)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, rows...)
+	}
+	if len(all) > 1 && s.engine != nil {
+		sortTasksByUrgency(all)
+	}
 
-	// Tasks are already sorted by urgency (descending) from List.
-	// Filter out waiting and blocked tasks.
 	now := time.Now()
-	for _, t := range tasks {
+	for _, t := range all {
 		if t.WaitUntil != nil && t.WaitUntil.After(now) {
 			continue
 		}
-		// Check if blocked (relationRepo is always non-nil when urgencyEngine is set,
-		// but guard against nil for minimal-dependency usage).
-		if s.relationRepo != nil {
-			blockedBy, err := s.relationRepo.CountBlockedByTasks(ctx, []uuid.UUID{t.ID})
-			if err != nil {
-				return nil, fmt.Errorf("checking blocked status: %w", err)
-			}
-			if blockedBy[t.ID] > 0 {
-				continue
-			}
+		bundle, err := s.resolve(ctx, t.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		blockedBy, err := bundle.Relations.CountBlockedByTasks(ctx, []uuid.UUID{t.ID})
+		if err != nil {
+			return nil, fmt.Errorf("checking blocked status: %w", err)
+		}
+		if blockedBy[t.ID] > 0 {
+			continue
 		}
 		return t, nil
 	}
 	return nil, domain.ErrNotFound
 }
 
-// collectNonTerminalStatuses returns the union of non-terminal status names
-// across all configured workflows. Used by Available and Next to find
-// actionable tasks regardless of which workflow defines the status.
+// collectNonTerminalStatuses returns the union of non-terminal status
+// names across all configured workflows. Used by Available and Next to
+// find actionable tasks regardless of which workflow defines the status.
 func (s *TaskService) collectNonTerminalStatuses(ctx context.Context) ([]string, error) {
 	workflows, err := s.workflowSvc.List(ctx)
 	if err != nil {
@@ -279,19 +411,16 @@ func (s *TaskService) collectNonTerminalStatuses(ctx context.Context) ([]string,
 	return result, nil
 }
 
-// buildProjectWeights constructs per-project merged urgency weights
-// for all distinct projects found in the task list.
+// buildProjectWeights constructs per-project merged urgency weights for
+// all distinct projects found in the task list.
 func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.Task) map[string]*UrgencyWeights {
-	if s.urgencyEngine == nil {
+	if s.engine == nil {
 		return nil
 	}
-
-	// Collect distinct project IDs
 	seen := make(map[string]bool)
 	for _, t := range tasks {
 		seen[t.ProjectID] = true
 	}
-
 	weights := make(map[string]*UrgencyWeights, len(seen))
 	for projectID := range seen {
 		if projectID == "" {
@@ -299,45 +428,61 @@ func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.T
 		}
 		project, err := s.projectRepo.GetByID(ctx, projectID)
 		if err != nil {
-			continue // use engine defaults if project not found
+			continue
 		}
 		if project.Settings.Urgency == nil {
-			continue // no overrides, engine will use defaults
+			continue
 		}
-		merged := MergeWeights(s.urgencyEngine.defaults, project.Settings.Urgency)
+		merged := MergeWeights(s.engine.defaults, project.Settings.Urgency)
 		weights[projectID] = &merged
 	}
 	return weights
 }
 
-// GetChildren returns the direct children of a task.
+// GetChildren returns the direct children of a task. The parent task
+// must exist in some known project store.
 func (s *TaskService) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error) {
-	return s.taskRepo.GetChildren(ctx, parentID)
+	bundle, _, err := s.bundleForID(ctx, parentID)
+	if err != nil {
+		return nil, err
+	}
+	return bundle.Tasks.GetChildren(ctx, parentID)
 }
 
 // GetDescendants returns all descendants of a task (recursive).
 func (s *TaskService) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error) {
-	return s.taskRepo.GetDescendants(ctx, rootID)
+	bundle, _, err := s.bundleForID(ctx, rootID)
+	if err != nil {
+		return nil, err
+	}
+	return bundle.Tasks.GetDescendants(ctx, rootID)
 }
 
-// Update applies a partial update to a task. It validates the patched state,
-// enforces workflow transitions, and uses optimistic locking.
-// Returns the updated task with the new version number.
+// Update applies a partial update to a task. It validates the patched
+// state, enforces workflow transitions, and uses optimistic locking.
+// Cross-store project moves are rejected with ErrCrossStoreRelation.
 func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domain.Task, error) {
-	// Load current task
-	task, err := s.taskRepo.GetByShortID(ctx, upd.ShortID)
+	bundle, task, err := s.bundleForShortID(ctx, upd.ShortID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Early version check
 	if task.Version != upd.Version {
 		return nil, domain.ErrConflict
 	}
 
+	if upd.ProjectID != nil && *upd.ProjectID != task.ProjectID {
+		newBundle, err := s.resolve(ctx, *upd.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if bundle != newBundle {
+			return nil, fmt.Errorf("moving task between project stores is not supported: %w", domain.ErrCrossStoreRelation)
+		}
+	}
+
 	oldStatus := task.Status
 
-	// Apply patch
 	if upd.Title != nil {
 		task.Title = *upd.Title
 	}
@@ -391,7 +536,6 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		}
 	}
 
-	// Validate patched state
 	if strings.TrimSpace(task.Title) == "" {
 		return nil, fmt.Errorf("title must not be empty")
 	}
@@ -399,25 +543,22 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		return nil, fmt.Errorf("priority must be between 0 and 4")
 	}
 
-	// Validate parent if changed
 	if upd.ParentID != nil && task.ParentID != nil {
 		if *task.ParentID == task.ID {
 			return nil, fmt.Errorf("task cannot be its own parent")
 		}
-		_, err := s.taskRepo.GetByID(ctx, *task.ParentID)
+		_, err := bundle.Tasks.GetByID(ctx, *task.ParentID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return nil, fmt.Errorf("parent task not found: %w", err)
 			}
 			return nil, fmt.Errorf("looking up parent task: %w", err)
 		}
-		// Check for cycles: walk up from proposed parent — if we reach this task, it's a cycle
-		if err := s.detectParentCycle(ctx, task.ID, *task.ParentID); err != nil {
+		if err := s.detectParentCycle(ctx, bundle.Tasks, task.ID, *task.ParentID); err != nil {
 			return nil, err
 		}
 	}
 
-	// Validate project if changed
 	if upd.ProjectID != nil {
 		if task.ProjectID == "" {
 			return nil, fmt.Errorf("task must belong to a project")
@@ -431,7 +572,6 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		}
 	}
 
-	// Workflow validation for status changes
 	if task.Status != oldStatus {
 		project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 		if err != nil {
@@ -446,16 +586,13 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		}
 	}
 
-	// Update metadata
 	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
 
 	statusChanged := task.Status != oldStatus
 
-	// If status changed, wrap persist + propagation in a transaction.
-	// Otherwise, persist directly (no transaction needed).
-	if statusChanged && s.txProvider != nil {
+	if statusChanged && bundle.Store != nil {
 		var result *domain.Task
-		err := s.txProvider.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository) error {
+		err := bundle.Store.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository) error {
 			if err := txTaskRepo.Update(ctx, task); err != nil {
 				return err
 			}
@@ -464,9 +601,6 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				return err
 			}
 			result = updated
-			// Propagation: auto-complete and auto-revert are mutually exclusive
-			// in practice — a single status change cannot simultaneously reach
-			// and leave the trigger status — so at most one of these fires.
 			if err := s.checkAutoComplete(ctx, updated, txTaskRepo); err != nil {
 				return err
 			}
@@ -478,18 +612,17 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		return result, nil
 	}
 
-	// Non-status-change path: persist directly
-	if err := s.taskRepo.Update(ctx, task); err != nil {
+	if err := bundle.Tasks.Update(ctx, task); err != nil {
 		return nil, err
 	}
-	return s.taskRepo.GetByID(ctx, task.ID)
+	return bundle.Tasks.GetByID(ctx, task.ID)
 }
 
-// Start transitions a task from its current status to its workflow's start-role status.
-// If playerID is non-empty and playerRepo is configured, it auto-claims
-// the task for the player. Returns ErrTaskClaimed if claimed by another player.
+// Start transitions a task from its current status to its workflow's
+// start-role status. If playerID is non-empty, it auto-claims the task
+// for the player.
 func (s *TaskService) Start(ctx context.Context, shortID string, version int, playerID string) (*domain.Task, error) {
-	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	bundle, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
@@ -502,39 +635,44 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 		return nil, fmt.Errorf("resolving start status: %w", err)
 	}
 
-	if playerID != "" && s.playerRepo != nil {
-		// Validate player exists
-		if _, err := s.playerRepo.GetByID(ctx, playerID); err != nil {
-			return nil, fmt.Errorf("player %q: %w", playerID, err)
-		}
-
-		if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
-			return nil, domain.ErrTaskClaimed
-		}
-
-		// Auto-claim if unclaimed
-		upd := domain.TaskUpdate{
-			ShortID: shortID,
-			Version: version,
-			Status:  ptr(startStatus),
-		}
-		if task.ClaimedBy == nil {
-			now := time.Now().UTC().Truncate(time.Millisecond)
-			claimedBy := ptr(playerID)
-			claimedAt := ptr(now)
-			upd.ClaimedBy = &claimedBy
-			upd.ClaimedAt = &claimedAt
-		}
-
-		result, err := s.Update(ctx, upd)
+	if playerID != "" {
+		players, err := s.playerRepo(ctx)
 		if err != nil {
 			return nil, err
 		}
+		if players != nil {
+			if _, err := players.GetByID(ctx, playerID); err != nil {
+				return nil, fmt.Errorf("player %q: %w", playerID, err)
+			}
 
-		s.playerRepo.UpdateLastSeen(ctx, playerID) //nolint:errcheck
-		return result, nil
+			if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
+				return nil, domain.ErrTaskClaimed
+			}
+
+			upd := domain.TaskUpdate{
+				ShortID: shortID,
+				Version: version,
+				Status:  ptr(startStatus),
+			}
+			if task.ClaimedBy == nil {
+				now := time.Now().UTC().Truncate(time.Millisecond)
+				claimedBy := ptr(playerID)
+				claimedAt := ptr(now)
+				upd.ClaimedBy = &claimedBy
+				upd.ClaimedAt = &claimedAt
+			}
+
+			result, err := s.Update(ctx, upd)
+			if err != nil {
+				return nil, err
+			}
+
+			players.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+			return result, nil
+		}
 	}
 
+	_ = bundle // bundle is fetched for parity with the player path
 	return s.Update(ctx, domain.TaskUpdate{
 		ShortID: shortID,
 		Version: version,
@@ -542,24 +680,38 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 	})
 }
 
-// Claim assigns a task to a player. Returns ErrTaskClaimed if claimed by another player.
-// Re-claiming by the same player is idempotent.
+// playerRepo returns the default bundle's PlayerRepository. Players are
+// a global resource stored only in the default store. Returns nil if the
+// default bundle has no player repo wired (minimal-dependency usage in
+// tests).
+func (s *TaskService) playerRepo(ctx context.Context) (repository.PlayerRepository, error) {
+	bundle, err := s.defaultBundle(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolving default bundle for players: %w", err)
+	}
+	return bundle.Players, nil
+}
+
+// Claim assigns a task to a player. Returns ErrTaskClaimed if claimed
+// by another player. Re-claiming by the same player is idempotent.
 func (s *TaskService) Claim(ctx context.Context, shortID, playerID string, version int) (*domain.Task, error) {
-	if s.playerRepo == nil {
+	players, err := s.playerRepo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if players == nil {
 		return nil, fmt.Errorf("player support not configured")
 	}
 
-	// Validate player exists
-	if _, err := s.playerRepo.GetByID(ctx, playerID); err != nil {
+	if _, err := players.GetByID(ctx, playerID); err != nil {
 		return nil, fmt.Errorf("player %q: %w", playerID, err)
 	}
 
-	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	_, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check current claim
 	if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
 		return nil, domain.ErrTaskClaimed
 	}
@@ -577,22 +729,25 @@ func (s *TaskService) Claim(ctx context.Context, shortID, playerID string, versi
 		return nil, err
 	}
 
-	s.playerRepo.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+	players.UpdateLastSeen(ctx, playerID) //nolint:errcheck
 	return result, nil
 }
 
 // Release clears a task's claim. Only the current claimant can release.
 func (s *TaskService) Release(ctx context.Context, shortID, playerID string, version int) (*domain.Task, error) {
-	if s.playerRepo == nil {
+	players, err := s.playerRepo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if players == nil {
 		return nil, fmt.Errorf("player support not configured")
 	}
 
-	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	_, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Can only release if you are the claimant
 	if task.ClaimedBy == nil {
 		return nil, fmt.Errorf("task is not claimed")
 	}
@@ -612,13 +767,13 @@ func (s *TaskService) Release(ctx context.Context, shortID, playerID string, ver
 		return nil, err
 	}
 
-	s.playerRepo.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+	players.UpdateLastSeen(ctx, playerID) //nolint:errcheck
 	return result, nil
 }
 
 // Complete transitions a task to its workflow's done-role status.
 func (s *TaskService) Complete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
-	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	_, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
@@ -637,9 +792,10 @@ func (s *TaskService) Complete(ctx context.Context, shortID string, version int)
 	})
 }
 
-// Delete soft-deletes a task by transitioning to its workflow's delete-role status.
+// Delete soft-deletes a task by transitioning to its workflow's
+// delete-role status.
 func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
-	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	_, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
@@ -658,43 +814,66 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 	})
 }
 
-// Available returns unclaimed, actionable, unblocked tasks sorted by urgency.
-// An optional filter expression is combined with the base constraints.
+// Available returns unclaimed, actionable, unblocked tasks sorted by
+// urgency, fanning out across every known project store (or narrowing
+// to a subset when the filter pins a project).
 func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
 	nonTerminal, err := s.collectNonTerminalStatuses(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Base filter: non-terminal status AND unclaimed
 	baseFilter := &domain.AndFilter{
 		Children: []domain.FilterExpr{
 			&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: nonTerminal}},
 			&domain.TermFilter{TaskFilter: domain.TaskFilter{Unclaimed: ptr(true)}},
 		},
 	}
-
-	// Merge caller filter if provided
 	if filter != nil {
 		baseFilter.Children = append(baseFilter.Children, filter)
 	}
 
-	tasks, err := s.List(ctx, baseFilter)
+	projectIDs, err := s.targetProjects(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 
+	var all []*domain.Task
+	for _, pid := range projectIDs {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := s.availableInBundle(ctx, bundle, baseFilter)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, rows...)
+	}
+
+	if len(all) > 1 && s.engine != nil {
+		sortTasksByUrgency(all)
+	}
+	return all, nil
+}
+
+// availableInBundle runs the availability filter against a single
+// bundle, removing blocked and waiting tasks.
+func (s *TaskService) availableInBundle(ctx context.Context, bundle *RepoBundle, filter domain.FilterExpr) ([]*domain.Task, error) {
+	tasks, err := s.listInBundle(ctx, bundle, filter)
+	if err != nil {
+		return nil, err
+	}
 	if len(tasks) == 0 {
 		return tasks, nil
 	}
 
-	// Post-filter: remove blocked and waiting tasks
 	taskIDs := make([]uuid.UUID, len(tasks))
 	for i, t := range tasks {
 		taskIDs[i] = t.ID
 	}
 
-	blockedCounts, err := s.relationRepo.CountBlockedByIncompleteTasks(ctx, taskIDs)
+	blockedCounts, err := bundle.Relations.CountBlockedByIncompleteTasks(ctx, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("checking blocked status: %w", err)
 	}
@@ -710,12 +889,12 @@ func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) (
 		}
 		result = append(result, t)
 	}
-
 	return result, nil
 }
 
-// Pop claims and starts the highest-urgency available task for the given player.
-// Returns domain.ErrNoAvailableTasks if no task can be claimed.
+// Pop claims and starts the highest-urgency available task for the
+// given player. Returns domain.ErrNoAvailableTasks if no task can be
+// claimed.
 func (s *TaskService) Pop(ctx context.Context, playerID string, filter domain.FilterExpr) (*domain.Task, error) {
 	tasks, err := s.Available(ctx, filter)
 	if err != nil {
@@ -737,10 +916,9 @@ func (s *TaskService) Pop(ctx context.Context, playerID string, filter domain.Fi
 		started, err := s.Start(ctx, task.ShortID, claimed.Version, playerID)
 		if err != nil {
 			if errors.Is(err, domain.ErrConflict) {
-				// Best-effort cleanup
 				_, relErr := s.Release(ctx, task.ShortID, playerID, claimed.Version)
 				if relErr != nil {
-					_ = relErr // log but don't propagate
+					_ = relErr
 				}
 				continue
 			}
@@ -753,20 +931,20 @@ func (s *TaskService) Pop(ctx context.Context, playerID string, filter domain.Fi
 	return nil, domain.ErrNoAvailableTasks
 }
 
-// maxParentDepth is the maximum ancestor chain length detectParentCycle will walk
-// before returning an error. This guards against corrupted data causing infinite loops.
+// maxParentDepth guards cycle detection and auto-complete propagation
+// against corrupted data causing infinite loops.
 const maxParentDepth = 100
 
 // detectParentCycle walks up the ancestor chain from proposedParentID.
-// If it encounters taskID, the proposed parent relationship would create a cycle.
-// Returns ErrCyclicParent if a cycle is detected, nil otherwise.
-func (s *TaskService) detectParentCycle(ctx context.Context, taskID, proposedParentID uuid.UUID) error {
+// If it encounters taskID, the proposed parent relationship would
+// create a cycle.
+func (s *TaskService) detectParentCycle(ctx context.Context, tasks repository.TaskRepository, taskID, proposedParentID uuid.UUID) error {
 	current := proposedParentID
 	for depth := 0; depth < maxParentDepth; depth++ {
 		if current == taskID {
 			return domain.ErrCyclicParent
 		}
-		parent, err := s.taskRepo.GetByID(ctx, current)
+		parent, err := tasks.GetByID(ctx, current)
 		if err != nil {
 			return fmt.Errorf("checking parent cycle: %w", err)
 		}
@@ -778,20 +956,20 @@ func (s *TaskService) detectParentCycle(ctx context.Context, taskID, proposedPar
 	return fmt.Errorf("parent chain exceeds maximum depth (%d)", maxParentDepth)
 }
 
-// generateShortID derives a short ID from the task's UUID.
-// It starts with 8 hex characters and extends if a collision is detected.
+// generateShortID derives a short ID from the task's UUID. It starts
+// with 8 hex characters and extends if a collision is detected in any
+// known project store (short IDs are globally unique).
 func (s *TaskService) generateShortID(ctx context.Context, id uuid.UUID) (string, error) {
 	hex := strings.ReplaceAll(id.String(), "-", "")
 	for length := 8; length <= len(hex); length++ {
 		candidate := hex[:length]
-		_, err := s.taskRepo.GetByShortID(ctx, candidate)
+		_, _, err := s.bundleForShortID(ctx, candidate)
 		if errors.Is(err, domain.ErrNotFound) {
 			return candidate, nil
 		}
 		if err != nil {
 			return "", err
 		}
-		// Collision — try longer prefix
 	}
 	return "", fmt.Errorf("could not generate unique short ID")
 }
@@ -802,7 +980,7 @@ func (s *TaskService) Annotate(ctx context.Context, taskShortID string, body str
 		return nil, fmt.Errorf("annotation body must not be empty")
 	}
 
-	task, err := s.taskRepo.GetByShortID(ctx, taskShortID)
+	bundle, task, err := s.bundleForShortID(ctx, taskShortID)
 	if err != nil {
 		return nil, err
 	}
@@ -814,31 +992,55 @@ func (s *TaskService) Annotate(ctx context.Context, taskShortID string, body str
 		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
 	}
 
-	if err := s.annotationRepo.Create(ctx, ann); err != nil {
+	if err := bundle.Annotations.Create(ctx, ann); err != nil {
 		return nil, err
 	}
 	return ann, nil
 }
 
-// GetAnnotations returns all annotations for a task, identified by short ID.
+// GetAnnotations returns all annotations for a task, identified by
+// short ID.
 func (s *TaskService) GetAnnotations(ctx context.Context, taskShortID string) ([]*domain.Annotation, error) {
-	task, err := s.taskRepo.GetByShortID(ctx, taskShortID)
+	bundle, task, err := s.bundleForShortID(ctx, taskShortID)
 	if err != nil {
 		return nil, err
 	}
-	return s.annotationRepo.GetByTask(ctx, task.ID)
+	return bundle.Annotations.GetByTask(ctx, task.ID)
 }
 
-// DeleteAnnotation removes an annotation by its ID.
+// DeleteAnnotation removes an annotation by its ID. Fan-out: every
+// project store is asked to delete; returns domain.ErrNotFound if no
+// store held the row.
 func (s *TaskService) DeleteAnnotation(ctx context.Context, annotationID uuid.UUID) error {
-	return s.annotationRepo.Delete(ctx, annotationID)
+	ids, err := s.projects(ctx)
+	if err != nil {
+		return err
+	}
+	deleted := false
+	for _, pid := range ids {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return err
+		}
+		err = bundle.Annotations.Delete(ctx, annotationID)
+		if err == nil {
+			deleted = true
+			continue
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+	}
+	if !deleted {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
-// checkAutoComplete checks whether completing a task should trigger automatic
-// completion of its parent. If the task has a parent, all non-deleted siblings
-// are at the trigger status, and the workflow allows the transition, the parent
-// is auto-completed. Walks up the ancestor chain iteratively, bounded by
-// maxParentDepth to guard against corrupted data.
+// checkAutoComplete checks whether completing a task should trigger
+// automatic completion of its parent. If the task has a parent, all
+// non-deleted siblings are at the trigger status, and the workflow
+// allows the transition, the parent is auto-completed.
 func (s *TaskService) checkAutoComplete(
 	ctx context.Context,
 	task *domain.Task,
@@ -869,12 +1071,10 @@ func (s *TaskService) checkAutoComplete(
 			return nil
 		}
 
-		// Check if the completed task reached the trigger status
 		if current.Status != cfg.TriggerStatus {
 			return nil
 		}
 
-		// Load all children of the parent
 		children, err := txTaskRepo.GetChildren(ctx, parent.ID)
 		if err != nil {
 			return fmt.Errorf("loading siblings for propagation: %w", err)
@@ -885,7 +1085,6 @@ func (s *TaskService) checkAutoComplete(
 			return fmt.Errorf("resolving delete status for propagation: %w", err)
 		}
 
-		// Check if all non-deleted children are at the trigger status
 		allReady := true
 		for _, child := range children {
 			if child.Status == deleteStatus {
@@ -900,23 +1099,20 @@ func (s *TaskService) checkAutoComplete(
 			return nil
 		}
 
-		// Validate workflow transition for the parent
 		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, cfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking propagation transition: %w", err)
 		}
 		if !allowed {
-			return nil // workflow doesn't allow it — silently skip
+			return nil
 		}
 
-		// Auto-complete the parent
 		parent.Status = cfg.TargetStatus
 		parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
 		if err := txTaskRepo.Update(ctx, parent); err != nil {
 			return fmt.Errorf("auto-completing parent: %w", err)
 		}
 
-		// Re-read to get bumped version, then continue up the chain
 		current, err = txTaskRepo.GetByID(ctx, parent.ID)
 		if err != nil {
 			return fmt.Errorf("re-reading parent after propagation: %w", err)
@@ -925,11 +1121,8 @@ func (s *TaskService) checkAutoComplete(
 	return fmt.Errorf("auto-complete propagation exceeded maximum depth (%d)", maxParentDepth)
 }
 
-// checkAutoRevert checks whether a task moving away from the trigger status
-// should revert its parent. If the parent was at the auto-complete target
-// status (presumably auto-completed) and the workflow allows the revert
-// transition, the parent is reverted. Walks up the ancestor chain iteratively,
-// bounded by maxParentDepth to guard against corrupted data.
+// checkAutoRevert checks whether a task moving away from the trigger
+// status should revert its parent.
 func (s *TaskService) checkAutoRevert(
 	ctx context.Context,
 	task *domain.Task,
@@ -962,16 +1155,13 @@ func (s *TaskService) checkAutoRevert(
 			return nil
 		}
 
-		// Only trigger if the child moved AWAY FROM the trigger status
 		if currentOldStatus != revertCfg.TriggerStatus {
 			return nil
 		}
-		// And the child is no longer at the trigger status
 		if current.Status == revertCfg.TriggerStatus {
 			return nil
 		}
 
-		// Only revert if the parent is at the auto-complete target status
 		completeCfg := project.Settings.AutoCompleteParent
 		if completeCfg == nil {
 			return nil
@@ -980,7 +1170,6 @@ func (s *TaskService) checkAutoRevert(
 			return nil
 		}
 
-		// Validate workflow transition
 		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, revertCfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking revert transition: %w", err)
@@ -989,7 +1178,6 @@ func (s *TaskService) checkAutoRevert(
 			return nil
 		}
 
-		// Revert the parent
 		prevParentStatus := parent.Status
 		parent.Status = revertCfg.TargetStatus
 		parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
@@ -997,7 +1185,6 @@ func (s *TaskService) checkAutoRevert(
 			return fmt.Errorf("reverting parent: %w", err)
 		}
 
-		// Re-read to get bumped version, then continue up the chain
 		current, err = txTaskRepo.GetByID(ctx, parent.ID)
 		if err != nil {
 			return fmt.Errorf("re-reading parent after revert: %w", err)

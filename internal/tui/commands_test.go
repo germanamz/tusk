@@ -73,8 +73,14 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	t.Cleanup(func() { store.Close() })
 
 	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
+	bundle := &service.RepoBundle{
+		Store:       store,
+		Tasks:       sqlite.NewTaskRepo(db),
+		Annotations: sqlite.NewAnnotationRepo(db),
+		Relations:   sqlite.NewRelationRepo(db),
+		Tags:        sqlite.NewTagRepo(db),
+		Players:     sqlite.NewPlayerRepo(db),
+	}
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{"default": {Workflow: "kanban"}})
 	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
 		"kanban": {
@@ -95,13 +101,13 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 		},
 	})
 
-	tagRepo := sqlite.NewTagRepo(db)
-	relationRepo := sqlite.NewRelationRepo(db)
+	resolver := func(context.Context, string) (*service.RepoBundle, error) { return bundle, nil }
+	projects := func(context.Context) ([]string, error) { return []string{"default"}, nil }
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil, nil)
-	tagSvc := service.NewTagService(tagRepo)
-	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
+	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	tagSvc := service.NewTagService(resolver)
+	relationSvc := service.NewRelationService(resolver, projects)
 
 	projectSvc := service.NewProjectService(projectRepo)
 	app := New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil, VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, nil)

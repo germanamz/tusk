@@ -9,7 +9,6 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
-	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
@@ -18,15 +17,8 @@ import (
 // This replaces the old pattern of creating a sqlite.ProjectRepo and calling Update.
 func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig) *testEnv {
 	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
+	bundle := newTestBundle(t)
 
-	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
 		"default": {Workflow: "kanban", Settings: settings},
 	})
@@ -49,16 +41,15 @@ func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig
 		},
 	})
 
-	tagRepo := sqlite.NewTagRepo(db)
-	relationRepo := sqlite.NewRelationRepo(db)
+	resolver, projects := singleBundleResolver(bundle, "default")
 
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil, nil)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 
 	return &testEnv{
 		taskSvc:     taskSvc,
 		workflowSvc: workflowSvc,
-		store:       store,
+		store:       bundle.Store,
 	}
 }
 
@@ -1011,15 +1002,8 @@ func TestUpdate_StatusChange_Transactional(t *testing.T) {
 }
 
 func TestTaskService_WithTxProvider(t *testing.T) {
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening store: %v", err)
-	}
-	defer store.Close()
+	bundle := newTestBundle(t)
 
-	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
 		"default": {Workflow: "kanban"},
 	})
@@ -1042,9 +1026,9 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 		},
 	})
 
+	resolver, projects := singleBundleResolver(bundle, "default")
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	// Pass store as the TaskTxProvider
-	taskSvc := NewTaskService(taskRepo, annotationRepo, nil, nil, projectRepo, workflowSvc, store, nil, nil)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 
 	ctx := context.Background()
 	task := newMinimalTask("Test with tx provider")
@@ -1053,7 +1037,7 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 	}
 
 	// Start and complete — basic lifecycle still works
-	_, err = taskSvc.Start(ctx, task.ShortID, task.Version, "")
+	_, err := taskSvc.Start(ctx, task.ShortID, task.Version, "")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

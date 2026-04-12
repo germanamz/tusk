@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/inmem"
@@ -51,23 +53,8 @@ func run() error {
 	}
 	defer registry.Close()
 
-	// BRIDGE (remove in Phase 4 Task 5): services still consume direct repos
-	// built from the default store, preserving single-store behavior until
-	// the service layer is refactored to use BundleResolver.
-	defaultStore, err := registry.Default()
-	if err != nil {
-		return fmt.Errorf("default store: %w", err)
-	}
-	store := defaultStore
-
-	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
 	projectRepo := inmem.NewProjectRepository(cfg.Projects)
 	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
-
-	tagRepo := sqlite.NewTagRepo(db)
-	relationRepo := sqlite.NewRelationRepo(db)
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 
@@ -84,13 +71,49 @@ func run() error {
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
 
-	playerRepo := sqlite.NewPlayerRepo(db)
-	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, urgencyEngine, playerRepo)
-	tagSvc := service.NewTagService(tagRepo)
-	relationSvc := service.NewRelationService(relationRepo, taskRepo, store)
+	var bundleMu sync.Mutex
+	bundleCache := map[*sqlite.Store]*service.RepoBundle{}
+	bundleFor := func(store *sqlite.Store) *service.RepoBundle {
+		bundleMu.Lock()
+		defer bundleMu.Unlock()
+		if b, ok := bundleCache[store]; ok {
+			return b
+		}
+		db := store.DB()
+		b := &service.RepoBundle{
+			Store:       store,
+			Tasks:       sqlite.NewTaskRepo(db),
+			Annotations: sqlite.NewAnnotationRepo(db),
+			Relations:   sqlite.NewRelationRepo(db),
+			Tags:        sqlite.NewTagRepo(db),
+			Players:     sqlite.NewPlayerRepo(db),
+		}
+		bundleCache[store] = b
+		return b
+	}
+
+	resolver := func(_ context.Context, projectID string) (*service.RepoBundle, error) {
+		store, err := registry.Get(projectID)
+		if err != nil {
+			return nil, err
+		}
+		return bundleFor(store), nil
+	}
+	projectLister := func(context.Context) ([]string, error) {
+		return registry.ProjectIDs(), nil
+	}
+
+	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, workflowSvc, urgencyEngine)
+	tagSvc := service.NewTagService(resolver)
+	relationSvc := service.NewRelationService(resolver, projectLister)
 
 	projectSvc := service.NewProjectService(projectRepo)
-	playerSvc := service.NewPlayerService(playerRepo)
+
+	defaultBundle, err := resolver(context.Background(), config.DefaultProjectID)
+	if err != nil {
+		return fmt.Errorf("resolving default bundle for players: %w", err)
+	}
+	playerSvc := service.NewPlayerService(defaultBundle.Players)
 
 	app := tui.New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, tui.VersionInfo{
 		Version: version,
