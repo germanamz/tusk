@@ -39,33 +39,32 @@ func parseTransitions(value string) ([]config.WorkflowTransitionConfig, error) {
 // parseWorkflowCreate parses inline args into a WorkflowConfig.
 func parseWorkflowCreate(args []string) (config.WorkflowConfig, error) {
 	input := strings.Join(args, " ")
-	tokens, lexErrs := syntax.Lex(input)
-	if len(lexErrs) > 0 {
-		return config.WorkflowConfig{}, fmt.Errorf("parse error: %s", lexErrs[0].Message)
+	fs, parseErrs := syntax.ParseFields(input)
+	if len(parseErrs) > 0 {
+		return config.WorkflowConfig{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
 	}
 
 	wf := config.WorkflowConfig{Statuses: make(map[string]config.StatusConfig)}
 
-	for _, tok := range tokens {
-		if tok.Type != syntax.TokenField {
-			return config.WorkflowConfig{}, fmt.Errorf("unexpected token %q: expected key=value", tok.Value)
+	for _, f := range fs.Fields {
+		if f.Modifier != 0 {
+			return config.WorkflowConfig{}, fmt.Errorf("workflow create does not accept modifier %q on %q", f.Modifier, f.Key)
 		}
-		key, value, ok := strings.Cut(tok.Value, "=")
-		if !ok || value == "" {
-			return config.WorkflowConfig{}, fmt.Errorf("invalid field %q", tok.Value)
+		if f.Value == "" {
+			return config.WorkflowConfig{}, fmt.Errorf("invalid field %q", f.Key)
 		}
-		switch key {
+		switch f.Key {
 		case "status":
-			name, roles := parseStatusValue(value)
+			name, roles := parseStatusValue(f.Value)
 			wf.Statuses[name] = config.StatusConfig{Roles: roles}
 		case "transition":
-			transitions, err := parseTransitions(value)
+			transitions, err := parseTransitions(f.Value)
 			if err != nil {
 				return config.WorkflowConfig{}, err
 			}
 			wf.Transitions = append(wf.Transitions, transitions...)
 		default:
-			return config.WorkflowConfig{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", key)
+			return config.WorkflowConfig{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", f.Key)
 		}
 	}
 
@@ -78,9 +77,9 @@ func parseWorkflowCreate(args []string) (config.WorkflowConfig, error) {
 // parseWorkflowModify parses inline args into a WorkflowMutation.
 func parseWorkflowModify(args []string) (config.WorkflowMutation, error) {
 	input := strings.Join(args, " ")
-	tokens, lexErrs := syntax.Lex(input)
-	if len(lexErrs) > 0 {
-		return config.WorkflowMutation{}, fmt.Errorf("parse error: %s", lexErrs[0].Message)
+	fs, parseErrs := syntax.ParseFields(input)
+	if len(parseErrs) > 0 {
+		return config.WorkflowMutation{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
 	}
 
 	mut := config.WorkflowMutation{
@@ -88,49 +87,41 @@ func parseWorkflowModify(args []string) (config.WorkflowMutation, error) {
 		AddStatuses: make(map[string]config.StatusConfig),
 	}
 
-	for _, tok := range tokens {
-		if tok.Type != syntax.TokenField {
-			return config.WorkflowMutation{}, fmt.Errorf("unexpected token %q: expected key=value", tok.Value)
+	for _, f := range fs.Fields {
+		if f.Value == "" {
+			return config.WorkflowMutation{}, fmt.Errorf("invalid field %q", f.Key)
 		}
 
-		raw := tok.Value
-		modifier := ""
-		if len(raw) > 0 && (raw[0] == '+' || raw[0] == '-') {
-			modifier = string(raw[0])
-			raw = raw[1:]
-		}
-
-		key, value, ok := strings.Cut(raw, "=")
-		if !ok || value == "" {
-			return config.WorkflowMutation{}, fmt.Errorf("invalid field %q", tok.Value)
-		}
-
-		switch key {
+		switch f.Key {
 		case "status":
-			name, roles := parseStatusValue(value)
-			switch modifier {
-			case "+":
+			name, roles := parseStatusValue(f.Value)
+			switch f.Modifier {
+			case '+':
 				mut.AddStatuses[name] = config.StatusConfig{Roles: roles}
-			case "-":
+			case '-':
 				mut.RemoveStatuses = append(mut.RemoveStatuses, name)
-			default:
+			case 0:
 				mut.SetStatuses[name] = config.StatusConfig{Roles: roles}
+			default:
+				return config.WorkflowMutation{}, fmt.Errorf("unsupported modifier %q on status", f.Modifier)
 			}
+
 		case "transition":
-			transitions, err := parseTransitions(value)
+			transitions, err := parseTransitions(f.Value)
 			if err != nil {
 				return config.WorkflowMutation{}, err
 			}
-			switch modifier {
-			case "+":
+			switch f.Modifier {
+			case '+':
 				mut.AddTransitions = append(mut.AddTransitions, transitions...)
-			case "-":
+			case '-':
 				mut.RemoveTransitions = append(mut.RemoveTransitions, transitions...)
 			default:
 				return config.WorkflowMutation{}, fmt.Errorf("transition requires + or - modifier (e.g., +transition=from:to)")
 			}
+
 		default:
-			return config.WorkflowMutation{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", key)
+			return config.WorkflowMutation{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", f.Key)
 		}
 	}
 

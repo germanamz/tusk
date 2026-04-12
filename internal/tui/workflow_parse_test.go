@@ -178,3 +178,100 @@ func TestParseWorkflowModify_Set(t *testing.T) {
 		t.Fatalf("expected 2 roles, got %v", active.Roles)
 	}
 }
+
+func TestParseWorkflowModifyAddsStatusWithPlus(t *testing.T) {
+	mut, err := parseWorkflowModify([]string{"+status=review(highlight)"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := mut.AddStatuses["review"]
+	if !ok {
+		t.Fatalf("expected review in AddStatuses, got %+v", mut.AddStatuses)
+	}
+	if len(got.Roles) != 1 || got.Roles[0] != "highlight" {
+		t.Errorf("roles = %+v, want [highlight]", got.Roles)
+	}
+	if _, hit := mut.SetStatuses["review"]; hit {
+		t.Errorf("SetStatuses should be empty, got %+v", mut.SetStatuses)
+	}
+}
+
+func TestParseWorkflowModifyRemovesStatusWithMinus(t *testing.T) {
+	mut, err := parseWorkflowModify([]string{"-status=done"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mut.RemoveStatuses) != 1 || mut.RemoveStatuses[0] != "done" {
+		t.Errorf("RemoveStatuses = %+v", mut.RemoveStatuses)
+	}
+}
+
+func TestParseWorkflowModifySetsBareStatus(t *testing.T) {
+	mut, err := parseWorkflowModify([]string{"status=active(start,highlight)"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, ok := mut.SetStatuses["active"]
+	if !ok {
+		t.Fatalf("expected active in SetStatuses, got %+v", mut.SetStatuses)
+	}
+	if len(got.Roles) != 2 || got.Roles[0] != "start" || got.Roles[1] != "highlight" {
+		t.Errorf("roles = %+v", got.Roles)
+	}
+}
+
+func TestParseWorkflowModifyTransitionRequiresModifier(t *testing.T) {
+	_, err := parseWorkflowModify([]string{"transition=pending:active"})
+	if err == nil {
+		t.Fatalf("expected error for bare transition")
+	}
+}
+
+func TestParseWorkflowModifyAddAndRemoveTransitions(t *testing.T) {
+	mut, err := parseWorkflowModify([]string{
+		"+transition=pending:active",
+		"-transition=active:done",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mut.AddTransitions) != 1 ||
+		mut.AddTransitions[0] != (config.WorkflowTransitionConfig{From: "pending", To: "active"}) {
+		t.Errorf("AddTransitions = %+v", mut.AddTransitions)
+	}
+	if len(mut.RemoveTransitions) != 1 ||
+		mut.RemoveTransitions[0] != (config.WorkflowTransitionConfig{From: "active", To: "done"}) {
+		t.Errorf("RemoveTransitions = %+v", mut.RemoveTransitions)
+	}
+}
+
+func TestParseWorkflowCreateRejectsModifier(t *testing.T) {
+	_, err := parseWorkflowCreate([]string{
+		"status=pending(initial)",
+		"status=active(start,highlight)",
+		"status=done(terminal,done)",
+		"+transition=pending:active",
+	})
+	if err == nil {
+		t.Fatalf("expected error for modifier on workflow create")
+	}
+}
+
+func TestParseWorkflowCreateHappyPath(t *testing.T) {
+	wf, err := parseWorkflowCreate([]string{
+		"status=pending(initial)",
+		"status=active(start,highlight)",
+		"status=done(terminal,done)",
+		"transition=pending:active",
+		"transition=active:done",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := wf.Statuses["pending"]; !ok {
+		t.Errorf("missing pending status: %+v", wf.Statuses)
+	}
+	if len(wf.Transitions) != 2 {
+		t.Errorf("transitions = %+v", wf.Transitions)
+	}
+}

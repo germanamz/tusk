@@ -57,16 +57,16 @@ func TestLex(t *testing.T) {
 			name:  "tag include",
 			input: "+api +frontend",
 			want: []Token{
-				{Type: TokenTagInclude, Value: "+api", Pos: 0},
-				{Type: TokenTagInclude, Value: "+frontend", Pos: 5},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 0},
+				{Type: TokenTagInclude, Value: "frontend", Modifier: '+', Pos: 5},
 			},
 		},
 		{
 			name:  "tag exclude",
 			input: "-docs -wip",
 			want: []Token{
-				{Type: TokenTagExclude, Value: "-docs", Pos: 0},
-				{Type: TokenTagExclude, Value: "-wip", Pos: 6},
+				{Type: TokenTagExclude, Value: "docs", Modifier: '-', Pos: 0},
+				{Type: TokenTagExclude, Value: "wip", Modifier: '-', Pos: 6},
 			},
 		},
 		{
@@ -76,8 +76,8 @@ func TestLex(t *testing.T) {
 				{Type: TokenText, Value: "My", Pos: 0},
 				{Type: TokenText, Value: "task", Pos: 3},
 				{Type: TokenField, Value: "project=backend", Pos: 8},
-				{Type: TokenTagInclude, Value: "+api", Pos: 24},
-				{Type: TokenTagExclude, Value: "-docs", Pos: 29},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 24},
+				{Type: TokenTagExclude, Value: "docs", Modifier: '-', Pos: 29},
 				{Type: TokenField, Value: "priority=3", Pos: 35},
 			},
 		},
@@ -104,7 +104,7 @@ func TestLex(t *testing.T) {
 			input: "status=active   +api",
 			want: []Token{
 				{Type: TokenField, Value: "status=active", Pos: 0},
-				{Type: TokenTagInclude, Value: "+api", Pos: 16},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 16},
 			},
 		},
 		{
@@ -127,7 +127,7 @@ func TestLex(t *testing.T) {
 			want: []Token{
 				{Type: TokenField, Value: "status=active", Pos: 0},
 				{Type: TokenField, Value: `title=fix the bug`, Pos: 14},
-				{Type: TokenTagInclude, Value: "+api", Pos: 34},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 34},
 			},
 		},
 		{
@@ -143,7 +143,7 @@ func TestLex(t *testing.T) {
 			want: []Token{
 				{Type: TokenField, Value: "status=active", Pos: 0},
 				{Type: TokenAnd, Value: "AND", Pos: 14},
-				{Type: TokenTagInclude, Value: "+api", Pos: 18},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 18},
 			},
 		},
 		{
@@ -170,7 +170,7 @@ func TestLex(t *testing.T) {
 				{Type: TokenLParen, Value: "(", Pos: 0},
 				{Type: TokenField, Value: "status=active", Pos: 1},
 				{Type: TokenOr, Value: "OR", Pos: 15},
-				{Type: TokenTagInclude, Value: "+urgent", Pos: 18},
+				{Type: TokenTagInclude, Value: "urgent", Modifier: '+', Pos: 18},
 				{Type: TokenRParen, Value: ")", Pos: 25},
 			},
 		},
@@ -258,6 +258,9 @@ func TestLex(t *testing.T) {
 				if tok.Value != tt.want[i].Value {
 					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
 				}
+				if tok.Modifier != tt.want[i].Modifier {
+					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
+				}
 				if tok.Pos != tt.want[i].Pos {
 					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
 				}
@@ -291,8 +294,8 @@ func TestLex_EdgeCases(t *testing.T) {
 			name:  "tag with numbers",
 			input: "+v2 -v1",
 			want: []Token{
-				{Type: TokenTagInclude, Value: "+v2", Pos: 0},
-				{Type: TokenTagExclude, Value: "-v1", Pos: 4},
+				{Type: TokenTagInclude, Value: "v2", Modifier: '+', Pos: 0},
+				{Type: TokenTagExclude, Value: "v1", Modifier: '-', Pos: 4},
 			},
 		},
 		{
@@ -339,14 +342,14 @@ func TestLex_EdgeCases(t *testing.T) {
 			name:  "additive modifier with field",
 			input: "+status=review",
 			want: []Token{
-				{Type: TokenField, Value: "+status=review", Pos: 0},
+				{Type: TokenField, Value: "status=review", Modifier: '+', Pos: 0},
 			},
 		},
 		{
 			name:  "subtractive modifier with field",
 			input: "-status=review",
 			want: []Token{
-				{Type: TokenField, Value: "-status=review", Pos: 0},
+				{Type: TokenField, Value: "status=review", Modifier: '-', Pos: 0},
 			},
 		},
 		{
@@ -391,7 +394,7 @@ func TestLex_EdgeCases(t *testing.T) {
 			name:  "tag without equals is not a field",
 			input: "+api:test",
 			want: []Token{
-				{Type: TokenTagInclude, Value: "+api:test", Pos: 0},
+				{Type: TokenTagInclude, Value: "api:test", Modifier: '+', Pos: 0},
 			},
 		},
 	}
@@ -413,33 +416,14 @@ func TestLex_EdgeCases(t *testing.T) {
 				if tok.Value != tt.want[i].Value {
 					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
 				}
+				if tok.Modifier != tt.want[i].Modifier {
+					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
+				}
 				if tok.Pos != tt.want[i].Pos {
 					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
 				}
 			}
 		})
-	}
-}
-
-func TestTokenModifierFieldExistsAndDefaultsToZero(t *testing.T) {
-	// Every token produced by the default Lex in Phase 1 must have Modifier == 0.
-	// Phase 2 will change this behavior; until then, the field is additive only.
-	cases := []string{
-		"status=active",
-		"+urgent",
-		"-blocked",
-		"+priority=3",
-		"-priority=3",
-		"title=\"hello world\"",
-		"project=backend AND status=pending",
-	}
-	for _, input := range cases {
-		tokens, _ := Lex(input)
-		for i, tok := range tokens {
-			if tok.Modifier != 0 {
-				t.Errorf("Lex(%q) tokens[%d].Modifier = %q, want 0", input, i, tok.Modifier)
-			}
-		}
 	}
 }
 
@@ -458,16 +442,66 @@ func TestLexWithModifiersDelegatesWithDefaultRegistry(t *testing.T) {
 	}
 }
 
-func TestLexWithModifiersIgnoredParameterInPhase1(t *testing.T) {
-	custom := DefaultModifiers().With('?')
-	a, _ := LexWithModifiers("?priority=3", DefaultModifiers())
-	b, _ := LexWithModifiers("?priority=3", custom)
-	if len(a) != len(b) {
-		t.Fatalf("token count mismatch: default=%d custom=%d", len(a), len(b))
+func TestLexStripsPlusModifierFromFieldToken(t *testing.T) {
+	tokens, errs := Lex("+priority=3")
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			t.Errorf("tokens[%d] differ: default=%+v custom=%+v", i, a[i], b[i])
-		}
+	if len(tokens) != 1 {
+		t.Fatalf("expected 1 token, got %d", len(tokens))
+	}
+	tok := tokens[0]
+	if tok.Type != TokenField {
+		t.Errorf("type = %v, want TokenField", tok.Type)
+	}
+	if tok.Modifier != '+' {
+		t.Errorf("modifier = %q, want '+'", tok.Modifier)
+	}
+	if tok.Value != "priority=3" {
+		t.Errorf("value = %q, want %q", tok.Value, "priority=3")
+	}
+}
+
+func TestLexStripsMinusModifierFromFieldToken(t *testing.T) {
+	tokens, _ := Lex("-priority=3")
+	if len(tokens) != 1 || tokens[0].Modifier != '-' || tokens[0].Value != "priority=3" {
+		t.Fatalf("unexpected tokens: %+v", tokens)
+	}
+}
+
+func TestLexBareFieldHasZeroModifier(t *testing.T) {
+	tokens, _ := Lex("status=active")
+	if len(tokens) != 1 || tokens[0].Modifier != 0 || tokens[0].Value != "status=active" {
+		t.Fatalf("unexpected tokens: %+v", tokens)
+	}
+}
+
+func TestLexStripsPlusModifierFromTagToken(t *testing.T) {
+	tokens, errs := Lex("+urgent")
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(tokens) != 1 {
+		t.Fatalf("expected 1 token, got %d", len(tokens))
+	}
+	tok := tokens[0]
+	if tok.Type != TokenTagInclude {
+		t.Errorf("type = %v, want TokenTagInclude", tok.Type)
+	}
+	if tok.Modifier != '+' {
+		t.Errorf("modifier = %q, want '+'", tok.Modifier)
+	}
+	if tok.Value != "urgent" {
+		t.Errorf("value = %q, want %q", tok.Value, "urgent")
+	}
+}
+
+func TestLexStripsMinusModifierFromTagToken(t *testing.T) {
+	tokens, _ := Lex("-blocked")
+	if len(tokens) != 1 {
+		t.Fatalf("expected 1 token, got %d", len(tokens))
+	}
+	if tokens[0].Type != TokenTagExclude || tokens[0].Modifier != '-' || tokens[0].Value != "blocked" {
+		t.Fatalf("unexpected token: %+v", tokens[0])
 	}
 }

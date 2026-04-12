@@ -390,3 +390,50 @@ func TestParse_KeywordsPreservedAsText(t *testing.T) {
 		})
 	}
 }
+
+func TestParseFieldCarriesPlusModifier(t *testing.T) {
+	fs, errs := Parse("+priority=3")
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(fs.Fields) != 1 {
+		t.Fatalf("expected 1 field, got %d", len(fs.Fields))
+	}
+	f := fs.Fields[0]
+	if f.Key != "priority" || f.Value != "3" || f.Modifier != '+' {
+		t.Errorf("field = %+v", f)
+	}
+}
+
+func TestParseFieldCarriesMinusModifier(t *testing.T) {
+	fs, errs := Parse("-priority=2")
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(fs.Fields) != 1 || fs.Fields[0].Modifier != '-' {
+		t.Fatalf("expected Modifier='-', got %+v", fs.Fields)
+	}
+}
+
+func TestParseBareFieldHasZeroModifier(t *testing.T) {
+	fs, _ := Parse("priority=3")
+	if len(fs.Fields) != 1 || fs.Fields[0].Modifier != 0 {
+		t.Fatalf("expected zero modifier, got %+v", fs.Fields)
+	}
+}
+
+func TestParseTagRoundTrip(t *testing.T) {
+	fs, errs := Parse("+urgent -blocked")
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(fs.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(fs.Tags))
+	}
+	if fs.Tags[0].Name != "urgent" || fs.Tags[0].Exclude {
+		t.Errorf("tag[0] = %+v", fs.Tags[0])
+	}
+	if fs.Tags[1].Name != "blocked" || !fs.Tags[1].Exclude {
+		t.Errorf("tag[1] = %+v", fs.Tags[1])
+	}
+}
