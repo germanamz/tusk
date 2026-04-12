@@ -745,7 +745,7 @@ func TestListByRootID_WithStatusFilter(t *testing.T) {
 	pendingChild.Status = "pending"
 	mustCreateTask(t, repo, pendingChild)
 
-	// Compound: status:active AND tree:<root> — should return only the active child
+	// Compound: status=active AND tree=<root> — should return only the active child
 	expr := &domain.AndFilter{Children: []domain.FilterExpr{
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &root.ID}},

@@ -25,7 +25,7 @@ type NotExpr struct {
 // TermExpr wraps a single filter term — exactly one of Field, Tag, or Text
 // is set.
 type TermExpr struct {
-	Field *FieldFilter // non-nil for field terms (e.g. status:active)
+	Field *FieldFilter // non-nil for field terms (e.g. status=active)
 	Tag   *TagFilter   // non-nil for tag terms (e.g. +api, -docs)
 	Text  string       // non-empty for free text terms
 }
