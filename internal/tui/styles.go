@@ -16,7 +16,7 @@ import (
 type Styles struct {
 	// Priority maps priority int (0-4) to a foreground color style.
 	Priority [5]lipgloss.Style
-	// Dim is applied to rows whose status is in the workflow's dim_statuses.
+	// Dim is applied to rows whose status has the dim role in its workflow.
 	Dim lipgloss.Style
 	// Header is used for table column headers (bold).
 	Header lipgloss.Style
