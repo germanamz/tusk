@@ -880,10 +880,15 @@ func (s *TaskService) checkAutoComplete(
 			return fmt.Errorf("loading siblings for propagation: %w", err)
 		}
 
+		deleteStatus, err := s.workflowSvc.GetDeleteStatus(ctx, project.Workflow)
+		if err != nil {
+			return fmt.Errorf("resolving delete status for propagation: %w", err)
+		}
+
 		// Check if all non-deleted children are at the trigger status
 		allReady := true
 		for _, child := range children {
-			if child.Status == "deleted" {
+			if child.Status == deleteStatus {
 				continue
 			}
 			if child.Status != cfg.TriggerStatus {

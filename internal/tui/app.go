@@ -66,7 +66,7 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		mcpCfg:      mcpCfg,
 		loadOpts:    loadOpts,
 	}
-	a.resolver = filter.NewResolver(taskSvc)
+	a.resolver = filter.NewResolver(taskSvc, collectNonTerminalStatuses(workflowSvc))
 
 	a.root = &cobra.Command{
 		Use:           "tusk",
@@ -113,6 +113,34 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 	a.root.AddCommand(mcpCmd)
 
 	return a
+}
+
+// collectNonTerminalStatuses returns the union of non-terminal status names
+// across every configured workflow. Used as the default status set for
+// the filter resolver. Falls back to ["pending","active"] if listing fails
+// or no statuses are found, so the CLI still functions when config is broken.
+func collectNonTerminalStatuses(wfSvc *service.WorkflowService) []string {
+	if wfSvc == nil {
+		return []string{"pending", "active"}
+	}
+	workflows, err := wfSvc.List(context.Background())
+	if err != nil {
+		return []string{"pending", "active"}
+	}
+	seen := make(map[string]bool)
+	var result []string
+	for _, wf := range workflows {
+		for _, name := range wf.NonTerminalStatuses() {
+			if !seen[name] {
+				seen[name] = true
+				result = append(result, name)
+			}
+		}
+	}
+	if len(result) == 0 {
+		return []string{"pending", "active"}
+	}
+	return result
 }
 
 // buildDimStatuses collects all dim statuses from all workflow configs into a lookup set.

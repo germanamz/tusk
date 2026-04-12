@@ -16,7 +16,7 @@ func (m mockTaskLookup) GetByShortID(ctx context.Context, shortID string) (*doma
 }
 
 func TestResolve_UDAField(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "uda.env", Value: "prod"},
@@ -35,7 +35,7 @@ func TestResolve_UDAField(t *testing.T) {
 }
 
 func TestResolve_UDAMultipleFields(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "uda.env", Value: "prod"},
@@ -55,7 +55,7 @@ func TestResolve_UDAMultipleFields(t *testing.T) {
 }
 
 func TestResolve_UDAEmptyValue(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "uda.env", Value: ""},
@@ -71,7 +71,7 @@ func TestResolve_UDAEmptyValue(t *testing.T) {
 }
 
 func TestResolve_TitleContains(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "title", Value: "auth middleware"},
@@ -87,7 +87,7 @@ func TestResolve_TitleContains(t *testing.T) {
 }
 
 func TestResolve_DescriptionContains(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "description", Value: "implement feature"},

@@ -16,13 +16,16 @@ type TaskLookup interface {
 
 // Resolver converts a parsed FilterSet into a domain.TaskFilter.
 type Resolver struct {
-	taskLookup TaskLookup
+	taskLookup      TaskLookup
+	defaultStatuses []string
 }
 
-// NewResolver creates a Resolver with the given lookup dependencies.
-func NewResolver(taskLookup TaskLookup) *Resolver {
+// NewResolver creates a Resolver with the given lookup dependencies and the
+// list of statuses to inject when no explicit status filter is provided.
+func NewResolver(taskLookup TaskLookup, defaultStatuses []string) *Resolver {
 	return &Resolver{
-		taskLookup: taskLookup,
+		taskLookup:      taskLookup,
+		defaultStatuses: defaultStatuses,
 	}
 }
 
@@ -53,7 +56,7 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 	}
 
 	if !hasStatus {
-		tf.Statuses = []string{"pending", "active"}
+		tf.Statuses = r.defaultStatuses
 	}
 
 	return &tf, errs
@@ -76,7 +79,7 @@ func (r *Resolver) ResolveExpr(ctx context.Context, expr Expr) (domain.FilterExp
 	if !exprHasStatus(expr) {
 		defaultStatus := &domain.TermFilter{
 			TaskFilter: domain.TaskFilter{
-				Statuses: []string{"pending", "active"},
+				Statuses: r.defaultStatuses,
 			},
 		}
 		result = &domain.AndFilter{

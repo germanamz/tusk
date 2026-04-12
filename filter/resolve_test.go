@@ -22,7 +22,7 @@ func testResolver(t *testing.T) (*Resolver, *sqlite.Store) {
 	t.Cleanup(func() { store.Close() })
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
-	return NewResolver(taskRepo), store
+	return NewResolver(taskRepo, []string{"pending", "active"}), store
 }
 
 func TestResolve_DefaultStatuses(t *testing.T) {

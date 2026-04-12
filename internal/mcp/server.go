@@ -1,11 +1,13 @@
 package mcp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/filter"
 	"github.com/germanamz/tusk/service"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -537,6 +539,30 @@ func (s *Server) registerTools() {
 		),
 		s.handleTaskPop,
 	)
+}
+
+// newResolver builds a filter resolver seeded with the union of non-terminal
+// statuses across all configured workflows. Falls back to ["pending","active"]
+// if listing fails or no statuses are found.
+func (s *Server) newResolver(ctx context.Context) *filter.Resolver {
+	defaults := []string{"pending", "active"}
+	workflows, err := s.workflowSvc.List(ctx)
+	if err == nil {
+		seen := make(map[string]bool)
+		var collected []string
+		for _, wf := range workflows {
+			for _, name := range wf.NonTerminalStatuses() {
+				if !seen[name] {
+					seen[name] = true
+					collected = append(collected, name)
+				}
+			}
+		}
+		if len(collected) > 0 {
+			defaults = collected
+		}
+	}
+	return filter.NewResolver(s.taskSvc, defaults)
 }
 
 // Serve starts the MCP server using stdio transport.

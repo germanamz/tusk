@@ -342,7 +342,7 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 
 		var filterExpr domain.FilterExpr
 		if expr != nil {
-			resolver := filter.NewResolver(s.taskSvc)
+			resolver := s.newResolver(ctx)
 			var resolveErrs []error
 			filterExpr, resolveErrs = resolver.ResolveExpr(ctx, expr)
 			if len(resolveErrs) > 0 {
@@ -1044,7 +1044,7 @@ func (s *Server) handleTaskAvailable(ctx context.Context, request mcp.CallToolRe
 		}
 
 		if expr != nil {
-			resolver := filter.NewResolver(s.taskSvc)
+			resolver := s.newResolver(ctx)
 			var resolveErrs []error
 			filterExpr, resolveErrs = resolver.ResolveExpr(ctx, expr)
 			if len(resolveErrs) > 0 {
@@ -1099,7 +1099,7 @@ func (s *Server) handleTaskPop(ctx context.Context, request mcp.CallToolRequest)
 			return mcp.NewToolResultError("filter parse error: " + filter.FormatErrors(parseErrs)), nil
 		}
 		if expr != nil {
-			resolver := filter.NewResolver(s.taskSvc)
+			resolver := s.newResolver(ctx)
 			var resolveErrs []error
 			filterExpr, resolveErrs = resolver.ResolveExpr(ctx, expr)
 			if len(resolveErrs) > 0 {
