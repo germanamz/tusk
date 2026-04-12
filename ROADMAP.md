@@ -526,21 +526,41 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] `config.ModifyWorkflow(name, WorkflowMutation)` — apply field changes (replace/add/remove), validate, write
   - [x] `config.DeleteWorkflow(name)` — validate no project references, remove, write
 
+### Initiative: Inline Syntax Modifier AST
+
+> Promote the `+`/`-` token prefix to a first-class AST property with both list-op and arithmetic-op variants. Prerequisite for Project Management CLI urgency weight mutations; lets commands stop hand-rolling prefix parsing.
+
+- [ ] **Story: Field modifier AST**
+  - [ ] Extend `syntax.FieldFilter` with a `Modifier` field carrying the raw prefix rune only (empty = bare). No domain semantics attached at the AST level.
+  - [ ] Treat the set of recognized modifier prefixes as an open, extensible registry in the syntax package — initially `+` and `-`, designed so new prefixes (e.g. `?`, `*`) can be added without changing the `FieldFilter` shape or the consumer-facing API. Adding a new prefix is a one-line registry change plus consumer opt-in.
+  - [ ] Lexer consults the registry when scanning a token's first character: if the char is a registered modifier and is followed by a field/tag body, strip it into the AST marker; otherwise treat it as part of the value
+  - [ ] `FieldFilter.Key`/`FieldFilter.Value` always expose the bare form; modifier carried separately so consumers pattern-match on it without re-parsing strings
+  - [ ] The syntax package is explicit that it does not interpret modifiers — whether `+` means "append to a list", "add arithmetically", "include", or something else is entirely the consumer command's decision. The same neutral AST shape serves all of them, and the same applies to any future modifier.
+  - [ ] Migrate `internal/tui/workflow_parse.go` to read `FieldFilter.Modifier` instead of inspecting string prefixes — the workflow command interprets `+`/`-` as list add/remove on `status`/`transition`
+  - [ ] Migrate filter and task add/modify parsers to use the same field; list/tag semantics they assign are unchanged externally
+  - [ ] Unit tests cover lexing each registered modifier into the AST with no semantic interpretation, plus a "register a new modifier" test that proves the extensibility path works without touching consumer code. Consumer-level tests live in their respective packages and cover the interpretation layer.
+
 ### Initiative: Project Management CLI
 
 > Create, modify, and remove projects via CLI commands that write to the config file.
 
 - [ ] **Story: Project CRUD commands**
   - [ ] `tusk project create <name> [fields...]` — inline syntax: `workflow=kanban db-path=/data/b.db auto-complete.trigger=completed urgency.blocking-weight=15`
-  - [ ] `tusk project modify <name> [fields...]` — inline syntax with `+`/`-` prefix for list field add/remove, bare for replace
-  - [ ] `tusk project delete <name>` — remove project from config (reject if tasks reference it)
+  - [ ] `tusk project modify <name> [fields...]` — inline syntax: bare assignment replaces (`workflow=sprint`, `urgency.blocking-weight=10`); `+key=value`/`-key=value` apply arithmetic deltas on numeric urgency weights (`+urgency.blocking-weight=2` adds 2, `-urgency.blocking-weight=1` subtracts 1)
+  - [ ] Numeric delta resolution: when the project override is unset, the delta applies relative to the effective global urgency weight and the result is written as a new project override
+  - [ ] Accepted fields: `workflow`, `db-path`, `auto-complete.trigger`, `auto-complete.target`, `auto-revert.trigger`, `auto-revert.target`, and every `urgency.<weight>` key
+  - [ ] `tusk project delete <name>` — removes project from config; rejects if any tasks reference it; rejects deleting the built-in `default` project; `--force` bypasses both guards and emits a warning with the task count
+  - [ ] Config package mutations: `config.CreateProject`, `config.ModifyProject`, `config.DeleteProject` — mirror the workflow mutation helpers, reusable by MCP tools
+  - [ ] Task-reference check passes a callback into `config.DeleteProject` so the config package stays free of service/repository imports
 
 - [ ] **Story: Per-project database path**
-  - [ ] `[projects.<name>].db_path` config key — optional SQLite file path per project
-  - [ ] Projects without `db_path` use the global `storage.path`
-  - [ ] Open and migrate per-project DB on first access, reuse connection for subsequent operations
-  - [ ] `db-path=/path/to/file.db` supported in project create/modify inline syntax
-  - [ ] Cross-project commands (e.g., unfiltered `tusk list`) query all project databases and merge results
+  - [ ] `[projects.<name>].db_path` config key — optional SQLite file path per project; `db-path=...` in inline syntax writes it, `db-path=` clears it
+  - [ ] Paths resolve relative to the config file's directory (absolute paths used as-is, `~` expanded); projects without `db_path` use the global `storage.path`
+  - [ ] Store registry: lazily open and migrate per-project databases on first access, reuse the connection for subsequent operations, close all on shutdown
+  - [ ] Task, annotation, relation, and tag repositories are bundled per store; services resolve the correct bundle via the registry using the task's project ID
+  - [ ] Cross-project reads (unfiltered `tusk list`, `available`, `next`) fan out across all known stores and merge results, re-sorting by urgency in memory before applying limit/offset
+  - [ ] `tusk pop` picks the highest-urgency candidate across stores, then claims it in its own store with retry on optimistic-lock conflict
+  - [ ] Relations must link tasks within the same store — `RelationService.Create` rejects cross-store links to preserve referential integrity; documented as a per-project-DB constraint
 
 ### Initiative: Local Config Discovery
 
