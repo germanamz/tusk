@@ -31,6 +31,16 @@ func TestWorkflowCommands(t *testing.T) {
 								if len(statuses) != 4 {
 									t.Fatalf("expected 4 statuses, got %d", len(statuses))
 								}
+								// Verify statuses are objects with name and roles fields
+								for _, s := range statuses {
+									sm := s.(map[string]any)
+									if _, ok := sm["name"]; !ok {
+										t.Fatal("status missing 'name' field")
+									}
+									if _, ok := sm["roles"]; !ok {
+										t.Fatal("status missing 'roles' field")
+									}
+								}
 								transitions := m["transitions"].([]any)
 								if len(transitions) != 6 {
 									t.Fatalf("expected 6 transitions, got %d", len(transitions))
@@ -73,6 +83,13 @@ func TestWorkflowCommands(t *testing.T) {
 						statuses := m["statuses"].([]any)
 						if len(statuses) != 4 {
 							t.Fatalf("expected 4 statuses, got %v", statuses)
+						}
+						// Verify statuses have name+roles shape
+						for _, s := range statuses {
+							sm := s.(map[string]any)
+							if _, ok := sm["name"]; !ok {
+								t.Fatal("status missing 'name' field")
+							}
 						}
 						transitions := m["transitions"].([]any)
 						if len(transitions) != 6 {
