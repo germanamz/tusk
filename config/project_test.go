@@ -104,3 +104,28 @@ func TestDeleteProject_Force(t *testing.T) {
 		t.Fatal("expected backend removed")
 	}
 }
+
+func TestResolveWeightDelta(t *testing.T) {
+	globalWeight := 5.0
+	cases := []struct {
+		name     string
+		override *float64
+		delta    float64
+		want     float64
+	}{
+		{"no override, add 2", nil, 2.0, 7.0},
+		{"no override, subtract 1", nil, -1.0, 4.0},
+		{"override=10, add 2", floatPtr(10), 2.0, 12.0},
+		{"override=10, subtract 3", floatPtr(10), -3.0, 7.0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveWeightDelta(globalWeight, tc.override, tc.delta)
+			if got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func floatPtr(v float64) *float64 { return &v }
