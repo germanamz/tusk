@@ -23,11 +23,15 @@ func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService
 	t.Cleanup(func() { store.Close() })
 
 	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
-	tagRepo := sqlite.NewTagRepo(db)
-	relationRepo := sqlite.NewRelationRepo(db)
 	playerRepo := sqlite.NewPlayerRepo(db)
+	bundle := &service.RepoBundle{
+		Store:       store,
+		Tasks:       sqlite.NewTaskRepo(db),
+		Annotations: sqlite.NewAnnotationRepo(db),
+		Relations:   sqlite.NewRelationRepo(db),
+		Tags:        sqlite.NewTagRepo(db),
+		Players:     playerRepo,
+	}
 
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
 		"default": {
@@ -54,7 +58,13 @@ func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService
 	})
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 
-	taskSvc := service.NewTaskService(taskRepo, annotationRepo, relationRepo, tagRepo, projectRepo, workflowSvc, store, nil, playerRepo)
+	resolver := func(_ context.Context, _ string) (*service.RepoBundle, error) {
+		return bundle, nil
+	}
+	projects := func(context.Context) ([]string, error) {
+		return []string{"default"}, nil
+	}
+	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 	playerSvc := service.NewPlayerService(playerRepo)
 
 	return taskSvc, playerSvc

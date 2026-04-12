@@ -8,7 +8,6 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
-	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
@@ -16,16 +15,10 @@ import (
 // testTagEnv creates a fully wired test environment for TagService tests.
 func testTagEnv(t *testing.T) (*TagService, *sqlite.Store) {
 	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
-
-	db := store.DB()
-	tagRepo := sqlite.NewTagRepo(db)
-	tagSvc := NewTagService(tagRepo)
-	return tagSvc, store
+	bundle := newTestBundle(t)
+	resolver, _ := singleBundleResolver(bundle, "default")
+	tagSvc := NewTagService(resolver)
+	return tagSvc, bundle.Store
 }
 
 func TestFindOrCreate_NewTag(t *testing.T) {
@@ -87,8 +80,14 @@ func TestFindOrCreate_WhitespaceName(t *testing.T) {
 func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 	t.Helper()
 	db := store.DB()
-	taskRepo := sqlite.NewTaskRepo(db)
-	annotationRepo := sqlite.NewAnnotationRepo(db)
+	bundle := &RepoBundle{
+		Store:       store,
+		Tasks:       sqlite.NewTaskRepo(db),
+		Annotations: sqlite.NewAnnotationRepo(db),
+		Relations:   sqlite.NewRelationRepo(db),
+		Tags:        sqlite.NewTagRepo(db),
+		Players:     sqlite.NewPlayerRepo(db),
+	}
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
 		"default": {Workflow: "kanban"},
 	})
@@ -110,8 +109,9 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 			},
 		},
 	})
+	resolver, projects := singleBundleResolver(bundle, "default")
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(taskRepo, annotationRepo, nil, nil, projectRepo, workflowSvc, store, nil, nil)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 
 	task := &domain.Task{Title: "test task"}
 	if err := taskSvc.Create(context.Background(), task); err != nil {
