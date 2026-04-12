@@ -442,3 +442,32 @@ func TestTokenModifierFieldExistsAndDefaultsToZero(t *testing.T) {
 		}
 	}
 }
+
+func TestLexWithModifiersDelegatesWithDefaultRegistry(t *testing.T) {
+	input := "status=active +urgent -blocked title=\"hello\""
+	defaultTokens, _ := Lex(input)
+	withTokens, _ := LexWithModifiers(input, DefaultModifiers())
+
+	if len(defaultTokens) != len(withTokens) {
+		t.Fatalf("token count differs: default=%d, with=%d", len(defaultTokens), len(withTokens))
+	}
+	for i := range defaultTokens {
+		if defaultTokens[i] != withTokens[i] {
+			t.Errorf("tokens[%d] differ: default=%+v, with=%+v", i, defaultTokens[i], withTokens[i])
+		}
+	}
+}
+
+func TestLexWithModifiersIgnoredParameterInPhase1(t *testing.T) {
+	custom := DefaultModifiers().With('?')
+	a, _ := LexWithModifiers("?priority=3", DefaultModifiers())
+	b, _ := LexWithModifiers("?priority=3", custom)
+	if len(a) != len(b) {
+		t.Fatalf("token count mismatch: default=%d custom=%d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Errorf("tokens[%d] differ: default=%+v custom=%+v", i, a[i], b[i])
+		}
+	}
+}
