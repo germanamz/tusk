@@ -45,24 +45,3 @@ func singleBundleResolver(bundle *RepoBundle, projectIDs ...string) (BundleResol
 	}
 	return resolver, lister
 }
-
-// multiBundleResolver returns a resolver and project lister that map
-// each project ID to a distinct bundle.
-func multiBundleResolver(t *testing.T, bundles map[string]*RepoBundle) (BundleResolver, ProjectLister) {
-	t.Helper()
-	ids := make([]string, 0, len(bundles))
-	for k := range bundles {
-		ids = append(ids, k)
-	}
-	resolver := func(_ context.Context, projectID string) (*RepoBundle, error) {
-		b, ok := bundles[projectID]
-		if !ok {
-			t.Fatalf("multiBundleResolver: unknown project %q", projectID)
-		}
-		return b, nil
-	}
-	lister := func(context.Context) ([]string, error) {
-		return ids, nil
-	}
-	return resolver, lister
-}

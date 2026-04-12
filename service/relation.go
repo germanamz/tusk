@@ -33,33 +33,19 @@ func NewRelationService(resolve BundleResolver, projects ProjectLister) *Relatio
 	return &RelationService{resolve: resolve, projects: projects}
 }
 
-// findTask searches every known project store for a task by short ID
-// and returns the owning bundle along with the task.
 func (s *RelationService) findTask(ctx context.Context, shortID string) (*RepoBundle, *domain.Task, error) {
-	ids, err := s.projects(ctx)
+	bundle, err := s.resolve(ctx, "default")
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, pid := range ids {
-		bundle, err := s.resolve(ctx, pid)
-		if err != nil {
-			return nil, nil, err
-		}
-		task, err := bundle.Tasks.GetByShortID(ctx, shortID)
-		if err == nil {
-			return bundle, task, nil
-		}
-		if !errors.Is(err, domain.ErrNotFound) {
-			return nil, nil, err
-		}
+	task, err := bundle.Tasks.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil, nil, domain.ErrNotFound
+	return bundle, task, nil
 }
 
 // Add creates a new relation between two tasks identified by short IDs.
-//
-// Both endpoints must live in the same project store; cross-store
-// relations return domain.ErrCrossStoreRelation.
 //
 // For "blocks" relations, the creation is wrapped in a transaction with
 // cycle detection. For other types, no cycle check is needed.
@@ -76,16 +62,12 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 		return nil, fmt.Errorf("resolving source task: %w", err)
 	}
 
-	targetBundle, target, err := s.findTask(ctx, targetShortID)
+	_, target, err := s.findTask(ctx, targetShortID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, domain.ErrTargetNotFound
 		}
 		return nil, fmt.Errorf("resolving target task: %w", err)
-	}
-
-	if sourceBundle != targetBundle {
-		return nil, domain.ErrCrossStoreRelation
 	}
 
 	rel := &domain.Relation{
@@ -114,8 +96,7 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 	return rel, nil
 }
 
-// Remove deletes an existing relation between two tasks. Both endpoints
-// must live in the same project store.
+// Remove deletes an existing relation between two tasks.
 func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShortID, relType string) error {
 	sourceBundle, source, err := s.findTask(ctx, sourceShortID)
 	if err != nil {
@@ -125,16 +106,12 @@ func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShort
 		return fmt.Errorf("resolving source task: %w", err)
 	}
 
-	targetBundle, target, err := s.findTask(ctx, targetShortID)
+	_, target, err := s.findTask(ctx, targetShortID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return domain.ErrTargetNotFound
 		}
 		return fmt.Errorf("resolving target task: %w", err)
-	}
-
-	if sourceBundle != targetBundle {
-		return domain.ErrCrossStoreRelation
 	}
 
 	return sourceBundle.Relations.DeleteByFields(ctx, source.ID, target.ID, relType)
