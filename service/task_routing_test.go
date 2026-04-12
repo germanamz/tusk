@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/germanamz/tusk/config"
@@ -42,55 +41,46 @@ func multiProjectWorkflowSvc(projectRepo *inmem.ProjectRepository) *WorkflowServ
 	return NewWorkflowService(workflowRepo, projectRepo)
 }
 
-func twoProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle, *RepoBundle) {
+// multiProjectTaskSvc wires a TaskService over a single workspace bundle
+// that answers for multiple project IDs.
+func multiProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle) {
 	t.Helper()
-	defaultBundle := newTestBundle(t)
-	backendBundle := newTestBundle(t)
-
-	resolver, projects := multiBundleResolver(t, map[string]*RepoBundle{
-		"default": defaultBundle,
-		"backend": backendBundle,
-	})
+	bundle := newTestBundle(t)
+	resolver, projects := singleBundleResolver(bundle, "default", "backend")
 	projectRepo := multiProjectKanban("default", "backend")
 	workflowSvc := multiProjectWorkflowSvc(projectRepo)
 	svc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
-	return svc, defaultBundle, backendBundle
+	return svc, bundle
 }
 
-func TestTaskService_CreateRoutesToProjectBundle(t *testing.T) {
+func TestTaskService_CreateRoutesToWorkspaceBundle(t *testing.T) {
 	ctx := context.Background()
-	svc, defaultBundle, backendBundle := twoProjectTaskSvc(t)
+	svc, bundle := multiProjectTaskSvc(t)
 
 	task := &domain.Task{Title: "backend task", ProjectID: "backend"}
 	if err := svc.Create(ctx, task); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := backendBundle.Tasks.GetByID(ctx, task.ID)
+	got, err := bundle.Tasks.GetByID(ctx, task.ID)
 	if err != nil {
-		t.Fatalf("expected task in backend bundle: %v", err)
+		t.Fatalf("expected task in workspace bundle: %v", err)
 	}
-	if got.Title != "backend task" {
-		t.Fatalf("unexpected title %q", got.Title)
-	}
-
-	if _, err := defaultBundle.Tasks.GetByID(ctx, task.ID); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("task should NOT be in default bundle; got err=%v", err)
+	if got.Title != "backend task" || got.ProjectID != "backend" {
+		t.Fatalf("unexpected task %+v", got)
 	}
 }
 
-func TestTaskService_ListFansOutAcrossStores(t *testing.T) {
+func TestTaskService_ListReturnsAllProjectsFromWorkspace(t *testing.T) {
 	ctx := context.Background()
-	svc, _, _ := twoProjectTaskSvc(t)
+	svc, _ := multiProjectTaskSvc(t)
 
 	for _, title := range []string{"d1", "d2"} {
-		task := &domain.Task{Title: title, ProjectID: "default"}
-		if err := svc.Create(ctx, task); err != nil {
+		if err := svc.Create(ctx, &domain.Task{Title: title, ProjectID: "default"}); err != nil {
 			t.Fatalf("Create default %q: %v", title, err)
 		}
 	}
-	backend := &domain.Task{Title: "b1", ProjectID: "backend"}
-	if err := svc.Create(ctx, backend); err != nil {
+	if err := svc.Create(ctx, &domain.Task{Title: "b1", ProjectID: "backend"}); err != nil {
 		t.Fatalf("Create backend: %v", err)
 	}
 
@@ -99,13 +89,13 @@ func TestTaskService_ListFansOutAcrossStores(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 	if len(all) != 3 {
-		t.Fatalf("expected 3 merged tasks, got %d", len(all))
+		t.Fatalf("expected 3 tasks, got %d", len(all))
 	}
 }
 
-func TestTaskService_ListProjectFilterNarrowsStores(t *testing.T) {
+func TestTaskService_ListProjectFilterNarrowsResult(t *testing.T) {
 	ctx := context.Background()
-	svc, _, _ := twoProjectTaskSvc(t)
+	svc, _ := multiProjectTaskSvc(t)
 
 	if err := svc.Create(ctx, &domain.Task{Title: "d1", ProjectID: "default"}); err != nil {
 		t.Fatalf("Create default: %v", err)
@@ -120,17 +110,14 @@ func TestTaskService_ListProjectFilterNarrowsStores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 task, got %d: %+v", len(got), got)
-	}
-	if got[0].Title != "b1" {
-		t.Fatalf("expected 'b1', got %q", got[0].Title)
+	if len(got) != 1 || got[0].Title != "b1" {
+		t.Fatalf("expected only 'b1', got %+v", got)
 	}
 }
 
-func TestTaskService_AvailableFansOutAcrossStores(t *testing.T) {
+func TestTaskService_AvailableReturnsAllProjects(t *testing.T) {
 	ctx := context.Background()
-	svc, _, _ := twoProjectTaskSvc(t)
+	svc, _ := multiProjectTaskSvc(t)
 
 	if err := svc.Create(ctx, &domain.Task{Title: "d1", ProjectID: "default"}); err != nil {
 		t.Fatalf("Create default: %v", err)
@@ -144,25 +131,36 @@ func TestTaskService_AvailableFansOutAcrossStores(t *testing.T) {
 		t.Fatalf("Available: %v", err)
 	}
 	if len(avail) != 2 {
-		t.Fatalf("expected 2 available across stores, got %d", len(avail))
+		t.Fatalf("expected 2 available, got %d", len(avail))
 	}
 }
 
-func TestTaskService_UpdateRejectsCrossStoreProjectChange(t *testing.T) {
+func TestTaskService_UpdateAllowsProjectMoveWithinWorkspace(t *testing.T) {
 	ctx := context.Background()
-	svc, _, _ := twoProjectTaskSvc(t)
+	svc, bundle := multiProjectTaskSvc(t)
 
 	task := &domain.Task{Title: "t", ProjectID: "default"}
 	if err := svc.Create(ctx, task); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	newProj := "backend"
-	_, err := svc.Update(ctx, domain.TaskUpdate{
+	updated, err := svc.Update(ctx, domain.TaskUpdate{
 		ShortID:   task.ShortID,
 		Version:   task.Version,
 		ProjectID: &newProj,
 	})
-	if !errors.Is(err, domain.ErrCrossStoreRelation) {
-		t.Fatalf("expected ErrCrossStoreRelation, got %v", err)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.ProjectID != "backend" {
+		t.Fatalf("expected project=backend, got %q", updated.ProjectID)
+	}
+
+	got, err := bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.ProjectID != "backend" {
+		t.Fatalf("stored project mismatch: %q", got.ProjectID)
 	}
 }
