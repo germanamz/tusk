@@ -22,7 +22,7 @@ type WorkflowTransitionConfig struct {
 
 // StatusConfig defines a single status within a workflow.
 type StatusConfig struct {
-	Roles []string `mapstructure:"roles" toml:"roles,omitempty"`
+	Roles []string `mapstructure:"roles" toml:"roles"`
 }
 
 // Valid status roles.
