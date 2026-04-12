@@ -36,13 +36,13 @@ func Parse(input string) (*FilterSet, []ParseError) {
 		switch tok.Type {
 		case TokenTagInclude:
 			fs.Tags = append(fs.Tags, TagFilter{
-				Name: tok.Value[1:], // strip leading '+'
+				Name: tok.Value,
 				Pos:  tok.Pos,
 			})
 
 		case TokenTagExclude:
 			fs.Tags = append(fs.Tags, TagFilter{
-				Name:    tok.Value[1:], // strip leading '-'
+				Name:    tok.Value,
 				Exclude: true,
 				Pos:     tok.Pos,
 			})
@@ -76,9 +76,10 @@ func Parse(input string) (*FilterSet, []ParseError) {
 					continue
 				}
 				fs.Fields = append(fs.Fields, FieldFilter{
-					Key:   key,
-					Value: value,
-					Pos:   tok.Pos,
+					Key:      key,
+					Value:    value,
+					Modifier: tok.Modifier,
+					Pos:      tok.Pos,
 				})
 				continue
 			}
@@ -100,9 +101,10 @@ func Parse(input string) (*FilterSet, []ParseError) {
 				continue
 			}
 			fs.Fields = append(fs.Fields, FieldFilter{
-				Key:   key,
-				Value: value,
-				Pos:   tok.Pos,
+				Key:      key,
+				Value:    value,
+				Modifier: tok.Modifier,
+				Pos:      tok.Pos,
 			})
 		}
 	}

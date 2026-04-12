@@ -72,12 +72,12 @@ func Lex(input string) ([]Token, []ParseError) {
 // Returns all tokens produced plus any errors encountered. Processing
 // continues past errors so all issues are reported in one pass.
 //
-// Phase 1: the modifiers parameter is accepted but not yet consulted inside
-// the body — behavior is identical to the legacy Lex. Phase 2 of the modifier
-// AST initiative will make the body read the registry when scanning each
-// token's first character.
+// Registered prefix bytes present in modifiers are stripped from the start of
+// a token and surfaced in Token.Modifier. The stripped body is what drives
+// field/tag classification: `+priority=3` becomes a field token with
+// Value="priority=3" and Modifier='+', while `+urgent` becomes a tag include
+// with Value="urgent" and Modifier='+'.
 func LexWithModifiers(input string, modifiers ModifierSet) ([]Token, []ParseError) {
-	_ = modifiers // intentionally unused in Phase 1; Phase 2 wires it in
 	var tokens []Token
 	var errs []ParseError
 
@@ -165,29 +165,44 @@ func LexWithModifiers(input string, modifiers ModifierSet) ([]Token, []ParseErro
 		}
 
 		// Classify the token
+		var modifier byte
+		body := raw
+
+		if len(raw) >= 2 && modifiers.Has(raw[0]) {
+			modifier = raw[0]
+			body = raw[1:]
+		}
+
 		switch {
-		case len(raw) == 1 && (raw[0] == '+' || raw[0] == '-'):
+		case len(raw) == 1 && modifiers.Has(raw[0]):
 			errs = append(errs, ParseError{
 				Pos:     start,
 				Message: fmt.Sprintf("bare %q is not a valid token; use %s<name> for tags", raw, raw),
 			})
 
-		case raw[0] == '+':
-			if hasEquals(raw[1:]) {
-				tokens = append(tokens, Token{Type: TokenField, Value: raw, Pos: start})
-			} else {
-				tokens = append(tokens, Token{Type: TokenTagInclude, Value: raw, Pos: start})
-			}
+		case isFieldToken(body):
+			tokens = append(tokens, Token{
+				Type:     TokenField,
+				Value:    body,
+				Modifier: modifier,
+				Pos:      start,
+			})
 
-		case raw[0] == '-':
-			if hasEquals(raw[1:]) {
-				tokens = append(tokens, Token{Type: TokenField, Value: raw, Pos: start})
-			} else {
-				tokens = append(tokens, Token{Type: TokenTagExclude, Value: raw, Pos: start})
-			}
+		case modifier == '+':
+			tokens = append(tokens, Token{
+				Type:     TokenTagInclude,
+				Value:    body,
+				Modifier: modifier,
+				Pos:      start,
+			})
 
-		case isFieldToken(raw):
-			tokens = append(tokens, Token{Type: TokenField, Value: raw, Pos: start})
+		case modifier == '-':
+			tokens = append(tokens, Token{
+				Type:     TokenTagExclude,
+				Value:    body,
+				Modifier: modifier,
+				Pos:      start,
+			})
 
 		case raw == "AND":
 			tokens = append(tokens, Token{Type: TokenAnd, Value: raw, Pos: start})
@@ -234,16 +249,6 @@ func isFieldToken(raw string) bool {
 	for i := 0; i < len(raw); i++ {
 		if raw[i] == '=' {
 			return i > 0
-		}
-	}
-	return false
-}
-
-// hasEquals returns true if s contains at least one '=' character.
-func hasEquals(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '=' {
-			return true
 		}
 	}
 	return false

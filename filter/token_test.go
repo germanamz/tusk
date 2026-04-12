@@ -66,16 +66,16 @@ func TestLex(t *testing.T) {
 			name:  "tag include",
 			input: "+api +frontend",
 			want: []Token{
-				{Type: TokenTagInclude, Value: "+api", Pos: 0},
-				{Type: TokenTagInclude, Value: "+frontend", Pos: 5},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 0},
+				{Type: TokenTagInclude, Value: "frontend", Modifier: '+', Pos: 5},
 			},
 		},
 		{
 			name:  "tag exclude",
 			input: "-docs -wip",
 			want: []Token{
-				{Type: TokenTagExclude, Value: "-docs", Pos: 0},
-				{Type: TokenTagExclude, Value: "-wip", Pos: 6},
+				{Type: TokenTagExclude, Value: "docs", Modifier: '-', Pos: 0},
+				{Type: TokenTagExclude, Value: "wip", Modifier: '-', Pos: 6},
 			},
 		},
 		{
@@ -85,8 +85,8 @@ func TestLex(t *testing.T) {
 				{Type: TokenText, Value: "My", Pos: 0},
 				{Type: TokenText, Value: "task", Pos: 3},
 				{Type: TokenField, Value: "project=backend", Pos: 8},
-				{Type: TokenTagInclude, Value: "+api", Pos: 24},
-				{Type: TokenTagExclude, Value: "-docs", Pos: 29},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 24},
+				{Type: TokenTagExclude, Value: "docs", Modifier: '-', Pos: 29},
 				{Type: TokenField, Value: "priority=3", Pos: 35},
 			},
 		},
@@ -113,7 +113,7 @@ func TestLex(t *testing.T) {
 			input: "status=active   +api",
 			want: []Token{
 				{Type: TokenField, Value: "status=active", Pos: 0},
-				{Type: TokenTagInclude, Value: "+api", Pos: 16},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 16},
 			},
 		},
 		{
@@ -136,7 +136,7 @@ func TestLex(t *testing.T) {
 			want: []Token{
 				{Type: TokenField, Value: "status=active", Pos: 0},
 				{Type: TokenField, Value: `title=fix the bug`, Pos: 14},
-				{Type: TokenTagInclude, Value: "+api", Pos: 34},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 34},
 			},
 		},
 		{
@@ -152,7 +152,7 @@ func TestLex(t *testing.T) {
 			want: []Token{
 				{Type: TokenText, Value: "My cool task", Pos: 0},
 				{Type: TokenField, Value: "project=backend", Pos: 15},
-				{Type: TokenTagInclude, Value: "+api", Pos: 31},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 31},
 			},
 		},
 		{
@@ -161,7 +161,7 @@ func TestLex(t *testing.T) {
 			want: []Token{
 				{Type: TokenField, Value: "status=active", Pos: 0},
 				{Type: TokenAnd, Value: "AND", Pos: 14},
-				{Type: TokenTagInclude, Value: "+api", Pos: 18},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 18},
 			},
 		},
 		{
@@ -188,7 +188,7 @@ func TestLex(t *testing.T) {
 				{Type: TokenLParen, Value: "(", Pos: 0},
 				{Type: TokenField, Value: "status=active", Pos: 1},
 				{Type: TokenOr, Value: "OR", Pos: 15},
-				{Type: TokenTagInclude, Value: "+urgent", Pos: 18},
+				{Type: TokenTagInclude, Value: "urgent", Modifier: '+', Pos: 18},
 				{Type: TokenRParen, Value: ")", Pos: 25},
 			},
 		},
@@ -229,6 +229,9 @@ func TestLex(t *testing.T) {
 				if tok.Value != tt.want[i].Value {
 					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
 				}
+				if tok.Modifier != tt.want[i].Modifier {
+					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
+				}
 				if tok.Pos != tt.want[i].Pos {
 					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
 				}
@@ -262,15 +265,15 @@ func TestLex_EdgeCases(t *testing.T) {
 			name:  "tag with numbers",
 			input: "+v2 -v1",
 			want: []Token{
-				{Type: TokenTagInclude, Value: "+v2", Pos: 0},
-				{Type: TokenTagExclude, Value: "-v1", Pos: 4},
+				{Type: TokenTagInclude, Value: "v2", Modifier: '+', Pos: 0},
+				{Type: TokenTagExclude, Value: "v1", Modifier: '-', Pos: 4},
 			},
 		},
 		{
 			name:  "additive modifier field",
 			input: "+api=test",
 			want: []Token{
-				{Type: TokenField, Value: "+api=test", Pos: 0},
+				{Type: TokenField, Value: "api=test", Modifier: '+', Pos: 0},
 			},
 		},
 		{
@@ -324,7 +327,7 @@ func TestLex_EdgeCases(t *testing.T) {
 			name:  "adjacent quoted and unquoted",
 			input: `+api "my task" status=active`,
 			want: []Token{
-				{Type: TokenTagInclude, Value: "+api", Pos: 0},
+				{Type: TokenTagInclude, Value: "api", Modifier: '+', Pos: 0},
 				{Type: TokenText, Value: "my task", Pos: 5},
 				{Type: TokenField, Value: "status=active", Pos: 15},
 			},
@@ -354,6 +357,9 @@ func TestLex_EdgeCases(t *testing.T) {
 				}
 				if tok.Value != tt.want[i].Value {
 					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
+				}
+				if tok.Modifier != tt.want[i].Modifier {
+					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
 				}
 				if tok.Pos != tt.want[i].Pos {
 					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)

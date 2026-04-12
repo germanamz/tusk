@@ -258,7 +258,12 @@ func (p *exprParser) parseTerm() Expr {
 				})
 				return nil
 			}
-			return TermExpr{Field: &FieldFilter{Key: key, Value: value, Pos: tok.Pos}}
+			return TermExpr{Field: &FieldFilter{
+				Key:      key,
+				Value:    value,
+				Modifier: tok.Modifier,
+				Pos:      tok.Pos,
+			}}
 		}
 
 		validator, known := fieldValidators[key]
@@ -278,15 +283,20 @@ func (p *exprParser) parseTerm() Expr {
 			})
 			return nil
 		}
-		return TermExpr{Field: &FieldFilter{Key: key, Value: value, Pos: tok.Pos}}
+		return TermExpr{Field: &FieldFilter{
+			Key:      key,
+			Value:    value,
+			Modifier: tok.Modifier,
+			Pos:      tok.Pos,
+		}}
 
 	case TokenTagInclude:
 		p.advance()
-		return TermExpr{Tag: &TagFilter{Name: tok.Value[1:], Pos: tok.Pos}}
+		return TermExpr{Tag: &TagFilter{Name: tok.Value, Pos: tok.Pos}}
 
 	case TokenTagExclude:
 		p.advance()
-		return TermExpr{Tag: &TagFilter{Name: tok.Value[1:], Exclude: true, Pos: tok.Pos}}
+		return TermExpr{Tag: &TagFilter{Name: tok.Value, Exclude: true, Pos: tok.Pos}}
 
 	case TokenText:
 		p.advance()

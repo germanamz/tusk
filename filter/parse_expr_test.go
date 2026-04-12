@@ -284,3 +284,25 @@ func TestParseExpr_FieldValidation_MiddleBadTerm(t *testing.T) {
 		t.Fatalf("expected AND(+api, status=active), got %+v", expr)
 	}
 }
+
+func TestParseExprFieldCarriesModifier(t *testing.T) {
+	expr, errs := ParseExpr("+priority=4")
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	term, ok := expr.(TermExpr)
+	if !ok || term.Field == nil {
+		t.Fatalf("expected TermExpr with Field, got %T", expr)
+	}
+	if term.Field.Modifier != '+' || term.Field.Key != "priority" || term.Field.Value != "4" {
+		t.Errorf("unexpected field: %+v", term.Field)
+	}
+}
+
+func TestParseExprTagRoundTrip(t *testing.T) {
+	expr, _ := ParseExpr("+urgent")
+	term, ok := expr.(TermExpr)
+	if !ok || term.Tag == nil || term.Tag.Name != "urgent" || term.Tag.Exclude {
+		t.Fatalf("unexpected: %+v", expr)
+	}
+}
