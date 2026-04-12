@@ -109,7 +109,11 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 
 	// Default and validate status
 	if task.Status == "" {
-		task.Status = "pending"
+		initialStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleInitial)
+		if err != nil {
+			return fmt.Errorf("resolving initial status: %w", err)
+		}
+		task.Status = initialStatus
 	}
 	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
 	if err != nil {
@@ -457,21 +461,29 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	return s.taskRepo.GetByID(ctx, task.ID)
 }
 
-// Start transitions a task from its current status to "active".
+// Start transitions a task from its current status to its workflow's start-role status.
 // If playerID is non-empty and playerRepo is configured, it auto-claims
 // the task for the player. Returns ErrTaskClaimed if claimed by another player.
 func (s *TaskService) Start(ctx context.Context, shortID string, version int, playerID string) (*domain.Task, error) {
+	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
+	}
+	startStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleStart)
+	if err != nil {
+		return nil, fmt.Errorf("resolving start status: %w", err)
+	}
+
 	if playerID != "" && s.playerRepo != nil {
 		// Validate player exists
 		if _, err := s.playerRepo.GetByID(ctx, playerID); err != nil {
 			return nil, fmt.Errorf("player %q: %w", playerID, err)
 		}
 
-		// Check if task is claimed by someone else
-		task, err := s.taskRepo.GetByShortID(ctx, shortID)
-		if err != nil {
-			return nil, err
-		}
 		if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
 			return nil, domain.ErrTaskClaimed
 		}
@@ -480,7 +492,7 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 		upd := domain.TaskUpdate{
 			ShortID: shortID,
 			Version: version,
-			Status:  ptr("active"),
+			Status:  ptr(startStatus),
 		}
 		if task.ClaimedBy == nil {
 			now := time.Now().UTC().Truncate(time.Millisecond)
@@ -502,7 +514,7 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 	return s.Update(ctx, domain.TaskUpdate{
 		ShortID: shortID,
 		Version: version,
-		Status:  ptr("active"),
+		Status:  ptr(startStatus),
 	})
 }
 
