@@ -39,17 +39,26 @@ func run() error {
 		return err
 	}
 
-	// Ensure parent directory exists
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating data directory %s: %w", dir, err)
+	configPath, _ := config.ConfigFilePath()
+	baseDir := "."
+	if configPath != "" {
+		baseDir = filepath.Dir(configPath)
 	}
 
-	store, err := sqlite.New(dbPath, migrations.FS)
+	registry, err := sqlite.NewStoreRegistry(dbPath, baseDir, cfg.Projects, migrations.FS)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer store.Close()
+	defer registry.Close()
+
+	// BRIDGE (remove in Phase 4 Task 5): services still consume direct repos
+	// built from the default store, preserving single-store behavior until
+	// the service layer is refactored to use BundleResolver.
+	defaultStore, err := registry.Default()
+	if err != nil {
+		return fmt.Errorf("default store: %w", err)
+	}
+	store := defaultStore
 
 	db := store.DB()
 	taskRepo := sqlite.NewTaskRepo(db)
