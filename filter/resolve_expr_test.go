@@ -8,7 +8,7 @@ import (
 )
 
 func TestResolveExpr_SingleTerm(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	expr := TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}}
 
 	result, errs := resolver.ResolveExpr(context.Background(), expr)
@@ -27,7 +27,7 @@ func TestResolveExpr_SingleTerm(t *testing.T) {
 }
 
 func TestResolveExpr_AndExpr(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	expr := AndExpr{Children: []Expr{
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
 		TermExpr{Tag: &TagFilter{Name: "api"}},
@@ -48,7 +48,7 @@ func TestResolveExpr_AndExpr(t *testing.T) {
 }
 
 func TestResolveExpr_OrExpr(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	expr := OrExpr{Children: []Expr{
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "pending"}},
@@ -69,7 +69,7 @@ func TestResolveExpr_OrExpr(t *testing.T) {
 }
 
 func TestResolveExpr_NotExpr(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	expr := NotExpr{
 		Child: TermExpr{Field: &FieldFilter{Key: "status", Value: "deleted"}},
 	}
@@ -89,7 +89,7 @@ func TestResolveExpr_NotExpr(t *testing.T) {
 }
 
 func TestResolveExpr_DefaultStatuses(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	// Expression with no status term — should get default status wrapping
 	expr := TermExpr{Tag: &TagFilter{Name: "api"}}
 
@@ -116,7 +116,7 @@ func TestResolveExpr_DefaultStatuses(t *testing.T) {
 }
 
 func TestResolveExpr_WithStatusSkipsDefault(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	expr := TermExpr{Field: &FieldFilter{Key: "status", Value: "completed"}}
 
 	result, errs := resolver.ResolveExpr(context.Background(), expr)
@@ -135,7 +135,7 @@ func TestResolveExpr_WithStatusSkipsDefault(t *testing.T) {
 }
 
 func TestResolveExpr_TagTerms(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	expr := AndExpr{Children: []Expr{
 		TermExpr{Tag: &TagFilter{Name: "api"}},
 		TermExpr{Tag: &TagFilter{Name: "docs", Exclude: true}},
@@ -158,7 +158,7 @@ func TestResolveExpr_TagTerms(t *testing.T) {
 }
 
 func TestResolveExpr_NilExpr(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	result, errs := resolver.ResolveExpr(context.Background(), nil)
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
@@ -169,7 +169,7 @@ func TestResolveExpr_NilExpr(t *testing.T) {
 }
 
 func TestResolveExpr_FreeTextError(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{})
+	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
 	expr := TermExpr{Text: "someword"}
 	_, errs := resolver.ResolveExpr(context.Background(), expr)
 	if len(errs) != 1 {

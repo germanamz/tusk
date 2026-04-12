@@ -19,7 +19,7 @@ func testSetup(t *testing.T) (*Resolver, *sqlite.TaskRepo) {
 	t.Cleanup(func() { store.Close() })
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
-	return NewResolver(taskRepo), taskRepo
+	return NewResolver(taskRepo, []string{"pending", "active"}), taskRepo
 }
 
 func TestIntegration_DefaultFilter(t *testing.T) {
