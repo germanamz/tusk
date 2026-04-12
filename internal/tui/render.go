@@ -807,6 +807,20 @@ func (r *Renderer) renderWorkflowInfo(wf *domain.Workflow, projectIDs []string) 
 	return nil
 }
 
+// renderWorkflowMutation writes a workflow mutation confirmation.
+func (r *Renderer) renderWorkflowMutation(action string, name string) error {
+	if r.format == "json" {
+		enc := json.NewEncoder(r.w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]string{
+			"action":   strings.ToLower(action),
+			"workflow": name,
+		})
+	}
+	_, err := fmt.Fprintf(r.w, "%s workflow %s\n", action, name)
+	return err
+}
+
 // playerJSON is the JSON serialization format for a player.
 type playerJSON struct {
 	ID           string `json:"id"`
