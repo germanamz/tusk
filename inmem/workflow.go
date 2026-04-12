@@ -9,7 +9,6 @@ import (
 	"github.com/germanamz/tusk/repository"
 )
 
-// Compile-time check that WorkflowRepository implements the interface.
 var _ repository.WorkflowRepository = (*WorkflowRepository)(nil)
 
 // WorkflowRepository is a read-only, in-memory implementation of
@@ -24,20 +23,22 @@ func NewWorkflowRepository(cfgWorkflows map[string]config.WorkflowConfig) *Workf
 	for name, cfg := range cfgWorkflows {
 		wf := &domain.Workflow{
 			Name:        name,
-			Statuses:    make([]string, len(cfg.Statuses)),
+			Statuses:    make(map[string]domain.StatusConfig, len(cfg.Statuses)),
 			Transitions: make([]domain.WorkflowTransition, len(cfg.Transitions)),
 		}
-		copy(wf.Statuses, cfg.Statuses)
+		for statusName, sc := range cfg.Statuses {
+			roles := make([]domain.StatusRole, len(sc.Roles))
+			for i, r := range sc.Roles {
+				roles[i] = domain.StatusRole(r)
+			}
+			wf.Statuses[statusName] = domain.StatusConfig{Roles: roles}
+		}
 		for i, t := range cfg.Transitions {
 			wf.Transitions[i] = domain.WorkflowTransition{
 				FromStatus: t.From,
 				ToStatus:   t.To,
 			}
 		}
-		wf.HighlightStatuses = make([]string, len(cfg.HighlightStatuses))
-		copy(wf.HighlightStatuses, cfg.HighlightStatuses)
-		wf.DimStatuses = make([]string, len(cfg.DimStatuses))
-		copy(wf.DimStatuses, cfg.DimStatuses)
 		workflows[name] = wf
 	}
 	return &WorkflowRepository{workflows: workflows}
@@ -64,16 +65,18 @@ func (r *WorkflowRepository) List(_ context.Context) ([]*domain.Workflow, error)
 	return result, nil
 }
 
-// copyWorkflow returns a deep copy of a Workflow, including slices.
+// copyWorkflow returns a deep copy of a Workflow, including the statuses map and slices.
 func copyWorkflow(wf *domain.Workflow) *domain.Workflow {
-	cp := *wf
-	cp.Statuses = make([]string, len(wf.Statuses))
-	copy(cp.Statuses, wf.Statuses)
-	cp.Transitions = make([]domain.WorkflowTransition, len(wf.Transitions))
+	cp := &domain.Workflow{
+		Name:        wf.Name,
+		Statuses:    make(map[string]domain.StatusConfig, len(wf.Statuses)),
+		Transitions: make([]domain.WorkflowTransition, len(wf.Transitions)),
+	}
+	for name, sc := range wf.Statuses {
+		roles := make([]domain.StatusRole, len(sc.Roles))
+		copy(roles, sc.Roles)
+		cp.Statuses[name] = domain.StatusConfig{Roles: roles}
+	}
 	copy(cp.Transitions, wf.Transitions)
-	cp.HighlightStatuses = make([]string, len(wf.HighlightStatuses))
-	copy(cp.HighlightStatuses, wf.HighlightStatuses)
-	cp.DimStatuses = make([]string, len(wf.DimStatuses))
-	copy(cp.DimStatuses, wf.DimStatuses)
-	return &cp
+	return cp
 }

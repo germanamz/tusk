@@ -13,7 +13,12 @@ import (
 func TestWorkflowRepository_GetByName(t *testing.T) {
 	workflows := map[string]config.WorkflowConfig{
 		"kanban": {
-			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Statuses: map[string]config.StatusConfig{
+				"pending":   {},
+				"active":    {},
+				"completed": {},
+				"deleted":   {},
+			},
 			Transitions: []config.WorkflowTransitionConfig{
 				{From: "pending", To: "active"},
 				{From: "active", To: "completed"},
@@ -59,8 +64,14 @@ func TestWorkflowRepository_GetByName(t *testing.T) {
 
 func TestWorkflowRepository_List(t *testing.T) {
 	workflows := map[string]config.WorkflowConfig{
-		"kanban":       {Statuses: []string{"pending", "active"}},
-		"bug-tracking": {Statuses: []string{"open", "closed"}},
+		"kanban": {Statuses: map[string]config.StatusConfig{
+			"pending": {},
+			"active":  {},
+		}},
+		"bug-tracking": {Statuses: map[string]config.StatusConfig{
+			"open":   {},
+			"closed": {},
+		}},
 	}
 
 	repo := inmem.NewWorkflowRepository(workflows)

@@ -14,7 +14,12 @@ func testWorkflowEnv(t *testing.T) *WorkflowService {
 	t.Helper()
 	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
 		"kanban": {
-			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Statuses: map[string]config.StatusConfig{
+				"pending":   {},
+				"active":    {},
+				"completed": {},
+				"deleted":   {},
+			},
 			Transitions: []config.WorkflowTransitionConfig{
 				{From: "pending", To: "active"},
 				{From: "pending", To: "deleted"},
@@ -68,7 +73,8 @@ func TestGetStatuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := []string{"pending", "active", "completed", "deleted"}
+	// StatusNames() returns sorted names.
+	expected := []string{"active", "completed", "deleted", "pending"}
 	if len(statuses) != len(expected) {
 		t.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
 	}

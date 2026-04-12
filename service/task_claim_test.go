@@ -36,7 +36,12 @@ func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService
 	})
 	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
 		"kanban": {
-			Statuses: []string{"pending", "active", "completed", "deleted"},
+			Statuses: map[string]config.StatusConfig{
+				"pending":   {},
+				"active":    {},
+				"completed": {},
+				"deleted":   {},
+			},
 			Transitions: []config.WorkflowTransitionConfig{
 				{From: "pending", To: "active"},
 				{From: "pending", To: "deleted"},

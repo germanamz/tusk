@@ -684,7 +684,7 @@ func toWorkflowJSON(wf *domain.Workflow) workflowJSON {
 	}
 	return workflowJSON{
 		Name:        wf.Name,
-		Statuses:    wf.Statuses,
+		Statuses:    wf.StatusNames(),
 		Transitions: transitions,
 	}
 }
@@ -722,7 +722,7 @@ func (r *Renderer) renderWorkflowList(workflows []*domain.Workflow, workflowProj
 		return err
 	}
 	for _, wf := range workflows {
-		if _, err := fmt.Fprintf(r.w, "%-20s %s\n", wf.Name, strings.Join(wf.Statuses, ", ")); err != nil {
+		if _, err := fmt.Fprintf(r.w, "%-20s %s\n", wf.Name, strings.Join(wf.StatusNames(), ", ")); err != nil {
 			return err
 		}
 	}
@@ -747,7 +747,7 @@ func (r *Renderer) renderWorkflowInfo(wf *domain.Workflow, projectIDs []string) 
 	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Workflow:", 13), wf.Name); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Statuses:", 13), strings.Join(wf.Statuses, ", ")); err != nil {
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Statuses:", 13), strings.Join(wf.StatusNames(), ", ")); err != nil {
 		return err
 	}
 

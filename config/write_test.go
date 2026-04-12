@@ -66,13 +66,15 @@ func TestWriteConfig_RoundTrip(t *testing.T) {
 		},
 		Workflows: map[string]WorkflowConfig{
 			"kanban": {
-				Statuses: []string{"pending", "active", "completed"},
+				Statuses: map[string]StatusConfig{
+					"pending":   {Roles: []string{RoleInitial}},
+					"active":    {Roles: []string{RoleStart, RoleHighlight}},
+					"completed": {Roles: []string{RoleTerminal, RoleDone, RoleDim}},
+				},
 				Transitions: []WorkflowTransitionConfig{
 					{From: "pending", To: "active"},
 					{From: "active", To: "completed"},
 				},
-				HighlightStatuses: []string{"active"},
-				DimStatuses:       []string{"completed"},
 			},
 		},
 		Projects: map[string]ProjectConfig{
@@ -174,9 +176,8 @@ func TestIsSliceKey(t *testing.T) {
 		{"mcp.disabled_tools", true},
 		{"mcp.disabled_tool_groups", true},
 		{"mcp.disabled_resources", true},
-		{"workflows.kanban.statuses", true},
-		{"workflows.kanban.highlight_statuses", true},
-		{"workflows.kanban.dim_statuses", true},
+		{"workflows.kanban.statuses", false},
+		{"workflows.kanban.transitions", true},
 		{"tui.color", false},
 		{"storage.path", false},
 		{"urgency.due_weight", false},
@@ -208,7 +209,6 @@ func TestIsValidKey(t *testing.T) {
 		// Map-keyed paths
 		{"workflows.kanban.statuses", true},
 		{"workflows.kanban.transitions", true},
-		{"workflows.kanban.highlight_statuses", true},
 		{"workflows.myworkflow.statuses", true},
 		{"projects.default.workflow", true},
 		{"projects.backend.settings.urgency.blocking_weight", true},

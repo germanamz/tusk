@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/filter"
 	tuskmcp "github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/service"
@@ -122,8 +123,10 @@ func (a *App) buildDimStatuses() map[string]bool {
 	}
 	dim := make(map[string]bool)
 	for _, wf := range workflows {
-		for _, s := range wf.DimStatuses {
-			dim[s] = true
+		for name, sc := range wf.Statuses {
+			if sc.HasRole(domain.RoleDim) {
+				dim[name] = true
+			}
 		}
 	}
 	return dim

@@ -43,7 +43,7 @@ func (s *WorkflowService) GetStatuses(ctx context.Context, workflowName string) 
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
-	return wf.Statuses, nil
+	return wf.StatusNames(), nil
 }
 
 // GetTransitions returns all allowed transitions for the named workflow.
