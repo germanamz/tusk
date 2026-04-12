@@ -95,6 +95,8 @@ Projects group tasks and bind them to a workflow. Like workflows, projects live 
 
 Projects can override urgency scoring weights and configure parent-child automation (auto-complete, auto-revert) independently.
 
+Projects do not own their own database. Every project declared in a given config file shares the database declared by that file's `storage.path` — the config file's directory is the scope. See [Workspace Scope](#workspace-scope).
+
 ### Tags
 
 Flat labels for cross-cutting categorization. Tags carry an optional color for terminal rendering and can be filtered with `+tag` / `-tag` syntax. They exist independently of projects and can be applied to any task.
@@ -220,7 +222,7 @@ tusk config init --local                 # create local tusk.toml
 
 # Projects & workflows
 tusk project list
-tusk project create backend workflow=kanban db-path=/data/b.db
+tusk project create backend workflow=kanban
 tusk project modify backend urgency.blocking-weight=15
 tusk project delete backend
 tusk workflow list
@@ -351,21 +353,27 @@ SQLite runs in WAL mode, allowing concurrent readers without blocking writers.
 
 ## Configuration
 
-Tusk uses TOML configuration files with a layered resolution chain. Configuration is discovered in priority order:
+Tusk uses TOML configuration files with single-file resolution: it picks the nearest config file walking upward from the current directory, and only that file is active. There is no merging between user config files — the first match wins.
 
-1. **Local** — `tusk.toml` in the current working directory
-2. **Global** — `~/.config/tusk/config.toml`
-3. **Ancestor** — walk upward from CWD to filesystem root, looking for `tusk.toml`
+Resolution order (highest to lowest priority):
 
-Each layer merges on top of the next — local overrides global, global overrides ancestor. The `--config <path>` flag bypasses discovery entirely. Environment variables with the `TUSK_` prefix override any config key. The `--db` flag overrides the database path directly.
+1. `--config <path>` flag
+2. `TUSK_CONFIG` env var (single file path)
+3. Nearest `tusk.toml` walking upward from CWD to filesystem root
+4. Global `~/.config/tusk/config.toml`
+5. Embedded defaults
 
-A default configuration is embedded in the binary. Running `tusk config init` creates a global config file with defaults; `tusk config init --local` creates a `tusk.toml` in CWD for project-scoped configuration.
+The embedded default configuration is always the baseline. The active user file (if any) overrides individual keys on top of those defaults. Environment variables with the `TUSK_` prefix override any resolved value. The `--db` flag overrides the database path directly.
+
+Relative paths inside a `tusk.toml` (`storage.path = "./tusk.db"`) resolve against the directory that contains the file, so running `tusk` from any subdirectory of a project lands on the same database.
+
+A default configuration is embedded in the binary. Running `tusk config init` creates a global config file with defaults; `tusk config init --local` writes a full dump of the current effective config to `./tusk.toml`. Global config auto-creation on first run is skipped when a local `tusk.toml` is already in the walk-up path — running tusk inside a project with its own config never spawns a global file.
 
 Configuration governs:
 
-- **Storage** — database backend and connection settings (including per-project database paths)
+- **Storage** — database backend and connection settings (one database per config file)
 - **Workflows** — custom status sets and allowed transitions
-- **Projects** — workflow binding, automation settings, UDA schemas, urgency weight overrides, optional per-project DB path
+- **Projects** — workflow binding, automation settings, UDA schemas, urgency weight overrides
 - **Urgency weights** — global scoring adjustments
 - **MCP** — transport settings, tool/resource visibility
 - **TUI** — date format, color, tree indentation, default sort order
@@ -376,11 +384,12 @@ Configuration governs:
 Configuration can be inspected and modified from the CLI without manual file editing:
 
 ```bash
-tusk config show                          # effective merged config with source annotations
+tusk config show                          # effective config, with active file path in header
+tusk config path                          # print active config file path
 tusk config get urgency.due_weight        # single value lookup
-tusk config set urgency.due_weight 10.0   # write to local config (or global if no local)
+tusk config set urgency.due_weight 10.0   # write to active config file
 tusk config set --global tui.color false  # force write to global config
-tusk config edit                          # open config in $EDITOR
+tusk config edit                          # open active config in $EDITOR
 tusk config validate                      # check for errors
 ```
 
@@ -397,20 +406,26 @@ tusk workflow modify sprint status=active(start,highlight)  # update roles
 tusk workflow delete sprint
 
 # Projects
-tusk project create backend workflow=kanban db-path=/data/backend.db
+tusk project create backend workflow=kanban
 tusk project modify backend urgency.blocking-weight=15 auto-complete.trigger=completed
 tusk project delete backend
 ```
 
-### Per-Project Database
+### Workspace Scope
 
-Each project can optionally specify its own SQLite database file via `db-path`. Projects without a `db-path` use the global storage path. Cross-project commands query all project databases and merge results.
+A config file defines a **workspace**: one database, one set of workflows, one set of projects, all scoped to the directory that contains the file. The directory acts as a namespace — everything declared in the config lives in the single database at `storage.path`, and that path resolves relative to the config file's own directory (unless absolute or `~`-prefixed).
+
+Walking into a subdirectory of a project with a `tusk.toml` keeps you inside the same workspace: tusk picks the same config via walk-up, so `storage.path`, projects, workflows, and urgency weights all stay consistent. Walking into an unrelated directory that has its own `tusk.toml` switches you to a different workspace with a different database and a different set of projects.
+
+The global `~/.config/tusk/config.toml` defines a default workspace used whenever walk-up finds no local `tusk.toml`. Its `storage.path` defaults to `~/.local/share/tusk/tusk.db`.
+
+There is no cross-workspace query. Each invocation operates on exactly one workspace — whichever one the active config file declares. Projects within a workspace still share a single database, so multi-project operations (`tusk list`, `available`, `next`, `pop`) run against that one database, filtering by project when scoped.
 
 ---
 
 ## Storage
 
-Tusk uses SQLite by default. The database is a single file (default: `~/.local/share/tusk/tusk.db`), migrations are embedded in the binary and run automatically, and WAL mode is enabled for concurrent access.
+Tusk uses SQLite by default. Each workspace maps to a single database file (default global: `~/.local/share/tusk/tusk.db`; local workspaces typically point `storage.path` at a file inside the project directory). Migrations are embedded in the binary and run automatically, and WAL mode is enabled for concurrent access.
 
 The storage layer is defined as a set of interfaces. SQLite is the shipped default. PostgreSQL is supported as an alternative backend for multi-user and networked deployments, with its own connection pooling and migration path. The interface boundary means adding a new backend requires no changes to the service layer.
 

@@ -562,22 +562,88 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [x] `tusk pop` picks the highest-urgency candidate across stores, then claims it in its own store with retry on optimistic-lock conflict
   - [x] Relations must link tasks within the same store — `RelationService.Create` rejects cross-store links to preserve referential integrity; documented as a per-project-DB constraint
 
+### Initiative: Workspace Scope Collapse
+
+> Internal refactor that makes the config file's directory the one workspace namespace. Removes per-project `db_path`, collapses `StoreRegistry` to a single store, and drops cross-store fan-out. No user-visible config resolution changes yet — tusk still reads the global `config.toml` only. Ships first so the rest of the config work has a simple "one config, one DB" invariant to build on.
+
+- [ ] **Story: Remove per-project db_path from the config schema**
+  - [ ] Delete `[projects.<name>].db_path` from the config types and TOML schema
+  - [ ] Remove `db-path=` from `tusk project create` / `tusk project modify` inline syntax, and remove it from the accepted-fields list
+  - [ ] Update `config/default.toml` comments and any docs-embedded examples
+  - [ ] Explicitly supersedes the v0.8 "Per-Project Databases" stories, which remain in the roadmap as historical record
+
+- [ ] **Story: Collapse StoreRegistry to a single workspace store**
+  - [ ] Replace `StoreRegistry` with a single `Store` opened from `cfg.Storage.Path` at startup
+  - [ ] Service resolver (`RepoBundle` provider) returns the workspace store regardless of project ID
+  - [ ] `baseDir` for relative `storage.path` still resolves against the active config file's directory (unchanged contract, simpler implementation)
+
+- [ ] **Story: Remove cross-store fan-out from services**
+  - [ ] `TaskService.List`, `available`, `next` no longer fan out across stores — they run one query against the workspace store with project filters applied in SQL
+  - [ ] `tusk pop` selects the top-urgency candidate via a single query and claims it in the same store; optimistic-lock retry stays but cross-store retry logic is removed
+  - [ ] `RelationService` drops the same-store constraint and re-allows relations between tasks in different projects within the workspace
+  - [ ] `projectLister` closure in `cmd/tusk` is replaced by reading project IDs from the config
+
+- [ ] **Story: Migration guidance for existing per-project DBs**
+  - [ ] Documented in `docs/` as a manual export/import procedure (export each per-project DB with `tusk export --format json`, merge into the new workspace DB)
+  - [ ] No automatic migration shipped — per-project DBs predate v0.1 and had no production users
+  - [ ] Release notes flag it as a breaking change for any user who set `db_path` in their config
+
+### Initiative: Explicit Config File Resolver
+
+> Introduce the config resolution abstraction that walk-up discovery will later plug into. Adds the `--config` flag and `TUSK_CONFIG` env var as first-class ways to point tusk at any config file, plus `config path` and an active-file header on `config show`. No walk-up yet — the resolver's precedence chain is `--config` → `TUSK_CONFIG` → global → defaults. Delivered on top of the single-workspace model from the previous initiative.
+
+- [ ] **Story: Config resolver abstraction**
+  - [ ] Introduce `ResolveConfigFile(startDir, explicitFile, globalDir) (string, error)` in `config/` that returns the active config file path or `""` for "defaults only"
+  - [ ] Initial implementation: returns `explicitFile` if set, otherwise `globalDir/config.toml` if it exists, otherwise `""`. Walk-up step is reserved for the next initiative.
+  - [ ] `config.Load()` routes through the resolver; legacy `WithSearchPath` option is preserved for tests but documented as "sets globalDir"
+  - [ ] `config.Load()` returns the resolved file path alongside the `*Config` (e.g. via a `Sources` field or a second return value) so callers can render it
+
+- [ ] **Story: `--config` flag and `TUSK_CONFIG` env var**
+  - [ ] Add global `--config <path>` flag handled before Cobra parsing, parallel to the existing `--db` handling in `cmd/tusk/main.go`
+  - [ ] Add `TUSK_CONFIG` env var as a fallback for `--config`. `TUSK_CONFIG_DIR` remains valid and untouched (it sets `globalDir`).
+  - [ ] Missing `--config` / `TUSK_CONFIG` target file is a hard error at `Load()` time; missing global file falls through to defaults silently
+  - [ ] Precedence at this point: `TUSK_*` env values > `--config` / `TUSK_CONFIG` file > global file > embedded defaults
+
+- [ ] **Story: `config path` and active-file header**
+  - [ ] New `tusk config path` subcommand prints the resolved active file path, or the path `tusk config init` would create when none is active
+  - [ ] `tusk config show` prepends a header indicating which file is active (`# active: /path/to/config.toml` or `# active: defaults only`)
+  - [ ] `tusk config edit` opens the resolved active file (honoring `--config` / `TUSK_CONFIG`)
+  - [ ] `tusk config validate` validates the resolved file
+
 ### Initiative: Local Config Discovery
 
-> Walk-up config resolution analogous to `package.json` in Node.js — tusk uses the nearest config file from the CWD upwards, enabling project-scoped configuration alongside the global config.
+> Walk-up config resolution analogous to `package.json` in Node.js. Extends the resolver from the previous initiative with a walk-up step so tusk picks the nearest `tusk.toml` from the CWD upward, falling back to the global `config.toml` when the walk finds nothing. Single-file model — first match wins, no merging between user configs. Also lands the workspace-aware write commands (`config set`, `config init --local`).
 
-- [ ] **Story: Config resolution chain**
-  - [ ] Resolution order (highest to lowest priority): CWD `tusk.toml` → `~/.config/tusk/config.toml` → walk upward from CWD to filesystem root looking for `tusk.toml`
-  - [ ] `--config <path>` flag bypasses discovery and uses the given file directly
+- [ ] **Story: Walk-up step in the resolver**
+  - [ ] Insert walk-up between `TUSK_CONFIG` and global in `ResolveConfigFile`: starting at CWD, check each ancestor directory for `tusk.toml` and return the first hit
+  - [ ] Walk stops at filesystem root; no symlink resolution
+  - [ ] Walk is skipped entirely when `--config` or `TUSK_CONFIG` is set (the bypass stays authoritative)
+  - [ ] Final precedence: `TUSK_*` env > `--config` > `TUSK_CONFIG` > walk-up `tusk.toml` > global `config.toml` > embedded defaults
 
-- [ ] **Story: Config layering**
-  - [ ] Merge all discovered configs in resolution order — local overrides global, global overrides ancestor
-  - [ ] `tusk config show` displays effective merged config with source annotations (local / global / ancestor path)
-  - [ ] `tusk config set` writes to the local config when present, global otherwise; `--global` flag forces global
+- [ ] **Story: Relative paths resolve to the config file's directory**
+  - [ ] `storage.path` and any other file-path field resolve relative to the directory that contains the active config file, not the caller's CWD
+  - [ ] `tusk` run from any subdirectory of a project with a `tusk.toml` at the root hits the same database as `tusk` run from the root itself
+  - [ ] Absolute paths and `~`-prefixed paths are untouched
 
-- [ ] **Story: Config init for local projects**
-  - [ ] `tusk config init --local` creates a `tusk.toml` in CWD with minimal defaults
-  - [ ] Local config can scope storage path, projects, workflows, and urgency weights to the directory tree
+- [ ] **Story: Workspace-aware `config set`**
+  - [ ] `tusk config set <key> <value>` writes to the file `Load()` resolved — whichever `tusk.toml` or `config.toml` is active
+  - [ ] `--global` flag forces writes to `~/.config/tusk/config.toml` even when a walk-up `tusk.toml` is active
+  - [ ] With no active file and no `--global`, emit a clear error pointing at `tusk config init` or `tusk config init --local`
+
+- [ ] **Story: `config init --local`**
+  - [ ] `tusk config init --local` creates `./tusk.toml` containing a full dump of the current effective config
+  - [ ] Errors if `./tusk.toml` already exists
+  - [ ] `tusk config init` (no flag) still writes global defaults as today
+
+- [ ] **Story: Conditional global auto-create**
+  - [ ] `config.Load()` auto-creates `~/.config/tusk/config.toml` on first run only when walk-up finds no `tusk.toml` and no `--config` / `TUSK_CONFIG` override is set
+  - [ ] Running tusk inside a project with a local config never spawns a global file
+  - [ ] Existing behavior preserved for fresh installs operating outside any tusk project
+
+- [ ] **Story: `config show` / `config path` report walk-up hits**
+  - [ ] Active-file header on `config show` correctly reflects walk-up discoveries (e.g. `# active: /repo/tusk.toml`)
+  - [ ] `config path` prints the walk-up hit when one is active, the global path otherwise
+  - [ ] E2E coverage: subdirectory walk-up, ancestor walk-up, `--config` override, `TUSK_CONFIG` override, no-config fallthrough
 
 ### Initiative: MCP Config Tools
 
