@@ -18,4 +18,8 @@ var (
 	ErrSourceNotFound    = fmt.Errorf("source task: %w", ErrNotFound)
 	ErrTargetNotFound    = fmt.Errorf("target task: %w", ErrNotFound)
 	ErrWorkflowInUse     = errors.New("workflow is referenced by one or more projects")
+	// ErrCrossStoreRelation is returned when a relation is requested between
+	// tasks whose projects live in different SQLite stores. Per-project
+	// databases cannot hold referential links across files.
+	ErrCrossStoreRelation = errors.New("cross-store relation not allowed")
 )
