@@ -508,3 +508,42 @@ color = false
 		t.Error("config file was overwritten")
 	}
 }
+
+func TestProjectConfig_DBPathRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := `
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+[workflows.kanban.statuses.active]
+roles = ["start"]
+[workflows.kanban.statuses.done]
+roles = ["terminal", "done"]
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
+[[workflows.kanban.transitions]]
+from = "active"
+to = "done"
+
+[projects.default]
+workflow = "kanban"
+
+[projects.backend]
+workflow = "kanban"
+db_path = "/data/backend.db"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if got := cfg.Projects["backend"].DBPath; got != "/data/backend.db" {
+		t.Fatalf("expected backend.db_path=/data/backend.db, got %q", got)
+	}
+	if got := cfg.Projects["default"].DBPath; got != "" {
+		t.Fatalf("expected default.db_path empty, got %q", got)
+	}
+}

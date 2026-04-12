@@ -85,6 +85,7 @@ type ProjectSettingsConfig struct {
 // ProjectConfig defines a named project with its workflow assignment and settings.
 type ProjectConfig struct {
 	Workflow string                `mapstructure:"workflow" toml:"workflow"`
+	DBPath   string                `mapstructure:"db_path"  toml:"db_path,omitempty"`
 	Settings ProjectSettingsConfig `mapstructure:"settings" toml:"settings"`
 }
 
