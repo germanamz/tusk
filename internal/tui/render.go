@@ -821,6 +821,20 @@ func (r *Renderer) renderWorkflowMutation(action string, name string) error {
 	return err
 }
 
+// renderProjectMutation writes a project mutation confirmation.
+func (r *Renderer) renderProjectMutation(action string, name string) error {
+	if r.format == "json" {
+		enc := json.NewEncoder(r.w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]string{
+			"action":  strings.ToLower(action),
+			"project": name,
+		})
+	}
+	_, err := fmt.Fprintf(r.w, "%s project %s\n", action, name)
+	return err
+}
+
 // playerJSON is the JSON serialization format for a player.
 type playerJSON struct {
 	ID           string `json:"id"`
