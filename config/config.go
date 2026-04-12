@@ -20,12 +20,32 @@ type WorkflowTransitionConfig struct {
 	To   string `mapstructure:"to"   toml:"to"`
 }
 
+// StatusConfig defines a single status within a workflow.
+type StatusConfig struct {
+	Roles []string `mapstructure:"roles" toml:"roles,omitempty"`
+}
+
+// Valid status roles.
+const (
+	RoleInitial   = "initial"   // default status for new tasks
+	RoleStart     = "start"     // target for tusk start / tusk pop
+	RoleTerminal  = "terminal"  // task is finished; excluded from available/pop
+	RoleDone      = "done"      // target for tusk done
+	RoleDelete    = "delete"    // target for tusk delete
+	RoleHighlight = "highlight" // emphasized in terminal output
+	RoleDim       = "dim"       // deemphasized in terminal output
+)
+
+// validRoles is the set of recognized status roles.
+var validRoles = map[string]bool{
+	RoleInitial: true, RoleStart: true, RoleTerminal: true,
+	RoleDone: true, RoleDelete: true, RoleHighlight: true, RoleDim: true,
+}
+
 // WorkflowConfig defines a named workflow with its statuses and transitions.
 type WorkflowConfig struct {
-	Statuses          []string                   `mapstructure:"statuses"           toml:"statuses"`
-	Transitions       []WorkflowTransitionConfig `mapstructure:"transitions"        toml:"transitions"`
-	HighlightStatuses []string                   `mapstructure:"highlight_statuses" toml:"highlight_statuses"`
-	DimStatuses       []string                   `mapstructure:"dim_statuses"       toml:"dim_statuses"`
+	Statuses    map[string]StatusConfig    `mapstructure:"statuses"    toml:"statuses"`
+	Transitions []WorkflowTransitionConfig `mapstructure:"transitions" toml:"transitions"`
 }
 
 // AutoCompleteParentConfig controls automatic parent completion.
@@ -222,34 +242,95 @@ func Load(opts ...Option) (*Config, error) {
 // Validate checks cross-references between config sections.
 func (c *Config) Validate() error {
 	for name, wf := range c.Workflows {
-		statusSet := make(map[string]bool, len(wf.Statuses))
-		for _, s := range wf.Statuses {
-			statusSet[s] = true
+		if len(wf.Statuses) == 0 {
+			return fmt.Errorf("workflow %q: must have at least one status", name)
 		}
-		for _, s := range wf.HighlightStatuses {
-			if !statusSet[s] {
-				return fmt.Errorf("workflow %q: highlight_statuses references unknown status %q", name, s)
+
+		roleCounts := make(map[string]int)
+		for statusName, sc := range wf.Statuses {
+			for _, role := range sc.Roles {
+				if !validRoles[role] {
+					return fmt.Errorf("workflow %q: status %q has unknown role %q", name, statusName, role)
+				}
+				roleCounts[role]++
 			}
 		}
-		dimSet := make(map[string]bool, len(wf.DimStatuses))
-		for _, s := range wf.DimStatuses {
-			if !statusSet[s] {
-				return fmt.Errorf("workflow %q: dim_statuses references unknown status %q", name, s)
-			}
-			dimSet[s] = true
+
+		if roleCounts[RoleInitial] != 1 {
+			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleInitial, roleCounts[RoleInitial])
 		}
-		for _, s := range wf.HighlightStatuses {
-			if dimSet[s] {
-				return fmt.Errorf("workflow %q: status %q cannot be in both highlight_statuses and dim_statuses", name, s)
+		if roleCounts[RoleStart] != 1 {
+			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleStart, roleCounts[RoleStart])
+		}
+		if roleCounts[RoleTerminal] < 1 {
+			return fmt.Errorf("workflow %q: must have at least one status with role %q", name, RoleTerminal)
+		}
+		if roleCounts[RoleDone] != 1 {
+			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleDone, roleCounts[RoleDone])
+		}
+		if roleCounts[RoleDelete] != 1 {
+			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleDelete, roleCounts[RoleDelete])
+		}
+
+		for statusName, sc := range wf.Statuses {
+			roles := toRoleSet(sc.Roles)
+			if roles[RoleDone] && !roles[RoleTerminal] {
+				return fmt.Errorf("workflow %q: status %q has role %q but missing required role %q", name, statusName, RoleDone, RoleTerminal)
 			}
+			if roles[RoleDelete] && !roles[RoleTerminal] {
+				return fmt.Errorf("workflow %q: status %q has role %q but missing required role %q", name, statusName, RoleDelete, RoleTerminal)
+			}
+			if roles[RoleHighlight] && roles[RoleDim] {
+				return fmt.Errorf("workflow %q: status %q cannot have both %q and %q roles", name, statusName, RoleHighlight, RoleDim)
+			}
+		}
+
+		for _, t := range wf.Transitions {
+			if _, ok := wf.Statuses[t.From]; !ok {
+				return fmt.Errorf("workflow %q: transition references unknown status %q", name, t.From)
+			}
+			if _, ok := wf.Statuses[t.To]; !ok {
+				return fmt.Errorf("workflow %q: transition references unknown status %q", name, t.To)
+			}
+		}
+
+		var initialStatus, startStatus string
+		for statusName, sc := range wf.Statuses {
+			roles := toRoleSet(sc.Roles)
+			if roles[RoleInitial] {
+				initialStatus = statusName
+			}
+			if roles[RoleStart] {
+				startStatus = statusName
+			}
+		}
+		hasTransition := false
+		for _, t := range wf.Transitions {
+			if t.From == initialStatus && t.To == startStatus {
+				hasTransition = true
+				break
+			}
+		}
+		if !hasTransition {
+			return fmt.Errorf("workflow %q: no transition from %q (%s) to %q (%s)", name, initialStatus, RoleInitial, startStatus, RoleStart)
 		}
 	}
+
 	for id, proj := range c.Projects {
 		if _, ok := c.Workflows[proj.Workflow]; !ok {
 			return fmt.Errorf("project %q references unknown workflow %q", id, proj.Workflow)
 		}
 	}
 	return nil
+}
+
+// toRoleSet converts a roles slice to a set for O(1) lookup.
+func toRoleSet(roles []string) map[string]bool {
+	s := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		s[r] = true
+	}
+	return s
 }
 
 // ExpandPath replaces a leading ~ with the user's home directory.
