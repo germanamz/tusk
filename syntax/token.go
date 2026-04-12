@@ -45,12 +45,10 @@ func (t TokenType) String() string {
 // Token is a single lexed element from an input string.
 //
 // Modifier is populated by LexWithModifiers when a registered prefix rune
-// (e.g. '+', '-') is stripped off the token body. In Phase 1 of the modifier
-// initiative Modifier is always 0 — the lexer does not strip prefixes yet —
-// but the field is present so downstream consumers can compile against it.
+// (e.g. '+', '-') is stripped off the token body; 0 means no modifier.
 type Token struct {
 	Type     TokenType
-	Value    string // raw text of the token
+	Value    string // raw text of the token, with any registered prefix stripped
 	Modifier byte   // registered prefix marker ('+' / '-' / ...); 0 if none
 	Pos      int    // byte offset in the original input
 }
