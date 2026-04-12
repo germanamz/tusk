@@ -420,3 +420,25 @@ func TestLex_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestTokenModifierFieldExistsAndDefaultsToZero(t *testing.T) {
+	// Every token produced by the default Lex in Phase 1 must have Modifier == 0.
+	// Phase 2 will change this behavior; until then, the field is additive only.
+	cases := []string{
+		"status=active",
+		"+urgent",
+		"-blocked",
+		"+priority=3",
+		"-priority=3",
+		"title=\"hello world\"",
+		"project=backend AND status=pending",
+	}
+	for _, input := range cases {
+		tokens, _ := Lex(input)
+		for i, tok := range tokens {
+			if tok.Modifier != 0 {
+				t.Errorf("Lex(%q) tokens[%d].Modifier = %q, want 0", input, i, tok.Modifier)
+			}
+		}
+	}
+}
