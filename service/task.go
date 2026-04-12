@@ -220,12 +220,15 @@ func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*do
 }
 
 // Next returns the highest-urgency actionable task. Actionable means:
-// non-terminal status (pending or active), not waiting, not blocked.
+// non-terminal status, not waiting, not blocked.
 // Returns domain.ErrNotFound if no actionable task exists.
 func (s *TaskService) Next(ctx context.Context) (*domain.Task, error) {
-	// List pending and active tasks
+	nonTerminal, err := s.collectNonTerminalStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
 	filter := &domain.TermFilter{TaskFilter: domain.TaskFilter{
-		Statuses: []string{"pending", "active"},
+		Statuses: nonTerminal,
 	}}
 	tasks, err := s.List(ctx, filter)
 	if err != nil {
@@ -253,6 +256,27 @@ func (s *TaskService) Next(ctx context.Context) (*domain.Task, error) {
 		return t, nil
 	}
 	return nil, domain.ErrNotFound
+}
+
+// collectNonTerminalStatuses returns the union of non-terminal status names
+// across all configured workflows. Used by Available and Next to find
+// actionable tasks regardless of which workflow defines the status.
+func (s *TaskService) collectNonTerminalStatuses(ctx context.Context) ([]string, error) {
+	workflows, err := s.workflowSvc.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing workflows: %w", err)
+	}
+	seen := make(map[string]bool)
+	var result []string
+	for _, wf := range workflows {
+		for _, name := range wf.NonTerminalStatuses() {
+			if !seen[name] {
+				seen[name] = true
+				result = append(result, name)
+			}
+		}
+	}
+	return result, nil
 }
 
 // buildProjectWeights constructs per-project merged urgency weights
@@ -592,36 +616,60 @@ func (s *TaskService) Release(ctx context.Context, shortID, playerID string, ver
 	return result, nil
 }
 
-// Complete transitions a task from its current status to "completed".
+// Complete transitions a task to its workflow's done-role status.
 func (s *TaskService) Complete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
+	}
+	doneStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleDone)
+	if err != nil {
+		return nil, fmt.Errorf("resolving done status: %w", err)
+	}
 	return s.Update(ctx, domain.TaskUpdate{
 		ShortID: shortID,
 		Version: version,
-		Status:  ptr("completed"),
+		Status:  ptr(doneStatus),
 	})
 }
 
-// Delete soft-deletes a task by transitioning its status to "deleted".
+// Delete soft-deletes a task by transitioning to its workflow's delete-role status.
 func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
+	task, err := s.taskRepo.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
+	}
+	deleteStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleDelete)
+	if err != nil {
+		return nil, fmt.Errorf("resolving delete status: %w", err)
+	}
 	return s.Update(ctx, domain.TaskUpdate{
 		ShortID: shortID,
 		Version: version,
-		Status:  ptr("deleted"),
+		Status:  ptr(deleteStatus),
 	})
 }
 
 // Available returns unclaimed, actionable, unblocked tasks sorted by urgency.
 // An optional filter expression is combined with the base constraints.
 func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
-	// Base filter: (pending OR active) AND unclaimed
+	nonTerminal, err := s.collectNonTerminalStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Base filter: non-terminal status AND unclaimed
 	baseFilter := &domain.AndFilter{
 		Children: []domain.FilterExpr{
-			&domain.OrFilter{
-				Children: []domain.FilterExpr{
-					&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending"}}},
-					&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
-				},
-			},
+			&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: nonTerminal}},
 			&domain.TermFilter{TaskFilter: domain.TaskFilter{Unclaimed: ptr(true)}},
 		},
 	}
