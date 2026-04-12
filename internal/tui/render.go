@@ -658,10 +658,16 @@ func (r *Renderer) renderLinkResult(rel *domain.Relation, sourceShortID, targetS
 	return err
 }
 
+// statusJSON is the JSON serialization format for a workflow status with roles.
+type statusJSON struct {
+	Name  string   `json:"name"`
+	Roles []string `json:"roles,omitempty"`
+}
+
 // workflowJSON is the JSON serialization format for a workflow.
 type workflowJSON struct {
 	Name        string              `json:"name"`
-	Statuses    []string            `json:"statuses"`
+	Statuses    []statusJSON        `json:"statuses"`
 	Transitions []workflowTransJSON `json:"transitions"`
 }
 
@@ -682,9 +688,19 @@ func toWorkflowJSON(wf *domain.Workflow) workflowJSON {
 	for i, t := range wf.Transitions {
 		transitions[i] = workflowTransJSON{From: t.FromStatus, To: t.ToStatus}
 	}
+	names := wf.StatusNames()
+	statuses := make([]statusJSON, len(names))
+	for i, name := range names {
+		sc := wf.Statuses[name]
+		roles := make([]string, len(sc.Roles))
+		for j, r := range sc.Roles {
+			roles[j] = string(r)
+		}
+		statuses[i] = statusJSON{Name: name, Roles: roles}
+	}
 	return workflowJSON{
 		Name:        wf.Name,
-		Statuses:    wf.StatusNames(),
+		Statuses:    statuses,
 		Transitions: transitions,
 	}
 }
@@ -749,6 +765,19 @@ func (r *Renderer) renderWorkflowInfo(wf *domain.Workflow, projectIDs []string) 
 	}
 	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Statuses:", 13), strings.Join(wf.StatusNames(), ", ")); err != nil {
 		return err
+	}
+	// Show roles per status
+	for _, name := range wf.StatusNames() {
+		sc := wf.Statuses[name]
+		if len(sc.Roles) > 0 {
+			roles := make([]string, len(sc.Roles))
+			for i, r := range sc.Roles {
+				roles[i] = string(r)
+			}
+			if _, err := fmt.Fprintf(r.w, "  %-15s %s\n", name+":", strings.Join(roles, ", ")); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(wf.Transitions) > 0 {

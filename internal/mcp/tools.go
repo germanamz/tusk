@@ -872,10 +872,16 @@ func (s *Server) handleProjectList(ctx context.Context, request mcp.CallToolRequ
 	return toolResultJSON(results)
 }
 
+// statusResponse is the JSON structure for a workflow status.
+type statusResponse struct {
+	Name  string   `json:"name"`
+	Roles []string `json:"roles,omitempty"`
+}
+
 // workflowListResponse is the JSON structure returned by the workflow list tool.
 type workflowListResponse struct {
 	Name        string               `json:"name"`
-	Statuses    []string             `json:"statuses"`
+	Statuses    []statusResponse     `json:"statuses"`
 	Transitions []transitionResponse `json:"transitions"`
 	Projects    []string             `json:"projects"`
 }
@@ -902,9 +908,19 @@ func (s *Server) handleWorkflowList(ctx context.Context, request mcp.CallToolReq
 		if projectIDs == nil {
 			projectIDs = []string{}
 		}
+		names := wf.StatusNames()
+		statuses := make([]statusResponse, len(names))
+		for j, name := range names {
+			sc := wf.Statuses[name]
+			roles := make([]string, len(sc.Roles))
+			for k, r := range sc.Roles {
+				roles[k] = string(r)
+			}
+			statuses[j] = statusResponse{Name: name, Roles: roles}
+		}
 		results[i] = workflowListResponse{
 			Name:        wf.Name,
-			Statuses:    wf.StatusNames(),
+			Statuses:    statuses,
 			Transitions: transitions,
 			Projects:    projectIDs,
 		}
