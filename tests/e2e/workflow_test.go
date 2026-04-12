@@ -275,3 +275,179 @@ workflow = "custom"
 		})
 	}
 }
+
+func TestWorkflowCRUD(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	configContent := `
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+[workflows.kanban.statuses.active]
+roles = ["start", "highlight"]
+[workflows.kanban.statuses.completed]
+roles = ["terminal", "done", "dim"]
+[workflows.kanban.statuses.deleted]
+roles = ["terminal", "delete", "dim"]
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
+[[workflows.kanban.transitions]]
+from = "active"
+to = "completed"
+[[workflows.kanban.transitions]]
+from = "active"
+to = "deleted"
+
+[projects.default]
+workflow = "kanban"
+`
+
+	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
+	for _, combo := range combos {
+		dbMode, format := combo[0], combo[1]
+		name := "crud/" + dbMode + "/" + format
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			env := newEnv(t, binPath, dbMode, format)
+			env.withConfig(configContent)
+
+			r := env.Run("workflow", "create", "sprint",
+				"status=todo(initial)",
+				"status=doing(start,highlight)",
+				"status=done(terminal,done,dim)",
+				"status=removed(terminal,delete,dim)",
+				"transition=todo:doing,doing:done,doing:removed",
+			)
+			if r.Err != nil {
+				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			}
+			assertContains(t, r.Stdout, "sprint")
+
+			r = env.Run("workflow", "list")
+			if r.Err != nil {
+				t.Fatalf("list: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+			assertContains(t, r.Stdout, "sprint")
+			assertContains(t, r.Stdout, "kanban")
+
+			r = env.Run("workflow", "modify", "sprint",
+				"+status=review",
+				"+transition=doing:review,review:done",
+			)
+			if r.Err != nil {
+				t.Fatalf("modify: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			}
+
+			r = env.Run("workflow", "info", "sprint")
+			if r.Err != nil {
+				t.Fatalf("info: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+			assertContains(t, r.Stdout, "review")
+
+			r = env.Run("workflow", "delete", "sprint")
+			if r.Err != nil {
+				t.Fatalf("delete: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			}
+
+			r = env.Run("workflow", "list")
+			if r.Err != nil {
+				t.Fatalf("list after delete: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+			assertNotContains(t, r.Stdout, "sprint")
+		})
+	}
+}
+
+func TestWorkflowDeleteInUse(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	configContent := `
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+[workflows.kanban.statuses.active]
+roles = ["start", "highlight"]
+[workflows.kanban.statuses.completed]
+roles = ["terminal", "done", "dim"]
+[workflows.kanban.statuses.deleted]
+roles = ["terminal", "delete", "dim"]
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
+[[workflows.kanban.transitions]]
+from = "active"
+to = "completed"
+[[workflows.kanban.transitions]]
+from = "active"
+to = "deleted"
+
+[projects.default]
+workflow = "kanban"
+`
+
+	for _, dbMode := range []string{"flag", "env"} {
+		t.Run(dbMode, func(t *testing.T) {
+			t.Parallel()
+			env := newEnv(t, binPath, dbMode, "text")
+			env.withConfig(configContent)
+
+			r := env.Run("workflow", "delete", "kanban")
+			if r.Err == nil {
+				t.Fatal("expected error deleting in-use workflow")
+			}
+			combined := r.Stdout + r.Stderr
+			assertContains(t, combined, "referenced")
+		})
+	}
+}
+
+func TestWorkflowCreateDuplicate(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	configContent := `
+[workflows.kanban.statuses.pending]
+roles = ["initial"]
+[workflows.kanban.statuses.active]
+roles = ["start", "highlight"]
+[workflows.kanban.statuses.completed]
+roles = ["terminal", "done", "dim"]
+[workflows.kanban.statuses.deleted]
+roles = ["terminal", "delete", "dim"]
+[[workflows.kanban.transitions]]
+from = "pending"
+to = "active"
+[[workflows.kanban.transitions]]
+from = "active"
+to = "completed"
+[[workflows.kanban.transitions]]
+from = "active"
+to = "deleted"
+
+[projects.default]
+workflow = "kanban"
+`
+
+	for _, dbMode := range []string{"flag", "env"} {
+		t.Run(dbMode, func(t *testing.T) {
+			t.Parallel()
+			env := newEnv(t, binPath, dbMode, "text")
+			env.withConfig(configContent)
+
+			r := env.Run("workflow", "create", "kanban",
+				"status=a(initial)", "status=b(start,highlight)",
+				"status=c(terminal,done,dim)", "status=d(terminal,delete,dim)",
+				"transition=a:b,b:c,b:d",
+			)
+			if r.Err == nil {
+				t.Fatal("expected error creating duplicate workflow")
+			}
+			combined := r.Stdout + r.Stderr
+			assertContains(t, combined, "already exists")
+		})
+	}
+}
