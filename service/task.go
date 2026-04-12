@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -56,51 +55,28 @@ func (s *TaskService) defaultBundle(ctx context.Context) (*RepoBundle, error) {
 	return s.resolve(ctx, DefaultProjectID)
 }
 
-// bundleForShortID searches every known project store for a task with
-// the given short ID. Returns the owning bundle and task, or ErrNotFound
-// if no store holds the task.
 func (s *TaskService) bundleForShortID(ctx context.Context, shortID string) (*RepoBundle, *domain.Task, error) {
-	ids, err := s.projects(ctx)
+	bundle, err := s.resolve(ctx, DefaultProjectID)
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, pid := range ids {
-		bundle, err := s.resolve(ctx, pid)
-		if err != nil {
-			return nil, nil, err
-		}
-		task, err := bundle.Tasks.GetByShortID(ctx, shortID)
-		if err == nil {
-			return bundle, task, nil
-		}
-		if !errors.Is(err, domain.ErrNotFound) {
-			return nil, nil, err
-		}
+	task, err := bundle.Tasks.GetByShortID(ctx, shortID)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil, nil, domain.ErrNotFound
+	return bundle, task, nil
 }
 
-// bundleForID searches every known project store for a task with the
-// given UUID.
 func (s *TaskService) bundleForID(ctx context.Context, id uuid.UUID) (*RepoBundle, *domain.Task, error) {
-	ids, err := s.projects(ctx)
+	bundle, err := s.resolve(ctx, DefaultProjectID)
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, pid := range ids {
-		bundle, err := s.resolve(ctx, pid)
-		if err != nil {
-			return nil, nil, err
-		}
-		task, err := bundle.Tasks.GetByID(ctx, id)
-		if err == nil {
-			return bundle, task, nil
-		}
-		if !errors.Is(err, domain.ErrNotFound) {
-			return nil, nil, err
-		}
+	task, err := bundle.Tasks.GetByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil, nil, domain.ErrNotFound
+	return bundle, task, nil
 }
 
 // Create validates and persists a new task. It populates the task's ID,
@@ -198,30 +174,14 @@ func (s *TaskService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, 
 	return task, err
 }
 
-// List returns tasks matching the given filter across every project
-// store (or a subset when the filter narrows by project), scored and
-// sorted by urgency.
+// List returns tasks matching the given filter, scored and sorted by
+// urgency.
 func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
-	projectIDs, err := s.targetProjects(ctx, filter)
+	bundle, err := s.resolve(ctx, DefaultProjectID)
 	if err != nil {
 		return nil, err
 	}
-	var all []*domain.Task
-	for _, pid := range projectIDs {
-		bundle, err := s.resolve(ctx, pid)
-		if err != nil {
-			return nil, err
-		}
-		rows, err := s.listInBundle(ctx, bundle, filter)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, rows...)
-	}
-	if len(all) > 1 && s.engine != nil {
-		sortTasksByUrgency(all)
-	}
-	return all, nil
+	return s.listInBundle(ctx, bundle, filter)
 }
 
 // listInBundle runs the filter against a single bundle and scores the
@@ -273,110 +233,28 @@ func (s *TaskService) listInBundle(ctx context.Context, bundle *RepoBundle, filt
 	return tasks, nil
 }
 
-// sortTasksByUrgency stable-sorts tasks in place by descending urgency.
-func sortTasksByUrgency(tasks []*domain.Task) {
-	sort.SliceStable(tasks, func(i, j int) bool {
-		return tasks[i].Urgency > tasks[j].Urgency
-	})
-}
-
-// targetProjects returns the project IDs whose stores should be queried
-// for this filter. If the filter narrows by project=<name>, only that
-// project's store is queried; otherwise every known project is fanned
-// out to.
-func (s *TaskService) targetProjects(ctx context.Context, filter domain.FilterExpr) ([]string, error) {
-	if names := projectNamesFromFilter(filter); len(names) > 0 {
-		return names, nil
-	}
-	return s.projects(ctx)
-}
-
-// projectNamesFromFilter walks a filter expression tree and collects
-// every ProjectID constraint found in leaf TermFilter nodes. Returns
-// a de-duplicated slice, or nil if the filter does not constrain by
-// project.
-func projectNamesFromFilter(expr domain.FilterExpr) []string {
-	seen := map[string]bool{}
-	var out []string
-	var walk func(domain.FilterExpr)
-	walk = func(e domain.FilterExpr) {
-		switch f := e.(type) {
-		case nil:
-			return
-		case *domain.TermFilter:
-			if f.ProjectID != nil && *f.ProjectID != "" && !seen[*f.ProjectID] {
-				seen[*f.ProjectID] = true
-				out = append(out, *f.ProjectID)
-			}
-		case domain.TermFilter:
-			if f.ProjectID != nil && *f.ProjectID != "" && !seen[*f.ProjectID] {
-				seen[*f.ProjectID] = true
-				out = append(out, *f.ProjectID)
-			}
-		case *domain.AndFilter:
-			for _, c := range f.Children {
-				walk(c)
-			}
-		case domain.AndFilter:
-			for _, c := range f.Children {
-				walk(c)
-			}
-		case *domain.OrFilter:
-			for _, c := range f.Children {
-				walk(c)
-			}
-		case domain.OrFilter:
-			for _, c := range f.Children {
-				walk(c)
-			}
-		case *domain.NotFilter:
-			walk(f.Child)
-		case domain.NotFilter:
-			walk(f.Child)
-		}
-	}
-	walk(expr)
-	return out
-}
-
-// Next returns the highest-urgency actionable task across every known
-// project store. Actionable means: non-terminal status, not waiting, not
-// blocked. Returns domain.ErrNotFound if no actionable task exists.
+// Next returns the highest-urgency actionable task. Actionable means:
+// non-terminal status, not waiting, not blocked. Returns
+// domain.ErrNotFound if no actionable task exists.
 func (s *TaskService) Next(ctx context.Context) (*domain.Task, error) {
 	nonTerminal, err := s.collectNonTerminalStatuses(ctx)
 	if err != nil {
 		return nil, err
 	}
-	filter := &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: nonTerminal}}
-
-	projectIDs, err := s.projects(ctx)
+	bundle, err := s.resolve(ctx, DefaultProjectID)
 	if err != nil {
 		return nil, err
 	}
-	var all []*domain.Task
-	for _, pid := range projectIDs {
-		bundle, err := s.resolve(ctx, pid)
-		if err != nil {
-			return nil, err
-		}
-		rows, err := s.listInBundle(ctx, bundle, filter)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, rows...)
-	}
-	if len(all) > 1 && s.engine != nil {
-		sortTasksByUrgency(all)
+	filter := &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: nonTerminal}}
+	tasks, err := s.listInBundle(ctx, bundle, filter)
+	if err != nil {
+		return nil, err
 	}
 
 	now := time.Now()
-	for _, t := range all {
+	for _, t := range tasks {
 		if t.WaitUntil != nil && t.WaitUntil.After(now) {
 			continue
-		}
-		bundle, err := s.resolve(ctx, t.ProjectID)
-		if err != nil {
-			return nil, err
 		}
 		blockedBy, err := bundle.Relations.CountBlockedByTasks(ctx, []uuid.UUID{t.ID})
 		if err != nil {
@@ -460,7 +338,6 @@ func (s *TaskService) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*
 
 // Update applies a partial update to a task. It validates the patched
 // state, enforces workflow transitions, and uses optimistic locking.
-// Cross-store project moves are rejected with ErrCrossStoreRelation.
 func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domain.Task, error) {
 	bundle, task, err := s.bundleForShortID(ctx, upd.ShortID)
 	if err != nil {
@@ -469,16 +346,6 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 
 	if task.Version != upd.Version {
 		return nil, domain.ErrConflict
-	}
-
-	if upd.ProjectID != nil && *upd.ProjectID != task.ProjectID {
-		newBundle, err := s.resolve(ctx, *upd.ProjectID)
-		if err != nil {
-			return nil, err
-		}
-		if bundle != newBundle {
-			return nil, fmt.Errorf("moving task between project stores is not supported: %w", domain.ErrCrossStoreRelation)
-		}
 	}
 
 	oldStatus := task.Status
@@ -815,14 +682,12 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 }
 
 // Available returns unclaimed, actionable, unblocked tasks sorted by
-// urgency, fanning out across every known project store (or narrowing
-// to a subset when the filter pins a project).
+// urgency.
 func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
 	nonTerminal, err := s.collectNonTerminalStatuses(ctx)
 	if err != nil {
 		return nil, err
 	}
-
 	baseFilter := &domain.AndFilter{
 		Children: []domain.FilterExpr{
 			&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: nonTerminal}},
@@ -833,28 +698,11 @@ func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) (
 		baseFilter.Children = append(baseFilter.Children, filter)
 	}
 
-	projectIDs, err := s.targetProjects(ctx, filter)
+	bundle, err := s.resolve(ctx, DefaultProjectID)
 	if err != nil {
 		return nil, err
 	}
-
-	var all []*domain.Task
-	for _, pid := range projectIDs {
-		bundle, err := s.resolve(ctx, pid)
-		if err != nil {
-			return nil, err
-		}
-		rows, err := s.availableInBundle(ctx, bundle, baseFilter)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, rows...)
-	}
-
-	if len(all) > 1 && s.engine != nil {
-		sortTasksByUrgency(all)
-	}
-	return all, nil
+	return s.availableInBundle(ctx, bundle, baseFilter)
 }
 
 // availableInBundle runs the availability filter against a single
@@ -893,8 +741,8 @@ func (s *TaskService) availableInBundle(ctx context.Context, bundle *RepoBundle,
 }
 
 // Pop claims and starts the highest-urgency available task for the
-// given player. Returns domain.ErrNoAvailableTasks if no task can be
-// claimed.
+// given player. Retries on claim-conflict and optimistic-lock errors.
+// Returns domain.ErrNoAvailableTasks if nothing can be claimed.
 func (s *TaskService) Pop(ctx context.Context, playerID string, filter domain.FilterExpr) (*domain.Task, error) {
 	tasks, err := s.Available(ctx, filter)
 	if err != nil {
