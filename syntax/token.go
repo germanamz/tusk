@@ -55,7 +55,14 @@ type Token struct {
 	Pos      int    // byte offset in the original input
 }
 
-// Lex splits the input string into tokens using = as the field separator.
+// Lex splits the input string into tokens using the default modifier registry.
+// See LexWithModifiers for the full lexing behavior.
+func Lex(input string) ([]Token, []ParseError) {
+	return LexWithModifiers(input, DefaultModifiers())
+}
+
+// LexWithModifiers splits the input string into tokens using = as the field
+// separator and the given modifier registry for recognised prefix markers.
 // Modifiers (,  :  ..  ()) inside field values are preserved as part of the
 // raw value — the lexer does not decompose them into sub-tokens.
 // Quoted strings are opaque: no modifier tokenization inside quotes.
@@ -64,7 +71,13 @@ type Token struct {
 //
 // Returns all tokens produced plus any errors encountered. Processing
 // continues past errors so all issues are reported in one pass.
-func Lex(input string) ([]Token, []ParseError) {
+//
+// Phase 1: the modifiers parameter is accepted but not yet consulted inside
+// the body — behavior is identical to the legacy Lex. Phase 2 of the modifier
+// AST initiative will make the body read the registry when scanning each
+// token's first character.
+func LexWithModifiers(input string, modifiers ModifierSet) ([]Token, []ParseError) {
+	_ = modifiers // intentionally unused in Phase 1; Phase 2 wires it in
 	var tokens []Token
 	var errs []ParseError
 
