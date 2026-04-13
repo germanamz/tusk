@@ -539,6 +539,55 @@ func TestCLI_MissingExplicitConfigIsHardError(t *testing.T) {
 	}
 }
 
+func TestCLI_ConfigPath_ExistingGlobal(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	initCmd := exec.Command(binPath, "config", "init")
+	initCmd.Env = envWithHome(homeDir)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("config init failed: %v\n%s", err, out)
+	}
+
+	cmd := exec.Command(binPath, "config", "path")
+	cmd.Env = envWithHome(homeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config path failed: %v\n%s", err, out)
+	}
+	got := strings.TrimSpace(string(out))
+	want := filepath.Join(homeDir, ".config", "tusk", "config.toml")
+	if got != want {
+		t.Fatalf("config path = %q, want %q", got, want)
+	}
+}
+
+func TestCLI_ConfigPath_ExplicitFile(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "custom.toml")
+	if err := os.WriteFile(configFile, []byte("# custom\n"), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+	homeDir := t.TempDir()
+
+	cmd := exec.Command(binPath, "--config", configFile, "config", "path")
+	cmd.Env = envWithHome(homeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config path failed: %v\n%s", err, out)
+	}
+	got := strings.TrimSpace(string(out))
+	if got != configFile {
+		t.Fatalf("config path = %q, want %q", got, configFile)
+	}
+}
+
 func TestCLI_ConfigShowHeader_ExplicitFile(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
