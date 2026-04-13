@@ -157,7 +157,76 @@ func (s *Server) HandleProjectCreateForTest(ctx context.Context, req mcp.CallToo
 }
 
 func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultError("not implemented"), nil
+	name, err := req.RequireString("name")
+	if err != nil {
+		return mcp.NewToolResultError("name is required"), nil
+	}
+	args := req.GetArguments()
+
+	mut := config.ProjectMutation{
+		UrgencySet:   map[string]float64{},
+		UrgencyDelta: map[string]float64{},
+	}
+
+	if wf, ok := args["workflow"].(string); ok && wf != "" {
+		w := wf
+		mut.Workflow = &w
+	}
+
+	setWeights, err := parseFloatMap(args["urgency_set"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("urgency_set: %v", err)), nil
+	}
+	for k, v := range setWeights {
+		mut.UrgencySet[k] = v
+	}
+
+	deltaWeights, err := parseFloatMap(args["urgency_delta"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("urgency_delta: %v", err)), nil
+	}
+	for k, v := range deltaWeights {
+		mut.UrgencyDelta[k] = v
+	}
+
+	ac, err := parseStringMap(args["auto_complete"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("auto_complete: %v", err)), nil
+	}
+	if len(ac) > 0 {
+		mut.AutoCompleteSet = &config.AutoCompleteParentConfig{
+			TriggerStatus: ac["trigger_status"],
+			TargetStatus:  ac["target_status"],
+		}
+	}
+
+	ar, err := parseStringMap(args["auto_revert"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("auto_revert: %v", err)), nil
+	}
+	if len(ar) > 0 {
+		mut.AutoRevertSet = &config.AutoRevertParentConfig{
+			TriggerStatus: ar["trigger_status"],
+			TargetStatus:  ar["target_status"],
+		}
+	}
+
+	path, err := config.ConfigFilePath(s.loadOpts...)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
+	}
+	if err := config.ModifyProject(path, name, mut); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := s.reloadConfig(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
+	}
+	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+}
+
+// HandleProjectModifyForTest exposes handleProjectModify for internal tests.
+func (s *Server) HandleProjectModifyForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleProjectModify(ctx, req)
 }
 
 func (s *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -67,3 +67,64 @@ func TestHandleProjectCreate_UnknownWorkflow(t *testing.T) {
 		t.Fatalf("expected validation error for unknown workflow")
 	}
 }
+
+func TestHandleProjectModify_SetAndDelta(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	if err := config.CreateProject(path, "backend", config.ProjectConfig{Workflow: "kanban"}); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name": "backend",
+			"urgency_set": map[string]any{
+				"blocking_weight": 25.0,
+			},
+			"urgency_delta": map[string]any{
+				"due_weight": 3.0,
+			},
+		}},
+	}
+	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleProjectModifyForTest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+	}
+
+	loaded, _ := config.LoadFile(path)
+	p := loaded.Projects["backend"]
+	if p.Settings.Urgency == nil || p.Settings.Urgency.BlockingWeight == nil || *p.Settings.Urgency.BlockingWeight != 25.0 {
+		t.Fatalf("blocking_weight set failed: %+v", p.Settings.Urgency)
+	}
+	if p.Settings.Urgency.DueWeight == nil || *p.Settings.Urgency.DueWeight == 0 {
+		t.Fatalf("due_weight delta failed: %+v", p.Settings.Urgency)
+	}
+}
+
+func TestHandleProjectModify_SetDeltaConflict(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	if err := config.CreateProject(path, "backend", config.ProjectConfig{Workflow: "kanban"}); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":          "backend",
+			"urgency_set":   map[string]any{"due_weight": 10.0},
+			"urgency_delta": map[string]any{"due_weight": 2.0},
+		}},
+	}
+	res, _ := srv.HandleProjectModifyForTest(context.Background(), req)
+	if !res.IsError {
+		t.Fatalf("expected conflict error")
+	}
+}
