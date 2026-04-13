@@ -123,9 +123,11 @@ func (s *Server) validateConfig() error {
 		"tusk_task_release":    true,
 		"tusk_task_available":  true,
 		"tusk_task_pop":        true,
+		"tusk_config_show":     true,
+		"tusk_config_set":      true,
 	}
 	validToolGroups := map[string]bool{
-		"task": true, "relation": true, "project": true, "workflow": true, "player": true,
+		"task": true, "relation": true, "project": true, "workflow": true, "player": true, "config": true,
 	}
 	validResourceURIs := map[string]bool{
 		"tusk://tasks/{short_id}":         true,
@@ -551,6 +553,28 @@ func (s *Server) registerTools() {
 			),
 		),
 		s.handleTaskPop,
+	)
+
+	s.addTool("config",
+		mcp.NewTool("tusk_config_show",
+			mcp.WithDescription("Return the effective Tusk configuration and the path of the active config file. Read-only."),
+		),
+		s.handleConfigShow,
+	)
+
+	s.addTool("config",
+		mcp.NewTool("tusk_config_set",
+			mcp.WithDescription("Set a scalar config value by dot-path key and hot-reload the server. Rejects storage.* keys. Changes to mcp.disabled_* take effect only after process restart."),
+			mcp.WithString("key",
+				mcp.Required(),
+				mcp.Description("Dot-path key (e.g. urgency.due_weight, tui.color, mcp.disabled_tools)"),
+			),
+			mcp.WithString("value",
+				mcp.Required(),
+				mcp.Description("New value. For slice keys (e.g. mcp.disabled_tools), use a comma-separated list."),
+			),
+		),
+		s.handleConfigSet,
 	)
 }
 
