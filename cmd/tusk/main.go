@@ -31,7 +31,17 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.Load()
+	explicitConfig, err := resolveConfigPath()
+	if err != nil {
+		return err
+	}
+
+	var loadOpts []config.Option
+	if explicitConfig != "" {
+		loadOpts = append(loadOpts, config.WithExplicitFile(explicitConfig))
+	}
+
+	cfg, err := config.Load(loadOpts...)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
@@ -41,10 +51,9 @@ func run() error {
 		return err
 	}
 
-	configPath, _ := config.ConfigFilePath()
 	baseDir := "."
-	if configPath != "" {
-		baseDir = filepath.Dir(configPath)
+	if cfg.Sources.File != "" {
+		baseDir = filepath.Dir(cfg.Sources.File)
 	}
 
 	absDB, err := sqlite.ResolveWorkspacePath(dbPath, baseDir)
@@ -119,8 +128,8 @@ func run() error {
 		Version: version,
 		Commit:  commit,
 		Date:    date,
-	}, cfg.TUI, cfg.MCP, nil)
-	return app.Run(stripDBFlag(os.Args[1:]))
+	}, cfg.TUI, cfg.MCP, loadOpts)
+	return app.Run(stripConfigFlag(stripDBFlag(os.Args[1:])))
 }
 
 // stripDBFlag removes --db and its value from args so Cobra doesn't see them.
@@ -184,4 +193,34 @@ func resolveDBPath(configPath string) (string, error) {
 	// Config value (with tilde expansion). Always populated — Viper provides
 	// the default "~/.local/share/tusk/tusk.db" when no config file is present.
 	return config.ExpandPath(configPath), nil
+}
+
+// resolveConfigPath returns the explicit config file path from:
+//  1. --config flag (either "--config foo" or "--config=foo")
+//  2. TUSK_CONFIG env var
+//  3. "" — meaning "no explicit file, fall back to the global search"
+//
+// It does not stat the file; config.Load is responsible for turning a
+// missing explicit file into a hard error via config.WithExplicitFile.
+func resolveConfigPath() (string, error) {
+	for i, arg := range os.Args {
+		if arg == "--config" {
+			if i+1 >= len(os.Args) {
+				return "", fmt.Errorf("--config requires a value")
+			}
+			return os.Args[i+1], nil
+		}
+		if strings.HasPrefix(arg, "--config=") {
+			val := arg[len("--config="):]
+			if val == "" {
+				return "", fmt.Errorf("--config requires a value")
+			}
+			return val, nil
+		}
+	}
+
+	if v := os.Getenv("TUSK_CONFIG"); v != "" {
+		return v, nil
+	}
+	return "", nil
 }
