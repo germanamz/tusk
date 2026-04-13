@@ -3,6 +3,7 @@ package inmem
 import (
 	"context"
 	"sort"
+	"sync"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
@@ -11,14 +12,24 @@ import (
 
 var _ repository.WorkflowRepository = (*WorkflowRepository)(nil)
 
-// WorkflowRepository is a read-only, in-memory implementation of
-// repository.WorkflowRepository backed by config data.
 type WorkflowRepository struct {
+	mu        sync.RWMutex
 	workflows map[string]*domain.Workflow
 }
 
-// NewWorkflowRepository builds an in-memory workflow repository from config.
 func NewWorkflowRepository(cfgWorkflows map[string]config.WorkflowConfig) *WorkflowRepository {
+	return &WorkflowRepository{workflows: buildWorkflowMap(cfgWorkflows)}
+}
+
+// Reload atomically replaces the workflow set. Safe for concurrent readers.
+func (r *WorkflowRepository) Reload(cfgWorkflows map[string]config.WorkflowConfig) {
+	next := buildWorkflowMap(cfgWorkflows)
+	r.mu.Lock()
+	r.workflows = next
+	r.mu.Unlock()
+}
+
+func buildWorkflowMap(cfgWorkflows map[string]config.WorkflowConfig) map[string]*domain.Workflow {
 	workflows := make(map[string]*domain.Workflow, len(cfgWorkflows))
 	for name, cfg := range cfgWorkflows {
 		wf := &domain.Workflow{
@@ -41,24 +52,26 @@ func NewWorkflowRepository(cfgWorkflows map[string]config.WorkflowConfig) *Workf
 		}
 		workflows[name] = wf
 	}
-	return &WorkflowRepository{workflows: workflows}
+	return workflows
 }
 
-// GetByName returns a defensive copy of the workflow. Returns domain.ErrNotFound if not found.
 func (r *WorkflowRepository) GetByName(_ context.Context, name string) (*domain.Workflow, error) {
+	r.mu.RLock()
 	wf, ok := r.workflows[name]
+	r.mu.RUnlock()
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
 	return copyWorkflow(wf), nil
 }
 
-// List returns all workflows sorted alphabetically by name. Each is a defensive copy.
 func (r *WorkflowRepository) List(_ context.Context) ([]*domain.Workflow, error) {
+	r.mu.RLock()
 	result := make([]*domain.Workflow, 0, len(r.workflows))
 	for _, wf := range r.workflows {
 		result = append(result, copyWorkflow(wf))
 	}
+	r.mu.RUnlock()
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
 	})
