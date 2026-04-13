@@ -16,13 +16,13 @@ var defaultConfig []byte
 
 // WorkflowTransitionConfig defines an allowed status transition.
 type WorkflowTransitionConfig struct {
-	From string `mapstructure:"from" toml:"from"`
-	To   string `mapstructure:"to"   toml:"to"`
+	From string `mapstructure:"from" toml:"from" json:"from"`
+	To   string `mapstructure:"to"   toml:"to"   json:"to"`
 }
 
 // StatusConfig defines a single status within a workflow.
 type StatusConfig struct {
-	Roles []string `mapstructure:"roles" toml:"roles"`
+	Roles []string `mapstructure:"roles" toml:"roles" json:"roles"`
 }
 
 // Valid status roles.
@@ -44,112 +44,112 @@ var validRoles = map[string]bool{
 
 // WorkflowConfig defines a named workflow with its statuses and transitions.
 type WorkflowConfig struct {
-	Statuses    map[string]StatusConfig    `mapstructure:"statuses"    toml:"statuses"`
-	Transitions []WorkflowTransitionConfig `mapstructure:"transitions" toml:"transitions"`
+	Statuses    map[string]StatusConfig    `mapstructure:"statuses"    toml:"statuses"    json:"statuses"`
+	Transitions []WorkflowTransitionConfig `mapstructure:"transitions" toml:"transitions" json:"transitions"`
 }
 
 // AutoCompleteParentConfig controls automatic parent completion.
 type AutoCompleteParentConfig struct {
-	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status"`
-	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"`
+	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status" json:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"  json:"target_status"`
 }
 
 // AutoRevertParentConfig controls automatic parent revert.
 type AutoRevertParentConfig struct {
-	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status"`
-	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"`
+	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status" json:"trigger_status"`
+	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"  json:"target_status"`
 }
 
 // ProjectUrgencyConfig holds per-project urgency weight overrides.
 // Nil fields inherit from the global [urgency] config.
 type ProjectUrgencyConfig struct {
-	PriorityWeight    *float64 `mapstructure:"priority_weight"    toml:"priority_weight,omitempty"`
-	DueWeight         *float64 `mapstructure:"due_weight"         toml:"due_weight,omitempty"`
-	AgeWeight         *float64 `mapstructure:"age_weight"         toml:"age_weight,omitempty"`
-	ActiveWeight      *float64 `mapstructure:"active_weight"      toml:"active_weight,omitempty"`
-	BlockingWeight    *float64 `mapstructure:"blocking_weight"    toml:"blocking_weight,omitempty"`
-	BlockedWeight     *float64 `mapstructure:"blocked_weight"     toml:"blocked_weight,omitempty"`
-	TagsWeight        *float64 `mapstructure:"tags_weight"        toml:"tags_weight,omitempty"`
-	ProjectWeight     *float64 `mapstructure:"project_weight"     toml:"project_weight,omitempty"`
-	AnnotationsWeight *float64 `mapstructure:"annotations_weight" toml:"annotations_weight,omitempty"`
-	WaitingWeight     *float64 `mapstructure:"waiting_weight"     toml:"waiting_weight,omitempty"`
+	PriorityWeight    *float64 `mapstructure:"priority_weight"    toml:"priority_weight,omitempty"    json:"priority_weight,omitempty"`
+	DueWeight         *float64 `mapstructure:"due_weight"         toml:"due_weight,omitempty"         json:"due_weight,omitempty"`
+	AgeWeight         *float64 `mapstructure:"age_weight"         toml:"age_weight,omitempty"         json:"age_weight,omitempty"`
+	ActiveWeight      *float64 `mapstructure:"active_weight"      toml:"active_weight,omitempty"      json:"active_weight,omitempty"`
+	BlockingWeight    *float64 `mapstructure:"blocking_weight"    toml:"blocking_weight,omitempty"    json:"blocking_weight,omitempty"`
+	BlockedWeight     *float64 `mapstructure:"blocked_weight"     toml:"blocked_weight,omitempty"     json:"blocked_weight,omitempty"`
+	TagsWeight        *float64 `mapstructure:"tags_weight"        toml:"tags_weight,omitempty"        json:"tags_weight,omitempty"`
+	ProjectWeight     *float64 `mapstructure:"project_weight"     toml:"project_weight,omitempty"     json:"project_weight,omitempty"`
+	AnnotationsWeight *float64 `mapstructure:"annotations_weight" toml:"annotations_weight,omitempty" json:"annotations_weight,omitempty"`
+	WaitingWeight     *float64 `mapstructure:"waiting_weight"     toml:"waiting_weight,omitempty"     json:"waiting_weight,omitempty"`
 }
 
 // ProjectSettingsConfig holds per-project automation settings.
 type ProjectSettingsConfig struct {
-	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent" toml:"auto_complete_parent,omitempty"`
-	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"   toml:"auto_revert_parent,omitempty"`
-	Urgency            *ProjectUrgencyConfig     `mapstructure:"urgency"              toml:"urgency,omitempty"`
+	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent" toml:"auto_complete_parent,omitempty" json:"auto_complete_parent,omitempty"`
+	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"   toml:"auto_revert_parent,omitempty"   json:"auto_revert_parent,omitempty"`
+	Urgency            *ProjectUrgencyConfig     `mapstructure:"urgency"              toml:"urgency,omitempty"              json:"urgency,omitempty"`
 }
 
 // ProjectConfig defines a named project with its workflow assignment and settings.
 type ProjectConfig struct {
-	Workflow string                `mapstructure:"workflow" toml:"workflow"`
-	Settings ProjectSettingsConfig `mapstructure:"settings" toml:"settings"`
+	Workflow string                `mapstructure:"workflow" toml:"workflow" json:"workflow"`
+	Settings ProjectSettingsConfig `mapstructure:"settings" toml:"settings" json:"settings"`
 }
 
 // ConfigSources records how the effective Config was assembled.
 // It is populated by Load and is not persisted to disk.
 type ConfigSources struct {
 	// File is the active config file path, or "" when no user file was found.
-	File string `mapstructure:"-" toml:"-"`
+	File string `mapstructure:"-" toml:"-" json:"-"`
 }
 
 // Config is the top-level Tusk configuration.
 type Config struct {
-	Storage   StorageConfig             `mapstructure:"storage"   toml:"storage"`
-	Urgency   UrgencyConfig             `mapstructure:"urgency"   toml:"urgency"`
-	TUI       TUIConfig                 `mapstructure:"tui"       toml:"tui"`
-	MCP       MCPConfig                 `mapstructure:"mcp"       toml:"mcp"`
-	Workflows map[string]WorkflowConfig `mapstructure:"workflows" toml:"workflows"`
-	Projects  map[string]ProjectConfig  `mapstructure:"projects"  toml:"projects"`
+	Storage   StorageConfig             `mapstructure:"storage"   toml:"storage"   json:"storage"`
+	Urgency   UrgencyConfig             `mapstructure:"urgency"   toml:"urgency"   json:"urgency"`
+	TUI       TUIConfig                 `mapstructure:"tui"       toml:"tui"       json:"tui"`
+	MCP       MCPConfig                 `mapstructure:"mcp"       toml:"mcp"       json:"mcp"`
+	Workflows map[string]WorkflowConfig `mapstructure:"workflows" toml:"workflows" json:"workflows"`
+	Projects  map[string]ProjectConfig  `mapstructure:"projects"  toml:"projects"  json:"projects"`
 
 	// Sources records where the effective config came from. Populated by Load.
 	// Skipped by both mapstructure and TOML encoding so it never appears in
 	// files or round-trips through Viper.
-	Sources ConfigSources `mapstructure:"-" toml:"-"`
+	Sources ConfigSources `mapstructure:"-" toml:"-" json:"-"`
 }
 
 // StorageConfig configures the database backend.
 type StorageConfig struct {
-	Backend  string         `mapstructure:"backend"  toml:"backend"`
-	Path     string         `mapstructure:"path"     toml:"path"`
-	Postgres PostgresConfig `mapstructure:"postgres" toml:"postgres"`
+	Backend  string         `mapstructure:"backend"  toml:"backend"  json:"backend"`
+	Path     string         `mapstructure:"path"     toml:"path"     json:"path"`
+	Postgres PostgresConfig `mapstructure:"postgres" toml:"postgres" json:"postgres"`
 }
 
 // PostgresConfig holds PostgreSQL connection settings (future use).
 type PostgresConfig struct {
-	DSN string `mapstructure:"dsn" toml:"dsn"`
+	DSN string `mapstructure:"dsn" toml:"dsn" json:"dsn"`
 }
 
 // UrgencyConfig holds weights for the urgency scoring algorithm.
 type UrgencyConfig struct {
-	PriorityWeight    float64 `mapstructure:"priority_weight"    toml:"priority_weight"`
-	DueWeight         float64 `mapstructure:"due_weight"         toml:"due_weight"`
-	AgeWeight         float64 `mapstructure:"age_weight"         toml:"age_weight"`
-	ActiveWeight      float64 `mapstructure:"active_weight"      toml:"active_weight"`
-	BlockingWeight    float64 `mapstructure:"blocking_weight"    toml:"blocking_weight"`
-	BlockedWeight     float64 `mapstructure:"blocked_weight"     toml:"blocked_weight"`
-	TagsWeight        float64 `mapstructure:"tags_weight"        toml:"tags_weight"`
-	ProjectWeight     float64 `mapstructure:"project_weight"     toml:"project_weight"`
-	AnnotationsWeight float64 `mapstructure:"annotations_weight" toml:"annotations_weight"`
-	WaitingWeight     float64 `mapstructure:"waiting_weight"     toml:"waiting_weight"`
+	PriorityWeight    float64 `mapstructure:"priority_weight"    toml:"priority_weight"    json:"priority_weight"`
+	DueWeight         float64 `mapstructure:"due_weight"         toml:"due_weight"         json:"due_weight"`
+	AgeWeight         float64 `mapstructure:"age_weight"         toml:"age_weight"         json:"age_weight"`
+	ActiveWeight      float64 `mapstructure:"active_weight"      toml:"active_weight"      json:"active_weight"`
+	BlockingWeight    float64 `mapstructure:"blocking_weight"    toml:"blocking_weight"    json:"blocking_weight"`
+	BlockedWeight     float64 `mapstructure:"blocked_weight"     toml:"blocked_weight"     json:"blocked_weight"`
+	TagsWeight        float64 `mapstructure:"tags_weight"        toml:"tags_weight"        json:"tags_weight"`
+	ProjectWeight     float64 `mapstructure:"project_weight"     toml:"project_weight"     json:"project_weight"`
+	AnnotationsWeight float64 `mapstructure:"annotations_weight" toml:"annotations_weight" json:"annotations_weight"`
+	WaitingWeight     float64 `mapstructure:"waiting_weight"     toml:"waiting_weight"     json:"waiting_weight"`
 }
 
 // MCPConfig controls which tools and resources the MCP server exposes.
 type MCPConfig struct {
-	DisabledToolGroups     []string `mapstructure:"disabled_tool_groups"     toml:"disabled_tool_groups"`
-	DisabledTools          []string `mapstructure:"disabled_tools"           toml:"disabled_tools"`
-	DisabledResourceGroups []string `mapstructure:"disabled_resource_groups" toml:"disabled_resource_groups"`
-	DisabledResources      []string `mapstructure:"disabled_resources"       toml:"disabled_resources"`
+	DisabledToolGroups     []string `mapstructure:"disabled_tool_groups"     toml:"disabled_tool_groups"     json:"disabled_tool_groups"`
+	DisabledTools          []string `mapstructure:"disabled_tools"           toml:"disabled_tools"           json:"disabled_tools"`
+	DisabledResourceGroups []string `mapstructure:"disabled_resource_groups" toml:"disabled_resource_groups" json:"disabled_resource_groups"`
+	DisabledResources      []string `mapstructure:"disabled_resources"       toml:"disabled_resources"       json:"disabled_resources"`
 }
 
 // TUIConfig controls CLI output formatting.
 type TUIConfig struct {
-	DateFormat  string `mapstructure:"date_format"  toml:"date_format"`
-	Color       bool   `mapstructure:"color"        toml:"color"`
-	TreeIndent  int    `mapstructure:"tree_indent"  toml:"tree_indent"`
-	DefaultSort string `mapstructure:"default_sort" toml:"default_sort"`
+	DateFormat  string `mapstructure:"date_format"  toml:"date_format"  json:"date_format"`
+	Color       bool   `mapstructure:"color"        toml:"color"        json:"color"`
+	TreeIndent  int    `mapstructure:"tree_indent"  toml:"tree_indent"  json:"tree_indent"`
+	DefaultSort string `mapstructure:"default_sort" toml:"default_sort" json:"default_sort"`
 }
 
 // Option configures the Load function.
