@@ -3,6 +3,7 @@ package service
 import (
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/germanamz/tusk/domain"
@@ -58,12 +59,21 @@ const (
 
 // UrgencyEngine computes urgency scores for tasks.
 type UrgencyEngine struct {
+	mu       sync.RWMutex
 	defaults UrgencyWeights
 }
 
 // NewUrgencyEngine creates an engine with the given default weights.
 func NewUrgencyEngine(defaults UrgencyWeights) *UrgencyEngine {
 	return &UrgencyEngine{defaults: defaults}
+}
+
+// Reload atomically replaces the default weights used when a task's project
+// has no per-project overrides. Safe for concurrent readers.
+func (e *UrgencyEngine) Reload(defaults UrgencyWeights) {
+	e.mu.Lock()
+	e.defaults = defaults
+	e.mu.Unlock()
 }
 
 // Score computes the urgency score for a single task.
@@ -142,6 +152,8 @@ func (e *UrgencyEngine) weightsFor(projectID string, ctx ScoringContext) Urgency
 	if pw, ok := ctx.ProjectWeights[projectID]; ok {
 		return *pw
 	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.defaults
 }
 

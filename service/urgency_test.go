@@ -229,3 +229,20 @@ func TestUrgencyProjectWeightOverride(t *testing.T) {
 		t.Errorf("custom project should score higher (%.2f) than default (%.2f)", customScore, defaultScore)
 	}
 }
+
+func TestUrgencyEngine_Reload(t *testing.T) {
+	e := NewUrgencyEngine(UrgencyWeights{Priority: 10})
+	task := &domain.Task{Priority: 4}
+	ctx := ScoringContext{}
+
+	before := e.Score(task, ctx)
+	if before == 0 {
+		t.Fatalf("expected non-zero score before reload")
+	}
+
+	e.Reload(UrgencyWeights{Priority: 0})
+	after := e.Score(task, ctx)
+	if after != 0 {
+		t.Fatalf("expected zero score after reload, got %v", after)
+	}
+}
