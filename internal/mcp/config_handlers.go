@@ -51,6 +51,13 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 		return mcp.NewToolResultError(fmt.Sprintf("unknown config key: %q", key)), nil
 	}
 
+	// Serialize the read-modify-write critical section plus the reload so
+	// concurrent tusk_config_set calls cannot clobber each other or let a
+	// reader observe partially-applied repo state. Cheap pre-validation
+	// guards above run unlocked so error responses are not serialized.
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
 	path, err := config.ConfigFilePath(s.loadOpts...)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolving config file path: %v", err)), nil
@@ -93,7 +100,9 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 		return mcp.NewToolResultError(fmt.Sprintf("writing config: %v", err)), nil
 	}
 
-	if err := s.reloadConfig(ctx); err != nil {
+	// Already holding s.configMu — use the locked variant to avoid
+	// self-deadlock.
+	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}
 
