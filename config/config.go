@@ -88,6 +88,13 @@ type ProjectConfig struct {
 	Settings ProjectSettingsConfig `mapstructure:"settings" toml:"settings"`
 }
 
+// ConfigSources records how the effective Config was assembled.
+// It is populated by Load and is not persisted to disk.
+type ConfigSources struct {
+	// File is the active config file path, or "" when no user file was found.
+	File string `mapstructure:"-" toml:"-"`
+}
+
 // Config is the top-level Tusk configuration.
 type Config struct {
 	Storage   StorageConfig             `mapstructure:"storage"   toml:"storage"`
@@ -96,6 +103,11 @@ type Config struct {
 	MCP       MCPConfig                 `mapstructure:"mcp"       toml:"mcp"`
 	Workflows map[string]WorkflowConfig `mapstructure:"workflows" toml:"workflows"`
 	Projects  map[string]ProjectConfig  `mapstructure:"projects"  toml:"projects"`
+
+	// Sources records where the effective config came from. Populated by Load.
+	// Skipped by both mapstructure and TOML encoding so it never appears in
+	// files or round-trips through Viper.
+	Sources ConfigSources `mapstructure:"-" toml:"-"`
 }
 
 // StorageConfig configures the database backend.
@@ -144,14 +156,25 @@ type TUIConfig struct {
 type Option func(o *loadOptions)
 
 type loadOptions struct {
-	searchPath string
+	searchPath   string
+	explicitFile string
 }
 
-// WithSearchPath overrides the config file search path.
-// Used in tests to point at a temp directory instead of ~/.config/tusk/.
+// WithSearchPath overrides the global config directory used to locate
+// config.toml. Used in tests to point at a temp directory instead of
+// ~/.config/tusk/. It does not affect the explicit-file path.
 func WithSearchPath(path string) Option {
 	return func(o *loadOptions) {
 		o.searchPath = path
+	}
+}
+
+// WithExplicitFile points Load/ConfigFilePath at a specific config file.
+// If the file does not exist, Load returns a hard error; the global
+// search path is bypassed entirely.
+func WithExplicitFile(path string) Option {
+	return func(o *loadOptions) {
+		o.explicitFile = path
 	}
 }
 
