@@ -3,6 +3,7 @@ package inmem
 import (
 	"context"
 	"sort"
+	"sync"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
@@ -15,11 +16,24 @@ var _ repository.ProjectRepository = (*ProjectRepository)(nil)
 // ProjectRepository is a read-only, in-memory implementation of
 // repository.ProjectRepository backed by config data.
 type ProjectRepository struct {
+	mu       sync.RWMutex
 	projects map[string]*domain.Project
 }
 
 // NewProjectRepository builds an in-memory project repository from config.
 func NewProjectRepository(cfgProjects map[string]config.ProjectConfig) *ProjectRepository {
+	return &ProjectRepository{projects: buildProjectMap(cfgProjects)}
+}
+
+// Reload atomically replaces the project set. Safe for concurrent readers.
+func (r *ProjectRepository) Reload(cfgProjects map[string]config.ProjectConfig) {
+	next := buildProjectMap(cfgProjects)
+	r.mu.Lock()
+	r.projects = next
+	r.mu.Unlock()
+}
+
+func buildProjectMap(cfgProjects map[string]config.ProjectConfig) map[string]*domain.Project {
 	projects := make(map[string]*domain.Project, len(cfgProjects))
 	for id, cfg := range cfgProjects {
 		p := &domain.Project{
@@ -54,12 +68,14 @@ func NewProjectRepository(cfgProjects map[string]config.ProjectConfig) *ProjectR
 		}
 		projects[id] = p
 	}
-	return &ProjectRepository{projects: projects}
+	return projects
 }
 
 // GetByID returns a defensive copy of the project. Returns domain.ErrNotFound if not found.
 func (r *ProjectRepository) GetByID(_ context.Context, id string) (*domain.Project, error) {
+	r.mu.RLock()
 	p, ok := r.projects[id]
+	r.mu.RUnlock()
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
@@ -68,10 +84,12 @@ func (r *ProjectRepository) GetByID(_ context.Context, id string) (*domain.Proje
 
 // List returns all projects sorted by ID. Each project is a defensive copy.
 func (r *ProjectRepository) List(_ context.Context) ([]*domain.Project, error) {
+	r.mu.RLock()
 	result := make([]*domain.Project, 0, len(r.projects))
 	for _, p := range r.projects {
 		result = append(result, copyProject(p))
 	}
+	r.mu.RUnlock()
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].ID < result[j].ID
 	})
