@@ -518,6 +518,60 @@ func TestCLI_FlagBeatsEnv(t *testing.T) {
 	}
 }
 
+func TestCLI_MissingExplicitConfigIsHardError(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	missing := filepath.Join(t.TempDir(), "does-not-exist.toml")
+	homeDir := t.TempDir()
+
+	cmd := exec.Command(binPath, "--config", missing, "list")
+	cmd.Env = envWithHome(homeDir)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected tusk to exit non-zero when --config points at a missing file")
+	}
+	if !strings.Contains(stderr.String(), "config file not found") {
+		t.Fatalf("expected 'config file not found' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestCLI_TuskEnvOverlaysExplicitConfig(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	// Config file says one DB path; TUSK_STORAGE_PATH env overrides it.
+	dir := t.TempDir()
+	fileDB := filepath.Join(dir, "from-file.db")
+	envDB := filepath.Join(dir, "from-env.db")
+	configFile := filepath.Join(dir, "custom.toml")
+	if err := os.WriteFile(configFile, []byte("[storage]\npath = \""+fileDB+"\"\n"), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	homeDir := t.TempDir()
+	cmd := exec.Command(binPath, "--config", configFile, "add", "Overlay task")
+	env := envWithHome(homeDir)
+	env = append(env, "TUSK_STORAGE_PATH="+envDB)
+	cmd.Env = env
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("tusk failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if _, err := os.Stat(envDB); os.IsNotExist(err) {
+		t.Fatalf("expected DB at env-override path %s", envDB)
+	}
+	if _, err := os.Stat(fileDB); err == nil {
+		t.Fatalf("unexpected DB at file path %s — env should have overridden it", fileDB)
+	}
+}
+
 // newMCPEnvWithHome starts an MCP server with a custom HOME directory.
 func newMCPEnvWithHome(t *testing.T, binPath, home string) *mcpEnv {
 	t.Helper()
