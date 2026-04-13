@@ -508,3 +508,45 @@ color = false
 		t.Error("config file was overwritten")
 	}
 }
+
+func TestLoad_SourcesFileForGlobal(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	want := filepath.Join(dir, "config.toml")
+	if cfg.Sources.File != want {
+		t.Fatalf("Sources.File = %q, want %q", cfg.Sources.File, want)
+	}
+}
+
+func TestLoad_SourcesFileForExplicit(t *testing.T) {
+	dir := t.TempDir()
+	explicit := filepath.Join(dir, "custom.toml")
+	if err := os.WriteFile(explicit, []byte("[storage]\npath=\"/tmp/x.db\"\n"), 0o644); err != nil {
+		t.Fatalf("writing explicit file: %v", err)
+	}
+
+	cfg, err := Load(WithExplicitFile(explicit))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Sources.File != explicit {
+		t.Fatalf("Sources.File = %q, want %q", cfg.Sources.File, explicit)
+	}
+	if cfg.Storage.Path != "/tmp/x.db" {
+		t.Fatalf("Storage.Path = %q, want value from explicit file", cfg.Storage.Path)
+	}
+}
+
+func TestLoad_ExplicitFileMissingIsHardError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope.toml")
+	_, err := Load(WithExplicitFile(missing))
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "config file not found") {
+		t.Fatalf("error %q should mention \"config file not found\"", err.Error())
+	}
+}
