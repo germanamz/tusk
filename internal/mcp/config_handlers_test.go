@@ -3,9 +3,11 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/germanamz/tusk/config"
@@ -199,6 +201,58 @@ func TestHandleConfigSet_RejectsStorageKeys(t *testing.T) {
 	}
 	if loaded.Storage.Path == "/tmp/evil.db" {
 		t.Fatalf("storage.path was mutated despite guard: %q", loaded.Storage.Path)
+	}
+}
+
+// TestHandleConfigSet_ConcurrentWritesAreSerialized launches many concurrent
+// tusk_config_set calls across two keys and verifies the resulting file still
+// parses cleanly and validates. Without the server-level config mutex, the
+// parallel read-modify-write paths would race and occasionally produce a
+// corrupt file or lose an update in a way that fails Validate().
+func TestHandleConfigSet_ConcurrentWritesAreSerialized(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	srv := newTestServer(t, path)
+
+	const goroutines = 50
+	keys := []string{"urgency.due_weight", "urgency.age_weight"}
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			key := keys[i%len(keys)]
+			value := fmt.Sprintf("%d.0", 10+i)
+			req := mcp.CallToolRequest{
+				Params: mcp.CallToolParams{
+					Arguments: map[string]any{
+						"key":   key,
+						"value": value,
+					},
+				},
+			}
+			res, err := srv.HandleConfigSetForTest(context.Background(), req)
+			if err != nil {
+				t.Errorf("HandleConfigSetForTest(%s=%s): %v", key, value, err)
+				return
+			}
+			if res.IsError {
+				text, _ := res.Content[0].(mcp.TextContent)
+				t.Errorf("unexpected error result for %s=%s: %s", key, value, text.Text)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	loaded, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile after concurrent writes: %v", err)
+	}
+	if err := loaded.Validate(); err != nil {
+		t.Fatalf("Validate after concurrent writes: %v", err)
 	}
 }
 
