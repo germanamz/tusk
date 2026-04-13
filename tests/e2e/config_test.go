@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -536,6 +537,39 @@ func TestCLI_MissingExplicitConfigIsHardError(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "config file not found") {
 		t.Fatalf("expected 'config file not found' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestCLI_ConfigValidate_ExplicitFile(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "custom.toml")
+	homeDir := t.TempDir()
+	dumpCmd := exec.Command(binPath, "config", "show")
+	dumpCmd.Env = envWithHome(homeDir)
+	out, err := dumpCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config show failed: %v\n%s", err, out)
+	}
+	body := out
+	if idx := bytes.IndexByte(out, '\n'); idx >= 0 && bytes.HasPrefix(out, []byte("# active:")) {
+		body = out[idx+1:]
+	}
+	if err := os.WriteFile(configFile, body, 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	cmd := exec.Command(binPath, "--config", configFile, "config", "validate")
+	cmd.Env = envWithHome(t.TempDir())
+	out2, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config validate failed: %v\n%s", err, out2)
+	}
+	if !bytes.Contains(out2, []byte("Config valid")) {
+		t.Fatalf("expected 'Config valid' in output, got: %s", out2)
 	}
 }
 

@@ -207,17 +207,21 @@ func (a *App) buildConfigViper() (*viper.Viper, error) {
 }
 
 func (a *App) runConfigValidate(cmd *cobra.Command, args []string) error {
-	path, err := config.ConfigFilePath(a.loadOpts...)
+	cfg, err := config.Load(a.loadOpts...)
 	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if cfg.Sources.File == "" {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "no user config — defaults only")
 		return err
 	}
 
-	cfg, err := config.LoadFile(path)
+	fileCfg, err := config.LoadFile(cfg.Sources.File)
 	if err != nil {
 		return err
 	}
-
-	if err := cfg.Validate(); err != nil {
+	if err := fileCfg.Validate(); err != nil {
 		return err
 	}
 
@@ -234,9 +238,24 @@ func (a *App) runConfigEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("$EDITOR is not set")
 	}
 
-	path, err := config.ConfigFilePath(a.loadOpts...)
+	cfg, err := config.Load(a.loadOpts...)
 	if err != nil {
-		return err
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	path := cfg.Sources.File
+	if path == "" {
+		initPath, err := config.ConfigFilePath(a.loadOpts...)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(initPath), 0o755); err != nil {
+			return fmt.Errorf("creating config directory: %w", err)
+		}
+		if err := config.WriteConfig(cfg, initPath); err != nil {
+			return err
+		}
+		path = initPath
 	}
 
 	c := exec.Command(editor, path)
