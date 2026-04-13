@@ -550,3 +550,62 @@ func TestLoad_ExplicitFileMissingIsHardError(t *testing.T) {
 		t.Fatalf("error %q should mention \"config file not found\"", err.Error())
 	}
 }
+
+func TestLoad_WalkUpUsesLocalFile(t *testing.T) {
+	startDir := t.TempDir()
+	local := filepath.Join(startDir, "tusk.toml")
+	if err := os.WriteFile(local, []byte("[tui]\ncolor = false\n"), 0o644); err != nil {
+		t.Fatalf("writing local config: %v", err)
+	}
+	emptyGlobal := t.TempDir()
+
+	cfg, err := Load(WithStartDir(startDir), WithSearchPath(emptyGlobal))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Sources.File != local {
+		t.Fatalf("Sources.File = %q, want %q", cfg.Sources.File, local)
+	}
+	if cfg.TUI.Color != false {
+		t.Fatalf("TUI.Color = %v, want false", cfg.TUI.Color)
+	}
+	if _, err := os.Stat(filepath.Join(emptyGlobal, "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("global config.toml should not have been auto-created; stat err = %v", err)
+	}
+}
+
+func TestLoad_WalkUpMissAutoCreatesGlobal(t *testing.T) {
+	startDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	cfg, err := Load(WithStartDir(startDir), WithSearchPath(globalDir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	want := filepath.Join(globalDir, "config.toml")
+	if cfg.Sources.File != want {
+		t.Fatalf("Sources.File = %q, want %q", cfg.Sources.File, want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("global config.toml should exist after Load: %v", err)
+	}
+}
+
+func TestLoad_ExplicitBeatsWalkUp(t *testing.T) {
+	startDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(startDir, "tusk.toml"), []byte("[tui]\ncolor = false\n"), 0o644); err != nil {
+		t.Fatalf("writing local config: %v", err)
+	}
+	explicit := filepath.Join(t.TempDir(), "custom.toml")
+	if err := os.WriteFile(explicit, []byte("[tui]\ncolor = true\n"), 0o644); err != nil {
+		t.Fatalf("writing explicit: %v", err)
+	}
+
+	cfg, err := Load(WithStartDir(startDir), WithExplicitFile(explicit))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Sources.File != explicit {
+		t.Fatalf("Sources.File = %q, want %q", cfg.Sources.File, explicit)
+	}
+}

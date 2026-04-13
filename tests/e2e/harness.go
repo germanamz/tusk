@@ -26,9 +26,23 @@ type Env struct {
 	binPath   string   // path to compiled tusk binary
 	dbPath    string   // path to temp SQLite file
 	configDir string   // path to temp config directory (optional)
+	workDir   string   // working directory for cmd.Dir (optional)
+	extraEnv  []string // additional env vars appended to every Run (optional)
 	dbMode    string   // "flag" or "env"
 	format    string   // "text" or "json"
 	results   []Result // stored results for inter-step references
+}
+
+// InDir sets the working directory used for subsequent Run invocations.
+// Used by walk-up scenarios that need the binary to start inside a
+// specific temp directory.
+func (e *Env) InDir(dir string) { e.workDir = dir }
+
+// WithEnv appends a KEY=VALUE environment variable to every subsequent Run
+// invocation. Used by scenarios that need to inject extra env vars (e.g.
+// TUSK_CONFIG) without adding first-class fields to Env.
+func (e *Env) WithEnv(key, value string) {
+	e.extraEnv = append(e.extraEnv, key+"="+value)
 }
 
 // newEnv creates a new Env with a fresh temp DB file.
@@ -85,6 +99,9 @@ func (e *Env) Run(args ...string) Result {
 	fullArgs = append(fullArgs, expanded...)
 
 	cmd := exec.Command(e.binPath, fullArgs...)
+	if e.workDir != "" {
+		cmd.Dir = e.workDir
+	}
 
 	// Set environment variables
 	env := os.Environ()
@@ -95,6 +112,7 @@ func (e *Env) Run(args ...string) Result {
 	if e.configDir != "" {
 		env = append(env, "TUSK_CONFIG_DIR="+e.configDir)
 	}
+	env = append(env, e.extraEnv...)
 	cmd.Env = env
 
 	var stdout, stderr strings.Builder
