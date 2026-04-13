@@ -127,6 +127,9 @@ func (s *Server) validateConfig() error {
 		"tusk_task_pop":        true,
 		"tusk_config_show":     true,
 		"tusk_config_set":      true,
+		"tusk_workflow_create": true,
+		"tusk_workflow_modify": true,
+		"tusk_workflow_delete": true,
 	}
 	validToolGroups := map[string]bool{
 		"task": true, "relation": true, "project": true, "workflow": true, "player": true, "config": true,
@@ -478,6 +481,105 @@ func (s *Server) registerTools() {
 			mcp.WithDescription("List all workflows with their statuses, transitions, and referencing projects"),
 		),
 		s.handleWorkflowList,
+	)
+
+	s.addTool("workflow",
+		mcp.NewTool("tusk_workflow_create",
+			mcp.WithDescription("Create a new workflow and write it to the active config file. Fails if the name already exists."),
+			mcp.WithString("name",
+				mcp.Required(),
+				mcp.Description("Workflow name (must be unique within the config file)"),
+			),
+			mcp.WithArray("statuses",
+				mcp.Required(),
+				mcp.Description("Ordered list of statuses. Each item is {name: string, roles: string[]}. Roles: initial, start, terminal, done, delete, highlight, dim."),
+				mcp.Items(map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":  map[string]any{"type": "string"},
+						"roles": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					},
+				}),
+			),
+			mcp.WithArray("transitions",
+				mcp.Required(),
+				mcp.Description("Allowed transitions. Each item is {from: string, to: string}."),
+				mcp.Items(map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"from": map[string]any{"type": "string"},
+						"to":   map[string]any{"type": "string"},
+					},
+				}),
+			),
+		),
+		s.handleWorkflowCreate,
+	)
+
+	s.addTool("workflow",
+		mcp.NewTool("tusk_workflow_modify",
+			mcp.WithDescription("Modify an existing workflow: add, remove, or update statuses and transitions."),
+			mcp.WithString("name",
+				mcp.Required(),
+				mcp.Description("Workflow name"),
+			),
+			mcp.WithArray("add_statuses",
+				mcp.Description("Statuses to add (must not already exist). Items: {name, roles[]}."),
+				mcp.Items(map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":  map[string]any{"type": "string"},
+						"roles": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					},
+				}),
+			),
+			mcp.WithArray("set_statuses",
+				mcp.Description("Statuses to update in place (replaces roles). Items: {name, roles[]}."),
+				mcp.Items(map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":  map[string]any{"type": "string"},
+						"roles": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					},
+				}),
+			),
+			mcp.WithArray("remove_statuses",
+				mcp.Description("Status names to remove. Any transitions touching these are removed too."),
+				mcp.WithStringItems(),
+			),
+			mcp.WithArray("add_transitions",
+				mcp.Description("Transitions to add. Items: {from, to}."),
+				mcp.Items(map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"from": map[string]any{"type": "string"},
+						"to":   map[string]any{"type": "string"},
+					},
+				}),
+			),
+			mcp.WithArray("remove_transitions",
+				mcp.Description("Transitions to remove. Items: {from, to}."),
+				mcp.Items(map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"from": map[string]any{"type": "string"},
+						"to":   map[string]any{"type": "string"},
+					},
+				}),
+			),
+		),
+		s.handleWorkflowModify,
+	)
+
+	s.addTool("workflow",
+		mcp.NewTool("tusk_workflow_delete",
+			mcp.WithDescription("Delete a workflow from the active config file. Fails if any project references it."),
+			mcp.WithString("name",
+				mcp.Required(),
+				mcp.Description("Workflow name"),
+			),
+		),
+		s.handleWorkflowDelete,
 	)
 
 	s.addTool("player",
