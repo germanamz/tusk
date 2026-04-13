@@ -119,10 +119,12 @@ func (s *Server) handleWorkflowCreate(ctx context.Context, req mcp.CallToolReque
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
 	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	if err := config.CreateWorkflow(path, name, wf); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfig(ctx); err != nil {
+	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}
 
@@ -176,10 +178,12 @@ func (s *Server) handleWorkflowModify(ctx context.Context, req mcp.CallToolReque
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
 	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	if err := config.ModifyWorkflow(path, name, mut); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfig(ctx); err != nil {
+	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}
 
@@ -200,10 +204,12 @@ func (s *Server) handleWorkflowDelete(ctx context.Context, req mcp.CallToolReque
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
 	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	if err := config.DeleteWorkflow(path, name); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfig(ctx); err != nil {
+	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}
 	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
