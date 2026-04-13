@@ -127,11 +127,16 @@ func run() error {
 	}
 	playerSvc := service.NewPlayerService(defaultBundle.Players)
 
-	app := tui.New(taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, tui.VersionInfo{
-		Version: version,
-		Commit:  commit,
-		Date:    date,
-	}, cfg.TUI, cfg.MCP, loadOpts)
+	app := tui.New(
+		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc,
+		workflowRepo, projectRepo, urgencyEngine,
+		tui.VersionInfo{
+			Version: version,
+			Commit:  commit,
+			Date:    date,
+		},
+		cfg.TUI, cfg.MCP, loadOpts,
+	)
 	return app.Run(stripConfigFlag(stripDBFlag(os.Args[1:])))
 }
 
