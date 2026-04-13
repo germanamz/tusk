@@ -6,6 +6,30 @@ import (
 	"testing"
 )
 
+func TestConfigFilePath_ExplicitFile(t *testing.T) {
+	dir := t.TempDir()
+	explicit := filepath.Join(dir, "custom.toml")
+	if err := os.WriteFile(explicit, []byte("# custom\n"), 0o644); err != nil {
+		t.Fatalf("writing explicit file: %v", err)
+	}
+
+	got, err := ConfigFilePath(WithExplicitFile(explicit))
+	if err != nil {
+		t.Fatalf("ConfigFilePath() error: %v", err)
+	}
+	if got != explicit {
+		t.Fatalf("got %q, want %q", got, explicit)
+	}
+}
+
+func TestConfigFilePath_ExplicitFileMissingErrors(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope.toml")
+	_, err := ConfigFilePath(WithExplicitFile(missing))
+	if err == nil {
+		t.Fatal("want error for missing explicit file")
+	}
+}
+
 func TestConfigFilePath_WithSearchPath(t *testing.T) {
 	dir := t.TempDir()
 	got, err := ConfigFilePath(WithSearchPath(dir))
