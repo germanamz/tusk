@@ -24,7 +24,7 @@ type RepoBundle struct {
 }
 
 // BundleResolver returns the RepoBundle that owns the given project.
-// Implementations are wired in cmd/tusk/main.go using sqlite.StoreRegistry.
+// Implementations are wired in cmd/tusk/main.go.
 type BundleResolver func(ctx context.Context, projectID string) (*RepoBundle, error)
 
 // ProjectLister returns every project ID currently known to the resolver.
