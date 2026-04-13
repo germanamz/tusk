@@ -4,22 +4,41 @@ Tusk works out of the box with no configuration. All settings have sensible defa
 
 ## Config File
 
-Tusk looks for a config file at:
+By default Tusk looks for a config file at:
 
 ```
 ~/.config/tusk/config.toml
 ```
 
-If the file doesn't exist, Tusk uses built-in defaults. There is no `tusk init` command -- create the file manually when you need to override a setting.
+If the global file doesn't exist, Tusk silently falls back to built-in defaults (it will auto-create `~/.config/tusk/config.toml` from defaults on first run).
 
-## Precedence
+### Explicit config selection
+
+Point Tusk at a specific file with either:
+
+- `--config <path>` — global CLI flag, consumed before Cobra parsing, so it works on every subcommand.
+- `TUSK_CONFIG=<path>` — environment variable equivalent.
+
+`--config` wins over `TUSK_CONFIG`. **Missing `--config` / `TUSK_CONFIG` target file is a hard error** — Tusk refuses to start rather than silently falling through to defaults. (The global file, by contrast, falls through silently because it is the default path.)
+
+## Resolution Order
 
 Settings are resolved in this order (highest priority first):
 
 1. **CLI flags** (e.g., `--db`)
-2. **Environment variables** (e.g., `TUSK_DB`, `TUSK_STORAGE_PATH`)
-3. **Config file** (`~/.config/tusk/config.toml`)
+2. **Environment variables** (e.g., `TUSK_DB`, `TUSK_STORAGE_PATH`, `TUSK_CONFIG`)
+3. **Config file**, resolved as:
+   1. `--config <path>` (hard error if missing)
+   2. `TUSK_CONFIG` (hard error if missing)
+   3. `~/.config/tusk/config.toml` (silent fall-through to defaults if missing; auto-created on first run)
 4. **Built-in defaults**
+
+## Inspecting the active file
+
+- `tusk config show` prepends a `# active: <path>` TOML comment to its output so you can see which file is in effect. The body of the output remains valid TOML (the header is a comment).
+- `tusk config path` prints the resolved file path to stdout. When no user file is active it prints the would-be global path to stdout and `(not yet created)` to stderr, so `tusk config path | xargs cat` continues to work when a file exists.
+- `tusk config validate` validates the resolved file, including whatever `--config` / `TUSK_CONFIG` points at.
+- `tusk config edit` opens the resolved file in `$VISUAL` / `$EDITOR`. With `--config` it opens that file directly; without it, the global file is created from defaults first if it doesn't yet exist.
 
 ## Environment Variables
 

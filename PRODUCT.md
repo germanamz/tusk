@@ -365,6 +365,8 @@ Resolution order (highest to lowest priority):
 
 The embedded default configuration is always the baseline. The active user file (if any) overrides individual keys on top of those defaults. Environment variables with the `TUSK_` prefix override any resolved value. The `--db` flag overrides the database path directly.
 
+When `--config` or `TUSK_CONFIG` is set, a missing target file is a hard error — Tusk refuses to start rather than silently falling through to defaults. The global `~/.config/tusk/config.toml`, by contrast, falls through silently when missing and is auto-created from defaults on first run.
+
 Relative paths inside a `tusk.toml` (`storage.path = "./tusk.db"`) resolve against the directory that contains the file, so running `tusk` from any subdirectory of a project lands on the same database.
 
 A default configuration is embedded in the binary. Running `tusk config init` creates a global config file with defaults; `tusk config init --local` writes a full dump of the current effective config to `./tusk.toml`. Global config auto-creation on first run is skipped when a local `tusk.toml` is already in the walk-up path — running tusk inside a project with its own config never spawns a global file.
