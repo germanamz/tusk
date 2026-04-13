@@ -22,6 +22,22 @@ func (a *App) buildConfigCmd() *cobra.Command {
 		Short: "Manage configuration",
 	}
 
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Create config file with defaults if none exists",
+		Args:  cobra.NoArgs,
+		RunE:  a.runConfigInit,
+	}
+	initCmd.Flags().Bool("local", false, "Write ./tusk.toml instead of the global config file")
+
+	setCmd := &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set a config value and write to file",
+		Args:  cobra.ExactArgs(2),
+		RunE:  a.runConfigSet,
+	}
+	setCmd.Flags().Bool("global", false, "Write to the global config (~/.config/tusk/config.toml) even when a local tusk.toml is active")
+
 	configCmd.AddCommand(
 		&cobra.Command{
 			Use:   "show",
@@ -35,12 +51,7 @@ func (a *App) buildConfigCmd() *cobra.Command {
 			Args:  cobra.NoArgs,
 			RunE:  a.runConfigPath,
 		},
-		&cobra.Command{
-			Use:   "init",
-			Short: "Create config file with defaults if none exists",
-			Args:  cobra.NoArgs,
-			RunE:  a.runConfigInit,
-		},
+		initCmd,
 		&cobra.Command{
 			Use:   "get <key>",
 			Short: "Get a specific config value by dot-path key",
@@ -59,12 +70,7 @@ func (a *App) buildConfigCmd() *cobra.Command {
 			Args:  cobra.NoArgs,
 			RunE:  a.runConfigEdit,
 		},
-		&cobra.Command{
-			Use:   "set <key> <value>",
-			Short: "Set a config value and write to file",
-			Args:  cobra.ExactArgs(2),
-			RunE:  a.runConfigSet,
-		},
+		setCmd,
 	)
 
 	return configCmd
@@ -122,6 +128,10 @@ func (a *App) runConfigPath(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runConfigInit(cmd *cobra.Command, args []string) error {
+	if local, _ := cmd.Flags().GetBool("local"); local {
+		return a.runConfigInitLocal(cmd)
+	}
+
 	path, err := config.ConfigFilePath(a.loadOpts...)
 	if err != nil {
 		return err
@@ -148,6 +158,83 @@ func (a *App) runConfigInit(cmd *cobra.Command, args []string) error {
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", path)
 	return err
+}
+
+func (a *App) runConfigInitLocal(cmd *cobra.Command) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving working directory: %w", err)
+	}
+	target := filepath.Join(cwd, "tusk.toml")
+
+	if _, err := os.Stat(target); err == nil {
+		return fmt.Errorf("file exists: %s", target)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat %s: %w", target, err)
+	}
+
+	cfg, err := config.Load(a.loadOpts...)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	if err := config.WriteConfig(cfg, target); err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", target)
+	return err
+}
+
+// resolveConfigWritePath picks the file `config set` should write to.
+// When global is true, walk-up and any explicit file are bypassed and the
+// global config path is returned (creating the file from defaults if it
+// does not yet exist). When global is false, the path matches whatever
+// Load() would read — typically the walk-up hit or the global file. An
+// error is returned when no file exists yet and no --global was requested.
+func (a *App) resolveConfigWritePath(global bool) (string, error) {
+	if global {
+		opts := stripLocalOpts()
+		path, err := config.ConfigFilePath(opts...)
+		if err != nil {
+			return "", err
+		}
+		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+			if err := ensureGlobalConfigFile(path, opts); err != nil {
+				return "", err
+			}
+		}
+		return path, nil
+	}
+
+	path, err := config.ConfigFilePath(a.loadOpts...)
+	if err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		return "", fmt.Errorf(`no config file found; run "tusk config init" or "tusk config init --local"`)
+	}
+	return path, nil
+}
+
+// stripLocalOpts returns a loadOpts slice that bypasses walk-up and any
+// explicit-file override. Passing nil to config.ConfigFilePath falls through
+// to the global branch while still honoring TUSK_CONFIG_DIR.
+func stripLocalOpts() []config.Option {
+	return nil
+}
+
+// ensureGlobalConfigFile writes a default config to path when the file does
+// not yet exist. opts should be the stripped option set so Load pulls pure
+// defaults (plus any TUSK_* env overrides) rather than inheriting walk-up.
+func ensureGlobalConfigFile(path string, opts []config.Option) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	cfg, err := config.Load(opts...)
+	if err != nil {
+		return fmt.Errorf("loading defaults: %w", err)
+	}
+	return config.WriteConfig(cfg, path)
 }
 
 func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
@@ -273,15 +360,10 @@ func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown config key: %q", key)
 	}
 
-	// Resolve config file path.
-	path, err := config.ConfigFilePath(a.loadOpts...)
+	global, _ := cmd.Flags().GetBool("global")
+	path, err := a.resolveConfigWritePath(global)
 	if err != nil {
 		return err
-	}
-
-	// Reject if no config file exists.
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return fmt.Errorf("no config file found; run \"tusk config init\" to create one")
 	}
 
 	// Load the file contents (no defaults, no env).

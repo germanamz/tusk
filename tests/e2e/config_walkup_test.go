@@ -164,6 +164,147 @@ func TestCLI_ConfigWalkUp(t *testing.T) {
 			},
 		},
 		{
+			name: "config_set_local_writes_to_walkup_file",
+			run: func(t *testing.T, env *Env) {
+				root := resolvedTempDir(t)
+				local := filepath.Join(root, "tusk.toml")
+				if err := os.WriteFile(local, []byte("[tui]\ncolor = true\n"), 0o644); err != nil {
+					t.Fatalf("writing local: %v", err)
+				}
+				env.InDir(root)
+
+				r := env.Run("config", "set", "tui.color", "false")
+				if r.Err != nil {
+					t.Fatalf("config set failed: %v\n%s", r.Err, r.Stderr)
+				}
+
+				data, err := os.ReadFile(local)
+				if err != nil {
+					t.Fatalf("reading local: %v", err)
+				}
+				assertContains(t, string(data), "color = false")
+
+				globalCfg := filepath.Join(env.configDir, "config.toml")
+				if _, err := os.Stat(globalCfg); !os.IsNotExist(err) {
+					t.Fatalf("global config.toml should not exist after local set; stat err = %v", err)
+				}
+			},
+		},
+		{
+			name: "config_set_global_flag_writes_to_global_even_with_local_present",
+			run: func(t *testing.T, env *Env) {
+				root := resolvedTempDir(t)
+				local := filepath.Join(root, "tusk.toml")
+				localContent := []byte("[tui]\ncolor = true\n")
+				if err := os.WriteFile(local, localContent, 0o644); err != nil {
+					t.Fatalf("writing local: %v", err)
+				}
+				env.InDir(root)
+
+				r := env.Run("config", "set", "--global", "tui.color", "false")
+				if r.Err != nil {
+					t.Fatalf("config set --global failed: %v\n%s", r.Err, r.Stderr)
+				}
+
+				globalCfg := filepath.Join(env.configDir, "config.toml")
+				data, err := os.ReadFile(globalCfg)
+				if err != nil {
+					t.Fatalf("reading global: %v", err)
+				}
+				assertContains(t, string(data), "color = false")
+
+				gotLocal, err := os.ReadFile(local)
+				if err != nil {
+					t.Fatalf("reading local: %v", err)
+				}
+				if string(gotLocal) != string(localContent) {
+					t.Fatalf("local tusk.toml unexpectedly modified:\n%s", gotLocal)
+				}
+			},
+		},
+		{
+			name: "config_set_no_local_falls_back_to_global",
+			run: func(t *testing.T, env *Env) {
+				root := resolvedTempDir(t)
+				env.InDir(root)
+
+				r := env.Run("config", "set", "tui.color", "false")
+				if r.Err != nil {
+					t.Fatalf("config set failed: %v\n%s", r.Err, r.Stderr)
+				}
+
+				if _, err := os.Stat(filepath.Join(root, "tusk.toml")); !os.IsNotExist(err) {
+					t.Fatalf("local tusk.toml should not have been created; stat err = %v", err)
+				}
+
+				globalCfg := filepath.Join(env.configDir, "config.toml")
+				data, err := os.ReadFile(globalCfg)
+				if err != nil {
+					t.Fatalf("reading global: %v", err)
+				}
+				assertContains(t, string(data), "color = false")
+			},
+		},
+		{
+			name:    "config_init_local_creates_file",
+			skipFmt: []string{"json"},
+			run: func(t *testing.T, env *Env) {
+				root := resolvedTempDir(t)
+				env.InDir(root)
+
+				r := env.Run("config", "init", "--local")
+				if r.Err != nil {
+					t.Fatalf("config init --local failed: %v\n%s", r.Err, r.Stderr)
+				}
+
+				local := filepath.Join(root, "tusk.toml")
+				if _, err := os.Stat(local); err != nil {
+					t.Fatalf("expected local tusk.toml: %v", err)
+				}
+
+				validate := env.Run("config", "validate")
+				if validate.Err != nil {
+					t.Fatalf("config validate failed: %v\n%s", validate.Err, validate.Stderr)
+				}
+
+				show := env.Run("config", "show")
+				if show.Err != nil {
+					t.Fatalf("config show failed: %v\n%s", show.Err, show.Stderr)
+				}
+				wantHeader := "# active: " + local
+				firstLine := strings.SplitN(show.Stdout, "\n", 2)[0]
+				if firstLine != wantHeader {
+					t.Fatalf("first line = %q, want %q", firstLine, wantHeader)
+				}
+			},
+		},
+		{
+			name: "config_init_local_refuses_overwrite",
+			run: func(t *testing.T, env *Env) {
+				root := resolvedTempDir(t)
+				local := filepath.Join(root, "tusk.toml")
+				original := []byte("[tui]\ncolor = false\n")
+				if err := os.WriteFile(local, original, 0o644); err != nil {
+					t.Fatalf("writing local: %v", err)
+				}
+				env.InDir(root)
+
+				r := env.Run("config", "init", "--local")
+				if r.Err == nil {
+					t.Fatalf("expected error, got none. stdout:\n%s", r.Stdout)
+				}
+				assertStderrContains(t, r, "file exists")
+
+				got, err := os.ReadFile(local)
+				if err != nil {
+					t.Fatalf("reading local: %v", err)
+				}
+				if string(got) != string(original) {
+					t.Fatalf("local tusk.toml unexpectedly overwritten:\n%s", got)
+				}
+			},
+		},
+		{
 			name:    "walkup_tusk_config_env_overrides",
 			skipFmt: []string{"json"},
 			run: func(t *testing.T, env *Env) {
