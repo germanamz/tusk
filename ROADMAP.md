@@ -566,27 +566,27 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Internal refactor that makes the config file's directory the one workspace namespace. Removes per-project `db_path`, collapses `StoreRegistry` to a single store, and drops cross-store fan-out. No user-visible config resolution changes yet — tusk still reads the global `config.toml` only. Ships first so the rest of the config work has a simple "one config, one DB" invariant to build on.
 
-- [ ] **Story: Remove per-project db_path from the config schema**
-  - [ ] Delete `[projects.<name>].db_path` from the config types and TOML schema
-  - [ ] Remove `db-path=` from `tusk project create` / `tusk project modify` inline syntax, and remove it from the accepted-fields list
-  - [ ] Update `config/default.toml` comments and any docs-embedded examples
-  - [ ] Explicitly supersedes the v0.8 "Per-Project Databases" stories, which remain in the roadmap as historical record
+- [x] **Story: Remove per-project db_path from the config schema**
+  - [x] Delete `[projects.<name>].db_path` from the config types and TOML schema
+  - [x] Remove `db-path=` from `tusk project create` / `tusk project modify` inline syntax, and remove it from the accepted-fields list
+  - [x] Update `config/default.toml` comments and any docs-embedded examples
+  - [x] Explicitly supersedes the v0.8 "Per-Project Databases" stories, which remain in the roadmap as historical record
 
-- [ ] **Story: Collapse StoreRegistry to a single workspace store**
-  - [ ] Replace `StoreRegistry` with a single `Store` opened from `cfg.Storage.Path` at startup
-  - [ ] Service resolver (`RepoBundle` provider) returns the workspace store regardless of project ID
-  - [ ] `baseDir` for relative `storage.path` still resolves against the active config file's directory (unchanged contract, simpler implementation)
+- [x] **Story: Collapse StoreRegistry to a single workspace store**
+  - [x] Replace `StoreRegistry` with a single `Store` opened from `cfg.Storage.Path` at startup
+  - [x] Service resolver (`RepoBundle` provider) returns the workspace store regardless of project ID
+  - [x] `baseDir` for relative `storage.path` still resolves against the active config file's directory (unchanged contract, simpler implementation)
 
-- [ ] **Story: Remove cross-store fan-out from services**
-  - [ ] `TaskService.List`, `available`, `next` no longer fan out across stores — they run one query against the workspace store with project filters applied in SQL
-  - [ ] `tusk pop` selects the top-urgency candidate via a single query and claims it in the same store; optimistic-lock retry stays but cross-store retry logic is removed
-  - [ ] `RelationService` drops the same-store constraint and re-allows relations between tasks in different projects within the workspace
-  - [ ] `projectLister` closure in `cmd/tusk` is replaced by reading project IDs from the config
+- [x] **Story: Remove cross-store fan-out from services**
+  - [x] `TaskService.List`, `available`, `next` no longer fan out across stores — they run one query against the workspace store with project filters applied in SQL
+  - [x] `tusk pop` selects the top-urgency candidate via a single query and claims it in the same store; optimistic-lock retry stays but cross-store retry logic is removed
+  - [x] `RelationService` drops the same-store constraint and re-allows relations between tasks in different projects within the workspace
+  - [x] `projectLister` closure in `cmd/tusk` is replaced by reading project IDs from the config
 
-- [ ] **Story: Migration guidance for existing per-project DBs**
-  - [ ] Documented in `docs/` as a manual export/import procedure (export each per-project DB with `tusk export --format json`, merge into the new workspace DB)
-  - [ ] No automatic migration shipped — per-project DBs predate v0.1 and had no production users
-  - [ ] Release notes flag it as a breaking change for any user who set `db_path` in their config
+- [x] **Story: Migration guidance for existing per-project DBs**
+  - [x] Documented in `docs/` as a manual export/import procedure (export each per-project DB with `tusk export --format json`, merge into the new workspace DB)
+  - [x] No automatic migration shipped — per-project DBs predate v0.1 and had no production users
+  - [x] Release notes flag it as a breaking change for any user who set `db_path` in their config
 
 ### Initiative: Explicit Config File Resolver
 
