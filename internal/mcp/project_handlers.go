@@ -12,8 +12,6 @@ import (
 // countTasksForProject returns the number of tasks referencing the given
 // project name. Mirrors the CLI-side helper so the MCP project_delete
 // handler can supply a TaskRefChecker to config.DeleteProject.
-//
-//nolint:unused
 func (s *Server) countTasksForProject(ctx context.Context, projectName string) (int, error) {
 	expr, parseErrs := filter.ParseExpr(fmt.Sprintf("project=%s", projectName))
 	if len(parseErrs) > 0 {
@@ -230,5 +228,34 @@ func (s *Server) HandleProjectModifyForTest(ctx context.Context, req mcp.CallToo
 }
 
 func (s *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultError("not implemented"), nil
+	name, err := req.RequireString("name")
+	if err != nil {
+		return mcp.NewToolResultError("name is required"), nil
+	}
+	force, _ := req.GetArguments()["force"].(bool)
+
+	path, err := config.ConfigFilePath(s.loadOpts...)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
+	}
+
+	var checker config.TaskRefChecker
+	if s.taskSvc != nil {
+		checker = func(projectName string) (int, error) {
+			return s.countTasksForProject(ctx, projectName)
+		}
+	}
+
+	if err := config.DeleteProject(path, name, checker, force); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := s.reloadConfig(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
+	}
+	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+}
+
+// HandleProjectDeleteForTest exposes handleProjectDelete for internal tests.
+func (s *Server) HandleProjectDeleteForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleProjectDelete(ctx, req)
 }

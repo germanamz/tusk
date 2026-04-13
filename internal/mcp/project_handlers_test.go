@@ -128,3 +128,43 @@ func TestHandleProjectModify_SetDeltaConflict(t *testing.T) {
 		t.Fatalf("expected conflict error")
 	}
 }
+
+func TestHandleProjectDelete_Success(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	if err := config.CreateProject(path, "backend", config.ProjectConfig{Workflow: "kanban"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "backend"}},
+	}
+	res, err := srv.HandleProjectDeleteForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleProjectDeleteForTest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+	}
+	loaded, _ := config.LoadFile(path)
+	if _, ok := loaded.Projects["backend"]; ok {
+		t.Fatalf("backend still present after delete")
+	}
+}
+
+func TestHandleProjectDelete_DefaultGuarded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "default"}},
+	}
+	res, _ := srv.HandleProjectDeleteForTest(context.Background(), req)
+	if !res.IsError {
+		t.Fatalf("expected guard error for built-in default project")
+	}
+}
