@@ -592,23 +592,23 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Introduce the config resolution abstraction that walk-up discovery will later plug into. Adds the `--config` flag and `TUSK_CONFIG` env var as first-class ways to point tusk at any config file, plus `config path` and an active-file header on `config show`. No walk-up yet — the resolver's precedence chain is `--config` → `TUSK_CONFIG` → global → defaults. Delivered on top of the single-workspace model from the previous initiative.
 
-- [ ] **Story: Config resolver abstraction**
-  - [ ] Introduce `ResolveConfigFile(startDir, explicitFile, globalDir) (string, error)` in `config/` that returns the active config file path or `""` for "defaults only"
-  - [ ] Initial implementation: returns `explicitFile` if set, otherwise `globalDir/config.toml` if it exists, otherwise `""`. Walk-up step is reserved for the next initiative.
-  - [ ] `config.Load()` routes through the resolver; legacy `WithSearchPath` option is preserved for tests but documented as "sets globalDir"
-  - [ ] `config.Load()` returns the resolved file path alongside the `*Config` (e.g. via a `Sources` field or a second return value) so callers can render it
+- [x] **Story: Config resolver abstraction**
+  - [x] Introduce `ResolveConfigFile(startDir, explicitFile, globalDir) (string, error)` in `config/` that returns the active config file path or `""` for "defaults only"
+  - [x] Initial implementation: returns `explicitFile` if set, otherwise `globalDir/config.toml` if it exists, otherwise `""`. Walk-up step is reserved for the next initiative.
+  - [x] `config.Load()` routes through the resolver; legacy `WithSearchPath` option is preserved for tests but documented as "sets globalDir"
+  - [x] `config.Load()` returns the resolved file path alongside the `*Config` (e.g. via a `Sources` field or a second return value) so callers can render it
 
-- [ ] **Story: `--config` flag and `TUSK_CONFIG` env var**
-  - [ ] Add global `--config <path>` flag handled before Cobra parsing, parallel to the existing `--db` handling in `cmd/tusk/main.go`
-  - [ ] Add `TUSK_CONFIG` env var as a fallback for `--config`. `TUSK_CONFIG_DIR` remains valid and untouched (it sets `globalDir`).
-  - [ ] Missing `--config` / `TUSK_CONFIG` target file is a hard error at `Load()` time; missing global file falls through to defaults silently
-  - [ ] Precedence at this point: `TUSK_*` env values > `--config` / `TUSK_CONFIG` file > global file > embedded defaults
+- [x] **Story: `--config` flag and `TUSK_CONFIG` env var**
+  - [x] Add global `--config <path>` flag handled before Cobra parsing, parallel to the existing `--db` handling in `cmd/tusk/main.go`
+  - [x] Add `TUSK_CONFIG` env var as a fallback for `--config`. `TUSK_CONFIG_DIR` remains valid and untouched (it sets `globalDir`).
+  - [x] Missing `--config` / `TUSK_CONFIG` target file is a hard error at `Load()` time; missing global file falls through to defaults silently
+  - [x] Precedence at this point: `TUSK_*` env values > `--config` / `TUSK_CONFIG` file > global file > embedded defaults
 
-- [ ] **Story: `config path` and active-file header**
-  - [ ] New `tusk config path` subcommand prints the resolved active file path, or the path `tusk config init` would create when none is active
-  - [ ] `tusk config show` prepends a header indicating which file is active (`# active: /path/to/config.toml` or `# active: defaults only`)
-  - [ ] `tusk config edit` opens the resolved active file (honoring `--config` / `TUSK_CONFIG`)
-  - [ ] `tusk config validate` validates the resolved file
+- [x] **Story: `config path` and active-file header**
+  - [x] New `tusk config path` subcommand prints the resolved active file path, or the path `tusk config init` would create when none is active
+  - [x] `tusk config show` prepends a header indicating which file is active (`# active: /path/to/config.toml` or `# active: defaults only`)
+  - [x] `tusk config edit` opens the resolved active file (honoring `--config` / `TUSK_CONFIG`)
+  - [x] `tusk config validate` validates the resolved file
 
 ### Initiative: Local Config Discovery
 
