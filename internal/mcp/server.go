@@ -8,6 +8,7 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/filter"
+	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/service"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -21,8 +22,12 @@ type Server struct {
 	projectSvc     *service.ProjectService
 	workflowSvc    *service.WorkflowService
 	playerSvc      *service.PlayerService
+	workflowRepo   *inmem.WorkflowRepository
+	projectRepo    *inmem.ProjectRepository
+	urgencyEngine  *service.UrgencyEngine
 	server         *server.MCPServer
 	cfg            config.MCPConfig
+	loadOpts       []config.Option
 	toolGroups     map[string]string // tool name → group
 	resourceGroups map[string]string // resource URI template → group
 }
@@ -36,8 +41,12 @@ func New(
 	projectSvc *service.ProjectService,
 	workflowSvc *service.WorkflowService,
 	playerSvc *service.PlayerService,
+	workflowRepo *inmem.WorkflowRepository,
+	projectRepo *inmem.ProjectRepository,
+	urgencyEngine *service.UrgencyEngine,
 	version string,
 	cfg config.MCPConfig,
+	loadOpts []config.Option,
 ) (*Server, error) {
 	s := &Server{
 		taskSvc:        taskSvc,
@@ -46,7 +55,11 @@ func New(
 		projectSvc:     projectSvc,
 		workflowSvc:    workflowSvc,
 		playerSvc:      playerSvc,
+		workflowRepo:   workflowRepo,
+		projectRepo:    projectRepo,
+		urgencyEngine:  urgencyEngine,
 		cfg:            cfg,
+		loadOpts:       loadOpts,
 		toolGroups:     make(map[string]string),
 		resourceGroups: make(map[string]string),
 	}
@@ -569,6 +582,43 @@ func (s *Server) newResolver(ctx context.Context) *filter.Resolver {
 // This blocks until the transport is closed (e.g., stdin EOF).
 func (s *Server) Serve() error {
 	return server.ServeStdio(s.server)
+}
+
+// reloadConfig re-reads the active config file via the stored loadOpts and
+// hot-reloads the workflow repository, project repository, and urgency engine
+// with the fresh data. It does NOT rebuild the MCP server, reopen the
+// database, or reconfigure transports — those require a process restart.
+//
+// Safe to call from any MCP tool handler after a successful config mutation.
+// Returns an error when Load fails; callers should surface the error back to
+// the caller without applying partial state (Load is a full parse with
+// validation, so there is no partial state to apply).
+func (s *Server) reloadConfig(ctx context.Context) error {
+	cfg, err := config.Load(s.loadOpts...)
+	if err != nil {
+		return fmt.Errorf("reloading config: %w", err)
+	}
+	s.workflowRepo.Reload(cfg.Workflows)
+	s.projectRepo.Reload(cfg.Projects)
+	s.urgencyEngine.Reload(service.UrgencyWeights{
+		Priority:    cfg.Urgency.PriorityWeight,
+		Due:         cfg.Urgency.DueWeight,
+		Age:         cfg.Urgency.AgeWeight,
+		Active:      cfg.Urgency.ActiveWeight,
+		Blocking:    cfg.Urgency.BlockingWeight,
+		Blocked:     cfg.Urgency.BlockedWeight,
+		Tags:        cfg.Urgency.TagsWeight,
+		Project:     cfg.Urgency.ProjectWeight,
+		Annotations: cfg.Urgency.AnnotationsWeight,
+		Waiting:     cfg.Urgency.WaitingWeight,
+	})
+	_ = ctx // ctx reserved for future per-call tracing
+	return nil
+}
+
+// ReloadConfigForTest exposes reloadConfig for internal tests.
+func (s *Server) ReloadConfigForTest(ctx context.Context) error {
+	return s.reloadConfig(ctx)
 }
 
 const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version.`

@@ -8,6 +8,7 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/filter"
+	"github.com/germanamz/tusk/inmem"
 	tuskmcp "github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/service"
 	"github.com/spf13/cobra"
@@ -22,21 +23,24 @@ type VersionInfo struct {
 
 // App holds the CLI's dependencies and Cobra command tree.
 type App struct {
-	taskSvc     *service.TaskService
-	tagSvc      *service.TagService
-	relationSvc *service.RelationService
-	projectSvc  *service.ProjectService
-	workflowSvc *service.WorkflowService
-	playerSvc   *service.PlayerService
-	playerID    string // from --player flag
-	resolver    *filter.Resolver
-	root        *cobra.Command
-	format      string
-	noColor     bool
-	version     VersionInfo
-	tuiCfg      config.TUIConfig
-	mcpCfg      config.MCPConfig
-	loadOpts    []config.Option
+	taskSvc       *service.TaskService
+	tagSvc        *service.TagService
+	relationSvc   *service.RelationService
+	projectSvc    *service.ProjectService
+	workflowSvc   *service.WorkflowService
+	playerSvc     *service.PlayerService
+	workflowRepo  *inmem.WorkflowRepository
+	projectRepo   *inmem.ProjectRepository
+	urgencyEngine *service.UrgencyEngine
+	playerID      string // from --player flag
+	resolver      *filter.Resolver
+	root          *cobra.Command
+	format        string
+	noColor       bool
+	version       VersionInfo
+	tuiCfg        config.TUIConfig
+	mcpCfg        config.MCPConfig
+	loadOpts      []config.Option
 }
 
 // colorEnabled resolves whether color output is active.
@@ -53,18 +57,35 @@ func (a *App) colorEnabled() bool {
 
 // New creates a new App and builds the Cobra command tree.
 // taskSvc, tagSvc, and projectSvc may be nil for testing command registration.
-func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *service.RelationService, projectSvc *service.ProjectService, workflowSvc *service.WorkflowService, playerSvc *service.PlayerService, vi VersionInfo, tuiCfg config.TUIConfig, mcpCfg config.MCPConfig, loadOpts []config.Option) *App {
+func New(
+	taskSvc *service.TaskService,
+	tagSvc *service.TagService,
+	relationSvc *service.RelationService,
+	projectSvc *service.ProjectService,
+	workflowSvc *service.WorkflowService,
+	playerSvc *service.PlayerService,
+	workflowRepo *inmem.WorkflowRepository,
+	projectRepo *inmem.ProjectRepository,
+	urgencyEngine *service.UrgencyEngine,
+	vi VersionInfo,
+	tuiCfg config.TUIConfig,
+	mcpCfg config.MCPConfig,
+	loadOpts []config.Option,
+) *App {
 	a := &App{
-		taskSvc:     taskSvc,
-		tagSvc:      tagSvc,
-		relationSvc: relationSvc,
-		projectSvc:  projectSvc,
-		workflowSvc: workflowSvc,
-		playerSvc:   playerSvc,
-		version:     vi,
-		tuiCfg:      tuiCfg,
-		mcpCfg:      mcpCfg,
-		loadOpts:    loadOpts,
+		taskSvc:       taskSvc,
+		tagSvc:        tagSvc,
+		relationSvc:   relationSvc,
+		projectSvc:    projectSvc,
+		workflowSvc:   workflowSvc,
+		playerSvc:     playerSvc,
+		workflowRepo:  workflowRepo,
+		projectRepo:   projectRepo,
+		urgencyEngine: urgencyEngine,
+		version:       vi,
+		tuiCfg:        tuiCfg,
+		mcpCfg:        mcpCfg,
+		loadOpts:      loadOpts,
 	}
 	a.resolver = filter.NewResolver(taskSvc, collectNonTerminalStatuses(workflowSvc))
 
@@ -103,7 +124,12 @@ func New(taskSvc *service.TaskService, tagSvc *service.TagService, relationSvc *
 		Use:   "serve",
 		Short: "Start MCP server with stdio transport",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mcpServer, err := tuskmcp.New(taskSvc, tagSvc, relationSvc, projectSvc, a.workflowSvc, a.playerSvc, vi.Version, a.mcpCfg)
+			mcpServer, err := tuskmcp.New(
+				taskSvc, tagSvc, relationSvc, projectSvc,
+				a.workflowSvc, a.playerSvc,
+				a.workflowRepo, a.projectRepo, a.urgencyEngine,
+				vi.Version, a.mcpCfg, a.loadOpts,
+			)
 			if err != nil {
 				return fmt.Errorf("initializing MCP server: %w", err)
 			}
