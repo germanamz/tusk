@@ -649,11 +649,11 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Expose configuration management to AI agents via MCP tools.
 
-- [ ] **Story: Config MCP tools**
-  - [ ] `tusk_config_show` — read effective configuration
-  - [ ] `tusk_config_set` — set a config value
-  - [ ] `tusk_workflow_create` / `tusk_workflow_modify` / `tusk_workflow_delete` — workflow management
-  - [ ] `tusk_project_create` / `tusk_project_modify` / `tusk_project_delete` — project management
+- [x] **Story: Config MCP tools**
+  - [x] `tusk_config_show` — read effective configuration
+  - [x] `tusk_config_set` — set a config value
+  - [x] `tusk_workflow_create` / `tusk_workflow_modify` / `tusk_workflow_delete` — workflow management
+  - [x] `tusk_project_create` / `tusk_project_modify` / `tusk_project_delete` — project management
 
 ---
 
