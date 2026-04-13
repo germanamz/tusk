@@ -102,6 +102,57 @@ func TestHandleWorkflowModify_AddAndRemove(t *testing.T) {
 	}
 }
 
+func TestHandleWorkflowDelete_Success(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	if err := config.CreateWorkflow(path, "sprint", config.WorkflowConfig{
+		Statuses: map[string]config.StatusConfig{
+			"todo":  {Roles: []string{"initial"}},
+			"doing": {Roles: []string{"start"}},
+			"done":  {Roles: []string{"terminal", "done"}},
+			"drop":  {Roles: []string{"terminal", "delete"}},
+		},
+		Transitions: []config.WorkflowTransitionConfig{{From: "todo", To: "doing"}},
+	}); err != nil {
+		t.Fatalf("seeding sprint: %v", err)
+	}
+
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "sprint"}},
+	}
+	res, err := srv.HandleWorkflowDeleteForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleWorkflowDeleteForTest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+	}
+
+	loaded, _ := config.LoadFile(path)
+	if _, ok := loaded.Workflows["sprint"]; ok {
+		t.Fatalf("sprint still present after delete")
+	}
+}
+
+func TestHandleWorkflowDelete_ReferencedByProject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "kanban"}},
+	}
+	res, _ := srv.HandleWorkflowDeleteForTest(context.Background(), req)
+	if !res.IsError {
+		t.Fatalf("expected error deleting referenced workflow")
+	}
+}
+
 func TestHandleWorkflowCreate_ValidationError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
