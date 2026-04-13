@@ -62,6 +62,58 @@ func TestWorkflowRepository_GetByName(t *testing.T) {
 	})
 }
 
+func TestWorkflowRepository_Reload(t *testing.T) {
+	repo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"alpha": {
+			Statuses: map[string]config.StatusConfig{
+				"pending": {Roles: []string{"initial"}},
+				"active":  {Roles: []string{"start"}},
+				"done":    {Roles: []string{"terminal", "done"}},
+				"deleted": {Roles: []string{"terminal", "delete"}},
+			},
+			Transitions: []config.WorkflowTransitionConfig{{From: "pending", To: "active"}},
+		},
+	})
+
+	got, err := repo.List(context.Background())
+	if err != nil || len(got) != 1 || got[0].Name != "alpha" {
+		t.Fatalf("pre-reload List: got %+v err=%v", got, err)
+	}
+
+	repo.Reload(map[string]config.WorkflowConfig{
+		"beta": {
+			Statuses: map[string]config.StatusConfig{
+				"pending": {Roles: []string{"initial"}},
+				"active":  {Roles: []string{"start"}},
+				"done":    {Roles: []string{"terminal", "done"}},
+				"deleted": {Roles: []string{"terminal", "delete"}},
+			},
+			Transitions: []config.WorkflowTransitionConfig{{From: "pending", To: "active"}},
+		},
+		"gamma": {
+			Statuses: map[string]config.StatusConfig{
+				"pending": {Roles: []string{"initial"}},
+				"active":  {Roles: []string{"start"}},
+				"done":    {Roles: []string{"terminal", "done"}},
+				"deleted": {Roles: []string{"terminal", "delete"}},
+			},
+			Transitions: []config.WorkflowTransitionConfig{{From: "pending", To: "active"}},
+		},
+	})
+
+	got, err = repo.List(context.Background())
+	if err != nil || len(got) != 2 {
+		t.Fatalf("post-reload List: got %+v err=%v", got, err)
+	}
+	names := []string{got[0].Name, got[1].Name}
+	if names[0] != "beta" || names[1] != "gamma" {
+		t.Fatalf("post-reload names: got %v, want [beta gamma]", names)
+	}
+	if _, err := repo.GetByName(context.Background(), "alpha"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("alpha should be gone after Reload, got err=%v", err)
+	}
+}
+
 func TestWorkflowRepository_List(t *testing.T) {
 	workflows := map[string]config.WorkflowConfig{
 		"kanban": {Statuses: map[string]config.StatusConfig{
