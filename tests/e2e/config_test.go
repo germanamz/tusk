@@ -409,12 +409,113 @@ func TestCLI_ConfigValidate(t *testing.T) {
 func envWithHome(home string) []string {
 	var env []string
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "TUSK_DB=") {
+		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "TUSK_DB=") || strings.HasPrefix(e, "TUSK_CONFIG=") {
 			continue
 		}
 		env = append(env, e)
 	}
 	return append(env, "HOME="+home)
+}
+
+func TestCLI_ExplicitConfigFlag(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	// Build a custom config file in a directory that is NOT the HOME config dir.
+	dbDir := t.TempDir()
+	dbPath := filepath.Join(dbDir, "explicit.db")
+	configDir := t.TempDir()
+	configFile := filepath.Join(configDir, "tusk-custom.toml")
+	configContent := []byte("[storage]\npath = \"" + dbPath + "\"\n")
+	if err := os.WriteFile(configFile, configContent, 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	// Use a fresh HOME so there is no fallback config to confuse the test.
+	homeDir := t.TempDir()
+
+	cmd := exec.Command(binPath, "--config", configFile, "add", "Explicit config task")
+	cmd.Env = envWithHome(homeDir)
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("tusk --config ... add failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// The custom DB should exist at the path the explicit config pointed to.
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Fatalf("expected DB at %s from explicit config, but it does not exist", dbPath)
+	}
+}
+
+func TestCLI_TuskConfigEnv(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	dbDir := t.TempDir()
+	dbPath := filepath.Join(dbDir, "env.db")
+	configDir := t.TempDir()
+	configFile := filepath.Join(configDir, "tusk-env.toml")
+	configContent := []byte("[storage]\npath = \"" + dbPath + "\"\n")
+	if err := os.WriteFile(configFile, configContent, 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	homeDir := t.TempDir()
+
+	cmd := exec.Command(binPath, "add", "Env config task")
+	env := envWithHome(homeDir)
+	env = append(env, "TUSK_CONFIG="+configFile)
+	cmd.Env = env
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("tusk add with TUSK_CONFIG failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Fatalf("expected DB at %s from TUSK_CONFIG, but it does not exist", dbPath)
+	}
+}
+
+func TestCLI_FlagBeatsEnv(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	// Two config files pointing at two different DBs. --config should win.
+	dir := t.TempDir()
+	flagDB := filepath.Join(dir, "flag.db")
+	envDB := filepath.Join(dir, "env.db")
+
+	flagFile := filepath.Join(dir, "flag.toml")
+	envFile := filepath.Join(dir, "env.toml")
+	if err := os.WriteFile(flagFile, []byte("[storage]\npath = \""+flagDB+"\"\n"), 0o644); err != nil {
+		t.Fatalf("writing flag config: %v", err)
+	}
+	if err := os.WriteFile(envFile, []byte("[storage]\npath = \""+envDB+"\"\n"), 0o644); err != nil {
+		t.Fatalf("writing env config: %v", err)
+	}
+
+	homeDir := t.TempDir()
+	cmd := exec.Command(binPath, "--config", flagFile, "add", "Precedence task")
+	env := envWithHome(homeDir)
+	env = append(env, "TUSK_CONFIG="+envFile)
+	cmd.Env = env
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("tusk failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if _, err := os.Stat(flagDB); os.IsNotExist(err) {
+		t.Fatalf("expected DB at flag path %s, but it does not exist", flagDB)
+	}
+	if _, err := os.Stat(envDB); err == nil {
+		t.Fatalf("unexpected DB at env path %s — flag should have won", envDB)
+	}
 }
 
 // newMCPEnvWithHome starts an MCP server with a custom HOME directory.
