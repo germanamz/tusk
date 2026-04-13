@@ -762,4 +762,7 @@ func (s *Server) ReloadConfigForTest(ctx context.Context) error {
 	return s.reloadConfig(ctx)
 }
 
+// WorkflowRepoForTest exposes the workflow repo handle for internal tests.
+func (s *Server) WorkflowRepoForTest() *inmem.WorkflowRepository { return s.workflowRepo }
+
 const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version. You can also inspect the active configuration via tusk_config_show and modify scalar config values via tusk_config_set (storage.* keys are read-only over MCP).`
