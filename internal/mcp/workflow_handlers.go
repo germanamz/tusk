@@ -192,7 +192,26 @@ func (s *Server) HandleWorkflowModifyForTest(ctx context.Context, req mcp.CallTo
 }
 
 func (s *Server) handleWorkflowDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultError("not implemented"), nil
+	name, err := req.RequireString("name")
+	if err != nil {
+		return mcp.NewToolResultError("name is required"), nil
+	}
+	path, err := config.ConfigFilePath(s.loadOpts...)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
+	}
+	if err := config.DeleteWorkflow(path, name); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := s.reloadConfig(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
+	}
+	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+}
+
+// HandleWorkflowDeleteForTest exposes handleWorkflowDelete for internal tests.
+func (s *Server) HandleWorkflowDeleteForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleWorkflowDelete(ctx, req)
 }
 
 // HandleWorkflowCreateForTest exposes handleWorkflowCreate for internal tests.
