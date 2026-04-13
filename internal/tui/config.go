@@ -100,11 +100,24 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runConfigPath(cmd *cobra.Command, args []string) error {
+	cfg, err := config.Load(a.loadOpts...)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if cfg.Sources.File != "" {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), cfg.Sources.File)
+		return err
+	}
+
 	path, err := config.ConfigFilePath(a.loadOpts...)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(cmd.OutOrStdout(), path)
+	if _, err := fmt.Fprintln(cmd.OutOrStdout(), path); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(cmd.ErrOrStderr(), "(not yet created)")
 	return err
 }
 
