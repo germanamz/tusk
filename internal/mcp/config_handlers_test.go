@@ -117,8 +117,8 @@ func TestHandleConfigShow(t *testing.T) {
 		ActiveFile string `json:"active_file"`
 		Effective  struct {
 			Urgency struct {
-				DueWeight float64 `json:"DueWeight"`
-			} `json:"Urgency"`
+				DueWeight float64 `json:"due_weight"`
+			} `json:"urgency"`
 		} `json:"effective"`
 	}
 	if err := json.Unmarshal([]byte(text.Text), &payload); err != nil {
