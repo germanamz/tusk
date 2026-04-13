@@ -197,54 +197,52 @@ func ensureConfigFile(searchPath string) error {
 //
 // Precedence (highest to lowest):
 //  1. TUSK_* environment variables
-//  2. Config file (~/.config/tusk/config.toml)
-//  3. Hardcoded defaults
+//  2. Config file resolved by ResolveConfigFile
+//  3. Hardcoded defaults embedded in the binary
 //
-// If no config file is found, defaults are used without error.
+// When WithExplicitFile is set the file must exist — a missing file is a
+// hard error. When it is not set, Load falls back to the global directory
+// (WithSearchPath > TUSK_CONFIG_DIR > ~/.config/tusk) and auto-creates
+// config.toml there if it does not yet exist. If the home directory cannot
+// be resolved and no search path is provided, Load proceeds with embedded
+// defaults only.
 func Load(opts ...Option) (*Config, error) {
 	v := viper.New()
 	v.SetConfigType("toml")
 
-	// Load embedded default.toml as the base configuration.
 	if err := v.ReadConfig(bytes.NewReader(defaultConfig)); err != nil {
 		return nil, fmt.Errorf("reading embedded defaults: %w", err)
 	}
 
-	// Apply options.
 	var lo loadOptions
 	for _, opt := range opts {
 		opt(&lo)
 	}
 
-	// Use custom search path if provided, otherwise default to ~/.config/tusk/.
-	var searchPath string
-	if lo.searchPath != "" {
-		searchPath = lo.searchPath
-	} else if envDir := os.Getenv("TUSK_CONFIG_DIR"); envDir != "" {
-		searchPath = envDir
-	} else {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			searchPath = filepath.Join(home, ".config", "tusk")
-		}
-	}
+	globalDir := resolveGlobalDir(lo.searchPath)
 
-	if searchPath != "" {
-		v.SetConfigName("config")
-		v.AddConfigPath(searchPath)
-		if err := ensureConfigFile(searchPath); err != nil {
+	// Preserve pre-resolver behavior: when the caller did not point us at an
+	// explicit file, auto-create config.toml in the global directory so that
+	// the resolver below can find it. Callers that set WithExplicitFile never
+	// trigger this branch — their file is expected to already exist.
+	if lo.explicitFile == "" && globalDir != "" {
+		if err := ensureConfigFile(globalDir); err != nil {
 			return nil, err
 		}
+	}
 
-		// Merge user config on top of embedded defaults.
+	filePath, err := ResolveConfigFile("", lo.explicitFile, globalDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if filePath != "" {
+		v.SetConfigFile(filePath)
 		if err := v.MergeInConfig(); err != nil {
-			if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-				return nil, fmt.Errorf("reading config file: %w", err)
-			}
+			return nil, fmt.Errorf("reading config file: %w", err)
 		}
 	}
 
-	// Environment variables: TUSK_STORAGE_PATH, TUSK_TUI_COLOR, etc.
 	v.SetEnvPrefix("TUSK")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
@@ -253,13 +251,31 @@ func Load(opts ...Option) (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
+	cfg.Sources.File = filePath
 
-	// Validate cross-references
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+// resolveGlobalDir mirrors the legacy search-path precedence:
+// WithSearchPath option > TUSK_CONFIG_DIR env > ~/.config/tusk.
+// Returns "" when the home directory cannot be determined and no
+// explicit override was provided.
+func resolveGlobalDir(searchPath string) string {
+	if searchPath != "" {
+		return searchPath
+	}
+	if envDir := os.Getenv("TUSK_CONFIG_DIR"); envDir != "" {
+		return envDir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "tusk")
 }
 
 // Validate checks cross-references between config sections.
