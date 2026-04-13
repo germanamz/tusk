@@ -8,7 +8,7 @@ import (
 func TestCreateProject(t *testing.T) {
 	path := writeTestConfig(t, baseConfig)
 
-	proj := ProjectConfig{Workflow: "kanban", DBPath: "/tmp/b.db"}
+	proj := ProjectConfig{Workflow: "kanban"}
 	if err := CreateProject(path, "backend", proj); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestCreateProject(t *testing.T) {
 	if !ok {
 		t.Fatal("expected backend project in config")
 	}
-	if got.Workflow != "kanban" || got.DBPath != "/tmp/b.db" {
+	if got.Workflow != "kanban" {
 		t.Fatalf("unexpected project: %+v", got)
 	}
 	if _, ok := cfg.Projects["default"]; !ok {
@@ -142,32 +142,6 @@ workflow = "kanban"
 	cfg, _ := LoadFile(path)
 	if cfg.Projects["backend"].Workflow != "kanban" {
 		t.Fatalf("workflow not updated: %+v", cfg.Projects["backend"])
-	}
-}
-
-func TestModifyProject_SetAndClearDBPath(t *testing.T) {
-	path := writeTestConfig(t, baseConfig+`
-[projects.backend]
-workflow = "kanban"
-db_path = "/old.db"
-`)
-	mut := ProjectMutation{DBPath: strPtr("/new.db")}
-	if err := ModifyProject(path, "backend", mut); err != nil {
-		t.Fatalf("set: %v", err)
-	}
-	cfg, _ := LoadFile(path)
-	if got := cfg.Projects["backend"].DBPath; got != "/new.db" {
-		t.Fatalf("expected /new.db, got %q", got)
-	}
-
-	empty := ""
-	mut = ProjectMutation{DBPath: &empty}
-	if err := ModifyProject(path, "backend", mut); err != nil {
-		t.Fatalf("clear: %v", err)
-	}
-	cfg, _ = LoadFile(path)
-	if got := cfg.Projects["backend"].DBPath; got != "" {
-		t.Fatalf("expected empty, got %q", got)
 	}
 }
 

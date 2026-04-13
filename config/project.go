@@ -58,12 +58,11 @@ func DeleteProject(path string, name string, hasRefs TaskRefChecker, force bool)
 }
 
 // ProjectMutation describes changes to apply to an existing project.
-// Pointer fields: nil = don't change, non-nil = set (empty string clears db_path).
+// Pointer fields: nil = don't change, non-nil = set.
 // UrgencySet and UrgencyDelta share the same key namespace. Applying both
 // a set and a delta for the same key is rejected at apply time.
 type ProjectMutation struct {
 	Workflow        *string
-	DBPath          *string
 	AutoCompleteSet *AutoCompleteParentConfig
 	AutoRevertSet   *AutoRevertParentConfig
 	UrgencySet      map[string]float64
@@ -155,9 +154,6 @@ func ModifyProject(path string, name string, mut ProjectMutation) error {
 
 	if mut.Workflow != nil {
 		proj.Workflow = *mut.Workflow
-	}
-	if mut.DBPath != nil {
-		proj.DBPath = *mut.DBPath
 	}
 	if mut.AutoCompleteSet != nil {
 		ac := *mut.AutoCompleteSet
