@@ -139,6 +139,23 @@ func stripDBFlag(args []string) []string {
 	return out
 }
 
+// stripConfigFlag removes --config and its value from args so Cobra doesn't see them.
+// Mirrors stripDBFlag for the --config global flag.
+func stripConfigFlag(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			i++ // skip value
+			continue
+		}
+		if strings.HasPrefix(args[i], "--config=") {
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
+}
+
 // resolveDBPath returns the database path from: --db flag > TUSK_DB env > config value.
 // The config value always has a default ("~/.local/share/tusk/tusk.db") so it acts as
 // the final fallback. We check os.Args directly for --db because Cobra hasn't parsed yet.
