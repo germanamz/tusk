@@ -140,10 +140,12 @@ func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
 	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	if err := config.CreateProject(path, name, proj); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfig(ctx); err != nil {
+	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}
 	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
@@ -213,10 +215,12 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
 	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	if err := config.ModifyProject(path, name, mut); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfig(ctx); err != nil {
+	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}
 	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
@@ -246,10 +250,12 @@ func (s *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolReques
 		}
 	}
 
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	if err := config.DeleteProject(path, name, checker, force); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfig(ctx); err != nil {
+	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}
 	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})

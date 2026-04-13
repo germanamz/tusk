@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/germanamz/tusk/config"
@@ -175,5 +177,70 @@ func TestHandleWorkflowCreate_ValidationError(t *testing.T) {
 	res, _ := srv.HandleWorkflowCreateForTest(context.Background(), req)
 	if !res.IsError {
 		t.Fatalf("expected validation error")
+	}
+}
+
+// TestHandleWorkflow_ConcurrentMutationsAreSerialized launches many concurrent
+// workflow create/modify/delete operations and verifies that the resulting
+// config file still parses cleanly, validates, and contains every workflow
+// that was supposed to survive. Without the server-level config mutex, the
+// parallel read-modify-write paths inside config.CreateWorkflow /
+// ModifyWorkflow / DeleteWorkflow would race with each other and with
+// tusk_config_set, occasionally losing an update or corrupting the file.
+func TestHandleWorkflow_ConcurrentMutationsAreSerialized(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	srv := newTestServer(t, path)
+
+	const goroutines = 40
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			name := fmt.Sprintf("wf_%03d", i)
+			req := mcp.CallToolRequest{
+				Params: mcp.CallToolParams{Arguments: map[string]any{
+					"name": name,
+					"statuses": []any{
+						map[string]any{"name": "todo", "roles": []any{"initial"}},
+						map[string]any{"name": "doing", "roles": []any{"start"}},
+						map[string]any{"name": "done", "roles": []any{"terminal", "done"}},
+						map[string]any{"name": "dropped", "roles": []any{"terminal", "delete"}},
+					},
+					"transitions": []any{
+						map[string]any{"from": "todo", "to": "doing"},
+						map[string]any{"from": "doing", "to": "done"},
+					},
+				}},
+			}
+			res, err := srv.HandleWorkflowCreateForTest(context.Background(), req)
+			if err != nil {
+				t.Errorf("HandleWorkflowCreateForTest(%s): %v", name, err)
+				return
+			}
+			if res.IsError {
+				text, _ := res.Content[0].(mcp.TextContent)
+				t.Errorf("unexpected error creating %s: %s", name, text.Text)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	loaded, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile after concurrent writes: %v", err)
+	}
+	if err := loaded.Validate(); err != nil {
+		t.Fatalf("Validate after concurrent writes: %v", err)
+	}
+	for i := 0; i < goroutines; i++ {
+		name := fmt.Sprintf("wf_%03d", i)
+		if _, ok := loaded.Workflows[name]; !ok {
+			t.Errorf("workflow %q lost to race", name)
+		}
 	}
 }
