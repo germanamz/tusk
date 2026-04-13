@@ -4,22 +4,28 @@ Tusk works out of the box with no configuration. All settings have sensible defa
 
 ## Config File
 
-By default Tusk looks for a config file at:
+Tusk picks a config file via a five-step chain. The first match wins — there is no merging between user files.
+
+1. **`--config <path>`** — global CLI flag, consumed before Cobra parsing so it works on every subcommand. Missing file is a hard error.
+2. **`TUSK_CONFIG=<path>`** — environment variable equivalent. Missing file is a hard error.
+3. **Walk-up from the current directory** — Tusk walks from the caller's CWD toward the filesystem root and stops at the first `tusk.toml` it finds. No symlink resolution.
+4. **Global `~/.config/tusk/config.toml`** — auto-created from defaults on first run **only when steps 1–3 all miss**. Running tusk inside a project that has its own `tusk.toml` never spawns a global file. The `TUSK_CONFIG_DIR` env var overrides the `~/.config/tusk` location.
+5. **Embedded defaults.**
+
+`--config` wins over `TUSK_CONFIG`; both bypass walk-up entirely. Individual `TUSK_*` environment variables (e.g. `TUSK_DB`, `TUSK_STORAGE_PATH`) still override values from whichever file won — that layering is unchanged.
+
+### Walk-up example
 
 ```
-~/.config/tusk/config.toml
+/home/you/work/acme/tusk.toml       <- found
+/home/you/work/acme/services/api/   <- CWD
 ```
 
-If the global file doesn't exist, Tusk silently falls back to built-in defaults (it will auto-create `~/.config/tusk/config.toml` from defaults on first run).
+Running `tusk list` from `services/api/` uses the `tusk.toml` at `/home/you/work/acme/`. Relative paths inside that file — most importantly `storage.path` — resolve against `/home/you/work/acme/`, not the caller's CWD. So every subdirectory of the project hits the same database as `tusk` run from the project root. Absolute paths and `~`-prefixed paths are untouched.
 
-### Explicit config selection
+### Workspace scope
 
-Point Tusk at a specific file with either:
-
-- `--config <path>` — global CLI flag, consumed before Cobra parsing, so it works on every subcommand.
-- `TUSK_CONFIG=<path>` — environment variable equivalent.
-
-`--config` wins over `TUSK_CONFIG`. **Missing `--config` / `TUSK_CONFIG` target file is a hard error** — Tusk refuses to start rather than silently falling through to defaults. (The global file, by contrast, falls through silently because it is the default path.)
+One config file maps to one workspace: the `tusk.toml` at a project root owns the database at its `storage.path`, and every `tusk` invocation underneath that root shares it. The global `config.toml` owns its own workspace for invocations that walk up past any project boundary. There is no cross-workspace merging — each `tusk.toml` is an independent universe of tasks.
 
 ## Resolution Order
 
@@ -30,15 +36,35 @@ Settings are resolved in this order (highest priority first):
 3. **Config file**, resolved as:
    1. `--config <path>` (hard error if missing)
    2. `TUSK_CONFIG` (hard error if missing)
-   3. `~/.config/tusk/config.toml` (silent fall-through to defaults if missing; auto-created on first run)
+   3. Walk-up `tusk.toml` from CWD to filesystem root
+   4. Global `~/.config/tusk/config.toml` (auto-created on first run only when 1–3 all miss)
 4. **Built-in defaults**
 
 ## Inspecting the active file
 
-- `tusk config show` prepends a `# active: <path>` TOML comment to its output so you can see which file is in effect. The body of the output remains valid TOML (the header is a comment).
-- `tusk config path` prints the resolved file path to stdout. When no user file is active it prints the would-be global path to stdout and `(not yet created)` to stderr, so `tusk config path | xargs cat` continues to work when a file exists.
+- `tusk config show` prepends a `# active: <path>` TOML comment to its output so you can see which file is in effect — walk-up hits appear here verbatim. The body of the output remains valid TOML (the header is a comment).
+- `tusk config path` prints the resolved file path to stdout — the walk-up hit when one is active, the global path otherwise. When no user file is active it prints the would-be global path to stdout and `(not yet created)` to stderr, so `tusk config path | xargs cat` continues to work when a file exists.
 - `tusk config validate` validates the resolved file, including whatever `--config` / `TUSK_CONFIG` points at.
 - `tusk config edit` opens the resolved file in `$VISUAL` / `$EDITOR`. With `--config` it opens that file directly; without it, the global file is created from defaults first if it doesn't yet exist.
+
+## Writing Config
+
+### `tusk config set`
+
+`tusk config set <key> <value>` writes to whichever file `config show` reports as active:
+
+- **Default** — writes to the walk-up `tusk.toml` when one is active, or the global `config.toml` when the resolver fell through to it.
+- **`--global`** — forces writes to `~/.config/tusk/config.toml` regardless of walk-up. Creates the global file from defaults if it doesn't yet exist.
+- **No active file, no `--global`** — returns `no config file found; run "tusk config init" or "tusk config init --local"`.
+
+### `tusk config init`
+
+```bash
+tusk config init           # writes the global ~/.config/tusk/config.toml
+tusk config init --local   # writes ./tusk.toml with the current effective config
+```
+
+Both variants refuse to overwrite an existing file. `init --local` captures the currently effective config (defaults plus whatever walk-up / global file / env vars are in play) so the new `tusk.toml` is a ready-to-edit snapshot.
 
 ## Environment Variables
 

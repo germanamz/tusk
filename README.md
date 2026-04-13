@@ -127,11 +127,15 @@ Inspired by TaskWarrior:
 
 ## Configuration
 
-On first run, Tusk creates `~/.config/tusk/config.toml` with sensible defaults. Config is loaded in priority order:
+Tusk resolves its config file in this order, first match wins:
 
-1. Environment variables (`TUSK_*` prefix)
-2. Config file (`~/.config/tusk/config.toml`)
-3. Embedded defaults
+1. `--config <path>` flag (hard error if missing)
+2. `TUSK_CONFIG` env var (hard error if missing)
+3. Walk-up `tusk.toml` from the current directory toward the filesystem root
+4. Global `~/.config/tusk/config.toml` — auto-created on first run **only** when steps 1–3 all miss, so a project with its own `tusk.toml` never spawns a global file
+5. Embedded defaults
+
+Relative paths inside a `tusk.toml` (most importantly `storage.path`) resolve against the file's directory, so every subdirectory of a project shares the same database. `TUSK_*` environment variables still override individual values from the resolved file. See [docs/configuration.md](docs/configuration.md) for the full reference, including `tusk config init --local` and workspace-scoped `config set`.
 
 Define custom workflows and projects in the config:
 
