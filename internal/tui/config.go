@@ -81,7 +81,21 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 
-	_, err = cmd.OutOrStdout().Write(data)
+	out := cmd.OutOrStdout()
+
+	if a.format != "json" {
+		header := "# active: "
+		if cfg.Sources.File != "" {
+			header += cfg.Sources.File
+		} else {
+			header += "defaults only"
+		}
+		if _, err := fmt.Fprintln(out, header); err != nil {
+			return err
+		}
+	}
+
+	_, err = out.Write(data)
 	return err
 }
 

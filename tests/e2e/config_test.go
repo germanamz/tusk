@@ -539,6 +539,52 @@ func TestCLI_MissingExplicitConfigIsHardError(t *testing.T) {
 	}
 }
 
+func TestCLI_ConfigShowHeader_ExplicitFile(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "custom.toml")
+	if err := os.WriteFile(configFile, []byte("[storage]\npath = \"/tmp/header.db\"\n"), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+	homeDir := t.TempDir()
+
+	cmd := exec.Command(binPath, "--config", configFile, "config", "show")
+	cmd.Env = envWithHome(homeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tusk config show failed: %v\n%s", err, out)
+	}
+	firstLine := strings.SplitN(string(out), "\n", 2)[0]
+	wantPrefix := "# active: " + configFile
+	if firstLine != wantPrefix {
+		t.Fatalf("first line = %q, want %q", firstLine, wantPrefix)
+	}
+}
+
+func TestCLI_ConfigShowHeader_GlobalFile(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	cmd := exec.Command(binPath, "config", "show")
+	cmd.Env = envWithHome(homeDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tusk config show failed: %v\n%s", err, out)
+	}
+
+	wantPath := filepath.Join(homeDir, ".config", "tusk", "config.toml")
+	firstLine := strings.SplitN(string(out), "\n", 2)[0]
+	wantPrefix := "# active: " + wantPath
+	if firstLine != wantPrefix {
+		t.Fatalf("first line = %q, want %q", firstLine, wantPrefix)
+	}
+}
+
 func TestCLI_TuskEnvOverlaysExplicitConfig(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
