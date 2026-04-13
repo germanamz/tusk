@@ -90,3 +90,30 @@ func TestProjectRepository_List(t *testing.T) {
 		t.Errorf("expected third project 'mobile', got %q", list[2].ID)
 	}
 }
+
+func TestProjectRepository_Reload(t *testing.T) {
+	repo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
+		"alpha": {Workflow: "kanban"},
+	})
+
+	got, err := repo.List(context.Background())
+	if err != nil || len(got) != 1 || got[0].ID != "alpha" {
+		t.Fatalf("pre-reload List: got %+v err=%v", got, err)
+	}
+
+	repo.Reload(map[string]config.ProjectConfig{
+		"beta":  {Workflow: "kanban"},
+		"gamma": {Workflow: "kanban"},
+	})
+
+	got, err = repo.List(context.Background())
+	if err != nil || len(got) != 2 {
+		t.Fatalf("post-reload List: got %+v err=%v", got, err)
+	}
+	if got[0].ID != "beta" || got[1].ID != "gamma" {
+		t.Fatalf("post-reload IDs: got [%s %s], want [beta gamma]", got[0].ID, got[1].ID)
+	}
+	if _, err := repo.GetByID(context.Background(), "alpha"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("alpha should be gone after Reload, got err=%v", err)
+	}
+}
