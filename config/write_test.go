@@ -255,3 +255,54 @@ func TestIsValidKey(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigFilePath_WalkUpHitReturnsLocal(t *testing.T) {
+	startDir := t.TempDir()
+	local := filepath.Join(startDir, "tusk.toml")
+	if err := os.WriteFile(local, []byte("# local\n"), 0o644); err != nil {
+		t.Fatalf("writing local: %v", err)
+	}
+	globalDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(globalDir, "config.toml"), []byte("# global\n"), 0o644); err != nil {
+		t.Fatalf("writing global: %v", err)
+	}
+
+	got, err := ConfigFilePath(WithStartDir(startDir), WithSearchPath(globalDir))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != local {
+		t.Fatalf("got %q, want %q", got, local)
+	}
+}
+
+func TestConfigFilePath_WalkUpMissFallsThroughToGlobal(t *testing.T) {
+	startDir := t.TempDir()
+	globalDir := t.TempDir()
+	wantPath := filepath.Join(globalDir, "config.toml")
+	if err := os.WriteFile(wantPath, []byte("# global\n"), 0o644); err != nil {
+		t.Fatalf("writing global: %v", err)
+	}
+
+	got, err := ConfigFilePath(WithStartDir(startDir), WithSearchPath(globalDir))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != wantPath {
+		t.Fatalf("got %q, want %q", got, wantPath)
+	}
+}
+
+func TestConfigFilePath_WalkUpMissNoGlobalFileStillReturnsPath(t *testing.T) {
+	startDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	got, err := ConfigFilePath(WithStartDir(startDir), WithSearchPath(globalDir))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := filepath.Join(globalDir, "config.toml")
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

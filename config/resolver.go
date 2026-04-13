@@ -8,17 +8,13 @@ import (
 
 // ResolveConfigFile picks the active config file path.
 //
-// Precedence in this phase:
+// Precedence:
 //  1. explicitFile — if set, must exist; missing file is a hard error.
-//  2. globalDir/config.toml — returned when it exists.
-//  3. "" — "defaults only", returned when neither above applies.
-//
-// The startDir parameter is unused in this phase. It exists so that the
-// walk-up step added by the Local Config Discovery initiative can slot in
-// between (1) and (2) without churning every caller.
+//  2. walk-up from startDir looking for tusk.toml (when startDir != "" and
+//     explicitFile is empty).
+//  3. globalDir/config.toml — returned when it exists.
+//  4. "" — "defaults only".
 func ResolveConfigFile(startDir, explicitFile, globalDir string) (string, error) {
-	_ = startDir // reserved for walk-up, see next initiative
-
 	if explicitFile != "" {
 		if _, err := os.Stat(explicitFile); err != nil {
 			if os.IsNotExist(err) {
@@ -29,6 +25,10 @@ func ResolveConfigFile(startDir, explicitFile, globalDir string) (string, error)
 		return explicitFile, nil
 	}
 
+	if hit := walkUpForLocal(startDir); hit != "" {
+		return hit, nil
+	}
+
 	if globalDir == "" {
 		return "", nil
 	}
@@ -37,4 +37,25 @@ func ResolveConfigFile(startDir, explicitFile, globalDir string) (string, error)
 		return path, nil
 	}
 	return "", nil
+}
+
+// walkUpForLocal walks up from startDir looking for a tusk.toml. Returns the
+// absolute path to the first hit, or "" when startDir is empty or no ancestor
+// contains one. Symlinks are not followed — plain os.Stat is used.
+func walkUpForLocal(startDir string) string {
+	if startDir == "" {
+		return ""
+	}
+	dir := startDir
+	for {
+		candidate := filepath.Join(dir, "tusk.toml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }

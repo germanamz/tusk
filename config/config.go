@@ -158,6 +158,7 @@ type Option func(o *loadOptions)
 type loadOptions struct {
 	searchPath   string
 	explicitFile string
+	startDir     string
 }
 
 // WithSearchPath overrides the global config directory used to locate
@@ -175,6 +176,14 @@ func WithSearchPath(path string) Option {
 func WithExplicitFile(path string) Option {
 	return func(o *loadOptions) {
 		o.explicitFile = path
+	}
+}
+
+// WithStartDir sets the directory used for walk-up discovery of a local
+// tusk.toml. Only meaningful when no explicit file is configured.
+func WithStartDir(path string) Option {
+	return func(o *loadOptions) {
+		o.startDir = path
 	}
 }
 
@@ -201,10 +210,12 @@ func ensureConfigFile(searchPath string) error {
 //  3. Hardcoded defaults embedded in the binary
 //
 // When WithExplicitFile is set the file must exist — a missing file is a
-// hard error. When it is not set, Load falls back to the global directory
-// (WithSearchPath > TUSK_CONFIG_DIR > ~/.config/tusk) and auto-creates
-// config.toml there if it does not yet exist. If the home directory cannot
-// be resolved and no search path is provided, Load proceeds with embedded
+// hard error. Otherwise Load walks up from WithStartDir looking for a
+// tusk.toml, then falls back to the global directory (WithSearchPath >
+// TUSK_CONFIG_DIR > ~/.config/tusk). The global config.toml is auto-created
+// only when walk-up finds nothing — running tusk inside a project with its
+// own tusk.toml never spawns a global file. If the home directory cannot be
+// resolved and no search path is provided, Load proceeds with embedded
 // defaults only.
 func Load(opts ...Option) (*Config, error) {
 	v := viper.New()
@@ -221,19 +232,19 @@ func Load(opts ...Option) (*Config, error) {
 
 	globalDir := resolveGlobalDir(lo.searchPath)
 
-	// Preserve pre-resolver behavior: when the caller did not point us at an
-	// explicit file, auto-create config.toml in the global directory so that
-	// the resolver below can find it. Callers that set WithExplicitFile never
-	// trigger this branch — their file is expected to already exist.
-	if lo.explicitFile == "" && globalDir != "" {
+	filePath, err := ResolveConfigFile(lo.startDir, lo.explicitFile, globalDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// When the resolver finds nothing — no explicit file, no walk-up hit,
+	// no pre-existing global config.toml — create the global file so a
+	// fresh install gets a seeded config. A walk-up hit suppresses this.
+	if filePath == "" && lo.explicitFile == "" && globalDir != "" {
 		if err := ensureConfigFile(globalDir); err != nil {
 			return nil, err
 		}
-	}
-
-	filePath, err := ResolveConfigFile("", lo.explicitFile, globalDir)
-	if err != nil {
-		return nil, err
+		filePath = filepath.Join(globalDir, "config.toml")
 	}
 
 	if filePath != "" {

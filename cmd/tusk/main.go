@@ -40,6 +40,9 @@ func run() error {
 	if explicitConfig != "" {
 		loadOpts = append(loadOpts, config.WithExplicitFile(explicitConfig))
 	}
+	if startDir, err := os.Getwd(); err == nil && startDir != "" {
+		loadOpts = append(loadOpts, config.WithStartDir(startDir))
+	}
 
 	cfg, err := config.Load(loadOpts...)
 	if err != nil {

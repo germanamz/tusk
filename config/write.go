@@ -11,8 +11,9 @@ import (
 )
 
 // ConfigFilePath resolves the config file path using the same logic as
-// Load: WithExplicitFile > global directory (WithSearchPath option >
-// TUSK_CONFIG_DIR env > ~/.config/tusk) + "config.toml".
+// Load: WithExplicitFile > walk-up from WithStartDir > global directory
+// (WithSearchPath option > TUSK_CONFIG_DIR env > ~/.config/tusk) +
+// "config.toml".
 //
 // When WithExplicitFile is set and the file is missing, ConfigFilePath
 // returns a hard error — matching Load.
@@ -34,6 +35,10 @@ func ConfigFilePath(opts ...Option) (string, error) {
 			return "", fmt.Errorf("stat %s: %w", lo.explicitFile, err)
 		}
 		return lo.explicitFile, nil
+	}
+
+	if hit := walkUpForLocal(lo.startDir); hit != "" {
+		return hit, nil
 	}
 
 	globalDir := resolveGlobalDir(lo.searchPath)
