@@ -130,7 +130,65 @@ func (s *Server) handleWorkflowCreate(ctx context.Context, req mcp.CallToolReque
 }
 
 func (s *Server) handleWorkflowModify(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return mcp.NewToolResultError("not implemented"), nil
+	name, err := req.RequireString("name")
+	if err != nil {
+		return mcp.NewToolResultError("name is required"), nil
+	}
+	args := req.GetArguments()
+
+	addStatuses, err := parseStatusSpecs(args["add_statuses"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("add_statuses: %v", err)), nil
+	}
+	setStatuses, err := parseStatusSpecs(args["set_statuses"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("set_statuses: %v", err)), nil
+	}
+	addTrans, err := parseTransitionSpecs(args["add_transitions"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("add_transitions: %v", err)), nil
+	}
+	removeTrans, err := parseTransitionSpecs(args["remove_transitions"])
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("remove_transitions: %v", err)), nil
+	}
+
+	var removeStatuses []string
+	if raw, ok := args["remove_statuses"].([]any); ok {
+		for i, r := range raw {
+			str, ok := r.(string)
+			if !ok {
+				return mcp.NewToolResultError(fmt.Sprintf("remove_statuses[%d]: expected string", i)), nil
+			}
+			removeStatuses = append(removeStatuses, str)
+		}
+	}
+
+	mut := config.WorkflowMutation{
+		AddStatuses:       statusesToConfig(addStatuses),
+		SetStatuses:       statusesToConfig(setStatuses),
+		RemoveStatuses:    removeStatuses,
+		AddTransitions:    transitionsToConfig(addTrans),
+		RemoveTransitions: transitionsToConfig(removeTrans),
+	}
+
+	path, err := config.ConfigFilePath(s.loadOpts...)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
+	}
+	if err := config.ModifyWorkflow(path, name, mut); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := s.reloadConfig(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
+	}
+
+	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+}
+
+// HandleWorkflowModifyForTest exposes handleWorkflowModify for internal tests.
+func (s *Server) HandleWorkflowModifyForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.handleWorkflowModify(ctx, req)
 }
 
 func (s *Server) handleWorkflowDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -67,6 +67,41 @@ func TestHandleWorkflowCreate_Success(t *testing.T) {
 	}
 }
 
+func TestHandleWorkflowModify_AddAndRemove(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name": "kanban",
+			"add_statuses": []any{
+				map[string]any{"name": "in_review", "roles": []any{}},
+			},
+			"add_transitions": []any{
+				map[string]any{"from": "active", "to": "in_review"},
+				map[string]any{"from": "in_review", "to": "completed"},
+			},
+		}},
+	}
+	res, err := srv.HandleWorkflowModifyForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleWorkflowModifyForTest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+	}
+
+	loaded, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if _, ok := loaded.Workflows["kanban"].Statuses["in_review"]; !ok {
+		t.Fatalf("in_review not added")
+	}
+}
+
 func TestHandleWorkflowCreate_ValidationError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
