@@ -3,11 +3,11 @@ package tui
 import "testing"
 
 func TestParseProjectCreate_Basic(t *testing.T) {
-	proj, err := parseProjectCreate([]string{"workflow=kanban", "db-path=/tmp/b.db"})
+	proj, err := parseProjectCreate([]string{"workflow=kanban"})
 	if err != nil {
 		t.Fatalf("parseProjectCreate: %v", err)
 	}
-	if proj.Workflow != "kanban" || proj.DBPath != "/tmp/b.db" {
+	if proj.Workflow != "kanban" {
 		t.Fatalf("unexpected: %+v", proj)
 	}
 }
@@ -77,15 +77,5 @@ func TestParseProjectModify_DeltaOnNonUrgencyRejected(t *testing.T) {
 	_, err := parseProjectModify([]string{"+workflow=sprint"})
 	if err == nil {
 		t.Fatal("expected rejection of modifier on workflow")
-	}
-}
-
-func TestParseProjectModify_ClearDBPath(t *testing.T) {
-	mut, err := parseProjectModify([]string{"db-path="})
-	if err != nil {
-		t.Fatalf("parseProjectModify: %v", err)
-	}
-	if mut.DBPath == nil || *mut.DBPath != "" {
-		t.Fatalf("expected DBPath pointer to empty, got %+v", mut.DBPath)
 	}
 }

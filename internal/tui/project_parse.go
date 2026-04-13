@@ -54,8 +54,6 @@ func applyProjectField(proj *config.ProjectConfig, key, value string) error {
 	switch key {
 	case "workflow":
 		proj.Workflow = value
-	case "db-path":
-		proj.DBPath = value
 	case "auto-complete.trigger":
 		if proj.Settings.AutoCompleteParent == nil {
 			proj.Settings.AutoCompleteParent = &config.AutoCompleteParentConfig{}
@@ -134,9 +132,6 @@ func parseProjectModify(args []string) (config.ProjectMutation, error) {
 		case "workflow":
 			v := f.Value
 			mut.Workflow = &v
-		case "db-path":
-			v := f.Value
-			mut.DBPath = &v
 		case "auto-complete.trigger", "auto-complete.target":
 			if mut.AutoCompleteSet == nil {
 				mut.AutoCompleteSet = &config.AutoCompleteParentConfig{}
