@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/config"
@@ -129,5 +130,102 @@ func TestHandleConfigShow(t *testing.T) {
 	}
 	if payload.Effective.Urgency.DueWeight != 42.0 {
 		t.Fatalf("due_weight: got %v, want 42.0", payload.Effective.Urgency.DueWeight)
+	}
+}
+
+func TestHandleConfigSet_WritesAndReloads(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Arguments: map[string]any{
+				"key":   "urgency.due_weight",
+				"value": "99.5",
+			},
+		},
+	}
+	res, err := srv.HandleConfigSetForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleConfigSetForTest: %v", err)
+	}
+	if res.IsError {
+		text, _ := res.Content[0].(mcp.TextContent)
+		t.Fatalf("unexpected error result: %s", text.Text)
+	}
+
+	loaded, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if loaded.Urgency.DueWeight != 99.5 {
+		t.Fatalf("due_weight: got %v, want 99.5", loaded.Urgency.DueWeight)
+	}
+}
+
+func TestHandleConfigSet_RejectsStorageKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Arguments: map[string]any{
+				"key":   "storage.path",
+				"value": "/tmp/evil.db",
+			},
+		},
+	}
+	res, err := srv.HandleConfigSetForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleConfigSetForTest: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected error result for storage.* key, got success")
+	}
+	text, _ := res.Content[0].(mcp.TextContent)
+	if !strings.Contains(text.Text, "storage.*") {
+		t.Fatalf("expected storage.* guard message, got: %q", text.Text)
+	}
+
+	loaded, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if loaded.Storage.Path == "/tmp/evil.db" {
+		t.Fatalf("storage.path was mutated despite guard: %q", loaded.Storage.Path)
+	}
+}
+
+func TestHandleConfigSet_RejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Arguments: map[string]any{
+				"key":   "urgency.nonsense",
+				"value": "1",
+			},
+		},
+	}
+	res, err := srv.HandleConfigSetForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleConfigSetForTest: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected error result for unknown key, got success")
+	}
+	text, _ := res.Content[0].(mcp.TextContent)
+	if !strings.Contains(text.Text, "unknown config key") {
+		t.Fatalf("expected unknown config key message, got: %q", text.Text)
 	}
 }
