@@ -614,36 +614,36 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Walk-up config resolution analogous to `package.json` in Node.js. Extends the resolver from the previous initiative with a walk-up step so tusk picks the nearest `tusk.toml` from the CWD upward, falling back to the global `config.toml` when the walk finds nothing. Single-file model — first match wins, no merging between user configs. Also lands the workspace-aware write commands (`config set`, `config init --local`).
 
-- [ ] **Story: Walk-up step in the resolver**
-  - [ ] Insert walk-up between `TUSK_CONFIG` and global in `ResolveConfigFile`: starting at CWD, check each ancestor directory for `tusk.toml` and return the first hit
-  - [ ] Walk stops at filesystem root; no symlink resolution
-  - [ ] Walk is skipped entirely when `--config` or `TUSK_CONFIG` is set (the bypass stays authoritative)
-  - [ ] Final precedence: `TUSK_*` env > `--config` > `TUSK_CONFIG` > walk-up `tusk.toml` > global `config.toml` > embedded defaults
+- [x] **Story: Walk-up step in the resolver**
+  - [x] Insert walk-up between `TUSK_CONFIG` and global in `ResolveConfigFile`: starting at CWD, check each ancestor directory for `tusk.toml` and return the first hit
+  - [x] Walk stops at filesystem root; no symlink resolution
+  - [x] Walk is skipped entirely when `--config` or `TUSK_CONFIG` is set (the bypass stays authoritative)
+  - [x] Final precedence: `TUSK_*` env > `--config` > `TUSK_CONFIG` > walk-up `tusk.toml` > global `config.toml` > embedded defaults
 
-- [ ] **Story: Relative paths resolve to the config file's directory**
-  - [ ] `storage.path` and any other file-path field resolve relative to the directory that contains the active config file, not the caller's CWD
-  - [ ] `tusk` run from any subdirectory of a project with a `tusk.toml` at the root hits the same database as `tusk` run from the root itself
-  - [ ] Absolute paths and `~`-prefixed paths are untouched
+- [x] **Story: Relative paths resolve to the config file's directory**
+  - [x] `storage.path` and any other file-path field resolve relative to the directory that contains the active config file, not the caller's CWD
+  - [x] `tusk` run from any subdirectory of a project with a `tusk.toml` at the root hits the same database as `tusk` run from the root itself
+  - [x] Absolute paths and `~`-prefixed paths are untouched
 
-- [ ] **Story: Workspace-aware `config set`**
-  - [ ] `tusk config set <key> <value>` writes to the file `Load()` resolved — whichever `tusk.toml` or `config.toml` is active
-  - [ ] `--global` flag forces writes to `~/.config/tusk/config.toml` even when a walk-up `tusk.toml` is active
-  - [ ] With no active file and no `--global`, emit a clear error pointing at `tusk config init` or `tusk config init --local`
+- [x] **Story: Workspace-aware `config set`**
+  - [x] `tusk config set <key> <value>` writes to the file `Load()` resolved — whichever `tusk.toml` or `config.toml` is active
+  - [x] `--global` flag forces writes to `~/.config/tusk/config.toml` even when a walk-up `tusk.toml` is active
+  - [x] With no active file and no `--global`, emit a clear error pointing at `tusk config init` or `tusk config init --local`
 
-- [ ] **Story: `config init --local`**
-  - [ ] `tusk config init --local` creates `./tusk.toml` containing a full dump of the current effective config
-  - [ ] Errors if `./tusk.toml` already exists
-  - [ ] `tusk config init` (no flag) still writes global defaults as today
+- [x] **Story: `config init --local`**
+  - [x] `tusk config init --local` creates `./tusk.toml` containing a full dump of the current effective config
+  - [x] Errors if `./tusk.toml` already exists
+  - [x] `tusk config init` (no flag) still writes global defaults as today
 
-- [ ] **Story: Conditional global auto-create**
-  - [ ] `config.Load()` auto-creates `~/.config/tusk/config.toml` on first run only when walk-up finds no `tusk.toml` and no `--config` / `TUSK_CONFIG` override is set
-  - [ ] Running tusk inside a project with a local config never spawns a global file
-  - [ ] Existing behavior preserved for fresh installs operating outside any tusk project
+- [x] **Story: Conditional global auto-create**
+  - [x] `config.Load()` auto-creates `~/.config/tusk/config.toml` on first run only when walk-up finds no `tusk.toml` and no `--config` / `TUSK_CONFIG` override is set
+  - [x] Running tusk inside a project with a local config never spawns a global file
+  - [x] Existing behavior preserved for fresh installs operating outside any tusk project
 
-- [ ] **Story: `config show` / `config path` report walk-up hits**
-  - [ ] Active-file header on `config show` correctly reflects walk-up discoveries (e.g. `# active: /repo/tusk.toml`)
-  - [ ] `config path` prints the walk-up hit when one is active, the global path otherwise
-  - [ ] E2E coverage: subdirectory walk-up, ancestor walk-up, `--config` override, `TUSK_CONFIG` override, no-config fallthrough
+- [x] **Story: `config show` / `config path` report walk-up hits**
+  - [x] Active-file header on `config show` correctly reflects walk-up discoveries (e.g. `# active: /repo/tusk.toml`)
+  - [x] `config path` prints the walk-up hit when one is active, the global path otherwise
+  - [x] E2E coverage: subdirectory walk-up, ancestor walk-up, `--config` override, `TUSK_CONFIG` override, no-config fallthrough
 
 ### Initiative: MCP Config Tools
 
