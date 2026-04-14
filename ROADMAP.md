@@ -665,24 +665,24 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Persistent storage for projects and workflows in the workspace database, with optimistic locking like every other mutable entity.
 
-- [ ] **Story: Projects table**
-  - [ ] Define `domain.Project` entity (`id` UUID, `name`, `workflow_id` UUID, `settings` JSON, `version`, `created_at`, `updated_at`)
-  - [ ] `settings` JSON carries `auto_complete`, `auto_revert`, and `urgency` overrides — JSON chosen over dedicated columns because per-project overrides are read once per service call and written rarely; promote to columns only if profiling shows the JSON decode is hot
-  - [ ] Migration adding `projects` table with unique index on `name`
-  - [ ] Seed built-in `_default` project (UUID all zeros) as a regular row in the migration — no special-case code paths
-  - [ ] `ProjectRepository` interface (`Create`, `Get`, `GetByName`, `List`, `Update`, `Delete`) and SQLite implementation with version-checked updates returning `domain.ErrConflict`
+- [x] **Story: Projects table**
+  - [x] Define `domain.Project` entity (`id` UUID, `name`, `workflow_id` UUID, `settings` JSON, `version`, `created_at`, `updated_at`)
+  - [x] `settings` JSON carries `auto_complete`, `auto_revert`, and `urgency` overrides — JSON chosen over dedicated columns because per-project overrides are read once per service call and written rarely; promote to columns only if profiling shows the JSON decode is hot
+  - [x] Migration adding `projects` table with unique index on `name`
+  - [x] Seed built-in `_default` project (UUID all zeros) as a regular row in the migration — no special-case code paths
+  - [x] `ProjectRepository` interface (`Create`, `Get`, `GetByName`, `List`, `Update`, `Delete`) and SQLite implementation with version-checked updates returning `domain.ErrConflict`
 
-- [ ] **Story: Workflows table**
-  - [ ] Define `domain.Workflow` entity (`id` UUID, `name`, `statuses` JSON, `transitions` JSON, `version`, `created_at`, `updated_at`)
-  - [ ] Statuses keep the v0.9 role schema (`initial`, `start`, `terminal`, `done`, `delete`, `highlight`, `dim`) — serialized as JSON to avoid a second table just for status rows
-  - [ ] Migration adding `workflows` table with unique index on `name`
-  - [ ] Seed built-in default workflow (`pending`/`active`/`completed`/`deleted` with roles) as a regular row in the migration
-  - [ ] `WorkflowRepository` interface (`Create`, `Get`, `GetByName`, `List`, `Update`, `Delete`) and SQLite implementation with version-checked updates
+- [x] **Story: Workflows table**
+  - [x] Define `domain.Workflow` entity (`id` UUID, `name`, `statuses` JSON, `transitions` JSON, `version`, `created_at`, `updated_at`)
+  - [x] Statuses keep the v0.9 role schema (`initial`, `start`, `terminal`, `done`, `delete`, `highlight`, `dim`) — serialized as JSON to avoid a second table just for status rows
+  - [x] Migration adding `workflows` table with unique index on `name`
+  - [x] Seed built-in default workflow (`pending`/`active`/`completed`/`deleted` with roles) as a regular row in the migration
+  - [x] `WorkflowRepository` interface (`Create`, `Get`, `GetByName`, `List`, `Update`, `Delete`) and SQLite implementation with version-checked updates
 
-- [ ] **Story: Foreign key from tasks to projects**
-  - [ ] Migration converts `tasks.project_id` to a real FK referencing `projects.id` (was previously just a UUID column with no DB-level integrity)
-  - [ ] `ON DELETE RESTRICT` so the existing "reject delete if tasks reference it" guard gets DB-level enforcement in addition to the service-level check
-  - [ ] Workflows are referenced via `projects.workflow_id` FK with `ON DELETE RESTRICT`
+- [x] **Story: Foreign key from tasks to projects**
+  - [x] Migration converts `tasks.project_id` to a real FK referencing `projects.id` (was previously just a UUID column with no DB-level integrity)
+  - [x] `ON DELETE RESTRICT` so the existing "reject delete if tasks reference it" guard gets DB-level enforcement in addition to the service-level check
+  - [x] Workflows are referenced via `projects.workflow_id` FK with `ON DELETE RESTRICT`
 
 ### Initiative: Service Layer Migration
 
