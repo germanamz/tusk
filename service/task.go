@@ -60,6 +60,17 @@ func (s *TaskService) defaultProjectID(ctx context.Context) (uuid.UUID, error) {
 	return p.ID, nil
 }
 
+// workflowName resolves the project's workflow UUID to its name via the
+// workflow service. Centralizes the lookup so callers that previously read
+// project.Workflow (a compat string field removed in Phase 4) share one path.
+func (s *TaskService) workflowName(ctx context.Context, project *domain.Project) (string, error) {
+	wf, err := s.workflowSvc.GetByID(ctx, project.WorkflowID)
+	if err != nil {
+		return "", fmt.Errorf("looking up workflow %v: %w", project.WorkflowID, err)
+	}
+	return wf.Name, nil
+}
+
 // ResolveProjectName looks up a project by name and returns its UUID.
 // CLI and MCP callers use this to translate user-entered project names
 // into the typed Task.ProjectID value before calling Create.
@@ -145,6 +156,11 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		return fmt.Errorf("looking up project: %w", err)
 	}
 
+	wfName, err := s.workflowName(ctx, project)
+	if err != nil {
+		return err
+	}
+
 	bundle, err := s.resolve(ctx, task.ProjectID)
 	if err != nil {
 		return fmt.Errorf("resolving project store: %w", err)
@@ -161,13 +177,13 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 	}
 
 	if task.Status == "" {
-		initialStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleInitial)
+		initialStatus, err := s.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleInitial)
 		if err != nil {
 			return fmt.Errorf("resolving initial status: %w", err)
 		}
 		task.Status = initialStatus
 	}
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
+	statuses, err := s.workflowSvc.GetStatuses(ctx, wfName)
 	if err != nil {
 		return fmt.Errorf("loading workflow statuses: %w", err)
 	}
@@ -179,7 +195,7 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		}
 	}
 	if !validStatus {
-		return fmt.Errorf("status %q is not valid for workflow %q", task.Status, project.Workflow)
+		return fmt.Errorf("status %q is not valid for workflow %q", task.Status, wfName)
 	}
 
 	task.ID = uuid.New()
@@ -490,7 +506,11 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)
 		}
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, oldStatus, task.Status)
+		wfName, err := s.workflowName(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, wfName, oldStatus, task.Status)
 		if err != nil {
 			return nil, fmt.Errorf("checking transition: %w", err)
 		}
@@ -543,7 +563,11 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 	if err != nil {
 		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, err)
 	}
-	startStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleStart)
+	wfName, err := s.workflowName(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	startStatus, err := s.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleStart)
 	if err != nil {
 		return nil, fmt.Errorf("resolving start status: %w", err)
 	}
@@ -694,7 +718,11 @@ func (s *TaskService) Complete(ctx context.Context, shortID string, version int)
 	if err != nil {
 		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, err)
 	}
-	doneStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleDone)
+	wfName, err := s.workflowName(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	doneStatus, err := s.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleDone)
 	if err != nil {
 		return nil, fmt.Errorf("resolving done status: %w", err)
 	}
@@ -716,7 +744,11 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 	if err != nil {
 		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, err)
 	}
-	deleteStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleDelete)
+	wfName, err := s.workflowName(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	deleteStatus, err := s.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleDelete)
 	if err != nil {
 		return nil, fmt.Errorf("resolving delete status: %w", err)
 	}
@@ -969,12 +1001,17 @@ func (s *TaskService) checkAutoComplete(
 			return nil
 		}
 
+		wfName, err := s.workflowName(ctx, project)
+		if err != nil {
+			return err
+		}
+
 		children, err := txTaskRepo.GetChildren(ctx, parent.ID)
 		if err != nil {
 			return fmt.Errorf("loading siblings for propagation: %w", err)
 		}
 
-		deleteStatus, err := s.workflowSvc.GetDeleteStatus(ctx, project.Workflow)
+		deleteStatus, err := s.workflowSvc.GetDeleteStatus(ctx, wfName)
 		if err != nil {
 			return fmt.Errorf("resolving delete status for propagation: %w", err)
 		}
@@ -993,7 +1030,7 @@ func (s *TaskService) checkAutoComplete(
 			return nil
 		}
 
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, cfg.TargetStatus)
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, wfName, parent.Status, cfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking propagation transition: %w", err)
 		}
@@ -1060,7 +1097,12 @@ func (s *TaskService) checkAutoRevert(
 			return nil
 		}
 
-		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, project.Workflow, parent.Status, revertCfg.TargetStatus)
+		wfName, err := s.workflowName(ctx, project)
+		if err != nil {
+			return err
+		}
+
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, wfName, parent.Status, revertCfg.TargetStatus)
 		if err != nil {
 			return fmt.Errorf("checking revert transition: %w", err)
 		}
