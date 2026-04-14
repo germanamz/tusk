@@ -8,6 +8,7 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
+	"github.com/google/uuid"
 )
 
 func testProjectService(t *testing.T) *ProjectService {
@@ -31,8 +32,9 @@ func TestProjectService_GetByName(t *testing.T) {
 	if p.Name != "default" {
 		t.Fatalf("expected name 'default', got %q", p.Name)
 	}
-	if p.Workflow != "kanban" {
-		t.Fatalf("expected Workflow 'kanban', got %q", p.Workflow)
+	expectedWorkflowID := uuid.Nil
+	if p.WorkflowID != expectedWorkflowID {
+		t.Fatalf("expected WorkflowID for kanban, got %v", p.WorkflowID)
 	}
 }
 

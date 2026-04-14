@@ -36,8 +36,9 @@ func TestProjectRepository_GetByName(t *testing.T) {
 		if p.Name != "default" {
 			t.Errorf("expected ID 'default', got %q", p.Name)
 		}
-		if p.Workflow != "kanban" {
-			t.Errorf("expected Workflow 'kanban', got %q", p.Workflow)
+		expectedWorkflowID := uuid.Nil
+		if p.WorkflowID != expectedWorkflowID {
+			t.Errorf("expected WorkflowID for kanban, got %v", p.WorkflowID)
 		}
 	})
 

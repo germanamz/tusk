@@ -6,6 +6,7 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/filter"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -57,8 +58,16 @@ func (a *App) runProjectList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	workflows, err := a.workflowSvc.List(ctx)
+	if err != nil {
+		return err
+	}
+	wfNames := make(map[uuid.UUID]string, len(workflows))
+	for _, wf := range workflows {
+		wfNames[wf.ID] = wf.Name
+	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderProjectList(projects)
+	return r.renderProjectList(projects, wfNames)
 }
 
 func (a *App) runProjectCreate(cmd *cobra.Command, args []string) error {
