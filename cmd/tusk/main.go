@@ -9,7 +9,6 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/internal/tui"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
@@ -73,8 +72,12 @@ func run() error {
 	}
 	defer store.Close()
 
-	projectRepo := inmem.NewProjectRepository(cfg.Projects)
-	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
+	db := store.DB()
+	projectRepo := sqlite.NewProjectRepo(db)
+	workflowRepo := sqlite.NewWorkflowRepo(db)
+	if err := sqlite.SyncConfigToDB(context.Background(), cfg, workflowRepo, projectRepo); err != nil {
+		return fmt.Errorf("syncing config to database: %w", err)
+	}
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 
@@ -91,10 +94,6 @@ func run() error {
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
 
-	db := store.DB()
-	if err := sqlite.SyncConfigToDB(context.Background(), workflowRepo, projectRepo, sqlite.NewWorkflowRepo(db), sqlite.NewProjectRepo(db)); err != nil {
-		return fmt.Errorf("syncing config to database: %w", err)
-	}
 	bundle := &service.RepoBundle{
 		Store:       store,
 		Tasks:       sqlite.NewTaskRepo(db),
@@ -134,9 +133,14 @@ func run() error {
 	}
 	playerSvc := service.NewPlayerService(defaultBundle.Players)
 
+	reloadHook := func(ctx context.Context, cfg *config.Config) error {
+		return sqlite.SyncConfigToDB(ctx, cfg, workflowRepo, projectRepo)
+	}
+
 	app := tui.New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc,
 		workflowRepo, projectRepo, urgencyEngine,
+		reloadHook,
 		tui.VersionInfo{
 			Version: version,
 			Commit:  commit,

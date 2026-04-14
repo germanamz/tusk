@@ -83,9 +83,14 @@ func newTestServer(t *testing.T, configFile string) *Server {
 	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{})
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{})
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
+	reloadHook := func(_ context.Context, cfg *config.Config) error {
+		workflowRepo.Reload(cfg.Workflows)
+		projectRepo.Reload(cfg.Projects)
+		return nil
+	}
 	srv, err := New(
 		nil, nil, nil, nil, nil, nil,
-		workflowRepo, projectRepo, urgencyEngine,
+		workflowRepo, projectRepo, urgencyEngine, reloadHook,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configFile)},
 	)

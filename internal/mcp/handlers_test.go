@@ -63,7 +63,7 @@ func testServer(t *testing.T) *Server {
 
 	s, err := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		"test", config.MCPConfig{}, nil,
 	)
 	if err != nil {

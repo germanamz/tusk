@@ -17,7 +17,7 @@ func mustNew(t *testing.T, cfg config.MCPConfig) *Server {
 	t.Helper()
 	s, err := New(
 		nil, nil, nil, nil, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestValidation_UnknownEntries(t *testing.T) {
 
 	_, err := New(
 		nil, nil, nil, nil, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err == nil {
@@ -174,7 +174,7 @@ func TestValidation_NoErrorForValidEntries(t *testing.T) {
 
 	_, err := New(
 		nil, nil, nil, nil, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err != nil {
@@ -197,9 +197,14 @@ func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
 	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{})
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
+	reloadHook := func(_ context.Context, cfg *config.Config) error {
+		workflowRepo.Reload(cfg.Workflows)
+		projectRepo.Reload(cfg.Projects)
+		return nil
+	}
 	srv, err := New(
 		nil, nil, nil, nil, nil, nil,
-		workflowRepo, projectRepo, urgencyEngine,
+		workflowRepo, projectRepo, urgencyEngine, reloadHook,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configPath)},
 	)

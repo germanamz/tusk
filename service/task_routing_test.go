@@ -68,9 +68,34 @@ func multiProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle, map[string]uu
 			},
 		},
 	})
+	_ = workflowRepo // kept for multiProjectWorkflowSvc wiring below
+	syncCfg := &config.Config{
+		Workflows: map[string]config.WorkflowConfig{
+			"kanban": {
+				Statuses: map[string]config.StatusConfig{
+					"pending":   {Roles: []string{config.RoleInitial}},
+					"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
+					"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
+					"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
+				},
+				Transitions: []config.WorkflowTransitionConfig{
+					{From: "pending", To: "active"},
+					{From: "pending", To: "deleted"},
+					{From: "active", To: "completed"},
+					{From: "active", To: "pending"},
+					{From: "active", To: "deleted"},
+					{From: "completed", To: "pending"},
+				},
+			},
+		},
+		Projects: map[string]config.ProjectConfig{
+			"default": {Workflow: "kanban"},
+			"backend": {Workflow: "kanban"},
+		},
+	}
 	if err := sqlite.SyncConfigToDB(
 		context.Background(),
-		workflowRepo, projectRepo,
+		syncCfg,
 		sqlite.NewWorkflowRepo(bundle.Store.DB()),
 		sqlite.NewProjectRepo(bundle.Store.DB()),
 	); err != nil {
