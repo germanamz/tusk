@@ -19,4 +19,5 @@ var (
 	ErrTargetNotFound     = fmt.Errorf("target task: %w", ErrNotFound)
 	ErrWorkflowInUse      = errors.New("workflow is referenced by one or more projects")
 	ErrReadOnlyRepository = errors.New("repository is read-only")
+	ErrProjectHasTasks    = errors.New("project has referencing tasks")
 )

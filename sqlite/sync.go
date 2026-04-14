@@ -16,9 +16,9 @@ import (
 
 // SyncConfigToDB ensures that every workflow and project defined in the
 // TOML-loaded config exists in the SQLite workflows and projects tables.
-// Existing rows are left untouched. This bridges the config-driven
-// definitions with the FK-enforced SQLite schema so that task inserts can
-// satisfy tasks.project_id → projects.id.
+// On the project side, this is now seed-only: existing rows are authoritative
+// and left alone (ProjectService owns writes). The workflow side retains the
+// legacy UPDATE + stale-cleanup behavior; Phase 4 retires it symmetrically.
 func SyncConfigToDB(
 	ctx context.Context,
 	cfg *config.Config,
@@ -34,6 +34,8 @@ func SyncConfigToDB(
 			return fmt.Errorf("building workflow %q: %w", name, err)
 		}
 		workflows[name] = wf
+		// Phase 4 removes this symmetrically — once WorkflowService owns writes,
+		// config-sourced workflow rows become seed-only like projects.
 		existing, getErr := wfRepo.GetByID(ctx, wf.ID)
 		if getErr == nil {
 			statusesJSON, err := encodeStatuses(wf.Statuses)
@@ -66,17 +68,31 @@ func SyncConfigToDB(
 		if err != nil {
 			return fmt.Errorf("building project %q: %w", name, err)
 		}
-		_, getErr := projRepo.GetByID(ctx, p.ID)
+		existing, getErr := projRepo.GetByID(ctx, p.ID)
 		if getErr == nil {
-			settingsJSON, err := json.Marshal(p.Settings)
-			if err != nil {
-				return fmt.Errorf("marshaling project %q settings: %w", name, err)
-			}
-			if _, err := projRepo.db.ExecContext(ctx,
-				`UPDATE projects SET name = ?, workflow_id = ?, settings = ?, updated_at = ? WHERE id = ?`,
-				p.Name, p.WorkflowID.String(), string(settingsJSON), nowStr, p.ID.String(),
-			); err != nil {
-				return fmt.Errorf("syncing project %q: %w", name, err)
+			// Row already present — DB is authoritative. ProjectService owns
+			// subsequent writes; TOML is only a seed on first run.
+			//
+			// Exception: the built-in default project is pre-inserted by
+			// migration 004 in a pristine state (version == 1, empty
+			// settings, workflow_id = kanban). If the user has not yet
+			// modified it via `tusk project modify`, apply the TOML-derived
+			// workflow binding and settings as a one-time bootstrap so users
+			// who configure a custom workflow or automation in TOML still
+			// see them take effect. Once they run `tusk project modify`,
+			// version becomes ≥ 2 and this branch is skipped forever — the
+			// DB stays authoritative as planned.
+			if p.ID == domain.DefaultProjectUUID && existing.Version == 1 && isZeroProjectSettings(existing.Settings) {
+				settingsJSON, err := json.Marshal(p.Settings)
+				if err != nil {
+					return fmt.Errorf("marshaling project %q settings: %w", name, err)
+				}
+				if _, err := projRepo.db.ExecContext(ctx,
+					`UPDATE projects SET workflow_id = ?, settings = ?, updated_at = ? WHERE id = ? AND version = 1`,
+					p.WorkflowID.String(), string(settingsJSON), nowStr, p.ID.String(),
+				); err != nil {
+					return fmt.Errorf("bootstrapping default project: %w", err)
+				}
 			}
 			continue
 		}
@@ -88,29 +104,9 @@ func SyncConfigToDB(
 		}
 	}
 
-	// Drop any SQL rows that no longer appear in the TOML config. Tasks still
-	// write through config.*Project/*Workflow helpers in Phase 2, so the TOML
-	// file remains authoritative for membership. Projects with referencing
-	// tasks trip the FK and surface an error to the caller.
-	projectIDs := make(map[string]struct{}, len(cfg.Projects))
-	for name := range cfg.Projects {
-		projectIDs[config.ProjectID(name).String()] = struct{}{}
-	}
-	existingProjects, err := projRepo.List(ctx)
-	if err != nil {
-		return fmt.Errorf("listing existing projects: %w", err)
-	}
-	for _, p := range existingProjects {
-		if _, ok := projectIDs[p.ID.String()]; ok {
-			continue
-		}
-		if _, err := projRepo.db.ExecContext(ctx,
-			`DELETE FROM projects WHERE id = ?`, p.ID.String(),
-		); err != nil {
-			return fmt.Errorf("dropping stale project %q: %w", p.Name, err)
-		}
-	}
-
+	// Phase 4 removes this symmetrically — once WorkflowService owns workflow
+	// writes, DB workflow rows not present in the TOML must survive across
+	// restarts the same way DB-only project rows already do.
 	workflowIDs := make(map[string]struct{}, len(cfg.Workflows))
 	for name := range cfg.Workflows {
 		workflowIDs[config.WorkflowID(name).String()] = struct{}{}
@@ -130,4 +126,11 @@ func SyncConfigToDB(
 		}
 	}
 	return nil
+}
+
+// isZeroProjectSettings reports whether the given settings value has no
+// configured automation or urgency overrides — i.e. whether it matches the
+// empty state that migration 004 seeds for the default project.
+func isZeroProjectSettings(s domain.ProjectSettings) bool {
+	return s.AutoCompleteParent == nil && s.AutoRevertParent == nil && s.Urgency == nil
 }

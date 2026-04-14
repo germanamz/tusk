@@ -2,32 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/germanamz/tusk/config"
-	"github.com/germanamz/tusk/filter"
+	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/service"
 	"github.com/mark3labs/mcp-go/mcp"
 )
-
-// countTasksForProject returns the number of tasks referencing the given
-// project name. Mirrors the CLI-side helper so the MCP project_delete
-// handler can supply a TaskRefChecker to config.DeleteProject.
-func (s *Server) countTasksForProject(ctx context.Context, projectName string) (int, error) {
-	expr, parseErrs := filter.ParseExpr(fmt.Sprintf("project=%s", projectName))
-	if len(parseErrs) > 0 {
-		return 0, fmt.Errorf("building filter: %s", filter.FormatErrors(parseErrs))
-	}
-	resolver := s.newResolver(ctx)
-	filterExpr, resolveErrs := resolver.ResolveExpr(ctx, expr)
-	if len(resolveErrs) > 0 {
-		return 0, resolveErrs[0]
-	}
-	tasks, err := s.taskSvc.List(ctx, filterExpr)
-	if err != nil {
-		return 0, err
-	}
-	return len(tasks), nil
-}
 
 func parseStringMap(raw any) (map[string]string, error) {
 	if raw == nil {
@@ -67,41 +48,67 @@ func parseFloatMap(raw any) (map[string]float64, error) {
 	return out, nil
 }
 
-func applyUrgencyWeights(proj *config.ProjectConfig, weights map[string]float64) error {
+func urgencyOverrideFromMap(weights map[string]float64) (*domain.UrgencyOverrides, error) {
 	if len(weights) == 0 {
+		return nil, nil
+	}
+	o := &domain.UrgencyOverrides{}
+	for k, v := range weights {
+		val := v
+		switch k {
+		case "priority_weight":
+			o.PriorityWeight = &val
+		case "due_weight":
+			o.DueWeight = &val
+		case "age_weight":
+			o.AgeWeight = &val
+		case "active_weight":
+			o.ActiveWeight = &val
+		case "blocking_weight":
+			o.BlockingWeight = &val
+		case "blocked_weight":
+			o.BlockedWeight = &val
+		case "tags_weight":
+			o.TagsWeight = &val
+		case "project_weight":
+			o.ProjectWeight = &val
+		case "annotations_weight":
+			o.AnnotationsWeight = &val
+		case "waiting_weight":
+			o.WaitingWeight = &val
+		default:
+			return nil, fmt.Errorf("unknown urgency key %q", k)
+		}
+	}
+	return o, nil
+}
+
+func autoCompleteFromMap(raw map[string]string) *domain.AutoCompleteConfig {
+	if len(raw) == 0 {
 		return nil
 	}
-	if proj.Settings.Urgency == nil {
-		proj.Settings.Urgency = &config.ProjectUrgencyConfig{}
-	}
-	for k, v := range weights {
-		fp := config.UrgencyFieldPtr(proj.Settings.Urgency, k)
-		if fp == nil {
-			return fmt.Errorf("unknown urgency key %q", k)
-		}
-		val := v
-		*fp = &val
-	}
-	return nil
-}
-
-func applyAutoComplete(proj *config.ProjectConfig, raw map[string]string) {
-	if len(raw) == 0 {
-		return
-	}
-	proj.Settings.AutoCompleteParent = &config.AutoCompleteParentConfig{
+	return &domain.AutoCompleteConfig{
 		TriggerStatus: raw["trigger_status"],
 		TargetStatus:  raw["target_status"],
 	}
 }
 
-func applyAutoRevert(proj *config.ProjectConfig, raw map[string]string) {
+func autoRevertFromMap(raw map[string]string) *domain.AutoRevertConfig {
 	if len(raw) == 0 {
-		return
+		return nil
 	}
-	proj.Settings.AutoRevertParent = &config.AutoRevertParentConfig{
+	return &domain.AutoRevertConfig{
 		TriggerStatus: raw["trigger_status"],
 		TargetStatus:  raw["target_status"],
+	}
+}
+
+func projectToMap(p *domain.Project) map[string]any {
+	return map[string]any{
+		"id":       p.ID.String(),
+		"name":     p.Name,
+		"version":  p.Version,
+		"workflow": p.WorkflowID.String(),
 	}
 }
 
@@ -110,7 +117,7 @@ func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	workflow, err := req.RequireString("workflow")
+	workflowName, err := req.RequireString("workflow")
 	if err != nil {
 		return mcp.NewToolResultError("workflow is required"), nil
 	}
@@ -128,27 +135,33 @@ func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("auto_revert: %v", err)), nil
 	}
-
-	proj := config.ProjectConfig{Workflow: workflow}
-	if err := applyUrgencyWeights(&proj, weights); err != nil {
+	urgency, err := urgencyOverrideFromMap(weights)
+	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	applyAutoComplete(&proj, ac)
-	applyAutoRevert(&proj, ar)
 
-	path, err := config.ConfigFilePath(s.loadOpts...)
+	wf, err := s.workflowSvc.GetByName(ctx, workflowName)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("resolving workflow %q: %v", workflowName, err)), nil
 	}
+
+	settings := domain.ProjectSettings{
+		AutoCompleteParent: autoCompleteFromMap(ac),
+		AutoRevertParent:   autoRevertFromMap(ar),
+		Urgency:            urgency,
+	}
+
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	if err := config.CreateProject(path, name, proj); err != nil {
+	p, err := s.projectSvc.Create(ctx, service.CreateProjectInput{
+		Name:       name,
+		WorkflowID: wf.ID,
+		Settings:   settings,
+	})
+	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfigLocked(ctx); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
-	}
-	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+	return toolResultJSON(map[string]any{"ok": true, "project": projectToMap(p)})
 }
 
 // HandleProjectCreateForTest exposes handleProjectCreate for internal tests.
@@ -161,16 +174,28 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
 	}
+	versionF, err := req.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
 	args := req.GetArguments()
 
-	mut := config.ProjectMutation{
-		UrgencySet:   map[string]float64{},
-		UrgencyDelta: map[string]float64{},
+	input := service.ModifyProjectInput{
+		Name:            name,
+		ExpectedVersion: int(versionF),
+		Urgency: service.UrgencyMutation{
+			Set:   map[string]float64{},
+			Delta: map[string]float64{},
+		},
 	}
 
-	if wf, ok := args["workflow"].(string); ok && wf != "" {
-		w := wf
-		mut.Workflow = &w
+	if wfName, ok := args["workflow"].(string); ok && wfName != "" {
+		wf, err := s.workflowSvc.GetByName(ctx, wfName)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("resolving workflow %q: %v", wfName, err)), nil
+		}
+		id := wf.ID
+		input.WorkflowID = &id
 	}
 
 	setWeights, err := parseFloatMap(args["urgency_set"])
@@ -178,7 +203,7 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 		return mcp.NewToolResultError(fmt.Sprintf("urgency_set: %v", err)), nil
 	}
 	for k, v := range setWeights {
-		mut.UrgencySet[k] = v
+		input.Urgency.Set[k] = v
 	}
 
 	deltaWeights, err := parseFloatMap(args["urgency_delta"])
@@ -186,44 +211,28 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 		return mcp.NewToolResultError(fmt.Sprintf("urgency_delta: %v", err)), nil
 	}
 	for k, v := range deltaWeights {
-		mut.UrgencyDelta[k] = v
+		input.Urgency.Delta[k] = v
 	}
 
 	ac, err := parseStringMap(args["auto_complete"])
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("auto_complete: %v", err)), nil
 	}
-	if len(ac) > 0 {
-		mut.AutoCompleteSet = &config.AutoCompleteParentConfig{
-			TriggerStatus: ac["trigger_status"],
-			TargetStatus:  ac["target_status"],
-		}
-	}
+	input.AutoComplete = autoCompleteFromMap(ac)
 
 	ar, err := parseStringMap(args["auto_revert"])
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("auto_revert: %v", err)), nil
 	}
-	if len(ar) > 0 {
-		mut.AutoRevertSet = &config.AutoRevertParentConfig{
-			TriggerStatus: ar["trigger_status"],
-			TargetStatus:  ar["target_status"],
-		}
-	}
+	input.AutoRevert = autoRevertFromMap(ar)
 
-	path, err := config.ConfigFilePath(s.loadOpts...)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
-	}
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	if err := config.ModifyProject(path, name, mut); err != nil {
+	p, err := s.projectSvc.Modify(ctx, input)
+	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfigLocked(ctx); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
-	}
-	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+	return toolResultJSON(map[string]any{"ok": true, "project": projectToMap(p)})
 }
 
 // HandleProjectModifyForTest exposes handleProjectModify for internal tests.
@@ -236,29 +245,26 @@ func (s *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
 	}
+	versionF, err := req.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
+	}
 	force, _ := req.GetArguments()["force"].(bool)
 
-	path, err := config.ConfigFilePath(s.loadOpts...)
+	p, err := s.projectSvc.GetByName(ctx, name)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
-	}
-
-	var checker config.TaskRefChecker
-	if s.taskSvc != nil {
-		checker = func(projectName string) (int, error) {
-			return s.countTasksForProject(ctx, projectName)
+		if errors.Is(err, domain.ErrNotFound) {
+			return mcp.NewToolResultError(fmt.Sprintf("project %q: not found", name)), nil
 		}
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	if err := config.DeleteProject(path, name, checker, force); err != nil {
+	if err := s.projectSvc.Delete(ctx, p.ID, int(versionF), force); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfigLocked(ctx); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
-	}
-	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+	return toolResultJSON(map[string]any{"ok": true, "name": name})
 }
 
 // HandleProjectDeleteForTest exposes handleProjectDelete for internal tests.

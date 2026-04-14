@@ -2,12 +2,32 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/service"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// seedBackendProject inserts a "backend" project row through the service so
+// subsequent handler tests have something to modify/delete.
+func seedBackendProject(t *testing.T, srv *Server) *domain.Project {
+	t.Helper()
+	wf, err := srv.workflowSvc.GetByName(context.Background(), "kanban")
+	if err != nil {
+		t.Fatalf("resolving kanban workflow: %v", err)
+	}
+	p, err := srv.projectSvc.Create(context.Background(), service.CreateProjectInput{
+		Name:       "backend",
+		WorkflowID: wf.ID,
+	})
+	if err != nil {
+		t.Fatalf("seed backend: %v", err)
+	}
+	return p
+}
 
 func TestHandleProjectCreate_Success(t *testing.T) {
 	dir := t.TempDir()
@@ -37,16 +57,15 @@ func TestHandleProjectCreate_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
-	loaded, _ := config.LoadFile(path)
-	p, ok := loaded.Projects["backend"]
-	if !ok {
-		t.Fatalf("backend project not persisted")
-	}
-	if p.Workflow != "kanban" {
-		t.Fatalf("workflow: got %q", p.Workflow)
+	p, err := srv.projectSvc.GetByName(context.Background(), "backend")
+	if err != nil {
+		t.Fatalf("GetByName backend: %v", err)
 	}
 	if p.Settings.Urgency == nil || p.Settings.Urgency.DueWeight == nil || *p.Settings.Urgency.DueWeight != 15.0 {
 		t.Fatalf("due_weight override not persisted: %+v", p.Settings.Urgency)
+	}
+	if p.Settings.AutoCompleteParent == nil || p.Settings.AutoCompleteParent.TriggerStatus != "completed" {
+		t.Fatalf("auto_complete not persisted: %+v", p.Settings.AutoCompleteParent)
 	}
 }
 
@@ -72,15 +91,13 @@ func TestHandleProjectModify_SetAndDelta(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
 	writeMinimalConfig(t, path)
-	if err := config.CreateProject(path, "backend", config.ProjectConfig{Workflow: "kanban"}); err != nil {
-		t.Fatalf("seed project: %v", err)
-	}
-
 	srv := newTestServer(t, path)
+	p := seedBackendProject(t, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
-			"name": "backend",
+			"name":    "backend",
+			"version": float64(p.Version),
 			"urgency_set": map[string]any{
 				"blocking_weight": 25.0,
 			},
@@ -97,13 +114,15 @@ func TestHandleProjectModify_SetAndDelta(t *testing.T) {
 		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
-	loaded, _ := config.LoadFile(path)
-	p := loaded.Projects["backend"]
-	if p.Settings.Urgency == nil || p.Settings.Urgency.BlockingWeight == nil || *p.Settings.Urgency.BlockingWeight != 25.0 {
-		t.Fatalf("blocking_weight set failed: %+v", p.Settings.Urgency)
+	got, err := srv.projectSvc.GetByName(context.Background(), "backend")
+	if err != nil {
+		t.Fatalf("GetByName backend: %v", err)
 	}
-	if p.Settings.Urgency.DueWeight == nil || *p.Settings.Urgency.DueWeight == 0 {
-		t.Fatalf("due_weight delta failed: %+v", p.Settings.Urgency)
+	if got.Settings.Urgency == nil || got.Settings.Urgency.BlockingWeight == nil || *got.Settings.Urgency.BlockingWeight != 25.0 {
+		t.Fatalf("blocking_weight set failed: %+v", got.Settings.Urgency)
+	}
+	if got.Settings.Urgency.DueWeight == nil {
+		t.Fatalf("due_weight delta failed: %+v", got.Settings.Urgency)
 	}
 }
 
@@ -111,14 +130,13 @@ func TestHandleProjectModify_SetDeltaConflict(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
 	writeMinimalConfig(t, path)
-	if err := config.CreateProject(path, "backend", config.ProjectConfig{Workflow: "kanban"}); err != nil {
-		t.Fatalf("seed project: %v", err)
-	}
 	srv := newTestServer(t, path)
+	p := seedBackendProject(t, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":          "backend",
+			"version":       float64(p.Version),
 			"urgency_set":   map[string]any{"due_weight": 10.0},
 			"urgency_delta": map[string]any{"due_weight": 2.0},
 		}},
@@ -133,13 +151,14 @@ func TestHandleProjectDelete_Success(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
 	writeMinimalConfig(t, path)
-	if err := config.CreateProject(path, "backend", config.ProjectConfig{Workflow: "kanban"}); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
 	srv := newTestServer(t, path)
+	p := seedBackendProject(t, srv)
 
 	req := mcp.CallToolRequest{
-		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "backend"}},
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":    "backend",
+			"version": float64(p.Version),
+		}},
 	}
 	res, err := srv.HandleProjectDeleteForTest(context.Background(), req)
 	if err != nil {
@@ -148,9 +167,8 @@ func TestHandleProjectDelete_Success(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
-	loaded, _ := config.LoadFile(path)
-	if _, ok := loaded.Projects["backend"]; ok {
-		t.Fatalf("backend still present after delete")
+	if _, err := srv.projectSvc.GetByName(context.Background(), "backend"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("backend still present after delete: err=%v", err)
 	}
 }
 
@@ -161,7 +179,10 @@ func TestHandleProjectDelete_DefaultGuarded(t *testing.T) {
 	srv := newTestServer(t, path)
 
 	req := mcp.CallToolRequest{
-		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "default"}},
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":    "default",
+			"version": float64(1),
+		}},
 	}
 	res, _ := srv.HandleProjectDeleteForTest(context.Background(), req)
 	if !res.IsError {

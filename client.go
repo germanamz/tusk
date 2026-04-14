@@ -186,7 +186,21 @@ func NewClient(cfg Config) (*Client, error) {
 	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, workflowSvc, urgencyEngine)
 	tagSvc := service.NewTagService(resolver)
 	relationSvc := service.NewRelationService(resolver, projectLister)
-	projectSvc := service.NewProjectService(projectRepo)
+	projectDefaults := service.ProjectDefaults{
+		Urgency: service.UrgencyWeights{
+			Priority:    cfg.Urgency.PriorityWeight,
+			Due:         cfg.Urgency.DueWeight,
+			Age:         cfg.Urgency.AgeWeight,
+			Active:      cfg.Urgency.ActiveWeight,
+			Blocking:    cfg.Urgency.BlockingWeight,
+			Blocked:     cfg.Urgency.BlockedWeight,
+			Tags:        cfg.Urgency.TagsWeight,
+			Project:     cfg.Urgency.ProjectWeight,
+			Annotations: cfg.Urgency.AnnotationsWeight,
+			Waiting:     cfg.Urgency.WaitingWeight,
+		},
+	}
+	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, store, projectDefaults)
 	playerSvc := service.NewPlayerService(bundle.Players)
 
 	return &Client{

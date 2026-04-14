@@ -11,8 +11,9 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/config"
-	"github.com/germanamz/tusk/inmem"
+	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
+	"github.com/germanamz/tusk/sqlite"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -76,20 +77,66 @@ func writeMinimalConfig(t *testing.T, path string) {
 	}
 }
 
-// newTestServer builds an *mcp.Server wired with in-memory repos and an
-// explicit config file path for use in config handler tests.
+// newTestServer builds an *mcp.Server wired with sqlite-backed repos seeded
+// from the TOML at configFile. Project and workflow writes go through the
+// real service layer so project/workflow handler tests can exercise the full
+// path without separate fixture scaffolding.
 func newTestServer(t *testing.T, configFile string) *Server {
 	t.Helper()
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{})
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{})
-	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
-	reloadHook := func(_ context.Context, cfg *config.Config) error {
-		workflowRepo.Reload(cfg.Workflows)
-		projectRepo.Reload(cfg.Projects)
-		return nil
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "tusk.db")
+	store, err := sqlite.New(dbPath, migrations.FS)
+	if err != nil {
+		t.Fatalf("opening test store: %v", err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	db := store.DB()
+	projectRepo := sqlite.NewProjectRepo(db)
+	workflowRepo := sqlite.NewWorkflowRepo(db)
+	taskRepo := sqlite.NewTaskRepo(db)
+
+	loadedCfg, err := config.Load(config.WithExplicitFile(configFile))
+	if err != nil {
+		t.Fatalf("loading test config: %v", err)
+	}
+	if err := sqlite.SyncConfigToDB(ctx, loadedCfg, workflowRepo, projectRepo); err != nil {
+		t.Fatalf("seeding test db: %v", err)
+	}
+
+	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{
+		Priority:    loadedCfg.Urgency.PriorityWeight,
+		Due:         loadedCfg.Urgency.DueWeight,
+		Age:         loadedCfg.Urgency.AgeWeight,
+		Active:      loadedCfg.Urgency.ActiveWeight,
+		Blocking:    loadedCfg.Urgency.BlockingWeight,
+		Blocked:     loadedCfg.Urgency.BlockedWeight,
+		Tags:        loadedCfg.Urgency.TagsWeight,
+		Project:     loadedCfg.Urgency.ProjectWeight,
+		Annotations: loadedCfg.Urgency.AnnotationsWeight,
+		Waiting:     loadedCfg.Urgency.WaitingWeight,
+	})
+
+	reloadHook := func(ctx context.Context, cfg *config.Config) error {
+		return sqlite.SyncConfigToDB(ctx, cfg, workflowRepo, projectRepo)
+	}
+
+	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
+	projectSvc := service.NewProjectService(projectRepo, taskRepo, store, service.ProjectDefaults{Urgency: service.UrgencyWeights{
+		Priority:    loadedCfg.Urgency.PriorityWeight,
+		Due:         loadedCfg.Urgency.DueWeight,
+		Age:         loadedCfg.Urgency.AgeWeight,
+		Active:      loadedCfg.Urgency.ActiveWeight,
+		Blocking:    loadedCfg.Urgency.BlockingWeight,
+		Blocked:     loadedCfg.Urgency.BlockedWeight,
+		Tags:        loadedCfg.Urgency.TagsWeight,
+		Project:     loadedCfg.Urgency.ProjectWeight,
+		Annotations: loadedCfg.Urgency.AnnotationsWeight,
+		Waiting:     loadedCfg.Urgency.WaitingWeight,
+	}})
+
 	srv, err := New(
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, projectSvc, workflowSvc, nil,
 		workflowRepo, projectRepo, urgencyEngine, reloadHook,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configFile)},

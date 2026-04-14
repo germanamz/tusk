@@ -18,7 +18,7 @@ func testProjectService(t *testing.T) *ProjectService {
 		"backend": {Workflow: "kanban"},
 	}
 	repo := inmem.NewProjectRepository(cfgProjects)
-	return NewProjectService(repo)
+	return NewProjectService(repo, nil, nil, ProjectDefaults{})
 }
 
 func TestProjectService_GetByName(t *testing.T) {

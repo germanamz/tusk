@@ -21,8 +21,8 @@ func TestMigration004_SeedsDefaultProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("querying seed row: %v", err)
 	}
-	if name != "_default" {
-		t.Errorf("got name %q, want %q", name, "_default")
+	if name != "default" {
+		t.Errorf("got name %q, want %q", name, "default")
 	}
 	if workflowID != "00000000-0000-0000-0000-000000000000" {
 		t.Errorf("got workflow_id %q, want kanban UUID", workflowID)
