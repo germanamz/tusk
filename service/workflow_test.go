@@ -7,33 +7,20 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
+	"github.com/germanamz/tusk/sqlite"
 )
 
 func testWorkflowEnv(t *testing.T) *WorkflowService {
 	t.Helper()
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {},
-				"active":    {},
-				"completed": {},
-				"deleted":   {},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
+	store := sqlite.NewTestStore(t)
+	cfg := &config.Config{
+		Workflows: map[string]config.WorkflowConfig{"kanban": {}},
+		Projects: map[string]config.ProjectConfig{
+			"default": {Workflow: "kanban"},
+			"backend": {Workflow: "kanban"},
 		},
-	})
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-		"backend": {Workflow: "kanban"},
-	})
+	}
+	projectRepo, workflowRepo := sqlite.NewTestConfigRepos(t, store, cfg)
 	return NewWorkflowService(workflowRepo, projectRepo)
 }
 
@@ -158,24 +145,8 @@ func TestGetWorkflowWithProjects_NotFound(t *testing.T) {
 
 func roleWorkflowEnv(t *testing.T) *WorkflowService {
 	t.Helper()
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{"initial"}},
-				"active":    {Roles: []string{"start", "highlight"}},
-				"completed": {Roles: []string{"terminal", "done", "dim"}},
-				"deleted":   {Roles: []string{"terminal", "delete", "dim"}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "deleted"},
-			},
-		},
-	})
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-	})
+	store := sqlite.NewTestStore(t)
+	projectRepo, workflowRepo := sqlite.NewTestConfigRepos(t, store, nil)
 	return NewWorkflowService(workflowRepo, projectRepo)
 }
 

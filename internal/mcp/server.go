@@ -38,7 +38,7 @@ type Server struct {
 	server         *server.MCPServer
 	cfg            config.MCPConfig
 	loadOpts       []config.Option
-	configMu       sync.Mutex        // serializes config read-modify-write + reload
+	fileMu         sync.Mutex        // serializes TOML config file read-modify-write in handleConfigSet
 	toolGroups     map[string]string // tool name → group
 	resourceGroups map[string]string // resource URI template → group
 }
@@ -813,28 +813,15 @@ func (s *Server) Serve() error {
 	return server.ServeStdio(s.server)
 }
 
-// reloadConfig re-reads the active config file via the stored loadOpts and
-// hot-reloads the workflow repository, project repository, and urgency engine
-// with the fresh data. It does NOT rebuild the MCP server, reopen the
-// database, or reconfigure transports — those require a process restart.
+// reloadConfigLocked re-reads the active config file via the stored loadOpts
+// and hot-reloads repositories and the urgency engine with the fresh data.
+// It does NOT rebuild the MCP server, reopen the database, or reconfigure
+// transports — those require a process restart.
 //
-// Safe to call from any MCP tool handler after a successful config mutation.
-// Returns an error when Load fails; callers should surface the error back to
-// the caller without applying partial state (Load is a full parse with
-// validation, so there is no partial state to apply).
-//
-// reloadConfig acquires the server-level config mutex for the duration of the
-// reload so readers never observe mixed state across the three repos.
-func (s *Server) reloadConfig(ctx context.Context) error {
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-	return s.reloadConfigLocked(ctx)
-}
-
-// reloadConfigLocked performs the actual hot-reload work and assumes the
-// caller already holds s.configMu. Use this from code paths that have
-// already acquired the lock (e.g. handleConfigSet's read-modify-write
-// critical section) to avoid self-deadlock.
+// Project and workflow writes are serialized by SQLite optimistic locking
+// (version column), so there is no in-process reload mutex. handleConfigSet
+// holds s.fileMu to guard only the TOML file read-modify-write, and calls
+// this directly once the new file is on disk.
 func (s *Server) reloadConfigLocked(ctx context.Context) error {
 	cfg, err := config.Load(s.loadOpts...)
 	if err != nil {
@@ -861,9 +848,9 @@ func (s *Server) reloadConfigLocked(ctx context.Context) error {
 	return nil
 }
 
-// ReloadConfigForTest exposes reloadConfig for internal tests.
+// ReloadConfigForTest exposes reloadConfigLocked for internal tests.
 func (s *Server) ReloadConfigForTest(ctx context.Context) error {
-	return s.reloadConfig(ctx)
+	return s.reloadConfigLocked(ctx)
 }
 
 // WorkflowRepoForTest exposes the workflow repo handle for internal tests.

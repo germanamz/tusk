@@ -7,18 +7,22 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
+	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
 
 func testProjectService(t *testing.T) *ProjectService {
 	t.Helper()
-	cfgProjects := map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-		"backend": {Workflow: "kanban"},
+	store := sqlite.NewTestStore(t)
+	cfg := &config.Config{
+		Workflows: map[string]config.WorkflowConfig{"kanban": {}},
+		Projects: map[string]config.ProjectConfig{
+			"default": {Workflow: "kanban"},
+			"backend": {Workflow: "kanban"},
+		},
 	}
-	repo := inmem.NewProjectRepository(cfgProjects)
-	return NewProjectService(repo, nil, nil, ProjectDefaults{})
+	repo, _ := sqlite.NewTestConfigRepos(t, store, cfg)
+	return NewProjectService(repo, nil, store, ProjectDefaults{})
 }
 
 func TestProjectService_GetByName(t *testing.T) {

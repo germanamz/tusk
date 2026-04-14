@@ -5,10 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
-	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
@@ -17,11 +14,7 @@ import (
 // newClaimTestEnv creates a full service environment for claim tests.
 func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService) {
 	t.Helper()
-	store, err := sqlite.New(t.TempDir()+"/test.db", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test db: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := sqlite.NewTestStore(t)
 
 	db := store.DB()
 	playerRepo := sqlite.NewPlayerRepo(db)
@@ -34,29 +27,7 @@ func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService
 		Players:     playerRepo,
 	}
 
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {
-			Workflow: "kanban",
-		},
-	})
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
+	projectRepo, workflowRepo := sqlite.NewTestConfigRepos(t, store, nil)
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 
 	resolver := func(_ context.Context, _ uuid.UUID) (*service.RepoBundle, error) {

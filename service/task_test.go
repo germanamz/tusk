@@ -8,38 +8,25 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
 
 // testTaskEnvWithSettings creates a test environment with custom project settings.
-// This replaces the old pattern of creating a sqlite.ProjectRepo and calling Update.
+// The default project/kanban workflow are seeded by migrations; SyncConfigToDB's
+// default-project bootstrap branch applies the custom settings on top of the
+// pristine migration seed.
 func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig) *testEnv {
 	t.Helper()
 	bundle := newTestBundle(t)
-
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban", Settings: settings},
-	})
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
+	cfg := &config.Config{
+		Workflows: map[string]config.WorkflowConfig{"kanban": {}},
+		Projects: map[string]config.ProjectConfig{
+			"default": {Workflow: "kanban", Settings: settings},
 		},
-	})
+	}
+	projectRepo, _ := sqlite.NewTestConfigRepos(t, bundle.Store, cfg)
+	workflowRepo := sqlite.NewWorkflowRepo(bundle.Store.DB())
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 
@@ -1000,28 +987,7 @@ func TestUpdate_StatusChange_Transactional(t *testing.T) {
 
 func TestTaskService_WithTxProvider(t *testing.T) {
 	bundle := newTestBundle(t)
-
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-	})
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
+	projectRepo, workflowRepo := sqlite.NewTestConfigRepos(t, bundle.Store, nil)
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)

@@ -51,12 +51,12 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 		return mcp.NewToolResultError(fmt.Sprintf("unknown config key: %q", key)), nil
 	}
 
-	// Serialize the read-modify-write critical section plus the reload so
-	// concurrent tusk_config_set calls cannot clobber each other or let a
-	// reader observe partially-applied repo state. Cheap pre-validation
-	// guards above run unlocked so error responses are not serialized.
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
+	// Serialize the TOML file read-modify-write so concurrent tusk_config_set
+	// calls cannot clobber each other. Project and workflow writes are
+	// serialized by SQLite optimistic locking and no longer need a shared
+	// mutex; only the config file itself needs in-process protection.
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
 
 	path, err := config.ConfigFilePath(s.loadOpts...)
 	if err != nil {
@@ -100,8 +100,6 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 		return mcp.NewToolResultError(fmt.Sprintf("writing config: %v", err)), nil
 	}
 
-	// Already holding s.configMu — use the locked variant to avoid
-	// self-deadlock.
 	if err := s.reloadConfigLocked(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
 	}

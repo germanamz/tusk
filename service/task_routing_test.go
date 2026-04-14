@@ -6,40 +6,29 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
 
-// multiProjectKanban builds a ProjectRepository with the given project
-// IDs, all bound to the kanban workflow used by the test suite.
-func multiProjectKanban(projectIDs ...string) *inmem.ProjectRepository {
-	cfg := map[string]config.ProjectConfig{}
+// multiProjectKanban seeds the given store with one kanban-backed project
+// per id and returns the resulting SQLite project repo.
+func multiProjectKanban(t *testing.T, store *sqlite.Store, projectIDs ...string) *sqlite.ProjectRepo {
+	t.Helper()
+	cfgProjects := map[string]config.ProjectConfig{}
 	for _, id := range projectIDs {
-		cfg[id] = config.ProjectConfig{Workflow: "kanban"}
+		cfgProjects[id] = config.ProjectConfig{Workflow: "kanban"}
 	}
-	return inmem.NewProjectRepository(cfg)
+	cfg := &config.Config{
+		Workflows: map[string]config.WorkflowConfig{"kanban": {}},
+		Projects:  cfgProjects,
+	}
+	projRepo, _ := sqlite.NewTestConfigRepos(t, store, cfg)
+	return projRepo
 }
 
-func multiProjectWorkflowSvc(projectRepo *inmem.ProjectRepository) *WorkflowService {
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
+func multiProjectWorkflowSvc(t *testing.T, store *sqlite.Store, projectRepo *sqlite.ProjectRepo) *WorkflowService {
+	t.Helper()
+	workflowRepo := sqlite.NewWorkflowRepo(store.DB())
 	return NewWorkflowService(workflowRepo, projectRepo)
 }
 
@@ -49,58 +38,7 @@ func multiProjectWorkflowSvc(projectRepo *inmem.ProjectRepository) *WorkflowServ
 func multiProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle, map[string]uuid.UUID) {
 	t.Helper()
 	bundle := newTestBundle(t)
-	projectRepo := multiProjectKanban("default", "backend")
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
-	_ = workflowRepo // kept for multiProjectWorkflowSvc wiring below
-	syncCfg := &config.Config{
-		Workflows: map[string]config.WorkflowConfig{
-			"kanban": {
-				Statuses: map[string]config.StatusConfig{
-					"pending":   {Roles: []string{config.RoleInitial}},
-					"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-					"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-					"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-				},
-				Transitions: []config.WorkflowTransitionConfig{
-					{From: "pending", To: "active"},
-					{From: "pending", To: "deleted"},
-					{From: "active", To: "completed"},
-					{From: "active", To: "pending"},
-					{From: "active", To: "deleted"},
-					{From: "completed", To: "pending"},
-				},
-			},
-		},
-		Projects: map[string]config.ProjectConfig{
-			"default": {Workflow: "kanban"},
-			"backend": {Workflow: "kanban"},
-		},
-	}
-	if err := sqlite.SyncConfigToDB(
-		context.Background(),
-		syncCfg,
-		sqlite.NewWorkflowRepo(bundle.Store.DB()),
-		sqlite.NewProjectRepo(bundle.Store.DB()),
-	); err != nil {
-		t.Fatalf("syncing test config to sqlite: %v", err)
-	}
+	projectRepo := multiProjectKanban(t, bundle.Store, "default", "backend")
 	ids := map[string]uuid.UUID{}
 	for _, name := range []string{"default", "backend"} {
 		p, err := projectRepo.GetByName(context.Background(), name)
@@ -110,7 +48,7 @@ func multiProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle, map[string]uu
 		ids[name] = p.ID
 	}
 	resolver, projects := singleBundleResolver(bundle, ids["default"], ids["backend"])
-	workflowSvc := multiProjectWorkflowSvc(projectRepo)
+	workflowSvc := multiProjectWorkflowSvc(t, bundle.Store, projectRepo)
 	svc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 	return svc, bundle, ids
 }

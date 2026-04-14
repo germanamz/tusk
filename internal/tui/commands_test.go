@@ -11,8 +11,6 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
-	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
@@ -67,11 +65,7 @@ func TestFormatError_Generic(t *testing.T) {
 // testApp creates a fully wired App with an in-memory database.
 func testApp(t *testing.T) (*App, *service.TaskService) {
 	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := sqlite.NewTestStore(t)
 
 	db := store.DB()
 	bundle := &service.RepoBundle{
@@ -82,25 +76,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 		Tags:        sqlite.NewTagRepo(db),
 		Players:     sqlite.NewPlayerRepo(db),
 	}
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{"default": {Workflow: "kanban"}})
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
+	projectRepo, workflowRepo := sqlite.NewTestConfigRepos(t, store, nil)
 
 	resolver := func(context.Context, uuid.UUID) (*service.RepoBundle, error) { return bundle, nil }
 	projects := func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{domain.DefaultProjectUUID}, nil }

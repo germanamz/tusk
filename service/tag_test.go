@@ -5,9 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
@@ -88,27 +86,7 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 		Tags:        sqlite.NewTagRepo(db),
 		Players:     sqlite.NewPlayerRepo(db),
 	}
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-	})
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
+	projectRepo, workflowRepo := sqlite.NewTestConfigRepos(t, store, nil)
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)

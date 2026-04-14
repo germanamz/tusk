@@ -138,8 +138,6 @@ func (s *Server) handleWorkflowCreate(ctx context.Context, req mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("transitions: %v", err)), nil
 	}
 
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
 	wf, err := s.workflowSvc.Create(ctx, service.CreateWorkflowInput{
 		Name:        name,
 		Statuses:    statusesToDomain(statuses),
@@ -190,8 +188,6 @@ func (s *Server) handleWorkflowModify(ctx context.Context, req mcp.CallToolReque
 		}
 	}
 
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
 	wf, err := s.workflowSvc.Modify(ctx, service.ModifyWorkflowInput{
 		Name:              name,
 		ExpectedVersion:   int(versionF),
@@ -230,8 +226,6 @@ func (s *Server) handleWorkflowDelete(ctx context.Context, req mcp.CallToolReque
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
 	if err := s.workflowSvc.Delete(ctx, wf.ID, int(versionF)); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
