@@ -4,10 +4,12 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/repository"
+	"github.com/google/uuid"
 )
 
 var _ repository.WorkflowRepository = (*WorkflowRepository)(nil)
@@ -33,12 +35,17 @@ func (r *WorkflowRepository) Reload(cfgWorkflows map[string]config.WorkflowConfi
 }
 
 func buildWorkflowMap(cfgWorkflows map[string]config.WorkflowConfig) map[string]*domain.Workflow {
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	workflows := make(map[string]*domain.Workflow, len(cfgWorkflows))
 	for name, cfg := range cfgWorkflows {
 		wf := &domain.Workflow{
+			ID:          uuid.NewSHA1(uuid.Nil, []byte("workflow:"+name)),
 			Name:        name,
 			Statuses:    make(map[string]domain.StatusConfig, len(cfg.Statuses)),
 			Transitions: make([]domain.WorkflowTransition, len(cfg.Transitions)),
+			Version:     1,
+			CreatedAt:   now,
+			UpdatedAt:   now,
 		}
 		for statusName, sc := range cfg.Statuses {
 			roles := make([]domain.StatusRole, len(sc.Roles))
@@ -86,9 +93,13 @@ func (r *WorkflowRepository) List(_ context.Context) ([]*domain.Workflow, error)
 // copyWorkflow returns a deep copy of a Workflow, including the statuses map and slices.
 func copyWorkflow(wf *domain.Workflow) *domain.Workflow {
 	cp := &domain.Workflow{
+		ID:          wf.ID,
 		Name:        wf.Name,
 		Statuses:    make(map[string]domain.StatusConfig, len(wf.Statuses)),
 		Transitions: make([]domain.WorkflowTransition, len(wf.Transitions)),
+		Version:     wf.Version,
+		CreatedAt:   wf.CreatedAt,
+		UpdatedAt:   wf.UpdatedAt,
 	}
 	for name, sc := range wf.Statuses {
 		roles := make([]domain.StatusRole, len(sc.Roles))

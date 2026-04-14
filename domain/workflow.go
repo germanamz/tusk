@@ -1,6 +1,11 @@
 package domain
 
-import "sort"
+import (
+	"sort"
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // StatusRole is a named behavior attached to a workflow status.
 type StatusRole string
@@ -31,11 +36,16 @@ func (sc StatusConfig) HasRole(role StatusRole) bool {
 }
 
 // Workflow is a named set of statuses and allowed transitions.
-// Workflows are config-driven in-memory entities identified by Name.
+// Workflows are persisted in the workspace database and carry the same
+// version + audit fields as every other mutable entity.
 type Workflow struct {
+	ID          uuid.UUID
 	Name        string
 	Statuses    map[string]StatusConfig
 	Transitions []WorkflowTransition
+	Version     int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // StatusNames returns the status names as a sorted slice.
