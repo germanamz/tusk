@@ -69,6 +69,19 @@ func buildWorkflowMap(cfgWorkflows map[string]config.WorkflowConfig) map[string]
 	return workflows
 }
 
+// GetByID returns a defensive copy of the workflow matched by UUID.
+// Returns domain.ErrNotFound if not found.
+func (r *WorkflowRepository) GetByID(_ context.Context, id uuid.UUID) (*domain.Workflow, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, wf := range r.workflows {
+		if wf.ID == id {
+			return copyWorkflow(wf), nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
 // GetByName returns a defensive copy of the workflow. Returns domain.ErrNotFound if not found.
 func (r *WorkflowRepository) GetByName(_ context.Context, name string) (*domain.Workflow, error) {
 	r.mu.RLock()

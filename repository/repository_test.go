@@ -96,6 +96,9 @@ func (s *stubTagRepo) GetTaskTagsBatch(_ context.Context, _ []uuid.UUID) (map[uu
 
 type stubWorkflowRepo struct{}
 
+func (s *stubWorkflowRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Workflow, error) {
+	return nil, nil
+}
 func (s *stubWorkflowRepo) GetByName(_ context.Context, _ string) (*domain.Workflow, error) {
 	return nil, nil
 }

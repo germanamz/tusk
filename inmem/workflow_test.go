@@ -8,6 +8,7 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
+	"github.com/google/uuid"
 )
 
 func TestWorkflowRepository_GetByName(t *testing.T) {
@@ -111,6 +112,43 @@ func TestWorkflowRepository_Reload(t *testing.T) {
 	}
 	if _, err := repo.GetByName(context.Background(), "alpha"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("alpha should be gone after Reload, got err=%v", err)
+	}
+}
+
+func TestWorkflowRepository_GetByID(t *testing.T) {
+	workflows := map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: map[string]config.StatusConfig{
+				"pending": {},
+				"active":  {},
+			},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+			},
+		},
+	}
+	repo := inmem.NewWorkflowRepository(workflows)
+	ctx := context.Background()
+
+	wf, err := repo.GetByName(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, wf.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Name != "kanban" {
+		t.Errorf("got name %q, want kanban", got.Name)
+	}
+}
+
+func TestWorkflowRepository_GetByID_NotFound(t *testing.T) {
+	repo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{})
+	_, err := repo.GetByID(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
 	}
 }
 
