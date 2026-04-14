@@ -7,6 +7,7 @@ import (
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/repository"
+	"github.com/google/uuid"
 )
 
 // WorkflowService validates status transitions and provides read access
@@ -92,6 +93,12 @@ func (s *WorkflowService) List(ctx context.Context) ([]*domain.Workflow, error) 
 // Returns domain.ErrNotFound if the workflow does not exist.
 func (s *WorkflowService) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
 	return s.workflowRepo.GetByName(ctx, name)
+}
+
+// GetByID returns a single workflow by typed UUID.
+// Returns domain.ErrNotFound if the workflow does not exist.
+func (s *WorkflowService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workflow, error) {
+	return s.workflowRepo.GetByID(ctx, id)
 }
 
 // GetWorkflowWithProjects returns a workflow and the sorted list of project IDs
