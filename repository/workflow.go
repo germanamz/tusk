@@ -7,8 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// WorkflowRepository provides read-only access to workflow definitions.
-// Implementations are backed by config, not a database.
+// WorkflowRepository provides access to workflow definitions.
 type WorkflowRepository interface {
 	// GetByID returns a workflow by its typed UUID.
 	// Returns domain.ErrNotFound if no workflow with that id exists.
@@ -20,4 +19,15 @@ type WorkflowRepository interface {
 
 	// List returns all workflows, sorted alphabetically by name.
 	List(ctx context.Context) ([]*domain.Workflow, error)
+
+	// Create inserts a new workflow. Returns domain.ErrConflict on name collision.
+	Create(ctx context.Context, w *domain.Workflow) error
+
+	// Update persists changes to a workflow with optimistic locking.
+	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
+	Update(ctx context.Context, w *domain.Workflow) error
+
+	// Delete removes a workflow with optimistic locking on version.
+	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
+	Delete(ctx context.Context, id uuid.UUID, expectedVersion int) error
 }

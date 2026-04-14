@@ -107,6 +107,22 @@ func (r *WorkflowRepository) List(_ context.Context) ([]*domain.Workflow, error)
 	return result, nil
 }
 
+// Bridge stubs: inmem is read-only. These exist so the package satisfies
+// the expanded repository.WorkflowRepository interface until inmem is deleted
+// in Phase 5 of the service layer migration.
+
+func (r *WorkflowRepository) Create(context.Context, *domain.Workflow) error {
+	return domain.ErrReadOnlyRepository
+}
+
+func (r *WorkflowRepository) Update(context.Context, *domain.Workflow) error {
+	return domain.ErrReadOnlyRepository
+}
+
+func (r *WorkflowRepository) Delete(context.Context, uuid.UUID, int) error {
+	return domain.ErrReadOnlyRepository
+}
+
 // copyWorkflow returns a deep copy of a Workflow, including the statuses map and slices.
 func copyWorkflow(wf *domain.Workflow) *domain.Workflow {
 	cp := &domain.Workflow{

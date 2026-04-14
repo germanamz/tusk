@@ -7,10 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// ProjectRepository provides read access to projects.
-// Write operations (Create/Update/Delete) are exposed as concrete methods
-// on sqlite.ProjectRepo in Phase 2 and are not yet part of this interface;
-// they will be promoted to the interface in the v0.11 Service Layer Migration.
+// ProjectRepository provides access to projects.
 type ProjectRepository interface {
 	// GetByID returns a project by its typed UUID.
 	// Returns domain.ErrNotFound if the project doesn't exist.
@@ -22,4 +19,18 @@ type ProjectRepository interface {
 
 	// List returns all projects, sorted by name.
 	List(ctx context.Context) ([]*domain.Project, error)
+
+	// Create inserts a new project. Returns domain.ErrConflict on name collision.
+	Create(ctx context.Context, p *domain.Project) error
+
+	// Update persists changes to a project with optimistic locking.
+	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
+	Update(ctx context.Context, p *domain.Project) error
+
+	// Delete removes a project with optimistic locking on version.
+	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
+	Delete(ctx context.Context, id uuid.UUID, expectedVersion int) error
+
+	// CountProjectsByWorkflow returns how many projects reference the given workflow.
+	CountProjectsByWorkflow(ctx context.Context, workflowID uuid.UUID) (int, error)
 }
