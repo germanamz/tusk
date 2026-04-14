@@ -657,7 +657,196 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.10 — Trailing Window Notes
+## v0.10 — Datastore-Backed Projects & Workflows
+
+**Goal:** Move projects and workflows out of the config file and into the workspace database. With config files now acting as workspace namespaces (walk-up discovery, local `tusk.toml`), projects and workflows are workspace data, not user configuration. Tasks already live in the DB — projects and workflows should too.
+
+### Initiative: Project & Workflow Schema
+
+> Persistent storage for projects and workflows in the workspace database, with optimistic locking like every other mutable entity.
+
+- [ ] **Story: Projects table**
+  - [ ] Define `domain.Project` entity (`id` UUID, `name`, `workflow_id` UUID, `settings` JSON, `version`, `created_at`, `updated_at`)
+  - [ ] `settings` JSON carries `auto_complete`, `auto_revert`, and `urgency` overrides — JSON chosen over dedicated columns because per-project overrides are read once per service call and written rarely; promote to columns only if profiling shows the JSON decode is hot
+  - [ ] Migration adding `projects` table with unique index on `name`
+  - [ ] Seed built-in `_default` project (UUID all zeros) as a regular row in the migration — no special-case code paths
+  - [ ] `ProjectRepository` interface (`Create`, `Get`, `GetByName`, `List`, `Update`, `Delete`) and SQLite implementation with version-checked updates returning `domain.ErrConflict`
+
+- [ ] **Story: Workflows table**
+  - [ ] Define `domain.Workflow` entity (`id` UUID, `name`, `statuses` JSON, `transitions` JSON, `version`, `created_at`, `updated_at`)
+  - [ ] Statuses keep the v0.9 role schema (`initial`, `start`, `terminal`, `done`, `delete`, `highlight`, `dim`) — serialized as JSON to avoid a second table just for status rows
+  - [ ] Migration adding `workflows` table with unique index on `name`
+  - [ ] Seed built-in default workflow (`pending`/`active`/`completed`/`deleted` with roles) as a regular row in the migration
+  - [ ] `WorkflowRepository` interface (`Create`, `Get`, `GetByName`, `List`, `Update`, `Delete`) and SQLite implementation with version-checked updates
+
+- [ ] **Story: Foreign key from tasks to projects**
+  - [ ] Migration converts `tasks.project_id` to a real FK referencing `projects.id` (was previously just a UUID column with no DB-level integrity)
+  - [ ] `ON DELETE RESTRICT` so the existing "reject delete if tasks reference it" guard gets DB-level enforcement in addition to the service-level check
+  - [ ] Workflows are referenced via `projects.workflow_id` FK with `ON DELETE RESTRICT`
+
+### Initiative: Service Layer Migration
+
+> `ProjectService` and `WorkflowService` read and write the database instead of the config file. `inmem/` implementations are deleted — the in-memory path only existed because the source of truth was a TOML file held in memory after `config.Load()`.
+
+- [ ] **Story: ProjectService over repository**
+  - [ ] `ProjectService.Create`/`Modify`/`Delete`/`List`/`Get` call `ProjectRepository` directly
+  - [ ] Optimistic locking: callers fetch to get `version`, mutations pass it through, `ErrConflict` bubbles up like task mutations
+  - [ ] Drop `config.CreateProject`/`ModifyProject`/`DeleteProject` — their TOML-writing logic is removed and callers switch to the service
+  - [ ] Service-level delete guard (reject if tasks reference the project, reject deleting `_default`, `--force` bypass) stays in the service and runs before the DB delete
+
+- [ ] **Story: WorkflowService over repository**
+  - [ ] `WorkflowService.Create`/`Modify`/`Delete`/`List`/`Get` call `WorkflowRepository` directly
+  - [ ] Role-schema validation (exactly one `initial`, one `start`, ≥1 `terminal`, etc.) moves from config validation into the service
+  - [ ] Delete guard rejects workflows referenced by any project — implemented via a repository-level `CountProjectsByWorkflow` call, not a full project list scan
+  - [ ] Drop `config.CreateWorkflow`/`ModifyWorkflow`/`DeleteWorkflow`
+
+- [ ] **Story: Retire `inmem/` project and workflow stores**
+  - [ ] Delete `inmem/project.go` and `inmem/workflow.go`
+  - [ ] DI wiring in `cmd/tusk/` constructs SQLite repositories from the workspace store
+  - [ ] Tests that used `inmem` for project/workflow setup switch to the SQLite store via the existing test harness
+
+### Initiative: Config Schema Trim
+
+> Remove `[projects.*]` and `[workflows.*]` from the config file. Config keeps global settings only — `storage.*`, global `urgency.*`, global `auto_complete.*`, `mcp.*`, `filter.*`, etc. `config show` still renders projects and workflows, now sourced from the DB.
+
+- [ ] **Story: Remove project/workflow sections from the config schema**
+  - [ ] Delete `ProjectConfig` and `WorkflowConfig` from `config/` types
+  - [ ] Remove `[projects.<name>]` and `[workflows.<name>]` from `config/default.toml`
+  - [ ] Config loader emits a hard error if the resolved file still contains these sections, pointing at the migration command (see next initiative)
+  - [ ] Global `[urgency]` and `[auto_complete]` stay in config as defaults — project overrides live in the DB `projects.settings` JSON
+
+- [ ] **Story: `config show` reads projects and workflows from DB**
+  - [ ] `config show` output keeps rendering `[projects.*]` and `[workflows.*]` sections for continuity, hydrated from the DB at display time
+  - [ ] Sections are marked read-only in the rendered header (e.g. `# projects (from database, use 'tusk project' to modify)`)
+  - [ ] `config get projects.<name>.<field>` / `config get workflows.<name>.<field>` resolve against the DB
+  - [ ] `config set` rejects keys under `projects.*` and `workflows.*` with an error pointing at `tusk project modify` / `tusk workflow modify`
+
+### Initiative: CLI & MCP Rewiring
+
+> `tusk project` and `tusk workflow` subcommands (and their MCP counterparts) mutate the database through the services instead of the config file. External surface is nearly unchanged — same flags, same inline syntax — only the storage backend moves.
+
+- [ ] **Story: Project and workflow CLI over services**
+  - [ ] `tusk project create`/`modify`/`delete`/`list` call `ProjectService` directly
+  - [ ] `tusk workflow create`/`modify`/`delete`/`list` call `WorkflowService` directly
+  - [ ] Inline syntax (`workflow=kanban`, `urgency.blocking-weight=15`, `+urgency.blocking-weight=2`, etc.) is unchanged — the parser produces the same AST, only the write target moves
+  - [ ] Numeric delta resolution for urgency weights still reads the effective global weight from config and stores the resolved override in `projects.settings`
+
+- [ ] **Story: MCP project and workflow tools over services**
+  - [ ] `tusk_project_create`/`modify`/`delete` and `tusk_workflow_create`/`modify`/`delete` call the services
+  - [ ] Tools accept and return `version` for optimistic locking, matching `tusk_task_*` conventions
+  - [ ] The config mutex that previously serialized project/workflow writes (`eec8ec6`) is removed — DB-level optimistic locking replaces it
+
+---
+
+## v0.11 — CLI Command Grouping
+
+**Goal:** Regroup the CLI under explicit subcommand namespaces so the surface scales cleanly as the system grows. Early-stage Tusk shipped flat commands (`tusk add`, `tusk start`, `tusk done`); with projects, workflows, players, tags, config, notes, and dashboard all competing for top-level slots, the flat layout is noisy and ambiguous. This milestone moves every task-scoped verb under `tusk task` and leaves only workspace-wide operations at the top level. Pre-release, so no backward-compat aliases — clean break.
+
+### Initiative: `tusk task` Subcommand Group
+
+> Move every task-scoped command under a single `tusk task` parent. Verbs, flags, inline syntax, and output are unchanged — only the invocation path moves. Pre-release, so no backward-compat aliases — removed commands stay removed.
+
+- [ ] **Story: Scope — which commands move and which stay flat**
+  - [ ] Moves under `tusk task`: every task-scoped verb (CRUD, lifecycle, claim/queue, relations)
+  - [ ] Stays flat — workspace-wide operations that don't belong to any single entity: `tusk undo` (reverts the last mutation regardless of entity type), `tusk export` (workspace-wide data dump), `tusk dashboard` (workspace-wide view), `tusk mcp serve` (server invocation, not an entity operation)
+  - [ ] Already grouped, no change: `tusk config`, `tusk project`, `tusk workflow`, `tusk player`, `tusk tag`, `tusk note`
+  - [ ] This story is a decision/scoping gate — the mapping table it locks in drives every downstream story in this milestone
+
+- [ ] **Story: `tusk task` parent command skeleton**
+  - [ ] Register the `tusk task` parent Cobra command with its long help listing all subcommands with one-line summaries
+  - [ ] Wire it into the root command so `tusk task` (no subcommand) prints usage and exits cleanly
+  - [ ] Establishes the parent so each subsequent move story is a drop-in `AddCommand` call rather than a restructure
+
+- [ ] **Story: Task CRUD and lifecycle under `tusk task`**
+  - [ ] `tusk add` → `tusk task create`
+  - [ ] `tusk list` → `tusk task list`
+  - [ ] `tusk info` → `tusk task get`
+  - [ ] `tusk modify` → `tusk task modify`
+  - [ ] `tusk start` → `tusk task start`
+  - [ ] `tusk done` → `tusk task done`
+  - [ ] `tusk delete` → `tusk task delete`
+  - [ ] `tusk tree` → `tusk task tree`
+  - [ ] `tusk next` → `tusk task next`
+  - [ ] `tusk annotate` → `tusk task annotate`
+
+- [ ] **Story: Claim and queue under `tusk task`**
+  - [ ] `tusk available` → `tusk task available`
+  - [ ] `tusk pop` → `tusk task pop`
+  - [ ] `tusk claim` → `tusk task claim`
+  - [ ] `tusk release` → `tusk task release`
+
+- [ ] **Story: Relations under `tusk task`**
+  - [ ] `tusk link` → `tusk task link`
+  - [ ] `tusk unlink` → `tusk task unlink`
+  - [ ] MCP tools rename to match: `tusk_relation_add` → `tusk_task_link`, `tusk_relation_remove` → `tusk_task_unlink`. MCP and CLI surfaces stay in lockstep so agents and humans share the same mental model.
+
+- [ ] **Story: Removal and suggestions for moved commands**
+  - [ ] Old flat commands are deleted from the root — Cobra emits its standard "unknown command" error for each
+  - [ ] A custom `SuggestFor` / unknown-command handler prints a targeted hint for moved verbs so `tusk add foo` prints "unknown command 'add'; did you mean 'tusk task create'?" for every entry in the scope story's mapping table
+  - [ ] Shell completion regenerated for the new command tree — old completions are stale and ship with the release
+  - [ ] Runs last in this initiative so the hint table reflects the final set of moved commands
+
+### Initiative: String Field Input Unification
+
+> Free-form string fields currently mix two conventions: `description` is a Cobra flag (`--description`/`-d`) with `@file` / `@-` expansion, while `title` and every other field use inline `key=value` syntax. This initiative collapses the two so every string field follows the same convention, and it promotes `@` to a first-class **value-position modifier** in the lexer — joining the v0.9 token-prefix modifiers (`+`, `-`, `..`, `,`, `:`, `()`) as a neutral, extensible marker. The lexer strips and records the marker; consumers still own I/O. Runs after the `tusk task` grouping initiative so it acts on the already-renamed commands once, not twice.
+
+- [ ] **Story: Value-position modifiers in the lexer**
+  - [ ] Extend the v0.9 modifier registry to include **value-prefix** modifiers alongside the existing token-prefix modifiers. Both categories share the same "neutral marker, consumer interprets" philosophy.
+  - [ ] Add a `ValueModifier rune` field to the syntax AST value carrier (field filter, task field, etc.) alongside the existing token `Modifier` field
+  - [ ] Register `@` as the first value-prefix modifier — when the lexer scans the value half of a `key=value` token and the first unquoted character is a registered value-prefix, strip it into `ValueModifier` and make `Value` the bare tail
+  - [ ] Quoted strings stay opaque: `description="@file.txt"` yields the literal string `@file.txt` with no `ValueModifier`, matching the v0.9 quoted-string opacity rule
+  - [ ] Expose `syntax.ParseValue(raw) (value string, mod rune)` so positional args that don't come through the key=value path can reuse the same stripping in a single call
+  - [ ] Registry is extensible the same way token prefixes are — a future `?` or `*` prefix is a one-line registry change plus consumer opt-in, with no AST reshape
+  - [ ] Unit tests: registry extension, AST marker presence, opaque-quote rule, `ParseValue` entry point, and a "register a new value modifier" test that proves the extensibility path without touching consumers
+  - [ ] Runs first in the initiative because every downstream story reads `ValueModifier` from the AST instead of inspecting strings
+
+- [ ] **Story: I/O consumer helper `expandValueRef`**
+  - [ ] New helper in `internal/tui` that takes `(value string, mod rune)` and resolves to content — when `mod == '@'` it treats `value` as a file path, with the literal `"-"` meaning stdin
+  - [ ] Preserves the TTY guard from the existing `readDescription` — failing loudly on `@-` without a pipe instead of hanging for keyboard input
+  - [ ] Helper is pure: no command-specific knowledge, no inline-string inspection — every caller passes raw AST data in
+  - [ ] Replaces `internal/tui/description.go` entirely; the old `readDescription` function is deleted
+
+- [ ] **Story: Drop `--description` flag, use inline field**
+  - [ ] Remove `--description` / `-d` from `tusk task create` and `tusk task modify`
+  - [ ] Commands read the `description=` field from the parsed syntax, pattern-match on `ValueModifier`, and call `expandValueRef` for the resolved content
+  - [ ] `description=` with an empty value clears the field on modify (matches the old `--description ""` behavior, feeds into the double-pointer `**string` update path)
+  - [ ] Same pattern applied to `title=` so `title=@./title.txt` works on create and modify
+
+- [ ] **Story: Positional bodies gain `@` expansion**
+  - [ ] `tusk task annotate <id> "body"` stays positional — annotation commands are single-value and the positional form is idiomatic
+  - [ ] The positional body runs through `syntax.ParseValue` and then `expandValueRef`, so `tusk task annotate a3f8b2c1 @./notes.md` and `tusk task annotate a3f8b2c1 @-` work with the same semantics as `description=@...`
+  - [ ] Literal `@` at the start of a positional body is quoted at the shell level (`tusk task annotate a3f8b2c1 "@alice please review"`) — shell quoting is the user's responsibility, tusk doesn't double-escape
+  - [ ] `tusk note add "body"` (v0.12) inherits the same convention from day one — documented in the v0.12 note CLI story rather than patched in later
+
+- [ ] **Story: MCP field parity check**
+  - [ ] MCP tools receive description, title, and body as structured JSON fields, so no `@file` expansion is needed on that surface — agents already pass the content directly
+  - [ ] Tool schemas stay unchanged; only the CLI surface moves
+  - [ ] Runs last in the initiative as a verification pass: confirms no MCP tool accidentally grew a `@` interpretation while the CLI was being rewired
+
+### Initiative: Documentation and Test Rewrite
+
+> Every doc example, help string, and E2E scenario references the old flat commands. All need to move in lockstep with the CLI change, or the release ships with broken examples. Runs last in the milestone — the command surface and field conventions must be final before the surrounding material is rewritten.
+
+- [ ] **Story: Help text and command descriptions**
+  - [ ] Every moved subcommand's long help is reviewed and updated to remove self-references to the old flat path and to document the new inline field conventions (`description=`, `title=`, `@file`, `@-`)
+  - [ ] The `tusk task` parent command skeleton from the grouping initiative gets its full listing finalized here once every child command is in place
+  - [ ] Runs first in this initiative because help text is the source of truth that the documentation sweep quotes from
+
+- [ ] **Story: Documentation sweep**
+  - [ ] `README.md`, `PRODUCT.md`, `docs/configuration.md`, `docs/programmatic-usage.md`, and every file under `docs/releases/` and `docs/status/` updated to the new command syntax
+  - [ ] Historical release notes (v0.1 through v0.10) are left untouched — they describe what shipped at the time and should not be rewritten
+  - [ ] v0.11 release notes call out the full mapping table as a breaking change, including the `--description` flag removal and the `@file` / `@-` convention on inline fields
+
+- [ ] **Story: E2E test rewrite**
+  - [ ] Every scenario in `tests/e2e/` updated to the new invocation paths and inline field conventions
+  - [ ] Harness step builders (if any hardcode command names) updated
+  - [ ] New scenarios covering the "unknown command" suggestion path for each removed flat verb, to lock in the hint table
+  - [ ] New scenarios covering `description=@file`, `description=@-`, and `title=@file` to lock in the file-loading helper behavior
+  - [ ] Runs last in the milestone — a green test suite on the new surface is the exit gate for v0.11
+
+---
+
+## v0.12 — Trailing Window Notes
 
 **Goal:** A persistent notebook system where players record learnings, context, and decisions — scoped by project and player, with a configurable trailing window that shows only the most recent entries to avoid context overload.
 
@@ -729,7 +918,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.11 — Live Dashboard
+## v0.13 — Live Dashboard
 
 **Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by an event log.
 
@@ -766,7 +955,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ---
 
-## v0.12 — Advanced Features
+## v0.14 — Advanced Features
 
 **Goal:** Recurrence, additional transports, data portability, and undo.
 
@@ -805,7 +994,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: Undo
 
-> Revert the last mutation using the event log from v0.11.
+> Revert the last mutation using the event log from v0.13.
 
 - [ ] **Story: Undo command**
   - [ ] `tusk undo` — revert last mutation by reading event log and applying inverse
@@ -848,7 +1037,7 @@ Note: ProjectRepository and WorkflowRepository are in-memory (config-backed) and
 ### Initiative: Integrations & Extensions
 
 - [ ] **Story: Webhook notifications**
-  - [ ] Fire webhooks on task state changes (powered by event log from v0.10)
+  - [ ] Fire webhooks on task state changes (powered by event log from v0.13)
 
 - [ ] **Story: Time tracking**
   - [ ] Start/stop timer on tasks

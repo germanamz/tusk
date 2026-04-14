@@ -64,17 +64,17 @@ Both operations accept filters, so an agent can pop from a specific project, tag
 
 ### Workflows
 
-Workflows define which statuses exist, which transitions between them are valid, and how each status behaves. They are declared in configuration, not stored in the database.
+Workflows define which statuses exist, which transitions between them are valid, and how each status behaves. Workflows live in the workspace database alongside tasks and projects — they are mutated through `tusk workflow` commands (or their MCP counterparts), not by hand-editing a config file.
 
 Each status carries a set of **roles** that determine how tusk treats it:
 
 | Role | Meaning | Constraint |
 |------|---------|------------|
 | `initial` | Default status for newly created tasks | Exactly one per workflow |
-| `start` | Target for `tusk start` and `tusk pop` | Exactly one; must have valid transition from `initial` |
+| `start` | Target for `tusk task start` and `tusk task pop` | Exactly one; must have valid transition from `initial` |
 | `terminal` | Task is finished; excluded from `available`/`pop` | At least one per workflow |
-| `done` | Target for `tusk done` | Exactly one; must also be `terminal` |
-| `delete` | Target for `tusk delete` | Exactly one; must also be `terminal` |
+| `done` | Target for `tusk task done` | Exactly one; must also be `terminal` |
+| `delete` | Target for `tusk task delete` | Exactly one; must also be `terminal` |
 | `highlight` | Emphasized in terminal output | Any number; combinable with any other role |
 | `dim` | Deemphasized in terminal output | Any number; combinable with any other role |
 
@@ -87,15 +87,15 @@ active  → pending
 completed (dim) → pending
 ```
 
-Custom workflows can define any status set, transition graph, and role assignments. Roles are attached directly to individual statuses in the config — no separate top-level fields. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
+Custom workflows can define any status set, transition graph, and role assignments. Roles are attached directly to individual statuses — no separate top-level fields. Each project references a workflow by name. Any status change not defined in the workflow is rejected.
 
 ### Projects
 
-Projects group tasks and bind them to a workflow. Like workflows, projects live in configuration. A built-in **default** project provides a zero-config starting point.
+Projects group tasks and bind them to a workflow. Like workflows, projects live in the workspace database and are managed through `tusk project` commands. A built-in **default** project provides a zero-config starting point.
 
-Projects can override urgency scoring weights and configure parent-child automation (auto-complete, auto-revert) independently.
+Projects can override urgency scoring weights and configure parent-child automation (auto-complete, auto-revert) independently. Overrides are stored alongside the project row, not in the config file.
 
-Projects do not own their own database. Every project declared in a given config file shares the database declared by that file's `storage.path` — the config file's directory is the scope. See [Workspace Scope](#workspace-scope).
+Projects do not own their own database. Every project in a given workspace shares the database declared by the active config file's `storage.path` — the config file's directory is the scope. See [Workspace Scope](#workspace-scope).
 
 ### Tags
 
@@ -161,33 +161,36 @@ Tusk exposes all operations through a command-line interface:
 
 ```bash
 # Lifecycle
-tusk add "Implement auth middleware" project=backend +api priority=3
-tusk start a3f8b2c1
-tusk done a3f8b2c1
-tusk delete a3f8b2c1
+tusk task create "Implement auth middleware" project=backend +api priority=3
+tusk task start a3f8b2c1
+tusk task done a3f8b2c1
+tusk task delete a3f8b2c1
 
 # Viewing
-tusk list                              # pending + active, sorted by urgency
-tusk list project=backend +api         # filtered
-tusk info a3f8b2c1                     # full task detail
-tusk tree                              # hierarchical view
-tusk next                              # highest-urgency actionable task
+tusk task list                         # pending + active, sorted by urgency
+tusk task list project=backend +api    # filtered
+tusk task get a3f8b2c1                 # full task detail
+tusk task tree                         # hierarchical view
+tusk task next                         # highest-urgency actionable task
 
 # Modification
-tusk modify a3f8b2c1 priority=4 +urgent
-tusk annotate a3f8b2c1 "Blocked by upstream API changes"
-tusk undo                              # revert last mutation
+tusk task modify a3f8b2c1 priority=4 +urgent
+tusk task modify a3f8b2c1 description=@./spec.md       # load from file
+cat spec.md | tusk task modify a3f8b2c1 description=@-  # load from stdin
+tusk task annotate a3f8b2c1 "Blocked by upstream API changes"
+tusk task annotate a3f8b2c1 @./investigation.md        # annotate from file
+tusk undo                              # revert last mutation (workspace-wide)
 
 # Relations
-tusk link a3f8b2c1 blocks b7c9d4e2
-tusk unlink a3f8b2c1 blocks b7c9d4e2
+tusk task link a3f8b2c1 blocks b7c9d4e2
+tusk task unlink a3f8b2c1 blocks b7c9d4e2
 
 # Player coordination
 tusk player register german --type human
-tusk claim a3f8b2c1 --player german
-tusk release a3f8b2c1
-tusk available
-tusk pop --player german
+tusk task claim a3f8b2c1 --player german
+tusk task release a3f8b2c1
+tusk task available
+tusk task pop --player german
 
 # Tags
 tusk tag list
@@ -204,11 +207,11 @@ tusk note list --archived                  # include archived
 tusk note archive <note_id>
 
 # Time tracking
-tusk timer start a3f8b2c1
-tusk timer stop a3f8b2c1
+tusk task timer start a3f8b2c1
+tusk task timer stop a3f8b2c1
 
 # Attachments
-tusk attach a3f8b2c1 spec.pdf
+tusk task attach a3f8b2c1 spec.pdf
 
 # Data portability
 tusk export --format json              # full dump
@@ -304,10 +307,10 @@ Task state changes fire webhook notifications to configured endpoints, powered b
 Tusk provides a filter language inspired by TaskWarrior, extended with boolean logic:
 
 ```bash
-tusk list project=backend +api priority=3..4 due=today..friday
-tusk list (status=active AND +urgent) OR priority=4
-tusk list claimed_by=agent-1
-tusk available unclaimed=true project=backend
+tusk task list project=backend +api priority=3..4 due=today..friday
+tusk task list (status=active AND +urgent) OR priority=4
+tusk task list claimed_by=agent-1
+tusk task available unclaimed=true project=backend
 ```
 
 Filter capabilities:
@@ -329,15 +332,16 @@ When no status filter is specified, tusk defaults to `status=pending,active`.
 Tusk uses a shared inline syntax across all commands — filters, task creation, modification, and config management. The syntax is built on a common lexer that understands three primitives:
 
 - **Fields** — `key=value` pairs. The `=` separates key from value.
-- **Modifiers** — first-class primitives attached as token metadata, not hardcoded behaviors:
-  - **Token prefix modifiers** (`+`, `-`, …) — A neutral, extensible marker lifted into the AST. The lexer maintains an open registry of recognized prefix characters — currently `+` and `-`, with room for future additions such as `?` or `*` — and records only which registered prefix a token carried, if any. It attaches no meaning to the distinction. Each consumer command decides how to interpret the marker for a given field, and the same marker can mean different things in different contexts: in filters `+tag` includes and `-tag` excludes; in task commands `+tag` adds a tag and `-tag` removes one; in workflow config `+status=review`/`-status=review` append to and remove from a list; in project config on numeric urgency weights `+urgency.blocking-weight=2` adds 2 to the current value and `-urgency.blocking-weight=1` subtracts 1, while bare `urgency.blocking-weight=0` sets the absolute value. Commands are free to reject modifiers on fields where they don't make sense. Adding a new prefix later extends this table without changing the AST shape or existing consumers.
+- **Modifiers** — first-class primitives attached as token metadata, not hardcoded behaviors. The lexer recognizes two modifier positions — **token prefix** (attaches to the whole `key=value` or tag token) and **value prefix** (attaches to the value half of a `key=value` pair). Both share the same neutral-marker philosophy: the lexer lifts registered prefixes into the AST, attaches no meaning, and lets each consumer command interpret them.
+  - **Token prefix modifiers** (`+`, `-`, …) — A neutral, extensible marker on the whole token. The lexer maintains an open registry of recognized prefix characters — currently `+` and `-`, with room for future additions — and records only which registered prefix a token carried, if any. Each consumer command decides how to interpret the marker for a given field, and the same marker can mean different things in different contexts: in filters `+tag` includes and `-tag` excludes; in task commands `+tag` adds a tag and `-tag` removes one; in workflow config `+status=review`/`-status=review` append to and remove from a list; in project config on numeric urgency weights `+urgency.blocking-weight=2` adds 2 to the current value and `-urgency.blocking-weight=1` subtracts 1, while bare `urgency.blocking-weight=0` sets the absolute value. Commands are free to reject modifiers on fields where they don't make sense.
+  - **Value prefix modifiers** (`@`, …) — A neutral marker on the value half of a `key=value` pair, lifted into a separate AST slot from the token prefix so both can coexist. The lexer maintains its own registry here, currently holding `@` with room for future additions such as `?` or `*`. `@` is the file-source marker: `description=@./spec.md` carries `@` in the AST and the bare value `./spec.md`; consumer commands that opt into `@` on a given field resolve it to file content, with the literal `"-"` meaning standard input (`description=@-`). Commands that don't accept `@` on a field reject or ignore it. The same marker applies to positional string bodies via a shared parse entry point, so `tusk task annotate <id> @./notes.md` and `tusk task annotate <id> @-` work too.
   - `,` — Unordered set. `status=pending,active` is a set — order doesn't matter and duplicates are deduplicated.
   - `:` — Ordered sequence. `transition=pending:active` preserves order and allows duplicates — items appear in the sequence they were placed (from → to).
   - `..` — Range. `priority=2..4` defines a range in filters.
   - `()` — Group. Attaches structured metadata to a value. `status=pending(initial,highlight)` groups roles onto a status. Modifiers nest inside groups — the `,` inside `()` is a set within the group. Distinguished from boolean grouping by position: `(` immediately after a value (no whitespace) is a group modifier; `(` preceded by whitespace is a boolean grouping operator.
-- **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes. Quoted values are opaque string literals — no modifier tokenization occurs inside them. `title="pending(initial)"` yields the plain string `pending(initial)`, not a value with a group.
+- **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes. Quoted values are opaque string literals — no modifier tokenization occurs inside them. `title="pending(initial)"` yields the plain string `pending(initial)`, not a value with a group; `description="@file.txt"` is the literal string `@file.txt`, not a file-load reference. Quoting is the escape hatch for any value that would otherwise trigger a modifier.
 
-Modifiers are composable — groups can contain sets, sets can contain sequences, enabling recursive structure from the same primitives. Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
+Modifiers are composable — groups can contain sets, sets can contain sequences, enabling recursive structure from the same primitives. Adding a new prefix in either position is a one-line registry change plus consumer opt-in, with no AST reshape or existing-consumer impact. Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
 
 ---
 
@@ -374,12 +378,12 @@ A default configuration is embedded in the binary. Running `tusk config init` cr
 Configuration governs:
 
 - **Storage** — database backend and connection settings (one database per config file)
-- **Workflows** — custom status sets and allowed transitions
-- **Projects** — workflow binding, automation settings, UDA schemas, urgency weight overrides
-- **Urgency weights** — global scoring adjustments
-- **MCP** — transport settings, tool/resource visibility
+- **Urgency weights** — global scoring defaults (projects can override these in the database)
+- **MCP** — transport settings, tool/resource visibility, field-level write restrictions
 - **TUI** — date format, color, tree indentation, default sort order
 - **Dashboard** — refresh interval, layout, visible columns
+
+Projects and workflows are *not* configuration — they live in the workspace database and are managed through `tusk project` and `tusk workflow` commands. `tusk config show` still renders `[projects.*]` and `[workflows.*]` sections for continuity, hydrated from the database at display time and marked read-only in the output.
 
 ### Config Management
 
@@ -395,7 +399,7 @@ tusk config edit                          # open active config in $EDITOR
 tusk config validate                      # check for errors
 ```
 
-Workflow and project management commands also write to the config file, using the same inline `key=value` syntax as task modify. List fields support `+`/`-` prefixes for additive/subtractive operations on modify:
+Workflow and project management commands write directly to the workspace database, using the same inline `key=value` syntax as task modify. Like every other mutable entity, projects and workflows carry a `version` for optimistic locking. List fields support `+`/`-` prefixes for additive/subtractive operations on modify:
 
 ```bash
 # Workflows
@@ -415,13 +419,13 @@ tusk project delete backend
 
 ### Workspace Scope
 
-A config file defines a **workspace**: one database, one set of workflows, one set of projects, all scoped to the directory that contains the file. The directory acts as a namespace — everything declared in the config lives in the single database at `storage.path`, and that path resolves relative to the config file's own directory (unless absolute or `~`-prefixed).
+A config file defines a **workspace**: one database, scoped to the directory that contains the file. The directory acts as a namespace — tasks, projects, and workflows all live in the single database at `storage.path`, and that path resolves relative to the config file's own directory (unless absolute or `~`-prefixed).
 
-Walking into a subdirectory of a project with a `tusk.toml` keeps you inside the same workspace: tusk picks the same config via walk-up, so `storage.path`, projects, workflows, and urgency weights all stay consistent. Walking into an unrelated directory that has its own `tusk.toml` switches you to a different workspace with a different database and a different set of projects.
+Walking into a subdirectory of a project with a `tusk.toml` keeps you inside the same workspace: tusk picks the same config via walk-up, so the database (and everything inside it — projects, workflows, urgency overrides) stays consistent. Walking into an unrelated directory that has its own `tusk.toml` switches you to a different workspace with a different database, and therefore a different set of projects and workflows.
 
 The global `~/.config/tusk/config.toml` defines a default workspace used whenever walk-up finds no local `tusk.toml`. Its `storage.path` defaults to `~/.local/share/tusk/tusk.db`.
 
-There is no cross-workspace query. Each invocation operates on exactly one workspace — whichever one the active config file declares. Projects within a workspace still share a single database, so multi-project operations (`tusk list`, `available`, `next`, `pop`) run against that one database, filtering by project when scoped.
+There is no cross-workspace query. Each invocation operates on exactly one workspace — whichever one the active config file declares. Projects within a workspace still share a single database, so multi-project operations (`tusk task list`, `available`, `next`, `pop`) run against that one database, filtering by project when scoped.
 
 ---
 
