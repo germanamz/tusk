@@ -181,3 +181,45 @@ func TestWorkflowRepo_Update_NotFound(t *testing.T) {
 		t.Fatalf("Update missing row: got %v, want ErrNotFound", err)
 	}
 }
+
+func TestWorkflowRepo_Delete(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	ctx := context.Background()
+
+	wf := sampleWorkflow("sprint")
+	if err := repo.Create(ctx, wf); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := repo.Delete(ctx, wf.ID, wf.Version); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	_, err := repo.GetByID(ctx, wf.ID)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("after Delete, GetByID: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestWorkflowRepo_Delete_StaleVersion(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	ctx := context.Background()
+
+	wf := sampleWorkflow("sprint")
+	if err := repo.Create(ctx, wf); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := repo.Update(ctx, wf); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	err := repo.Delete(ctx, wf.ID, 1)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("stale Delete: got %v, want ErrConflict", err)
+	}
+}
+
+func TestWorkflowRepo_Delete_NotFound(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	err := repo.Delete(context.Background(), uuid.New(), 1)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Delete missing: got %v, want ErrNotFound", err)
+	}
+}
