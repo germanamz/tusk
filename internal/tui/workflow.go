@@ -1,9 +1,10 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 
-	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +42,7 @@ func (a *App) buildWorkflowCmd() *cobra.Command {
 		},
 		&cobra.Command{
 			Use:   "delete <name>",
-			Short: "Delete a workflow from config",
+			Short: "Delete a workflow",
 			Args:  cobra.ExactArgs(1),
 			RunE:  a.runWorkflowDelete,
 		},
@@ -83,19 +84,17 @@ func (a *App) runWorkflowInfo(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runWorkflowCreate(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 	name := args[0]
 	if len(args) < 2 {
 		return fmt.Errorf("at least one status definition is required")
 	}
-	wfConfig, err := parseWorkflowCreate(args[1:])
+	input, err := parseWorkflowCreate(args[1:])
 	if err != nil {
 		return err
 	}
-	path, err := config.ConfigFilePath(a.loadOpts...)
-	if err != nil {
-		return err
-	}
-	if err := config.CreateWorkflow(path, name, wfConfig); err != nil {
+	input.Name = name
+	if _, err := a.workflowSvc.Create(ctx, input); err != nil {
 		return err
 	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
@@ -103,19 +102,22 @@ func (a *App) runWorkflowCreate(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runWorkflowModify(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 	name := args[0]
 	if len(args) < 2 {
 		return fmt.Errorf("at least one modification is required")
 	}
-	mut, err := parseWorkflowModify(args[1:])
+	input, err := parseWorkflowModify(args[1:])
 	if err != nil {
 		return err
 	}
-	path, err := config.ConfigFilePath(a.loadOpts...)
+	current, err := a.workflowSvc.GetByName(ctx, name)
 	if err != nil {
 		return err
 	}
-	if err := config.ModifyWorkflow(path, name, mut); err != nil {
+	input.Name = name
+	input.ExpectedVersion = current.Version
+	if _, err := a.workflowSvc.Modify(ctx, input); err != nil {
 		return err
 	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
@@ -123,12 +125,16 @@ func (a *App) runWorkflowModify(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runWorkflowDelete(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 	name := args[0]
-	path, err := config.ConfigFilePath(a.loadOpts...)
+	wf, err := a.workflowSvc.GetByName(ctx, name)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("workflow %q: not found", name)
+		}
 		return err
 	}
-	if err := config.DeleteWorkflow(path, name); err != nil {
+	if err := a.workflowSvc.Delete(ctx, wf.ID, wf.Version); err != nil {
 		return err
 	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)

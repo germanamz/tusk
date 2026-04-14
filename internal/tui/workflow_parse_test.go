@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 )
 
 func TestParseStatusValue(t *testing.T) {
@@ -27,7 +27,7 @@ func TestParseStatusValue(t *testing.T) {
 				t.Fatalf("roles: expected %v, got %v", tt.expectedRoles, roles)
 			}
 			for i := range roles {
-				if roles[i] != tt.expectedRoles[i] {
+				if string(roles[i]) != tt.expectedRoles[i] {
 					t.Fatalf("role %d: expected %q, got %q", i, tt.expectedRoles[i], roles[i])
 				}
 			}
@@ -38,15 +38,15 @@ func TestParseStatusValue(t *testing.T) {
 func TestParseTransitions(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected []config.WorkflowTransitionConfig
+		expected []domain.WorkflowTransition
 	}{
-		{"pending:active", []config.WorkflowTransitionConfig{{From: "pending", To: "active"}}},
+		{"pending:active", []domain.WorkflowTransition{{FromStatus: "pending", ToStatus: "active"}}},
 		{
 			"pending:active,active:completed,active:deleted",
-			[]config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "deleted"},
+			[]domain.WorkflowTransition{
+				{FromStatus: "pending", ToStatus: "active"},
+				{FromStatus: "active", ToStatus: "completed"},
+				{FromStatus: "active", ToStatus: "deleted"},
 			},
 		},
 	}
@@ -91,7 +91,7 @@ func TestParseWorkflowCreate(t *testing.T) {
 		t.Fatalf("expected 4 statuses, got %d", len(wf.Statuses))
 	}
 	pending := wf.Statuses["pending"]
-	if len(pending.Roles) != 1 || pending.Roles[0] != "initial" {
+	if len(pending.Roles) != 1 || pending.Roles[0] != domain.RoleInitial {
 		t.Fatalf("pending roles: expected [initial], got %v", pending.Roles)
 	}
 	if len(wf.Transitions) != 3 {
@@ -188,7 +188,7 @@ func TestParseWorkflowModifyAddsStatusWithPlus(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected review in AddStatuses, got %+v", mut.AddStatuses)
 	}
-	if len(got.Roles) != 1 || got.Roles[0] != "highlight" {
+	if len(got.Roles) != 1 || got.Roles[0] != domain.RoleHighlight {
 		t.Errorf("roles = %+v, want [highlight]", got.Roles)
 	}
 	if _, hit := mut.SetStatuses["review"]; hit {
@@ -215,7 +215,7 @@ func TestParseWorkflowModifySetsBareStatus(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected active in SetStatuses, got %+v", mut.SetStatuses)
 	}
-	if len(got.Roles) != 2 || got.Roles[0] != "start" || got.Roles[1] != "highlight" {
+	if len(got.Roles) != 2 || got.Roles[0] != domain.RoleStart || got.Roles[1] != domain.RoleHighlight {
 		t.Errorf("roles = %+v", got.Roles)
 	}
 }
@@ -236,11 +236,11 @@ func TestParseWorkflowModifyAddAndRemoveTransitions(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(mut.AddTransitions) != 1 ||
-		mut.AddTransitions[0] != (config.WorkflowTransitionConfig{From: "pending", To: "active"}) {
+		mut.AddTransitions[0] != (domain.WorkflowTransition{FromStatus: "pending", ToStatus: "active"}) {
 		t.Errorf("AddTransitions = %+v", mut.AddTransitions)
 	}
 	if len(mut.RemoveTransitions) != 1 ||
-		mut.RemoveTransitions[0] != (config.WorkflowTransitionConfig{From: "active", To: "done"}) {
+		mut.RemoveTransitions[0] != (domain.WorkflowTransition{FromStatus: "active", ToStatus: "done"}) {
 		t.Errorf("RemoveTransitions = %+v", mut.RemoveTransitions)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/germanamz/tusk/domain"
 	"github.com/spf13/viper"
 )
 
@@ -35,12 +36,6 @@ const (
 	RoleHighlight = "highlight" // emphasized in terminal output
 	RoleDim       = "dim"       // deemphasized in terminal output
 )
-
-// validRoles is the set of recognized status roles.
-var validRoles = map[string]bool{
-	RoleInitial: true, RoleStart: true, RoleTerminal: true,
-	RoleDone: true, RoleDelete: true, RoleHighlight: true, RoleDim: true,
-}
 
 // WorkflowConfig defines a named workflow with its statuses and transitions.
 type WorkflowConfig struct {
@@ -291,78 +286,13 @@ func resolveGlobalDir(searchPath string) string {
 
 // Validate checks cross-references between config sections.
 func (c *Config) Validate() error {
-	for name, wf := range c.Workflows {
-		if len(wf.Statuses) == 0 {
-			return fmt.Errorf("workflow %q: must have at least one status", name)
+	for name, wfCfg := range c.Workflows {
+		wf, err := WorkflowFromConfig(name, wfCfg)
+		if err != nil {
+			return fmt.Errorf("workflow %q: %w", name, err)
 		}
-
-		roleCounts := make(map[string]int)
-		for statusName, sc := range wf.Statuses {
-			for _, role := range sc.Roles {
-				if !validRoles[role] {
-					return fmt.Errorf("workflow %q: status %q has unknown role %q", name, statusName, role)
-				}
-				roleCounts[role]++
-			}
-		}
-
-		if roleCounts[RoleInitial] != 1 {
-			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleInitial, roleCounts[RoleInitial])
-		}
-		if roleCounts[RoleStart] != 1 {
-			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleStart, roleCounts[RoleStart])
-		}
-		if roleCounts[RoleTerminal] < 1 {
-			return fmt.Errorf("workflow %q: must have at least one status with role %q", name, RoleTerminal)
-		}
-		if roleCounts[RoleDone] != 1 {
-			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleDone, roleCounts[RoleDone])
-		}
-		if roleCounts[RoleDelete] != 1 {
-			return fmt.Errorf("workflow %q: must have exactly one status with role %q (found %d)", name, RoleDelete, roleCounts[RoleDelete])
-		}
-
-		for statusName, sc := range wf.Statuses {
-			roles := toRoleSet(sc.Roles)
-			if roles[RoleDone] && !roles[RoleTerminal] {
-				return fmt.Errorf("workflow %q: status %q has role %q but missing required role %q", name, statusName, RoleDone, RoleTerminal)
-			}
-			if roles[RoleDelete] && !roles[RoleTerminal] {
-				return fmt.Errorf("workflow %q: status %q has role %q but missing required role %q", name, statusName, RoleDelete, RoleTerminal)
-			}
-			if roles[RoleHighlight] && roles[RoleDim] {
-				return fmt.Errorf("workflow %q: status %q cannot have both %q and %q roles", name, statusName, RoleHighlight, RoleDim)
-			}
-		}
-
-		for _, t := range wf.Transitions {
-			if _, ok := wf.Statuses[t.From]; !ok {
-				return fmt.Errorf("workflow %q: transition references unknown status %q", name, t.From)
-			}
-			if _, ok := wf.Statuses[t.To]; !ok {
-				return fmt.Errorf("workflow %q: transition references unknown status %q", name, t.To)
-			}
-		}
-
-		var initialStatus, startStatus string
-		for statusName, sc := range wf.Statuses {
-			roles := toRoleSet(sc.Roles)
-			if roles[RoleInitial] {
-				initialStatus = statusName
-			}
-			if roles[RoleStart] {
-				startStatus = statusName
-			}
-		}
-		hasTransition := false
-		for _, t := range wf.Transitions {
-			if t.From == initialStatus && t.To == startStatus {
-				hasTransition = true
-				break
-			}
-		}
-		if !hasTransition {
-			return fmt.Errorf("workflow %q: no transition from %q (%s) to %q (%s)", name, initialStatus, RoleInitial, startStatus, RoleStart)
+		if err := domain.ValidateWorkflow(wf); err != nil {
+			return err
 		}
 	}
 
@@ -372,15 +302,6 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
-}
-
-// toRoleSet converts a roles slice to a set for O(1) lookup.
-func toRoleSet(roles []string) map[string]bool {
-	s := make(map[string]bool, len(roles))
-	for _, r := range roles {
-		s[r] = true
-	}
-	return s
 }
 
 // ExpandPath replaces a leading ~ with the user's home directory.

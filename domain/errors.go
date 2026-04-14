@@ -20,4 +20,6 @@ var (
 	ErrWorkflowInUse      = errors.New("workflow is referenced by one or more projects")
 	ErrReadOnlyRepository = errors.New("repository is read-only")
 	ErrProjectHasTasks    = errors.New("project has referencing tasks")
+	ErrInvalidWorkflow    = errors.New("invalid workflow")
+	ErrBuiltInWorkflow    = errors.New("built-in workflow cannot be modified")
 )

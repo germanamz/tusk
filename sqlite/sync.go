@@ -16,9 +16,9 @@ import (
 
 // SyncConfigToDB ensures that every workflow and project defined in the
 // TOML-loaded config exists in the SQLite workflows and projects tables.
-// On the project side, this is now seed-only: existing rows are authoritative
-// and left alone (ProjectService owns writes). The workflow side retains the
-// legacy UPDATE + stale-cleanup behavior; Phase 4 retires it symmetrically.
+// Both sides are now seed-only: existing rows are authoritative and left
+// alone (ProjectService and WorkflowService own writes). Missing rows are
+// inserted on first run; subsequent startups leave DB-only rows untouched.
 func SyncConfigToDB(
 	ctx context.Context,
 	cfg *config.Config,
@@ -34,25 +34,8 @@ func SyncConfigToDB(
 			return fmt.Errorf("building workflow %q: %w", name, err)
 		}
 		workflows[name] = wf
-		// Phase 4 removes this symmetrically — once WorkflowService owns writes,
-		// config-sourced workflow rows become seed-only like projects.
-		existing, getErr := wfRepo.GetByID(ctx, wf.ID)
+		_, getErr := wfRepo.GetByID(ctx, wf.ID)
 		if getErr == nil {
-			statusesJSON, err := encodeStatuses(wf.Statuses)
-			if err != nil {
-				return fmt.Errorf("encoding workflow %q statuses: %w", name, err)
-			}
-			transitionsJSON, err := encodeTransitions(wf.Transitions)
-			if err != nil {
-				return fmt.Errorf("encoding workflow %q transitions: %w", name, err)
-			}
-			if _, err := wfRepo.db.ExecContext(ctx,
-				`UPDATE workflows SET name = ?, statuses = ?, transitions = ?, updated_at = ? WHERE id = ?`,
-				wf.Name, statusesJSON, transitionsJSON, nowStr, wf.ID.String(),
-			); err != nil {
-				return fmt.Errorf("syncing workflow %q: %w", name, err)
-			}
-			wf.Version = existing.Version
 			continue
 		}
 		if !errors.Is(getErr, domain.ErrNotFound) {
@@ -104,27 +87,6 @@ func SyncConfigToDB(
 		}
 	}
 
-	// Phase 4 removes this symmetrically — once WorkflowService owns workflow
-	// writes, DB workflow rows not present in the TOML must survive across
-	// restarts the same way DB-only project rows already do.
-	workflowIDs := make(map[string]struct{}, len(cfg.Workflows))
-	for name := range cfg.Workflows {
-		workflowIDs[config.WorkflowID(name).String()] = struct{}{}
-	}
-	existingWorkflows, err := wfRepo.List(ctx)
-	if err != nil {
-		return fmt.Errorf("listing existing workflows: %w", err)
-	}
-	for _, wf := range existingWorkflows {
-		if _, ok := workflowIDs[wf.ID.String()]; ok {
-			continue
-		}
-		if _, err := wfRepo.db.ExecContext(ctx,
-			`DELETE FROM workflows WHERE id = ?`, wf.ID.String(),
-		); err != nil {
-			return fmt.Errorf("dropping stale workflow %q: %w", wf.Name, err)
-		}
-	}
 	return nil
 }
 
