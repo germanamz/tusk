@@ -174,3 +174,30 @@ func (r *ProjectRepo) CountByWorkflow(ctx context.Context, workflowID uuid.UUID)
 	}
 	return count, nil
 }
+
+// Delete removes a project with optimistic locking on version.
+// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
+// After Phase 3, this call may also surface a SQLite FK error when the project
+// is still referenced by tasks — that is expected and handled by the service layer.
+func (r *ProjectRepo) Delete(ctx context.Context, id uuid.UUID, version int) error {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM projects WHERE id = ? AND version = ?`,
+		id.String(), version)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		var exists int
+		err := r.db.QueryRowContext(ctx,
+			`SELECT 1 FROM projects WHERE id = ?`, id.String()).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return domain.ErrConflict
+	}
+	return nil
+}

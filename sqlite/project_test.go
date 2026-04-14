@@ -203,3 +203,45 @@ func TestProjectRepo_CountByWorkflow(t *testing.T) {
 		t.Errorf("unknown workflow count: got %d, want 0", n)
 	}
 }
+
+func TestProjectRepo_Delete(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	ctx := context.Background()
+
+	p := sampleProject("backend")
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := repo.Delete(ctx, p.ID, p.Version); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	_, err := repo.GetByID(ctx, p.ID)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("after Delete, GetByID: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestProjectRepo_Delete_StaleVersion(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	ctx := context.Background()
+
+	p := sampleProject("backend")
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := repo.Update(ctx, p); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	err := repo.Delete(ctx, p.ID, 1)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("stale Delete: got %v, want ErrConflict", err)
+	}
+}
+
+func TestProjectRepo_Delete_NotFound(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	err := repo.Delete(context.Background(), uuid.New(), 1)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Delete missing: got %v, want ErrNotFound", err)
+	}
+}
