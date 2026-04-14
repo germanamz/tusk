@@ -38,8 +38,10 @@ All phases are strictly sequential. Phase 4 depends on `projectSvc` being constr
 
 | Introduced in | What | Removed in |
 |---|---|---|
-| Phase 1 | `inmem` write stubs returning `domain.ErrNotSupported` so `inmem.ProjectRepository` / `WorkflowRepository` satisfy the expanded interface | Phase 5 |
+| Phase 1 | `inmem` write stubs returning `domain.ErrReadOnlyRepository` so `inmem.ProjectRepository` / `WorkflowRepository` satisfy the expanded interface | Phase 5 |
 | Phase 2 | Temporary `SyncConfigToDB(ctx, *config.Config, …)` signature — still runs at startup, still seeds config into SQLite | Config Schema Trim initiative (out of scope) |
+| Phase 3 | `sqlite/sync.go` still contains the workflow UPDATE-on-exists branch and the workflow stale-cleanup loop, each tagged with a `// Phase 4 removes this symmetrically` comment | Phase 4 (Task 5b) |
+| Phase 4 | `SyncConfigToDB` reduced to a seed-only function (no UPDATEs, no stale cleanup) — it still exists as a startup-time bridge between TOML project/workflow definitions and the SQLite tables | Config Schema Trim initiative (out of scope) |
 
 ## Out of Scope
 
