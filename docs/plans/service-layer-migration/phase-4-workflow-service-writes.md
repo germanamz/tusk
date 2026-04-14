@@ -10,6 +10,7 @@ Phases 1–3 are complete. The implementer should expect:
 - `internal/tui/project.go` and `internal/mcp/project_handlers.go` no longer reference `config.CreateProject` / `ModifyProject` / `DeleteProject` — those functions are deleted.
 - `config.CreateWorkflow`, `config.ModifyWorkflow`, `config.DeleteWorkflow` still exist in `config/workflow.go` and are still the write path for `tusk workflow` CLI and `tusk_workflow_*` MCP tools.
 - Role-schema validation (exactly one `initial`, one `start`, ≥1 `terminal`, exactly one `done`, exactly one `delete`, roles mutual exclusion, transition validity) currently lives in `config.(*Config).Validate()` at `config/config.go:293–375`.
+- `sqlite/sync.go` no longer touches existing project rows and no longer deletes DB project rows absent from the TOML — that was Phase 3's fix. The **workflow side** still has both behaviors: `sqlite/sync.go` UPDATEs existing workflow rows on every startup (~lines 37–55) and deletes any DB workflow row absent from the TOML `[workflows.*]` map (~lines 114–131). A TODO comment on each block left by Phase 3 marks them as "Phase 4 removes this symmetrically".
 
 ## Objective
 
@@ -90,13 +91,27 @@ Edit `internal/mcp/workflow_handlers.go`. Apply the same migration as Task 3 for
 
 Each tool response continues to include the current `version` so agents can chain mutations.
 
-### Task 5 — Delete `config.CreateWorkflow` / `ModifyWorkflow` / `DeleteWorkflow`
+### Task 5 — Delete `config.*Workflow` functions and patch `SyncConfigToDB` workflow side
+
+**5a. Delete the TOML-write functions**
 
 Edit `config/workflow.go`:
 
 - Delete `CreateWorkflow`, `ModifyWorkflow`, `DeleteWorkflow`.
 - Leave `WorkflowConfig`, `config.WorkflowFromConfig` (from Phase 2), and any load-time parsing in place — `SyncConfigToDB` still depends on them.
 - Run `go build ./...` and delete any helpers flagged as dead by the compiler, but only if they are unreferenced (do not delete helpers still used by the load path or by `config.Validate`).
+
+**5b. Make `SyncConfigToDB` workflow seeding seed-only**
+
+Edit `sqlite/sync.go`. Mirror the project-side fix that Phase 3 applied. Two behaviors must be removed:
+
+1. **Workflow UPDATE branch** (~`sqlite/sync.go:37–55`, look for the `if getErr == nil` block inside the workflow loop that runs `UPDATE workflows SET name = ?, statuses = ?, transitions = ?, …`) — overwrites the DB row with TOML-sourced values on every startup. After Phase 4, `workflowSvc.Modify` persists to the DB only, and this branch would silently clobber modifications. Replace the branch with `continue` so an existing workflow row is left untouched. Preserve the `wf.Version = existing.Version` line if it is still needed by the seeding branch — otherwise drop it.
+
+2. **Workflow stale-cleanup loop** (~`sqlite/sync.go:114–131`, the block starting with `workflowIDs := make(map[string]struct{}, …)` through the matching closing `}`) — deletes any DB workflow row whose ID is not in the TOML `[workflows.*]` map. After Phase 4, `workflowSvc.Create` writes DB-only rows that have no TOML counterpart, and the next startup would wipe them. **Delete the entire workflow stale-cleanup block**.
+
+After this task, `SyncConfigToDB` is a pure seed-only function: if a workflow or project is missing from the DB and present in TOML, it is `Create`d; otherwise the DB row is left alone. Remove any TODO comments Phase 3 left behind on the workflow blocks.
+
+The function is still the bridge for first-run population of TOML-defined projects and workflows. Retiring it entirely is the Config Schema Trim initiative's job.
 
 ### Task 6 — Tests
 
@@ -114,6 +129,8 @@ Edit `config/workflow.go`:
 - MCP `tusk_workflow_*` tools match the CLI behavior and round-trip the `version` field.
 - `tusk project create backend workflow=sprint` (from Phase 3) resolves the workflow from the DB — the workflow created here via the service is immediately referenceable.
 - `tusk workflow create` / `modify` / `delete` **do not rewrite the TOML file**. The file is untouched regardless of outcome.
+- A workflow created via `tusk workflow create` survives across process restarts — `SyncConfigToDB` no longer deletes DB workflow rows that are not present in the TOML `[workflows.*]` map.
+- A workflow modified via `tusk workflow modify` keeps its modifications across restarts — `SyncConfigToDB` no longer overwrites existing workflow rows on startup.
 - `go build`, `make test`, `make test-race`, `make test-e2e` all pass.
 
 ## Changes Introduced
@@ -130,10 +147,11 @@ Edit `config/workflow.go`:
 - `internal/mcp/workflow_handlers.go` — calls `workflowSvc`; threads `version`.
 - `config/workflow.go` — `CreateWorkflow`, `ModifyWorkflow`, `DeleteWorkflow` **deleted**.
 - `config/config.go` — `(*Config).Validate` delegates workflow-scoped validation to `domain.ValidateWorkflow`.
+- `sqlite/sync.go` — workflow UPDATE-on-exists branch deleted; workflow stale-cleanup loop deleted. After this phase the function is seed-only for both projects and workflows.
 
 **Modified interfaces:** none (additions in Phase 1 already cover it).
 
-**Bridge code:** none introduced or removed in this phase. The Phase 1 `inmem` stubs and the Phase 2 `SyncConfigToDB` bridge remain.
+**Bridge code:** none introduced. The Phase 1 `inmem` stubs remain in place for Phase 5 to delete. `SyncConfigToDB` survives but is now seed-only — its final retirement belongs to the Config Schema Trim initiative.
 
 **Schema migrations:** none.
 
