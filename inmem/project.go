@@ -4,10 +4,12 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/repository"
+	"github.com/google/uuid"
 )
 
 // Compile-time check that ProjectRepository implements the interface.
@@ -34,11 +36,17 @@ func (r *ProjectRepository) Reload(cfgProjects map[string]config.ProjectConfig) 
 }
 
 func buildProjectMap(cfgProjects map[string]config.ProjectConfig) map[string]*domain.Project {
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	projects := make(map[string]*domain.Project, len(cfgProjects))
-	for id, cfg := range cfgProjects {
+	for name, cfg := range cfgProjects {
 		p := &domain.Project{
-			ID:       id,
-			Workflow: cfg.Workflow,
+			ID:         uuid.NewSHA1(uuid.Nil, []byte("project:"+name)),
+			Name:       name,
+			WorkflowID: uuid.NewSHA1(uuid.Nil, []byte("workflow:"+cfg.Workflow)),
+			Workflow:   cfg.Workflow,
+			Version:    1,
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		}
 		if cfg.Settings.AutoCompleteParent != nil {
 			p.Settings.AutoCompleteParent = &domain.AutoCompleteConfig{
@@ -66,7 +74,7 @@ func buildProjectMap(cfgProjects map[string]config.ProjectConfig) map[string]*do
 				WaitingWeight:     cfg.Settings.Urgency.WaitingWeight,
 			}
 		}
-		projects[id] = p
+		projects[name] = p
 	}
 	return projects
 }
@@ -82,7 +90,7 @@ func (r *ProjectRepository) GetByID(_ context.Context, id string) (*domain.Proje
 	return copyProject(p), nil
 }
 
-// List returns all projects sorted by ID. Each project is a defensive copy.
+// List returns all projects sorted by name. Each project is a defensive copy.
 func (r *ProjectRepository) List(_ context.Context) ([]*domain.Project, error) {
 	r.mu.RLock()
 	result := make([]*domain.Project, 0, len(r.projects))
@@ -91,14 +99,23 @@ func (r *ProjectRepository) List(_ context.Context) ([]*domain.Project, error) {
 	}
 	r.mu.RUnlock()
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ID < result[j].ID
+		return result[i].Name < result[j].Name
 	})
 	return result, nil
 }
 
 // copyProject returns a deep copy of a Project, including pointer fields in Settings.
 func copyProject(p *domain.Project) *domain.Project {
-	cp := *p
+	cp := &domain.Project{
+		ID:         p.ID,
+		Name:       p.Name,
+		WorkflowID: p.WorkflowID,
+		Workflow:   p.Workflow,
+		Settings:   p.Settings,
+		Version:    p.Version,
+		CreatedAt:  p.CreatedAt,
+		UpdatedAt:  p.UpdatedAt,
+	}
 	if p.Settings.AutoCompleteParent != nil {
 		acc := *p.Settings.AutoCompleteParent
 		cp.Settings.AutoCompleteParent = &acc
@@ -111,5 +128,5 @@ func copyProject(p *domain.Project) *domain.Project {
 		uo := *p.Settings.Urgency
 		cp.Settings.Urgency = &uo
 	}
-	return &cp
+	return cp
 }

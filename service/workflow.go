@@ -110,7 +110,7 @@ func (s *WorkflowService) GetWorkflowWithProjects(ctx context.Context, name stri
 	var projectIDs []string
 	for _, p := range projects {
 		if p.Workflow == name {
-			projectIDs = append(projectIDs, p.ID)
+			projectIDs = append(projectIDs, p.Name)
 		}
 	}
 	sort.Strings(projectIDs)

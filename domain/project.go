@@ -1,9 +1,20 @@
 package domain
 
-// Project is a config-driven container for tasks. Projects are defined in
-// config.toml and loaded into memory at startup. They are immutable at runtime.
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Project is a persisted container for tasks. Each project binds to a workflow
+// and carries per-project settings (automation + urgency overrides).
 type Project struct {
-	ID       string          // Human-readable identifier from config key (e.g. "default", "backend")
-	Workflow string          // Name of the workflow for this project (e.g. "kanban")
-	Settings ProjectSettings // Automation settings (auto-complete/revert parent)
+	ID         uuid.UUID
+	Name       string
+	WorkflowID uuid.UUID
+	Workflow   string // Name of the bound workflow — retained for service-layer ergonomics.
+	Settings   ProjectSettings
+	Version    int
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }

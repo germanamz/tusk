@@ -20,7 +20,7 @@ type projectJSON struct {
 
 func toProjectJSON(p *domain.Project) projectJSON {
 	return projectJSON{
-		ID:       p.ID,
+		ID:       p.Name,
 		Workflow: p.Workflow,
 		Settings: p.Settings,
 	}
@@ -168,7 +168,7 @@ func (r *Renderer) renderProjectList(projects []*domain.Project) error {
 	}
 	for _, p := range projects {
 		if _, err := fmt.Fprintf(r.w, "%-20s %-10s %s\n",
-			p.ID,
+			p.Name,
 			p.Workflow,
 			formatSettingsSummary(p.Settings),
 		); err != nil {
