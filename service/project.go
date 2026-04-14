@@ -5,6 +5,7 @@ import (
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/repository"
+	"github.com/google/uuid"
 )
 
 // ProjectService provides read-only access to projects.
@@ -22,6 +23,12 @@ func NewProjectService(projectRepo repository.ProjectRepository) *ProjectService
 // Returns domain.ErrNotFound if not found.
 func (s *ProjectService) GetByName(ctx context.Context, name string) (*domain.Project, error) {
 	return s.projectRepo.GetByName(ctx, name)
+}
+
+// GetByID retrieves a project by its typed UUID.
+// Returns domain.ErrNotFound if not found.
+func (s *ProjectService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
+	return s.projectRepo.GetByID(ctx, id)
 }
 
 // List returns all projects from config.

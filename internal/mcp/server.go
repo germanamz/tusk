@@ -777,7 +777,7 @@ func (s *Server) newResolver(ctx context.Context) *filter.Resolver {
 			defaults = collected
 		}
 	}
-	return filter.NewResolver(s.taskSvc, defaults)
+	return filter.NewResolver(s.taskSvc, s.projectSvc, defaults)
 }
 
 // Serve starts the MCP server using stdio transport.

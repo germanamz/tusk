@@ -12,9 +12,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// DefaultProjectID is the string ID of the default project from config.
-// Tasks created without an explicit ProjectID are assigned to this project.
-const DefaultProjectID = "default"
+// DefaultProjectName is the config-level name of the built-in default project.
+// Via ProjectRepository.GetByName it resolves to domain.DefaultProjectUUID.
+// The SQLite projects table stores the row as "_default"; the config file
+// ships it as "default". Both map to uuid.Nil.
+const DefaultProjectName = "default"
 
 // TaskService implements task business logic including validation,
 // workflow enforcement, and optimistic locking. It routes per-task
@@ -47,16 +49,50 @@ func NewTaskService(
 	}
 }
 
+// defaultProjectID resolves DefaultProjectName to its stored UUID.
+// Used by entry points that need the _default project but did not receive
+// a specific project from the caller.
+func (s *TaskService) defaultProjectID(ctx context.Context) (uuid.UUID, error) {
+	p, err := s.projectRepo.GetByName(ctx, DefaultProjectName)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("looking up default project: %w", err)
+	}
+	return p.ID, nil
+}
+
+// ResolveProjectName looks up a project by name and returns its UUID.
+// CLI and MCP callers use this to translate user-entered project names
+// into the typed Task.ProjectID value before calling Create.
+// Returns domain.ErrNotFound if the project does not exist.
+func (s *TaskService) ResolveProjectName(ctx context.Context, name string) (uuid.UUID, error) {
+	if name == "" {
+		return s.defaultProjectID(ctx)
+	}
+	p, err := s.projectRepo.GetByName(ctx, name)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return p.ID, nil
+}
+
 // defaultBundle resolves the bundle backing the default project. Player
 // records and tag definitions are global resources kept in the default
 // store, so operations involving them go through this bundle regardless
 // of which project a task lives in.
 func (s *TaskService) defaultBundle(ctx context.Context) (*RepoBundle, error) {
-	return s.resolve(ctx, DefaultProjectID)
+	defID, err := s.defaultProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.resolve(ctx, defID)
 }
 
 func (s *TaskService) bundleForShortID(ctx context.Context, shortID string) (*RepoBundle, *domain.Task, error) {
-	bundle, err := s.resolve(ctx, DefaultProjectID)
+	defID, err := s.defaultProjectID(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	bundle, err := s.resolve(ctx, defID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -68,7 +104,11 @@ func (s *TaskService) bundleForShortID(ctx context.Context, shortID string) (*Re
 }
 
 func (s *TaskService) bundleForID(ctx context.Context, id uuid.UUID) (*RepoBundle, *domain.Task, error) {
-	bundle, err := s.resolve(ctx, DefaultProjectID)
+	defID, err := s.defaultProjectID(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	bundle, err := s.resolve(ctx, defID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,11 +129,15 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		return fmt.Errorf("priority must be between 0 and 4")
 	}
 
-	if task.ProjectID == "" {
-		task.ProjectID = DefaultProjectID
+	if task.ProjectID == uuid.Nil {
+		defID, err := s.defaultProjectID(ctx)
+		if err != nil {
+			return err
+		}
+		task.ProjectID = defID
 	}
 
-	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("project not found: %w", err)
@@ -177,7 +221,11 @@ func (s *TaskService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, 
 // List returns tasks matching the given filter, scored and sorted by
 // urgency.
 func (s *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
-	bundle, err := s.resolve(ctx, DefaultProjectID)
+	defID, err := s.defaultProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := s.resolve(ctx, defID)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +289,11 @@ func (s *TaskService) Next(ctx context.Context) (*domain.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	bundle, err := s.resolve(ctx, DefaultProjectID)
+	defID, err := s.defaultProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := s.resolve(ctx, defID)
 	if err != nil {
 		return nil, err
 	}
@@ -291,20 +343,17 @@ func (s *TaskService) collectNonTerminalStatuses(ctx context.Context) ([]string,
 
 // buildProjectWeights constructs per-project merged urgency weights for
 // all distinct projects found in the task list.
-func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.Task) map[string]*UrgencyWeights {
+func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.Task) map[uuid.UUID]*UrgencyWeights {
 	if s.engine == nil {
 		return nil
 	}
-	seen := make(map[string]bool)
+	seen := make(map[uuid.UUID]bool)
 	for _, t := range tasks {
 		seen[t.ProjectID] = true
 	}
-	weights := make(map[string]*UrgencyWeights, len(seen))
+	weights := make(map[uuid.UUID]*UrgencyWeights, len(seen))
 	for projectID := range seen {
-		if projectID == "" {
-			continue
-		}
-		project, err := s.projectRepo.GetByName(ctx, projectID)
+		project, err := s.projectRepo.GetByID(ctx, projectID)
 		if err != nil {
 			continue
 		}
@@ -427,10 +476,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	}
 
 	if upd.ProjectID != nil {
-		if task.ProjectID == "" {
-			return nil, fmt.Errorf("task must belong to a project")
-		}
-		_, err := s.projectRepo.GetByName(ctx, task.ProjectID)
+		_, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return nil, fmt.Errorf("project not found: %w", err)
@@ -440,7 +486,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	}
 
 	if task.Status != oldStatus {
-		project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
+		project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)
 		}
@@ -493,9 +539,9 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 	if err != nil {
 		return nil, err
 	}
-	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
+		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, err)
 	}
 	startStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleStart)
 	if err != nil {
@@ -644,9 +690,9 @@ func (s *TaskService) Complete(ctx context.Context, shortID string, version int)
 	if err != nil {
 		return nil, err
 	}
-	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
+		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, err)
 	}
 	doneStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleDone)
 	if err != nil {
@@ -666,9 +712,9 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 	if err != nil {
 		return nil, err
 	}
-	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
+		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, err)
 	}
 	deleteStatus, err := s.workflowSvc.GetStatusByRole(ctx, project.Workflow, domain.RoleDelete)
 	if err != nil {
@@ -698,7 +744,11 @@ func (s *TaskService) Available(ctx context.Context, filter domain.FilterExpr) (
 		baseFilter.Children = append(baseFilter.Children, filter)
 	}
 
-	bundle, err := s.resolve(ctx, DefaultProjectID)
+	defID, err := s.defaultProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := s.resolve(ctx, defID)
 	if err != nil {
 		return nil, err
 	}
@@ -905,11 +955,7 @@ func (s *TaskService) checkAutoComplete(
 			return fmt.Errorf("loading parent for propagation: %w", err)
 		}
 
-		if parent.ProjectID == "" {
-			return nil
-		}
-
-		project, err := s.projectRepo.GetByName(ctx, parent.ProjectID)
+		project, err := s.projectRepo.GetByID(ctx, parent.ProjectID)
 		if err != nil {
 			return fmt.Errorf("loading project for propagation: %w", err)
 		}
@@ -989,11 +1035,7 @@ func (s *TaskService) checkAutoRevert(
 			return fmt.Errorf("loading parent for revert: %w", err)
 		}
 
-		if parent.ProjectID == "" {
-			return nil
-		}
-
-		project, err := s.projectRepo.GetByName(ctx, parent.ProjectID)
+		project, err := s.projectRepo.GetByID(ctx, parent.ProjectID)
 		if err != nil {
 			return fmt.Errorf("loading project for revert: %w", err)
 		}

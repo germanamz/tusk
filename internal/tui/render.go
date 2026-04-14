@@ -260,7 +260,7 @@ type taskJSON struct {
 	Urgency        float64        `json:"urgency"`
 }
 
-func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
+func (r *Renderer) toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 	tj := taskJSON{
 		ID:          t.ID.String(),
 		ShortID:     t.ShortID,
@@ -278,7 +278,7 @@ func toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 		s := t.ParentID.String()
 		tj.ParentID = &s
 	}
-	tj.ProjectID = t.ProjectID
+	tj.ProjectID = r.projectName(t.ProjectID)
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
 		tj.DueAt = &s
@@ -309,7 +309,7 @@ func (r *Renderer) renderTaskList(tasks []*domain.Task, taskTags map[string][]*d
 	if r.format == "json" {
 		items := make([]taskJSON, len(tasks))
 		for i, t := range tasks {
-			items[i] = toTaskJSON(t, taskTags[t.ID.String()])
+			items[i] = r.toTaskJSON(t, taskTags[t.ID.String()])
 		}
 		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
@@ -402,7 +402,7 @@ type taskInfoJSON struct {
 // For "json", it renders the task as a JSON object including annotations.
 func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annotation, tags []*domain.Tag, relations []resolvedRelation) error {
 	if r.format == "json" {
-		info := taskInfoJSON{taskJSON: toTaskJSON(task, tags)}
+		info := taskInfoJSON{taskJSON: r.toTaskJSON(task, tags)}
 		for _, ann := range annotations {
 			info.Annotations = append(info.Annotations, annotationJSON{
 				ID:        ann.ID.String(),
@@ -474,10 +474,8 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 			return err
 		}
 	}
-	if task.ProjectID != "" {
-		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Project:", 13), task.ProjectID); err != nil {
-			return err
-		}
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Project:", 13), r.projectName(task.ProjectID)); err != nil {
+		return err
 	}
 	if task.ParentID != nil {
 		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Parent:", 13), task.ParentID.String()); err != nil {
@@ -605,7 +603,7 @@ func (r *Renderer) renderMutationResult(action string, task *domain.Task, tags [
 	if r.format == "json" {
 		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(toTaskJSON(task, tags))
+		return enc.Encode(r.toTaskJSON(task, tags))
 	}
 	_, err := fmt.Fprintf(r.w, "%s task %s\n", action, task.ShortID)
 	return err

@@ -10,6 +10,7 @@ import (
 	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 	"github.com/germanamz/tusk/domain"
+	"github.com/google/uuid"
 )
 
 // Styles holds precomputed lipgloss styles for colored terminal output.
@@ -24,11 +25,28 @@ type Styles struct {
 
 // Renderer encapsulates output formatting and styling for CLI commands.
 type Renderer struct {
-	w           io.Writer
-	format      string // "text" or "json"
-	color       bool
-	styles      *Styles // nil when color=false
-	dimStatuses map[string]bool
+	w            io.Writer
+	format       string // "text" or "json"
+	color        bool
+	styles       *Styles // nil when color=false
+	dimStatuses  map[string]bool
+	projectNames func(uuid.UUID) string
+}
+
+// SetProjectNameResolver wires a function that resolves project UUIDs to
+// their human names. Callers should pass a per-invocation cache so that
+// list views avoid N+1 lookups.
+func (r *Renderer) SetProjectNameResolver(fn func(uuid.UUID) string) {
+	r.projectNames = fn
+}
+
+// projectName returns the display name for a project UUID, falling back to
+// the stringified UUID when no resolver is wired.
+func (r *Renderer) projectName(id uuid.UUID) string {
+	if r.projectNames == nil {
+		return id.String()
+	}
+	return r.projectNames(id)
 }
 
 // NewRenderer creates a Renderer. When color is true, styles are initialized.

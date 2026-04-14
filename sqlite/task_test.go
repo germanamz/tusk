@@ -64,7 +64,7 @@ func TestTaskCreateWithNullables(t *testing.T) {
 	wait := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	rrule := "FREQ=WEEKLY;BYDAY=MO"
 	task := newTestTask()
-	task.ProjectID = "default"
+	task.ProjectID = domain.DefaultProjectUUID
 	task.DueAt = &due
 	task.WaitUntil = &wait
 	task.RecurrenceRule = &rrule
@@ -76,8 +76,8 @@ func TestTaskCreateWithNullables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if got.ProjectID != "default" {
-		t.Fatalf("expected project ID 'default', got %q", got.ProjectID)
+	if got.ProjectID != domain.DefaultProjectUUID {
+		t.Fatalf("expected project ID %v, got %v", domain.DefaultProjectUUID, got.ProjectID)
 	}
 	if got.DueAt == nil || !got.DueAt.Equal(due) {
 		t.Fatalf("expected due %v, got %v", due, got.DueAt)
@@ -285,7 +285,7 @@ func TestTaskListByProject(t *testing.T) {
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
 
-	projID := "backend"
+	projID := uuid.New()
 	t1 := newTestTask()
 	t1.ProjectID = projID
 	mustCreateTask(t, repo, t1)
@@ -393,7 +393,7 @@ func TestTaskListCombinedFilters(t *testing.T) {
 	repo := NewTaskRepo(s.DB())
 	ctx := context.Background()
 
-	projID := "combined"
+	projID := uuid.New()
 
 	// Task matches both filters: status=active AND project=combined
 	t1 := newTestTask()

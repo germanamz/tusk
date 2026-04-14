@@ -27,7 +27,7 @@ func TestRelationRepo_CountBlockedByIncompleteTasks(t *testing.T) {
 	// Helper to create a task with a given status.
 	makeTask := func(name, status string) *domain.Task {
 		task := &domain.Task{
-			ID: uuid.New(), ShortID: uuid.New().String()[:8], ProjectID: "default",
+			ID: uuid.New(), ShortID: uuid.New().String()[:8], ProjectID: domain.DefaultProjectUUID,
 			Title: name, Status: status, Version: 1,
 			UDA:       map[string]any{},
 			CreatedAt: time.Now().UTC(), ModifiedAt: time.Now().UTC(),
@@ -136,7 +136,7 @@ func TestRelationRepo_CountBlockingByTasks(t *testing.T) {
 	tasks := make([]*domain.Task, 3)
 	for i := range tasks {
 		tasks[i] = &domain.Task{
-			ID: uuid.New(), ShortID: fmt.Sprintf("%08d", i), ProjectID: "default",
+			ID: uuid.New(), ShortID: fmt.Sprintf("%08d", i), ProjectID: domain.DefaultProjectUUID,
 			Title: fmt.Sprintf("Task %d", i), Status: "pending", Version: 1,
 			UDA:       map[string]any{},
 			CreatedAt: time.Now().UTC(), ModifiedAt: time.Now().UTC(),

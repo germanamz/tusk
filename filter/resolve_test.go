@@ -11,8 +11,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// defaultProjectUUID is the UUID seeded for the "default" project in tests.
+var defaultProjectUUID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
 // testResolver creates an in-memory SQLite store and returns a Resolver wired
-// to its ProjectRepo and TaskRepo.
+// to its TaskRepo and a fake ProjectLookup containing one "default" project.
 func testResolver(t *testing.T) (*Resolver, *sqlite.Store) {
 	t.Helper()
 	store, err := sqlite.New(":memory:", migrations.FS)
@@ -22,7 +25,12 @@ func testResolver(t *testing.T) (*Resolver, *sqlite.Store) {
 	t.Cleanup(func() { store.Close() })
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
-	return NewResolver(taskRepo, []string{"pending", "active"}), store
+	projects := &fakeProjectLookup{
+		byName: map[string]*domain.Project{
+			"default": {ID: defaultProjectUUID, Name: "default"},
+		},
+	}
+	return NewResolver(taskRepo, projects, []string{"pending", "active"}), store
 }
 
 func TestResolve_DefaultStatuses(t *testing.T) {
@@ -81,23 +89,23 @@ func TestResolve_ProjectByID(t *testing.T) {
 	if tf.ProjectID == nil {
 		t.Fatal("expected ProjectID to be set")
 	}
-	if *tf.ProjectID != "default" {
-		t.Fatalf("expected ProjectID=%q, got %q", "default", *tf.ProjectID)
+	if *tf.ProjectID != defaultProjectUUID {
+		t.Fatalf("expected ProjectID=%v, got %v", defaultProjectUUID, *tf.ProjectID)
 	}
 }
 
-func TestResolve_ProjectStringValue(t *testing.T) {
+func TestResolve_ProjectNotFound(t *testing.T) {
 	r, _ := testResolver(t)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "project", Value: "nonexistent"}},
 	}
 
 	tf, errs := r.Resolve(context.Background(), fs)
-	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for unknown project, got %d: %v", len(errs), errs)
 	}
-	if tf.ProjectID == nil || *tf.ProjectID != "nonexistent" {
-		t.Fatalf("expected ProjectID=%q, got %v", "nonexistent", tf.ProjectID)
+	if tf.ProjectID != nil {
+		t.Fatalf("expected ProjectID nil after error, got %v", tf.ProjectID)
 	}
 }
 

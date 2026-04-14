@@ -8,11 +8,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// DefaultProjectUUID is the UUID of the built-in _default project seeded by
+// migration 004_projects. Tasks created without an explicit project land here.
+var DefaultProjectUUID = uuid.Nil
+
 type Task struct {
 	ID             uuid.UUID
 	ShortID        string
 	ParentID       *uuid.UUID
-	ProjectID      string
+	ProjectID      uuid.UUID
 	Title          string
 	Description    string
 	Status         string
@@ -43,7 +47,7 @@ type TaskUpdate struct {
 	Status         *string
 	Priority       *int
 	ParentID       **uuid.UUID
-	ProjectID      *string
+	ProjectID      *uuid.UUID
 	DueAt          **time.Time
 	WaitUntil      **time.Time
 	RecurrenceRule **string

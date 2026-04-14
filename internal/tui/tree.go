@@ -78,7 +78,7 @@ type treeNodeJSON struct {
 }
 
 // toTreeNodeJSON converts a treeNode to its JSON representation recursively.
-func toTreeNodeJSON(node *treeNode) treeNodeJSON {
+func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
 	t := node.Task
 	tj := treeNodeJSON{
 		ID:          t.ID.String(),
@@ -97,7 +97,7 @@ func toTreeNodeJSON(node *treeNode) treeNodeJSON {
 		s := t.ParentID.String()
 		tj.ParentID = &s
 	}
-	tj.ProjectID = t.ProjectID
+	tj.ProjectID = r.projectName(t.ProjectID)
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
 		tj.DueAt = &s
@@ -108,7 +108,7 @@ func toTreeNodeJSON(node *treeNode) treeNodeJSON {
 	}
 	tj.RecurrenceRule = t.RecurrenceRule
 	for i, child := range node.Children {
-		tj.Children[i] = toTreeNodeJSON(child)
+		tj.Children[i] = r.toTreeNodeJSON(child)
 	}
 	return tj
 }
@@ -120,7 +120,7 @@ func (r *Renderer) renderTree(nodes []*treeNode) error {
 	if r.format == "json" {
 		jsonNodes := make([]treeNodeJSON, len(nodes))
 		for i, n := range nodes {
-			jsonNodes[i] = toTreeNodeJSON(n)
+			jsonNodes[i] = r.toTreeNodeJSON(n)
 		}
 		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")

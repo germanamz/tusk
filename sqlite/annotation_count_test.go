@@ -25,13 +25,13 @@ func TestAnnotationRepo_CountByTasks(t *testing.T) {
 
 	// Create two tasks
 	t1 := &domain.Task{
-		ID: uuid.New(), ShortID: "aaaaaaaa", ProjectID: "default",
+		ID: uuid.New(), ShortID: "aaaaaaaa", ProjectID: domain.DefaultProjectUUID,
 		Title: "Task 1", Status: "pending", Version: 1,
 		UDA:       map[string]any{},
 		CreatedAt: time.Now().UTC(), ModifiedAt: time.Now().UTC(),
 	}
 	t2 := &domain.Task{
-		ID: uuid.New(), ShortID: "bbbbbbbb", ProjectID: "default",
+		ID: uuid.New(), ShortID: "bbbbbbbb", ProjectID: domain.DefaultProjectUUID,
 		Title: "Task 2", Status: "pending", Version: 1,
 		UDA:       map[string]any{},
 		CreatedAt: time.Now().UTC(), ModifiedAt: time.Now().UTC(),

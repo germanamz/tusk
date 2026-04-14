@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -50,8 +52,8 @@ func testServer(t *testing.T) *Server {
 			},
 		},
 	})
-	resolver := func(context.Context, string) (*service.RepoBundle, error) { return bundle, nil }
-	projects := func(context.Context) ([]string, error) { return []string{"default"}, nil }
+	resolver := func(context.Context, uuid.UUID) (*service.RepoBundle, error) { return bundle, nil }
+	projects := func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{domain.DefaultProjectUUID}, nil }
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)

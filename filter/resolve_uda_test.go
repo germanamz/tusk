@@ -15,8 +15,29 @@ func (m mockTaskLookup) GetByShortID(ctx context.Context, shortID string) (*doma
 	return &domain.Task{ID: uuid.New(), ShortID: shortID}, nil
 }
 
+// fakeProjectLookup is a configurable in-memory project lookup for tests.
+type fakeProjectLookup struct {
+	byName map[string]*domain.Project
+}
+
+func (f *fakeProjectLookup) GetByName(_ context.Context, name string) (*domain.Project, error) {
+	if f == nil || f.byName == nil {
+		return nil, domain.ErrNotFound
+	}
+	p, ok := f.byName[name]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return p, nil
+}
+
+// emptyProjects returns a ProjectLookup that always returns ErrNotFound.
+func emptyProjects() ProjectLookup {
+	return &fakeProjectLookup{byName: map[string]*domain.Project{}}
+}
+
 func TestResolve_UDAField(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
+	resolver := NewResolver(mockTaskLookup{}, emptyProjects(), []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "uda.env", Value: "prod"},
@@ -35,7 +56,7 @@ func TestResolve_UDAField(t *testing.T) {
 }
 
 func TestResolve_UDAMultipleFields(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
+	resolver := NewResolver(mockTaskLookup{}, emptyProjects(), []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "uda.env", Value: "prod"},
@@ -55,7 +76,7 @@ func TestResolve_UDAMultipleFields(t *testing.T) {
 }
 
 func TestResolve_UDAEmptyValue(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
+	resolver := NewResolver(mockTaskLookup{}, emptyProjects(), []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "uda.env", Value: ""},
@@ -71,7 +92,7 @@ func TestResolve_UDAEmptyValue(t *testing.T) {
 }
 
 func TestResolve_TitleContains(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
+	resolver := NewResolver(mockTaskLookup{}, emptyProjects(), []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "title", Value: "auth middleware"},
@@ -87,7 +108,7 @@ func TestResolve_TitleContains(t *testing.T) {
 }
 
 func TestResolve_DescriptionContains(t *testing.T) {
-	resolver := NewResolver(mockTaskLookup{}, []string{"pending", "active"})
+	resolver := NewResolver(mockTaskLookup{}, emptyProjects(), []string{"pending", "active"})
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "description", Value: "implement feature"},

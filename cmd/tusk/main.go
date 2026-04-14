@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/internal/tui"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 )
 
 // version, commit, and date are set by goreleaser at build time via -ldflags.
@@ -100,18 +101,21 @@ func run() error {
 		Players:     sqlite.NewPlayerRepo(db),
 	}
 
-	resolver := func(_ context.Context, projectID string) (*service.RepoBundle, error) {
-		if _, ok := cfg.Projects[projectID]; !ok {
-			return nil, fmt.Errorf("unknown project %q", projectID)
+	resolver := func(ctx context.Context, projectID uuid.UUID) (*service.RepoBundle, error) {
+		if _, err := projectRepo.GetByID(ctx, projectID); err != nil {
+			return nil, fmt.Errorf("unknown project %v: %w", projectID, err)
 		}
 		return bundle, nil
 	}
-	projectLister := func(context.Context) ([]string, error) {
-		ids := make([]string, 0, len(cfg.Projects))
-		for id := range cfg.Projects {
-			ids = append(ids, id)
+	projectLister := func(ctx context.Context) ([]uuid.UUID, error) {
+		projects, err := projectRepo.List(ctx)
+		if err != nil {
+			return nil, err
 		}
-		sort.Strings(ids)
+		ids := make([]uuid.UUID, 0, len(projects))
+		for _, p := range projects {
+			ids = append(ids, p.ID)
+		}
 		return ids, nil
 	}
 
@@ -121,7 +125,7 @@ func run() error {
 
 	projectSvc := service.NewProjectService(projectRepo)
 
-	defaultBundle, err := resolver(context.Background(), config.DefaultProjectID)
+	defaultBundle, err := resolver(context.Background(), domain.DefaultProjectUUID)
 	if err != nil {
 		return fmt.Errorf("resolving default bundle for players: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 )
 
 // newTestBundle creates an in-memory SQLite store and returns a
@@ -35,12 +36,12 @@ func newTestBundle(t *testing.T) *RepoBundle {
 // a single bundle that answers every project ID with the same bundle.
 // Projects must still be registered in the ProjectRepository for
 // project-lookup validation to succeed.
-func singleBundleResolver(bundle *RepoBundle, projectIDs ...string) (BundleResolver, ProjectLister) {
-	ids := append([]string(nil), projectIDs...)
-	resolver := func(_ context.Context, _ string) (*RepoBundle, error) {
+func singleBundleResolver(bundle *RepoBundle, projectIDs ...uuid.UUID) (BundleResolver, ProjectLister) {
+	ids := append([]uuid.UUID(nil), projectIDs...)
+	resolver := func(_ context.Context, _ uuid.UUID) (*RepoBundle, error) {
 		return bundle, nil
 	}
-	lister := func(context.Context) ([]string, error) {
+	lister := func(context.Context) ([]uuid.UUID, error) {
 		return ids, nil
 	}
 	return resolver, lister

@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 )
 
 // newClaimTestEnv creates a full service environment for claim tests.
@@ -58,11 +59,11 @@ func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService
 	})
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 
-	resolver := func(_ context.Context, _ string) (*service.RepoBundle, error) {
+	resolver := func(_ context.Context, _ uuid.UUID) (*service.RepoBundle, error) {
 		return bundle, nil
 	}
-	projects := func(context.Context) ([]string, error) {
-		return []string{"default"}, nil
+	projects := func(context.Context) ([]uuid.UUID, error) {
+		return []uuid.UUID{domain.DefaultProjectUUID}, nil
 	}
 	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 	playerSvc := service.NewPlayerService(playerRepo)

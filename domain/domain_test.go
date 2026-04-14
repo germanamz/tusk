@@ -18,7 +18,7 @@ func TestTypesCompile(t *testing.T) {
 		ID:             id,
 		ShortID:        "a3f8b2c1",
 		ParentID:       &id,
-		ProjectID:      "default",
+		ProjectID:      domain.DefaultProjectUUID,
 		Title:          "test",
 		Description:    "desc",
 		Status:         "pending",
@@ -77,7 +77,7 @@ func TestTypesCompile(t *testing.T) {
 		ToStatus:   "active",
 	}
 
-	projID := "default"
+	projID := domain.DefaultProjectUUID
 	_ = domain.TaskFilter{
 		ProjectID:   &projID,
 		ParentID:    &id,
