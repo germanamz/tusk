@@ -113,7 +113,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	projectSvc := service.NewProjectService(projectRepo)
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, nil,
 	)
 	return app, taskSvc

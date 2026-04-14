@@ -9,8 +9,8 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/filter"
-	"github.com/germanamz/tusk/inmem"
 	tuskmcp "github.com/germanamz/tusk/internal/mcp"
+	"github.com/germanamz/tusk/repository"
 	"github.com/germanamz/tusk/service"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -31,8 +31,9 @@ type App struct {
 	projectSvc    *service.ProjectService
 	workflowSvc   *service.WorkflowService
 	playerSvc     *service.PlayerService
-	workflowRepo  *inmem.WorkflowRepository
-	projectRepo   *inmem.ProjectRepository
+	workflowRepo  repository.WorkflowRepository
+	projectRepo   repository.ProjectRepository
+	reloadHook    tuskmcp.ConfigReloadHook
 	urgencyEngine *service.UrgencyEngine
 	playerID      string // from --player flag
 	resolver      *filter.Resolver
@@ -88,9 +89,10 @@ func New(
 	projectSvc *service.ProjectService,
 	workflowSvc *service.WorkflowService,
 	playerSvc *service.PlayerService,
-	workflowRepo *inmem.WorkflowRepository,
-	projectRepo *inmem.ProjectRepository,
+	workflowRepo repository.WorkflowRepository,
+	projectRepo repository.ProjectRepository,
 	urgencyEngine *service.UrgencyEngine,
+	reloadHook tuskmcp.ConfigReloadHook,
 	vi VersionInfo,
 	tuiCfg config.TUIConfig,
 	mcpCfg config.MCPConfig,
@@ -106,6 +108,7 @@ func New(
 		workflowRepo:  workflowRepo,
 		projectRepo:   projectRepo,
 		urgencyEngine: urgencyEngine,
+		reloadHook:    reloadHook,
 		version:       vi,
 		tuiCfg:        tuiCfg,
 		mcpCfg:        mcpCfg,
@@ -152,6 +155,7 @@ func New(
 				taskSvc, tagSvc, relationSvc, projectSvc,
 				a.workflowSvc, a.playerSvc,
 				a.workflowRepo, a.projectRepo, a.urgencyEngine,
+				a.reloadHook,
 				vi.Version, a.mcpCfg, a.loadOpts,
 			)
 			if err != nil {

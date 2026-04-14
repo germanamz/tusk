@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
@@ -36,50 +35,20 @@ func (r *ProjectRepository) Reload(cfgProjects map[string]config.ProjectConfig) 
 }
 
 func buildProjectMap(cfgProjects map[string]config.ProjectConfig) map[string]*domain.Project {
-	now := time.Now().UTC().Truncate(time.Millisecond)
+	// inmem only knows about projects, not workflows — synthesize stub
+	// workflow lookups so config.ProjectFromConfig can resolve IDs.
+	workflowStubs := make(map[string]*domain.Workflow)
+	for _, pc := range cfgProjects {
+		if _, ok := workflowStubs[pc.Workflow]; ok {
+			continue
+		}
+		workflowStubs[pc.Workflow] = &domain.Workflow{ID: config.WorkflowID(pc.Workflow)}
+	}
 	projects := make(map[string]*domain.Project, len(cfgProjects))
 	for name, cfg := range cfgProjects {
-		id := uuid.NewSHA1(uuid.Nil, []byte("project:"+name))
-		if name == config.DefaultProjectID {
-			id = uuid.Nil
-		}
-		workflowID := uuid.NewSHA1(uuid.Nil, []byte("workflow:"+cfg.Workflow))
-		if cfg.Workflow == "kanban" {
-			workflowID = uuid.Nil
-		}
-		p := &domain.Project{
-			ID:         id,
-			Name:       name,
-			WorkflowID: workflowID,
-			Version:    1,
-			CreatedAt:  now,
-			UpdatedAt:  now,
-		}
-		if cfg.Settings.AutoCompleteParent != nil {
-			p.Settings.AutoCompleteParent = &domain.AutoCompleteConfig{
-				TriggerStatus: cfg.Settings.AutoCompleteParent.TriggerStatus,
-				TargetStatus:  cfg.Settings.AutoCompleteParent.TargetStatus,
-			}
-		}
-		if cfg.Settings.AutoRevertParent != nil {
-			p.Settings.AutoRevertParent = &domain.AutoRevertConfig{
-				TriggerStatus: cfg.Settings.AutoRevertParent.TriggerStatus,
-				TargetStatus:  cfg.Settings.AutoRevertParent.TargetStatus,
-			}
-		}
-		if cfg.Settings.Urgency != nil {
-			p.Settings.Urgency = &domain.UrgencyOverrides{
-				PriorityWeight:    cfg.Settings.Urgency.PriorityWeight,
-				DueWeight:         cfg.Settings.Urgency.DueWeight,
-				AgeWeight:         cfg.Settings.Urgency.AgeWeight,
-				ActiveWeight:      cfg.Settings.Urgency.ActiveWeight,
-				BlockingWeight:    cfg.Settings.Urgency.BlockingWeight,
-				BlockedWeight:     cfg.Settings.Urgency.BlockedWeight,
-				TagsWeight:        cfg.Settings.Urgency.TagsWeight,
-				ProjectWeight:     cfg.Settings.Urgency.ProjectWeight,
-				AnnotationsWeight: cfg.Settings.Urgency.AnnotationsWeight,
-				WaitingWeight:     cfg.Settings.Urgency.WaitingWeight,
-			}
+		p, err := config.ProjectFromConfig(name, cfg, workflowStubs)
+		if err != nil {
+			continue
 		}
 		projects[name] = p
 	}

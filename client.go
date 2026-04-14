@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/germanamz/tusk/config"
-	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
@@ -145,9 +144,13 @@ func NewClient(cfg Config) (*Client, error) {
 		Tags:        sqlite.NewTagRepo(db),
 		Players:     sqlite.NewPlayerRepo(db),
 	}
-	projectRepo := inmem.NewProjectRepository(cfg.Projects)
-	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
-	if err := sqlite.SyncConfigToDB(context.Background(), workflowRepo, projectRepo, sqlite.NewWorkflowRepo(db), sqlite.NewProjectRepo(db)); err != nil {
+	projectRepo := sqlite.NewProjectRepo(db)
+	workflowRepo := sqlite.NewWorkflowRepo(db)
+	syncCfg := &config.Config{
+		Workflows: cfg.Workflows,
+		Projects:  cfg.Projects,
+	}
+	if err := sqlite.SyncConfigToDB(context.Background(), syncCfg, workflowRepo, projectRepo); err != nil {
 		return nil, fmt.Errorf("syncing config to database: %w", err)
 	}
 

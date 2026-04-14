@@ -9,11 +9,19 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/filter"
-	"github.com/germanamz/tusk/inmem"
+	"github.com/germanamz/tusk/repository"
 	"github.com/germanamz/tusk/service"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+// ConfigReloadHook is invoked inside reloadConfigLocked after a fresh
+// *config.Config has been loaded. Production wires this to
+// sqlite.SyncConfigToDB so that TOML-originated workflow/project edits are
+// upserted into SQLite. Tests may pass a closure that mutates in-memory
+// repositories instead. Safe to pass nil for test harnesses that do not
+// exercise hot-reload.
+type ConfigReloadHook func(ctx context.Context, cfg *config.Config) error
 
 // Server wraps an MCP server that exposes tusk capabilities as tools and resources.
 type Server struct {
@@ -23,9 +31,10 @@ type Server struct {
 	projectSvc     *service.ProjectService
 	workflowSvc    *service.WorkflowService
 	playerSvc      *service.PlayerService
-	workflowRepo   *inmem.WorkflowRepository
-	projectRepo    *inmem.ProjectRepository
+	workflowRepo   repository.WorkflowRepository
+	projectRepo    repository.ProjectRepository
 	urgencyEngine  *service.UrgencyEngine
+	reloadHook     ConfigReloadHook
 	server         *server.MCPServer
 	cfg            config.MCPConfig
 	loadOpts       []config.Option
@@ -43,9 +52,10 @@ func New(
 	projectSvc *service.ProjectService,
 	workflowSvc *service.WorkflowService,
 	playerSvc *service.PlayerService,
-	workflowRepo *inmem.WorkflowRepository,
-	projectRepo *inmem.ProjectRepository,
+	workflowRepo repository.WorkflowRepository,
+	projectRepo repository.ProjectRepository,
 	urgencyEngine *service.UrgencyEngine,
+	reloadHook ConfigReloadHook,
 	version string,
 	cfg config.MCPConfig,
 	loadOpts []config.Option,
@@ -60,6 +70,7 @@ func New(
 		workflowRepo:   workflowRepo,
 		projectRepo:    projectRepo,
 		urgencyEngine:  urgencyEngine,
+		reloadHook:     reloadHook,
 		cfg:            cfg,
 		loadOpts:       loadOpts,
 		toolGroups:     make(map[string]string),
@@ -813,8 +824,11 @@ func (s *Server) reloadConfigLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reloading config: %w", err)
 	}
-	s.workflowRepo.Reload(cfg.Workflows)
-	s.projectRepo.Reload(cfg.Projects)
+	if s.reloadHook != nil {
+		if err := s.reloadHook(ctx, cfg); err != nil {
+			return fmt.Errorf("reload hook: %w", err)
+		}
+	}
 	s.urgencyEngine.Reload(service.UrgencyWeights{
 		Priority:    cfg.Urgency.PriorityWeight,
 		Due:         cfg.Urgency.DueWeight,
@@ -837,6 +851,6 @@ func (s *Server) ReloadConfigForTest(ctx context.Context) error {
 }
 
 // WorkflowRepoForTest exposes the workflow repo handle for internal tests.
-func (s *Server) WorkflowRepoForTest() *inmem.WorkflowRepository { return s.workflowRepo }
+func (s *Server) WorkflowRepoForTest() repository.WorkflowRepository { return s.workflowRepo }
 
 const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version. You can also inspect the active configuration via tusk_config_show and modify scalar config values via tusk_config_set (storage.* keys are read-only over MCP). Workflows can be created, modified, and deleted via tusk_workflow_create, tusk_workflow_modify, and tusk_workflow_delete using structured JSON inputs. Projects can be created, modified, and deleted via tusk_project_create, tusk_project_modify, and tusk_project_delete — deletion honors the built-in-default and referencing-tasks guards (pass force=true to bypass).`

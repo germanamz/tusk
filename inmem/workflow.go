@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
@@ -35,34 +34,11 @@ func (r *WorkflowRepository) Reload(cfgWorkflows map[string]config.WorkflowConfi
 }
 
 func buildWorkflowMap(cfgWorkflows map[string]config.WorkflowConfig) map[string]*domain.Workflow {
-	now := time.Now().UTC().Truncate(time.Millisecond)
 	workflows := make(map[string]*domain.Workflow, len(cfgWorkflows))
 	for name, cfg := range cfgWorkflows {
-		id := uuid.NewSHA1(uuid.Nil, []byte("workflow:"+name))
-		if name == "kanban" {
-			id = uuid.Nil
-		}
-		wf := &domain.Workflow{
-			ID:          id,
-			Name:        name,
-			Statuses:    make(map[string]domain.StatusConfig, len(cfg.Statuses)),
-			Transitions: make([]domain.WorkflowTransition, len(cfg.Transitions)),
-			Version:     1,
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-		for statusName, sc := range cfg.Statuses {
-			roles := make([]domain.StatusRole, len(sc.Roles))
-			for i, r := range sc.Roles {
-				roles[i] = domain.StatusRole(r)
-			}
-			wf.Statuses[statusName] = domain.StatusConfig{Roles: roles}
-		}
-		for i, t := range cfg.Transitions {
-			wf.Transitions[i] = domain.WorkflowTransition{
-				FromStatus: t.From,
-				ToStatus:   t.To,
-			}
+		wf, err := config.WorkflowFromConfig(name, cfg)
+		if err != nil {
+			continue
 		}
 		workflows[name] = wf
 	}

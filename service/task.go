@@ -49,11 +49,13 @@ func NewTaskService(
 	}
 }
 
-// defaultProjectID resolves DefaultProjectName to its stored UUID.
-// Used by entry points that need the _default project but did not receive
-// a specific project from the caller.
+// defaultProjectID returns the stored UUID of the built-in default project.
+// Used by entry points that need the default project but did not receive
+// a specific project from the caller. The SQLite seed row and the config
+// helper both write it under uuid.Nil, so we look it up by ID to avoid the
+// name drift between "default" (config) and "_default" (legacy SQL seed).
 func (s *TaskService) defaultProjectID(ctx context.Context) (uuid.UUID, error) {
-	p, err := s.projectRepo.GetByName(ctx, DefaultProjectName)
+	p, err := s.projectRepo.GetByID(ctx, domain.DefaultProjectUUID)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("looking up default project: %w", err)
 	}
