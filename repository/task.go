@@ -16,4 +16,13 @@ type TaskRepository interface {
 	List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error)
 	GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error)
 	GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error)
+
+	// CountByProject returns how many tasks reference the given project.
+	CountByProject(ctx context.Context, projectID uuid.UUID) (int, error)
+
+	// ReassignProject bulk-updates tasks.project_id. Used by ProjectService.Delete
+	// under --force to migrate tasks off a project being removed. Returns the
+	// number of rows affected. Does not modify version or modified_at for the
+	// individual tasks — this is a migration operation, not a user mutation.
+	ReassignProject(ctx context.Context, fromID, toID uuid.UUID) (int, error)
 }

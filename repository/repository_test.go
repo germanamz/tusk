@@ -29,6 +29,12 @@ func (s *stubTaskRepo) GetChildren(_ context.Context, _ uuid.UUID) ([]*domain.Ta
 func (s *stubTaskRepo) GetDescendants(_ context.Context, _ uuid.UUID) ([]*domain.Task, error) {
 	return nil, nil
 }
+func (s *stubTaskRepo) CountByProject(_ context.Context, _ uuid.UUID) (int, error) {
+	return 0, nil
+}
+func (s *stubTaskRepo) ReassignProject(_ context.Context, _, _ uuid.UUID) (int, error) {
+	return 0, nil
+}
 
 type stubRelationRepo struct{}
 

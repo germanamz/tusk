@@ -3,17 +3,17 @@ package tui
 import "testing"
 
 func TestParseProjectCreate_Basic(t *testing.T) {
-	proj, err := parseProjectCreate([]string{"workflow=kanban"})
+	out, err := parseProjectCreate([]string{"workflow=kanban"})
 	if err != nil {
 		t.Fatalf("parseProjectCreate: %v", err)
 	}
-	if proj.Workflow != "kanban" {
-		t.Fatalf("unexpected: %+v", proj)
+	if out.Workflow != "kanban" {
+		t.Fatalf("unexpected: %+v", out)
 	}
 }
 
 func TestParseProjectCreate_AutoCompleteAndUrgency(t *testing.T) {
-	proj, err := parseProjectCreate([]string{
+	out, err := parseProjectCreate([]string{
 		"workflow=kanban",
 		"auto-complete.trigger=completed",
 		"auto-complete.target=completed",
@@ -22,14 +22,14 @@ func TestParseProjectCreate_AutoCompleteAndUrgency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseProjectCreate: %v", err)
 	}
-	if proj.Settings.AutoCompleteParent == nil ||
-		proj.Settings.AutoCompleteParent.TriggerStatus != "completed" {
-		t.Fatalf("auto-complete: %+v", proj.Settings.AutoCompleteParent)
+	if out.Settings.AutoCompleteParent == nil ||
+		out.Settings.AutoCompleteParent.TriggerStatus != "completed" {
+		t.Fatalf("auto-complete: %+v", out.Settings.AutoCompleteParent)
 	}
-	if proj.Settings.Urgency == nil ||
-		proj.Settings.Urgency.BlockingWeight == nil ||
-		*proj.Settings.Urgency.BlockingWeight != 15 {
-		t.Fatalf("urgency: %+v", proj.Settings.Urgency)
+	if out.Settings.Urgency == nil ||
+		out.Settings.Urgency.BlockingWeight == nil ||
+		*out.Settings.Urgency.BlockingWeight != 15 {
+		t.Fatalf("urgency: %+v", out.Settings.Urgency)
 	}
 }
 

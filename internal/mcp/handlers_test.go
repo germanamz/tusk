@@ -59,7 +59,7 @@ func testServer(t *testing.T) *Server {
 	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 	tagSvc := service.NewTagService(resolver)
 	relationSvc := service.NewRelationService(resolver, projects)
-	projectSvc := service.NewProjectService(projectRepo)
+	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{})
 
 	s, err := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,

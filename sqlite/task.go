@@ -121,6 +121,35 @@ func (r *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error 
 	return nil
 }
 
+// CountByProject returns how many tasks reference the given project.
+func (r *TaskRepo) CountByProject(ctx context.Context, projectID uuid.UUID) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tasks WHERE project_id = ?`, projectID.String()).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// ReassignProject bulk-updates tasks.project_id from one project to another.
+// Used by ProjectService.Delete under --force to migrate tasks off the project
+// being removed so the FK on projects(id) does not fire. Does not bump version
+// or modified_at — this is a migration operation, not a user mutation.
+func (r *TaskRepo) ReassignProject(ctx context.Context, fromID, toID uuid.UUID) (int, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET project_id = ? WHERE project_id = ?`,
+		toID.String(), fromID.String())
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 // List retrieves tasks matching the given filter expression. A nil filter
 // returns all tasks.
 func (r *TaskRepo) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {

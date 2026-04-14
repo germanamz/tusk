@@ -1,11 +1,11 @@
 package tui
 
 import (
-	"context"
+	"errors"
 	"fmt"
 
-	"github.com/germanamz/tusk/config"
-	"github.com/germanamz/tusk/filter"
+	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/service"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -20,7 +20,7 @@ func (a *App) buildProjectCmd() *cobra.Command {
 	var force bool
 	deleteCmd := &cobra.Command{
 		Use:   "delete <name>",
-		Short: "Delete a project from config",
+		Short: "Delete a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runProjectDelete(cmd, args, force)
@@ -71,16 +71,24 @@ func (a *App) runProjectList(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runProjectCreate(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 	name := args[0]
-	proj, err := parseProjectCreate(args[1:])
+	parsed, err := parseProjectCreate(args[1:])
 	if err != nil {
 		return err
 	}
-	path, err := config.ConfigFilePath(a.loadOpts...)
-	if err != nil {
-		return err
+	if parsed.Workflow == "" {
+		return fmt.Errorf("project create requires workflow=<name>")
 	}
-	if err := config.CreateProject(path, name, proj); err != nil {
+	wf, err := a.workflowSvc.GetByName(ctx, parsed.Workflow)
+	if err != nil {
+		return fmt.Errorf("resolving workflow %q: %w", parsed.Workflow, err)
+	}
+	if _, err := a.projectSvc.Create(ctx, service.CreateProjectInput{
+		Name:       name,
+		WorkflowID: wf.ID,
+		Settings:   parsed.Settings,
+	}); err != nil {
 		return err
 	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
@@ -88,16 +96,35 @@ func (a *App) runProjectCreate(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 	name := args[0]
-	mut, err := parseProjectModify(args[1:])
+	parsed, err := parseProjectModify(args[1:])
 	if err != nil {
 		return err
 	}
-	path, err := config.ConfigFilePath(a.loadOpts...)
+	current, err := a.projectSvc.GetByName(ctx, name)
 	if err != nil {
 		return err
 	}
-	if err := config.ModifyProject(path, name, mut); err != nil {
+	input := service.ModifyProjectInput{
+		Name:            name,
+		ExpectedVersion: current.Version,
+		AutoComplete:    parsed.AutoComplete,
+		AutoRevert:      parsed.AutoRevert,
+		Urgency: service.UrgencyMutation{
+			Set:   parsed.UrgencySet,
+			Delta: parsed.UrgencyDelta,
+		},
+	}
+	if parsed.Workflow != nil {
+		wf, err := a.workflowSvc.GetByName(ctx, *parsed.Workflow)
+		if err != nil {
+			return fmt.Errorf("resolving workflow %q: %w", *parsed.Workflow, err)
+		}
+		id := wf.ID
+		input.WorkflowID = &id
+	}
+	if _, err := a.projectSvc.Modify(ctx, input); err != nil {
 		return err
 	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
@@ -105,33 +132,18 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runProjectDelete(cmd *cobra.Command, args []string, force bool) error {
+	ctx := cmd.Context()
 	name := args[0]
-	path, err := config.ConfigFilePath(a.loadOpts...)
+	p, err := a.projectSvc.GetByName(ctx, name)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("project %q: not found", name)
+		}
 		return err
 	}
-	checker := func(projectName string) (int, error) {
-		return a.countTasksForProject(cmd.Context(), projectName)
-	}
-	if err := config.DeleteProject(path, name, checker, force); err != nil {
+	if err := a.projectSvc.Delete(ctx, p.ID, p.Version, force); err != nil {
 		return err
 	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
 	return r.renderProjectMutation("Deleted", name)
-}
-
-func (a *App) countTasksForProject(ctx context.Context, projectName string) (int, error) {
-	expr, parseErrs := filter.ParseExpr(fmt.Sprintf("project=%s", projectName))
-	if len(parseErrs) > 0 {
-		return 0, fmt.Errorf("building filter: %s", filter.FormatErrors(parseErrs))
-	}
-	filterExpr, resolveErrs := a.resolver.ResolveExpr(ctx, expr)
-	if len(resolveErrs) > 0 {
-		return 0, resolveErrs[0]
-	}
-	tasks, err := a.taskSvc.List(ctx, filterExpr)
-	if err != nil {
-		return 0, err
-	}
-	return len(tasks), nil
 }

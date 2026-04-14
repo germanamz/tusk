@@ -90,6 +90,9 @@ func (t *Tx) Annotations() *AnnotationRepo { return NewAnnotationRepo(t.tx) }
 // Tags returns a TagRepo operating within this transaction.
 func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
 
+// Projects returns a ProjectRepo operating within this transaction.
+func (t *Tx) Projects() *ProjectRepo { return NewProjectRepo(t.tx) }
+
 // WithTx executes fn within a database transaction. If fn returns nil,
 // the transaction is committed. If fn returns an error (or panics),
 // the transaction is rolled back and the error is returned.
@@ -119,6 +122,20 @@ func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskReposi
 func (s *Store) WithRelationTx(ctx context.Context, fn func(rr repository.RelationRepository) error) error {
 	return s.WithTx(ctx, func(tx *Tx) error {
 		return fn(tx.Relations())
+	})
+}
+
+// WithProjectTx executes fn with a ProjectRepository and TaskRepository backed
+// by the same transaction. This is the concrete implementation of
+// service.ProjectTxProvider. Used by ProjectService.Delete to reassign
+// referencing tasks off a project under --force before deleting the project
+// row, so the FK on projects(id) does not fire.
+func (s *Store) WithProjectTx(
+	ctx context.Context,
+	fn func(projects repository.ProjectRepository, tasks repository.TaskRepository) error,
+) error {
+	return s.WithTx(ctx, func(tx *Tx) error {
+		return fn(tx.Projects(), tx.Tasks())
 	})
 }
 

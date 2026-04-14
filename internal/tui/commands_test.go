@@ -110,7 +110,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	tagSvc := service.NewTagService(resolver)
 	relationSvc := service.NewRelationService(resolver, projects)
 
-	projectSvc := service.NewProjectService(projectRepo)
+	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{})
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,
 		nil, nil, nil, nil,

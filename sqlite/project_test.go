@@ -59,7 +59,7 @@ func TestProjectRepo_CreateAndGetByID(t *testing.T) {
 
 func TestProjectRepo_GetByName_Seed(t *testing.T) {
 	repo := newTestProjectRepo(t)
-	got, err := repo.GetByName(context.Background(), "_default")
+	got, err := repo.GetByName(context.Background(), "default")
 	if err != nil {
 		t.Fatalf("GetByName _default: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestProjectRepo_List_ContainsSeed(t *testing.T) {
 	}
 	found := false
 	for _, p := range ps {
-		if p.Name == "_default" {
+		if p.Name == "default" {
 			found = true
 		}
 	}

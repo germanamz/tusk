@@ -5,9 +5,26 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/syntax"
 )
+
+// projectCreateFields is the parser output for `tusk project create`. The
+// handler resolves Workflow (a name) to a UUID and builds a CreateProjectInput.
+type projectCreateFields struct {
+	Workflow string
+	Settings domain.ProjectSettings
+}
+
+// projectModifyFields is the parser output for `tusk project modify`. The
+// handler resolves Workflow (a name) to a UUID and builds a ModifyProjectInput.
+type projectModifyFields struct {
+	Workflow     *string
+	AutoComplete *domain.AutoCompleteConfig
+	AutoRevert   *domain.AutoRevertConfig
+	UrgencySet   map[string]float64
+	UrgencyDelta map[string]float64
+}
 
 func urgencyCLIToConfigKey(cliKey string) (string, bool) {
 	if !strings.HasPrefix(cliKey, "urgency.") {
@@ -32,48 +49,74 @@ func parseFloatField(key, value string) (float64, error) {
 	return f, nil
 }
 
-func parseProjectCreate(args []string) (config.ProjectConfig, error) {
+func urgencyOverrideFieldPtr(o *domain.UrgencyOverrides, key string) **float64 {
+	switch key {
+	case "priority_weight":
+		return &o.PriorityWeight
+	case "due_weight":
+		return &o.DueWeight
+	case "age_weight":
+		return &o.AgeWeight
+	case "active_weight":
+		return &o.ActiveWeight
+	case "blocking_weight":
+		return &o.BlockingWeight
+	case "blocked_weight":
+		return &o.BlockedWeight
+	case "tags_weight":
+		return &o.TagsWeight
+	case "project_weight":
+		return &o.ProjectWeight
+	case "annotations_weight":
+		return &o.AnnotationsWeight
+	case "waiting_weight":
+		return &o.WaitingWeight
+	}
+	return nil
+}
+
+func parseProjectCreate(args []string) (projectCreateFields, error) {
 	input := strings.Join(args, " ")
 	fs, parseErrs := syntax.ParseFields(input)
 	if len(parseErrs) > 0 {
-		return config.ProjectConfig{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
+		return projectCreateFields{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
 	}
-	proj := config.ProjectConfig{}
+	out := projectCreateFields{}
 	for _, f := range fs.Fields {
 		if f.Modifier != 0 {
-			return config.ProjectConfig{}, fmt.Errorf("project create does not accept modifier %q on %q", f.Modifier, f.Key)
+			return projectCreateFields{}, fmt.Errorf("project create does not accept modifier %q on %q", f.Modifier, f.Key)
 		}
-		if err := applyProjectField(&proj, f.Key, f.Value); err != nil {
-			return config.ProjectConfig{}, err
+		if err := applyProjectCreateField(&out, f.Key, f.Value); err != nil {
+			return projectCreateFields{}, err
 		}
 	}
-	return proj, nil
+	return out, nil
 }
 
-func applyProjectField(proj *config.ProjectConfig, key, value string) error {
+func applyProjectCreateField(out *projectCreateFields, key, value string) error {
 	switch key {
 	case "workflow":
-		proj.Workflow = value
+		out.Workflow = value
 	case "auto-complete.trigger":
-		if proj.Settings.AutoCompleteParent == nil {
-			proj.Settings.AutoCompleteParent = &config.AutoCompleteParentConfig{}
+		if out.Settings.AutoCompleteParent == nil {
+			out.Settings.AutoCompleteParent = &domain.AutoCompleteConfig{}
 		}
-		proj.Settings.AutoCompleteParent.TriggerStatus = value
+		out.Settings.AutoCompleteParent.TriggerStatus = value
 	case "auto-complete.target":
-		if proj.Settings.AutoCompleteParent == nil {
-			proj.Settings.AutoCompleteParent = &config.AutoCompleteParentConfig{}
+		if out.Settings.AutoCompleteParent == nil {
+			out.Settings.AutoCompleteParent = &domain.AutoCompleteConfig{}
 		}
-		proj.Settings.AutoCompleteParent.TargetStatus = value
+		out.Settings.AutoCompleteParent.TargetStatus = value
 	case "auto-revert.trigger":
-		if proj.Settings.AutoRevertParent == nil {
-			proj.Settings.AutoRevertParent = &config.AutoRevertParentConfig{}
+		if out.Settings.AutoRevertParent == nil {
+			out.Settings.AutoRevertParent = &domain.AutoRevertConfig{}
 		}
-		proj.Settings.AutoRevertParent.TriggerStatus = value
+		out.Settings.AutoRevertParent.TriggerStatus = value
 	case "auto-revert.target":
-		if proj.Settings.AutoRevertParent == nil {
-			proj.Settings.AutoRevertParent = &config.AutoRevertParentConfig{}
+		if out.Settings.AutoRevertParent == nil {
+			out.Settings.AutoRevertParent = &domain.AutoRevertConfig{}
 		}
-		proj.Settings.AutoRevertParent.TargetStatus = value
+		out.Settings.AutoRevertParent.TargetStatus = value
 	default:
 		cfgKey, ok := urgencyCLIToConfigKey(key)
 		if !ok {
@@ -83,10 +126,10 @@ func applyProjectField(proj *config.ProjectConfig, key, value string) error {
 		if err != nil {
 			return err
 		}
-		if proj.Settings.Urgency == nil {
-			proj.Settings.Urgency = &config.ProjectUrgencyConfig{}
+		if out.Settings.Urgency == nil {
+			out.Settings.Urgency = &domain.UrgencyOverrides{}
 		}
-		fp := config.UrgencyFieldPtr(proj.Settings.Urgency, cfgKey)
+		fp := urgencyOverrideFieldPtr(out.Settings.Urgency, cfgKey)
 		if fp == nil {
 			return fmt.Errorf("unknown urgency key %q", cfgKey)
 		}
@@ -96,13 +139,13 @@ func applyProjectField(proj *config.ProjectConfig, key, value string) error {
 	return nil
 }
 
-func parseProjectModify(args []string) (config.ProjectMutation, error) {
+func parseProjectModify(args []string) (projectModifyFields, error) {
 	input := strings.Join(args, " ")
 	fs, parseErrs := syntax.ParseFields(input)
 	if len(parseErrs) > 0 {
-		return config.ProjectMutation{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
+		return projectModifyFields{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
 	}
-	mut := config.ProjectMutation{
+	mut := projectModifyFields{
 		UrgencySet:   map[string]float64{},
 		UrgencyDelta: map[string]float64{},
 	}
@@ -111,11 +154,11 @@ func parseProjectModify(args []string) (config.ProjectMutation, error) {
 		if f.Modifier != 0 {
 			cfgKey, ok := urgencyCLIToConfigKey(f.Key)
 			if !ok {
-				return config.ProjectMutation{}, fmt.Errorf("modifier %q not supported on %q (only urgency weights)", f.Modifier, f.Key)
+				return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q (only urgency weights)", f.Modifier, f.Key)
 			}
 			v, err := parseFloatField(f.Key, f.Value)
 			if err != nil {
-				return config.ProjectMutation{}, err
+				return projectModifyFields{}, err
 			}
 			switch f.Modifier {
 			case '+':
@@ -123,7 +166,7 @@ func parseProjectModify(args []string) (config.ProjectMutation, error) {
 			case '-':
 				mut.UrgencyDelta[cfgKey] = -v
 			default:
-				return config.ProjectMutation{}, fmt.Errorf("unsupported modifier %q", f.Modifier)
+				return projectModifyFields{}, fmt.Errorf("unsupported modifier %q", f.Modifier)
 			}
 			continue
 		}
@@ -133,31 +176,31 @@ func parseProjectModify(args []string) (config.ProjectMutation, error) {
 			v := f.Value
 			mut.Workflow = &v
 		case "auto-complete.trigger", "auto-complete.target":
-			if mut.AutoCompleteSet == nil {
-				mut.AutoCompleteSet = &config.AutoCompleteParentConfig{}
+			if mut.AutoComplete == nil {
+				mut.AutoComplete = &domain.AutoCompleteConfig{}
 			}
 			if f.Key == "auto-complete.trigger" {
-				mut.AutoCompleteSet.TriggerStatus = f.Value
+				mut.AutoComplete.TriggerStatus = f.Value
 			} else {
-				mut.AutoCompleteSet.TargetStatus = f.Value
+				mut.AutoComplete.TargetStatus = f.Value
 			}
 		case "auto-revert.trigger", "auto-revert.target":
-			if mut.AutoRevertSet == nil {
-				mut.AutoRevertSet = &config.AutoRevertParentConfig{}
+			if mut.AutoRevert == nil {
+				mut.AutoRevert = &domain.AutoRevertConfig{}
 			}
 			if f.Key == "auto-revert.trigger" {
-				mut.AutoRevertSet.TriggerStatus = f.Value
+				mut.AutoRevert.TriggerStatus = f.Value
 			} else {
-				mut.AutoRevertSet.TargetStatus = f.Value
+				mut.AutoRevert.TargetStatus = f.Value
 			}
 		default:
 			cfgKey, ok := urgencyCLIToConfigKey(f.Key)
 			if !ok {
-				return config.ProjectMutation{}, fmt.Errorf("unknown field %q", f.Key)
+				return projectModifyFields{}, fmt.Errorf("unknown field %q", f.Key)
 			}
 			v, err := parseFloatField(f.Key, f.Value)
 			if err != nil {
-				return config.ProjectMutation{}, err
+				return projectModifyFields{}, err
 			}
 			mut.UrgencySet[cfgKey] = v
 		}
