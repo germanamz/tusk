@@ -273,7 +273,7 @@ func (s *WorkflowService) Delete(ctx context.Context, id uuid.UUID, expectedVers
 	if count > 0 {
 		return fmt.Errorf("workflow %s referenced by %d project(s): %w", id, count, domain.ErrWorkflowInUse)
 	}
-	if id == uuid.Nil {
+	if id == domain.KanbanWorkflowUUID {
 		return fmt.Errorf("kanban: %w", domain.ErrBuiltInWorkflow)
 	}
 	if err := s.workflowRepo.Delete(ctx, id, expectedVersion); err != nil {

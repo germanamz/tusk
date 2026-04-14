@@ -7,6 +7,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// KanbanWorkflowUUID is the UUID of the built-in kanban workflow seeded by
+// migration 003_workflows. It cannot be modified or deleted via the service
+// layer.
+var KanbanWorkflowUUID = uuid.Nil
+
 // StatusRole is a named behavior attached to a workflow status.
 type StatusRole string
 
