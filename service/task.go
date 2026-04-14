@@ -93,7 +93,7 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		task.ProjectID = DefaultProjectID
 	}
 
-	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("project not found: %w", err)
@@ -304,7 +304,7 @@ func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.T
 		if projectID == "" {
 			continue
 		}
-		project, err := s.projectRepo.GetByID(ctx, projectID)
+		project, err := s.projectRepo.GetByName(ctx, projectID)
 		if err != nil {
 			continue
 		}
@@ -430,7 +430,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		if task.ProjectID == "" {
 			return nil, fmt.Errorf("task must belong to a project")
 		}
-		_, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+		_, err := s.projectRepo.GetByName(ctx, task.ProjectID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return nil, fmt.Errorf("project not found: %w", err)
@@ -440,7 +440,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	}
 
 	if task.Status != oldStatus {
-		project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+		project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)
 		}
@@ -493,7 +493,7 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 	if err != nil {
 		return nil, err
 	}
-	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
 	}
@@ -644,7 +644,7 @@ func (s *TaskService) Complete(ctx context.Context, shortID string, version int)
 	if err != nil {
 		return nil, err
 	}
-	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
 	}
@@ -666,7 +666,7 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 	if err != nil {
 		return nil, err
 	}
-	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	project, err := s.projectRepo.GetByName(ctx, task.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("loading project %q: %w", task.ProjectID, err)
 	}
@@ -909,7 +909,7 @@ func (s *TaskService) checkAutoComplete(
 			return nil
 		}
 
-		project, err := s.projectRepo.GetByID(ctx, parent.ProjectID)
+		project, err := s.projectRepo.GetByName(ctx, parent.ProjectID)
 		if err != nil {
 			return fmt.Errorf("loading project for propagation: %w", err)
 		}
@@ -993,7 +993,7 @@ func (s *TaskService) checkAutoRevert(
 			return nil
 		}
 
-		project, err := s.projectRepo.GetByID(ctx, parent.ProjectID)
+		project, err := s.projectRepo.GetByName(ctx, parent.ProjectID)
 		if err != nil {
 			return fmt.Errorf("loading project for revert: %w", err)
 		}

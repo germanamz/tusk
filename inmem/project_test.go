@@ -10,7 +10,7 @@ import (
 	"github.com/germanamz/tusk/inmem"
 )
 
-func TestProjectRepository_GetByID(t *testing.T) {
+func TestProjectRepository_GetByName(t *testing.T) {
 	projects := map[string]config.ProjectConfig{
 		"default": {Workflow: "kanban"},
 		"backend": {
@@ -28,7 +28,7 @@ func TestProjectRepository_GetByID(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("existing project", func(t *testing.T) {
-		p, err := repo.GetByID(ctx, "default")
+		p, err := repo.GetByName(ctx, "default")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -41,7 +41,7 @@ func TestProjectRepository_GetByID(t *testing.T) {
 	})
 
 	t.Run("project with settings", func(t *testing.T) {
-		p, err := repo.GetByID(ctx, "backend")
+		p, err := repo.GetByName(ctx, "backend")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -54,7 +54,7 @@ func TestProjectRepository_GetByID(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		_, err := repo.GetByID(ctx, "nonexistent")
+		_, err := repo.GetByName(ctx, "nonexistent")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected ErrNotFound, got %v", err)
 		}
@@ -113,7 +113,7 @@ func TestProjectRepository_Reload(t *testing.T) {
 	if got[0].Name != "beta" || got[1].Name != "gamma" {
 		t.Fatalf("post-reload names: got [%s %s], want [beta gamma]", got[0].Name, got[1].Name)
 	}
-	if _, err := repo.GetByID(context.Background(), "alpha"); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := repo.GetByName(context.Background(), "alpha"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("alpha should be gone after Reload, got err=%v", err)
 	}
 }
