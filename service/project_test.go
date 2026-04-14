@@ -20,11 +20,11 @@ func testProjectService(t *testing.T) *ProjectService {
 	return NewProjectService(repo)
 }
 
-func TestProjectService_GetByID(t *testing.T) {
+func TestProjectService_GetByName(t *testing.T) {
 	svc := testProjectService(t)
 	ctx := context.Background()
 
-	p, err := svc.GetByID(ctx, "default")
+	p, err := svc.GetByName(ctx, "default")
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
@@ -36,11 +36,11 @@ func TestProjectService_GetByID(t *testing.T) {
 	}
 }
 
-func TestProjectService_GetByIDNotFound(t *testing.T) {
+func TestProjectService_GetByNameNotFound(t *testing.T) {
 	svc := testProjectService(t)
 	ctx := context.Background()
 
-	_, err := svc.GetByID(ctx, "nonexistent")
+	_, err := svc.GetByName(ctx, "nonexistent")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}

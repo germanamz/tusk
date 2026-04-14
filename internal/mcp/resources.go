@@ -81,7 +81,7 @@ func (s *Server) handleProjectResource(ctx context.Context, request mcp.ReadReso
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, err := s.projectSvc.GetByID(ctx, name)
+	project, err := s.projectSvc.GetByName(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (s *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadRes
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, err := s.projectSvc.GetByID(ctx, name)
+	project, err := s.projectSvc.GetByName(ctx, name)
 	if err != nil {
 		return nil, err
 	}

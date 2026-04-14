@@ -18,10 +18,10 @@ func NewProjectService(projectRepo repository.ProjectRepository) *ProjectService
 	return &ProjectService{projectRepo: projectRepo}
 }
 
-// GetByID retrieves a project by its human-readable ID (e.g. "default", "backend").
+// GetByName retrieves a project by its human-readable name.
 // Returns domain.ErrNotFound if not found.
-func (s *ProjectService) GetByID(ctx context.Context, id string) (*domain.Project, error) {
-	return s.projectRepo.GetByID(ctx, id)
+func (s *ProjectService) GetByName(ctx context.Context, name string) (*domain.Project, error) {
+	return s.projectRepo.GetByName(ctx, name)
 }
 
 // List returns all projects from config.
