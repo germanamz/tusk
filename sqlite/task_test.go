@@ -36,6 +36,25 @@ func mustCreateTask(t *testing.T, repo *TaskRepo, task *domain.Task) {
 	}
 }
 
+// mustCreateTestProject inserts a project row so FK-bound tasks can reference it.
+// It uses the seeded kanban workflow (uuid.Nil).
+func mustCreateTestProject(t *testing.T, s *Store, id uuid.UUID, name string) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	repo := NewProjectRepo(s.DB())
+	p := &domain.Project{
+		ID:         id,
+		Name:       name,
+		WorkflowID: uuid.Nil,
+		Version:    1,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := repo.Create(context.Background(), p); err != nil {
+		t.Fatalf("creating test project %q: %v", name, err)
+	}
+}
+
 func TestTaskCreate(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())
@@ -286,6 +305,7 @@ func TestTaskListByProject(t *testing.T) {
 	ctx := context.Background()
 
 	projID := uuid.New()
+	mustCreateTestProject(t, s, projID, "backend-list")
 	t1 := newTestTask()
 	t1.ProjectID = projID
 	mustCreateTask(t, repo, t1)
@@ -394,6 +414,7 @@ func TestTaskListCombinedFilters(t *testing.T) {
 	ctx := context.Background()
 
 	projID := uuid.New()
+	mustCreateTestProject(t, s, projID, "combined-list")
 
 	// Task matches both filters: status=active AND project=combined
 	t1 := newTestTask()

@@ -92,6 +92,9 @@ func run() error {
 	})
 
 	db := store.DB()
+	if err := sqlite.SyncConfigToDB(context.Background(), workflowRepo, projectRepo, sqlite.NewWorkflowRepo(db), sqlite.NewProjectRepo(db)); err != nil {
+		return fmt.Errorf("syncing config to database: %w", err)
+	}
 	bundle := &service.RepoBundle{
 		Store:       store,
 		Tasks:       sqlite.NewTaskRepo(db),

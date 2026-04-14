@@ -146,6 +146,10 @@ func NewClient(cfg Config) (*Client, error) {
 		Players:     sqlite.NewPlayerRepo(db),
 	}
 	projectRepo := inmem.NewProjectRepository(cfg.Projects)
+	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
+	if err := sqlite.SyncConfigToDB(context.Background(), workflowRepo, projectRepo, sqlite.NewWorkflowRepo(db), sqlite.NewProjectRepo(db)); err != nil {
+		return nil, fmt.Errorf("syncing config to database: %w", err)
+	}
 
 	resolver := func(context.Context, uuid.UUID) (*service.RepoBundle, error) {
 		return bundle, nil
@@ -161,8 +165,6 @@ func NewClient(cfg Config) (*Client, error) {
 		}
 		return ids, nil
 	}
-
-	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
 
 	// Create services.
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
