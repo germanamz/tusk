@@ -1,0 +1,127 @@
+package sqlite_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
+)
+
+func newTestWorkflowRepo(t *testing.T) *sqlite.WorkflowRepo {
+	t.Helper()
+	store, err := sqlite.New(t.TempDir()+"/test.db", migrations.FS)
+	if err != nil {
+		t.Fatalf("opening test db: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return sqlite.NewWorkflowRepo(store.DB())
+}
+
+func sampleWorkflow(name string) *domain.Workflow {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	return &domain.Workflow{
+		ID:   uuid.New(),
+		Name: name,
+		Statuses: map[string]domain.StatusConfig{
+			"pending": {Roles: []domain.StatusRole{domain.RoleInitial}},
+			"active":  {Roles: []domain.StatusRole{domain.RoleStart}},
+			"done":    {Roles: []domain.StatusRole{domain.RoleTerminal, domain.RoleDone}},
+		},
+		Transitions: []domain.WorkflowTransition{
+			{FromStatus: "pending", ToStatus: "active"},
+			{FromStatus: "active", ToStatus: "done"},
+		},
+		Version:   1,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+}
+
+func TestWorkflowRepo_CreateAndGetByID(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	ctx := context.Background()
+
+	wf := sampleWorkflow("sprint")
+	if err := repo.Create(ctx, wf); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, wf.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Name != "sprint" {
+		t.Errorf("got name %q, want %q", got.Name, "sprint")
+	}
+	if len(got.Statuses) != 3 {
+		t.Errorf("got %d statuses, want 3", len(got.Statuses))
+	}
+	if len(got.Transitions) != 2 {
+		t.Errorf("got %d transitions, want 2", len(got.Transitions))
+	}
+	if got.Version != 1 {
+		t.Errorf("got version %d, want 1", got.Version)
+	}
+}
+
+func TestWorkflowRepo_GetByID_NotFound(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	_, err := repo.GetByID(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetByID: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestWorkflowRepo_GetByName_Seed(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	got, err := repo.GetByName(context.Background(), "kanban")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if got.ID != uuid.Nil {
+		t.Errorf("got ID %v, want uuid.Nil", got.ID)
+	}
+	if _, ok := got.Statuses["pending"]; !ok {
+		t.Errorf("expected pending status in seed workflow")
+	}
+}
+
+func TestWorkflowRepo_List_ContainsSeed(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	wfs, err := repo.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(wfs) < 1 {
+		t.Fatalf("List: want >=1 workflow, got %d", len(wfs))
+	}
+	found := false
+	for _, w := range wfs {
+		if w.Name == "kanban" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("kanban seed not in list")
+	}
+}
+
+func TestWorkflowRepo_CreateDuplicate(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	ctx := context.Background()
+
+	wf := sampleWorkflow("sprint")
+	if err := repo.Create(ctx, wf); err != nil {
+		t.Fatalf("first Create: %v", err)
+	}
+	wf2 := sampleWorkflow("sprint")
+	err := repo.Create(ctx, wf2)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("second Create: got %v, want ErrConflict", err)
+	}
+}
