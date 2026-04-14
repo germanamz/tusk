@@ -172,6 +172,31 @@ func (r *WorkflowRepo) Update(ctx context.Context, wf *domain.Workflow) error {
 	return nil
 }
 
+// Delete removes a workflow with optimistic locking on version.
+// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
+func (r *WorkflowRepo) Delete(ctx context.Context, id uuid.UUID, version int) error {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM workflows WHERE id = ? AND version = ?`,
+		id.String(), version)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		var exists int
+		err := r.db.QueryRowContext(ctx,
+			`SELECT 1 FROM workflows WHERE id = ?`, id.String()).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return domain.ErrConflict
+	}
+	return nil
+}
+
 func encodeStatuses(m map[string]domain.StatusConfig) (string, error) {
 	out := make(map[string][]domain.StatusRole, len(m))
 	for k, v := range m {
