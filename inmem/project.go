@@ -79,6 +79,19 @@ func buildProjectMap(cfgProjects map[string]config.ProjectConfig) map[string]*do
 	return projects
 }
 
+// GetByID returns a defensive copy of the project matched by UUID.
+// Returns domain.ErrNotFound if not found.
+func (r *ProjectRepository) GetByID(_ context.Context, id uuid.UUID) (*domain.Project, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.projects {
+		if p.ID == id {
+			return copyProject(p), nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
 // GetByName returns a defensive copy of the project. Returns domain.ErrNotFound if not found.
 func (r *ProjectRepository) GetByName(_ context.Context, name string) (*domain.Project, error) {
 	r.mu.RLock()

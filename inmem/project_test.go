@@ -8,6 +8,7 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
+	"github.com/google/uuid"
 )
 
 func TestProjectRepository_GetByName(t *testing.T) {
@@ -59,6 +60,35 @@ func TestProjectRepository_GetByName(t *testing.T) {
 			t.Errorf("expected ErrNotFound, got %v", err)
 		}
 	})
+}
+
+func TestProjectRepository_GetByID(t *testing.T) {
+	projects := map[string]config.ProjectConfig{
+		"backend": {Workflow: "kanban"},
+	}
+	repo := inmem.NewProjectRepository(projects)
+	ctx := context.Background()
+
+	p, err := repo.GetByName(ctx, "backend")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+
+	byID, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if byID.Name != "backend" {
+		t.Errorf("got name %q, want backend", byID.Name)
+	}
+}
+
+func TestProjectRepository_GetByID_NotFound(t *testing.T) {
+	repo := inmem.NewProjectRepository(map[string]config.ProjectConfig{})
+	_, err := repo.GetByID(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
+	}
 }
 
 func TestProjectRepository_List(t *testing.T) {
