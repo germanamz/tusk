@@ -125,3 +125,59 @@ func TestWorkflowRepo_CreateDuplicate(t *testing.T) {
 		t.Fatalf("second Create: got %v, want ErrConflict", err)
 	}
 }
+
+func TestWorkflowRepo_Update_IncrementsVersion(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	ctx := context.Background()
+
+	wf := sampleWorkflow("sprint")
+	if err := repo.Create(ctx, wf); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	wf.Statuses["review"] = domain.StatusConfig{Roles: []domain.StatusRole{domain.RoleHighlight}}
+	if err := repo.Update(ctx, wf); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if wf.Version != 2 {
+		t.Errorf("local version after Update: got %d, want 2", wf.Version)
+	}
+
+	got, err := repo.GetByID(ctx, wf.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Version != 2 {
+		t.Errorf("stored version: got %d, want 2", got.Version)
+	}
+	if _, ok := got.Statuses["review"]; !ok {
+		t.Errorf("expected review status after update")
+	}
+}
+
+func TestWorkflowRepo_Update_StaleVersion(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	ctx := context.Background()
+
+	wf := sampleWorkflow("sprint")
+	if err := repo.Create(ctx, wf); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stale := *wf
+	if err := repo.Update(ctx, wf); err != nil {
+		t.Fatalf("first Update: %v", err)
+	}
+	err := repo.Update(ctx, &stale)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("stale Update: got %v, want ErrConflict", err)
+	}
+}
+
+func TestWorkflowRepo_Update_NotFound(t *testing.T) {
+	repo := newTestWorkflowRepo(t)
+	ghost := sampleWorkflow("ghost")
+	err := repo.Update(context.Background(), ghost)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Update missing row: got %v, want ErrNotFound", err)
+	}
+}

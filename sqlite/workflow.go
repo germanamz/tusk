@@ -129,6 +129,49 @@ func scanWorkflow(s workflowScanner) (*domain.Workflow, error) {
 	return &wf, nil
 }
 
+// Update persists changes to a workflow with optimistic locking.
+// Returns domain.ErrConflict if the stored version has advanced,
+// and domain.ErrNotFound if the row does not exist.
+func (r *WorkflowRepo) Update(ctx context.Context, wf *domain.Workflow) error {
+	statusesJSON, err := encodeStatuses(wf.Statuses)
+	if err != nil {
+		return err
+	}
+	transitionsJSON, err := encodeTransitions(wf.Transitions)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	nowStr := now.Format(timeFormat)
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE workflows SET
+			name = ?, statuses = ?, transitions = ?,
+			version = version + 1, updated_at = ?
+		WHERE id = ? AND version = ?`,
+		wf.Name, statusesJSON, transitionsJSON, nowStr,
+		wf.ID.String(), wf.Version,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		var exists int
+		err := r.db.QueryRowContext(ctx,
+			`SELECT 1 FROM workflows WHERE id = ?`, wf.ID.String()).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return domain.ErrConflict
+	}
+	wf.Version++
+	wf.UpdatedAt = now
+	return nil
+}
+
 func encodeStatuses(m map[string]domain.StatusConfig) (string, error) {
 	out := make(map[string][]domain.StatusRole, len(m))
 	for k, v := range m {
