@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/repository"
 	"github.com/google/uuid"
 )
+
+var _ repository.WorkflowRepository = (*WorkflowRepo)(nil)
 
 const workflowColumns = `id, name, statuses, transitions, version, created_at, updated_at`
 

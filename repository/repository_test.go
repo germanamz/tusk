@@ -68,6 +68,14 @@ func (s *stubProjectRepo) GetByName(_ context.Context, _ string) (*domain.Projec
 	return nil, nil
 }
 func (s *stubProjectRepo) List(_ context.Context) ([]*domain.Project, error) { return nil, nil }
+func (s *stubProjectRepo) Create(_ context.Context, _ *domain.Project) error { return nil }
+func (s *stubProjectRepo) Update(_ context.Context, _ *domain.Project) error { return nil }
+func (s *stubProjectRepo) Delete(_ context.Context, _ uuid.UUID, _ int) error {
+	return nil
+}
+func (s *stubProjectRepo) CountProjectsByWorkflow(_ context.Context, _ uuid.UUID) (int, error) {
+	return 0, nil
+}
 
 type stubTagRepo struct{}
 
@@ -104,6 +112,11 @@ func (s *stubWorkflowRepo) GetByName(_ context.Context, _ string) (*domain.Workf
 }
 func (s *stubWorkflowRepo) List(_ context.Context) ([]*domain.Workflow, error) {
 	return nil, nil
+}
+func (s *stubWorkflowRepo) Create(_ context.Context, _ *domain.Workflow) error { return nil }
+func (s *stubWorkflowRepo) Update(_ context.Context, _ *domain.Workflow) error { return nil }
+func (s *stubWorkflowRepo) Delete(_ context.Context, _ uuid.UUID, _ int) error {
+	return nil
 }
 
 type stubAnnotationRepo struct{}

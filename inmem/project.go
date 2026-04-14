@@ -124,6 +124,26 @@ func (r *ProjectRepository) List(_ context.Context) ([]*domain.Project, error) {
 	return result, nil
 }
 
+// Bridge stubs: inmem is read-only. These exist so the package satisfies
+// the expanded repository.ProjectRepository interface until inmem is deleted
+// in Phase 5 of the service layer migration.
+
+func (r *ProjectRepository) Create(context.Context, *domain.Project) error {
+	return domain.ErrReadOnlyRepository
+}
+
+func (r *ProjectRepository) Update(context.Context, *domain.Project) error {
+	return domain.ErrReadOnlyRepository
+}
+
+func (r *ProjectRepository) Delete(context.Context, uuid.UUID, int) error {
+	return domain.ErrReadOnlyRepository
+}
+
+func (r *ProjectRepository) CountProjectsByWorkflow(context.Context, uuid.UUID) (int, error) {
+	return 0, domain.ErrReadOnlyRepository
+}
+
 // copyProject returns a deep copy of a Project, including pointer fields in Settings.
 func copyProject(p *domain.Project) *domain.Project {
 	cp := &domain.Project{

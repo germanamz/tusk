@@ -167,13 +167,13 @@ func TestProjectRepo_Update_StaleVersion(t *testing.T) {
 	}
 }
 
-func TestProjectRepo_CountByWorkflow(t *testing.T) {
+func TestProjectRepo_CountProjectsByWorkflow(t *testing.T) {
 	repo := newTestProjectRepo(t)
 	ctx := context.Background()
 
-	n, err := repo.CountByWorkflow(ctx, defaultUUID)
+	n, err := repo.CountProjectsByWorkflow(ctx, defaultUUID)
 	if err != nil {
-		t.Fatalf("CountByWorkflow seed: %v", err)
+		t.Fatalf("CountProjectsByWorkflow seed: %v", err)
 	}
 	if n != 1 {
 		t.Errorf("seed count: got %d, want 1 (the _default project)", n)
@@ -186,17 +186,17 @@ func TestProjectRepo_CountByWorkflow(t *testing.T) {
 		}
 	}
 
-	n, err = repo.CountByWorkflow(ctx, defaultUUID)
+	n, err = repo.CountProjectsByWorkflow(ctx, defaultUUID)
 	if err != nil {
-		t.Fatalf("CountByWorkflow after inserts: %v", err)
+		t.Fatalf("CountProjectsByWorkflow after inserts: %v", err)
 	}
 	if n != 3 {
 		t.Errorf("count after inserts: got %d, want 3", n)
 	}
 
-	n, err = repo.CountByWorkflow(ctx, uuid.New())
+	n, err = repo.CountProjectsByWorkflow(ctx, uuid.New())
 	if err != nil {
-		t.Fatalf("CountByWorkflow unknown workflow: %v", err)
+		t.Fatalf("CountProjectsByWorkflow unknown workflow: %v", err)
 	}
 	if n != 0 {
 		t.Errorf("unknown workflow count: got %d, want 0", n)

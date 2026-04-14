@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/repository"
 	"github.com/google/uuid"
 )
+
+var _ repository.ProjectRepository = (*ProjectRepo)(nil)
 
 const projectColumns = `id, name, workflow_id, settings, version, created_at, updated_at`
 
@@ -162,9 +165,9 @@ func (r *ProjectRepo) Update(ctx context.Context, p *domain.Project) error {
 	return nil
 }
 
-// CountByWorkflow returns how many projects reference the given workflow.
+// CountProjectsByWorkflow returns how many projects reference the given workflow.
 // Used by the workflow delete guard.
-func (r *ProjectRepo) CountByWorkflow(ctx context.Context, workflowID uuid.UUID) (int, error) {
+func (r *ProjectRepo) CountProjectsByWorkflow(ctx context.Context, workflowID uuid.UUID) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM projects WHERE workflow_id = ?`,
