@@ -61,6 +61,9 @@ func (s *stubRelationRepo) CountBlockedByIncompleteTasks(_ context.Context, _ []
 
 type stubProjectRepo struct{}
 
+func (s *stubProjectRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Project, error) {
+	return nil, nil
+}
 func (s *stubProjectRepo) GetByName(_ context.Context, _ string) (*domain.Project, error) {
 	return nil, nil
 }

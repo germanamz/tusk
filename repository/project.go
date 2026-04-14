@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/germanamz/tusk/domain"
+	"github.com/google/uuid"
 )
 
 // ProjectRepository provides read access to projects.
@@ -11,6 +12,10 @@ import (
 // on sqlite.ProjectRepo in Phase 2 and are not yet part of this interface;
 // they will be promoted to the interface in the v0.11 Service Layer Migration.
 type ProjectRepository interface {
+	// GetByID returns a project by its typed UUID.
+	// Returns domain.ErrNotFound if the project doesn't exist.
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error)
+
 	// GetByName returns a project by its human-readable name (e.g. "default", "backend").
 	// Returns domain.ErrNotFound if the project doesn't exist.
 	GetByName(ctx context.Context, name string) (*domain.Project, error)
