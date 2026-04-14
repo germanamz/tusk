@@ -7,6 +7,7 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/inmem"
+	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
 
@@ -49,6 +50,32 @@ func multiProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle, map[string]uu
 	t.Helper()
 	bundle := newTestBundle(t)
 	projectRepo := multiProjectKanban("default", "backend")
+	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
+		"kanban": {
+			Statuses: map[string]config.StatusConfig{
+				"pending":   {Roles: []string{config.RoleInitial}},
+				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
+				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
+				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
+			},
+			Transitions: []config.WorkflowTransitionConfig{
+				{From: "pending", To: "active"},
+				{From: "pending", To: "deleted"},
+				{From: "active", To: "completed"},
+				{From: "active", To: "pending"},
+				{From: "active", To: "deleted"},
+				{From: "completed", To: "pending"},
+			},
+		},
+	})
+	if err := sqlite.SyncConfigToDB(
+		context.Background(),
+		workflowRepo, projectRepo,
+		sqlite.NewWorkflowRepo(bundle.Store.DB()),
+		sqlite.NewProjectRepo(bundle.Store.DB()),
+	); err != nil {
+		t.Fatalf("syncing test config to sqlite: %v", err)
+	}
 	ids := map[string]uuid.UUID{}
 	for _, name := range []string{"default", "backend"} {
 		p, err := projectRepo.GetByName(context.Background(), name)

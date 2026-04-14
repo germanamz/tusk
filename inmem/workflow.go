@@ -38,8 +38,12 @@ func buildWorkflowMap(cfgWorkflows map[string]config.WorkflowConfig) map[string]
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	workflows := make(map[string]*domain.Workflow, len(cfgWorkflows))
 	for name, cfg := range cfgWorkflows {
+		id := uuid.NewSHA1(uuid.Nil, []byte("workflow:"+name))
+		if name == "kanban" {
+			id = uuid.Nil
+		}
 		wf := &domain.Workflow{
-			ID:          uuid.NewSHA1(uuid.Nil, []byte("workflow:"+name)),
+			ID:          id,
 			Name:        name,
 			Statuses:    make(map[string]domain.StatusConfig, len(cfg.Statuses)),
 			Transitions: make([]domain.WorkflowTransition, len(cfg.Transitions)),

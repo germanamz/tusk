@@ -43,10 +43,14 @@ func buildProjectMap(cfgProjects map[string]config.ProjectConfig) map[string]*do
 		if name == config.DefaultProjectID {
 			id = uuid.Nil
 		}
+		workflowID := uuid.NewSHA1(uuid.Nil, []byte("workflow:"+cfg.Workflow))
+		if cfg.Workflow == "kanban" {
+			workflowID = uuid.Nil
+		}
 		p := &domain.Project{
 			ID:         id,
 			Name:       name,
-			WorkflowID: uuid.NewSHA1(uuid.Nil, []byte("workflow:"+cfg.Workflow)),
+			WorkflowID: workflowID,
 			Workflow:   cfg.Workflow,
 			Version:    1,
 			CreatedAt:  now,
