@@ -30,7 +30,7 @@ func NewTagService(resolve BundleResolver) *TagService {
 // definition operations (FindOrCreate, Create, Delete, Rename, Modify,
 // List, ListWithUsage) run against this repo.
 func (s *TagService) definitions(ctx context.Context) (repository.TagRepository, error) {
-	bundle, err := s.resolve(ctx, DefaultProjectID)
+	bundle, err := s.resolve(ctx, domain.DefaultProjectUUID)
 	if err != nil {
 		return nil, fmt.Errorf("resolving default bundle for tags: %w", err)
 	}

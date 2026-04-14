@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 )
 
 // Config holds configuration for creating a Client.
@@ -144,18 +145,23 @@ func NewClient(cfg Config) (*Client, error) {
 		Tags:        sqlite.NewTagRepo(db),
 		Players:     sqlite.NewPlayerRepo(db),
 	}
-	resolver := func(context.Context, string) (*service.RepoBundle, error) {
+	projectRepo := inmem.NewProjectRepository(cfg.Projects)
+
+	resolver := func(context.Context, uuid.UUID) (*service.RepoBundle, error) {
 		return bundle, nil
 	}
-	projectLister := func(context.Context) ([]string, error) {
-		ids := make([]string, 0, len(cfg.Projects))
-		for id := range cfg.Projects {
-			ids = append(ids, id)
+	projectLister := func(ctx context.Context) ([]uuid.UUID, error) {
+		projects, err := projectRepo.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]uuid.UUID, 0, len(projects))
+		for _, p := range projects {
+			ids = append(ids, p.ID)
 		}
 		return ids, nil
 	}
 
-	projectRepo := inmem.NewProjectRepository(cfg.Projects)
 	workflowRepo := inmem.NewWorkflowRepository(cfg.Workflows)
 
 	// Create services.

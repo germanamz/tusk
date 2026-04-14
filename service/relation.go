@@ -34,7 +34,7 @@ func NewRelationService(resolve BundleResolver, projects ProjectLister) *Relatio
 }
 
 func (s *RelationService) findTask(ctx context.Context, shortID string) (*RepoBundle, *domain.Task, error) {
-	bundle, err := s.resolve(ctx, "default")
+	bundle, err := s.resolve(ctx, domain.DefaultProjectUUID)
 	if err != nil {
 		return nil, nil, err
 	}

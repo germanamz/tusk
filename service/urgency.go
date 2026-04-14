@@ -31,7 +31,7 @@ type ScoringContext struct {
 	BlockedByCount  map[uuid.UUID]int
 	AnnotationCount map[uuid.UUID]int
 	TagCount        map[uuid.UUID]int
-	ProjectWeights  map[string]*UrgencyWeights // per-project weight overrides (fully merged)
+	ProjectWeights  map[uuid.UUID]*UrgencyWeights // per-project weight overrides (fully merged)
 }
 
 const (
@@ -118,7 +118,7 @@ func (e *UrgencyEngine) Score(task *domain.Task, ctx ScoringContext) float64 {
 	}
 
 	// Project
-	if task.ProjectID != "" {
+	if task.ProjectID != uuid.Nil {
 		score += w.Project
 	}
 
@@ -148,7 +148,7 @@ func (e *UrgencyEngine) ScoreAndSort(tasks []*domain.Task, ctx ScoringContext) {
 
 // weightsFor returns the effective weights for a task's project.
 // If per-project overrides exist in the context, those are used; otherwise defaults.
-func (e *UrgencyEngine) weightsFor(projectID string, ctx ScoringContext) UrgencyWeights {
+func (e *UrgencyEngine) weightsFor(projectID uuid.UUID, ctx ScoringContext) UrgencyWeights {
 	if pw, ok := ctx.ProjectWeights[projectID]; ok {
 		return *pw
 	}

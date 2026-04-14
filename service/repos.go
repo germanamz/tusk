@@ -9,6 +9,7 @@ import (
 
 	"github.com/germanamz/tusk/repository"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 )
 
 // RepoBundle groups the repositories and the underlying store (used as a
@@ -25,8 +26,8 @@ type RepoBundle struct {
 
 // BundleResolver returns the RepoBundle that owns the given project.
 // Implementations are wired in cmd/tusk/main.go.
-type BundleResolver func(ctx context.Context, projectID string) (*RepoBundle, error)
+type BundleResolver func(ctx context.Context, projectID uuid.UUID) (*RepoBundle, error)
 
-// ProjectLister returns every project ID currently known to the resolver.
+// ProjectLister returns every project UUID currently known to the resolver.
 // Used by fan-out reads in Phase 4.
-type ProjectLister func(ctx context.Context) ([]string, error)
+type ProjectLister func(ctx context.Context) ([]uuid.UUID, error)

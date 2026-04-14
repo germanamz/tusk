@@ -15,6 +15,7 @@ import (
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 )
 
 func TestFormatError_NotFound(t *testing.T) {
@@ -101,8 +102,8 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 		},
 	})
 
-	resolver := func(context.Context, string) (*service.RepoBundle, error) { return bundle, nil }
-	projects := func(context.Context) ([]string, error) { return []string{"default"}, nil }
+	resolver := func(context.Context, uuid.UUID) (*service.RepoBundle, error) { return bundle, nil }
+	projects := func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{domain.DefaultProjectUUID}, nil }
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)

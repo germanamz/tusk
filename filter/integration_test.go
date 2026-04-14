@@ -19,7 +19,12 @@ func testSetup(t *testing.T) (*Resolver, *sqlite.TaskRepo) {
 	t.Cleanup(func() { store.Close() })
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
-	return NewResolver(taskRepo, []string{"pending", "active"}), taskRepo
+	projects := &fakeProjectLookup{
+		byName: map[string]*domain.Project{
+			"default": {ID: defaultProjectUUID, Name: "default"},
+		},
+	}
+	return NewResolver(taskRepo, projects, []string{"pending", "active"}), taskRepo
 }
 
 func TestIntegration_DefaultFilter(t *testing.T) {

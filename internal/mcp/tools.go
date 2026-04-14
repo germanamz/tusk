@@ -50,7 +50,45 @@ type taskResponse struct {
 	ClaimedAt      *string        `json:"claimed_at,omitempty"`
 }
 
-func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
+// projectNameCache resolves project UUIDs to names within one MCP handler
+// invocation, so a list response avoids N+1 lookups.
+type projectNameCache struct {
+	ctx   context.Context
+	svc   projectByIDLookup
+	cache map[uuid.UUID]string
+}
+
+// projectByIDLookup is the subset of ProjectService used by projectNameCache.
+type projectByIDLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error)
+}
+
+func newProjectNameCache(ctx context.Context, svc projectByIDLookup) *projectNameCache {
+	return &projectNameCache{ctx: ctx, svc: svc, cache: map[uuid.UUID]string{}}
+}
+
+func (c *projectNameCache) name(id uuid.UUID) string {
+	if c == nil || c.svc == nil {
+		return id.String()
+	}
+	if n, ok := c.cache[id]; ok {
+		return n
+	}
+	p, err := c.svc.GetByID(c.ctx, id)
+	if err != nil {
+		c.cache[id] = id.String()
+		return id.String()
+	}
+	c.cache[id] = p.Name
+	return p.Name
+}
+
+// projectNames returns a new per-invocation project-name cache.
+func (s *Server) projectNames(ctx context.Context) *projectNameCache {
+	return newProjectNameCache(ctx, s.projectSvc)
+}
+
+func toTaskResponse(t *domain.Task, tags []*domain.Tag, projectNames *projectNameCache) taskResponse {
 	r := taskResponse{
 		ID:          t.ID.String(),
 		ShortID:     t.ShortID,
@@ -67,7 +105,7 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag) taskResponse {
 		s := t.ParentID.String()
 		r.ParentID = &s
 	}
-	r.ProjectID = t.ProjectID
+	r.ProjectID = projectNames.name(t.ProjectID)
 	if t.DueAt != nil {
 		s := t.DueAt.Format(time.RFC3339)
 		r.DueAt = &s
@@ -132,9 +170,13 @@ func (s *Server) handleTaskCreate(ctx context.Context, request mcp.CallToolReque
 		task.Priority = int(p)
 	}
 
-	// Optional: project (by ID)
-	if projectID, err := request.RequireString("project"); err == nil {
-		task.ProjectID = projectID
+	// Optional: project (by name)
+	if projectName, err := request.RequireString("project"); err == nil {
+		resolved, resolveErr := s.taskSvc.ResolveProjectName(ctx, projectName)
+		if resolveErr != nil {
+			return toolError(resolveErr, "project "+projectName), nil
+		}
+		task.ProjectID = resolved
 	}
 
 	// Optional: parent (by short_id)
@@ -189,7 +231,7 @@ func (s *Server) handleTaskCreate(ctx context.Context, request mcp.CallToolReque
 		return nil, err
 	}
 
-	return toolResultJSON(toTaskResponse(task, taskTags))
+	return toolResultJSON(toTaskResponse(task, taskTags, s.projectNames(ctx)))
 }
 
 // annotationResponse is the JSON structure for annotations within task get.
@@ -243,7 +285,7 @@ func (s *Server) buildTaskGetResponse(ctx context.Context, shortID string) (*tas
 	}
 
 	resp := &taskGetResponse{
-		taskResponse: toTaskResponse(task, tags),
+		taskResponse: toTaskResponse(task, tags, s.projectNames(ctx)),
 		Annotations:  make([]annotationResponse, len(annotations)),
 		Relations:    make([]relationResponse, 0, len(rels)),
 	}
@@ -364,9 +406,10 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 			return nil, err
 		}
 
+		names := s.projectNames(ctx)
 		results := make([]taskResponse, len(tasks))
 		for i, t := range tasks {
-			results[i] = toTaskResponse(t, tagsByTask[t.ID])
+			results[i] = toTaskResponse(t, tagsByTask[t.ID], names)
 		}
 
 		return toolResultJSON(results)
@@ -389,9 +432,13 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		tf.PriorityMax = &v
 	}
 
-	// Optional: project (by ID)
-	if projectID, err := request.RequireString("project"); err == nil {
-		tf.ProjectID = &projectID
+	// Optional: project (by name)
+	if projectName, err := request.RequireString("project"); err == nil {
+		resolved, resolveErr := s.taskSvc.ResolveProjectName(ctx, projectName)
+		if resolveErr != nil {
+			return toolError(resolveErr, "project "+projectName), nil
+		}
+		tf.ProjectID = &resolved
 	}
 
 	// Optional: tags include/exclude
@@ -461,9 +508,10 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		return nil, err
 	}
 
+	names := s.projectNames(ctx)
 	results := make([]taskResponse, len(tasks))
 	for i, t := range tasks {
-		results[i] = toTaskResponse(t, tagsByTask[t.ID])
+		results[i] = toTaskResponse(t, tagsByTask[t.ID], names)
 	}
 
 	return toolResultJSON(results)
@@ -504,9 +552,13 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 		upd.Priority = &v
 	}
 
-	// Optional: project (by ID)
-	if projectID, err := request.RequireString("project"); err == nil {
-		upd.ProjectID = &projectID
+	// Optional: project (by name)
+	if projectName, err := request.RequireString("project"); err == nil {
+		resolved, resolveErr := s.taskSvc.ResolveProjectName(ctx, projectName)
+		if resolveErr != nil {
+			return toolError(resolveErr, "project "+projectName), nil
+		}
+		upd.ProjectID = &resolved
 	}
 
 	// Optional: parent (by short_id, empty string clears parent)
@@ -587,7 +639,7 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 		return nil, err
 	}
 
-	return toolResultJSON(toTaskResponse(updated, taskTags))
+	return toolResultJSON(toTaskResponse(updated, taskTags, s.projectNames(ctx)))
 }
 
 // handleTaskTransition is a shared helper for start/done/delete handlers.
@@ -611,7 +663,7 @@ func (s *Server) handleTaskTransition(ctx context.Context, request mcp.CallToolR
 		return nil, err
 	}
 
-	return toolResultJSON(toTaskResponse(updated, tags))
+	return toolResultJSON(toTaskResponse(updated, tags, s.projectNames(ctx)))
 }
 
 // handleTaskStart handles the tusk_task_start tool.
@@ -646,7 +698,7 @@ func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolReques
 		return nil, err
 	}
 
-	return toolResultJSON(toTaskResponse(updated, tags))
+	return toolResultJSON(toTaskResponse(updated, tags, s.projectNames(ctx)))
 }
 
 // handleTaskDone handles the tusk_task_done tool.
@@ -702,7 +754,7 @@ type treeNodeResponse struct {
 	Children       []treeNodeResponse `json:"children"`
 }
 
-func toTreeNodeResponse(task *domain.Task) treeNodeResponse {
+func toTreeNodeResponse(task *domain.Task, projectNames *projectNameCache) treeNodeResponse {
 	r := treeNodeResponse{
 		ID:          task.ID.String(),
 		ShortID:     task.ShortID,
@@ -719,7 +771,7 @@ func toTreeNodeResponse(task *domain.Task) treeNodeResponse {
 		s := task.ParentID.String()
 		r.ParentID = &s
 	}
-	r.ProjectID = task.ProjectID
+	r.ProjectID = projectNames.name(task.ProjectID)
 	if task.DueAt != nil {
 		s := task.DueAt.Format(time.RFC3339)
 		r.DueAt = &s
@@ -735,7 +787,7 @@ func toTreeNodeResponse(task *domain.Task) treeNodeResponse {
 // buildTreeResponse constructs a nested tree from a flat task list.
 // If rootID is non-nil, only that task is the root. Otherwise, tasks without
 // a parent (or whose parent is not in the set) become roots.
-func buildTreeResponse(tasks []*domain.Task, rootID *uuid.UUID) []treeNodeResponse {
+func buildTreeResponse(tasks []*domain.Task, rootID *uuid.UUID, projectNames *projectNameCache) []treeNodeResponse {
 	type node struct {
 		resp     treeNodeResponse
 		children []*node
@@ -743,7 +795,7 @@ func buildTreeResponse(tasks []*domain.Task, rootID *uuid.UUID) []treeNodeRespon
 
 	byID := make(map[uuid.UUID]*node, len(tasks))
 	for _, t := range tasks {
-		n := &node{resp: toTreeNodeResponse(t)}
+		n := &node{resp: toTreeNodeResponse(t, projectNames)}
 		byID[t.ID] = n
 	}
 
@@ -986,7 +1038,7 @@ func (s *Server) handleTaskClaim(ctx context.Context, request mcp.CallToolReques
 		return nil, err
 	}
 
-	return toolResultJSON(toTaskResponse(updated, tags))
+	return toolResultJSON(toTaskResponse(updated, tags, s.projectNames(ctx)))
 }
 
 // handleTaskRelease handles the tusk_task_release tool.
@@ -1014,7 +1066,7 @@ func (s *Server) handleTaskRelease(ctx context.Context, request mcp.CallToolRequ
 		return nil, err
 	}
 
-	return toolResultJSON(toTaskResponse(updated, tags))
+	return toolResultJSON(toTaskResponse(updated, tags, s.projectNames(ctx)))
 }
 
 // handleTaskAvailable handles the tusk_task_available tool.
@@ -1067,9 +1119,10 @@ func (s *Server) handleTaskAvailable(ctx context.Context, request mcp.CallToolRe
 		return nil, err
 	}
 
+	names := s.projectNames(ctx)
 	results := make([]taskResponse, len(tasks))
 	for i, t := range tasks {
-		results[i] = toTaskResponse(t, tagsByTask[t.ID])
+		results[i] = toTaskResponse(t, tagsByTask[t.ID], names)
 	}
 
 	return toolResultJSON(results)
@@ -1121,7 +1174,7 @@ func (s *Server) handleTaskPop(ctx context.Context, request mcp.CallToolRequest)
 		return nil, err
 	}
 
-	return toolResultJSON(toTaskResponse(task, tags))
+	return toolResultJSON(toTaskResponse(task, tags, s.projectNames(ctx)))
 }
 
 // handleTaskTree handles the tusk_task_tree tool.
@@ -1158,6 +1211,6 @@ func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest
 		}
 	}
 
-	tree := buildTreeResponse(tasks, rootID)
+	tree := buildTreeResponse(tasks, rootID, s.projectNames(ctx))
 	return toolResultJSON(tree)
 }

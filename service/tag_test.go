@@ -16,7 +16,7 @@ import (
 func testTagEnv(t *testing.T) (*TagService, *sqlite.Store) {
 	t.Helper()
 	bundle := newTestBundle(t)
-	resolver, _ := singleBundleResolver(bundle, "default")
+	resolver, _ := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	tagSvc := NewTagService(resolver)
 	return tagSvc, bundle.Store
 }
@@ -109,7 +109,7 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 			},
 		},
 	})
-	resolver, projects := singleBundleResolver(bundle, "default")
+	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 

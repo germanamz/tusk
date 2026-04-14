@@ -29,7 +29,7 @@ func emptyContext() ScoringContext {
 		BlockedByCount:  map[uuid.UUID]int{},
 		AnnotationCount: map[uuid.UUID]int{},
 		TagCount:        map[uuid.UUID]int{},
-		ProjectWeights:  map[string]*UrgencyWeights{},
+		ProjectWeights:  map[uuid.UUID]*UrgencyWeights{},
 	}
 }
 
@@ -198,13 +198,15 @@ func TestUrgencyProjectWeightOverride(t *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 
 	overridePriority := 20.0
+	defaultProjectID := uuid.New()
+	customProjectID := uuid.New()
 	ctx := ScoringContext{
 		BlockingCount:   map[uuid.UUID]int{},
 		BlockedByCount:  map[uuid.UUID]int{},
 		AnnotationCount: map[uuid.UUID]int{},
 		TagCount:        map[uuid.UUID]int{},
-		ProjectWeights: map[string]*UrgencyWeights{
-			"custom": {
+		ProjectWeights: map[uuid.UUID]*UrgencyWeights{
+			customProjectID: {
 				Priority:    overridePriority,
 				Due:         12.0,
 				Age:         2.0,
@@ -219,8 +221,8 @@ func TestUrgencyProjectWeightOverride(t *testing.T) {
 		},
 	}
 
-	defaultTask := &domain.Task{ID: uuid.New(), Priority: 4, Status: "pending", ProjectID: "default", CreatedAt: time.Now()}
-	customTask := &domain.Task{ID: uuid.New(), Priority: 4, Status: "pending", ProjectID: "custom", CreatedAt: time.Now()}
+	defaultTask := &domain.Task{ID: uuid.New(), Priority: 4, Status: "pending", ProjectID: defaultProjectID, CreatedAt: time.Now()}
+	customTask := &domain.Task{ID: uuid.New(), Priority: 4, Status: "pending", ProjectID: customProjectID, CreatedAt: time.Now()}
 
 	defaultScore := engine.Score(defaultTask, ctx)
 	customScore := engine.Score(customTask, ctx)

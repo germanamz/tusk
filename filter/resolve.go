@@ -14,17 +14,24 @@ type TaskLookup interface {
 	GetByShortID(ctx context.Context, shortID string) (*domain.Task, error)
 }
 
+// ProjectLookup is the subset of project operations the Resolver needs.
+type ProjectLookup interface {
+	GetByName(ctx context.Context, name string) (*domain.Project, error)
+}
+
 // Resolver converts a parsed FilterSet into a domain.TaskFilter.
 type Resolver struct {
 	taskLookup      TaskLookup
+	projectLookup   ProjectLookup
 	defaultStatuses []string
 }
 
 // NewResolver creates a Resolver with the given lookup dependencies and the
 // list of statuses to inject when no explicit status filter is provided.
-func NewResolver(taskLookup TaskLookup, defaultStatuses []string) *Resolver {
+func NewResolver(taskLookup TaskLookup, projectLookup ProjectLookup, defaultStatuses []string) *Resolver {
 	return &Resolver{
 		taskLookup:      taskLookup,
+		projectLookup:   projectLookup,
 		defaultStatuses: defaultStatuses,
 	}
 }
@@ -173,7 +180,14 @@ func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *doma
 		tf.Statuses = strings.Split(field.Value, ",")
 
 	case "project":
-		id := field.Value
+		proj, err := r.projectLookup.GetByName(ctx, field.Value)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return fmt.Errorf("project %q not found", field.Value)
+			}
+			return fmt.Errorf("looking up project %q: %w", field.Value, err)
+		}
+		id := proj.ID
 		tf.ProjectID = &id
 
 	case "priority":

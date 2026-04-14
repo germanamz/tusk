@@ -70,7 +70,7 @@ func TestRenderTaskList_JSON(t *testing.T) {
 		{
 			ID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 			ShortID:    "a3f8b2c1",
-			ProjectID:  "default",
+			ProjectID:  domain.DefaultProjectUUID,
 			Status:     "pending",
 			Priority:   0,
 			Title:      "Test task",
@@ -309,7 +309,7 @@ func TestRenderTaskInfo_Text_AllFields(t *testing.T) {
 		Description: "Build the auth middleware",
 		Status:      "active",
 		Priority:    3,
-		ProjectID:   "default",
+		ProjectID:   domain.DefaultProjectUUID,
 		ParentID:    &parentID,
 		DueAt:       &due,
 		Version:     3,

@@ -39,8 +39,12 @@ func buildProjectMap(cfgProjects map[string]config.ProjectConfig) map[string]*do
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	projects := make(map[string]*domain.Project, len(cfgProjects))
 	for name, cfg := range cfgProjects {
+		id := uuid.NewSHA1(uuid.Nil, []byte("project:"+name))
+		if name == config.DefaultProjectID {
+			id = uuid.Nil
+		}
 		p := &domain.Project{
-			ID:         uuid.NewSHA1(uuid.Nil, []byte("project:"+name)),
+			ID:         id,
 			Name:       name,
 			WorkflowID: uuid.NewSHA1(uuid.Nil, []byte("workflow:"+cfg.Workflow)),
 			Workflow:   cfg.Workflow,

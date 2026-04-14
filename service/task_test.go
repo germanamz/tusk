@@ -41,7 +41,7 @@ func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig
 		},
 	})
 
-	resolver, projects := singleBundleResolver(bundle, "default")
+	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
@@ -107,11 +107,8 @@ func TestCreate_HappyPath(t *testing.T) {
 	if task.Status != "pending" {
 		t.Fatalf("expected status 'pending', got %q", task.Status)
 	}
-	if task.ProjectID == "" {
-		t.Fatal("expected ProjectID to be set to default")
-	}
-	if task.ProjectID != DefaultProjectID {
-		t.Fatalf("expected default project ID, got %s", task.ProjectID)
+	if task.ProjectID != domain.DefaultProjectUUID {
+		t.Fatalf("expected default project ID, got %v", task.ProjectID)
 	}
 	if task.CreatedAt.IsZero() {
 		t.Fatal("expected CreatedAt to be set")
@@ -186,7 +183,7 @@ func TestCreate_InvalidProject(t *testing.T) {
 	ctx := context.Background()
 
 	task := newMinimalTask("Bad project")
-	task.ProjectID = "nonexistent-project"
+	task.ProjectID = uuid.New() // unknown project UUID
 	err := env.taskSvc.Create(ctx, task)
 	if err == nil {
 		t.Fatal("expected error for nonexistent project")
@@ -230,7 +227,7 @@ func TestCreate_DefaultsToDefaultProject(t *testing.T) {
 	if err := env.taskSvc.Create(ctx, task); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if task.ProjectID == "" || task.ProjectID != DefaultProjectID {
+	if task.ProjectID != domain.DefaultProjectUUID {
 		t.Fatalf("expected default project, got %v", task.ProjectID)
 	}
 }
@@ -248,7 +245,7 @@ func TestCreate_WithAllFields(t *testing.T) {
 		Description:    "All fields populated",
 		Status:         "pending",
 		Priority:       3,
-		ProjectID:      DefaultProjectID,
+		ProjectID:      domain.DefaultProjectUUID,
 		DueAt:          &due,
 		WaitUntil:      &wait,
 		RecurrenceRule: &rrule,
@@ -1026,7 +1023,7 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 		},
 	})
 
-	resolver, projects := singleBundleResolver(bundle, "default")
+	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
 

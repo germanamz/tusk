@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/germanamz/tusk/config"
@@ -11,6 +12,7 @@ import (
 	"github.com/germanamz/tusk/inmem"
 	tuskmcp "github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/service"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +43,28 @@ type App struct {
 	tuiCfg        config.TUIConfig
 	mcpCfg        config.MCPConfig
 	loadOpts      []config.Option
+}
+
+// newRenderer creates a Renderer wired with a per-call project-name cache
+// backed by the configured ProjectService. dimStatuses may be nil.
+func (a *App) newRenderer(ctx context.Context, w io.Writer, dimStatuses map[string]bool) *Renderer {
+	r := NewRenderer(w, a.format, a.colorEnabled(), dimStatuses)
+	if a.projectSvc != nil {
+		cache := map[uuid.UUID]string{}
+		r.SetProjectNameResolver(func(id uuid.UUID) string {
+			if name, ok := cache[id]; ok {
+				return name
+			}
+			p, err := a.projectSvc.GetByID(ctx, id)
+			if err != nil {
+				cache[id] = id.String()
+				return id.String()
+			}
+			cache[id] = p.Name
+			return p.Name
+		})
+	}
+	return r
 }
 
 // colorEnabled resolves whether color output is active.
@@ -87,7 +111,7 @@ func New(
 		mcpCfg:        mcpCfg,
 		loadOpts:      loadOpts,
 	}
-	a.resolver = filter.NewResolver(taskSvc, collectNonTerminalStatuses(workflowSvc))
+	a.resolver = filter.NewResolver(taskSvc, projectSvc, collectNonTerminalStatuses(workflowSvc))
 
 	a.root = &cobra.Command{
 		Use:           "tusk",
