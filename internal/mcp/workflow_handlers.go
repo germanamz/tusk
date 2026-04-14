@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/service"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -75,20 +77,46 @@ func parseTransitionSpecs(raw any) ([]transitionSpec, error) {
 	return out, nil
 }
 
-func statusesToConfig(specs []statusSpec) map[string]config.StatusConfig {
-	out := make(map[string]config.StatusConfig, len(specs))
+func statusesToDomain(specs []statusSpec) map[string]domain.StatusConfig {
+	out := make(map[string]domain.StatusConfig, len(specs))
 	for _, s := range specs {
-		out[s.Name] = config.StatusConfig{Roles: append([]string(nil), s.Roles...)}
+		roles := make([]domain.StatusRole, len(s.Roles))
+		for i, r := range s.Roles {
+			roles[i] = domain.StatusRole(r)
+		}
+		out[s.Name] = domain.StatusConfig{Roles: roles}
 	}
 	return out
 }
 
-func transitionsToConfig(specs []transitionSpec) []config.WorkflowTransitionConfig {
-	out := make([]config.WorkflowTransitionConfig, 0, len(specs))
+func transitionsToDomain(specs []transitionSpec) []domain.WorkflowTransition {
+	out := make([]domain.WorkflowTransition, 0, len(specs))
 	for _, t := range specs {
-		out = append(out, config.WorkflowTransitionConfig{From: t.From, To: t.To})
+		out = append(out, domain.WorkflowTransition{FromStatus: t.From, ToStatus: t.To})
 	}
 	return out
+}
+
+func workflowToMap(w *domain.Workflow) map[string]any {
+	statuses := make([]map[string]any, 0, len(w.Statuses))
+	for name, sc := range w.Statuses {
+		roles := make([]string, len(sc.Roles))
+		for i, r := range sc.Roles {
+			roles[i] = string(r)
+		}
+		statuses = append(statuses, map[string]any{"name": name, "roles": roles})
+	}
+	transitions := make([]map[string]any, 0, len(w.Transitions))
+	for _, t := range w.Transitions {
+		transitions = append(transitions, map[string]any{"from": t.FromStatus, "to": t.ToStatus})
+	}
+	return map[string]any{
+		"id":          w.ID.String(),
+		"name":        w.Name,
+		"version":     w.Version,
+		"statuses":    statuses,
+		"transitions": transitions,
+	}
 }
 
 func (s *Server) handleWorkflowCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -110,31 +138,27 @@ func (s *Server) handleWorkflowCreate(ctx context.Context, req mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("transitions: %v", err)), nil
 	}
 
-	wf := config.WorkflowConfig{
-		Statuses:    statusesToConfig(statuses),
-		Transitions: transitionsToConfig(transitions),
-	}
-
-	path, err := config.ConfigFilePath(s.loadOpts...)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
-	}
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	if err := config.CreateWorkflow(path, name, wf); err != nil {
+	wf, err := s.workflowSvc.Create(ctx, service.CreateWorkflowInput{
+		Name:        name,
+		Statuses:    statusesToDomain(statuses),
+		Transitions: transitionsToDomain(transitions),
+	})
+	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfigLocked(ctx); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
-	}
-
-	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+	return toolResultJSON(map[string]any{"ok": true, "workflow": workflowToMap(wf)})
 }
 
 func (s *Server) handleWorkflowModify(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name, err := req.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
+	}
+	versionF, err := req.RequireFloat("version")
+	if err != nil {
+		return mcp.NewToolResultError("version is required"), nil
 	}
 	args := req.GetArguments()
 
@@ -166,28 +190,21 @@ func (s *Server) handleWorkflowModify(ctx context.Context, req mcp.CallToolReque
 		}
 	}
 
-	mut := config.WorkflowMutation{
-		AddStatuses:       statusesToConfig(addStatuses),
-		SetStatuses:       statusesToConfig(setStatuses),
-		RemoveStatuses:    removeStatuses,
-		AddTransitions:    transitionsToConfig(addTrans),
-		RemoveTransitions: transitionsToConfig(removeTrans),
-	}
-
-	path, err := config.ConfigFilePath(s.loadOpts...)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
-	}
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	if err := config.ModifyWorkflow(path, name, mut); err != nil {
+	wf, err := s.workflowSvc.Modify(ctx, service.ModifyWorkflowInput{
+		Name:              name,
+		ExpectedVersion:   int(versionF),
+		AddStatuses:       statusesToDomain(addStatuses),
+		SetStatuses:       statusesToDomain(setStatuses),
+		RemoveStatuses:    removeStatuses,
+		AddTransitions:    transitionsToDomain(addTrans),
+		RemoveTransitions: transitionsToDomain(removeTrans),
+	})
+	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfigLocked(ctx); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
-	}
-
-	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+	return toolResultJSON(map[string]any{"ok": true, "workflow": workflowToMap(wf)})
 }
 
 // HandleWorkflowModifyForTest exposes handleWorkflowModify for internal tests.
@@ -200,19 +217,25 @@ func (s *Server) handleWorkflowDelete(ctx context.Context, req mcp.CallToolReque
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	path, err := config.ConfigFilePath(s.loadOpts...)
+	versionF, err := req.RequireFloat("version")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving config file: %v", err)), nil
+		return mcp.NewToolResultError("version is required"), nil
 	}
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-	if err := config.DeleteWorkflow(path, name); err != nil {
+
+	wf, err := s.workflowSvc.GetByName(ctx, name)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return mcp.NewToolResultError(fmt.Sprintf("workflow %q: not found", name)), nil
+		}
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	if err := s.reloadConfigLocked(ctx); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
+
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	if err := s.workflowSvc.Delete(ctx, wf.ID, int(versionF)); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
-	return toolResultJSON(map[string]any{"ok": true, "name": name, "active_file": path})
+	return toolResultJSON(map[string]any{"ok": true, "name": name})
 }
 
 // HandleWorkflowDeleteForTest exposes handleWorkflowDelete for internal tests.

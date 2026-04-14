@@ -2,12 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -42,30 +43,15 @@ func TestHandleWorkflowCreate_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %s", text)
 	}
 
-	loaded, err := config.LoadFile(path)
+	wf, err := srv.WorkflowRepoForTest().GetByName(context.Background(), "sprint")
 	if err != nil {
-		t.Fatalf("LoadFile: %v", err)
-	}
-	wf, ok := loaded.Workflows["sprint"]
-	if !ok {
-		t.Fatalf("workflow sprint not persisted")
+		t.Fatalf("GetByName sprint: %v", err)
 	}
 	if len(wf.Statuses) != 4 || len(wf.Transitions) != 3 {
 		t.Fatalf("unexpected shape: %+v", wf)
 	}
-
-	wfs, err := srv.WorkflowRepoForTest().List(context.Background())
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	var found bool
-	for _, w := range wfs {
-		if w.Name == "sprint" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("workflow sprint not reloaded into repo: %+v", wfs)
+	if wf.Version != 1 {
+		t.Fatalf("expected version 1, got %d", wf.Version)
 	}
 }
 
@@ -75,9 +61,15 @@ func TestHandleWorkflowModify_AddAndRemove(t *testing.T) {
 	writeMinimalConfig(t, path)
 	srv := newTestServer(t, path)
 
+	wf, err := srv.WorkflowRepoForTest().GetByName(context.Background(), "kanban")
+	if err != nil {
+		t.Fatalf("GetByName kanban: %v", err)
+	}
+
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
-			"name": "kanban",
+			"name":    "kanban",
+			"version": float64(wf.Version),
 			"add_statuses": []any{
 				map[string]any{"name": "in_review", "roles": []any{}},
 			},
@@ -95,12 +87,15 @@ func TestHandleWorkflowModify_AddAndRemove(t *testing.T) {
 		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
-	loaded, err := config.LoadFile(path)
+	updated, err := srv.WorkflowRepoForTest().GetByName(context.Background(), "kanban")
 	if err != nil {
-		t.Fatalf("LoadFile: %v", err)
+		t.Fatalf("GetByName kanban after modify: %v", err)
 	}
-	if _, ok := loaded.Workflows["kanban"].Statuses["in_review"]; !ok {
-		t.Fatalf("in_review not added")
+	if _, ok := updated.Statuses["in_review"]; !ok {
+		t.Fatalf("in_review not added: %+v", updated.Statuses)
+	}
+	if updated.Version != wf.Version+1 {
+		t.Fatalf("expected bumped version, got %d", updated.Version)
 	}
 }
 
@@ -108,25 +103,41 @@ func TestHandleWorkflowDelete_Success(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
 	writeMinimalConfig(t, path)
+	srv := newTestServer(t, path)
+	ctx := context.Background()
 
-	if err := config.CreateWorkflow(path, "sprint", config.WorkflowConfig{
-		Statuses: map[string]config.StatusConfig{
-			"todo":  {Roles: []string{"initial"}},
-			"doing": {Roles: []string{"start"}},
-			"done":  {Roles: []string{"terminal", "done"}},
-			"drop":  {Roles: []string{"terminal", "delete"}},
-		},
-		Transitions: []config.WorkflowTransitionConfig{{From: "todo", To: "doing"}},
-	}); err != nil {
-		t.Fatalf("seeding sprint: %v", err)
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name": "sprint",
+			"statuses": []any{
+				map[string]any{"name": "todo", "roles": []any{"initial"}},
+				map[string]any{"name": "doing", "roles": []any{"start"}},
+				map[string]any{"name": "done", "roles": []any{"terminal", "done"}},
+				map[string]any{"name": "drop", "roles": []any{"terminal", "delete"}},
+			},
+			"transitions": []any{
+				map[string]any{"from": "todo", "to": "doing"},
+				map[string]any{"from": "doing", "to": "done"},
+				map[string]any{"from": "doing", "to": "drop"},
+			},
+		}},
+	}
+	if res, err := srv.HandleWorkflowCreateForTest(ctx, createReq); err != nil || res.IsError {
+		t.Fatalf("seed create failed: %v / %+v", err, res)
 	}
 
-	srv := newTestServer(t, path)
+	wf, err := srv.WorkflowRepoForTest().GetByName(ctx, "sprint")
+	if err != nil {
+		t.Fatalf("GetByName sprint: %v", err)
+	}
 
 	req := mcp.CallToolRequest{
-		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "sprint"}},
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":    "sprint",
+			"version": float64(wf.Version),
+		}},
 	}
-	res, err := srv.HandleWorkflowDeleteForTest(context.Background(), req)
+	res, err := srv.HandleWorkflowDeleteForTest(ctx, req)
 	if err != nil {
 		t.Fatalf("HandleWorkflowDeleteForTest: %v", err)
 	}
@@ -134,9 +145,8 @@ func TestHandleWorkflowDelete_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
-	loaded, _ := config.LoadFile(path)
-	if _, ok := loaded.Workflows["sprint"]; ok {
-		t.Fatalf("sprint still present after delete")
+	if _, err := srv.WorkflowRepoForTest().GetByName(ctx, "sprint"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }
 
@@ -145,11 +155,20 @@ func TestHandleWorkflowDelete_ReferencedByProject(t *testing.T) {
 	path := filepath.Join(dir, "tusk.toml")
 	writeMinimalConfig(t, path)
 	srv := newTestServer(t, path)
+	ctx := context.Background()
+
+	wf, err := srv.WorkflowRepoForTest().GetByName(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("GetByName kanban: %v", err)
+	}
 
 	req := mcp.CallToolRequest{
-		Params: mcp.CallToolParams{Arguments: map[string]any{"name": "kanban"}},
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":    "kanban",
+			"version": float64(wf.Version),
+		}},
 	}
-	res, _ := srv.HandleWorkflowDeleteForTest(context.Background(), req)
+	res, _ := srv.HandleWorkflowDeleteForTest(ctx, req)
 	if !res.IsError {
 		t.Fatalf("expected error deleting referenced workflow")
 	}
@@ -181,12 +200,9 @@ func TestHandleWorkflowCreate_ValidationError(t *testing.T) {
 }
 
 // TestHandleWorkflow_ConcurrentMutationsAreSerialized launches many concurrent
-// workflow create/modify/delete operations and verifies that the resulting
-// config file still parses cleanly, validates, and contains every workflow
-// that was supposed to survive. Without the server-level config mutex, the
-// parallel read-modify-write paths inside config.CreateWorkflow /
-// ModifyWorkflow / DeleteWorkflow would race with each other and with
-// tusk_config_set, occasionally losing an update or corrupting the file.
+// workflow create operations and verifies that every workflow lands in the
+// repository. The server-level mutex serializes the read-modify-write paths
+// inside the service so creates do not race with each other.
 func TestHandleWorkflow_ConcurrentMutationsAreSerialized(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
@@ -230,17 +246,10 @@ func TestHandleWorkflow_ConcurrentMutationsAreSerialized(t *testing.T) {
 	}
 	wg.Wait()
 
-	loaded, err := config.LoadFile(path)
-	if err != nil {
-		t.Fatalf("LoadFile after concurrent writes: %v", err)
-	}
-	if err := loaded.Validate(); err != nil {
-		t.Fatalf("Validate after concurrent writes: %v", err)
-	}
 	for i := 0; i < goroutines; i++ {
 		name := fmt.Sprintf("wf_%03d", i)
-		if _, ok := loaded.Workflows[name]; !ok {
-			t.Errorf("workflow %q lost to race", name)
+		if _, err := srv.WorkflowRepoForTest().GetByName(context.Background(), name); err != nil {
+			t.Errorf("workflow %q lost to race: %v", name, err)
 		}
 	}
 }
