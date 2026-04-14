@@ -5,10 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/germanamz/tusk/sqlite/sqlitetest"
 )
 
 type testRelationEnv struct {
@@ -17,33 +16,11 @@ type testRelationEnv struct {
 	store       *sqlite.Store
 }
 
-// testRelationEnv creates a fully wired test environment for RelationService tests.
+// newTestRelationEnv creates a fully wired test environment for RelationService tests.
 // The DB has all migrations applied, including the default project and kanban workflow.
 func newTestRelationEnv(t *testing.T) *testRelationEnv {
 	t.Helper()
-	bundle := newTestBundle(t)
-
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-	})
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	})
+	bundle, projectRepo, workflowRepo := newSeededBundle(t, sqlitetest.KanbanConfig("default"))
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)

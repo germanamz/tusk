@@ -8,8 +8,9 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/config"
-	"github.com/germanamz/tusk/inmem"
 	"github.com/germanamz/tusk/service"
+	"github.com/germanamz/tusk/sqlite"
+	"github.com/germanamz/tusk/sqlite/sqlitetest"
 )
 
 // mustNew calls New and fails the test on error.
@@ -193,14 +194,12 @@ func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
 		t.Fatalf("writing seed config: %v", err)
 	}
 
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{})
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{})
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(t, nil)
+	_ = store
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
-	reloadHook := func(_ context.Context, cfg *config.Config) error {
-		workflowRepo.Reload(cfg.Workflows)
-		projectRepo.Reload(cfg.Projects)
-		return nil
+	reloadHook := func(ctx context.Context, cfg *config.Config) error {
+		return sqlite.SyncConfigToDB(ctx, cfg, workflowRepo, projectRepo)
 	}
 	srv, err := New(
 		nil, nil, nil, nil, nil, nil,

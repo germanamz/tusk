@@ -151,8 +151,6 @@ func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolReques
 		Urgency:            urgency,
 	}
 
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
 	p, err := s.projectSvc.Create(ctx, service.CreateProjectInput{
 		Name:       name,
 		WorkflowID: wf.ID,
@@ -226,8 +224,6 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 	}
 	input.AutoRevert = autoRevertFromMap(ar)
 
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
 	p, err := s.projectSvc.Modify(ctx, input)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -259,8 +255,6 @@ func (s *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolReques
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
 	if err := s.projectSvc.Delete(ctx, p.ID, int(versionF), force); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}

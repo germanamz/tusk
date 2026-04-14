@@ -5,20 +5,15 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
+	"github.com/germanamz/tusk/sqlite/sqlitetest"
 	"github.com/google/uuid"
 )
 
 func testProjectService(t *testing.T) *ProjectService {
 	t.Helper()
-	cfgProjects := map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-		"backend": {Workflow: "kanban"},
-	}
-	repo := inmem.NewProjectRepository(cfgProjects)
-	return NewProjectService(repo, nil, nil, ProjectDefaults{})
+	_, projRepo, _ := sqlitetest.NewStore(t, sqlitetest.KanbanConfig("default", "backend"))
+	return NewProjectService(projRepo, nil, nil, ProjectDefaults{})
 }
 
 func TestProjectService_GetByName(t *testing.T) {
