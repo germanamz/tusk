@@ -249,3 +249,21 @@ func TestGetDeleteStatus(t *testing.T) {
 		t.Fatalf("expected %q, got %q", "deleted", name)
 	}
 }
+
+func TestWorkflowService_GetByID(t *testing.T) {
+	svc := testWorkflowEnv(t)
+	ctx := context.Background()
+
+	byName, err := svc.GetByName(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+
+	got, err := svc.GetByID(ctx, byName.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Name != "kanban" {
+		t.Errorf("got name %q, want kanban", got.Name)
+	}
+}
