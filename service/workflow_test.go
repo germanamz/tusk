@@ -7,34 +7,37 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
-	"github.com/germanamz/tusk/inmem"
+	"github.com/germanamz/tusk/sqlite/sqlitetest"
 )
 
 func testWorkflowEnv(t *testing.T) *WorkflowService {
 	t.Helper()
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {},
-				"active":    {},
-				"completed": {},
-				"deleted":   {},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
+	cfg := &config.Config{
+		Workflows: map[string]config.WorkflowConfig{
+			"kanban": {
+				Statuses: map[string]config.StatusConfig{
+					"pending":   {},
+					"active":    {},
+					"completed": {},
+					"deleted":   {},
+				},
+				Transitions: []config.WorkflowTransitionConfig{
+					{From: "pending", To: "active"},
+					{From: "pending", To: "deleted"},
+					{From: "active", To: "completed"},
+					{From: "active", To: "pending"},
+					{From: "active", To: "deleted"},
+					{From: "completed", To: "pending"},
+				},
 			},
 		},
-	})
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-		"backend": {Workflow: "kanban"},
-	})
-	return NewWorkflowService(workflowRepo, projectRepo)
+		Projects: map[string]config.ProjectConfig{
+			"default": {Workflow: "kanban"},
+			"backend": {Workflow: "kanban"},
+		},
+	}
+	_, projRepo, wfRepo := sqlitetest.NewStore(t, cfg)
+	return NewWorkflowService(wfRepo, projRepo)
 }
 
 func TestIsTransitionAllowed_Allowed(t *testing.T) {
@@ -158,25 +161,28 @@ func TestGetWorkflowWithProjects_NotFound(t *testing.T) {
 
 func roleWorkflowEnv(t *testing.T) *WorkflowService {
 	t.Helper()
-	workflowRepo := inmem.NewWorkflowRepository(map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{"initial"}},
-				"active":    {Roles: []string{"start", "highlight"}},
-				"completed": {Roles: []string{"terminal", "done", "dim"}},
-				"deleted":   {Roles: []string{"terminal", "delete", "dim"}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "deleted"},
+	cfg := &config.Config{
+		Workflows: map[string]config.WorkflowConfig{
+			"kanban": {
+				Statuses: map[string]config.StatusConfig{
+					"pending":   {Roles: []string{"initial"}},
+					"active":    {Roles: []string{"start", "highlight"}},
+					"completed": {Roles: []string{"terminal", "done", "dim"}},
+					"deleted":   {Roles: []string{"terminal", "delete", "dim"}},
+				},
+				Transitions: []config.WorkflowTransitionConfig{
+					{From: "pending", To: "active"},
+					{From: "active", To: "completed"},
+					{From: "active", To: "deleted"},
+				},
 			},
 		},
-	})
-	projectRepo := inmem.NewProjectRepository(map[string]config.ProjectConfig{
-		"default": {Workflow: "kanban"},
-	})
-	return NewWorkflowService(workflowRepo, projectRepo)
+		Projects: map[string]config.ProjectConfig{
+			"default": {Workflow: "kanban"},
+		},
+	}
+	_, projRepo, wfRepo := sqlitetest.NewStore(t, cfg)
+	return NewWorkflowService(wfRepo, projRepo)
 }
 
 func TestGetStatusByRole(t *testing.T) {

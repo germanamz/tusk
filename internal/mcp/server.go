@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/filter"
@@ -38,7 +37,6 @@ type Server struct {
 	server         *server.MCPServer
 	cfg            config.MCPConfig
 	loadOpts       []config.Option
-	configMu       sync.Mutex        // serializes config read-modify-write + reload
 	toolGroups     map[string]string // tool name → group
 	resourceGroups map[string]string // resource URI template → group
 }
@@ -814,28 +812,18 @@ func (s *Server) Serve() error {
 }
 
 // reloadConfig re-reads the active config file via the stored loadOpts and
-// hot-reloads the workflow repository, project repository, and urgency engine
-// with the fresh data. It does NOT rebuild the MCP server, reopen the
-// database, or reconfigure transports — those require a process restart.
+// hot-reloads the urgency engine and reload hook with the fresh data. It
+// does NOT rebuild the MCP server, reopen the database, or reconfigure
+// transports — those require a process restart.
 //
-// Safe to call from any MCP tool handler after a successful config mutation.
-// Returns an error when Load fails; callers should surface the error back to
-// the caller without applying partial state (Load is a full parse with
-// validation, so there is no partial state to apply).
+// Safe to call from any MCP tool handler after a successful config
+// mutation. Returns an error when Load fails; callers should surface the
+// error back to the caller without applying partial state (Load is a full
+// parse with validation, so there is no partial state to apply).
 //
-// reloadConfig acquires the server-level config mutex for the duration of the
-// reload so readers never observe mixed state across the three repos.
+// Concurrent project and workflow writes are serialized by the SQLite
+// store's optimistic locking, not by a server-level mutex.
 func (s *Server) reloadConfig(ctx context.Context) error {
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-	return s.reloadConfigLocked(ctx)
-}
-
-// reloadConfigLocked performs the actual hot-reload work and assumes the
-// caller already holds s.configMu. Use this from code paths that have
-// already acquired the lock (e.g. handleConfigSet's read-modify-write
-// critical section) to avoid self-deadlock.
-func (s *Server) reloadConfigLocked(ctx context.Context) error {
 	cfg, err := config.Load(s.loadOpts...)
 	if err != nil {
 		return fmt.Errorf("reloading config: %w", err)

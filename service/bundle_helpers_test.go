@@ -2,11 +2,11 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/germanamz/tusk/sqlite/sqlitetest"
 	"github.com/google/uuid"
 )
 
@@ -15,12 +15,20 @@ import (
 // closed via t.Cleanup.
 func newTestBundle(t *testing.T) *RepoBundle {
 	t.Helper()
-	dir := t.TempDir()
-	store, err := sqlite.New(filepath.Join(dir, "test.db"), migrations.FS)
-	if err != nil {
-		t.Fatalf("sqlite.New: %v", err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store, _, _ := sqlitetest.NewStore(t, nil)
+	return bundleFromStore(store)
+}
+
+// newSeededBundle builds a RepoBundle plus SQLite project/workflow repos
+// seeded from cfg. All repos share the same store so task ↔ project FKs
+// are satisfied.
+func newSeededBundle(t *testing.T, cfg *config.Config) (*RepoBundle, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
+	t.Helper()
+	store, projRepo, wfRepo := sqlitetest.NewStore(t, cfg)
+	return bundleFromStore(store), projRepo, wfRepo
+}
+
+func bundleFromStore(store *sqlite.Store) *RepoBundle {
 	db := store.DB()
 	return &RepoBundle{
 		Store:       store,
