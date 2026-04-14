@@ -53,7 +53,7 @@ func TestNewClient_DefaultConfig(t *testing.T) {
 	}
 	found := false
 	for _, p := range projects {
-		if p.ID == "default" {
+		if p.Name == "default" {
 			found = true
 			break
 		}

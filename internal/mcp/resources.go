@@ -140,7 +140,7 @@ func (s *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadRes
 	}
 
 	resp := workflowResponse{
-		ProjectName: project.ID,
+		ProjectName: project.Name,
 		Workflow:    project.Workflow,
 		Statuses:    statuses,
 		Transitions: make([]transitionResponse, len(transitions)),

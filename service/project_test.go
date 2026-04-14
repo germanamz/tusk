@@ -28,8 +28,8 @@ func TestProjectService_GetByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if p.ID != "default" {
-		t.Fatalf("expected ID 'default', got %q", p.ID)
+	if p.Name != "default" {
+		t.Fatalf("expected name 'default', got %q", p.Name)
 	}
 	if p.Workflow != "kanban" {
 		t.Fatalf("expected Workflow 'kanban', got %q", p.Workflow)
@@ -57,11 +57,11 @@ func TestProjectService_List(t *testing.T) {
 	if len(projects) != 2 {
 		t.Fatalf("expected 2 projects, got %d", len(projects))
 	}
-	// Should be sorted by ID
-	if projects[0].ID != "backend" {
-		t.Fatalf("expected first project 'backend', got %q", projects[0].ID)
+	// Should be sorted by name
+	if projects[0].Name != "backend" {
+		t.Fatalf("expected first project 'backend', got %q", projects[0].Name)
 	}
-	if projects[1].ID != "default" {
-		t.Fatalf("expected second project 'default', got %q", projects[1].ID)
+	if projects[1].Name != "default" {
+		t.Fatalf("expected second project 'default', got %q", projects[1].Name)
 	}
 }

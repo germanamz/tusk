@@ -48,7 +48,7 @@ func TestTypesCompile(t *testing.T) {
 	}
 
 	_ = domain.Project{
-		ID:       "backend",
+		Name:     "backend",
 		Workflow: "kanban",
 	}
 

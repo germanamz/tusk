@@ -851,7 +851,7 @@ type projectResponse struct {
 
 func toProjectResponse(p *domain.Project) projectResponse {
 	return projectResponse{
-		ID:       p.ID,
+		ID:       p.Name,
 		Workflow: p.Workflow,
 		Settings: p.Settings,
 	}
