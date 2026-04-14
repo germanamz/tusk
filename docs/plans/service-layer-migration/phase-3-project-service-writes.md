@@ -64,16 +64,69 @@ Implement three methods on `ProjectService`:
 
 3. **`Delete(ctx context.Context, id uuid.UUID, expectedVersion int64, force bool) error`**
    - Reject `_default` (UUID `00000000-...`) unless `force == true`. Reuse the same constant used today in `config/project.go`.
-   - Call `taskCounter.CountByProject(ctx, id)`. If count > 0 and `force == false`, return a descriptive error (reuse the sentinel used today, or add `domain.ErrProjectHasTasks`).
-   - Call `repo.Delete(ctx, id, expectedVersion)`. Optimistic-lock conflicts bubble as `domain.ErrConflict`.
+   - Call `taskCounter.CountByProject(ctx, id)`. If count > 0 and `force == false`, return `domain.ErrProjectHasTasks` (add the sentinel if missing).
+   - If count > 0 and `force == true`, **reassign referring tasks to the `_default` project** before deleting. The reassignment and the `projects` row delete must run inside a single `sqlite.Store.WithTx` transaction so that a mid-operation failure leaves the DB consistent. See Task 2 for the `ReassignProject` task-repo helper and the `Tx.Projects()` accessor used to obtain transactional repos.
+     - FK note: `migrations/005_tasks_project_fk.up.sql` declares `tasks.project_id REFERENCES projects(id) ON DELETE RESTRICT`. Without the preflight reassignment, the `DELETE FROM projects` statement inside `ProjectRepo.Delete` fails with a FK constraint error. This is a behavior change from the pre-Phase-3 world where `config.DeleteProject` only removed the name from TOML and left the DB row (and its referencing tasks) untouched. Previously, tasks whose project was "force-deleted" kept a `project_id` that still pointed at a live row; after Phase 3 they are cleanly reparented to `_default`.
+   - Call `ProjectRepo.Delete(ctx, id, expectedVersion)` as the final step inside the transaction. Optimistic-lock conflicts bubble as `domain.ErrConflict`.
+
+   The service uses a `ProjectTxProvider` interface (mirror the pattern of `service.TaskTxProvider` at `sqlite/store.go:109–115`) so that `ProjectService.Delete` does not depend on `*sqlite.Store` directly. Define it in the same file as `ProjectService`:
+
+   ```go
+   type ProjectTxProvider interface {
+       WithProjectTx(ctx context.Context, fn func(projects repository.ProjectRepository, tasks repository.TaskRepository) error) error
+   }
+   ```
+
+   Add `ProjectTxProvider` as the fourth constructor argument. The concrete implementation lives on `*sqlite.Store` (Task 2).
 
 All three methods must emit structured errors using `fmt.Errorf("%w: …", domain.ErrXxx, …)` style so callers can `errors.Is` them.
 
-### Task 2 — Add `CountByProject` to `TaskRepository` (if missing)
+### Task 2 — Task repo helpers + `Tx.Projects` accessor + `WithProjectTx`
 
-Check `repository/task.go` for a `CountByProject(ctx, projectID uuid.UUID) (int, error)` method. If it does not exist, add it to the interface and implement it in `sqlite/task.go` using a simple `SELECT COUNT(*) FROM tasks WHERE project_id = ?` query. The existing `config.DeleteProject` uses a `TaskRefChecker` callback injected from `internal/tui/project.go:116` and `internal/mcp/project_handlers.go:255` — those call sites are rewired in Task 4, and the new counter replaces the callback.
+This task lays the storage-layer plumbing the new `ProjectService.Delete` needs.
 
-If `sqlite.TaskRepo` already has such a method under a different name, reuse it by adding the interface method and pointing the existing implementation at it — do not create a duplicate.
+**2a. `TaskRepository.CountByProject`**
+
+Check `repository/task.go` for a `CountByProject(ctx, projectID uuid.UUID) (int, error)` method. If it does not exist, add it to the interface and implement it in `sqlite/task.go` using `SELECT COUNT(*) FROM tasks WHERE project_id = ?`. The existing `config.DeleteProject` uses a `TaskRefChecker` callback injected from `internal/tui/project.go:116` and `internal/mcp/project_handlers.go:255` — those call sites are rewired in Task 4, and the new counter replaces the callback. If `sqlite.TaskRepo` already has such a method under a different name, reuse it by adding the interface method and pointing the existing implementation at it — do not create a duplicate.
+
+**2b. `TaskRepository.ReassignProject`**
+
+Add to the interface:
+
+```go
+// ReassignProject bulk-updates tasks.project_id. Used by ProjectService.Delete
+// under --force to migrate tasks off a project being removed. Returns the
+// number of rows affected. Does not modify version or updated_at for the
+// individual tasks — this is a migration operation, not a user mutation.
+ReassignProject(ctx context.Context, fromID, toID uuid.UUID) (int, error)
+```
+
+Implement in `sqlite/task.go` with `UPDATE tasks SET project_id = ? WHERE project_id = ?`. Return the `RowsAffected` count.
+
+**2c. `Tx.Projects()` accessor**
+
+`sqlite/store.go:82–91` already exposes `(*Tx).Tasks()`, `Relations()`, `Annotations()`, `Tags()`. Add `(*Tx).Projects() *ProjectRepo` mirroring that pattern — construct `NewProjectRepo(t.tx)`. (Do **not** add `Workflows()` here; Phase 4 owns that.)
+
+**2d. `(*Store).WithProjectTx`**
+
+Add next to `WithTaskTx` at `sqlite/store.go:111`:
+
+```go
+func (s *Store) WithProjectTx(
+    ctx context.Context,
+    fn func(projects repository.ProjectRepository, tasks repository.TaskRepository) error,
+) error {
+    return s.WithTx(ctx, func(tx *Tx) error {
+        return fn(tx.Projects(), tx.Tasks())
+    })
+}
+```
+
+`*sqlite.Store` now satisfies the `service.ProjectTxProvider` interface defined in Task 1. Add a compile-time assertion at the bottom of `sqlite/store.go`:
+
+```go
+var _ service.ProjectTxProvider = (*Store)(nil)
+```
 
 ### Task 3 — Update DI wiring
 
@@ -82,10 +135,13 @@ Edit `cmd/tusk/main.go` and `client.go`:
 - After constructing `projectRepo := sqlite.NewProjectRepo(db)` and `taskRepo := sqlite.NewTaskRepo(db)` (or wherever the task repo is built today — check the `RepoBundle`), build the project service as:
 
   ```go
-  projectSvc := service.NewProjectService(projectRepo, taskRepo, projectDefaults)
+  projectSvc := service.NewProjectService(projectRepo, taskRepo, store, projectDefaults)
   ```
 
-  where `projectDefaults` is a `service.ProjectDefaults` value whose `Urgency` field is built from `cfg.Urgency` (map the nine `PriorityWeight` / `DueWeight` / … fields on `config.UrgencyConfig` to the equivalent fields on `service.UrgencyWeights`, same mapping already used when constructing `UrgencyEngine` in both `cmd/tusk/main.go` and `client.go`). `taskRepo` here is `sqlite.NewTaskRepo(db)`, which satisfies the `service.TaskCountByProject` interface via the `CountByProject` method added in Task 2.
+  where:
+  - `taskRepo` is `sqlite.NewTaskRepo(db)`, which satisfies `service.TaskCountByProject` via the `CountByProject` method added in Task 2a.
+  - `store` is the `*sqlite.Store` value already constructed via `sqlite.New(cfg.DBPath, migrations.FS)` (see `cmd/tusk/main.go` startup block and `client.go:130`). It satisfies `service.ProjectTxProvider` via the `WithProjectTx` method added in Task 2d.
+  - `projectDefaults` is a `service.ProjectDefaults` value whose `Urgency` field is built from `cfg.Urgency` (map the nine `PriorityWeight` / `DueWeight` / … fields on `config.UrgencyConfig` to the equivalent fields on `service.UrgencyWeights`, same mapping already used when constructing `UrgencyEngine` in both `cmd/tusk/main.go` and `client.go`).
 
 - If there is no `projectSvc` variable today, add one. Inject it into any handler that needs it (CLI root, MCP server — see Task 4).
 
@@ -113,7 +169,9 @@ Tool responses must continue to include the updated `version` so agents can chai
 
 The `configMu sync.Mutex` at `internal/mcp/server.go:32` stays in place for this phase — it is removed in Phase 5 once the config write path is fully gone.
 
-### Task 6 — Delete `config.CreateProject` / `ModifyProject` / `DeleteProject`
+### Task 6 — Delete `config.*Project` functions and patch `SyncConfigToDB` project side
+
+**6a. Delete the TOML-write functions**
 
 Edit `config/project.go`:
 
@@ -123,12 +181,27 @@ Edit `config/project.go`:
 
 The `config.WriteConfig` helper at `config/write.go:74` may still be used by other paths (workflow writes in Phase 4, `config set` / `config init`) — leave it alone.
 
+**6b. Make `SyncConfigToDB` project seeding seed-only**
+
+Edit `sqlite/sync.go`. Today the function has two behaviors on the project side that are incompatible with Phase 3:
+
+1. **Project UPDATE branch** (`sqlite/sync.go:69–82`) — when a project already exists in the DB, the function overwrites the row with the TOML-sourced values on every startup. After Phase 3, users can modify projects via `projectSvc.Modify`, which persists to the DB only. The next startup would silently overwrite those modifications with whatever is in the TOML file (or leave them untouched if the project has no TOML entry). Remove this branch. When `projRepo.GetByID` returns a non-`ErrNotFound` success, skip the project entirely (`continue`) — the DB row is authoritative.
+
+2. **Project stale-cleanup loop** (`sqlite/sync.go:91–112`) — deletes any DB project row whose ID is not present in the TOML `[projects.*]` map. After Phase 3, `projectSvc.Create` writes DB-only rows that have no TOML counterpart, and the next startup would wipe them. E2E scenarios like `TestProjectCreateAndList` run each CLI step in a fresh process and would fail. **Delete the entire project stale-cleanup block** — the loop from `projectIDs := …` through the closing `}` of the `for _, p := range existingProjects` loop.
+
+Leave the workflow UPDATE branch (`sqlite/sync.go:37–55`) and the workflow stale-cleanup loop (`sqlite/sync.go:114–131`) in place for this phase — Phase 4 owns the symmetric workflow-side fix. Add a short code comment on each of the two surviving workflow blocks noting "Phase 4 removes this symmetrically" so the follow-up implementer does not miss it.
+
+The function still seeds TOML-defined projects into the DB on first run (the `ErrNotFound → projRepo.Create` branch), which is what `Config Schema Trim` eventually retires.
+
 ## User-Visible Behavior (Acceptance Criteria)
 
 - `tusk project create <name> workflow=<wf>` creates a project row in SQLite. A subsequent `tusk project list` shows it. Creating twice with the same name returns a clear duplicate error.
 - `tusk project modify <name> urgency.blocking-weight=15` updates the SQLite row. The new value is visible on the next `tusk project list`.
 - `tusk project modify <name> +urgency.blocking-weight=2` applies the delta against the effective global weight.
-- `tusk project delete <name>` rejects `_default` without `--force`, rejects projects with open tasks without `--force`, and succeeds otherwise. On version conflict, returns a `domain.ErrConflict`-wrapped error.
+- `tusk project delete <name>` rejects `_default` without `--force`, rejects projects with open tasks without `--force` (returning `domain.ErrProjectHasTasks`), and succeeds otherwise. On version conflict, returns a `domain.ErrConflict`-wrapped error.
+- `tusk project delete <name> --force` with tasks referring to the project **reassigns those tasks to `_default`** and then deletes the project row. The reassignment and the delete run in a single transaction. This is a deliberate behavior change from the pre-Phase-3 era, where `config.DeleteProject` only removed the project from the TOML file and left referencing tasks dangling against a now-nonexistent project name.
+- A project created via `tusk project create` survives across process restarts — `SyncConfigToDB` no longer deletes DB rows that are not present in the TOML `[projects.*]` map. E2E scenarios (`TestProjectCreateAndList`, etc.) that spawn a fresh process per step still pass.
+- A project modified via `tusk project modify` keeps its modifications across restarts — `SyncConfigToDB` no longer overwrites existing project rows on startup.
 - `tusk project create` / `modify` / `delete` **no longer rewrite the TOML file** — the file is left untouched regardless of what happens in the DB. Users who edit the TOML and restart see their changes merged into the DB via `SyncConfigToDB` (existing behavior from Phase 2).
 - MCP `tusk_project_*` tools behave the same and return a `version` field on success.
 - `tusk workflow ...` commands and MCP tools are unchanged (see Phase 4).
@@ -139,10 +212,12 @@ The `config.WriteConfig` helper at `config/write.go:74` may still be used by oth
 ## Changes Introduced
 
 **Modified files:**
-- `service/project.go` — new `CreateProjectInput`, `ModifyProjectInput`, `ProjectDefaults`, `TaskCountByProject` types; `NewProjectService` signature extended; new `Create` / `Modify` / `Delete` methods.
-- `repository/task.go` — possibly adds `CountByProject(ctx, uuid.UUID) (int, error)` to the interface.
-- `sqlite/task.go` — possibly adds `CountByProject` implementation (if missing).
-- `cmd/tusk/main.go` — builds `projectSvc` via the extended constructor.
+- `service/project.go` — new `CreateProjectInput`, `ModifyProjectInput`, `ProjectDefaults`, `TaskCountByProject`, `ProjectTxProvider` types; `NewProjectService` signature extended to 4 args; new `Create` / `Modify` / `Delete` methods.
+- `repository/task.go` — adds `CountByProject(ctx, uuid.UUID) (int, error)` and `ReassignProject(ctx, fromID, toID uuid.UUID) (int, error)` to the interface.
+- `sqlite/task.go` — implements `CountByProject` and `ReassignProject` (if missing).
+- `sqlite/store.go` — adds `(*Tx).Projects() *ProjectRepo` and `(*Store).WithProjectTx(ctx, fn)`. Compile-time assertion `var _ service.ProjectTxProvider = (*Store)(nil)`.
+- `sqlite/sync.go` — project UPDATE-on-exists branch deleted; project stale-cleanup loop deleted. Workflow side untouched (Phase 4).
+- `cmd/tusk/main.go` — builds `projectSvc` via the extended 4-arg constructor, passing `store` for transactional deletes.
 - `client.go` — same.
 - `internal/tui/project.go` — calls `projectSvc` instead of `config.Create/Modify/DeleteProject`; drops `TaskRefChecker` plumbing.
 - `internal/mcp/project_handlers.go` — calls `projectSvc`; threads `version` through for optimistic locking.
@@ -152,11 +227,12 @@ The `config.WriteConfig` helper at `config/write.go:74` may still be used by oth
 
 **New interfaces:**
 - `service.TaskCountByProject` (internal to the service package).
+- `service.ProjectTxProvider` (internal to the service package; satisfied by `*sqlite.Store` via `WithProjectTx`).
 
 **Sentinel errors (if not already present):**
 - `domain.ErrProjectHasTasks` — reject delete when tasks reference the project without `--force`.
 
-**Bridge code:** none introduced. The Phase 1 `inmem` stubs and the Phase 2 `SyncConfigToDB` bridge are both still in place and are not touched in this phase.
+**Bridge code:** none introduced. The Phase 1 `inmem` stubs remain in place. `SyncConfigToDB` survives as a seed-only function on the project side (workflow side still has the pre-Phase-3 UPDATE + stale-cleanup behavior that Phase 4 retires).
 
 **Schema migrations:** none.
 
