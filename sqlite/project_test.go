@@ -121,3 +121,85 @@ func TestProjectRepo_Create_UnknownWorkflow(t *testing.T) {
 		t.Fatalf("expected FK violation, got nil")
 	}
 }
+
+func TestProjectRepo_Update_IncrementsVersion(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	ctx := context.Background()
+	p := sampleProject("backend")
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	priority := 15.0
+	p.Settings.Urgency = &domain.UrgencyOverrides{BlockingWeight: &priority}
+	if err := repo.Update(ctx, p); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if p.Version != 2 {
+		t.Errorf("local version: got %d, want 2", p.Version)
+	}
+
+	got, err := repo.GetByID(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Version != 2 {
+		t.Errorf("stored version: got %d, want 2", got.Version)
+	}
+	if got.Settings.Urgency == nil || got.Settings.Urgency.BlockingWeight == nil {
+		t.Errorf("urgency override lost round-trip")
+	}
+}
+
+func TestProjectRepo_Update_StaleVersion(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	ctx := context.Background()
+	p := sampleProject("backend")
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stale := *p
+	if err := repo.Update(ctx, p); err != nil {
+		t.Fatalf("first Update: %v", err)
+	}
+	err := repo.Update(ctx, &stale)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("stale Update: got %v, want ErrConflict", err)
+	}
+}
+
+func TestProjectRepo_CountByWorkflow(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	ctx := context.Background()
+
+	n, err := repo.CountByWorkflow(ctx, defaultUUID)
+	if err != nil {
+		t.Fatalf("CountByWorkflow seed: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("seed count: got %d, want 1 (the _default project)", n)
+	}
+
+	for _, name := range []string{"backend", "frontend"} {
+		p := sampleProject(name)
+		if err := repo.Create(ctx, p); err != nil {
+			t.Fatalf("Create %s: %v", name, err)
+		}
+	}
+
+	n, err = repo.CountByWorkflow(ctx, defaultUUID)
+	if err != nil {
+		t.Fatalf("CountByWorkflow after inserts: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("count after inserts: got %d, want 3", n)
+	}
+
+	n, err = repo.CountByWorkflow(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("CountByWorkflow unknown workflow: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("unknown workflow count: got %d, want 0", n)
+	}
+}

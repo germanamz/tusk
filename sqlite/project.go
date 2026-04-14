@@ -123,3 +123,54 @@ func scanProject(s projectScanner) (*domain.Project, error) {
 	}
 	return &p, nil
 }
+
+// Update persists changes to a project with optimistic locking.
+// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
+func (r *ProjectRepo) Update(ctx context.Context, p *domain.Project) error {
+	settingsJSON, err := json.Marshal(p.Settings)
+	if err != nil {
+		return fmt.Errorf("marshaling settings: %w", err)
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	nowStr := now.Format(timeFormat)
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE projects SET
+			name = ?, workflow_id = ?, settings = ?,
+			version = version + 1, updated_at = ?
+		WHERE id = ? AND version = ?`,
+		p.Name, p.WorkflowID.String(), string(settingsJSON), nowStr,
+		p.ID.String(), p.Version,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		var exists int
+		err := r.db.QueryRowContext(ctx,
+			`SELECT 1 FROM projects WHERE id = ?`, p.ID.String()).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return domain.ErrConflict
+	}
+	p.Version++
+	p.UpdatedAt = now
+	return nil
+}
+
+// CountByWorkflow returns how many projects reference the given workflow.
+// Used by the workflow delete guard.
+func (r *ProjectRepo) CountByWorkflow(ctx context.Context, workflowID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM projects WHERE workflow_id = ?`,
+		workflowID.String()).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
