@@ -901,10 +901,10 @@ type projectResponse struct {
 	Settings domain.ProjectSettings `json:"settings"`
 }
 
-func toProjectResponse(p *domain.Project) projectResponse {
+func toProjectResponse(p *domain.Project, workflowName string) projectResponse {
 	return projectResponse{
 		ID:       p.Name,
-		Workflow: p.Workflow,
+		Workflow: workflowName,
 		Settings: p.Settings,
 	}
 }
@@ -916,9 +916,18 @@ func (s *Server) handleProjectList(ctx context.Context, request mcp.CallToolRequ
 		return nil, err
 	}
 
+	workflows, err := s.workflowSvc.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	wfNames := make(map[uuid.UUID]string, len(workflows))
+	for _, wf := range workflows {
+		wfNames[wf.ID] = wf.Name
+	}
+
 	results := make([]projectResponse, len(projects))
 	for i, p := range projects {
-		results[i] = toProjectResponse(p)
+		results[i] = toProjectResponse(p, wfNames[p.WorkflowID])
 	}
 
 	return toolResultJSON(results)

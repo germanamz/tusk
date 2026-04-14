@@ -9,6 +9,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/germanamz/tusk/domain"
+	"github.com/google/uuid"
 )
 
 // projectJSON is the JSON serialization format for a project.
@@ -18,10 +19,10 @@ type projectJSON struct {
 	Settings domain.ProjectSettings `json:"settings"`
 }
 
-func toProjectJSON(p *domain.Project) projectJSON {
+func toProjectJSON(p *domain.Project, workflowName string) projectJSON {
 	return projectJSON{
 		ID:       p.Name,
-		Workflow: p.Workflow,
+		Workflow: workflowName,
 		Settings: p.Settings,
 	}
 }
@@ -141,11 +142,12 @@ func (r *Renderer) renderTagRenameResult(oldName string, tag *domain.Tag) error 
 
 // renderProjectList writes a list of projects to w.
 // Text format renders a table; JSON format renders an array.
-func (r *Renderer) renderProjectList(projects []*domain.Project) error {
+// workflowNames maps workflow UUIDs to their display names.
+func (r *Renderer) renderProjectList(projects []*domain.Project, workflowNames map[uuid.UUID]string) error {
 	if r.format == "json" {
 		items := make([]projectJSON, len(projects))
 		for i, p := range projects {
-			items[i] = toProjectJSON(p)
+			items[i] = toProjectJSON(p, workflowNames[p.WorkflowID])
 		}
 		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
@@ -169,7 +171,7 @@ func (r *Renderer) renderProjectList(projects []*domain.Project) error {
 	for _, p := range projects {
 		if _, err := fmt.Fprintf(r.w, "%-20s %-10s %s\n",
 			p.Name,
-			p.Workflow,
+			workflowNames[p.WorkflowID],
 			formatSettingsSummary(p.Settings),
 		); err != nil {
 			return err

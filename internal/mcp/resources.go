@@ -86,7 +86,12 @@ func (s *Server) handleProjectResource(ctx context.Context, request mcp.ReadReso
 		return nil, err
 	}
 
-	b, err := json.MarshalIndent(toProjectResponse(project), "", "  ")
+	wf, err := s.workflowSvc.GetByID(ctx, project.WorkflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := json.MarshalIndent(toProjectResponse(project, wf.Name), "", "  ")
 	if err != nil {
 		return nil, err
 	}
@@ -129,19 +134,24 @@ func (s *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadRes
 		return nil, err
 	}
 
-	statuses, err := s.workflowSvc.GetStatuses(ctx, project.Workflow)
+	wf, err := s.workflowSvc.GetByID(ctx, project.WorkflowID)
 	if err != nil {
 		return nil, err
 	}
 
-	transitions, err := s.workflowSvc.GetTransitions(ctx, project.Workflow)
+	statuses, err := s.workflowSvc.GetStatuses(ctx, wf.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	transitions, err := s.workflowSvc.GetTransitions(ctx, wf.Name)
 	if err != nil {
 		return nil, err
 	}
 
 	resp := workflowResponse{
 		ProjectName: project.Name,
-		Workflow:    project.Workflow,
+		Workflow:    wf.Name,
 		Statuses:    statuses,
 		Transitions: make([]transitionResponse, len(transitions)),
 	}

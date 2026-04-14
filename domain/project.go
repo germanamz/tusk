@@ -12,7 +12,6 @@ type Project struct {
 	ID         uuid.UUID
 	Name       string
 	WorkflowID uuid.UUID
-	Workflow   string // Name of the bound workflow — retained for service-layer ergonomics.
 	Settings   ProjectSettings
 	Version    int
 	CreatedAt  time.Time

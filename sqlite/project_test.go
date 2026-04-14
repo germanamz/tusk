@@ -30,7 +30,6 @@ func sampleProject(name string) *domain.Project {
 		ID:         uuid.New(),
 		Name:       name,
 		WorkflowID: defaultUUID,
-		Workflow:   "kanban",
 		Version:    1,
 		CreatedAt:  now,
 		UpdatedAt:  now,
