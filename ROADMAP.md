@@ -688,22 +688,22 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > `ProjectService` and `WorkflowService` read and write the database instead of the config file. `inmem/` implementations are deleted — the in-memory path only existed because the source of truth was a TOML file held in memory after `config.Load()`.
 
-- [ ] **Story: ProjectService over repository**
-  - [ ] `ProjectService.Create`/`Modify`/`Delete`/`List`/`Get` call `ProjectRepository` directly
-  - [ ] Optimistic locking: callers fetch to get `version`, mutations pass it through, `ErrConflict` bubbles up like task mutations
-  - [ ] Drop `config.CreateProject`/`ModifyProject`/`DeleteProject` — their TOML-writing logic is removed and callers switch to the service
-  - [ ] Service-level delete guard (reject if tasks reference the project, reject deleting `_default`, `--force` bypass) stays in the service and runs before the DB delete
+- [x] **Story: ProjectService over repository**
+  - [x] `ProjectService.Create`/`Modify`/`Delete`/`List`/`Get` call `ProjectRepository` directly
+  - [x] Optimistic locking: callers fetch to get `version`, mutations pass it through, `ErrConflict` bubbles up like task mutations
+  - [x] Drop `config.CreateProject`/`ModifyProject`/`DeleteProject` — their TOML-writing logic is removed and callers switch to the service
+  - [x] Service-level delete guard (reject if tasks reference the project, reject deleting `_default`, `--force` bypass) stays in the service and runs before the DB delete
 
-- [ ] **Story: WorkflowService over repository**
-  - [ ] `WorkflowService.Create`/`Modify`/`Delete`/`List`/`Get` call `WorkflowRepository` directly
-  - [ ] Role-schema validation (exactly one `initial`, one `start`, ≥1 `terminal`, etc.) moves from config validation into the service
-  - [ ] Delete guard rejects workflows referenced by any project — implemented via a repository-level `CountProjectsByWorkflow` call, not a full project list scan
-  - [ ] Drop `config.CreateWorkflow`/`ModifyWorkflow`/`DeleteWorkflow`
+- [x] **Story: WorkflowService over repository**
+  - [x] `WorkflowService.Create`/`Modify`/`Delete`/`List`/`Get` call `WorkflowRepository` directly
+  - [x] Role-schema validation (exactly one `initial`, one `start`, ≥1 `terminal`, etc.) moves from config validation into the service
+  - [x] Delete guard rejects workflows referenced by any project — implemented via a repository-level `CountProjectsByWorkflow` call, not a full project list scan
+  - [x] Drop `config.CreateWorkflow`/`ModifyWorkflow`/`DeleteWorkflow`
 
-- [ ] **Story: Retire `inmem/` project and workflow stores**
-  - [ ] Delete `inmem/project.go` and `inmem/workflow.go`
-  - [ ] DI wiring in `cmd/tusk/` constructs SQLite repositories from the workspace store
-  - [ ] Tests that used `inmem` for project/workflow setup switch to the SQLite store via the existing test harness
+- [x] **Story: Retire `inmem/` project and workflow stores**
+  - [x] Delete `inmem/project.go` and `inmem/workflow.go`
+  - [x] DI wiring in `cmd/tusk/` constructs SQLite repositories from the workspace store
+  - [x] Tests that used `inmem` for project/workflow setup switch to the SQLite store via the existing test harness
 
 ### Initiative: Config Schema Trim
 
@@ -725,16 +725,16 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > `tusk project` and `tusk workflow` subcommands (and their MCP counterparts) mutate the database through the services instead of the config file. External surface is nearly unchanged — same flags, same inline syntax — only the storage backend moves.
 
-- [ ] **Story: Project and workflow CLI over services**
-  - [ ] `tusk project create`/`modify`/`delete`/`list` call `ProjectService` directly
-  - [ ] `tusk workflow create`/`modify`/`delete`/`list` call `WorkflowService` directly
-  - [ ] Inline syntax (`workflow=kanban`, `urgency.blocking-weight=15`, `+urgency.blocking-weight=2`, etc.) is unchanged — the parser produces the same AST, only the write target moves
-  - [ ] Numeric delta resolution for urgency weights still reads the effective global weight from config and stores the resolved override in `projects.settings`
+- [x] **Story: Project and workflow CLI over services**
+  - [x] `tusk project create`/`modify`/`delete`/`list` call `ProjectService` directly
+  - [x] `tusk workflow create`/`modify`/`delete`/`list` call `WorkflowService` directly
+  - [x] Inline syntax (`workflow=kanban`, `urgency.blocking-weight=15`, `+urgency.blocking-weight=2`, etc.) is unchanged — the parser produces the same AST, only the write target moves
+  - [x] Numeric delta resolution for urgency weights still reads the effective global weight from config and stores the resolved override in `projects.settings`
 
-- [ ] **Story: MCP project and workflow tools over services**
-  - [ ] `tusk_project_create`/`modify`/`delete` and `tusk_workflow_create`/`modify`/`delete` call the services
-  - [ ] Tools accept and return `version` for optimistic locking, matching `tusk_task_*` conventions
-  - [ ] The config mutex that previously serialized project/workflow writes (`eec8ec6`) is removed — DB-level optimistic locking replaces it
+- [x] **Story: MCP project and workflow tools over services**
+  - [x] `tusk_project_create`/`modify`/`delete` and `tusk_workflow_create`/`modify`/`delete` call the services
+  - [x] Tools accept and return `version` for optimistic locking, matching `tusk_task_*` conventions
+  - [x] The config mutex that previously serialized project/workflow writes (`eec8ec6`) is removed — DB-level optimistic locking replaces it
 
 ---
 
