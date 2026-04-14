@@ -19,33 +19,38 @@ After this phase, every project mutation is written to SQLite through `ProjectSe
 
 ### Task 1 — Add `ProjectService` write methods
 
-Edit `service/project.go`. Extend the constructor so the service has access to the dependencies it needs for guard enforcement and delta urgency resolution:
+Edit `service/project.go`. Extend the constructor so the service has access to the dependencies it needs for guard enforcement, transactional `--force` delete, and delta urgency resolution:
 
 ```go
 func NewProjectService(
     projectRepo repository.ProjectRepository,
     taskCounter TaskCountByProject,
+    tx ProjectTxProvider,
     defaults ProjectDefaults,
 ) *ProjectService
 ```
 
-where `TaskCountByProject` is a small interface defined in the same file:
+The three new types are all defined in the same file:
 
 ```go
 type TaskCountByProject interface {
     CountByProject(ctx context.Context, projectID uuid.UUID) (int, error)
 }
-```
 
-and `ProjectDefaults` is a plain value struct that carries the global urgency weights used as the baseline for `+urgency.xxx-weight=N` / `-urgency.xxx-weight=N` delta operations. Auto-complete and auto-revert have no global defaults in `config.Config` — they are per-project only (`ProjectSettingsConfig.AutoCompleteParent` / `AutoRevertParent` at `config/config.go:80–83`) — so `ProjectDefaults` carries urgency only:
+type ProjectTxProvider interface {
+    WithProjectTx(ctx context.Context, fn func(projects repository.ProjectRepository, tasks repository.TaskRepository) error) error
+}
 
-```go
 type ProjectDefaults struct {
-    Urgency service.UrgencyWeights // same type already used by UrgencyEngine
+    Urgency UrgencyWeights // same type already used by UrgencyEngine
 }
 ```
 
-The goal is to capture the global urgency baseline as a value the service owns, not to pull in the whole `*config.Config` struct. Extend the `ProjectService` struct to store `defaults ProjectDefaults` as a private field alongside the existing `projectRepo` and the new `taskCounter` field.
+- `TaskCountByProject` is satisfied by `*sqlite.TaskRepo` once Task 2a adds `CountByProject`.
+- `ProjectTxProvider` is satisfied by `*sqlite.Store` once Task 2d adds `WithProjectTx`. It mirrors the existing `service.TaskTxProvider` pattern (concrete implementation at `sqlite/store.go:109–115`).
+- `ProjectDefaults` carries global urgency weights for `+urgency.xxx-weight=N` / `-urgency.xxx-weight=N` delta resolution. Auto-complete and auto-revert have no global defaults in `config.Config` — they are per-project only (`ProjectSettingsConfig.AutoCompleteParent` / `AutoRevertParent` at `config/config.go:80–83`) — so `ProjectDefaults` carries urgency only.
+
+Extend the `ProjectService` struct to store `taskCounter`, `tx`, and `defaults` as private fields alongside the existing `projectRepo`.
 
 Implement three methods on `ProjectService`:
 
@@ -65,19 +70,11 @@ Implement three methods on `ProjectService`:
 3. **`Delete(ctx context.Context, id uuid.UUID, expectedVersion int64, force bool) error`**
    - Reject `_default` (UUID `00000000-...`) unless `force == true`. Reuse the same constant used today in `config/project.go`.
    - Call `taskCounter.CountByProject(ctx, id)`. If count > 0 and `force == false`, return `domain.ErrProjectHasTasks` (add the sentinel if missing).
-   - If count > 0 and `force == true`, **reassign referring tasks to the `_default` project** before deleting. The reassignment and the `projects` row delete must run inside a single `sqlite.Store.WithTx` transaction so that a mid-operation failure leaves the DB consistent. See Task 2 for the `ReassignProject` task-repo helper and the `Tx.Projects()` accessor used to obtain transactional repos.
-     - FK note: `migrations/005_tasks_project_fk.up.sql` declares `tasks.project_id REFERENCES projects(id) ON DELETE RESTRICT`. Without the preflight reassignment, the `DELETE FROM projects` statement inside `ProjectRepo.Delete` fails with a FK constraint error. This is a behavior change from the pre-Phase-3 world where `config.DeleteProject` only removed the name from TOML and left the DB row (and its referencing tasks) untouched. Previously, tasks whose project was "force-deleted" kept a `project_id` that still pointed at a live row; after Phase 3 they are cleanly reparented to `_default`.
-   - Call `ProjectRepo.Delete(ctx, id, expectedVersion)` as the final step inside the transaction. Optimistic-lock conflicts bubble as `domain.ErrConflict`.
-
-   The service uses a `ProjectTxProvider` interface (mirror the pattern of `service.TaskTxProvider` at `sqlite/store.go:109–115`) so that `ProjectService.Delete` does not depend on `*sqlite.Store` directly. Define it in the same file as `ProjectService`:
-
-   ```go
-   type ProjectTxProvider interface {
-       WithProjectTx(ctx context.Context, fn func(projects repository.ProjectRepository, tasks repository.TaskRepository) error) error
-   }
-   ```
-
-   Add `ProjectTxProvider` as the fourth constructor argument. The concrete implementation lives on `*sqlite.Store` (Task 2).
+   - Open a transaction via `s.tx.WithProjectTx(ctx, func(projects, tasks) error { … })`. Inside the callback:
+     - If count > 0 and `force == true`, call `tasks.ReassignProject(ctx, id, domain.DefaultProjectID)` (or whatever constant holds the `_default` UUID) to move referring tasks onto `_default` before the FK fires. See Task 2b for `ReassignProject`.
+     - Call `projects.Delete(ctx, id, expectedVersion)` as the final step inside the transaction. Optimistic-lock conflicts surface as `domain.ErrConflict`.
+   - If `force == false` (count was zero), the reassignment step is skipped but the transaction wrapper is still used so the delete path has one consistent implementation.
+   - **FK note:** `migrations/005_tasks_project_fk.up.sql` declares `tasks.project_id REFERENCES projects(id) ON DELETE RESTRICT`. Without the preflight reassignment, the `DELETE FROM projects` statement inside `projects.Delete` fails with a FK constraint error. This is a deliberate behavior change from the pre-Phase-3 world where `config.DeleteProject` only removed the name from TOML and left the DB row (and its referencing tasks) untouched. Previously, tasks whose project was "force-deleted" kept a `project_id` that still pointed at a live row; after Phase 3 they are cleanly reparented to `_default`.
 
 All three methods must emit structured errors using `fmt.Errorf("%w: …", domain.ErrXxx, …)` style so callers can `errors.Is` them.
 
