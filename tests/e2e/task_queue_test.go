@@ -53,9 +53,9 @@ func TestTaskQueue(t *testing.T) {
 					},
 				},
 				// Step 4: Start the blocker
-				{Args: []string{"start", "$0.short_id"}},
+				{Args: []string{"task", "start", "$0.short_id"}},
 				// Step 5: Complete the blocker
-				{Args: []string{"done", "$0.short_id"}},
+				{Args: []string{"task", "done", "$0.short_id"}},
 				// Step 6: Available should now show only Blocked (Blocker is completed)
 				{
 					Args: []string{"available", "--player", "p1"},

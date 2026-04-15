@@ -34,7 +34,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "start_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"start", "nonexist"},
+					Args:    []string{"task", "start", "nonexist"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -47,7 +47,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "done_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"done", "nonexist"},
+					Args:    []string{"task", "done", "nonexist"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -60,7 +60,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "delete_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"delete", "nonexist"},
+					Args:    []string{"task", "delete", "nonexist"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -77,7 +77,7 @@ func TestErrorHandling(t *testing.T) {
 				},
 				{
 					// pending -> completed is not an allowed transition
-					Args:    []string{"done", "$0.short_id"},
+					Args:    []string{"task", "done", "$0.short_id"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -121,7 +121,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "annotate_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"annotate", "nonexist", "A note"},
+					Args:    []string{"task", "annotate", "nonexist", "A note"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -137,14 +137,14 @@ func TestErrorHandling(t *testing.T) {
 					Args: []string{"task", "create", "Already active"},
 				},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 				},
 				{
-					Args: []string{"done", "$0.short_id"},
+					Args: []string{"task", "done", "$0.short_id"},
 				},
 				{
 					// completed -> active is not an allowed transition
-					Args:    []string{"start", "$0.short_id"},
+					Args:    []string{"task", "start", "$0.short_id"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -186,12 +186,12 @@ func TestErrorHandling(t *testing.T) {
 					Args: []string{"task", "create", "Will be active"},
 				},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 				},
 				{
 					// active -> active: service skips workflow check for same-status,
 					// so this succeeds as a no-op (just bumps version)
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -212,14 +212,14 @@ func TestErrorHandling(t *testing.T) {
 					Args: []string{"task", "create", "Will be completed"},
 				},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 				},
 				{
-					Args: []string{"done", "$0.short_id"},
+					Args: []string{"task", "done", "$0.short_id"},
 				},
 				{
 					// completed -> completed: same-status, succeeds as no-op
-					Args: []string{"done", "$0.short_id"},
+					Args: []string{"task", "done", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -240,11 +240,11 @@ func TestErrorHandling(t *testing.T) {
 					Args: []string{"task", "create", "Will be deleted"},
 				},
 				{
-					Args: []string{"delete", "$0.short_id"},
+					Args: []string{"task", "delete", "$0.short_id"},
 				},
 				{
 					// deleted -> deleted: same-status, succeeds as no-op
-					Args: []string{"delete", "$0.short_id"},
+					Args: []string{"task", "delete", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)

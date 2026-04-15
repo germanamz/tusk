@@ -14,7 +14,7 @@ func TestFiltering(t *testing.T) {
 					Args: []string{"task", "create", "Active task"},
 				},
 				{
-					Args: []string{"start", "$1.short_id"},
+					Args: []string{"task", "start", "$1.short_id"},
 				},
 				{
 					Args: []string{"task", "list", "status=active"},
@@ -44,7 +44,7 @@ func TestFiltering(t *testing.T) {
 					Args: []string{"task", "create", "Active one"},
 				},
 				{
-					Args: []string{"start", "$1.short_id"},
+					Args: []string{"task", "start", "$1.short_id"},
 				},
 				{
 					Args: []string{"task", "list", "status=pending,active"},
@@ -222,7 +222,7 @@ func TestFiltering(t *testing.T) {
 					Args: []string{"task", "create", "Wrong tag", "priority=3", "+docs"},
 				},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 				},
 				{
 					Args: []string{"task", "list", "status=active", "+api", "priority=3"},
@@ -275,16 +275,16 @@ func TestFiltering(t *testing.T) {
 					Args: []string{"task", "create", "Will complete"},
 				},
 				{
-					Args: []string{"start", "$1.short_id"},
+					Args: []string{"task", "start", "$1.short_id"},
 				},
 				{
-					Args: []string{"done", "$1.short_id"},
+					Args: []string{"task", "done", "$1.short_id"},
 				},
 				{
 					Args: []string{"task", "create", "Will delete"},
 				},
 				{
-					Args: []string{"delete", "$4.short_id"},
+					Args: []string{"task", "delete", "$4.short_id"},
 				},
 				{
 					// Default list should only show pending/active tasks
@@ -356,11 +356,11 @@ func TestFiltering(t *testing.T) {
 			Name: "filter_or_operator",
 			Steps: []Step{
 				{Args: []string{"task", "create", "Active task"}},
-				{Args: []string{"start", "$0.short_id"}},
+				{Args: []string{"task", "start", "$0.short_id"}},
 				{Args: []string{"task", "create", "Pending task"}},
 				{Args: []string{"task", "create", "Done task"}},
-				{Args: []string{"start", "$3.short_id"}},
-				{Args: []string{"done", "$3.short_id"}},
+				{Args: []string{"task", "start", "$3.short_id"}},
+				{Args: []string{"task", "done", "$3.short_id"}},
 				{
 					Args: []string{"task", "list", "status=active", "OR", "status=completed"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -382,7 +382,7 @@ func TestFiltering(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"task", "create", "Keep this"}},
 				{Args: []string{"task", "create", "Delete this"}},
-				{Args: []string{"delete", "$1.short_id"}},
+				{Args: []string{"task", "delete", "$1.short_id"}},
 				{
 					Args: []string{"task", "list", "NOT", "status=deleted"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -403,10 +403,10 @@ func TestFiltering(t *testing.T) {
 			Name: "filter_parenthesized_grouping",
 			Steps: []Step{
 				{Args: []string{"task", "create", "Active tagged", "+api"}},
-				{Args: []string{"start", "$0.short_id"}},
+				{Args: []string{"task", "start", "$0.short_id"}},
 				{Args: []string{"task", "create", "Pending tagged", "+api"}},
 				{Args: []string{"task", "create", "Active untagged"}},
-				{Args: []string{"start", "$3.short_id"}},
+				{Args: []string{"task", "start", "$3.short_id"}},
 				{
 					// Only active tasks with +api tag, or any pending task
 					Args: []string{"task", "list", "(", "status=active", "AND", "+api", ")", "OR", "status=pending"},

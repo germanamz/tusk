@@ -69,6 +69,36 @@ func (a *App) buildTaskCmd() *cobra.Command {
 		},
 		modifyCmd,
 		treeCmd,
+		&cobra.Command{
+			Use:   "start <short_id>",
+			Short: "Transition task to active",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runStart,
+		},
+		&cobra.Command{
+			Use:   "done <short_id>",
+			Short: "Transition task to completed",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runDone,
+		},
+		&cobra.Command{
+			Use:   "delete <short_id>",
+			Short: "Transition task to deleted",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runDelete,
+		},
+		&cobra.Command{
+			Use:   "next",
+			Short: "Show the highest-urgency actionable task",
+			Args:  cobra.NoArgs,
+			RunE:  a.runNext,
+		},
+		&cobra.Command{
+			Use:   "annotate <short_id> <message...>",
+			Short: "Add a note to a task",
+			Args:  cobra.MinimumNArgs(2),
+			RunE:  a.runAnnotate,
+		},
 	)
 
 	return parent
@@ -79,30 +109,6 @@ func (a *App) buildTaskCmd() *cobra.Command {
 // phase 4 deletes it entirely.
 func (a *App) buildTaskCmds() []*cobra.Command {
 	return []*cobra.Command{
-		{
-			Use:   "start <short_id>",
-			Short: "Transition task to active",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runStart,
-		},
-		{
-			Use:   "done <short_id>",
-			Short: "Transition task to completed",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runDone,
-		},
-		{
-			Use:   "delete <short_id>",
-			Short: "Transition task to deleted",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runDelete,
-		},
-		{
-			Use:   "annotate <short_id> <message...>",
-			Short: "Add a note to a task",
-			Args:  cobra.MinimumNArgs(2),
-			RunE:  a.runAnnotate,
-		},
 		{
 			Use:   "link <short_id> <relation_type> <short_id>",
 			Short: "Create a relation between two tasks",
@@ -116,12 +122,6 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 			Long:  `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
 			Args:  cobra.ExactArgs(3),
 			RunE:  a.runUnlink,
-		},
-		{
-			Use:   "next",
-			Short: "Show the highest-urgency actionable task",
-			Args:  cobra.NoArgs,
-			RunE:  a.runNext,
 		},
 		{
 			Use:   "claim <short_id>",

@@ -162,7 +162,7 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 			}
 
 			// 3: Start — should transition to "in_progress" (start role)
-			r = env.Run("start", "$2.short_id")
+			r = env.Run("task", "start", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("start failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -175,7 +175,7 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 			assertContains(t, r.Stdout, "in_progress")
 
 			// 5: Done — should transition to "shipped" (done role)
-			r = env.Run("done", "$2.short_id")
+			r = env.Run("task", "done", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("done failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -194,7 +194,7 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 			}
 
 			// 8: Delete — should transition to "wontfix" (delete role)
-			r = env.Run("delete", "$7.short_id")
+			r = env.Run("task", "delete", "$7.short_id")
 			if r.Err != nil {
 				t.Fatalf("delete failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
