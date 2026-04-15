@@ -47,7 +47,7 @@ func TestMCPTaskAvailableBlocked(t *testing.T) {
 	taskB := env.callTool("tusk_task_create", map[string]any{"title": "blocked-task"})
 
 	// A blocks B
-	env.callTool("tusk_relation_add", map[string]any{
+	env.callTool("tusk_task_link", map[string]any{
 		"source": taskA["short_id"].(string),
 		"target": taskB["short_id"].(string),
 		"type":   "blocks",

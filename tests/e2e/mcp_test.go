@@ -338,7 +338,7 @@ func TestMCPRelations(t *testing.T) {
 	shortID2 := task2["short_id"].(string)
 
 	// Add relation
-	rel := env.callTool("tusk_relation_add", map[string]any{
+	rel := env.callTool("tusk_task_link", map[string]any{
 		"source": shortID1,
 		"target": shortID2,
 		"type":   "blocks",
@@ -355,7 +355,7 @@ func TestMCPRelations(t *testing.T) {
 	}
 
 	// Remove relation
-	env.callToolRaw("tusk_relation_remove", map[string]any{
+	env.callToolRaw("tusk_task_unlink", map[string]any{
 		"source": shortID1,
 		"target": shortID2,
 		"type":   "blocks",
@@ -427,10 +427,10 @@ func TestMCPErrorHandling(t *testing.T) {
 	sid1 := task1["short_id"].(string)
 	sid2 := task2["short_id"].(string)
 
-	env.callTool("tusk_relation_add", map[string]any{
+	env.callTool("tusk_task_link", map[string]any{
 		"source": sid1, "target": sid2, "type": "blocks",
 	})
-	errMsg = env.callToolExpectError("tusk_relation_add", map[string]any{
+	errMsg = env.callToolExpectError("tusk_task_link", map[string]any{
 		"source": sid2, "target": sid1, "type": "blocks",
 	})
 	if !strings.Contains(errMsg, "cycle") {

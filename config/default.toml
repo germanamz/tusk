@@ -36,7 +36,7 @@ tree_indent  = 2              # Spaces per indent level in tree view
 default_sort = "urgency"      # Default sort field for task lists
 
 [mcp]
-# Disable MCP tool groups: ["task", "relation", "project"]
+# Disable MCP tool groups: ["task", "task_relations", "project", "workflow", "player", "config"]
 disabled_tool_groups = []
 
 # Disable individual MCP tools by name, e.g.:

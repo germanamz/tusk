@@ -38,7 +38,7 @@ func TestTaskQueue(t *testing.T) {
 				// Step 1: Add blocked task
 				{Args: []string{"task", "create", "Blocked"}},
 				// Step 2: Link blocker blocks blocked
-				{Args: []string{"link", "$0.short_id", "blocks", "$1.short_id"}},
+				{Args: []string{"task", "link", "$0.short_id", "blocks", "$1.short_id"}},
 				// Step 3: Available should only show the blocker (blocked is excluded)
 				{
 					Args: []string{"task", "available", "--player", "p1"},

@@ -114,8 +114,8 @@ func (s *Server) validateConfig() error {
 		"tusk_task_annotate":   true,
 		"tusk_task_tree":       true,
 		"tusk_task_next":       true,
-		"tusk_relation_add":    true,
-		"tusk_relation_remove": true,
+		"tusk_task_link":       true,
+		"tusk_task_unlink":     true,
 		"tusk_project_list":    true,
 		"tusk_workflow_list":   true,
 		"tusk_player_register": true,
@@ -133,7 +133,7 @@ func (s *Server) validateConfig() error {
 		"tusk_project_delete":  true,
 	}
 	validToolGroups := map[string]bool{
-		"task": true, "relation": true, "project": true, "workflow": true, "player": true, "config": true,
+		"task": true, "task_relations": true, "project": true, "workflow": true, "player": true, "config": true,
 	}
 	validResourceURIs := map[string]bool{
 		"tusk://tasks/{short_id}":         true,
@@ -409,8 +409,8 @@ func (s *Server) registerTools() {
 		s.handleTaskAnnotate,
 	)
 
-	s.addTool("relation",
-		mcp.NewTool("tusk_relation_add",
+	s.addTool("task_relations",
+		mcp.NewTool("tusk_task_link",
 			mcp.WithDescription("Create a typed relation between two tasks"),
 			mcp.WithString("source",
 				mcp.Required(),
@@ -426,11 +426,11 @@ func (s *Server) registerTools() {
 				mcp.Enum("blocks", "relates_to", "duplicates"),
 			),
 		),
-		s.handleRelationAdd,
+		s.handleTaskLink,
 	)
 
-	s.addTool("relation",
-		mcp.NewTool("tusk_relation_remove",
+	s.addTool("task_relations",
+		mcp.NewTool("tusk_task_unlink",
 			mcp.WithDescription("Remove a relation between two tasks"),
 			mcp.WithString("source",
 				mcp.Required(),
@@ -446,7 +446,7 @@ func (s *Server) registerTools() {
 				mcp.Enum("blocks", "relates_to", "duplicates"),
 			),
 		),
-		s.handleRelationRemove,
+		s.handleTaskUnlink,
 	)
 
 	s.addTool("project",

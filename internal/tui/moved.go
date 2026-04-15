@@ -8,7 +8,7 @@ import (
 
 // registerMovedStubs registers hidden stub commands for flat task verbs that
 // have moved under `tusk task`. Each stub returns an error pointing the user
-// at the new invocation. Subsequent v0.11 phases extend the map below.
+// at the new invocation.
 func (a *App) registerMovedStubs() {
 	moved := map[string]string{
 		"add":       "task create",
@@ -25,6 +25,8 @@ func (a *App) registerMovedStubs() {
 		"release":   "task release",
 		"available": "task available",
 		"pop":       "task pop",
+		"link":      "task link",
+		"unlink":    "task unlink",
 	}
 
 	for old, newPath := range moved {

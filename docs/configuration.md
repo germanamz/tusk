@@ -153,7 +153,7 @@ Control which tools and resources the MCP server exposes to AI agents. By defaul
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `disabled_tool_groups` | string[] | `[]` | Hide entire tool groups. Valid groups: `"task"`, `"relation"`, `"project"` |
+| `disabled_tool_groups` | string[] | `[]` | Hide entire tool groups. Valid groups: `"task"`, `"task_relations"`, `"project"`, `"workflow"`, `"player"`, `"config"` |
 | `disabled_tools` | string[] | `[]` | Hide individual tools by name |
 | `disabled_resource_groups` | string[] | `[]` | Hide resource groups. Valid groups: `"task"`, `"project"`, `"workflow"` |
 | `disabled_resources` | string[] | `[]` | Hide individual resources by URI template |
@@ -171,8 +171,8 @@ Control which tools and resources the MCP server exposes to AI agents. By defaul
 | `tusk_task_delete` | task | Soft-delete a task |
 | `tusk_task_annotate` | task | Add a note to a task |
 | `tusk_task_tree` | task | Get task tree hierarchy |
-| `tusk_relation_add` | relation | Create a relation between tasks |
-| `tusk_relation_remove` | relation | Remove a relation |
+| `tusk_task_link` | task_relations | Create a relation between tasks |
+| `tusk_task_unlink` | task_relations | Remove a relation |
 | `tusk_project_list` | project | List all projects |
 | `tusk_project_create` | project | Create a new project |
 
@@ -188,7 +188,7 @@ Control which tools and resources the MCP server exposes to AI agents. By defaul
 
 ```toml
 [mcp]
-disabled_tool_groups = ["relation", "project"]
+disabled_tool_groups = ["task_relations", "project"]
 disabled_tools = ["tusk_task_create", "tusk_task_modify", "tusk_task_start", "tusk_task_done", "tusk_task_delete", "tusk_task_annotate"]
 disabled_resource_groups = ["workflow"]
 ```
