@@ -709,17 +709,17 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 > Remove `[projects.*]` and `[workflows.*]` from the config file. Config keeps global settings only — `storage.*`, global `urgency.*`, global `auto_complete.*`, `mcp.*`, `filter.*`, etc. `config show` still renders projects and workflows, now sourced from the DB.
 
-- [ ] **Story: Remove project/workflow sections from the config schema**
-  - [ ] Delete `ProjectConfig` and `WorkflowConfig` from `config/` types
-  - [ ] Remove `[projects.<name>]` and `[workflows.<name>]` from `config/default.toml`
-  - [ ] Config loader emits a hard error if the resolved file still contains these sections, pointing at the migration command (see next initiative)
-  - [ ] Global `[urgency]` and `[auto_complete]` stay in config as defaults — project overrides live in the DB `projects.settings` JSON
+- [x] **Story: Remove project/workflow sections from the config schema**
+  - [x] Delete `ProjectConfig` and `WorkflowConfig` from `config/` types
+  - [x] Remove `[projects.<name>]` and `[workflows.<name>]` from `config/default.toml`
+  - [x] Config loader emits a hard error if the resolved file still contains these sections, pointing at the migration command (see next initiative)
+  - [x] Global `[urgency]` and `[auto_complete]` stay in config as defaults — project overrides live in the DB `projects.settings` JSON
 
-- [ ] **Story: `config show` reads projects and workflows from DB**
-  - [ ] `config show` output keeps rendering `[projects.*]` and `[workflows.*]` sections for continuity, hydrated from the DB at display time
-  - [ ] Sections are marked read-only in the rendered header (e.g. `# projects (from database, use 'tusk project' to modify)`)
-  - [ ] `config get projects.<name>.<field>` / `config get workflows.<name>.<field>` resolve against the DB
-  - [ ] `config set` rejects keys under `projects.*` and `workflows.*` with an error pointing at `tusk project modify` / `tusk workflow modify`
+- [x] **Story: `config show` reads projects and workflows from DB**
+  - [x] `config show` output keeps rendering `[projects.*]` and `[workflows.*]` sections for continuity, hydrated from the DB at display time
+  - [x] Sections are marked read-only in the rendered header (e.g. `# projects (from database, use 'tusk project' to modify)`)
+  - [x] `config get projects.<name>.<field>` / `config get workflows.<name>.<field>` resolve against the DB
+  - [x] `config set` rejects keys under `projects.*` and `workflows.*` with an error pointing at `tusk project modify` / `tusk workflow modify`
 
 ### Initiative: CLI & MCP Rewiring
 

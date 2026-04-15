@@ -120,21 +120,13 @@ type Config struct {
     // DBPath is the path to the SQLite database file. Required.
     DBPath string
 
-    // Workflows defines workflow status sets and transitions.
-    // When nil or empty, the builtin kanban workflow is used.
-    Workflows map[string]config.WorkflowConfig
-
-    // Projects defines projects and their workflow assignments.
-    // When nil or empty, the builtin default project is used.
-    Projects map[string]config.ProjectConfig
-
     // Urgency holds weights for the urgency scoring algorithm.
     // When zero-valued, default weights are used.
     Urgency config.UrgencyConfig
 }
 ```
 
-All fields except `DBPath` are optional. When omitted, builtin defaults apply — a kanban workflow with `pending`, `active`, `completed`, and `deleted` statuses, a `default` project, and standard urgency weights.
+Only `DBPath` is required. A fresh database is seeded with the built-in `default` project and `kanban` workflow via migrations — additional projects and workflows are created at runtime via `client.Projects.Create(...)` and `client.Workflows.Create(...)`.
 
 Configuration is purely programmatic. No config files are read and no environment variables are consulted.
 
@@ -450,7 +442,47 @@ rels, err := client.Relations.GetByTask(ctx, shortID)
 
 ## Projects and Workflows
 
-Projects and workflows are read-only at runtime. They are defined in `Config` when creating the `Client`.
+Projects and workflows live in the database and are mutated through the service layer at runtime. Migrations seed every fresh database with a `default` project bound to the `kanban` workflow; additional entries are created by calling `client.Projects.Create` / `client.Workflows.Create`.
+
+### Creating Projects
+
+```go
+kanban, err := client.Workflows.GetByName(ctx, "kanban")
+if err != nil {
+    log.Fatal(err)
+}
+
+backend, err := client.Projects.Create(ctx, service.CreateProjectInput{
+    Name:       "backend",
+    WorkflowID: kanban.ID,
+    Settings: domain.ProjectSettings{
+        AutoCompleteParent: &domain.AutoCompleteParentConfig{
+            TriggerStatus: "completed",
+            TargetStatus:  "completed",
+        },
+    },
+})
+```
+
+### Creating Workflows
+
+```go
+dev, err := client.Workflows.Create(ctx, service.CreateWorkflowInput{
+    Name: "dev",
+    Statuses: map[string]domain.StatusConfig{
+        "backlog":     {},
+        "in_progress": {},
+        "review":      {},
+        "done":        {},
+    },
+    Transitions: []domain.WorkflowTransition{
+        {From: "backlog", To: "in_progress"},
+        {From: "in_progress", To: "review"},
+        {From: "review", To: "done"},
+        {From: "review", To: "in_progress"},
+    },
+})
+```
 
 ### Querying Projects
 
@@ -648,60 +680,7 @@ if errors.Is(err, domain.ErrNotFound) {
 
 ## Custom Configuration
 
-### Custom Workflows
-
-```go
-client, _ := tusk.NewClient(tusk.Config{
-    DBPath: "/tmp/tusk.db",
-    Workflows: map[string]config.WorkflowConfig{
-        "dev": {
-            Statuses: []string{"backlog", "in_progress", "review", "done", "archived"},
-            Transitions: []config.WorkflowTransitionConfig{
-                {From: "backlog", To: "in_progress"},
-                {From: "in_progress", To: "review"},
-                {From: "review", To: "done"},
-                {From: "review", To: "in_progress"},
-                {From: "done", To: "archived"},
-                {From: "done", To: "backlog"},
-            },
-            HighlightStatuses: []string{"in_progress", "review"},
-            DimStatuses:       []string{"done", "archived"},
-        },
-    },
-    Projects: map[string]config.ProjectConfig{
-        "default": {Workflow: "dev"},
-    },
-})
-```
-
-Every project must reference an existing workflow. `NewClient` validates this and returns an error on mismatch.
-
-### Custom Projects with Automation
-
-```go
-Projects: map[string]config.ProjectConfig{
-    "backend": {
-        Workflow: "kanban",
-        Settings: config.ProjectSettingsConfig{
-            // Auto-complete parent when all children are "completed".
-            AutoCompleteParent: &config.AutoCompleteParentConfig{
-                TriggerStatus: "completed",
-                TargetStatus:  "completed",
-            },
-            // Auto-revert parent when a child leaves "completed".
-            AutoRevertParent: &config.AutoRevertParentConfig{
-                TriggerStatus: "completed",
-                TargetStatus:  "active",
-            },
-            // Override urgency weights for this project.
-            Urgency: &config.ProjectUrgencyConfig{
-                PriorityWeight: ptr(10.0),
-                DueWeight:      ptr(15.0),
-            },
-        },
-    },
-},
-```
+Projects and workflows are mutable database rows — see [Creating Projects](#creating-projects) and [Creating Workflows](#creating-workflows) for the runtime API. The only globally-tunable section of `tusk.Config` is `Urgency`.
 
 ### Custom Urgency Weights
 
@@ -824,7 +803,7 @@ For consumers who need full control, the individual packages are importable dire
 | `sqlite`     | SQLite implementations of repository interfaces.               |
 | `inmem`      | In-memory implementations for projects and workflows.          |
 | `filter`     | 3-stage filter parser: Lex → Parse → Resolve.                 |
-| `config`     | Configuration types (`WorkflowConfig`, `ProjectConfig`, etc.). |
+| `config`     | Global config types (`StorageConfig`, `UrgencyConfig`, `TUIConfig`, `MCPConfig`) and Viper-based loader. |
 | `migrations` | Embedded SQL migration files.                                  |
 
 You can wire these yourself instead of using `Client`:
