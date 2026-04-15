@@ -8,7 +8,7 @@ func TestAnnotations(t *testing.T) {
 			Name: "annotate_then_info",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Annotate target"},
+					Args: []string{"task", "create", "Annotate target"},
 				},
 				{
 					Args: []string{"annotate", "$0.short_id", "This is a note"},
@@ -24,7 +24,7 @@ func TestAnnotations(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -53,7 +53,7 @@ func TestAnnotations(t *testing.T) {
 			Name: "multiple_annotations",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Multi note task"},
+					Args: []string{"task", "create", "Multi note task"},
 				},
 				{
 					Args: []string{"annotate", "$0.short_id", "First note"},
@@ -65,7 +65,7 @@ func TestAnnotations(t *testing.T) {
 					Args: []string{"annotate", "$0.short_id", "Third note"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)

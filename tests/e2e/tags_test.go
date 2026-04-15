@@ -8,7 +8,7 @@ func TestTags(t *testing.T) {
 			Name: "create_with_tags",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Tagged task", "+api", "+backend"},
+					Args: []string{"task", "create", "Tagged task", "+api", "+backend"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -36,10 +36,10 @@ func TestTags(t *testing.T) {
 			Name: "modify_add_tag",
 			Steps: []Step{
 				{
-					Args: []string{"add", "No tags yet"},
+					Args: []string{"task", "create", "No tags yet"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "+newtag"},
+					Args: []string{"task", "modify", "$0.short_id", "+newtag"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -60,10 +60,10 @@ func TestTags(t *testing.T) {
 			Name: "modify_remove_tag",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Has tag", "+removeme"},
+					Args: []string{"task", "create", "Has tag", "+removeme"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "--", "-removeme"},
+					Args: []string{"task", "modify", "$0.short_id", "--", "-removeme"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -83,10 +83,10 @@ func TestTags(t *testing.T) {
 			Name: "tags_in_list_output",
 			Steps: []Step{
 				{
-					Args: []string{"add", "List tag task", "+visible"},
+					Args: []string{"task", "create", "List tag task", "+visible"},
 				},
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -109,10 +109,10 @@ func TestTags(t *testing.T) {
 			Name: "tags_in_info_output",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Info tag task", "+frontend", "+urgent"},
+					Args: []string{"task", "create", "Info tag task", "+frontend", "+urgent"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -134,16 +134,16 @@ func TestTags(t *testing.T) {
 			Name: "filter_by_tag_after_modify",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Will get tag"},
+					Args: []string{"task", "create", "Will get tag"},
 				},
 				{
-					Args: []string{"add", "Never gets tag"},
+					Args: []string{"task", "create", "Never gets tag"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "+searchable"},
+					Args: []string{"task", "modify", "$0.short_id", "+searchable"},
 				},
 				{
-					Args: []string{"list", "+searchable"},
+					Args: []string{"task", "list", "+searchable"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)

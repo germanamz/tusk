@@ -32,13 +32,13 @@ func TestPropagation_Disabled(t *testing.T) {
 		{
 			Name: "propagation_disabled_by_default",
 			Steps: []Step{
-				{Args: []string{"add", "Parent task"}},
+				{Args: []string{"task", "create", "Parent task"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child task", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Child task", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
 						assertContains(t, r.Stdout, "active")
@@ -111,14 +111,14 @@ func TestPropagation_AutoComplete(t *testing.T) {
 		{
 			Name: "auto_complete_all_children_done",
 			Steps: []Step{
-				{Args: []string{"add", "Parent task"}},
+				{Args: []string{"task", "create", "Parent task"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child one", "parent=$0.short_id"}},
-				{Args: []string{"add", "Child two", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Child one", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Child two", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -130,7 +130,7 @@ func TestPropagation_AutoComplete(t *testing.T) {
 				{Args: []string{"start", "$3.short_id"}},
 				{Args: []string{"done", "$3.short_id"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -144,15 +144,15 @@ func TestPropagation_AutoComplete(t *testing.T) {
 		{
 			Name: "auto_complete_deleted_child_ignored",
 			Steps: []Step{
-				{Args: []string{"add", "Parent"}},
+				{Args: []string{"task", "create", "Parent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child 1", "parent=$0.short_id"}},
-				{Args: []string{"add", "Child 2", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Child 1", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Child 2", "parent=$0.short_id"}},
 				{Args: []string{"delete", "$3.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -166,12 +166,12 @@ func TestPropagation_AutoComplete(t *testing.T) {
 		{
 			Name: "auto_complete_workflow_guard",
 			Steps: []Step{
-				{Args: []string{"add", "Parent pending"}},
-				{Args: []string{"add", "Child", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Parent pending"}},
+				{Args: []string{"task", "create", "Child", "parent=$0.short_id"}},
 				{Args: []string{"start", "$1.short_id"}},
 				{Args: []string{"done", "$1.short_id"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -192,15 +192,15 @@ func TestPropagation_Recursive(t *testing.T) {
 		{
 			Name: "auto_complete_recursive",
 			Steps: []Step{
-				{Args: []string{"add", "Grandparent"}},
+				{Args: []string{"task", "create", "Grandparent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Parent", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Parent", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
-				{Args: []string{"add", "Child", "parent=$2.short_id"}},
+				{Args: []string{"task", "create", "Child", "parent=$2.short_id"}},
 				{Args: []string{"start", "$4.short_id"}},
 				{Args: []string{"done", "$4.short_id"}},
 				{
-					Args: []string{"info", "$2.short_id"},
+					Args: []string{"task", "get", "$2.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -210,7 +210,7 @@ func TestPropagation_Recursive(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -231,13 +231,13 @@ func TestPropagation_AutoRevert(t *testing.T) {
 		{
 			Name: "auto_revert_child_reopened",
 			Steps: []Step{
-				{Args: []string{"add", "Parent"}},
+				{Args: []string{"task", "create", "Parent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Child", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Child", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
 				{Args: []string{"done", "$2.short_id"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -246,9 +246,9 @@ func TestPropagation_AutoRevert(t *testing.T) {
 						}
 					},
 				},
-				{Args: []string{"modify", "$2.short_id", "status=pending"}},
+				{Args: []string{"task", "modify", "$2.short_id", "status=pending"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -262,15 +262,15 @@ func TestPropagation_AutoRevert(t *testing.T) {
 		{
 			Name: "auto_revert_recursive",
 			Steps: []Step{
-				{Args: []string{"add", "Grandparent"}},
+				{Args: []string{"task", "create", "Grandparent"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Parent", "parent=$0.short_id"}},
+				{Args: []string{"task", "create", "Parent", "parent=$0.short_id"}},
 				{Args: []string{"start", "$2.short_id"}},
-				{Args: []string{"add", "Child", "parent=$2.short_id"}},
+				{Args: []string{"task", "create", "Child", "parent=$2.short_id"}},
 				{Args: []string{"start", "$4.short_id"}},
 				{Args: []string{"done", "$4.short_id"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -279,9 +279,9 @@ func TestPropagation_AutoRevert(t *testing.T) {
 						}
 					},
 				},
-				{Args: []string{"modify", "$4.short_id", "status=pending"}},
+				{Args: []string{"task", "modify", "$4.short_id", "status=pending"}},
 				{
-					Args: []string{"info", "$2.short_id"},
+					Args: []string{"task", "get", "$2.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -291,7 +291,7 @@ func TestPropagation_AutoRevert(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)

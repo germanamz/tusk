@@ -14,16 +14,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildTaskCmds creates the top-level task management commands.
-func (a *App) buildTaskCmds() []*cobra.Command {
-	addCmd := &cobra.Command{
-		Use:   "add [title] [key=value...] [+tag...]",
+// buildTaskCmd creates the `tusk task` parent command. CRUD subcommands are
+// attached here; lifecycle, claim, queue, and relation verbs are migrated in
+// later phases of the v0.11 task-subcommand initiative.
+func (a *App) buildTaskCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "task",
+		Short: "Manage tasks",
+		Long:  "Task-scoped commands. Every task CRUD, lifecycle, claim, queue, and relation verb lives under this parent.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+
+	createCmd := &cobra.Command{
+		Use:   "create [title] [key=value...] [+tag...]",
 		Short: "Create a new task",
 		Args:  cobra.MinimumNArgs(1),
-		RunE:  a.runAdd,
+		RunE:  a.runCreate,
 	}
-	addCmd.Flags().StringP("description", "d", "", `task description (use @file to read from file, @- for stdin)`)
-	addCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value)`)
+	createCmd.Flags().StringP("description", "d", "", `task description (use @file to read from file, @- for stdin)`)
+	createCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value)`)
 
 	modifyCmd := &cobra.Command{
 		Use:   "modify <short_id> [key=value...]",
@@ -43,20 +54,31 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 	}
 	treeCmd.Flags().Bool("all", false, "include deleted tasks")
 
-	return []*cobra.Command{
-		addCmd,
-		{
+	parent.AddCommand(
+		createCmd,
+		&cobra.Command{
 			Use:   "list [filters...]",
 			Short: "List tasks",
 			RunE:  a.runList,
 		},
-		{
-			Use:   "info <short_id>",
+		&cobra.Command{
+			Use:   "get <short_id>",
 			Short: "Show task details",
 			Args:  cobra.ExactArgs(1),
-			RunE:  a.runInfo,
+			RunE:  a.runGet,
 		},
 		modifyCmd,
+		treeCmd,
+	)
+
+	return parent
+}
+
+// buildTaskCmds returns the not-yet-migrated flat task verbs. Bridge code:
+// each phase of the v0.11 task-subcommand initiative shrinks this list;
+// phase 4 deletes it entirely.
+func (a *App) buildTaskCmds() []*cobra.Command {
+	return []*cobra.Command{
 		{
 			Use:   "start <short_id>",
 			Short: "Transition task to active",
@@ -81,7 +103,6 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 			Args:  cobra.MinimumNArgs(2),
 			RunE:  a.runAnnotate,
 		},
-		treeCmd,
 		{
 			Use:   "link <short_id> <relation_type> <short_id>",
 			Short: "Create a relation between two tasks",
@@ -145,7 +166,7 @@ func formatError(err error, shortID string) string {
 	}
 }
 
-func (a *App) runAdd(cmd *cobra.Command, args []string) error {
+func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	input := strings.Join(args, " ")
@@ -298,7 +319,7 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 	return r.renderTaskList(tasks, taskTags)
 }
 
-func (a *App) runInfo(cmd *cobra.Command, args []string) error {
+func (a *App) runGet(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 

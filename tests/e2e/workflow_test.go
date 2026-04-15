@@ -156,7 +156,7 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 			}
 
 			// 2: Add — should get "backlog" status (initial role)
-			r = env.Run("add", "Ship feature X")
+			r = env.Run("task", "create", "Ship feature X")
 			if r.Err != nil {
 				t.Fatalf("add failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -168,7 +168,7 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 			}
 
 			// 4: Info should show in_progress
-			r = env.Run("info", "$2.short_id")
+			r = env.Run("task", "get", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("info failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -181,14 +181,14 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 			}
 
 			// 6: Verify shipped
-			r = env.Run("info", "$2.short_id")
+			r = env.Run("task", "get", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("info after done: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 			assertContains(t, r.Stdout, "shipped")
 
 			// 7: Add another task
-			r = env.Run("add", "Won't do this")
+			r = env.Run("task", "create", "Won't do this")
 			if r.Err != nil {
 				t.Fatalf("add 2 failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -200,7 +200,7 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 			}
 
 			// 9: Verify wontfix
-			r = env.Run("info", "$7.short_id")
+			r = env.Run("task", "get", "$7.short_id")
 			if r.Err != nil {
 				t.Fatalf("info after delete: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -237,13 +237,13 @@ func TestWorkflowStatusDisplay(t *testing.T) {
 			}
 
 			// Create a task — verifies config loads without error
-			r = env.Run("add", "Test task")
+			r = env.Run("task", "create", "Test task")
 			if r.Err != nil {
 				t.Fatalf("add failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 
 			// List tasks — verifies task is returned
-			r = env.Run("list")
+			r = env.Run("task", "list")
 			if r.Err != nil {
 				t.Fatalf("list failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}

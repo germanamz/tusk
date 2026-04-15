@@ -127,7 +127,7 @@ func TestCLI_ConfigWalkUp(t *testing.T) {
 				env.InDir(root)
 
 				// configDir was set to an empty temp dir by runWalkUpScenarios.
-				listRes := env.Run("list")
+				listRes := env.Run("task", "list")
 				if listRes.Err != nil {
 					t.Fatalf("list failed: %v\n%s", listRes.Err, listRes.Stderr)
 				}
@@ -359,13 +359,13 @@ func TestCLI_ConfigWalkUp_StoragePathRelative(t *testing.T) {
 	env.dbMode = ""
 
 	env.InDir(sub)
-	addRes := env.Run("add", "walkup-foo")
+	addRes := env.Run("task", "create", "walkup-foo")
 	if addRes.Err != nil {
 		t.Fatalf("add failed: %v\nstderr: %s", addRes.Err, addRes.Stderr)
 	}
 
 	env.InDir(root)
-	listRes := env.Run("list")
+	listRes := env.Run("task", "list")
 	if listRes.Err != nil {
 		t.Fatalf("list failed: %v\nstderr: %s", listRes.Err, listRes.Stderr)
 	}

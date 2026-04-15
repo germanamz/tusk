@@ -8,16 +8,16 @@ func TestFiltering(t *testing.T) {
 			Name: "list_status_active_only",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Pending task"},
+					Args: []string{"task", "create", "Pending task"},
 				},
 				{
-					Args: []string{"add", "Active task"},
+					Args: []string{"task", "create", "Active task"},
 				},
 				{
 					Args: []string{"start", "$1.short_id"},
 				},
 				{
-					Args: []string{"list", "status=active"},
+					Args: []string{"task", "list", "status=active"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -38,16 +38,16 @@ func TestFiltering(t *testing.T) {
 			Name: "list_status_pending_and_active",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Pending one"},
+					Args: []string{"task", "create", "Pending one"},
 				},
 				{
-					Args: []string{"add", "Active one"},
+					Args: []string{"task", "create", "Active one"},
 				},
 				{
 					Args: []string{"start", "$1.short_id"},
 				},
 				{
-					Args: []string{"list", "status=pending,active"},
+					Args: []string{"task", "list", "status=pending,active"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -67,13 +67,13 @@ func TestFiltering(t *testing.T) {
 			Name: "list_include_tag",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Tagged task", "+api"},
+					Args: []string{"task", "create", "Tagged task", "+api"},
 				},
 				{
-					Args: []string{"add", "Untagged task"},
+					Args: []string{"task", "create", "Untagged task"},
 				},
 				{
-					Args: []string{"list", "+api"},
+					Args: []string{"task", "list", "+api"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -94,14 +94,14 @@ func TestFiltering(t *testing.T) {
 			Name: "list_exclude_tag",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Has docs tag", "+docs"},
+					Args: []string{"task", "create", "Has docs tag", "+docs"},
 				},
 				{
-					Args: []string{"add", "No docs tag"},
+					Args: []string{"task", "create", "No docs tag"},
 				},
 				{
 					// "--" is required so cobra does not interpret "-docs" as a shorthand flag.
-					Args: []string{"list", "--", "-docs"},
+					Args: []string{"task", "list", "--", "-docs"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -122,13 +122,13 @@ func TestFiltering(t *testing.T) {
 			Name: "list_priority_exact",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Low pri", "priority=1"},
+					Args: []string{"task", "create", "Low pri", "priority=1"},
 				},
 				{
-					Args: []string{"add", "High pri", "priority=3"},
+					Args: []string{"task", "create", "High pri", "priority=3"},
 				},
 				{
-					Args: []string{"list", "priority=3"},
+					Args: []string{"task", "list", "priority=3"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -149,19 +149,19 @@ func TestFiltering(t *testing.T) {
 			Name: "list_priority_range",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Low", "priority=1"},
+					Args: []string{"task", "create", "Low", "priority=1"},
 				},
 				{
-					Args: []string{"add", "Medium", "priority=2"},
+					Args: []string{"task", "create", "Medium", "priority=2"},
 				},
 				{
-					Args: []string{"add", "High", "priority=3"},
+					Args: []string{"task", "create", "High", "priority=3"},
 				},
 				{
-					Args: []string{"add", "Urgent", "priority=4"},
+					Args: []string{"task", "create", "Urgent", "priority=4"},
 				},
 				{
-					Args: []string{"list", "priority=3..4"},
+					Args: []string{"task", "list", "priority=3..4"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -186,14 +186,14 @@ func TestFiltering(t *testing.T) {
 				{
 					// default project is seeded by config; tasks without an explicit
 					// project are also assigned to default, so both tasks appear.
-					Args: []string{"add", "First task", "project=default"},
+					Args: []string{"task", "create", "First task", "project=default"},
 				},
 				{
 					// No project arg — still gets default by the service layer.
-					Args: []string{"add", "Second task"},
+					Args: []string{"task", "create", "Second task"},
 				},
 				{
-					Args: []string{"list", "project=default"},
+					Args: []string{"task", "list", "project=default"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -213,19 +213,19 @@ func TestFiltering(t *testing.T) {
 			Name: "list_combined_filters",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Match all", "priority=3", "+api"},
+					Args: []string{"task", "create", "Match all", "priority=3", "+api"},
 				},
 				{
-					Args: []string{"add", "Wrong priority", "priority=1", "+api"},
+					Args: []string{"task", "create", "Wrong priority", "priority=1", "+api"},
 				},
 				{
-					Args: []string{"add", "Wrong tag", "priority=3", "+docs"},
+					Args: []string{"task", "create", "Wrong tag", "priority=3", "+docs"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
 				},
 				{
-					Args: []string{"list", "status=active", "+api", "priority=3"},
+					Args: []string{"task", "list", "status=active", "+api", "priority=3"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -248,7 +248,7 @@ func TestFiltering(t *testing.T) {
 			Steps: []Step{
 				{
 					// No tasks in the DB — list should return empty
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -269,10 +269,10 @@ func TestFiltering(t *testing.T) {
 			Name: "list_default_hides_completed_and_deleted",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Pending visible"},
+					Args: []string{"task", "create", "Pending visible"},
 				},
 				{
-					Args: []string{"add", "Will complete"},
+					Args: []string{"task", "create", "Will complete"},
 				},
 				{
 					Args: []string{"start", "$1.short_id"},
@@ -281,14 +281,14 @@ func TestFiltering(t *testing.T) {
 					Args: []string{"done", "$1.short_id"},
 				},
 				{
-					Args: []string{"add", "Will delete"},
+					Args: []string{"task", "create", "Will delete"},
 				},
 				{
 					Args: []string{"delete", "$4.short_id"},
 				},
 				{
 					// Default list should only show pending/active tasks
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -309,10 +309,10 @@ func TestFiltering(t *testing.T) {
 		{
 			Name: "filter_by_title",
 			Steps: []Step{
-				{Args: []string{"add", "Implement auth middleware"}},
-				{Args: []string{"add", "Write unit tests"}},
+				{Args: []string{"task", "create", "Implement auth middleware"}},
+				{Args: []string{"task", "create", "Write unit tests"}},
 				{
-					Args: []string{"list", `title="auth"`, "status=pending"},
+					Args: []string{"task", "list", `title="auth"`, "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -332,10 +332,10 @@ func TestFiltering(t *testing.T) {
 		{
 			Name: "filter_by_description",
 			Steps: []Step{
-				{Args: []string{"add", "Task A", "--description", "handles authentication"}},
-				{Args: []string{"add", "Task B", "--description", "handles logging"}},
+				{Args: []string{"task", "create", "Task A", "--description", "handles authentication"}},
+				{Args: []string{"task", "create", "Task B", "--description", "handles logging"}},
 				{
-					Args: []string{"list", `description="authentication"`, "status=pending"},
+					Args: []string{"task", "list", `description="authentication"`, "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -355,14 +355,14 @@ func TestFiltering(t *testing.T) {
 		{
 			Name: "filter_or_operator",
 			Steps: []Step{
-				{Args: []string{"add", "Active task"}},
+				{Args: []string{"task", "create", "Active task"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Pending task"}},
-				{Args: []string{"add", "Done task"}},
+				{Args: []string{"task", "create", "Pending task"}},
+				{Args: []string{"task", "create", "Done task"}},
 				{Args: []string{"start", "$3.short_id"}},
 				{Args: []string{"done", "$3.short_id"}},
 				{
-					Args: []string{"list", "status=active", "OR", "status=completed"},
+					Args: []string{"task", "list", "status=active", "OR", "status=completed"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						arr := jsonArray(t, parsed)
 						if len(arr) != 2 {
@@ -380,11 +380,11 @@ func TestFiltering(t *testing.T) {
 		{
 			Name: "filter_not_operator",
 			Steps: []Step{
-				{Args: []string{"add", "Keep this"}},
-				{Args: []string{"add", "Delete this"}},
+				{Args: []string{"task", "create", "Keep this"}},
+				{Args: []string{"task", "create", "Delete this"}},
 				{Args: []string{"delete", "$1.short_id"}},
 				{
-					Args: []string{"list", "NOT", "status=deleted"},
+					Args: []string{"task", "list", "NOT", "status=deleted"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						arr := jsonArray(t, parsed)
 						if len(arr) != 1 {
@@ -402,14 +402,14 @@ func TestFiltering(t *testing.T) {
 		{
 			Name: "filter_parenthesized_grouping",
 			Steps: []Step{
-				{Args: []string{"add", "Active tagged", "+api"}},
+				{Args: []string{"task", "create", "Active tagged", "+api"}},
 				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"add", "Pending tagged", "+api"}},
-				{Args: []string{"add", "Active untagged"}},
+				{Args: []string{"task", "create", "Pending tagged", "+api"}},
+				{Args: []string{"task", "create", "Active untagged"}},
 				{Args: []string{"start", "$3.short_id"}},
 				{
 					// Only active tasks with +api tag, or any pending task
-					Args: []string{"list", "(", "status=active", "AND", "+api", ")", "OR", "status=pending"},
+					Args: []string{"task", "list", "(", "status=active", "AND", "+api", ")", "OR", "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						arr := jsonArray(t, parsed)
 						if len(arr) != 2 {

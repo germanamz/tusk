@@ -61,7 +61,7 @@ func TestClaimRelease(t *testing.T) {
 			Name: "claim_and_release",
 			Steps: []Step{
 				{Args: []string{"player", "register", "agent-1"}},
-				{Args: []string{"add", "Claimable task"}},
+				{Args: []string{"task", "create", "Claimable task"}},
 				{
 					Args: []string{"claim", "$1.short_id", "--player", "agent-1"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -98,7 +98,7 @@ func TestClaimRelease(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"player", "register", "agent-1"}},
 				{Args: []string{"player", "register", "agent-2"}},
-				{Args: []string{"add", "Contested task"}},
+				{Args: []string{"task", "create", "Contested task"}},
 				{Args: []string{"claim", "$2.short_id", "--player", "agent-1"}},
 				{
 					Args:    []string{"claim", "$2.short_id", "--player", "agent-2"},
@@ -119,7 +119,7 @@ func TestStartAutoClaim(t *testing.T) {
 		{
 			Name: "start_auto_claims",
 			Steps: []Step{
-				{Args: []string{"add", "Auto-claim task"}},
+				{Args: []string{"task", "create", "Auto-claim task"}},
 				{
 					Args: []string{"start", "$0.short_id", "--player", "agent-auto"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -134,7 +134,7 @@ func TestStartAutoClaim(t *testing.T) {
 		{
 			Name: "start_without_player_no_claim",
 			Steps: []Step{
-				{Args: []string{"add", "No-claim task"}},
+				{Args: []string{"task", "create", "No-claim task"}},
 				{
 					Args: []string{"start", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -153,7 +153,7 @@ func TestStartAutoClaim(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"player", "register", "agent-1"}},
 				{Args: []string{"player", "register", "agent-2"}},
-				{Args: []string{"add", "Guarded task"}},
+				{Args: []string{"task", "create", "Guarded task"}},
 				{Args: []string{"claim", "$2.short_id", "--player", "agent-1"}},
 				{
 					Args:    []string{"start", "$2.short_id", "--player", "agent-2"},
@@ -174,10 +174,10 @@ func TestClaimVisibleInInfo(t *testing.T) {
 		{
 			Name: "info_shows_claim",
 			Steps: []Step{
-				{Args: []string{"add", "Visible claim task"}},
+				{Args: []string{"task", "create", "Visible claim task"}},
 				{Args: []string{"claim", "$0.short_id", "--player", "agent-vis"}},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -200,7 +200,7 @@ func TestClaimPreservedAfterDone(t *testing.T) {
 		{
 			Name: "done_preserves_claim",
 			Steps: []Step{
-				{Args: []string{"add", "Finish task"}},
+				{Args: []string{"task", "create", "Finish task"}},
 				{Args: []string{"start", "$0.short_id", "--player", "agent-done"}},
 				{
 					Args: []string{"done", "$0.short_id"},
@@ -222,11 +222,11 @@ func TestClaimFilters(t *testing.T) {
 		{
 			Name: "filter_claimed_by",
 			Steps: []Step{
-				{Args: []string{"add", "Task A"}},
-				{Args: []string{"add", "Task B"}},
+				{Args: []string{"task", "create", "Task A"}},
+				{Args: []string{"task", "create", "Task B"}},
 				{Args: []string{"claim", "$0.short_id", "--player", "agent-filter"}},
 				{
-					Args: []string{"list", "claimed_by=agent-filter"},
+					Args: []string{"task", "list", "claimed_by=agent-filter"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := parsed.([]any)
@@ -242,11 +242,11 @@ func TestClaimFilters(t *testing.T) {
 		{
 			Name: "filter_unclaimed",
 			Steps: []Step{
-				{Args: []string{"add", "Unclaimed task"}},
-				{Args: []string{"add", "Claimed task"}},
+				{Args: []string{"task", "create", "Unclaimed task"}},
+				{Args: []string{"task", "create", "Claimed task"}},
 				{Args: []string{"claim", "$1.short_id", "--player", "agent-unc"}},
 				{
-					Args: []string{"list", "unclaimed=true"},
+					Args: []string{"task", "list", "unclaimed=true"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := parsed.([]any)
