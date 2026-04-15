@@ -7,7 +7,6 @@ import (
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/sqlite"
-	"github.com/germanamz/tusk/sqlite/sqlitetest"
 )
 
 type testRelationEnv struct {
@@ -20,7 +19,7 @@ type testRelationEnv struct {
 // The DB has all migrations applied, including the default project and kanban workflow.
 func newTestRelationEnv(t *testing.T) *testRelationEnv {
 	t.Helper()
-	bundle, projectRepo, workflowRepo := newSeededBundle(t, sqlitetest.KanbanConfig("default"))
+	bundle, projectRepo, workflowRepo := newSeededBundle(t)
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)

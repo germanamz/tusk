@@ -127,39 +127,6 @@ func TestCustomWorkflowTaskLifecycle(t *testing.T) {
 		t.Skip("binary not built")
 	}
 
-	configContent := `
-[workflows.scrum.statuses.backlog]
-roles = ["initial"]
-
-[workflows.scrum.statuses.in_progress]
-roles = ["start", "highlight"]
-
-[workflows.scrum.statuses.shipped]
-roles = ["terminal", "done", "dim"]
-
-[workflows.scrum.statuses.wontfix]
-roles = ["terminal", "delete", "dim"]
-
-[[workflows.scrum.transitions]]
-from = "backlog"
-to = "in_progress"
-
-[[workflows.scrum.transitions]]
-from = "in_progress"
-to = "shipped"
-
-[[workflows.scrum.transitions]]
-from = "in_progress"
-to = "wontfix"
-
-[[workflows.scrum.transitions]]
-from = "backlog"
-to = "wontfix"
-
-[projects.default]
-workflow = "scrum"
-`
-
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
@@ -167,54 +134,73 @@ workflow = "scrum"
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, format)
-			env.withConfig(configContent)
 
-			// 0: Add — should get "backlog" status (initial role)
-			r := env.Run("add", "Ship feature X")
+			// Create the scrum workflow via the CLI — post-phase-2, the
+			// TOML schema no longer accepts [workflows.*], so custom
+			// workflows must be seeded through the service layer.
+			r := env.Run("workflow", "create", "scrum",
+				"status=backlog(initial)",
+				"status=in_progress(start,highlight)",
+				"status=shipped(terminal,done,dim)",
+				"status=wontfix(terminal,delete,dim)",
+				"transition=backlog:in_progress,in_progress:shipped,in_progress:wontfix,backlog:wontfix",
+			)
+			if r.Err != nil {
+				t.Fatalf("workflow create scrum: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+
+			// Rebind the default project to the scrum workflow.
+			r = env.Run("project", "modify", "default", "workflow=scrum")
+			if r.Err != nil {
+				t.Fatalf("project modify default: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+
+			// 2: Add — should get "backlog" status (initial role)
+			r = env.Run("add", "Ship feature X")
 			if r.Err != nil {
 				t.Fatalf("add failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 
-			// 1: Start — should transition to "in_progress" (start role)
-			r = env.Run("start", "$0.short_id")
+			// 3: Start — should transition to "in_progress" (start role)
+			r = env.Run("start", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("start failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 
-			// 2: Info should show in_progress
-			r = env.Run("info", "$0.short_id")
+			// 4: Info should show in_progress
+			r = env.Run("info", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("info failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 			assertContains(t, r.Stdout, "in_progress")
 
-			// 3: Done — should transition to "shipped" (done role)
-			r = env.Run("done", "$0.short_id")
+			// 5: Done — should transition to "shipped" (done role)
+			r = env.Run("done", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("done failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 
-			// 4: Verify shipped
-			r = env.Run("info", "$0.short_id")
+			// 6: Verify shipped
+			r = env.Run("info", "$2.short_id")
 			if r.Err != nil {
 				t.Fatalf("info after done: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 			assertContains(t, r.Stdout, "shipped")
 
-			// 5: Add another task
+			// 7: Add another task
 			r = env.Run("add", "Won't do this")
 			if r.Err != nil {
 				t.Fatalf("add 2 failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 
-			// 6: Delete — should transition to "wontfix" (delete role)
-			r = env.Run("delete", "$5.short_id")
+			// 8: Delete — should transition to "wontfix" (delete role)
+			r = env.Run("delete", "$7.short_id")
 			if r.Err != nil {
 				t.Fatalf("delete failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 
-			// 7: Verify wontfix
-			r = env.Run("info", "$5.short_id")
+			// 9: Verify wontfix
+			r = env.Run("info", "$7.short_id")
 			if r.Err != nil {
 				t.Fatalf("info after delete: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -228,40 +214,30 @@ func TestWorkflowStatusDisplay(t *testing.T) {
 		t.Skip("binary not built")
 	}
 
-	configContent := `
-[workflows.custom.statuses.pending]
-roles = ["initial"]
-[workflows.custom.statuses.in_progress]
-roles = ["start", "highlight"]
-[workflows.custom.statuses.review]
-roles = ["highlight"]
-[workflows.custom.statuses.done]
-roles = ["terminal", "done", "dim"]
-[workflows.custom.statuses.archived]
-roles = ["terminal", "delete", "dim"]
-
-[[workflows.custom.transitions]]
-from = "pending"
-to = "in_progress"
-[[workflows.custom.transitions]]
-from = "in_progress"
-to = "review"
-[[workflows.custom.transitions]]
-from = "review"
-to = "done"
-
-[projects.default]
-workflow = "custom"
-`
-
 	for _, dbMode := range []string{"flag", "env"} {
 		t.Run(dbMode, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, "json")
-			env.withConfig(configContent)
+
+			// Seed a custom workflow through the CLI and rebind default.
+			r := env.Run("workflow", "create", "custom",
+				"status=pending(initial)",
+				"status=in_progress(start,highlight)",
+				"status=review(highlight)",
+				"status=done(terminal,done,dim)",
+				"status=archived(terminal,delete,dim)",
+				"transition=pending:in_progress,in_progress:review,review:done",
+			)
+			if r.Err != nil {
+				t.Fatalf("workflow create custom: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+			r = env.Run("project", "modify", "default", "workflow=custom")
+			if r.Err != nil {
+				t.Fatalf("project modify default: %v\nstderr: %s", r.Err, r.Stderr)
+			}
 
 			// Create a task — verifies config loads without error
-			r := env.Run("add", "Test task")
+			r = env.Run("add", "Test task")
 			if r.Err != nil {
 				t.Fatalf("add failed: %v\nstderr: %s", r.Err, r.Stderr)
 			}
@@ -281,29 +257,6 @@ func TestWorkflowCRUD(t *testing.T) {
 		t.Skip("binary not built")
 	}
 
-	configContent := `
-[workflows.kanban.statuses.pending]
-roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start", "highlight"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done", "dim"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete", "dim"]
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "completed"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "deleted"
-
-[projects.default]
-workflow = "kanban"
-`
-
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
@@ -311,7 +264,6 @@ workflow = "kanban"
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, format)
-			env.withConfig(configContent)
 
 			r := env.Run("workflow", "create", "sprint",
 				"status=todo(initial)",
@@ -365,34 +317,10 @@ func TestWorkflowDeleteInUse(t *testing.T) {
 		t.Skip("binary not built")
 	}
 
-	configContent := `
-[workflows.kanban.statuses.pending]
-roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start", "highlight"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done", "dim"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete", "dim"]
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "completed"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "deleted"
-
-[projects.default]
-workflow = "kanban"
-`
-
 	for _, dbMode := range []string{"flag", "env"} {
 		t.Run(dbMode, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, "text")
-			env.withConfig(configContent)
 
 			r := env.Run("workflow", "delete", "kanban")
 			if r.Err == nil {
@@ -409,34 +337,10 @@ func TestWorkflowCreateDuplicate(t *testing.T) {
 		t.Skip("binary not built")
 	}
 
-	configContent := `
-[workflows.kanban.statuses.pending]
-roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start", "highlight"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done", "dim"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete", "dim"]
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "completed"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "deleted"
-
-[projects.default]
-workflow = "kanban"
-`
-
 	for _, dbMode := range []string{"flag", "env"} {
 		t.Run(dbMode, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, "text")
-			env.withConfig(configContent)
 
 			r := env.Run("workflow", "create", "kanban",
 				"status=a(initial)", "status=b(start,highlight)",

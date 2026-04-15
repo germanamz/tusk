@@ -14,14 +14,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// ConfigReloadHook is invoked inside reloadConfigLocked after a fresh
-// *config.Config has been loaded. Production wires this to
-// sqlite.SyncConfigToDB so that TOML-originated workflow/project edits are
-// upserted into SQLite. Tests may pass a closure that mutates in-memory
-// repositories instead. Safe to pass nil for test harnesses that do not
-// exercise hot-reload.
-type ConfigReloadHook func(ctx context.Context, cfg *config.Config) error
-
 // Server wraps an MCP server that exposes tusk capabilities as tools and resources.
 type Server struct {
 	taskSvc        *service.TaskService
@@ -33,7 +25,6 @@ type Server struct {
 	workflowRepo   repository.WorkflowRepository
 	projectRepo    repository.ProjectRepository
 	urgencyEngine  *service.UrgencyEngine
-	reloadHook     ConfigReloadHook
 	server         *server.MCPServer
 	cfg            config.MCPConfig
 	loadOpts       []config.Option
@@ -53,7 +44,6 @@ func New(
 	workflowRepo repository.WorkflowRepository,
 	projectRepo repository.ProjectRepository,
 	urgencyEngine *service.UrgencyEngine,
-	reloadHook ConfigReloadHook,
 	version string,
 	cfg config.MCPConfig,
 	loadOpts []config.Option,
@@ -68,7 +58,6 @@ func New(
 		workflowRepo:   workflowRepo,
 		projectRepo:    projectRepo,
 		urgencyEngine:  urgencyEngine,
-		reloadHook:     reloadHook,
 		cfg:            cfg,
 		loadOpts:       loadOpts,
 		toolGroups:     make(map[string]string),
@@ -827,11 +816,6 @@ func (s *Server) reloadConfig(ctx context.Context) error {
 	cfg, err := config.Load(s.loadOpts...)
 	if err != nil {
 		return fmt.Errorf("reloading config: %w", err)
-	}
-	if s.reloadHook != nil {
-		if err := s.reloadHook(ctx, cfg); err != nil {
-			return fmt.Errorf("reload hook: %w", err)
-		}
 	}
 	s.urgencyEngine.Reload(service.UrgencyWeights{
 		Priority:    cfg.Urgency.PriorityWeight,

@@ -30,6 +30,10 @@ func newMCPEnv(t *testing.T, binPath string) *mcpEnv {
 	_ = tmpFile.Close()
 
 	cmd := exec.Command(binPath, "--db", tmpFile.Name(), "mcp", "serve")
+	// Point the subprocess at an isolated empty config dir so the post-phase-2
+	// legacy-section guard does not trip on stale ~/.config/tusk/config.toml.
+	cfgDir := t.TempDir()
+	cmd.Env = append(os.Environ(), "TUSK_CONFIG_DIR="+cfgDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)

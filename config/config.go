@@ -8,80 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/germanamz/tusk/domain"
+	toml "github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
 
 //go:embed default.toml
 var defaultConfig []byte
-
-// WorkflowTransitionConfig defines an allowed status transition.
-type WorkflowTransitionConfig struct {
-	From string `mapstructure:"from" toml:"from" json:"from"`
-	To   string `mapstructure:"to"   toml:"to"   json:"to"`
-}
-
-// StatusConfig defines a single status within a workflow.
-type StatusConfig struct {
-	Roles []string `mapstructure:"roles" toml:"roles" json:"roles"`
-}
-
-// Valid status roles.
-const (
-	RoleInitial   = "initial"   // default status for new tasks
-	RoleStart     = "start"     // target for tusk start / tusk pop
-	RoleTerminal  = "terminal"  // task is finished; excluded from available/pop
-	RoleDone      = "done"      // target for tusk done
-	RoleDelete    = "delete"    // target for tusk delete
-	RoleHighlight = "highlight" // emphasized in terminal output
-	RoleDim       = "dim"       // deemphasized in terminal output
-)
-
-// WorkflowConfig defines a named workflow with its statuses and transitions.
-type WorkflowConfig struct {
-	Statuses    map[string]StatusConfig    `mapstructure:"statuses"    toml:"statuses"    json:"statuses"`
-	Transitions []WorkflowTransitionConfig `mapstructure:"transitions" toml:"transitions" json:"transitions"`
-}
-
-// AutoCompleteParentConfig controls automatic parent completion.
-type AutoCompleteParentConfig struct {
-	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status" json:"trigger_status"`
-	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"  json:"target_status"`
-}
-
-// AutoRevertParentConfig controls automatic parent revert.
-type AutoRevertParentConfig struct {
-	TriggerStatus string `mapstructure:"trigger_status" toml:"trigger_status" json:"trigger_status"`
-	TargetStatus  string `mapstructure:"target_status"  toml:"target_status"  json:"target_status"`
-}
-
-// ProjectUrgencyConfig holds per-project urgency weight overrides.
-// Nil fields inherit from the global [urgency] config.
-type ProjectUrgencyConfig struct {
-	PriorityWeight    *float64 `mapstructure:"priority_weight"    toml:"priority_weight,omitempty"    json:"priority_weight,omitempty"`
-	DueWeight         *float64 `mapstructure:"due_weight"         toml:"due_weight,omitempty"         json:"due_weight,omitempty"`
-	AgeWeight         *float64 `mapstructure:"age_weight"         toml:"age_weight,omitempty"         json:"age_weight,omitempty"`
-	ActiveWeight      *float64 `mapstructure:"active_weight"      toml:"active_weight,omitempty"      json:"active_weight,omitempty"`
-	BlockingWeight    *float64 `mapstructure:"blocking_weight"    toml:"blocking_weight,omitempty"    json:"blocking_weight,omitempty"`
-	BlockedWeight     *float64 `mapstructure:"blocked_weight"     toml:"blocked_weight,omitempty"     json:"blocked_weight,omitempty"`
-	TagsWeight        *float64 `mapstructure:"tags_weight"        toml:"tags_weight,omitempty"        json:"tags_weight,omitempty"`
-	ProjectWeight     *float64 `mapstructure:"project_weight"     toml:"project_weight,omitempty"     json:"project_weight,omitempty"`
-	AnnotationsWeight *float64 `mapstructure:"annotations_weight" toml:"annotations_weight,omitempty" json:"annotations_weight,omitempty"`
-	WaitingWeight     *float64 `mapstructure:"waiting_weight"     toml:"waiting_weight,omitempty"     json:"waiting_weight,omitempty"`
-}
-
-// ProjectSettingsConfig holds per-project automation settings.
-type ProjectSettingsConfig struct {
-	AutoCompleteParent *AutoCompleteParentConfig `mapstructure:"auto_complete_parent" toml:"auto_complete_parent,omitempty" json:"auto_complete_parent,omitempty"`
-	AutoRevertParent   *AutoRevertParentConfig   `mapstructure:"auto_revert_parent"   toml:"auto_revert_parent,omitempty"   json:"auto_revert_parent,omitempty"`
-	Urgency            *ProjectUrgencyConfig     `mapstructure:"urgency"              toml:"urgency,omitempty"              json:"urgency,omitempty"`
-}
-
-// ProjectConfig defines a named project with its workflow assignment and settings.
-type ProjectConfig struct {
-	Workflow string                `mapstructure:"workflow" toml:"workflow" json:"workflow"`
-	Settings ProjectSettingsConfig `mapstructure:"settings" toml:"settings" json:"settings"`
-}
 
 // ConfigSources records how the effective Config was assembled.
 // It is populated by Load and is not persisted to disk.
@@ -92,12 +24,10 @@ type ConfigSources struct {
 
 // Config is the top-level Tusk configuration.
 type Config struct {
-	Storage   StorageConfig             `mapstructure:"storage"   toml:"storage"   json:"storage"`
-	Urgency   UrgencyConfig             `mapstructure:"urgency"   toml:"urgency"   json:"urgency"`
-	TUI       TUIConfig                 `mapstructure:"tui"       toml:"tui"       json:"tui"`
-	MCP       MCPConfig                 `mapstructure:"mcp"       toml:"mcp"       json:"mcp"`
-	Workflows map[string]WorkflowConfig `mapstructure:"workflows" toml:"workflows" json:"workflows"`
-	Projects  map[string]ProjectConfig  `mapstructure:"projects"  toml:"projects"  json:"projects"`
+	Storage StorageConfig `mapstructure:"storage" toml:"storage" json:"storage"`
+	Urgency UrgencyConfig `mapstructure:"urgency" toml:"urgency" json:"urgency"`
+	TUI     TUIConfig     `mapstructure:"tui"     toml:"tui"     json:"tui"`
+	MCP     MCPConfig     `mapstructure:"mcp"     toml:"mcp"     json:"mcp"`
 
 	// Sources records where the effective config came from. Populated by Load.
 	// Skipped by both mapstructure and TOML encoding so it never appears in
@@ -197,6 +127,37 @@ func ensureConfigFile(searchPath string) error {
 	return nil
 }
 
+// checkLegacySections rejects config files that still carry the removed
+// [projects.*] / [workflows.*] sections. Projects and workflows are now
+// managed exclusively in the database; the TOML schema no longer accepts
+// them.
+func checkLegacySections(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+	var raw map[string]any
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		// Defer to Viper's parse error path for malformed files.
+		return nil
+	}
+	for _, section := range []string{"projects", "workflows"} {
+		v, ok := raw[section]
+		if !ok {
+			continue
+		}
+		if _, isMap := v.(map[string]any); !isMap {
+			continue
+		}
+		return fmt.Errorf(
+			"config file %s contains [%s.*] sections — projects and workflows are now managed in the database. "+
+				"Remove the section(s) from the file and recreate the equivalent entries via `tusk project` / `tusk workflow`",
+			filePath, section,
+		)
+	}
+	return nil
+}
+
 // Load reads configuration from file, environment, and defaults.
 //
 // Precedence (highest to lowest):
@@ -243,6 +204,9 @@ func Load(opts ...Option) (*Config, error) {
 	}
 
 	if filePath != "" {
+		if err := checkLegacySections(filePath); err != nil {
+			return nil, err
+		}
 		v.SetConfigFile(filePath)
 		if err := v.MergeInConfig(); err != nil {
 			return nil, fmt.Errorf("reading config file: %w", err)
@@ -285,22 +249,11 @@ func resolveGlobalDir(searchPath string) string {
 }
 
 // Validate checks cross-references between config sections.
+// Currently a no-op — all historical cross-section checks were tied to
+// the removed [projects.*] / [workflows.*] schema. Kept in place so
+// callers do not need to change and future globals validation has a
+// natural home.
 func (c *Config) Validate() error {
-	for name, wfCfg := range c.Workflows {
-		wf, err := WorkflowFromConfig(name, wfCfg)
-		if err != nil {
-			return fmt.Errorf("workflow %q: %w", name, err)
-		}
-		if err := domain.ValidateWorkflow(wf); err != nil {
-			return err
-		}
-	}
-
-	for id, proj := range c.Projects {
-		if _, ok := c.Workflows[proj.Workflow]; !ok {
-			return fmt.Errorf("project %q references unknown workflow %q", id, proj.Workflow)
-		}
-	}
 	return nil
 }
 

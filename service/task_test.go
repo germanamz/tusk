@@ -6,24 +6,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/sqlite"
-	"github.com/germanamz/tusk/sqlite/sqlitetest"
 	"github.com/google/uuid"
 )
 
 // testTaskEnvWithSettings creates a test environment with custom project settings.
-func testTaskEnvWithSettings(t *testing.T, settings config.ProjectSettingsConfig) *testEnv {
+// The default project (seeded by migrations) is updated in-place with the given
+// settings via projectRepo.Update so tests can exercise auto-complete / auto-revert
+// behavior without rebuilding the project row from scratch.
+func testTaskEnvWithSettings(t *testing.T, settings domain.ProjectSettings) *testEnv {
 	t.Helper()
-	cfg := &config.Config{
-		Workflows: map[string]config.WorkflowConfig{"kanban": sqlitetest.KanbanWorkflow()},
-		Projects: map[string]config.ProjectConfig{
-			"default": {Workflow: "kanban", Settings: settings},
-		},
-	}
-	bundle, projectRepo, _ := newSeededBundle(t, cfg)
+	bundle, projectRepo, _ := newSeededBundle(t)
 	workflowRepo := sqlite.NewWorkflowRepo(bundle.Store.DB())
+
+	ctx := context.Background()
+	defaultProj, err := projectRepo.GetByID(ctx, domain.DefaultProjectUUID)
+	if err != nil {
+		t.Fatalf("loading default project: %v", err)
+	}
+	defaultProj.Settings = settings
+	if err := projectRepo.Update(ctx, defaultProj); err != nil {
+		t.Fatalf("updating default project settings: %v", err)
+	}
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 
@@ -46,7 +51,7 @@ type testEnv struct {
 
 func testTaskEnv(t *testing.T) *testEnv {
 	t.Helper()
-	return testTaskEnvWithSettings(t, config.ProjectSettingsConfig{})
+	return testTaskEnvWithSettings(t, domain.ProjectSettings{})
 }
 
 // newMinimalTask returns a Task with only the required fields set.
@@ -983,7 +988,7 @@ func TestUpdate_StatusChange_Transactional(t *testing.T) {
 }
 
 func TestTaskService_WithTxProvider(t *testing.T) {
-	bundle, projectRepo, workflowRepo := newSeededBundle(t, sqlitetest.KanbanConfig("default"))
+	bundle, projectRepo, workflowRepo := newSeededBundle(t)
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
@@ -1066,8 +1071,8 @@ func TestUpdate_ReparentNoCycle(t *testing.T) {
 }
 
 func TestAutoComplete_AllChildrenCompleted(t *testing.T) {
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
@@ -1154,8 +1159,8 @@ func TestAutoComplete_Disabled_ByDefault(t *testing.T) {
 }
 
 func TestAutoComplete_DeletedChildrenIgnored(t *testing.T) {
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
@@ -1186,8 +1191,8 @@ func TestAutoComplete_DeletedChildrenIgnored(t *testing.T) {
 }
 
 func TestAutoComplete_WorkflowGuard(t *testing.T) {
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
@@ -1211,8 +1216,8 @@ func TestAutoComplete_WorkflowGuard(t *testing.T) {
 }
 
 func TestAutoComplete_Recursive(t *testing.T) {
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
@@ -1252,12 +1257,12 @@ func TestAutoComplete_Recursive(t *testing.T) {
 func TestAutoRevert_ChildReopened(t *testing.T) {
 	// Enable both auto-complete and auto-revert
 	// Note: default workflow allows completed -> pending (not completed -> active)
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-		AutoRevertParent: &config.AutoRevertParentConfig{
+		AutoRevertParent: &domain.AutoRevertConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "pending",
 		},
@@ -1303,8 +1308,8 @@ func TestAutoRevert_ChildReopened(t *testing.T) {
 
 func TestAutoRevert_Disabled(t *testing.T) {
 	// Enable auto-complete but NOT auto-revert
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
@@ -1344,12 +1349,12 @@ func TestAutoRevert_Disabled(t *testing.T) {
 func TestAutoRevert_Recursive(t *testing.T) {
 	// Enable both auto-complete and auto-revert
 	// Note: default workflow allows completed -> pending (not completed -> active)
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-		AutoRevertParent: &config.AutoRevertParentConfig{
+		AutoRevertParent: &domain.AutoRevertConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "pending",
 		},
@@ -1402,12 +1407,12 @@ func TestAutoRevert_Recursive(t *testing.T) {
 func TestAutoRevert_CustomTargetStatus(t *testing.T) {
 	// Auto-revert targets "pending" (the only valid revert transition
 	// from "completed" in the default workflow: completed -> pending)
-	env := testTaskEnvWithSettings(t, config.ProjectSettingsConfig{
-		AutoCompleteParent: &config.AutoCompleteParentConfig{
+	env := testTaskEnvWithSettings(t, domain.ProjectSettings{
+		AutoCompleteParent: &domain.AutoCompleteConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "completed",
 		},
-		AutoRevertParent: &config.AutoRevertParentConfig{
+		AutoRevertParent: &domain.AutoRevertConfig{
 			TriggerStatus: "completed",
 			TargetStatus:  "pending",
 		},

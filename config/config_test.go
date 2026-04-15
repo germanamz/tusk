@@ -196,170 +196,39 @@ func TestExpandPath(t *testing.T) {
 	}
 }
 
-func TestLoad_WorkflowConfig(t *testing.T) {
+func TestLoad_LegacyWorkflowSectionIsHardError(t *testing.T) {
 	dir := t.TempDir()
 	content := `
 [workflows.kanban.statuses.pending]
 roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start", "highlight"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done", "dim"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete", "dim"]
-
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-
-[[workflows.kanban.transitions]]
-from = "active"
-to = "completed"
-
-[projects.default]
-workflow = "kanban"
 `
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	cfg, err := Load(WithSearchPath(dir))
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	wf, ok := cfg.Workflows["kanban"]
-	if !ok {
-		t.Fatal("expected workflows.kanban to exist")
-	}
-	if len(wf.Statuses) != 4 {
-		t.Errorf("expected 4 statuses, got %d", len(wf.Statuses))
-	}
-	if len(wf.Transitions) != 2 {
-		t.Errorf("expected 2 transitions, got %d", len(wf.Transitions))
-	}
-	if wf.Transitions[0].From != "pending" || wf.Transitions[0].To != "active" {
-		t.Errorf("unexpected first transition: %+v", wf.Transitions[0])
-	}
-}
-
-func TestLoad_ProjectConfig(t *testing.T) {
-	dir := t.TempDir()
-	content := `
-[workflows.kanban.statuses.pending]
-roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete"]
-
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-
-[projects.default]
-workflow = "kanban"
-
-[projects.backend]
-workflow = "kanban"
-
-[projects.backend.settings.auto_complete_parent]
-trigger_status = "completed"
-target_status = "completed"
-`
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(WithSearchPath(dir))
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	if len(cfg.Projects) != 2 {
-		t.Fatalf("expected 2 projects, got %d", len(cfg.Projects))
-	}
-
-	def, ok := cfg.Projects["default"]
-	if !ok {
-		t.Fatal("expected projects.default to exist")
-	}
-	if def.Workflow != "kanban" {
-		t.Errorf("expected workflow 'kanban', got %q", def.Workflow)
-	}
-
-	backend, ok := cfg.Projects["backend"]
-	if !ok {
-		t.Fatal("expected projects.backend to exist")
-	}
-	if backend.Settings.AutoCompleteParent == nil {
-		t.Fatal("expected auto_complete_parent settings")
-	}
-	if backend.Settings.AutoCompleteParent.TriggerStatus != "completed" {
-		t.Errorf("expected trigger_status 'completed', got %q", backend.Settings.AutoCompleteParent.TriggerStatus)
-	}
-}
-
-func TestLoad_BuiltinDefaults(t *testing.T) {
-	dir := t.TempDir()
-	// Empty config file — no [projects] or [workflows] sections
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(""), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(WithSearchPath(dir))
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-
-	wf, ok := cfg.Workflows["kanban"]
-	if !ok {
-		t.Fatal("expected builtin kanban workflow")
-	}
-	if len(wf.Statuses) != 4 {
-		t.Errorf("expected 4 kanban statuses, got %d", len(wf.Statuses))
-	}
-
-	proj, ok := cfg.Projects["default"]
-	if !ok {
-		t.Fatal("expected builtin default project")
-	}
-	if proj.Workflow != "kanban" {
-		t.Errorf("expected default project workflow 'kanban', got %q", proj.Workflow)
-	}
-}
-
-func TestLoad_ValidationProjectReferencesUnknownWorkflow(t *testing.T) {
-	dir := t.TempDir()
-	content := `
-[workflows.kanban.statuses.pending]
-roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete"]
-
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-
-[projects.backend]
-workflow = "nonexistent"
-`
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	_, err := Load(WithSearchPath(dir))
 	if err == nil {
-		t.Fatal("expected error for project referencing unknown workflow")
+		t.Fatal("expected error for legacy [workflows.*] section")
 	}
-	if !strings.Contains(err.Error(), "nonexistent") {
-		t.Errorf("expected error to mention 'nonexistent', got: %v", err)
+	if !strings.Contains(err.Error(), "workflows") {
+		t.Errorf("error should mention workflows, got: %v", err)
+	}
+}
+
+func TestLoad_LegacyProjectSectionIsHardError(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[projects.default]
+workflow = "kanban"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(WithSearchPath(dir))
+	if err == nil {
+		t.Fatal("expected error for legacy [projects.*] section")
+	}
+	if !strings.Contains(err.Error(), "projects") {
+		t.Errorf("error should mention projects, got: %v", err)
 	}
 }
 
@@ -386,97 +255,13 @@ func TestLoad_AutoCreateConfigFile(t *testing.T) {
 		t.Fatal("config file should not be empty")
 	}
 
-	// Builtins should be present (the auto-created file defines them)
-	if _, ok := cfg.Projects["default"]; !ok {
-		t.Fatal("expected default project")
+	// Auto-created file should round-trip through Load without errors and
+	// yield the embedded defaults — projects and workflows live in the DB
+	// now, so there is nothing left to assert on the Config struct itself
+	// beyond the global sections.
+	if cfg.Storage.Backend != "sqlite" {
+		t.Errorf("Storage.Backend = %q, want sqlite", cfg.Storage.Backend)
 	}
-	if _, ok := cfg.Workflows["kanban"]; !ok {
-		t.Fatal("expected kanban workflow")
-	}
-}
-
-func TestLoad_WorkflowStatusDisplay(t *testing.T) {
-	dir := t.TempDir()
-	cfgFile := filepath.Join(dir, "config.toml")
-
-	t.Run("valid highlight and dim roles", func(t *testing.T) {
-		err := os.WriteFile(cfgFile, []byte(`
-[workflows.test.statuses.todo]
-roles = ["initial"]
-[workflows.test.statuses.doing]
-roles = ["start", "highlight"]
-[workflows.test.statuses.done]
-roles = ["terminal", "done", "dim"]
-[workflows.test.statuses.archived]
-roles = ["terminal", "delete", "dim"]
-
-[[workflows.test.transitions]]
-from = "todo"
-to = "doing"
-[[workflows.test.transitions]]
-from = "doing"
-to = "done"
-
-[projects.default]
-workflow = "test"
-`), 0o644)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cfg, err := Load(WithSearchPath(dir))
-		if err != nil {
-			t.Fatalf("Load() error: %v", err)
-		}
-		wf := cfg.Workflows["test"]
-		doingCfg, ok := wf.Statuses["doing"]
-		if !ok {
-			t.Fatal("expected status 'doing' in workflow")
-		}
-		hasHighlight := false
-		for _, r := range doingCfg.Roles {
-			if r == RoleHighlight {
-				hasHighlight = true
-			}
-		}
-		if !hasHighlight {
-			t.Errorf("expected 'doing' to have role %q, got roles %v", RoleHighlight, doingCfg.Roles)
-		}
-		doneCfg := wf.Statuses["done"]
-		hasDim := false
-		for _, r := range doneCfg.Roles {
-			if r == RoleDim {
-				hasDim = true
-			}
-		}
-		if !hasDim {
-			t.Errorf("expected 'done' to have role %q, got roles %v", RoleDim, doneCfg.Roles)
-		}
-	})
-
-	t.Run("status with both highlight and dim roles", func(t *testing.T) {
-		err := os.WriteFile(cfgFile, []byte(`
-[workflows.test.statuses.todo]
-roles = ["initial"]
-[workflows.test.statuses.doing]
-roles = ["start", "highlight", "dim"]
-[workflows.test.statuses.done]
-roles = ["terminal", "done"]
-
-[[workflows.test.transitions]]
-from = "todo"
-to = "doing"
-
-[projects.default]
-workflow = "test"
-`), 0o644)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = Load(WithSearchPath(dir))
-		if err == nil {
-			t.Fatal("expected validation error for status with both highlight and dim roles")
-		}
-	})
 }
 
 func TestLoad_AutoCreateDoesNotOverwrite(t *testing.T) {

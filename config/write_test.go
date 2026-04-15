@@ -88,24 +88,6 @@ func TestWriteConfig_RoundTrip(t *testing.T) {
 			TreeIndent:  2,
 			DefaultSort: "urgency",
 		},
-		Workflows: map[string]WorkflowConfig{
-			"kanban": {
-				Statuses: map[string]StatusConfig{
-					"pending":   {Roles: []string{RoleInitial}},
-					"active":    {Roles: []string{RoleStart, RoleHighlight}},
-					"completed": {Roles: []string{RoleTerminal, RoleDone, RoleDim}},
-				},
-				Transitions: []WorkflowTransitionConfig{
-					{From: "pending", To: "active"},
-					{From: "active", To: "completed"},
-				},
-			},
-		},
-		Projects: map[string]ProjectConfig{
-			"default": {
-				Workflow: "kanban",
-			},
-		},
 	}
 
 	if err := WriteConfig(original, path); err != nil {
@@ -129,19 +111,6 @@ func TestWriteConfig_RoundTrip(t *testing.T) {
 	}
 	if loaded.TUI.Color != true {
 		t.Errorf("tui.color: got %v, want true", loaded.TUI.Color)
-	}
-	if len(loaded.Workflows) != 1 {
-		t.Fatalf("workflows: got %d, want 1", len(loaded.Workflows))
-	}
-	wf := loaded.Workflows["kanban"]
-	if len(wf.Statuses) != 3 {
-		t.Errorf("kanban statuses: got %d, want 3", len(wf.Statuses))
-	}
-	if len(wf.Transitions) != 2 {
-		t.Errorf("kanban transitions: got %d, want 2", len(wf.Transitions))
-	}
-	if loaded.Projects["default"].Workflow != "kanban" {
-		t.Errorf("default project workflow: got %q, want %q", loaded.Projects["default"].Workflow, "kanban")
 	}
 }
 
@@ -200,8 +169,6 @@ func TestIsSliceKey(t *testing.T) {
 		{"mcp.disabled_tools", true},
 		{"mcp.disabled_tool_groups", true},
 		{"mcp.disabled_resources", true},
-		{"workflows.kanban.statuses", false},
-		{"workflows.kanban.transitions", true},
 		{"tui.color", false},
 		{"storage.path", false},
 		{"urgency.due_weight", false},
@@ -230,20 +197,16 @@ func TestIsValidKey(t *testing.T) {
 		{"tui.date_format", true},
 		{"urgency.due_weight", true},
 		{"mcp.disabled_tools", true},
-		// Map-keyed paths
-		{"workflows.kanban.statuses", true},
-		{"workflows.kanban.transitions", true},
-		{"workflows.myworkflow.statuses", true},
-		{"projects.default.workflow", true},
-		{"projects.backend.settings.urgency.blocking_weight", true},
-		{"projects.myproj.settings.auto_complete_parent.trigger_status", true},
 		// Invalid keys
 		{"nonexistent", false},
 		{"storage.nonexistent", false},
-		{"workflows.kanban.nonexistent", false},
 		{"tui.nonexistent", false},
 		{"", false},
 		{"storage", false}, // not a leaf
+		// Projects and workflows are DB-managed; they must NOT be valid
+		// TOML keys anymore.
+		{"workflows.kanban.statuses", false},
+		{"projects.default.workflow", false},
 	}
 
 	for _, tt := range tests {

@@ -48,25 +48,6 @@ disabled_tools = []
 disabled_tool_groups = []
 disabled_resources = []
 disabled_resource_groups = []
-
-[workflows.kanban]
-[workflows.kanban.statuses.pending]
-roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete"]
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "completed"
-
-[projects.default]
-workflow = "kanban"
 `
 
 // writeMinimalConfig writes minimalConfigTOML to path.
@@ -83,7 +64,6 @@ func writeMinimalConfig(t *testing.T, path string) {
 // path without separate fixture scaffolding.
 func newTestServer(t *testing.T, configFile string) *Server {
 	t.Helper()
-	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "tusk.db")
 	store, err := sqlite.New(dbPath, migrations.FS)
 	if err != nil {
@@ -100,9 +80,6 @@ func newTestServer(t *testing.T, configFile string) *Server {
 	if err != nil {
 		t.Fatalf("loading test config: %v", err)
 	}
-	if err := sqlite.SyncConfigToDB(ctx, loadedCfg, workflowRepo, projectRepo); err != nil {
-		t.Fatalf("seeding test db: %v", err)
-	}
 
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{
 		Priority:    loadedCfg.Urgency.PriorityWeight,
@@ -116,10 +93,6 @@ func newTestServer(t *testing.T, configFile string) *Server {
 		Annotations: loadedCfg.Urgency.AnnotationsWeight,
 		Waiting:     loadedCfg.Urgency.WaitingWeight,
 	})
-
-	reloadHook := func(ctx context.Context, cfg *config.Config) error {
-		return sqlite.SyncConfigToDB(ctx, cfg, workflowRepo, projectRepo)
-	}
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 	projectSvc := service.NewProjectService(projectRepo, taskRepo, store, service.ProjectDefaults{Urgency: service.UrgencyWeights{
@@ -137,7 +110,7 @@ func newTestServer(t *testing.T, configFile string) *Server {
 
 	srv, err := New(
 		nil, nil, nil, projectSvc, workflowSvc, nil,
-		workflowRepo, projectRepo, urgencyEngine, reloadHook,
+		workflowRepo, projectRepo, urgencyEngine,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configFile)},
 	)

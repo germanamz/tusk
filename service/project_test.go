@@ -12,7 +12,8 @@ import (
 
 func testProjectService(t *testing.T) *ProjectService {
 	t.Helper()
-	_, projRepo, _ := sqlitetest.NewStore(t, sqlitetest.KanbanConfig("default", "backend"))
+	_, projRepo, _ := sqlitetest.NewStore(t)
+	sqlitetest.SeedProject(t, projRepo, "backend")
 	return NewProjectService(projRepo, nil, nil, ProjectDefaults{})
 }
 

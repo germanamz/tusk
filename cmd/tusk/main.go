@@ -75,9 +75,6 @@ func run() error {
 	db := store.DB()
 	projectRepo := sqlite.NewProjectRepo(db)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
-	if err := sqlite.SyncConfigToDB(context.Background(), cfg, workflowRepo, projectRepo); err != nil {
-		return fmt.Errorf("syncing config to database: %w", err)
-	}
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
 
@@ -147,14 +144,9 @@ func run() error {
 	}
 	playerSvc := service.NewPlayerService(defaultBundle.Players)
 
-	reloadHook := func(ctx context.Context, cfg *config.Config) error {
-		return sqlite.SyncConfigToDB(ctx, cfg, workflowRepo, projectRepo)
-	}
-
 	app := tui.New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc,
 		workflowRepo, projectRepo, urgencyEngine,
-		reloadHook,
 		tui.VersionInfo{
 			Version: version,
 			Commit:  commit,

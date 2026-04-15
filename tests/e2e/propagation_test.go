@@ -5,51 +5,25 @@ import (
 	"testing"
 )
 
-// autoCompleteConfig is a config.toml that enables auto-complete on the default project.
-const autoCompleteConfig = `
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
-transitions = [
-  { from = "pending",   to = "active" },
-  { from = "pending",   to = "deleted" },
-  { from = "active",    to = "completed" },
-  { from = "active",    to = "pending" },
-  { from = "active",    to = "deleted" },
-  { from = "completed", to = "pending" },
-]
+// autoCompleteSetup applies auto-complete on the default project via the
+// service layer (post-phase-2, workflows and projects are DB-only — TOML
+// no longer carries these settings).
+var autoCompleteSetup = [][]string{
+	{"project", "modify", "default",
+		"auto-complete.trigger=completed",
+		"auto-complete.target=completed",
+	},
+}
 
-[projects.default]
-workflow = "kanban"
-
-[projects.default.settings.auto_complete_parent]
-trigger_status = "completed"
-target_status = "completed"
-`
-
-// bothPropagationConfig enables both auto-complete and auto-revert on the default project.
-const bothPropagationConfig = `
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
-transitions = [
-  { from = "pending",   to = "active" },
-  { from = "pending",   to = "deleted" },
-  { from = "active",    to = "completed" },
-  { from = "active",    to = "pending" },
-  { from = "active",    to = "deleted" },
-  { from = "completed", to = "pending" },
-]
-
-[projects.default]
-workflow = "kanban"
-
-[projects.default.settings.auto_complete_parent]
-trigger_status = "completed"
-target_status = "completed"
-
-[projects.default.settings.auto_revert_parent]
-trigger_status = "completed"
-target_status = "pending"
-`
+// bothPropagationSetup enables both auto-complete and auto-revert on the default project.
+var bothPropagationSetup = [][]string{
+	{"project", "modify", "default",
+		"auto-complete.trigger=completed",
+		"auto-complete.target=completed",
+		"auto-revert.trigger=completed",
+		"auto-revert.target=pending",
+	},
+}
 
 func TestPropagation_Disabled(t *testing.T) {
 	// Propagation is disabled by default — completing all children should NOT
@@ -84,9 +58,11 @@ func TestPropagation_Disabled(t *testing.T) {
 	runScenarios(t, binPath, scenarios)
 }
 
-// runPropagationScenarios runs scenarios with a custom config file.
+// runPropagationScenarios runs scenarios after executing the given setup
+// commands on a fresh env. Setup commands are not indexed into env.results,
+// so scenario step refs ($0, $1, ...) still match the pre-phase-2 layout.
 // JSON-only since assertions use AssertJSON.
-func runPropagationScenarios(t *testing.T, scenarios []Scenario, configContent string) {
+func runPropagationScenarios(t *testing.T, scenarios []Scenario, setup [][]string) {
 	t.Helper()
 	combos := combinations(
 		[]string{"flag", "env"},
@@ -99,7 +75,15 @@ func runPropagationScenarios(t *testing.T, scenarios []Scenario, configContent s
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				env := newEnv(t, binPath, dbMode, "json")
-				env.withConfig(configContent)
+				for _, cmd := range setup {
+					r := env.Run(cmd...)
+					if r.Err != nil {
+						t.Fatalf("setup %v: %v\nstderr: %s", cmd, r.Err, r.Stderr)
+					}
+				}
+				// Discard setup results so scenario $N refs index into the
+				// actual scenario steps, not the setup preamble.
+				env.results = nil
 
 				for i, step := range sc.Steps {
 					r := env.Run(step.Args...)
@@ -200,7 +184,7 @@ func TestPropagation_AutoComplete(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, autoCompleteConfig)
+	runPropagationScenarios(t, scenarios, autoCompleteSetup)
 }
 
 func TestPropagation_Recursive(t *testing.T) {
@@ -239,7 +223,7 @@ func TestPropagation_Recursive(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, autoCompleteConfig)
+	runPropagationScenarios(t, scenarios, autoCompleteSetup)
 }
 
 func TestPropagation_AutoRevert(t *testing.T) {
@@ -320,5 +304,5 @@ func TestPropagation_AutoRevert(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, bothPropagationConfig)
+	runPropagationScenarios(t, scenarios, bothPropagationSetup)
 }

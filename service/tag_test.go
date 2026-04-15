@@ -7,7 +7,6 @@ import (
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/sqlite"
-	"github.com/germanamz/tusk/sqlite/sqlitetest"
 	"github.com/google/uuid"
 )
 
@@ -89,9 +88,6 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 	}
 	projectRepo := sqlite.NewProjectRepo(db)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
-	if err := sqlite.SyncConfigToDB(context.Background(), sqlitetest.KanbanConfig("default"), workflowRepo, projectRepo); err != nil {
-		t.Fatalf("seeding kanban config: %v", err)
-	}
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
 	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)

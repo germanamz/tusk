@@ -66,7 +66,7 @@ func TestFormatError_Generic(t *testing.T) {
 // testApp creates a fully wired App with an in-memory database.
 func testApp(t *testing.T) (*App, *service.TaskService) {
 	t.Helper()
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t, sqlitetest.KanbanConfig("default"))
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(t)
 
 	db := store.DB()
 	bundle := &service.RepoBundle{
@@ -87,10 +87,15 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	relationSvc := service.NewRelationService(resolver, projects)
 
 	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{})
+	// Point config.Load at an isolated temp dir so `config show` does not
+	// trip over the developer's real ~/.config/tusk/config.toml (which
+	// may still carry legacy [workflows.*] / [projects.*] sections until
+	// the user cleans it up post-phase-2).
+	loadOpts := []config.Option{config.WithSearchPath(t.TempDir())}
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,
-		nil, nil, nil, nil,
-		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, nil,
+		nil, nil, nil,
+		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, loadOpts,
 	)
 	return app, taskSvc
 }
