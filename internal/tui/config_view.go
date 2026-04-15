@@ -11,6 +11,7 @@ type configShowTOML struct {
 	Urgency config.UrgencyConfig `toml:"urgency"`
 	TUI     config.TUIConfig     `toml:"tui"`
 	MCP     config.MCPConfig     `toml:"mcp"`
+	Inline  config.InlineConfig  `toml:"inline"`
 }
 
 // configShowJSON is the flattened view type used by `config show --format json`.
@@ -21,6 +22,7 @@ type configShowJSON struct {
 	Urgency   config.UrgencyConfig          `json:"urgency"`
 	TUI       config.TUIConfig              `json:"tui"`
 	MCP       config.MCPConfig              `json:"mcp"`
+	Inline    config.InlineConfig           `json:"inline"`
 	Projects  map[string]configProjectView  `json:"projects"`
 	Workflows map[string]configWorkflowView `json:"workflows"`
 }

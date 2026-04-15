@@ -42,6 +42,7 @@ type App struct {
 	version       VersionInfo
 	tuiCfg        config.TUIConfig
 	mcpCfg        config.MCPConfig
+	inlineCfg     config.InlineConfig
 	loadOpts      []config.Option
 }
 
@@ -94,6 +95,7 @@ func New(
 	vi VersionInfo,
 	tuiCfg config.TUIConfig,
 	mcpCfg config.MCPConfig,
+	inlineCfg config.InlineConfig,
 	loadOpts []config.Option,
 ) *App {
 	a := &App{
@@ -109,6 +111,7 @@ func New(
 		version:       vi,
 		tuiCfg:        tuiCfg,
 		mcpCfg:        mcpCfg,
+		inlineCfg:     inlineCfg,
 		loadOpts:      loadOpts,
 	}
 	a.resolver = filter.NewResolver(taskSvc, projectSvc, collectNonTerminalStatuses(workflowSvc))

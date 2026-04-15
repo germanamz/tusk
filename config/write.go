@@ -66,7 +66,20 @@ func LoadFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
+	applyInlineDefaults(&cfg)
+
 	return &cfg, nil
+}
+
+// applyInlineDefaults backfills the [inline] section with embedded defaults
+// when the parsed file omits it. LoadFile bypasses viper and the embedded
+// default.toml merge, so new config sections added in later releases would
+// otherwise come back zero-valued and fail Validate. Keep this in sync with
+// config/default.toml.
+func applyInlineDefaults(cfg *Config) {
+	if cfg.Inline.MaxExpansionSize == 0 {
+		cfg.Inline.MaxExpansionSize = 1 << 20 // 1 MB
+	}
 }
 
 // WriteConfig marshals a Config struct to TOML and writes it to path atomically.

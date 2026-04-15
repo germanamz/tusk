@@ -35,7 +35,7 @@ func run() error {
 		app := tui.New(
 			nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			tui.VersionInfo{Version: version, Commit: commit, Date: date},
-			config.TUIConfig{}, config.MCPConfig{}, nil,
+			config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, nil,
 		)
 		return app.Run(stripConfigFlag(stripDBFlag(os.Args[1:])))
 	}
@@ -161,7 +161,7 @@ func run() error {
 			Commit:  commit,
 			Date:    date,
 		},
-		cfg.TUI, cfg.MCP, loadOpts,
+		cfg.TUI, cfg.MCP, cfg.Inline, loadOpts,
 	)
 	return app.Run(stripConfigFlag(stripDBFlag(os.Args[1:])))
 }
