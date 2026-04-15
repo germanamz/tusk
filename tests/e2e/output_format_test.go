@@ -217,7 +217,9 @@ func TestMarkdownDescriptionInInfo(t *testing.T) {
 			Name: "info_renders_description",
 			Steps: []Step{
 				{
-					Args: []string{"task", "create", "Markdown test", "--description", "# Heading\n\nSome **bold** text."},
+					Args: []string{"task", "create", "Markdown test", `description="# Heading
+
+Some **bold** text."`},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},

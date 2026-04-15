@@ -10,6 +10,14 @@ import (
 	"golang.org/x/term"
 )
 
+// expandState carries expander state that must persist across multiple
+// expandRefsWithState calls within a single CLI invocation. Currently only
+// tracks whether stdin has been consumed, but exists so additional per-
+// invocation invariants can be added without changing the call sites again.
+type expandState struct {
+	stdinConsumed bool
+}
+
 // expandRefs resolves `@path` inline file references inside a raw string and
 // returns the fully-expanded content. See
 // docs/plans/v0.11-string-field-input-unification/design.md for the full spec.
@@ -24,10 +32,18 @@ import (
 //     is passed through literally.
 //   - Substituted content is NOT re-scanned for further `@` references.
 func expandRefs(raw string, stdin *os.File, maxSize int64) (string, error) {
+	return expandRefsWithState(raw, stdin, maxSize, &expandState{})
+}
+
+// expandRefsWithState is the stateful variant used when a single CLI
+// invocation expands multiple independent strings (e.g. both `title=@-` and
+// `description=@-`) and must preserve the stdin-once-per-invocation invariant
+// across those calls. Callers that expand a single string should use
+// expandRefs, which allocates a fresh state internally.
+func expandRefsWithState(raw string, stdin *os.File, maxSize int64, state *expandState) (string, error) {
 	var out strings.Builder
 	out.Grow(len(raw))
 
-	stdinConsumed := false
 	atBoundary := true
 
 	i := 0
@@ -64,7 +80,7 @@ func expandRefs(raw string, stdin *os.File, maxSize int64) (string, error) {
 			if body == "" {
 				return "", fmt.Errorf("empty path after @")
 			}
-			content, err := loadRef(body, stdin, maxSize, &stdinConsumed)
+			content, err := loadRef(body, stdin, maxSize, state)
 			if err != nil {
 				return "", err
 			}
@@ -84,7 +100,7 @@ func expandRefs(raw string, stdin *os.File, maxSize int64) (string, error) {
 			return "", fmt.Errorf("bare @ is not a valid reference")
 		}
 
-		content, err := loadRef(path, stdin, maxSize, &stdinConsumed)
+		content, err := loadRef(path, stdin, maxSize, state)
 		if err != nil {
 			return "", err
 		}
@@ -121,13 +137,13 @@ func scanQuotedPath(input string, pos int) (string, int, error) {
 
 // loadRef resolves a single reference body (file path or "-" for stdin) and
 // returns the content. It enforces maxSize, NUL-byte binary detection, and
-// the single-stdin-read invariant.
-func loadRef(path string, stdin *os.File, maxSize int64, stdinConsumed *bool) (string, error) {
+// the single-stdin-read invariant across all calls that share the state.
+func loadRef(path string, stdin *os.File, maxSize int64, state *expandState) (string, error) {
 	if path == "-" {
-		if *stdinConsumed {
+		if state.stdinConsumed {
 			return "", fmt.Errorf("@-: stdin referenced more than once in one invocation")
 		}
-		*stdinConsumed = true
+		state.stdinConsumed = true
 		return readStdin(stdin, maxSize)
 	}
 	return readFile(path, maxSize)
@@ -239,9 +255,14 @@ func humanBytes(n int64) string {
 
 // expandRefs is the App-scoped wrapper that threads the configured per-reference
 // size limit. Command code should prefer this over the free function so the
-// limit stays consistent with config. Unused in phase 1 — phase 2 wires it in.
-//
-//nolint:unused // wired by v0.11 phase 2
+// limit stays consistent with config.
 func (a *App) expandRefs(raw string, stdin *os.File) (string, error) {
 	return expandRefs(raw, stdin, a.inlineCfg.MaxExpansionSize)
+}
+
+// expandRefsWithState is the App-scoped stateful wrapper. Use this when a
+// single command invocation expands multiple strings that must share the
+// stdin-once-per-invocation invariant.
+func (a *App) expandRefsWithState(raw string, stdin *os.File, state *expandState) (string, error) {
+	return expandRefsWithState(raw, stdin, a.inlineCfg.MaxExpansionSize, state)
 }

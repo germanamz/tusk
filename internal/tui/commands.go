@@ -32,7 +32,6 @@ func (a *App) buildTaskCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  a.runCreate,
 	}
-	createCmd.Flags().StringP("description", "d", "", `task description (use @file to read from file, @- for stdin)`)
 	createCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value)`)
 
 	modifyCmd := &cobra.Command{
@@ -41,7 +40,6 @@ func (a *App) buildTaskCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  a.runModify,
 	}
-	modifyCmd.Flags().StringP("description", "d", "", `new description (use @file to read from file, @- for stdin, "" to clear)`)
 	modifyCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value, key= to clear)`)
 
 	treeCmd := &cobra.Command{
@@ -166,27 +164,36 @@ func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", filter.FormatErrors(parseErrs))
 	}
 
-	title := fs.Title()
-	if title == "" {
+	var stdinFile *os.File
+	if f, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = f
+	}
+	state := &expandState{}
+
+	var rawTitle string
+	if f, ok := fs.GetField("title"); ok {
+		rawTitle = f.Value
+	} else {
+		rawTitle = fs.Title()
+	}
+	if rawTitle == "" {
 		return fmt.Errorf("title is required")
+	}
+	expandedTitle, err := a.expandRefsWithState(rawTitle, stdinFile, state)
+	if err != nil {
+		return err
 	}
 
 	task := &domain.Task{
-		Title: title,
+		Title: expandedTitle,
 	}
 
-	// Description
-	if cmd.Flags().Changed("description") {
-		descVal, _ := cmd.Flags().GetString("description")
-		var stdinFile *os.File
-		if f, ok := cmd.InOrStdin().(*os.File); ok {
-			stdinFile = f
-		}
-		desc, err := readDescription(descVal, stdinFile)
+	if f, ok := fs.GetField("description"); ok {
+		expandedDesc, err := a.expandRefsWithState(f.Value, stdinFile, state)
 		if err != nil {
 			return err
 		}
-		task.Description = desc
+		task.Description = expandedDesc
 	}
 
 	// Project
@@ -447,29 +454,40 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		Version: current.Version,
 	}
 
-	// Description (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
-	if cmd.Flags().Changed("description") {
-		descVal, _ := cmd.Flags().GetString("description")
-		var stdinFile *os.File
-		if f, ok := cmd.InOrStdin().(*os.File); ok {
-			stdinFile = f
-		}
-		desc, err := readDescription(descVal, stdinFile)
+	var stdinFile *os.File
+	if f, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = f
+	}
+	state := &expandState{}
+
+	// Title: inline field wins over free text; both pass through the expander.
+	if f, ok := fs.GetField("title"); ok {
+		expanded, err := a.expandRefsWithState(f.Value, stdinFile, state)
 		if err != nil {
 			return err
 		}
-		if desc == "" {
+		upd.Title = &expanded
+	} else if title := fs.Title(); title != "" {
+		expanded, err := a.expandRefsWithState(title, stdinFile, state)
+		if err != nil {
+			return err
+		}
+		upd.Title = &expanded
+	}
+
+	// Description (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
+	if f, ok := fs.GetField("description"); ok {
+		if f.Value == "" {
 			var nilStr *string
 			upd.Description = &nilStr
 		} else {
-			dp := &desc
+			expanded, err := a.expandRefsWithState(f.Value, stdinFile, state)
+			if err != nil {
+				return err
+			}
+			dp := &expanded
 			upd.Description = &dp
 		}
-	}
-
-	// Title from free text (if any)
-	if title := fs.Title(); title != "" {
-		upd.Title = &title
 	}
 
 	// Priority
@@ -637,7 +655,16 @@ func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
 	shortID := args[0]
 	body := strings.Join(args[1:], " ")
 
-	_, err := a.taskSvc.Annotate(ctx, shortID, body)
+	var stdinFile *os.File
+	if f, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = f
+	}
+	expandedBody, err := a.expandRefs(body, stdinFile)
+	if err != nil {
+		return err
+	}
+
+	_, err = a.taskSvc.Annotate(ctx, shortID, expandedBody)
 	if err != nil {
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
