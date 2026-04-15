@@ -65,15 +65,15 @@ func TestToolFiltering_DisabledTool(t *testing.T) {
 
 func TestToolFiltering_DisabledGroup(t *testing.T) {
 	cfg := config.MCPConfig{
-		DisabledToolGroups: []string{"relation"},
+		DisabledToolGroups: []string{"task_relations"},
 	}
 	s := mustNew(t, cfg)
 
-	if s.isToolEnabled("tusk_relation_add", "relation") {
-		t.Error("tusk_relation_add should be disabled (group 'relation' disabled)")
+	if s.isToolEnabled("tusk_task_link", "task_relations") {
+		t.Error("tusk_task_link should be disabled (group 'task_relations' disabled)")
 	}
-	if s.isToolEnabled("tusk_relation_remove", "relation") {
-		t.Error("tusk_relation_remove should be disabled (group 'relation' disabled)")
+	if s.isToolEnabled("tusk_task_unlink", "task_relations") {
+		t.Error("tusk_task_unlink should be disabled (group 'task_relations' disabled)")
 	}
 	if !s.isToolEnabled("tusk_task_create", "task") {
 		t.Error("tusk_task_create should be enabled (group 'task' not disabled)")
@@ -111,14 +111,14 @@ func TestResourceFiltering_DisabledGroup(t *testing.T) {
 func TestRegisterTools_FiltersDisabledTools(t *testing.T) {
 	full := mustNew(t, config.MCPConfig{})
 	filtered := mustNew(t, config.MCPConfig{
-		DisabledToolGroups: []string{"relation"},
+		DisabledToolGroups: []string{"task_relations"},
 	})
 
 	if len(full.toolGroups) != 27 {
 		t.Errorf("full server: expected 27 tools, got %d", len(full.toolGroups))
 	}
 	if len(filtered.toolGroups) != 25 {
-		t.Errorf("filtered server: expected 25 tools (relation group disabled), got %d", len(filtered.toolGroups))
+		t.Errorf("filtered server: expected 25 tools (task_relations group disabled), got %d", len(filtered.toolGroups))
 	}
 }
 
@@ -168,7 +168,7 @@ func TestValidation_UnknownEntries(t *testing.T) {
 
 func TestValidation_NoErrorForValidEntries(t *testing.T) {
 	cfg := config.MCPConfig{
-		DisabledToolGroups:     []string{"relation"},
+		DisabledToolGroups:     []string{"task_relations"},
 		DisabledResourceGroups: []string{"workflow"},
 	}
 

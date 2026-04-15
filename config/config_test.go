@@ -86,7 +86,7 @@ tree_indent = 4
 
 [mcp]
 disabled_tools = ["tusk_task_delete"]
-disabled_tool_groups = ["relation"]
+disabled_tool_groups = ["task_relations"]
 `)
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
 		t.Fatalf("writing config file: %v", err)
@@ -118,8 +118,8 @@ disabled_tool_groups = ["relation"]
 	if len(cfg.MCP.DisabledTools) != 1 || cfg.MCP.DisabledTools[0] != "tusk_task_delete" {
 		t.Errorf("MCP.DisabledTools = %v, want [tusk_task_delete]", cfg.MCP.DisabledTools)
 	}
-	if len(cfg.MCP.DisabledToolGroups) != 1 || cfg.MCP.DisabledToolGroups[0] != "relation" {
-		t.Errorf("MCP.DisabledToolGroups = %v, want [relation]", cfg.MCP.DisabledToolGroups)
+	if len(cfg.MCP.DisabledToolGroups) != 1 || cfg.MCP.DisabledToolGroups[0] != "task_relations" {
+		t.Errorf("MCP.DisabledToolGroups = %v, want [task_relations]", cfg.MCP.DisabledToolGroups)
 	}
 
 	// Non-overridden values keep defaults

@@ -327,7 +327,7 @@ func TestHandleTaskModify(t *testing.T) {
 	})
 }
 
-func TestHandleRelationAdd(t *testing.T) {
+func TestHandleTaskLink(t *testing.T) {
 	s := testServer(t)
 	ctx := context.Background()
 
@@ -337,7 +337,7 @@ func TestHandleRelationAdd(t *testing.T) {
 	target := parseToolResult(t, r2)["short_id"].(string)
 
 	t.Run("add blocks relation", func(t *testing.T) {
-		result, err := s.handleRelationAdd(ctx, callToolRequest(map[string]any{
+		result, err := s.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": source,
 			"target": target,
 			"type":   "blocks",
@@ -352,7 +352,7 @@ func TestHandleRelationAdd(t *testing.T) {
 	})
 
 	t.Run("duplicate returns tool error", func(t *testing.T) {
-		result, _ := s.handleRelationAdd(ctx, callToolRequest(map[string]any{
+		result, _ := s.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": source,
 			"target": target,
 			"type":   "blocks",
@@ -364,7 +364,7 @@ func TestHandleRelationAdd(t *testing.T) {
 	})
 
 	t.Run("cycle returns tool error", func(t *testing.T) {
-		result, _ := s.handleRelationAdd(ctx, callToolRequest(map[string]any{
+		result, _ := s.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": target,
 			"target": source,
 			"type":   "blocks",

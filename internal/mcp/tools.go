@@ -843,8 +843,8 @@ type relationAddResponse struct {
 	CreatedAt    string `json:"created_at"`
 }
 
-// handleRelationAdd handles the tusk_relation_add tool.
-func (s *Server) handleRelationAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleTaskLink handles the tusk_task_link tool.
+func (s *Server) handleTaskLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	source, err := request.RequireString("source")
 	if err != nil {
 		return mcp.NewToolResultError("source is required"), nil
@@ -872,8 +872,8 @@ func (s *Server) handleRelationAdd(ctx context.Context, request mcp.CallToolRequ
 	})
 }
 
-// handleRelationRemove handles the tusk_relation_remove tool.
-func (s *Server) handleRelationRemove(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleTaskUnlink handles the tusk_task_unlink tool.
+func (s *Server) handleTaskUnlink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	source, err := request.RequireString("source")
 	if err != nil {
 		return mcp.NewToolResultError("source is required"), nil

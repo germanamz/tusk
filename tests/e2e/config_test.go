@@ -54,13 +54,13 @@ func TestMCP_DisabledTools(t *testing.T) {
 		t.Skip("binary not built")
 	}
 
-	// Create config that disables the relation tool group.
+	// Create config that disables the task_relations tool group.
 	homeDir := t.TempDir()
 	tuskConfigDir := filepath.Join(homeDir, ".config", "tusk")
 	if err := os.MkdirAll(tuskConfigDir, 0o755); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
-	configContent := []byte("[mcp]\ndisabled_tool_groups = [\"relation\"]\n")
+	configContent := []byte("[mcp]\ndisabled_tool_groups = [\"task_relations\"]\n")
 	if err := os.WriteFile(filepath.Join(tuskConfigDir, "config.toml"), configContent, 0o644); err != nil {
 		t.Fatalf("writing config: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestMCP_DisabledTools(t *testing.T) {
 	}
 
 	for _, tool := range result.Tools {
-		if tool.Name == "tusk_relation_add" || tool.Name == "tusk_relation_remove" {
+		if tool.Name == "tusk_task_link" || tool.Name == "tusk_task_unlink" {
 			t.Errorf("tool %s should be disabled but was listed", tool.Name)
 		}
 	}

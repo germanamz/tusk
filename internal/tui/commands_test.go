@@ -844,7 +844,7 @@ func TestRunLink_HappyPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "blocks", tgt.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("link: %v", err)
 	}
@@ -869,7 +869,7 @@ func TestRunLink_JSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"link", src.ShortID, "relates_to", tgt.ShortID, "--format", "json"})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "relates_to", tgt.ShortID, "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("link json: %v", err)
 	}
@@ -893,13 +893,13 @@ func TestRunLink_DuplicateRelation(t *testing.T) {
 	taskSvc.Create(ctx, tgt)
 
 	// First link succeeds
-	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "blocks", tgt.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("first link: %v", err)
 	}
 
 	// Second link should fail
-	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "blocks", tgt.ShortID})
 	err := app.root.Execute()
 	if err == nil {
 		t.Fatal("expected error for duplicate relation")
@@ -912,7 +912,7 @@ func TestRunLink_DuplicateRelation(t *testing.T) {
 func TestRunLink_NotFound(t *testing.T) {
 	app, _ := testApp(t)
 
-	app.root.SetArgs([]string{"link", "nonexist", "blocks", "also_non"})
+	app.root.SetArgs([]string{"task", "link", "nonexist", "blocks", "also_non"})
 	err := app.root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "Source task not found: nonexist") {
 		t.Fatalf("expected 'Source task not found: nonexist' error, got %v", err)
@@ -926,7 +926,7 @@ func TestRunLink_TargetNotFound(t *testing.T) {
 	src := &domain.Task{Title: "Exists"}
 	taskSvc.Create(ctx, src)
 
-	app.root.SetArgs([]string{"link", src.ShortID, "blocks", "nonexist"})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "blocks", "nonexist"})
 	err := app.root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "Target task not found: nonexist") {
 		t.Fatalf("expected 'Target task not found: nonexist' error, got %v", err)
@@ -943,7 +943,7 @@ func TestRunUnlink_HappyPath(t *testing.T) {
 	taskSvc.Create(ctx, tgt)
 
 	// Link first
-	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "blocks", tgt.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("link: %v", err)
 	}
@@ -951,7 +951,7 @@ func TestRunUnlink_HappyPath(t *testing.T) {
 	// Unlink
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"unlink", src.ShortID, "blocks", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "unlink", src.ShortID, "blocks", tgt.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
@@ -971,12 +971,12 @@ func TestRunUnlink_JSON(t *testing.T) {
 	tgt := &domain.Task{Title: "Target"}
 	taskSvc.Create(ctx, tgt)
 
-	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "blocks", tgt.ShortID})
 	app.root.Execute()
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"unlink", src.ShortID, "blocks", tgt.ShortID, "--format", "json"})
+	app.root.SetArgs([]string{"task", "unlink", src.ShortID, "blocks", tgt.ShortID, "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("unlink json: %v", err)
 	}
@@ -990,7 +990,7 @@ func TestRunUnlink_JSON(t *testing.T) {
 func TestRunUnlink_NotFound(t *testing.T) {
 	app, _ := testApp(t)
 
-	app.root.SetArgs([]string{"unlink", "nonexist", "blocks", "also_non"})
+	app.root.SetArgs([]string{"task", "unlink", "nonexist", "blocks", "also_non"})
 	err := app.root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected 'not found' error, got %v", err)
@@ -1006,7 +1006,7 @@ func TestRunInfo_ShowsRelations(t *testing.T) {
 	tgt := &domain.Task{Title: "Blocked"}
 	taskSvc.Create(ctx, tgt)
 
-	app.root.SetArgs([]string{"link", src.ShortID, "blocks", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "blocks", tgt.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("link: %v", err)
 	}
@@ -1063,7 +1063,7 @@ func TestRunInfo_JSON_IncludesRelations(t *testing.T) {
 	tgt := &domain.Task{Title: "Target"}
 	taskSvc.Create(ctx, tgt)
 
-	app.root.SetArgs([]string{"link", src.ShortID, "relates_to", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "link", src.ShortID, "relates_to", tgt.ShortID})
 	app.root.Execute()
 
 	var buf bytes.Buffer

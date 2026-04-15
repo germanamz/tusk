@@ -14,9 +14,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildTaskCmd creates the `tusk task` parent command. CRUD subcommands are
-// attached here; lifecycle, claim, queue, and relation verbs are migrated in
-// later phases of the v0.11 task-subcommand initiative.
+// buildTaskCmd creates the `tusk task` parent command. Every task-scoped
+// verb — CRUD, lifecycle, claim, queue, and relation — lives under this parent.
 func (a *App) buildTaskCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "task",
@@ -121,31 +120,23 @@ func (a *App) buildTaskCmd() *cobra.Command {
 			Short: "Claim and start the highest-urgency available task",
 			RunE:  a.runPop,
 		},
-	)
-
-	return parent
-}
-
-// buildTaskCmds returns the not-yet-migrated flat task verbs. Bridge code:
-// each phase of the v0.11 task-subcommand initiative shrinks this list;
-// phase 4 deletes it entirely.
-func (a *App) buildTaskCmds() []*cobra.Command {
-	return []*cobra.Command{
-		{
+		&cobra.Command{
 			Use:   "link <short_id> <relation_type> <short_id>",
 			Short: "Create a relation between two tasks",
 			Long:  `Create a typed relation. Types: blocks, relates_to, duplicates.`,
 			Args:  cobra.ExactArgs(3),
 			RunE:  a.runLink,
 		},
-		{
+		&cobra.Command{
 			Use:   "unlink <short_id> <relation_type> <short_id>",
 			Short: "Remove a relation between two tasks",
 			Long:  `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
 			Args:  cobra.ExactArgs(3),
 			RunE:  a.runUnlink,
 		},
-	}
+	)
+
+	return parent
 }
 
 // formatError translates domain errors into user-friendly messages.
