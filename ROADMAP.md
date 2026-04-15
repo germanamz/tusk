@@ -748,45 +748,45 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > Move every task-scoped command under a single `tusk task` parent. Verbs, flags, inline syntax, and output are unchanged — only the invocation path moves. Pre-release, so no backward-compat aliases — removed commands stay removed.
 
-- [ ] **Story: Scope — which commands move and which stay flat**
-  - [ ] Moves under `tusk task`: every task-scoped verb (CRUD, lifecycle, claim/queue, relations)
-  - [ ] Stays flat — workspace-wide operations that don't belong to any single entity: `tusk undo` (reverts the last mutation regardless of entity type), `tusk export` (workspace-wide data dump), `tusk dashboard` (workspace-wide view), `tusk mcp serve` (server invocation, not an entity operation)
-  - [ ] Already grouped, no change: `tusk config`, `tusk project`, `tusk workflow`, `tusk player`, `tusk tag`, `tusk note`
-  - [ ] This story is a decision/scoping gate — the mapping table it locks in drives every downstream story in this milestone
+- [x] **Story: Scope — which commands move and which stay flat**
+  - [x] Moves under `tusk task`: every task-scoped verb (CRUD, lifecycle, claim/queue, relations)
+  - [x] Stays flat — workspace-wide operations that don't belong to any single entity: `tusk undo` (reverts the last mutation regardless of entity type), `tusk export` (workspace-wide data dump), `tusk dashboard` (workspace-wide view), `tusk mcp serve` (server invocation, not an entity operation)
+  - [x] Already grouped, no change: `tusk config`, `tusk project`, `tusk workflow`, `tusk player`, `tusk tag`, `tusk note`
+  - [x] This story is a decision/scoping gate — the mapping table it locks in drives every downstream story in this milestone
 
-- [ ] **Story: `tusk task` parent command skeleton**
-  - [ ] Register the `tusk task` parent Cobra command with its long help listing all subcommands with one-line summaries
-  - [ ] Wire it into the root command so `tusk task` (no subcommand) prints usage and exits cleanly
-  - [ ] Establishes the parent so each subsequent move story is a drop-in `AddCommand` call rather than a restructure
+- [x] **Story: `tusk task` parent command skeleton**
+  - [x] Register the `tusk task` parent Cobra command with its long help listing all subcommands with one-line summaries
+  - [x] Wire it into the root command so `tusk task` (no subcommand) prints usage and exits cleanly
+  - [x] Establishes the parent so each subsequent move story is a drop-in `AddCommand` call rather than a restructure
 
-- [ ] **Story: Task CRUD and lifecycle under `tusk task`**
-  - [ ] `tusk add` → `tusk task create`
-  - [ ] `tusk list` → `tusk task list`
-  - [ ] `tusk info` → `tusk task get`
-  - [ ] `tusk modify` → `tusk task modify`
-  - [ ] `tusk start` → `tusk task start`
-  - [ ] `tusk done` → `tusk task done`
-  - [ ] `tusk delete` → `tusk task delete`
-  - [ ] `tusk tree` → `tusk task tree`
-  - [ ] `tusk next` → `tusk task next`
-  - [ ] `tusk annotate` → `tusk task annotate`
+- [x] **Story: Task CRUD and lifecycle under `tusk task`**
+  - [x] `tusk add` → `tusk task create`
+  - [x] `tusk list` → `tusk task list`
+  - [x] `tusk info` → `tusk task get`
+  - [x] `tusk modify` → `tusk task modify`
+  - [x] `tusk start` → `tusk task start`
+  - [x] `tusk done` → `tusk task done`
+  - [x] `tusk delete` → `tusk task delete`
+  - [x] `tusk tree` → `tusk task tree`
+  - [x] `tusk next` → `tusk task next`
+  - [x] `tusk annotate` → `tusk task annotate`
 
-- [ ] **Story: Claim and queue under `tusk task`**
-  - [ ] `tusk available` → `tusk task available`
-  - [ ] `tusk pop` → `tusk task pop`
-  - [ ] `tusk claim` → `tusk task claim`
-  - [ ] `tusk release` → `tusk task release`
+- [x] **Story: Claim and queue under `tusk task`**
+  - [x] `tusk available` → `tusk task available`
+  - [x] `tusk pop` → `tusk task pop`
+  - [x] `tusk claim` → `tusk task claim`
+  - [x] `tusk release` → `tusk task release`
 
-- [ ] **Story: Relations under `tusk task`**
-  - [ ] `tusk link` → `tusk task link`
-  - [ ] `tusk unlink` → `tusk task unlink`
-  - [ ] MCP tools rename to match: `tusk_relation_add` → `tusk_task_link`, `tusk_relation_remove` → `tusk_task_unlink`. MCP and CLI surfaces stay in lockstep so agents and humans share the same mental model.
+- [x] **Story: Relations under `tusk task`**
+  - [x] `tusk link` → `tusk task link`
+  - [x] `tusk unlink` → `tusk task unlink`
+  - [x] MCP tools rename to match: `tusk_relation_add` → `tusk_task_link`, `tusk_relation_remove` → `tusk_task_unlink`. MCP and CLI surfaces stay in lockstep so agents and humans share the same mental model.
 
 - [ ] **Story: Removal and suggestions for moved commands**
-  - [ ] Old flat commands are deleted from the root — Cobra emits its standard "unknown command" error for each
-  - [ ] A custom `SuggestFor` / unknown-command handler prints a targeted hint for moved verbs so `tusk add foo` prints "unknown command 'add'; did you mean 'tusk task create'?" for every entry in the scope story's mapping table
+  - [x] Old flat commands are deleted from the root — Cobra emits its standard "unknown command" error for each
+  - [x] A custom `SuggestFor` / unknown-command handler prints a targeted hint for moved verbs so `tusk add foo` prints "unknown command 'add'; did you mean 'tusk task create'?" for every entry in the scope story's mapping table
   - [ ] Shell completion regenerated for the new command tree — old completions are stale and ship with the release
-  - [ ] Runs last in this initiative so the hint table reflects the final set of moved commands
+  - [x] Runs last in this initiative so the hint table reflects the final set of moved commands
 
 ### Initiative: String Field Input Unification
 
