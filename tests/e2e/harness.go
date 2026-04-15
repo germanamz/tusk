@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -57,25 +56,20 @@ func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
 	}
 	_ = tmpFile.Close()
 
+	// Point the binary at an isolated empty config directory by default so
+	// it never reads the developer's real ~/.config/tusk/config.toml. The
+	// post-phase-2 legacy-section guard hard-errors on any stale
+	// [projects.*] / [workflows.*] sections, which would otherwise make
+	// every e2e scenario fail on contributor machines that haven't yet
+	// cleaned up their global config.
 	return &Env{
-		t:       t,
-		binPath: binPath,
-		dbPath:  tmpFile.Name(),
-		dbMode:  dbMode,
-		format:  format,
+		t:         t,
+		binPath:   binPath,
+		dbPath:    tmpFile.Name(),
+		configDir: t.TempDir(),
+		dbMode:    dbMode,
+		format:    format,
 	}
-}
-
-// withConfig writes a config.toml to a temp directory and sets TUSK_CONFIG_DIR
-// on future commands so the tusk binary uses it.
-func (e *Env) withConfig(configContent string) {
-	e.t.Helper()
-	dir := e.t.TempDir()
-	configPath := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
-		e.t.Fatalf("writing test config: %v", err)
-	}
-	e.configDir = dir
 }
 
 // Run executes the tusk binary with the given arguments.

@@ -15,17 +15,12 @@ import (
 
 // Config holds configuration for creating a Client.
 // Consumers build this programmatically — no file loading, no env vars.
+// Projects and workflows are managed exclusively in the database; the
+// built-in kanban workflow and default project are seeded by migrations,
+// and subsequent changes go through the Projects/Workflows services.
 type Config struct {
 	// DBPath is the path to the SQLite database file. Required.
 	DBPath string
-
-	// Workflows defines workflow status sets and transitions.
-	// When nil or empty, the builtin kanban workflow is used.
-	Workflows map[string]config.WorkflowConfig
-
-	// Projects defines projects and their workflow assignments.
-	// When nil or empty, the builtin default project is used.
-	Projects map[string]config.ProjectConfig
 
 	// Urgency holds weights for the urgency scoring algorithm.
 	// When zero-valued, default weights are used.
@@ -42,37 +37,6 @@ type Client struct {
 	Players   *service.PlayerService
 
 	store *sqlite.Store
-}
-
-// defaultWorkflows returns the builtin kanban workflow definition.
-func defaultWorkflows() map[string]config.WorkflowConfig {
-	return map[string]config.WorkflowConfig{
-		"kanban": {
-			Statuses: map[string]config.StatusConfig{
-				"pending":   {Roles: []string{config.RoleInitial}},
-				"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-				"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-				"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-			},
-			Transitions: []config.WorkflowTransitionConfig{
-				{From: "pending", To: "active"},
-				{From: "pending", To: "deleted"},
-				{From: "active", To: "completed"},
-				{From: "active", To: "pending"},
-				{From: "active", To: "deleted"},
-				{From: "completed", To: "pending"},
-			},
-		},
-	}
-}
-
-// defaultProjects returns the builtin default project definition.
-func defaultProjects() map[string]config.ProjectConfig {
-	return map[string]config.ProjectConfig{
-		"default": {
-			Workflow: "kanban",
-		},
-	}
 }
 
 // defaultUrgency returns the builtin urgency weights.
@@ -99,24 +63,8 @@ func NewClient(cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("tusk: DBPath is required")
 	}
 
-	// Apply defaults for zero-valued config fields.
-	if len(cfg.Workflows) == 0 {
-		cfg.Workflows = defaultWorkflows()
-	}
-	if len(cfg.Projects) == 0 {
-		cfg.Projects = defaultProjects()
-	}
 	if cfg.Urgency == (config.UrgencyConfig{}) {
 		cfg.Urgency = defaultUrgency()
-	}
-
-	// Validate cross-references (projects must reference existing workflows).
-	validationCfg := config.Config{
-		Workflows: cfg.Workflows,
-		Projects:  cfg.Projects,
-	}
-	if err := validationCfg.Validate(); err != nil {
-		return nil, fmt.Errorf("tusk: invalid config: %w", err)
 	}
 
 	// Ensure the parent directory exists.
@@ -146,13 +94,6 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 	projectRepo := sqlite.NewProjectRepo(db)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
-	syncCfg := &config.Config{
-		Workflows: cfg.Workflows,
-		Projects:  cfg.Projects,
-	}
-	if err := sqlite.SyncConfigToDB(context.Background(), syncCfg, workflowRepo, projectRepo); err != nil {
-		return nil, fmt.Errorf("syncing config to database: %w", err)
-	}
 
 	resolver := func(context.Context, uuid.UUID) (*service.RepoBundle, error) {
 		return bundle, nil

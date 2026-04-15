@@ -17,7 +17,7 @@ import (
 // testServer creates a fully wired Server with an in-memory SQLite DB.
 func testServer(t *testing.T) *Server {
 	t.Helper()
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t, sqlitetest.KanbanConfig("default"))
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(t)
 
 	db := store.DB()
 	bundle := &service.RepoBundle{
@@ -39,7 +39,7 @@ func testServer(t *testing.T) *Server {
 
 	s, err := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,
-		nil, nil, nil, nil,
+		nil, nil, nil,
 		"test", config.MCPConfig{}, nil,
 	)
 	if err != nil {

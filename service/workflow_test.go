@@ -5,38 +5,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/sqlite/sqlitetest"
 )
 
 func testWorkflowEnv(t *testing.T) *WorkflowService {
 	t.Helper()
-	cfg := &config.Config{
-		Workflows: map[string]config.WorkflowConfig{
-			"kanban": {
-				Statuses: map[string]config.StatusConfig{
-					"pending":   {},
-					"active":    {},
-					"completed": {},
-					"deleted":   {},
-				},
-				Transitions: []config.WorkflowTransitionConfig{
-					{From: "pending", To: "active"},
-					{From: "pending", To: "deleted"},
-					{From: "active", To: "completed"},
-					{From: "active", To: "pending"},
-					{From: "active", To: "deleted"},
-					{From: "completed", To: "pending"},
-				},
-			},
-		},
-		Projects: map[string]config.ProjectConfig{
-			"default": {Workflow: "kanban"},
-			"backend": {Workflow: "kanban"},
-		},
-	}
-	_, projRepo, wfRepo := sqlitetest.NewStore(t, cfg)
+	_, projRepo, wfRepo := sqlitetest.NewStore(t)
+	sqlitetest.SeedProject(t, projRepo, "backend")
 	return NewWorkflowService(wfRepo, projRepo)
 }
 
@@ -161,27 +137,7 @@ func TestGetWorkflowWithProjects_NotFound(t *testing.T) {
 
 func roleWorkflowEnv(t *testing.T) *WorkflowService {
 	t.Helper()
-	cfg := &config.Config{
-		Workflows: map[string]config.WorkflowConfig{
-			"kanban": {
-				Statuses: map[string]config.StatusConfig{
-					"pending":   {Roles: []string{"initial"}},
-					"active":    {Roles: []string{"start", "highlight"}},
-					"completed": {Roles: []string{"terminal", "done", "dim"}},
-					"deleted":   {Roles: []string{"terminal", "delete", "dim"}},
-				},
-				Transitions: []config.WorkflowTransitionConfig{
-					{From: "pending", To: "active"},
-					{From: "active", To: "completed"},
-					{From: "active", To: "deleted"},
-				},
-			},
-		},
-		Projects: map[string]config.ProjectConfig{
-			"default": {Workflow: "kanban"},
-		},
-	}
-	_, projRepo, wfRepo := sqlitetest.NewStore(t, cfg)
+	_, projRepo, wfRepo := sqlitetest.NewStore(t)
 	return NewWorkflowService(wfRepo, projRepo)
 }
 

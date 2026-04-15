@@ -33,7 +33,6 @@ type App struct {
 	playerSvc     *service.PlayerService
 	workflowRepo  repository.WorkflowRepository
 	projectRepo   repository.ProjectRepository
-	reloadHook    tuskmcp.ConfigReloadHook
 	urgencyEngine *service.UrgencyEngine
 	playerID      string // from --player flag
 	resolver      *filter.Resolver
@@ -92,7 +91,6 @@ func New(
 	workflowRepo repository.WorkflowRepository,
 	projectRepo repository.ProjectRepository,
 	urgencyEngine *service.UrgencyEngine,
-	reloadHook tuskmcp.ConfigReloadHook,
 	vi VersionInfo,
 	tuiCfg config.TUIConfig,
 	mcpCfg config.MCPConfig,
@@ -108,7 +106,6 @@ func New(
 		workflowRepo:  workflowRepo,
 		projectRepo:   projectRepo,
 		urgencyEngine: urgencyEngine,
-		reloadHook:    reloadHook,
 		version:       vi,
 		tuiCfg:        tuiCfg,
 		mcpCfg:        mcpCfg,
@@ -155,7 +152,6 @@ func New(
 				taskSvc, tagSvc, relationSvc, projectSvc,
 				a.workflowSvc, a.playerSvc,
 				a.workflowRepo, a.projectRepo, a.urgencyEngine,
-				a.reloadHook,
 				vi.Version, a.mcpCfg, a.loadOpts,
 			)
 			if err != nil {

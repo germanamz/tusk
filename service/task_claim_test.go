@@ -15,7 +15,7 @@ import (
 // newClaimTestEnv creates a full service environment for claim tests.
 func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService) {
 	t.Helper()
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t, sqlitetest.KanbanConfig("default"))
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(t)
 
 	db := store.DB()
 	playerRepo := sqlite.NewPlayerRepo(db)

@@ -9,7 +9,6 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/service"
-	"github.com/germanamz/tusk/sqlite"
 	"github.com/germanamz/tusk/sqlite/sqlitetest"
 )
 
@@ -18,7 +17,7 @@ func mustNew(t *testing.T, cfg config.MCPConfig) *Server {
 	t.Helper()
 	s, err := New(
 		nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil,
+		nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err != nil {
@@ -147,7 +146,7 @@ func TestValidation_UnknownEntries(t *testing.T) {
 
 	_, err := New(
 		nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil,
+		nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err == nil {
@@ -175,7 +174,7 @@ func TestValidation_NoErrorForValidEntries(t *testing.T) {
 
 	_, err := New(
 		nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil,
+		nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err != nil {
@@ -194,16 +193,12 @@ func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
 		t.Fatalf("writing seed config: %v", err)
 	}
 
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t, nil)
-	_ = store
+	_, projectRepo, workflowRepo := sqlitetest.NewStore(t)
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
-	reloadHook := func(ctx context.Context, cfg *config.Config) error {
-		return sqlite.SyncConfigToDB(ctx, cfg, workflowRepo, projectRepo)
-	}
 	srv, err := New(
 		nil, nil, nil, nil, nil, nil,
-		workflowRepo, projectRepo, urgencyEngine, reloadHook,
+		workflowRepo, projectRepo, urgencyEngine,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configPath)},
 	)

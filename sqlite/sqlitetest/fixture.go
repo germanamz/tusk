@@ -10,17 +10,19 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
-	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/migrations"
 	"github.com/germanamz/tusk/sqlite"
+	"github.com/google/uuid"
 )
 
 // NewStore opens a fresh SQLite store inside t.TempDir, applies migrations,
-// and seeds projects/workflows from cfg via sqlite.SyncConfigToDB. Returns
-// the store plus project/workflow repos wired to it. Pass a nil cfg to
-// skip seeding. Close is registered with t.Cleanup.
-func NewStore(t testing.TB, cfg *config.Config) (*sqlite.Store, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
+// and returns the store plus project/workflow repos wired to it. Migrations
+// alone seed the builtin kanban workflow and the default project row — no
+// additional seeding is required. Close is registered with t.Cleanup.
+func NewStore(t testing.TB) (*sqlite.Store, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
 	t.Helper()
 	dir := t.TempDir()
 	store, err := sqlite.New(filepath.Join(dir, "test.db"), migrations.FS)
@@ -31,50 +33,25 @@ func NewStore(t testing.TB, cfg *config.Config) (*sqlite.Store, *sqlite.ProjectR
 
 	projRepo := sqlite.NewProjectRepo(store.DB())
 	wfRepo := sqlite.NewWorkflowRepo(store.DB())
-	if cfg != nil {
-		if err := sqlite.SyncConfigToDB(context.Background(), cfg, wfRepo, projRepo); err != nil {
-			t.Fatalf("sqlite.SyncConfigToDB: %v", err)
-		}
-	}
 	return store, projRepo, wfRepo
 }
 
-// KanbanConfig builds a minimal *config.Config containing a kanban
-// workflow (pending/active/completed/deleted with the usual transitions)
-// and the given project names, all bound to kanban. Callers that need
-// additional workflows or custom settings should build the config
-// manually.
-func KanbanConfig(projects ...string) *config.Config {
-	cfg := &config.Config{
-		Workflows: map[string]config.WorkflowConfig{
-			"kanban": KanbanWorkflow(),
-		},
-		Projects: map[string]config.ProjectConfig{},
+// SeedProject inserts a project with the given name bound to the builtin
+// kanban workflow (uuid.Nil). Tests that need an extra project beyond the
+// migration-seeded default call this to avoid hand-rolling repo writes.
+func SeedProject(t testing.TB, repo *sqlite.ProjectRepo, name string) *domain.Project {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	p := &domain.Project{
+		ID:         uuid.New(),
+		Name:       name,
+		WorkflowID: uuid.Nil,
+		Version:    1,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
-	for _, name := range projects {
-		cfg.Projects[name] = config.ProjectConfig{Workflow: "kanban"}
+	if err := repo.Create(context.Background(), p); err != nil {
+		t.Fatalf("seed project %q: %v", name, err)
 	}
-	return cfg
-}
-
-// KanbanWorkflow returns the canonical kanban workflow config used by
-// most tests: pending → active ⇄ pending, active → completed, both
-// pending and active → deleted, completed → pending.
-func KanbanWorkflow() config.WorkflowConfig {
-	return config.WorkflowConfig{
-		Statuses: map[string]config.StatusConfig{
-			"pending":   {Roles: []string{config.RoleInitial}},
-			"active":    {Roles: []string{config.RoleStart, config.RoleHighlight}},
-			"completed": {Roles: []string{config.RoleTerminal, config.RoleDone, config.RoleDim}},
-			"deleted":   {Roles: []string{config.RoleTerminal, config.RoleDelete, config.RoleDim}},
-		},
-		Transitions: []config.WorkflowTransitionConfig{
-			{From: "pending", To: "active"},
-			{From: "pending", To: "deleted"},
-			{From: "active", To: "completed"},
-			{From: "active", To: "pending"},
-			{From: "active", To: "deleted"},
-			{From: "completed", To: "pending"},
-		},
-	}
+	return p
 }

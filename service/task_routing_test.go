@@ -14,7 +14,8 @@ import (
 // so tests can stamp the right typed ProjectID onto fixtures.
 func multiProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle, map[string]uuid.UUID) {
 	t.Helper()
-	bundle, projectRepo, workflowRepo := newSeededBundle(t, sqlitetest.KanbanConfig("default", "backend"))
+	bundle, projectRepo, workflowRepo := newSeededBundle(t)
+	sqlitetest.SeedProject(t, projectRepo, "backend")
 
 	ids := map[string]uuid.UUID{}
 	for _, name := range []string{"default", "backend"} {

@@ -2,29 +2,6 @@ package e2e
 
 import "testing"
 
-const projectCrudConfig = `
-[workflows.kanban.statuses.pending]
-roles = ["initial"]
-[workflows.kanban.statuses.active]
-roles = ["start", "highlight"]
-[workflows.kanban.statuses.completed]
-roles = ["terminal", "done", "dim"]
-[workflows.kanban.statuses.deleted]
-roles = ["terminal", "delete", "dim"]
-[[workflows.kanban.transitions]]
-from = "pending"
-to = "active"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "completed"
-[[workflows.kanban.transitions]]
-from = "active"
-to = "deleted"
-
-[projects.default]
-workflow = "kanban"
-`
-
 func TestProjectCreateAndList(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
@@ -36,7 +13,6 @@ func TestProjectCreateAndList(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, format)
-			env.withConfig(projectCrudConfig)
 
 			r := env.Run("project", "create", "backend", "workflow=kanban")
 			if r.Err != nil {
@@ -63,7 +39,6 @@ func TestProjectModifyUrgencyDelta(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, format)
-			env.withConfig(projectCrudConfig)
 
 			r := env.Run("project", "create", "backend",
 				"workflow=kanban", "urgency.blocking-weight=5")
@@ -90,7 +65,6 @@ func TestProjectDeleteRejectsDefault(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, format)
-			env.withConfig(projectCrudConfig)
 
 			r := env.Run("project", "delete", "default")
 			if r.Err == nil {
@@ -113,7 +87,6 @@ func TestProjectDeleteRejectsWhenReferenced(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, format)
-			env.withConfig(projectCrudConfig)
 
 			r := env.Run("project", "create", "backend", "workflow=kanban")
 			if r.Err != nil {
@@ -144,7 +117,6 @@ func TestProjectDeleteForceWithRefs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			env := newEnv(t, binPath, dbMode, format)
-			env.withConfig(projectCrudConfig)
 
 			r := env.Run("project", "create", "backend", "workflow=kanban")
 			if r.Err != nil {

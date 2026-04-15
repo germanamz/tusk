@@ -224,13 +224,14 @@ func TestCLI_ConfigGet(t *testing.T) {
 	})
 
 	t.Run("complex_value", func(t *testing.T) {
+		// `config get workflows.kanban.statuses` hydrates the workflow row
+		// from the database and returns a JSON object keyed by status name.
 		cmd := exec.Command(binPath, "config", "get", "workflows.kanban.statuses")
 		cmd.Env = envWithHome(homeDir)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config get: %v\n%s", err, out)
 		}
-		// Should be a JSON object (map[string]StatusConfig).
 		var obj map[string]interface{}
 		if err := json.Unmarshal(out, &obj); err != nil {
 			t.Fatalf("expected JSON object, got: %s", out)
@@ -394,15 +395,17 @@ func TestCLI_ConfigValidate(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid_config", func(t *testing.T) {
+	t.Run("legacy_sections_rejected", func(t *testing.T) {
+		// Post-phase-2: [projects.*] and [workflows.*] sections in the TOML
+		// config are hard errors. Using a stale config file must fail at
+		// Load time with a clear migration message.
 		homeDir := t.TempDir()
 		tuskConfigDir := filepath.Join(homeDir, ".config", "tusk")
 		if err := os.MkdirAll(tuskConfigDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		// Write config with project referencing nonexistent workflow.
-		badConfig := []byte("[projects.default]\nworkflow = \"nonexistent\"\n")
-		if err := os.WriteFile(filepath.Join(tuskConfigDir, "config.toml"), badConfig, 0o644); err != nil {
+		legacy := []byte("[projects.default]\nworkflow = \"kanban\"\n")
+		if err := os.WriteFile(filepath.Join(tuskConfigDir, "config.toml"), legacy, 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -410,10 +413,10 @@ func TestCLI_ConfigValidate(t *testing.T) {
 		cmd.Env = envWithHome(homeDir)
 		out, err := cmd.CombinedOutput()
 		if err == nil {
-			t.Fatal("expected error for invalid config")
+			t.Fatal("expected error for legacy [projects.*] section")
 		}
-		if !strings.Contains(string(out), "unknown workflow") {
-			t.Errorf("expected workflow validation error, got: %s", out)
+		if !strings.Contains(string(out), "managed in the database") {
+			t.Errorf("expected legacy-section error, got: %s", out)
 		}
 	})
 }
@@ -557,31 +560,27 @@ func TestCLI_ConfigValidate_ExplicitFile(t *testing.T) {
 		t.Skip("binary not built")
 	}
 
+	// Post-phase-2 the config file holds globals only — projects and
+	// workflows live in the database. A minimal valid file just needs a
+	// [storage] section (the remaining keys pick up embedded defaults).
 	dir := t.TempDir()
 	configFile := filepath.Join(dir, "custom.toml")
-	homeDir := t.TempDir()
-	dumpCmd := exec.Command(binPath, "config", "show")
-	dumpCmd.Env = envWithHome(homeDir)
-	out, err := dumpCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config show failed: %v\n%s", err, out)
-	}
-	body := out
-	if idx := bytes.IndexByte(out, '\n'); idx >= 0 && bytes.HasPrefix(out, []byte("# active:")) {
-		body = out[idx+1:]
-	}
-	if err := os.WriteFile(configFile, body, 0o644); err != nil {
+	minimal := []byte(`[storage]
+backend = "sqlite"
+path = "/tmp/validate-explicit.db"
+`)
+	if err := os.WriteFile(configFile, minimal, 0o644); err != nil {
 		t.Fatalf("writing config: %v", err)
 	}
 
 	cmd := exec.Command(binPath, "--config", configFile, "config", "validate")
 	cmd.Env = envWithHome(t.TempDir())
-	out2, err := cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("config validate failed: %v\n%s", err, out2)
+		t.Fatalf("config validate failed: %v\n%s", err, out)
 	}
-	if !bytes.Contains(out2, []byte("Config valid")) {
-		t.Fatalf("expected 'Config valid' in output, got: %s", out2)
+	if !bytes.Contains(out, []byte("Config valid")) {
+		t.Fatalf("expected 'Config valid' in output, got: %s", out)
 	}
 }
 

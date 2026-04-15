@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/germanamz/tusk/sqlite/sqlitetest"
 	"github.com/google/uuid"
@@ -15,16 +14,18 @@ import (
 // closed via t.Cleanup.
 func newTestBundle(t *testing.T) *RepoBundle {
 	t.Helper()
-	store, _, _ := sqlitetest.NewStore(t, nil)
+	store, _, _ := sqlitetest.NewStore(t)
 	return bundleFromStore(store)
 }
 
 // newSeededBundle builds a RepoBundle plus SQLite project/workflow repos
-// seeded from cfg. All repos share the same store so task ↔ project FKs
-// are satisfied.
-func newSeededBundle(t *testing.T, cfg *config.Config) (*RepoBundle, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
+// backed by a fresh store. Migrations seed the builtin kanban workflow and
+// default project; additional projects can be added via
+// sqlitetest.SeedProject. All repos share the same store so task ↔ project
+// FKs are satisfied.
+func newSeededBundle(t *testing.T) (*RepoBundle, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
 	t.Helper()
-	store, projRepo, wfRepo := sqlitetest.NewStore(t, cfg)
+	store, projRepo, wfRepo := sqlitetest.NewStore(t)
 	return bundleFromStore(store), projRepo, wfRepo
 }
 
