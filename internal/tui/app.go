@@ -120,6 +120,7 @@ func New(
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	a.root.CompletionOptions.DisableDefaultCmd = true
 
 	a.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
 	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text" or "json"`)
@@ -162,6 +163,7 @@ func New(
 		},
 	})
 	a.root.AddCommand(mcpCmd)
+	a.root.AddCommand(a.buildCompletionCmd())
 
 	return a
 }

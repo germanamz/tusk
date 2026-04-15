@@ -31,6 +31,15 @@ func main() {
 }
 
 func run() error {
+	if isCompletionInvocation(os.Args[1:]) {
+		app := tui.New(
+			nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			tui.VersionInfo{Version: version, Commit: commit, Date: date},
+			config.TUIConfig{}, config.MCPConfig{}, nil,
+		)
+		return app.Run(stripConfigFlag(stripDBFlag(os.Args[1:])))
+	}
+
 	explicitConfig, err := resolveConfigPath()
 	if err != nil {
 		return err
@@ -248,4 +257,40 @@ func resolveConfigPath() (string, error) {
 		return v, nil
 	}
 	return "", nil
+}
+
+// isCompletionInvocation reports whether args (the slice after the binary
+// name) dispatches to either the human-facing `completion` command or
+// Cobra's hidden `__complete` shell-completion RPC. It walks the args,
+// skipping the known global flags (and their values) so that
+// `tusk --config foo completion bash` and `tusk --db=/tmp/x __complete task ""`
+// both return true.
+func isCompletionInvocation(args []string) bool {
+	valueFlags := map[string]bool{
+		"--config": true,
+		"--db":     true,
+		"--format": true,
+		"--player": true,
+	}
+	boolFlags := map[string]bool{
+		"--no-color": true,
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if eq := strings.IndexByte(a, '='); eq > 0 {
+			name := a[:eq]
+			if valueFlags[name] || boolFlags[name] {
+				continue
+			}
+		}
+		if valueFlags[a] {
+			i++ // skip value
+			continue
+		}
+		if boolFlags[a] {
+			continue
+		}
+		return a == "completion" || a == "__complete"
+	}
+	return false
 }

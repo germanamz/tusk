@@ -198,3 +198,32 @@ disabled_resource_groups = ["workflow"]
 ## Full Example
 
 See [`config/default.toml`](../config/default.toml) for a complete annotated example with all default values.
+
+---
+
+## Shell Completion
+
+Tusk generates shell completion scripts on demand from the current Cobra command tree — no pre-baked artifacts ship in the repository or the release tarballs. Regenerate and reinstall after every upgrade so completion stays in sync with the binary.
+
+| Shell      | Install path (user scope)                                                                             |
+|------------|-------------------------------------------------------------------------------------------------------|
+| bash       | `~/.local/share/bash-completion/completions/tusk`                                                     |
+| zsh        | `"${fpath[1]}/_tusk"` — first writable directory in `$fpath`                                          |
+| fish       | `~/.config/fish/completions/tusk.fish`                                                                |
+| powershell | Append output to your `$PROFILE` (e.g. `tusk completion powershell \| Out-String \| Invoke-Expression`) |
+
+```bash
+# bash — user scope
+tusk completion bash > ~/.local/share/bash-completion/completions/tusk
+
+# zsh — drop in any directory listed in $fpath
+tusk completion zsh > "${fpath[1]}/_tusk"
+
+# fish — user scope
+tusk completion fish > ~/.config/fish/completions/tusk.fish
+
+# powershell — append to your profile
+tusk completion powershell | Out-String | Invoke-Expression
+```
+
+Run `tusk completion --help` for the command reference.
