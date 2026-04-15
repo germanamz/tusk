@@ -16,10 +16,10 @@ func TestTaskQueue(t *testing.T) {
 				// Step 2: Add task C (priority 2)
 				{Args: []string{"task", "create", "Task C", "priority=2"}},
 				// Step 3: Claim task A by p1
-				{Args: []string{"claim", "$0.short_id", "--player", "p1"}},
+				{Args: []string{"task", "claim", "$0.short_id", "--player", "p1"}},
 				// Step 4: List available for p2 — should see only B and C (unclaimed)
 				{
-					Args: []string{"available", "--player", "p2"},
+					Args: []string{"task", "available", "--player", "p2"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := jsonArray(t, parsed)
@@ -41,7 +41,7 @@ func TestTaskQueue(t *testing.T) {
 				{Args: []string{"link", "$0.short_id", "blocks", "$1.short_id"}},
 				// Step 3: Available should only show the blocker (blocked is excluded)
 				{
-					Args: []string{"available", "--player", "p1"},
+					Args: []string{"task", "available", "--player", "p1"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := jsonArray(t, parsed)
@@ -58,7 +58,7 @@ func TestTaskQueue(t *testing.T) {
 				{Args: []string{"task", "done", "$0.short_id"}},
 				// Step 6: Available should now show only Blocked (Blocker is completed)
 				{
-					Args: []string{"available", "--player", "p1"},
+					Args: []string{"task", "available", "--player", "p1"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := jsonArray(t, parsed)
@@ -80,7 +80,7 @@ func TestTaskQueue(t *testing.T) {
 				{Args: []string{"task", "create", "UI task", "+ui"}},
 				// Step 2: Available filtered by +api should show only the API task
 				{
-					Args: []string{"available", "+api", "--player", "p1"},
+					Args: []string{"task", "available", "+api", "--player", "p1"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						items := jsonArray(t, parsed)
@@ -102,7 +102,7 @@ func TestTaskQueue(t *testing.T) {
 				{Args: []string{"task", "create", "High task", "priority=3"}},
 				// Step 2: Pop should return the highest urgency task
 				{
-					Args: []string{"pop", "--player", "p1"},
+					Args: []string{"task", "pop", "--player", "p1"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -121,12 +121,12 @@ func TestTaskQueue(t *testing.T) {
 				// Step 1: Add second task
 				{Args: []string{"task", "create", "Second"}},
 				// Step 2: Pop gets a task
-				{Args: []string{"pop", "--player", "p1"}},
+				{Args: []string{"task", "pop", "--player", "p1"}},
 				// Step 3: Pop gets the other task
-				{Args: []string{"pop", "--player", "p1"}},
+				{Args: []string{"task", "pop", "--player", "p1"}},
 				// Step 4: Pop with no tasks left should error
 				{
-					Args:    []string{"pop", "--player", "p1"},
+					Args:    []string{"task", "pop", "--player", "p1"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -144,7 +144,7 @@ func TestTaskQueue(t *testing.T) {
 				{Args: []string{"task", "create", "Frontend job", "+frontend"}},
 				// Step 2: Pop with +backend filter should return backend job
 				{
-					Args: []string{"pop", "+backend", "--player", "p1"},
+					Args: []string{"task", "pop", "+backend", "--player", "p1"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)

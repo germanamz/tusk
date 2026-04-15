@@ -11,16 +11,20 @@ import (
 // at the new invocation. Subsequent v0.11 phases extend the map below.
 func (a *App) registerMovedStubs() {
 	moved := map[string]string{
-		"add":      "task create",
-		"info":     "task get",
-		"list":     "task list",
-		"modify":   "task modify",
-		"tree":     "task tree",
-		"start":    "task start",
-		"done":     "task done",
-		"delete":   "task delete",
-		"next":     "task next",
-		"annotate": "task annotate",
+		"add":       "task create",
+		"info":      "task get",
+		"list":      "task list",
+		"modify":    "task modify",
+		"tree":      "task tree",
+		"start":     "task start",
+		"done":      "task done",
+		"delete":    "task delete",
+		"next":      "task next",
+		"annotate":  "task annotate",
+		"claim":     "task claim",
+		"release":   "task release",
+		"available": "task available",
+		"pop":       "task pop",
 	}
 
 	for old, newPath := range moved {

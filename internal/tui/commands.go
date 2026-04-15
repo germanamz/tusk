@@ -99,6 +99,28 @@ func (a *App) buildTaskCmd() *cobra.Command {
 			Args:  cobra.MinimumNArgs(2),
 			RunE:  a.runAnnotate,
 		},
+		&cobra.Command{
+			Use:   "claim <short_id>",
+			Short: "Claim a task for the current player",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runClaim,
+		},
+		&cobra.Command{
+			Use:   "release <short_id>",
+			Short: "Release a task claim",
+			Args:  cobra.ExactArgs(1),
+			RunE:  a.runRelease,
+		},
+		&cobra.Command{
+			Use:   "available [filters...]",
+			Short: "List unclaimed, actionable, unblocked tasks",
+			RunE:  a.runAvailable,
+		},
+		&cobra.Command{
+			Use:   "pop [filters...]",
+			Short: "Claim and start the highest-urgency available task",
+			RunE:  a.runPop,
+		},
 	)
 
 	return parent
@@ -122,28 +144,6 @@ func (a *App) buildTaskCmds() []*cobra.Command {
 			Long:  `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
 			Args:  cobra.ExactArgs(3),
 			RunE:  a.runUnlink,
-		},
-		{
-			Use:   "claim <short_id>",
-			Short: "Claim a task for the current player",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runClaim,
-		},
-		{
-			Use:   "release <short_id>",
-			Short: "Release a task claim",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runRelease,
-		},
-		{
-			Use:   "available [filters...]",
-			Short: "List unclaimed, actionable, unblocked tasks",
-			RunE:  a.runAvailable,
-		},
-		{
-			Use:   "pop [filters...]",
-			Short: "Claim and start the highest-urgency available task",
-			RunE:  a.runPop,
 		},
 	}
 }
