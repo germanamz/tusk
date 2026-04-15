@@ -1268,3 +1268,174 @@ func mustParseTime(t *testing.T, s string) time.Time {
 	}
 	return v
 }
+
+func TestRunConfigShow_TextIncludesDBSections(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"config", "show"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("config show: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"[storage]",
+		"[urgency]",
+		"# workflows (from database",
+		"[workflows.kanban.statuses.pending]",
+		`roles = ["initial"]`,
+		"# projects (from database",
+		"[projects.default]",
+		`workflow = "kanban"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunConfigShow_JSONIncludesDBSections(t *testing.T) {
+	app, _ := testApp(t)
+	app.format = "json"
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"--format", "json", "config", "show"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("config show json: %v", err)
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, buf.String())
+	}
+	for _, key := range []string{"storage", "urgency", "tui", "mcp", "projects", "workflows"} {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("missing top-level key %q in json:\n%s", key, buf.String())
+		}
+	}
+
+	var workflows map[string]configWorkflowView
+	if err := json.Unmarshal(payload["workflows"], &workflows); err != nil {
+		t.Fatalf("workflows decode: %v", err)
+	}
+	if _, ok := workflows["kanban"]; !ok {
+		t.Fatalf("expected kanban workflow in json output: %s", buf.String())
+	}
+
+	var projects map[string]configProjectView
+	if err := json.Unmarshal(payload["projects"], &projects); err != nil {
+		t.Fatalf("projects decode: %v", err)
+	}
+	def, ok := projects["default"]
+	if !ok {
+		t.Fatalf("expected default project in json output: %s", buf.String())
+	}
+	if def.Workflow != "kanban" {
+		t.Fatalf("default.workflow = %q, want %q", def.Workflow, "kanban")
+	}
+}
+
+func TestRunConfigGet_ProjectWorkflow(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"config", "get", "projects.default.workflow"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("config get: %v", err)
+	}
+	if strings.TrimSpace(buf.String()) != "kanban" {
+		t.Fatalf("expected kanban, got %q", buf.String())
+	}
+}
+
+func TestRunConfigGet_WorkflowStatusRoles(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"config", "get", "workflows.kanban.statuses.pending.roles"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("config get: %v", err)
+	}
+	var roles []string
+	if err := json.Unmarshal(buf.Bytes(), &roles); err != nil {
+		t.Fatalf("expected JSON array, got %q (%v)", buf.String(), err)
+	}
+	if len(roles) != 1 || roles[0] != "initial" {
+		t.Fatalf("unexpected roles: %v", roles)
+	}
+}
+
+func TestRunConfigGet_UnsetUrgencyLeaf(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"config", "get", "projects.default.settings.urgency.blocking_weight"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("config get: %v", err)
+	}
+	// Unset pointer → nil → blank line in text mode.
+	if strings.TrimSpace(buf.String()) != "" {
+		t.Fatalf("expected blank output for unset urgency leaf, got %q", buf.String())
+	}
+}
+
+func TestRunConfigGet_UnknownProject(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"config", "get", "projects.ghost.workflow"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatalf("expected error for unknown project, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown config key") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunConfigSet_RejectsProjects(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"config", "set", "projects.foo.workflow", "kanban"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	const want = "projects.* is managed by the database — use `tusk project modify` instead"
+	if err.Error() != want {
+		t.Fatalf("unexpected error:\n got: %q\nwant: %q", err.Error(), want)
+	}
+}
+
+func TestRunConfigSet_RejectsWorkflows(t *testing.T) {
+	app, _ := testApp(t)
+
+	var buf bytes.Buffer
+	app.root.SetOut(&buf)
+	app.root.SetErr(&buf)
+	app.root.SetArgs([]string{"config", "set", "workflows.foo.statuses.x.roles", "initial"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	const want = "workflows.* is managed by the database — use `tusk workflow modify` instead"
+	if err.Error() != want {
+		t.Fatalf("unexpected error:\n got: %q\nwant: %q", err.Error(), want)
+	}
+}

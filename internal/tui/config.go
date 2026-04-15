@@ -2,7 +2,9 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/config"
+	"github.com/germanamz/tusk/domain"
+	"github.com/google/uuid"
 	toml "github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -82,27 +86,134 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	data, err := toml.Marshal(cfg)
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	projects, err := a.projectSvc.List(ctx)
 	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
+		return fmt.Errorf("listing projects: %w", err)
+	}
+	workflows, err := a.workflowSvc.List(ctx)
+	if err != nil {
+		return fmt.Errorf("listing workflows: %w", err)
+	}
+	wfByID := make(map[uuid.UUID]*domain.Workflow, len(workflows))
+	for _, w := range workflows {
+		wfByID[w.ID] = w
 	}
 
 	out := cmd.OutOrStdout()
 
-	if a.format != "json" {
-		header := "# active: "
-		if cfg.Sources.File != "" {
-			header += cfg.Sources.File
-		} else {
-			header += "defaults only"
+	if a.format == "json" {
+		payload := configShowJSON{
+			Storage:   cfg.Storage,
+			Urgency:   cfg.Urgency,
+			TUI:       cfg.TUI,
+			MCP:       cfg.MCP,
+			Projects:  make(map[string]configProjectView, len(projects)),
+			Workflows: make(map[string]configWorkflowView, len(workflows)),
 		}
-		if _, err := fmt.Fprintln(out, header); err != nil {
-			return err
+		for _, p := range projects {
+			payload.Projects[p.Name] = projectToConfigView(p, wfByID)
 		}
+		for _, w := range workflows {
+			payload.Workflows[w.Name] = workflowToConfigView(w)
+		}
+		enc := json.NewEncoder(out)
+		return enc.Encode(payload)
 	}
 
-	_, err = out.Write(data)
+	header := "# active: "
+	if cfg.Sources.File != "" {
+		header += cfg.Sources.File
+	} else {
+		header += "defaults only"
+	}
+	if _, err := fmt.Fprintln(out, header); err != nil {
+		return err
+	}
+
+	wrapper := configShowTOML{
+		Storage: cfg.Storage,
+		Urgency: cfg.Urgency,
+		TUI:     cfg.TUI,
+		MCP:     cfg.MCP,
+	}
+	data, err := toml.Marshal(wrapper)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	if _, err := out.Write(data); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(out); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(out, RenderWorkflowsTOML(workflows)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(out); err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(out, RenderProjectsTOML(projects, wfByID))
 	return err
+}
+
+func projectToConfigView(p *domain.Project, wfByID map[uuid.UUID]*domain.Workflow) configProjectView {
+	out := configProjectView{}
+	if wf, ok := wfByID[p.WorkflowID]; ok && wf != nil {
+		out.Workflow = wf.Name
+	}
+	if p.Settings.AutoCompleteParent != nil {
+		out.Settings.AutoCompleteParent = &configAutoView{
+			TriggerStatus: p.Settings.AutoCompleteParent.TriggerStatus,
+			TargetStatus:  p.Settings.AutoCompleteParent.TargetStatus,
+		}
+	}
+	if p.Settings.AutoRevertParent != nil {
+		out.Settings.AutoRevertParent = &configAutoView{
+			TriggerStatus: p.Settings.AutoRevertParent.TriggerStatus,
+			TargetStatus:  p.Settings.AutoRevertParent.TargetStatus,
+		}
+	}
+	if u := p.Settings.Urgency; u != nil {
+		out.Settings.Urgency = &configUrgencyView{
+			PriorityWeight:    u.PriorityWeight,
+			DueWeight:         u.DueWeight,
+			AgeWeight:         u.AgeWeight,
+			ActiveWeight:      u.ActiveWeight,
+			BlockingWeight:    u.BlockingWeight,
+			BlockedWeight:     u.BlockedWeight,
+			TagsWeight:        u.TagsWeight,
+			ProjectWeight:     u.ProjectWeight,
+			AnnotationsWeight: u.AnnotationsWeight,
+			WaitingWeight:     u.WaitingWeight,
+		}
+	}
+	return out
+}
+
+func workflowToConfigView(w *domain.Workflow) configWorkflowView {
+	out := configWorkflowView{
+		Statuses:    make(map[string]configWorkflowStatusView, len(w.Statuses)),
+		Transitions: make([]configWorkflowTransitionView, 0, len(w.Transitions)),
+	}
+	for name, sc := range w.Statuses {
+		roles := make([]string, len(sc.Roles))
+		for i, r := range sc.Roles {
+			roles[i] = string(r)
+		}
+		out.Statuses[name] = configWorkflowStatusView{Roles: roles}
+	}
+	for _, tr := range w.Transitions {
+		out.Transitions = append(out.Transitions, configWorkflowTransitionView{
+			From: tr.FromStatus,
+			To:   tr.ToStatus,
+		})
+	}
+	return out
 }
 
 func (a *App) runConfigPath(cmd *cobra.Command, args []string) error {
@@ -240,6 +351,18 @@ func ensureGlobalConfigFile(path string, opts []config.Option) error {
 func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
+	if strings.HasPrefix(key, "projects.") || strings.HasPrefix(key, "workflows.") {
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		val, err := a.configGetFromDB(ctx, key)
+		if err != nil {
+			return err
+		}
+		return a.writeConfigGetValue(cmd, val)
+	}
+
 	if !config.IsValidKey(key) {
 		return fmt.Errorf("unknown config key: %q", key)
 	}
@@ -255,8 +378,20 @@ func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown config key: %q", key)
 	}
 
-	// Determine output format.
+	return a.writeConfigGetValue(cmd, val)
+}
+
+// writeConfigGetValue formats a scalar or complex value to the command output
+// using the same rules as the original runConfigGet body.
+func (a *App) writeConfigGetValue(cmd *cobra.Command, val any) error {
 	switch v := val.(type) {
+	case nil:
+		if a.format == "json" {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			return enc.Encode(nil)
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "")
+		return err
 	case string, bool, int, int64, float64:
 		if a.format == "json" {
 			enc := json.NewEncoder(cmd.OutOrStdout())
@@ -265,11 +400,227 @@ func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), v)
 		return err
 	default:
-		// Complex value — always JSON.
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(val)
 	}
+}
+
+// configGetFromDB resolves a projects.* / workflows.* dot-path key against the
+// database-backed project and workflow services. It returns typed scalar
+// values for leaf segments, structured JSON-shaped values for table segments,
+// and an error for unknown keys.
+func (a *App) configGetFromDB(ctx context.Context, key string) (any, error) {
+	parts := strings.Split(key, ".")
+	unknown := func() (any, error) { return nil, fmt.Errorf("unknown config key: %q", key) }
+
+	switch parts[0] {
+	case "projects":
+		if len(parts) < 2 {
+			return unknown()
+		}
+		name := parts[1]
+		p, err := a.projectSvc.GetByName(ctx, name)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return unknown()
+			}
+			return nil, err
+		}
+		workflows, err := a.workflowSvc.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		wfByID := make(map[uuid.UUID]*domain.Workflow, len(workflows))
+		for _, w := range workflows {
+			wfByID[w.ID] = w
+		}
+		if len(parts) == 2 {
+			return projectToConfigView(p, wfByID), nil
+		}
+		return resolveProjectLeaf(p, wfByID, parts[2:], unknown)
+
+	case "workflows":
+		if len(parts) < 2 {
+			return unknown()
+		}
+		name := parts[1]
+		w, err := a.workflowSvc.GetByName(ctx, name)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return unknown()
+			}
+			return nil, err
+		}
+		if len(parts) == 2 {
+			return workflowToConfigView(w), nil
+		}
+		return resolveWorkflowLeaf(w, parts[2:], unknown)
+	}
+
+	return unknown()
+}
+
+func resolveProjectLeaf(p *domain.Project, wfByID map[uuid.UUID]*domain.Workflow, parts []string, unknown func() (any, error)) (any, error) {
+	switch parts[0] {
+	case "workflow":
+		if len(parts) != 1 {
+			return unknown()
+		}
+		if wf, ok := wfByID[p.WorkflowID]; ok && wf != nil {
+			return wf.Name, nil
+		}
+		return "", nil
+	case "settings":
+		if len(parts) == 1 {
+			return projectToConfigView(p, wfByID).Settings, nil
+		}
+		return resolveProjectSettingsLeaf(p, parts[1:], unknown)
+	}
+	return unknown()
+}
+
+func resolveProjectSettingsLeaf(p *domain.Project, parts []string, unknown func() (any, error)) (any, error) {
+	switch parts[0] {
+	case "auto_complete_parent":
+		return resolveAutoLeaf(p.Settings.AutoCompleteParent, parts[1:], unknown)
+	case "auto_revert_parent":
+		ar := p.Settings.AutoRevertParent
+		if ar == nil {
+			return resolveAutoLeaf(nil, parts[1:], unknown)
+		}
+		return resolveAutoLeaf(&domain.AutoCompleteConfig{TriggerStatus: ar.TriggerStatus, TargetStatus: ar.TargetStatus}, parts[1:], unknown)
+	case "urgency":
+		return resolveUrgencyLeaf(p.Settings.Urgency, parts[1:], unknown)
+	}
+	return unknown()
+}
+
+func resolveAutoLeaf(ac *domain.AutoCompleteConfig, parts []string, unknown func() (any, error)) (any, error) {
+	if len(parts) == 0 {
+		if ac == nil {
+			return nil, nil
+		}
+		return map[string]any{
+			"trigger_status": ac.TriggerStatus,
+			"target_status":  ac.TargetStatus,
+		}, nil
+	}
+	if len(parts) != 1 {
+		return unknown()
+	}
+	if ac == nil {
+		switch parts[0] {
+		case "trigger_status", "target_status":
+			return nil, nil
+		}
+		return unknown()
+	}
+	switch parts[0] {
+	case "trigger_status":
+		return ac.TriggerStatus, nil
+	case "target_status":
+		return ac.TargetStatus, nil
+	}
+	return unknown()
+}
+
+func resolveUrgencyLeaf(u *domain.UrgencyOverrides, parts []string, unknown func() (any, error)) (any, error) {
+	if len(parts) == 0 {
+		if u == nil {
+			return nil, nil
+		}
+		return (&configUrgencyView{
+			PriorityWeight:    u.PriorityWeight,
+			DueWeight:         u.DueWeight,
+			AgeWeight:         u.AgeWeight,
+			ActiveWeight:      u.ActiveWeight,
+			BlockingWeight:    u.BlockingWeight,
+			BlockedWeight:     u.BlockedWeight,
+			TagsWeight:        u.TagsWeight,
+			ProjectWeight:     u.ProjectWeight,
+			AnnotationsWeight: u.AnnotationsWeight,
+			WaitingWeight:     u.WaitingWeight,
+		}), nil
+	}
+	if len(parts) != 1 {
+		return unknown()
+	}
+	var ptr *float64
+	switch parts[0] {
+	case "priority_weight":
+		if u != nil {
+			ptr = u.PriorityWeight
+		}
+	case "due_weight":
+		if u != nil {
+			ptr = u.DueWeight
+		}
+	case "age_weight":
+		if u != nil {
+			ptr = u.AgeWeight
+		}
+	case "active_weight":
+		if u != nil {
+			ptr = u.ActiveWeight
+		}
+	case "blocking_weight":
+		if u != nil {
+			ptr = u.BlockingWeight
+		}
+	case "blocked_weight":
+		if u != nil {
+			ptr = u.BlockedWeight
+		}
+	case "tags_weight":
+		if u != nil {
+			ptr = u.TagsWeight
+		}
+	case "project_weight":
+		if u != nil {
+			ptr = u.ProjectWeight
+		}
+	case "annotations_weight":
+		if u != nil {
+			ptr = u.AnnotationsWeight
+		}
+	case "waiting_weight":
+		if u != nil {
+			ptr = u.WaitingWeight
+		}
+	default:
+		return unknown()
+	}
+	if ptr == nil {
+		return nil, nil
+	}
+	return *ptr, nil
+}
+
+func resolveWorkflowLeaf(w *domain.Workflow, parts []string, unknown func() (any, error)) (any, error) {
+	switch parts[0] {
+	case "statuses":
+		if len(parts) == 1 {
+			return workflowToConfigView(w).Statuses, nil
+		}
+		status, ok := w.Statuses[parts[1]]
+		if !ok {
+			return unknown()
+		}
+		if len(parts) == 2 {
+			return configWorkflowStatusView{Roles: rolesToStrings(status.Roles)}, nil
+		}
+		if len(parts) == 3 && parts[2] == "roles" {
+			return rolesToStrings(status.Roles), nil
+		}
+		return unknown()
+	case "transitions":
+		if len(parts) != 1 {
+			return unknown()
+		}
+		return workflowToConfigView(w).Transitions, nil
+	}
+	return unknown()
 }
 
 // buildConfigViper creates a Viper instance mirroring the Load() setup for dot-path access.
@@ -355,6 +706,13 @@ func (a *App) runConfigEdit(cmd *cobra.Command, args []string) error {
 func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
+
+	if strings.HasPrefix(key, "projects.") {
+		return fmt.Errorf("projects.* is managed by the database — use `tusk project modify` instead")
+	}
+	if strings.HasPrefix(key, "workflows.") {
+		return fmt.Errorf("workflows.* is managed by the database — use `tusk workflow modify` instead")
+	}
 
 	if !config.IsValidKey(key) {
 		return fmt.Errorf("unknown config key: %q", key)

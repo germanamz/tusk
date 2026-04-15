@@ -47,6 +47,12 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 	if strings.HasPrefix(key, "storage.") {
 		return mcp.NewToolResultError("refusing to modify storage.* keys via MCP; change the config file directly and restart the server"), nil
 	}
+	if strings.HasPrefix(key, "projects.") {
+		return mcp.NewToolResultError("projects.* is managed by the database — use `tusk project modify` instead"), nil
+	}
+	if strings.HasPrefix(key, "workflows.") {
+		return mcp.NewToolResultError("workflows.* is managed by the database — use `tusk workflow modify` instead"), nil
+	}
 	if !config.IsValidKey(key) {
 		return mcp.NewToolResultError(fmt.Sprintf("unknown config key: %q", key)), nil
 	}

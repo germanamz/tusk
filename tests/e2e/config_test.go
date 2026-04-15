@@ -322,15 +322,27 @@ func TestCLI_ConfigSet(t *testing.T) {
 		}
 	})
 
-	t.Run("reject_invalid_config", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "set", "projects.default.workflow", "nonexistent_workflow")
+	t.Run("reject_projects_write", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "set", "projects.default.workflow", "kanban")
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err == nil {
-			t.Fatal("expected error for invalid config")
+			t.Fatal("expected error for projects.* write")
 		}
-		if !strings.Contains(string(out), "unknown workflow") {
-			t.Errorf("expected workflow validation error, got: %s", out)
+		if !strings.Contains(string(out), "projects.* is managed by the database") {
+			t.Errorf("expected projects.* rejection, got: %s", out)
+		}
+	})
+
+	t.Run("reject_workflows_write", func(t *testing.T) {
+		cmd := exec.Command(binPath, "config", "set", "workflows.kanban.statuses.pending.roles", "initial")
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatal("expected error for workflows.* write")
+		}
+		if !strings.Contains(string(out), "workflows.* is managed by the database") {
+			t.Errorf("expected workflows.* rejection, got: %s", out)
 		}
 	})
 
