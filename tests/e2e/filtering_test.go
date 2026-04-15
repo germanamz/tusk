@@ -332,8 +332,8 @@ func TestFiltering(t *testing.T) {
 		{
 			Name: "filter_by_description",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Task A", "--description", "handles authentication"}},
-				{Args: []string{"task", "create", "Task B", "--description", "handles logging"}},
+				{Args: []string{"task", "create", "Task A", `description="handles authentication"`}},
+				{Args: []string{"task", "create", "Task B", `description="handles logging"`}},
 				{
 					Args: []string{"task", "list", `description="authentication"`, "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {

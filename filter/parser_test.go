@@ -358,9 +358,20 @@ func TestParse_TitleFieldEmpty(t *testing.T) {
 }
 
 func TestParse_DescriptionFieldEmpty(t *testing.T) {
-	_, errs := Parse("description=")
-	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for empty description, got %d: %v", len(errs), errs)
+	// `description=` is accepted by the parser — an empty value is the
+	// documented clear signal on `tusk task modify`. The runModify command
+	// interprets it as a double-pointer clear; runCreate treats it as a
+	// no-op (creating a task with an empty description).
+	fs, errs := Parse("description=")
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for empty description, got: %v", errs)
+	}
+	f, ok := fs.GetField("description")
+	if !ok {
+		t.Fatal("expected description field in result")
+	}
+	if f.Value != "" {
+		t.Fatalf("expected empty value, got %q", f.Value)
 	}
 }
 

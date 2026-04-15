@@ -280,7 +280,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "add_with_inline_description",
 			Steps: []Step{
 				{
-					Args: []string{"task", "create", "Described task", "--description", "This is the description"},
+					Args: []string{"task", "create", "Described task", `description="This is the description"`},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -310,7 +310,7 @@ func TestTaskLifecycle(t *testing.T) {
 					Args: []string{"task", "create", "No description yet"},
 				},
 				{
-					Args: []string{"task", "modify", "$0.short_id", "--description", "Added later"},
+					Args: []string{"task", "modify", "$0.short_id", `description="Added later"`},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -331,7 +331,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "modify_clear_description",
 			Steps: []Step{
 				{
-					Args: []string{"task", "create", "Has description", "--description", "Will be cleared"},
+					Args: []string{"task", "create", "Has description", `description="Will be cleared"`},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
@@ -342,7 +342,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"task", "modify", "$0.short_id", "--description", ""},
+					Args: []string{"task", "modify", "$0.short_id", `description=`},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -364,10 +364,12 @@ func TestTaskLifecycle(t *testing.T) {
 			},
 		},
 		{
-			Name: "add_with_file_description",
+			Name: "add_with_multiline_description",
 			Steps: []Step{
 				{
-					Args: []string{"task", "create", "Multi-line task", "--description", "Line one\nLine two\nLine three"},
+					Args: []string{"task", "create", "Multi-line task", `description="Line one
+Line two
+Line three"`},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)

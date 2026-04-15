@@ -149,6 +149,11 @@ func validateNonEmpty(v string) error {
 	return nil
 }
 
+// validateAny accepts any value, including empty. Used by fields where an
+// empty value has a defined meaning (e.g. `description=` clears the
+// description on `tusk task modify`).
+func validateAny(string) error { return nil }
+
 // ParsePriorityValue is the exported version of parsePriorityValue for use
 // by the TUI layer when creating tasks (not filtering).
 func ParsePriorityValue(s string) (int, error) {

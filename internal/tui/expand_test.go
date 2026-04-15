@@ -336,3 +336,29 @@ func TestExpandRefs_PlainText(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// TestExpandRefsWithState_StdinOnceAcrossCalls locks in the cross-call
+// stdin-once invariant used by runCreate/runModify when both `title=@-` and
+// `description=@-` appear in one invocation. Neither individual raw string
+// contains two `@-` tokens, but the shared state must still error on the
+// second call.
+func TestExpandRefsWithState_StdinOnceAcrossCalls(t *testing.T) {
+	r := stdinPipe(t, "X")
+	state := &expandState{}
+
+	first, err := expandRefsWithState("@-", r, testMaxSize, state)
+	if err != nil {
+		t.Fatalf("first call: unexpected error: %v", err)
+	}
+	if first != "X" {
+		t.Fatalf("first call: got %q, want %q", first, "X")
+	}
+
+	_, err = expandRefsWithState("@-", r, testMaxSize, state)
+	if err == nil {
+		t.Fatal("second call: expected stdin-once error")
+	}
+	if !strings.Contains(err.Error(), "stdin referenced more than once in one invocation") {
+		t.Fatalf("second call: got %v", err)
+	}
+}
