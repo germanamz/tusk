@@ -126,7 +126,9 @@ func New(
 	a.root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output")
 	a.root.PersistentFlags().StringVar(&a.playerID, "player", "", "player ID for claim/release operations")
 
+	a.root.AddCommand(a.buildTaskCmd())
 	a.root.AddCommand(a.buildTaskCmds()...)
+	a.registerMovedStubs()
 	a.root.AddCommand(a.buildProjectCmd())
 	a.root.AddCommand(a.buildTagCmd())
 	a.root.AddCommand(a.buildWorkflowCmd())

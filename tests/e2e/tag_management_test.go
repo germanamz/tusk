@@ -70,7 +70,7 @@ func TestTagManagement(t *testing.T) {
 			Name: "tag_list_with_usage",
 			Steps: []Step{
 				{Args: []string{"tag", "create", "tracked"}},
-				{Args: []string{"add", "Task one", "+tracked"}},
+				{Args: []string{"task", "create", "Task one", "+tracked"}},
 				{
 					Args: []string{"tag", "list", "--usage"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -255,7 +255,7 @@ func TestTagManagement(t *testing.T) {
 		{
 			Name: "tag_delete_in_use",
 			Steps: []Step{
-				{Args: []string{"add", "My task", "+busy"}},
+				{Args: []string{"task", "create", "My task", "+busy"}},
 				{
 					Args:    []string{"tag", "delete", "busy"},
 					WantErr: true,

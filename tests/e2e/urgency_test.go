@@ -10,14 +10,14 @@ func TestUrgencySorting(t *testing.T) {
 			Name: "list_sorted_by_urgency",
 			Steps: []Step{
 				// Create a low-priority task
-				{Args: []string{"add", "Low prio task", "priority=1"}},
+				{Args: []string{"task", "create", "Low prio task", "priority=1"}},
 				// Create a high-priority task
-				{Args: []string{"add", "High prio task", "priority=4"}},
+				{Args: []string{"task", "create", "High prio task", "priority=4"}},
 				// Create a medium-priority task
-				{Args: []string{"add", "Med prio task", "priority=2"}},
+				{Args: []string{"task", "create", "Med prio task", "priority=2"}},
 				// List — should be sorted: high, med, low
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -62,13 +62,13 @@ func TestUrgencySorting(t *testing.T) {
 			Name: "active_task_ranks_higher",
 			Steps: []Step{
 				// Create two equal-priority tasks
-				{Args: []string{"add", "Pending task", "priority=2"}},
-				{Args: []string{"add", "Active task", "priority=2"}},
+				{Args: []string{"task", "create", "Pending task", "priority=2"}},
+				{Args: []string{"task", "create", "Active task", "priority=2"}},
 				// Start the second task
 				{Args: []string{"start", "$1.short_id"}},
 				// List — active should rank higher
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -91,8 +91,8 @@ func TestTaskNext(t *testing.T) {
 		{
 			Name: "next_returns_highest_urgency",
 			Steps: []Step{
-				{Args: []string{"add", "Low prio", "priority=1"}},
-				{Args: []string{"add", "High prio", "priority=4"}},
+				{Args: []string{"task", "create", "Low prio", "priority=1"}},
+				{Args: []string{"task", "create", "High prio", "priority=4"}},
 				{
 					Args: []string{"next"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -110,7 +110,7 @@ func TestTaskNext(t *testing.T) {
 		{
 			Name: "next_no_actionable_tasks",
 			Steps: []Step{
-				{Args: []string{"add", "Task 1"}},
+				{Args: []string{"task", "create", "Task 1"}},
 				{Args: []string{"start", "$0.short_id"}},
 				{Args: []string{"done", "$0.short_id"}},
 				{

@@ -8,7 +8,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_single_task",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Buy milk", "priority=3"},
+					Args: []string{"task", "create", "Buy milk", "priority=3"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -33,7 +33,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_start_done",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Full lifecycle task"},
+					Args: []string{"task", "create", "Full lifecycle task"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
@@ -67,7 +67,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_delete",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Delete me"},
+					Args: []string{"task", "create", "Delete me"},
 				},
 				{
 					Args: []string{"delete", "$0.short_id"},
@@ -87,7 +87,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_start_back_to_pending",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Back and forth"},
+					Args: []string{"task", "create", "Back and forth"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
@@ -97,7 +97,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "status=pending"},
+					Args: []string{"task", "modify", "$0.short_id", "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -115,7 +115,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "completed_reopen",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Reopen me"},
+					Args: []string{"task", "create", "Reopen me"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
@@ -128,7 +128,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "status=pending"},
+					Args: []string{"task", "modify", "$0.short_id", "status=pending"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -147,7 +147,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Steps: []Step{
 				{
 					// default project is seeded by config
-					Args: []string{"add", "Project task", "project=default"},
+					Args: []string{"task", "create", "Project task", "project=default"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -161,16 +161,16 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_multiple_list_shows_all",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task one"},
+					Args: []string{"task", "create", "Task one"},
 				},
 				{
-					Args: []string{"add", "Task two"},
+					Args: []string{"task", "create", "Task two"},
 				},
 				{
-					Args: []string{"add", "Task three"},
+					Args: []string{"task", "create", "Task three"},
 				},
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -191,10 +191,10 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "info_shows_task_details",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Detail task", "priority=2"},
+					Args: []string{"task", "create", "Detail task", "priority=2"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -222,10 +222,10 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "modify_title_and_priority",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Original title", "priority=1"},
+					Args: []string{"task", "create", "Original title", "priority=1"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "New title", "priority=4"},
+					Args: []string{"task", "modify", "$0.short_id", "New title", "priority=4"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -240,7 +240,7 @@ func TestTaskLifecycle(t *testing.T) {
 				},
 				{
 					// Verify via info that the changes persisted
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -254,7 +254,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "create_task_has_empty_description",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task without description"},
+					Args: []string{"task", "create", "Task without description"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -262,7 +262,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -280,7 +280,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "add_with_inline_description",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Described task", "--description", "This is the description"},
+					Args: []string{"task", "create", "Described task", "--description", "This is the description"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -289,7 +289,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -307,10 +307,10 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "modify_set_description",
 			Steps: []Step{
 				{
-					Args: []string{"add", "No description yet"},
+					Args: []string{"task", "create", "No description yet"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "--description", "Added later"},
+					Args: []string{"task", "modify", "$0.short_id", "--description", "Added later"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -318,7 +318,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -331,10 +331,10 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "modify_clear_description",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Has description", "--description", "Will be cleared"},
+					Args: []string{"task", "create", "Has description", "--description", "Will be cleared"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -342,7 +342,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "--description", ""},
+					Args: []string{"task", "modify", "$0.short_id", "--description", ""},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -350,7 +350,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -367,7 +367,7 @@ func TestTaskLifecycle(t *testing.T) {
 			Name: "add_with_file_description",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Multi-line task", "--description", "Line one\nLine two\nLine three"},
+					Args: []string{"task", "create", "Multi-line task", "--description", "Line one\nLine two\nLine three"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -375,7 +375,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Description:")

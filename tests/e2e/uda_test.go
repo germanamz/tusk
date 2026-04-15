@@ -8,14 +8,14 @@ func TestUDA(t *testing.T) {
 			Name: "add_with_uda",
 			Steps: []Step{
 				{
-					Args: []string{"add", "UDA task", "--uda", "env=prod", "--uda", "team=backend"},
+					Args: []string{"task", "create", "UDA task", "--uda", "env=prod", "--uda", "team=backend"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Created task")
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "UDA:")
@@ -41,17 +41,17 @@ func TestUDA(t *testing.T) {
 			Name: "modify_merge_uda",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Merge test", "--uda", "env=dev"},
+					Args: []string{"task", "create", "Merge test", "--uda", "env=dev"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "--uda", "team=backend"},
+					Args: []string{"task", "modify", "$0.short_id", "--uda", "team=backend"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Modified task")
 					},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -73,13 +73,13 @@ func TestUDA(t *testing.T) {
 			Name: "modify_overwrite_uda",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Overwrite test", "--uda", "env=dev"},
+					Args: []string{"task", "create", "Overwrite test", "--uda", "env=dev"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "--uda", "env=prod"},
+					Args: []string{"task", "modify", "$0.short_id", "--uda", "env=prod"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -93,13 +93,13 @@ func TestUDA(t *testing.T) {
 			Name: "modify_clear_uda_key",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Clear test", "--uda", "env=prod", "--uda", "team=backend"},
+					Args: []string{"task", "create", "Clear test", "--uda", "env=prod", "--uda", "team=backend"},
 				},
 				{
-					Args: []string{"modify", "$0.short_id", "--uda", "env="},
+					Args: []string{"task", "modify", "$0.short_id", "--uda", "env="},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -121,10 +121,10 @@ func TestUDA(t *testing.T) {
 			Name: "uda_in_list_json",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Listed task", "--uda", "env=prod"},
+					Args: []string{"task", "create", "Listed task", "--uda", "env=prod"},
 				},
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -145,7 +145,7 @@ func TestUDA(t *testing.T) {
 			Name: "invalid_uda_format",
 			Steps: []Step{
 				{
-					Args:    []string{"add", "Bad UDA", "--uda", "noequals"},
+					Args:    []string{"task", "create", "Bad UDA", "--uda", "noequals"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -164,13 +164,13 @@ func TestUDAFilter(t *testing.T) {
 			Name: "filter_uda_match",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Prod task", "--uda", "env=prod"},
+					Args: []string{"task", "create", "Prod task", "--uda", "env=prod"},
 				},
 				{
-					Args: []string{"add", "Dev task", "--uda", "env=dev"},
+					Args: []string{"task", "create", "Dev task", "--uda", "env=dev"},
 				},
 				{
-					Args: []string{"list", "uda.env=prod"},
+					Args: []string{"task", "list", "uda.env=prod"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -191,13 +191,13 @@ func TestUDAFilter(t *testing.T) {
 			Name: "filter_uda_and",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Prod backend", "--uda", "env=prod", "--uda", "team=backend"},
+					Args: []string{"task", "create", "Prod backend", "--uda", "env=prod", "--uda", "team=backend"},
 				},
 				{
-					Args: []string{"add", "Prod frontend", "--uda", "env=prod", "--uda", "team=frontend"},
+					Args: []string{"task", "create", "Prod frontend", "--uda", "env=prod", "--uda", "team=frontend"},
 				},
 				{
-					Args: []string{"list", "uda.env=prod", "uda.team=backend"},
+					Args: []string{"task", "list", "uda.env=prod", "uda.team=backend"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -213,13 +213,13 @@ func TestUDAFilter(t *testing.T) {
 			Name: "filter_uda_absent",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Has env", "--uda", "env=prod"},
+					Args: []string{"task", "create", "Has env", "--uda", "env=prod"},
 				},
 				{
-					Args: []string{"add", "No env"},
+					Args: []string{"task", "create", "No env"},
 				},
 				{
-					Args: []string{"list", "uda.env="},
+					Args: []string{"task", "list", "uda.env="},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -240,10 +240,10 @@ func TestUDAFilter(t *testing.T) {
 			Name: "filter_uda_no_match",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Some task", "--uda", "env=prod"},
+					Args: []string{"task", "create", "Some task", "--uda", "env=prod"},
 				},
 				{
-					Args: []string{"list", "uda.env=staging"},
+					Args: []string{"task", "list", "uda.env=staging"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -258,10 +258,10 @@ func TestUDAFilter(t *testing.T) {
 			Name: "filter_uda_nonexistent_key",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Some task"},
+					Args: []string{"task", "create", "Some task"},
 				},
 				{
-					Args: []string{"list", "uda.nonexistent=value"},
+					Args: []string{"task", "list", "uda.nonexistent=value"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)

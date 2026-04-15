@@ -32,7 +32,7 @@ func TestCLI_WithConfigFile(t *testing.T) {
 	}
 
 	// Run tusk add (no --db flag, no TUSK_DB) with HOME overridden.
-	cmd := exec.Command(binPath, "add", "Config test task")
+	cmd := exec.Command(binPath, "task", "create", "Config test task")
 	cmd.Env = envWithHome(homeDir)
 
 	var stdout, stderr strings.Builder
@@ -451,7 +451,7 @@ func TestCLI_ExplicitConfigFlag(t *testing.T) {
 	// Use a fresh HOME so there is no fallback config to confuse the test.
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "--config", configFile, "add", "Explicit config task")
+	cmd := exec.Command(binPath, "--config", configFile, "task", "create", "Explicit config task")
 	cmd.Env = envWithHome(homeDir)
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -481,7 +481,7 @@ func TestCLI_TuskConfigEnv(t *testing.T) {
 
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "add", "Env config task")
+	cmd := exec.Command(binPath, "task", "create", "Env config task")
 	env := envWithHome(homeDir)
 	env = append(env, "TUSK_CONFIG="+configFile)
 	cmd.Env = env
@@ -516,7 +516,7 @@ func TestCLI_FlagBeatsEnv(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	cmd := exec.Command(binPath, "--config", flagFile, "add", "Precedence task")
+	cmd := exec.Command(binPath, "--config", flagFile, "task", "create", "Precedence task")
 	env := envWithHome(homeDir)
 	env = append(env, "TUSK_CONFIG="+envFile)
 	cmd.Env = env
@@ -542,7 +542,7 @@ func TestCLI_MissingExplicitConfigIsHardError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.toml")
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "--config", missing, "list")
+	cmd := exec.Command(binPath, "--config", missing, "task", "list")
 	cmd.Env = envWithHome(homeDir)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -694,7 +694,7 @@ func TestCLI_TuskEnvOverlaysExplicitConfig(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	cmd := exec.Command(binPath, "--config", configFile, "add", "Overlay task")
+	cmd := exec.Command(binPath, "--config", configFile, "task", "create", "Overlay task")
 	env := envWithHome(homeDir)
 	env = append(env, "TUSK_STORAGE_PATH="+envDB)
 	cmd.Env = env

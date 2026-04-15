@@ -11,11 +11,11 @@ func TestRelations(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create task A
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				// Step 1: Create task B
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				// Step 2: Link A blocks B
 				{
@@ -42,7 +42,7 @@ func TestRelations(t *testing.T) {
 				},
 				// Step 3: Info on task A should show the relation
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -69,7 +69,7 @@ func TestRelations(t *testing.T) {
 				},
 				// Step 5: Info on task A should show no relations
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertNotContains(t, output, "Relations:")
@@ -81,10 +81,10 @@ func TestRelations(t *testing.T) {
 			Name: "link_relates_to",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task X"},
+					Args: []string{"task", "create", "Task X"},
 				},
 				{
-					Args: []string{"add", "Task Y"},
+					Args: []string{"task", "create", "Task Y"},
 				},
 				{
 					Args: []string{"link", "$0.short_id", "relates_to", "$1.short_id"},
@@ -100,10 +100,10 @@ func TestRelations(t *testing.T) {
 			Name: "link_duplicates",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task P"},
+					Args: []string{"task", "create", "Task P"},
 				},
 				{
-					Args: []string{"add", "Task Q"},
+					Args: []string{"task", "create", "Task Q"},
 				},
 				{
 					Args: []string{"link", "$0.short_id", "duplicates", "$1.short_id"},
@@ -120,11 +120,11 @@ func TestRelations(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create task A
 				{
-					Args: []string{"add", "Blocker task"},
+					Args: []string{"task", "create", "Blocker task"},
 				},
 				// Step 1: Create task B
 				{
-					Args: []string{"add", "Blocked task"},
+					Args: []string{"task", "create", "Blocked task"},
 				},
 				// Step 2: A blocks B
 				{
@@ -132,7 +132,7 @@ func TestRelations(t *testing.T) {
 				},
 				// Step 3: Info on task B (the target) should show "blocked_by"
 				{
-					Args: []string{"info", "$1.short_id"},
+					Args: []string{"task", "get", "$1.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "blocked_by")
@@ -151,11 +151,11 @@ func TestRelationsCycleDetection(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create task A
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				// Step 1: Create task B
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				// Step 2: A blocks B — succeeds
 				{
@@ -177,15 +177,15 @@ func TestRelationsCycleDetection(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Task A
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				// Step 1: Task B
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				// Step 2: Task C
 				{
-					Args: []string{"add", "Task C"},
+					Args: []string{"task", "create", "Task C"},
 				},
 				// Step 3: A blocks B
 				{
@@ -210,13 +210,13 @@ func TestRelationsCycleDetection(t *testing.T) {
 			Name: "blocks_chain_no_cycle",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				{
-					Args: []string{"add", "Task C"},
+					Args: []string{"task", "create", "Task C"},
 				},
 				// A blocks B — ok
 				{
@@ -238,7 +238,7 @@ func TestRelationsErrors(t *testing.T) {
 			Name: "link_task_not_found",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Existing task"},
+					Args: []string{"task", "create", "Existing task"},
 				},
 				{
 					Args:    []string{"link", "$0.short_id", "blocks", "nonexist"},
@@ -254,10 +254,10 @@ func TestRelationsErrors(t *testing.T) {
 			Name: "link_duplicate",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				// First link — ok
 				{
@@ -278,10 +278,10 @@ func TestRelationsErrors(t *testing.T) {
 			Name: "link_invalid_type",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				{
 					Args:    []string{"link", "$0.short_id", "depends_on", "$1.short_id"},
@@ -297,10 +297,10 @@ func TestRelationsErrors(t *testing.T) {
 			Name: "unlink_not_found",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				{
 					Args:    []string{"unlink", "$0.short_id", "blocks", "$1.short_id"},

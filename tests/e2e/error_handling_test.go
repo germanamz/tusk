@@ -8,7 +8,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "info_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"info", "nonexist"},
+					Args:    []string{"task", "get", "nonexist"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -21,7 +21,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "modify_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"modify", "nonexist", "New title"},
+					Args:    []string{"task", "modify", "nonexist", "New title"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -73,7 +73,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "done_from_pending_invalid_transition",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Cannot skip to done"},
+					Args: []string{"task", "create", "Cannot skip to done"},
 				},
 				{
 					// pending -> completed is not an allowed transition
@@ -90,7 +90,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "add_no_args",
 			Steps: []Step{
 				{
-					Args:    []string{"add"},
+					Args:    []string{"task", "create"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -108,7 +108,7 @@ func TestErrorHandling(t *testing.T) {
 			Steps: []Step{
 				{
 					// Only key=value args, no free text for title
-					Args:    []string{"add", "priority=3"},
+					Args:    []string{"task", "create", "priority=3"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -134,7 +134,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "start_from_completed_invalid_transition",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Already active"},
+					Args: []string{"task", "create", "Already active"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
@@ -157,7 +157,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "add_invalid_project",
 			Steps: []Step{
 				{
-					Args:    []string{"add", "Bad project", "project=nonexistent_project"},
+					Args:    []string{"task", "create", "Bad project", "project=nonexistent_project"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -170,7 +170,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "invalid_filter_field",
 			Steps: []Step{
 				{
-					Args:    []string{"list", "badfield=value"},
+					Args:    []string{"task", "list", "badfield=value"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -183,7 +183,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "start_already_active_is_idempotent",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Will be active"},
+					Args: []string{"task", "create", "Will be active"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
@@ -209,7 +209,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "done_already_completed_is_idempotent",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Will be completed"},
+					Args: []string{"task", "create", "Will be completed"},
 				},
 				{
 					Args: []string{"start", "$0.short_id"},
@@ -237,7 +237,7 @@ func TestErrorHandling(t *testing.T) {
 			Name: "delete_already_deleted_is_idempotent",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Will be deleted"},
+					Args: []string{"task", "create", "Will be deleted"},
 				},
 				{
 					Args: []string{"delete", "$0.short_id"},

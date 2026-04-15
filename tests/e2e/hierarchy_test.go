@@ -11,11 +11,11 @@ func TestHierarchy(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create parent task
 				{
-					Args: []string{"add", "Parent task"},
+					Args: []string{"task", "create", "Parent task"},
 				},
 				// Step 1: Create child with parent reference
 				{
-					Args: []string{"add", "Child task", "parent=$0.short_id"},
+					Args: []string{"task", "create", "Child task", "parent=$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Created task")
@@ -23,7 +23,7 @@ func TestHierarchy(t *testing.T) {
 				},
 				// Step 2: Verify child's parent via info
 				{
-					Args: []string{"info", "$1.short_id"},
+					Args: []string{"task", "get", "$1.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -43,15 +43,15 @@ func TestHierarchy(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create task A
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				// Step 1: Create task B (no parent)
 				{
-					Args: []string{"add", "Task B"},
+					Args: []string{"task", "create", "Task B"},
 				},
 				// Step 2: Set B's parent to A
 				{
-					Args: []string{"modify", "$1.short_id", "parent=$0.short_id"},
+					Args: []string{"task", "modify", "$1.short_id", "parent=$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Modified task")
@@ -59,7 +59,7 @@ func TestHierarchy(t *testing.T) {
 				},
 				// Step 3: Verify B's parent is A
 				{
-					Args: []string{"info", "$1.short_id"},
+					Args: []string{"task", "get", "$1.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -79,15 +79,15 @@ func TestHierarchy(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create parent
 				{
-					Args: []string{"add", "The parent"},
+					Args: []string{"task", "create", "The parent"},
 				},
 				// Step 1: Create child with parent
 				{
-					Args: []string{"add", "The child", "parent=$0.short_id"},
+					Args: []string{"task", "create", "The child", "parent=$0.short_id"},
 				},
 				// Step 2: Clear child's parent
 				{
-					Args: []string{"modify", "$1.short_id", "parent="},
+					Args: []string{"task", "modify", "$1.short_id", "parent="},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Modified task")
@@ -95,7 +95,7 @@ func TestHierarchy(t *testing.T) {
 				},
 				// Step 3: Verify parent is cleared
 				{
-					Args: []string{"info", "$1.short_id"},
+					Args: []string{"task", "get", "$1.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -121,19 +121,19 @@ func TestTree(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create parent
 				{
-					Args: []string{"add", "Root task"},
+					Args: []string{"task", "create", "Root task"},
 				},
 				// Step 1: Create child 1
 				{
-					Args: []string{"add", "Child one", "parent=$0.short_id"},
+					Args: []string{"task", "create", "Child one", "parent=$0.short_id"},
 				},
 				// Step 2: Create child 2
 				{
-					Args: []string{"add", "Child two", "parent=$0.short_id"},
+					Args: []string{"task", "create", "Child two", "parent=$0.short_id"},
 				},
 				// Step 3: Run tree — should show all three
 				{
-					Args: []string{"tree"},
+					Args: []string{"task", "tree"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -160,23 +160,23 @@ func TestTree(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create root A
 				{
-					Args: []string{"add", "Root A"},
+					Args: []string{"task", "create", "Root A"},
 				},
 				// Step 1: Create child of A
 				{
-					Args: []string{"add", "Child of A", "parent=$0.short_id"},
+					Args: []string{"task", "create", "Child of A", "parent=$0.short_id"},
 				},
 				// Step 2: Create grandchild of A
 				{
-					Args: []string{"add", "Grandchild of A", "parent=$1.short_id"},
+					Args: []string{"task", "create", "Grandchild of A", "parent=$1.short_id"},
 				},
 				// Step 3: Create root B (separate tree)
 				{
-					Args: []string{"add", "Root B"},
+					Args: []string{"task", "create", "Root B"},
 				},
 				// Step 4: Run tree with root A — should show A's subtree only
 				{
-					Args: []string{"tree", "$0.short_id"},
+					Args: []string{"task", "tree", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -210,7 +210,7 @@ func TestTree(t *testing.T) {
 			Steps: []Step{
 				// No tasks created — text prints "No tasks." to stderr, json prints empty array
 				{
-					Args: []string{"tree"},
+					Args: []string{"task", "tree"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -232,7 +232,7 @@ func TestTree(t *testing.T) {
 			Name: "tree_subtree_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"tree", "nonexist"},
+					Args:    []string{"task", "tree", "nonexist"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -252,15 +252,15 @@ func TestHierarchyErrors(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create A
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				// Step 1: Create B with parent A
 				{
-					Args: []string{"add", "Task B", "parent=$0.short_id"},
+					Args: []string{"task", "create", "Task B", "parent=$0.short_id"},
 				},
 				// Step 2: Try to set A's parent to B — should fail (A->B->A cycle)
 				{
-					Args:    []string{"modify", "$0.short_id", "parent=$1.short_id"},
+					Args:    []string{"task", "modify", "$0.short_id", "parent=$1.short_id"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -274,19 +274,19 @@ func TestHierarchyErrors(t *testing.T) {
 			Steps: []Step{
 				// Step 0: Create A
 				{
-					Args: []string{"add", "Task A"},
+					Args: []string{"task", "create", "Task A"},
 				},
 				// Step 1: Create B with parent A
 				{
-					Args: []string{"add", "Task B", "parent=$0.short_id"},
+					Args: []string{"task", "create", "Task B", "parent=$0.short_id"},
 				},
 				// Step 2: Create C with parent B
 				{
-					Args: []string{"add", "Task C", "parent=$1.short_id"},
+					Args: []string{"task", "create", "Task C", "parent=$1.short_id"},
 				},
 				// Step 3: Try to set A's parent to C — should fail (A->B->C->A cycle)
 				{
-					Args:    []string{"modify", "$0.short_id", "parent=$2.short_id"},
+					Args:    []string{"task", "modify", "$0.short_id", "parent=$2.short_id"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -299,7 +299,7 @@ func TestHierarchyErrors(t *testing.T) {
 			Name: "parent_invalid_short_id",
 			Steps: []Step{
 				{
-					Args:    []string{"add", "Orphan task", "parent=nonexist"},
+					Args:    []string{"task", "create", "Orphan task", "parent=nonexist"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -312,7 +312,7 @@ func TestHierarchyErrors(t *testing.T) {
 			Name: "parent_not_found",
 			Steps: []Step{
 				{
-					Args:    []string{"add", "Orphan task", "parent=deadbeef"},
+					Args:    []string{"task", "create", "Orphan task", "parent=deadbeef"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()

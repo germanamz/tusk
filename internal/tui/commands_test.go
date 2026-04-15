@@ -105,7 +105,7 @@ func TestRunList_Empty(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list"})
+	app.root.SetArgs([]string{"task", "list"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestRunList_WithTasks(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list"})
+	app.root.SetArgs([]string{"task", "list"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestRunList_StatusFilter(t *testing.T) {
 	// Default list should NOT show completed tasks
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list"})
+	app.root.SetArgs([]string{"task", "list"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestRunList_StatusFilter(t *testing.T) {
 
 	// Explicit status filter should show it
 	buf.Reset()
-	app.root.SetArgs([]string{"list", "status=completed"})
+	app.root.SetArgs([]string{"task", "list", "status=completed"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list status=completed: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestRunList_JSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list", "--format", "json"})
+	app.root.SetArgs([]string{"task", "list", "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list --format json: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestRunInfo_HappyPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"info", task.ShortID})
+	app.root.SetArgs([]string{"task", "get", task.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("info: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestRunInfo_HappyPath(t *testing.T) {
 func TestRunInfo_NotFound(t *testing.T) {
 	app, _ := testApp(t)
 
-	app.root.SetArgs([]string{"info", "nonexist"})
+	app.root.SetArgs([]string{"task", "get", "nonexist"})
 	err := app.root.Execute()
 	if err == nil {
 		t.Fatal("expected error for nonexistent task")
@@ -242,7 +242,7 @@ func TestRunAdd_HappyPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "My", "new", "task"})
+	app.root.SetArgs([]string{"task", "create", "My", "new", "task"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestRunAdd_WithPriority(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "Priority", "task", "priority=high"})
+	app.root.SetArgs([]string{"task", "create", "Priority", "task", "priority=high"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestRunAdd_WithDueDate(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "Due", "task", "due=2026-04-10"})
+	app.root.SetArgs([]string{"task", "create", "Due", "task", "due=2026-04-10"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestRunAdd_WithParent(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "Child", "task", "parent=" + parent.ShortID})
+	app.root.SetArgs([]string{"task", "create", "Child", "task", "parent=" + parent.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestRunAdd_Tags(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "Tagged", "task", "+api"})
+	app.root.SetArgs([]string{"task", "create", "Tagged", "task", "+api"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add with tag: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestRunAdd_NoTitle(t *testing.T) {
 	app, _ := testApp(t)
 
 	// Only key=value args, no title words
-	app.root.SetArgs([]string{"add", "priority=3"})
+	app.root.SetArgs([]string{"task", "create", "priority=3"})
 	err := app.root.Execute()
 	if err == nil {
 		t.Fatal("expected error for missing title")
@@ -360,7 +360,7 @@ func TestRunAdd_JSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"add", "JSON", "task", "--format", "json"})
+	app.root.SetArgs([]string{"task", "create", "JSON", "task", "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("add --format json: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestRunInfo_JSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"info", task.ShortID, "--format", "json"})
+	app.root.SetArgs([]string{"task", "get", task.ShortID, "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("info --format json: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestRunModify_Title(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "Updated"})
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "Updated"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestRunModify_Priority(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "priority=urgent"})
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "priority=urgent"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestRunModify_Priority(t *testing.T) {
 func TestRunModify_NotFound(t *testing.T) {
 	app, _ := testApp(t)
 
-	app.root.SetArgs([]string{"modify", "nonexist", "Nope"})
+	app.root.SetArgs([]string{"task", "modify", "nonexist", "Nope"})
 	err := app.root.Execute()
 	if err == nil {
 		t.Fatal("expected error")
@@ -458,7 +458,7 @@ func TestRunModify_Tags(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "+api"})
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "+api"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify with tag: %v", err)
 	}
@@ -633,7 +633,7 @@ func TestRunModify_DueDate(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "due=2026-04-15"})
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "due=2026-04-15"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify due= %v", err)
 	}
@@ -657,7 +657,7 @@ func TestRunModify_ClearDueDate(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "due="})
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "due="})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify due clear: %v", err)
 	}
@@ -679,7 +679,7 @@ func TestRunModify_Parent(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", child.ShortID, "parent=" + parent.ShortID})
+	app.root.SetArgs([]string{"task", "modify", child.ShortID, "parent=" + parent.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify parent= %v", err)
 	}
@@ -701,7 +701,7 @@ func TestRunModify_ClearParent(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", child.ShortID, "parent="})
+	app.root.SetArgs([]string{"task", "modify", child.ShortID, "parent="})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify clear parent= %v", err)
 	}
@@ -721,7 +721,7 @@ func TestRunModify_Project(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"modify", task.ShortID, "project=default"})
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "project=default"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("modify project: %v", err)
 	}
@@ -745,7 +745,7 @@ func TestRunList_ParentFilter(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list", "parent=" + parent.ShortID})
+	app.root.SetArgs([]string{"task", "list", "parent=" + parent.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list parent= %v", err)
 	}
@@ -772,7 +772,7 @@ func TestRunList_PriorityFilter(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"list", "priority=3..4"})
+	app.root.SetArgs([]string{"task", "list", "priority=3..4"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("list priority: %v", err)
 	}
@@ -798,7 +798,7 @@ func TestRunInfo_ShowsProjectName(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"info", task.ShortID})
+	app.root.SetArgs([]string{"task", "get", task.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("info: %v", err)
 	}
@@ -819,7 +819,7 @@ func TestRunInfo_JSON_IncludesAnnotations(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"info", task.ShortID, "--format", "json"})
+	app.root.SetArgs([]string{"task", "get", task.ShortID, "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("info json: %v", err)
 	}
@@ -1014,7 +1014,7 @@ func TestRunInfo_ShowsRelations(t *testing.T) {
 	// Info on source should show "blocks"
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"info", src.ShortID})
+	app.root.SetArgs([]string{"task", "get", src.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("info source: %v", err)
 	}
@@ -1036,7 +1036,7 @@ func TestRunInfo_ShowsRelations(t *testing.T) {
 
 	// Info on target should show "blocked_by"
 	buf.Reset()
-	app.root.SetArgs([]string{"info", tgt.ShortID})
+	app.root.SetArgs([]string{"task", "get", tgt.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("info target: %v", err)
 	}
@@ -1068,7 +1068,7 @@ func TestRunInfo_JSON_IncludesRelations(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"info", src.ShortID, "--format", "json"})
+	app.root.SetArgs([]string{"task", "get", src.ShortID, "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("info json: %v", err)
 	}
@@ -1097,7 +1097,7 @@ func TestRunTree_Empty(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	app.root.SetOut(&stdout)
 	app.root.SetErr(&stderr)
-	app.root.SetArgs([]string{"tree"})
+	app.root.SetArgs([]string{"task", "tree"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("tree: %v", err)
 	}
@@ -1124,7 +1124,7 @@ func TestRunTree_WithHierarchy(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"tree"})
+	app.root.SetArgs([]string{"task", "tree"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("tree: %v", err)
 	}
@@ -1158,7 +1158,7 @@ func TestRunTree_Subtree(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"tree", rootA.ShortID})
+	app.root.SetArgs([]string{"task", "tree", rootA.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("tree subtree: %v", err)
 	}
@@ -1191,7 +1191,7 @@ func TestRunTree_JSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"tree"})
+	app.root.SetArgs([]string{"task", "tree"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("tree: %v", err)
 	}
@@ -1245,7 +1245,7 @@ func TestRunTree_AllFlag(t *testing.T) {
 	// Without --all, deleted task should not appear
 	var buf1 bytes.Buffer
 	app.root.SetOut(&buf1)
-	app.root.SetArgs([]string{"tree"})
+	app.root.SetArgs([]string{"task", "tree"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("tree: %v", err)
 	}
@@ -1256,7 +1256,7 @@ func TestRunTree_AllFlag(t *testing.T) {
 	// With --all, deleted task should appear
 	var buf2 bytes.Buffer
 	app.root.SetOut(&buf2)
-	app.root.SetArgs([]string{"tree", "--all"})
+	app.root.SetArgs([]string{"task", "tree", "--all"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("tree --all: %v", err)
 	}

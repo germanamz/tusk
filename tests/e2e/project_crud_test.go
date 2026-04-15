@@ -93,7 +93,7 @@ func TestProjectDeleteRejectsWhenReferenced(t *testing.T) {
 				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
 			}
 
-			r = env.Run("add", "task in backend", "project=backend")
+			r = env.Run("task", "create", "task in backend", "project=backend")
 			if r.Err != nil {
 				t.Fatalf("add task: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
 			}
@@ -123,7 +123,7 @@ func TestProjectDeleteForceWithRefs(t *testing.T) {
 				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
 			}
 
-			r = env.Run("add", "task in backend", "project=backend")
+			r = env.Run("task", "create", "task in backend", "project=backend")
 			if r.Err != nil {
 				t.Fatalf("add task: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
 			}

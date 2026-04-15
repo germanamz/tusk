@@ -8,10 +8,10 @@ func TestOutputFormat(t *testing.T) {
 			Name: "text_list_column_headers",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Header test"},
+					Args: []string{"task", "create", "Header test"},
 				},
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						// The header line should contain these column names
@@ -28,22 +28,22 @@ func TestOutputFormat(t *testing.T) {
 			Name: "text_priority_symbols",
 			Steps: []Step{
 				{
-					Args: []string{"add", "No priority"},
+					Args: []string{"task", "create", "No priority"},
 				},
 				{
-					Args: []string{"add", "Low pri task", "priority=1"},
+					Args: []string{"task", "create", "Low pri task", "priority=1"},
 				},
 				{
-					Args: []string{"add", "Med pri task", "priority=2"},
+					Args: []string{"task", "create", "Med pri task", "priority=2"},
 				},
 				{
-					Args: []string{"add", "High pri task", "priority=3"},
+					Args: []string{"task", "create", "High pri task", "priority=3"},
 				},
 				{
-					Args: []string{"add", "Urgent pri task", "priority=4"},
+					Args: []string{"task", "create", "Urgent pri task", "priority=4"},
 				},
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						// Check that priority symbols appear in the output.
@@ -60,10 +60,10 @@ func TestOutputFormat(t *testing.T) {
 			Name: "json_list_returns_array",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Array item"},
+					Args: []string{"task", "create", "Array item"},
 				},
 				{
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						// parsed should be a []any (JSON array), not a map
@@ -79,7 +79,7 @@ func TestOutputFormat(t *testing.T) {
 			Name: "json_snake_case_keys",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Key check", "priority=2"},
+					Args: []string{"task", "create", "Key check", "priority=2"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -102,10 +102,10 @@ func TestOutputFormat(t *testing.T) {
 			Name: "json_info_has_all_fields",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Info fields check", "priority=3"},
+					Args: []string{"task", "create", "Info fields check", "priority=3"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -132,7 +132,7 @@ func TestOutputFormat(t *testing.T) {
 			Steps: []Step{
 				{
 					// Fresh DB — no tasks
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						if output != "" {
@@ -147,7 +147,7 @@ func TestOutputFormat(t *testing.T) {
 			Steps: []Step{
 				{
 					// Fresh DB — no tasks
-					Args: []string{"list"},
+					Args: []string{"task", "list"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						arr := jsonArray(t, parsed)
@@ -162,10 +162,10 @@ func TestOutputFormat(t *testing.T) {
 			Name: "text_info_priority_names",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Low check", "priority=1"},
+					Args: []string{"task", "create", "Low check", "priority=1"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						// Info view shows full priority name, not symbol
@@ -178,10 +178,10 @@ func TestOutputFormat(t *testing.T) {
 			Name: "text_info_shows_version",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Version check"},
+					Args: []string{"task", "create", "Version check"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Version:")
@@ -194,10 +194,10 @@ func TestOutputFormat(t *testing.T) {
 			Name: "text_info_shows_timestamps",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Timestamp check"},
+					Args: []string{"task", "create", "Timestamp check"},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					AssertText: func(t *testing.T, output string) {
 						t.Helper()
 						assertContains(t, output, "Created:")
@@ -217,10 +217,10 @@ func TestMarkdownDescriptionInInfo(t *testing.T) {
 			Name: "info_renders_description",
 			Steps: []Step{
 				{
-					Args: []string{"add", "Markdown test", "--description", "# Heading\n\nSome **bold** text."},
+					Args: []string{"task", "create", "Markdown test", "--description", "# Heading\n\nSome **bold** text."},
 				},
 				{
-					Args: []string{"info", "$0.short_id"},
+					Args: []string{"task", "get", "$0.short_id"},
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
 						assertContains(t, r.Stdout, "Heading")
