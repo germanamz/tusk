@@ -329,7 +329,9 @@ When no status filter is specified, tusk defaults to `status=pending,active`.
 
 ### Inline Syntax
 
-Tusk uses a shared inline syntax across all commands — filters, task creation, modification, and config management. The syntax is built on a common lexer that understands three primitives:
+Tusk uses a shared inline syntax across all commands — filters, task creation, modification, and config management. Entity properties flow through this syntax, never through ad-hoc command-line flags: `priority=3`, `project=backend`, `due=today`, `+tag`, `parent=a3f8b2c1`, `uda.env=prod`, and `description=@./spec.md` are all the same shape on both `tusk task create` and `tusk task modify`. There is exactly one way to set a field on a task, and the lexer/AST owns every entity-shaped input; command-line flags are reserved for invocation-level concerns that aren't entity properties (actor identity, output format, config scoping).
+
+The syntax is built on a common lexer that understands three primitives:
 
 - **Fields** — `key=value` pairs. The `=` separates key from value.
 - **Modifiers** — first-class primitives attached as token metadata, not hardcoded behaviors. The lexer recognizes two modifier positions — **token prefix** (attaches to the whole `key=value` or tag token) and **value prefix** (attaches to the value half of a `key=value` pair). Both share the same neutral-marker philosophy: the lexer lifts registered prefixes into the AST, attaches no meaning, and lets each consumer command interpret them.

@@ -742,6 +742,8 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 **Goal:** Regroup the CLI under explicit subcommand namespaces so the surface scales cleanly as the system grows. Early-stage Tusk shipped flat commands (`tusk add`, `tusk start`, `tusk done`); with projects, workflows, players, tags, config, notes, and dashboard all competing for top-level slots, the flat layout is noisy and ambiguous. This milestone moves every task-scoped verb under `tusk task` and leaves only workspace-wide operations at the top level. Pre-release, so no backward-compat aliases — clean break.
 
+Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting toward since v0.9: **entity properties flow through the inline `key=value` lexer, not ad-hoc Cobra flags.** `priority=3`, `project=backend`, `due=today`, `+tag`, `parent=a3f8b2c1`, `uda.env=prod` — every property that describes *what the task is* goes through the shared syntax pipeline, so the lexer/AST owns every entity-shaped input and there is exactly one way to set a field on a task. Cobra flags stay reserved for invocation-level concerns that aren't entity properties: actor identity (`--player`), view toggles (`--all`, `--output`), config scoping (`--config`, `--db`, `--global`). This avoids Cobra-custom flag surfaces overlapping the lexer, keeps the CLI and MCP field sets aligned (MCP already accepts entity properties as structured JSON, never as flags), and means every new field added to a task is one entry in the field registry instead of a new flag on every consumer command. The two remaining flag-based task entity properties — `--description` and `--uda` — are eliminated in their own initiatives below.
+
 ### Initiative: `tusk task` Subcommand Group
 
 > Move every task-scoped command under a single `tusk task` parent. Verbs, flags, inline syntax, and output are unchanged — only the invocation path moves. Pre-release, so no backward-compat aliases — removed commands stay removed.
@@ -788,7 +790,7 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 
 ### Initiative: String Field Input Unification
 
-> Free-form string fields currently mix two conventions: `description` is a Cobra flag (`--description`/`-d`) with `@file` / `@-` expansion, while `title` and every other field use inline `key=value` syntax. This initiative collapses the two so every string field follows the same convention, and it promotes `@` to a first-class **value-position modifier** in the lexer — joining the v0.9 token-prefix modifiers (`+`, `-`, `..`, `,`, `:`, `()`) as a neutral, extensible marker. The lexer strips and records the marker; consumers still own I/O. Runs after the `tusk task` grouping initiative so it acts on the already-renamed commands once, not twice.
+> Executes the milestone-wide inline-field principle for free-form string fields. The `description` field lives outside the lexer today — it's a Cobra flag (`--description`/`-d`) with bespoke `@file` / `@-` expansion, while `title` and every other field already flow through inline `key=value` syntax. This initiative moves `description` onto the inline surface alongside `title`, annotation bodies, and any future string field, and it promotes `@` to a first-class **value-position modifier** in the lexer — joining the v0.9 token-prefix modifiers (`+`, `-`, `..`, `,`, `:`, `()`) as a neutral, extensible marker — so the `@file` / `@-` expansion is a property of the lexer and consumer I/O layer rather than of any one command's flag. The lexer strips and records the marker; consumers still own I/O. Runs after the `tusk task` grouping initiative so it acts on the already-renamed commands once, not twice, and before the UDA flag elimination initiative so both flag-removal stories share the same rewired command surface.
 
 - [ ] **Story: Value-position modifiers in the lexer**
   - [ ] Extend the v0.9 modifier registry to include **value-prefix** modifiers alongside the existing token-prefix modifiers. Both categories share the same "neutral marker, consumer interprets" philosophy.
@@ -823,6 +825,27 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
   - [ ] Tool schemas stay unchanged; only the CLI surface moves
   - [ ] Runs last in the initiative as a verification pass: confirms no MCP tool accidentally grew a `@` interpretation while the CLI was being rewired
 
+### Initiative: UDA Flag Elimination
+
+> User-defined attributes are currently set via `--uda key=value` (repeatable) on `tusk task create` and `tusk task modify`, while every other entity property on those same commands is inline. This initiative drops `--uda` in favor of dotted inline fields (`uda.key=value`) so UDAs obey the milestone-wide principle and match the filter syntax already documented in `PRODUCT.md` (`uda.env=prod` works identically in filters, create, and modify). No lexer change is required — dotted keys already flow through the v0.9 key tokenizer — so this initiative is pure consumer rewiring on top of the String Field Input Unification work.
+
+- [ ] **Story: Dotted UDA field recognition in task commands**
+  - [ ] `runAdd` and `runModify` iterate the parsed field list and treat every field whose key has a `uda.` prefix as a UDA entry, with the tail after the prefix as the UDA key
+  - [ ] `uda.key=value` sets the attribute; `uda.key=` (empty value) clears it on modify, matching the double-pointer `**string` update path already used for nullable fields
+  - [ ] Repetition works naturally — the parser already allows multiple fields, so `uda.env=prod uda.region=eu` sets two attributes in one invocation without any array-of-flags plumbing
+  - [ ] Dotted keys coexist with the reserved top-level keys (`title`, `priority`, `project`, `parent`, `due`, `status`, `description`, `tree`) — a `uda.` prefix is the only disambiguator, and a bare `env=prod` is still rejected as an unknown top-level field so typos surface loudly instead of silently becoming UDAs
+
+- [ ] **Story: Drop `--uda` / `-u` flag**
+  - [ ] Remove `--uda` / `-u` from `tusk task create` and `tusk task modify` in `internal/tui/commands.go`
+  - [ ] Delete the `parseUDAFlags` helper and its tests once every caller has moved to the inline path
+  - [ ] Cobra emits its standard "unknown flag" error for stale `--uda` invocations — no targeted suggestion shim, since the inline syntax is documented in both help text and the dotted-field error path
+  - [ ] Runs second so the inline recognizer is proven before the old flag disappears
+
+- [ ] **Story: MCP parity check for UDAs**
+  - [ ] MCP task tools already accept UDAs as a structured `uda` object in the tool schema — no dotted-key translation needed on that surface
+  - [ ] Tool schemas stay unchanged; verification pass confirms no MCP handler accidentally grew a `uda.`-prefix parser while the CLI was being rewired
+  - [ ] Runs last as a symmetric verification to the String Field Input Unification initiative's MCP check
+
 ### Initiative: Documentation and Test Rewrite
 
 > Every doc example, help string, and E2E scenario references the old flat commands. All need to move in lockstep with the CLI change, or the release ships with broken examples. Runs last in the milestone — the command surface and field conventions must be final before the surrounding material is rewritten.
@@ -835,13 +858,15 @@ Deliver a concurrent-safe, single-binary task management tool that combines CLI 
 - [ ] **Story: Documentation sweep**
   - [ ] `README.md`, `PRODUCT.md`, `docs/configuration.md`, `docs/programmatic-usage.md`, and every file under `docs/releases/` and `docs/status/` updated to the new command syntax
   - [ ] Historical release notes (v0.1 through v0.10) are left untouched — they describe what shipped at the time and should not be rewritten
-  - [ ] v0.11 release notes call out the full mapping table as a breaking change, including the `--description` flag removal and the `@file` / `@-` convention on inline fields
+  - [ ] v0.11 release notes call out the full mapping table as a breaking change, the inline-field principle, the `--description` and `--uda` flag removals, the `@file` / `@-` convention on inline string fields, and the dotted `uda.key=value` convention on create/modify
+  - [ ] PRODUCT.md's "Inline Syntax" and CLI sections explicitly state the principle so agents and humans reading the product description see the one-way-to-set-a-field rule alongside the lexer description
 
 - [ ] **Story: E2E test rewrite**
   - [ ] Every scenario in `tests/e2e/` updated to the new invocation paths and inline field conventions
   - [ ] Harness step builders (if any hardcode command names) updated
   - [ ] New scenarios covering the "unknown command" suggestion path for each removed flat verb, to lock in the hint table
   - [ ] New scenarios covering `description=@file`, `description=@-`, and `title=@file` to lock in the file-loading helper behavior
+  - [ ] New scenarios covering `uda.key=value` on create, repeated `uda.*` fields in a single invocation, `uda.key=` clearing on modify, and the unknown-top-level-field rejection path for bare `key=value` that isn't a registered field
   - [ ] Runs last in the milestone — a green test suite on the new surface is the exit gate for v0.11
 
 ---
