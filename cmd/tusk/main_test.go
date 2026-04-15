@@ -52,3 +52,35 @@ func TestStripConfigFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestIsCompletionInvocation(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want bool
+	}{
+		{name: "empty", in: []string{}, want: false},
+		{name: "bare completion", in: []string{"completion"}, want: true},
+		{name: "completion bash", in: []string{"completion", "bash"}, want: true},
+		{name: "hidden rpc", in: []string{"__complete", "task", ""}, want: true},
+		{name: "config space before completion", in: []string{"--config", "/tmp/x", "completion", "zsh"}, want: true},
+		{name: "config equals before completion", in: []string{"--config=/tmp/x", "completion", "fish"}, want: true},
+		{name: "db space before completion", in: []string{"--db", "/tmp/y", "completion", "bash"}, want: true},
+		{name: "db equals before completion", in: []string{"--db=/tmp/y", "completion", "bash"}, want: true},
+		{name: "format before completion", in: []string{"--format", "json", "completion", "bash"}, want: true},
+		{name: "no-color before completion", in: []string{"--no-color", "completion", "bash"}, want: true},
+		{name: "player before completion", in: []string{"--player", "me", "completion", "bash"}, want: true},
+		{name: "task list", in: []string{"task", "list"}, want: false},
+		{name: "config before task list", in: []string{"--config", "/tmp/x", "task", "list"}, want: false},
+		{name: "version", in: []string{"version"}, want: false},
+		{name: "mcp serve", in: []string{"mcp", "serve"}, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isCompletionInvocation(tc.in); got != tc.want {
+				t.Fatalf("isCompletionInvocation(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
