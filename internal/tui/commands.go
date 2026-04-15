@@ -389,7 +389,7 @@ func (a *App) runNext(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading tags: %w", err)
 	}
 
-	// Fetch and resolve relations (same pattern as runInfo)
+	// Fetch and resolve relations (same pattern as runGet)
 	var resolved []resolvedRelation
 	if a.relationSvc != nil {
 		rels, relErr := a.relationSvc.GetByTask(ctx, task.ShortID)
