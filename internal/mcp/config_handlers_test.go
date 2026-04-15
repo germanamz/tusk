@@ -256,6 +256,64 @@ func TestHandleConfigSet_RejectsStorageKeys(t *testing.T) {
 	}
 }
 
+func TestHandleConfigSet_RejectsProjectsKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Arguments: map[string]any{
+				"key":   "projects.foo.workflow",
+				"value": "kanban",
+			},
+		},
+	}
+	res, err := srv.HandleConfigSetForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleConfigSetForTest: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected error result for projects.* key, got success")
+	}
+	text, _ := res.Content[0].(mcp.TextContent)
+	const want = "projects.* is managed by the database — use `tusk project modify` instead"
+	if text.Text != want {
+		t.Fatalf("unexpected error text:\n got: %q\nwant: %q", text.Text, want)
+	}
+}
+
+func TestHandleConfigSet_RejectsWorkflowsKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+
+	srv := newTestServer(t, path)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Arguments: map[string]any{
+				"key":   "workflows.kanban.statuses.pending.roles",
+				"value": "initial",
+			},
+		},
+	}
+	res, err := srv.HandleConfigSetForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleConfigSetForTest: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected error result for workflows.* key, got success")
+	}
+	text, _ := res.Content[0].(mcp.TextContent)
+	const want = "workflows.* is managed by the database — use `tusk workflow modify` instead"
+	if text.Text != want {
+		t.Fatalf("unexpected error text:\n got: %q\nwant: %q", text.Text, want)
+	}
+}
+
 // TestHandleConfigSet_ConcurrentWritesAreSerialized launches many concurrent
 // tusk_config_set calls across two keys and verifies the resulting file still
 // parses cleanly and validates. Without the server-level config mutex, the
