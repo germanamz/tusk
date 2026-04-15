@@ -28,6 +28,7 @@ type Config struct {
 	Urgency UrgencyConfig `mapstructure:"urgency" toml:"urgency" json:"urgency"`
 	TUI     TUIConfig     `mapstructure:"tui"     toml:"tui"     json:"tui"`
 	MCP     MCPConfig     `mapstructure:"mcp"     toml:"mcp"     json:"mcp"`
+	Inline  InlineConfig  `mapstructure:"inline"  toml:"inline"  json:"inline"`
 
 	// Sources records where the effective config came from. Populated by Load.
 	// Skipped by both mapstructure and TOML encoding so it never appears in
@@ -67,6 +68,14 @@ type MCPConfig struct {
 	DisabledTools          []string `mapstructure:"disabled_tools"           toml:"disabled_tools"           json:"disabled_tools"`
 	DisabledResourceGroups []string `mapstructure:"disabled_resource_groups" toml:"disabled_resource_groups" json:"disabled_resource_groups"`
 	DisabledResources      []string `mapstructure:"disabled_resources"       toml:"disabled_resources"       json:"disabled_resources"`
+}
+
+// InlineConfig governs inline-reference expansion on string input fields
+// (descriptions, annotations). See docs/plans/v0.11-string-field-input-unification.
+type InlineConfig struct {
+	// MaxExpansionSize is the maximum byte size of a single @file expansion.
+	// Applied per reference, not per invocation.
+	MaxExpansionSize int64 `mapstructure:"max_expansion_size" toml:"max_expansion_size" json:"max_expansion_size"`
 }
 
 // TUIConfig controls CLI output formatting.
@@ -254,6 +263,9 @@ func resolveGlobalDir(searchPath string) string {
 // callers do not need to change and future globals validation has a
 // natural home.
 func (c *Config) Validate() error {
+	if c.Inline.MaxExpansionSize <= 0 {
+		return fmt.Errorf("inline.max_expansion_size must be > 0, got %d", c.Inline.MaxExpansionSize)
+	}
 	return nil
 }
 
