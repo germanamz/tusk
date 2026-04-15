@@ -782,11 +782,29 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
   - [x] `tusk unlink` → `tusk task unlink`
   - [x] MCP tools rename to match: `tusk_relation_add` → `tusk_task_link`, `tusk_relation_remove` → `tusk_task_unlink`. MCP and CLI surfaces stay in lockstep so agents and humans share the same mental model.
 
-- [ ] **Story: Removal and suggestions for moved commands**
+- [x] **Story: Removal and suggestions for moved commands**
   - [x] Old flat commands are deleted from the root — Cobra emits its standard "unknown command" error for each
   - [x] A custom `SuggestFor` / unknown-command handler prints a targeted hint for moved verbs so `tusk add foo` prints "unknown command 'add'; did you mean 'tusk task create'?" for every entry in the scope story's mapping table
-  - [ ] Shell completion regenerated for the new command tree — old completions are stale and ship with the release
   - [x] Runs last in this initiative so the hint table reflects the final set of moved commands
+
+### Initiative: `tusk completion` Subcommand
+
+> Add a `tusk completion` subcommand that emits shell completion scripts for bash, zsh, fish, and PowerShell. Without it, surface reorganizations like the `tusk task` grouping leave users with stale completions and no in-repo way to refresh them — the roadmap item "regenerate completions after the new command tree" has no mechanism to tick against. Cobra already ships a built-in completion generator; this initiative wires it into the root command tree and documents the install flow, so every future CLI surface change (v0.11 string-field unification, v0.11 UDA flag elimination, v0.12 notes window, and onward) can point users at a single refresh command instead of bespoke per-release completion scripts.
+
+- [ ] **Story: Wire Cobra's completion generator into the root command**
+  - [ ] Call `rootCmd.AddCommand(...)` with the `cobra.Command` returned by Cobra's built-in completion generator, using the standard four shells (`bash`, `zsh`, `fish`, `powershell`)
+  - [ ] `tusk completion bash`, `tusk completion zsh`, `tusk completion fish`, `tusk completion powershell` each emit a completion script to stdout for the current command tree
+  - [ ] The subcommand is visible in `tusk --help` alongside `tusk version`, `tusk mcp`, and the grouped entity commands
+  - [ ] No persistent flag parsing side effects — the completion command runs without touching the workspace database or config resolution
+
+- [ ] **Story: Document the install flow**
+  - [ ] Add a "Shell completion" section to `PRODUCT.md` under the CLI interface that shows the generate-and-install commands for each supported shell
+  - [ ] Add a matching section to `docs/configuration.md` (or a new `docs/shell-completion.md` if it grows past a few paragraphs) with per-shell install paths (`~/.bash_completion.d/`, `~/.zsh/completions/`, `~/.config/fish/completions/`, PowerShell profile)
+  - [ ] Call out in the section that completion scripts are generated on demand — there are no pre-baked completion artifacts in the repo or release tarballs, so users regenerate after every tusk upgrade
+
+- [ ] **Story: Completion tests**
+  - [ ] Add an e2e test that invokes `tusk completion bash`, `tusk completion zsh`, `tusk completion fish`, and `tusk completion powershell` and asserts non-empty stdout and exit code 0 — smoke-level, not script parsing
+  - [ ] Add a regression check that `tusk completion bash` output mentions every top-level subcommand currently registered on the root (`task`, `project`, `workflow`, `tag`, `player`, `config`, `mcp`, `completion`, `version`, and the workspace-wide verbs) — if a future refactor drops a command from the root, the test fails loudly
 
 ### Initiative: String Field Input Unification
 

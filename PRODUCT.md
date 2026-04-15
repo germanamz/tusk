@@ -233,9 +233,31 @@ tusk workflow info kanban
 tusk workflow create sprint status=pending(initial) status=active(start,highlight) status=done(terminal,done,dim) transition=pending:active,active:done
 tusk workflow modify sprint +status=in-review +transition=active:in-review
 tusk workflow delete sprint
+
+# Shell completion
+tusk completion bash        # emit bash completion script
+tusk completion zsh         # emit zsh completion script
+tusk completion fish        # emit fish completion script
+tusk completion powershell  # emit powershell completion script
 ```
 
 Output is available in human-readable text (with color, markdown rendering) and JSON (`--output json`) for scripting. Color respects `NO_COLOR` and `--no-color`.
+
+Shell completion scripts are generated on demand from the current command tree — tusk does not ship pre-baked completion artifacts. After every upgrade, regenerate and reinstall for your shell:
+
+```bash
+# bash — user scope
+tusk completion bash > ~/.local/share/bash-completion/completions/tusk
+
+# zsh — drop in any directory listed in $fpath
+tusk completion zsh > "${fpath[1]}/_tusk"
+
+# fish — user scope
+tusk completion fish > ~/.config/fish/completions/tusk.fish
+
+# powershell — append to your profile
+tusk completion powershell | Out-String | Invoke-Expression
+```
 
 ### Go Library
 
