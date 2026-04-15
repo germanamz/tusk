@@ -473,7 +473,7 @@ func TestRunStart_HappyPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"start", task.ShortID})
+	app.root.SetArgs([]string{"task", "start", task.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestRunStart_HappyPath(t *testing.T) {
 func TestRunStart_NotFound(t *testing.T) {
 	app, _ := testApp(t)
 
-	app.root.SetArgs([]string{"start", "nonexist"})
+	app.root.SetArgs([]string{"task", "start", "nonexist"})
 	err := app.root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected 'not found' error, got %v", err)
@@ -509,7 +509,7 @@ func TestRunDone_HappyPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"done", task.ShortID})
+	app.root.SetArgs([]string{"task", "done", task.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("done: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestRunDone_FromPending(t *testing.T) {
 	task := &domain.Task{Title: "Skip start"}
 	taskSvc.Create(ctx, task)
 
-	app.root.SetArgs([]string{"done", task.ShortID})
+	app.root.SetArgs([]string{"task", "done", task.ShortID})
 	err := app.root.Execute()
 	if err == nil {
 		t.Fatal("expected error for invalid transition")
@@ -548,7 +548,7 @@ func TestRunDelete_HappyPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"delete", task.ShortID})
+	app.root.SetArgs([]string{"task", "delete", task.ShortID})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -573,7 +573,7 @@ func TestRunAnnotate_HappyPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"annotate", task.ShortID, "This", "is", "a", "note"})
+	app.root.SetArgs([]string{"task", "annotate", task.ShortID, "This", "is", "a", "note"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("annotate: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestRunAnnotate_HappyPath(t *testing.T) {
 func TestRunAnnotate_NotFound(t *testing.T) {
 	app, _ := testApp(t)
 
-	app.root.SetArgs([]string{"annotate", "nonexist", "A", "note"})
+	app.root.SetArgs([]string{"task", "annotate", "nonexist", "A", "note"})
 	err := app.root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected 'not found' error, got %v", err)
@@ -611,7 +611,7 @@ func TestRunAnnotate_JSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
-	app.root.SetArgs([]string{"annotate", task.ShortID, "A", "note", "--format", "json"})
+	app.root.SetArgs([]string{"task", "annotate", task.ShortID, "A", "note", "--format", "json"})
 	if err := app.root.Execute(); err != nil {
 		t.Fatalf("annotate --format json: %v", err)
 	}

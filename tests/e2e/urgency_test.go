@@ -65,7 +65,7 @@ func TestUrgencySorting(t *testing.T) {
 				{Args: []string{"task", "create", "Pending task", "priority=2"}},
 				{Args: []string{"task", "create", "Active task", "priority=2"}},
 				// Start the second task
-				{Args: []string{"start", "$1.short_id"}},
+				{Args: []string{"task", "start", "$1.short_id"}},
 				// List — active should rank higher
 				{
 					Args: []string{"task", "list"},
@@ -94,7 +94,7 @@ func TestTaskNext(t *testing.T) {
 				{Args: []string{"task", "create", "Low prio", "priority=1"}},
 				{Args: []string{"task", "create", "High prio", "priority=4"}},
 				{
-					Args: []string{"next"},
+					Args: []string{"task", "next"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -111,10 +111,10 @@ func TestTaskNext(t *testing.T) {
 			Name: "next_no_actionable_tasks",
 			Steps: []Step{
 				{Args: []string{"task", "create", "Task 1"}},
-				{Args: []string{"start", "$0.short_id"}},
-				{Args: []string{"done", "$0.short_id"}},
+				{Args: []string{"task", "start", "$0.short_id"}},
+				{Args: []string{"task", "done", "$0.short_id"}},
 				{
-					Args:    []string{"next"},
+					Args:    []string{"task", "next"},
 					WantErr: true,
 				},
 			},

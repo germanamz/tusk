@@ -36,7 +36,7 @@ func TestTaskLifecycle(t *testing.T) {
 					Args: []string{"task", "create", "Full lifecycle task"},
 				},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -49,7 +49,7 @@ func TestTaskLifecycle(t *testing.T) {
 					},
 				},
 				{
-					Args: []string{"done", "$0.short_id"},
+					Args: []string{"task", "done", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -70,7 +70,7 @@ func TestTaskLifecycle(t *testing.T) {
 					Args: []string{"task", "create", "Delete me"},
 				},
 				{
-					Args: []string{"delete", "$0.short_id"},
+					Args: []string{"task", "delete", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -90,7 +90,7 @@ func TestTaskLifecycle(t *testing.T) {
 					Args: []string{"task", "create", "Back and forth"},
 				},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						assertEqual(t, parsed.(map[string]any)["status"], "active")
@@ -118,10 +118,10 @@ func TestTaskLifecycle(t *testing.T) {
 					Args: []string{"task", "create", "Reopen me"},
 				},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 				},
 				{
-					Args: []string{"done", "$0.short_id"},
+					Args: []string{"task", "done", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						assertEqual(t, parsed.(map[string]any)["status"], "completed")

@@ -121,7 +121,7 @@ func TestStartAutoClaim(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"task", "create", "Auto-claim task"}},
 				{
-					Args: []string{"start", "$0.short_id", "--player", "agent-auto"},
+					Args: []string{"task", "start", "$0.short_id", "--player", "agent-auto"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -136,7 +136,7 @@ func TestStartAutoClaim(t *testing.T) {
 			Steps: []Step{
 				{Args: []string{"task", "create", "No-claim task"}},
 				{
-					Args: []string{"start", "$0.short_id"},
+					Args: []string{"task", "start", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)
@@ -156,7 +156,7 @@ func TestStartAutoClaim(t *testing.T) {
 				{Args: []string{"task", "create", "Guarded task"}},
 				{Args: []string{"claim", "$2.short_id", "--player", "agent-1"}},
 				{
-					Args:    []string{"start", "$2.short_id", "--player", "agent-2"},
+					Args:    []string{"task", "start", "$2.short_id", "--player", "agent-2"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
@@ -201,9 +201,9 @@ func TestClaimPreservedAfterDone(t *testing.T) {
 			Name: "done_preserves_claim",
 			Steps: []Step{
 				{Args: []string{"task", "create", "Finish task"}},
-				{Args: []string{"start", "$0.short_id", "--player", "agent-done"}},
+				{Args: []string{"task", "start", "$0.short_id", "--player", "agent-done"}},
 				{
-					Args: []string{"done", "$0.short_id"},
+					Args: []string{"task", "done", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						m := parsed.(map[string]any)

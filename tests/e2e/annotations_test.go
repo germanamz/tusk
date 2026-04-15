@@ -11,7 +11,7 @@ func TestAnnotations(t *testing.T) {
 					Args: []string{"task", "create", "Annotate target"},
 				},
 				{
-					Args: []string{"annotate", "$0.short_id", "This is a note"},
+					Args: []string{"task", "annotate", "$0.short_id", "This is a note"},
 					AssertJSON: func(t *testing.T, parsed any) {
 						t.Helper()
 						// annotate returns the task object
@@ -56,13 +56,13 @@ func TestAnnotations(t *testing.T) {
 					Args: []string{"task", "create", "Multi note task"},
 				},
 				{
-					Args: []string{"annotate", "$0.short_id", "First note"},
+					Args: []string{"task", "annotate", "$0.short_id", "First note"},
 				},
 				{
-					Args: []string{"annotate", "$0.short_id", "Second note"},
+					Args: []string{"task", "annotate", "$0.short_id", "Second note"},
 				},
 				{
-					Args: []string{"annotate", "$0.short_id", "Third note"},
+					Args: []string{"task", "annotate", "$0.short_id", "Third note"},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
@@ -102,7 +102,7 @@ func TestAnnotations(t *testing.T) {
 			Name: "annotate_nonexistent_task",
 			Steps: []Step{
 				{
-					Args:    []string{"annotate", "nonexist", "A note"},
+					Args:    []string{"task", "annotate", "nonexist", "A note"},
 					WantErr: true,
 					Assert: func(t *testing.T, r Result) {
 						t.Helper()
