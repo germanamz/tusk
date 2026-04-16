@@ -31,7 +31,7 @@ Available versions:
 | `v0.2.0` | |
 | `v0.1.0` | Initial release. |
 
-The `Client` type (described in this guide) requires **v0.8.0 or later**. Earlier versions expose the same functionality through the building-block packages (`domain`, `service`, `repository`, `sqlite`, `inmem`, `filter`, `config`), but you must wire the dependencies yourself — see [Building-Block Packages](#building-block-packages).
+The `Client` type (described in this guide) requires **v0.8.0 or later**. Earlier versions expose the same functionality through the building-block packages (`domain`, `service`, `repository`, `sqlite`, `filter`, `config`), but you must wire the dependencies yourself — see [Building-Block Packages](#building-block-packages).
 
 ---
 
@@ -596,7 +596,7 @@ The `filter` package provides a 3-stage pipeline (Lex → Parse → Resolve) for
 ```go
 import "github.com/germanamz/tusk/filter"
 
-expr, parseErrors := filter.ParseExpr("status:active +urgent priority:3..4")
+expr, parseErrors := filter.ParseExpr("status=active +urgent priority=3..4")
 if len(parseErrors) > 0 {
     // Handle parse errors.
 }
@@ -609,20 +609,20 @@ resolved, err := filter.ResolveExpr(expr, taskLookupFunc)
 **Filter string syntax:**
 
 ```
-status:pending,active          # comma-separated statuses (OR)
-project:backend                # project ID
-priority:2                     # exact priority (or: low, medium, high, urgent)
-priority:1..3                  # priority range
-due:2026-04-10                 # exact due date
-due:today..friday              # relative date range
-parent:<short_id>              # direct children
-tree:<short_id>                # all descendants
-waiting:true                   # only waiting tasks
-title:foo                      # substring in title
-description:bar                # substring in description
-claimed_by:agent-1             # filter by player
-unclaimed:true                 # only unclaimed
-uda.custom_key:value           # UDA key-value match
+status=pending,active          # comma-separated statuses (OR)
+project=backend                # project name
+priority=2                     # exact priority (or: low, medium, high, urgent)
+priority=1..3                  # priority range
+due=2026-04-10                 # exact due date
+due=today..friday              # relative date range
+parent=<short_id>              # direct children
+tree=<short_id>                # all descendants
+waiting=true                   # only waiting tasks
+title="foo"                    # substring in title (quoted)
+description="bar"              # substring in description (quoted)
+claimed_by=agent-1             # filter by player
+unclaimed=true                 # only unclaimed
+uda.custom_key=value           # UDA key-value match
 +tagname                       # require tag
 -tagname                       # exclude tag
 AND, OR, NOT                   # boolean operators
@@ -783,9 +783,29 @@ type Player struct {
 
 ```go
 type Project struct {
-    ID       string          // Human-readable identifier.
-    Workflow string          // Name of the workflow this project uses.
-    Settings ProjectSettings // Automation and urgency overrides.
+    ID         uuid.UUID
+    Name       string
+    WorkflowID uuid.UUID
+    Settings   ProjectSettings
+    Version    int
+    CreatedAt  time.Time
+    UpdatedAt  time.Time
+}
+```
+
+`Name` is the human-readable identifier (previously `ID` in the config-driven era). `WorkflowID` references a `Workflow` row by UUID. `Version` is used for optimistic locking.
+
+### Workflow
+
+```go
+type Workflow struct {
+    ID          uuid.UUID
+    Name        string
+    Statuses    map[string]StatusConfig
+    Transitions []WorkflowTransition
+    Version     int
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
 }
 ```
 
@@ -801,7 +821,6 @@ For consumers who need full control, the individual packages are importable dire
 | `service`    | Business logic (validation, workflow enforcement, urgency scoring). |
 | `repository` | Go interfaces only — no implementation.                        |
 | `sqlite`     | SQLite implementations of repository interfaces.               |
-| `inmem`      | In-memory implementations for projects and workflows.          |
 | `filter`     | 3-stage filter parser: Lex → Parse → Resolve.                 |
 | `config`     | Global config types (`StorageConfig`, `UrgencyConfig`, `TUIConfig`, `MCPConfig`) and Viper-based loader. |
 | `migrations` | Embedded SQL migration files.                                  |
@@ -810,7 +829,6 @@ You can wire these yourself instead of using `Client`:
 
 ```go
 import (
-    "github.com/germanamz/tusk/inmem"
     "github.com/germanamz/tusk/migrations"
     "github.com/germanamz/tusk/service"
     "github.com/germanamz/tusk/sqlite"

@@ -276,15 +276,18 @@ client, err := tusk.NewClient(tusk.Config{
 })
 defer client.Close()
 
-task, _ := client.Tasks.Create(ctx, service.CreateTaskInput{
-    Title:   "Build the thing",
-    Project: "default",
-})
+task := &domain.Task{
+    Title:    "Build the thing",
+    Priority: 3,
+}
+if err := client.Tasks.Create(ctx, task); err != nil {
+    log.Fatal(err)
+}
 ```
 
 The `Client` exposes service instances as public fields (`Tasks`, `Tags`, `Relations`, `Projects`, `Workflows`, `Players`), so every operation available through CLI and MCP is available programmatically.
 
-For consumers who need full control, the building-block packages (`domain`, `service`, `repository`, `sqlite`, `inmem`, `filter`, `config`) are importable directly. Custom storage backends can implement the repository interfaces without using the `Client` at all.
+For consumers who need full control, the building-block packages (`domain`, `service`, `repository`, `sqlite`, `filter`, `config`) are importable directly. Custom storage backends can implement the repository interfaces without using the `Client` at all.
 
 Configuration is purely programmatic — no file loading, no environment variables. When config fields are omitted, the built-in kanban workflow and default project apply, same as a fresh CLI install.
 
