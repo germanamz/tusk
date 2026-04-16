@@ -2,6 +2,8 @@ package service_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +12,8 @@ import (
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
 )
+
+func ptrInt(v int) *int { return &v }
 
 func newPlayerTestEnv(t *testing.T) (*service.PlayerService, *sqlite.PlayerRepo) {
 	t.Helper()
@@ -104,6 +108,81 @@ func TestPlayerService_UpdateLastSeen(t *testing.T) {
 	updated, _ := svc.GetByID(ctx, "seen")
 	if !updated.LastSeenAt.After(original) {
 		t.Error("LastSeenAt should have been updated")
+	}
+}
+
+func TestPlayerSetNoteWindowSize_SetAndClear(t *testing.T) {
+	svc, _ := newPlayerTestEnv(t)
+	ctx := context.Background()
+
+	if _, err := svc.Register(ctx, "agent-1", "agent"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	updated, err := svc.SetNoteWindowSize(ctx, "agent-1", ptrInt(50))
+	if err != nil {
+		t.Fatalf("SetNoteWindowSize set: %v", err)
+	}
+	if updated.NoteWindowSize == nil || *updated.NoteWindowSize != 50 {
+		t.Fatalf("got NoteWindowSize %v, want 50", updated.NoteWindowSize)
+	}
+
+	reloaded, err := svc.GetByID(ctx, "agent-1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if reloaded.NoteWindowSize == nil || *reloaded.NoteWindowSize != 50 {
+		t.Fatalf("repo NoteWindowSize %v, want 50", reloaded.NoteWindowSize)
+	}
+
+	cleared, err := svc.SetNoteWindowSize(ctx, "agent-1", nil)
+	if err != nil {
+		t.Fatalf("SetNoteWindowSize clear: %v", err)
+	}
+	if cleared.NoteWindowSize != nil {
+		t.Fatalf("got NoteWindowSize %v, want nil", cleared.NoteWindowSize)
+	}
+}
+
+func TestPlayerSetNoteWindowSize_NotFound(t *testing.T) {
+	svc, _ := newPlayerTestEnv(t)
+	ctx := context.Background()
+
+	_, err := svc.SetNoteWindowSize(ctx, "ghost", ptrInt(10))
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+}
+
+func TestPlayerSetNoteWindowSize_EmptyID(t *testing.T) {
+	svc, _ := newPlayerTestEnv(t)
+	ctx := context.Background()
+
+	_, err := svc.SetNoteWindowSize(ctx, "", ptrInt(10))
+	if err == nil {
+		t.Fatal("expected error for empty ID")
+	}
+	if !strings.Contains(err.Error(), "must not be empty") {
+		t.Fatalf("got %q, want error containing 'must not be empty'", err.Error())
+	}
+}
+
+func TestPlayerSetNoteWindowSize_InvalidSize(t *testing.T) {
+	svc, _ := newPlayerTestEnv(t)
+	ctx := context.Background()
+
+	if _, err := svc.Register(ctx, "agent-1", "agent"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	for _, size := range []int{0, -3} {
+		_, err := svc.SetNoteWindowSize(ctx, "agent-1", ptrInt(size))
+		if err == nil {
+			t.Fatalf("size %d: expected error", size)
+		}
+		if !strings.Contains(err.Error(), "must be positive") {
+			t.Fatalf("size %d: got %q, want error containing 'must be positive'", size, err.Error())
+		}
 	}
 }
 

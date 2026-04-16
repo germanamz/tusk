@@ -56,3 +56,32 @@ func (s *PlayerService) UpdateLastSeen(ctx context.Context, id string) error {
 func (s *PlayerService) List(ctx context.Context) ([]*domain.Player, error) {
 	return s.repo.List(ctx)
 }
+
+// SetNoteWindowSize updates the caller-scoped note-window override on a
+// player. Passing a non-nil size persists that size as the override;
+// passing nil clears the override so the player falls back to project and
+// global defaults. Size must be positive when non-nil.
+//
+// Returns domain.ErrNotFound if no player matches.
+func (s *PlayerService) SetNoteWindowSize(ctx context.Context, id string, size *int) (*domain.Player, error) {
+	if id == "" {
+		return nil, fmt.Errorf("player ID must not be empty")
+	}
+	if size != nil && *size <= 0 {
+		return nil, fmt.Errorf("note window size must be positive, got %d", *size)
+	}
+
+	if _, err := s.repo.GetByID(ctx, id); err != nil {
+		return nil, fmt.Errorf("player %q: %w", id, err)
+	}
+
+	if err := s.repo.UpdateNoteWindowSize(ctx, id, size); err != nil {
+		return nil, fmt.Errorf("updating player %q note window size: %w", id, err)
+	}
+
+	updated, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("reloading player %q: %w", id, err)
+	}
+	return updated, nil
+}

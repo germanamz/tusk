@@ -837,18 +837,20 @@ func (r *Renderer) renderProjectMutation(action string, name string) error {
 
 // playerJSON is the JSON serialization format for a player.
 type playerJSON struct {
-	ID           string `json:"id"`
-	Type         string `json:"type"`
-	RegisteredAt string `json:"registered_at"`
-	LastSeenAt   string `json:"last_seen_at"`
+	ID             string `json:"id"`
+	Type           string `json:"type"`
+	NoteWindowSize *int   `json:"note_window_size,omitempty"`
+	RegisteredAt   string `json:"registered_at"`
+	LastSeenAt     string `json:"last_seen_at"`
 }
 
 func toPlayerJSON(p *domain.Player) playerJSON {
 	return playerJSON{
-		ID:           p.ID,
-		Type:         p.Type,
-		RegisteredAt: p.RegisteredAt.Format(time.RFC3339),
-		LastSeenAt:   p.LastSeenAt.Format(time.RFC3339),
+		ID:             p.ID,
+		Type:           p.Type,
+		NoteWindowSize: p.NoteWindowSize,
+		RegisteredAt:   p.RegisteredAt.Format(time.RFC3339),
+		LastSeenAt:     p.LastSeenAt.Format(time.RFC3339),
 	}
 }
 
@@ -860,5 +862,11 @@ func (r *Renderer) renderPlayerResult(action string, player *domain.Player) erro
 		return enc.Encode(toPlayerJSON(player))
 	}
 	_, err := fmt.Fprintf(r.w, "%s player %s (type: %s)\n", action, player.ID, player.Type)
+	if err != nil {
+		return err
+	}
+	if player.NoteWindowSize != nil {
+		_, err = fmt.Fprintf(r.w, "  note_window_size: %d\n", *player.NoteWindowSize)
+	}
 	return err
 }
