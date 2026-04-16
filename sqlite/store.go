@@ -87,6 +87,9 @@ func (t *Tx) Relations() *RelationRepo { return NewRelationRepo(t.tx) }
 // Annotations returns an AnnotationRepo operating within this transaction.
 func (t *Tx) Annotations() *AnnotationRepo { return NewAnnotationRepo(t.tx) }
 
+// Notes returns a NoteRepo operating within this transaction.
+func (t *Tx) Notes() *NoteRepo { return NewNoteRepo(t.tx) }
+
 // Tags returns a TagRepo operating within this transaction.
 func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
 
