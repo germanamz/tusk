@@ -850,22 +850,22 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > User-defined attributes are currently set via `--uda key=value` (repeatable) on `tusk task create` and `tusk task modify`, while every other entity property on those same commands is inline. This initiative drops `--uda` in favor of dotted inline fields (`uda.key=value`) so UDAs obey the milestone-wide principle and match the filter syntax already documented in `PRODUCT.md` (`uda.env=prod` works identically in filters, create, and modify). No lexer change is required — dotted keys already flow through the v0.9 key tokenizer — so this initiative is pure consumer rewiring on top of the String Field Input Unification work.
 
-- [ ] **Story: Dotted UDA field recognition in task commands**
-  - [ ] `runAdd` and `runModify` iterate the parsed field list and treat every field whose key has a `uda.` prefix as a UDA entry, with the tail after the prefix as the UDA key
-  - [ ] `uda.key=value` sets the attribute; `uda.key=` (empty value) clears it on modify, matching the double-pointer `**string` update path already used for nullable fields
-  - [ ] Repetition works naturally — the parser already allows multiple fields, so `uda.env=prod uda.region=eu` sets two attributes in one invocation without any array-of-flags plumbing
-  - [ ] Dotted keys coexist with the reserved top-level keys (`title`, `priority`, `project`, `parent`, `due`, `status`, `description`, `tree`) — a `uda.` prefix is the only disambiguator, and a bare `env=prod` is still rejected as an unknown top-level field so typos surface loudly instead of silently becoming UDAs
+- [x] **Story: Dotted UDA field recognition in task commands**
+  - [x] `runAdd` and `runModify` iterate the parsed field list and treat every field whose key has a `uda.` prefix as a UDA entry, with the tail after the prefix as the UDA key
+  - [x] `uda.key=value` sets the attribute; `uda.key=` (empty value) clears it on modify, matching the double-pointer `**string` update path already used for nullable fields
+  - [x] Repetition works naturally — the parser already allows multiple fields, so `uda.env=prod uda.region=eu` sets two attributes in one invocation without any array-of-flags plumbing
+  - [x] Dotted keys coexist with the reserved top-level keys (`title`, `priority`, `project`, `parent`, `due`, `status`, `description`, `tree`) — a `uda.` prefix is the only disambiguator, and a bare `env=prod` is still rejected as an unknown top-level field so typos surface loudly instead of silently becoming UDAs
 
-- [ ] **Story: Drop `--uda` / `-u` flag**
-  - [ ] Remove `--uda` / `-u` from `tusk task create` and `tusk task modify` in `internal/tui/commands.go`
-  - [ ] Delete the `parseUDAFlags` helper and its tests once every caller has moved to the inline path
-  - [ ] Cobra emits its standard "unknown flag" error for stale `--uda` invocations — no targeted suggestion shim, since the inline syntax is documented in both help text and the dotted-field error path
-  - [ ] Runs second so the inline recognizer is proven before the old flag disappears
+- [x] **Story: Drop `--uda` / `-u` flag**
+  - [x] Remove `--uda` / `-u` from `tusk task create` and `tusk task modify` in `internal/tui/commands.go`
+  - [x] Delete the `parseUDAFlags` helper and its tests once every caller has moved to the inline path
+  - [x] Cobra emits its standard "unknown flag" error for stale `--uda` invocations — no targeted suggestion shim, since the inline syntax is documented in both help text and the dotted-field error path
+  - [x] Runs second so the inline recognizer is proven before the old flag disappears
 
-- [ ] **Story: MCP parity check for UDAs**
-  - [ ] MCP task tools already accept UDAs as a structured `uda` object in the tool schema — no dotted-key translation needed on that surface
-  - [ ] Tool schemas stay unchanged; verification pass confirms no MCP handler accidentally grew a `uda.`-prefix parser while the CLI was being rewired
-  - [ ] Runs last as a symmetric verification to the String Field Input Unification initiative's MCP check
+- [x] **Story: MCP parity check for UDAs**
+  - [x] MCP task tools already accept UDAs as a structured `uda` object in the tool schema — no dotted-key translation needed on that surface
+  - [x] Tool schemas stay unchanged; verification pass confirms no MCP handler accidentally grew a `uda.`-prefix parser while the CLI was being rewired
+  - [x] Runs last as a symmetric verification to the String Field Input Unification initiative's MCP check
 
 ### Initiative: Documentation and Test Rewrite
 
