@@ -109,7 +109,7 @@ Timestamped, immutable notes attached to tasks. They serve as a running log of c
 
 A persistent notebook for players to record what they've learned, what worked, what didn't, and any context worth preserving. Unlike annotations (which are task-scoped and immutable), notes are player-scoped and support archiving.
 
-Notes can be attached to a specific task or exist at the project level as free-standing entries. Each note carries a markdown body and optional key-value metadata for structured tagging (e.g., `topic=auth`, `type=discovery`).
+Notes can be attached to a specific task or exist at the project level as free-standing entries. Each note carries a markdown body and optional key-value metadata for structured tagging (e.g., `meta.topic=auth`, `meta.type=discovery`). Metadata keys are namespaced under `meta.` — symmetric with task UDAs under `uda.` — so inline tokens like `project=` or `task=` remain unambiguous command arguments.
 
 To avoid context overload, tusk displays only a **trailing window** of recent notes — the N most recent entries. The window size is configurable at four levels: global config, per-project config, per-player (stored in the player's DB record), and CLI flag override. A `--since` filter provides optional time-bounded queries on top of the count-based window.
 
@@ -203,7 +203,7 @@ tusk tag create bug --color "#ff0000"
 
 # Notes
 tusk note add "caching strategy won't work" project=backend
-tusk note add "retry logic needed" --task a3f8b2c1 topic=auth
+tusk note add "retry logic needed" --task a3f8b2c1 meta.topic=auth
 tusk note list                             # own notes, trailing window
 tusk note list --all-players               # all players' notes
 tusk note list --player agent-1            # specific player
