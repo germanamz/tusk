@@ -871,24 +871,24 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > Every doc example, help string, and E2E scenario references the old flat commands. All need to move in lockstep with the CLI change, or the release ships with broken examples. Runs last in the milestone — the command surface and field conventions must be final before the surrounding material is rewritten.
 
-- [ ] **Story: Help text and command descriptions**
-  - [ ] Every moved subcommand's long help is reviewed and updated to remove self-references to the old flat path and to document the new inline field conventions (`description=`, `title=`, `@file`, `@-`)
-  - [ ] The `tusk task` parent command skeleton from the grouping initiative gets its full listing finalized here once every child command is in place
-  - [ ] Runs first in this initiative because help text is the source of truth that the documentation sweep quotes from
+- [x] **Story: Help text and command descriptions**
+  - [x] Every moved subcommand's long help is reviewed and updated to remove self-references to the old flat path and to document the new inline field conventions (`description=`, `title=`, `@file`, `@-`)
+  - [x] The `tusk task` parent command skeleton from the grouping initiative gets its full listing finalized here once every child command is in place
+  - [x] Runs first in this initiative because help text is the source of truth that the documentation sweep quotes from
 
-- [ ] **Story: Documentation sweep**
-  - [ ] `README.md`, `PRODUCT.md`, `docs/configuration.md`, `docs/programmatic-usage.md`, and every file under `docs/releases/` and `docs/status/` updated to the new command syntax
-  - [ ] Historical release notes (v0.1 through v0.10) are left untouched — they describe what shipped at the time and should not be rewritten
-  - [ ] v0.11 release notes call out the full mapping table as a breaking change, the inline-field principle, the `--description` and `--uda` flag removals, the `@file` / `@-` convention on inline string fields, and the dotted `uda.key=value` convention on create/modify
-  - [ ] PRODUCT.md's "Inline Syntax" and CLI sections explicitly state the principle so agents and humans reading the product description see the one-way-to-set-a-field rule alongside the lexer description
+- [x] **Story: Documentation sweep**
+  - [x] `README.md`, `PRODUCT.md`, `docs/configuration.md`, `docs/programmatic-usage.md`, and every file under `docs/releases/` and `docs/status/` updated to the new command syntax
+  - [x] Historical release notes (v0.1 through v0.10) are left untouched — they describe what shipped at the time and should not be rewritten
+  - [x] v0.11 release notes call out the full mapping table as a breaking change, the inline-field principle, the `--description` and `--uda` flag removals, the `@file` / `@-` convention on inline string fields, and the dotted `uda.key=value` convention on create/modify
+  - [x] PRODUCT.md's "Inline Syntax" and CLI sections explicitly state the principle so agents and humans reading the product description see the one-way-to-set-a-field rule alongside the lexer description
 
-- [ ] **Story: E2E test rewrite**
-  - [ ] Every scenario in `tests/e2e/` updated to the new invocation paths and inline field conventions
-  - [ ] Harness step builders (if any hardcode command names) updated
-  - [ ] New scenarios covering the "unknown command" suggestion path for each removed flat verb, to lock in the hint table
-  - [ ] New scenarios covering `description=@file`, `description=@-`, and `title=@file` to lock in the file-loading helper behavior
-  - [ ] New scenarios covering `uda.key=value` on create, repeated `uda.*` fields in a single invocation, `uda.key=` clearing on modify, and the unknown-top-level-field rejection path for bare `key=value` that isn't a registered field
-  - [ ] Runs last in the milestone — a green test suite on the new surface is the exit gate for v0.11
+- [x] **Story: E2E test rewrite**
+  - [x] Every scenario in `tests/e2e/` updated to the new invocation paths and inline field conventions
+  - [x] Harness step builders (if any hardcode command names) updated
+  - [x] New scenarios covering the "unknown command" suggestion path for each removed flat verb, to lock in the hint table
+  - [x] New scenarios covering `description=@file`, `description=@-`, and `title=@file` to lock in the file-loading helper behavior
+  - [x] New scenarios covering `uda.key=value` on create, repeated `uda.*` fields in a single invocation, `uda.key=` clearing on modify, and the unknown-top-level-field rejection path for bare `key=value` that isn't a registered field
+  - [x] Runs last in the milestone — a green test suite on the new surface is the exit gate for v0.11
 
 ---
 

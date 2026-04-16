@@ -537,7 +537,7 @@ tasks, err := client.Tasks.List(ctx, filter)
 **Boolean composition:**
 
 ```go
-// (status:active AND priority >= 3) OR (tagged "urgent")
+// (status=active AND priority >= 3) OR (tagged "urgent")
 filter := &domain.OrFilter{
     Children: []domain.FilterExpr{
         &domain.AndFilter{
@@ -558,7 +558,7 @@ filter := &domain.OrFilter{
 **Negation:**
 
 ```go
-// NOT status:deleted
+// NOT status=deleted
 filter := &domain.NotFilter{
     Child: &domain.TermFilter{TaskFilter: domain.TaskFilter{
         Statuses: []string{"deleted"},
@@ -602,7 +602,7 @@ if len(parseErrors) > 0 {
 }
 
 // Resolve short IDs, dates, etc. into a domain.FilterExpr.
-// The resolver needs a task lookup function for parent: and tree: filters.
+// The resolver needs a task lookup function for parent= and tree= filters.
 resolved, err := filter.ResolveExpr(expr, taskLookupFunc)
 ```
 
