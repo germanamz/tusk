@@ -900,11 +900,11 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > Domain type, repository interface, and SQLite implementation for notes.
 
-- [ ] **Story: Note domain and storage**
-  - [ ] Define `Note` entity (`id` UUID, `project_id`, `player_id`, `task_id` nullable, `body`, `metadata` JSON, `archived_at` nullable, `created_at`)
-  - [ ] `NoteRepository` interface (`Create`, `Archive`, `GetByID`, `List`)
-  - [ ] Migration adding `notes` table with composite index on `(project_id, player_id, created_at DESC)` and partial index on `task_id`
-  - [ ] SQLite `NoteRepository` implementation with window-aware `List` query (`LIMIT` in SQL, not post-fetch)
+- [x] **Story: Note domain and storage**
+  - [x] Define `Note` entity (`id` UUID, `project_id`, `player_id`, `task_id` nullable, `body`, `metadata` JSON, `archived_at` nullable, `created_at`)
+  - [x] `NoteRepository` interface (`Create`, `Archive`, `GetByID`, `List`)
+  - [x] Migration adding `notes` table with composite index on `(project_id, player_id, created_at DESC)` and partial index on `task_id`
+  - [x] SQLite `NoteRepository` implementation with window-aware `List` query (`LIMIT` in SQL, not post-fetch)
 
 ### Initiative: Note Service
 
