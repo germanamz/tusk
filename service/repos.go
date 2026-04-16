@@ -19,6 +19,7 @@ type RepoBundle struct {
 	Store       *sqlite.Store
 	Tasks       repository.TaskRepository
 	Annotations repository.AnnotationRepository
+	Notes       repository.NoteRepository
 	Relations   repository.RelationRepository
 	Tags        repository.TagRepository
 	Players     repository.PlayerRepository
