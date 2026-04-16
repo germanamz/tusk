@@ -925,24 +925,24 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > `tusk note` subcommand for writing, reading, and archiving notes.
 
-- [ ] **Story: Note write commands**
-  - [ ] `tusk note add "<body>" [project=<name>] [--task <short_id>] [meta.key=value...]` — create a note with optional task scope and metadata (metadata keys namespaced under `meta.`, symmetric with task `uda.`)
-  - [ ] `tusk note archive <note_id>` — archive a note
+- [x] **Story: Note write commands**
+  - [x] `tusk note add "<body>" [project=<name>] [--task <short_id>] [meta.key=value...]` — create a note with optional task scope and metadata (metadata keys namespaced under `meta.`, symmetric with task `uda.`)
+  - [x] `tusk note archive <note_id>` — archive a note
 
-- [ ] **Story: Note read commands**
-  - [ ] `tusk note list` — list own notes in current/default project, trailing window applied
-  - [ ] `tusk note list project=<name>` — specific project
-  - [ ] `tusk note list --all-players` — all players' notes
-  - [ ] `tusk note list --player <id>` — specific player's notes
-  - [ ] `tusk note list --task <short_id>` — task-scoped notes
-  - [ ] `tusk note list --window <N>` — override window size
-  - [ ] `tusk note list --since <duration>` — time-bounded filter (e.g., `7d`, `24h`)
-  - [ ] `tusk note list --archived` — include archived notes
-  - [ ] Markdown rendering via glamour in CLI output
+- [x] **Story: Note read commands**
+  - [x] `tusk note list` — list own notes in current/default project, trailing window applied
+  - [x] `tusk note list project=<name>` — specific project
+  - [x] `tusk note list --all-players` — all players' notes
+  - [x] `tusk note list --player <id>` — specific player's notes
+  - [x] `tusk note list --task <short_id>` — task-scoped notes
+  - [x] `tusk note list --window <N>` — override window size
+  - [x] `tusk note list --since <duration>` — time-bounded filter (e.g., `7d`, `24h`)
+  - [x] `tusk note list --archived` — include archived notes
+  - [x] Markdown rendering via glamour in CLI output
 
-- [ ] **Story: Player window size preference**
-  - [ ] `tusk player modify <id> note-window-size=<N>` — set per-player window size
-  - [ ] Display `note_window_size` in player info output
+- [x] **Story: Player window size preference**
+  - [x] `tusk player modify <id> note-window-size=<N>` — set per-player window size
+  - [x] Display `note_window_size` in player info output
 
 ### Initiative: Note MCP Tools
 
