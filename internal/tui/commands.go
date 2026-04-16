@@ -32,7 +32,6 @@ func (a *App) buildTaskCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  a.runCreate,
 	}
-	createCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value)`)
 
 	modifyCmd := &cobra.Command{
 		Use:   "modify <short_id> [key=value...]",
@@ -40,7 +39,6 @@ func (a *App) buildTaskCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  a.runModify,
 	}
-	modifyCmd.Flags().StringArrayP("uda", "u", nil, `user-defined attribute (repeatable, format: key=value, key= to clear)`)
 
 	treeCmd := &cobra.Command{
 		Use:   "tree [short_id]",
@@ -237,13 +235,14 @@ func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 		task.ParentID = &parent.ID
 	}
 
-	// UDA
-	if cmd.Flags().Changed("uda") {
-		udaVals, _ := cmd.Flags().GetStringArray("uda")
-		udaMap, err := parseUDAFlags(udaVals)
-		if err != nil {
-			return err
-		}
+	if err := validateKnownFields(fs); err != nil {
+		return err
+	}
+	udaMap, err := collectUDAs(fs)
+	if err != nil {
+		return err
+	}
+	if udaMap != nil {
 		task.UDA = udaMap
 	}
 
@@ -545,13 +544,14 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// UDA
-	if cmd.Flags().Changed("uda") {
-		udaVals, _ := cmd.Flags().GetStringArray("uda")
-		udaMap, err := parseUDAFlags(udaVals)
-		if err != nil {
-			return err
-		}
+	if err := validateKnownFields(fs); err != nil {
+		return err
+	}
+	udaMap, err := collectUDAs(fs)
+	if err != nil {
+		return err
+	}
+	if udaMap != nil {
 		upd.UDA = &udaMap
 	}
 
