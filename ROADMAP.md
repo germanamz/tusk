@@ -910,16 +910,16 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > Business logic for note creation, listing with trailing window, and archiving.
 
-- [ ] **Story: NoteService**
-  - [ ] `Create` — validate player exists, project exists, optional task exists and belongs to project, body non-empty
-  - [ ] `List` — resolve effective window size (CLI flag → player DB setting → project config → global config → default 20), apply `--since` filter, default to caller's notes only
-  - [ ] `Archive` — set `archived_at`, validate caller is author
+- [x] **Story: NoteService**
+  - [x] `Create` — validate player exists, project exists, optional task exists and belongs to project, body non-empty
+  - [x] `List` — resolve effective window size (CLI flag → player DB setting → project config → global config → default 20), apply `--since` filter, default to caller's notes only
+  - [x] `Archive` — set `archived_at`, validate caller is author
 
-- [ ] **Story: Window size resolution**
-  - [ ] Add `note_window_size` nullable column to `players` table (migration)
-  - [ ] Add `[notes].window_size` to global config schema
-  - [ ] Add `[projects.<name>.notes].window_size` to project config schema
-  - [ ] Resolution chain: CLI flag → player DB → project config → global config → hardcoded default (20)
+- [x] **Story: Window size resolution**
+  - [x] Add `note_window_size` nullable column to `players` table (migration)
+  - [x] Add `[notes].window_size` to global config schema
+  - [x] Add `note_window_size` to `ProjectSettings` JSON (projects moved to DB in v0.10 — per-project override lives on the DB row, not in config)
+  - [x] Resolution chain: CLI flag → player DB → project settings → global config → hardcoded default (20)
 
 ### Initiative: Note CLI
 
