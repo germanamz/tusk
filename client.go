@@ -25,6 +25,10 @@ type Config struct {
 	// Urgency holds weights for the urgency scoring algorithm.
 	// When zero-valued, default weights are used.
 	Urgency config.UrgencyConfig
+
+	// Notes controls note listing defaults.
+	// When zero-valued, defaults are used.
+	Notes config.NotesConfig
 }
 
 // Client provides access to all tusk services, backed by a SQLite database.
@@ -145,7 +149,11 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, store, projectDefaults)
 	playerSvc := service.NewPlayerService(bundle.Players)
-	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, 20)
+	windowSize := cfg.Notes.WindowSize
+	if windowSize <= 0 {
+		windowSize = 20
+	}
+	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, windowSize)
 
 	return &Client{
 		Tasks:     taskSvc,

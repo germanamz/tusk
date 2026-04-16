@@ -63,8 +63,8 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 7 {
-		t.Fatalf("expected 7 migrations applied, got %d", count)
+	if count != 8 {
+		t.Fatalf("expected 8 migrations applied, got %d", count)
 	}
 
 	tables := []string{"tasks", "annotations", "relations", "tags", "tag_assignments", "players", "workflows", "projects", "notes"}
@@ -90,7 +90,7 @@ func TestMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 7 {
-		t.Fatalf("expected 7 migrations after idempotent call, got %d", count)
+	if count != 8 {
+		t.Fatalf("expected 8 migrations after idempotent call, got %d", count)
 	}
 }

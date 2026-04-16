@@ -21,8 +21,11 @@ type NoteService struct {
 	defaultWindowSize int
 }
 
+const defaultHardcodedWindowSize = 20
+
 // NewNoteService wires the repositories and default List window size.
-// A non-positive defaultWindowSize falls back to 20.
+// A non-positive defaultWindowSize leaves the field at zero; resolution
+// then falls through to the hardcoded default.
 func NewNoteService(
 	notes repository.NoteRepository,
 	players repository.PlayerRepository,
@@ -30,9 +33,6 @@ func NewNoteService(
 	tasks repository.TaskRepository,
 	defaultWindowSize int,
 ) *NoteService {
-	if defaultWindowSize <= 0 {
-		defaultWindowSize = 20
-	}
 	return &NoteService{
 		notes:             notes,
 		players:           players,
@@ -40,6 +40,31 @@ func NewNoteService(
 		tasks:             tasks,
 		defaultWindowSize: defaultWindowSize,
 	}
+}
+
+// resolveWindowSize walks the resolution chain: CLI override → player DB
+// setting → project settings → global config default → hardcoded fallback.
+// Lookup errors are swallowed — they cause fallthrough to the next tier.
+func (s *NoteService) resolveWindowSize(ctx context.Context, callerPlayerID string, projectID uuid.UUID, override *int) int {
+	if override != nil && *override > 0 {
+		return *override
+	}
+
+	if callerPlayerID != "" {
+		if player, err := s.players.GetByID(ctx, callerPlayerID); err == nil && player.NoteWindowSize != nil && *player.NoteWindowSize > 0 {
+			return *player.NoteWindowSize
+		}
+	}
+
+	if project, err := s.projects.GetByID(ctx, projectID); err == nil && project.Settings.NoteWindowSize != nil && *project.Settings.NoteWindowSize > 0 {
+		return *project.Settings.NoteWindowSize
+	}
+
+	if s.defaultWindowSize > 0 {
+		return s.defaultWindowSize
+	}
+
+	return defaultHardcodedWindowSize
 }
 
 // Create validates, stamps, and persists a new note. The caller provides
@@ -106,13 +131,10 @@ type NoteListParams struct {
 	WindowOverride  *int
 }
 
-// List returns notes newest-first. Applies the default window size unless
-// WindowOverride supplies a positive override.
+// List returns notes newest-first. Limit is resolved through the window
+// resolution chain (override → player → project → config → hardcoded).
 func (s *NoteService) List(ctx context.Context, params NoteListParams) ([]*domain.Note, error) {
-	limit := s.defaultWindowSize
-	if params.WindowOverride != nil && *params.WindowOverride > 0 {
-		limit = *params.WindowOverride
-	}
+	limit := s.resolveWindowSize(ctx, params.CallerPlayerID, params.ProjectID, params.WindowOverride)
 
 	opts := repository.NoteListOptions{
 		ProjectID:       params.ProjectID,
