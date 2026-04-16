@@ -31,6 +31,7 @@ type App struct {
 	projectSvc    *service.ProjectService
 	workflowSvc   *service.WorkflowService
 	playerSvc     *service.PlayerService
+	noteSvc       *service.NoteService
 	workflowRepo  repository.WorkflowRepository
 	projectRepo   repository.ProjectRepository
 	urgencyEngine *service.UrgencyEngine
@@ -89,6 +90,7 @@ func New(
 	projectSvc *service.ProjectService,
 	workflowSvc *service.WorkflowService,
 	playerSvc *service.PlayerService,
+	noteSvc *service.NoteService,
 	workflowRepo repository.WorkflowRepository,
 	projectRepo repository.ProjectRepository,
 	urgencyEngine *service.UrgencyEngine,
@@ -105,6 +107,7 @@ func New(
 		projectSvc:    projectSvc,
 		workflowSvc:   workflowSvc,
 		playerSvc:     playerSvc,
+		noteSvc:       noteSvc,
 		workflowRepo:  workflowRepo,
 		projectRepo:   projectRepo,
 		urgencyEngine: urgencyEngine,
@@ -136,6 +139,7 @@ func New(
 	a.root.AddCommand(a.buildTagCmd())
 	a.root.AddCommand(a.buildWorkflowCmd())
 	a.root.AddCommand(a.buildPlayerCmd())
+	a.root.AddCommand(a.buildNoteCmd())
 	a.root.AddCommand(a.buildConfigCmd())
 	a.root.AddCommand(&cobra.Command{
 		Use:   "version",

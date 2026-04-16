@@ -198,6 +198,55 @@ func TestNoteService_Create_MissingProject(t *testing.T) {
 	}
 }
 
+func TestNoteService_GetByID(t *testing.T) {
+	env := newNoteTestEnv(t)
+	ctx := context.Background()
+	seedPlayer(t, env.playRepo, "p1")
+
+	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "fetch me"}
+	if err := env.svc.Create(ctx, note); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := env.svc.GetByID(ctx, note.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.ID != note.ID || got.Body != "fetch me" {
+		t.Errorf("got %+v, want id=%s body=%q", got, note.ID, "fetch me")
+	}
+
+	if _, err := env.svc.GetByID(ctx, uuid.New()); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("GetByID unknown: got %v, want wrapping ErrNotFound", err)
+	}
+}
+
+func TestNoteService_FindByIDPrefix(t *testing.T) {
+	env := newNoteTestEnv(t)
+	ctx := context.Background()
+	seedPlayer(t, env.playRepo, "p1")
+
+	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "prefix me"}
+	if err := env.svc.Create(ctx, note); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	prefix := note.ID.String()[:8]
+	matches, err := env.svc.FindByIDPrefix(ctx, prefix)
+	if err != nil {
+		t.Fatalf("FindByIDPrefix: %v", err)
+	}
+	if len(matches) != 1 || matches[0].ID != note.ID {
+		t.Errorf("got %d matches, want 1 matching %s", len(matches), note.ID)
+	}
+
+	none, err := env.svc.FindByIDPrefix(ctx, "00000000")
+	if err != nil {
+		t.Fatalf("FindByIDPrefix miss: %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("expected empty result for miss, got %d", len(none))
+	}
+}
+
 func TestNoteService_Archive(t *testing.T) {
 	env := newNoteTestEnv(t)
 	ctx := context.Background()
