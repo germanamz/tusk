@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/germanamz/tusk/domain"
@@ -85,10 +86,14 @@ func Parse(input string) (*FilterSet, []ParseError) {
 			}
 			validator, known := fieldValidators[key]
 			if !known {
+				msg := "unknown field"
+				if !strings.Contains(key, ".") {
+					msg = fmt.Sprintf("unknown field; did you mean uda.%s?", key)
+				}
 				errs = append(errs, ParseError{
 					Pos:     tok.Pos,
 					Field:   key,
-					Message: "unknown field",
+					Message: msg,
 				})
 				continue
 			}
