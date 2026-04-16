@@ -77,6 +77,7 @@ Every config key can be set via an environment variable with the `TUSK_` prefix.
 | `storage.postgres.dsn` | `TUSK_STORAGE_POSTGRES_DSN` |
 | `urgency.priority_weight` | `TUSK_URGENCY_PRIORITY_WEIGHT` |
 | `tui.color` | `TUSK_TUI_COLOR` |
+| `inline.max_expansion_size` | `TUSK_INLINE_MAX_EXPANSION_SIZE` |
 
 The existing `TUSK_DB` environment variable continues to work and takes priority over `TUSK_STORAGE_PATH` for backwards compatibility.
 
@@ -192,6 +193,30 @@ disabled_tool_groups = ["task_relations", "project"]
 disabled_tools = ["tusk_task_create", "tusk_task_modify", "tusk_task_start", "tusk_task_done", "tusk_task_delete", "tusk_task_annotate"]
 disabled_resource_groups = ["workflow"]
 ```
+
+### `[inline]`
+
+Configures the inline reference expander used across task-scoped CLI commands (`tusk task create`, `tusk task modify`, `tusk task annotate`). The expander runs on free-form string field values and substitutes file content or stdin at word-boundary `@` references. See PRODUCT.md's "Inline Syntax" section for the authoritative description of when `@` triggers, the `@@` escape, stdin semantics, and word-boundary rules.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `max_expansion_size` | int | `1048576` | Maximum size in bytes of a single `@` reference. Applied **per reference**, not per invocation — a command with two `@` references may expand up to `2 * max_expansion_size` bytes total. |
+
+```toml
+[inline]
+max_expansion_size = 1048576  # 1 MB default
+```
+
+The `TUSK_INLINE_MAX_EXPANSION_SIZE` environment variable overrides this value (Viper auto-binds any `TUSK_`-prefixed env var to the matching config key).
+
+#### Example: raise the per-reference cap to 5 MB
+
+```toml
+[inline]
+max_expansion_size = 5242880  # 5 MB
+```
+
+Oversized references are rejected with the actual size and limit in the error message, e.g. `@./huge.log: file too large (7340032 bytes > 5242880 byte limit)`. Binary files are rejected separately via a NUL-byte scan on the first 8 KB of content — the size cap is not the binary gate.
 
 ---
 

@@ -175,10 +175,12 @@ tusk task next                         # highest-urgency actionable task
 
 # Modification
 tusk task modify a3f8b2c1 priority=4 +urgent
-tusk task modify a3f8b2c1 description=@./spec.md       # load from file
-cat spec.md | tusk task modify a3f8b2c1 description=@-  # load from stdin
+tusk task modify a3f8b2c1 description=@./spec.md                       # load from file
+cat spec.md | tusk task modify a3f8b2c1 description=@-                  # load from stdin
+tusk task modify a3f8b2c1 description="see @./notes.md for background"  # mid-string
+tusk task modify a3f8b2c1 description="@@literal-at-sign in body"       # escape
 tusk task annotate a3f8b2c1 "Blocked by upstream API changes"
-tusk task annotate a3f8b2c1 @./investigation.md        # annotate from file
+tusk task annotate a3f8b2c1 @./investigation.md                         # annotate from file
 tusk undo                              # revert last mutation (workspace-wide)
 
 # Relations
@@ -356,16 +358,26 @@ Tusk uses a shared inline syntax across all commands — filters, task creation,
 The syntax is built on a common lexer that understands three primitives:
 
 - **Fields** — `key=value` pairs. The `=` separates key from value.
-- **Modifiers** — first-class primitives attached as token metadata, not hardcoded behaviors. The lexer recognizes two modifier positions — **token prefix** (attaches to the whole `key=value` or tag token) and **value prefix** (attaches to the value half of a `key=value` pair). Both share the same neutral-marker philosophy: the lexer lifts registered prefixes into the AST, attaches no meaning, and lets each consumer command interpret them.
-  - **Token prefix modifiers** (`+`, `-`, …) — A neutral, extensible marker on the whole token. The lexer maintains an open registry of recognized prefix characters — currently `+` and `-`, with room for future additions — and records only which registered prefix a token carried, if any. Each consumer command decides how to interpret the marker for a given field, and the same marker can mean different things in different contexts: in filters `+tag` includes and `-tag` excludes; in task commands `+tag` adds a tag and `-tag` removes one; in workflow config `+status=review`/`-status=review` append to and remove from a list; in project config on numeric urgency weights `+urgency.blocking-weight=2` adds 2 to the current value and `-urgency.blocking-weight=1` subtracts 1, while bare `urgency.blocking-weight=0` sets the absolute value. Commands are free to reject modifiers on fields where they don't make sense.
-  - **Value prefix modifiers** (`@`, …) — A neutral marker on the value half of a `key=value` pair, lifted into a separate AST slot from the token prefix so both can coexist. The lexer maintains its own registry here, currently holding `@` with room for future additions such as `?` or `*`. `@` is the file-source marker: `description=@./spec.md` carries `@` in the AST and the bare value `./spec.md`; consumer commands that opt into `@` on a given field resolve it to file content, with the literal `"-"` meaning standard input (`description=@-`). Commands that don't accept `@` on a field reject or ignore it. The same marker applies to positional string bodies via a shared parse entry point, so `tusk task annotate <id> @./notes.md` and `tusk task annotate <id> @-` work too.
+- **Token prefix modifiers** (`+`, `-`, …) — A neutral, extensible marker on the whole `key=value` or tag token. The lexer maintains an open registry of recognized prefix characters — currently `+` and `-`, with room for future additions — and records only which registered prefix a token carried, if any. The lexer lifts the prefix into the AST, attaches no meaning, and lets each consumer command interpret it. The same marker can mean different things in different contexts: in filters `+tag` includes and `-tag` excludes; in task commands `+tag` adds a tag and `-tag` removes one; in workflow config `+status=review`/`-status=review` append to and remove from a list; in project config on numeric urgency weights `+urgency.blocking-weight=2` adds 2 to the current value and `-urgency.blocking-weight=1` subtracts 1, while bare `urgency.blocking-weight=0` sets the absolute value. Commands are free to reject modifiers on fields where they don't make sense.
+- **Value modifiers** — attached to a value half of a `key=value` pair:
   - `,` — Unordered set. `status=pending,active` is a set — order doesn't matter and duplicates are deduplicated.
   - `:` — Ordered sequence. `transition=pending:active` preserves order and allows duplicates — items appear in the sequence they were placed (from → to).
   - `..` — Range. `priority=2..4` defines a range in filters.
   - `()` — Group. Attaches structured metadata to a value. `status=pending(initial,highlight)` groups roles onto a status. Modifiers nest inside groups — the `,` inside `()` is a set within the group. Distinguished from boolean grouping by position: `(` immediately after a value (no whitespace) is a group modifier; `(` preceded by whitespace is a boolean grouping operator.
-- **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes. Quoted values are opaque string literals — no modifier tokenization occurs inside them. `title="pending(initial)"` yields the plain string `pending(initial)`, not a value with a group; `description="@file.txt"` is the literal string `@file.txt`, not a file-load reference. Quoting is the escape hatch for any value that would otherwise trigger a modifier.
+- **Quoted strings** — `title="some text"` for values containing spaces, with `\"` for escaped quotes. Quoted values are opaque to lexer modifier tokenization — `title="pending(initial)"` yields the plain string `pending(initial)`, not a value with a group. Quoting is the escape hatch for any value that would otherwise trigger a lexer modifier. Quoted values are **not** opaque to inline `@` reference expansion (see below): the lexer handles shell/lexer-level escaping, while `@@` handles literal `@` inside the final value.
+- **Inline `@` reference expansion** — After the lexer has decoded a string field value (`description=`, `title=`, or a positional annotation body), free-form string fields run through an inline expander that substitutes file content or stdin at word-boundary `@` references. This is a pure consumer-layer text pass, not a lexer modifier — the mid-string case `description="see @./notes.md for details"` expands inline to produce a composite value.
+  - **Word boundary** — `@` only triggers at the start of the value or after ASCII whitespace. `foo@bar.com` and `user@host` are never expanded, so email addresses and similar tokens pass through untouched.
+  - **Bare path** — `@./spec.md` scans until the next whitespace; `~/` expands via `os.UserHomeDir` and absolute paths pass through.
+  - **Quoted path** — `@"./name with space.txt"` scans a quoted span so paths containing spaces work.
+  - **Escape** — `@@` at a word boundary collapses to a literal `@`, so `description="@@literal-at-sign in body"` stores a value that begins with `@`.
+  - **Stdin** — `@-` reads standard input. Stdin may only be referenced once per invocation; a TTY guard rejects `@-` when stdin is not piped instead of hanging for keyboard input.
+  - **Mid-string** — `description="see @./notes.md for background"` substitutes file content inline, producing a single string with the file body spliced where the reference sat.
+  - **One level deep** — substituted content is **not** re-scanned for nested references; an `@` that appears inside loaded file content is treated as literal text.
+  - **Size cap** — per-reference, configured via `inline.max_expansion_size` (default 1 MB). Over-cap files are rejected with actual size and limit in the error message.
+  - **Binary detection** — content is rejected via a NUL-byte scan on the first 8 KB (git's approach); the error points at the future attachment support path rather than loading binary into a string field.
+  - The same pipeline applies to positional string bodies, so `tusk task annotate <id> @./notes.md` and `tusk task annotate <id> @-` work with the same semantics as `description=@...`.
 
-Modifiers are composable — groups can contain sets, sets can contain sequences, enabling recursive structure from the same primitives. Adding a new prefix in either position is a one-line registry change plus consumer opt-in, with no AST reshape or existing-consumer impact. Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
+Token prefix modifiers and value modifiers are composable — groups can contain sets, sets can contain sequences, enabling recursive structure from the same primitives. Individual commands define which fields and modifiers they accept. The lexer tokenizes uniformly; domain-specific validators determine what's valid in each context.
 
 ---
 
