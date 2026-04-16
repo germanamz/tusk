@@ -56,6 +56,36 @@ func (r *NoteRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Note, err
 	return scanNote(row)
 }
 
+// FindByIDPrefix returns notes whose id (lowercase, hyphenated UUID string)
+// begins with prefix. Returns up to 2 rows — callers only need to distinguish
+// "zero matches", "one match", and "more than one match".
+func (r *NoteRepo) FindByIDPrefix(ctx context.Context, prefix string) ([]*domain.Note, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, project_id, player_id, task_id, body, metadata, archived_at, created_at
+		FROM notes
+		WHERE id GLOB ? || '*'
+		ORDER BY id ASC
+		LIMIT 2
+	`, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("querying notes by id prefix: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*domain.Note
+	for rows.Next() {
+		note, err := scanNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, note)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating notes by id prefix: %w", err)
+	}
+	return out, nil
+}
+
 // Archive sets the archived_at timestamp on a note.
 // Returns domain.ErrNotFound if no note with that ID exists.
 func (r *NoteRepo) Archive(ctx context.Context, id uuid.UUID, archivedAt time.Time) error {

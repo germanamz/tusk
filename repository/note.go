@@ -23,9 +23,20 @@ type NoteListOptions struct {
 // Create and Archive are the only mutations — notes cannot be edited.
 // GetByID returns domain.ErrNotFound if no note matches.
 // Archive returns domain.ErrNotFound if no note matches.
+// FindByIDPrefix resolves a UUID prefix to zero, one, or more candidate notes.
 type NoteRepository interface {
 	Create(ctx context.Context, note *domain.Note) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Note, error)
+	// FindByIDPrefix returns notes whose UUID (hyphenated lowercase form)
+	// begins with the given prefix. Prefix must contain at least 8 characters;
+	// shorter prefixes return (nil, nil) after the caller-side guard runs, so
+	// callers should enforce length themselves and rely on this method to
+	// report actual collisions. An exact 36-char UUID is accepted and will
+	// match at most one row. Results are returned in deterministic order
+	// (ascending UUID string). The repository does not distinguish active
+	// from archived notes here; the caller decides how to treat archived
+	// matches.
+	FindByIDPrefix(ctx context.Context, prefix string) ([]*domain.Note, error)
 	Archive(ctx context.Context, id uuid.UUID, archivedAt time.Time) error
 	List(ctx context.Context, opts NoteListOptions) ([]*domain.Note, error)
 }

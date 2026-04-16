@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,6 +343,169 @@ func TestNoteListExcludesArchived(t *testing.T) {
 	}
 	if len(notes) != 2 {
 		t.Fatalf("expected 2 notes with archived, got %d", len(notes))
+	}
+}
+
+func TestNoteFindByIDPrefixUnique(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	note := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Body:      "Prefix lookup",
+		Metadata:  map[string]any{},
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, note); err != nil {
+		t.Fatal(err)
+	}
+
+	prefix := note.ID.String()[:8]
+	got, err := repo.FindByIDPrefix(ctx, prefix)
+	if err != nil {
+		t.Fatalf("FindByIDPrefix: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(got))
+	}
+	if got[0].ID != note.ID {
+		t.Fatalf("id mismatch: got %s, want %s", got[0].ID, note.ID)
+	}
+}
+
+func TestNoteFindByIDPrefixFullUUID(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	note := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Body:      "Full UUID lookup",
+		Metadata:  map[string]any{},
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, note); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repo.FindByIDPrefix(ctx, note.ID.String())
+	if err != nil {
+		t.Fatalf("FindByIDPrefix: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(got))
+	}
+	if got[0].ID != note.ID {
+		t.Fatalf("id mismatch: got %s, want %s", got[0].ID, note.ID)
+	}
+}
+
+func TestNoteFindByIDPrefixNoMatch(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	note := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Body:      "Populated row",
+		Metadata:  map[string]any{},
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, note); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repo.FindByIDPrefix(ctx, "00000000")
+	if err != nil {
+		t.Fatalf("FindByIDPrefix: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 matches, got %d", len(got))
+	}
+}
+
+func TestNoteFindByIDPrefixAmbiguous(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	idA, err := uuid.Parse("abcdef12-0000-4000-8000-000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	idB, err := uuid.Parse("abcdef12-0000-4000-8000-000000000002")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	for _, id := range []uuid.UUID{idA, idB} {
+		note := &domain.Note{
+			ID:        id,
+			ProjectID: domain.DefaultProjectUUID,
+			PlayerID:  "german",
+			Body:      "Collision " + id.String(),
+			Metadata:  map[string]any{},
+			CreatedAt: now,
+		}
+		if err := repo.Create(ctx, note); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := repo.FindByIDPrefix(ctx, "abcdef12")
+	if err != nil {
+		t.Fatalf("FindByIDPrefix: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 matches, got %d", len(got))
+	}
+	seen := map[uuid.UUID]bool{got[0].ID: true, got[1].ID: true}
+	if !seen[idA] || !seen[idB] {
+		t.Fatalf("expected both %s and %s in results, got %v", idA, idB, got)
+	}
+}
+
+func TestNoteFindByIDPrefixCaseSensitive(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	note := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Body:      "Case check",
+		Metadata:  map[string]any{},
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, note); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repo.FindByIDPrefix(ctx, strings.ToUpper(note.ID.String()[:8]))
+	if err != nil {
+		t.Fatalf("FindByIDPrefix: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 matches (case-sensitive), got %d", len(got))
 	}
 }
 
