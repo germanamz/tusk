@@ -113,3 +113,49 @@ func TestNoteCreateProjectLevel(t *testing.T) {
 		t.Fatalf("task_id: expected nil, got %v", got.TaskID)
 	}
 }
+
+func TestNoteArchive(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	note := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Body:      "Will be archived",
+		Metadata:  map[string]any{},
+		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+	}
+	if err := repo.Create(ctx, note); err != nil {
+		t.Fatal(err)
+	}
+
+	archivedAt := time.Now().UTC().Truncate(time.Millisecond)
+	if err := repo.Archive(ctx, note.ID, archivedAt); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, note.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ArchivedAt == nil {
+		t.Fatal("expected archived_at to be set")
+	}
+	if !got.ArchivedAt.Equal(archivedAt) {
+		t.Fatalf("archived_at: got %v, want %v", got.ArchivedAt, archivedAt)
+	}
+}
+
+func TestNoteArchiveNotFound(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+
+	err := repo.Archive(context.Background(), uuid.New(), time.Now().UTC())
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
