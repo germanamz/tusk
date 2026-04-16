@@ -35,6 +35,7 @@ func bundleFromStore(store *sqlite.Store) *RepoBundle {
 		Store:       store,
 		Tasks:       sqlite.NewTaskRepo(db),
 		Annotations: sqlite.NewAnnotationRepo(db),
+		Notes:       sqlite.NewNoteRepo(db),
 		Relations:   sqlite.NewRelationRepo(db),
 		Tags:        sqlite.NewTagRepo(db),
 		Players:     sqlite.NewPlayerRepo(db),

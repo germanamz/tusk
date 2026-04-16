@@ -35,6 +35,7 @@ type Client struct {
 	Projects  *service.ProjectService
 	Workflows *service.WorkflowService
 	Players   *service.PlayerService
+	Notes     *service.NoteService
 
 	store *sqlite.Store
 }
@@ -144,6 +145,7 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, store, projectDefaults)
 	playerSvc := service.NewPlayerService(bundle.Players)
+	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, 20)
 
 	return &Client{
 		Tasks:     taskSvc,
@@ -152,6 +154,7 @@ func NewClient(cfg Config) (*Client, error) {
 		Projects:  projectSvc,
 		Workflows: workflowSvc,
 		Players:   playerSvc,
+		Notes:     noteSvc,
 		store:     store,
 	}, nil
 }

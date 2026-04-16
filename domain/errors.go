@@ -21,4 +21,5 @@ var (
 	ErrProjectHasTasks   = errors.New("project has referencing tasks")
 	ErrInvalidWorkflow   = errors.New("invalid workflow")
 	ErrBuiltInWorkflow   = errors.New("built-in workflow cannot be modified")
+	ErrForbidden         = errors.New("forbidden")
 )

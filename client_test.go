@@ -85,6 +85,19 @@ func TestNewClient_EmptyDBPath(t *testing.T) {
 	}
 }
 
+func TestNewClient_Notes(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	client, err := NewClient(Config{DBPath: dbPath})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	if client.Notes == nil {
+		t.Fatal("Notes service should not be nil")
+	}
+}
+
 func TestClose(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	client, err := NewClient(Config{DBPath: dbPath})
