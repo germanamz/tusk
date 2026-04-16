@@ -284,3 +284,119 @@ func TestNoteListSince(t *testing.T) {
 		t.Fatalf("expected 2 notes since day 2, got %d", len(notes))
 	}
 }
+
+func TestNoteListExcludesArchived(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	active := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Body:      "Active note",
+		Metadata:  map[string]any{},
+		CreatedAt: now,
+	}
+	archived := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Body:      "Archived note",
+		Metadata:  map[string]any{},
+		CreatedAt: now.Add(-time.Hour),
+	}
+	if err := repo.Create(ctx, active); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(ctx, archived); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Archive(ctx, archived.ID, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default: exclude archived.
+	notes, err := repo.List(ctx, repository.NoteListOptions{
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("expected 1 active note, got %d", len(notes))
+	}
+
+	// Include archived.
+	notes, err = repo.List(ctx, repository.NoteListOptions{
+		ProjectID:       domain.DefaultProjectUUID,
+		PlayerID:        "german",
+		IncludeArchived: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes with archived, got %d", len(notes))
+	}
+}
+
+func TestNoteListByTask(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+	task := newTestTask()
+	mustCreateTask(t, taskRepo, task)
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	taskID := task.ID
+
+	// One task-scoped note, one project-level note.
+	taskNote := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		TaskID:    &taskID,
+		Body:      "Task-scoped",
+		Metadata:  map[string]any{},
+		CreatedAt: now,
+	}
+	projectNote := &domain.Note{
+		ID:        uuid.New(),
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		TaskID:    nil,
+		Body:      "Project-level",
+		Metadata:  map[string]any{},
+		CreatedAt: now.Add(-time.Hour),
+	}
+	if err := repo.Create(ctx, taskNote); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(ctx, projectNote); err != nil {
+		t.Fatal(err)
+	}
+
+	// Filter by task — should return only the task-scoped note.
+	notes, err := repo.List(ctx, repository.NoteListOptions{
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		TaskID:    &taskID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("expected 1 task-scoped note, got %d", len(notes))
+	}
+	if notes[0].Body != "Task-scoped" {
+		t.Fatalf("expected task-scoped note, got %q", notes[0].Body)
+	}
+}
