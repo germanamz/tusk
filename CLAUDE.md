@@ -45,7 +45,6 @@ Storage Implementations (SQLite with WAL mode)
 - `sqlite/` — SQLite implementations of repository interfaces
 - `filter/` — 3-stage filter parser: Lexer → Parser → Resolver
 - `config/` — Viper-based config loading
-- `inmem/` — in-memory repository implementations (project, workflow)
 - `internal/mcp/` — MCP server (stdio + SSE transports)
 - `internal/tui/` — CLI commands + output rendering (text and JSON)
 - `migrations/` — embedded SQL migration files
