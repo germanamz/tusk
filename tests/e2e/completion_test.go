@@ -83,7 +83,7 @@ func TestCompletion(t *testing.T) {
 						rootCmds := []string{
 							"completion", "config", "mcp", "player",
 							"project", "tag", "task", "version", "workflow",
-							// TODO(v0.11): add "undo" here once the workspace-wide verbs initiative registers it on the root.
+							// TODO(v0.14): add "undo" here once the undo command is implemented.
 						}
 						for _, name := range rootCmds {
 							if !strings.Contains(r.Stdout, name) {
