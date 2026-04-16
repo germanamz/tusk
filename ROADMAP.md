@@ -926,7 +926,7 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 > `tusk note` subcommand for writing, reading, and archiving notes.
 
 - [ ] **Story: Note write commands**
-  - [ ] `tusk note add "<body>" [project=<name>] [--task <short_id>] [key=value...]` — create a note with optional task scope and metadata
+  - [ ] `tusk note add "<body>" [project=<name>] [--task <short_id>] [meta.key=value...]` — create a note with optional task scope and metadata (metadata keys namespaced under `meta.`, symmetric with task `uda.`)
   - [ ] `tusk note archive <note_id>` — archive a note
 
 - [ ] **Story: Note read commands**
