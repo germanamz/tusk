@@ -31,14 +31,43 @@ func (a *App) buildWorkflowCmd() *cobra.Command {
 		&cobra.Command{
 			Use:   "create <name> [fields...]",
 			Short: "Create a new workflow",
-			Args:  cobra.MinimumNArgs(1),
-			RunE:  a.runWorkflowCreate,
+			Long: `Create a new workflow with statuses and transitions defined inline.
+
+  status=<name>(<roles>)        Define a status with optional roles
+  transition=<from>:<to>        Define a transition (comma-separated for multiple)
+
+Roles: initial, start, terminal, done, delete, highlight, dim
+Constraints: exactly one initial, one start, at least one terminal.`,
+			Example: `  tusk workflow create sprint \
+    status=backlog(initial) \
+    status=doing(start,highlight) \
+    status=done(terminal,done,dim) \
+    status=cancelled(terminal,delete,dim) \
+    transition=backlog:doing,doing:done,doing:cancelled`,
+			Args: cobra.MinimumNArgs(1),
+			RunE: a.runWorkflowCreate,
 		},
 		&cobra.Command{
 			Use:   "modify <name> [fields...]",
 			Short: "Modify an existing workflow",
-			Args:  cobra.MinimumNArgs(1),
-			RunE:  a.runWorkflowModify,
+			Long: `Modify an existing workflow. Bare assignment replaces; +/- prefixes add or
+remove list entries.
+
+  status=<name>(<roles>)        Replace roles on existing status
+  +status=<name>(<roles>)       Add a new status
+  -status=<name>                Remove a status
+  +transition=<from>:<to>       Add transitions
+  -transition=<from>:<to>       Remove transitions`,
+			Example: `  # Add a review status and transitions
+  tusk workflow modify sprint +status=review +transition=doing:review,review:done
+
+  # Update roles on an existing status
+  tusk workflow modify sprint status=doing(start,highlight)
+
+  # Remove a status and its transitions
+  tusk workflow modify sprint -status=review -transition=doing:review,review:done`,
+			Args: cobra.MinimumNArgs(1),
+			RunE: a.runWorkflowModify,
 		},
 		&cobra.Command{
 			Use:   "delete <name>",

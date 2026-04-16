@@ -20,7 +20,37 @@ func (a *App) buildTaskCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "task",
 		Short: "Manage tasks",
-		Long:  "Task-scoped commands. Every task CRUD, lifecycle, claim, queue, and relation verb lives under this parent.",
+		Long: `Create, view, modify, and coordinate tasks.
+
+CRUD & Viewing:
+  create      Create a new task
+  list        List tasks with filters
+  get         Show task details
+  modify      Modify a task
+  tree        Display task hierarchy
+
+Lifecycle:
+  start       Transition to active
+  done        Transition to completed
+  delete      Soft-delete (transition to deleted)
+  next        Highest-urgency actionable task
+
+Coordination:
+  claim       Claim a task for a player
+  release     Release a task claim
+  available   List unclaimed, actionable, unblocked tasks
+  pop         Atomically claim and start the top task
+
+Annotations:
+  annotate    Add a timestamped note
+
+Relations:
+  link        Create a typed relation (blocks, relates_to, duplicates)
+  unlink      Remove a typed relation
+
+Entity fields on create/modify flow through inline key=value syntax:
+  title, description, project, priority, due, parent, status, uda.<key>
+  Tags: +tag / -tag    File expansion: field=@./path, field=@-, @@escape`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -29,23 +59,99 @@ func (a *App) buildTaskCmd() *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create [title] [key=value...] [+tag...]",
 		Short: "Create a new task",
-		Args:  cobra.MinimumNArgs(1),
-		RunE:  a.runCreate,
+		Long: `Create a new task. The first positional argument is the task title (can also
+be set via title=... for file-loading via @).
+
+Accepted fields:
+  project=<name>       Project to assign
+  priority=0..4        Priority level (0=none, 4=urgent)
+  due=<date>           Due date (absolute or relative)
+  parent=<short_id>    Parent task for subtask creation
+  description=<text>   Task description
+  status=<status>      Initial status (defaults to pending)
+
+UDA fields:
+  uda.<key>=<value>    Set arbitrary user-defined metadata
+
+Tags:
+  +tag                 Add a tag
+
+File expansion:
+  description=@./spec.md               Load file content
+  description=@-                       Read from stdin
+  description="see @./f for details"   Mid-string expansion
+  title=@./title.txt                   Title from file
+  @@                                   Escape literal @`,
+		Example: `  # Basic task with priority and tag
+  tusk task create "Implement auth middleware" project=backend priority=3 +api
+
+  # Task with UDA metadata
+  tusk task create "Deploy monitoring" uda.env=prod uda.region=eu
+
+  # Description from file
+  tusk task create "Design spec" description=@./spec.md
+
+  # Title and description from files
+  tusk task create title=@./title.txt description=@./body.md
+
+  # Subtask
+  tusk task create "Subtask" parent=a3f8b2c1`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: a.runCreate,
 	}
 
 	modifyCmd := &cobra.Command{
 		Use:   "modify <short_id> [key=value...]",
 		Short: "Modify a task",
-		Args:  cobra.MinimumNArgs(1),
-		RunE:  a.runModify,
+		Long: `Modify an existing task. The first positional argument is the task short ID.
+Remaining arguments are field assignments and tag operations.
+
+Field clearing: description= (empty value) clears the field.
+
+UDA operations:
+  uda.key=value    Set a UDA key
+  uda.key=         Delete a UDA key
+
+Tags:
+  +tag             Add a tag
+  -tag             Remove a tag (use -- before -tag to avoid flag parsing)
+
+File expansion works on description=, title=, and any string field:
+  field=@./path    Load from file
+  field=@-         Read from stdin
+  @@               Escape literal @`,
+		Example: `  # Update priority and add tag
+  tusk task modify a3f8b2c1 priority=4 +urgent
+
+  # Set UDA, change project
+  tusk task modify a3f8b2c1 uda.team=backend project=backend
+
+  # Clear a UDA key
+  tusk task modify a3f8b2c1 uda.env=
+
+  # Load description from file
+  tusk task modify a3f8b2c1 description=@./updated-spec.md
+
+  # Remove a tag (use -- to prevent flag parsing)
+  tusk task modify a3f8b2c1 -- -obsolete`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: a.runModify,
 	}
 
 	treeCmd := &cobra.Command{
 		Use:   "tree [short_id]",
 		Short: "Display tasks as a tree hierarchy",
 		Long:  "Show all tasks in a tree hierarchy. Optionally specify a short_id to show only that subtree.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  a.runTree,
+		Example: `  # Full task tree
+  tusk task tree
+
+  # Subtree from a specific task
+  tusk task tree a3f8b2c1
+
+  # Include deleted tasks
+  tusk task tree --all`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: a.runTree,
 	}
 	treeCmd.Flags().Bool("all", false, "include deleted tasks")
 
@@ -54,81 +160,144 @@ func (a *App) buildTaskCmd() *cobra.Command {
 		&cobra.Command{
 			Use:   "list [filters...]",
 			Short: "List tasks",
-			RunE:  a.runList,
+			Long: `List tasks sorted by urgency. Defaults to status=pending,active when no status
+filter is given. Accepts the full filter syntax: field=value, +tag, -tag,
+ranges (priority=2..4), relative dates (due=today..friday), boolean operators
+(AND, OR, NOT), and parenthesized grouping.`,
+			Example: `  # All pending and active tasks (default)
+  tusk task list
+
+  # Filter by project and tag
+  tusk task list project=backend +api
+
+  # Priority range
+  tusk task list priority=2..4
+
+  # Boolean filter
+  tusk task list "(status=active AND +urgent) OR priority=4"
+
+  # UDA filter
+  tusk task list uda.env=prod`,
+			RunE: a.runList,
 		},
 		&cobra.Command{
 			Use:   "get <short_id>",
 			Short: "Show task details",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runGet,
+			Long: `Show full details for a single task including status, priority, project, due
+date, tags, UDAs, annotations, relations, claim state, and urgency score.`,
+			Args: cobra.ExactArgs(1),
+			RunE: a.runGet,
 		},
 		modifyCmd,
 		treeCmd,
 		&cobra.Command{
 			Use:   "start <short_id>",
 			Short: "Transition task to active",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runStart,
+			Long: `Transition a task to active status. Auto-claims the task for the current player
+if unclaimed. Rejects if claimed by another player. Use --player to identify
+yourself.`,
+			Args: cobra.ExactArgs(1),
+			RunE: a.runStart,
 		},
 		&cobra.Command{
 			Use:   "done <short_id>",
 			Short: "Transition task to completed",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runDone,
+			Long: `Transition a task to completed status. The task must be in a status that has a
+valid transition to the workflow's "done" status.`,
+			Args: cobra.ExactArgs(1),
+			RunE: a.runDone,
 		},
 		&cobra.Command{
 			Use:   "delete <short_id>",
 			Short: "Transition task to deleted",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runDelete,
+			Long: `Soft-delete a task by transitioning it to the workflow's "delete" status. The
+task remains in the database for history; it is excluded from default list views.`,
+			Args: cobra.ExactArgs(1),
+			RunE: a.runDelete,
 		},
 		&cobra.Command{
 			Use:   "next",
 			Short: "Show the highest-urgency actionable task",
-			Args:  cobra.NoArgs,
-			RunE:  a.runNext,
+			Long: `Show the single highest-urgency actionable task. "Actionable" means the task is
+in a non-terminal status, is not blocked by other tasks, and is not waiting.`,
+			Args: cobra.NoArgs,
+			RunE: a.runNext,
 		},
 		&cobra.Command{
 			Use:   "annotate <short_id> <message...>",
 			Short: "Add a note to a task",
-			Args:  cobra.MinimumNArgs(2),
-			RunE:  a.runAnnotate,
+			Long: `Add a timestamped note to a task. The annotation body supports @file expansion:
+use @./path.md to load content from a file, @- to read from stdin, or @@ to
+escape a literal @.`,
+			Example: `  # Inline annotation
+  tusk task annotate a3f8b2c1 "Blocked by upstream API changes"
+
+  # Annotation from file
+  tusk task annotate a3f8b2c1 @./investigation.md
+
+  # Annotation from stdin
+  echo "piped content" | tusk task annotate a3f8b2c1 @-`,
+			Args: cobra.MinimumNArgs(2),
+			RunE: a.runAnnotate,
 		},
 		&cobra.Command{
 			Use:   "claim <short_id>",
 			Short: "Claim a task for the current player",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runClaim,
+			Long: `Claim a task for the current player, signaling intent and preventing other
+players from starting it. Requires --player to identify the claimant.`,
+			Args: cobra.ExactArgs(1),
+			RunE: a.runClaim,
 		},
 		&cobra.Command{
 			Use:   "release <short_id>",
 			Short: "Release a task claim",
-			Args:  cobra.ExactArgs(1),
-			RunE:  a.runRelease,
+			Long: `Release a task claim. Only the current claimant can release. Requires --player
+to verify identity.`,
+			Args: cobra.ExactArgs(1),
+			RunE: a.runRelease,
 		},
 		&cobra.Command{
 			Use:   "available [filters...]",
 			Short: "List unclaimed, actionable, unblocked tasks",
-			RunE:  a.runAvailable,
+			Long: `List tasks that are unclaimed, in a non-terminal status, and not blocked by
+other tasks. Accepts filters to narrow results (e.g., project, tags, priority).`,
+			Example: `  # All available tasks
+  tusk task available --player agent-1
+
+  # Available tasks in a specific project
+  tusk task available project=backend --player agent-1`,
+			RunE: a.runAvailable,
 		},
 		&cobra.Command{
 			Use:   "pop [filters...]",
 			Short: "Claim and start the highest-urgency available task",
-			RunE:  a.runPop,
+			Long: `Atomically find the highest-urgency available task, claim it for the calling
+player, and transition it to active. Replaces a list-filter-pick-claim sequence
+with one command, eliminating race conditions. Requires --player.`,
+			Example: `  # Pop highest-urgency available task
+  tusk task pop --player agent-1
+
+  # Pop from a specific project
+  tusk task pop project=backend --player agent-1`,
+			RunE: a.runPop,
 		},
 		&cobra.Command{
 			Use:   "link <short_id> <relation_type> <short_id>",
 			Short: "Create a relation between two tasks",
 			Long:  `Create a typed relation. Types: blocks, relates_to, duplicates.`,
-			Args:  cobra.ExactArgs(3),
-			RunE:  a.runLink,
+			Example: `  tusk task link a3f8b2c1 blocks b7c9d4e2
+  tusk task link a3f8b2c1 relates_to c8d2e5f3
+  tusk task link a3f8b2c1 duplicates d9e3f6a4`,
+			Args: cobra.ExactArgs(3),
+			RunE: a.runLink,
 		},
 		&cobra.Command{
-			Use:   "unlink <short_id> <relation_type> <short_id>",
-			Short: "Remove a relation between two tasks",
-			Long:  `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
-			Args:  cobra.ExactArgs(3),
-			RunE:  a.runUnlink,
+			Use:     "unlink <short_id> <relation_type> <short_id>",
+			Short:   "Remove a relation between two tasks",
+			Long:    `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
+			Example: `  tusk task unlink a3f8b2c1 blocks b7c9d4e2`,
+			Args:    cobra.ExactArgs(3),
+			RunE:    a.runUnlink,
 		},
 	)
 

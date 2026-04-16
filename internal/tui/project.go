@@ -38,14 +38,35 @@ func (a *App) buildProjectCmd() *cobra.Command {
 		&cobra.Command{
 			Use:   "create <name> [fields...]",
 			Short: "Create a new project",
-			Args:  cobra.MinimumNArgs(1),
-			RunE:  a.runProjectCreate,
+			Long: `Create a new project. Fields are set via inline key=value syntax.
+
+Accepted fields:
+  workflow=<name>                 Workflow to use (must already exist)
+  auto-complete.trigger=<status>  Status that triggers parent auto-complete
+  auto-complete.target=<status>   Status to set on auto-completed parent
+  auto-revert.trigger=<status>    Status that triggers parent auto-revert
+  auto-revert.target=<status>     Status to set on auto-reverted parent
+  urgency.<weight>=<value>        Override a global urgency weight`,
+			Example: `  tusk project create backend workflow=kanban
+  tusk project create ops workflow=kanban urgency.blocking-weight=15 auto-complete.trigger=completed`,
+			Args: cobra.MinimumNArgs(1),
+			RunE: a.runProjectCreate,
 		},
 		&cobra.Command{
 			Use:   "modify <name> [fields...]",
 			Short: "Modify an existing project",
-			Args:  cobra.MinimumNArgs(2),
-			RunE:  a.runProjectModify,
+			Long: `Modify an existing project. Bare assignment replaces the value; +/- prefixes on
+numeric urgency weights apply arithmetic deltas relative to the effective value.
+
+  workflow=sprint                Replace workflow
+  urgency.blocking-weight=10    Set absolute override
+  +urgency.blocking-weight=2    Add 2 to effective weight
+  -urgency.blocking-weight=1    Subtract 1 from effective weight`,
+			Example: `  tusk project modify backend workflow=sprint
+  tusk project modify backend +urgency.blocking-weight=2
+  tusk project modify backend auto-complete.trigger=completed auto-complete.target=completed`,
+			Args: cobra.MinimumNArgs(2),
+			RunE: a.runProjectModify,
 		},
 		deleteCmd,
 	)
