@@ -55,3 +55,6 @@ disabled_resources = []
 # Applied per reference, not per invocation — three 900 KB expansions in
 # one description are allowed under the default.
 max_expansion_size = 1048576
+
+[notes]
+window_size = 20  # Default trailing window size for note listings

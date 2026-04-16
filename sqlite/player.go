@@ -9,7 +9,7 @@ import (
 	"github.com/germanamz/tusk/domain"
 )
 
-const playerColumns = `id, type, registered_at, last_seen_at`
+const playerColumns = `id, type, note_window_size, registered_at, last_seen_at`
 
 // PlayerRepo implements repository.PlayerRepository using SQLite.
 type PlayerRepo struct {
@@ -23,9 +23,13 @@ func NewPlayerRepo(db DBTX) *PlayerRepo {
 
 // Create inserts a new player. Returns domain.ErrConflict if the ID already exists.
 func (r *PlayerRepo) Create(ctx context.Context, player *domain.Player) error {
+	var noteWindowSize any
+	if player.NoteWindowSize != nil {
+		noteWindowSize = *player.NoteWindowSize
+	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO players (id, type, registered_at, last_seen_at) VALUES (?, ?, ?, ?)`,
-		player.ID, player.Type,
+		`INSERT INTO players (id, type, note_window_size, registered_at, last_seen_at) VALUES (?, ?, ?, ?, ?)`,
+		player.ID, player.Type, noteWindowSize,
 		player.RegisteredAt.UTC().Format(timeFormat),
 		player.LastSeenAt.UTC().Format(timeFormat),
 	)
@@ -45,6 +49,29 @@ func (r *PlayerRepo) GetByID(ctx context.Context, id string) (*domain.Player, er
 	row := r.db.QueryRowContext(ctx,
 		`SELECT `+playerColumns+` FROM players WHERE id = ?`, id)
 	return scanPlayer(row)
+}
+
+// UpdateNoteWindowSize sets the player's note window preference.
+// Pass nil to clear the preference (sets column to NULL).
+// Returns domain.ErrNotFound if the player does not exist.
+func (r *PlayerRepo) UpdateNoteWindowSize(ctx context.Context, id string, size *int) error {
+	var val any
+	if size != nil {
+		val = *size
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE players SET note_window_size = ? WHERE id = ?`, val, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 // UpdateLastSeen updates the last_seen_at timestamp for a player.
@@ -93,16 +120,21 @@ type playerScanner interface {
 
 func scanPlayer(s playerScanner) (*domain.Player, error) {
 	var (
-		p            domain.Player
-		registeredAt string
-		lastSeenAt   string
+		p              domain.Player
+		noteWindowSize sql.NullInt64
+		registeredAt   string
+		lastSeenAt     string
 	)
-	err := s.Scan(&p.ID, &p.Type, &registeredAt, &lastSeenAt)
+	err := s.Scan(&p.ID, &p.Type, &noteWindowSize, &registeredAt, &lastSeenAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
+	}
+	if noteWindowSize.Valid {
+		v := int(noteWindowSize.Int64)
+		p.NoteWindowSize = &v
 	}
 	p.RegisteredAt, err = time.Parse(timeFormat, registeredAt)
 	if err != nil {

@@ -29,11 +29,18 @@ type Config struct {
 	TUI     TUIConfig     `mapstructure:"tui"     toml:"tui"     json:"tui"`
 	MCP     MCPConfig     `mapstructure:"mcp"     toml:"mcp"     json:"mcp"`
 	Inline  InlineConfig  `mapstructure:"inline"  toml:"inline"  json:"inline"`
+	Notes   NotesConfig   `mapstructure:"notes"   toml:"notes"   json:"notes"`
 
 	// Sources records where the effective config came from. Populated by Load.
 	// Skipped by both mapstructure and TOML encoding so it never appears in
 	// files or round-trips through Viper.
 	Sources ConfigSources `mapstructure:"-" toml:"-" json:"-"`
+}
+
+// NotesConfig controls note listing defaults.
+type NotesConfig struct {
+	// WindowSize is the default number of recent notes to display.
+	WindowSize int `mapstructure:"window_size" toml:"window_size" json:"window_size"`
 }
 
 // StorageConfig configures the database backend.
@@ -265,6 +272,9 @@ func resolveGlobalDir(searchPath string) string {
 func (c *Config) Validate() error {
 	if c.Inline.MaxExpansionSize <= 0 {
 		return fmt.Errorf("inline.max_expansion_size must be > 0, got %d", c.Inline.MaxExpansionSize)
+	}
+	if c.Notes.WindowSize <= 0 {
+		return fmt.Errorf("notes.window_size must be > 0, got %d", c.Notes.WindowSize)
 	}
 	return nil
 }

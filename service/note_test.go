@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -23,13 +24,17 @@ type noteTestEnv struct {
 }
 
 func newNoteTestEnv(t *testing.T) *noteTestEnv {
+	return newNoteTestEnvWithWindow(t, 20)
+}
+
+func newNoteTestEnvWithWindow(t *testing.T, defaultWindow int) *noteTestEnv {
 	t.Helper()
 	store, projRepo, _ := sqlitetest.NewStore(t)
 	db := store.DB()
 	noteRepo := sqlite.NewNoteRepo(db)
 	playerRepo := sqlite.NewPlayerRepo(db)
 	taskRepo := sqlite.NewTaskRepo(db)
-	svc := service.NewNoteService(noteRepo, playerRepo, projRepo, taskRepo, 20)
+	svc := service.NewNoteService(noteRepo, playerRepo, projRepo, taskRepo, defaultWindow)
 	return &noteTestEnv{
 		svc:      svc,
 		noteRepo: noteRepo,
@@ -38,6 +43,45 @@ func newNoteTestEnv(t *testing.T) *noteTestEnv {
 		taskRepo: taskRepo,
 	}
 }
+
+func seedPlayerWithWindow(t *testing.T, repo *sqlite.PlayerRepo, id string, size *int) {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	p := &domain.Player{ID: id, Type: "human", NoteWindowSize: size, RegisteredAt: now, LastSeenAt: now}
+	if err := repo.Create(context.Background(), p); err != nil {
+		t.Fatalf("seed player %q: %v", id, err)
+	}
+}
+
+func setProjectWindow(t *testing.T, repo *sqlite.ProjectRepo, id uuid.UUID, size *int) {
+	t.Helper()
+	ctx := context.Background()
+	proj, err := repo.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("get project: %v", err)
+	}
+	proj.Settings.NoteWindowSize = size
+	if err := repo.Update(ctx, proj); err != nil {
+		t.Fatalf("update project: %v", err)
+	}
+}
+
+func seedNotes(t *testing.T, svc *service.NoteService, n int, playerID string, projectID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	for i := range n {
+		note := &domain.Note{
+			ProjectID: projectID,
+			PlayerID:  playerID,
+			Body:      fmt.Sprintf("note %d", i),
+		}
+		if err := svc.Create(ctx, note); err != nil {
+			t.Fatalf("seed note %d: %v", i, err)
+		}
+	}
+}
+
+func intPtr(v int) *int { return &v }
 
 func seedPlayer(t *testing.T, repo *sqlite.PlayerRepo, id string) {
 	t.Helper()
@@ -243,5 +287,99 @@ func TestNoteService_List_PlayerFilter(t *testing.T) {
 	}
 	if len(notes) != 3 {
 		t.Errorf("got %d, want 3", len(notes))
+	}
+}
+
+func TestNoteService_ResolveWindow_CLIOverride(t *testing.T) {
+	env := newNoteTestEnvWithWindow(t, 20)
+	ctx := context.Background()
+	seedPlayerWithWindow(t, env.playRepo, "p1", intPtr(50))
+	setProjectWindow(t, env.projRepo, uuid.Nil, intPtr(30))
+	seedNotes(t, env.svc, 15, "p1", uuid.Nil)
+
+	notes, err := env.svc.List(ctx, service.NoteListParams{
+		ProjectID:      uuid.Nil,
+		CallerPlayerID: "p1",
+		WindowOverride: intPtr(10),
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(notes) != 10 {
+		t.Errorf("got %d notes, want 10 (CLI override)", len(notes))
+	}
+}
+
+func TestNoteService_ResolveWindow_PlayerSetting(t *testing.T) {
+	env := newNoteTestEnvWithWindow(t, 20)
+	ctx := context.Background()
+	seedPlayerWithWindow(t, env.playRepo, "p1", intPtr(5))
+	setProjectWindow(t, env.projRepo, uuid.Nil, intPtr(30))
+	seedNotes(t, env.svc, 10, "p1", uuid.Nil)
+
+	notes, err := env.svc.List(ctx, service.NoteListParams{
+		ProjectID:      uuid.Nil,
+		CallerPlayerID: "p1",
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(notes) != 5 {
+		t.Errorf("got %d notes, want 5 (player setting)", len(notes))
+	}
+}
+
+func TestNoteService_ResolveWindow_ProjectSetting(t *testing.T) {
+	env := newNoteTestEnvWithWindow(t, 20)
+	ctx := context.Background()
+	seedPlayerWithWindow(t, env.playRepo, "p1", nil)
+	setProjectWindow(t, env.projRepo, uuid.Nil, intPtr(8))
+	seedNotes(t, env.svc, 12, "p1", uuid.Nil)
+
+	notes, err := env.svc.List(ctx, service.NoteListParams{
+		ProjectID:      uuid.Nil,
+		CallerPlayerID: "p1",
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(notes) != 8 {
+		t.Errorf("got %d notes, want 8 (project setting)", len(notes))
+	}
+}
+
+func TestNoteService_ResolveWindow_ConfigDefault(t *testing.T) {
+	env := newNoteTestEnvWithWindow(t, 15)
+	ctx := context.Background()
+	seedPlayerWithWindow(t, env.playRepo, "p1", nil)
+	seedNotes(t, env.svc, 20, "p1", uuid.Nil)
+
+	notes, err := env.svc.List(ctx, service.NoteListParams{
+		ProjectID:      uuid.Nil,
+		CallerPlayerID: "p1",
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(notes) != 15 {
+		t.Errorf("got %d notes, want 15 (config default)", len(notes))
+	}
+}
+
+func TestNoteService_ResolveWindow_HardcodedFallback(t *testing.T) {
+	env := newNoteTestEnvWithWindow(t, 0)
+	ctx := context.Background()
+	seedPlayerWithWindow(t, env.playRepo, "p1", nil)
+	seedNotes(t, env.svc, 25, "p1", uuid.Nil)
+
+	notes, err := env.svc.List(ctx, service.NoteListParams{
+		ProjectID:      uuid.Nil,
+		CallerPlayerID: "p1",
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(notes) != 20 {
+		t.Errorf("got %d notes, want 20 (hardcoded fallback)", len(notes))
 	}
 }

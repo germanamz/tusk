@@ -35,4 +35,5 @@ type ProjectSettings struct {
 	AutoCompleteParent *AutoCompleteConfig `json:"auto_complete_parent,omitempty"`
 	AutoRevertParent   *AutoRevertConfig   `json:"auto_revert_parent,omitempty"`
 	Urgency            *UrgencyOverrides   `json:"urgency,omitempty"`
+	NoteWindowSize     *int                `json:"note_window_size,omitempty"`
 }
