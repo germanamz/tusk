@@ -93,7 +93,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	// the user cleans it up post-phase-2).
 	loadOpts := []config.Option{config.WithSearchPath(t.TempDir())}
 	app := New(
-		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,
+		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil, nil,
 		nil, nil, nil,
 		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, loadOpts,
 	)

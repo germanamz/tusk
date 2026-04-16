@@ -33,7 +33,7 @@ func main() {
 func run() error {
 	if isCompletionInvocation(os.Args[1:]) {
 		app := tui.New(
-			nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			tui.VersionInfo{Version: version, Commit: commit, Date: date},
 			config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, nil,
 		)
@@ -153,9 +153,10 @@ func run() error {
 		return fmt.Errorf("resolving default bundle for players: %w", err)
 	}
 	playerSvc := service.NewPlayerService(defaultBundle.Players)
+	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, cfg.Notes.WindowSize)
 
 	app := tui.New(
-		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc,
+		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, noteSvc,
 		workflowRepo, projectRepo, urgencyEngine,
 		tui.VersionInfo{
 			Version: version,

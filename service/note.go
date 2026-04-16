@@ -104,6 +104,18 @@ func (s *NoteService) Create(ctx context.Context, note *domain.Note) error {
 	return s.notes.Create(ctx, note)
 }
 
+// GetByID retrieves a note by its UUID.
+func (s *NoteService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Note, error) {
+	return s.notes.GetByID(ctx, id)
+}
+
+// FindByIDPrefix resolves a UUID prefix to notes. Used by the CLI to
+// accept short IDs for archive. See repository.NoteRepository for
+// semantics.
+func (s *NoteService) FindByIDPrefix(ctx context.Context, prefix string) ([]*domain.Note, error) {
+	return s.notes.FindByIDPrefix(ctx, prefix)
+}
+
 // Archive soft-deletes a note. Only the authoring player may archive.
 // Returns domain.ErrNotFound if no note matches, or wraps
 // domain.ErrForbidden when the caller is not the author.

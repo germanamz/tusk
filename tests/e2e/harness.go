@@ -11,6 +11,14 @@ import (
 	"testing"
 )
 
+// currentStep carries per-step context used by Env.Run. runScenarios sets
+// it before invoking Run so optional Stdin/Cwd fields propagate to the
+// command without permanently mutating Env state.
+type currentStep struct {
+	stdin string
+	cwd   string
+}
+
 // Result holds the output of a single CLI invocation.
 type Result struct {
 	Stdout string
@@ -30,6 +38,7 @@ type Env struct {
 	dbMode    string   // "flag" or "env"
 	format    string   // "text" or "json"
 	results   []Result // stored results for inter-step references
+	step      currentStep
 }
 
 // InDir sets the working directory used for subsequent Run invocations.
@@ -93,8 +102,13 @@ func (e *Env) Run(args ...string) Result {
 	fullArgs = append(fullArgs, expanded...)
 
 	cmd := exec.Command(e.binPath, fullArgs...)
-	if e.workDir != "" {
+	if e.step.cwd != "" {
+		cmd.Dir = e.step.cwd
+	} else if e.workDir != "" {
 		cmd.Dir = e.workDir
+	}
+	if e.step.stdin != "" {
+		cmd.Stdin = strings.NewReader(e.step.stdin)
 	}
 
 	// Set environment variables
@@ -124,18 +138,22 @@ func (e *Env) Run(args ...string) Result {
 }
 
 // shortIDPattern matches 8+ hex character short IDs in mutation output lines.
-// Examples: "Created task a3f8b2c1", "Modified task b7c9d4e2"
-var shortIDPattern = regexp.MustCompile(`(?:Created|Modified|Started|Completed|Deleted|Annotated) task ([0-9a-f]{8,})`)
+// Covers both task and note mutations. Examples:
+//
+//	"Created task a3f8b2c1"
+//	"Created note 6ea3366c"
+//	"Archived note 5f3e2d1c"
+var shortIDPattern = regexp.MustCompile(`(?:Created|Modified|Started|Completed|Deleted|Annotated|Archived) (?:task|note) ([0-9a-f]{8,})`)
 
 // expandRefs replaces $N.field references with values from previous step results.
 // For example, "$0.short_id" is replaced with the short_id from step 0's output.
+// Dotted paths ("$0.note.id") descend into nested JSON objects.
 func (e *Env) expandRefs(arg string) string {
 	if !strings.Contains(arg, "$") {
 		return arg
 	}
 
-	// Match $N.field pattern
-	refPattern := regexp.MustCompile(`\$(\d+)\.(\w+)`)
+	refPattern := regexp.MustCompile(`\$(\d+)\.([\w.]+)`)
 	return refPattern.ReplaceAllStringFunc(arg, func(match string) string {
 		parts := refPattern.FindStringSubmatch(match)
 		if len(parts) != 3 {
@@ -151,16 +169,30 @@ func (e *Env) expandRefs(arg string) string {
 
 		prev := e.results[idx]
 
-		// Try JSON parse first (works for both formats since we store raw stdout)
 		var parsed map[string]any
 		if err := json.Unmarshal([]byte(prev.Stdout), &parsed); err == nil {
-			if val, ok := parsed[field]; ok {
-				return fmt.Sprintf("%v", val)
+			segments := strings.Split(field, ".")
+			var cur any = parsed
+			ok := true
+			for _, seg := range segments {
+				m, isMap := cur.(map[string]any)
+				if !isMap {
+					ok = false
+					break
+				}
+				v, exists := m[seg]
+				if !exists {
+					ok = false
+					break
+				}
+				cur = v
+			}
+			if ok {
+				return fmt.Sprintf("%v", cur)
 			}
 		}
 
-		// Fallback: extract short_id from text output using regex
-		if field == "short_id" {
+		if field == "short_id" || field == "id" || strings.HasSuffix(field, ".id") {
 			if m := shortIDPattern.FindStringSubmatch(prev.Stdout); len(m) == 2 {
 				return m[1]
 			}
@@ -200,6 +232,17 @@ type Step struct {
 	// WantErr indicates that this step should produce a non-zero exit code.
 	WantErr bool
 
+	// Stdin is piped to the command's standard input when non-empty.
+	Stdin string
+
+	// Cwd overrides the working directory for this step only.
+	Cwd string
+
+	// Setup runs before the step executes. Receives a t.TempDir() scratch
+	// directory for seeding inputs; return a Cwd override (or "") so the
+	// step can run in that directory. Runs before Args are expanded.
+	Setup func(t *testing.T, dir string) (cwd string)
+
 	// Assert runs for both text and json formats.
 	Assert func(t *testing.T, r Result)
 
@@ -231,7 +274,16 @@ func runScenarios(t *testing.T, binPath string, scenarios []Scenario) {
 				t.Parallel()
 				env := newEnv(t, binPath, dbMode, format)
 				for i, step := range sc.Steps {
+					env.step = currentStep{stdin: step.Stdin, cwd: step.Cwd}
+					if step.Setup != nil {
+						dir := t.TempDir()
+						cwd := step.Setup(t, dir)
+						if cwd != "" {
+							env.step.cwd = cwd
+						}
+					}
 					r := env.Run(step.Args...)
+					env.step = currentStep{}
 
 					if step.WantErr && r.Err == nil {
 						t.Fatalf("step %d: expected error, got none. stdout:\n%s", i, r.Stdout)
