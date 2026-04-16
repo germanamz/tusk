@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -157,5 +158,129 @@ func TestNoteArchiveNotFound(t *testing.T) {
 	err := repo.Archive(context.Background(), uuid.New(), time.Now().UTC())
 	if err != domain.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestNoteList(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+	task := newTestTask()
+	mustCreateTask(t, taskRepo, task)
+
+	// Create 3 notes with increasing timestamps.
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i, body := range []string{"First", "Second", "Third"} {
+		taskID := task.ID
+		note := &domain.Note{
+			ID:        uuid.New(),
+			ProjectID: domain.DefaultProjectUUID,
+			PlayerID:  "german",
+			TaskID:    &taskID,
+			Body:      body,
+			Metadata:  map[string]any{},
+			CreatedAt: base.Add(time.Duration(i) * time.Hour),
+		}
+		if err := repo.Create(ctx, note); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// List all notes for this player+project, no limit.
+	notes, err := repo.List(ctx, repository.NoteListOptions{
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 3 {
+		t.Fatalf("expected 3 notes, got %d", len(notes))
+	}
+	// Should be in descending created_at order (newest first).
+	if notes[0].Body != "Third" {
+		t.Fatalf("expected newest first, got %q", notes[0].Body)
+	}
+}
+
+func TestNoteListWindowLimit(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 5 {
+		note := &domain.Note{
+			ID:        uuid.New(),
+			ProjectID: domain.DefaultProjectUUID,
+			PlayerID:  "german",
+			Body:      fmt.Sprintf("Note %d", i),
+			Metadata:  map[string]any{},
+			CreatedAt: base.Add(time.Duration(i) * time.Hour),
+		}
+		if err := repo.Create(ctx, note); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Window of 2 should return only the 2 newest.
+	notes, err := repo.List(ctx, repository.NoteListOptions{
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Limit:     2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes, got %d", len(notes))
+	}
+	if notes[0].Body != "Note 4" {
+		t.Fatalf("expected newest first, got %q", notes[0].Body)
+	}
+	if notes[1].Body != "Note 3" {
+		t.Fatalf("expected second newest, got %q", notes[1].Body)
+	}
+}
+
+func TestNoteListSince(t *testing.T) {
+	s := testStore(t)
+	repo := NewNoteRepo(s.DB())
+	ctx := context.Background()
+
+	mustCreatePlayer(t, s, "german")
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 3 {
+		note := &domain.Note{
+			ID:        uuid.New(),
+			ProjectID: domain.DefaultProjectUUID,
+			PlayerID:  "german",
+			Body:      fmt.Sprintf("Note %d", i),
+			Metadata:  map[string]any{},
+			CreatedAt: base.Add(time.Duration(i) * 24 * time.Hour),
+		}
+		if err := repo.Create(ctx, note); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Since the second day — should return notes 1 and 2.
+	since := base.Add(24 * time.Hour)
+	notes, err := repo.List(ctx, repository.NoteListOptions{
+		ProjectID: domain.DefaultProjectUUID,
+		PlayerID:  "german",
+		Since:     &since,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes since day 2, got %d", len(notes))
 	}
 }
