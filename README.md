@@ -20,11 +20,11 @@ Tusk combines the speed and CLI ergonomics of TaskWarrior with structured hierar
 - **Single binary** — no runtime, no daemon, no browser. Install and go.
 - **Hierarchical tasks** — optional parent-child nesting to arbitrary depth.
 - **Typed relations** — `blocks`, `relates_to`, `duplicates` as first-class edges with DFS cycle detection.
-- **Configurable workflows** — declarative TOML-based workflows with per-project assignment.
+- **Configurable workflows** — database-backed workflows managed via `tusk workflow` commands with per-project assignment.
 - **Concurrent-safe** — optimistic locking via version fields.
 - **Pluggable storage** — SQLite out of the box; repository layer is an interface.
-- **Built-in MCP server** — 14 MCP tools + 3 resource templates for AI agent integration (stdio transport).
-- **TaskWarrior-like filters** — `status:pending,active`, `priority:2..4`, `due:today`, `+tag`, `-tag`, `uda.key:value`.
+- **Built-in MCP server** — 27 MCP tools + 3 resource templates for AI agent integration (stdio transport).
+- **TaskWarrior-like filters** — `status=pending,active`, `priority=2..4`, `due=today`, `+tag`, `-tag`, `uda.key=value`, boolean operators (`AND`, `OR`, `NOT`).
 - **User-defined attributes (UDA)** — arbitrary key-value metadata on tasks with merge semantics.
 - **Configuration system** — Viper-based TOML config with env var overrides and auto-creation.
 - **Completion propagation** — auto-complete/revert parents based on children status, configurable per project.
@@ -66,37 +66,39 @@ Default path: `~/.local/share/tusk/tusk.db`. Override with `--db` flag or `TUSK_
 
 ```bash
 # Create tasks
-tusk add "Implement auth middleware" priority:3 +api
-tusk add "Write tests for auth" +testing
-tusk add "Deploy to staging" --uda env=staging --uda team=backend
+tusk task create "Implement auth middleware" priority=3 +api
+tusk task create "Write tests for auth" +testing
+tusk task create "Deploy to staging" uda.env=staging uda.team=backend
+tusk task create "Design spec" description=@./spec.md    # load from file
 
 # List and filter
-tusk list                          # all pending tasks
-tusk list status:active +api       # filtered by status and tag
-tusk list priority:2..4            # priority range
-tusk list uda.env:staging          # filter by user-defined attribute
+tusk task list                           # all pending tasks
+tusk task list status=active +api        # filtered by status and tag
+tusk task list priority=2..4             # priority range
+tusk task list uda.env=staging           # filter by user-defined attribute
 
 # Update tasks
-tusk modify a3f8b2c1 priority:4 +urgent
-tusk modify a3f8b2c1 --uda env=prod   # merge UDA key
-tusk start a3f8b2c1               # pending -> active
-tusk done a3f8b2c1                # active -> completed
-tusk delete a3f8b2c1              # -> deleted
+tusk task modify a3f8b2c1 priority=4 +urgent
+tusk task modify a3f8b2c1 uda.env=prod         # add/update a UDA
+tusk task modify a3f8b2c1 description=@-       # load from stdin
+tusk task start a3f8b2c1               # pending -> active
+tusk task done a3f8b2c1                # active -> completed
+tusk task delete a3f8b2c1              # -> deleted
 
 # Hierarchy
-tusk add "Parent task" parent:a3f8b2c1
-tusk tree                          # full task tree
-tusk tree a3f8b2c1                 # subtree from task
+tusk task create "Subtask" parent=a3f8b2c1
+tusk task tree                         # full task tree
+tusk task tree a3f8b2c1                # subtree from task
 
 # Relations
-tusk link a3f8b2c1 blocks b4e9c3d2
-tusk unlink a3f8b2c1 blocks b4e9c3d2
+tusk task link a3f8b2c1 blocks b4e9c3d2
+tusk task unlink a3f8b2c1 blocks b4e9c3d2
 
 # Annotate
-tusk annotate a3f8b2c1 "Blocked by upstream API changes"
+tusk task annotate a3f8b2c1 "Blocked by upstream API changes"
 
 # Task details
-tusk info a3f8b2c1
+tusk task get a3f8b2c1
 
 # Projects and workflows
 tusk project list
@@ -115,15 +117,18 @@ Inspired by TaskWarrior:
 
 | Filter | Description |
 |--------|-------------|
-| `status:pending,active` | Comma-separated OR |
-| `priority:2..4` | Range |
-| `due:today` | Relative dates |
+| `status=pending,active` | Comma-separated OR |
+| `priority=2..4` | Range |
+| `due=today` | Relative dates |
 | `+tag` | Include tag |
 | `-tag` | Exclude tag |
-| `parent:<short_id>` | Direct children |
-| `tree:<short_id>` | All descendants |
-| `uda.key:value` | UDA exact match |
-| `uda.key:` | UDA key absent or empty |
+| `parent=<short_id>` | Direct children |
+| `tree=<short_id>` | All descendants |
+| `uda.key=value` | UDA exact match |
+| `uda.key=` | UDA key absent or empty |
+| `title="search text"` | Substring match in title |
+| `AND`, `OR`, `NOT` | Boolean operators |
+| `(...)` | Grouping |
 
 ## Configuration
 
@@ -137,18 +142,16 @@ Tusk resolves its config file in this order, first match wins:
 
 Relative paths inside a `tusk.toml` (most importantly `storage.path`) resolve against the file's directory, so every subdirectory of a project shares the same database. `TUSK_*` environment variables still override individual values from the resolved file. See [docs/configuration.md](docs/configuration.md) for the full reference, including `tusk config init --local` and workspace-scoped `config set`.
 
-Define custom workflows and projects in the config:
+Custom workflows and projects are created via CLI commands:
 
-```toml
-[workflows.kanban]
-statuses = ["pending", "active", "completed", "deleted"]
+```bash
+# Workflows and projects are managed via CLI, not config file
+tusk workflow create kanban \
+  status=pending(initial) status=active(start,highlight) \
+  status=completed(terminal,done) status=deleted(terminal,delete,dim) \
+  transition=pending:active,active:completed,active:deleted,completed:pending
 
-[[workflows.kanban.transitions]]
-from = "pending"
-to = ["active", "deleted"]
-
-[projects.backend]
-workflow = "kanban"
+tusk project create backend workflow=kanban
 ```
 
 ## Architecture
@@ -162,15 +165,14 @@ Service Layer (business logic, validation)
     |
 Repository Layer (Go interfaces only)
     |
-Storage Implementations (SQLite with WAL mode, in-memory for config entities)
+Storage Implementations (SQLite with WAL mode)
 ```
 
 Key design choices:
 - **Optimistic locking** with version fields for concurrent access
 - **UUID + 8-char short ID** for task identity (UUID internally, short ID for CLI)
 - **Soft delete** via workflow status transitions
-- **Declarative workflows** — TOML-defined, with per-project assignment
-- **Config-driven projects** — projects and workflows live in config, not the database
+- **Database-backed projects and workflows** — managed via `tusk project` and `tusk workflow` commands with optimistic locking
 
 ## Go Library
 
@@ -198,7 +200,7 @@ Start the MCP server for AI agent integration:
 tusk mcp serve              # stdio transport (IDE integration)
 ```
 
-14 MCP tools expose full task management: create, get, list, modify, start, done, delete, annotate, tree, relation add/remove, project list, and workflow list. 3 resource templates provide read-only views of tasks, projects, and workflows.
+27 MCP tools expose full task management: task CRUD, lifecycle transitions, annotations, tree views, relations, player coordination, project/workflow CRUD, and configuration. 3 resource templates provide read-only views of tasks, projects, and workflows.
 
 All mutation tools require a `version` parameter for optimistic locking. Tool and resource visibility is configurable via `config.toml`:
 
@@ -233,7 +235,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## Roadmap
 
-**Current: v0.5 complete** — foundation, relations, MCP server, config system, and rich content are all shipped.
+**Current: v0.11 complete** — foundation through CLI command grouping are shipped. See [ROADMAP.md](ROADMAP.md) for the full roadmap.
 
 See [ROADMAP.md](ROADMAP.md) for the full roadmap with initiatives and stories.
 

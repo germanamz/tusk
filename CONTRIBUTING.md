@@ -35,7 +35,7 @@ make test-race      # Tests with race detector
 make test-e2e       # E2e tests only
 
 # Single unit test
-go test -v ./internal/service -run TestTaskCreate
+go test -v ./service -run TestTaskCreate
 
 # Single e2e scenario
 go test -v ./tests/e2e -run TestErrorHandling
@@ -64,9 +64,9 @@ Storage Implementations (SQLite)
 
 When contributing, respect these boundaries:
 - **Interface layer** (`internal/tui/`, `internal/mcp/`) translates external protocols into service calls. No business logic here.
-- **Service layer** (`internal/service/`) contains all business logic. Services accept repository interfaces via constructor injection.
-- **Repository layer** (`internal/repository/`) defines Go interfaces only.
-- **Storage layer** (`internal/sqlite/`) implements repository interfaces.
+- **Service layer** (`service/`) contains all business logic. Services accept repository interfaces via constructor injection.
+- **Repository layer** (`repository/`) defines Go interfaces only.
+- **Storage layer** (`sqlite/`) implements repository interfaces.
 
 ## Code Conventions
 
@@ -83,7 +83,7 @@ docs: update README with MCP examples
 
 ### Error Handling
 
-- Use sentinel errors from `internal/domain/errors.go`.
+- Use sentinel errors from `domain/errors.go`.
 - Check errors with `errors.Is()`.
 - Available sentinels: `ErrNotFound`, `ErrConflict`, `ErrCyclicBlock`, `ErrInvalidTransition`, `ErrDuplicateRelation`.
 
@@ -100,10 +100,10 @@ End-to-end tests live in `tests/e2e/` and use a custom harness. Each scenario ru
 ```go
 scenarios := []Scenario{
     {
-        Name: "create_and_info",
+        Name: "create_and_get",
         Steps: []Step{
-            {Args: []string{"add", "My task"}},
-            {Args: []string{"info", "$0.short_id"}},
+            {Args: []string{"task", "create", "My task"}},
+            {Args: []string{"task", "get", "$0.short_id"}},
         },
     },
 }

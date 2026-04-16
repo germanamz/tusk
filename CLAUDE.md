@@ -72,10 +72,10 @@ Tests in `tests/e2e/` use a custom harness. Each scenario runs 4 times (2 DB con
 ```go
 scenarios := []Scenario{
     {
-        Name: "create_and_info",
+        Name: "create_and_get",
         Steps: []Step{
-            {Args: []string{"add", "My task"}},
-            {Args: []string{"info", "$0.short_id"}},
+            {Args: []string{"task", "create", "My task"}},
+            {Args: []string{"task", "get", "$0.short_id"}},
         },
     },
 }

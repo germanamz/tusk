@@ -21,7 +21,7 @@ Tusk picks a config file via a five-step chain. The first match wins — there i
 /home/you/work/acme/services/api/   <- CWD
 ```
 
-Running `tusk list` from `services/api/` uses the `tusk.toml` at `/home/you/work/acme/`. Relative paths inside that file — most importantly `storage.path` — resolve against `/home/you/work/acme/`, not the caller's CWD. So every subdirectory of the project hits the same database as `tusk` run from the project root. Absolute paths and `~`-prefixed paths are untouched.
+Running `tusk task list` from `services/api/` uses the `tusk.toml` at `/home/you/work/acme/`. Relative paths inside that file — most importantly `storage.path` — resolve against `/home/you/work/acme/`, not the caller's CWD. So every subdirectory of the project hits the same database as `tusk` run from the project root. Absolute paths and `~`-prefixed paths are untouched.
 
 ### Workspace scope
 
@@ -137,8 +137,8 @@ Terminal UI and CLI output settings.
 |-----|------|---------|-------------|
 | `date_format` | string | `"2006-01-02"` | Go [time format](https://pkg.go.dev/time#pkg-constants) for displaying dates |
 | `color` | bool | `true` | Enable colored output. Set to `false` or use the `NO_COLOR` env var to disable. |
-| `tree_indent` | int | `2` | Number of spaces per indent level in `tusk tree` output |
-| `default_sort` | string | `"urgency"` | Default sort field for `tusk list` |
+| `tree_indent` | int | `2` | Number of spaces per indent level in `tusk task tree` output |
+| `default_sort` | string | `"urgency"` | Default sort field for `tusk task list` |
 
 ```toml
 [tui]
