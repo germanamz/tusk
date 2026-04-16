@@ -808,40 +808,43 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 ### Initiative: String Field Input Unification
 
-> Executes the milestone-wide inline-field principle for free-form string fields. The `description` field lives outside the lexer today — it's a Cobra flag (`--description`/`-d`) with bespoke `@file` / `@-` expansion, while `title` and every other field already flow through inline `key=value` syntax. This initiative moves `description` onto the inline surface alongside `title`, annotation bodies, and any future string field, and it promotes `@` to a first-class **value-position modifier** in the lexer — joining the v0.9 token-prefix modifiers (`+`, `-`, `..`, `,`, `:`, `()`) as a neutral, extensible marker — so the `@file` / `@-` expansion is a property of the lexer and consumer I/O layer rather than of any one command's flag. The lexer strips and records the marker; consumers still own I/O. Runs after the `tusk task` grouping initiative so it acts on the already-renamed commands once, not twice, and before the UDA flag elimination initiative so both flag-removal stories share the same rewired command surface.
+> Executes the milestone-wide inline-field principle for free-form string fields. The `description` field lives outside the lexer today — it's a Cobra flag (`--description`/`-d`) with bespoke `@file` / `@-` expansion, while `title` and every other field already flow through inline `key=value` syntax. This initiative moves `description` onto the inline surface alongside `title`, annotation bodies, and any future string field, and it adds an inline `@` reference expander that substitutes file content (or stdin) directly into the decoded string value at the consumer layer. Runs after the `tusk task` grouping initiative so it acts on the already-renamed commands once, not twice, and before the UDA flag elimination initiative so both flag-removal stories share the same rewired command surface.
 
-- [ ] **Story: Value-position modifiers in the lexer**
-  - [ ] Extend the v0.9 modifier registry to include **value-prefix** modifiers alongside the existing token-prefix modifiers. Both categories share the same "neutral marker, consumer interprets" philosophy.
-  - [ ] Add a `ValueModifier rune` field to the syntax AST value carrier (field filter, task field, etc.) alongside the existing token `Modifier` field
-  - [ ] Register `@` as the first value-prefix modifier — when the lexer scans the value half of a `key=value` token and the first unquoted character is a registered value-prefix, strip it into `ValueModifier` and make `Value` the bare tail
-  - [ ] Quoted strings stay opaque: `description="@file.txt"` yields the literal string `@file.txt` with no `ValueModifier`, matching the v0.9 quoted-string opacity rule
-  - [ ] Expose `syntax.ParseValue(raw) (value string, mod rune)` so positional args that don't come through the key=value path can reuse the same stripping in a single call
-  - [ ] Registry is extensible the same way token prefixes are — a future `?` or `*` prefix is a one-line registry change plus consumer opt-in, with no AST reshape
-  - [ ] Unit tests: registry extension, AST marker presence, opaque-quote rule, `ParseValue` entry point, and a "register a new value modifier" test that proves the extensibility path without touching consumers
-  - [ ] Runs first in the initiative because every downstream story reads `ValueModifier` from the AST instead of inspecting strings
+> **Scope note:** The original story set included `syntax.ValueModifier` AST changes and a value-prefix modifier registry. These were dropped in design — `@` is inline text substitution, not a prefix marker, so the mid-string case (`"text @file.txt"`) cannot be represented as a stripped AST marker. The shipped implementation is a pure consumer-layer text pass with no lexer or AST changes. See `docs/plans/v0.11-string-field-input-unification/design.md` for the full reasoning.
 
-- [ ] **Story: I/O consumer helper `expandValueRef`**
-  - [ ] New helper in `internal/tui` that takes `(value string, mod rune)` and resolves to content — when `mod == '@'` it treats `value` as a file path, with the literal `"-"` meaning stdin
-  - [ ] Preserves the TTY guard from the existing `readDescription` — failing loudly on `@-` without a pipe instead of hanging for keyboard input
-  - [ ] Helper is pure: no command-specific knowledge, no inline-string inspection — every caller passes raw AST data in
-  - [ ] Replaces `internal/tui/description.go` entirely; the old `readDescription` function is deleted
+- [x] **Story: Word-boundary `@` reference expansion**
+  - [x] Add a CLI-layer expander `internal/tui.expandRefs(raw, stdin, maxSize)` that scans a string for word-boundary `@` references and substitutes file content (or stdin for `@-`) inline
+  - [x] Word boundary means start-of-string or preceded by ASCII whitespace — `foo@bar.com` and `user@host` are never expanded
+  - [x] Bare path scans until next whitespace; quoted path `@"./name with space.txt"` scans a quoted span for paths containing spaces
+  - [x] `@@` at a word boundary escapes to a literal `@`
+  - [x] `@-` reads stdin; stdin may only be referenced once per invocation (enforced across multiple `expandRefsWithState` calls in one command via a shared state struct)
+  - [x] Substituted content is **not** re-scanned for nested references — expansion is one level deep
+  - [x] No AST or lexer changes — the expander runs on the final decoded string value from the v0.9 lexer, after quotes have already collapsed. Quoted lexer values are **not** opaque to `@` expansion; lexer quoting escapes shell/lexer syntax, `@@` escapes the expander.
 
-- [ ] **Story: Drop `--description` flag, use inline field**
-  - [ ] Remove `--description` / `-d` from `tusk task create` and `tusk task modify`
-  - [ ] Commands read the `description=` field from the parsed syntax, pattern-match on `ValueModifier`, and call `expandValueRef` for the resolved content
-  - [ ] `description=` with an empty value clears the field on modify (matches the old `--description ""` behavior, feeds into the double-pointer `**string` update path)
-  - [ ] Same pattern applied to `title=` so `title=@./title.txt` works on create and modify
+- [x] **Story: Expander file-read and stdin semantics**
+  - [x] File paths resolve via `os.ReadFile` against the caller's CWD; `~/` prefix expands via `os.UserHomeDir`; absolute paths pass through
+  - [x] Missing file → `@<path>: no such file` error
+  - [x] Binary detection via NUL-byte scan on the first 8 KB of content (git's approach); binary files rejected with an error pointing at future attachment support
+  - [x] Per-reference size cap configured via `inline.max_expansion_size` (default 1 MB); over-cap files rejected with actual size and limit in the error message
+  - [x] Stdin TTY guard preserved from the old `readDescription` helper
+  - [x] Replaces `internal/tui/description.go` entirely — the old helper and its tests are deleted
 
-- [ ] **Story: Positional bodies gain `@` expansion**
-  - [ ] `tusk task annotate <id> "body"` stays positional — annotation commands are single-value and the positional form is idiomatic
-  - [ ] The positional body runs through `syntax.ParseValue` and then `expandValueRef`, so `tusk task annotate a3f8b2c1 @./notes.md` and `tusk task annotate a3f8b2c1 @-` work with the same semantics as `description=@...`
-  - [ ] Literal `@` at the start of a positional body is quoted at the shell level (`tusk task annotate a3f8b2c1 "@alice please review"`) — shell quoting is the user's responsibility, tusk doesn't double-escape
-  - [ ] `tusk note add "body"` (v0.12) inherits the same convention from day one — documented in the v0.12 note CLI story rather than patched in later
+- [x] **Story: Drop `--description` flag, use inline field**
+  - [x] Remove `--description` / `-d` from `tusk task create` and `tusk task modify`
+  - [x] Commands read the `description=` field value from `FilterSet.GetField` and pass it through the expander
+  - [x] `description=` with an empty value clears the field on modify (matches the old `--description ""` behavior, feeds into the double-pointer `**string` update path)
+  - [x] Same pattern applied to `title=` so `title=@./title.txt` works on create and modify
 
-- [ ] **Story: MCP field parity check**
-  - [ ] MCP tools receive description, title, and body as structured JSON fields, so no `@file` expansion is needed on that surface — agents already pass the content directly
-  - [ ] Tool schemas stay unchanged; only the CLI surface moves
-  - [ ] Runs last in the initiative as a verification pass: confirms no MCP tool accidentally grew a `@` interpretation while the CLI was being rewired
+- [x] **Story: Positional bodies gain `@` expansion**
+  - [x] `tusk task annotate <id> "body"` stays positional — annotation commands are single-value and the positional form is idiomatic
+  - [x] The positional body runs through the expander, so `tusk task annotate a3f8b2c1 @./notes.md` and `tusk task annotate a3f8b2c1 @-` work with the same semantics as `description=@...`
+  - [x] Literal `@` at the start of a positional body is escaped at the expander level with `@@` (or quoted at the shell level as a fallback); shell quoting remains the user's responsibility
+  - [x] `tusk note add "body"` (v0.12) inherits the same convention from day one — documented in the v0.12 note CLI story rather than patched in later
+
+- [x] **Story: MCP field parity check**
+  - [x] MCP tools receive description, title, and body as structured JSON fields, so no `@file` expansion is needed on that surface — agents already pass the content directly
+  - [x] Tool schemas stay unchanged; only the CLI surface moves
+  - [x] Verification pass confirmed no MCP tool accidentally grew a `@` interpretation while the CLI was being rewired: `grep -rn "expandRefs\|expandRefsWithState\|expandState" internal/mcp/` → no hits; `grep -rn "readDescription" internal/mcp/` → no hits; `grep -rn "@\"" internal/mcp/` → no hits; `grep -rn "@-" internal/mcp/` → no hits. `tusk_task_create`, `tusk_task_modify`, and `tusk_task_annotate` schemas list `title`, `description`, and `body` as plain `string` parameters, and the handlers in `internal/mcp/tools.go` call `TaskService.Create`/`Update`/`Annotate` directly with the raw JSON-supplied strings.
 
 ### Initiative: UDA Flag Elimination
 
