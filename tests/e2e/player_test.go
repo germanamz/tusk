@@ -217,6 +217,111 @@ func TestClaimPreservedAfterDone(t *testing.T) {
 	runScenarios(t, binPath, scenarios)
 }
 
+func TestPlayerModify(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name: "set_note_window_size",
+			Steps: []Step{
+				{Args: []string{"player", "register", "agent-1", "--type", "agent"}},
+				{
+					Args: []string{"player", "modify", "agent-1", "note-window-size=50"},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						assertEqual(t, m["id"], "agent-1")
+						if m["note_window_size"] == nil {
+							t.Fatal("expected note_window_size to be set")
+						}
+						assertEqual(t, m["note_window_size"], float64(50))
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertContains(t, output, "Updated")
+						assertContains(t, output, "note_window_size: 50")
+					},
+				},
+			},
+		},
+		{
+			Name: "clear_note_window_size",
+			Steps: []Step{
+				{Args: []string{"player", "register", "agent-1", "--type", "agent"}},
+				{Args: []string{"player", "modify", "agent-1", "note-window-size=50"}},
+				{
+					Args: []string{"player", "modify", "agent-1", "note-window-size="},
+					AssertJSON: func(t *testing.T, parsed any) {
+						t.Helper()
+						m := parsed.(map[string]any)
+						if _, ok := m["note_window_size"]; ok {
+							t.Fatalf("expected note_window_size to be absent, got %v", m["note_window_size"])
+						}
+					},
+					AssertText: func(t *testing.T, output string) {
+						t.Helper()
+						assertNotContains(t, output, "note_window_size:")
+					},
+				},
+			},
+		},
+		{
+			Name: "reject_negative_size",
+			Steps: []Step{
+				{Args: []string{"player", "register", "agent-1", "--type", "agent"}},
+				{
+					Args:    []string{"player", "modify", "agent-1", "note-window-size=-5"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertContains(t, r.Stderr, "must be positive")
+					},
+				},
+			},
+		},
+		{
+			Name: "reject_non_integer",
+			Steps: []Step{
+				{Args: []string{"player", "register", "agent-1", "--type", "agent"}},
+				{
+					Args:    []string{"player", "modify", "agent-1", "note-window-size=abc"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertContains(t, r.Stderr, "must be an integer")
+					},
+				},
+			},
+		},
+		{
+			Name: "reject_unknown_field",
+			Steps: []Step{
+				{Args: []string{"player", "register", "agent-1", "--type", "agent"}},
+				{
+					Args:    []string{"player", "modify", "agent-1", "bogus=1"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertContains(t, r.Stderr, `unknown field "bogus"`)
+					},
+				},
+			},
+		},
+		{
+			Name: "reject_missing_player",
+			Steps: []Step{
+				{
+					Args:    []string{"player", "modify", "ghost", "note-window-size=50"},
+					WantErr: true,
+					Assert: func(t *testing.T, r Result) {
+						t.Helper()
+						assertContains(t, r.Stderr, "not found")
+					},
+				},
+			},
+		},
+	}
+	runScenarios(t, binPath, scenarios)
+}
+
 func TestClaimFilters(t *testing.T) {
 	scenarios := []Scenario{
 		{

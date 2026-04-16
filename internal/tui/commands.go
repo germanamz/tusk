@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/filter"
+	"github.com/germanamz/tusk/syntax"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -1113,11 +1115,28 @@ func (a *App) buildPlayerCmd() *cobra.Command {
 	}
 	registerCmd.Flags().String("type", "agent", `player type: "human" or "agent"`)
 
+	modifyCmd := &cobra.Command{
+		Use:   "modify <id> [fields...]",
+		Short: "Modify a player's settings",
+		Long: `Update a player's configurable fields.
+
+Supported fields:
+  note-window-size=<N>   per-player override for the notes trailing window
+  note-window-size=      clear the override (fall back to project/global default)
+
+Examples:
+  tusk player modify agent-1 note-window-size=50
+  tusk player modify agent-1 note-window-size=`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: a.runPlayerModify,
+	}
+
 	playerCmd := &cobra.Command{
 		Use:   "player",
 		Short: "Player management",
 	}
 	playerCmd.AddCommand(registerCmd)
+	playerCmd.AddCommand(modifyCmd)
 	return playerCmd
 }
 
@@ -1133,4 +1152,59 @@ func (a *App) runPlayerRegister(cmd *cobra.Command, args []string) error {
 
 	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
 	return r.renderPlayerResult("Registered", player)
+}
+
+func (a *App) runPlayerModify(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	id := args[0]
+	if id == "" {
+		return fmt.Errorf("player ID must not be empty")
+	}
+
+	fs, parseErrs := syntax.ParseFields(strings.Join(args[1:], " "))
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("%s", filter.FormatErrors(parseErrs))
+	}
+
+	var (
+		sawNoteWindow bool
+		newSize       *int
+	)
+
+	for _, f := range fs.Fields {
+		switch f.Key {
+		case "note-window-size":
+			if f.Modifier != 0 {
+				return fmt.Errorf("note-window-size does not accept %q prefix", string(f.Modifier))
+			}
+			sawNoteWindow = true
+			if f.Value == "" {
+				newSize = nil
+				continue
+			}
+			n, parseErr := strconv.Atoi(f.Value)
+			if parseErr != nil {
+				return fmt.Errorf("note-window-size must be an integer, got %q", f.Value)
+			}
+			if n <= 0 {
+				return fmt.Errorf("note-window-size must be positive, got %d", n)
+			}
+			v := n
+			newSize = &v
+		default:
+			return fmt.Errorf("unknown field %q on player modify", f.Key)
+		}
+	}
+
+	if !sawNoteWindow {
+		return fmt.Errorf("no modifiable fields supplied")
+	}
+
+	player, err := a.playerSvc.SetNoteWindowSize(ctx, id, newSize)
+	if err != nil {
+		return fmt.Errorf("%s", err)
+	}
+
+	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return r.renderPlayerResult("Updated", player)
 }
