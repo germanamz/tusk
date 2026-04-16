@@ -125,7 +125,7 @@ Weights are configurable globally and can be overridden per project, so differen
 
 ### User-Defined Attributes
 
-Tasks support arbitrary key-value metadata via UDAs. Any string key-value pair can be attached, overwritten, or removed. UDAs are filterable (`uda.key=value`) and appear in all task responses across both interfaces.
+Tasks support arbitrary key-value metadata via UDAs. UDAs are set via inline `uda.key=value` syntax on `tusk task create` and `tusk task modify`, and filtered with the same `uda.key=value` syntax on `tusk task list`. Any string key-value pair can be attached, overwritten, or removed. UDAs appear in all task responses across both interfaces.
 
 Projects can define UDA schemas — which keys are allowed, what types and values they accept. When a schema is defined, invalid metadata is rejected on create and update. Without a schema, UDAs are free-form.
 
@@ -162,6 +162,7 @@ Tusk exposes all operations through a command-line interface:
 ```bash
 # Lifecycle
 tusk task create "Implement auth middleware" project=backend +api priority=3
+tusk task create "Deploy monitoring" project=ops +infra priority=3 uda.env=prod uda.region=eu
 tusk task start a3f8b2c1
 tusk task done a3f8b2c1
 tusk task delete a3f8b2c1
@@ -175,6 +176,8 @@ tusk task next                         # highest-urgency actionable task
 
 # Modification
 tusk task modify a3f8b2c1 priority=4 +urgent
+tusk task modify a3f8b2c1 uda.team=backend                              # add/update a UDA
+tusk task modify a3f8b2c1 uda.env=                                      # delete a UDA key
 tusk task modify a3f8b2c1 description=@./spec.md                       # load from file
 cat spec.md | tusk task modify a3f8b2c1 description=@-                  # load from stdin
 tusk task modify a3f8b2c1 description="see @./notes.md for background"  # mid-string
@@ -357,7 +360,7 @@ Tusk uses a shared inline syntax across all commands — filters, task creation,
 
 The syntax is built on a common lexer that understands three primitives:
 
-- **Fields** — `key=value` pairs. The `=` separates key from value.
+- **Fields** — `key=value` pairs. The `=` separates key from value. `uda.key=value` on create and modify sets a user-defined attribute; an empty value on modify deletes the key. Bare `key=value` that is not a reserved field or a `uda.*` field is rejected as unknown — typos on UDA keys surface loudly instead of slipping through.
 - **Token prefix modifiers** (`+`, `-`, …) — A neutral, extensible marker on the whole `key=value` or tag token. The lexer maintains an open registry of recognized prefix characters — currently `+` and `-`, with room for future additions — and records only which registered prefix a token carried, if any. The lexer lifts the prefix into the AST, attaches no meaning, and lets each consumer command interpret it. The same marker can mean different things in different contexts: in filters `+tag` includes and `-tag` excludes; in task commands `+tag` adds a tag and `-tag` removes one; in workflow config `+status=review`/`-status=review` append to and remove from a list; in project config on numeric urgency weights `+urgency.blocking-weight=2` adds 2 to the current value and `-urgency.blocking-weight=1` subtracts 1, while bare `urgency.blocking-weight=0` sets the absolute value. Commands are free to reject modifiers on fields where they don't make sense.
 - **Value modifiers** — attached to a value half of a `key=value` pair:
   - `,` — Unordered set. `status=pending,active` is a set — order doesn't matter and duplicates are deduplicated.
