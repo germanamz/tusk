@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/filter"
@@ -28,6 +29,7 @@ type Server struct {
 	projectRepo    repository.ProjectRepository
 	urgencyEngine  *service.UrgencyEngine
 	server         *server.MCPServer
+	cfgMu          sync.RWMutex
 	cfg            config.MCPConfig
 	loadOpts       []config.Option
 	toolGroups     map[string]string // tool name → group
@@ -866,9 +868,16 @@ func (s *Server) Serve() error {
 }
 
 // reloadConfig re-reads the active config file via the stored loadOpts and
-// hot-reloads the urgency engine and reload hook with the fresh data. It
-// does NOT rebuild the MCP server, reopen the database, or reconfigure
-// transports — those require a process restart.
+// hot-reloads the urgency engine plus the in-memory MCP config snapshot
+// used by checkBlocked. It does NOT rebuild the MCP server, reopen the
+// database, or reconfigure transports — those require a process restart.
+//
+// The s.cfg swap is guarded by s.cfgMu because MCPConfig is a struct with
+// maps and slices — a plain assignment would race with concurrent
+// checkBlocked readers even though writers never mutate the previous
+// snapshot in place. mcp.blocked_fields therefore hot-reloads, unlike
+// mcp.disabled_tools / mcp.disabled_resources, which stay frozen at boot
+// because tool registration happens once in New.
 //
 // Safe to call from any MCP tool handler after a successful config
 // mutation. Returns an error when Load fails; callers should surface the
@@ -894,6 +903,9 @@ func (s *Server) reloadConfig(ctx context.Context) error {
 		Annotations: cfg.Urgency.AnnotationsWeight,
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
+	s.cfgMu.Lock()
+	s.cfg = cfg.MCP
+	s.cfgMu.Unlock()
 	_ = ctx // ctx reserved for future per-call tracing
 	return nil
 }

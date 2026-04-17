@@ -957,10 +957,10 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > Configurable field-level write restrictions for MCP tools — prevent agents from modifying sensitive player or system settings.
 
-- [ ] **Story: MCP blocked fields**
-  - [ ] Define `[mcp.blocked_fields]` config section mapping tool names to lists of restricted fields
-  - [ ] Enforce restrictions at the MCP layer before service calls
-  - [ ] Default blocked fields for player modification (e.g., `note_window_size`)
+- [x] **Story: MCP blocked fields**
+  - [x] Define `[mcp.blocked_fields]` config section mapping tool names to lists of restricted fields
+  - [x] Enforce restrictions at the MCP layer before service calls
+  - [x] Default blocked fields for player modification (e.g., `note_window_size`)
 
 ---
 

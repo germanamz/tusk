@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/domain"
@@ -169,6 +170,72 @@ func TestHandleProjectDelete_Success(t *testing.T) {
 	}
 	if _, err := srv.projectSvc.GetByName(context.Background(), "backend"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("backend still present after delete: err=%v", err)
+	}
+}
+
+func TestHandleProjectModify_BlockedFieldRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	srv := newTestServer(t, path)
+	srv.cfg.BlockedFields = map[string][]string{
+		"tusk_project_modify": {"workflow"},
+	}
+	p := seedBackendProject(t, srv)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":     "backend",
+			"version":  float64(p.Version),
+			"workflow": "kanban",
+		}},
+	}
+	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleProjectModifyForTest: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected block error, got success")
+	}
+	msg := res.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(msg, "mcp.blocked_fields.tusk_project_modify") {
+		t.Errorf("error message missing config-key hint: %q", msg)
+	}
+
+	got, err := srv.projectSvc.GetByName(context.Background(), "backend")
+	if err != nil {
+		t.Fatalf("GetByName backend: %v", err)
+	}
+	if got.Version != p.Version {
+		t.Errorf("service was called despite block: version %d -> %d", p.Version, got.Version)
+	}
+}
+
+func TestHandleProjectModify_BlockedFieldOmitted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	srv := newTestServer(t, path)
+	srv.cfg.BlockedFields = map[string][]string{
+		"tusk_project_modify": {"workflow"},
+	}
+	p := seedBackendProject(t, srv)
+
+	req := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":    "backend",
+			"version": float64(p.Version),
+			"urgency_set": map[string]any{
+				"due_weight": 7.0,
+			},
+		}},
+	}
+	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("HandleProjectModifyForTest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error when blocked field omitted: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 }
 

@@ -120,6 +120,9 @@ func workflowToMap(w *domain.Workflow) map[string]any {
 }
 
 func (s *Server) handleWorkflowCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_workflow_create", req); result != nil {
+		return result, nil
+	}
 	name, err := req.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
@@ -150,6 +153,9 @@ func (s *Server) handleWorkflowCreate(ctx context.Context, req mcp.CallToolReque
 }
 
 func (s *Server) handleWorkflowModify(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_workflow_modify", req); result != nil {
+		return result, nil
+	}
 	name, err := req.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
@@ -209,6 +215,9 @@ func (s *Server) HandleWorkflowModifyForTest(ctx context.Context, req mcp.CallTo
 }
 
 func (s *Server) handleWorkflowDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_workflow_delete", req); result != nil {
+		return result, nil
+	}
 	name, err := req.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil

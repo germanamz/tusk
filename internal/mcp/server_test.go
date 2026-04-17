@@ -10,6 +10,7 @@ import (
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite/sqlitetest"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // mustNew calls New and fails the test on error.
@@ -312,5 +313,65 @@ func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
 	wfs, err := workflowRepo.List(context.Background())
 	if err != nil || len(wfs) == 0 {
 		t.Fatalf("post-reload workflows: got %+v err=%v", wfs, err)
+	}
+}
+
+func TestReloadConfig_BlockedFieldsHotSwap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+
+	initial, err := config.LoadFile("../../config/default.toml")
+	if err != nil {
+		t.Fatalf("reading default.toml seed: %v", err)
+	}
+	initial.MCP.BlockedFields = nil
+	if err := config.WriteConfig(initial, path); err != nil {
+		t.Fatalf("writing initial config: %v", err)
+	}
+
+	_, projectRepo, workflowRepo := sqlitetest.NewStore(t)
+	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
+
+	loadOpts := []config.Option{config.WithExplicitFile(path)}
+	srv, err := New(
+		nil, nil, nil, nil, nil, nil, nil,
+		workflowRepo, projectRepo, urgencyEngine,
+		"test", initial.MCP, loadOpts,
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	req := blockedReq(map[string]any{
+		"name":     "backend",
+		"version":  float64(1),
+		"workflow": "kanban",
+	})
+	if res := srv.checkBlocked("tusk_project_modify", req); res != nil {
+		t.Fatalf("pre-reload: expected no block, got %s", res.Content[0].(mcp.TextContent).Text)
+	}
+
+	updated, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("re-reading config: %v", err)
+	}
+	updated.MCP.BlockedFields = map[string][]string{
+		"tusk_project_modify": {"workflow"},
+	}
+	if err := config.WriteConfig(updated, path); err != nil {
+		t.Fatalf("rewriting config: %v", err)
+	}
+
+	if err := srv.ReloadConfigForTest(context.Background()); err != nil {
+		t.Fatalf("reloadConfig: %v", err)
+	}
+
+	res := srv.checkBlocked("tusk_project_modify", req)
+	if res == nil {
+		t.Fatal("post-reload: expected block, got nil")
+	}
+	msg := res.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(msg, "mcp.blocked_fields.tusk_project_modify") {
+		t.Errorf("block message missing config-key hint: %q", msg)
 	}
 }

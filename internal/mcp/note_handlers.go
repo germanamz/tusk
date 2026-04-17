@@ -48,6 +48,9 @@ func toNoteResponse(ctx context.Context, s *Server, n *domain.Note, projectNames
 }
 
 func (s *Server) handleNoteAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_note_add", request); result != nil {
+		return result, nil
+	}
 	playerID, err := request.RequireString("player_id")
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
@@ -195,6 +198,9 @@ func (s *Server) handleNoteList(ctx context.Context, request mcp.CallToolRequest
 }
 
 func (s *Server) handleNoteArchive(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_note_archive", request); result != nil {
+		return result, nil
+	}
 	playerID, err := request.RequireString("player_id")
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil

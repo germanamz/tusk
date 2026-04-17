@@ -113,6 +113,9 @@ func projectToMap(p *domain.Project) map[string]any {
 }
 
 func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_project_create", req); result != nil {
+		return result, nil
+	}
 	name, err := req.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
@@ -168,6 +171,9 @@ func (s *Server) HandleProjectCreateForTest(ctx context.Context, req mcp.CallToo
 }
 
 func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_project_modify", req); result != nil {
+		return result, nil
+	}
 	name, err := req.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
@@ -237,6 +243,9 @@ func (s *Server) HandleProjectModifyForTest(ctx context.Context, req mcp.CallToo
 }
 
 func (s *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_project_delete", req); result != nil {
+		return result, nil
+	}
 	name, err := req.RequireString("name")
 	if err != nil {
 		return mcp.NewToolResultError("name is required"), nil
