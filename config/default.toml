@@ -39,9 +39,17 @@ default_sort = "urgency"      # Default sort field for task lists
 # Disable MCP tool groups: ["task", "task_relations", "project", "workflow", "player", "config"]
 disabled_tool_groups = []
 
-# Disable individual MCP tools by name, e.g.:
-# disabled_tools = ["tusk_task_delete", "tusk_task_tree"]
-disabled_tools = []
+# Workspace-shaping tools are blocked for MCP agents by default. Remove
+# entries to opt in; combine with [mcp.blocked_fields] for field-level policy.
+disabled_tools = [
+  "tusk_config_set",
+  "tusk_workflow_create",
+  "tusk_workflow_modify",
+  "tusk_workflow_delete",
+  "tusk_project_create",
+  "tusk_project_modify",
+  "tusk_project_delete",
+]
 
 # Disable MCP resource groups: ["task", "project", "workflow"]
 disabled_resource_groups = []
@@ -49,6 +57,13 @@ disabled_resource_groups = []
 # Disable individual MCP resources by URI template, e.g.:
 # disabled_resources = ["tusk://projects/{name}/workflow"]
 disabled_resources = []
+
+# Field-level write restrictions. Keys are MCP tool names, values are the
+# input fields an agent may not supply. Enforced only when the tool is
+# enabled (i.e., not listed in disabled_tools above).
+[mcp.blocked_fields]
+tusk_project_modify = ["workflow"]
+tusk_project_delete = ["force"]
 
 [inline]
 # Maximum byte size of a single @file expansion on inline string fields.

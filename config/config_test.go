@@ -54,12 +54,26 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Errorf("TUI.DefaultSort = %q, want %q", cfg.TUI.DefaultSort, "urgency")
 	}
 
-	// MCP defaults (empty slices)
+	// MCP defaults
 	if len(cfg.MCP.DisabledToolGroups) != 0 {
 		t.Errorf("MCP.DisabledToolGroups = %v, want empty", cfg.MCP.DisabledToolGroups)
 	}
-	if len(cfg.MCP.DisabledTools) != 0 {
-		t.Errorf("MCP.DisabledTools = %v, want empty", cfg.MCP.DisabledTools)
+	wantDisabledTools := []string{
+		"tusk_config_set",
+		"tusk_workflow_create",
+		"tusk_workflow_modify",
+		"tusk_workflow_delete",
+		"tusk_project_create",
+		"tusk_project_modify",
+		"tusk_project_delete",
+	}
+	if len(cfg.MCP.DisabledTools) != len(wantDisabledTools) {
+		t.Fatalf("MCP.DisabledTools = %v, want %v", cfg.MCP.DisabledTools, wantDisabledTools)
+	}
+	for i, want := range wantDisabledTools {
+		if cfg.MCP.DisabledTools[i] != want {
+			t.Errorf("MCP.DisabledTools[%d] = %q, want %q", i, cfg.MCP.DisabledTools[i], want)
+		}
 	}
 	if len(cfg.MCP.DisabledResourceGroups) != 0 {
 		t.Errorf("MCP.DisabledResourceGroups = %v, want empty", cfg.MCP.DisabledResourceGroups)
@@ -67,6 +81,26 @@ func TestLoad_Defaults(t *testing.T) {
 	if len(cfg.MCP.DisabledResources) != 0 {
 		t.Errorf("MCP.DisabledResources = %v, want empty", cfg.MCP.DisabledResources)
 	}
+
+	// Blocked fields defaults
+	if got, want := cfg.MCP.BlockedFields["tusk_project_modify"], []string{"workflow"}; !equalStrings(got, want) {
+		t.Errorf("MCP.BlockedFields[tusk_project_modify] = %v, want %v", got, want)
+	}
+	if got, want := cfg.MCP.BlockedFields["tusk_project_delete"], []string{"force"}; !equalStrings(got, want) {
+		t.Errorf("MCP.BlockedFields[tusk_project_delete] = %v, want %v", got, want)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestLoad_File(t *testing.T) {
