@@ -370,6 +370,50 @@ func TestCLI_ConfigSet(t *testing.T) {
 	})
 }
 
+func TestCLI_ConfigSet_BlockedFields(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+
+	homeDir := t.TempDir()
+	env := envWithHome(homeDir)
+
+	initCmd := exec.Command(binPath, "config", "init")
+	initCmd.Env = env
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("config init: %v\n%s", err, out)
+	}
+
+	setCmd := exec.Command(binPath, "config", "set", "mcp.blocked_fields.tusk_task_modify", "priority")
+	setCmd.Env = env
+	if out, err := setCmd.CombinedOutput(); err != nil {
+		t.Fatalf("config set mcp.blocked_fields.tusk_task_modify: %v\n%s", err, out)
+	}
+
+	showCmd := exec.Command(binPath, "--format", "json", "config", "show")
+	showCmd.Env = env
+	out, err := showCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config show --format json: %v\n%s", err, out)
+	}
+
+	var parsed struct {
+		MCP struct {
+			BlockedFields map[string][]string `json:"blocked_fields"`
+		} `json:"mcp"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("parsing config show JSON: %v\n%s", err, out)
+	}
+	got, ok := parsed.MCP.BlockedFields["tusk_task_modify"]
+	if !ok {
+		t.Fatalf("blocked_fields missing tusk_task_modify entry: %+v", parsed.MCP.BlockedFields)
+	}
+	if len(got) != 1 || got[0] != "priority" {
+		t.Errorf("tusk_task_modify blocked fields = %v, want [priority]", got)
+	}
+}
+
 func TestCLI_ConfigValidate(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")

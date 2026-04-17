@@ -35,6 +35,9 @@ func (s *Server) handleConfigShow(ctx context.Context, req mcp.CallToolRequest) 
 }
 
 func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_config_set", req); result != nil {
+		return result, nil
+	}
 	key, err := req.RequireString("key")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("missing key: %v", err)), nil

@@ -151,6 +151,9 @@ func extractUDA(request mcp.CallToolRequest) (map[string]any, *mcp.CallToolResul
 
 // handleTaskCreate handles the tusk_task_create tool.
 func (s *Server) handleTaskCreate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_create", request); result != nil {
+		return result, nil
+	}
 	title, err := request.RequireString("title")
 	if err != nil {
 		return mcp.NewToolResultError("title is required"), nil
@@ -519,6 +522,9 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 
 // handleTaskModify handles the tusk_task_modify tool.
 func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_modify", request); result != nil {
+		return result, nil
+	}
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -668,6 +674,9 @@ func (s *Server) handleTaskTransition(ctx context.Context, request mcp.CallToolR
 
 // handleTaskStart handles the tusk_task_start tool.
 func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_start", request); result != nil {
+		return result, nil
+	}
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -703,16 +712,25 @@ func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolReques
 
 // handleTaskDone handles the tusk_task_done tool.
 func (s *Server) handleTaskDone(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_done", request); result != nil {
+		return result, nil
+	}
 	return s.handleTaskTransition(ctx, request, s.taskSvc.Complete)
 }
 
 // handleTaskDelete handles the tusk_task_delete tool.
 func (s *Server) handleTaskDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_delete", request); result != nil {
+		return result, nil
+	}
 	return s.handleTaskTransition(ctx, request, s.taskSvc.Delete)
 }
 
 // handleTaskAnnotate handles the tusk_task_annotate tool.
 func (s *Server) handleTaskAnnotate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_annotate", request); result != nil {
+		return result, nil
+	}
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -845,6 +863,9 @@ type relationAddResponse struct {
 
 // handleTaskLink handles the tusk_task_link tool.
 func (s *Server) handleTaskLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_link", request); result != nil {
+		return result, nil
+	}
 	source, err := request.RequireString("source")
 	if err != nil {
 		return mcp.NewToolResultError("source is required"), nil
@@ -874,6 +895,9 @@ func (s *Server) handleTaskLink(ctx context.Context, request mcp.CallToolRequest
 
 // handleTaskUnlink handles the tusk_task_unlink tool.
 func (s *Server) handleTaskUnlink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_unlink", request); result != nil {
+		return result, nil
+	}
 	source, err := request.RequireString("source")
 	if err != nil {
 		return mcp.NewToolResultError("source is required"), nil
@@ -1009,6 +1033,9 @@ func toPlayerResponse(p *domain.Player) playerResponse {
 
 // handlePlayerRegister handles the tusk_player_register tool.
 func (s *Server) handlePlayerRegister(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_player_register", request); result != nil {
+		return result, nil
+	}
 	playerID, err := request.RequireString("player_id")
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
@@ -1024,6 +1051,9 @@ func (s *Server) handlePlayerRegister(ctx context.Context, request mcp.CallToolR
 
 // handleTaskClaim handles the tusk_task_claim tool.
 func (s *Server) handleTaskClaim(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_claim", request); result != nil {
+		return result, nil
+	}
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -1052,6 +1082,9 @@ func (s *Server) handleTaskClaim(ctx context.Context, request mcp.CallToolReques
 
 // handleTaskRelease handles the tusk_task_release tool.
 func (s *Server) handleTaskRelease(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_release", request); result != nil {
+		return result, nil
+	}
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -1139,6 +1172,9 @@ func (s *Server) handleTaskAvailable(ctx context.Context, request mcp.CallToolRe
 
 // handleTaskPop handles the tusk_task_pop tool.
 func (s *Server) handleTaskPop(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := s.checkBlocked("tusk_task_pop", request); result != nil {
+		return result, nil
+	}
 	playerID, err := request.RequireString("player_id")
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
