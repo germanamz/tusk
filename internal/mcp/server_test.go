@@ -220,6 +220,67 @@ func TestValidation_NoteDisable(t *testing.T) {
 	})
 }
 
+func TestValidateConfig_BlockedFields_UnknownTool(t *testing.T) {
+	_, err := New(
+		nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil,
+		"test", config.MCPConfig{
+			BlockedFields: map[string][]string{"tusk_bogus": {"foo"}},
+		}, nil,
+	)
+	if err == nil {
+		t.Fatal("expected error for unknown tool in blocked_fields, got nil")
+	}
+	if !strings.Contains(err.Error(), "blocked_fields: unknown tool") {
+		t.Errorf("expected error to mention 'blocked_fields: unknown tool', got: %s", err.Error())
+	}
+}
+
+func TestValidateConfig_BlockedFields_UnknownField(t *testing.T) {
+	_, err := New(
+		nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil,
+		"test", config.MCPConfig{
+			BlockedFields: map[string][]string{"tusk_task_modify": {"bogus"}},
+		}, nil,
+	)
+	if err == nil {
+		t.Fatal("expected error for unknown field in blocked_fields, got nil")
+	}
+	if !strings.Contains(err.Error(), `has no field "bogus"`) {
+		t.Errorf(`expected error to mention 'has no field "bogus"', got: %s`, err.Error())
+	}
+}
+
+func TestValidateConfig_BlockedFields_DottedField(t *testing.T) {
+	_, err := New(
+		nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil,
+		"test", config.MCPConfig{
+			BlockedFields: map[string][]string{"tusk_task_modify": {"uda.env"}},
+		}, nil,
+	)
+	if err == nil {
+		t.Fatal("expected error for dotted sub-key in blocked_fields, got nil")
+	}
+	if !strings.Contains(err.Error(), "dotted sub-keys not yet supported") {
+		t.Errorf("expected error to mention 'dotted sub-keys not yet supported', got: %s", err.Error())
+	}
+}
+
+func TestValidateConfig_BlockedFields_Valid(t *testing.T) {
+	_, err := New(
+		nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil,
+		"test", config.MCPConfig{
+			BlockedFields: map[string][]string{"tusk_project_modify": {"workflow"}},
+		}, nil,
+	)
+	if err != nil {
+		t.Errorf("expected no error for valid blocked_fields entry, got: %v", err)
+	}
+}
+
 func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "tusk.toml")
