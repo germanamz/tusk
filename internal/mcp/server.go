@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/filter"
@@ -172,6 +173,23 @@ func (s *Server) validateConfig() error {
 		}
 	}
 
+	for toolName, fields := range s.cfg.BlockedFields {
+		registry, known := toolFields[toolName]
+		if !known {
+			errs = append(errs, fmt.Errorf("blocked_fields: unknown tool %q", toolName))
+			continue
+		}
+		for _, field := range fields {
+			if strings.Contains(field, ".") {
+				errs = append(errs, fmt.Errorf("blocked_fields: dotted sub-keys not yet supported (%q on tool %q)", field, toolName))
+				continue
+			}
+			if _, ok := registry[field]; !ok {
+				errs = append(errs, fmt.Errorf("blocked_fields: tool %q has no field %q", toolName, field))
+			}
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid mcp config: %w", errors.Join(errs...))
 	}
@@ -201,6 +219,8 @@ func (s *Server) addResource(group string, tmpl mcp.ResourceTemplate, handler se
 
 // registerTools registers all MCP tool definitions and their handlers.
 func (s *Server) registerTools() {
+	// Keep internal/mcp/field_registry.go in sync when adding, renaming, or
+	// removing input parameters on any tool below.
 	s.addTool("task",
 		mcp.NewTool("tusk_task_create",
 			mcp.WithDescription("Create a new task"),
