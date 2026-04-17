@@ -30,6 +30,11 @@ func mapError(err error, context string) string {
 		return "would create a parent-child cycle"
 	case errors.Is(err, domain.ErrDuplicateRelation):
 		return "relation already exists"
+	case errors.Is(err, domain.ErrForbidden):
+		if context != "" {
+			return fmt.Sprintf("forbidden: %s", context)
+		}
+		return "forbidden"
 	default:
 		return fmt.Sprintf("internal error: %s", err.Error())
 	}

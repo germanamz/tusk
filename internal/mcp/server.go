@@ -22,6 +22,7 @@ type Server struct {
 	projectSvc     *service.ProjectService
 	workflowSvc    *service.WorkflowService
 	playerSvc      *service.PlayerService
+	noteSvc        *service.NoteService
 	workflowRepo   repository.WorkflowRepository
 	projectRepo    repository.ProjectRepository
 	urgencyEngine  *service.UrgencyEngine
@@ -41,6 +42,7 @@ func New(
 	projectSvc *service.ProjectService,
 	workflowSvc *service.WorkflowService,
 	playerSvc *service.PlayerService,
+	noteSvc *service.NoteService,
 	workflowRepo repository.WorkflowRepository,
 	projectRepo repository.ProjectRepository,
 	urgencyEngine *service.UrgencyEngine,
@@ -55,6 +57,7 @@ func New(
 		projectSvc:     projectSvc,
 		workflowSvc:    workflowSvc,
 		playerSvc:      playerSvc,
+		noteSvc:        noteSvc,
 		workflowRepo:   workflowRepo,
 		projectRepo:    projectRepo,
 		urgencyEngine:  urgencyEngine,
@@ -131,9 +134,12 @@ func (s *Server) validateConfig() error {
 		"tusk_project_create":  true,
 		"tusk_project_modify":  true,
 		"tusk_project_delete":  true,
+		"tusk_note_add":        true,
+		"tusk_note_list":       true,
+		"tusk_note_archive":    true,
 	}
 	validToolGroups := map[string]bool{
-		"task": true, "task_relations": true, "project": true, "workflow": true, "player": true, "config": true,
+		"task": true, "task_relations": true, "project": true, "workflow": true, "player": true, "config": true, "note": true,
 	}
 	validResourceURIs := map[string]bool{
 		"tusk://tasks/{short_id}":         true,
@@ -754,6 +760,45 @@ func (s *Server) registerTools() {
 		s.handleConfigShow,
 	)
 
+	s.addTool("note",
+		mcp.NewTool("tusk_note_add",
+			mcp.WithDescription("Create a note in a project, optionally attached to a task."),
+			mcp.WithString("player_id", mcp.Required(), mcp.Description("Player ID — auto-registers as agent. Note is attributed to this player.")),
+			mcp.WithString("body", mcp.Required(), mcp.Description("Markdown note body.")),
+			mcp.WithString("project", mcp.Description("Project name. Defaults to the built-in \"_default\" project.")),
+			mcp.WithString("task", mcp.Description("Task short ID to attach the note to (optional — omit for a project-level note).")),
+			mcp.WithObject("metadata",
+				mcp.Description("Arbitrary key-value metadata (all values must be strings). Symmetric with task UDAs."),
+				mcp.AdditionalProperties(map[string]any{"type": "string"}),
+			),
+		),
+		s.handleNoteAdd,
+	)
+
+	s.addTool("note",
+		mcp.NewTool("tusk_note_list",
+			mcp.WithDescription("List notes in a project, newest-first, honoring the trailing window size."),
+			mcp.WithString("player_id", mcp.Required(), mcp.Description("Caller player ID — auto-registers as agent. Defaults the list scope to this player's notes.")),
+			mcp.WithString("project", mcp.Description("Project name. Defaults to \"_default\".")),
+			mcp.WithString("task", mcp.Description("Task short ID filter.")),
+			mcp.WithString("target_player_id", mcp.Description("Show notes from a specific player. Cannot combine with all_players.")),
+			mcp.WithBoolean("all_players", mcp.Description("Show notes from every player. Cannot combine with target_player_id.")),
+			mcp.WithNumber("window", mcp.Description("Override trailing window size (must be > 0).")),
+			mcp.WithString("since", mcp.Description("Only return notes created at or after this ISO 8601 (RFC3339) timestamp.")),
+			mcp.WithBoolean("include_archived", mcp.Description("Include archived notes in the result.")),
+		),
+		s.handleNoteList,
+	)
+
+	s.addTool("note",
+		mcp.NewTool("tusk_note_archive",
+			mcp.WithDescription("Archive a note. Only the note's author may archive."),
+			mcp.WithString("player_id", mcp.Required(), mcp.Description("Caller player ID — must match the note's author.")),
+			mcp.WithString("id", mcp.Required(), mcp.Description("Full note UUID. Short prefixes are not accepted over MCP.")),
+		),
+		s.handleNoteArchive,
+	)
+
 	s.addTool("config",
 		mcp.NewTool("tusk_config_set",
 			mcp.WithDescription("Set a scalar config value by dot-path key and hot-reload the server. Rejects storage.* keys. Changes to mcp.disabled_* take effect only after process restart."),
@@ -841,4 +886,4 @@ func (s *Server) ReloadConfigForTest(ctx context.Context) error {
 // WorkflowRepoForTest exposes the workflow repo handle for internal tests.
 func (s *Server) WorkflowRepoForTest() repository.WorkflowRepository { return s.workflowRepo }
 
-const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version. You can also inspect the active configuration via tusk_config_show and modify scalar config values via tusk_config_set (storage.* keys are read-only over MCP). Workflows can be created, modified, and deleted via tusk_workflow_create, tusk_workflow_modify, and tusk_workflow_delete using structured JSON inputs. Projects can be created, modified, and deleted via tusk_project_create, tusk_project_modify, and tusk_project_delete — deletion honors the built-in-default and referencing-tasks guards (pass force=true to bypass).`
+const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version. You can also inspect the active configuration via tusk_config_show and modify scalar config values via tusk_config_set (storage.* keys are read-only over MCP). Workflows can be created, modified, and deleted via tusk_workflow_create, tusk_workflow_modify, and tusk_workflow_delete using structured JSON inputs. Projects can be created, modified, and deleted via tusk_project_create, tusk_project_modify, and tusk_project_delete — deletion honors the built-in-default and referencing-tasks guards (pass force=true to bypass). Notes can be created, listed, and archived via tusk_note_add, tusk_note_list, and tusk_note_archive; notes are player-scoped and append-only (archive, don't edit).`

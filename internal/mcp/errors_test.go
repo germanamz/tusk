@@ -64,6 +64,17 @@ func TestMapError(t *testing.T) {
 			want:    "target task not found",
 		},
 		{
+			name:    "ErrForbidden with context",
+			err:     domain.ErrForbidden,
+			context: "archive note",
+			want:    "forbidden: archive note",
+		},
+		{
+			name: "ErrForbidden no context",
+			err:  domain.ErrForbidden,
+			want: "forbidden",
+		},
+		{
 			name: "unknown error",
 			err:  fmt.Errorf("db connection lost"),
 			want: "internal error: db connection lost",

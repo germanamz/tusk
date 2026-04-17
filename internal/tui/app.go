@@ -159,7 +159,7 @@ func New(
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mcpServer, err := tuskmcp.New(
 				taskSvc, tagSvc, relationSvc, projectSvc,
-				a.workflowSvc, a.playerSvc,
+				a.workflowSvc, a.playerSvc, a.noteSvc,
 				a.workflowRepo, a.projectRepo, a.urgencyEngine,
 				vi.Version, a.mcpCfg, a.loadOpts,
 			)
