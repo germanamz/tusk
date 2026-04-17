@@ -71,10 +71,11 @@ type UrgencyConfig struct {
 
 // MCPConfig controls which tools and resources the MCP server exposes.
 type MCPConfig struct {
-	DisabledToolGroups     []string `mapstructure:"disabled_tool_groups"     toml:"disabled_tool_groups"     json:"disabled_tool_groups"`
-	DisabledTools          []string `mapstructure:"disabled_tools"           toml:"disabled_tools"           json:"disabled_tools"`
-	DisabledResourceGroups []string `mapstructure:"disabled_resource_groups" toml:"disabled_resource_groups" json:"disabled_resource_groups"`
-	DisabledResources      []string `mapstructure:"disabled_resources"       toml:"disabled_resources"       json:"disabled_resources"`
+	DisabledToolGroups     []string            `mapstructure:"disabled_tool_groups"     toml:"disabled_tool_groups"     json:"disabled_tool_groups"`
+	DisabledTools          []string            `mapstructure:"disabled_tools"           toml:"disabled_tools"           json:"disabled_tools"`
+	DisabledResourceGroups []string            `mapstructure:"disabled_resource_groups" toml:"disabled_resource_groups" json:"disabled_resource_groups"`
+	DisabledResources      []string            `mapstructure:"disabled_resources"       toml:"disabled_resources"       json:"disabled_resources"`
+	BlockedFields          map[string][]string `mapstructure:"blocked_fields"           toml:"blocked_fields"           json:"blocked_fields"`
 }
 
 // InlineConfig governs inline-reference expansion on string input fields

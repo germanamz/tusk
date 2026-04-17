@@ -169,6 +169,9 @@ func TestIsSliceKey(t *testing.T) {
 		{"mcp.disabled_tools", true},
 		{"mcp.disabled_tool_groups", true},
 		{"mcp.disabled_resources", true},
+		{"mcp.blocked_fields.tusk_project_modify", true},
+		{"mcp.blocked_fields.tusk_task_modify", true},
+		{"mcp.blocked_fields", false},
 		{"tui.color", false},
 		{"storage.path", false},
 		{"urgency.due_weight", false},
@@ -197,6 +200,8 @@ func TestIsValidKey(t *testing.T) {
 		{"tui.date_format", true},
 		{"urgency.due_weight", true},
 		{"mcp.disabled_tools", true},
+		{"mcp.blocked_fields.tusk_project_modify", true},
+		{"mcp.blocked_fields", false},
 		// Invalid keys
 		{"nonexistent", false},
 		{"storage.nonexistent", false},

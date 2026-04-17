@@ -154,8 +154,15 @@ func isSliceKeyPath(t reflect.Type, parts []string) bool {
 		}
 		return false
 	case reflect.Map:
-		if len(parts) < 2 {
+		if len(parts) == 0 {
 			return false
+		}
+		if len(parts) == 1 {
+			elem := t.Elem()
+			for elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+			return elem.Kind() == reflect.Slice
 		}
 		return isSliceKeyPath(t.Elem(), parts[1:])
 	default:
@@ -192,12 +199,12 @@ func isValidKeyPath(t reflect.Type, parts []string) bool {
 			tag := f.Tag.Get("mapstructure")
 			if tag == parts[0] {
 				if len(parts) == 1 {
-					// Valid only if this is a leaf (not a struct, or is a slice/basic type).
+					// Valid only if this is a leaf (not a struct or map, or is a slice/basic type).
 					ft := f.Type
 					for ft.Kind() == reflect.Ptr {
 						ft = ft.Elem()
 					}
-					return ft.Kind() != reflect.Struct
+					return ft.Kind() != reflect.Struct && ft.Kind() != reflect.Map
 				}
 				return isValidKeyPath(f.Type, parts[1:])
 			}
@@ -207,8 +214,15 @@ func isValidKeyPath(t reflect.Type, parts []string) bool {
 	case reflect.Map:
 		// Map key can be anything (e.g., workflows.<anyname>).
 		// Continue validating the value type with remaining parts.
+		if len(parts) == 0 {
+			return false
+		}
 		if len(parts) == 1 {
-			return false // map itself is not a leaf
+			elem := t.Elem()
+			for elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+			return elem.Kind() != reflect.Struct
 		}
 		return isValidKeyPath(t.Elem(), parts[1:])
 
