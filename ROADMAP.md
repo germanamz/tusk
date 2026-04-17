@@ -948,10 +948,10 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 > Expose note operations to AI agents via MCP.
 
-- [ ] **Story: Note MCP tools**
-  - [ ] `tusk_note_add` — create note (project, player, optional task, body, metadata)
-  - [ ] `tusk_note_list` — list with window/since/player/task/archived filters
-  - [ ] `tusk_note_archive` — archive a note
+- [x] **Story: Note MCP tools**
+  - [x] `tusk_note_add` — create note (project, player, optional task, body, metadata)
+  - [x] `tusk_note_list` — list with window/since/player/task/archived filters
+  - [x] `tusk_note_archive` — archive a note
 
 ### Initiative: MCP Field Restrictions
 

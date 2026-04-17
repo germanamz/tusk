@@ -16,7 +16,7 @@ import (
 func mustNew(t *testing.T, cfg config.MCPConfig) *Server {
 	t.Helper()
 	s, err := New(
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
 		"test", cfg, nil,
 	)
@@ -114,11 +114,11 @@ func TestRegisterTools_FiltersDisabledTools(t *testing.T) {
 		DisabledToolGroups: []string{"task_relations"},
 	})
 
-	if len(full.toolGroups) != 27 {
-		t.Errorf("full server: expected 27 tools, got %d", len(full.toolGroups))
+	if len(full.toolGroups) != 30 {
+		t.Errorf("full server: expected 30 tools, got %d", len(full.toolGroups))
 	}
-	if len(filtered.toolGroups) != 25 {
-		t.Errorf("filtered server: expected 25 tools (task_relations group disabled), got %d", len(filtered.toolGroups))
+	if len(filtered.toolGroups) != 28 {
+		t.Errorf("filtered server: expected 28 tools (task_relations group disabled), got %d", len(filtered.toolGroups))
 	}
 }
 
@@ -145,7 +145,7 @@ func TestValidation_UnknownEntries(t *testing.T) {
 	}
 
 	_, err := New(
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
 		"test", cfg, nil,
 	)
@@ -173,13 +173,51 @@ func TestValidation_NoErrorForValidEntries(t *testing.T) {
 	}
 
 	_, err := New(
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
+}
+
+func TestValidation_NoteDisable(t *testing.T) {
+	t.Run("disable note tool accepted", func(t *testing.T) {
+		_, err := New(
+			nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil,
+			"test", config.MCPConfig{DisabledTools: []string{"tusk_note_add"}}, nil,
+		)
+		if err != nil {
+			t.Errorf("expected no error disabling tusk_note_add, got: %v", err)
+		}
+	})
+
+	t.Run("disable note group accepted", func(t *testing.T) {
+		_, err := New(
+			nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil,
+			"test", config.MCPConfig{DisabledToolGroups: []string{"note"}}, nil,
+		)
+		if err != nil {
+			t.Errorf("expected no error disabling note group, got: %v", err)
+		}
+	})
+
+	t.Run("unknown note_* rejected", func(t *testing.T) {
+		_, err := New(
+			nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil,
+			"test", config.MCPConfig{DisabledTools: []string{"tusk_note_bogus"}}, nil,
+		)
+		if err == nil {
+			t.Fatal("expected error for unknown tusk_note_bogus, got nil")
+		}
+		if !strings.Contains(err.Error(), "tusk_note_bogus") {
+			t.Errorf("expected error to mention tusk_note_bogus, got: %s", err.Error())
+		}
+	})
 }
 
 func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
@@ -197,7 +235,7 @@ func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
 	srv, err := New(
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 		workflowRepo, projectRepo, urgencyEngine,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configPath)},

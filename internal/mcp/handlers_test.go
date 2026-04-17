@@ -24,6 +24,7 @@ func testServer(t *testing.T) *Server {
 		Store:       store,
 		Tasks:       sqlite.NewTaskRepo(db),
 		Annotations: sqlite.NewAnnotationRepo(db),
+		Notes:       sqlite.NewNoteRepo(db),
 		Relations:   sqlite.NewRelationRepo(db),
 		Tags:        sqlite.NewTagRepo(db),
 		Players:     sqlite.NewPlayerRepo(db),
@@ -36,9 +37,11 @@ func testServer(t *testing.T) *Server {
 	tagSvc := service.NewTagService(resolver)
 	relationSvc := service.NewRelationService(resolver, projects)
 	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{})
+	playerSvc := service.NewPlayerService(bundle.Players)
+	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, 0)
 
 	s, err := New(
-		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil,
+		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, noteSvc,
 		nil, nil, nil,
 		"test", config.MCPConfig{}, nil,
 	)

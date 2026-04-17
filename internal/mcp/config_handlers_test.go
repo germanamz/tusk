@@ -109,7 +109,7 @@ func newTestServer(t *testing.T, configFile string) *Server {
 	}})
 
 	srv, err := New(
-		nil, nil, nil, projectSvc, workflowSvc, nil,
+		nil, nil, nil, projectSvc, workflowSvc, nil, nil,
 		workflowRepo, projectRepo, urgencyEngine,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configFile)},
