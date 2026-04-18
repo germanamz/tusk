@@ -28,7 +28,7 @@ Tusk occupies the gap:
 
 Everything in tusk is a task. There are no epics, stories, or subtasks as distinct types — a task is an "epic" if it has children, and a "subtask" if it has a parent. This keeps the model flat where simple is enough and hierarchical where structure is needed, without forcing a taxonomy.
 
-Each task carries a title, optional markdown description, status, priority (none through urgent), optional due date, and a computed urgency score. Tasks can hold arbitrary key-value metadata through user-defined attributes.
+Each task carries a title, optional markdown description, status, priority (none through urgent), optional due date, a computed urgency score, and an optional sibling order (a fractional index used to rank the task among children of the same parent). Tasks can hold arbitrary key-value metadata through user-defined attributes.
 
 Tasks are identified by an 8-character short ID derived from their UUID. The short ID is stable for the task's lifetime and used in all human-facing interactions. The full UUID is used internally and in programmatic contexts.
 
@@ -37,6 +37,12 @@ Tasks are never physically removed. Deletion is a status transition through the 
 ### Hierarchy
 
 Tasks can nest to arbitrary depth via an optional parent reference. When all children of a parent reach a trigger status, the parent can auto-transition (e.g., auto-complete when all children complete). The reverse works too — reopening a child can auto-revert a completed parent. Both behaviors are configurable per project and disabled by default.
+
+Siblings under the same parent are ordered by a per-task `order` field — a fractional index that lets tasks be inserted between neighbors without renumbering the whole sibling group. Hierarchical views (`tusk task tree`, `task list parent=…`, `task list tree=…`) sort by `order` so the output matches how the work was laid out. Flat views (`task list`, `next`, `available`, `pop`) continue to sort by urgency — ordering is structural, not a priority signal. The `tusk task move` command places a task before, after, first, or last among its siblings and handles re-parenting in one step.
+
+### Progress Rollup
+
+Any branch in the hierarchy can be summarized with `tusk task summary <id>` or with `tusk task tree --rollup`. Summaries count all descendants at any depth and report `%done` plus a breakdown by status — deriving completion from the workflow's `done` and `delete` status roles so custom workflows work without configuration. No vocabulary is baked in: the rollup doesn't know about "epics" or "stories", it just counts tasks. Filters (`+tag`, `uda.level=story`, `priority=3..4`, etc.) narrow a rollup to any subset the user cares about.
 
 ### Relations
 
@@ -121,7 +127,7 @@ Notes are append-only. They cannot be edited after creation, but can be **archiv
 
 Every task receives a numeric urgency score computed from weighted factors: priority, proximity to due date (sigmoid curve), age, active status, whether it blocks or is blocked by other tasks, tags, project membership, annotation count, and waiting state. The score determines default sort order across all views.
 
-Weights are configurable globally and can be overridden per project, so different projects can express different prioritization philosophies without custom sort logic.
+Weights are configurable globally, can be overridden per project, and can be overridden per task. Task-level overrides cascade to all descendants with key-level merging, so the full resolution chain is global config → project settings → ancestor task overrides → self overrides. This lets a milestone (or any subtree) re-tune urgency for everything under it — e.g., boost `blocking_weight` on a "ship-critical" branch — without affecting the rest of the workspace. Later keys override earlier keys on a per-weight basis, so an override of `blocking_weight` alone leaves `due_weight` inherited from the outer scope.
 
 ### User-Defined Attributes
 
@@ -171,7 +177,10 @@ tusk task delete a3f8b2c1
 tusk task list                         # pending + active, sorted by urgency
 tusk task list project=backend +api    # filtered
 tusk task get a3f8b2c1                 # full task detail
-tusk task tree                         # hierarchical view
+tusk task tree                         # hierarchical view, sorted by sibling order
+tusk task tree --rollup                # tree + per-branch %done and status breakdown
+tusk task summary a3f8b2c1             # single-subtree rollup block
+tusk task summary                      # workspace-wide rollup, one block per root task
 tusk task next                         # highest-urgency actionable task
 
 # Modification
@@ -184,6 +193,12 @@ tusk task modify a3f8b2c1 description="see @./notes.md for background"  # mid-st
 tusk task modify a3f8b2c1 description="@@literal-at-sign in body"       # escape
 tusk task annotate a3f8b2c1 "Blocked by upstream API changes"
 tusk task annotate a3f8b2c1 @./investigation.md                         # annotate from file
+tusk task modify a3f8b2c1 urgency.blocking-weight=20                    # per-task urgency override
+tusk task modify a3f8b2c1 urgency.clear=true                            # drop all task-level overrides
+tusk task move a3f8b2c1 --before b7c9d4e2                               # reorder within siblings
+tusk task move a3f8b2c1 --after b7c9d4e2                                # (re-parents if the target has a different parent)
+tusk task move a3f8b2c1 --first                                         # top of its sibling group
+tusk task move a3f8b2c1 --last                                          # bottom of its sibling group
 tusk undo                              # revert last mutation (workspace-wide)
 
 # Relations
@@ -219,8 +234,13 @@ tusk task timer stop a3f8b2c1
 tusk task attach a3f8b2c1 spec.pdf
 
 # Data portability
-tusk export --format json              # full dump
-tusk export --format csv               # flat export
+tusk export --format json                          # full dump (tasks, relations, notes, events, schemas, …)
+tusk export --format markdown                      # human-readable tree (regenerate ROADMAP-style docs)
+tusk export --format csv                           # flat tabular export
+tusk import --format json --input workspace.json   # restore or migrate a workspace
+tusk import --format markdown --input ROADMAP.md   # load a bulleted plan as a task tree
+tusk import --format json --input file.json --dry-run    # preview without writing
+tusk import --format json --input file.json --replace    # overwrite on ID collisions
 
 # Configuration
 tusk config show                         # effective merged config
@@ -481,9 +501,12 @@ The storage layer is defined as a set of interfaces. SQLite is the shipped defau
 
 ## Data Portability
 
-Tusk supports full data export for backup, migration, and interoperability:
+Tusk supports data export and import for backup, migration, interoperability, and keeping human-readable documents in sync with tusk state:
 
-- **JSON export** — complete dump of all tasks, relations, annotations, tags, and players.
-- **CSV export** — flat tabular export of tasks for spreadsheet workflows.
+- **JSON** — bidirectional. Complete workspace dump (tasks, relations, annotations, tags, players, notes, events, projects, workflows, UDA schemas). Round-trips into an empty workspace with the same graph, IDs, UDAs, and timestamps. The authoritative portable format.
+- **Markdown** — bidirectional. Human-readable tree: headings per root task, nested bullets for descendants, checkboxes for status, inline UDAs for metadata. Intended both for round-tripping tusk's own export and for bootstrapping a workspace from a hand-written bulleted plan. Fields that don't fit in the markdown shape (e.g., `urgency_overrides`, full event history) round-trip only through JSON.
+- **CSV** — export only. Flat tabular export of tasks for spreadsheet workflows.
 
-Bidirectional sync allows merging task data across tusk instances. The sync protocol defines a conflict resolution strategy so that two instances that have diverged can be reconciled without data loss.
+Import honors an `--input <path>` flag, fails on ID collision by default, and accepts `--replace` for overwrite or `--dry-run` to preview. Every import emits events into the event log so the change is auditable like any other mutation.
+
+Bidirectional sync (separate from import/export) allows merging task data across running tusk instances. The sync protocol defines a conflict resolution strategy so that two instances that have diverged can be reconciled without data loss.
