@@ -974,7 +974,7 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 ### Initiative: Event Log
 
-> Append-only event table recording all mutations. Foundation for data portability (import/export need accurate event history), the live dashboard in v0.14, and undo in v0.15.
+> Append-only event table recording all mutations. Foundation for data portability (import/export need accurate event history), the live dashboard in v0.15, and undo in v0.16.
 
 - [ ] **Story: Event log infrastructure**
   - [ ] Define event types (task_created, task_modified, status_changed, task_claimed, task_released, task_completed, task_deleted, relation_added, relation_removed)
@@ -1044,7 +1044,7 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 ### Initiative: Progress Rollup
 
-> Static CLI summary views for per-subtree completion tracking. Live dashboard rollup is deferred to v0.14, where the event log can drive real-time updates without re-querying.
+> Static CLI summary views for per-subtree completion tracking. Live dashboard rollup is deferred to v0.15, where the event log can drive real-time updates without re-querying.
 
 - [ ] **Story: Rollup on tree view**
   - [ ] `tusk task tree --rollup` — branch nodes render with `[done/total done, %]` and `(status: count, ...)` breakdown; leaf nodes unchanged
@@ -1098,7 +1098,148 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 ---
 
-## v0.14 — Live Dashboard
+## v0.14 — Tusk Claude Code Plugin
+
+**Goal:** Ship an official Claude Code plugin that accelerates the human-agent loop for roadmap work and day-to-day task triage on top of tusk. Vanilla `tusk` remains fully supported — the plugin is an optional layer for users who want an agentic loop.
+
+### Initiative: Plugin Scaffolding
+
+> Repo layout, marketplace manifest, plugin manifest, CI validation.
+
+- [ ] **Story: Repo layout**
+  - [ ] `plugin/` subtree with `plugin/.claude-plugin/plugin.json` manifest (plugin name `tusk`, version mirrors tusk minor)
+  - [ ] Top-level `.claude-plugin/marketplace.json` with a single plugin entry pointing at `./plugin`
+  - [ ] `plugin/.mcp.json` declaring the tusk MCP server; command targets the launcher, no `TUSK_DB` set so tusk's default applies
+
+- [ ] **Story: CI validation**
+  - [ ] GitHub Actions job runs `claude plugin validate plugin/` on every PR that touches `plugin/`
+  - [ ] Plugin release tag gated on manifest validity
+
+### Initiative: Binary Launcher
+
+> Portable launcher that downloads the pinned tusk binary from GitHub Releases on first use, verifies via SHA256, and caches in `${CLAUDE_PLUGIN_DATA}`. No bundled binaries — plugin package stays small.
+
+- [ ] **Story: Platform-aware launcher scripts**
+  - [ ] `plugin/bin/tusk-launcher` (POSIX) and `plugin/bin/tusk-launcher.cmd` (Windows) with parallel logic
+  - [ ] Platform detection via `uname` / `%PROCESSOR_ARCHITECTURE%`
+  - [ ] Exec cached binary if present; otherwise download
+
+- [ ] **Story: Download and verification**
+  - [ ] Fetch from `https://github.com/<org>/tusk/releases/download/v<version>/tusk-<os>-<arch>`
+  - [ ] SHA256 check against `plugin/bin/checksums.json` (regenerated per release)
+  - [ ] Install to `${CLAUDE_PLUGIN_DATA}/bin/tusk-<version>-<os>-<arch>`, mark executable
+  - [ ] Actionable error messages on network or checksum failure
+
+- [ ] **Story: Escape hatch and version check**
+  - [ ] `TUSK_MCP_BINARY` env var skips download and execs the provided path (for dev and corporate mirrors)
+  - [ ] Launcher warns (never blocks) if `tusk version` disagrees with the plugin's pinned version
+
+- [ ] **Story: Launcher tests**
+  - [ ] Shell test harness (bats-style) against a local HTTP fixture
+  - [ ] Coverage: platform detection, successful install, checksum rejection, override path
+
+### Initiative: MCP Wiring and Install Flow
+
+> End-to-end install: plugin loads, MCP server spawns, tasks created through a skill land in the shared tusk DB.
+
+- [ ] **Story: Shared-DB default**
+  - [ ] Plugin `.mcp.json` leaves `TUSK_DB` unset so tusk falls through to its default `~/.local/share/tusk/tusk.db`
+  - [ ] Project-level `.mcp.json` opt-out pattern documented in the plugin README
+
+- [ ] **Story: Integration smoke test**
+  - [ ] Pre-release checklist: `claude --plugin-dir ./plugin` → `tusk:init` → `tusk:plan` → verify tasks land in a fresh DB
+  - [ ] Documented in `RELEASE.md`
+
+### Initiative: Tier A — Tusk-Native Skills
+
+> One-time setup plus the roadmap/task-shape workflow skills. All skills use only documented v0.13 tusk MCP tools.
+
+- [ ] **Story: `tusk:init`**
+  - [ ] Detect CLAUDE.md / AGENTS.md / GEMINI.md at repo root; ask which file(s) to update or offer to create CLAUDE.md
+  - [ ] Ask for the alignment doc path; accept paths that don't exist yet
+  - [ ] Write the `## Tusk alignment` block idempotently — update in place if present, never duplicate
+  - [ ] Offer to bootstrap the level UDA schema (milestone/initiative/story/task/spike) on the active tusk project
+
+- [ ] **Story: `tusk:plan`**
+  - [ ] Read the alignment doc via the CLAUDE.md convention; prompt for intent if absent
+  - [ ] Guided brainstorm → WBS draft → user review → `tusk import --format json` for atomic bulk creation
+  - [ ] Produces one milestone subtree per invocation
+
+- [ ] **Story: `tusk:decompose`**
+  - [ ] Input: task short_id
+  - [ ] Walks the user through splitting the task; creates children with level-correct UDA values respecting v0.13 parent-level pairing
+
+- [ ] **Story: `tusk:pick-next`**
+  - [ ] Reads urgency, sibling order, blocker state, rollup health
+  - [ ] Recommends one task with explicit reasoning; user accepts or overrides
+  - [ ] Advisory only — never mutates
+
+- [ ] **Story: `tusk:report`**
+  - [ ] Logs progress as a note on the active task
+  - [ ] Transitions status on confirmation; shows the impact on parent rollup
+
+- [ ] **Story: `tusk:review`**
+  - [ ] Reads the full roadmap rollup
+  - [ ] Surfaces at-risk subtrees (low velocity, urgency escalation, stale in-progress)
+  - [ ] Suggests reprioritizations; never mutates without confirmation
+
+### Initiative: Tier B — Engineering Discipline Skills
+
+> Opinionated workflow skills that counter common agentic-coding failure modes — missing clarifications, overcomplicated designs, skipped tests. Artifacts land as tusk notes and child tasks rather than loose markdown files.
+
+- [ ] **Story: `tusk:brainstorm`**
+  - [ ] Clarifying questions one at a time
+  - [ ] Propose 2-3 approaches with tradeoffs
+  - [ ] Hard gate: refuses to produce a design until questions are answered
+  - [ ] Output: note on the active task
+
+- [ ] **Story: `tusk:design`**
+  - [ ] Turn a brainstorm into a design with named components, interfaces, failure modes, testing strategy
+  - [ ] Hard gate: refuses to move to implementation until the user approves
+  - [ ] Output: a second note on the task, cross-referenced with the brainstorm
+
+- [ ] **Story: `tusk:plan-implementation`**
+  - [ ] Turn a design into a phased plan as a child-task subtree
+  - [ ] Each phase is a child task with a "definition of done" in its description
+  - [ ] Hard gate: refuses to write code until the subtree is approved
+  - [ ] Rollup tracks plan progress automatically
+
+- [ ] **Story: `tusk:tdd`**
+  - [ ] Requires a failing test before implementation
+  - [ ] Runs the suite iteratively, logs each iteration as a note on the active task
+  - [ ] Hard gate: refuses to write implementation without a red test
+
+### Initiative: Release Pipeline
+
+> Extend tusk's release workflow to produce a matching plugin release with regenerated checksums.
+
+- [ ] **Story: Checksum regeneration job**
+  - [ ] CI step after tusk binary publish: download release SHA256s, write `plugin/bin/checksums.json`
+  - [ ] Commits and pushes the checksum update
+  - [ ] Plugin version bump handled in the same PR when needed
+
+- [ ] **Story: Version pin and compatibility matrix**
+  - [ ] Plugin minor mirrors tusk minor (v0.14.x plugin → v0.14.x tusk)
+  - [ ] Plugin patches can ship independently for skill or launcher fixes
+  - [ ] Compatibility matrix documented in the plugin README (plugin v0.14.x requires tusk ≥ v0.13.0)
+
+### Initiative: Documentation
+
+> Plugin install guide, skill catalog, troubleshooting.
+
+- [ ] **Story: Plugin README**
+  - [ ] Install via `/plugin marketplace add <org>/tusk` then `/plugin install tusk@tusk`
+  - [ ] Skill catalog with one-paragraph summaries
+  - [ ] Compatibility matrix
+
+- [ ] **Story: Troubleshooting section**
+  - [ ] Offline install via `TUSK_MCP_BINARY`
+  - [ ] Corporate proxy / mirror setup
+  - [ ] DB isolation pattern (project-level `.mcp.json` with `TUSK_DB`)
+
+---
+
+## v0.15 — Live Dashboard
 
 **Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by the event log shipped in v0.13.
 
@@ -1128,7 +1269,7 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 ---
 
-## v0.15 — Advanced Features
+## v0.16 — Advanced Features
 
 **Goal:** Recurrence, additional transports, and undo.
 
@@ -1229,6 +1370,23 @@ Note: ProjectRepository and WorkflowRepository are in-memory (config-backed) and
 - [ ] **Story: Team-scoped urgency**
   - [ ] Per-team urgency weight overrides, slotting into the resolution chain between project and task-subtree overrides
   - [ ] Resolution: global → project → team → ancestor tasks → self
+
+### Initiative: Cross-Team Alignment
+
+> Coordinate parallel teams against a shared alignment source. Teams each keep their own workspace with independent workflows and urgency (per the Teams initiative), but share a higher-level product doc that defines common milestones and success criteria. This initiative adds tooling to verify conformance and surface cross-team rollups, turning tusk into a source of clarity across teams without coupling their day-to-day workflows.
+
+- [ ] **Story: Shared milestone identity**
+  - [ ] Stable cross-workspace keys for milestones so multiple teams can reference "the same milestone" independently of UUIDs
+  - [ ] Import/export carries the alignment identity so teams importing the same milestone recognize it as shared
+
+- [ ] **Story: Alignment-doc conformance check**
+  - [ ] `tusk align check` compares a team workspace's milestones against a configured alignment source and reports missing, extra, or mismatched entries
+  - [ ] Read-only — never mutates the workspace automatically; surfaces a diff for the user to act on
+  - [ ] MCP tool exposure for agent-driven conformance checks
+
+- [ ] **Story: Cross-team rollup**
+  - [ ] Aggregate progress rollup across multiple team workspaces by shared milestone reference
+  - [ ] `tusk align status <milestone>` lists which teams own which portions and their current rollup
 
 ### Initiative: Urgency Profiles
 

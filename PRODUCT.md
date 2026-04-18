@@ -332,6 +332,43 @@ tusk://projects/{name}/workflow
 
 Tool and resource visibility is configurable — individual tools, resource templates, or entire groups can be hidden from agents.
 
+### Claude Code Plugin
+
+Tusk ships an official Claude Code plugin that accelerates the human-agent loop for roadmap work and day-to-day task triage. The plugin is an optional layer — vanilla `tusk` CLI and MCP usage remain fully supported. Users who want an agentic workflow install the plugin; everyone else uses tusk as-is.
+
+The plugin bundles three things: MCP server wiring (registered automatically with Claude Code), a lazy-download launcher that fetches the pinned tusk binary from GitHub Releases on first use and caches it under `${CLAUDE_PLUGIN_DATA}`, and a focused family of skills. The launcher honors a `TUSK_MCP_BINARY` override for development and air-gapped environments, and verifies downloaded binaries against a shipped SHA256 checksum manifest.
+
+By default, the plugin targets the shared tusk database (`~/.local/share/tusk/tusk.db`), so the CLI and the plugin see the same tasks. Projects that want an isolated roadmap add a project-level `.mcp.json` with a repo-local `TUSK_DB`.
+
+Skills come in two tiers. The **tusk-native tier** covers setup and roadmap work:
+
+- `tusk:init` — one-time project bootstrap: detect CLAUDE.md / AGENTS.md / GEMINI.md, write an alignment-doc convention block, optionally configure the level UDA schema on the active project.
+- `tusk:plan` — guided brainstorm from intent and alignment context to a WBS, imported into tusk as one milestone subtree per invocation.
+- `tusk:decompose` — break a task into correctly-leveled children (respecting the milestone → initiative → story → task/spike pairing).
+- `tusk:pick-next` — advisory next-action recommendation based on urgency, rollup, and blockers.
+- `tusk:report` — log progress on the active task and surface the impact on parent rollup.
+- `tusk:review` — rollup health check and drift flagging across the full roadmap.
+
+The **engineering-discipline tier** encodes opinionated workflows with hard gates that counter common agentic-coding failure modes:
+
+- `tusk:brainstorm` — enforces one-question-at-a-time clarification, tradeoff surfacing, and explicit scope before producing a design.
+- `tusk:design` — turns a brainstorm into a design with named components, interfaces, and failure modes. Will not proceed to implementation planning without user approval.
+- `tusk:plan-implementation` — materializes a design as a child-task subtree, each phase a task with a "definition of done".
+- `tusk:tdd` — test-first loop that refuses to write implementation code without a failing test.
+
+Artifacts produced during brainstorming, design, and planning land as tusk notes and child tasks, so the work is discoverable from `tusk task get` and survives branch switches. No custom MCP surface — skills use only the documented tusk MCP tools.
+
+**Alignment convention.** Skills look for a `## Tusk alignment` block in CLAUDE.md / AGENTS.md / GEMINI.md that names the alignment doc (e.g., `- Alignment doc: docs/vision.md`) and the target tusk project. The convention is optional; skills prompt for intent when the block is absent and adapt to whatever file the user points at.
+
+**Installation.** Tusk is open source, so the plugin is installed directly from its GitHub repository, which doubles as a single-plugin marketplace:
+
+```bash
+/plugin marketplace add <org>/tusk
+/plugin install tusk@tusk
+```
+
+Plugin minor version mirrors tusk's (v0.14.x plugin targets v0.14.x tusk); patches can ship independently for skill or launcher fixes.
+
 ### Live Dashboard
 
 A real-time terminal dashboard for monitoring task state and player activity:
