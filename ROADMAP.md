@@ -964,13 +964,17 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 ---
 
-## v0.13 — Live Dashboard
+## v0.13 — Roadmap Self-Host
 
-**Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by an event log.
+**Goal:** Make tusk usable as the source of truth for its own roadmap. Replace the hand-edited `ROADMAP.md` with a tusk project, regenerate a human-readable markdown view from tusk state, and give agents the observability and schema tools they need to plan against it.
+
+The milestone combines the foundational capabilities the self-host use case depends on — the Event Log, UDA Schema Validation, and bidirectional Data Portability — with three capabilities that fall out of managing a roadmap inside tusk: sibling ordering, subtree urgency overrides, and a static progress rollup view. It closes with a one-shot migration from the existing `ROADMAP.md` so the milestone can be dogfooded before release.
+
+**Exit criteria:** `ROADMAP.md` is regenerated from tusk state (never hand-edited) and every status update flows through `tusk task done` or equivalent.
 
 ### Initiative: Event Log
 
-> Append-only event table recording all mutations. Foundation for dashboard, undo, and future webhooks.
+> Append-only event table recording all mutations. Foundation for data portability (import/export need accurate event history), the live dashboard in v0.14, and undo in v0.15.
 
 - [ ] **Story: Event log infrastructure**
   - [ ] Define event types (task_created, task_modified, status_changed, task_claimed, task_released, task_completed, task_deleted, relation_added, relation_removed)
@@ -979,12 +983,131 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
   - [ ] Emit events from TaskService, RelationService on every mutation
   - [ ] Bounded retention (configurable max events, prune on write)
 
+### Initiative: UDA Schema Validation
+
+> Per-project validation for user-defined attributes, including enums and parent-level pairing rules. Required to enforce the `uda.level` convention used by the roadmap self-host model (one project, `uda.level=milestone|initiative|story|task|spike`, with strict parent-level pairing).
+
+- [ ] **Story: UDA schema definition**
+  - [ ] Per-project UDA schema stored in `ProjectSettings` (type, allowed values, required flag, parent-level constraints)
+  - [ ] Schema CRUD via `tusk project modify <name> uda-schema.<key>=...` inline syntax
+  - [ ] `tusk_project_modify` MCP tool accepts schema updates with version-based optimistic locking
+
+- [ ] **Story: Schema enforcement**
+  - [ ] Validate UDA values against the project's schema on task create, modify, and import
+  - [ ] Support enum constraints (e.g., `level ∈ {milestone, initiative, story, task, spike}`)
+  - [ ] Support parent-level pairing rules (e.g., `level=initiative` requires `parent.level=milestone`)
+  - [ ] Reject invalid writes with a structured error identifying the failing key
+
+### Initiative: Sibling Ordering
+
+> Fractional `order` field for positioning tasks among siblings. Gives hierarchical views a meaningful document-position sort without coupling to urgency.
+
+- [ ] **Story: Order field and sort policy**
+  - [ ] Add `order` DOUBLE column to `tasks` (nullable) via migration
+  - [ ] `tusk task create` accepts `order=<float>` inline; default is `max(sibling.order) + 1` or `1.0` for the first child
+  - [ ] `tusk task modify <id> order=<float>` sets an absolute value through the inline field path
+  - [ ] Tree views (`tusk task tree`, `task list parent=...`, `task list tree=...`, children in `task get`) sort by `order ASC, created_at ASC`
+  - [ ] Flat views (`task list`, `next`, `available`, `pop`) continue to sort by urgency
+  - [ ] `--sort=order|urgency|created|priority|due` override available on list/tree
+
+- [ ] **Story: `tusk task move` command**
+  - [ ] `tusk task move <id> --before <target>` / `--after <target>` / `--first` / `--last`
+  - [ ] Computes a midpoint between neighbors (fractional index) and writes it
+  - [ ] Re-parents the task when `target` has a different parent (single atomic operation)
+  - [ ] `--resequence <parent>` rewrites a sibling group to evenly spaced integers when midpoints exhaust `float64` precision
+  - [ ] MCP tool `tusk_task_move` with the same semantics
+
+- [ ] **Story: Order in export / import**
+  - [ ] JSON export serializes `order`; JSON import preserves exact values
+  - [ ] Markdown export emits tasks in `order` sequence; Markdown import assigns `order` from document position
+
+### Initiative: Subtree Urgency Overrides
+
+> Urgency weight overrides attachable to any task, inherited by descendants with key-level merge. Lets a single workspace host multiple priority zones — e.g., per-milestone boosts on a self-hosted roadmap — without requiring a project split.
+
+- [ ] **Story: Override field and resolution**
+  - [ ] Add `urgency_overrides` JSON column to `tasks` (nullable)
+  - [ ] Urgency engine resolution chain: global config → project settings → ancestor task overrides (root → self, merged) → self overrides
+  - [ ] Merge is per-key — unspecified keys inherit from the outer scope
+  - [ ] Re-parenting re-walks the ancestor chain on next compute; overrides on the moved task travel with it
+
+- [ ] **Story: Override CLI and MCP surface**
+  - [ ] `tusk task modify <id> urgency.<weight>=<float>` sets an override key
+  - [ ] `tusk task modify <id> urgency.<weight>=` (empty value) clears that key
+  - [ ] `tusk task modify <id> +urgency.<weight>=<delta>` / `-urgency.<weight>=<delta>` apply arithmetic deltas; when no task-level value exists, the delta applies relative to the resolved effective weight at that position in the chain
+  - [ ] `tusk task modify <id> urgency.clear=true` drops every task-level override in one call
+  - [ ] `tusk_task_modify` MCP tool accepts a structured `urgency_overrides` object; the v0.12 blocked-fields mechanism applies unchanged
+
+- [ ] **Story: Visibility**
+  - [ ] `tusk task get` renders `urgency_overrides` (self) and an `effective_urgency_weights` block (resolved chain)
+  - [ ] `tusk config show` unchanged — task-level overrides are task data, not config
+
+### Initiative: Progress Rollup
+
+> Static CLI summary views for per-subtree completion tracking. Live dashboard rollup is deferred to v0.14, where the event log can drive real-time updates without re-querying.
+
+- [ ] **Story: Rollup on tree view**
+  - [ ] `tusk task tree --rollup` — branch nodes render with `[done/total done, %]` and `(status: count, ...)` breakdown; leaf nodes unchanged
+  - [ ] Counters include all descendants at any depth — no WBS vocabulary baked in
+  - [ ] `%done` = `count(descendants with status having done role) / count(descendants with status not having delete role)` — leverages the status roles shipped in v0.9 so custom workflows work without extra configuration
+
+- [ ] **Story: `tusk task summary` command**
+  - [ ] `tusk task summary <id>` — single-subtree block: title, status, `%done`, counts by status
+  - [ ] `tusk task summary` (no id) — workspace-wide rollup: one block per root task plus a totals line
+  - [ ] Accepts the same filter grammar as `task list` so scoped rollups (`tusk task summary uda.level=story`) work without the feature itself knowing what `level` means
+  - [ ] `--output json` variant for agent consumption
+  - [ ] MCP tool `tusk_task_summary` mirrors the CLI
+
+### Initiative: Data Portability
+
+> Bidirectional JSON and Markdown import and export, plus CSV export. Covers backup, migration, and keeping human-readable markdown docs in sync with tusk state.
+
+- [ ] **Story: JSON export and import**
+  - [ ] `tusk export --format json [--output <path>]` writes a full workspace dump (tasks, relations, annotations, tags, players, notes, events, projects, workflows, UDA schemas); stdout by default
+  - [ ] `tusk import --format json --input <path>` rehydrates the workspace with IDs, UDAs, and timestamps preserved
+  - [ ] `--replace` overwrites colliding rows; default is fail-on-collision
+  - [ ] `--dry-run` reports what would be imported without writing
+  - [ ] Import emits events so the operation appears in the event log
+
+- [ ] **Story: Markdown export and import**
+  - [ ] `tusk export --format markdown [--output <path>]` writes a human-readable tree: heading per root task, nested bullets, checkboxes for status, inline UDAs for metadata (`uda.key=value`)
+  - [ ] `tusk import --format markdown --input <path>` parses the same dialect back into tasks, preserving hierarchy, status, and document-position order
+  - [ ] Fields that don't fit in the markdown shape (e.g., `urgency_overrides`, full event history) round-trip only through JSON — documented in the dialect reference
+  - [ ] Dialect rejection is strict: anything outside the exported shape fails on import with a pointer at the offending line
+
+- [ ] **Story: CSV export**
+  - [ ] `tusk export --format csv [--output <path>]` flat tabular export of tasks for spreadsheet workflows (no import)
+
+- [ ] **Story: MCP tools**
+  - [ ] `tusk_export` and `tusk_import` tools with format, input, output, dry-run, and replace parameters, gated through the v0.12 blocked-fields mechanism
+
+### Initiative: ROADMAP.md Migration
+
+> One-shot bootstrap that moves the existing `ROADMAP.md` into a tusk workspace, so the milestone can be dogfooded before close. Script is throwaway — it lives in-repo only for the duration of v0.13.
+
+- [ ] **Story: Migration script**
+  - [ ] `scripts/migrate-roadmap/main.go` parses `ROADMAP.md` headings, initiatives, stories, and tasks into the JSON import format (or hands the markdown file directly to `tusk import --format markdown`, whichever path lands first)
+  - [ ] Emits `uda.level` on every task following the self-host modeling convention
+  - [ ] Preserves completion state (`[x]` → `completed`), hierarchy, and document-position ordering
+  - [ ] Verification step: re-exporting the migrated workspace to markdown matches the source within the round-trip guarantee
+
+- [ ] **Story: Cutover**
+  - [ ] `ROADMAP.md` is regenerated from `tusk export --format markdown` and replaces the hand-edited file
+  - [ ] Contributor docs updated to point at `tusk task` commands for roadmap edits instead of direct markdown edits
+  - [ ] Migration script removed from the repo once cutover is stable
+
+---
+
+## v0.14 — Live Dashboard
+
+**Goal:** Real-time TUI dashboard for monitoring task state and player activity, powered by the event log shipped in v0.13.
+
 ### Initiative: TUI Dashboard
 
 > Bubbletea-based live dashboard for orchestrator situational awareness.
 
 - [ ] **Story: Task board view**
-  - [ ] `tusk dashboard` �� long-running TUI command
+  - [ ] `tusk dashboard` — long-running TUI command
   - [ ] Tasks organized by status columns (kanban-style)
   - [ ] Live updates via event log polling (1-2 second interval)
   - [ ] Color-coded by priority and claim status (bubbletea owns its own styling, independent of v0.6 TUI Polish)
@@ -999,27 +1122,15 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
   - [ ] Keyboard navigation between panels
   - [ ] Configurable via `[dashboard]` config section (refresh interval, layout, visible columns)
 
+- [ ] **Story: Live rollup panel**
+  - [ ] Extends the static progress rollup from v0.13 into a live dashboard panel driven by event log deltas (no per-tick re-query)
+  - [ ] Per-root-task `%done` and status breakdown, refreshed as events arrive
+
 ---
 
-## v0.14 — Advanced Features
+## v0.15 — Advanced Features
 
-**Goal:** Recurrence, additional transports, data portability, and undo.
-
-### Initiative: UDA Schema Validation
-
-> Per-project validation for user-defined attributes. Builds on the UDA CLI surface from v0.5.
-
-- [ ] **Story: UDA schema validation**
-  - [ ] Per-project UDA schema definition in `ProjectSettings`
-  - [ ] Validate UDA values against schema on create/update
-
-### Initiative: Data Portability
-
-> Export capabilities for data backup and migration.
-
-- [ ] **Story: Export**
-  - [ ] `tusk export --format json` — full dump
-  - [ ] `tusk export --format csv` — flat export
+**Goal:** Recurrence, additional transports, and undo.
 
 ### Initiative: Recurrence
 
@@ -1101,3 +1212,32 @@ Note: ProjectRepository and WorkflowRepository are in-memory (config-backed) and
 - [ ] **Story: Sync protocol**
   - [ ] Define sync format and conflict resolution strategy
   - [ ] `tusk sync export` / `tusk sync import` with merge semantics
+
+### Initiative: Teams
+
+> Introduce teams as a first-class entity so workflows, milestone assignments, and urgency scoping can vary by team within one workspace. Workflows are per-project by design — a single workspace sharing one workflow and one project-level urgency default cannot express teams with divergent practices. Teams provide that scope without forcing a project-per-team split.
+
+- [ ] **Story: Team entity and membership**
+  - [ ] Domain type, repository, migration
+  - [ ] Players can belong to one or more teams
+  - [ ] Tasks carry an optional team reference
+
+- [ ] **Story: Team-scoped workflows**
+  - [ ] A team can declare its own workflow independent of the project's default
+  - [ ] Task status transitions validate against the team's workflow when a team is set
+
+- [ ] **Story: Team-scoped urgency**
+  - [ ] Per-team urgency weight overrides, slotting into the resolution chain between project and task-subtree overrides
+  - [ ] Resolution: global → project → team → ancestor tasks → self
+
+### Initiative: Urgency Profiles
+
+> Named bundles of urgency weight overrides, attachable to any task or team. Follow-up to the subtree urgency overrides shipped in v0.13: once projects start repeating the same override combinations ("ship-critical", "research", "maintenance"), profiles replace the copy-paste. Also covers customizable rollup formulas if that scope follows.
+
+- [ ] **Story: Profile entity**
+  - [ ] Named profile with a weight map, stored per workspace
+  - [ ] CRUD via `tusk urgency-profile create/modify/delete/list`
+
+- [ ] **Story: Profile attachment**
+  - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer
+  - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key
