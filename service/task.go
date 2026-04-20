@@ -568,12 +568,16 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 
 // Start transitions a task from its current status to its workflow's
 // start-role status. If playerID is non-empty, it auto-claims the task
-// for the player.
+// for the player. Emits exactly one task_started event.
 func (s *TaskService) Start(ctx context.Context, shortID string, version int, playerID string) (*domain.Task, error) {
 	bundle, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
+	if task.Version != version {
+		return nil, domain.ErrConflict
+	}
+
 	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, err)
@@ -587,8 +591,22 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 		return nil, fmt.Errorf("resolving start status: %w", err)
 	}
 
+	oldStatus := task.Status
+	if task.Status != startStatus {
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, wfName, task.Status, startStatus)
+		if err != nil {
+			return nil, fmt.Errorf("checking transition: %w", err)
+		}
+		if !allowed {
+			return nil, fmt.Errorf("transition %q → %q not allowed: %w", task.Status, startStatus, domain.ErrInvalidTransition)
+		}
+	}
+
+	var players repository.PlayerRepository
+	autoClaimed := false
+
 	if playerID != "" {
-		players, err := s.playerRepo(ctx)
+		players, err = s.playerRepo(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -596,40 +614,41 @@ func (s *TaskService) Start(ctx context.Context, shortID string, version int, pl
 			if _, err := players.GetByID(ctx, playerID); err != nil {
 				return nil, fmt.Errorf("player %q: %w", playerID, err)
 			}
-
 			if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
 				return nil, domain.ErrTaskClaimed
 			}
-
-			upd := domain.TaskUpdate{
-				ShortID: shortID,
-				Version: version,
-				Status:  ptr(startStatus),
-			}
 			if task.ClaimedBy == nil {
 				now := time.Now().UTC().Truncate(time.Millisecond)
-				claimedBy := ptr(playerID)
-				claimedAt := ptr(now)
-				upd.ClaimedBy = &claimedBy
-				upd.ClaimedAt = &claimedAt
+				claimedBy := playerID
+				task.ClaimedBy = &claimedBy
+				task.ClaimedAt = &now
+				autoClaimed = true
 			}
-
-			result, err := s.Update(ctx, upd)
-			if err != nil {
-				return nil, err
-			}
-
-			players.UpdateLastSeen(ctx, playerID) //nolint:errcheck
-			return result, nil
 		}
 	}
 
-	_ = bundle // bundle is fetched for parity with the player path
-	return s.Update(ctx, domain.TaskUpdate{
-		ShortID: shortID,
-		Version: version,
-		Status:  ptr(startStatus),
+	_ = bundle
+	task.Status = startStatus
+	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+
+	actor := ActorFromContext(ctx)
+	var result *domain.Task
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		updated, err := s.applyValidatedUpdate(ctx, tx, task, oldStatus)
+		if err != nil {
+			return err
+		}
+		result = updated
+		return tx.Events().Record(ctx, domain.NewTaskStartedEvent(updated, oldStatus, autoClaimed, actor))
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if players != nil && playerID != "" {
+		players.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+	}
+	return result, nil
 }
 
 // playerRepo returns the default bundle's PlayerRepository. Players are
@@ -917,39 +936,92 @@ func (s *TaskService) availableInBundle(ctx context.Context, bundle *RepoBundle,
 }
 
 // Pop claims and starts the highest-urgency available task for the
-// given player. Retries on claim-conflict and optimistic-lock errors.
-// Returns domain.ErrNoAvailableTasks if nothing can be claimed.
+// given player atomically, emitting exactly one task_popped event.
+// Retries on claim-conflict and optimistic-lock errors. Returns
+// domain.ErrNoAvailableTasks if nothing can be claimed.
 func (s *TaskService) Pop(ctx context.Context, playerID string, filter domain.FilterExpr) (*domain.Task, error) {
-	tasks, err := s.Available(ctx, filter)
+	available, err := s.Available(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	if len(tasks) == 0 {
+	if len(available) == 0 {
 		return nil, domain.ErrNoAvailableTasks
 	}
 
-	for _, task := range tasks {
-		claimed, err := s.Claim(ctx, task.ShortID, playerID, task.Version)
+	players, err := s.playerRepo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if players == nil {
+		return nil, fmt.Errorf("player support not configured")
+	}
+	if _, err := players.GetByID(ctx, playerID); err != nil {
+		return nil, fmt.Errorf("player %q: %w", playerID, err)
+	}
+
+	actor := ActorFromContext(ctx)
+	for _, candidate := range available {
+		bundle, task, err := s.bundleForShortID(ctx, candidate.ShortID)
 		if err != nil {
-			if errors.Is(err, domain.ErrTaskClaimed) || errors.Is(err, domain.ErrConflict) {
+			if errors.Is(err, domain.ErrNotFound) {
 				continue
 			}
 			return nil, err
 		}
 
-		started, err := s.Start(ctx, task.ShortID, claimed.Version, playerID)
+		project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 		if err != nil {
-			if errors.Is(err, domain.ErrConflict) {
-				_, relErr := s.Release(ctx, task.ShortID, playerID, claimed.Version)
-				if relErr != nil {
-					_ = relErr
-				}
+			return nil, fmt.Errorf("loading project: %w", err)
+		}
+		wfName, err := s.workflowName(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		startStatus, err := s.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleStart)
+		if err != nil {
+			return nil, fmt.Errorf("resolving start status: %w", err)
+		}
+
+		if task.Status != startStatus {
+			allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, wfName, task.Status, startStatus)
+			if err != nil {
+				return nil, fmt.Errorf("checking transition: %w", err)
+			}
+			if !allowed {
+				continue
+			}
+		}
+
+		if task.ClaimedBy != nil {
+			continue
+		}
+
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		claimedBy := playerID
+		task.ClaimedBy = &claimedBy
+		task.ClaimedAt = &now
+		oldStatus := task.Status
+		task.Status = startStatus
+		task.ModifiedAt = now
+
+		var result *domain.Task
+		err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+			updated, err := s.applyValidatedUpdate(ctx, tx, task, oldStatus)
+			if err != nil {
+				return err
+			}
+			result = updated
+			return tx.Events().Record(ctx, domain.NewTaskPoppedEvent(updated, playerID, oldStatus, actor))
+		})
+		if err != nil {
+			if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrTaskClaimed) {
 				continue
 			}
 			return nil, err
 		}
 
-		return started, nil
+		players.UpdateLastSeen(ctx, playerID) //nolint:errcheck
+		return result, nil
 	}
 
 	return nil, domain.ErrNoAvailableTasks

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 
 	"github.com/germanamz/tusk/domain"
@@ -480,6 +482,283 @@ func TestEvents_ActorPropagation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEvents_Start_AutoClaim_EmitsTaskStartedOnly(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	registerTestPlayer(t, env, "agent-1")
+	ctx := WithActor(context.Background(), "agent-1")
+
+	task := newMinimalTask("auto-claim start")
+	mustCreateTask(t, env.taskSvc, task)
+	baseline := countByType(listAllEvents(t, env.store))
+
+	started, err := env.taskSvc.Start(ctx, task.ShortID, task.Version, "agent-1")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if started.ClaimedBy == nil || *started.ClaimedBy != "agent-1" {
+		t.Fatalf("ClaimedBy: got %v, want agent-1", started.ClaimedBy)
+	}
+
+	events := listAllEvents(t, env.store)
+	after := countByType(events)
+	delta := func(k domain.EventType) int { return after[k] - baseline[k] }
+	if delta(domain.EventTaskStarted) != 1 {
+		t.Fatalf("expected +1 task_started, got +%d", delta(domain.EventTaskStarted))
+	}
+	if delta(domain.EventStatusChanged) != 0 {
+		t.Fatalf("expected 0 status_changed, got +%d", delta(domain.EventStatusChanged))
+	}
+	if delta(domain.EventTaskClaimed) != 0 {
+		t.Fatalf("expected 0 task_claimed, got +%d", delta(domain.EventTaskClaimed))
+	}
+	if delta(domain.EventTaskModified) != 0 {
+		t.Fatalf("expected 0 task_modified, got +%d", delta(domain.EventTaskModified))
+	}
+
+	evt := firstEventOfType(t, events, domain.EventTaskStarted)
+	payload := evt.Payload.(domain.TaskStartedPayload)
+	if !payload.AutoClaimed {
+		t.Fatalf("auto_claimed: got false, want true")
+	}
+	if payload.PrevStatus != "pending" {
+		t.Fatalf("prev_status: got %q, want pending", payload.PrevStatus)
+	}
+}
+
+func TestEvents_Start_AlreadyClaimedSamePlayer_EmitsTaskStartedNotAutoClaimed(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	registerTestPlayer(t, env, "agent-1")
+	ctx := WithActor(context.Background(), "agent-1")
+
+	task := newMinimalTask("pre-claimed")
+	mustCreateTask(t, env.taskSvc, task)
+	claimed, err := env.taskSvc.Claim(ctx, task.ShortID, "agent-1", task.Version)
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	baseline := countByType(listAllEvents(t, env.store))
+
+	started, err := env.taskSvc.Start(ctx, claimed.ShortID, claimed.Version, "agent-1")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	events := listAllEvents(t, env.store)
+	after := countByType(events)
+	delta := func(k domain.EventType) int { return after[k] - baseline[k] }
+	if delta(domain.EventTaskStarted) != 1 {
+		t.Fatalf("expected +1 task_started, got +%d", delta(domain.EventTaskStarted))
+	}
+	if delta(domain.EventStatusChanged) != 0 || delta(domain.EventTaskClaimed) != 0 || delta(domain.EventTaskModified) != 0 {
+		t.Fatalf("unexpected events: status=%d claimed=%d modified=%d",
+			delta(domain.EventStatusChanged), delta(domain.EventTaskClaimed), delta(domain.EventTaskModified))
+	}
+
+	// Grab the most recent task_started (there may be others from older tests if
+	// the pool grew, but in this test only one was created post-baseline).
+	var startedEvt *domain.Event
+	for _, e := range events {
+		if e.Type == domain.EventTaskStarted && e.EntityID == started.ID.String() {
+			startedEvt = e
+		}
+	}
+	if startedEvt == nil {
+		t.Fatalf("no task_started event for started task")
+	}
+	payload := startedEvt.Payload.(domain.TaskStartedPayload)
+	if payload.AutoClaimed {
+		t.Fatalf("auto_claimed: got true, want false (already claimed by same player)")
+	}
+}
+
+func TestEvents_Start_NoPlayer_EmitsTaskStartedNotAutoClaimed(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	ctx := WithActor(context.Background(), "german")
+
+	task := newMinimalTask("no player")
+	mustCreateTask(t, env.taskSvc, task)
+	baseline := countByType(listAllEvents(t, env.store))
+
+	if _, err := env.taskSvc.Start(ctx, task.ShortID, task.Version, ""); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	events := listAllEvents(t, env.store)
+	after := countByType(events)
+	delta := func(k domain.EventType) int { return after[k] - baseline[k] }
+	if delta(domain.EventTaskStarted) != 1 {
+		t.Fatalf("expected +1 task_started, got +%d", delta(domain.EventTaskStarted))
+	}
+	if delta(domain.EventStatusChanged) != 0 || delta(domain.EventTaskClaimed) != 0 || delta(domain.EventTaskModified) != 0 {
+		t.Fatalf("unexpected events: status=%d claimed=%d modified=%d",
+			delta(domain.EventStatusChanged), delta(domain.EventTaskClaimed), delta(domain.EventTaskModified))
+	}
+
+	evt := firstEventOfType(t, events, domain.EventTaskStarted)
+	payload := evt.Payload.(domain.TaskStartedPayload)
+	if payload.AutoClaimed {
+		t.Fatalf("auto_claimed: got true, want false (no player supplied)")
+	}
+	if evt.PlayerID == nil || *evt.PlayerID != "german" {
+		t.Fatalf("player_id: got %v, want *\"german\" (from actor)", evt.PlayerID)
+	}
+}
+
+func TestEvents_Start_NoActor_PlayerIDNil(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+
+	task := newMinimalTask("no actor start")
+	mustCreateTask(t, env.taskSvc, task)
+	baseline := countByType(listAllEvents(t, env.store))
+
+	if _, err := env.taskSvc.Start(context.Background(), task.ShortID, task.Version, ""); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	events := listAllEvents(t, env.store)
+	after := countByType(events)
+	delta := func(k domain.EventType) int { return after[k] - baseline[k] }
+	if delta(domain.EventTaskStarted) != 1 {
+		t.Fatalf("expected +1 task_started, got +%d", delta(domain.EventTaskStarted))
+	}
+	for _, e := range events {
+		if e.Type == domain.EventTaskStarted && e.EntityID == task.ID.String() {
+			if e.PlayerID != nil {
+				t.Fatalf("player_id: got %v, want nil (no actor)", *e.PlayerID)
+			}
+			return
+		}
+	}
+	t.Fatalf("no task_started event for new task")
+}
+
+func TestEvents_Pop_EmitsTaskPoppedOnly(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	registerTestPlayer(t, env, "agent-1")
+	ctx := WithActor(context.Background(), "agent-1")
+
+	task := newMinimalTask("pop me")
+	mustCreateTask(t, env.taskSvc, task)
+	baseline := countByType(listAllEvents(t, env.store))
+
+	popped, err := env.taskSvc.Pop(ctx, "agent-1", nil)
+	if err != nil {
+		t.Fatalf("Pop: %v", err)
+	}
+	if popped.ClaimedBy == nil || *popped.ClaimedBy != "agent-1" {
+		t.Fatalf("ClaimedBy: got %v, want agent-1", popped.ClaimedBy)
+	}
+	if popped.Status != "active" {
+		t.Fatalf("Status: got %q, want active", popped.Status)
+	}
+
+	events := listAllEvents(t, env.store)
+	after := countByType(events)
+	delta := func(k domain.EventType) int { return after[k] - baseline[k] }
+	if delta(domain.EventTaskPopped) != 1 {
+		t.Fatalf("expected +1 task_popped, got +%d", delta(domain.EventTaskPopped))
+	}
+	if delta(domain.EventTaskClaimed) != 0 {
+		t.Fatalf("expected 0 task_claimed, got +%d", delta(domain.EventTaskClaimed))
+	}
+	if delta(domain.EventTaskStarted) != 0 {
+		t.Fatalf("expected 0 task_started, got +%d", delta(domain.EventTaskStarted))
+	}
+	if delta(domain.EventStatusChanged) != 0 {
+		t.Fatalf("expected 0 status_changed, got +%d", delta(domain.EventStatusChanged))
+	}
+	if delta(domain.EventTaskModified) != 0 {
+		t.Fatalf("expected 0 task_modified, got +%d", delta(domain.EventTaskModified))
+	}
+
+	evt := firstEventOfType(t, events, domain.EventTaskPopped)
+	payload := evt.Payload.(domain.TaskPoppedPayload)
+	if payload.ClaimedBy != "agent-1" {
+		t.Fatalf("claimed_by: got %q, want agent-1", payload.ClaimedBy)
+	}
+	if payload.PrevStatus != "pending" {
+		t.Fatalf("prev_status: got %q, want pending", payload.PrevStatus)
+	}
+}
+
+func TestEvents_Pop_NoAvailable_EmitsNoEvents(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	registerTestPlayer(t, env, "agent-1")
+	ctx := WithActor(context.Background(), "agent-1")
+
+	baseline := countByType(listAllEvents(t, env.store))
+	_, err := env.taskSvc.Pop(ctx, "agent-1", nil)
+	if !errors.Is(err, domain.ErrNoAvailableTasks) {
+		t.Fatalf("Pop: got %v, want ErrNoAvailableTasks", err)
+	}
+
+	after := countByType(listAllEvents(t, env.store))
+	for k, v := range after {
+		if v != baseline[k] {
+			t.Fatalf("event count for %s changed: baseline=%d after=%d", k, baseline[k], v)
+		}
+	}
+}
+
+func TestEvents_Pop_Race_EmitsOnePerWinner(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	registerTestPlayer(t, env, "agent-1")
+	registerTestPlayer(t, env, "agent-2")
+
+	t1 := newMinimalTask("race-1")
+	mustCreateTask(t, env.taskSvc, t1)
+	t2 := newMinimalTask("race-2")
+	mustCreateTask(t, env.taskSvc, t2)
+
+	baseline := countByType(listAllEvents(t, env.store))
+
+	var wg sync.WaitGroup
+	results := make([]*domain.Task, 2)
+	errs := make([]error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		ctx := WithActor(context.Background(), "agent-1")
+		results[0], errs[0] = env.taskSvc.Pop(ctx, "agent-1", nil)
+	}()
+	go func() {
+		defer wg.Done()
+		ctx := WithActor(context.Background(), "agent-2")
+		results[1], errs[1] = env.taskSvc.Pop(ctx, "agent-2", nil)
+	}()
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("Pop %d: %v", i, err)
+		}
+	}
+	if results[0].ID == results[1].ID {
+		t.Fatalf("both goroutines popped same task %s", results[0].ID)
+	}
+	if *results[0].ClaimedBy == *results[1].ClaimedBy {
+		t.Fatalf("both popped by same player %q", *results[0].ClaimedBy)
+	}
+
+	events := listAllEvents(t, env.store)
+	after := countByType(events)
+	delta := func(k domain.EventType) int { return after[k] - baseline[k] }
+	if delta(domain.EventTaskPopped) != 2 {
+		t.Fatalf("expected +2 task_popped, got +%d", delta(domain.EventTaskPopped))
+	}
+	if delta(domain.EventTaskClaimed) != 0 || delta(domain.EventTaskStarted) != 0 || delta(domain.EventStatusChanged) != 0 {
+		t.Fatalf("unexpected noise: claimed=%d started=%d status=%d",
+			delta(domain.EventTaskClaimed), delta(domain.EventTaskStarted), delta(domain.EventStatusChanged))
 	}
 }
 
