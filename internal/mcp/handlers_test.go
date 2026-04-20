@@ -7,12 +7,29 @@ import (
 
 	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/repository"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/germanamz/tusk/sqlite/sqlitetest"
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// storeWriteTx adapts a *sqlite.Store to service.WriteTxProvider for MCP
+// handler tests.
+type storeWriteTx struct{ store *sqlite.Store }
+
+type storeWriteTxAdapter struct{ tx *sqlite.Tx }
+
+func (w *storeWriteTxAdapter) Tasks() repository.TaskRepository         { return w.tx.Tasks() }
+func (w *storeWriteTxAdapter) Relations() repository.RelationRepository { return w.tx.Relations() }
+func (w *storeWriteTxAdapter) Events() repository.EventRepository       { return w.tx.Events(10000, 1000) }
+
+func (p *storeWriteTx) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
+	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
+		return fn(&storeWriteTxAdapter{tx: stx})
+	})
+}
 
 // testServer creates a fully wired Server with an in-memory SQLite DB.
 func testServer(t *testing.T) *Server {
@@ -22,6 +39,7 @@ func testServer(t *testing.T) *Server {
 	db := store.DB()
 	bundle := &service.RepoBundle{
 		Store:       store,
+		WriteTx:     &storeWriteTx{store: store},
 		Tasks:       sqlite.NewTaskRepo(db),
 		Annotations: sqlite.NewAnnotationRepo(db),
 		Notes:       sqlite.NewNoteRepo(db),

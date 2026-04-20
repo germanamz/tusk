@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -219,7 +220,13 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		task.UDA = map[string]any{}
 	}
 
-	return bundle.Tasks.Create(ctx, task)
+	actor := ActorFromContext(ctx)
+	return bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		if err := tx.Tasks().Create(ctx, task); err != nil {
+			return err
+		}
+		return tx.Events().Record(ctx, domain.NewTaskCreatedEvent(task, actor))
+	})
 }
 
 // GetByShortID retrieves a task by its short ID, searching every known
@@ -416,6 +423,7 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 	}
 
 	oldStatus := task.Status
+	snapshot := snapshotTask(task)
 
 	if upd.Title != nil {
 		task.Title = *upd.Title
@@ -503,12 +511,14 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		}
 	}
 
-	if task.Status != oldStatus {
+	statusChanged := task.Status != oldStatus
+	var wfName string
+	if statusChanged {
 		project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("looking up project for workflow: %w", err)
 		}
-		wfName, err := s.workflowName(ctx, project)
+		wfName, err = s.workflowName(ctx, project)
 		if err != nil {
 			return nil, err
 		}
@@ -523,34 +533,37 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 
 	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
 
-	statusChanged := task.Status != oldStatus
-
-	if statusChanged && bundle.Store != nil {
-		var result *domain.Task
-		err := bundle.Store.WithTaskTx(ctx, func(txTaskRepo repository.TaskRepository) error {
-			if err := txTaskRepo.Update(ctx, task); err != nil {
-				return err
-			}
-			updated, err := txTaskRepo.GetByID(ctx, task.ID)
-			if err != nil {
-				return err
-			}
-			result = updated
-			if err := s.checkAutoComplete(ctx, updated, txTaskRepo); err != nil {
-				return err
-			}
-			return s.checkAutoRevert(ctx, updated, oldStatus, txTaskRepo)
-		})
+	actor := ActorFromContext(ctx)
+	var result *domain.Task
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		updated, err := s.applyValidatedUpdate(ctx, tx, task, oldStatus)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		return result, nil
-	}
+		result = updated
 
-	if err := bundle.Tasks.Update(ctx, task); err != nil {
+		if statusChanged {
+			roles, err := s.workflowSvc.GetStatusRoles(ctx, wfName, updated.Status)
+			if err != nil {
+				return fmt.Errorf("loading roles for status: %w", err)
+			}
+			evt := domain.NewStatusChangedEvent(updated, oldStatus, updated.Status, roles, "user", actor)
+			if err := tx.Events().Record(ctx, evt); err != nil {
+				return fmt.Errorf("recording status_changed event: %w", err)
+			}
+		}
+		if changes := diffTaskFields(snapshot, updated); len(changes) > 0 {
+			evt := domain.NewTaskModifiedEvent(updated, changes, actor)
+			if err := tx.Events().Record(ctx, evt); err != nil {
+				return fmt.Errorf("recording task_modified event: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	return bundle.Tasks.GetByID(ctx, task.ID)
+	return result, nil
 }
 
 // Start transitions a task from its current status to its workflow's
@@ -646,23 +659,33 @@ func (s *TaskService) Claim(ctx context.Context, shortID, playerID string, versi
 		return nil, fmt.Errorf("player %q: %w", playerID, err)
 	}
 
-	_, task, err := s.bundleForShortID(ctx, shortID)
+	bundle, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
-
+	if task.Version != version {
+		return nil, domain.ErrConflict
+	}
 	if task.ClaimedBy != nil && *task.ClaimedBy != playerID {
 		return nil, domain.ErrTaskClaimed
 	}
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	claimedBy := ptr(playerID)
-	claimedAt := ptr(now)
-	result, err := s.Update(ctx, domain.TaskUpdate{
-		ShortID:   shortID,
-		Version:   version,
-		ClaimedBy: &claimedBy,
-		ClaimedAt: &claimedAt,
+	claimedBy := playerID
+	task.ClaimedBy = &claimedBy
+	task.ClaimedAt = &now
+	task.ModifiedAt = now
+
+	actor := ActorFromContext(ctx)
+	oldStatus := task.Status
+	var result *domain.Task
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		updated, err := s.applyValidatedUpdate(ctx, tx, task, oldStatus)
+		if err != nil {
+			return err
+		}
+		result = updated
+		return tx.Events().Record(ctx, domain.NewTaskClaimedEvent(updated, playerID, actor))
 	})
 	if err != nil {
 		return nil, err
@@ -682,11 +705,13 @@ func (s *TaskService) Release(ctx context.Context, shortID, playerID string, ver
 		return nil, fmt.Errorf("player support not configured")
 	}
 
-	_, task, err := s.bundleForShortID(ctx, shortID)
+	bundle, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
 	}
-
+	if task.Version != version {
+		return nil, domain.ErrConflict
+	}
 	if task.ClaimedBy == nil {
 		return nil, fmt.Errorf("task is not claimed")
 	}
@@ -694,13 +719,20 @@ func (s *TaskService) Release(ctx context.Context, shortID, playerID string, ver
 		return nil, fmt.Errorf("task is claimed by a different player")
 	}
 
-	var nilStr *string
-	var nilTime *time.Time
-	result, err := s.Update(ctx, domain.TaskUpdate{
-		ShortID:   shortID,
-		Version:   version,
-		ClaimedBy: &nilStr,
-		ClaimedAt: &nilTime,
+	task.ClaimedBy = nil
+	task.ClaimedAt = nil
+	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+
+	actor := ActorFromContext(ctx)
+	oldStatus := task.Status
+	var result *domain.Task
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		updated, err := s.applyValidatedUpdate(ctx, tx, task, oldStatus)
+		if err != nil {
+			return err
+		}
+		result = updated
+		return tx.Events().Record(ctx, domain.NewTaskReleasedEvent(updated, playerID, actor))
 	})
 	if err != nil {
 		return nil, err
@@ -712,9 +744,12 @@ func (s *TaskService) Release(ctx context.Context, shortID, playerID string, ver
 
 // Complete transitions a task to its workflow's done-role status.
 func (s *TaskService) Complete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
-	_, task, err := s.bundleForShortID(ctx, shortID)
+	bundle, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
+	}
+	if task.Version != version {
+		return nil, domain.ErrConflict
 	}
 	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
@@ -728,19 +763,49 @@ func (s *TaskService) Complete(ctx context.Context, shortID string, version int)
 	if err != nil {
 		return nil, fmt.Errorf("resolving done status: %w", err)
 	}
-	return s.Update(ctx, domain.TaskUpdate{
-		ShortID: shortID,
-		Version: version,
-		Status:  ptr(doneStatus),
+	oldStatus := task.Status
+	statusChanged := oldStatus != doneStatus
+	if statusChanged {
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, wfName, oldStatus, doneStatus)
+		if err != nil {
+			return nil, fmt.Errorf("checking transition: %w", err)
+		}
+		if !allowed {
+			return nil, fmt.Errorf("transition %q → %q not allowed: %w", oldStatus, doneStatus, domain.ErrInvalidTransition)
+		}
+	}
+
+	task.Status = doneStatus
+	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+
+	actor := ActorFromContext(ctx)
+	var result *domain.Task
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		updated, err := s.applyValidatedUpdate(ctx, tx, task, oldStatus)
+		if err != nil {
+			return err
+		}
+		result = updated
+		if !statusChanged {
+			return nil
+		}
+		return tx.Events().Record(ctx, domain.NewTaskCompletedEvent(updated, oldStatus, actor))
 	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Delete soft-deletes a task by transitioning to its workflow's
 // delete-role status.
 func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (*domain.Task, error) {
-	_, task, err := s.bundleForShortID(ctx, shortID)
+	bundle, task, err := s.bundleForShortID(ctx, shortID)
 	if err != nil {
 		return nil, err
+	}
+	if task.Version != version {
+		return nil, domain.ErrConflict
 	}
 	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
 	if err != nil {
@@ -754,11 +819,38 @@ func (s *TaskService) Delete(ctx context.Context, shortID string, version int) (
 	if err != nil {
 		return nil, fmt.Errorf("resolving delete status: %w", err)
 	}
-	return s.Update(ctx, domain.TaskUpdate{
-		ShortID: shortID,
-		Version: version,
-		Status:  ptr(deleteStatus),
+	oldStatus := task.Status
+	statusChanged := oldStatus != deleteStatus
+	if statusChanged {
+		allowed, err := s.workflowSvc.IsTransitionAllowed(ctx, wfName, oldStatus, deleteStatus)
+		if err != nil {
+			return nil, fmt.Errorf("checking transition: %w", err)
+		}
+		if !allowed {
+			return nil, fmt.Errorf("transition %q → %q not allowed: %w", oldStatus, deleteStatus, domain.ErrInvalidTransition)
+		}
+	}
+
+	task.Status = deleteStatus
+	task.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
+
+	actor := ActorFromContext(ctx)
+	var result *domain.Task
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		updated, err := s.applyValidatedUpdate(ctx, tx, task, oldStatus)
+		if err != nil {
+			return err
+		}
+		result = updated
+		if !statusChanged {
+			return nil
+		}
+		return tx.Events().Record(ctx, domain.NewTaskDeletedEvent(updated, oldStatus, actor))
 	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Available returns unclaimed, actionable, unblocked tasks sorted by
@@ -861,6 +953,164 @@ func (s *TaskService) Pop(ctx context.Context, playerID string, filter domain.Fi
 	}
 
 	return nil, domain.ErrNoAvailableTasks
+}
+
+// applyValidatedUpdate writes an already-validated task through tx.Tasks(),
+// then runs the auto-complete and auto-revert cascades. It does not emit
+// events for the primary task — callers emit the action-specific event.
+// The cascades themselves emit status_changed events.
+//
+// task must carry the post-update field values and be version-matched;
+// oldStatus is the status before the update so the cascades can decide
+// whether to fire.
+func (s *TaskService) applyValidatedUpdate(
+	ctx context.Context,
+	tx WriteTx,
+	task *domain.Task,
+	oldStatus string,
+) (*domain.Task, error) {
+	tr := tx.Tasks()
+	if err := tr.Update(ctx, task); err != nil {
+		return nil, err
+	}
+	updated, err := tr.GetByID(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	if updated.Status != oldStatus {
+		if err := s.checkAutoComplete(ctx, updated, tx); err != nil {
+			return nil, err
+		}
+		if err := s.checkAutoRevert(ctx, updated, oldStatus, tx); err != nil {
+			return nil, err
+		}
+	}
+	return updated, nil
+}
+
+// taskSnapshot captures the fields that participate in task_modified diffs
+// before an Update mutates the working *domain.Task in place.
+type taskSnapshot struct {
+	Title          string
+	Description    string
+	Priority       int
+	ParentID       *uuid.UUID
+	ProjectID      uuid.UUID
+	DueAt          *time.Time
+	WaitUntil      *time.Time
+	RecurrenceRule *string
+	ClaimedBy      *string
+	ClaimedAt      *time.Time
+	UDA            map[string]any
+}
+
+// snapshotTask captures the current field values of a task for later diffing
+// against the mutated task.
+func snapshotTask(t *domain.Task) taskSnapshot {
+	uda := make(map[string]any, len(t.UDA))
+	for k, v := range t.UDA {
+		uda[k] = v
+	}
+	return taskSnapshot{
+		Title:          t.Title,
+		Description:    t.Description,
+		Priority:       t.Priority,
+		ParentID:       t.ParentID,
+		ProjectID:      t.ProjectID,
+		DueAt:          t.DueAt,
+		WaitUntil:      t.WaitUntil,
+		RecurrenceRule: t.RecurrenceRule,
+		ClaimedBy:      t.ClaimedBy,
+		ClaimedAt:      t.ClaimedAt,
+		UDA:            uda,
+	}
+}
+
+// diffTaskFields returns a map of JSON-field-name to FieldChange for the
+// non-status fields that differ between orig and updated. Status is excluded
+// intentionally — status changes flow through status_changed events, not
+// task_modified.
+func diffTaskFields(orig taskSnapshot, updated *domain.Task) map[string]domain.FieldChange {
+	changes := make(map[string]domain.FieldChange)
+	if orig.Title != updated.Title {
+		changes["title"] = domain.FieldChange{From: orig.Title, To: updated.Title}
+	}
+	if orig.Description != updated.Description {
+		changes["description"] = domain.FieldChange{From: orig.Description, To: updated.Description}
+	}
+	if orig.Priority != updated.Priority {
+		changes["priority"] = domain.FieldChange{From: orig.Priority, To: updated.Priority}
+	}
+	if !uuidPtrEqual(orig.ParentID, updated.ParentID) {
+		changes["parent_id"] = domain.FieldChange{From: uuidPtrValue(orig.ParentID), To: uuidPtrValue(updated.ParentID)}
+	}
+	if orig.ProjectID != updated.ProjectID {
+		changes["project_id"] = domain.FieldChange{From: orig.ProjectID.String(), To: updated.ProjectID.String()}
+	}
+	if !timePtrEqual(orig.DueAt, updated.DueAt) {
+		changes["due_at"] = domain.FieldChange{From: timePtrValue(orig.DueAt), To: timePtrValue(updated.DueAt)}
+	}
+	if !timePtrEqual(orig.WaitUntil, updated.WaitUntil) {
+		changes["wait_until"] = domain.FieldChange{From: timePtrValue(orig.WaitUntil), To: timePtrValue(updated.WaitUntil)}
+	}
+	if !stringPtrEqual(orig.RecurrenceRule, updated.RecurrenceRule) {
+		changes["recurrence_rule"] = domain.FieldChange{From: stringPtrValue(orig.RecurrenceRule), To: stringPtrValue(updated.RecurrenceRule)}
+	}
+	if !stringPtrEqual(orig.ClaimedBy, updated.ClaimedBy) {
+		changes["claimed_by"] = domain.FieldChange{From: stringPtrValue(orig.ClaimedBy), To: stringPtrValue(updated.ClaimedBy)}
+	}
+	if !timePtrEqual(orig.ClaimedAt, updated.ClaimedAt) {
+		changes["claimed_at"] = domain.FieldChange{From: timePtrValue(orig.ClaimedAt), To: timePtrValue(updated.ClaimedAt)}
+	}
+	if !reflect.DeepEqual(orig.UDA, updated.UDA) {
+		changes["uda"] = domain.FieldChange{From: orig.UDA, To: updated.UDA}
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	return changes
+}
+
+func uuidPtrEqual(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func uuidPtrValue(p *uuid.UUID) any {
+	if p == nil {
+		return nil
+	}
+	return p.String()
+}
+
+func stringPtrEqual(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func stringPtrValue(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func timePtrEqual(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
+}
+
+func timePtrValue(p *time.Time) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // maxParentDepth guards cycle detection and auto-complete propagation
@@ -972,19 +1222,22 @@ func (s *TaskService) DeleteAnnotation(ctx context.Context, annotationID uuid.UU
 // checkAutoComplete checks whether completing a task should trigger
 // automatic completion of its parent. If the task has a parent, all
 // non-deleted siblings are at the trigger status, and the workflow
-// allows the transition, the parent is auto-completed.
+// allows the transition, the parent is auto-completed. Each cascaded
+// parent transition emits a status_changed event with source="auto_complete".
 func (s *TaskService) checkAutoComplete(
 	ctx context.Context,
 	task *domain.Task,
-	txTaskRepo repository.TaskRepository,
+	tx WriteTx,
 ) error {
+	tr := tx.Tasks()
+	actor := ActorFromContext(ctx)
 	current := task
 	for depth := 0; depth < maxParentDepth; depth++ {
 		if current.ParentID == nil {
 			return nil
 		}
 
-		parent, err := txTaskRepo.GetByID(ctx, *current.ParentID)
+		parent, err := tr.GetByID(ctx, *current.ParentID)
 		if err != nil {
 			return fmt.Errorf("loading parent for propagation: %w", err)
 		}
@@ -1008,7 +1261,7 @@ func (s *TaskService) checkAutoComplete(
 			return err
 		}
 
-		children, err := txTaskRepo.GetChildren(ctx, parent.ID)
+		children, err := tr.GetChildren(ctx, parent.ID)
 		if err != nil {
 			return fmt.Errorf("loading siblings for propagation: %w", err)
 		}
@@ -1040,28 +1293,41 @@ func (s *TaskService) checkAutoComplete(
 			return nil
 		}
 
+		prevParentStatus := parent.Status
 		parent.Status = cfg.TargetStatus
 		parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
-		if err := txTaskRepo.Update(ctx, parent); err != nil {
+		if err := tr.Update(ctx, parent); err != nil {
 			return fmt.Errorf("auto-completing parent: %w", err)
 		}
 
-		current, err = txTaskRepo.GetByID(ctx, parent.ID)
+		current, err = tr.GetByID(ctx, parent.ID)
 		if err != nil {
 			return fmt.Errorf("re-reading parent after propagation: %w", err)
+		}
+
+		roles, err := s.workflowSvc.GetStatusRoles(ctx, wfName, current.Status)
+		if err != nil {
+			return fmt.Errorf("loading roles for auto-complete status: %w", err)
+		}
+		evt := domain.NewStatusChangedEvent(current, prevParentStatus, current.Status, roles, "auto_complete", actor)
+		if err := tx.Events().Record(ctx, evt); err != nil {
+			return fmt.Errorf("recording auto_complete event: %w", err)
 		}
 	}
 	return fmt.Errorf("auto-complete propagation exceeded maximum depth (%d)", maxParentDepth)
 }
 
 // checkAutoRevert checks whether a task moving away from the trigger
-// status should revert its parent.
+// status should revert its parent. Each cascaded parent transition emits a
+// status_changed event with source="auto_revert".
 func (s *TaskService) checkAutoRevert(
 	ctx context.Context,
 	task *domain.Task,
 	oldStatus string,
-	txTaskRepo repository.TaskRepository,
+	tx WriteTx,
 ) error {
+	tr := tx.Tasks()
+	actor := ActorFromContext(ctx)
 	current := task
 	currentOldStatus := oldStatus
 	for depth := 0; depth < maxParentDepth; depth++ {
@@ -1069,7 +1335,7 @@ func (s *TaskService) checkAutoRevert(
 			return nil
 		}
 
-		parent, err := txTaskRepo.GetByID(ctx, *current.ParentID)
+		parent, err := tr.GetByID(ctx, *current.ParentID)
 		if err != nil {
 			return fmt.Errorf("loading parent for revert: %w", err)
 		}
@@ -1115,13 +1381,22 @@ func (s *TaskService) checkAutoRevert(
 		prevParentStatus := parent.Status
 		parent.Status = revertCfg.TargetStatus
 		parent.ModifiedAt = time.Now().UTC().Truncate(time.Millisecond)
-		if err := txTaskRepo.Update(ctx, parent); err != nil {
+		if err := tr.Update(ctx, parent); err != nil {
 			return fmt.Errorf("reverting parent: %w", err)
 		}
 
-		current, err = txTaskRepo.GetByID(ctx, parent.ID)
+		current, err = tr.GetByID(ctx, parent.ID)
 		if err != nil {
 			return fmt.Errorf("re-reading parent after revert: %w", err)
+		}
+
+		roles, err := s.workflowSvc.GetStatusRoles(ctx, wfName, current.Status)
+		if err != nil {
+			return fmt.Errorf("loading roles for auto-revert status: %w", err)
+		}
+		evt := domain.NewStatusChangedEvent(current, prevParentStatus, current.Status, roles, "auto_revert", actor)
+		if err := tx.Events().Record(ctx, evt); err != nil {
+			return fmt.Errorf("recording auto_revert event: %w", err)
 		}
 		currentOldStatus = prevParentStatus
 	}

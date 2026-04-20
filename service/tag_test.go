@@ -78,14 +78,7 @@ func TestFindOrCreate_WhitespaceName(t *testing.T) {
 func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 	t.Helper()
 	db := store.DB()
-	bundle := &RepoBundle{
-		Store:       store,
-		Tasks:       sqlite.NewTaskRepo(db),
-		Annotations: sqlite.NewAnnotationRepo(db),
-		Relations:   sqlite.NewRelationRepo(db),
-		Tags:        sqlite.NewTagRepo(db),
-		Players:     sqlite.NewPlayerRepo(db),
-	}
+	bundle := bundleFromStore(store)
 	projectRepo := sqlite.NewProjectRepo(db)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
