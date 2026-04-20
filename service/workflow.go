@@ -63,6 +63,25 @@ func (s *WorkflowService) GetStatusByRole(ctx context.Context, workflowName stri
 	return name, nil
 }
 
+// GetStatusRoles returns the roles attached to the named status in the named
+// workflow. Returns an empty slice if the status exists but has no roles, and
+// an error if the workflow or status does not exist.
+func (s *WorkflowService) GetStatusRoles(ctx context.Context, workflowName, status string) ([]string, error) {
+	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+	if err != nil {
+		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
+	}
+	sc, ok := wf.Statuses[status]
+	if !ok {
+		return nil, fmt.Errorf("workflow %q has no status %q", workflowName, status)
+	}
+	roles := make([]string, 0, len(sc.Roles))
+	for _, r := range sc.Roles {
+		roles = append(roles, string(r))
+	}
+	return roles, nil
+}
+
 // GetNonTerminalStatuses returns status names without the terminal role, sorted.
 func (s *WorkflowService) GetNonTerminalStatuses(ctx context.Context, workflowName string) ([]string, error) {
 	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
