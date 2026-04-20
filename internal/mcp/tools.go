@@ -8,6 +8,7 @@ import (
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/filter"
+	"github.com/germanamz/tusk/service"
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -336,18 +337,24 @@ func (s *Server) buildTaskGetResponse(ctx context.Context, shortID string) (*tas
 	return resp, nil
 }
 
-// updatePlayerLiveness updates last_seen_at for a player if the player_id is provided and valid.
-func (s *Server) updatePlayerLiveness(ctx context.Context, request mcp.CallToolRequest) {
+// updatePlayerLiveness updates last_seen_at for a player if the player_id is
+// provided and valid, and returns ctx wrapped with the acting player so
+// downstream service calls can attribute events.
+func (s *Server) updatePlayerLiveness(ctx context.Context, request mcp.CallToolRequest) context.Context {
 	playerID := request.GetString("player_id", "")
-	if playerID != "" && s.playerSvc != nil {
+	if playerID == "" {
+		return ctx
+	}
+	if s.playerSvc != nil {
 		s.playerSvc.UpdateLastSeen(ctx, playerID) //nolint:errcheck
 	}
+	return service.WithActor(ctx, playerID)
 }
 
 // handleTaskGet handles the tusk_task_get tool. Returns the full task with
 // tags, relations, and annotations.
 func (s *Server) handleTaskGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	s.updatePlayerLiveness(ctx, request)
+	ctx = s.updatePlayerLiveness(ctx, request)
 	shortID, err := request.RequireString("short_id")
 	if err != nil {
 		return mcp.NewToolResultError("short_id is required"), nil
@@ -377,7 +384,7 @@ func (s *Server) handleTaskNext(ctx context.Context, request mcp.CallToolRequest
 
 // handleTaskList handles the tusk_task_list tool.
 func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	s.updatePlayerLiveness(ctx, request)
+	ctx = s.updatePlayerLiveness(ctx, request)
 	// If a filter string is provided, use ParseExpr for full boolean support
 	if filterStr, err := request.RequireString("filter"); err == nil {
 		expr, parseErrs := filter.ParseExpr(filterStr)
@@ -687,6 +694,7 @@ func (s *Server) handleTaskStart(ctx context.Context, request mcp.CallToolReques
 	}
 
 	playerID := request.GetString("player_id", "")
+	ctx = service.WithActor(ctx, playerID)
 
 	// Auto-register player as agent if provided
 	if playerID != "" && s.playerSvc != nil {
@@ -1040,6 +1048,7 @@ func (s *Server) handlePlayerRegister(ctx context.Context, request mcp.CallToolR
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+	ctx = service.WithActor(ctx, playerID)
 
 	player, err := s.playerSvc.Register(ctx, playerID, "agent")
 	if err != nil {
@@ -1062,6 +1071,7 @@ func (s *Server) handleTaskClaim(ctx context.Context, request mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+	ctx = service.WithActor(ctx, playerID)
 	version, err := request.RequireFloat("version")
 	if err != nil {
 		return mcp.NewToolResultError("version is required"), nil
@@ -1093,6 +1103,7 @@ func (s *Server) handleTaskRelease(ctx context.Context, request mcp.CallToolRequ
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+	ctx = service.WithActor(ctx, playerID)
 	version, err := request.RequireFloat("version")
 	if err != nil {
 		return mcp.NewToolResultError("version is required"), nil
@@ -1113,12 +1124,13 @@ func (s *Server) handleTaskRelease(ctx context.Context, request mcp.CallToolRequ
 
 // handleTaskAvailable handles the tusk_task_available tool.
 func (s *Server) handleTaskAvailable(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	s.updatePlayerLiveness(ctx, request)
+	ctx = s.updatePlayerLiveness(ctx, request)
 
 	playerID, err := request.RequireString("player_id")
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+	ctx = service.WithActor(ctx, playerID)
 
 	// Auto-register player as agent
 	if s.playerSvc != nil {
@@ -1179,6 +1191,7 @@ func (s *Server) handleTaskPop(ctx context.Context, request mcp.CallToolRequest)
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+	ctx = service.WithActor(ctx, playerID)
 
 	// Auto-register player as agent
 	if s.playerSvc != nil {
@@ -1224,7 +1237,7 @@ func (s *Server) handleTaskPop(ctx context.Context, request mcp.CallToolRequest)
 
 // handleTaskTree handles the tusk_task_tree tool.
 func (s *Server) handleTaskTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	s.updatePlayerLiveness(ctx, request)
+	ctx = s.updatePlayerLiveness(ctx, request)
 	var tasks []*domain.Task
 	var rootID *uuid.UUID
 

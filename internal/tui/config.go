@@ -113,6 +113,7 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 			TUI:       cfg.TUI,
 			MCP:       cfg.MCP,
 			Inline:    cfg.Inline,
+			Events:    cfg.Events,
 			Projects:  make(map[string]configProjectView, len(projects)),
 			Workflows: make(map[string]configWorkflowView, len(workflows)),
 		}
@@ -142,6 +143,7 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 		TUI:     cfg.TUI,
 		MCP:     cfg.MCP,
 		Inline:  cfg.Inline,
+		Events:  cfg.Events,
 	}
 	data, err := toml.Marshal(wrapper)
 	if err != nil {

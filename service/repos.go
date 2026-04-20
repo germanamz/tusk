@@ -17,6 +17,7 @@ import (
 // to exactly one bundle.
 type RepoBundle struct {
 	Store       *sqlite.Store
+	WriteTx     WriteTxProvider
 	Tasks       repository.TaskRepository
 	Annotations repository.AnnotationRepository
 	Notes       repository.NoteRepository

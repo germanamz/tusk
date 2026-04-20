@@ -55,6 +55,7 @@ func (s *Server) handleNoteAdd(ctx context.Context, request mcp.CallToolRequest)
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+	ctx = service.WithActor(ctx, playerID)
 	body, err := request.RequireString("body")
 	if err != nil {
 		return mcp.NewToolResultError("body is required"), nil
@@ -110,7 +111,7 @@ func (s *Server) handleNoteAdd(ctx context.Context, request mcp.CallToolRequest)
 }
 
 func (s *Server) handleNoteList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	s.updatePlayerLiveness(ctx, request)
+	ctx = s.updatePlayerLiveness(ctx, request)
 
 	playerID, err := request.RequireString("player_id")
 	if err != nil {
@@ -205,6 +206,7 @@ func (s *Server) handleNoteArchive(ctx context.Context, request mcp.CallToolRequ
 	if err != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+	ctx = service.WithActor(ctx, playerID)
 	idStr, err := request.RequireString("id")
 	if err != nil {
 		return mcp.NewToolResultError("id is required"), nil

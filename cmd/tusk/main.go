@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/tui"
 	"github.com/germanamz/tusk/migrations"
+	"github.com/germanamz/tusk/repository"
 	"github.com/germanamz/tusk/service"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
@@ -100,8 +101,14 @@ func run() error {
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
 
+	writeTx := &sqliteWriteTxProvider{
+		store:      store,
+		maxEvents:  cfg.Events.MaxEvents,
+		pruneSlack: cfg.Events.PruneSlack,
+	}
 	bundle := &service.RepoBundle{
 		Store:       store,
+		WriteTx:     writeTx,
 		Tasks:       sqlite.NewTaskRepo(db),
 		Annotations: sqlite.NewAnnotationRepo(db),
 		Notes:       sqlite.NewNoteRepo(db),
@@ -166,6 +173,32 @@ func run() error {
 		cfg.TUI, cfg.MCP, cfg.Inline, loadOpts,
 	)
 	return app.Run(stripConfigFlag(stripDBFlag(os.Args[1:])))
+}
+
+// sqliteWriteTxProvider adapts *sqlite.Store to service.WriteTxProvider.
+// Retention knobs are captured here so services never pass them by hand.
+type sqliteWriteTxProvider struct {
+	store      *sqlite.Store
+	maxEvents  int
+	pruneSlack int
+}
+
+type sqliteWriteTx struct {
+	tx         *sqlite.Tx
+	maxEvents  int
+	pruneSlack int
+}
+
+func (w *sqliteWriteTx) Tasks() repository.TaskRepository         { return w.tx.Tasks() }
+func (w *sqliteWriteTx) Relations() repository.RelationRepository { return w.tx.Relations() }
+func (w *sqliteWriteTx) Events() repository.EventRepository {
+	return w.tx.Events(w.maxEvents, w.pruneSlack)
+}
+
+func (p *sqliteWriteTxProvider) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
+	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
+		return fn(&sqliteWriteTx{tx: stx, maxEvents: p.maxEvents, pruneSlack: p.pruneSlack})
+	})
 }
 
 // stripDBFlag removes --db and its value from args so Cobra doesn't see them.

@@ -73,3 +73,7 @@ max_expansion_size = 1048576
 
 [notes]
 window_size = 20  # Default trailing window size for note listings
+
+[events]
+max_events  = 10000   # Steady-state event count; 0 disables retention
+prune_slack = 1000    # Allow count to grow this far past max_events before pruning
