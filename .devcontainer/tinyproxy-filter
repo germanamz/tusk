@@ -1,0 +1,11 @@
+^api\.anthropic\.com$
+^proxy\.golang\.org$
+^sum\.golang\.org$
+^github\.com$
+^api\.github\.com$
+^codeload\.github\.com$
+^objects\.githubusercontent\.com$
+^raw\.githubusercontent\.com$
+^.+\.githubusercontent\.com$
+^registry\.npmjs\.org$
+^.+\.npmjs\.org$

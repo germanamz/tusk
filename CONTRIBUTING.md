@@ -20,6 +20,138 @@ make build
 make test
 ```
 
+If you'd rather develop in a hermetic, sandboxed environment with all tooling pre-installed, see the [Dev Container](#dev-container-sandboxed-environment) section below.
+
+## Dev Container (Sandboxed Environment)
+
+A `.devcontainer/` is provided that builds a hermetic Ubuntu 24.04 image with the Go SDK, Node, and all project tooling pre-installed. Outbound network access is gated by an in-container egress proxy (tinyproxy) plus iptables rules, making it safe to run AI agents like Claude Code inside.
+
+### Prerequisites
+
+- Docker Desktop (or another Docker engine)
+- The dev container CLI: `npm install -g @devcontainers/cli`
+
+### Starting the container
+
+From the repository root:
+
+```bash
+make devcontainer-up
+```
+
+The first build downloads the Go SDK, Node.js, and Go tools and might take several minutes. Subsequent starts complete in well under a second — the entrypoint just applies iptables and starts the egress proxy.
+
+### Two users with different network privileges
+
+The container has two distinct users; pick the one that matches what you're doing.
+
+| User | Sudo | Egress | Use for |
+|---|---|---|---|
+| `claude` | no | only allowlisted hosts (via tinyproxy) | day-to-day editing, running agents, `make build`, `make test` |
+| `dev` | yes (NOPASSWD) | unrestricted | installing extra packages, fetching from non-allowlisted hosts, ops tasks |
+
+```bash
+# Default shell as claude (sandboxed) — IDE/devcontainer CLI attach here
+devcontainer exec --workspace-folder . bash
+
+# Shell as dev (unrestricted) via the container ID
+CID=$(docker ps --filter "label=devcontainer.local_folder=$PWD" -q)
+docker exec -u dev -it "$CID" bash
+```
+
+Or use the Makefile shortcuts, which handle the container ID lookup for you:
+
+```bash
+make devcontainer-shell        # exec in as claude (sandboxed)
+make devcontainer-shell-ops    # exec in as dev (unrestricted)
+```
+
+### What's pre-installed
+
+`gopls`, `dlv`, `golangci-lint`, `lefthook`, `conform`, `claude` (Claude Code CLI), `fd`, `ripgrep`, `git`, `gh`-style tooling. All on `PATH` for both users — `make build`, `make test`, and `make lint` work without further setup.
+
+### Egress allowlist
+
+Allowed hostnames live in `.devcontainer/tinyproxy-filter`:
+
+- `api.anthropic.com`
+- `proxy.golang.org`, `sum.golang.org`
+- `github.com`, `codeload.github.com`, `*.githubusercontent.com`
+- `registry.npmjs.org`, `*.npmjs.org`
+
+Anything else is rejected by tinyproxy with a 403, and direct (non-proxied) connections are dropped at the kernel by iptables. The `dev` user is exempt from both.
+
+To allow a new host, append a regex to `.devcontainer/tinyproxy-filter` and rebuild (see below).
+
+### Running Claude Code
+
+The `claude` CLI is pre-installed on `PATH`. Auth and configuration come from the host via the bind-mounted `~/.claude` directory, so a session you've signed into on the host carries over with no extra setup.
+
+```bash
+# Open a sandboxed shell and start claude in the workspace
+devcontainer exec --workspace-folder . bash -lc 'cd /workspaces/tusk && claude'
+```
+
+Or, from an existing shell inside the container:
+
+```bash
+cd /workspaces/tusk
+claude
+```
+
+What this means in practice:
+
+- The agent runs as the `claude` user — it inherits the same egress posture as your shell. It can reach `api.anthropic.com` and the other allowlisted hosts; everything else returns a tinyproxy 403 or is dropped at the kernel.
+- The agent has no `sudo`, so it cannot disable the firewall, restart tinyproxy, or alter the iptables rules — even if it tried.
+- File edits land in `/workspaces/tusk`, which is the bind-mounted host repo, so changes show up on the host immediately.
+- Local tooling (`go test`, `golangci-lint`, your locally-built `tusk` binary) is available for the agent to invoke during its workflow.
+- If the agent needs a host that isn't on the allowlist, the request fails. Add it to `tinyproxy-filter` and rebuild (see [Egress allowlist](#egress-allowlist)).
+
+If you want to run claude without the sandbox restrictions (e.g., for an interactive session that needs broader network access), exec in as `dev`:
+
+```bash
+CID=$(docker ps --filter "label=devcontainer.local_folder=$PWD" -q)
+docker exec -u dev -it "$CID" bash -lc 'cd /workspaces/tusk && claude'
+```
+
+### Verifying the sandbox
+
+```bash
+CID=$(docker ps --filter "label=devcontainer.local_folder=$PWD" -q)
+
+# claude has no sudo:
+docker exec -u claude "$CID" sudo -n true            # expect failure
+
+# Allowlisted host via proxy — succeeds:
+docker exec -u claude "$CID" curl -sI https://api.anthropic.com | head -1
+
+# Non-allowlisted host — tinyproxy 403:
+docker exec -u claude "$CID" curl -sI https://example.com | head -1
+
+# Direct connection (proxy bypassed) — iptables drops:
+docker exec -u claude "$CID" curl -sI --noproxy '*' --max-time 3 https://1.1.1.1
+
+# dev is unrestricted:
+docker exec -u dev "$CID" curl -sI https://example.com | head -1
+```
+
+### Tearing down and rebuilding
+
+```bash
+# Stop and remove the current container
+make devcontainer-down
+
+# Rebuild from scratch (e.g., after editing the Dockerfile or filter list)
+make devcontainer-down && devcontainer up --workspace-folder . --build-no-cache
+```
+
+### Caveats
+
+- The workspace is bind-mounted from the host, so file ownership inside the container reflects host UIDs (not the in-container `claude`/`dev` UIDs).
+- `~/.claude` is bind-mounted between host and container, so Claude Code auth/config is shared.
+- The Neovim config is **cloned into the image at build time** (from `germanamz/simple-nvim`), not bind-mounted. That means lazy.nvim can manage its lockfile freely, but config edits made on the host don't appear inside the container until you change the `git clone` source in the Dockerfile and rebuild.
+- Egress filter changes in `tinyproxy-filter` require a container rebuild to take effect.
+
 ## Development Workflow
 
 1. Fork the repository and create a feature branch from `main`.
