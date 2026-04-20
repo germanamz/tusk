@@ -3,7 +3,10 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race test-e2e vet lint run install setup-hooks
+.PHONY: all build clean test test-race test-e2e vet lint run install setup-hooks devcontainer-up devcontainer-shell devcontainer-shell-ops devcontainer-down
+
+DEVCONTAINER_CID = docker ps --filter "label=devcontainer.local_folder=$(CURDIR)" -q
+DEVCONTAINER_WORKDIR := /workspaces/$(notdir $(CURDIR))
 
 all: build
 
@@ -39,3 +42,20 @@ setup-hooks:
 	go install github.com/siderolabs/conform/cmd/conform@latest
 	lefthook install
 	@echo "Git hooks installed via lefthook"
+
+devcontainer-up:
+	devcontainer up --workspace-folder $(CURDIR) --build-no-cache
+
+devcontainer-shell:
+	@cid=$$($(DEVCONTAINER_CID)); \
+	test -n "$$cid" || { echo "dev container not running. Start it with: make devcontainer-up"; exit 1; }; \
+	docker exec -u claude -w $(DEVCONTAINER_WORKDIR) -it "$$cid" bash
+
+devcontainer-shell-ops:
+	@cid=$$($(DEVCONTAINER_CID)); \
+	test -n "$$cid" || { echo "dev container not running. Start it with: make devcontainer-up"; exit 1; }; \
+	docker exec -u dev -w $(DEVCONTAINER_WORKDIR) -it "$$cid" bash
+
+devcontainer-down:
+	@cid=$$(docker ps -a --filter "label=devcontainer.local_folder=$(CURDIR)" -q); \
+	if [ -n "$$cid" ]; then docker rm -f $$cid; else echo "no dev container to remove"; fi

@@ -1,0 +1,38 @@
+{
+  "name": "Go + Claude Secure Sandbox",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+
+  "remoteUser": "claude",
+  "overrideCommand": false,
+
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/claude/.claude,type=bind"
+  ],
+
+  "runArgs": [
+    "--cap-drop=ALL",
+    "--cap-add=NET_ADMIN",
+    "--cap-add=CHOWN",
+    "--cap-add=SETUID",
+    "--cap-add=SETGID",
+    "--security-opt=no-new-privileges:true"
+  ],
+
+  "containerEnv": {
+    "GO111MODULE": "on",
+    "GOPROXY": "https://proxy.golang.org,direct",
+    "CGO_ENABLED": "0",
+    "HTTP_PROXY": "http://127.0.0.1:8888",
+    "HTTPS_PROXY": "http://127.0.0.1:8888",
+    "NO_PROXY": "localhost,127.0.0.1"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  }
+}
