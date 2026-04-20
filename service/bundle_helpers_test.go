@@ -4,10 +4,37 @@ import (
 	"context"
 	"testing"
 
+	"github.com/germanamz/tusk/repository"
 	"github.com/germanamz/tusk/sqlite"
 	"github.com/germanamz/tusk/sqlite/sqlitetest"
 	"github.com/google/uuid"
 )
+
+// testWriteTxProvider wraps a *sqlite.Store so service tests can exercise
+// WriteTx without depending on cmd/tusk/main.go's adapter wiring.
+type testWriteTxProvider struct {
+	store      *sqlite.Store
+	maxEvents  int
+	pruneSlack int
+}
+
+type testWriteTx struct {
+	tx         *sqlite.Tx
+	maxEvents  int
+	pruneSlack int
+}
+
+func (w *testWriteTx) Tasks() repository.TaskRepository         { return w.tx.Tasks() }
+func (w *testWriteTx) Relations() repository.RelationRepository { return w.tx.Relations() }
+func (w *testWriteTx) Events() repository.EventRepository {
+	return w.tx.Events(w.maxEvents, w.pruneSlack)
+}
+
+func (p *testWriteTxProvider) WithTx(ctx context.Context, fn func(tx WriteTx) error) error {
+	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
+		return fn(&testWriteTx{tx: stx, maxEvents: p.maxEvents, pruneSlack: p.pruneSlack})
+	})
+}
 
 // newTestBundle creates an in-memory SQLite store and returns a
 // RepoBundle wrapping real repositories against it. The store is
@@ -33,6 +60,7 @@ func bundleFromStore(store *sqlite.Store) *RepoBundle {
 	db := store.DB()
 	return &RepoBundle{
 		Store:       store,
+		WriteTx:     &testWriteTxProvider{store: store, maxEvents: 10000, pruneSlack: 1000},
 		Tasks:       sqlite.NewTaskRepo(db),
 		Annotations: sqlite.NewAnnotationRepo(db),
 		Notes:       sqlite.NewNoteRepo(db),

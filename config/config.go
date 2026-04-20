@@ -30,6 +30,7 @@ type Config struct {
 	MCP     MCPConfig     `mapstructure:"mcp"     toml:"mcp"     json:"mcp"`
 	Inline  InlineConfig  `mapstructure:"inline"  toml:"inline"  json:"inline"`
 	Notes   NotesConfig   `mapstructure:"notes"   toml:"notes"   json:"notes"`
+	Events  EventsConfig  `mapstructure:"events"  toml:"events"  json:"events"`
 
 	// Sources records where the effective config came from. Populated by Load.
 	// Skipped by both mapstructure and TOML encoding so it never appears in
@@ -41,6 +42,16 @@ type Config struct {
 type NotesConfig struct {
 	// WindowSize is the default number of recent notes to display.
 	WindowSize int `mapstructure:"window_size" toml:"window_size" json:"window_size"`
+}
+
+// EventsConfig controls event-log retention.
+type EventsConfig struct {
+	// MaxEvents is the steady-state target row count in the events table.
+	// Zero disables retention entirely — the library embedder's escape hatch.
+	MaxEvents int `mapstructure:"max_events" toml:"max_events" json:"max_events"`
+	// PruneSlack allows the count to grow to MaxEvents+PruneSlack before a
+	// single insert triggers a batch delete down to MaxEvents.
+	PruneSlack int `mapstructure:"prune_slack" toml:"prune_slack" json:"prune_slack"`
 }
 
 // StorageConfig configures the database backend.

@@ -133,6 +133,12 @@ func New(
 	a.root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output")
 	a.root.PersistentFlags().StringVar(&a.playerID, "player", "", "player ID for claim/release operations")
 
+	a.root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		if a.playerID != "" {
+			cmd.SetContext(service.WithActor(cmd.Context(), a.playerID))
+		}
+	}
+
 	a.root.AddCommand(a.buildTaskCmd())
 	a.registerMovedStubs()
 	a.root.AddCommand(a.buildProjectCmd())

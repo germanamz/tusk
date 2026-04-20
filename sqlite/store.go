@@ -96,6 +96,13 @@ func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
 // Projects returns a ProjectRepo operating within this transaction.
 func (t *Tx) Projects() *ProjectRepo { return NewProjectRepo(t.tx) }
 
+// Events returns an EventRepo operating within this transaction. The retention
+// parameters (maxEvents, pruneSlack) are attached at tx time because they are
+// transaction-scoped policy, not repository-scoped.
+func (t *Tx) Events(maxEvents, pruneSlack int) *EventRepo {
+	return NewEventRepo(t.tx, maxEvents, pruneSlack)
+}
+
 // WithTx executes fn within a database transaction. If fn returns nil,
 // the transaction is committed. If fn returns an error (or panics),
 // the transaction is rolled back and the error is returned.
