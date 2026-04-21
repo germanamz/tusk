@@ -976,12 +976,12 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 > Append-only event table recording all mutations. Foundation for data portability (import/export need accurate event history), the live dashboard in v0.15, and undo in v0.16.
 
-- [ ] **Story: Event log infrastructure**
-  - [ ] Define event types (task_created, task_modified, status_changed, task_claimed, task_released, task_completed, task_deleted, relation_added, relation_removed)
-  - [ ] Migration adding `events` table (id, event_type, entity_id, player_id, payload JSON, created_at)
-  - [ ] EventRepository interface and SQLite implementation
-  - [ ] Emit events from TaskService, RelationService on every mutation
-  - [ ] Bounded retention (configurable max events, prune on write)
+- [x] **Story: Event log infrastructure**
+  - [x] Define event types (task_created, task_modified, status_changed, task_started, task_claimed, task_released, task_completed, task_deleted, task_popped, relation_added, relation_removed)
+  - [x] Migration adding `events` table (id, event_type, entity_id, entity_kind, player_id, payload JSON, created_at)
+  - [x] EventRepository interface and SQLite implementation
+  - [x] Emit events from TaskService, RelationService on every mutation
+  - [x] Bounded retention (configurable max events, prune on write)
 
 ### Initiative: UDA Schema Validation
 
@@ -1236,6 +1236,27 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [ ] Offline install via `TUSK_MCP_BINARY`
   - [ ] Corporate proxy / mirror setup
   - [ ] DB isolation pattern (project-level `.mcp.json` with `TUSK_DB`)
+
+### Initiative: Event Log Hardening
+
+> Quality follow-ups surfaced during the v0.13 Event Log post-implementation review. Non-blocking — the event log ships correctly in v0.13 — but worth resolving before downstream consumers (Data Portability, Live Dashboard, undo) grow to depend on the current shape.
+
+- [ ] **Story: Lifecycle emission coherence**
+  - [ ] Normalize idempotent-call behavior across `Start`, `Complete`, `Delete`: either all three emit their action event when called on a task already in the terminal status, or none do. Current state: `Start` always emits; `Complete`/`Delete` silently skip when `oldStatus == targetStatus`.
+  - [ ] Pick the emitting direction (preferred) so downstream consumers can trust "one action call = one event row"; update `service/task.go` and the corresponding event tests.
+
+- [ ] **Story: `TaskCreatedPayload` completeness**
+  - [ ] Populate `Order` and `Tags` in `domain.NewTaskCreatedEvent`, or drop the fields from the payload struct. Current state: fields are declared but the constructor never sets them because `domain.Task` carries neither.
+  - [ ] If populating: pull tags via `TagRepo.GetTaskTags` at emit time (inside the same `WriteTx` so the snapshot is consistent) and add `Order` once v0.13 Sibling Ordering lands the field on `Task`.
+  - [ ] Update the Data Portability JSON export to round-trip whichever shape is chosen.
+
+- [ ] **Story: `EventPayload` seal**
+  - [ ] Rename `EventPayload.EventKind()` to unexported `eventKind()` per the original design-spec intent, or document the exported form as deliberate so external packages can register new payload kinds without forking `domain/`.
+  - [ ] If tightening the seal: move the `UnknownPayload` fallback path (currently in `sqlite/event.go`'s `decodePayload`) to a registry hook so downstream consumers can still round-trip unknown kinds.
+
+- [ ] **Story: Cleanup**
+  - [ ] Remove the dead `_ = bundle` line in `service/task.go` (`Start`).
+  - [ ] Audit other event-log touch points for similar refactor leftovers.
 
 ---
 
