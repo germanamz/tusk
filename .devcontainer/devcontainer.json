@@ -5,12 +5,13 @@
     "context": "."
   },
 
-  "remoteUser": "claude",
+  "remoteUser": "vscode",
   "overrideCommand": false,
 
   "mounts": [
-    "source=tusk-devcontainer-claude-home,target=/home/claude/.claude,type=volume",
-    "source=tusk-devcontainer-go-cache,target=/home/claude/.gocache,type=volume"
+    "source=tusk-devcontainer-claude-home,target=/home/vscode/.claude,type=volume",
+    "source=tusk-devcontainer-go-cache,target=/home/vscode/.gocache,type=volume",
+    "source=tusk-devcontainer-gh-config,target=/home/vscode/.config/gh,type=volume"
   ],
 
   "runArgs": [
@@ -26,8 +27,8 @@
     "GO111MODULE": "on",
     "GOPROXY": "https://proxy.golang.org,direct",
     "CGO_ENABLED": "0",
-    "GOCACHE": "/home/claude/.gocache/build",
-    "GOMODCACHE": "/home/claude/.gocache/mod",
+    "GOCACHE": "/home/vscode/.gocache/build",
+    "GOMODCACHE": "/home/vscode/.gocache/mod",
     "HTTP_PROXY": "http://127.0.0.1:8888",
     "HTTPS_PROXY": "http://127.0.0.1:8888",
     "NO_PROXY": "localhost,127.0.0.1"
