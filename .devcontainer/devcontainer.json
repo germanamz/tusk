@@ -9,7 +9,8 @@
   "overrideCommand": false,
 
   "mounts": [
-    "source=${localEnv:HOME}/.claude,target=/home/claude/.claude,type=bind"
+    "source=tusk-devcontainer-claude-home,target=/home/claude/.claude,type=volume",
+    "source=tusk-devcontainer-go-cache,target=/home/claude/.gocache,type=volume"
   ],
 
   "runArgs": [
@@ -25,6 +26,8 @@
     "GO111MODULE": "on",
     "GOPROXY": "https://proxy.golang.org,direct",
     "CGO_ENABLED": "0",
+    "GOCACHE": "/home/claude/.gocache/build",
+    "GOMODCACHE": "/home/claude/.gocache/mod",
     "HTTP_PROXY": "http://127.0.0.1:8888",
     "HTTPS_PROXY": "http://127.0.0.1:8888",
     "NO_PROXY": "localhost,127.0.0.1"

@@ -40,3 +40,6 @@ Thumbs.db
 
 # Worktrees
 .worktrees/
+
+# Go build/module cache (devcontainer fallback location)
+.go-cache/
