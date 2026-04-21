@@ -201,6 +201,58 @@ func TestTxInvariant_MutationsRollBackOnEventFailure(t *testing.T) {
 		}
 		assertTaskUnchanged(t, env, task.ShortID, task)
 	})
+
+	t.Run("RelationAdd", func(t *testing.T) {
+		env := testTaskEnv(t)
+		relSvc := NewRelationService(env.taskSvc.resolve, env.taskSvc.projects)
+		taskA := newMinimalTask("rel add A")
+		mustCreateTask(t, env.taskSvc, taskA)
+		taskB := newMinimalTask("rel add B")
+		mustCreateTask(t, env.taskSvc, taskB)
+		env.installFailingEvents(t)
+
+		_, err := relSvc.Add(context.Background(), taskA.ShortID, taskB.ShortID, "blocks")
+		if !errors.Is(err, errInjectedEventFailure) {
+			t.Fatalf("RelationAdd: got %v, want wrapped injected failure", err)
+		}
+
+		// The relation row must not exist after rollback.
+		bundle, err := env.taskSvc.resolve(context.Background(), domain.DefaultProjectUUID)
+		if err != nil {
+			t.Fatalf("resolve bundle: %v", err)
+		}
+		_, err = bundle.Relations.GetByFields(context.Background(), taskA.ID, taskB.ID, "blocks")
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected relation row to be absent after rollback, got err=%v", err)
+		}
+	})
+
+	t.Run("RelationRemove", func(t *testing.T) {
+		env := testTaskEnv(t)
+		relSvc := NewRelationService(env.taskSvc.resolve, env.taskSvc.projects)
+		taskA := newMinimalTask("rel rm A")
+		mustCreateTask(t, env.taskSvc, taskA)
+		taskB := newMinimalTask("rel rm B")
+		mustCreateTask(t, env.taskSvc, taskB)
+		if _, err := relSvc.Add(context.Background(), taskA.ShortID, taskB.ShortID, "blocks"); err != nil {
+			t.Fatalf("Add setup: %v", err)
+		}
+		env.installFailingEvents(t)
+
+		err := relSvc.Remove(context.Background(), taskA.ShortID, taskB.ShortID, "blocks")
+		if !errors.Is(err, errInjectedEventFailure) {
+			t.Fatalf("RelationRemove: got %v, want wrapped injected failure", err)
+		}
+
+		// The relation row must still exist after rollback.
+		bundle, err := env.taskSvc.resolve(context.Background(), domain.DefaultProjectUUID)
+		if err != nil {
+			t.Fatalf("resolve bundle: %v", err)
+		}
+		if _, err := bundle.Relations.GetByFields(context.Background(), taskA.ID, taskB.ID, "blocks"); err != nil {
+			t.Fatalf("expected relation row to be present after rollback, got err=%v", err)
+		}
+	})
 }
 
 // installFailingEvents swaps the env's resolver bundle's WriteTxProvider for a

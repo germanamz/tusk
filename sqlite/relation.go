@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -87,6 +88,23 @@ func (r *RelationRepo) DeleteByFields(ctx context.Context, sourceID, targetID uu
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// GetByFields retrieves the relation matching the exact (source, target, type)
+// triple. Returns domain.ErrNotFound if no such relation exists. Used by
+// services that need the relation's UUID before deleting it.
+func (r *RelationRepo) GetByFields(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (*domain.Relation, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+relationColumns+` FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?`,
+		sourceID.String(), targetID.String(), relType)
+	rel, err := scanRelation(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return rel, nil
 }
 
 // GetByTask retrieves ALL relations where the given task is involved, regardless
