@@ -43,6 +43,9 @@ func (s *stubRelationRepo) Delete(_ context.Context, _ uuid.UUID) error        {
 func (s *stubRelationRepo) DeleteByFields(_ context.Context, _, _ uuid.UUID, _ string) error {
 	return nil
 }
+func (s *stubRelationRepo) GetByFields(_ context.Context, _, _ uuid.UUID, _ string) (*domain.Relation, error) {
+	return nil, nil
+}
 func (s *stubRelationRepo) GetByTask(_ context.Context, _ uuid.UUID) ([]*domain.Relation, error) {
 	return nil, nil
 }

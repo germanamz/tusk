@@ -47,8 +47,10 @@ func (s *RelationService) findTask(ctx context.Context, shortID string) (*RepoBu
 
 // Add creates a new relation between two tasks identified by short IDs.
 //
-// For "blocks" relations, the creation is wrapped in a transaction with
-// cycle detection. For other types, no cycle check is needed.
+// Both branches run inside a single WriteTx. For "blocks" relations, cycle
+// detection runs against the transactional RelationRepository so it observes
+// other writers' committed state. The relation row and its relation_added
+// event are written atomically — a failure in either rolls back both.
 func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID, relType string) (*domain.Relation, error) {
 	if !validRelationTypes[relType] {
 		return nil, fmt.Errorf("invalid relation type %q: must be one of blocks, relates_to, duplicates", relType)
@@ -78,26 +80,31 @@ func (s *RelationService) Add(ctx context.Context, sourceShortID, targetShortID,
 		CreatedAt:    time.Now().UTC().Truncate(time.Millisecond),
 	}
 
-	if relType == "blocks" {
-		if err := sourceBundle.Store.WithRelationTx(ctx, func(txRepo repository.RelationRepository) error {
-			if err := s.checkCycle(ctx, txRepo, source.ID, target.ID); err != nil {
+	actor := ActorFromContext(ctx)
+	err = sourceBundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		if relType == "blocks" {
+			if err := s.checkCycle(ctx, tx.Relations(), source.ID, target.ID); err != nil {
 				return err
 			}
-			return txRepo.Create(ctx, rel)
-		}); err != nil {
-			return nil, err
 		}
-		return rel, nil
-	}
-
-	if err := sourceBundle.Relations.Create(ctx, rel); err != nil {
+		if err := tx.Relations().Create(ctx, rel); err != nil {
+			return err
+		}
+		return tx.Events().Record(ctx, domain.NewRelationAddedEvent(rel, source.ShortID, target.ShortID, actor))
+	})
+	if err != nil {
 		return nil, err
 	}
 	return rel, nil
 }
 
-// Remove deletes an existing relation between two tasks.
+// Remove deletes an existing relation between two tasks. The deletion and its
+// relation_removed event are written atomically inside a single WriteTx.
 func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShortID, relType string) error {
+	if !validRelationTypes[relType] {
+		return fmt.Errorf("invalid relation type %q: must be one of blocks, relates_to, duplicates", relType)
+	}
+
 	sourceBundle, source, err := s.findTask(ctx, sourceShortID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -114,7 +121,18 @@ func (s *RelationService) Remove(ctx context.Context, sourceShortID, targetShort
 		return fmt.Errorf("resolving target task: %w", err)
 	}
 
-	return sourceBundle.Relations.DeleteByFields(ctx, source.ID, target.ID, relType)
+	actor := ActorFromContext(ctx)
+	return sourceBundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		// Look up the relation before deletion so the event can carry its ID.
+		rel, err := tx.Relations().GetByFields(ctx, source.ID, target.ID, relType)
+		if err != nil {
+			return err
+		}
+		if err := tx.Relations().DeleteByFields(ctx, source.ID, target.ID, relType); err != nil {
+			return err
+		}
+		return tx.Events().Record(ctx, domain.NewRelationRemovedEvent(rel, source.ShortID, target.ShortID, actor))
+	})
 }
 
 // GetByTask returns all relations involving a task (as source or
