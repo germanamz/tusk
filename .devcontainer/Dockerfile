@@ -34,10 +34,14 @@ RUN ARCH=$(dpkg --print-architecture) \
 RUN ARCH=$(dpkg --print-architecture) \
     && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
 
-# Node.js 20 (for claude-code CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# Node.js 20 (for claude-code CLI) — copied from the official image to sidestep
+# the "invalid signature" apt flake on ports.ubuntu.com inside Docker Desktop's
+# build VM. node:20-slim is Debian bookworm (glibc 2.36); Node binaries built
+# against older glibc run fine on Ubuntu 24.04 (glibc 2.39).
+COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 ENV PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -63,7 +67,7 @@ RUN GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
     && GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
         github.com/go-delve/delve/cmd/dlv@latest \
     && GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
-        github.com/golangci/golangci-lint/cmd/golangci-lint@latest \
+        github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest \
     && GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
         github.com/evilmartians/lefthook@latest \
     && GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
@@ -90,6 +94,14 @@ RUN chmod 0755 /usr/local/bin/init-firewall.sh /usr/local/bin/devcontainer-entry
 # Claude's interactive defaults
 RUN echo 'umask 002' >> /home/claude/.bashrc \
     && echo 'export PATH=$PATH:$HOME/go/bin' >> /home/claude/.bashrc
+
+# Pre-create the persistent-volume mount points so Docker seeds each empty
+# named volume with claude ownership on first mount. Without this they mount
+# as root:root and the unprivileged claude user cannot write to them.
+# .claude — CLI credentials and settings.
+# .gocache — Go build + module cache (off the root overlay to avoid fill-up).
+RUN mkdir -p /home/claude/.claude /home/claude/.gocache/build /home/claude/.gocache/mod \
+    && chown -R claude:claude /home/claude/.claude /home/claude/.gocache
 
 # Stay root for PID 1 so the entrypoint can apply iptables; actual user
 # attachment happens via `docker exec -u claude` (set by remoteUser).

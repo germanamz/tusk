@@ -1,6 +1,9 @@
 ^api\.anthropic\.com$
+^platform\.claude\.com$
+^statsig\.anthropic\.com$
 ^proxy\.golang\.org$
 ^sum\.golang\.org$
+^storage\.googleapis\.com$
 ^github\.com$
 ^api\.github\.com$
 ^codeload\.github\.com$
