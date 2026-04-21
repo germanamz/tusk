@@ -18,6 +18,26 @@ RUN apt-get update && apt-get install -y \
     && ln -sf "$(command -v fdfind)" /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI from the official repo. Needed so claude can open PRs without
+# SSH (port 22 isn't reachable through tinyproxy).
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rewrite SSH GitHub URLs to HTTPS so existing `origin` remotes work through
+# the egress proxy, and wire `gh` in as git's credential helper so `git push`
+# picks up the token after `gh auth login`.
+RUN git config --system url."https://github.com/".insteadOf "git@github.com:" \
+    && git config --system --add url."https://github.com/".insteadOf "ssh://git@github.com/" \
+    && git config --system credential."https://github.com".helper "!gh auth git-credential" \
+    && git config --system credential."https://gist.github.com".helper "!gh auth git-credential"
+
 # Neovim (upstream stable, multi-arch). The apt package on Ubuntu 24.04 lags
 # behind what most modern configs (lazy.nvim, treesitter, etc.) require.
 RUN ARCH=$(dpkg --print-architecture) \
@@ -45,19 +65,20 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 ENV PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Rename the base image's vscode user to claude — and revoke its sudo access
-RUN usermod -l claude -d /home/claude -m vscode \
-    && groupmod -n claude vscode \
-    && rm -f /etc/sudoers.d/vscode
+# Revoke the base image's vscode user's sudo access. Keeping the default
+# username avoids breakage in the base image's scripts that assume
+# /home/vscode; the sandbox guarantees come from the firewall + sudo
+# revocation, not the username.
+RUN rm -f /etc/sudoers.d/vscode
 
 # Unrestricted operator user (the human)
 RUN useradd -m -s /bin/bash -G sudo dev \
     && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev \
     && chmod 0440 /etc/sudoers.d/dev
 
-# Shared group so claude and dev can both work in /workspaces
+# Shared group so vscode and dev can both work in /workspaces
 RUN groupadd developers \
-    && usermod -aG developers claude \
+    && usermod -aG developers vscode \
     && usermod -aG developers dev
 
 # Pre-install Go tooling system-wide. Build-time has unrestricted internet,
@@ -80,9 +101,9 @@ RUN npm install -g @anthropic-ai/claude-code tree-sitter-cli \
 
 # Clone Neovim config into the image so it's writable (lazy.nvim manages a
 # lockfile that the previous read-only host mount couldn't accept).
-RUN runuser -u claude -- git clone --depth=1 \
+RUN runuser -u vscode -- git clone --depth=1 \
         https://github.com/germanamz/simple-nvim \
-        /home/claude/.config/nvim
+        /home/vscode/.config/nvim
 
 # Sandbox configuration + entrypoint
 COPY tinyproxy.conf /etc/tinyproxy/tinyproxy.conf
@@ -91,19 +112,27 @@ COPY init-firewall.sh /usr/local/bin/init-firewall.sh
 COPY entrypoint.sh /usr/local/bin/devcontainer-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/init-firewall.sh /usr/local/bin/devcontainer-entrypoint.sh
 
-# Claude's interactive defaults
-RUN echo 'umask 002' >> /home/claude/.bashrc \
-    && echo 'export PATH=$PATH:$HOME/go/bin' >> /home/claude/.bashrc
+# vscode's interactive defaults
+RUN echo 'umask 002' >> /home/vscode/.bashrc \
+    && echo 'export PATH=$PATH:$HOME/go/bin' >> /home/vscode/.bashrc
 
 # Pre-create the persistent-volume mount points so Docker seeds each empty
-# named volume with claude ownership on first mount. Without this they mount
-# as root:root and the unprivileged claude user cannot write to them.
-# .claude — CLI credentials and settings.
+# named volume with vscode ownership on first mount. Without this they mount
+# as root:root and the unprivileged vscode user cannot write to them.
+# .claude — Claude Code credentials and settings.
 # .gocache — Go build + module cache (off the root overlay to avoid fill-up).
-RUN mkdir -p /home/claude/.claude /home/claude/.gocache/build /home/claude/.gocache/mod \
-    && chown -R claude:claude /home/claude/.claude /home/claude/.gocache
+# .config/gh — gh auth token, so `gh auth login` persists across rebuilds.
+RUN mkdir -p \
+        /home/vscode/.claude \
+        /home/vscode/.gocache/build \
+        /home/vscode/.gocache/mod \
+        /home/vscode/.config/gh \
+    && chown -R vscode:vscode \
+        /home/vscode/.claude \
+        /home/vscode/.gocache \
+        /home/vscode/.config/gh
 
 # Stay root for PID 1 so the entrypoint can apply iptables; actual user
-# attachment happens via `docker exec -u claude` (set by remoteUser).
+# attachment happens via `docker exec -u vscode` (set by remoteUser).
 ENTRYPOINT ["/usr/local/bin/devcontainer-entrypoint.sh"]
 CMD ["sleep", "infinity"]
