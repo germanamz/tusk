@@ -31,9 +31,14 @@ type UrgencyOverrides struct {
 
 // ProjectSettings holds per-project configuration stored as JSON in the
 // projects table. Nil fields mean the feature is disabled (the default).
+//
+// Taxonomy is tristate: nil = inherit workspace default; &empty = explicit
+// opt-out (disable levels for this project); &populated = project-specific
+// override replacing the workspace default in full.
 type ProjectSettings struct {
 	AutoCompleteParent *AutoCompleteConfig `json:"auto_complete_parent,omitempty"`
 	AutoRevertParent   *AutoRevertConfig   `json:"auto_revert_parent,omitempty"`
 	Urgency            *UrgencyOverrides   `json:"urgency,omitempty"`
 	NoteWindowSize     *int                `json:"note_window_size,omitempty"`
+	Taxonomy           *Taxonomy           `json:"taxonomy,omitempty"`
 }
