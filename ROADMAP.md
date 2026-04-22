@@ -968,7 +968,7 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 **Goal:** Make tusk usable as the source of truth for its own roadmap. Replace the hand-edited `ROADMAP.md` with a tusk project, regenerate a human-readable markdown view from tusk state, and give agents the observability and schema tools they need to plan against it.
 
-The milestone combines the foundational capabilities the self-host use case depends on — the Event Log, UDA Schema Validation, and bidirectional Data Portability — with three capabilities that fall out of managing a roadmap inside tusk: sibling ordering, subtree urgency overrides, and a static progress rollup view. It closes with a one-shot migration from the existing `ROADMAP.md` so the milestone can be dogfooded before release.
+The milestone combines the foundational capabilities the self-host use case depends on — the Event Log, Task Level Taxonomy, and bidirectional Data Portability — with three capabilities that fall out of managing a roadmap inside tusk: sibling ordering, subtree urgency overrides, and a static progress rollup view. It closes with a one-shot migration from the existing `ROADMAP.md` so the milestone can be dogfooded before release.
 
 **Exit criteria:** `ROADMAP.md` is regenerated from tusk state (never hand-edited) and every status update flows through `tusk task done` or equivalent.
 
@@ -983,42 +983,46 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [x] Emit events from TaskService, RelationService on every mutation
   - [x] Bounded retention (configurable max events, prune on write)
 
-### Initiative: UDA Schema Validation
+### Initiative: Task Level Taxonomy
 
-> Per-project validation for user-defined attributes, expressed as an extensible set of per-key rules: `type`, `required`, `enum`, `pattern`, `parent_uda`. Required to enforce the `uda.level` convention used by the roadmap self-host model. `uda.level` stays a UDA — no promotion to a first-class task field — and this initiative is what makes it rigorous enough for the Claude Code plugin skills to rely on.
+> First-class `level` field on every task plus a rank-ordered taxonomy declared at workspace scope with per-project override. Enforces the milestone → initiative → story → task/spike modeling used by the roadmap self-host and the Claude Code plugin skills. Replaces the earlier per-UDA-key schema plan with a narrower, purpose-built primitive; UDAs stay free-form key-value metadata.
 
-- [ ] **Story: Schema model and validator interface**
-  - [ ] `UDASchema` added to `ProjectSettings` as a flat per-key structure: `Type` (`string|int|float|bool|date`), `Required`, `Enum`, `Pattern`, `ParentUDA` (map of parent UDA key → required value, so compound pairing like `{level:milestone, area:roadmap}` works without a new struct)
-  - [ ] UDA values remain strings on disk; the `Type` rule validates that the string parses to the declared type, so schema mutations don't force data migrations
-  - [ ] `Validator` interface with a `Check(ctx ValidationContext, key string, value string, task *domain.Task) error` method
-  - [ ] `UDAKeyConstraint.Compile() []Validator` returns the ordered validator pipeline; new rule kinds plug in without changing the wire format
-  - [ ] `ValidationContext` carries the parent task's UDA map so validators never reach into the repository
+- [ ] **Story: Domain model and resolution**
+  - [ ] Add `level TEXT` nullable column to `tasks` via migration; update `domain.Task.Level *string` and the SQLite scan/write paths; existing rows default to `NULL`
+  - [ ] `domain.TaskUpdate.Level` uses `**string` so callers can distinguish "no change" from "clear" on modify
+  - [ ] `domain.Taxonomy` = ordered slice of rank groups (`[][]string`); rank index 0 is the top rank and the only root-eligible rank
+  - [ ] `domain.ProjectSettings.Taxonomy *domain.Taxonomy` carries the per-project override with three observable states: `nil` = inherit the workspace default, `&empty` = explicit opt-out (disable levels for this project even when a workspace default exists), `&populated` = full replace (no per-rank merge)
+  - [ ] `config.TaxonomyConfig` section in `tusk.toml` for the workspace default; embedded default ships empty
+  - [ ] Resolution chain: project override (non-nil, including explicit empty) → workspace default → empty; any empty effective taxonomy disables level validation for that project
+  - [ ] Taxonomy helpers on the domain type — `RankOf(level) (int, bool)`, `IsTopRank(level) bool`, `IsEmpty() bool`, `Contains(level) bool`
 
-- [ ] **Story: Validator implementations**
-  - [ ] `required` — fails when the key is declared required and absent from the task's UDA
-  - [ ] `type` — parses the string value against `string|int|float|bool|date`; error carries the offending value and target type
-  - [ ] `enum` — membership check against the declared set
-  - [ ] `pattern` — regex match; regex compiled once inside `Compile()`, not per-call
-  - [ ] `parent_uda` — every declared `{pkey: pvalue}` must match the parent's UDA; error distinguishes "parent missing" from "parent UDA mismatch"
+- [ ] **Story: Validator and enforcement**
+  - [ ] `TaxonomyValidator.Check(ctx ValidationContext, task *domain.Task) error` — single entry point invoked from the task service on create and on any modify touching `Level`, `ParentID`, or `ProjectID`
+  - [ ] `ValidationContext` carries the parent task's resolved level (pre-loaded in the service layer) so the validator never touches the repository
+  - [ ] Rules: empty effective taxonomy accepts any state; otherwise `task.Level` must be declared in the taxonomy; tasks with no parent require top-rank (`rank == 0`); tasks with a parent require parent's rank strictly less than the task's rank
+  - [ ] Rejections return `domain.ErrTaxonomyViolation` wrapping a typed `TaxonomyError{Level, ParentLevel, Reason}` so CLI and MCP surfaces render structured messages
+  - [ ] Prospective semantics — taxonomy edits do not retroactively re-validate existing tasks; a later `tusk task level-check` surfaces violations without rejecting them
+  - [ ] Project reassignment re-runs validation against the destination project's effective taxonomy
+  - [ ] Same validator fires on JSON and Markdown import, consistent with the Data Portability initiative
 
-- [ ] **Story: Schema CRUD — CLI inline syntax**
-  - [ ] `tusk project modify` accepts `uda-schema.<key>.type=<t>`, `.required=<bool>`, `.enum=<v1,v2,...>`, `.pattern=<regex>`, `.parent_uda.<pkey>=<pvalue>`
-  - [ ] `uda-schema.<key>=` (empty value) removes the key's rules; `uda-schema.<key>.<dim>=` (empty) removes one dimension
-  - [ ] `uda-schema=@./schema.json` replaces the entire project schema via the existing `@`-reference expander
-  - [ ] `tusk project show` renders the schema; `tusk config show` surfaces it read-only under the project's section
+- [ ] **Story: CRUD — CLI inline syntax**
+  - [ ] `tusk task create` / `tusk task modify` accept `level=<name>`; `level=` (empty value on modify) clears the field
+  - [ ] `tusk project modify` accepts `taxonomy.levels=milestone:initiative:story:(task,spike)` — `:` separates ranks top-to-bottom, a parenthesized comma list marks peer levels sharing a rank
+  - [ ] `taxonomy.levels=` (empty value) clears the project override and falls back to the workspace default
+  - [ ] `taxonomy.disable=true` writes an explicit-empty override so the project opts out of the workspace default; `taxonomy.disable=false` clears it (equivalent to `taxonomy.levels=`). `disable=true` is mutually exclusive with `taxonomy.levels=...` in the same call
+  - [ ] `taxonomy=@./taxonomy.json` replaces the project taxonomy via the `@`-reference expander
+  - [ ] `tusk config set taxonomy.levels ...` writes the workspace default to the active `tusk.toml`
+  - [ ] `tusk project show` renders the effective taxonomy with a provenance marker (`source: workspace default` / `source: project override`)
+  - [ ] `tusk config show` renders the workspace default under `[taxonomy]` and each project's override read-only under its projects section
+  - [ ] Filter grammar: `level=<name>` and `level=a,b` become first-class filter fields; `uda.level` is no longer a reserved convention
 
-- [ ] **Story: Schema CRUD — MCP tool**
-  - [ ] `tusk_project_modify` accepts a structured `uda_schema` object mirroring the domain shape
-  - [ ] Version-based optimistic locking on project writes
-  - [ ] v0.12 blocked-fields mechanism applies unchanged
+- [ ] **Story: CRUD — MCP tool**
+  - [ ] `tusk_task_create` / `tusk_task_modify` accept a `level` string parameter; empty string on modify clears the field
+  - [ ] Every task response (`tusk_task_get`, create/modify returns, list, tree) includes `level`
+  - [ ] `tusk_project_modify` accepts a structured `taxonomy` object mirroring the domain shape (`{"ranks": [["milestone"], ["initiative"], ["story"], ["task", "spike"]]}`); omitted = no change, `null` = clear the project override (inherit workspace default), `{"ranks": []}` = explicit-empty opt-out
+  - [ ] Version-based optimistic locking on project writes is unchanged; the v0.12 blocked-fields mechanism applies
 
-- [ ] **Story: Schema enforcement**
-  - [ ] Validators run on task create, modify, JSON import, and Markdown import
-  - [ ] Parent lookup for `parent_uda` happens in the service layer before validators fire, so the repository dependency stays out of the validator interface
-  - [ ] Schema changes are prospective — existing tasks are not retroactively re-validated (a later `tusk project schema-check` can surface violations without rejecting them)
-  - [ ] Rejected writes return `domain.ErrUDAInvalid` wrapping a `UDAValidationError{Key, RuleKind, Message}` so CLI and MCP surfaces can render structured messages pointing at the failing key and rule
-
-> **Deferred (not v0.13):** group-modifier inline syntax for schema definitions, e.g. `uda-schema.level=string(enum=milestone:initiative:story:task:spike,required)`. Dotted-path form is sufficient for v0.13 and the group form can be added later without changing the stored schema shape.
+> **Deferred (not v0.13):** per-level DAG constraints (e.g., "task may sit under story but not under initiative"), per-level required fields or defaults, retroactive re-validation. The rank-based model upgrades cleanly to per-level parent sets if a stricter taxonomy becomes necessary.
 
 ### Initiative: Sibling Ordering
 
@@ -1076,7 +1080,7 @@ The milestone combines the foundational capabilities the self-host use case depe
 - [ ] **Story: `tusk task summary` command**
   - [ ] `tusk task summary <id>` — single-subtree block: title, status, `%done`, counts by status
   - [ ] `tusk task summary` (no id) — workspace-wide rollup: one block per root task plus a totals line
-  - [ ] Accepts the same filter grammar as `task list` so scoped rollups (`tusk task summary uda.level=story`) work without the feature itself knowing what `level` means
+  - [ ] Accepts the same filter grammar as `task list` so scoped rollups (`tusk task summary level=story`) work without the feature itself knowing what `level` means
   - [ ] `--output json` variant for agent consumption
   - [ ] MCP tool `tusk_task_summary` mirrors the CLI
 
@@ -1085,7 +1089,7 @@ The milestone combines the foundational capabilities the self-host use case depe
 > Bidirectional JSON and Markdown import and export, plus CSV export. Covers backup, migration, and keeping human-readable markdown docs in sync with tusk state.
 
 - [ ] **Story: JSON export and import**
-  - [ ] `tusk export --format json [--output <path>]` writes a full workspace dump (tasks, relations, annotations, tags, players, notes, events, projects, workflows, UDA schemas); stdout by default
+  - [ ] `tusk export --format json [--output <path>]` writes a full workspace dump (tasks, relations, annotations, tags, players, notes, events, projects, workflows, taxonomies); stdout by default
   - [ ] `tusk import --format json --input <path>` rehydrates the workspace with IDs, UDAs, and timestamps preserved
   - [ ] `--replace` overwrites colliding rows; default is fail-on-collision
   - [ ] `--dry-run` reports what would be imported without writing
@@ -1109,7 +1113,7 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 - [ ] **Story: Migration script**
   - [ ] `scripts/migrate-roadmap/main.go` parses `ROADMAP.md` headings, initiatives, stories, and tasks into the JSON import format (or hands the markdown file directly to `tusk import --format markdown`, whichever path lands first)
-  - [ ] Emits `uda.level` on every task following the self-host modeling convention
+  - [ ] Emits `level` on every task following the self-host modeling convention
   - [ ] Preserves completion state (`[x]` → `completed`), hierarchy, and document-position ordering
   - [ ] Verification step: re-exporting the migrated workspace to markdown matches the source within the round-trip guarantee
 
@@ -1180,7 +1184,7 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [ ] Detect CLAUDE.md / AGENTS.md / GEMINI.md at repo root; ask which file(s) to update or offer to create CLAUDE.md
   - [ ] Ask for the alignment doc path; accept paths that don't exist yet
   - [ ] Write the `## Tusk alignment` block idempotently — update in place if present, never duplicate
-  - [ ] Offer to bootstrap the level UDA schema (milestone/initiative/story/task/spike) on the active tusk project
+  - [ ] Offer to bootstrap the level taxonomy (milestone/initiative/story/task/spike) on the active tusk project
 
 - [ ] **Story: `tusk:plan`**
   - [ ] Read the alignment doc via the CLAUDE.md convention; prompt for intent if absent
@@ -1282,7 +1286,7 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 ### Initiative: Project Note Window Size Wiring
 
-> v0.12 added `NoteWindowSize` to `domain.ProjectSettings` and `NoteService.List` reads it in the resolution chain, but the field has no CLI or MCP write path — `ModifyProjectInput`, `internal/tui/project_parse.go`, and `internal/mcp/project_handlers.go` all omit it. Projects cannot currently override the note window; the fallback passes straight through to global config. Non-blocking orphan surfaced during v0.13 UDA Schema Validation design review.
+> v0.12 added `NoteWindowSize` to `domain.ProjectSettings` and `NoteService.List` reads it in the resolution chain, but the field has no CLI or MCP write path — `ModifyProjectInput`, `internal/tui/project_parse.go`, and `internal/mcp/project_handlers.go` all omit it. Projects cannot currently override the note window; the fallback passes straight through to global config. Non-blocking orphan surfaced during v0.13 Task Level Taxonomy design review.
 
 - [ ] **Story: Project-level window size write path**
   - [ ] Add `NoteWindowSize` to `ModifyProjectInput` in `service/project.go` and apply it in `ProjectService.Modify`
