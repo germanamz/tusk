@@ -40,9 +40,21 @@ Tasks can nest to arbitrary depth via an optional parent reference. When all chi
 
 Siblings under the same parent are ordered by a per-task `order` field — a fractional index that lets tasks be inserted between neighbors without renumbering the whole sibling group. Hierarchical views (`tusk task tree`, `task list parent=…`, `task list tree=…`) sort by `order` so the output matches how the work was laid out. Flat views (`task list`, `next`, `available`, `pop`) continue to sort by urgency — ordering is structural, not a priority signal. The `tusk task move` command places a task before, after, first, or last among its siblings and handles re-parenting in one step.
 
+### Task Levels
+
+Tasks optionally carry a **level** — a label identifying where they sit in a Work Breakdown Structure. A roadmap-style project might use `milestone → initiative → story → task/spike`; a bug tracker could use `epic → ticket`; a scratch project can opt out entirely.
+
+Valid level names and legal parent-child pairings are declared once as a **taxonomy**. Taxonomies are rank-ordered — each rank holds one or more peer level names. `[[milestone], [initiative], [story], [task, spike]]` is four ranks, with `task` and `spike` sharing the lowest rank. A task's parent must sit at a strictly lower rank index than the task itself; any ancestor rank may parent any descendant rank, so a milestone can directly parent a task without an intermediate initiative or story. Peer levels at the same rank may not parent each other. Only top-rank levels (rank 0) may be root tasks.
+
+Taxonomies resolve through the config chain: workspace default (from `tusk.toml`) → per-project override (on `ProjectSettings`). Override is full replace, not per-rank merge. A project can also explicitly opt out of the workspace default — recording an empty taxonomy that disables levels for that project specifically. If neither layer defines a taxonomy (or the project opts out), level validation is disabled and tasks don't carry a level.
+
+When a project's effective taxonomy is non-empty, every task it holds must carry a level, and every create, level change, re-parent, and project reassignment is validated. Taxonomy edits are prospective — existing tasks are not retroactively re-validated; a later `tusk task level-check` surfaces violations without rejecting them.
+
+`level` is a first-class field on every task. It participates in the filter grammar as `level=<name>`, renders in `tusk task get` and tree views, and round-trips through JSON, Markdown, and CSV export alongside every other task field.
+
 ### Progress Rollup
 
-Any branch in the hierarchy can be summarized with `tusk task summary <id>` or with `tusk task tree --rollup`. Summaries count all descendants at any depth and report `%done` plus a breakdown by status — deriving completion from the workflow's `done` and `delete` status roles so custom workflows work without configuration. No vocabulary is baked in: the rollup doesn't know about "epics" or "stories", it just counts tasks. Filters (`+tag`, `uda.level=story`, `priority=3..4`, etc.) narrow a rollup to any subset the user cares about.
+Any branch in the hierarchy can be summarized with `tusk task summary <id>` or with `tusk task tree --rollup`. Summaries count all descendants at any depth and report `%done` plus a breakdown by status — deriving completion from the workflow's `done` and `delete` status roles so custom workflows work without configuration. No vocabulary is baked in: the rollup doesn't know about "epics" or "stories", it just counts tasks. Filters (`+tag`, `level=story`, `priority=3..4`, etc.) narrow a rollup to any subset the user cares about.
 
 ### Relations
 
@@ -133,7 +145,7 @@ Weights are configurable globally, can be overridden per project, and can be ove
 
 Tasks support arbitrary key-value metadata via UDAs. UDAs are set via inline `uda.key=value` syntax on `tusk task create` and `tusk task modify`, and filtered with the same `uda.key=value` syntax on `tusk task list`. Any string key-value pair can be attached, overwritten, or removed. UDAs appear in all task responses across both interfaces.
 
-Projects can define UDA schemas that constrain per-key behavior. Each key may declare a `type` (`string`, `int`, `float`, `bool`, `date`), a `required` flag, an `enum` of allowed values, a regex `pattern` for string values, and `parent_uda` rules requiring the task's parent to carry matching UDAs — so a task with `uda.level=initiative` can be required to live under a parent with `uda.level=milestone`. Parent-UDA rules are expressed as a map, so one key can depend on multiple parent UDAs in one declaration. Values are stored as strings; the `type` rule validates that the string parses to the declared type, which keeps schema mutations from forcing data migrations. Invalid writes on create, modify, and import are rejected with a structured error identifying the failing key and rule. Schema changes apply prospectively — existing tasks are not retroactively re-validated. Without a schema, UDAs are free-form.
+UDAs stay deliberately free-form — any key matching `[a-zA-Z_][a-zA-Z0-9_-]*` with a string value is accepted, and there is no project-level schema or per-key validation. Structured taxonomies that need rigorous enforcement — notably Work Breakdown Structure levels — live outside UDAs as dedicated first-class fields (see [Task Levels](#task-levels)). UDAs are the place for everything that doesn't need that structure.
 
 ### Recurrence
 
@@ -342,7 +354,7 @@ By default, the plugin targets the shared tusk database (`~/.local/share/tusk/tu
 
 Skills come in two tiers. The **tusk-native tier** covers setup and roadmap work:
 
-- `tusk:init` — one-time project bootstrap: detect CLAUDE.md / AGENTS.md / GEMINI.md, write an alignment-doc convention block, optionally configure the level UDA schema on the active project.
+- `tusk:init` — one-time project bootstrap: detect CLAUDE.md / AGENTS.md / GEMINI.md, write an alignment-doc convention block, optionally configure the level taxonomy on the active project.
 - `tusk:plan` — guided brainstorm from intent and alignment context to a WBS, imported into tusk as one milestone subtree per invocation.
 - `tusk:decompose` — break a task into correctly-leveled children (respecting the milestone → initiative → story → task/spike pairing).
 - `tusk:pick-next` — advisory next-action recommendation based on urgency, rollup, and blockers.
@@ -540,7 +552,7 @@ The storage layer is defined as a set of interfaces. SQLite is the shipped defau
 
 Tusk supports data export and import for backup, migration, interoperability, and keeping human-readable documents in sync with tusk state:
 
-- **JSON** — bidirectional. Complete workspace dump (tasks, relations, annotations, tags, players, notes, events, projects, workflows, UDA schemas). Round-trips into an empty workspace with the same graph, IDs, UDAs, and timestamps. The authoritative portable format.
+- **JSON** — bidirectional. Complete workspace dump (tasks, relations, annotations, tags, players, notes, events, projects, workflows, taxonomies). Round-trips into an empty workspace with the same graph, IDs, UDAs, levels, and timestamps. The authoritative portable format.
 - **Markdown** — bidirectional. Human-readable tree: headings per root task, nested bullets for descendants, checkboxes for status, inline UDAs for metadata. Intended both for round-tripping tusk's own export and for bootstrapping a workspace from a hand-written bulleted plan. Fields that don't fit in the markdown shape (e.g., `urgency_overrides`, full event history) round-trip only through JSON.
 - **CSV** — export only. Flat tabular export of tasks for spreadsheet workflows.
 
