@@ -133,7 +133,7 @@ Weights are configurable globally, can be overridden per project, and can be ove
 
 Tasks support arbitrary key-value metadata via UDAs. UDAs are set via inline `uda.key=value` syntax on `tusk task create` and `tusk task modify`, and filtered with the same `uda.key=value` syntax on `tusk task list`. Any string key-value pair can be attached, overwritten, or removed. UDAs appear in all task responses across both interfaces.
 
-Projects can define UDA schemas — which keys are allowed, what types and values they accept. When a schema is defined, invalid metadata is rejected on create and update. Without a schema, UDAs are free-form.
+Projects can define UDA schemas that constrain per-key behavior. Each key may declare a `type` (`string`, `int`, `float`, `bool`, `date`), a `required` flag, an `enum` of allowed values, a regex `pattern` for string values, and `parent_uda` rules requiring the task's parent to carry matching UDAs — so a task with `uda.level=initiative` can be required to live under a parent with `uda.level=milestone`. Parent-UDA rules are expressed as a map, so one key can depend on multiple parent UDAs in one declaration. Values are stored as strings; the `type` rule validates that the string parses to the declared type, which keeps schema mutations from forcing data migrations. Invalid writes on create, modify, and import are rejected with a structured error identifying the failing key and rule. Schema changes apply prospectively — existing tasks are not retroactively re-validated. Without a schema, UDAs are free-form.
 
 ### Recurrence
 
