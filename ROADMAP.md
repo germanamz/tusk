@@ -1258,6 +1258,17 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [ ] Remove the dead `_ = bundle` line in `service/task.go` (`Start`).
   - [ ] Audit other event-log touch points for similar refactor leftovers.
 
+### Initiative: Project Note Window Size Wiring
+
+> v0.12 added `NoteWindowSize` to `domain.ProjectSettings` and `NoteService.List` reads it in the resolution chain, but the field has no CLI or MCP write path — `ModifyProjectInput`, `internal/tui/project_parse.go`, and `internal/mcp/project_handlers.go` all omit it. Projects cannot currently override the note window; the fallback passes straight through to global config. Non-blocking orphan surfaced during v0.13 UDA Schema Validation design review.
+
+- [ ] **Story: Project-level window size write path**
+  - [ ] Add `NoteWindowSize` to `ModifyProjectInput` in `service/project.go` and apply it in `ProjectService.Modify`
+  - [ ] Add inline parser case in `internal/tui/project_parse.go` for `note-window-size=<N>` and `note-window-size=` (clear)
+  - [ ] Add the parameter to `tusk_project_modify` in `internal/mcp/project_handlers.go` with version-based optimistic locking
+  - [ ] Render the resolved value in `tusk project info` output
+  - [ ] E2E coverage: set per-project override, list notes, verify the resolution chain picks up the project value over global config
+
 ---
 
 ## v0.15 — Live Dashboard
