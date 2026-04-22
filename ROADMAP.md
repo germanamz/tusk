@@ -985,18 +985,40 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 ### Initiative: UDA Schema Validation
 
-> Per-project validation for user-defined attributes, including enums and parent-level pairing rules. Required to enforce the `uda.level` convention used by the roadmap self-host model (one project, `uda.level=milestone|initiative|story|task|spike`, with strict parent-level pairing).
+> Per-project validation for user-defined attributes, expressed as an extensible set of per-key rules: `type`, `required`, `enum`, `pattern`, `parent_uda`. Required to enforce the `uda.level` convention used by the roadmap self-host model. `uda.level` stays a UDA — no promotion to a first-class task field — and this initiative is what makes it rigorous enough for the Claude Code plugin skills to rely on.
 
-- [ ] **Story: UDA schema definition**
-  - [ ] Per-project UDA schema stored in `ProjectSettings` (type, allowed values, required flag, parent-level constraints)
-  - [ ] Schema CRUD via `tusk project modify <name> uda-schema.<key>=...` inline syntax
-  - [ ] `tusk_project_modify` MCP tool accepts schema updates with version-based optimistic locking
+- [ ] **Story: Schema model and validator interface**
+  - [ ] `UDASchema` added to `ProjectSettings` as a flat per-key structure: `Type` (`string|int|float|bool|date`), `Required`, `Enum`, `Pattern`, `ParentUDA` (map of parent UDA key → required value, so compound pairing like `{level:milestone, area:roadmap}` works without a new struct)
+  - [ ] UDA values remain strings on disk; the `Type` rule validates that the string parses to the declared type, so schema mutations don't force data migrations
+  - [ ] `Validator` interface with a `Check(ctx ValidationContext, key string, value string, task *domain.Task) error` method
+  - [ ] `UDAKeyConstraint.Compile() []Validator` returns the ordered validator pipeline; new rule kinds plug in without changing the wire format
+  - [ ] `ValidationContext` carries the parent task's UDA map so validators never reach into the repository
+
+- [ ] **Story: Validator implementations**
+  - [ ] `required` — fails when the key is declared required and absent from the task's UDA
+  - [ ] `type` — parses the string value against `string|int|float|bool|date`; error carries the offending value and target type
+  - [ ] `enum` — membership check against the declared set
+  - [ ] `pattern` — regex match; regex compiled once inside `Compile()`, not per-call
+  - [ ] `parent_uda` — every declared `{pkey: pvalue}` must match the parent's UDA; error distinguishes "parent missing" from "parent UDA mismatch"
+
+- [ ] **Story: Schema CRUD — CLI inline syntax**
+  - [ ] `tusk project modify` accepts `uda-schema.<key>.type=<t>`, `.required=<bool>`, `.enum=<v1,v2,...>`, `.pattern=<regex>`, `.parent_uda.<pkey>=<pvalue>`
+  - [ ] `uda-schema.<key>=` (empty value) removes the key's rules; `uda-schema.<key>.<dim>=` (empty) removes one dimension
+  - [ ] `uda-schema=@./schema.json` replaces the entire project schema via the existing `@`-reference expander
+  - [ ] `tusk project show` renders the schema; `tusk config show` surfaces it read-only under the project's section
+
+- [ ] **Story: Schema CRUD — MCP tool**
+  - [ ] `tusk_project_modify` accepts a structured `uda_schema` object mirroring the domain shape
+  - [ ] Version-based optimistic locking on project writes
+  - [ ] v0.12 blocked-fields mechanism applies unchanged
 
 - [ ] **Story: Schema enforcement**
-  - [ ] Validate UDA values against the project's schema on task create, modify, and import
-  - [ ] Support enum constraints (e.g., `level ∈ {milestone, initiative, story, task, spike}`)
-  - [ ] Support parent-level pairing rules (e.g., `level=initiative` requires `parent.level=milestone`)
-  - [ ] Reject invalid writes with a structured error identifying the failing key
+  - [ ] Validators run on task create, modify, JSON import, and Markdown import
+  - [ ] Parent lookup for `parent_uda` happens in the service layer before validators fire, so the repository dependency stays out of the validator interface
+  - [ ] Schema changes are prospective — existing tasks are not retroactively re-validated (a later `tusk project schema-check` can surface violations without rejecting them)
+  - [ ] Rejected writes return `domain.ErrUDAInvalid` wrapping a `UDAValidationError{Key, RuleKind, Message}` so CLI and MCP surfaces can render structured messages pointing at the failing key and rule
+
+> **Deferred (not v0.13):** group-modifier inline syntax for schema definitions, e.g. `uda-schema.level=string(enum=milestone:initiative:story:task:spike,required)`. Dotted-path form is sufficient for v0.13 and the group form can be added later without changing the stored schema shape.
 
 ### Initiative: Sibling Ordering
 
