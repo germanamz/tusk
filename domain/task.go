@@ -19,6 +19,7 @@ type Task struct {
 	ProjectID      uuid.UUID
 	Title          string
 	Description    string
+	Level          *string
 	Status         string
 	Priority       int
 	Version        int
@@ -44,6 +45,7 @@ type TaskUpdate struct {
 	Version        int    // required — optimistic locking check
 	Title          *string
 	Description    **string
+	Level          **string
 	Status         *string
 	Priority       *int
 	ParentID       **uuid.UUID

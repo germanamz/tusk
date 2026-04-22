@@ -782,3 +782,78 @@ func TestListByRootID_WithStatusFilter(t *testing.T) {
 		t.Fatalf("expected active child, got %v", tasks[0].ID)
 	}
 }
+
+// ── Level (Phase 1) ────────────────────────────────────────────────────
+
+func TestTaskLevel_CreateRoundTrip(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	task := newTestTask()
+	story := "story"
+	task.Level = &story
+	if err := repo.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Level == nil || *got.Level != "story" {
+		t.Fatalf("expected level 'story', got %v", got.Level)
+	}
+}
+
+func TestTaskLevel_UpdateSwitchAndClear(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	task := newTestTask()
+	story := "story"
+	task.Level = &story
+	if err := repo.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	next := "task"
+	task.Level = &next
+	if err := repo.Update(ctx, task); err != nil {
+		t.Fatalf("Update (switch): %v", err)
+	}
+	got, err := repo.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Level == nil || *got.Level != "task" {
+		t.Fatalf("expected level 'task', got %v", got.Level)
+	}
+
+	task.Level = nil
+	if err := repo.Update(ctx, task); err != nil {
+		t.Fatalf("Update (clear): %v", err)
+	}
+	got, err = repo.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Level != nil {
+		t.Fatalf("expected level to be nil after clear, got %v", *got.Level)
+	}
+}
+
+func TestTaskLevel_ScanOneNullable(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	task := newTestTask()
+	if err := repo.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := repo.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Level != nil {
+		t.Fatalf("expected Level == nil for task without level, got %v", *got.Level)
+	}
+}

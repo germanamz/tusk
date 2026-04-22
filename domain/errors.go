@@ -22,4 +22,31 @@ var (
 	ErrInvalidWorkflow   = errors.New("invalid workflow")
 	ErrBuiltInWorkflow   = errors.New("built-in workflow cannot be modified")
 	ErrForbidden         = errors.New("forbidden")
+	ErrTaxonomyViolation = errors.New("task violates project taxonomy")
 )
+
+// TaxonomyError describes how a task violates its project's taxonomy.
+// It wraps ErrTaxonomyViolation so errors.Is(err, ErrTaxonomyViolation) is true.
+type TaxonomyError struct {
+	Level       string   // level the task was assigned ("" when missing)
+	ParentLevel string   // parent's level ("" when no parent or parent has no level)
+	Reason      string   // "missing" | "unknown_level" | "root_requires_top_rank" | "parent_rank_not_lower"
+	Taxonomy    Taxonomy // taxonomy that produced the violation; for rendering
+}
+
+func (e *TaxonomyError) Error() string {
+	switch e.Reason {
+	case "missing":
+		return "task violates project taxonomy: level is required"
+	case "unknown_level":
+		return fmt.Sprintf("task violates project taxonomy: level %q is not declared", e.Level)
+	case "root_requires_top_rank":
+		return fmt.Sprintf("task violates project taxonomy: root task with level %q must be at top rank", e.Level)
+	case "parent_rank_not_lower":
+		return fmt.Sprintf("task violates project taxonomy: level %q cannot sit under parent level %q", e.Level, e.ParentLevel)
+	default:
+		return "task violates project taxonomy"
+	}
+}
+
+func (e *TaxonomyError) Unwrap() error { return ErrTaxonomyViolation }
