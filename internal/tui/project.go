@@ -3,6 +3,8 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/service"
@@ -119,7 +121,17 @@ func (a *App) runProjectCreate(cmd *cobra.Command, args []string) error {
 func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
-	parsed, err := parseProjectModify(args[1:])
+
+	var stdinFile *os.File
+	if f, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = f
+	}
+	expanded, err := expandTaxonomyRefs(args[1:], stdinFile, a.inlineCfg.MaxExpansionSize)
+	if err != nil {
+		return err
+	}
+
+	parsed, err := parseProjectModify(expanded)
 	if err != nil {
 		return err
 	}
@@ -145,11 +157,44 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 		id := wf.ID
 		input.WorkflowID = &id
 	}
+	switch parsed.TaxonomyAction {
+	case taxonomyActionNone:
+		// no change
+	case taxonomyActionClear:
+		input.Taxonomy = &service.TaxonomyMutation{Clear: true}
+	case taxonomyActionEmpty:
+		input.Taxonomy = &service.TaxonomyMutation{Value: domain.Taxonomy{}}
+	case taxonomyActionSet:
+		input.Taxonomy = &service.TaxonomyMutation{Value: parsed.TaxonomyValue}
+	}
 	if _, err := a.projectSvc.Modify(ctx, input); err != nil {
 		return err
 	}
 	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
 	return r.renderProjectMutation("Modified", name)
+}
+
+// expandTaxonomyRefs pre-processes `taxonomy=@...` arguments so that
+// parseProjectModify receives the JSON body inline. The @ reference expander
+// only treats `@` at a word boundary; the value portion of a field always
+// starts at position 0 (a boundary), so splitting on the first `=` lets us
+// reuse the shared expander. Other arguments pass through untouched.
+func expandTaxonomyRefs(args []string, stdin *os.File, maxSize int64) ([]string, error) {
+	out := make([]string, len(args))
+	state := &expandState{}
+	for i, arg := range args {
+		key, value, ok := strings.Cut(arg, "=")
+		if !ok || key != "taxonomy" || value == "" || value[0] != '@' {
+			out[i] = arg
+			continue
+		}
+		expanded, err := expandRefsWithState(value, stdin, maxSize, state)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = "taxonomy=" + expanded
+	}
+	return out, nil
 }
 
 func (a *App) runProjectDelete(cmd *cobra.Command, args []string, force bool) error {

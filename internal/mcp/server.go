@@ -547,6 +547,19 @@ func (s *Server) registerTools() {
 				mcp.Description("Replace parent auto-revert config"),
 				mcp.AdditionalProperties(map[string]any{"type": "string"}),
 			),
+			mcp.WithObject("taxonomy",
+				mcp.Description("Project taxonomy override (tristate). Omit the field to leave unchanged. Pass null to clear the override (inherit the workspace default). Pass {\"ranks\": []} to opt the project out of level enforcement. Pass {\"ranks\": [[...], ...]} to set a project-specific taxonomy."),
+				mcp.Properties(map[string]any{
+					"ranks": map[string]any{
+						"type":        "array",
+						"description": "Ordered rank groups; each element is a peer list of level names.",
+						"items": map[string]any{
+							"type":  "array",
+							"items": map[string]any{"type": "string"},
+						},
+					},
+				}),
+			),
 		),
 		s.handleProjectModify,
 	)

@@ -955,18 +955,82 @@ func (s *Server) handleTaskUnlink(ctx context.Context, request mcp.CallToolReque
 	return mcp.NewToolResultText("relation removed"), nil
 }
 
-// projectResponse is the JSON structure returned by project tools.
-type projectResponse struct {
-	ID       string                 `json:"id"`
-	Workflow string                 `json:"workflow"`
-	Settings domain.ProjectSettings `json:"settings"`
+// taxonomyPayload mirrors the `{"ranks": [...]}` shape used by MCP taxonomy
+// inputs and outputs. A pointer to it carries tristate semantics: nil =
+// omitted (inherit workspace default), &{Ranks:[]} = explicit opt-out,
+// &{Ranks: populated} = project-specific override.
+type taxonomyPayload struct {
+	Ranks [][]string `json:"ranks"`
 }
 
-func toProjectResponse(p *domain.Project, workflowName string) projectResponse {
+// effectiveTaxonomyResponse is the per-project derived taxonomy reported in
+// project responses. Source is one of "workspace_default", "project_override",
+// or "none".
+type effectiveTaxonomyResponse struct {
+	Ranks  [][]string `json:"ranks"`
+	Source string     `json:"source"`
+}
+
+// projectSettingsResponse mirrors domain.ProjectSettings but wraps the
+// taxonomy override in a {"ranks": [...]} envelope to match MCP input shape.
+type projectSettingsResponse struct {
+	AutoCompleteParent *domain.AutoCompleteConfig `json:"auto_complete_parent,omitempty"`
+	AutoRevertParent   *domain.AutoRevertConfig   `json:"auto_revert_parent,omitempty"`
+	Urgency            *domain.UrgencyOverrides   `json:"urgency,omitempty"`
+	NoteWindowSize     *int                       `json:"note_window_size,omitempty"`
+	Taxonomy           *taxonomyPayload           `json:"taxonomy,omitempty"`
+}
+
+// projectResponse is the JSON structure returned by project tools.
+type projectResponse struct {
+	ID                string                    `json:"id"`
+	Workflow          string                    `json:"workflow"`
+	Settings          projectSettingsResponse   `json:"settings"`
+	EffectiveTaxonomy effectiveTaxonomyResponse `json:"effective_taxonomy"`
+}
+
+func taxonomySourceName(src service.TaxonomySource) string {
+	switch src {
+	case service.TaxonomySourceProjectOverride:
+		return "project_override"
+	case service.TaxonomySourceWorkspace:
+		return "workspace_default"
+	default:
+		return "none"
+	}
+}
+
+func projectSettingsToResponse(settings domain.ProjectSettings) projectSettingsResponse {
+	out := projectSettingsResponse{
+		AutoCompleteParent: settings.AutoCompleteParent,
+		AutoRevertParent:   settings.AutoRevertParent,
+		Urgency:            settings.Urgency,
+		NoteWindowSize:     settings.NoteWindowSize,
+	}
+	if settings.Taxonomy != nil {
+		ranks := [][]string(*settings.Taxonomy)
+		if ranks == nil {
+			ranks = [][]string{}
+		}
+		out.Taxonomy = &taxonomyPayload{Ranks: ranks}
+	}
+	return out
+}
+
+func (s *Server) toProjectResponse(p *domain.Project, workflowName string) projectResponse {
+	effective, source := s.projectSvc.EffectiveTaxonomy(p)
+	ranks := [][]string(effective)
+	if ranks == nil {
+		ranks = [][]string{}
+	}
 	return projectResponse{
 		ID:       p.Name,
 		Workflow: workflowName,
-		Settings: p.Settings,
+		Settings: projectSettingsToResponse(p.Settings),
+		EffectiveTaxonomy: effectiveTaxonomyResponse{
+			Ranks:  ranks,
+			Source: taxonomySourceName(source),
+		},
 	}
 }
 
@@ -988,7 +1052,7 @@ func (s *Server) handleProjectList(ctx context.Context, request mcp.CallToolRequ
 
 	results := make([]projectResponse, len(projects))
 	for i, p := range projects {
-		results[i] = toProjectResponse(p, wfNames[p.WorkflowID])
+		results[i] = s.toProjectResponse(p, wfNames[p.WorkflowID])
 	}
 
 	return toolResultJSON(results)

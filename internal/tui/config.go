@@ -371,6 +371,14 @@ func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown config key: %q", key)
 	}
 
+	if key == "taxonomy.levels" {
+		cfg, err := config.Load(a.loadOpts...)
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+		return a.writeConfigGetValue(cmd, FormatTaxonomyInline(domain.Taxonomy(cfg.Taxonomy.Levels)))
+	}
+
 	// Build a Viper instance with the same config as Load() to get dot-path resolution.
 	v, err := a.buildConfigViper()
 	if err != nil {
@@ -728,6 +736,12 @@ func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// taxonomy.levels uses its own inline grammar — bypass the generic
+	// comma-split slice writer and parse via ParseTaxonomyInline instead.
+	if key == "taxonomy.levels" {
+		return setTaxonomyLevelsInline(path, value)
+	}
+
 	// Load the file contents (no defaults, no env).
 	fileCfg, err := config.LoadFile(path)
 	if err != nil {
@@ -768,4 +782,34 @@ func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	return config.WriteConfig(&newCfg, path)
+}
+
+// setTaxonomyLevelsInline persists `taxonomy.levels=<inline>` to the TOML
+// file at path. An empty value clears the taxonomy section (inherit
+// embedded defaults / disable taxonomy). A non-empty value is parsed as
+// inline syntax, validated, and written.
+func setTaxonomyLevelsInline(path, value string) error {
+	fileCfg, err := config.LoadFile(path)
+	if err != nil {
+		return err
+	}
+
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		fileCfg.Taxonomy.Levels = nil
+	} else {
+		tax, err := ParseTaxonomyInline(trimmed)
+		if err != nil {
+			return err
+		}
+		if err := tax.Validate(); err != nil {
+			return fmt.Errorf("invalid taxonomy: %w", err)
+		}
+		fileCfg.Taxonomy.Levels = [][]string(tax)
+	}
+
+	if err := fileCfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+	return config.WriteConfig(fileCfg, path)
 }
