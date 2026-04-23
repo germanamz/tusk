@@ -996,14 +996,13 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [x] Resolution chain: project override (non-nil, including explicit empty) → workspace default → empty; any empty effective taxonomy disables level validation for that project
   - [x] Taxonomy helpers on the domain type — `RankOf(level) (int, bool)`, `IsTopRank(level) bool`, `IsEmpty() bool`, `Contains(level) bool`
 
-- [ ] **Story: Validator and enforcement**
+- [x] **Story: Validator and enforcement**
   - [x] `TaxonomyValidator.Check(ctx ValidationContext, task *domain.Task) error` — single entry point invoked from the task service on create and on any modify touching `Level`, `ParentID`, or `ProjectID`
   - [x] `ValidationContext` carries the parent task's resolved level (pre-loaded in the service layer) so the validator never touches the repository
   - [x] Rules: empty effective taxonomy accepts any state; otherwise `task.Level` must be declared in the taxonomy; tasks with no parent require top-rank (`rank == 0`); tasks with a parent require parent's rank strictly less than the task's rank
   - [x] Rejections return `domain.ErrTaxonomyViolation` wrapping a typed `TaxonomyError{Level, ParentLevel, Reason}` so CLI and MCP surfaces render structured messages
   - [x] Prospective semantics — taxonomy edits do not retroactively re-validate existing tasks; a later `tusk task level-check` surfaces violations without rejecting them
   - [x] Project reassignment re-runs validation against the destination project's effective taxonomy
-  - [ ] Same validator fires on JSON and Markdown import, consistent with the Data Portability initiative
 
 - [x] **Story: CRUD — CLI inline syntax**
   - [x] `tusk task create` / `tusk task modify` accept `level=<name>`; `level=` (empty value on modify) clears the field
@@ -1094,6 +1093,7 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [ ] `--replace` overwrites colliding rows; default is fail-on-collision
   - [ ] `--dry-run` reports what would be imported without writing
   - [ ] Import emits events so the operation appears in the event log
+  - [ ] Import runs `domain.TaxonomyValidator` on every task (both JSON and Markdown formats share this service-layer entry point); level violations reject the offending row with a `TaxonomyError`, matching the CLI and MCP enforcement paths
 
 - [ ] **Story: Markdown export and import**
   - [ ] `tusk export --format markdown [--output <path>]` writes a human-readable tree: heading per root task, nested bullets, checkboxes for status, inline UDAs for metadata (`uda.key=value`)
