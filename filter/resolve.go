@@ -97,6 +97,20 @@ func (r *Resolver) ResolveExpr(ctx context.Context, expr Expr) (domain.FilterExp
 	return result, errs
 }
 
+// ResolveExprAllStatuses converts a parsed expression tree into a
+// domain.FilterExpr without the default-status wrapper. Callers that need to
+// scan every task regardless of status (e.g., tusk task level-check) use this
+// so terminal tasks stay in the result set. When expr is nil, the returned
+// expression is nil as well, meaning "no filter — match every task".
+func (r *Resolver) ResolveExprAllStatuses(ctx context.Context, expr Expr) (domain.FilterExpr, []error) {
+	if expr == nil {
+		return nil, nil
+	}
+	var errs []error
+	result := r.resolveNode(ctx, expr, &errs)
+	return result, errs
+}
+
 func (r *Resolver) resolveNode(ctx context.Context, expr Expr, errs *[]error) domain.FilterExpr {
 	switch e := expr.(type) {
 	case AndExpr:

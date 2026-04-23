@@ -100,11 +100,10 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	projects := func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{domain.DefaultProjectUUID}, nil }
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := service.NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
+	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{}, nil)
+	taskSvc := service.NewTaskService(resolver, projects, projectRepo, projectSvc, workflowSvc, nil)
 	tagSvc := service.NewTagService(resolver)
 	relationSvc := service.NewRelationService(resolver, projects)
-
-	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{}, nil)
 	// Point config.Load at an isolated temp dir so `config show` does not
 	// trip over the developer's real ~/.config/tusk/config.toml (which
 	// may still carry legacy [workflows.*] / [projects.*] sections until

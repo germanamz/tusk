@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/germanamz/tusk/domain"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // mapError translates domain sentinel errors into user-facing MCP error strings.
@@ -38,4 +39,42 @@ func mapError(err error, context string) string {
 	default:
 		return fmt.Sprintf("internal error: %s", err.Error())
 	}
+}
+
+// taxonomyErrorPayload is the structured tool-error payload emitted when an
+// MCP tool call fails with *domain.TaxonomyError. Mirrors the shape defined
+// in the Phase 5 design spec so clients can branch on `code` alone.
+type taxonomyErrorPayload struct {
+	Code        string           `json:"code"`
+	Reason      string           `json:"reason"`
+	Level       string           `json:"level,omitempty"`
+	ParentLevel string           `json:"parent_level,omitempty"`
+	Taxonomy    taxonomyRanksMsg `json:"taxonomy"`
+}
+
+// taxonomyRanksMsg wraps the taxonomy ranks slice in the `{"ranks": [...]}`
+// envelope used everywhere else on the MCP surface.
+type taxonomyRanksMsg struct {
+	Ranks [][]string `json:"ranks"`
+}
+
+// taxonomyErrorResult returns an MCP error result carrying both the
+// human-readable message (preserved for agents that ignore structured
+// payloads) and the structured `taxonomy_violation` payload. Callers should
+// check errors.As(err, *domain.TaxonomyError) before invoking this helper.
+func taxonomyErrorResult(te *domain.TaxonomyError) *mcp.CallToolResult {
+	ranks := [][]string(te.Taxonomy)
+	if ranks == nil {
+		ranks = [][]string{}
+	}
+	payload := taxonomyErrorPayload{
+		Code:        "taxonomy_violation",
+		Reason:      te.Reason,
+		Level:       te.Level,
+		ParentLevel: te.ParentLevel,
+		Taxonomy:    taxonomyRanksMsg{Ranks: ranks},
+	}
+	result := mcp.NewToolResultError(te.Error())
+	result.StructuredContent = payload
+	return result
 }

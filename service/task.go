@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -1543,4 +1544,126 @@ func (s *TaskService) checkAutoRevert(
 // ptr is a generic helper that returns a pointer to the given value.
 func ptr[T any](v T) *T {
 	return &v
+}
+
+// LevelViolation reports a single task whose state conflicts with its
+// project's effective taxonomy. TaskService.LevelCheck returns a slice of
+// these so callers can render retroactive-violation reports.
+type LevelViolation struct {
+	Task     *domain.Task
+	Taxonomy domain.Taxonomy
+	Source   TaxonomySource
+	Err      *domain.TaxonomyError
+}
+
+// LevelCheck walks tasks matching filter and reports each task whose state
+// violates its project's effective taxonomy. Callers that want every status
+// scanned (including terminal) should resolve the filter via
+// filter.Resolver.ResolveExprAllStatuses so the default-status wrapper is
+// skipped. LevelCheck never mutates and does not emit events.
+func (s *TaskService) LevelCheck(ctx context.Context, filter domain.FilterExpr) ([]LevelViolation, error) {
+	if s.projectSvc == nil {
+		return nil, nil
+	}
+
+	projectIDs, err := s.projects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing projects: %w", err)
+	}
+
+	seenBundles := make(map[*RepoBundle]struct{})
+	var bundles []*RepoBundle
+	for _, pid := range projectIDs {
+		bundle, err := s.resolve(ctx, pid)
+		if err != nil {
+			return nil, fmt.Errorf("resolving bundle for project %v: %w", pid, err)
+		}
+		if _, ok := seenBundles[bundle]; ok {
+			continue
+		}
+		seenBundles[bundle] = struct{}{}
+		bundles = append(bundles, bundle)
+	}
+
+	type projectCtx struct {
+		project  *domain.Project
+		taxonomy domain.Taxonomy
+		source   TaxonomySource
+	}
+	projectCache := make(map[uuid.UUID]*projectCtx)
+	resolveProject := func(pid uuid.UUID) (*projectCtx, error) {
+		if pc, ok := projectCache[pid]; ok {
+			return pc, nil
+		}
+		p, err := s.projectRepo.GetByID(ctx, pid)
+		if err != nil {
+			return nil, fmt.Errorf("loading project %v: %w", pid, err)
+		}
+		tx, src := s.projectSvc.EffectiveTaxonomy(p)
+		pc := &projectCtx{project: p, taxonomy: tx, source: src}
+		projectCache[pid] = pc
+		return pc, nil
+	}
+
+	var violations []LevelViolation
+	for _, bundle := range bundles {
+		tasks, err := bundle.Tasks.List(ctx, filter)
+		if err != nil {
+			return nil, fmt.Errorf("listing tasks for level-check: %w", err)
+		}
+		for _, task := range tasks {
+			pc, err := resolveProject(task.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			if pc.taxonomy.IsEmpty() {
+				continue
+			}
+
+			var parentLevel *string
+			if task.ParentID != nil {
+				parent, err := bundle.Tasks.GetByID(ctx, *task.ParentID)
+				if err != nil {
+					if errors.Is(err, domain.ErrNotFound) {
+						continue
+					}
+					return nil, fmt.Errorf("loading parent %v: %w", *task.ParentID, err)
+				}
+				var lvl string
+				if parent.Level != nil {
+					lvl = *parent.Level
+				}
+				parentLevel = &lvl
+			}
+
+			checkErr := domain.TaxonomyValidator{}.Check(
+				domain.ValidationContext{Taxonomy: pc.taxonomy, ParentLevel: parentLevel},
+				task,
+			)
+			if checkErr == nil {
+				continue
+			}
+			var te *domain.TaxonomyError
+			if !errors.As(checkErr, &te) {
+				continue
+			}
+			violations = append(violations, LevelViolation{
+				Task:     task,
+				Taxonomy: pc.taxonomy,
+				Source:   pc.source,
+				Err:      te,
+			})
+		}
+	}
+
+	sort.SliceStable(violations, func(i, j int) bool {
+		pi := projectCache[violations[i].Task.ProjectID].project.Name
+		pj := projectCache[violations[j].Task.ProjectID].project.Name
+		if pi != pj {
+			return pi < pj
+		}
+		return violations[i].Task.ShortID < violations[j].Task.ShortID
+	})
+
+	return violations, nil
 }

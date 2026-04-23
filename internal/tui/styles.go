@@ -25,12 +25,13 @@ type Styles struct {
 
 // Renderer encapsulates output formatting and styling for CLI commands.
 type Renderer struct {
-	w            io.Writer
-	format       string // "text" or "json"
-	color        bool
-	styles       *Styles // nil when color=false
-	dimStatuses  map[string]bool
-	projectNames func(uuid.UUID) string
+	w               io.Writer
+	format          string // "text" or "json"
+	color           bool
+	styles          *Styles // nil when color=false
+	dimStatuses     map[string]bool
+	projectNames    func(uuid.UUID) string
+	taxonomyForTask func(uuid.UUID) bool
 }
 
 // SetProjectNameResolver wires a function that resolves project UUIDs to
@@ -38,6 +39,23 @@ type Renderer struct {
 // list views avoid N+1 lookups.
 func (r *Renderer) SetProjectNameResolver(fn func(uuid.UUID) string) {
 	r.projectNames = fn
+}
+
+// SetTaxonomyResolver wires a function that reports whether a project has a
+// non-empty effective taxonomy. Used by renderTaskInfo / renderTree to decide
+// whether to show the level line / [level] suffix. nil means "always off",
+// which preserves pre-Phase-5 rendering for commands that do not care.
+func (r *Renderer) SetTaxonomyResolver(fn func(uuid.UUID) bool) {
+	r.taxonomyForTask = fn
+}
+
+// hasTaxonomy returns true when the task's project has a non-empty effective
+// taxonomy. Falls back to false when no resolver is wired.
+func (r *Renderer) hasTaxonomy(projectID uuid.UUID) bool {
+	if r.taxonomyForTask == nil {
+		return false
+	}
+	return r.taxonomyForTask(projectID)
 }
 
 // projectName returns the display name for a project UUID, falling back to

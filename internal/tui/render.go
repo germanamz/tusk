@@ -9,6 +9,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/service"
 	"github.com/google/uuid"
 )
 
@@ -174,6 +175,78 @@ func (r *Renderer) renderProjectList(projects []*domain.Project, workflowNames m
 			workflowNames[p.WorkflowID],
 			formatSettingsSummary(p.Settings),
 		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// projectShowJSON is the JSON payload for `tusk project show`.
+type projectShowJSON struct {
+	projectJSON
+	EffectiveTaxonomy effectiveTaxonomyShowJSON `json:"effective_taxonomy"`
+}
+
+type effectiveTaxonomyShowJSON struct {
+	Ranks  [][]string `json:"ranks"`
+	Source string     `json:"source"`
+}
+
+// renderProjectShow writes a single project's detailed view to w.
+// Text renders Workflow, Settings, and an effective Taxonomy block.
+// JSON extends projectJSON with an effective_taxonomy object.
+func (r *Renderer) renderProjectShow(p *domain.Project, workflowName string, taxonomy domain.Taxonomy, source service.TaxonomySource) error {
+	if r.format == "json" {
+		ranks := [][]string(taxonomy)
+		if ranks == nil {
+			ranks = [][]string{}
+		}
+		payload := projectShowJSON{
+			projectJSON: toProjectJSON(p, workflowName),
+			EffectiveTaxonomy: effectiveTaxonomyShowJSON{
+				Ranks:  ranks,
+				Source: taxonomySourceLabel(source),
+			},
+		}
+		enc := json.NewEncoder(r.w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(payload)
+	}
+
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Name:", 12), p.Name); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Workflow:", 12), workflowName); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Settings:", 12), formatSettingsSummary(p.Settings)); err != nil {
+		return err
+	}
+	// Taxonomy block. Provenance source dictates whether we emit a
+	// `source:` line, a disabled placeholder, or nothing.
+	switch source {
+	case service.TaxonomySourceProjectOverride:
+		if taxonomy.IsEmpty() {
+			if _, err := fmt.Fprintf(r.w, "%s (disabled; project opted out)\n", r.paddedLabel("Taxonomy:", 12)); err != nil {
+				return err
+			}
+			return nil
+		}
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Taxonomy:", 12), FormatTaxonomyInline(taxonomy)); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(r.w, "  source: project override\n"); err != nil {
+			return err
+		}
+	case service.TaxonomySourceWorkspace:
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Taxonomy:", 12), FormatTaxonomyInline(taxonomy)); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(r.w, "  source: workspace default\n"); err != nil {
+			return err
+		}
+	default:
+		if _, err := fmt.Fprintf(r.w, "%s (none)\n", r.paddedLabel("Taxonomy:", 12)); err != nil {
 			return err
 		}
 	}
@@ -452,6 +525,15 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Priority:", 13), priName); err != nil {
 		return err
 	}
+	if r.hasTaxonomy(task.ProjectID) {
+		level := "—"
+		if task.Level != nil && *task.Level != "" {
+			level = *task.Level
+		}
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Level:", 13), level); err != nil {
+			return err
+		}
+	}
 
 	if len(tags) > 0 {
 		tagStrs := make([]string, len(tags))
@@ -599,6 +681,84 @@ func (r *Renderer) renderUDASection(uda map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// levelCheckJSON is the JSON payload returned by `tusk task level-check`.
+// Task mirrors the existing taskJSON shape; each record carries the violating
+// reason, the resolved taxonomy, and the provenance source.
+type levelCheckJSON struct {
+	Task        taskJSON      `json:"task"`
+	Reason      string        `json:"reason"`
+	ParentLevel string        `json:"parent_level,omitempty"`
+	Taxonomy    taxonomyRanks `json:"taxonomy"`
+	Source      string        `json:"source"`
+}
+
+// taxonomyRanks wraps a taxonomy's rank groups in the `{"ranks": [...]}`
+// shape used elsewhere in MCP-facing JSON.
+type taxonomyRanks struct {
+	Ranks [][]string `json:"ranks"`
+}
+
+// renderLevelCheck writes a retroactive-violation report.
+// Text: one line per violation, sorted by project / short_id. JSON: array of
+// structured records including the task, reason, taxonomy, and source.
+func (r *Renderer) renderLevelCheck(violations []service.LevelViolation) error {
+	if r.format == "json" {
+		items := make([]levelCheckJSON, len(violations))
+		for i, v := range violations {
+			ranks := [][]string(v.Taxonomy)
+			if ranks == nil {
+				ranks = [][]string{}
+			}
+			items[i] = levelCheckJSON{
+				Task:        r.toTaskJSON(v.Task, nil),
+				Reason:      v.Err.Reason,
+				ParentLevel: v.Err.ParentLevel,
+				Taxonomy:    taxonomyRanks{Ranks: ranks},
+				Source:      taxonomySourceLabel(v.Source),
+			}
+		}
+		enc := json.NewEncoder(r.w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(items)
+	}
+
+	for _, v := range violations {
+		level := "—"
+		if v.Task.Level != nil && *v.Task.Level != "" {
+			level = *v.Task.Level
+		}
+		reason := v.Err.Reason
+		if r.styles != nil {
+			reason = r.styles.Priority[4].Render(reason)
+		}
+		projectName := r.projectName(v.Task.ProjectID)
+		parent := "—"
+		if v.Err.ParentLevel != "" {
+			parent = v.Err.ParentLevel
+		}
+		if _, err := fmt.Fprintf(r.w, "%-8s  %-20s  %-12s  %-22s  (parent: %s)\n",
+			v.Task.ShortID, projectName, level, reason, parent,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// taxonomySourceLabel maps service.TaxonomySource to the short identifier
+// used in MCP/JSON responses. Centralised here so the level-check renderer
+// and the MCP project response stay aligned.
+func taxonomySourceLabel(src service.TaxonomySource) string {
+	switch src {
+	case service.TaxonomySourceProjectOverride:
+		return "project_override"
+	case service.TaxonomySourceWorkspace:
+		return "workspace_default"
+	default:
+		return "none"
+	}
 }
 
 // renderMutationResult writes a one-line confirmation (text) or full task JSON.

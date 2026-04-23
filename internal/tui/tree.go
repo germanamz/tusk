@@ -141,6 +141,17 @@ func (r *Renderer) renderTree(nodes []*treeNode) error {
 func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 	indent := strings.Repeat("  ", depth)
 	line := fmt.Sprintf("%s%s [%s] %s", indent, node.Task.ShortID, node.Task.Status, node.Task.Title)
+	if r.hasTaxonomy(node.Task.ProjectID) {
+		level := "—"
+		if node.Task.Level != nil && *node.Task.Level != "" {
+			level = *node.Task.Level
+		}
+		suffix := fmt.Sprintf(" [%s]", level)
+		if r.styles != nil {
+			suffix = r.styles.Dim.Render(suffix)
+		}
+		line += suffix
+	}
 	if r.isDimStatus(node.Task.Status) {
 		line = r.styles.Dim.Render(line)
 	}
@@ -190,7 +201,7 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), a.buildDimStatuses())
+	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), a.buildDimStatuses())
 	return r.renderTree(nodes)
 }
 

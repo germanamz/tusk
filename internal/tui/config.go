@@ -155,6 +155,14 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 	if _, err := fmt.Fprintln(out); err != nil {
 		return err
 	}
+	if inline := FormatTaxonomyInline(domain.Taxonomy(cfg.Taxonomy.Levels)); inline != "" {
+		if _, err := fmt.Fprintln(out, "[taxonomy]"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "levels = %q\n\n", inline); err != nil {
+			return err
+		}
+	}
 	if _, err := fmt.Fprint(out, RenderWorkflowsTOML(workflows)); err != nil {
 		return err
 	}
