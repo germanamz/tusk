@@ -247,6 +247,7 @@ type taskJSON struct {
 	ProjectID      string         `json:"project_id"`
 	Title          string         `json:"title"`
 	Description    string         `json:"description"`
+	Level          *string        `json:"level,omitempty"`
 	Status         string         `json:"status"`
 	Priority       int            `json:"priority"`
 	Version        int            `json:"version"`
@@ -290,6 +291,7 @@ func (r *Renderer) toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 		tj.WaitUntil = &s
 	}
 	tj.RecurrenceRule = t.RecurrenceRule
+	tj.Level = t.Level
 	if t.ClaimedBy != nil {
 		tj.ClaimedBy = t.ClaimedBy
 	}

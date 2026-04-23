@@ -93,6 +93,38 @@ func TestRenderTaskList_JSON(t *testing.T) {
 	if !strings.Contains(out, `"a3f8b2c1"`) {
 		t.Fatalf("expected short_id value in JSON, got %s", out)
 	}
+	if strings.Contains(out, `"level"`) {
+		t.Fatalf("level should be omitted when unset, got %s", out)
+	}
+}
+
+func TestRenderTaskList_JSON_WithLevel(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	lvl := "story"
+	tasks := []*domain.Task{
+		{
+			ID:         uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			ShortID:    "a3f8b2c1",
+			ProjectID:  domain.DefaultProjectUUID,
+			Status:     "pending",
+			Priority:   0,
+			Title:      "Test task",
+			Level:      &lvl,
+			Version:    1,
+			CreatedAt:  now,
+			ModifiedAt: now,
+		},
+	}
+
+	var buf bytes.Buffer
+	r := NewRenderer(&buf, "json", false, nil)
+	if err := r.renderTaskList(tasks, nil); err != nil {
+		t.Fatalf("renderTaskList: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"level": "story"`) {
+		t.Fatalf("expected level 'story' in JSON, got %s", out)
+	}
 }
 
 func TestRenderTaskList_Text_WithTags(t *testing.T) {
