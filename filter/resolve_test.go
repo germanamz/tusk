@@ -338,3 +338,86 @@ func TestResolve_MultipleErrors(t *testing.T) {
 		t.Fatalf("expected 2 errors, got %d: %v", len(errs), errs)
 	}
 }
+
+func TestResolve_LevelSingle(t *testing.T) {
+	r, _ := testResolver(t)
+	fs := &FilterSet{
+		Fields: []FieldFilter{{Key: "level", Value: "story"}},
+	}
+
+	tf, errs := r.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(tf.Levels) != 1 || tf.Levels[0] != "story" {
+		t.Fatalf("expected levels [story], got %v", tf.Levels)
+	}
+}
+
+func TestResolve_LevelMultiple(t *testing.T) {
+	r, _ := testResolver(t)
+	fs := &FilterSet{
+		Fields: []FieldFilter{{Key: "level", Value: "story,task"}},
+	}
+
+	tf, errs := r.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(tf.Levels) != 2 || tf.Levels[0] != "story" || tf.Levels[1] != "task" {
+		t.Fatalf("expected levels [story task], got %v", tf.Levels)
+	}
+}
+
+func TestResolveExpr_NotLevel(t *testing.T) {
+	r, _ := testResolver(t)
+	expr := AndExpr{Children: []Expr{
+		TermExpr{Field: &FieldFilter{Key: "status", Value: "pending"}},
+		NotExpr{Child: TermExpr{Field: &FieldFilter{Key: "level", Value: "spike"}}},
+	}}
+
+	result, errs := r.ResolveExpr(context.Background(), expr)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+
+	af, ok := result.(*domain.AndFilter)
+	if !ok {
+		t.Fatalf("expected *domain.AndFilter, got %T", result)
+	}
+	var nf *domain.NotFilter
+	for _, child := range af.Children {
+		if n, ok := child.(*domain.NotFilter); ok {
+			nf = n
+			break
+		}
+	}
+	if nf == nil {
+		t.Fatalf("expected NotFilter child, got %#v", af.Children)
+	}
+	tf, ok := nf.Child.(*domain.TermFilter)
+	if !ok {
+		t.Fatalf("expected NotFilter.Child == *domain.TermFilter, got %T", nf.Child)
+	}
+	if len(tf.Levels) != 1 || tf.Levels[0] != "spike" {
+		t.Fatalf("expected levels [spike], got %v", tf.Levels)
+	}
+}
+
+func TestResolve_UdaLevelStillRoutesToUDA(t *testing.T) {
+	r, _ := testResolver(t)
+	fs := &FilterSet{
+		Fields: []FieldFilter{{Key: "uda.level", Value: "whatever"}},
+	}
+
+	tf, errs := r.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if got := tf.UDA["level"]; got != "whatever" {
+		t.Fatalf("expected UDA[level]=whatever, got %q", got)
+	}
+	if len(tf.Levels) != 0 {
+		t.Fatalf("expected no Levels routing for uda.level, got %v", tf.Levels)
+	}
+}

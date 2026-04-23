@@ -91,7 +91,7 @@ func (s *Server) handleProjectResource(ctx context.Context, request mcp.ReadReso
 		return nil, err
 	}
 
-	b, err := json.MarshalIndent(toProjectResponse(project, wf.Name), "", "  ")
+	b, err := json.MarshalIndent(s.toProjectResponse(project, wf.Name), "", "  ")
 	if err != nil {
 		return nil, err
 	}

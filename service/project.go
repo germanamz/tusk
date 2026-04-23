@@ -49,6 +49,16 @@ type UrgencyMutation struct {
 	Delta map[string]float64
 }
 
+// TaxonomyMutation describes a change to project.Settings.Taxonomy.
+// When Clear is true, Settings.Taxonomy is reset to nil (inherit workspace
+// default). When Clear is false, Settings.Taxonomy is set to a pointer to
+// Value — an empty Value persists as explicit opt-out, a populated Value
+// persists as the project-specific override.
+type TaxonomyMutation struct {
+	Clear bool
+	Value domain.Taxonomy
+}
+
 // ModifyProjectInput describes the mutation to apply to an existing project.
 // Pointer fields: nil = leave unchanged. ExpectedVersion drives optimistic
 // locking — the Modify call fails with domain.ErrConflict if the current
@@ -60,6 +70,7 @@ type ModifyProjectInput struct {
 	AutoComplete    *domain.AutoCompleteConfig
 	AutoRevert      *domain.AutoRevertConfig
 	Urgency         UrgencyMutation
+	Taxonomy        *TaxonomyMutation
 }
 
 // ProjectService provides read + write access to projects.
@@ -203,6 +214,23 @@ func (s *ProjectService) Modify(ctx context.Context, input ModifyProjectInput) (
 	if input.AutoRevert != nil {
 		ar := *input.AutoRevert
 		p.Settings.AutoRevertParent = &ar
+	}
+
+	if input.Taxonomy != nil {
+		if input.Taxonomy.Clear {
+			p.Settings.Taxonomy = nil
+		} else {
+			if !input.Taxonomy.Value.IsEmpty() {
+				if err := input.Taxonomy.Value.Validate(); err != nil {
+					return nil, fmt.Errorf("invalid taxonomy: %w", err)
+				}
+			}
+			tax := input.Taxonomy.Value.Clone()
+			if tax == nil {
+				tax = domain.Taxonomy{}
+			}
+			p.Settings.Taxonomy = &tax
+		}
 	}
 
 	for k := range input.Urgency.Set {

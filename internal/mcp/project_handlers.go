@@ -7,6 +7,7 @@ import (
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/service"
+	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -103,13 +104,68 @@ func autoRevertFromMap(raw map[string]string) *domain.AutoRevertConfig {
 	}
 }
 
-func projectToMap(p *domain.Project) map[string]any {
-	return map[string]any{
-		"id":       p.ID.String(),
-		"name":     p.Name,
-		"version":  p.Version,
-		"workflow": p.WorkflowID.String(),
+// parseTaxonomyInput extracts the project taxonomy mutation from the raw
+// arguments map. Returns:
+//   - (present=false, mutation=nil, nil)       when the key is absent;
+//   - (present=true,  mutation={Clear:true},  nil) for an explicit JSON null;
+//   - (present=true,  mutation={Value:{}},    nil) for {"ranks": []};
+//   - (present=true,  mutation={Value: tax},  nil) for {"ranks": [[...]]} after
+//     structural validation;
+//   - (present=true,  mutation=nil,           err) on any other shape.
+func parseTaxonomyInput(args map[string]any) (bool, *service.TaxonomyMutation, error) {
+	raw, present := args["taxonomy"]
+	if !present {
+		return false, nil, nil
 	}
+	if raw == nil {
+		return true, &service.TaxonomyMutation{Clear: true}, nil
+	}
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		return true, nil, fmt.Errorf("taxonomy: expected object")
+	}
+	ranksRaw, ok := obj["ranks"]
+	if !ok {
+		return true, nil, fmt.Errorf("taxonomy: missing ranks")
+	}
+	ranks, err := parseRanks(ranksRaw)
+	if err != nil {
+		return true, nil, fmt.Errorf("taxonomy: %w", err)
+	}
+	if len(ranks) == 0 {
+		return true, &service.TaxonomyMutation{Value: domain.Taxonomy{}}, nil
+	}
+	tax := domain.Taxonomy(ranks)
+	if err := tax.Validate(); err != nil {
+		return true, nil, fmt.Errorf("taxonomy: %w", err)
+	}
+	return true, &service.TaxonomyMutation{Value: tax}, nil
+}
+
+// parseRanks converts a JSON-decoded ranks array ([]any of []any of string)
+// into a [][]string. Any shape mismatch returns a descriptive error.
+func parseRanks(raw any) ([][]string, error) {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("ranks: expected array")
+	}
+	out := make([][]string, 0, len(arr))
+	for i, rank := range arr {
+		peersArr, ok := rank.([]any)
+		if !ok {
+			return nil, fmt.Errorf("ranks[%d]: expected array", i)
+		}
+		peers := make([]string, 0, len(peersArr))
+		for j, p := range peersArr {
+			s, ok := p.(string)
+			if !ok {
+				return nil, fmt.Errorf("ranks[%d][%d]: expected string", i, j)
+			}
+			peers = append(peers, s)
+		}
+		out = append(out, peers)
+	}
+	return out, nil
 }
 
 func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -162,7 +218,7 @@ func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolReques
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	return toolResultJSON(map[string]any{"ok": true, "project": projectToMap(p)})
+	return toolResultJSON(map[string]any{"ok": true, "project": s.toProjectResponse(p, workflowName)})
 }
 
 // HandleProjectCreateForTest exposes handleProjectCreate for internal tests.
@@ -230,11 +286,36 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 	}
 	input.AutoRevert = autoRevertFromMap(ar)
 
+	_, taxMut, err := parseTaxonomyInput(args)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	input.Taxonomy = taxMut
+
 	p, err := s.projectSvc.Modify(ctx, input)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	return toolResultJSON(map[string]any{"ok": true, "project": projectToMap(p)})
+	wfName, err := s.resolveWorkflowName(ctx, p.WorkflowID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return toolResultJSON(map[string]any{"ok": true, "project": s.toProjectResponse(p, wfName)})
+}
+
+// resolveWorkflowName looks up the workflow name for the given id, returning
+// an empty string when the workflow has been deleted out from under the
+// project. Used so project responses can surface the workflow's human name
+// without each handler duplicating the lookup.
+func (s *Server) resolveWorkflowName(ctx context.Context, id uuid.UUID) (string, error) {
+	wf, err := s.workflowSvc.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return wf.Name, nil
 }
 
 // HandleProjectModifyForTest exposes handleProjectModify for internal tests.

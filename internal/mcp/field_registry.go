@@ -30,7 +30,7 @@ var toolFields = map[string]map[string]struct{}{
 	"tusk_task_pop":      setOf("player_id", "filter"),
 
 	"tusk_project_create": setOf("name", "workflow", "urgency", "auto_complete", "auto_revert"),
-	"tusk_project_modify": setOf("name", "version", "workflow", "urgency_set", "urgency_delta", "auto_complete", "auto_revert"),
+	"tusk_project_modify": setOf("name", "version", "workflow", "urgency_set", "urgency_delta", "auto_complete", "auto_revert", "taxonomy"),
 	"tusk_project_delete": setOf("name", "version", "force"),
 
 	"tusk_workflow_create": setOf("name", "statuses", "transitions"),

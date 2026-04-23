@@ -179,6 +179,9 @@ func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *doma
 	case "status":
 		tf.Statuses = strings.Split(field.Value, ",")
 
+	case "level":
+		tf.Levels = strings.Split(field.Value, ",")
+
 	case "project":
 		proj, err := r.projectLookup.GetByName(ctx, field.Value)
 		if err != nil {
