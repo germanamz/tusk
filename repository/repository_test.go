@@ -35,6 +35,15 @@ func (s *stubTaskRepo) CountByProject(_ context.Context, _ uuid.UUID) (int, erro
 func (s *stubTaskRepo) ReassignProject(_ context.Context, _, _ uuid.UUID) (int, error) {
 	return 0, nil
 }
+func (s *stubTaskRepo) NextOrder(_ context.Context, _ *uuid.UUID) (float64, error) {
+	return 0, nil
+}
+func (s *stubTaskRepo) FirstOrder(_ context.Context, _ *uuid.UUID) (float64, error) {
+	return 0, nil
+}
+func (s *stubTaskRepo) NeighborOrders(_ context.Context, _ *uuid.UUID, _ float64) (*float64, *float64, error) {
+	return nil, nil, nil
+}
 
 type stubRelationRepo struct{}
 

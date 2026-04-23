@@ -25,4 +25,17 @@ type TaskRepository interface {
 	// number of rows affected. Does not modify version or modified_at for the
 	// individual tasks — this is a migration operation, not a user mutation.
 	ReassignProject(ctx context.Context, fromID, toID uuid.UUID) (int, error)
+
+	// NextOrder returns max("order") + 1.0 for siblings under parentID. parentID == nil
+	// scopes to root-level siblings. Returns 1.0 when the group is empty.
+	NextOrder(ctx context.Context, parentID *uuid.UUID) (float64, error)
+
+	// FirstOrder returns min("order") - 1.0 for siblings under parentID. parentID == nil
+	// scopes to root-level siblings. Returns 1.0 when the group is empty.
+	FirstOrder(ctx context.Context, parentID *uuid.UUID) (float64, error)
+
+	// NeighborOrders returns the nearest ordered neighbors of pivot within the sibling
+	// group under parentID. prev is the largest order < pivot (nil if none); next is
+	// the smallest order > pivot (nil if none). parentID == nil scopes to root.
+	NeighborOrders(ctx context.Context, parentID *uuid.UUID, pivot float64) (prev, next *float64, err error)
 }

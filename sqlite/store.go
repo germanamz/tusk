@@ -270,6 +270,15 @@ func nullableString(s *string) any {
 	return *s
 }
 
+// nullableFloat converts a *float64 to a value suitable for a SQL parameter.
+// If the pointer is nil, it returns nil (SQL NULL).
+func nullableFloat(f *float64) any {
+	if f == nil {
+		return nil
+	}
+	return *f
+}
+
 // parseUUID converts a sql.NullString back into a *uuid.UUID.
 // If the column was NULL, it returns nil.
 func parseUUID(ns sql.NullString) (*uuid.UUID, error) {
