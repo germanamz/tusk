@@ -22,6 +22,7 @@ type Task struct {
 	Level          *string
 	Status         string
 	Priority       int
+	Order          *float64 `json:"order"`
 	Version        int
 	DueAt          *time.Time
 	WaitUntil      *time.Time
@@ -48,6 +49,7 @@ type TaskUpdate struct {
 	Level          **string
 	Status         *string
 	Priority       *int
+	Order          **float64
 	ParentID       **uuid.UUID
 	ProjectID      *uuid.UUID
 	DueAt          **time.Time

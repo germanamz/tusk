@@ -15,7 +15,7 @@ import (
 )
 
 const taskColumns = `id, short_id, parent_id, project_id, title, description,
-	status, priority, version, due_at, wait_until, recurrence_rule, uda,
+	status, priority, "order", version, due_at, wait_until, recurrence_rule, uda,
 	created_at, modified_at, claimed_by, claimed_at, level`
 
 type TaskRepo struct {
@@ -32,11 +32,13 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 		return err
 	}
 	_, err = r.db.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskColumns),
 		task.ID.String(), task.ShortID,
 		nullableUUID(task.ParentID), task.ProjectID.String(),
-		task.Title, task.Description, task.Status, task.Priority, task.Version,
+		task.Title, task.Description, task.Status, task.Priority,
+		nullableFloat(task.Order),
+		task.Version,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), udaJSON,
 		task.CreatedAt.UTC().Format(timeFormat),
@@ -69,12 +71,13 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE tasks SET
 			parent_id = ?, project_id = ?, title = ?, description = ?,
-			status = ?, priority = ?, due_at = ?, wait_until = ?,
+			status = ?, priority = ?, "order" = ?, due_at = ?, wait_until = ?,
 			recurrence_rule = ?, uda = ?, version = version + 1, modified_at = ?,
 			claimed_by = ?, claimed_at = ?, level = ?
 		WHERE id = ? AND version = ?`,
 		nullableUUID(task.ParentID), task.ProjectID.String(),
 		task.Title, task.Description, task.Status, task.Priority,
+		nullableFloat(task.Order),
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), udaJSON,
 		nowStr, nullableString(task.ClaimedBy), nullableTime(task.ClaimedAt),
@@ -171,7 +174,7 @@ func (r *TaskRepo) List(ctx context.Context, filter domain.FilterExpr) ([]*domai
 // GetChildren retrieves all direct children of the given parent task.
 func (r *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
-		fmt.Sprintf(`SELECT %s FROM tasks WHERE parent_id = ?`, taskColumns),
+		fmt.Sprintf(`SELECT %s FROM tasks WHERE parent_id = ? ORDER BY "order" ASC NULLS LAST, created_at ASC, id ASC`, taskColumns),
 		parentID.String(),
 	)
 	if err != nil {
@@ -192,7 +195,7 @@ func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*dom
 			UNION ALL
 			SELECT %[2]s FROM tasks t JOIN descendants d ON t.parent_id = d.id
 		)
-		SELECT * FROM descendants`, taskColumns, prefixColumns("t", taskColumns)),
+		SELECT * FROM descendants ORDER BY "order" ASC NULLS LAST, created_at ASC, id ASC`, taskColumns, prefixColumns("t", taskColumns)),
 		rootID.String(),
 	)
 	if err != nil {
@@ -200,6 +203,84 @@ func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*dom
 	}
 	defer rows.Close()
 	return r.scanRows(rows)
+}
+
+// NextOrder returns max("order") + 1.0 for siblings under parentID. parentID == nil
+// scopes to root-level siblings. Returns 1.0 when the group is empty.
+func (r *TaskRepo) NextOrder(ctx context.Context, parentID *uuid.UUID) (float64, error) {
+	var max sql.NullFloat64
+	var err error
+	if parentID == nil {
+		err = r.db.QueryRowContext(ctx,
+			`SELECT MAX("order") FROM tasks WHERE parent_id IS NULL`).Scan(&max)
+	} else {
+		err = r.db.QueryRowContext(ctx,
+			`SELECT MAX("order") FROM tasks WHERE parent_id = ?`, parentID.String()).Scan(&max)
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !max.Valid {
+		return 1.0, nil
+	}
+	return max.Float64 + 1.0, nil
+}
+
+// FirstOrder returns min("order") - 1.0 for siblings under parentID. parentID == nil
+// scopes to root-level siblings. Returns 1.0 when the group is empty.
+func (r *TaskRepo) FirstOrder(ctx context.Context, parentID *uuid.UUID) (float64, error) {
+	var min sql.NullFloat64
+	var err error
+	if parentID == nil {
+		err = r.db.QueryRowContext(ctx,
+			`SELECT MIN("order") FROM tasks WHERE parent_id IS NULL`).Scan(&min)
+	} else {
+		err = r.db.QueryRowContext(ctx,
+			`SELECT MIN("order") FROM tasks WHERE parent_id = ?`, parentID.String()).Scan(&min)
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !min.Valid {
+		return 1.0, nil
+	}
+	return min.Float64 - 1.0, nil
+}
+
+// NeighborOrders returns the nearest ordered neighbors of pivot within the sibling
+// group under parentID. prev is the largest order < pivot (nil if none); next is
+// the smallest order > pivot (nil if none). parentID == nil scopes to root.
+func (r *TaskRepo) NeighborOrders(ctx context.Context, parentID *uuid.UUID, pivot float64) (prev, next *float64, err error) {
+	var (
+		prevN sql.NullFloat64
+		nextN sql.NullFloat64
+	)
+	if parentID == nil {
+		err = r.db.QueryRowContext(ctx, `
+			SELECT
+				(SELECT "order" FROM tasks WHERE parent_id IS NULL AND "order" < ? ORDER BY "order" DESC LIMIT 1),
+				(SELECT "order" FROM tasks WHERE parent_id IS NULL AND "order" > ? ORDER BY "order" ASC LIMIT 1)
+		`, pivot, pivot).Scan(&prevN, &nextN)
+	} else {
+		pid := parentID.String()
+		err = r.db.QueryRowContext(ctx, `
+			SELECT
+				(SELECT "order" FROM tasks WHERE parent_id = ? AND "order" < ? ORDER BY "order" DESC LIMIT 1),
+				(SELECT "order" FROM tasks WHERE parent_id = ? AND "order" > ? ORDER BY "order" ASC LIMIT 1)
+		`, pid, pivot, pid, pivot).Scan(&prevN, &nextN)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if prevN.Valid {
+		v := prevN.Float64
+		prev = &v
+	}
+	if nextN.Valid {
+		v := nextN.Float64
+		next = &v
+	}
+	return prev, next, nil
 }
 
 // buildFilter translates a TaskFilter struct into a WHERE clause body and args.
@@ -414,6 +495,7 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 		id         string
 		parentID   sql.NullString
 		projectID  string
+		order      sql.NullFloat64
 		dueAt      sql.NullString
 		waitUntil  sql.NullString
 		recurrence sql.NullString
@@ -426,7 +508,7 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 	)
 	err := s.Scan(
 		&id, &t.ShortID, &parentID, &projectID,
-		&t.Title, &t.Description, &t.Status, &t.Priority, &t.Version,
+		&t.Title, &t.Description, &t.Status, &t.Priority, &order, &t.Version,
 		&dueAt, &waitUntil, &recurrence, &udaJSON,
 		&createdAt, &modifiedAt, &claimedBy, &claimedAt, &level,
 	)
@@ -444,6 +526,10 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 	t.ProjectID, err = uuid.Parse(projectID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing task.project_id: %w", err)
+	}
+	if order.Valid {
+		v := order.Float64
+		t.Order = &v
 	}
 	t.DueAt, err = parseTime(dueAt)
 	if err != nil {

@@ -23,6 +23,12 @@ var (
 	ErrBuiltInWorkflow   = errors.New("built-in workflow cannot be modified")
 	ErrForbidden         = errors.New("forbidden")
 	ErrTaxonomyViolation = errors.New("task violates project taxonomy")
+
+	// ErrOrderGapExhausted indicates no float64 midpoint remains between neighbors.
+	// The wrapper message produced by the service layer appends the sibling group's
+	// parent short ID so the `tusk task move --resequence <parent>` command is
+	// copy-pasteable.
+	ErrOrderGapExhausted = errors.New("no float64 midpoint remains between neighbors")
 )
 
 // TaxonomyError describes how a task violates its project's taxonomy.
