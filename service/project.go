@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/germanamz/tusk/config"
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/repository"
 	"github.com/google/uuid"
@@ -67,23 +68,61 @@ type ProjectService struct {
 	taskCounter TaskCountByProject
 	tx          ProjectTxProvider
 	defaults    ProjectDefaults
+	cfg         *config.Config
 }
 
 // NewProjectService creates a new ProjectService. taskCounter, tx, and defaults
 // are required by Create/Modify/Delete — they may be nil only in tests that
-// exercise read-only paths (GetByID/GetByName/List).
+// exercise read-only paths (GetByID/GetByName/List). cfg supplies the workspace
+// taxonomy consulted by EffectiveTaxonomy; nil is treated as "no workspace
+// taxonomy configured".
 func NewProjectService(
 	projectRepo repository.ProjectRepository,
 	taskCounter TaskCountByProject,
 	tx ProjectTxProvider,
 	defaults ProjectDefaults,
+	cfg *config.Config,
 ) *ProjectService {
 	return &ProjectService{
 		projectRepo: projectRepo,
 		taskCounter: taskCounter,
 		tx:          tx,
 		defaults:    defaults,
+		cfg:         cfg,
 	}
+}
+
+// TaxonomySource identifies where EffectiveTaxonomy resolved its value from.
+type TaxonomySource int
+
+const (
+	// TaxonomySourceNone indicates no taxonomy is in effect (levels disabled).
+	TaxonomySourceNone TaxonomySource = iota
+	// TaxonomySourceWorkspace indicates the taxonomy came from config.Taxonomy.
+	TaxonomySourceWorkspace
+	// TaxonomySourceProjectOverride indicates ProjectSettings.Taxonomy is set
+	// (either populated or explicit opt-out via &empty).
+	TaxonomySourceProjectOverride
+)
+
+// EffectiveTaxonomy resolves the taxonomy that governs tasks in project p.
+// Resolution order:
+//  1. If p.Settings.Taxonomy != nil, return its value (including &empty as
+//     an explicit opt-out). Source: ProjectOverride.
+//  2. Otherwise, if the workspace config has a taxonomy configured, return
+//     a clone of it. Source: Workspace.
+//  3. Otherwise, return an empty taxonomy. Source: None.
+//
+// Callers must treat the returned Taxonomy as read-only unless they know
+// it was cloned; the ProjectOverride path returns the project's own slice.
+func (s *ProjectService) EffectiveTaxonomy(p *domain.Project) (domain.Taxonomy, TaxonomySource) {
+	if p != nil && p.Settings.Taxonomy != nil {
+		return *p.Settings.Taxonomy, TaxonomySourceProjectOverride
+	}
+	if s.cfg != nil && len(s.cfg.Taxonomy.Levels) > 0 {
+		return domain.Taxonomy(s.cfg.Taxonomy.Levels).Clone(), TaxonomySourceWorkspace
+	}
+	return domain.Taxonomy{}, TaxonomySourceNone
 }
 
 // GetByName retrieves a project by its human-readable name.

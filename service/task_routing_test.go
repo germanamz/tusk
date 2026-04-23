@@ -27,7 +27,7 @@ func multiProjectTaskSvc(t *testing.T) (*TaskService, *RepoBundle, map[string]uu
 	}
 	resolver, projects := singleBundleResolver(bundle, ids["default"], ids["backend"])
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	svc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	svc := NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
 	return svc, bundle, ids
 }
 

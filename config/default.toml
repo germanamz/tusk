@@ -77,3 +77,10 @@ window_size = 20  # Default trailing window size for note listings
 [events]
 max_events  = 10000   # Steady-state event count; 0 disables retention
 prune_slack = 1000    # Allow count to grow this far past max_events before pruning
+
+[taxonomy]
+# Ordered list of rank groups, top rank first. Leave unset or empty to
+# disable level validation by default. Each inner list is a peer set at
+# that rank. Projects can override this via
+# `tusk project modify <name> taxonomy.levels=...` once shipped.
+# levels = [["milestone"], ["initiative"], ["story"], ["task", "spike"]]

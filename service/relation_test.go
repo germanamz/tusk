@@ -23,7 +23,7 @@ func newTestRelationEnv(t *testing.T) *testRelationEnv {
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
 	relationSvc := NewRelationService(resolver, projects)
 
 	return &testRelationEnv{

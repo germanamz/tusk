@@ -51,10 +51,10 @@ func testServer(t *testing.T) *Server {
 	projects := func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{domain.DefaultProjectUUID}, nil }
 
 	workflowSvc := service.NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	taskSvc := service.NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
 	tagSvc := service.NewTagService(resolver)
 	relationSvc := service.NewRelationService(resolver, projects)
-	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{})
+	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, bundle.Store, service.ProjectDefaults{}, nil)
 	playerSvc := service.NewPlayerService(bundle.Players)
 	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, 0)
 

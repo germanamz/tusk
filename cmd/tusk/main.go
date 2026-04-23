@@ -135,10 +135,6 @@ func run() error {
 		return ids, nil
 	}
 
-	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, workflowSvc, urgencyEngine)
-	tagSvc := service.NewTagService(resolver)
-	relationSvc := service.NewRelationService(resolver, projectLister)
-
 	projectDefaults := service.ProjectDefaults{
 		Urgency: service.UrgencyWeights{
 			Priority:    cfg.Urgency.PriorityWeight,
@@ -153,7 +149,11 @@ func run() error {
 			Waiting:     cfg.Urgency.WaitingWeight,
 		},
 	}
-	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, store, projectDefaults)
+	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, store, projectDefaults, cfg)
+
+	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, projectSvc, workflowSvc, urgencyEngine)
+	tagSvc := service.NewTagService(resolver)
+	relationSvc := service.NewRelationService(resolver, projectLister)
 
 	defaultBundle, err := resolver(context.Background(), domain.DefaultProjectUUID)
 	if err != nil {

@@ -83,7 +83,7 @@ func mustCreateTaskForTags(t *testing.T, store *sqlite.Store) *domain.Task {
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
 
 	task := &domain.Task{Title: "test task"}
 	if err := taskSvc.Create(context.Background(), task); err != nil {

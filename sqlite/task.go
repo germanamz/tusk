@@ -233,6 +233,14 @@ func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 		}
 		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ",")))
 	}
+	if len(filter.Levels) > 0 {
+		placeholders := make([]string, len(filter.Levels))
+		for i, lvl := range filter.Levels {
+			placeholders[i] = "?"
+			args = append(args, lvl)
+		}
+		conditions = append(conditions, fmt.Sprintf("level IN (%s)", strings.Join(placeholders, ",")))
+	}
 	if len(filter.Tags) > 0 {
 		placeholders := make([]string, len(filter.Tags))
 		for i, tag := range filter.Tags {

@@ -34,6 +34,12 @@ type Config struct {
 	// Events controls event-log retention.
 	// When zero-valued, defaults are used.
 	Events config.EventsConfig
+
+	// Taxonomy supplies the workspace-level task level taxonomy consulted by
+	// ProjectService.EffectiveTaxonomy. Leave zero-valued to disable workspace
+	// taxonomy; projects can still carry per-project overrides via their
+	// ProjectSettings.Taxonomy.
+	Taxonomy config.TaxonomyConfig
 }
 
 // Client provides access to all tusk services, backed by a SQLite database.
@@ -179,9 +185,6 @@ func NewClient(cfg Config) (*Client, error) {
 		Annotations: cfg.Urgency.AnnotationsWeight,
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
-	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, workflowSvc, urgencyEngine)
-	tagSvc := service.NewTagService(resolver)
-	relationSvc := service.NewRelationService(resolver, projectLister)
 	projectDefaults := service.ProjectDefaults{
 		Urgency: service.UrgencyWeights{
 			Priority:    cfg.Urgency.PriorityWeight,
@@ -196,7 +199,17 @@ func NewClient(cfg Config) (*Client, error) {
 			Waiting:     cfg.Urgency.WaitingWeight,
 		},
 	}
-	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, store, projectDefaults)
+	projectSvcCfg := &config.Config{
+		Urgency:  cfg.Urgency,
+		Notes:    cfg.Notes,
+		Events:   cfg.Events,
+		Taxonomy: cfg.Taxonomy,
+	}
+	projectSvc := service.NewProjectService(projectRepo, bundle.Tasks, store, projectDefaults, projectSvcCfg)
+
+	taskSvc := service.NewTaskService(resolver, projectLister, projectRepo, projectSvc, workflowSvc, urgencyEngine)
+	tagSvc := service.NewTagService(resolver)
+	relationSvc := service.NewRelationService(resolver, projectLister)
 	playerSvc := service.NewPlayerService(bundle.Players)
 	windowSize := cfg.Notes.WindowSize
 	if windowSize <= 0 {

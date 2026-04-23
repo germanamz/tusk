@@ -27,17 +27,21 @@ type TaskService struct {
 	resolve     BundleResolver
 	projects    ProjectLister
 	projectRepo repository.ProjectRepository
+	projectSvc  *ProjectService
 	workflowSvc *WorkflowService
 	engine      *UrgencyEngine
 }
 
 // NewTaskService creates a new TaskService wired to the given resolver,
-// project lister, project repo, workflow service, and optional urgency
-// engine.
+// project lister, project repo, project service, workflow service, and
+// optional urgency engine. projectSvc is installed here so Phase 3 can
+// consult ProjectService.EffectiveTaxonomy for level validation; it may
+// be nil in tests that do not exercise the taxonomy path.
 func NewTaskService(
 	resolve BundleResolver,
 	projects ProjectLister,
 	projectRepo repository.ProjectRepository,
+	projectSvc *ProjectService,
 	workflowSvc *WorkflowService,
 	engine *UrgencyEngine,
 ) *TaskService {
@@ -45,6 +49,7 @@ func NewTaskService(
 		resolve:     resolve,
 		projects:    projects,
 		projectRepo: projectRepo,
+		projectSvc:  projectSvc,
 		workflowSvc: workflowSvc,
 		engine:      engine,
 	}

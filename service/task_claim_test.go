@@ -54,7 +54,7 @@ func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService
 	projects := func(context.Context) ([]uuid.UUID, error) {
 		return []uuid.UUID{domain.DefaultProjectUUID}, nil
 	}
-	taskSvc := service.NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	taskSvc := service.NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
 	playerSvc := service.NewPlayerService(playerRepo)
 
 	return taskSvc, playerSvc
