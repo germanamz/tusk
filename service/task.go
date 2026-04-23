@@ -184,6 +184,10 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 		}
 	}
 
+	if err := s.validateTaxonomy(ctx, bundle, task); err != nil {
+		return err
+	}
+
 	if task.Status == "" {
 		initialStatus, err := s.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleInitial)
 		if err != nil {
@@ -440,6 +444,14 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 			task.Description = **upd.Description
 		}
 	}
+	if upd.Level != nil {
+		if *upd.Level == nil {
+			task.Level = nil
+		} else {
+			val := **upd.Level
+			task.Level = &val
+		}
+	}
 	if upd.Status != nil {
 		task.Status = *upd.Status
 	}
@@ -513,6 +525,12 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				return nil, fmt.Errorf("project not found: %w", err)
 			}
 			return nil, fmt.Errorf("looking up project: %w", err)
+		}
+	}
+
+	if upd.Level != nil || upd.ParentID != nil || upd.ProjectID != nil {
+		if err := s.validateTaxonomy(ctx, bundle, task); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1070,6 +1088,7 @@ func (s *TaskService) applyValidatedUpdate(
 type taskSnapshot struct {
 	Title          string
 	Description    string
+	Level          *string
 	Priority       int
 	ParentID       *uuid.UUID
 	ProjectID      uuid.UUID
@@ -1091,6 +1110,7 @@ func snapshotTask(t *domain.Task) taskSnapshot {
 	return taskSnapshot{
 		Title:          t.Title,
 		Description:    t.Description,
+		Level:          t.Level,
 		Priority:       t.Priority,
 		ParentID:       t.ParentID,
 		ProjectID:      t.ProjectID,
@@ -1114,6 +1134,9 @@ func diffTaskFields(orig taskSnapshot, updated *domain.Task) map[string]domain.F
 	}
 	if orig.Description != updated.Description {
 		changes["description"] = domain.FieldChange{From: orig.Description, To: updated.Description}
+	}
+	if !stringPtrEqual(orig.Level, updated.Level) {
+		changes["level"] = domain.FieldChange{From: stringPtrValue(orig.Level), To: stringPtrValue(updated.Level)}
 	}
 	if orig.Priority != updated.Priority {
 		changes["priority"] = domain.FieldChange{From: orig.Priority, To: updated.Priority}
@@ -1188,6 +1211,43 @@ func timePtrValue(p *time.Time) any {
 		return nil
 	}
 	return *p
+}
+
+// validateTaxonomy loads the effective taxonomy for task.ProjectID and runs
+// TaxonomyValidator against task. Returns nil when the projectSvc is not
+// wired or the taxonomy is empty (levels disabled). When the task has a
+// parent, parent.Level is loaded from bundle.Tasks and passed to the
+// validator so rank-compatibility can be checked.
+func (s *TaskService) validateTaxonomy(ctx context.Context, bundle *RepoBundle, task *domain.Task) error {
+	if s.projectSvc == nil {
+		return nil
+	}
+	project, err := s.projectRepo.GetByID(ctx, task.ProjectID)
+	if err != nil {
+		return err
+	}
+	tx, _ := s.projectSvc.EffectiveTaxonomy(project)
+	if tx.IsEmpty() {
+		return nil
+	}
+
+	var parentLevel *string
+	if task.ParentID != nil {
+		parent, err := bundle.Tasks.GetByID(ctx, *task.ParentID)
+		if err != nil {
+			return err
+		}
+		var lvl string
+		if parent.Level != nil {
+			lvl = *parent.Level
+		}
+		parentLevel = &lvl
+	}
+
+	return domain.TaxonomyValidator{}.Check(
+		domain.ValidationContext{Taxonomy: tx, ParentLevel: parentLevel},
+		task,
+	)
 }
 
 // maxParentDepth guards cycle detection and auto-complete propagation

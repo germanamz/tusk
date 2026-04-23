@@ -51,7 +51,7 @@ Relations:
   unlink      Remove a typed relation
 
 Entity fields on create/modify flow through inline key=value syntax:
-  title, description, project, priority, due, parent, status, uda.<key>
+  title, description, level, project, priority, due, parent, status, uda.<key>
   Tags: +tag / -tag    File expansion: field=@./path, field=@-, @@escape`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -70,6 +70,7 @@ Accepted fields:
   due=<date>           Due date (absolute or relative)
   parent=<short_id>    Parent task for subtask creation
   description=<text>   Task description
+  level=<name>         Task level (requires a taxonomy in config)
   status=<status>      Initial status (defaults to pending)
 
 UDA fields:
@@ -109,6 +110,7 @@ File expansion:
 Remaining arguments are field assignments and tag operations.
 
 Field clearing: description= (empty value) clears the field.
+Same for level=.
 
 UDA operations:
   uda.key=value    Set a UDA key
@@ -363,6 +365,18 @@ func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		task.Description = expandedDesc
+	}
+
+	// Level (inline taxonomy assignment)
+	if f, ok := fs.GetField("level"); ok {
+		if f.Modifier != 0 {
+			return fmt.Errorf("modifier %q not supported on level", string(f.Modifier))
+		}
+		if f.Value == "" {
+			return fmt.Errorf("level= on create requires a value; use modify to clear")
+		}
+		v := f.Value
+		task.Level = &v
 	}
 
 	// Project
@@ -657,6 +671,21 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 			}
 			dp := &expanded
 			upd.Description = &dp
+		}
+	}
+
+	// Level (double pointer: empty value clears the level)
+	if f, ok := fs.GetField("level"); ok {
+		if f.Modifier != 0 {
+			return fmt.Errorf("modifier %q not supported on level", string(f.Modifier))
+		}
+		if f.Value == "" {
+			var nilStr *string
+			upd.Level = &nilStr
+		} else {
+			v := f.Value
+			lp := &v
+			upd.Level = &lp
 		}
 	}
 

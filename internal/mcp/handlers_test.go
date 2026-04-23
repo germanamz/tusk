@@ -467,3 +467,101 @@ func TestHandleTaskAnnotate(t *testing.T) {
 		t.Fatalf("expected body 'test note', got %v", parsed["body"])
 	}
 }
+
+func TestHandleTaskCreate_Level(t *testing.T) {
+	s := testServer(t)
+	ctx := context.Background()
+
+	t.Run("level populates response", func(t *testing.T) {
+		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+			"title": "With level",
+			"level": "story",
+		}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		parsed := parseToolResult(t, result)
+		if parsed["level"] != "story" {
+			t.Fatalf("expected level 'story', got %v", parsed["level"])
+		}
+	})
+
+	t.Run("empty level rejected", func(t *testing.T) {
+		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+			"title": "Empty level",
+			"level": "",
+		}))
+		if err != nil {
+			t.Fatalf("unexpected transport error: %v", err)
+		}
+		msg := getToolErrorText(t, result)
+		if msg == "" {
+			t.Fatal("expected non-empty error message")
+		}
+	})
+
+	t.Run("omitted level yields no level field", func(t *testing.T) {
+		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+			"title": "No level",
+		}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		parsed := parseToolResult(t, result)
+		if _, ok := parsed["level"]; ok {
+			t.Fatalf("expected no 'level' key in response, got %v", parsed["level"])
+		}
+	})
+}
+
+func TestHandleTaskModify_Level(t *testing.T) {
+	s := testServer(t)
+	ctx := context.Background()
+
+	createResult, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+		"title": "Original",
+		"level": "story",
+	}))
+	created := parseToolResult(t, createResult)
+	shortID := created["short_id"].(string)
+	version := created["version"].(float64)
+
+	t.Run("empty level clears the field", func(t *testing.T) {
+		result, err := s.handleTaskModify(ctx, callToolRequest(map[string]any{
+			"short_id": shortID,
+			"version":  version,
+			"level":    "",
+		}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		parsed := parseToolResult(t, result)
+		if _, ok := parsed["level"]; ok {
+			t.Fatalf("expected 'level' omitted after clear, got %v", parsed["level"])
+		}
+	})
+}
+
+func TestHandleTaskList_IncludesLevel(t *testing.T) {
+	s := testServer(t)
+	ctx := context.Background()
+
+	if _, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+		"title": "With level",
+		"level": "story",
+	})); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	result, err := s.handleTaskList(ctx, callToolRequest(map[string]any{}))
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	items := parseToolResultArray(t, result)
+	if len(items) == 0 {
+		t.Fatal("expected at least one task")
+	}
+	if items[0]["level"] != "story" {
+		t.Fatalf("expected level 'story', got %v", items[0]["level"])
+	}
+}

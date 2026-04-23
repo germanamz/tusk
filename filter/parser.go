@@ -19,6 +19,7 @@ var fieldValidators = map[string]func(string) error{
 	"waiting":     validateBool,
 	"title":       validateNonEmpty,
 	"description": validateAny,
+	"level":       validateAny,
 	"claimed_by":  validateNonEmpty,
 	"unclaimed":   validateBool,
 }
