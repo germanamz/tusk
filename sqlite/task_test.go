@@ -299,6 +299,81 @@ func TestTaskListByStatusMultiple(t *testing.T) {
 	}
 }
 
+func seedLeveledTasks(t *testing.T, repo *TaskRepo) (story, task, unset *domain.Task) {
+	t.Helper()
+	story = newTestTask()
+	storyLvl := "story"
+	story.Level = &storyLvl
+	mustCreateTask(t, repo, story)
+
+	task = newTestTask()
+	taskLvl := "task"
+	task.Level = &taskLvl
+	mustCreateTask(t, repo, task)
+
+	unset = newTestTask()
+	mustCreateTask(t, repo, unset)
+	return story, task, unset
+}
+
+func TestTaskListByLevelSingle(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	story, _, _ := seedLeveledTasks(t, repo)
+
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: []string{"story"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].ID != story.ID {
+		t.Fatalf("expected story task %s, got %s", story.ID, tasks[0].ID)
+	}
+}
+
+func TestTaskListByLevelMultiple(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	seedLeveledTasks(t, repo)
+
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: []string{"story", "task"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks (story + task), got %d", len(tasks))
+	}
+	gotLevels := map[string]bool{}
+	for _, ts := range tasks {
+		if ts.Level == nil {
+			t.Fatalf("unexpected task with NULL level: %s", ts.ID)
+		}
+		gotLevels[*ts.Level] = true
+	}
+	if !gotLevels["story"] || !gotLevels["task"] {
+		t.Fatalf("expected levels {story, task}, got %v", gotLevels)
+	}
+}
+
+func TestTaskListByLevelNilReturnsAll(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+	seedLeveledTasks(t, repo)
+
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: nil}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 tasks (including NULL level), got %d", len(tasks))
+	}
+}
+
 func TestTaskListByProject(t *testing.T) {
 	s := testStore(t)
 	repo := NewTaskRepo(s.DB())

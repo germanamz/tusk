@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/germanamz/tusk/domain"
 	toml "github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
@@ -24,18 +25,27 @@ type ConfigSources struct {
 
 // Config is the top-level Tusk configuration.
 type Config struct {
-	Storage StorageConfig `mapstructure:"storage" toml:"storage" json:"storage"`
-	Urgency UrgencyConfig `mapstructure:"urgency" toml:"urgency" json:"urgency"`
-	TUI     TUIConfig     `mapstructure:"tui"     toml:"tui"     json:"tui"`
-	MCP     MCPConfig     `mapstructure:"mcp"     toml:"mcp"     json:"mcp"`
-	Inline  InlineConfig  `mapstructure:"inline"  toml:"inline"  json:"inline"`
-	Notes   NotesConfig   `mapstructure:"notes"   toml:"notes"   json:"notes"`
-	Events  EventsConfig  `mapstructure:"events"  toml:"events"  json:"events"`
+	Storage  StorageConfig  `mapstructure:"storage"  toml:"storage"  json:"storage"`
+	Urgency  UrgencyConfig  `mapstructure:"urgency"  toml:"urgency"  json:"urgency"`
+	TUI      TUIConfig      `mapstructure:"tui"      toml:"tui"      json:"tui"`
+	MCP      MCPConfig      `mapstructure:"mcp"      toml:"mcp"      json:"mcp"`
+	Inline   InlineConfig   `mapstructure:"inline"   toml:"inline"   json:"inline"`
+	Notes    NotesConfig    `mapstructure:"notes"    toml:"notes"    json:"notes"`
+	Events   EventsConfig   `mapstructure:"events"   toml:"events"   json:"events"`
+	Taxonomy TaxonomyConfig `mapstructure:"taxonomy" toml:"taxonomy" json:"taxonomy"`
 
 	// Sources records where the effective config came from. Populated by Load.
 	// Skipped by both mapstructure and TOML encoding so it never appears in
 	// files or round-trips through Viper.
 	Sources ConfigSources `mapstructure:"-" toml:"-" json:"-"`
+}
+
+// TaxonomyConfig holds the workspace-level task level taxonomy.
+// Levels is an ordered list of rank groups (top rank first); each inner list
+// is a peer set at that rank. An empty or unset Levels disables level
+// validation. Projects may override this via ProjectSettings.Taxonomy.
+type TaxonomyConfig struct {
+	Levels [][]string `mapstructure:"levels" toml:"levels" json:"levels"`
 }
 
 // NotesConfig controls note listing defaults.
@@ -287,6 +297,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Notes.WindowSize <= 0 {
 		return fmt.Errorf("notes.window_size must be > 0, got %d", c.Notes.WindowSize)
+	}
+	if len(c.Taxonomy.Levels) > 0 {
+		if err := domain.Taxonomy(c.Taxonomy.Levels).Validate(); err != nil {
+			return fmt.Errorf("invalid taxonomy: %w", err)
+		}
 	}
 	return nil
 }

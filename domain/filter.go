@@ -11,6 +11,7 @@ type TaskFilter struct {
 	ParentID            *uuid.UUID
 	RootID              *uuid.UUID // for tree: all descendants
 	Statuses            []string   // OR match
+	Levels              []string   // OR match
 	Tags                []string   // include
 	ExcludeTags         []string   // exclude
 	PriorityMin         *int

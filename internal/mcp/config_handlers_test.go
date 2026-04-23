@@ -106,7 +106,7 @@ func newTestServer(t *testing.T, configFile string) *Server {
 		Project:     loadedCfg.Urgency.ProjectWeight,
 		Annotations: loadedCfg.Urgency.AnnotationsWeight,
 		Waiting:     loadedCfg.Urgency.WaitingWeight,
-	}})
+	}}, loadedCfg)
 
 	srv, err := New(
 		nil, nil, nil, projectSvc, workflowSvc, nil, nil,

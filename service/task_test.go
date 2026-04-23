@@ -33,7 +33,7 @@ func testTaskEnvWithSettings(t *testing.T, settings domain.ProjectSettings) *tes
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
 
 	return &testEnv{
 		taskSvc:     taskSvc,
@@ -992,7 +992,7 @@ func TestTaskService_WithTxProvider(t *testing.T) {
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
-	taskSvc := NewTaskService(resolver, projects, projectRepo, workflowSvc, nil)
+	taskSvc := NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, nil)
 
 	ctx := context.Background()
 	task := newMinimalTask("Test with tx provider")

@@ -410,6 +410,78 @@ func TestLoad_WalkUpMissAutoCreatesGlobal(t *testing.T) {
 	}
 }
 
+func TestLoad_TaxonomyPopulated(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`
+[taxonomy]
+levels = [["milestone"], ["initiative"], ["story"], ["task", "spike"]]
+`)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	cfg, err := Load(WithSearchPath(dir))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	want := [][]string{{"milestone"}, {"initiative"}, {"story"}, {"task", "spike"}}
+	if len(cfg.Taxonomy.Levels) != len(want) {
+		t.Fatalf("Taxonomy.Levels = %v, want %v", cfg.Taxonomy.Levels, want)
+	}
+	for i := range want {
+		if !equalStrings(cfg.Taxonomy.Levels[i], want[i]) {
+			t.Errorf("Taxonomy.Levels[%d] = %v, want %v", i, cfg.Taxonomy.Levels[i], want[i])
+		}
+	}
+}
+
+func TestLoad_TaxonomyDuplicateLevelIsHardError(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`
+[taxonomy]
+levels = [["story"], ["story"]]
+`)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+	_, err := Load(WithSearchPath(dir))
+	if err == nil {
+		t.Fatal("expected error for duplicate level name, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid taxonomy") || !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error should wrap taxonomy validation failure, got: %v", err)
+	}
+}
+
+func TestLoad_TaxonomyEmptyPeerGroupIsHardError(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`
+[taxonomy]
+levels = [["milestone"], [], ["task"]]
+`)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), content, 0o644); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+	_, err := Load(WithSearchPath(dir))
+	if err == nil {
+		t.Fatal("expected error for empty peer group, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid taxonomy") {
+		t.Errorf("error should wrap taxonomy validation failure, got: %v", err)
+	}
+}
+
+func TestLoad_TaxonomyAbsent(t *testing.T) {
+	cfg, err := Load(WithSearchPath(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(cfg.Taxonomy.Levels) != 0 {
+		t.Errorf("Taxonomy.Levels = %v, want empty (embedded default has section commented out)", cfg.Taxonomy.Levels)
+	}
+}
+
 func TestLoad_ExplicitBeatsWalkUp(t *testing.T) {
 	startDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(startDir, "tusk.toml"), []byte("[tui]\ncolor = false\n"), 0o644); err != nil {
