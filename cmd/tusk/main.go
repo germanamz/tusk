@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,11 @@ var (
 
 func main() {
 	if err := run(); err != nil {
+		if errors.Is(err, tui.ErrLevelViolations) {
+			// `tusk task level-check` found violations. The renderer already
+			// listed them; suppress the redundant error line and exit 1.
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}

@@ -52,18 +52,34 @@ type App struct {
 func (a *App) newRenderer(ctx context.Context, w io.Writer, dimStatuses map[string]bool) *Renderer {
 	r := NewRenderer(w, a.format, a.colorEnabled(), dimStatuses)
 	if a.projectSvc != nil {
-		cache := map[uuid.UUID]string{}
+		nameCache := map[uuid.UUID]string{}
 		r.SetProjectNameResolver(func(id uuid.UUID) string {
-			if name, ok := cache[id]; ok {
+			if name, ok := nameCache[id]; ok {
 				return name
 			}
 			p, err := a.projectSvc.GetByID(ctx, id)
 			if err != nil {
-				cache[id] = id.String()
+				nameCache[id] = id.String()
 				return id.String()
 			}
-			cache[id] = p.Name
+			nameCache[id] = p.Name
 			return p.Name
+		})
+
+		taxCache := map[uuid.UUID]bool{}
+		r.SetTaxonomyResolver(func(id uuid.UUID) bool {
+			if v, ok := taxCache[id]; ok {
+				return v
+			}
+			p, err := a.projectSvc.GetByID(ctx, id)
+			if err != nil {
+				taxCache[id] = false
+				return false
+			}
+			tax, _ := a.projectSvc.EffectiveTaxonomy(p)
+			has := !tax.IsEmpty()
+			taxCache[id] = has
+			return has
 		})
 	}
 	return r

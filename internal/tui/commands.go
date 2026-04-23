@@ -159,6 +159,26 @@ File expansion works on description=, title=, and any string field:
 	}
 	treeCmd.Flags().Bool("all", false, "include deleted tasks")
 
+	levelCheckCmd := &cobra.Command{
+		Use:   "level-check [filters...]",
+		Short: "Report tasks whose level violates their project taxonomy",
+		Long: `Scan tasks against their project's effective taxonomy and list every task
+whose state conflicts with it. Scans every status by default (including
+terminal tasks) so retroactive violations surface. Accepts the same inline
+filter syntax as tusk task list to narrow the scan.
+
+Exit code is 0 when the workspace is clean and 1 when any violations exist.`,
+		Example: `  # Scan the whole workspace
+  tusk task level-check
+
+  # Narrow to a single project
+  tusk task level-check project=backend
+
+  # JSON report for machine consumption
+  tusk task level-check --format json`,
+		RunE: a.runLevelCheck,
+	}
+
 	parent.AddCommand(
 		createCmd,
 		&cobra.Command{
@@ -194,6 +214,7 @@ date, tags, UDAs, annotations, relations, claim state, and urgency score.`,
 		},
 		modifyCmd,
 		treeCmd,
+		levelCheckCmd,
 		&cobra.Command{
 			Use:   "start <short_id>",
 			Short: "Transition task to active",
@@ -321,9 +342,29 @@ func formatError(err error, shortID string) string {
 		return domain.ErrCyclicParent.Error()
 	case errors.Is(err, domain.ErrNoAvailableTasks):
 		return "No available tasks"
+	case errors.Is(err, domain.ErrTaxonomyViolation):
+		if msg, ok := formatTaxonomyError(err, ""); ok {
+			return msg
+		}
+		return err.Error()
 	default:
 		return err.Error()
 	}
+}
+
+// projectNameForTask resolves the human-readable project name for a task's
+// ProjectID, falling back to the stringified UUID when the lookup fails.
+// Used in handlers that want to include the project in TaxonomyError
+// messages without exposing raw UUIDs to users.
+func (a *App) projectNameForTask(ctx context.Context, projectID uuid.UUID) string {
+	if a.projectSvc == nil {
+		return projectID.String()
+	}
+	p, err := a.projectSvc.GetByID(ctx, projectID)
+	if err != nil {
+		return projectID.String()
+	}
+	return p.Name
 }
 
 func (a *App) runCreate(cmd *cobra.Command, args []string) error {
@@ -432,6 +473,11 @@ func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := a.taskSvc.Create(ctx, task); err != nil {
+		if errors.Is(err, domain.ErrTaxonomyViolation) {
+			if msg, ok := formatTaxonomyError(err, a.projectNameForTask(ctx, task.ProjectID)); ok {
+				return fmt.Errorf("%s", msg)
+			}
+		}
 		return fmt.Errorf("%s", err)
 	}
 
@@ -500,6 +546,45 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), a.buildDimStatuses())
 	return r.renderTaskList(tasks, taskTags)
 }
+
+func (a *App) runLevelCheck(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
+	input := strings.Join(args, " ")
+	expr, parseErrs := filter.ParseExpr(input)
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("filter errors:\n%s", filter.FormatErrors(parseErrs))
+	}
+
+	var filterExpr domain.FilterExpr
+	if expr != nil {
+		var resolveErrs []error
+		filterExpr, resolveErrs = a.resolver.ResolveExprAllStatuses(ctx, expr)
+		if len(resolveErrs) > 0 {
+			return resolveErrs[0]
+		}
+	}
+
+	violations, err := a.taskSvc.LevelCheck(ctx, filterExpr)
+	if err != nil {
+		return err
+	}
+
+	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	if err := r.renderLevelCheck(violations); err != nil {
+		return err
+	}
+	if len(violations) > 0 {
+		return ErrLevelViolations
+	}
+	return nil
+}
+
+// ErrLevelViolations is returned by `tusk task level-check` when the scan
+// found any violating tasks. The CLI entry point (cmd/tusk/main.go) detects
+// this sentinel and exits with status 1 without printing a redundant error
+// line — the renderer has already listed the violations.
+var ErrLevelViolations = errors.New("taxonomy violations detected")
 
 func (a *App) runGet(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
@@ -757,6 +842,15 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 
 	updated, err := a.taskSvc.Update(ctx, upd)
 	if err != nil {
+		if errors.Is(err, domain.ErrTaxonomyViolation) {
+			projectID := current.ProjectID
+			if upd.ProjectID != nil {
+				projectID = *upd.ProjectID
+			}
+			if msg, ok := formatTaxonomyError(err, a.projectNameForTask(ctx, projectID)); ok {
+				return fmt.Errorf("%s", msg)
+			}
+		}
 		return fmt.Errorf("%s", formatError(err, shortID))
 	}
 

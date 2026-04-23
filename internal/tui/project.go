@@ -38,6 +38,14 @@ func (a *App) buildProjectCmd() *cobra.Command {
 			RunE:  a.runProjectList,
 		},
 		&cobra.Command{
+			Use:   "show <name>",
+			Short: "Show a project's workflow, settings, and effective taxonomy",
+			Long: `Display a single project in full detail, including the effective taxonomy
+and provenance source (workspace default vs. project override).`,
+			Args: cobra.ExactArgs(1),
+			RunE: a.runProjectShow,
+		},
+		&cobra.Command{
 			Use:   "create <name> [fields...]",
 			Short: "Create a new project",
 			Long: `Create a new project. Fields are set via inline key=value syntax.
@@ -73,6 +81,29 @@ numeric urgency weights apply arithmetic deltas relative to the effective value.
 		deleteCmd,
 	)
 	return projectCmd
+}
+
+func (a *App) runProjectShow(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	name := args[0]
+	p, err := a.projectSvc.GetByName(ctx, name)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("project %q: not found", name)
+		}
+		return err
+	}
+	wf, err := a.workflowSvc.GetByID(ctx, p.WorkflowID)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return err
+	}
+	workflowName := ""
+	if wf != nil {
+		workflowName = wf.Name
+	}
+	taxonomy, source := a.projectSvc.EffectiveTaxonomy(p)
+	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
+	return r.renderProjectShow(p, workflowName, taxonomy, source)
 }
 
 func (a *App) runProjectList(cmd *cobra.Command, args []string) error {

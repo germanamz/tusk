@@ -7,6 +7,76 @@ import (
 	"github.com/germanamz/tusk/domain"
 )
 
+func TestTaxonomyErrorResult_StructuredPayload(t *testing.T) {
+	cases := []struct {
+		name  string
+		err   *domain.TaxonomyError
+		check func(t *testing.T, payload taxonomyErrorPayload)
+	}{
+		{
+			name: "missing",
+			err: &domain.TaxonomyError{
+				Reason:   "missing",
+				Taxonomy: domain.Taxonomy{{"milestone"}, {"story"}},
+			},
+			check: func(t *testing.T, p taxonomyErrorPayload) {
+				if p.Code != "taxonomy_violation" {
+					t.Errorf("code: got %q", p.Code)
+				}
+				if p.Reason != "missing" {
+					t.Errorf("reason: got %q", p.Reason)
+				}
+				if len(p.Taxonomy.Ranks) != 2 || p.Taxonomy.Ranks[0][0] != "milestone" {
+					t.Errorf("taxonomy.ranks: got %+v", p.Taxonomy.Ranks)
+				}
+			},
+		},
+		{
+			name: "unknown_level",
+			err: &domain.TaxonomyError{
+				Reason:   "unknown_level",
+				Level:    "bogus",
+				Taxonomy: domain.Taxonomy{{"milestone"}},
+			},
+			check: func(t *testing.T, p taxonomyErrorPayload) {
+				if p.Level != "bogus" {
+					t.Errorf("level: got %q", p.Level)
+				}
+			},
+		},
+		{
+			name: "parent_rank_not_lower",
+			err: &domain.TaxonomyError{
+				Reason:      "parent_rank_not_lower",
+				Level:       "milestone",
+				ParentLevel: "milestone",
+				Taxonomy:    domain.Taxonomy{{"milestone"}, {"story"}},
+			},
+			check: func(t *testing.T, p taxonomyErrorPayload) {
+				if p.ParentLevel != "milestone" {
+					t.Errorf("parent_level: got %q", p.ParentLevel)
+				}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result := taxonomyErrorResult(c.err)
+			if result == nil || !result.IsError {
+				t.Fatalf("expected error result, got %+v", result)
+			}
+			if len(result.Content) == 0 {
+				t.Fatalf("expected text content preserved, got none")
+			}
+			payload, ok := result.StructuredContent.(taxonomyErrorPayload)
+			if !ok {
+				t.Fatalf("StructuredContent type: got %T", result.StructuredContent)
+			}
+			c.check(t, payload)
+		})
+	}
+}
+
 func TestMapError(t *testing.T) {
 	tests := []struct {
 		name    string

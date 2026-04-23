@@ -24,7 +24,13 @@ func toolResultJSON(v any) (*mcp.CallToolResult, error) {
 
 // toolError translates a domain error into an MCP tool-result error.
 // context is optional extra info for not-found errors (e.g., "task abc123").
+// *domain.TaxonomyError surfaces through taxonomyErrorResult so clients can
+// branch on the structured `taxonomy_violation` payload.
 func toolError(err error, context string) *mcp.CallToolResult {
+	var te *domain.TaxonomyError
+	if errors.As(err, &te) {
+		return taxonomyErrorResult(te)
+	}
 	return mcp.NewToolResultError(mapError(err, context))
 }
 
