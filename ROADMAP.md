@@ -987,40 +987,40 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 > First-class `level` field on every task plus a rank-ordered taxonomy declared at workspace scope with per-project override. Enforces the milestone → initiative → story → task/spike modeling used by the roadmap self-host and the Claude Code plugin skills. Replaces the earlier per-UDA-key schema plan with a narrower, purpose-built primitive; UDAs stay free-form key-value metadata.
 
-- [ ] **Story: Domain model and resolution**
-  - [ ] Add `level TEXT` nullable column to `tasks` via migration; update `domain.Task.Level *string` and the SQLite scan/write paths; existing rows default to `NULL`
-  - [ ] `domain.TaskUpdate.Level` uses `**string` so callers can distinguish "no change" from "clear" on modify
-  - [ ] `domain.Taxonomy` = ordered slice of rank groups (`[][]string`); rank index 0 is the top rank and the only root-eligible rank
-  - [ ] `domain.ProjectSettings.Taxonomy *domain.Taxonomy` carries the per-project override with three observable states: `nil` = inherit the workspace default, `&empty` = explicit opt-out (disable levels for this project even when a workspace default exists), `&populated` = full replace (no per-rank merge)
-  - [ ] `config.TaxonomyConfig` section in `tusk.toml` for the workspace default; embedded default ships empty
-  - [ ] Resolution chain: project override (non-nil, including explicit empty) → workspace default → empty; any empty effective taxonomy disables level validation for that project
-  - [ ] Taxonomy helpers on the domain type — `RankOf(level) (int, bool)`, `IsTopRank(level) bool`, `IsEmpty() bool`, `Contains(level) bool`
+- [x] **Story: Domain model and resolution**
+  - [x] Add `level TEXT` nullable column to `tasks` via migration; update `domain.Task.Level *string` and the SQLite scan/write paths; existing rows default to `NULL`
+  - [x] `domain.TaskUpdate.Level` uses `**string` so callers can distinguish "no change" from "clear" on modify
+  - [x] `domain.Taxonomy` = ordered slice of rank groups (`[][]string`); rank index 0 is the top rank and the only root-eligible rank
+  - [x] `domain.ProjectSettings.Taxonomy *domain.Taxonomy` carries the per-project override with three observable states: `nil` = inherit the workspace default, `&empty` = explicit opt-out (disable levels for this project even when a workspace default exists), `&populated` = full replace (no per-rank merge)
+  - [x] `config.TaxonomyConfig` section in `tusk.toml` for the workspace default; embedded default ships empty
+  - [x] Resolution chain: project override (non-nil, including explicit empty) → workspace default → empty; any empty effective taxonomy disables level validation for that project
+  - [x] Taxonomy helpers on the domain type — `RankOf(level) (int, bool)`, `IsTopRank(level) bool`, `IsEmpty() bool`, `Contains(level) bool`
 
 - [ ] **Story: Validator and enforcement**
-  - [ ] `TaxonomyValidator.Check(ctx ValidationContext, task *domain.Task) error` — single entry point invoked from the task service on create and on any modify touching `Level`, `ParentID`, or `ProjectID`
-  - [ ] `ValidationContext` carries the parent task's resolved level (pre-loaded in the service layer) so the validator never touches the repository
-  - [ ] Rules: empty effective taxonomy accepts any state; otherwise `task.Level` must be declared in the taxonomy; tasks with no parent require top-rank (`rank == 0`); tasks with a parent require parent's rank strictly less than the task's rank
-  - [ ] Rejections return `domain.ErrTaxonomyViolation` wrapping a typed `TaxonomyError{Level, ParentLevel, Reason}` so CLI and MCP surfaces render structured messages
-  - [ ] Prospective semantics — taxonomy edits do not retroactively re-validate existing tasks; a later `tusk task level-check` surfaces violations without rejecting them
-  - [ ] Project reassignment re-runs validation against the destination project's effective taxonomy
+  - [x] `TaxonomyValidator.Check(ctx ValidationContext, task *domain.Task) error` — single entry point invoked from the task service on create and on any modify touching `Level`, `ParentID`, or `ProjectID`
+  - [x] `ValidationContext` carries the parent task's resolved level (pre-loaded in the service layer) so the validator never touches the repository
+  - [x] Rules: empty effective taxonomy accepts any state; otherwise `task.Level` must be declared in the taxonomy; tasks with no parent require top-rank (`rank == 0`); tasks with a parent require parent's rank strictly less than the task's rank
+  - [x] Rejections return `domain.ErrTaxonomyViolation` wrapping a typed `TaxonomyError{Level, ParentLevel, Reason}` so CLI and MCP surfaces render structured messages
+  - [x] Prospective semantics — taxonomy edits do not retroactively re-validate existing tasks; a later `tusk task level-check` surfaces violations without rejecting them
+  - [x] Project reassignment re-runs validation against the destination project's effective taxonomy
   - [ ] Same validator fires on JSON and Markdown import, consistent with the Data Portability initiative
 
-- [ ] **Story: CRUD — CLI inline syntax**
-  - [ ] `tusk task create` / `tusk task modify` accept `level=<name>`; `level=` (empty value on modify) clears the field
-  - [ ] `tusk project modify` accepts `taxonomy.levels=milestone:initiative:story:(task,spike)` — `:` separates ranks top-to-bottom, a parenthesized comma list marks peer levels sharing a rank
-  - [ ] `taxonomy.levels=` (empty value) clears the project override and falls back to the workspace default
-  - [ ] `taxonomy.disable=true` writes an explicit-empty override so the project opts out of the workspace default; `taxonomy.disable=false` clears it (equivalent to `taxonomy.levels=`). `disable=true` is mutually exclusive with `taxonomy.levels=...` in the same call
-  - [ ] `taxonomy=@./taxonomy.json` replaces the project taxonomy via the `@`-reference expander
-  - [ ] `tusk config set taxonomy.levels ...` writes the workspace default to the active `tusk.toml`
-  - [ ] `tusk project show` renders the effective taxonomy with a provenance marker (`source: workspace default` / `source: project override`)
-  - [ ] `tusk config show` renders the workspace default under `[taxonomy]` and each project's override read-only under its projects section
-  - [ ] Filter grammar: `level=<name>` and `level=a,b` become first-class filter fields; `uda.level` is no longer a reserved convention
+- [x] **Story: CRUD — CLI inline syntax**
+  - [x] `tusk task create` / `tusk task modify` accept `level=<name>`; `level=` (empty value on modify) clears the field
+  - [x] `tusk project modify` accepts `taxonomy.levels=milestone:initiative:story:(task,spike)` — `:` separates ranks top-to-bottom, a parenthesized comma list marks peer levels sharing a rank
+  - [x] `taxonomy.levels=` (empty value) clears the project override and falls back to the workspace default
+  - [x] `taxonomy.disable=true` writes an explicit-empty override so the project opts out of the workspace default; `taxonomy.disable=false` clears it (equivalent to `taxonomy.levels=`). `disable=true` is mutually exclusive with `taxonomy.levels=...` in the same call
+  - [x] `taxonomy=@./taxonomy.json` replaces the project taxonomy via the `@`-reference expander
+  - [x] `tusk config set taxonomy.levels ...` writes the workspace default to the active `tusk.toml`
+  - [x] `tusk project show` renders the effective taxonomy with a provenance marker (`source: workspace default` / `source: project override`)
+  - [x] `tusk config show` renders the workspace default under `[taxonomy]` and each project's override read-only under its projects section
+  - [x] Filter grammar: `level=<name>` and `level=a,b` become first-class filter fields; `uda.level` is no longer a reserved convention
 
-- [ ] **Story: CRUD — MCP tool**
-  - [ ] `tusk_task_create` / `tusk_task_modify` accept a `level` string parameter; empty string on modify clears the field
-  - [ ] Every task response (`tusk_task_get`, create/modify returns, list, tree) includes `level`
-  - [ ] `tusk_project_modify` accepts a structured `taxonomy` object mirroring the domain shape (`{"ranks": [["milestone"], ["initiative"], ["story"], ["task", "spike"]]}`); omitted = no change, `null` = clear the project override (inherit workspace default), `{"ranks": []}` = explicit-empty opt-out
-  - [ ] Version-based optimistic locking on project writes is unchanged; the v0.12 blocked-fields mechanism applies
+- [x] **Story: CRUD — MCP tool**
+  - [x] `tusk_task_create` / `tusk_task_modify` accept a `level` string parameter; empty string on modify clears the field
+  - [x] Every task response (`tusk_task_get`, create/modify returns, list, tree) includes `level`
+  - [x] `tusk_project_modify` accepts a structured `taxonomy` object mirroring the domain shape (`{"ranks": [["milestone"], ["initiative"], ["story"], ["task", "spike"]]}`); omitted = no change, `null` = clear the project override (inherit workspace default), `{"ranks": []}` = explicit-empty opt-out
+  - [x] Version-based optimistic locking on project writes is unchanged; the v0.12 blocked-fields mechanism applies
 
 > **Deferred (not v0.13):** per-level DAG constraints (e.g., "task may sit under story but not under initiative"), per-level required fields or defaults, retroactive re-validation. The rank-based model upgrades cleanly to per-level parent sets if a stricter taxonomy becomes necessary.
 
