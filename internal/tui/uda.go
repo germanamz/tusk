@@ -15,6 +15,7 @@ import (
 var reservedTaskFields = map[string]struct{}{
 	"title":       {},
 	"description": {},
+	"level":       {},
 	"project":     {},
 	"priority":    {},
 	"status":      {},

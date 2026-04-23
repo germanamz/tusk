@@ -36,6 +36,7 @@ type taskResponse struct {
 	ProjectID      string         `json:"project_id"`
 	Title          string         `json:"title"`
 	Description    string         `json:"description"`
+	Level          *string        `json:"level,omitempty"`
 	Status         string         `json:"status"`
 	Priority       int            `json:"priority"`
 	Version        int            `json:"version"`
@@ -116,6 +117,7 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag, projectNames *projectNam
 		r.WaitUntil = &s
 	}
 	r.RecurrenceRule = t.RecurrenceRule
+	r.Level = t.Level
 	r.UDA = t.UDA
 	r.Tags = make([]string, len(tags))
 	for i, tg := range tags {
@@ -172,6 +174,19 @@ func (s *Server) handleTaskCreate(ctx context.Context, request mcp.CallToolReque
 	// Optional: priority
 	if p, err := request.RequireFloat("priority"); err == nil {
 		task.Priority = int(p)
+	}
+
+	// Optional: level — empty string on create is rejected so the client has
+	// to make an explicit choice rather than silently sending a no-op.
+	if raw, ok := request.GetArguments()["level"]; ok && raw != nil {
+		lvl, ok := raw.(string)
+		if !ok {
+			return mcp.NewToolResultError("\"level\" must be a string"), nil
+		}
+		if lvl == "" {
+			return mcp.NewToolResultError("level on create requires a value; use modify to clear"), nil
+		}
+		task.Level = &lvl
 	}
 
 	// Optional: project (by name)
@@ -558,6 +573,20 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 		} else {
 			dp := &desc
 			upd.Description = &dp
+		}
+	}
+	// Optional: level — empty string clears, non-empty sets.
+	if raw, ok := request.GetArguments()["level"]; ok && raw != nil {
+		lvl, ok := raw.(string)
+		if !ok {
+			return mcp.NewToolResultError("\"level\" must be a string"), nil
+		}
+		if lvl == "" {
+			var nilStr *string
+			upd.Level = &nilStr
+		} else {
+			lp := &lvl
+			upd.Level = &lp
 		}
 	}
 	if p, err := request.RequireFloat("priority"); err == nil {
