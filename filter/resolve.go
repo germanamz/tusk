@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/germanamz/tusk/domain"
@@ -227,6 +228,33 @@ func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *doma
 			}
 			tf.PriorityMin = &v
 			tf.PriorityMax = &v
+		}
+
+	case "order":
+		if field.Value == "" {
+			t := true
+			tf.OrderIsNull = &t
+			return nil
+		}
+		if strings.Contains(field.Value, "..") {
+			parts := strings.SplitN(field.Value, "..", 2)
+			lo, err := strconv.ParseFloat(parts[0], 64)
+			if err != nil {
+				return fmt.Errorf("order range min: %w", err)
+			}
+			hi, err := strconv.ParseFloat(parts[1], 64)
+			if err != nil {
+				return fmt.Errorf("order range max: %w", err)
+			}
+			tf.OrderMin = &lo
+			tf.OrderMax = &hi
+		} else {
+			v, err := strconv.ParseFloat(field.Value, 64)
+			if err != nil {
+				return fmt.Errorf("order: %w", err)
+			}
+			tf.OrderMin = &v
+			tf.OrderMax = &v
 		}
 
 	case "due":

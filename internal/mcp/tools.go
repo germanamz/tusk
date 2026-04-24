@@ -45,6 +45,7 @@ type taskResponse struct {
 	Level          *string        `json:"level,omitempty"`
 	Status         string         `json:"status"`
 	Priority       int            `json:"priority"`
+	Order          *float64       `json:"order,omitempty"`
 	Version        int            `json:"version"`
 	Tags           []string       `json:"tags"`
 	DueAt          *string        `json:"due_at,omitempty"`
@@ -124,6 +125,7 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag, projectNames *projectNam
 	}
 	r.RecurrenceRule = t.RecurrenceRule
 	r.Level = t.Level
+	r.Order = t.Order
 	r.UDA = t.UDA
 	r.Tags = make([]string, len(tags))
 	for i, tg := range tags {

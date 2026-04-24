@@ -132,6 +132,76 @@ func TestIntegration_TreeFilter(t *testing.T) {
 	}
 }
 
+func TestIntegration_OrderFilterMatchesRows(t *testing.T) {
+	r, taskRepo := testSetup(t)
+	ctx := context.Background()
+
+	o1 := 1.0
+	o5 := 5.0
+	lo := &domain.Task{
+		ID: uuid.New(), ShortID: "11111111", Title: "lo", Status: "pending",
+		Version: 1, Order: &o1,
+	}
+	hi := &domain.Task{
+		ID: uuid.New(), ShortID: "22222222", Title: "hi", Status: "pending",
+		Version: 1, Order: &o5,
+	}
+	nul := &domain.Task{
+		ID: uuid.New(), ShortID: "33333333", Title: "null", Status: "pending",
+		Version: 1,
+	}
+	for _, task := range []*domain.Task{lo, hi, nul} {
+		if err := taskRepo.Create(ctx, task); err != nil {
+			t.Fatalf("seed %s: %v", task.ShortID, err)
+		}
+	}
+
+	t.Run("exact match", func(t *testing.T) {
+		fs, _ := Parse("order=1 status=pending")
+		tf, errs := r.Resolve(ctx, fs)
+		if len(errs) != 0 {
+			t.Fatalf("resolve: %v", errs)
+		}
+		tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(tasks) != 1 || tasks[0].ShortID != lo.ShortID {
+			t.Fatalf("expected 1 task matching lo, got %d", len(tasks))
+		}
+	})
+
+	t.Run("range match", func(t *testing.T) {
+		fs, _ := Parse("order=0..3 status=pending")
+		tf, errs := r.Resolve(ctx, fs)
+		if len(errs) != 0 {
+			t.Fatalf("resolve: %v", errs)
+		}
+		tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(tasks) != 1 || tasks[0].ShortID != lo.ShortID {
+			t.Fatalf("expected 1 task in (0..3), got %d", len(tasks))
+		}
+	})
+
+	t.Run("empty matches null", func(t *testing.T) {
+		fs, _ := Parse("order= status=pending")
+		tf, errs := r.Resolve(ctx, fs)
+		if len(errs) != 0 {
+			t.Fatalf("resolve: %v", errs)
+		}
+		tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(tasks) != 1 || tasks[0].ShortID != nul.ShortID {
+			t.Fatalf("expected 1 task with null order, got %d", len(tasks))
+		}
+	})
+}
+
 func TestIntegration_ParseAndResolveErrors(t *testing.T) {
 	r, _ := testSetup(t)
 	// "foo=bar" triggers a parse error; "parent=ffffffff" triggers a resolve error

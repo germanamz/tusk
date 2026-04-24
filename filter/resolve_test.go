@@ -145,6 +145,60 @@ func TestResolve_PriorityRange(t *testing.T) {
 	}
 }
 
+func TestResolve_OrderSingle(t *testing.T) {
+	r, _ := testResolver(t)
+	fs := &FilterSet{
+		Fields: []FieldFilter{{Key: "order", Value: "2.5"}},
+	}
+
+	tf, errs := r.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if tf.OrderMin == nil || *tf.OrderMin != 2.5 {
+		t.Fatalf("expected OrderMin=2.5, got %v", tf.OrderMin)
+	}
+	if tf.OrderMax == nil || *tf.OrderMax != 2.5 {
+		t.Fatalf("expected OrderMax=2.5, got %v", tf.OrderMax)
+	}
+}
+
+func TestResolve_OrderRange(t *testing.T) {
+	r, _ := testResolver(t)
+	fs := &FilterSet{
+		Fields: []FieldFilter{{Key: "order", Value: "1..5"}},
+	}
+
+	tf, errs := r.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if tf.OrderMin == nil || *tf.OrderMin != 1 {
+		t.Fatalf("expected OrderMin=1, got %v", tf.OrderMin)
+	}
+	if tf.OrderMax == nil || *tf.OrderMax != 5 {
+		t.Fatalf("expected OrderMax=5, got %v", tf.OrderMax)
+	}
+}
+
+func TestResolve_OrderEmptyIsNull(t *testing.T) {
+	r, _ := testResolver(t)
+	fs := &FilterSet{
+		Fields: []FieldFilter{{Key: "order", Value: ""}},
+	}
+
+	tf, errs := r.Resolve(context.Background(), fs)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if tf.OrderIsNull == nil || !*tf.OrderIsNull {
+		t.Fatalf("expected OrderIsNull=true, got %v", tf.OrderIsNull)
+	}
+	if tf.OrderMin != nil || tf.OrderMax != nil {
+		t.Fatalf("expected Min/Max to be nil when IS NULL, got min=%v max=%v", tf.OrderMin, tf.OrderMax)
+	}
+}
+
 func TestResolve_PriorityNamed(t *testing.T) {
 	r, _ := testResolver(t)
 	fs := &FilterSet{

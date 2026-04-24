@@ -145,7 +145,9 @@ File expansion works on description=, title=, and any string field:
 	treeCmd := &cobra.Command{
 		Use:   "tree [short_id]",
 		Short: "Display tasks as a tree hierarchy",
-		Long:  "Show all tasks in a tree hierarchy. Optionally specify a short_id to show only that subtree.",
+		Long: `Show all tasks in a tree hierarchy. Optionally specify a short_id to show
+only that subtree. Siblings render in ascending sibling-order by default;
+pass --sort to switch.`,
 		Example: `  # Full task tree
   tusk task tree
 
@@ -153,11 +155,15 @@ File expansion works on description=, title=, and any string field:
   tusk task tree a3f8b2c1
 
   # Include deleted tasks
-  tusk task tree --all`,
+  tusk task tree --all
+
+  # Re-sort siblings by urgency
+  tusk task tree --sort urgency`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: a.runTree,
 	}
 	treeCmd.Flags().Bool("all", false, "include deleted tasks")
+	treeCmd.Flags().String("sort", "order", "sibling sort key: order|urgency|created|priority|due")
 
 	levelCheckCmd := &cobra.Command{
 		Use:   "level-check [filters...]",
@@ -179,16 +185,15 @@ Exit code is 0 when the workspace is clean and 1 when any violations exist.`,
 		RunE: a.runLevelCheck,
 	}
 
-	parent.AddCommand(
-		createCmd,
-		&cobra.Command{
-			Use:   "list [filters...]",
-			Short: "List tasks",
-			Long: `List tasks sorted by urgency. Defaults to status=pending,active when no status
+	listCmd := &cobra.Command{
+		Use:   "list [filters...]",
+		Short: "List tasks",
+		Long: `List tasks sorted by urgency. Defaults to status=pending,active when no status
 filter is given. Accepts the full filter syntax: field=value, +tag, -tag,
 ranges (priority=2..4), relative dates (due=today..friday), boolean operators
-(AND, OR, NOT), and parenthesized grouping.`,
-			Example: `  # All pending and active tasks (default)
+(AND, OR, NOT), and parenthesized grouping. Pass --sort to switch the sort
+key.`,
+		Example: `  # All pending and active tasks (default)
   tusk task list
 
   # Filter by project and tag
@@ -201,9 +206,17 @@ ranges (priority=2..4), relative dates (due=today..friday), boolean operators
   tusk task list "(status=active AND +urgent) OR priority=4"
 
   # UDA filter
-  tusk task list uda.env=prod`,
-			RunE: a.runList,
-		},
+  tusk task list uda.env=prod
+
+  # Siblings under a parent, in sibling-order
+  tusk task list parent=a3f8b2c1 --sort order`,
+		RunE: a.runList,
+	}
+	listCmd.Flags().String("sort", "urgency", "sort key: order|urgency|created|priority|due")
+
+	parent.AddCommand(
+		createCmd,
+		listCmd,
 		&cobra.Command{
 			Use:   "get <short_id>",
 			Short: "Show task details",
@@ -324,6 +337,7 @@ with one command, eliminating race conditions. Requires --player.`,
 			Args:    cobra.ExactArgs(3),
 			RunE:    a.runUnlink,
 		},
+		a.buildTaskMoveCmd(),
 	)
 
 	return parent
@@ -438,6 +452,21 @@ func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 		task.Priority = p
 	}
 
+	// Order
+	if f, ok := fs.GetField("order"); ok {
+		if f.Modifier != 0 {
+			return fmt.Errorf("order does not accept + or - modifiers; use tusk task move to reposition")
+		}
+		if f.Value == "" {
+			return fmt.Errorf("order= requires a numeric value on create")
+		}
+		v, err := strconv.ParseFloat(f.Value, 64)
+		if err != nil {
+			return fmt.Errorf("invalid order value %q: %w", f.Value, err)
+		}
+		task.Order = &v
+	}
+
 	// Status (rarely used, defaults to pending in service)
 	if f, ok := fs.GetField("status"); ok {
 		task.Status = f.Value
@@ -502,6 +531,11 @@ func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 func (a *App) runList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
+	sortMode, _ := cmd.Flags().GetString("sort")
+	if err := validateSortMode(sortMode); err != nil {
+		return err
+	}
+
 	input := strings.Join(args, " ")
 	expr, parseErrs := filter.ParseExpr(input)
 	if len(parseErrs) > 0 {
@@ -526,6 +560,11 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Service returns tasks sorted by urgency; re-sort when the user asked
+	// for a different key. Urgency is already applied, so "urgency" is a
+	// no-op (sortTasks runs anyway so tie-breaking stays stable).
+	sortTasks(tasks, sortMode)
 
 	// Fetch tags for all tasks in one query
 	taskIDs := make([]uuid.UUID, len(tasks))
@@ -781,6 +820,24 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		upd.Priority = &p
+	}
+
+	// Order (double pointer: nil = don't change, *nil = clear, *v = set absolute)
+	if f, ok := fs.GetField("order"); ok {
+		if f.Modifier != 0 {
+			return fmt.Errorf("order does not accept + or - modifiers; use tusk task move to reposition")
+		}
+		if f.Value == "" {
+			var nilFloat *float64
+			upd.Order = &nilFloat
+		} else {
+			v, err := strconv.ParseFloat(f.Value, 64)
+			if err != nil {
+				return fmt.Errorf("invalid order value %q: %w", f.Value, err)
+			}
+			vp := &v
+			upd.Order = &vp
+		}
 	}
 
 	// Status

@@ -392,6 +392,17 @@ func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 		conditions = append(conditions, "priority <= ?")
 		args = append(args, *filter.PriorityMax)
 	}
+	if filter.OrderIsNull != nil && *filter.OrderIsNull {
+		conditions = append(conditions, `"order" IS NULL`)
+	}
+	if filter.OrderMin != nil {
+		conditions = append(conditions, `"order" >= ?`)
+		args = append(args, *filter.OrderMin)
+	}
+	if filter.OrderMax != nil {
+		conditions = append(conditions, `"order" <= ?`)
+		args = append(args, *filter.OrderMax)
+	}
 	if filter.DueAfter != nil {
 		conditions = append(conditions, "due_at >= ?")
 		args = append(args, filter.DueAfter.UTC().Format(timeFormat))

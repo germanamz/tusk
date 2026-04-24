@@ -163,6 +163,53 @@ func TestRenderTree_JSON(t *testing.T) {
 	}
 }
 
+func TestSortTasks_Order(t *testing.T) {
+	o1 := 1.0
+	o3 := 3.0
+	o2 := 2.0
+	a := &domain.Task{ID: uuid.New(), ShortID: "aaaaaaaa", Order: &o3}
+	b := &domain.Task{ID: uuid.New(), ShortID: "bbbbbbbb", Order: &o1}
+	c := &domain.Task{ID: uuid.New(), ShortID: "cccccccc", Order: &o2}
+	tasks := []*domain.Task{a, b, c}
+	sortTasks(tasks, "order")
+	if tasks[0].ShortID != "bbbbbbbb" || tasks[1].ShortID != "cccccccc" || tasks[2].ShortID != "aaaaaaaa" {
+		t.Fatalf("expected order [b,c,a], got %s/%s/%s",
+			tasks[0].ShortID, tasks[1].ShortID, tasks[2].ShortID)
+	}
+}
+
+func TestSortTasks_OrderNullsLast(t *testing.T) {
+	o1 := 1.0
+	a := &domain.Task{ID: uuid.New(), ShortID: "aaaaaaaa"}
+	b := &domain.Task{ID: uuid.New(), ShortID: "bbbbbbbb", Order: &o1}
+	tasks := []*domain.Task{a, b}
+	sortTasks(tasks, "order")
+	if tasks[0].ShortID != "bbbbbbbb" {
+		t.Fatalf("expected ordered task first, got %s", tasks[0].ShortID)
+	}
+}
+
+func TestSortTasks_UrgencyDescending(t *testing.T) {
+	a := &domain.Task{ID: uuid.New(), ShortID: "aaaaaaaa", Urgency: 1.0}
+	b := &domain.Task{ID: uuid.New(), ShortID: "bbbbbbbb", Urgency: 5.0}
+	tasks := []*domain.Task{a, b}
+	sortTasks(tasks, "urgency")
+	if tasks[0].ShortID != "bbbbbbbb" {
+		t.Fatalf("expected urgent task first, got %s", tasks[0].ShortID)
+	}
+}
+
+func TestValidateSortMode(t *testing.T) {
+	for _, v := range []string{"order", "urgency", "created", "priority", "due", ""} {
+		if err := validateSortMode(v); err != nil {
+			t.Errorf("expected %q to validate, got %v", v, err)
+		}
+	}
+	if err := validateSortMode("bogus"); err == nil {
+		t.Error("expected invalid --sort to error")
+	}
+}
+
 func TestRenderTree_JSONEmpty(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewRenderer(&buf, "json", false, nil)

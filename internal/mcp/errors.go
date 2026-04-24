@@ -29,6 +29,8 @@ func mapError(err error, context string) string {
 		return "would create a dependency cycle"
 	case errors.Is(err, domain.ErrCyclicParent):
 		return "would create a parent-child cycle"
+	case errors.Is(err, domain.ErrOrderGapExhausted):
+		return err.Error()
 	case errors.Is(err, domain.ErrDuplicateRelation):
 		return "relation already exists"
 	case errors.Is(err, domain.ErrForbidden):

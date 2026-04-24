@@ -16,6 +16,9 @@ type TaskFilter struct {
 	ExcludeTags         []string   // exclude
 	PriorityMin         *int
 	PriorityMax         *int
+	OrderMin            *float64 // inclusive lower bound on sibling order
+	OrderMax            *float64 // inclusive upper bound on sibling order
+	OrderIsNull         *bool    // when true, require order IS NULL
 	DueAfter            *time.Time
 	DueBefore           *time.Time
 	WaitingOnly         *bool             // if true, only tasks with wait_until in future

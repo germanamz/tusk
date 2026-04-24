@@ -47,6 +47,53 @@ func TestParse_FieldsOnly(t *testing.T) {
 	}
 }
 
+func TestParse_OrderSingle(t *testing.T) {
+	fs, errs := Parse("order=2.5")
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	f, ok := fs.GetField("order")
+	if !ok || f.Value != "2.5" {
+		t.Fatalf("expected order=2.5, got %+v", f)
+	}
+}
+
+func TestParse_OrderRange(t *testing.T) {
+	fs, errs := Parse("order=1..5")
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	f, ok := fs.GetField("order")
+	if !ok || f.Value != "1..5" {
+		t.Fatalf("expected order=1..5, got %+v", f)
+	}
+}
+
+func TestParse_OrderEmpty(t *testing.T) {
+	fs, errs := Parse("order=")
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	f, ok := fs.GetField("order")
+	if !ok || f.Value != "" {
+		t.Fatalf("expected order= (empty), got %+v", f)
+	}
+}
+
+func TestParse_OrderInvalidValue(t *testing.T) {
+	_, errs := Parse("order=notanumber")
+	if len(errs) == 0 {
+		t.Fatal("expected parse error for non-numeric order value")
+	}
+}
+
+func TestParse_OrderBadRange(t *testing.T) {
+	_, errs := Parse("order=5..1")
+	if len(errs) == 0 {
+		t.Fatal("expected parse error when order range min > max")
+	}
+}
+
 func TestParse_TagsOnly(t *testing.T) {
 	fs, errs := Parse("+api +frontend -docs")
 	if len(errs) != 0 {
