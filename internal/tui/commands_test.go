@@ -1223,7 +1223,7 @@ func TestRunTree_JSON(t *testing.T) {
 
 	root := parsed[0]
 	// Verify all task fields are present (matching taskJSON in render.go)
-	for _, field := range []string{"id", "short_id", "title", "description", "status", "priority", "version", "created_at", "modified_at", "children"} {
+	for _, field := range []string{"id", "short_id", "title", "description", "status", "priority", "order", "version", "created_at", "modified_at", "children"} {
 		if _, ok := root[field]; !ok {
 			t.Fatalf("expected field %q in tree JSON, got keys: %v", field, root)
 		}
