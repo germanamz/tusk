@@ -1619,3 +1619,136 @@ func TestCreate_UDAValidation_ValidUDA(t *testing.T) {
 		t.Fatalf("expected team=backend, got %v", got.UDA["team"])
 	}
 }
+
+func TestTaskService_Create_AssignsOrder_Default_EmptyGroup(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+
+	task := newMinimalTask("solo")
+	if err := env.taskSvc.Create(context.Background(), task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if task.Order == nil || *task.Order != 1.0 {
+		t.Fatalf("Order: got %v, want *1.0", task.Order)
+	}
+}
+
+func TestTaskService_Create_AssignsOrder_Default_NonEmpty(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+
+	parent := newMinimalTask("p")
+	mustCreateTask(t, env.taskSvc, parent)
+
+	c1 := &domain.Task{Title: "c1", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, c1)
+	if c1.Order == nil || *c1.Order != 1.0 {
+		t.Fatalf("c1 Order: got %v, want *1.0", c1.Order)
+	}
+
+	c2 := &domain.Task{Title: "c2", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, c2)
+	if c2.Order == nil || *c2.Order != 2.0 {
+		t.Fatalf("c2 Order: got %v, want *2.0", c2.Order)
+	}
+
+	c3 := &domain.Task{Title: "c3", ParentID: &parent.ID}
+	mustCreateTask(t, env.taskSvc, c3)
+	if c3.Order == nil || *c3.Order != 3.0 {
+		t.Fatalf("c3 Order: got %v, want *3.0", c3.Order)
+	}
+}
+
+func TestTaskService_Create_RespectsCallerOrder(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+
+	want := 2.5
+	task := &domain.Task{Title: "explicit", Order: &want}
+	if err := env.taskSvc.Create(context.Background(), task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if task.Order == nil || *task.Order != 2.5 {
+		t.Fatalf("Order: got %v, want *2.5 (no defaulting)", task.Order)
+	}
+}
+
+func TestTaskService_Update_Order_Absolute(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	ctx := WithActor(context.Background(), "german")
+
+	task := newMinimalTask("reorder")
+	mustCreateTask(t, env.taskSvc, task)
+	if task.Order == nil || *task.Order != 1.0 {
+		t.Fatalf("default Order: got %v, want *1.0", task.Order)
+	}
+
+	newOrder := 5.5
+	innerPtr := &newOrder
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		Order:   &innerPtr,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Order == nil || *updated.Order != 5.5 {
+		t.Fatalf("Order: got %v, want *5.5", updated.Order)
+	}
+	if updated.Version == task.Version {
+		t.Fatalf("Version not bumped: got %d", updated.Version)
+	}
+
+	// Exactly one task_modified event with Changes["order"] = {1.0, 5.5}.
+	events := listAllEvents(t, env.store)
+	mod := firstEventOfType(t, events, domain.EventTaskModified)
+	payload := mod.Payload.(domain.TaskModifiedPayload)
+	change, ok := payload.Changes["order"]
+	if !ok {
+		t.Fatalf("changes missing 'order': %v", payload.Changes)
+	}
+	if fromF, ok := change.From.(float64); !ok || fromF != 1.0 {
+		t.Fatalf("Changes.order.From: got %v, want 1.0", change.From)
+	}
+	if toF, ok := change.To.(float64); !ok || toF != 5.5 {
+		t.Fatalf("Changes.order.To: got %v, want 5.5", change.To)
+	}
+}
+
+func TestTaskService_Update_Order_Clear(t *testing.T) {
+	t.Parallel()
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("clear order")
+	mustCreateTask(t, env.taskSvc, task)
+
+	var inner *float64 // nil inner pointer means "clear"
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		Order:   &inner,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Order != nil {
+		t.Fatalf("Order: got %v, want nil", updated.Order)
+	}
+
+	events := listAllEvents(t, env.store)
+	mod := firstEventOfType(t, events, domain.EventTaskModified)
+	payload := mod.Payload.(domain.TaskModifiedPayload)
+	change, ok := payload.Changes["order"]
+	if !ok {
+		t.Fatalf("changes missing 'order': %v", payload.Changes)
+	}
+	if fromF, ok := change.From.(float64); !ok || fromF != 1.0 {
+		t.Fatalf("Changes.order.From: got %v, want 1.0", change.From)
+	}
+	if change.To != nil {
+		t.Fatalf("Changes.order.To: got %v, want nil", change.To)
+	}
+}

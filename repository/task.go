@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/google/uuid"
@@ -38,4 +39,12 @@ type TaskRepository interface {
 	// group under parentID. prev is the largest order < pivot (nil if none); next is
 	// the smallest order > pivot (nil if none). parentID == nil scopes to root.
 	NeighborOrders(ctx context.Context, parentID *uuid.UUID, pivot float64) (prev, next *float64, err error)
+
+	// UpdateOrderAndParent performs an optimistic-locked write that changes only
+	// parent_id, "order", version (+1), and modified_at for a single row. It is
+	// used by TaskService.Move and TaskService.Resequence to avoid rewriting
+	// every column the way Update does. Returns the post-update version.
+	// Maps rows_affected == 0 to domain.ErrConflict (or domain.ErrNotFound if
+	// the row does not exist at all).
+	UpdateOrderAndParent(ctx context.Context, id uuid.UUID, parentID *uuid.UUID, order float64, fromVersion int, updatedAt time.Time) (newVersion int, err error)
 }

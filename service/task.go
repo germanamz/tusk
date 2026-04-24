@@ -218,6 +218,14 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 	}
 	task.ShortID = shortID
 
+	if task.Order == nil {
+		next, err := bundle.Tasks.NextOrder(ctx, task.ParentID)
+		if err != nil {
+			return fmt.Errorf("computing default order: %w", err)
+		}
+		task.Order = &next
+	}
+
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	task.Version = 1
 	task.CreatedAt = now
@@ -451,6 +459,14 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 		} else {
 			val := **upd.Level
 			task.Level = &val
+		}
+	}
+	if upd.Order != nil {
+		if *upd.Order == nil {
+			task.Order = nil
+		} else {
+			val := **upd.Order
+			task.Order = &val
 		}
 	}
 	if upd.Status != nil {
@@ -1091,6 +1107,7 @@ type taskSnapshot struct {
 	Description    string
 	Level          *string
 	Priority       int
+	Order          *float64
 	ParentID       *uuid.UUID
 	ProjectID      uuid.UUID
 	DueAt          *time.Time
@@ -1113,6 +1130,7 @@ func snapshotTask(t *domain.Task) taskSnapshot {
 		Description:    t.Description,
 		Level:          t.Level,
 		Priority:       t.Priority,
+		Order:          t.Order,
 		ParentID:       t.ParentID,
 		ProjectID:      t.ProjectID,
 		DueAt:          t.DueAt,
@@ -1141,6 +1159,9 @@ func diffTaskFields(orig taskSnapshot, updated *domain.Task) map[string]domain.F
 	}
 	if orig.Priority != updated.Priority {
 		changes["priority"] = domain.FieldChange{From: orig.Priority, To: updated.Priority}
+	}
+	if !float64PtrEqual(orig.Order, updated.Order) {
+		changes["order"] = domain.FieldChange{From: float64PtrValue(orig.Order), To: float64PtrValue(updated.Order)}
 	}
 	if !uuidPtrEqual(orig.ParentID, updated.ParentID) {
 		changes["parent_id"] = domain.FieldChange{From: uuidPtrValue(orig.ParentID), To: uuidPtrValue(updated.ParentID)}
@@ -1187,6 +1208,13 @@ func uuidPtrValue(p *uuid.UUID) any {
 }
 
 func stringPtrEqual(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func float64PtrEqual(a, b *float64) bool {
 	if a == nil || b == nil {
 		return a == b
 	}

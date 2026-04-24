@@ -3,6 +3,7 @@ package repository_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/repository"
@@ -43,6 +44,9 @@ func (s *stubTaskRepo) FirstOrder(_ context.Context, _ *uuid.UUID) (float64, err
 }
 func (s *stubTaskRepo) NeighborOrders(_ context.Context, _ *uuid.UUID, _ float64) (*float64, *float64, error) {
 	return nil, nil, nil
+}
+func (s *stubTaskRepo) UpdateOrderAndParent(_ context.Context, _ uuid.UUID, _ *uuid.UUID, _ float64, _ int, _ time.Time) (int, error) {
+	return 0, nil
 }
 
 type stubRelationRepo struct{}

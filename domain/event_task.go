@@ -16,6 +16,7 @@ const (
 	EventTaskCompleted EventType = "task_completed"
 	EventTaskDeleted   EventType = "task_deleted"
 	EventTaskPopped    EventType = "task_popped"
+	EventTaskMoved     EventType = "task_moved"
 )
 
 type TaskCreatedPayload struct {
@@ -106,6 +107,17 @@ type TaskPoppedPayload struct {
 
 func (TaskPoppedPayload) EventKind() EventType { return EventTaskPopped }
 
+type TaskMovedPayload struct {
+	Kind        EventType  `json:"kind"`
+	ShortID     string     `json:"short_id"`
+	OldParentID *uuid.UUID `json:"old_parent_id,omitempty"`
+	NewParentID *uuid.UUID `json:"new_parent_id,omitempty"`
+	OldOrder    *float64   `json:"old_order,omitempty"`
+	NewOrder    *float64   `json:"new_order,omitempty"`
+}
+
+func (TaskMovedPayload) EventKind() EventType { return EventTaskMoved }
+
 // newTaskEvent builds a generic *Event for a task-scoped payload. All task
 // event constructors funnel through this helper so ID generation, timestamp
 // truncation, and entity wiring stay consistent.
@@ -146,6 +158,7 @@ func NewTaskCreatedEvent(task *Task, actor *string) *Event {
 		Priority:  task.Priority,
 		ProjectID: task.ProjectID.String(),
 		ParentID:  parentID,
+		Order:     task.Order,
 	}
 	return newTaskEvent(task, EventTaskCreated, payload, actor)
 }
@@ -225,4 +238,16 @@ func NewTaskPoppedEvent(task *Task, claimedBy, prevStatus string, actor *string)
 		PrevStatus: prevStatus,
 	}
 	return newTaskEvent(task, EventTaskPopped, payload, actor)
+}
+
+func NewTaskMovedEvent(task *Task, oldParent, newParent *uuid.UUID, oldOrder, newOrder *float64, actor *string) *Event {
+	payload := TaskMovedPayload{
+		Kind:        EventTaskMoved,
+		ShortID:     task.ShortID,
+		OldParentID: oldParent,
+		NewParentID: newParent,
+		OldOrder:    oldOrder,
+		NewOrder:    newOrder,
+	}
+	return newTaskEvent(task, EventTaskMoved, payload, actor)
 }
