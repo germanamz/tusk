@@ -1,0 +1,27 @@
+// Tusk development layout. Launch with: `zellij --layout tusk`.
+//
+// Panes:
+//   - editor (left, 70%): nvim
+//   - tusk shell (right top): interactive bash for running `tusk task tree`,
+//     `tusk task create`, etc. on demand
+//   - claude (right bottom): claude-code CLI with permission prompts
+//     bypassed — the devcontainer itself is the sandbox (egress firewall +
+//     tinyproxy allowlist + no-sudo vscode user), so prompt-level gates add
+//     friction without adding safety.
+
+layout {
+    pane split_direction="vertical" {
+        pane size="70%" name="editor" {
+            command "nvim"
+        }
+        pane split_direction="horizontal" {
+            pane name="tusk" {
+                command "bash"
+            }
+            pane name="claude" {
+                command "claude"
+                args "--dangerously-skip-permissions"
+            }
+        }
+    }
+}

@@ -231,7 +231,7 @@ make vet            # go vet
 make lint           # golangci-lint run
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and [docs/dev-environment.md](docs/dev-environment.md) for the recommended dev-container + Zellij + Ghostty setup.
 
 ## Roadmap
 
