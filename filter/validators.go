@@ -159,3 +159,41 @@ func validateAny(string) error { return nil }
 func ParsePriorityValue(s string) (int, error) {
 	return parsePriorityValue(s)
 }
+
+// validateOrder accepts:
+//   - empty string (matches IS NULL in resolver, clears in modify context)
+//   - a single float (exact match)
+//   - a range "a..b" where both sides parse as floats and a <= b
+//
+// Rejects comma-separated lists and any modifier prefix (handled at token
+// level — filter/resolve.go never sees a Modifier on numeric fields).
+func validateOrder(v string) error {
+	if v == "" {
+		return nil
+	}
+	if strings.Contains(v, ",") {
+		return fmt.Errorf("order does not accept comma-separated values; use a single value or a..b range")
+	}
+	if strings.Contains(v, "..") {
+		parts := strings.SplitN(v, "..", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("invalid order range %q: use min..max", v)
+		}
+		lo, err := strconv.ParseFloat(parts[0], 64)
+		if err != nil {
+			return fmt.Errorf("invalid order range min %q: %w", parts[0], err)
+		}
+		hi, err := strconv.ParseFloat(parts[1], 64)
+		if err != nil {
+			return fmt.Errorf("invalid order range max %q: %w", parts[1], err)
+		}
+		if lo > hi {
+			return fmt.Errorf("invalid order range: min (%g) must be <= max (%g)", lo, hi)
+		}
+		return nil
+	}
+	if _, err := strconv.ParseFloat(v, 64); err != nil {
+		return fmt.Errorf("invalid order value %q: %w", v, err)
+	}
+	return nil
+}

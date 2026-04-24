@@ -367,6 +367,57 @@ func TestRenderTaskInfo_Text_AllFields(t *testing.T) {
 	}
 }
 
+func TestRenderTaskInfo_Text_OrderPresent(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	order := 2.5
+	task := &domain.Task{
+		ShortID:    "a3f8b2c1",
+		Title:      "Ordered",
+		Status:     "pending",
+		Priority:   1,
+		Order:      &order,
+		Version:    1,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+
+	var buf bytes.Buffer
+	r := NewRenderer(&buf, "text", false, nil)
+	if err := r.renderTaskInfo(task, nil, nil, nil); err != nil {
+		t.Fatalf("renderTaskInfo: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Order:") {
+		t.Fatalf("expected 'Order:' label in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "2.5") {
+		t.Fatalf("expected order value 2.5 in output, got:\n%s", out)
+	}
+}
+
+func TestRenderTaskInfo_Text_OrderOmittedWhenNil(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	task := &domain.Task{
+		ShortID:    "a3f8b2c1",
+		Title:      "Unordered",
+		Status:     "pending",
+		Priority:   1,
+		Version:    1,
+		CreatedAt:  now,
+		ModifiedAt: now,
+	}
+
+	var buf bytes.Buffer
+	r := NewRenderer(&buf, "text", false, nil)
+	if err := r.renderTaskInfo(task, nil, nil, nil); err != nil {
+		t.Fatalf("renderTaskInfo: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "Order:") {
+		t.Fatalf("expected 'Order:' line to be omitted when order is nil, got:\n%s", out)
+	}
+}
+
 func TestRenderTaskInfo_Text_NullableFieldsOmitted(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	task := &domain.Task{

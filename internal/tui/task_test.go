@@ -199,6 +199,150 @@ func TestRunModify_LevelModifierRejected(t *testing.T) {
 	}
 }
 
+func TestRunCreate_Order(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	app.root.SetArgs([]string{"task", "create", "ordered", "order=2.5"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	tasks, err := taskSvc.List(ctx, nil)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Order == nil || *tasks[0].Order != 2.5 {
+		t.Fatalf("expected order 2.5, got %v", tasks[0].Order)
+	}
+}
+
+func TestRunCreate_OrderEmptyRejected(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"task", "create", "bad", "order="})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for empty order= on create")
+	}
+	if !strings.Contains(err.Error(), "order=") {
+		t.Fatalf("expected error to mention 'order=', got %q", err)
+	}
+}
+
+func TestRunCreate_OrderInvalidValueRejected(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"task", "create", "bad", "order=notanumber"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for non-numeric order=")
+	}
+	if !strings.Contains(err.Error(), "notanumber") {
+		t.Fatalf("expected error to name offending token, got %q", err)
+	}
+}
+
+func TestRunCreate_OrderModifierRejected(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"task", "create", "bad", "+order=5"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for +order= on create")
+	}
+	if !strings.Contains(err.Error(), "move") {
+		t.Fatalf("expected error to reference 'move', got %q", err)
+	}
+}
+
+func TestRunModify_OrderAbsolute(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "reorder me"}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "order=4.0"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify: %v", err)
+	}
+
+	got, err := taskSvc.GetByShortID(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if got.Order == nil || *got.Order != 4.0 {
+		t.Fatalf("expected order 4.0, got %v", got.Order)
+	}
+}
+
+func TestRunModify_OrderClear(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "clear order"}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "order="})
+	if err := app.root.Execute(); err != nil {
+		t.Fatalf("modify: %v", err)
+	}
+
+	got, err := taskSvc.GetByShortID(ctx, task.ShortID)
+	if err != nil {
+		t.Fatalf("GetByShortID: %v", err)
+	}
+	if got.Order != nil {
+		t.Fatalf("expected cleared order, got %v", *got.Order)
+	}
+}
+
+func TestRunModify_OrderModifierRejected(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "mod-reject"}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "+order=5"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for +order= on modify")
+	}
+	if !strings.Contains(err.Error(), "move") {
+		t.Fatalf("expected error to reference 'move', got %q", err)
+	}
+}
+
+func TestRunModify_OrderInvalidValueRejected(t *testing.T) {
+	app, taskSvc := testApp(t)
+	ctx := context.Background()
+
+	task := &domain.Task{Title: "bad-val"}
+	if err := taskSvc.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	app.root.SetArgs([]string{"task", "modify", task.ShortID, "order=foo"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for non-numeric order= on modify")
+	}
+	if !strings.Contains(err.Error(), "foo") {
+		t.Fatalf("expected error to name offending token, got %q", err)
+	}
+}
+
 func TestRunLevelCheck_NoTaxonomy_ExitsClean(t *testing.T) {
 	app, taskRepo, _ := testAppWithTaxonomy(t, nil)
 

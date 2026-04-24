@@ -21,6 +21,7 @@ var reservedTaskFields = map[string]struct{}{
 	"status":      {},
 	"due":         {},
 	"parent":      {},
+	"order":       {},
 }
 
 // collectUDAs walks fs.Fields and returns a map of UDA key -> value

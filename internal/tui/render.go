@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -526,6 +527,11 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 	}
 	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Priority:", 13), priName); err != nil {
 		return err
+	}
+	if task.Order != nil {
+		if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Order:", 13), strconv.FormatFloat(*task.Order, 'f', -1, 64)); err != nil {
+			return err
+		}
 	}
 	if r.hasTaxonomy(task.ProjectID) {
 		level := "—"

@@ -172,6 +172,11 @@ func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
+	sortMode, _ := cmd.Flags().GetString("sort")
+	if err := validateSortMode(sortMode); err != nil {
+		return err
+	}
+
 	var tasks []*domain.Task
 	var rootID *uuid.UUID
 
@@ -195,6 +200,11 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+
+	// buildTree preserves the input slice order within each sibling group;
+	// applying the re-sort on the flat slice is enough to control nested
+	// rendering.
+	sortTasks(tasks, sortMode)
 
 	nodes := buildTree(tasks, rootID)
 
