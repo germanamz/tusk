@@ -323,6 +323,7 @@ type taskJSON struct {
 	Level          *string        `json:"level,omitempty"`
 	Status         string         `json:"status"`
 	Priority       int            `json:"priority"`
+	Order          *float64       `json:"order,omitempty"`
 	Version        int            `json:"version"`
 	Tags           []string       `json:"tags"`
 	DueAt          *string        `json:"due_at,omitempty"`
@@ -344,6 +345,7 @@ func (r *Renderer) toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 		Description: t.Description,
 		Status:      t.Status,
 		Priority:    t.Priority,
+		Order:       t.Order,
 		Version:     t.Version,
 		UDA:         t.UDA,
 		CreatedAt:   t.CreatedAt.Format(time.RFC3339),

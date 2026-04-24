@@ -67,6 +67,7 @@ type treeNodeJSON struct {
 	Description    string         `json:"description"`
 	Status         string         `json:"status"`
 	Priority       int            `json:"priority"`
+	Order          *float64       `json:"order,omitempty"`
 	Version        int            `json:"version"`
 	DueAt          *string        `json:"due_at,omitempty"`
 	WaitUntil      *string        `json:"wait_until,omitempty"`
@@ -87,6 +88,7 @@ func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
 		Description: t.Description,
 		Status:      t.Status,
 		Priority:    t.Priority,
+		Order:       t.Order,
 		Version:     t.Version,
 		UDA:         t.UDA,
 		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
