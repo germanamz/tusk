@@ -1,0 +1,12 @@
+// Shared Zellij config for the Tusk dev container. Both the `vscode` (agent)
+// and `dev` (admin) users inherit this via ZELLIJ_CONFIG_DIR=/etc/zellij
+// exported from the image. Override by creating ~/.config/zellij/config.kdl
+// and re-pointing ZELLIJ_CONFIG_DIR yourself.
+
+default_shell "bash"
+mouse_mode true
+copy_on_select true
+
+// Clipboard: rely on the host terminal's OSC52 passthrough (Ghostty, WezTerm,
+// Alacritty, iTerm2 all support it). Setting copy_command "pbcopy" would fail
+// inside the Linux container.
