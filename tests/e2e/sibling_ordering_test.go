@@ -43,10 +43,10 @@ func TestSiblingOrdering(t *testing.T) {
 			// Phase 1: NextOrder auto-assigns dense integers to new siblings.
 			Name: "auto_order_on_create",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                // 0
-				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}},         // 1
-				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}},         // 2
-				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}},         // 3
+				{Args: []string{"task", "create", "Parent"}},                        // 0
+				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}}, // 1
+				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}}, // 2
+				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}}, // 3
 				{
 					Args: []string{"task", "get", "$1.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -78,10 +78,10 @@ func TestSiblingOrdering(t *testing.T) {
 			// Phase 1: tree view defaults to (order ASC NULLS LAST, created_at ASC).
 			Name: "tree_default_sort_is_order",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                // 0
-				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}},         // 1
-				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}},         // 2
-				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}},         // 3
+				{Args: []string{"task", "create", "Parent"}},                        // 0
+				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}}, // 1
+				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}}, // 2
+				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}}, // 3
 				{
 					Args: []string{"task", "tree", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -114,10 +114,10 @@ func TestSiblingOrdering(t *testing.T) {
 			// Phase 2/3: `move --before` reorders within a sibling group.
 			Name: "move_before_reorders_siblings",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                // 0
-				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}},         // 1
-				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}},         // 2
-				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}},         // 3
+				{Args: []string{"task", "create", "Parent"}},                        // 0
+				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}}, // 1
+				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}}, // 2
+				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}}, // 3
 				// Move C before B → expected sibling sequence: A, C, B.
 				{Args: []string{"task", "move", "$3.short_id", "--before", "$2.short_id"}}, // 4
 				{
@@ -164,11 +164,11 @@ func TestSiblingOrdering(t *testing.T) {
 			// Phase 2/3: `move --first` jumps the task to the head of the group.
 			Name: "move_first_jumps_to_head",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                // 0
-				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}},         // 1
-				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}},         // 2
-				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}},         // 3
-				{Args: []string{"task", "move", "$2.short_id", "--first"}},                  // 4
+				{Args: []string{"task", "create", "Parent"}},                        // 0
+				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}}, // 1
+				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}}, // 2
+				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}}, // 3
+				{Args: []string{"task", "move", "$2.short_id", "--first"}},          // 4
 				{
 					Args: []string{"task", "tree", "$0.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -210,12 +210,12 @@ func TestSiblingOrdering(t *testing.T) {
 			// Phase 2/3: `move --after <target-in-other-parent>` reparents atomically.
 			Name: "move_across_parents_reparents",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent A"}},                              // 0
-				{Args: []string{"task", "create", "Parent B"}},                              // 1
-				{Args: []string{"task", "create", "Mover", "parent=$0.short_id"}},           // 2
-				{Args: []string{"task", "create", "B's first", "parent=$1.short_id"}},       // 3
+				{Args: []string{"task", "create", "Parent A"}},                        // 0
+				{Args: []string{"task", "create", "Parent B"}},                        // 1
+				{Args: []string{"task", "create", "Mover", "parent=$0.short_id"}},     // 2
+				{Args: []string{"task", "create", "B's first", "parent=$1.short_id"}}, // 3
 				// Move Mover --after B's-first → should land under Parent B.
-				{Args: []string{"task", "move", "$2.short_id", "--after", "$3.short_id"}},   // 4
+				{Args: []string{"task", "move", "$2.short_id", "--after", "$3.short_id"}}, // 4
 				{
 					Args: []string{"task", "get", "$2.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -258,12 +258,12 @@ func TestSiblingOrdering(t *testing.T) {
 			// sibling sort policy puts NULL orders at the end of the group.
 			Name: "modify_order_clear_sinks_to_end",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                // 0
-				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}},         // 1
-				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}},         // 2
-				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}},         // 3
+				{Args: []string{"task", "create", "Parent"}},                        // 0
+				{Args: []string{"task", "create", "Child A", "parent=$0.short_id"}}, // 1
+				{Args: []string{"task", "create", "Child B", "parent=$0.short_id"}}, // 2
+				{Args: []string{"task", "create", "Child C", "parent=$0.short_id"}}, // 3
 				// Clear A's order — it should sink to the tail of the group.
-				{Args: []string{"task", "modify", "$1.short_id", "order="}},                 // 4
+				{Args: []string{"task", "modify", "$1.short_id", "order="}}, // 4
 				{
 					Args: []string{"task", "get", "$1.short_id"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -352,9 +352,9 @@ func TestSiblingOrdering(t *testing.T) {
 			// Phase 2/3: moving a parent under one of its descendants is rejected.
 			Name: "move_rejects_cycle",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                // 0
-				{Args: []string{"task", "create", "Child", "parent=$0.short_id"}},           // 1
-				{Args: []string{"task", "create", "Grandchild", "parent=$1.short_id"}},      // 2
+				{Args: []string{"task", "create", "Parent"}},                           // 0
+				{Args: []string{"task", "create", "Child", "parent=$0.short_id"}},      // 1
+				{Args: []string{"task", "create", "Grandchild", "parent=$1.short_id"}}, // 2
 				// Try to move Parent --after Grandchild (would create cycle).
 				{
 					Args:    []string{"task", "move", "$0.short_id", "--after", "$2.short_id"},
@@ -371,10 +371,10 @@ func TestSiblingOrdering(t *testing.T) {
 			// resolution surfaces ErrOrderGapExhausted with the parent hint.
 			Name: "move_rejects_on_float_underflow",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                                              // 0
-				{Args: []string{"task", "create", "Low", "parent=$0.short_id", "order=1.0"}},                              // 1
-				{Args: []string{"task", "create", "High", "parent=$0.short_id", "order=1.0000000000000002"}},              // 2
-				{Args: []string{"task", "create", "Incoming", "parent=$0.short_id"}},                                      // 3
+				{Args: []string{"task", "create", "Parent"}},                                                 // 0
+				{Args: []string{"task", "create", "Low", "parent=$0.short_id", "order=1.0"}},                 // 1
+				{Args: []string{"task", "create", "High", "parent=$0.short_id", "order=1.0000000000000002"}}, // 2
+				{Args: []string{"task", "create", "Incoming", "parent=$0.short_id"}},                         // 3
 				{
 					Args:    []string{"task", "move", "$3.short_id", "--before", "$2.short_id"},
 					WantErr: true,
@@ -390,12 +390,12 @@ func TestSiblingOrdering(t *testing.T) {
 			// Phase 3: filter grammar supports `order=<a>..<b>` inclusive range.
 			Name: "list_filter_by_order_range",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                        // 0
-				{Args: []string{"task", "create", "K1", "parent=$0.short_id", "order=1"}},           // 1
-				{Args: []string{"task", "create", "K2", "parent=$0.short_id", "order=2"}},           // 2
-				{Args: []string{"task", "create", "K3", "parent=$0.short_id", "order=3"}},           // 3
-				{Args: []string{"task", "create", "K4", "parent=$0.short_id", "order=4"}},           // 4
-				{Args: []string{"task", "create", "K5", "parent=$0.short_id", "order=5"}},           // 5
+				{Args: []string{"task", "create", "Parent"}},                              // 0
+				{Args: []string{"task", "create", "K1", "parent=$0.short_id", "order=1"}}, // 1
+				{Args: []string{"task", "create", "K2", "parent=$0.short_id", "order=2"}}, // 2
+				{Args: []string{"task", "create", "K3", "parent=$0.short_id", "order=3"}}, // 3
+				{Args: []string{"task", "create", "K4", "parent=$0.short_id", "order=4"}}, // 4
+				{Args: []string{"task", "create", "K5", "parent=$0.short_id", "order=5"}}, // 5
 				{
 					Args: []string{"task", "list", "parent=$0.short_id", "order=2..4"},
 					AssertJSON: func(t *testing.T, parsed any) {
@@ -429,10 +429,10 @@ func TestSiblingOrdering(t *testing.T) {
 			// descendants — without that, --sort urgency would be a no-op.
 			Name: "tree_sort_urgency_override",
 			Steps: []Step{
-				{Args: []string{"task", "create", "Parent"}},                                                  // 0
-				{Args: []string{"task", "create", "Low prio", "parent=$0.short_id", "priority=1"}},            // 1
-				{Args: []string{"task", "create", "Mid prio", "parent=$0.short_id", "priority=2"}},            // 2
-				{Args: []string{"task", "create", "High prio", "parent=$0.short_id", "priority=3"}},           // 3
+				{Args: []string{"task", "create", "Parent"}},                                        // 0
+				{Args: []string{"task", "create", "Low prio", "parent=$0.short_id", "priority=1"}},  // 1
+				{Args: []string{"task", "create", "Mid prio", "parent=$0.short_id", "priority=2"}},  // 2
+				{Args: []string{"task", "create", "High prio", "parent=$0.short_id", "priority=3"}}, // 3
 				{
 					// Default sort is the repo's order-based sibling sort:
 					// creation order wins, so Low, Mid, High.
@@ -492,4 +492,3 @@ func TestSiblingOrdering(t *testing.T) {
 	}
 	runScenarios(t, binPath, scenarios)
 }
-
