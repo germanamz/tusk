@@ -1296,6 +1296,22 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [ ] Render the resolved value in `tusk project info` output
   - [ ] E2E coverage: set per-project override, list notes, verify the resolution chain picks up the project value over global config
 
+### Initiative: Sibling Ordering Hardening
+
+> Quality follow-ups surfaced during the v0.13 Sibling Ordering post-implementation review. Non-blocking — the feature ships correctly in v0.13 — but worth resolving before Data Portability's import path depends on null-order round-trip and before MCP `tusk_task_tree` grows a sort option.
+
+- [ ] **Story: Preserve explicit `order=null` in JSON output**
+  - [ ] Drop `,omitempty` from the `Order *float64` field in `taskJSON` (`internal/tui/render.go`) and `treeNodeJSON` (`internal/tui/tree.go`). Spec §3.1 requires `null` to be serialized as `"order": null`, not omitted, because a cleared order is distinct from an inherited default.
+  - [ ] Current state: after `tusk task modify <id> order=` (clear), JSON output omits the key entirely. Any consumer distinguishing "absent" from "null" — including the upcoming Data Portability import path — will mishandle cleared rows.
+  - [ ] Add a regression test in `internal/tui/render_test.go` / `tree_test.go` that a cleared task emits `"order": null`.
+
+- [ ] **Story: MCP `tusk_task_tree` subtree urgency parity**
+  - [ ] `internal/mcp/tools.go` `handleTaskTree` subtree branch still calls `taskSvc.GetDescendants` raw, returning tasks with zero `Urgency`. The CLI equivalent was fixed in commit `d2bae4f` to route subtree through `TaskService.List` with a `RootID` filter so `UrgencyEngine.ScoreAndSort` runs.
+  - [ ] Apply the same fix to the MCP handler so subtree responses carry populated urgency scores. Latent today (MCP tree has no sort parameter) but breaks silently if a future tool version exposes sort or clients start reading `urgency` on subtree nodes.
+
+- [ ] **Story: `ErrCyclicParent` message alignment**
+  - [ ] Cosmetic: `domain/errors.go` reads `"parent would create a cycle in task hierarchy"`; spec §3.2 specifies `"task move would create a parent cycle"`. The sentinel still matches via `errors.Is`, and the E2E substring-on-"cycle" check still passes, so this is spec-fidelity only.
+
 ---
 
 ## v0.15 — Live Dashboard
