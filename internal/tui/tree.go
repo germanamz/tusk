@@ -181,21 +181,24 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	var rootID *uuid.UUID
 
 	if len(args) > 0 {
-		// Subtree mode: fetch root + descendants
+		// Subtree mode: fetch root explicitly, then pull its descendants
+		// through the urgency-scored List path. Using List (instead of the
+		// raw GetDescendants) populates Urgency on every descendant, so
+		// `--sort urgency` produces the same behavior as in full-tree mode.
 		root, err := a.taskSvc.GetByShortID(ctx, args[0])
 		if err != nil {
 			return fmt.Errorf("%s", formatError(err, args[0]))
 		}
-		descendants, err := a.taskSvc.GetDescendants(ctx, root.ID)
+		descendants, err := a.fetchTreeTasks(ctx, cmd, &root.ID)
 		if err != nil {
-			return fmt.Errorf("loading descendants: %w", err)
+			return err
 		}
 		tasks = append([]*domain.Task{root}, descendants...)
 		rootID = &root.ID
 	} else {
 		// Full tree: fetch all non-deleted tasks
 		var err error
-		tasks, err = a.fetchTreeTasks(ctx, cmd)
+		tasks, err = a.fetchTreeTasks(ctx, cmd, nil)
 		if err != nil {
 			return err
 		}
@@ -217,12 +220,15 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	return r.renderTree(nodes)
 }
 
-// fetchTreeTasks loads all tasks for the full tree view.
-// By default, excludes deleted tasks. If --all is set, includes all statuses.
-func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command) ([]*domain.Task, error) {
+// fetchTreeTasks loads tasks for the tree view. rootID nil scopes the query
+// to the whole workspace; non-nil restricts the result set to descendants of
+// that task (the root itself is not included). By default excludes deleted
+// tasks; --all includes every status. Routes through TaskService.List so
+// Urgency is populated on every returned task.
+func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command, rootID *uuid.UUID) ([]*domain.Task, error) {
 	showAll, _ := cmd.Flags().GetBool("all")
 
-	filter := domain.TaskFilter{}
+	filter := domain.TaskFilter{RootID: rootID}
 	if !showAll {
 		filter.Statuses = []string{"pending", "active", "completed"}
 	}
