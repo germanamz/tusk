@@ -1027,24 +1027,22 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 > Fractional `order` field for positioning tasks among siblings. Gives hierarchical views a meaningful document-position sort without coupling to urgency.
 
-- [ ] **Story: Order field and sort policy**
-  - [ ] Add `order` DOUBLE column to `tasks` (nullable) via migration
-  - [ ] `tusk task create` accepts `order=<float>` inline; default is `max(sibling.order) + 1` or `1.0` for the first child
-  - [ ] `tusk task modify <id> order=<float>` sets an absolute value through the inline field path
-  - [ ] Tree views (`tusk task tree`, `task list parent=...`, `task list tree=...`, children in `task get`) sort by `order ASC, created_at ASC`
-  - [ ] Flat views (`task list`, `next`, `available`, `pop`) continue to sort by urgency
-  - [ ] `--sort=order|urgency|created|priority|due` override available on list/tree
+- [x] **Story: Order field and sort policy**
+  - [x] Add `order` DOUBLE column to `tasks` (nullable) via migration
+  - [x] `tusk task create` accepts `order=<float>` inline; default is `max(sibling.order) + 1` or `1.0` for the first child
+  - [x] `tusk task modify <id> order=<float>` sets an absolute value through the inline field path
+  - [x] Tree views (`tusk task tree`, `task list parent=...`, `task list tree=...`, children in `task get`) sort by `order ASC, created_at ASC`
+  - [x] Flat views (`task list`, `next`, `available`, `pop`) continue to sort by urgency
+  - [x] `--sort=order|urgency|created|priority|due` override available on list/tree
 
-- [ ] **Story: `tusk task move` command**
-  - [ ] `tusk task move <id> --before <target>` / `--after <target>` / `--first` / `--last`
-  - [ ] Computes a midpoint between neighbors (fractional index) and writes it
-  - [ ] Re-parents the task when `target` has a different parent (single atomic operation)
-  - [ ] `--resequence <parent>` rewrites a sibling group to evenly spaced integers when midpoints exhaust `float64` precision
-  - [ ] MCP tool `tusk_task_move` with the same semantics
+- [x] **Story: `tusk task move` command**
+  - [x] `tusk task move <id> --before <target>` / `--after <target>` / `--first` / `--last`
+  - [x] Computes a midpoint between neighbors (fractional index) and writes it
+  - [x] Re-parents the task when `target` has a different parent (single atomic operation)
+  - [x] `--resequence <parent>` rewrites a sibling group to evenly spaced integers when midpoints exhaust `float64` precision
+  - [x] MCP tool `tusk_task_move` with the same semantics
 
-- [ ] **Story: Order in export / import**
-  - [ ] JSON export serializes `order`; JSON import preserves exact values
-  - [ ] Markdown export emits tasks in `order` sequence; Markdown import assigns `order` from document position
+> **Note (v0.13):** The `order` field round-trips through export/import are tracked under the Data Portability initiative (JSON, Markdown, CSV stories) since they depend on those commands landing first.
 
 ### Initiative: Subtree Urgency Overrides
 
@@ -1094,15 +1092,18 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [ ] `--dry-run` reports what would be imported without writing
   - [ ] Import emits events so the operation appears in the event log
   - [ ] Import runs `domain.TaxonomyValidator` on every task (both JSON and Markdown formats share this service-layer entry point); level violations reject the offending row with a `TaxonomyError`, matching the CLI and MCP enforcement paths
+  - [ ] Sibling `order` serializes as a JSON number (null preserved); import preserves exact values, treats `null` / missing key as "no opinion" (service auto-assigns)
 
 - [ ] **Story: Markdown export and import**
   - [ ] `tusk export --format markdown [--output <path>]` writes a human-readable tree: heading per root task, nested bullets, checkboxes for status, inline UDAs for metadata (`uda.key=value`)
   - [ ] `tusk import --format markdown --input <path>` parses the same dialect back into tasks, preserving hierarchy, status, and document-position order
   - [ ] Fields that don't fit in the markdown shape (e.g., `urgency_overrides`, full event history) round-trip only through JSON — documented in the dialect reference
   - [ ] Dialect rejection is strict: anything outside the exported shape fails on import with a pointer at the offending line
+  - [ ] Siblings emitted in `(order ASC NULLS LAST, created_at ASC)` sequence; import assigns dense integer `order` from document position (float precision is lost through the markdown carrier — documented behavior)
 
 - [ ] **Story: CSV export**
   - [ ] `tusk export --format csv [--output <path>]` flat tabular export of tasks for spreadsheet workflows (no import)
+  - [ ] Includes `order` column (float for non-null values, empty cell for NULL), placed after `priority` to match JSON/display order
 
 - [ ] **Story: MCP tools**
   - [ ] `tusk_export` and `tusk_import` tools with format, input, output, dry-run, and replace parameters, gated through the v0.12 blocked-fields mechanism
