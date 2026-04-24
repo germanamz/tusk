@@ -1,0 +1,253 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/repository"
+	"github.com/google/uuid"
+)
+
+// MovePosition selects where to place the subject task relative to the
+// MoveRequest's TargetID or ParentID.
+type MovePosition int
+
+const (
+	// MovePositionBefore places the subject immediately before TargetID in the
+	// target's sibling group. TargetID is required. ParentID is ignored.
+	MovePositionBefore MovePosition = iota + 1
+	// MovePositionAfter places the subject immediately after TargetID.
+	// TargetID is required. ParentID is ignored.
+	MovePositionAfter
+	// MovePositionFirst places the subject at the head of its (optionally
+	// re-homed) sibling group. TargetID must be nil.
+	MovePositionFirst
+	// MovePositionLast places the subject at the tail of its (optionally
+	// re-homed) sibling group. TargetID must be nil.
+	MovePositionLast
+)
+
+// MoveRequest captures everything TaskService.Move needs to decide where a
+// task should land. ParentID is a double-pointer so callers can distinguish
+// "keep current parent" (nil), "move to root" (*nil), and "move under parent X"
+// (*&id). ParentID is only honored for First/Last positions; Before/After take
+// the parent from the target.
+type MoveRequest struct {
+	TaskID   uuid.UUID
+	Version  int
+	Position MovePosition
+	TargetID *uuid.UUID
+	ParentID **uuid.UUID
+	ActorID  *string
+}
+
+// Move relocates a task within the sibling-order plane. It opens a write
+// transaction, validates the request against fresh repository state, computes
+// a new `order` value using dense-append (First/Last) or midpoint (Before/After)
+// math, writes a single row via TaskRepository.UpdateOrderAndParent, and records
+// one task_moved event. Cycle, conflict, and ErrOrderGapExhausted errors are
+// surfaced verbatim. On underflow the returned error wraps ErrOrderGapExhausted
+// with the parent's short ID so callers can point the user at
+// `tusk task move --resequence <parent>`.
+func (s *TaskService) Move(ctx context.Context, req MoveRequest) (*domain.Task, error) {
+	switch req.Position {
+	case MovePositionBefore, MovePositionAfter:
+		if req.TargetID == nil {
+			return nil, fmt.Errorf("move position %d requires TargetID", req.Position)
+		}
+	case MovePositionFirst, MovePositionLast:
+		if req.TargetID != nil {
+			return nil, fmt.Errorf("move position %d does not accept a TargetID", req.Position)
+		}
+	default:
+		return nil, fmt.Errorf("invalid move position: %d", req.Position)
+	}
+
+	bundle, subject, err := s.bundleForID(ctx, req.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if subject.Version != req.Version {
+		return nil, domain.ErrConflict
+	}
+
+	actor := req.ActorID
+	if actor == nil {
+		actor = ActorFromContext(ctx)
+	}
+
+	var result *domain.Task
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		tr := tx.Tasks()
+
+		fresh, err := tr.GetByID(ctx, req.TaskID)
+		if err != nil {
+			return err
+		}
+		if fresh.Version != req.Version {
+			return domain.ErrConflict
+		}
+
+		newParent, refParent, err := resolveMoveParent(ctx, tr, fresh, req)
+		if err != nil {
+			return err
+		}
+
+		if err := ensureNotDescendant(ctx, tr, fresh.ID, newParent); err != nil {
+			return err
+		}
+
+		newOrder, err := computeMoveOrder(ctx, tr, req, newParent, refParent)
+		if err != nil {
+			return err
+		}
+
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		if _, err := tr.UpdateOrderAndParent(ctx, fresh.ID, newParent, newOrder, fresh.Version, now); err != nil {
+			return err
+		}
+
+		updated, err := tr.GetByID(ctx, fresh.ID)
+		if err != nil {
+			return err
+		}
+		result = updated
+
+		evt := domain.NewTaskMovedEvent(updated, fresh.ParentID, newParent, fresh.Order, &newOrder, actor)
+		return tx.Events().Record(ctx, evt)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// resolveMoveParent returns the post-move parent for the subject along with a
+// "reference parent" used when computing midpoint math. For Before/After the
+// reference parent is the target's parent (which is also the new parent). For
+// First/Last it is simply the new parent.
+func resolveMoveParent(
+	ctx context.Context,
+	tr repository.TaskRepository,
+	subject *domain.Task,
+	req MoveRequest,
+) (newParent *uuid.UUID, refParent *uuid.UUID, err error) {
+	switch req.Position {
+	case MovePositionBefore, MovePositionAfter:
+		target, err := tr.GetByID(ctx, *req.TargetID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return target.ParentID, target.ParentID, nil
+
+	case MovePositionFirst, MovePositionLast:
+		if req.ParentID == nil {
+			return subject.ParentID, subject.ParentID, nil
+		}
+		desired := *req.ParentID
+		if desired == nil {
+			return nil, nil, nil
+		}
+		if _, err := tr.GetByID(ctx, *desired); err != nil {
+			return nil, nil, err
+		}
+		return desired, desired, nil
+	}
+	return nil, nil, fmt.Errorf("invalid move position: %d", req.Position)
+}
+
+// ensureNotDescendant guarantees that newParent is neither the subject itself
+// nor one of its descendants — either case would create a cycle in the
+// parent→child graph.
+func ensureNotDescendant(
+	ctx context.Context,
+	tr repository.TaskRepository,
+	subjectID uuid.UUID,
+	newParent *uuid.UUID,
+) error {
+	if newParent == nil {
+		return nil
+	}
+	if *newParent == subjectID {
+		return domain.ErrCyclicParent
+	}
+	descendants, err := tr.GetDescendants(ctx, subjectID)
+	if err != nil {
+		return fmt.Errorf("loading descendants for cycle check: %w", err)
+	}
+	for _, d := range descendants {
+		if d.ID == *newParent {
+			return domain.ErrCyclicParent
+		}
+	}
+	return nil
+}
+
+// computeMoveOrder returns the `order` value the subject should land on.
+// Before/After use NeighborOrders + computeMidpoint; First/Last use the
+// repo's FirstOrder / NextOrder helpers (dense ±1 off the extremes).
+func computeMoveOrder(
+	ctx context.Context,
+	tr repository.TaskRepository,
+	req MoveRequest,
+	newParent *uuid.UUID,
+	refParent *uuid.UUID,
+) (float64, error) {
+	switch req.Position {
+	case MovePositionBefore, MovePositionAfter:
+		target, err := tr.GetByID(ctx, *req.TargetID)
+		if err != nil {
+			return 0, err
+		}
+		pivot := 1.0
+		if target.Order != nil {
+			pivot = *target.Order
+		}
+		prev, next, err := tr.NeighborOrders(ctx, refParent, pivot)
+		if err != nil {
+			return 0, err
+		}
+		if req.Position == MovePositionBefore {
+			if prev == nil {
+				return pivot - 1.0, nil
+			}
+			mid, err := computeMidpoint(*prev, pivot)
+			if err != nil {
+				return 0, fmt.Errorf("%w: parent %s", err, formatParentShortID(refParent))
+			}
+			return mid, nil
+		}
+		if next == nil {
+			return pivot + 1.0, nil
+		}
+		mid, err := computeMidpoint(pivot, *next)
+		if err != nil {
+			return 0, fmt.Errorf("%w: parent %s", err, formatParentShortID(refParent))
+		}
+		return mid, nil
+
+	case MovePositionFirst:
+		return tr.FirstOrder(ctx, newParent)
+
+	case MovePositionLast:
+		return tr.NextOrder(ctx, newParent)
+	}
+	return 0, fmt.Errorf("invalid move position: %d", req.Position)
+}
+
+// formatParentShortID renders a parent ID for error messages. nil → "root";
+// otherwise the first 8 hex characters of the UUID, which is the same shape
+// users see in the CLI and can pass back into commands.
+func formatParentShortID(id *uuid.UUID) string {
+	if id == nil {
+		return "root"
+	}
+	s := strings.ReplaceAll(id.String(), "-", "")
+	if len(s) < 8 {
+		return s
+	}
+	return s[:8]
+}

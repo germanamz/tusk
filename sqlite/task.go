@@ -247,6 +247,43 @@ func (r *TaskRepo) FirstOrder(ctx context.Context, parentID *uuid.UUID) (float64
 	return min.Float64 - 1.0, nil
 }
 
+// UpdateOrderAndParent runs the narrow move statement: parent_id, "order",
+// version (+1), and modified_at for a single row under an optimistic-lock
+// check. It intentionally leaves every other column untouched so Move and
+// Resequence cannot clobber fields they never loaded.
+func (r *TaskRepo) UpdateOrderAndParent(
+	ctx context.Context,
+	id uuid.UUID,
+	parentID *uuid.UUID,
+	order float64,
+	fromVersion int,
+	updatedAt time.Time,
+) (int, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tasks SET parent_id = ?, "order" = ?, version = version + 1, modified_at = ?
+		WHERE id = ? AND version = ?`,
+		nullableUUID(parentID), order,
+		updatedAt.UTC().Format(timeFormat),
+		id.String(), fromVersion,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		var exists int
+		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, domain.ErrNotFound
+		}
+		return 0, domain.ErrConflict
+	}
+	return fromVersion + 1, nil
+}
+
 // NeighborOrders returns the nearest ordered neighbors of pivot within the sibling
 // group under parentID. prev is the largest order < pivot (nil if none); next is
 // the smallest order > pivot (nil if none). parentID == nil scopes to root.
