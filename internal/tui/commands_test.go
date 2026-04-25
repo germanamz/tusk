@@ -386,6 +386,22 @@ func TestRunAdd_JSON(t *testing.T) {
 	}
 }
 
+func TestRunCreate_RejectsUrgencyFields(t *testing.T) {
+	app, _ := testApp(t)
+
+	app.root.SetArgs([]string{"task", "create", "Bad", "task", "urgency.priority-weight=5"})
+	err := app.root.Execute()
+	if err == nil {
+		t.Fatal("expected error for urgency field on create")
+	}
+	if !strings.Contains(err.Error(), "urgency.priority-weight") {
+		t.Fatalf("expected error to name unknown field, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("expected 'unknown' in error, got %q", err.Error())
+	}
+}
+
 func TestRunInfo_JSON(t *testing.T) {
 	app, taskSvc := testApp(t)
 	ctx := context.Background()

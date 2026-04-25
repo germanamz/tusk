@@ -251,14 +251,44 @@ func (s *TaskService) Create(ctx context.Context, task *domain.Task) error {
 // project store.
 func (s *TaskService) GetByShortID(ctx context.Context, shortID string) (*domain.Task, error) {
 	_, task, err := s.bundleForShortID(ctx, shortID)
-	return task, err
+	if err != nil {
+		return task, err
+	}
+	if err := s.stampEffectiveWeights(ctx, task); err != nil {
+		return task, err
+	}
+	return task, nil
 }
 
 // GetByID retrieves a task by its full UUID, searching every known
 // project store.
 func (s *TaskService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
 	_, task, err := s.bundleForID(ctx, id)
-	return task, err
+	if err != nil {
+		return task, err
+	}
+	if err := s.stampEffectiveWeights(ctx, task); err != nil {
+		return task, err
+	}
+	return task, nil
+}
+
+// stampEffectiveWeights populates task.EffectiveWeights if the task's chain
+// contributes any non-default value. Safe to call on any loaded task; a nil
+// engine leaves the field unchanged.
+func (s *TaskService) stampEffectiveWeights(ctx context.Context, task *domain.Task) error {
+	if s.engine == nil || task == nil {
+		return nil
+	}
+	w, has, err := s.ResolveEffectiveWeights(ctx, task.ID)
+	if err != nil {
+		return err
+	}
+	if has {
+		rw := w.Resolved()
+		task.EffectiveWeights = &rw
+	}
+	return nil
 }
 
 // List returns tasks matching the given filter, scored and sorted by
@@ -328,6 +358,12 @@ func (s *TaskService) listInBundle(ctx context.Context, bundle *RepoBundle, filt
 		EffectiveWeights: effective,
 	}
 	s.engine.ScoreAndSort(tasks, sctx)
+	for _, t := range tasks {
+		if w, ok := effective[t.ID]; ok {
+			rw := w.Resolved()
+			t.EffectiveWeights = &rw
+		}
+	}
 	return tasks, nil
 }
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -168,28 +169,27 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 		return projectModifyFields{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
 	}
 
-	for _, f := range fs.Fields {
+	urgencyInputs := make([]urgencyFieldInput, len(fs.Fields))
+	for i, f := range fs.Fields {
+		urgencyInputs[i] = urgencyFieldInput{Key: f.Key, Value: f.Value, Modifier: f.Modifier}
+	}
+	urgencyResult, notConsumed, err := parseUrgencyFields(urgencyInputs)
+	if err != nil {
+		return projectModifyFields{}, err
+	}
+	if urgencyResult.ClearAll || len(urgencyResult.Clear) > 0 {
+		return projectModifyFields{}, fmt.Errorf("urgency.clear=true and urgency.<weight>= (empty-value clear) are not supported on project modify; use tusk task modify for task-level overrides")
+	}
+	maps.Copy(mut.UrgencySet, urgencyResult.Set)
+	maps.Copy(mut.UrgencyDelta, urgencyResult.Delta)
+
+	for _, idx := range notConsumed {
+		f := fs.Fields[idx]
 		if f.Modifier != 0 {
 			if strings.HasPrefix(f.Key, "taxonomy") {
 				return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q", string(f.Modifier), f.Key)
 			}
-			cfgKey, ok := urgencyCLIToConfigKey(f.Key)
-			if !ok {
-				return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q (only urgency weights)", f.Modifier, f.Key)
-			}
-			v, err := parseFloatField(f.Key, f.Value)
-			if err != nil {
-				return projectModifyFields{}, err
-			}
-			switch f.Modifier {
-			case '+':
-				mut.UrgencyDelta[cfgKey] = v
-			case '-':
-				mut.UrgencyDelta[cfgKey] = -v
-			default:
-				return projectModifyFields{}, fmt.Errorf("unsupported modifier %q", f.Modifier)
-			}
-			continue
+			return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q (only urgency weights)", f.Modifier, f.Key)
 		}
 
 		switch f.Key {
@@ -246,15 +246,7 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 			// `taxonomy=` — reject so we do not silently ignore it.
 			return projectModifyFields{}, fmt.Errorf("taxonomy= must be supplied as a single argument with a JSON object value")
 		default:
-			cfgKey, ok := urgencyCLIToConfigKey(f.Key)
-			if !ok {
-				return projectModifyFields{}, fmt.Errorf("unknown field %q", f.Key)
-			}
-			v, err := parseFloatField(f.Key, f.Value)
-			if err != nil {
-				return projectModifyFields{}, err
-			}
-			mut.UrgencySet[cfgKey] = v
+			return projectModifyFields{}, fmt.Errorf("unknown field %q", f.Key)
 		}
 	}
 
