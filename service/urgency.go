@@ -177,6 +177,35 @@ func (e *UrgencyEngine) Defaults() UrgencyWeights {
 	return e.defaults
 }
 
+// WeightByKey returns the named weight's resolved value using the snake_case
+// keys listed in domain.ValidUrgencyWeightKeys. Returns (0, false) for
+// unknown keys.
+func WeightByKey(w UrgencyWeights, key string) (float64, bool) {
+	switch key {
+	case "priority_weight":
+		return w.Priority, true
+	case "due_weight":
+		return w.Due, true
+	case "age_weight":
+		return w.Age, true
+	case "active_weight":
+		return w.Active, true
+	case "blocking_weight":
+		return w.Blocking, true
+	case "blocked_weight":
+		return w.Blocked, true
+	case "tags_weight":
+		return w.Tags, true
+	case "project_weight":
+		return w.Project, true
+	case "annotations_weight":
+		return w.Annotations, true
+	case "waiting_weight":
+		return w.Waiting, true
+	}
+	return 0, false
+}
+
 // MergeWeights returns a copy of defaults with any non-nil overrides applied.
 func MergeWeights(defaults UrgencyWeights, overrides *domain.UrgencyOverrides) UrgencyWeights {
 	if overrides == nil {
