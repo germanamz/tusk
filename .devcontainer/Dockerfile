@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
         sudo \
         gnupg \
         unzip \
+        zsh \
         libtree-sitter-dev \
     && ln -sf "$(command -v fdfind)" /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
@@ -133,7 +134,10 @@ RUN chmod 0644 /etc/zellij/config.kdl /etc/zellij/layouts/*.kdl
 
 # vscode's interactive defaults
 RUN echo 'umask 002' >> /home/vscode/.bashrc \
-    && echo 'export PATH=$PATH:$HOME/go/bin' >> /home/vscode/.bashrc
+    && echo 'export PATH=$PATH:$HOME/go/bin' >> /home/vscode/.bashrc \
+    && printf 'umask 002\nexport PATH=$PATH:$HOME/go/bin\nautoload -Uz compinit && compinit\n' \
+        > /home/vscode/.zshrc \
+    && chown vscode:vscode /home/vscode/.zshrc
 
 # Pre-create the persistent-volume mount points so Docker seeds each empty
 # named volume with vscode ownership on first mount. Without this they mount
