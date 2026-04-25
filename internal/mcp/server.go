@@ -378,6 +378,13 @@ func (s *Server) registerTools() {
 				mcp.Description("Tags to remove"),
 				mcp.WithStringItems(),
 			),
+			mcp.WithObject("urgency_overrides",
+				mcp.Description("RFC 7396 merge patch over the task's urgency weight overrides. Keys: priority_weight, due_weight, age_weight, active_weight, blocking_weight, blocked_weight, tags_weight, project_weight, annotations_weight, waiting_weight. Each value must be a number (set the key) or JSON null (delete the key from existing overrides). Absent keys are unchanged. Top-level null on this field is rejected — use urgency_overrides_clear: true to drop all overrides in one call."),
+				mcp.AdditionalProperties(map[string]any{"type": []string{"number", "null"}}),
+			),
+			mcp.WithBoolean("urgency_overrides_clear",
+				mcp.Description("When true, all task-level urgency overrides are cleared before the urgency_overrides patch is applied. Intended as a one-shot reset before re-patching."),
+			),
 		),
 		s.handleTaskModify,
 	)

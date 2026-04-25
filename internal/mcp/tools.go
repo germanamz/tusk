@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/germanamz/tusk/domain"
@@ -36,27 +37,60 @@ func toolError(err error, context string) *mcp.CallToolResult {
 
 // taskResponse is the JSON structure returned by task tools.
 type taskResponse struct {
-	ID             string         `json:"id"`
-	ShortID        string         `json:"short_id"`
-	ParentID       *string        `json:"parent_id,omitempty"`
-	ProjectID      string         `json:"project_id"`
-	Title          string         `json:"title"`
-	Description    string         `json:"description"`
-	Level          *string        `json:"level,omitempty"`
-	Status         string         `json:"status"`
-	Priority       int            `json:"priority"`
-	Order          *float64       `json:"order,omitempty"`
-	Version        int            `json:"version"`
-	Tags           []string       `json:"tags"`
-	DueAt          *string        `json:"due_at,omitempty"`
-	WaitUntil      *string        `json:"wait_until,omitempty"`
-	RecurrenceRule *string        `json:"recurrence_rule,omitempty"`
-	UDA            map[string]any `json:"uda,omitempty"`
-	CreatedAt      string         `json:"created_at"`
-	ModifiedAt     string         `json:"modified_at"`
-	Urgency        float64        `json:"urgency"`
-	ClaimedBy      *string        `json:"claimed_by,omitempty"`
-	ClaimedAt      *string        `json:"claimed_at,omitempty"`
+	ID                      string                   `json:"id"`
+	ShortID                 string                   `json:"short_id"`
+	ParentID                *string                  `json:"parent_id,omitempty"`
+	ProjectID               string                   `json:"project_id"`
+	Title                   string                   `json:"title"`
+	Description             string                   `json:"description"`
+	Level                   *string                  `json:"level,omitempty"`
+	Status                  string                   `json:"status"`
+	Priority                int                      `json:"priority"`
+	Order                   *float64                 `json:"order,omitempty"`
+	Version                 int                      `json:"version"`
+	Tags                    []string                 `json:"tags"`
+	DueAt                   *string                  `json:"due_at,omitempty"`
+	WaitUntil               *string                  `json:"wait_until,omitempty"`
+	RecurrenceRule          *string                  `json:"recurrence_rule,omitempty"`
+	UDA                     map[string]any           `json:"uda,omitempty"`
+	CreatedAt               string                   `json:"created_at"`
+	ModifiedAt              string                   `json:"modified_at"`
+	Urgency                 float64                  `json:"urgency"`
+	UrgencyOverrides        *domain.UrgencyOverrides `json:"urgency_overrides,omitempty"`
+	EffectiveUrgencyWeights *urgencyWeightsJSON      `json:"effective_urgency_weights,omitempty"`
+	ClaimedBy               *string                  `json:"claimed_by,omitempty"`
+	ClaimedAt               *string                  `json:"claimed_at,omitempty"`
+}
+
+// urgencyWeightsJSON serializes a fully-resolved 10-weight urgency table.
+// Populated from domain.ResolvedUrgencyWeights when the chain contributed
+// non-default values; absent otherwise so default-only tasks stay terse.
+type urgencyWeightsJSON struct {
+	PriorityWeight    float64 `json:"priority_weight"`
+	DueWeight         float64 `json:"due_weight"`
+	AgeWeight         float64 `json:"age_weight"`
+	ActiveWeight      float64 `json:"active_weight"`
+	BlockingWeight    float64 `json:"blocking_weight"`
+	BlockedWeight     float64 `json:"blocked_weight"`
+	TagsWeight        float64 `json:"tags_weight"`
+	ProjectWeight     float64 `json:"project_weight"`
+	AnnotationsWeight float64 `json:"annotations_weight"`
+	WaitingWeight     float64 `json:"waiting_weight"`
+}
+
+func toUrgencyWeightsJSON(w domain.ResolvedUrgencyWeights) *urgencyWeightsJSON {
+	return &urgencyWeightsJSON{
+		PriorityWeight:    w.PriorityWeight,
+		DueWeight:         w.DueWeight,
+		AgeWeight:         w.AgeWeight,
+		ActiveWeight:      w.ActiveWeight,
+		BlockingWeight:    w.BlockingWeight,
+		BlockedWeight:     w.BlockedWeight,
+		TagsWeight:        w.TagsWeight,
+		ProjectWeight:     w.ProjectWeight,
+		AnnotationsWeight: w.AnnotationsWeight,
+		WaitingWeight:     w.WaitingWeight,
+	}
 }
 
 // projectNameCache resolves project UUIDs to names within one MCP handler
@@ -137,6 +171,12 @@ func toTaskResponse(t *domain.Task, tags []*domain.Tag, projectNames *projectNam
 	if t.ClaimedAt != nil {
 		s := t.ClaimedAt.Format(time.RFC3339)
 		r.ClaimedAt = &s
+	}
+	if t.UrgencyOverrides != nil {
+		r.UrgencyOverrides = t.UrgencyOverrides
+	}
+	if t.EffectiveWeights != nil {
+		r.EffectiveUrgencyWeights = toUrgencyWeightsJSON(*t.EffectiveWeights)
 	}
 	return r
 }
@@ -664,6 +704,73 @@ func (s *Server) handleTaskModify(ctx context.Context, request mcp.CallToolReque
 		upd.UDA = &udaMap
 	}
 
+	// Optional: urgency_overrides (RFC 7396 merge patch) and
+	// urgency_overrides_clear (one-shot reset before re-patching).
+	args := request.GetArguments()
+	rawPatch, rawPatchPresent := args["urgency_overrides"]
+	if rawPatchPresent && rawPatch == nil {
+		return mcp.NewToolResultError("urgency_overrides: null is not supported; use urgency_overrides_clear: true to drop all overrides"), nil
+	}
+
+	var clearAll bool
+	if raw, ok := args["urgency_overrides_clear"]; ok && raw != nil {
+		v, ok := raw.(bool)
+		if !ok {
+			return mcp.NewToolResultError(fmt.Sprintf("urgency_overrides_clear: must be a boolean, got %T", raw)), nil
+		}
+		clearAll = v
+	}
+
+	var patch *domain.UrgencyOverridesPatch
+	if rawPatch != nil {
+		rawMap, ok := rawPatch.(map[string]any)
+		if !ok {
+			return mcp.NewToolResultError(fmt.Sprintf("urgency_overrides: must be an object, got %T", rawPatch)), nil
+		}
+		if err := domain.ValidateUrgencyOverridesPatch(rawMap); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		patch = &domain.UrgencyOverridesPatch{
+			Clear: make(map[string]bool),
+			Set:   make(map[string]float64),
+		}
+		for key, value := range rawMap {
+			if value == nil {
+				patch.Clear[key] = true
+				continue
+			}
+			switch v := value.(type) {
+			case float64:
+				patch.Set[key] = v
+			case float32:
+				patch.Set[key] = float64(v)
+			case int:
+				patch.Set[key] = float64(v)
+			case int64:
+				patch.Set[key] = float64(v)
+			default:
+				return mcp.NewToolResultError(fmt.Sprintf("urgency_overrides: unexpected numeric type %T for key %q", v, key)), nil
+			}
+		}
+	}
+
+	if clearAll {
+		if patch == nil {
+			patch = &domain.UrgencyOverridesPatch{
+				Clear: make(map[string]bool),
+				Set:   make(map[string]float64),
+			}
+		}
+		patch.ClearAll = true
+	}
+
+	if patch != nil && !patch.ClearAll && len(patch.Clear) == 0 && len(patch.Set) == 0 {
+		patch = nil
+	}
+	if patch != nil {
+		upd.UrgencyMergePatch = patch
+	}
+
 	updated, err := s.taskSvc.Update(ctx, upd)
 	if err != nil {
 		return toolError(err, "task "+shortID), nil
@@ -800,21 +907,23 @@ func (s *Server) handleTaskAnnotate(ctx context.Context, request mcp.CallToolReq
 
 // treeNodeResponse is the nested JSON structure for the tree tool.
 type treeNodeResponse struct {
-	ID             string             `json:"id"`
-	ShortID        string             `json:"short_id"`
-	ParentID       *string            `json:"parent_id,omitempty"`
-	ProjectID      string             `json:"project_id"`
-	Title          string             `json:"title"`
-	Description    string             `json:"description"`
-	Status         string             `json:"status"`
-	Priority       int                `json:"priority"`
-	Version        int                `json:"version"`
-	DueAt          *string            `json:"due_at,omitempty"`
-	WaitUntil      *string            `json:"wait_until,omitempty"`
-	RecurrenceRule *string            `json:"recurrence_rule,omitempty"`
-	CreatedAt      string             `json:"created_at"`
-	ModifiedAt     string             `json:"modified_at"`
-	Children       []treeNodeResponse `json:"children"`
+	ID                      string                   `json:"id"`
+	ShortID                 string                   `json:"short_id"`
+	ParentID                *string                  `json:"parent_id,omitempty"`
+	ProjectID               string                   `json:"project_id"`
+	Title                   string                   `json:"title"`
+	Description             string                   `json:"description"`
+	Status                  string                   `json:"status"`
+	Priority                int                      `json:"priority"`
+	Version                 int                      `json:"version"`
+	DueAt                   *string                  `json:"due_at,omitempty"`
+	WaitUntil               *string                  `json:"wait_until,omitempty"`
+	RecurrenceRule          *string                  `json:"recurrence_rule,omitempty"`
+	CreatedAt               string                   `json:"created_at"`
+	ModifiedAt              string                   `json:"modified_at"`
+	UrgencyOverrides        *domain.UrgencyOverrides `json:"urgency_overrides,omitempty"`
+	EffectiveUrgencyWeights *urgencyWeightsJSON      `json:"effective_urgency_weights,omitempty"`
+	Children                []treeNodeResponse       `json:"children"`
 }
 
 func toTreeNodeResponse(task *domain.Task, projectNames *projectNameCache) treeNodeResponse {
@@ -844,6 +953,12 @@ func toTreeNodeResponse(task *domain.Task, projectNames *projectNameCache) treeN
 		r.WaitUntil = &s
 	}
 	r.RecurrenceRule = task.RecurrenceRule
+	if task.UrgencyOverrides != nil {
+		r.UrgencyOverrides = task.UrgencyOverrides
+	}
+	if task.EffectiveWeights != nil {
+		r.EffectiveUrgencyWeights = toUrgencyWeightsJSON(*task.EffectiveWeights)
+	}
 	return r
 }
 
