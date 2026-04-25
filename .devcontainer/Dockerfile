@@ -132,12 +132,11 @@ COPY zellij-config.kdl /etc/zellij/config.kdl
 COPY zellij-layouts/ /etc/zellij/layouts/
 RUN chmod 0644 /etc/zellij/config.kdl /etc/zellij/layouts/*.kdl
 
-# vscode's interactive defaults
+# vscode's interactive defaults. The base image ships an oh-my-zsh-managed
+# .zshrc; append (don't overwrite) so we keep the theme/plugin setup.
 RUN echo 'umask 002' >> /home/vscode/.bashrc \
     && echo 'export PATH=$PATH:$HOME/go/bin' >> /home/vscode/.bashrc \
-    && printf 'umask 002\nexport PATH=$PATH:$HOME/go/bin\nautoload -Uz compinit && compinit\n' \
-        > /home/vscode/.zshrc \
-    && chown vscode:vscode /home/vscode/.zshrc
+    && printf '\numask 002\nexport PATH=$PATH:$HOME/go/bin\n' >> /home/vscode/.zshrc
 
 # Pre-create the persistent-volume mount points so Docker seeds each empty
 # named volume with vscode ownership on first mount. Without this they mount
@@ -145,15 +144,23 @@ RUN echo 'umask 002' >> /home/vscode/.bashrc \
 # .claude — Claude Code credentials and settings.
 # .gocache — Go build + module cache (off the root overlay to avoid fill-up).
 # .config/gh — gh auth token, so `gh auth login` persists across rebuilds.
+# .local/share/nvim — lazy.nvim plugins and tree-sitter parsers (slow to rebuild).
+# .local/state/nvim — shada, swap, undo, lazy-lock state.
+# .cache/nvim — compiled lua bytecode and other transient nvim cache.
 RUN mkdir -p \
         /home/vscode/.claude \
         /home/vscode/.gocache/build \
         /home/vscode/.gocache/mod \
         /home/vscode/.config/gh \
+        /home/vscode/.local/share/nvim \
+        /home/vscode/.local/state/nvim \
+        /home/vscode/.cache/nvim \
     && chown -R vscode:vscode \
         /home/vscode/.claude \
         /home/vscode/.gocache \
-        /home/vscode/.config/gh
+        /home/vscode/.config/gh \
+        /home/vscode/.local \
+        /home/vscode/.cache
 
 # Stay root for PID 1 so the entrypoint can apply iptables; actual user
 # attachment happens via `docker exec -u vscode` (set by remoteUser).

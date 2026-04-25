@@ -11,7 +11,10 @@
   "mounts": [
     "source=tusk-devcontainer-claude-home,target=/home/vscode/.claude,type=volume",
     "source=tusk-devcontainer-go-cache,target=/home/vscode/.gocache,type=volume",
-    "source=tusk-devcontainer-gh-config,target=/home/vscode/.config/gh,type=volume"
+    "source=tusk-devcontainer-gh-config,target=/home/vscode/.config/gh,type=volume",
+    "source=tusk-devcontainer-nvim-data,target=/home/vscode/.local/share/nvim,type=volume",
+    "source=tusk-devcontainer-nvim-state,target=/home/vscode/.local/state/nvim,type=volume",
+    "source=tusk-devcontainer-nvim-cache,target=/home/vscode/.cache/nvim,type=volume"
   ],
 
   "runArgs": [
