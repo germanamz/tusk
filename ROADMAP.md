@@ -1305,12 +1305,28 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [ ] Current state: after `tusk task modify <id> order=` (clear), JSON output omits the key entirely. Any consumer distinguishing "absent" from "null" — including the upcoming Data Portability import path — will mishandle cleared rows.
   - [ ] Add a regression test in `internal/tui/render_test.go` / `tree_test.go` that a cleared task emits `"order": null`.
 
-- [ ] **Story: MCP `tusk_task_tree` subtree urgency parity**
-  - [ ] `internal/mcp/tools.go` `handleTaskTree` subtree branch still calls `taskSvc.GetDescendants` raw, returning tasks with zero `Urgency`. The CLI equivalent was fixed in commit `d2bae4f` to route subtree through `TaskService.List` with a `RootID` filter so `UrgencyEngine.ScoreAndSort` runs.
-  - [ ] Apply the same fix to the MCP handler so subtree responses carry populated urgency scores. Latent today (MCP tree has no sort parameter) but breaks silently if a future tool version exposes sort or clients start reading `urgency` on subtree nodes.
-
 - [ ] **Story: `ErrCyclicParent` message alignment**
   - [ ] Cosmetic: `domain/errors.go` reads `"parent would create a cycle in task hierarchy"`; spec §3.2 specifies `"task move would create a parent cycle"`. The sentinel still matches via `errors.Is`, and the E2E substring-on-"cycle" check still passes, so this is spec-fidelity only.
+
+### Initiative: Subtree Urgency Overrides Hardening
+
+> Verification follow-ups surfaced during the v0.13 Subtree Urgency Overrides design review. Edge-case behaviors that the core spec decides but that need explicit regression coverage so future refactors don't silently change them, plus the MCP-side scoring parity gap that was originally misfiled under Sibling Ordering Hardening.
+
+- [ ] **Story: MCP `tusk_task_tree` subtree urgency parity**
+  - [ ] `internal/mcp/tools.go` `handleTaskTree` subtree branch still calls `taskSvc.GetDescendants` raw, returning tasks with zero `Urgency`. The CLI equivalent was fixed in commit `d2bae4f` to route subtree through `TaskService.List` with a `RootID` filter so `UrgencyEngine.ScoreAndSort` runs.
+  - [ ] Apply the same fix to the MCP handler so subtree responses carry populated urgency scores. Doubly important once Subtree Urgency Overrides ships: subtree responses must reflect the resolved per-task weights, not zero.
+
+- [ ] **Story: Deleted/terminal ancestor override propagation**
+  - [ ] Add an E2E scenario that places `urgency_overrides` on a parent, transitions the parent to a terminal status (e.g., `completed` or `deleted`), and verifies the surviving children still resolve the parent's overrides into their effective weights.
+  - [ ] Locks in the spec decision that ancestor walk does not filter by status — preventing a future "skip terminal ancestors" optimization from silently changing inheritance.
+
+- [ ] **Story: Override re-walk on `task move`**
+  - [ ] Add an E2E scenario that creates two subtrees with different ancestor overrides, moves a task between them, and verifies its effective weights flip to match the new chain on the next read with no explicit invalidation step.
+  - [ ] Locks in the spec decision that overrides are stored on the task and re-resolved per read; prevents a future cache that wouldn't invalidate on `move`.
+
+- [ ] **Story: Cross-project ancestry assertion**
+  - [ ] Add a unit assertion in `service/task.go::buildEffectiveWeights` (or equivalent) that every visited ancestor shares the input task's `project_id`. If the invariant ever breaks (e.g., a future feature lets subtrees span projects), the resolution chain would silently mix project-level weights from two sources — fail loud instead.
+  - [ ] Pair with an E2E or service-level test that confirms the assertion holds in normal operation and fires if the invariant is bypassed.
 
 ---
 
