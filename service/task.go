@@ -652,6 +652,153 @@ func (s *TaskService) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*
 	return bundle.Tasks.GetDescendants(ctx, rootID)
 }
 
+// SummarizeSubtree rolls up a single task's strict descendants. The
+// root task itself is NOT counted — its own status answers a different
+// question. All non-delete-role descendants count toward Total; those
+// whose status carries the `done` role count toward Done.
+//
+// Returns domain.ErrNotFound if rootID does not exist.
+func (s *TaskService) SummarizeSubtree(ctx context.Context, rootID uuid.UUID) (*domain.SummaryBlock, error) {
+	bundle, root, err := s.bundleForID(ctx, rootID)
+	if err != nil {
+		return nil, err
+	}
+	descendants, err := bundle.Tasks.GetDescendants(ctx, rootID)
+	if err != nil {
+		return nil, fmt.Errorf("loading descendants: %w", err)
+	}
+	wfFor, err := s.workflowsByProject(ctx, descendants, root)
+	if err != nil {
+		return nil, err
+	}
+	rollup := domain.AggregateRollup(descendants, wfFor)
+	return &domain.SummaryBlock{Task: root, Rollup: rollup}, nil
+}
+
+// SummarizeBlocks selects block tasks via blockFilter and rolls up
+// each one's strict descendants. blockFilter == nil means "blocks are
+// root tasks (parent_id IS NULL)". When full == false, blockFilter
+// ALSO restricts which descendants are counted under each block; when
+// full == true, blockFilter only selects blocks and the full subtree
+// under each block is counted. Blocks are returned in urgency-desc
+// order with short_id ascending as tiebreaker.
+func (s *TaskService) SummarizeBlocks(
+	ctx context.Context,
+	blockFilter domain.FilterExpr,
+	full bool,
+) ([]*domain.SummaryBlock, error) {
+	defID, err := s.defaultProjectID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := s.resolve(ctx, defID)
+	if err != nil {
+		return nil, err
+	}
+
+	var blocks []*domain.Task
+	if blockFilter == nil {
+		all, err := s.listInBundle(ctx, bundle, nil)
+		if err != nil {
+			return nil, fmt.Errorf("listing root tasks: %w", err)
+		}
+		for _, t := range all {
+			if t.ParentID == nil {
+				blocks = append(blocks, t)
+			}
+		}
+	} else {
+		blocks, err = s.listInBundle(ctx, bundle, blockFilter)
+		if err != nil {
+			return nil, fmt.Errorf("listing blocks: %w", err)
+		}
+	}
+
+	if len(blocks) == 0 {
+		return []*domain.SummaryBlock{}, nil
+	}
+
+	out := make([]*domain.SummaryBlock, 0, len(blocks))
+	for _, block := range blocks {
+		descendants, err := bundle.Tasks.GetDescendants(ctx, block.ID)
+		if err != nil {
+			return nil, fmt.Errorf("loading descendants for block %s: %w", block.ShortID, err)
+		}
+		if !full && blockFilter != nil {
+			filtered := descendants[:0]
+			for _, d := range descendants {
+				if domain.EvalFilter(blockFilter, d) {
+					filtered = append(filtered, d)
+				}
+			}
+			descendants = filtered
+		}
+		wfFor, err := s.workflowsByProject(ctx, descendants, block)
+		if err != nil {
+			return nil, err
+		}
+		rollup := domain.AggregateRollup(descendants, wfFor)
+		out = append(out, &domain.SummaryBlock{Task: block, Rollup: rollup})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		ui, uj := out[i].Task.Urgency, out[j].Task.Urgency
+		if ui != uj {
+			return ui > uj
+		}
+		return out[i].Task.ShortID < out[j].Task.ShortID
+	})
+	return out, nil
+}
+
+// workflowsByProject preloads each distinct project's workflow once and
+// returns a closure suitable as the workflowFor callback to
+// domain.AggregateRollup. The seedTask is included in the project set so
+// the seed-workflow lookup remains stable when the descendant slice is
+// empty.
+func (s *TaskService) workflowsByProject(
+	ctx context.Context,
+	descendants []*domain.Task,
+	seed *domain.Task,
+) (func(*domain.Task) *domain.Workflow, error) {
+	projectIDs := make(map[uuid.UUID]struct{})
+	if seed != nil {
+		projectIDs[seed.ProjectID] = struct{}{}
+	}
+	for _, t := range descendants {
+		if t == nil {
+			continue
+		}
+		projectIDs[t.ProjectID] = struct{}{}
+	}
+	cache := make(map[uuid.UUID]*domain.Workflow, len(projectIDs))
+	for projectID := range projectIDs {
+		project, err := s.projectRepo.GetByID(ctx, projectID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				cache[projectID] = nil
+				continue
+			}
+			return nil, fmt.Errorf("looking up project %v: %w", projectID, err)
+		}
+		wf, err := s.workflowSvc.GetByID(ctx, project.WorkflowID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				cache[projectID] = nil
+				continue
+			}
+			return nil, fmt.Errorf("looking up workflow %v: %w", project.WorkflowID, err)
+		}
+		cache[projectID] = wf
+	}
+	return func(t *domain.Task) *domain.Workflow {
+		if t == nil {
+			return nil
+		}
+		return cache[t.ProjectID]
+	}, nil
+}
+
 // Update applies a partial update to a task. It validates the patched
 // state, enforces workflow transitions, and uses optimistic locking.
 func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domain.Task, error) {
