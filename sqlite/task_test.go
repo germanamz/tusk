@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -930,5 +931,163 @@ func TestTaskLevel_ScanOneNullable(t *testing.T) {
 	}
 	if got.Level != nil {
 		t.Fatalf("expected Level == nil for task without level, got %v", *got.Level)
+	}
+}
+
+// ── Phase 1 (subtree urgency overrides): urgency_overrides round-trip ──
+
+func TestTaskUrgencyOverridesRoundTrip(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+
+	// Round-trip a populated overrides struct via Update.
+	task := newTestTask()
+	mustCreateTask(t, repo, task)
+
+	task.UrgencyOverrides = &domain.UrgencyOverrides{
+		BlockingWeight: ptrFloat(20.0),
+		DueWeight:      ptrFloat(3.5),
+	}
+	if err := repo.Update(ctx, task); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.UrgencyOverrides == nil {
+		t.Fatalf("expected UrgencyOverrides round-trip, got nil")
+	}
+	want := &domain.UrgencyOverrides{
+		BlockingWeight: ptrFloat(20.0),
+		DueWeight:      ptrFloat(3.5),
+	}
+	if !reflect.DeepEqual(got.UrgencyOverrides, want) {
+		t.Fatalf("round-trip mismatch:\n  want %+v\n  got  %+v", want, got.UrgencyOverrides)
+	}
+
+	// Confirm a task with nil overrides reads back as nil (NOT &{}).
+	plain := newTestTask()
+	mustCreateTask(t, repo, plain)
+	gotPlain, err := repo.GetByID(ctx, plain.ID)
+	if err != nil {
+		t.Fatalf("GetByID plain: %v", err)
+	}
+	if gotPlain.UrgencyOverrides != nil {
+		t.Fatalf("expected nil UrgencyOverrides for task without overrides, got %+v", gotPlain.UrgencyOverrides)
+	}
+
+	// Verify the column itself is NULL (not, e.g., the literal string "null").
+	var raw any
+	if err := s.DB().QueryRow(`SELECT urgency_overrides FROM tasks WHERE id = ?`, plain.ID.String()).Scan(&raw); err != nil {
+		t.Fatalf("raw scan: %v", err)
+	}
+	if raw != nil {
+		t.Fatalf("expected NULL urgency_overrides column, got %v (%T)", raw, raw)
+	}
+}
+
+func TestGetAncestorOverrides(t *testing.T) {
+	s := testStore(t)
+	repo := NewTaskRepo(s.DB())
+	ctx := context.Background()
+
+	// Build root → A → B → C plus an unrelated sibling under root.
+	root := newTestTask()
+	root.UrgencyOverrides = &domain.UrgencyOverrides{BlockingWeight: ptrFloat(10)}
+	mustCreateTask(t, repo, root)
+
+	a := newTestTask()
+	a.ParentID = &root.ID
+	mustCreateTask(t, repo, a)
+
+	b := newTestTask()
+	b.ParentID = &a.ID
+	b.UrgencyOverrides = &domain.UrgencyOverrides{DueWeight: ptrFloat(5)}
+	mustCreateTask(t, repo, b)
+
+	c := newTestTask()
+	c.ParentID = &b.ID
+	mustCreateTask(t, repo, c)
+
+	sibling := newTestTask()
+	sibling.ParentID = &root.ID
+	mustCreateTask(t, repo, sibling)
+
+	// Walk from C only — should yield {C, B, A, root}, sibling absent.
+	got, err := repo.GetAncestorOverrides(ctx, []uuid.UUID{c.ID})
+	if err != nil {
+		t.Fatalf("GetAncestorOverrides: %v", err)
+	}
+	byID := map[uuid.UUID]repository.AncestorOverride{}
+	for _, ov := range got {
+		byID[ov.TaskID] = ov
+	}
+	wantIDs := []uuid.UUID{c.ID, b.ID, a.ID, root.ID}
+	if len(got) != len(wantIDs) {
+		t.Fatalf("expected %d nodes, got %d (%+v)", len(wantIDs), len(got), got)
+	}
+	for _, id := range wantIDs {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("missing expected ancestor %s", id)
+		}
+	}
+	if _, ok := byID[sibling.ID]; ok {
+		t.Fatalf("sibling %s should not appear in C's ancestor walk", sibling.ID)
+	}
+
+	// Verify Overrides pointers per node.
+	if byID[root.ID].Overrides == nil {
+		t.Fatalf("root should have non-nil Overrides")
+	}
+	if byID[b.ID].Overrides == nil {
+		t.Fatalf("B should have non-nil Overrides")
+	}
+	if byID[a.ID].Overrides != nil {
+		t.Fatalf("A should have nil Overrides, got %+v", byID[a.ID].Overrides)
+	}
+	if byID[c.ID].Overrides != nil {
+		t.Fatalf("C should have nil Overrides, got %+v", byID[c.ID].Overrides)
+	}
+
+	// Verify ParentID semantics: root has nil, leaves chain correctly.
+	if byID[root.ID].ParentID != nil {
+		t.Fatalf("root.ParentID should be nil, got %v", byID[root.ID].ParentID)
+	}
+	if byID[c.ID].ParentID == nil || *byID[c.ID].ParentID != b.ID {
+		t.Fatalf("C.ParentID should be B (%s), got %v", b.ID, byID[c.ID].ParentID)
+	}
+
+	// Walk from {C, sibling} — union should be {C, B, A, root, sibling}, no dup root.
+	got2, err := repo.GetAncestorOverrides(ctx, []uuid.UUID{c.ID, sibling.ID})
+	if err != nil {
+		t.Fatalf("GetAncestorOverrides (2): %v", err)
+	}
+	seen := map[uuid.UUID]int{}
+	for _, ov := range got2 {
+		seen[ov.TaskID]++
+	}
+	wantIDs2 := []uuid.UUID{c.ID, b.ID, a.ID, root.ID, sibling.ID}
+	if len(got2) != len(wantIDs2) {
+		t.Fatalf("expected %d nodes (deduped), got %d (%+v)", len(wantIDs2), len(got2), got2)
+	}
+	for _, id := range wantIDs2 {
+		if seen[id] != 1 {
+			t.Fatalf("expected exactly 1 occurrence of %s, got %d", id, seen[id])
+		}
+	}
+
+	// Empty input returns empty slice, no error.
+	empty, err := repo.GetAncestorOverrides(ctx, []uuid.UUID{})
+	if err != nil {
+		t.Fatalf("GetAncestorOverrides empty: %v", err)
+	}
+	if empty == nil {
+		t.Fatalf("expected non-nil empty slice, got nil")
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected empty slice, got %d items", len(empty))
 	}
 }

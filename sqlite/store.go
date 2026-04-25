@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/repository"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
@@ -277,6 +278,22 @@ func nullableFloat(f *float64) any {
 		return nil
 	}
 	return *f
+}
+
+// nullableUrgencyOverrides converts a *domain.UrgencyOverrides to a value
+// suitable for a SQL parameter. Returns nil (SQL NULL) when the pointer is
+// nil; otherwise marshals the struct to JSON and returns the resulting
+// string. Errors here surface JSON marshalling failures so the caller can
+// wrap them with context.
+func nullableUrgencyOverrides(o *domain.UrgencyOverrides) (any, error) {
+	if o == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(o)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling urgency_overrides: %w", err)
+	}
+	return string(b), nil
 }
 
 // parseUUID converts a sql.NullString back into a *uuid.UUID.
