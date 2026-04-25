@@ -313,12 +313,19 @@ func (s *TaskService) listInBundle(ctx context.Context, bundle *RepoBundle, filt
 		tagCounts[id] = len(tags)
 	}
 
+	projectWeights := s.buildProjectWeights(ctx, tasks)
+	effective, err := s.buildEffectiveWeights(ctx, bundle, tasks, projectWeights)
+	if err != nil {
+		return nil, err
+	}
+
 	sctx := ScoringContext{
-		BlockingCount:   blockingCounts,
-		BlockedByCount:  blockedByCounts,
-		AnnotationCount: annotationCounts,
-		TagCount:        tagCounts,
-		ProjectWeights:  s.buildProjectWeights(ctx, tasks),
+		BlockingCount:    blockingCounts,
+		BlockedByCount:   blockedByCounts,
+		AnnotationCount:  annotationCounts,
+		TagCount:         tagCounts,
+		ProjectWeights:   projectWeights,
+		EffectiveWeights: effective,
 	}
 	s.engine.ScoreAndSort(tasks, sctx)
 	return tasks, nil
@@ -407,6 +414,123 @@ func (s *TaskService) buildProjectWeights(ctx context.Context, tasks []*domain.T
 		weights[projectID] = &merged
 	}
 	return weights
+}
+
+// buildEffectiveWeights resolves the project + ancestor + self override chain
+// for each task, returning a map keyed by task ID. The result holds an entry
+// only for tasks whose chain contributes at least one non-default value;
+// callers fall through to ProjectWeights / engine defaults via weightsFor for
+// tasks that are absent from the result.
+//
+// Fast path: if every task has no overrides and no parent, returns (nil, nil)
+// without round-tripping the ancestor CTE.
+func (s *TaskService) buildEffectiveWeights(
+	ctx context.Context,
+	bundle *RepoBundle,
+	tasks []*domain.Task,
+	projectWeights map[uuid.UUID]*UrgencyWeights,
+) (map[uuid.UUID]*UrgencyWeights, error) {
+	if s.engine == nil || len(tasks) == 0 {
+		return nil, nil
+	}
+
+	needsWalk := false
+	for _, t := range tasks {
+		if t.UrgencyOverrides != nil || t.ParentID != nil {
+			needsWalk = true
+			break
+		}
+	}
+	if !needsWalk {
+		return nil, nil
+	}
+
+	taskIDs := make([]uuid.UUID, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+	rows, err := bundle.Tasks.GetAncestorOverrides(ctx, taskIDs)
+	if err != nil {
+		return nil, fmt.Errorf("loading ancestor overrides: %w", err)
+	}
+
+	parentByID := make(map[uuid.UUID]*uuid.UUID, len(rows))
+	overridesByID := make(map[uuid.UUID]*domain.UrgencyOverrides, len(rows))
+	projectByID := make(map[uuid.UUID]uuid.UUID, len(rows))
+	for _, row := range rows {
+		parentByID[row.TaskID] = row.ParentID
+		overridesByID[row.TaskID] = row.Overrides
+		projectByID[row.TaskID] = row.ProjectID
+	}
+
+	out := make(map[uuid.UUID]*UrgencyWeights, len(tasks))
+	for _, t := range tasks {
+		var chain []uuid.UUID
+		current := t.ID
+		for depth := 0; depth < maxParentDepth; depth++ {
+			chain = append(chain, current)
+			parent, ok := parentByID[current]
+			if !ok || parent == nil {
+				break
+			}
+			current = *parent
+		}
+		// Reverse to root → self.
+		for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+			chain[i], chain[j] = chain[j], chain[i]
+		}
+
+		var merged UrgencyWeights
+		if pw, ok := projectWeights[t.ProjectID]; ok {
+			merged = *pw
+		} else {
+			merged = s.engine.Defaults()
+		}
+
+		contributed := false
+		for _, id := range chain {
+			if ov := overridesByID[id]; ov != nil {
+				merged = MergeWeights(merged, ov)
+				contributed = true
+			}
+		}
+		if contributed {
+			cp := merged
+			out[t.ID] = &cp
+		}
+	}
+
+	return out, nil
+}
+
+// ResolveEffectiveWeights returns the fully-resolved urgency weights for a
+// single task, walking the project + ancestor + self override chain. The
+// second return is true when any node in the chain contributed a non-default
+// value (drives Phase 4's render-or-omit decision for effective_urgency_weights).
+func (s *TaskService) ResolveEffectiveWeights(ctx context.Context, taskID uuid.UUID) (UrgencyWeights, bool, error) {
+	if s.engine == nil {
+		return UrgencyWeights{}, false, fmt.Errorf("urgency engine not configured")
+	}
+	bundle, task, err := s.bundleForID(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return UrgencyWeights{}, false, err
+		}
+		return UrgencyWeights{}, false, fmt.Errorf("resolving bundle: %w", err)
+	}
+
+	projectWeights := s.buildProjectWeights(ctx, []*domain.Task{task})
+	effective, err := s.buildEffectiveWeights(ctx, bundle, []*domain.Task{task}, projectWeights)
+	if err != nil {
+		return UrgencyWeights{}, false, err
+	}
+	if w, ok := effective[task.ID]; ok {
+		return *w, true, nil
+	}
+	if pw, ok := projectWeights[task.ProjectID]; ok {
+		return *pw, false, nil
+	}
+	return s.engine.Defaults(), false, nil
 }
 
 // GetChildren returns the direct children of a task. The parent task

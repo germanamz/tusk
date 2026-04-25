@@ -194,6 +194,63 @@ func TestMergeWeights(t *testing.T) {
 	}
 }
 
+func TestMergeWeightsChained(t *testing.T) {
+	// 5-layer chain: defaults → project → ancestor-root → ancestor-mid → self.
+	// Each layer overrides specific keys; verifies that the closer layer wins per-key
+	// and that unrelated keys fall back to defaults.
+	defaults := defaultWeights()
+
+	projectPriority := 100.0
+	project := &domain.UrgencyOverrides{PriorityWeight: &projectPriority}
+
+	rootDue := 50.0
+	root := &domain.UrgencyOverrides{DueWeight: &rootDue}
+
+	midDue := 200.0
+	midAge := 30.0
+	mid := &domain.UrgencyOverrides{DueWeight: &midDue, AgeWeight: &midAge}
+
+	selfBlocking := 77.0
+	self := &domain.UrgencyOverrides{BlockingWeight: &selfBlocking}
+
+	merged := MergeWeights(defaults, project)
+	merged = MergeWeights(merged, root)
+	merged = MergeWeights(merged, mid)
+	merged = MergeWeights(merged, self)
+
+	if merged.Priority != projectPriority {
+		t.Errorf("Priority: got %v, want %v (from project)", merged.Priority, projectPriority)
+	}
+	if merged.Due != midDue {
+		t.Errorf("Due: got %v, want %v (mid should win over root)", merged.Due, midDue)
+	}
+	if merged.Age != midAge {
+		t.Errorf("Age: got %v, want %v (from mid)", merged.Age, midAge)
+	}
+	if merged.Blocking != selfBlocking {
+		t.Errorf("Blocking: got %v, want %v (from self)", merged.Blocking, selfBlocking)
+	}
+	// Unrelated keys must come from defaults.
+	if merged.Active != defaults.Active {
+		t.Errorf("Active: got %v, want %v (defaults)", merged.Active, defaults.Active)
+	}
+	if merged.Blocked != defaults.Blocked {
+		t.Errorf("Blocked: got %v, want %v (defaults)", merged.Blocked, defaults.Blocked)
+	}
+	if merged.Tags != defaults.Tags {
+		t.Errorf("Tags: got %v, want %v (defaults)", merged.Tags, defaults.Tags)
+	}
+	if merged.Project != defaults.Project {
+		t.Errorf("Project: got %v, want %v (defaults)", merged.Project, defaults.Project)
+	}
+	if merged.Annotations != defaults.Annotations {
+		t.Errorf("Annotations: got %v, want %v (defaults)", merged.Annotations, defaults.Annotations)
+	}
+	if merged.Waiting != defaults.Waiting {
+		t.Errorf("Waiting: got %v, want %v (defaults)", merged.Waiting, defaults.Waiting)
+	}
+}
+
 func TestUrgencyProjectWeightOverride(t *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 
