@@ -751,6 +751,22 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", filter.FormatErrors(parseErrs))
 	}
 
+	urgencyInputs := make([]urgencyFieldInput, len(fs.Fields))
+	for i, f := range fs.Fields {
+		urgencyInputs[i] = urgencyFieldInput{Key: f.Key, Value: f.Value, Modifier: f.Modifier}
+	}
+	urgencyResult, notConsumed, err := parseUrgencyFields(urgencyInputs)
+	if err != nil {
+		return err
+	}
+	if len(notConsumed) != len(fs.Fields) {
+		remaining := make([]filter.FieldFilter, 0, len(notConsumed))
+		for _, idx := range notConsumed {
+			remaining = append(remaining, fs.Fields[idx])
+		}
+		fs.Fields = remaining
+	}
+
 	// Auto-fetch current version
 	current, err := a.taskSvc.GetByShortID(ctx, shortID)
 	if err != nil {
@@ -760,6 +776,17 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	upd := domain.TaskUpdate{
 		ShortID: shortID,
 		Version: current.Version,
+	}
+
+	if urgencyResult.ClearAll || len(urgencyResult.Clear) > 0 || len(urgencyResult.Set) > 0 {
+		upd.UrgencyMergePatch = &domain.UrgencyOverridesPatch{
+			ClearAll: urgencyResult.ClearAll,
+			Clear:    urgencyResult.Clear,
+			Set:      urgencyResult.Set,
+		}
+	}
+	if len(urgencyResult.Delta) > 0 {
+		upd.UrgencyDelta = urgencyResult.Delta
 	}
 
 	var stdinFile *os.File

@@ -34,6 +34,11 @@ type Task struct {
 	ClaimedBy        *string    // FK to Player.ID — who holds the claim
 	ClaimedAt        *time.Time // when the claim was made
 	Urgency          float64    // Computed at read time, not persisted in DB.
+	// EffectiveWeights is populated by the service layer for rendering; not
+	// persisted. Nil means the resolved chain matches defaults — renderers
+	// omit the `effective_urgency_weights` block. Mirrors the transient
+	// Urgency float64 field's pattern.
+	EffectiveWeights *ResolvedUrgencyWeights
 }
 
 // TaskUpdate represents a partial update to a task.

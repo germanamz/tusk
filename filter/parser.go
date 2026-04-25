@@ -60,6 +60,19 @@ func Parse(input string) (*FilterSet, []ParseError) {
 
 		case TokenField:
 			key, value, _ := strings.Cut(tok.Value, "=")
+			// urgency.* keys (and the urgency.clear control) carry through
+			// without validation here; downstream consumers (task modify's
+			// urgency parser, project modify's parser) interpret and validate
+			// them. Task create continues to reject them via validateKnownFields.
+			if key == "urgency.clear" || strings.HasPrefix(key, "urgency.") {
+				fs.Fields = append(fs.Fields, FieldFilter{
+					Key:      key,
+					Value:    value,
+					Modifier: tok.Modifier,
+					Pos:      tok.Pos,
+				})
+				continue
+			}
 			// Check for uda.* prefix before static field lookup
 			if udaKey, ok := strings.CutPrefix(key, "uda."); ok {
 				if udaKey == "" {

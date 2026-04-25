@@ -206,6 +206,23 @@ func WeightByKey(w UrgencyWeights, key string) (float64, bool) {
 	return 0, false
 }
 
+// Resolved converts an internal UrgencyWeights to the domain-level,
+// JSON-friendly ResolvedUrgencyWeights shape used by renderers.
+func (w UrgencyWeights) Resolved() domain.ResolvedUrgencyWeights {
+	return domain.ResolvedUrgencyWeights{
+		PriorityWeight:    w.Priority,
+		DueWeight:         w.Due,
+		AgeWeight:         w.Age,
+		ActiveWeight:      w.Active,
+		BlockingWeight:    w.Blocking,
+		BlockedWeight:     w.Blocked,
+		TagsWeight:        w.Tags,
+		ProjectWeight:     w.Project,
+		AnnotationsWeight: w.Annotations,
+		WaitingWeight:     w.Waiting,
+	}
+}
+
 // MergeWeights returns a copy of defaults with any non-nil overrides applied.
 func MergeWeights(defaults UrgencyWeights, overrides *domain.UrgencyOverrides) UrgencyWeights {
 	if overrides == nil {

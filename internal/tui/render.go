@@ -312,30 +312,62 @@ func formatAge(created time.Time) string {
 	}
 }
 
+// urgencyOverridesJSON is the sparse per-task self overrides; only keys
+// explicitly set on the task appear.
+type urgencyOverridesJSON struct {
+	PriorityWeight    *float64 `json:"priority_weight,omitempty"`
+	DueWeight         *float64 `json:"due_weight,omitempty"`
+	AgeWeight         *float64 `json:"age_weight,omitempty"`
+	ActiveWeight      *float64 `json:"active_weight,omitempty"`
+	BlockingWeight    *float64 `json:"blocking_weight,omitempty"`
+	BlockedWeight     *float64 `json:"blocked_weight,omitempty"`
+	TagsWeight        *float64 `json:"tags_weight,omitempty"`
+	ProjectWeight     *float64 `json:"project_weight,omitempty"`
+	AnnotationsWeight *float64 `json:"annotations_weight,omitempty"`
+	WaitingWeight     *float64 `json:"waiting_weight,omitempty"`
+}
+
+// urgencyWeightsJSON is the full 10-weight resolved table; all fields
+// always present when emitted.
+type urgencyWeightsJSON struct {
+	PriorityWeight    float64 `json:"priority_weight"`
+	DueWeight         float64 `json:"due_weight"`
+	AgeWeight         float64 `json:"age_weight"`
+	ActiveWeight      float64 `json:"active_weight"`
+	BlockingWeight    float64 `json:"blocking_weight"`
+	BlockedWeight     float64 `json:"blocked_weight"`
+	TagsWeight        float64 `json:"tags_weight"`
+	ProjectWeight     float64 `json:"project_weight"`
+	AnnotationsWeight float64 `json:"annotations_weight"`
+	WaitingWeight     float64 `json:"waiting_weight"`
+}
+
 // taskJSON is the JSON serialization format for a task.
 // Field names use snake_case to match the domain model.
 type taskJSON struct {
-	ID             string         `json:"id"`
-	ShortID        string         `json:"short_id"`
-	ParentID       *string        `json:"parent_id,omitempty"`
-	ProjectID      string         `json:"project_id"`
-	Title          string         `json:"title"`
-	Description    string         `json:"description"`
-	Level          *string        `json:"level,omitempty"`
-	Status         string         `json:"status"`
-	Priority       int            `json:"priority"`
-	Order          *float64       `json:"order,omitempty"`
-	Version        int            `json:"version"`
-	Tags           []string       `json:"tags"`
-	DueAt          *string        `json:"due_at,omitempty"`
-	WaitUntil      *string        `json:"wait_until,omitempty"`
-	RecurrenceRule *string        `json:"recurrence_rule,omitempty"`
-	UDA            map[string]any `json:"uda,omitempty"`
-	ClaimedBy      *string        `json:"claimed_by,omitempty"`
-	ClaimedAt      *string        `json:"claimed_at,omitempty"`
-	CreatedAt      string         `json:"created_at"`
-	ModifiedAt     string         `json:"modified_at"`
-	Urgency        float64        `json:"urgency"`
+	ID                      string                `json:"id"`
+	ShortID                 string                `json:"short_id"`
+	ParentID                *string               `json:"parent_id,omitempty"`
+	ProjectID               string                `json:"project_id"`
+	Title                   string                `json:"title"`
+	Description             string                `json:"description"`
+	Level                   *string               `json:"level,omitempty"`
+	Status                  string                `json:"status"`
+	Priority                int                   `json:"priority"`
+	Order                   *float64              `json:"order,omitempty"`
+	Version                 int                   `json:"version"`
+	Tags                    []string              `json:"tags"`
+	DueAt                   *string               `json:"due_at,omitempty"`
+	WaitUntil               *string               `json:"wait_until,omitempty"`
+	RecurrenceRule          *string               `json:"recurrence_rule,omitempty"`
+	UDA                     map[string]any        `json:"uda,omitempty"`
+	ClaimedBy               *string               `json:"claimed_by,omitempty"`
+	ClaimedAt               *string               `json:"claimed_at,omitempty"`
+	CreatedAt               string                `json:"created_at"`
+	ModifiedAt              string                `json:"modified_at"`
+	Urgency                 float64               `json:"urgency"`
+	UrgencyOverrides        *urgencyOverridesJSON `json:"urgency_overrides,omitempty"`
+	EffectiveUrgencyWeights *urgencyWeightsJSON   `json:"effective_urgency_weights,omitempty"`
 }
 
 func (r *Renderer) toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
@@ -379,7 +411,43 @@ func (r *Renderer) toTaskJSON(t *domain.Task, tags []*domain.Tag) taskJSON {
 	for i, tg := range tags {
 		tj.Tags[i] = tg.Name
 	}
+	if t.UrgencyOverrides != nil {
+		tj.UrgencyOverrides = toUrgencyOverridesJSON(t.UrgencyOverrides)
+	}
+	if t.EffectiveWeights != nil {
+		tj.EffectiveUrgencyWeights = toUrgencyWeightsJSON(*t.EffectiveWeights)
+	}
 	return tj
+}
+
+func toUrgencyOverridesJSON(o *domain.UrgencyOverrides) *urgencyOverridesJSON {
+	return &urgencyOverridesJSON{
+		PriorityWeight:    o.PriorityWeight,
+		DueWeight:         o.DueWeight,
+		AgeWeight:         o.AgeWeight,
+		ActiveWeight:      o.ActiveWeight,
+		BlockingWeight:    o.BlockingWeight,
+		BlockedWeight:     o.BlockedWeight,
+		TagsWeight:        o.TagsWeight,
+		ProjectWeight:     o.ProjectWeight,
+		AnnotationsWeight: o.AnnotationsWeight,
+		WaitingWeight:     o.WaitingWeight,
+	}
+}
+
+func toUrgencyWeightsJSON(w domain.ResolvedUrgencyWeights) *urgencyWeightsJSON {
+	return &urgencyWeightsJSON{
+		PriorityWeight:    w.PriorityWeight,
+		DueWeight:         w.DueWeight,
+		AgeWeight:         w.AgeWeight,
+		ActiveWeight:      w.ActiveWeight,
+		BlockingWeight:    w.BlockingWeight,
+		BlockedWeight:     w.BlockedWeight,
+		TagsWeight:        w.TagsWeight,
+		ProjectWeight:     w.ProjectWeight,
+		AnnotationsWeight: w.AnnotationsWeight,
+		WaitingWeight:     w.WaitingWeight,
+	}
 }
 
 // renderTaskList writes a list of tasks to w in the given format.
@@ -620,6 +688,29 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 		return err
 	}
 
+	if task.UrgencyOverrides != nil {
+		if _, err := fmt.Fprintln(r.w); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(r.w, r.styledLabel("Urgency Overrides:")); err != nil {
+			return err
+		}
+		if err := r.renderSparseUrgencyOverrides(task.UrgencyOverrides); err != nil {
+			return err
+		}
+	}
+	if task.EffectiveWeights != nil {
+		if _, err := fmt.Fprintln(r.w); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(r.w, r.styledLabel("Effective Urgency Weights:")); err != nil {
+			return err
+		}
+		if err := r.renderResolvedUrgencyWeights(*task.EffectiveWeights); err != nil {
+			return err
+		}
+	}
+
 	if len(annotations) > 0 {
 		if _, err := fmt.Fprintln(r.w); err != nil {
 			return err
@@ -649,6 +740,60 @@ func (r *Renderer) renderTaskInfo(task *domain.Task, annotations []*domain.Annot
 	}
 
 	return nil
+}
+
+// renderSparseUrgencyOverrides writes the non-nil keys of a per-task urgency
+// override block in the canonical key order. Skips nil pointers.
+func (r *Renderer) renderSparseUrgencyOverrides(o *domain.UrgencyOverrides) error {
+	for _, key := range domain.ValidUrgencyWeightKeys {
+		fp := domain.UrgencyOverrideFieldPtr(o, key)
+		if fp == nil || *fp == nil {
+			continue
+		}
+		v := strconv.FormatFloat(**fp, 'f', -1, 64)
+		if _, err := fmt.Fprintf(r.w, "  %-18s %s\n", key, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderResolvedUrgencyWeights writes all 10 keys of a fully-resolved weight
+// table in the canonical key order.
+func (r *Renderer) renderResolvedUrgencyWeights(w domain.ResolvedUrgencyWeights) error {
+	for _, key := range domain.ValidUrgencyWeightKeys {
+		v := strconv.FormatFloat(resolvedWeightByKey(w, key), 'f', -1, 64)
+		if _, err := fmt.Fprintf(r.w, "  %-18s %s\n", key, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolvedWeightByKey(w domain.ResolvedUrgencyWeights, key string) float64 {
+	switch key {
+	case "priority_weight":
+		return w.PriorityWeight
+	case "due_weight":
+		return w.DueWeight
+	case "age_weight":
+		return w.AgeWeight
+	case "active_weight":
+		return w.ActiveWeight
+	case "blocking_weight":
+		return w.BlockingWeight
+	case "blocked_weight":
+		return w.BlockedWeight
+	case "tags_weight":
+		return w.TagsWeight
+	case "project_weight":
+		return w.ProjectWeight
+	case "annotations_weight":
+		return w.AnnotationsWeight
+	case "waiting_weight":
+		return w.WaitingWeight
+	}
+	return 0
 }
 
 // renderUDASection writes UDA key-value pairs as an indented block.

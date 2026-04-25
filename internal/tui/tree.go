@@ -59,23 +59,25 @@ func buildTree(tasks []*domain.Task, rootID *uuid.UUID) []*treeNode {
 // treeNodeJSON is the JSON serialization format for a tree node.
 // It includes all task fields (matching taskJSON in render.go) plus a children array.
 type treeNodeJSON struct {
-	ID             string         `json:"id"`
-	ShortID        string         `json:"short_id"`
-	ParentID       *string        `json:"parent_id"`
-	ProjectID      string         `json:"project_id"`
-	Title          string         `json:"title"`
-	Description    string         `json:"description"`
-	Status         string         `json:"status"`
-	Priority       int            `json:"priority"`
-	Order          *float64       `json:"order,omitempty"`
-	Version        int            `json:"version"`
-	DueAt          *string        `json:"due_at,omitempty"`
-	WaitUntil      *string        `json:"wait_until,omitempty"`
-	RecurrenceRule *string        `json:"recurrence_rule,omitempty"`
-	UDA            map[string]any `json:"uda,omitempty"`
-	CreatedAt      string         `json:"created_at"`
-	ModifiedAt     string         `json:"modified_at"`
-	Children       []treeNodeJSON `json:"children"`
+	ID                      string                `json:"id"`
+	ShortID                 string                `json:"short_id"`
+	ParentID                *string               `json:"parent_id"`
+	ProjectID               string                `json:"project_id"`
+	Title                   string                `json:"title"`
+	Description             string                `json:"description"`
+	Status                  string                `json:"status"`
+	Priority                int                   `json:"priority"`
+	Order                   *float64              `json:"order,omitempty"`
+	Version                 int                   `json:"version"`
+	DueAt                   *string               `json:"due_at,omitempty"`
+	WaitUntil               *string               `json:"wait_until,omitempty"`
+	RecurrenceRule          *string               `json:"recurrence_rule,omitempty"`
+	UDA                     map[string]any        `json:"uda,omitempty"`
+	CreatedAt               string                `json:"created_at"`
+	ModifiedAt              string                `json:"modified_at"`
+	UrgencyOverrides        *urgencyOverridesJSON `json:"urgency_overrides,omitempty"`
+	EffectiveUrgencyWeights *urgencyWeightsJSON   `json:"effective_urgency_weights,omitempty"`
+	Children                []treeNodeJSON        `json:"children"`
 }
 
 // toTreeNodeJSON converts a treeNode to its JSON representation recursively.
@@ -109,6 +111,12 @@ func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
 		tj.WaitUntil = &s
 	}
 	tj.RecurrenceRule = t.RecurrenceRule
+	if t.UrgencyOverrides != nil {
+		tj.UrgencyOverrides = toUrgencyOverridesJSON(t.UrgencyOverrides)
+	}
+	if t.EffectiveWeights != nil {
+		tj.EffectiveUrgencyWeights = toUrgencyWeightsJSON(*t.EffectiveWeights)
+	}
 	for i, child := range node.Children {
 		tj.Children[i] = r.toTreeNodeJSON(child)
 	}
