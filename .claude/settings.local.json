@@ -1,0 +1,74 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(make vet:*)",
+      "Bash(make test-race:*)",
+      "Bash(make test-e2e:*)",
+      "Bash(gofmt:*)",
+      "Bash(go mod:*)",
+      "Bash(make build:*)",
+      "mcp__tusk__tusk_task_create",
+      "mcp__tusk__tusk_relation_add",
+      "mcp__tusk__tusk_task_tree",
+      "mcp__tusk__tusk_task_list",
+      "mcp__tusk__tusk_task_start",
+      "mcp__tusk__tusk_task_done",
+      "Bash(go run:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(./bin/tusk task *)",
+      "Bash(TUSK_CONFIG_DIR=\"$TMPDIR/tusk-smoke\" ./bin/tusk project *)",
+      "Bash(TUSK_CONFIG_DIR=\"$TMPDIR/tusk-smoke\" ./bin/tusk workflow *)",
+      "Bash(./bin/tusk note *)",
+      "Bash(env)",
+      "Read(//home/claude/go/pkg/mod/cache/download/modernc.org/**)",
+      "Read(//home/claude/go/pkg/mod/cache/download/**)",
+      "Bash(GOPROXY=direct go build ./...)",
+      "Bash(sudo -n echo \"sudo ok\")",
+      "Bash(GOPROXY='https://proxy.golang.org,https://goproxy.io,direct' go mod download modernc.org/sqlite)",
+      "Bash(grep -oE 'attribution[^,}\"]{0,400}' /home/vscode/.claude/projects/-workspaces-tusk/dc9f866e-d777-49a5-9500-32cc0ae7c298/tool-results/be0y0i4t3.txt)",
+      "Bash(grep -oE 'attribution:V\\\\.object\\\\\\([^}]{0,600}' /home/vscode/.claude/projects/-workspaces-tusk/dc9f866e-d777-49a5-9500-32cc0ae7c298/tool-results/be0y0i4t3.txt)",
+      "Bash(mktemp -d)",
+      "Bash(export TUSK_DB=\"$TMPDIR/test.db\")",
+      "Bash(export TUSK_DB=\"/tmp/tmp.JOEIoizyX1/test.db\")",
+      "Bash(sqlite3 /tmp/tmp.JOEIoizyX1/test.db 'SELECT event_type, entity_kind, entity_id, player_id, payload FROM events ORDER BY created_at;')",
+      "Bash(apt list *)",
+      "Bash(python3 *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(gh auth *)",
+      "Bash(awk '/^    oauth_token:/ {print $2; exit}' ~/.config/gh/hosts.yml)",
+      "Bash(export GH_TOKEN=$\\(awk '/^    oauth_token:/ {print $2; exit}' ~/.config/gh/hosts.yml\\))",
+      "Bash(git push *)",
+      "Bash(gh pr create --base main --head chore/devcontainer-improvements --title 'chore\\(devcontainer\\): add Zellij with shared config and Tusk layout' --body ' *)",
+      "Bash(make test *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(gh pr create --title 'feat\\(v0.13\\): close sibling ordering initiative \\(phase 4 — e2e + fix\\)' --body ' *)",
+      "Bash(gh pr *)",
+      "Bash(gh run *)",
+      "Read(//home/vscode/.claude/**)",
+      "Bash(git checkout *)",
+      "Bash(git commit *)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "tusk"
+  ],
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "filesystem": {
+      "allowRead": [
+        "/Users/germanamz/go/bin"
+      ]
+    },
+    "excludeCommands": [
+      "git commit*"
+    ]
+  }
+}
