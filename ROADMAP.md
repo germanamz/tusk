@@ -1048,22 +1048,22 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 > Urgency weight overrides attachable to any task, inherited by descendants with key-level merge. Lets a single workspace host multiple priority zones — e.g., per-milestone boosts on a self-hosted roadmap — without requiring a project split.
 
-- [ ] **Story: Override field and resolution**
-  - [ ] Add `urgency_overrides` JSON column to `tasks` (nullable)
-  - [ ] Urgency engine resolution chain: global config → project settings → ancestor task overrides (root → self, merged) → self overrides
-  - [ ] Merge is per-key — unspecified keys inherit from the outer scope
-  - [ ] Re-parenting re-walks the ancestor chain on next compute; overrides on the moved task travel with it
+- [x] **Story: Override field and resolution**
+  - [x] Add `urgency_overrides` JSON column to `tasks` (nullable)
+  - [x] Urgency engine resolution chain: global config → project settings → ancestor task overrides (root → self, merged) → self overrides
+  - [x] Merge is per-key — unspecified keys inherit from the outer scope
+  - [x] Re-parenting re-walks the ancestor chain on next compute; overrides on the moved task travel with it
 
-- [ ] **Story: Override CLI and MCP surface**
-  - [ ] `tusk task modify <id> urgency.<weight>=<float>` sets an override key
-  - [ ] `tusk task modify <id> urgency.<weight>=` (empty value) clears that key
-  - [ ] `tusk task modify <id> +urgency.<weight>=<delta>` / `-urgency.<weight>=<delta>` apply arithmetic deltas; when no task-level value exists, the delta applies relative to the resolved effective weight at that position in the chain
-  - [ ] `tusk task modify <id> urgency.clear=true` drops every task-level override in one call
-  - [ ] `tusk_task_modify` MCP tool accepts a structured `urgency_overrides` object; the v0.12 blocked-fields mechanism applies unchanged
+- [x] **Story: Override CLI and MCP surface**
+  - [x] `tusk task modify <id> urgency.<weight>=<float>` sets an override key
+  - [x] `tusk task modify <id> urgency.<weight>=` (empty value) clears that key
+  - [x] `tusk task modify <id> +urgency.<weight>=<delta>` / `-urgency.<weight>=<delta>` apply arithmetic deltas; when no task-level value exists, the delta applies relative to the resolved effective weight at that position in the chain
+  - [x] `tusk task modify <id> urgency.clear=true` drops every task-level override in one call
+  - [x] `tusk_task_modify` MCP tool accepts a structured `urgency_overrides` object; the v0.12 blocked-fields mechanism applies unchanged
 
-- [ ] **Story: Visibility**
-  - [ ] `tusk task get` renders `urgency_overrides` (self) and an `effective_urgency_weights` block (resolved chain)
-  - [ ] `tusk config show` unchanged — task-level overrides are task data, not config
+- [x] **Story: Visibility**
+  - [x] `tusk task get` renders `urgency_overrides` (self) and an `effective_urgency_weights` block (resolved chain)
+  - [x] `tusk config show` unchanged — task-level overrides are task data, not config
 
 ### Initiative: Progress Rollup
 
