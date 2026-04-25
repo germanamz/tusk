@@ -274,9 +274,10 @@ None. Phase 5 (MCP write surface) plugs into `domain.TaskUpdate` fields that Pha
 - **New files:**
   - `internal/tui/urgency_parse.go` — `UrgencyParseResult`, `parseUrgencyFields`.
   - `tests/e2e/urgency_overrides_test.go` — CLI E2E scenarios.
-  - `domain/resolved_urgency_weights.go` (if created as separate file) — `ResolvedUrgencyWeights` struct.
+  - `domain/resolved_urgency_weights.go` — `ResolvedUrgencyWeights` struct.
 - **Modified files:**
   - `domain/task.go` — `Task.EffectiveWeights *ResolvedUrgencyWeights` transient field.
+  - `filter/parser.go` — pass-through for `urgency.*` and `urgency.clear` keys so they reach `runModify`'s parser without tripping the unknown-field check; `task create` continues to reject them via `validateKnownFields`.
   - `internal/tui/project_parse.go` — refactored to call `parseUrgencyFields`; local urgency-handling blocks removed.
   - `internal/tui/commands.go` — `runModify` consumes `parseUrgencyFields` result; `runCreate` test guards.
   - `internal/tui/commands_test.go` — `TestRunCreate_RejectsUrgencyFields` (and any modify-urgency test coverage to complement E2E).

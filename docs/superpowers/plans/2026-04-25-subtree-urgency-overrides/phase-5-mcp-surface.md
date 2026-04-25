@@ -131,7 +131,8 @@ None.
 - **New files:**
   - `tests/e2e/mcp_urgency_overrides_test.go`
 - **Modified files:**
-  - `internal/mcp/tools.go` — `tusk_task_modify` JSON input schema; `handleTaskModify` decode and validation logic.
+  - `internal/mcp/server.go` — `tusk_task_modify` JSON input schema additions (`urgency_overrides` object and `urgency_overrides_clear` boolean) registered alongside the other `WithObject`/`WithBoolean` declarations.
+  - `internal/mcp/tools.go` — `handleTaskModify` decode and validation logic for the new fields.
   - `internal/mcp/field_registry.go` — adds `urgency_overrides` and `urgency_overrides_clear` to the `tusk_task_modify` field set.
   - `internal/mcp/blocked.go` (if per-field inspection needs a small edit to expose the new field names to the gate) — match the existing convention for other fields; typically no code change if the gate walks `req.Arguments` directly.
   - `internal/mcp/blocked_test.go` — `TestBlockedFields_BlocksUrgencyOverrides`.
