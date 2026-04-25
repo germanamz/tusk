@@ -8,6 +8,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// AncestorOverride is one node in a task ancestor walk. Overrides is nil
+// when the node has no urgency_overrides JSON set.
+type AncestorOverride struct {
+	TaskID    uuid.UUID
+	ParentID  *uuid.UUID
+	ProjectID uuid.UUID
+	Overrides *domain.UrgencyOverrides
+}
+
 type TaskRepository interface {
 	Create(ctx context.Context, task *domain.Task) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error)
@@ -17,6 +26,13 @@ type TaskRepository interface {
 	List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error)
 	GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error)
 	GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error)
+
+	// GetAncestorOverrides returns every input task plus every ancestor
+	// reachable via parent_id, one row per visited node. Root nodes have a
+	// nil ParentID. Nodes without overrides have a nil Overrides pointer.
+	// Implementations must be safe to call with a zero-length input
+	// (returns an empty slice, no error).
+	GetAncestorOverrides(ctx context.Context, taskIDs []uuid.UUID) ([]AncestorOverride, error)
 
 	// CountByProject returns how many tasks reference the given project.
 	CountByProject(ctx context.Context, projectID uuid.UUID) (int, error)

@@ -48,6 +48,9 @@ func (s *stubTaskRepo) NeighborOrders(_ context.Context, _ *uuid.UUID, _ float64
 func (s *stubTaskRepo) UpdateOrderAndParent(_ context.Context, _ uuid.UUID, _ *uuid.UUID, _ float64, _ int, _ time.Time) (int, error) {
 	return 0, nil
 }
+func (s *stubTaskRepo) GetAncestorOverrides(_ context.Context, _ []uuid.UUID) ([]repository.AncestorOverride, error) {
+	return nil, nil
+}
 
 type stubRelationRepo struct{}
 

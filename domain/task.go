@@ -13,26 +13,27 @@ import (
 var DefaultProjectUUID = uuid.Nil
 
 type Task struct {
-	ID             uuid.UUID
-	ShortID        string
-	ParentID       *uuid.UUID
-	ProjectID      uuid.UUID
-	Title          string
-	Description    string
-	Level          *string
-	Status         string
-	Priority       int
-	Order          *float64 `json:"order"`
-	Version        int
-	DueAt          *time.Time
-	WaitUntil      *time.Time
-	RecurrenceRule *string
-	UDA            map[string]any
-	CreatedAt      time.Time
-	ModifiedAt     time.Time
-	ClaimedBy      *string    // FK to Player.ID — who holds the claim
-	ClaimedAt      *time.Time // when the claim was made
-	Urgency        float64    // Computed at read time, not persisted in DB.
+	ID               uuid.UUID
+	ShortID          string
+	ParentID         *uuid.UUID
+	ProjectID        uuid.UUID
+	Title            string
+	Description      string
+	Level            *string
+	Status           string
+	Priority         int
+	Order            *float64 `json:"order"`
+	Version          int
+	DueAt            *time.Time
+	WaitUntil        *time.Time
+	RecurrenceRule   *string
+	UDA              map[string]any
+	UrgencyOverrides *UrgencyOverrides
+	CreatedAt        time.Time
+	ModifiedAt       time.Time
+	ClaimedBy        *string    // FK to Player.ID — who holds the claim
+	ClaimedAt        *time.Time // when the claim was made
+	Urgency          float64    // Computed at read time, not persisted in DB.
 }
 
 // TaskUpdate represents a partial update to a task.

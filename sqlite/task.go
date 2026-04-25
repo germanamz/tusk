@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/repository"
 	"github.com/google/uuid"
 )
 
 const taskColumns = `id, short_id, parent_id, project_id, title, description,
 	status, priority, "order", version, due_at, wait_until, recurrence_rule, uda,
-	created_at, modified_at, claimed_by, claimed_at, level`
+	urgency_overrides, created_at, modified_at, claimed_by, claimed_at, level`
 
 type TaskRepo struct {
 	db DBTX
@@ -31,8 +32,12 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 	if err != nil {
 		return err
 	}
+	urgencyArg, err := nullableUrgencyOverrides(task.UrgencyOverrides)
+	if err != nil {
+		return err
+	}
 	_, err = r.db.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskColumns),
 		task.ID.String(), task.ShortID,
 		nullableUUID(task.ParentID), task.ProjectID.String(),
@@ -41,6 +46,7 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 		task.Version,
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), udaJSON,
+		urgencyArg,
 		task.CreatedAt.UTC().Format(timeFormat),
 		task.ModifiedAt.UTC().Format(timeFormat),
 		nullableString(task.ClaimedBy), nullableTime(task.ClaimedAt),
@@ -66,13 +72,17 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 	if err != nil {
 		return err
 	}
+	urgencyArg, err := nullableUrgencyOverrides(task.UrgencyOverrides)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	nowStr := now.Format(timeFormat)
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE tasks SET
 			parent_id = ?, project_id = ?, title = ?, description = ?,
 			status = ?, priority = ?, "order" = ?, due_at = ?, wait_until = ?,
-			recurrence_rule = ?, uda = ?, version = version + 1, modified_at = ?,
+			recurrence_rule = ?, uda = ?, urgency_overrides = ?, version = version + 1, modified_at = ?,
 			claimed_by = ?, claimed_at = ?, level = ?
 		WHERE id = ? AND version = ?`,
 		nullableUUID(task.ParentID), task.ProjectID.String(),
@@ -80,6 +90,7 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 		nullableFloat(task.Order),
 		nullableTime(task.DueAt), nullableTime(task.WaitUntil),
 		nullableString(task.RecurrenceRule), udaJSON,
+		urgencyArg,
 		nowStr, nullableString(task.ClaimedBy), nullableTime(task.ClaimedAt),
 		nullableString(task.Level),
 		task.ID.String(), task.Version,
@@ -203,6 +214,81 @@ func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*dom
 	}
 	defer rows.Close()
 	return r.scanRows(rows)
+}
+
+// GetAncestorOverrides returns every input task plus every ancestor reachable
+// via parent_id, one row per visited node. Root nodes have a nil ParentID.
+// Nodes without urgency_overrides have a nil Overrides pointer. Calling with
+// a zero-length input returns an empty slice and no error.
+func (r *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.UUID) ([]repository.AncestorOverride, error) {
+	if len(taskIDs) == 0 {
+		return []repository.AncestorOverride{}, nil
+	}
+	placeholders := make([]string, len(taskIDs))
+	args := make([]any, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id.String()
+	}
+	query := fmt.Sprintf(`
+		WITH RECURSIVE ancestors(id, parent_id, project_id, urgency_overrides) AS (
+			SELECT id, parent_id, project_id, urgency_overrides
+			FROM tasks
+			WHERE id IN (%s)
+			UNION
+			SELECT t.id, t.parent_id, t.project_id, t.urgency_overrides
+			FROM tasks t
+			INNER JOIN ancestors a ON t.id = a.parent_id
+		)
+		SELECT id, parent_id, project_id, urgency_overrides FROM ancestors`,
+		strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]repository.AncestorOverride, 0)
+	for rows.Next() {
+		var (
+			idStr        string
+			parentIDNull sql.NullString
+			projectStr   string
+			ovNull       sql.NullString
+		)
+		if err := rows.Scan(&idStr, &parentIDNull, &projectStr, &ovNull); err != nil {
+			return nil, err
+		}
+		taskID, err := uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing ancestor task id: %w", err)
+		}
+		parentID, err := parseUUID(parentIDNull)
+		if err != nil {
+			return nil, fmt.Errorf("parsing ancestor parent_id: %w", err)
+		}
+		projectID, err := uuid.Parse(projectStr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing ancestor project_id: %w", err)
+		}
+		var overrides *domain.UrgencyOverrides
+		if ovNull.Valid {
+			var ov domain.UrgencyOverrides
+			if err := json.Unmarshal([]byte(ovNull.String), &ov); err != nil {
+				return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", idStr, err)
+			}
+			overrides = &ov
+		}
+		result = append(result, repository.AncestorOverride{
+			TaskID:    taskID,
+			ParentID:  parentID,
+			ProjectID: projectID,
+			Overrides: overrides,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // NextOrder returns max("order") + 1.0 for siblings under parentID. parentID == nil
@@ -539,25 +625,26 @@ type taskScanner interface {
 
 func scanTask(s taskScanner) (*domain.Task, error) {
 	var (
-		t          domain.Task
-		id         string
-		parentID   sql.NullString
-		projectID  string
-		order      sql.NullFloat64
-		dueAt      sql.NullString
-		waitUntil  sql.NullString
-		recurrence sql.NullString
-		udaJSON    string
-		createdAt  string
-		modifiedAt string
-		claimedBy  sql.NullString
-		claimedAt  sql.NullString
-		level      sql.NullString
+		t                domain.Task
+		id               string
+		parentID         sql.NullString
+		projectID        string
+		order            sql.NullFloat64
+		dueAt            sql.NullString
+		waitUntil        sql.NullString
+		recurrence       sql.NullString
+		udaJSON          string
+		urgencyOverrides sql.NullString
+		createdAt        string
+		modifiedAt       string
+		claimedBy        sql.NullString
+		claimedAt        sql.NullString
+		level            sql.NullString
 	)
 	err := s.Scan(
 		&id, &t.ShortID, &parentID, &projectID,
 		&t.Title, &t.Description, &t.Status, &t.Priority, &order, &t.Version,
-		&dueAt, &waitUntil, &recurrence, &udaJSON,
+		&dueAt, &waitUntil, &recurrence, &udaJSON, &urgencyOverrides,
 		&createdAt, &modifiedAt, &claimedBy, &claimedAt, &level,
 	)
 	if err != nil {
@@ -592,6 +679,13 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 	}
 	if err := json.Unmarshal([]byte(udaJSON), &t.UDA); err != nil {
 		return nil, fmt.Errorf("parsing uda: %w", err)
+	}
+	if urgencyOverrides.Valid {
+		var ov domain.UrgencyOverrides
+		if err := json.Unmarshal([]byte(urgencyOverrides.String), &ov); err != nil {
+			return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", id, err)
+		}
+		t.UrgencyOverrides = &ov
 	}
 	t.CreatedAt, err = time.Parse(timeFormat, createdAt)
 	if err != nil {
