@@ -32,6 +32,10 @@ type ScoringContext struct {
 	AnnotationCount map[uuid.UUID]int
 	TagCount        map[uuid.UUID]int
 	ProjectWeights  map[uuid.UUID]*UrgencyWeights // per-project weight overrides (fully merged)
+	// EffectiveWeights holds per-task fully-resolved weights (project + ancestor + self).
+	// Populated only for tasks whose chain contributes at least one non-default value;
+	// callers still fall through to ProjectWeights / defaults when a task ID is absent.
+	EffectiveWeights map[uuid.UUID]*UrgencyWeights
 }
 
 const (
@@ -78,7 +82,7 @@ func (e *UrgencyEngine) Reload(defaults UrgencyWeights) {
 
 // Score computes the urgency score for a single task.
 func (e *UrgencyEngine) Score(task *domain.Task, ctx ScoringContext) float64 {
-	w := e.weightsFor(task.ProjectID, ctx)
+	w := e.weightsFor(task, ctx)
 
 	var score float64
 
@@ -146,12 +150,28 @@ func (e *UrgencyEngine) ScoreAndSort(tasks []*domain.Task, ctx ScoringContext) {
 	})
 }
 
-// weightsFor returns the effective weights for a task's project.
-// If per-project overrides exist in the context, those are used; otherwise defaults.
-func (e *UrgencyEngine) weightsFor(projectID uuid.UUID, ctx ScoringContext) UrgencyWeights {
-	if pw, ok := ctx.ProjectWeights[projectID]; ok {
-		return *pw
+// weightsFor returns the effective weights for a task. Resolution order:
+// 1. ctx.EffectiveWeights[task.ID] (project + ancestor + self chain), 2.
+// ctx.ProjectWeights[task.ProjectID], 3. engine defaults.
+func (e *UrgencyEngine) weightsFor(task *domain.Task, ctx ScoringContext) UrgencyWeights {
+	if ctx.EffectiveWeights != nil {
+		if w, ok := ctx.EffectiveWeights[task.ID]; ok {
+			return *w
+		}
 	}
+	if ctx.ProjectWeights != nil {
+		if pw, ok := ctx.ProjectWeights[task.ProjectID]; ok {
+			return *pw
+		}
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.defaults
+}
+
+// Defaults returns a copy of the engine's default weights, using the
+// internal RW mutex for safe concurrent access.
+func (e *UrgencyEngine) Defaults() UrgencyWeights {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.defaults
