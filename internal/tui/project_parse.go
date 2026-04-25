@@ -65,32 +65,6 @@ func parseFloatField(key, value string) (float64, error) {
 	return f, nil
 }
 
-func urgencyOverrideFieldPtr(o *domain.UrgencyOverrides, key string) **float64 {
-	switch key {
-	case "priority_weight":
-		return &o.PriorityWeight
-	case "due_weight":
-		return &o.DueWeight
-	case "age_weight":
-		return &o.AgeWeight
-	case "active_weight":
-		return &o.ActiveWeight
-	case "blocking_weight":
-		return &o.BlockingWeight
-	case "blocked_weight":
-		return &o.BlockedWeight
-	case "tags_weight":
-		return &o.TagsWeight
-	case "project_weight":
-		return &o.ProjectWeight
-	case "annotations_weight":
-		return &o.AnnotationsWeight
-	case "waiting_weight":
-		return &o.WaitingWeight
-	}
-	return nil
-}
-
 func parseProjectCreate(args []string) (projectCreateFields, error) {
 	input := strings.Join(args, " ")
 	fs, parseErrs := syntax.ParseFields(input)
@@ -145,7 +119,7 @@ func applyProjectCreateField(out *projectCreateFields, key, value string) error 
 		if out.Settings.Urgency == nil {
 			out.Settings.Urgency = &domain.UrgencyOverrides{}
 		}
-		fp := urgencyOverrideFieldPtr(out.Settings.Urgency, cfgKey)
+		fp := domain.UrgencyOverrideFieldPtr(out.Settings.Urgency, cfgKey)
 		if fp == nil {
 			return fmt.Errorf("unknown urgency key %q", cfgKey)
 		}

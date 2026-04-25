@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/domain"
@@ -317,5 +318,414 @@ func TestResolveEffectiveWeightsSingleTask_NoOverrides(t *testing.T) {
 	defaults := env.taskSvc.engine.Defaults()
 	if w != defaults {
 		t.Errorf("expected engine defaults, got %+v vs %+v", w, defaults)
+	}
+}
+
+// ptrToOverrides wraps a *UrgencyOverrides in another pointer so callers can
+// build the **UrgencyOverrides field on TaskUpdate. Passing nil yields the
+// "clear" form (outer non-nil, inner nil).
+func ptrToOverrides(o *domain.UrgencyOverrides) **domain.UrgencyOverrides {
+	return &o
+}
+
+// newEffectiveWeightsEnvWithProjectOverride mirrors newEffectiveWeightsEnv but
+// also installs the given UrgencyOverrides on the default project so tests
+// can verify inherited-baseline behavior in delta application.
+func newEffectiveWeightsEnvWithProjectOverride(t *testing.T, ov *domain.UrgencyOverrides) *effectiveWeightsTestEnv {
+	t.Helper()
+	bundle, projectRepo, _ := newSeededBundle(t)
+	workflowRepo := sqlite.NewWorkflowRepo(bundle.Store.DB())
+
+	ctx := context.Background()
+	defaultProj, err := projectRepo.GetByID(ctx, domain.DefaultProjectUUID)
+	if err != nil {
+		t.Fatalf("loading default project: %v", err)
+	}
+	defaultProj.Settings = domain.ProjectSettings{Urgency: ov}
+	if err := projectRepo.Update(ctx, defaultProj); err != nil {
+		t.Fatalf("updating default project settings: %v", err)
+	}
+
+	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
+	workflowSvc := NewWorkflowService(workflowRepo, projectRepo)
+	engine := NewUrgencyEngine(defaultWeights())
+	taskSvc := NewTaskService(resolver, projects, projectRepo, nil, workflowSvc, engine)
+	return &effectiveWeightsTestEnv{taskSvc: taskSvc, bundle: bundle}
+}
+
+func TestUpdateUrgencyOverridesFullReplace(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("full replace")
+	mustCreateTask(t, env.taskSvc, task)
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:          task.ShortID,
+		Version:          task.Version,
+		UrgencyOverrides: ptrToOverrides(&domain.UrgencyOverrides{BlockingWeight: float64Ptr(20)}),
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides == nil {
+		t.Fatal("expected non-nil UrgencyOverrides after full replace")
+	}
+	if updated.UrgencyOverrides.BlockingWeight == nil || *updated.UrgencyOverrides.BlockingWeight != 20 {
+		t.Errorf("BlockingWeight: got %v, want 20", updated.UrgencyOverrides.BlockingWeight)
+	}
+
+	// Now clear via outer-non-nil + inner-nil.
+	cleared, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:          updated.ShortID,
+		Version:          updated.Version,
+		UrgencyOverrides: ptrToOverrides(nil),
+	})
+	if err != nil {
+		t.Fatalf("Update (clear): %v", err)
+	}
+	if cleared.UrgencyOverrides != nil {
+		t.Errorf("expected nil UrgencyOverrides after clear, got %+v", cleared.UrgencyOverrides)
+	}
+
+	reloaded, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.UrgencyOverrides != nil {
+		t.Errorf("expected NULL column after clear, got %+v", reloaded.UrgencyOverrides)
+	}
+}
+
+func TestUpdateUrgencyOverridesMergePatchSet(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("merge set")
+	mustCreateTask(t, env.taskSvc, task)
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{
+			Set: map[string]float64{"blocking_weight": 20, "due_weight": 5},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides == nil {
+		t.Fatal("expected non-nil UrgencyOverrides")
+	}
+	if updated.UrgencyOverrides.BlockingWeight == nil || *updated.UrgencyOverrides.BlockingWeight != 20 {
+		t.Errorf("BlockingWeight: got %v, want 20", updated.UrgencyOverrides.BlockingWeight)
+	}
+	if updated.UrgencyOverrides.DueWeight == nil || *updated.UrgencyOverrides.DueWeight != 5 {
+		t.Errorf("DueWeight: got %v, want 5", updated.UrgencyOverrides.DueWeight)
+	}
+	if updated.UrgencyOverrides.PriorityWeight != nil {
+		t.Errorf("PriorityWeight: got %v, want nil (untouched)", updated.UrgencyOverrides.PriorityWeight)
+	}
+}
+
+func TestUpdateUrgencyOverridesMergePatchClear(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("merge clear")
+	mustCreateTask(t, env.taskSvc, task)
+	setOverrides(t, env, task.ID, &domain.UrgencyOverrides{
+		PriorityWeight: float64Ptr(3),
+		DueWeight:      float64Ptr(5),
+		BlockingWeight: float64Ptr(20),
+	})
+	reloaded, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: reloaded.ShortID,
+		Version: reloaded.Version,
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{
+			Clear: map[string]bool{"due_weight": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides == nil {
+		t.Fatal("expected non-nil UrgencyOverrides")
+	}
+	if updated.UrgencyOverrides.DueWeight != nil {
+		t.Errorf("DueWeight: got %v, want nil after clear", updated.UrgencyOverrides.DueWeight)
+	}
+	if updated.UrgencyOverrides.PriorityWeight == nil || *updated.UrgencyOverrides.PriorityWeight != 3 {
+		t.Errorf("PriorityWeight: got %v, want 3 (untouched)", updated.UrgencyOverrides.PriorityWeight)
+	}
+	if updated.UrgencyOverrides.BlockingWeight == nil || *updated.UrgencyOverrides.BlockingWeight != 20 {
+		t.Errorf("BlockingWeight: got %v, want 20 (untouched)", updated.UrgencyOverrides.BlockingWeight)
+	}
+}
+
+func TestUpdateUrgencyOverridesMergePatchClearAll(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("clear all")
+	mustCreateTask(t, env.taskSvc, task)
+	setOverrides(t, env, task.ID, &domain.UrgencyOverrides{
+		PriorityWeight: float64Ptr(3),
+		DueWeight:      float64Ptr(5),
+		BlockingWeight: float64Ptr(20),
+	})
+	reloaded, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: reloaded.ShortID,
+		Version: reloaded.Version,
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{
+			ClearAll: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides != nil {
+		t.Errorf("expected nil UrgencyOverrides after ClearAll, got %+v", updated.UrgencyOverrides)
+	}
+
+	persisted, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload after update: %v", err)
+	}
+	if persisted.UrgencyOverrides != nil {
+		t.Errorf("expected persisted NULL column after ClearAll, got %+v", persisted.UrgencyOverrides)
+	}
+}
+
+func TestUpdateUrgencyOverridesPatchCombined(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("combined patch")
+	mustCreateTask(t, env.taskSvc, task)
+	setOverrides(t, env, task.ID, &domain.UrgencyOverrides{
+		PriorityWeight: float64Ptr(99),
+		DueWeight:      float64Ptr(99),
+		BlockingWeight: float64Ptr(99),
+	})
+	reloaded, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: reloaded.ShortID,
+		Version: reloaded.Version,
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{
+			ClearAll: true,
+			Clear:    map[string]bool{"priority_weight": true},
+			Set:      map[string]float64{"priority_weight": 5, "due_weight": 3},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides == nil {
+		t.Fatal("expected non-nil UrgencyOverrides")
+	}
+	if updated.UrgencyOverrides.PriorityWeight == nil || *updated.UrgencyOverrides.PriorityWeight != 5 {
+		t.Errorf("PriorityWeight: got %v, want 5 (Set runs after Clear)", updated.UrgencyOverrides.PriorityWeight)
+	}
+	if updated.UrgencyOverrides.DueWeight == nil || *updated.UrgencyOverrides.DueWeight != 3 {
+		t.Errorf("DueWeight: got %v, want 3", updated.UrgencyOverrides.DueWeight)
+	}
+	if updated.UrgencyOverrides.BlockingWeight != nil {
+		t.Errorf("BlockingWeight: got %v, want nil (ClearAll wiped, not re-set)", updated.UrgencyOverrides.BlockingWeight)
+	}
+}
+
+func TestUpdateUrgencyDeltaInheritsResolvedValue(t *testing.T) {
+	env := newEffectiveWeightsEnvWithProjectOverride(t, &domain.UrgencyOverrides{
+		BlockingWeight: float64Ptr(10),
+	})
+	ctx := context.Background()
+
+	task := newMinimalTask("inherit baseline")
+	mustCreateTask(t, env.taskSvc, task)
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:      task.ShortID,
+		Version:      task.Version,
+		UrgencyDelta: map[string]float64{"blocking_weight": 5},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides == nil {
+		t.Fatal("expected non-nil UrgencyOverrides after delta")
+	}
+	if updated.UrgencyOverrides.BlockingWeight == nil || *updated.UrgencyOverrides.BlockingWeight != 15 {
+		t.Errorf("BlockingWeight: got %v, want 15 (project 10 + delta 5)", updated.UrgencyOverrides.BlockingWeight)
+	}
+}
+
+func TestUpdateUrgencyDeltaAdditiveOnExistingValue(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("additive delta")
+	mustCreateTask(t, env.taskSvc, task)
+	setOverrides(t, env, task.ID, &domain.UrgencyOverrides{BlockingWeight: float64Ptr(20)})
+	reloaded, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:      reloaded.ShortID,
+		Version:      reloaded.Version,
+		UrgencyDelta: map[string]float64{"blocking_weight": 5},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides == nil {
+		t.Fatal("expected non-nil UrgencyOverrides")
+	}
+	if updated.UrgencyOverrides.BlockingWeight == nil || *updated.UrgencyOverrides.BlockingWeight != 25 {
+		t.Errorf("BlockingWeight: got %v, want 25 (self 20 + delta 5)", updated.UrgencyOverrides.BlockingWeight)
+	}
+}
+
+func TestUpdateUrgencyDeltaAfterPatch(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("patch then delta")
+	mustCreateTask(t, env.taskSvc, task)
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{
+			Set: map[string]float64{"blocking_weight": 10},
+		},
+		UrgencyDelta: map[string]float64{"blocking_weight": 3},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides == nil {
+		t.Fatal("expected non-nil UrgencyOverrides")
+	}
+	if updated.UrgencyOverrides.BlockingWeight == nil || *updated.UrgencyOverrides.BlockingWeight != 13 {
+		t.Errorf("BlockingWeight: got %v, want 13 (patch 10 + delta 3)", updated.UrgencyOverrides.BlockingWeight)
+	}
+}
+
+func TestUpdateUrgencyConflictingFields(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("conflict")
+	mustCreateTask(t, env.taskSvc, task)
+	originalVersion := task.Version
+
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID:           task.ShortID,
+		Version:           task.Version,
+		UrgencyOverrides:  ptrToOverrides(&domain.UrgencyOverrides{BlockingWeight: float64Ptr(20)}),
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{Set: map[string]float64{"due_weight": 5}},
+	})
+	if err == nil {
+		t.Fatal("expected error for conflicting fields, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error %q should mention 'mutually exclusive'", err)
+	}
+
+	persisted, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if persisted.Version != originalVersion {
+		t.Errorf("Version: got %d, want %d (no bump on rejected update)", persisted.Version, originalVersion)
+	}
+	if persisted.UrgencyOverrides != nil {
+		t.Errorf("UrgencyOverrides: got %+v, want nil (no mutation on rejected update)", persisted.UrgencyOverrides)
+	}
+}
+
+func TestUpdateUrgencyUnknownKey(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("unknown key")
+	mustCreateTask(t, env.taskSvc, task)
+	originalVersion := task.Version
+
+	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: task.ShortID,
+		Version: task.Version,
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{
+			Set: map[string]float64{"bogus": 1},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown key, got nil")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("error %q should mention key 'bogus'", err)
+	}
+
+	persisted, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if persisted.Version != originalVersion {
+		t.Errorf("Version: got %d, want %d (no bump on rejected update)", persisted.Version, originalVersion)
+	}
+	if persisted.UrgencyOverrides != nil {
+		t.Errorf("UrgencyOverrides: got %+v, want nil (no mutation on rejected update)", persisted.UrgencyOverrides)
+	}
+}
+
+func TestUpdateUrgencyNormalizesEmpty(t *testing.T) {
+	env := newEffectiveWeightsEnv(t)
+	ctx := context.Background()
+
+	task := newMinimalTask("normalize")
+	mustCreateTask(t, env.taskSvc, task)
+	setOverrides(t, env, task.ID, &domain.UrgencyOverrides{PriorityWeight: float64Ptr(5)})
+	reloaded, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+		ShortID: reloaded.ShortID,
+		Version: reloaded.Version,
+		UrgencyMergePatch: &domain.UrgencyOverridesPatch{
+			Clear: map[string]bool{"priority_weight": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.UrgencyOverrides != nil {
+		t.Errorf("expected nil UrgencyOverrides after clearing only key, got %+v", updated.UrgencyOverrides)
+	}
+
+	persisted, err := env.bundle.Tasks.GetByID(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("reload after update: %v", err)
+	}
+	if persisted.UrgencyOverrides != nil {
+		t.Errorf("expected NULL column (not empty {}), got %+v", persisted.UrgencyOverrides)
 	}
 }

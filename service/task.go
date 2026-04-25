@@ -503,6 +503,70 @@ func (s *TaskService) buildEffectiveWeights(
 	return out, nil
 }
 
+// resolveEffectiveWeightsFromTask resolves the urgency-weight chain using the
+// provided in-memory task for self state, so callers that have just mutated
+// task.UrgencyOverrides get the consistent answer. Ancestors are read fresh
+// from the repo via GetAncestorOverrides.
+//
+// Unlike TaskService.ResolveEffectiveWeights, this does not re-read the task
+// from the DB — callers inside a write transaction need the post-patch
+// in-memory state as the self contribution.
+func (s *TaskService) resolveEffectiveWeightsFromTask(
+	ctx context.Context,
+	bundle *RepoBundle,
+	task *domain.Task,
+) (UrgencyWeights, error) {
+	if s.engine == nil {
+		return UrgencyWeights{}, fmt.Errorf("urgency engine not configured")
+	}
+
+	projectWeights := s.buildProjectWeights(ctx, []*domain.Task{task})
+	var merged UrgencyWeights
+	if pw, ok := projectWeights[task.ProjectID]; ok {
+		merged = *pw
+	} else {
+		merged = s.engine.Defaults()
+	}
+
+	parentByID := make(map[uuid.UUID]*uuid.UUID)
+	overridesByID := make(map[uuid.UUID]*domain.UrgencyOverrides)
+	if task.ParentID != nil {
+		rows, err := bundle.Tasks.GetAncestorOverrides(ctx, []uuid.UUID{task.ID})
+		if err != nil {
+			return UrgencyWeights{}, fmt.Errorf("loading ancestor overrides: %w", err)
+		}
+		for _, row := range rows {
+			parentByID[row.TaskID] = row.ParentID
+			overridesByID[row.TaskID] = row.Overrides
+		}
+	}
+	// The caller owns the authoritative self state — substitute in the
+	// in-memory parent + overrides regardless of what the repo returned.
+	parentByID[task.ID] = task.ParentID
+	overridesByID[task.ID] = task.UrgencyOverrides
+
+	var chain []uuid.UUID
+	current := task.ID
+	for depth := 0; depth < maxParentDepth; depth++ {
+		chain = append(chain, current)
+		parent, ok := parentByID[current]
+		if !ok || parent == nil {
+			break
+		}
+		current = *parent
+	}
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+
+	for _, id := range chain {
+		if ov := overridesByID[id]; ov != nil {
+			merged = MergeWeights(merged, ov)
+		}
+	}
+	return merged, nil
+}
+
 // ResolveEffectiveWeights returns the fully-resolved urgency weights for a
 // single task, walking the project + ancestor + self override chain. The
 // second return is true when any node in the chain contributed a non-default
@@ -562,6 +626,10 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 
 	if task.Version != upd.Version {
 		return nil, domain.ErrConflict
+	}
+
+	if upd.UrgencyOverrides != nil && (upd.UrgencyMergePatch != nil || len(upd.UrgencyDelta) > 0) {
+		return nil, fmt.Errorf("urgency_overrides full-replace is mutually exclusive with merge patch and delta; got both in one update")
 	}
 
 	oldStatus := task.Status
@@ -634,6 +702,10 @@ func (s *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (*domai
 				task.UDA[k] = v
 			}
 		}
+	}
+
+	if err := s.applyUrgencyOverridesUpdate(ctx, bundle, task, upd); err != nil {
+		return nil, err
 	}
 
 	if strings.TrimSpace(task.Title) == "" {

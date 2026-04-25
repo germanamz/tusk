@@ -59,6 +59,24 @@ type TaskUpdate struct {
 	UDA            *map[string]any
 	ClaimedBy      **string    // nil = don't change, *nil = clear, *"value" = set
 	ClaimedAt      **time.Time // nil = don't change, *nil = clear, *value = set
+
+	// UrgencyOverrides replaces the full urgency_overrides JSON column.
+	// Ptr-to-ptr semantics match other nullable fields:
+	//   nil    → don't touch
+	//   *nil   → clear all (column becomes NULL)
+	//   *value → full replace with the given pointer target
+	// Mutually exclusive with UrgencyMergePatch and UrgencyDelta.
+	UrgencyOverrides **UrgencyOverrides
+
+	// UrgencyMergePatch applies an RFC 7396-style per-key patch after any
+	// ClearAll. nil = don't touch.
+	UrgencyMergePatch *UrgencyOverridesPatch
+
+	// UrgencyDelta applies per-key arithmetic deltas after the merge patch.
+	// Each key → signed delta float. When self has a value, the delta is added
+	// to it; otherwise the delta is added to the resolved-inherited value at
+	// the self position in the chain.
+	UrgencyDelta map[string]float64
 }
 
 // udaKeyPattern matches valid UDA key names: starts with letter or underscore,
