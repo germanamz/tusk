@@ -18,6 +18,7 @@ var toolFields = map[string]map[string]struct{}{
 		"short_id", "version", "title", "description", "priority",
 		"project", "parent", "due", "wait_until", "uda",
 		"add_tags", "remove_tags",
+		"urgency_overrides", "urgency_overrides_clear",
 	),
 	"tusk_task_move":       setOf("task_id", "position", "target_id", "parent_id", "version", "player_id"),
 	"tusk_task_resequence": setOf("parent_id", "player_id"),

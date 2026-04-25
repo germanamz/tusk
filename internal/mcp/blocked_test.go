@@ -83,6 +83,38 @@ func TestCheckBlocked_EmptyBlockList(t *testing.T) {
 	}
 }
 
+func TestBlockedFields_BlocksUrgencyOverrides(t *testing.T) {
+	s := mustNew(t, config.MCPConfig{
+		BlockedFields: map[string][]string{
+			"tusk_task_modify": {"urgency_overrides", "urgency_overrides_clear"},
+		},
+	})
+	res := s.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
+		"urgency_overrides": map[string]any{"priority_weight": float64(5)},
+	}))
+	if res == nil || !res.IsError {
+		t.Fatal("expected blocked-field error for urgency_overrides")
+	}
+	msg := toolErrorMsg(t, res)
+	if !strings.Contains(msg, "urgency_overrides") {
+		t.Errorf("message missing field name: %q", msg)
+	}
+	if !strings.Contains(msg, "tusk_task_modify") {
+		t.Errorf("message missing tool name: %q", msg)
+	}
+
+	res = s.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
+		"urgency_overrides_clear": true,
+	}))
+	if res == nil || !res.IsError {
+		t.Fatal("expected blocked-field error for urgency_overrides_clear")
+	}
+	msg = toolErrorMsg(t, res)
+	if !strings.Contains(msg, "urgency_overrides_clear") {
+		t.Errorf("message missing field name: %q", msg)
+	}
+}
+
 func toolErrorMsg(t *testing.T, res *mcp.CallToolResult) string {
 	t.Helper()
 	if len(res.Content) == 0 {
