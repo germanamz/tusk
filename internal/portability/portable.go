@@ -63,13 +63,14 @@ type PortableWorkflowTransition struct {
 
 // PortableProject mirrors domain.Project.
 type PortableProject struct {
-	ID         uuid.UUID               `json:"id"`
-	Name       string                  `json:"name"`
-	WorkflowID uuid.UUID               `json:"workflow_id"`
-	Settings   PortableProjectSettings `json:"settings"`
-	Version    int                     `json:"version"`
-	CreatedAt  time.Time               `json:"created_at"`
-	UpdatedAt  time.Time               `json:"updated_at"`
+	ID          uuid.UUID               `json:"id"`
+	Name        string                  `json:"name"`
+	WorkflowID  uuid.UUID               `json:"workflow_id"`
+	Description string                  `json:"description"`
+	Settings    PortableProjectSettings `json:"settings"`
+	Version     int                     `json:"version"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
 }
 
 // PortableProjectSettings mirrors domain.ProjectSettings field-for-field.

@@ -69,9 +69,10 @@ func buildFullWorkspace() *PortableWorkspace {
 			UpdatedAt: updatedAt,
 		}},
 		Projects: []PortableProject{{
-			ID:         projID,
-			Name:       "alpha",
-			WorkflowID: wfID,
+			ID:          projID,
+			Name:        "alpha",
+			WorkflowID:  wfID,
+			Description: "Alpha project blurb\nwith a second line",
 			Settings: PortableProjectSettings{
 				AutoCompleteParent: &PortableAutoCompleteConfig{TriggerStatus: "completed", TargetStatus: "completed"},
 				AutoRevertParent:   &PortableAutoRevertConfig{TriggerStatus: "active", TargetStatus: "active"},

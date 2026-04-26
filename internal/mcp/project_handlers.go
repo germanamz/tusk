@@ -210,10 +210,13 @@ func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolReques
 		Urgency:            urgency,
 	}
 
+	desc, _ := args["description"].(string)
+
 	p, err := s.projectSvc.Create(ctx, service.CreateProjectInput{
-		Name:       name,
-		WorkflowID: wf.ID,
-		Settings:   settings,
+		Name:        name,
+		WorkflowID:  wf.ID,
+		Description: desc,
+		Settings:    settings,
 	})
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -256,6 +259,19 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 		}
 		id := wf.ID
 		input.WorkflowID = &id
+	}
+
+	if rawDesc, present := args["description"]; present {
+		descStr, ok := rawDesc.(string)
+		if !ok {
+			return mcp.NewToolResultError("description: expected string"), nil
+		}
+		var inner *string
+		if descStr != "" {
+			s := descStr
+			inner = &s
+		}
+		input.Description = &inner
 	}
 
 	setWeights, err := parseFloatMap(args["urgency_set"])

@@ -78,25 +78,27 @@ func workflowFromPortable(p portability.PortableWorkflow) *domain.Workflow {
 // corrupting the live workspace.
 func projectToPortable(p *domain.Project) portability.PortableProject {
 	return portability.PortableProject{
-		ID:         p.ID,
-		Name:       p.Name,
-		WorkflowID: p.WorkflowID,
-		Settings:   projectSettingsToPortable(p.Settings),
-		Version:    p.Version,
-		CreatedAt:  p.CreatedAt,
-		UpdatedAt:  p.UpdatedAt,
+		ID:          p.ID,
+		Name:        p.Name,
+		WorkflowID:  p.WorkflowID,
+		Description: p.Description,
+		Settings:    projectSettingsToPortable(p.Settings),
+		Version:     p.Version,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
 	}
 }
 
 func projectFromPortable(p portability.PortableProject) *domain.Project {
 	return &domain.Project{
-		ID:         p.ID,
-		Name:       p.Name,
-		WorkflowID: p.WorkflowID,
-		Settings:   projectSettingsFromPortable(p.Settings),
-		Version:    p.Version,
-		CreatedAt:  p.CreatedAt,
-		UpdatedAt:  p.UpdatedAt,
+		ID:          p.ID,
+		Name:        p.Name,
+		WorkflowID:  p.WorkflowID,
+		Description: p.Description,
+		Settings:    projectSettingsFromPortable(p.Settings),
+		Version:     p.Version,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
 	}
 }
 

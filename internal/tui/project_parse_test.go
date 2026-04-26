@@ -40,6 +40,52 @@ func TestParseProjectCreate_AutoCompleteAndUrgency(t *testing.T) {
 	}
 }
 
+func TestParseProjectCreate_Description(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "plain", args: []string{"workflow=kanban", `description="plain text"`}, want: "plain text"},
+		{name: "empty", args: []string{"workflow=kanban", "description="}, want: ""},
+		{name: "omitted", args: []string{"workflow=kanban"}, want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := parseProjectCreate(tc.args)
+			if err != nil {
+				t.Fatalf("parseProjectCreate: %v", err)
+			}
+			if out.Description != tc.want {
+				t.Fatalf("description = %q, want %q", out.Description, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseProjectCreate_DescriptionFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vision.md")
+	const body = "# vision\nbody text"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	out, err := parseProjectCreate([]string{"workflow=kanban", "description=@" + path})
+	if err != nil {
+		t.Fatalf("parseProjectCreate: %v", err)
+	}
+	if out.Description != "@"+path {
+		t.Fatalf("parser captured Description = %q, want literal %q (expansion happens at RunE)", out.Description, "@"+path)
+	}
+	expanded, err := expandRefs(out.Description, nil, 1<<20)
+	if err != nil {
+		t.Fatalf("expandRefs: %v", err)
+	}
+	if expanded != body {
+		t.Fatalf("expanded = %q, want %q", expanded, body)
+	}
+}
+
 func TestParseProjectCreate_RejectsModifier(t *testing.T) {
 	_, err := parseProjectCreate([]string{"+workflow=kanban"})
 	if err == nil {
@@ -84,6 +130,61 @@ func TestParseProjectModify_DeltaOnNonUrgencyRejected(t *testing.T) {
 	_, err := parseProjectModify([]string{"+workflow=sprint"})
 	if err == nil {
 		t.Fatal("expected rejection of modifier on workflow")
+	}
+}
+
+func TestParseProjectModify_DescriptionSet(t *testing.T) {
+	mut, err := parseProjectModify([]string{`description="new text"`})
+	if err != nil {
+		t.Fatalf("parseProjectModify: %v", err)
+	}
+	if mut.Description == nil {
+		t.Fatal("Description outer pointer is nil")
+	}
+	if *mut.Description == nil {
+		t.Fatal("Description inner pointer is nil; expected non-nil for set")
+	}
+	if **mut.Description != "new text" {
+		t.Fatalf("Description = %q, want %q", **mut.Description, "new text")
+	}
+}
+
+func TestParseProjectModify_DescriptionClear(t *testing.T) {
+	mut, err := parseProjectModify([]string{"description="})
+	if err != nil {
+		t.Fatalf("parseProjectModify: %v", err)
+	}
+	if mut.Description == nil {
+		t.Fatal("Description outer pointer is nil; expected non-nil for clear")
+	}
+	if *mut.Description != nil {
+		t.Fatalf("Description inner = %v, want nil for clear", *mut.Description)
+	}
+}
+
+func TestParseProjectModify_DescriptionFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vision.md")
+	const body = "updated body"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	mut, err := parseProjectModify([]string{"description=@" + path})
+	if err != nil {
+		t.Fatalf("parseProjectModify: %v", err)
+	}
+	if mut.Description == nil || *mut.Description == nil {
+		t.Fatalf("Description not set: %+v", mut.Description)
+	}
+	if **mut.Description != "@"+path {
+		t.Fatalf("parser captured Description = %q, want literal %q (expansion happens at RunE)", **mut.Description, "@"+path)
+	}
+	expanded, err := expandRefs(**mut.Description, nil, 1<<20)
+	if err != nil {
+		t.Fatalf("expandRefs: %v", err)
+	}
+	if expanded != body {
+		t.Fatalf("expanded = %q, want %q", expanded, body)
 	}
 }
 
@@ -201,16 +302,16 @@ func TestParseProjectModify_TaxonomyInvalidInline(t *testing.T) {
 	}
 }
 
-func TestExpandTaxonomyRefs_FileExpansion(t *testing.T) {
+func TestExpandProjectFieldRefs_TaxonomyFileExpansion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "taxonomy.json")
 	if err := os.WriteFile(path, []byte(`{"ranks":[["milestone"],["story"]]}`), 0o644); err != nil {
 		t.Fatalf("writing file: %v", err)
 	}
 
-	expanded, err := expandTaxonomyRefs([]string{"taxonomy=@" + path}, nil, 1<<20)
+	expanded, err := expandProjectFieldRefs([]string{"taxonomy=@" + path}, nil, 1<<20)
 	if err != nil {
-		t.Fatalf("expandTaxonomyRefs: %v", err)
+		t.Fatalf("expandProjectFieldRefs: %v", err)
 	}
 	if len(expanded) != 1 {
 		t.Fatalf("expected 1 arg, got %d", len(expanded))

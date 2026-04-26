@@ -90,6 +90,74 @@ func TestHandleProjectCreate_UnknownWorkflow(t *testing.T) {
 	}
 }
 
+func TestHandleProjectCreateModify_Description(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+	writeMinimalConfig(t, path)
+	srv := newTestServer(t, path)
+
+	const desc = "the backend project"
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":        "backend",
+			"workflow":    "kanban",
+			"description": desc,
+		}},
+	}
+	res, err := srv.HandleProjectCreateForTest(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("HandleProjectCreateForTest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("create error: %s", res.Content[0].(mcp.TextContent).Text)
+	}
+
+	body := res.Content[0].(mcp.TextContent).Text
+	var payload struct {
+		Project projectResponse `json:"project"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("decode create response: %v\n%s", err, body)
+	}
+	if payload.Project.Description != desc {
+		t.Fatalf("create response Description = %q, want %q", payload.Project.Description, desc)
+	}
+	if !strings.Contains(body, `"description"`) {
+		t.Fatalf("create response missing description key: %s", body)
+	}
+
+	p, err := srv.projectSvc.GetByName(context.Background(), "backend")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if p.Description != desc {
+		t.Fatalf("persisted Description = %q, want %q", p.Description, desc)
+	}
+
+	clearReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{
+			"name":        "backend",
+			"version":     float64(p.Version),
+			"description": "",
+		}},
+	}
+	res, err = srv.HandleProjectModifyForTest(context.Background(), clearReq)
+	if err != nil {
+		t.Fatalf("HandleProjectModifyForTest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("modify error: %s", res.Content[0].(mcp.TextContent).Text)
+	}
+
+	cleared, err := srv.projectSvc.GetByName(context.Background(), "backend")
+	if err != nil {
+		t.Fatalf("GetByName after clear: %v", err)
+	}
+	if cleared.Description != "" {
+		t.Fatalf("Description after clear = %q, want empty", cleared.Description)
+	}
+}
+
 func TestHandleProjectModify_SetAndDelta(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tusk.toml")

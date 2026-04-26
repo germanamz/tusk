@@ -134,14 +134,26 @@ func (a *App) runProjectCreate(cmd *cobra.Command, args []string) error {
 	if parsed.Workflow == "" {
 		return fmt.Errorf("project create requires workflow=<name>")
 	}
+	var stdinFile *os.File
+	if f, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = f
+	}
+	if parsed.Description != "" {
+		expanded, err := a.expandRefs(parsed.Description, stdinFile)
+		if err != nil {
+			return fmt.Errorf("description: %w", err)
+		}
+		parsed.Description = expanded
+	}
 	wf, err := a.workflowSvc.GetByName(ctx, parsed.Workflow)
 	if err != nil {
 		return fmt.Errorf("resolving workflow %q: %w", parsed.Workflow, err)
 	}
 	if _, err := a.projectSvc.Create(ctx, service.CreateProjectInput{
-		Name:       name,
-		WorkflowID: wf.ID,
-		Settings:   parsed.Settings,
+		Name:        name,
+		WorkflowID:  wf.ID,
+		Description: parsed.Description,
+		Settings:    parsed.Settings,
 	}); err != nil {
 		return err
 	}
@@ -157,7 +169,7 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 	if f, ok := cmd.InOrStdin().(*os.File); ok {
 		stdinFile = f
 	}
-	expanded, err := expandTaxonomyRefs(args[1:], stdinFile, a.inlineCfg.MaxExpansionSize)
+	expanded, err := expandProjectFieldRefs(args[1:], stdinFile, a.inlineCfg.MaxExpansionSize)
 	if err != nil {
 		return err
 	}
@@ -166,6 +178,15 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if parsed.Description != nil && *parsed.Description != nil && **parsed.Description != "" {
+		state := &expandState{}
+		expandedDesc, err := a.expandRefsWithState(**parsed.Description, stdinFile, state)
+		if err != nil {
+			return fmt.Errorf("description: %w", err)
+		}
+		inner := &expandedDesc
+		parsed.Description = &inner
+	}
 	current, err := a.projectSvc.GetByName(ctx, name)
 	if err != nil {
 		return err
@@ -173,6 +194,7 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 	input := service.ModifyProjectInput{
 		Name:            name,
 		ExpectedVersion: current.Version,
+		Description:     parsed.Description,
 		AutoComplete:    parsed.AutoComplete,
 		AutoRevert:      parsed.AutoRevert,
 		Urgency: service.UrgencyMutation{
@@ -205,12 +227,11 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 	return r.renderProjectMutation("Modified", name)
 }
 
-// expandTaxonomyRefs pre-processes `taxonomy=@...` arguments so that
-// parseProjectModify receives the JSON body inline. The @ reference expander
-// only treats `@` at a word boundary; the value portion of a field always
-// starts at position 0 (a boundary), so splitting on the first `=` lets us
-// reuse the shared expander. Other arguments pass through untouched.
-func expandTaxonomyRefs(args []string, stdin *os.File, maxSize int64) ([]string, error) {
+// expandProjectFieldRefs pre-processes `taxonomy=@...` arguments so that the
+// modify parser receives the JSON body inline. Description references are not
+// expanded here — their content can contain whitespace which the lexer breaks
+// on; descriptions are expanded after parsing instead.
+func expandProjectFieldRefs(args []string, stdin *os.File, maxSize int64) ([]string, error) {
 	out := make([]string, len(args))
 	state := &expandState{}
 	for i, arg := range args {
@@ -223,7 +244,7 @@ func expandTaxonomyRefs(args []string, stdin *os.File, maxSize int64) ([]string,
 		if err != nil {
 			return nil, err
 		}
-		out[i] = "taxonomy=" + expanded
+		out[i] = key + "=" + expanded
 	}
 	return out, nil
 }

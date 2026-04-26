@@ -58,6 +58,9 @@ func RenderProjectsTOML(projects []*domain.Project, workflowsByID map[uuid.UUID]
 		}
 		fmt.Fprintf(&b, "\n[projects.%s]\n", tomlKey(p.Name))
 		fmt.Fprintf(&b, "workflow = %s\n", tomlString(wfName))
+		if p.Description != "" {
+			fmt.Fprintf(&b, "description = %s\n", tomlString(p.Description))
+		}
 
 		if p.Settings.AutoCompleteParent != nil {
 			fmt.Fprintf(&b, "\n[projects.%s.settings.auto_complete_parent]\n", tomlKey(p.Name))

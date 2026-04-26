@@ -1,6 +1,9 @@
 package e2e
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestProjectCreateAndList(t *testing.T) {
 	if binPath == "" {
@@ -24,6 +27,66 @@ func TestProjectCreateAndList(t *testing.T) {
 				t.Fatalf("list: %v\nstderr: %s", r.Err, r.Stderr)
 			}
 			assertContains(t, r.Stdout, "backend")
+		})
+	}
+}
+
+func TestProjectShowDescription(t *testing.T) {
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
+	for _, combo := range combos {
+		dbMode, format := combo[0], combo[1]
+		name := "show_description/" + dbMode + "/" + format
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			env := newEnv(t, binPath, dbMode, format)
+
+			const desc = "the project blurb"
+			r := env.Run("project", "create", "backend",
+				"workflow=kanban", `description="`+desc+`"`)
+			if r.Err != nil {
+				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			}
+
+			r = env.Run("project", "show", "backend")
+			if r.Err != nil {
+				t.Fatalf("show: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+			if format == "json" {
+				if !strings.Contains(r.Stdout, `"description"`) {
+					t.Fatalf("json output missing description key: %s", r.Stdout)
+				}
+				if !strings.Contains(r.Stdout, desc) {
+					t.Fatalf("json output missing description value %q: %s", desc, r.Stdout)
+				}
+			} else {
+				if !strings.Contains(r.Stdout, "Description:") {
+					t.Fatalf("text output missing Description label: %s", r.Stdout)
+				}
+				if !strings.Contains(r.Stdout, desc) {
+					t.Fatalf("text output missing description body %q: %s", desc, r.Stdout)
+				}
+			}
+
+			r = env.Run("project", "modify", "backend", "description=")
+			if r.Err != nil {
+				t.Fatalf("modify clear: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			}
+			r = env.Run("project", "show", "backend")
+			if r.Err != nil {
+				t.Fatalf("show after clear: %v\nstderr: %s", r.Err, r.Stderr)
+			}
+			if format == "json" {
+				if !strings.Contains(r.Stdout, `"description": ""`) {
+					t.Fatalf("json output should still emit empty description: %s", r.Stdout)
+				}
+			} else {
+				if strings.Contains(r.Stdout, "Description:") {
+					t.Fatalf("text output should omit Description block when empty: %s", r.Stdout)
+				}
+			}
 		})
 	}
 }

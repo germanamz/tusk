@@ -16,16 +16,18 @@ import (
 
 // projectJSON is the JSON serialization format for a project.
 type projectJSON struct {
-	ID       string                 `json:"id"`
-	Workflow string                 `json:"workflow"`
-	Settings domain.ProjectSettings `json:"settings"`
+	ID          string                 `json:"id"`
+	Workflow    string                 `json:"workflow"`
+	Description string                 `json:"description"`
+	Settings    domain.ProjectSettings `json:"settings"`
 }
 
 func toProjectJSON(p *domain.Project, workflowName string) projectJSON {
 	return projectJSON{
-		ID:       p.Name,
-		Workflow: workflowName,
-		Settings: p.Settings,
+		ID:          p.Name,
+		Workflow:    workflowName,
+		Description: p.Description,
+		Settings:    p.Settings,
 	}
 }
 
@@ -216,6 +218,16 @@ func (r *Renderer) renderProjectShow(p *domain.Project, workflowName string, tax
 
 	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Name:", 12), p.Name); err != nil {
 		return err
+	}
+	if p.Description != "" {
+		if _, err := fmt.Fprintln(r.w, r.paddedLabel("Description:", 12)); err != nil {
+			return err
+		}
+		for _, line := range strings.Split(p.Description, "\n") {
+			if _, err := fmt.Fprintf(r.w, "  %s\n", line); err != nil {
+				return err
+			}
+		}
 	}
 	if _, err := fmt.Fprintf(r.w, "%s %s\n", r.paddedLabel("Workflow:", 12), workflowName); err != nil {
 		return err
