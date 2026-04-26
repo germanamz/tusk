@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -181,49 +183,120 @@ func TestPortabilityService_RoundTripIntoEmptyWorkspace(t *testing.T) {
 		t.Fatalf("report.Tasks: got %d want %d", report.Tasks, len(dump.Tasks))
 	}
 
-	// Re-export from B and confirm key entities round-trip with their
-	// IDs and versions intact. We do not assert deep equality on the
-	// raw structs because the import emits its own workspace_imported
-	// event and its tuskVersion / ExportedAt header values are scoped
-	// to the receiving workspace.
 	dumpB, err := envB.port.Export(ctx)
 	if err != nil {
 		t.Fatalf("Export B: %v", err)
 	}
-	if got, want := len(dumpB.Tasks), len(dump.Tasks); got != want {
-		t.Fatalf("re-export task count: got %d want %d", got, want)
-	}
-	if got, want := len(dumpB.Relations), len(dump.Relations); got != want {
-		t.Fatalf("re-export relation count: got %d want %d", got, want)
-	}
-	if got, want := len(dumpB.Annotations), len(dump.Annotations); got != want {
-		t.Fatalf("re-export annotation count: got %d want %d", got, want)
-	}
-	if got, want := len(dumpB.Notes), len(dump.Notes); got != want {
-		t.Fatalf("re-export note count: got %d want %d", got, want)
+	assertWorkspaceDeepEqualModuloImport(t, dump, dumpB)
+}
+
+// assertWorkspaceDeepEqualModuloImport reports a test failure when any
+// per-entity slice fails reflect.DeepEqual after sorting by ID. It
+// excludes (a) the workspace-level ExportedAt and TuskVersion header
+// fields, which are scoped to the receiving workspace, and (b) the
+// EventWorkspaceImported event added by the import. Every other field —
+// IDs, timestamps, version on every task — must round-trip exactly.
+func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.PortableWorkspace) {
+	t.Helper()
+
+	wfWant := append([]portability.PortableWorkflow(nil), want.Workflows...)
+	wfGot := append([]portability.PortableWorkflow(nil), got.Workflows...)
+	sort.Slice(wfWant, func(i, j int) bool { return wfWant[i].ID.String() < wfWant[j].ID.String() })
+	sort.Slice(wfGot, func(i, j int) bool { return wfGot[i].ID.String() < wfGot[j].ID.String() })
+	if !reflect.DeepEqual(wfWant, wfGot) {
+		t.Errorf("workflows mismatch:\n want=%#v\n got=%#v", wfWant, wfGot)
 	}
 
-	bByID := make(map[uuid.UUID]portability.PortableTask, len(dumpB.Tasks))
-	for _, t := range dumpB.Tasks {
-		bByID[t.ID] = t
+	prWant := append([]portability.PortableProject(nil), want.Projects...)
+	prGot := append([]portability.PortableProject(nil), got.Projects...)
+	sort.Slice(prWant, func(i, j int) bool { return prWant[i].ID.String() < prWant[j].ID.String() })
+	sort.Slice(prGot, func(i, j int) bool { return prGot[i].ID.String() < prGot[j].ID.String() })
+	if !reflect.DeepEqual(prWant, prGot) {
+		t.Errorf("projects mismatch:\n want=%#v\n got=%#v", prWant, prGot)
 	}
-	for _, original := range dump.Tasks {
-		got, ok := bByID[original.ID]
-		if !ok {
-			t.Fatalf("task %s missing from re-export", original.ID)
-		}
-		if got.Version != original.Version {
-			t.Errorf("task %s version: got %d want %d", original.ID, got.Version, original.Version)
-		}
-		if got.Title != original.Title {
-			t.Errorf("task %s title: got %q want %q", original.ID, got.Title, original.Title)
-		}
-		if (got.ParentID == nil) != (original.ParentID == nil) {
-			t.Errorf("task %s parent presence drifted", original.ID)
-		} else if got.ParentID != nil && *got.ParentID != *original.ParentID {
-			t.Errorf("task %s parent id: got %s want %s", original.ID, *got.ParentID, *original.ParentID)
+
+	plWant := append([]portability.PortablePlayer(nil), want.Players...)
+	plGot := append([]portability.PortablePlayer(nil), got.Players...)
+	sort.Slice(plWant, func(i, j int) bool { return plWant[i].ID < plWant[j].ID })
+	sort.Slice(plGot, func(i, j int) bool { return plGot[i].ID < plGot[j].ID })
+	if !reflect.DeepEqual(plWant, plGot) {
+		t.Errorf("players mismatch:\n want=%#v\n got=%#v", plWant, plGot)
+	}
+
+	tgWant := append([]portability.PortableTag(nil), want.Tags...)
+	tgGot := append([]portability.PortableTag(nil), got.Tags...)
+	sort.Slice(tgWant, func(i, j int) bool { return tgWant[i].ID.String() < tgWant[j].ID.String() })
+	sort.Slice(tgGot, func(i, j int) bool { return tgGot[i].ID.String() < tgGot[j].ID.String() })
+	if !reflect.DeepEqual(tgWant, tgGot) {
+		t.Errorf("tags mismatch:\n want=%#v\n got=%#v", tgWant, tgGot)
+	}
+
+	tkWant := append([]portability.PortableTask(nil), want.Tasks...)
+	tkGot := append([]portability.PortableTask(nil), got.Tasks...)
+	sort.Slice(tkWant, func(i, j int) bool { return tkWant[i].ID.String() < tkWant[j].ID.String() })
+	sort.Slice(tkGot, func(i, j int) bool { return tkGot[i].ID.String() < tkGot[j].ID.String() })
+	for i := range tkWant {
+		sort.Strings(tkWant[i].Tags)
+	}
+	for i := range tkGot {
+		sort.Strings(tkGot[i].Tags)
+	}
+	if !reflect.DeepEqual(tkWant, tkGot) {
+		t.Errorf("tasks mismatch:\n want=%#v\n got=%#v", tkWant, tkGot)
+	}
+
+	rlWant := append([]portability.PortableRelation(nil), want.Relations...)
+	rlGot := append([]portability.PortableRelation(nil), got.Relations...)
+	sort.Slice(rlWant, func(i, j int) bool { return rlWant[i].ID.String() < rlWant[j].ID.String() })
+	sort.Slice(rlGot, func(i, j int) bool { return rlGot[i].ID.String() < rlGot[j].ID.String() })
+	if !reflect.DeepEqual(rlWant, rlGot) {
+		t.Errorf("relations mismatch:\n want=%#v\n got=%#v", rlWant, rlGot)
+	}
+
+	anWant := append([]portability.PortableAnnotation(nil), want.Annotations...)
+	anGot := append([]portability.PortableAnnotation(nil), got.Annotations...)
+	sort.Slice(anWant, func(i, j int) bool { return anWant[i].ID.String() < anWant[j].ID.String() })
+	sort.Slice(anGot, func(i, j int) bool { return anGot[i].ID.String() < anGot[j].ID.String() })
+	if !reflect.DeepEqual(anWant, anGot) {
+		t.Errorf("annotations mismatch:\n want=%#v\n got=%#v", anWant, anGot)
+	}
+
+	ntWant := append([]portability.PortableNote(nil), want.Notes...)
+	ntGot := append([]portability.PortableNote(nil), got.Notes...)
+	sort.Slice(ntWant, func(i, j int) bool { return ntWant[i].ID.String() < ntWant[j].ID.String() })
+	sort.Slice(ntGot, func(i, j int) bool { return ntGot[i].ID.String() < ntGot[j].ID.String() })
+	if !reflect.DeepEqual(ntWant, ntGot) {
+		t.Errorf("notes mismatch:\n want=%#v\n got=%#v", ntWant, ntGot)
+	}
+
+	evWant := filterOutImportEvent(want.Events)
+	evGot := filterOutImportEvent(got.Events)
+	sort.Slice(evWant, func(i, j int) bool {
+		return evWant[i].CreatedAt.Before(evWant[j].CreatedAt) || (evWant[i].CreatedAt.Equal(evWant[j].CreatedAt) && evWant[i].ID.String() < evWant[j].ID.String())
+	})
+	sort.Slice(evGot, func(i, j int) bool {
+		return evGot[i].CreatedAt.Before(evGot[j].CreatedAt) || (evGot[i].CreatedAt.Equal(evGot[j].CreatedAt) && evGot[i].ID.String() < evGot[j].ID.String())
+	})
+	if len(evWant) != len(evGot) {
+		t.Errorf("event count drift (excluding workspace_imported): want %d got %d", len(evWant), len(evGot))
+	} else {
+		for i := range evWant {
+			if evWant[i].ID != evGot[i].ID || evWant[i].Type != evGot[i].Type || !evWant[i].CreatedAt.Equal(evGot[i].CreatedAt) {
+				t.Errorf("event %d drift: want=%v got=%v", i, evWant[i], evGot[i])
+			}
 		}
 	}
+}
+
+func filterOutImportEvent(events []portability.PortableEvent) []portability.PortableEvent {
+	out := make([]portability.PortableEvent, 0, len(events))
+	for _, e := range events {
+		if e.Type == string(domain.EventWorkspaceImported) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func TestPortabilityService_StrictModeCollisionLeavesWorkspaceUnchanged(t *testing.T) {
@@ -558,6 +631,96 @@ func TestPortabilityService_WorkspaceImportedEventLandsOnce(t *testing.T) {
 	}
 	if payload.Counts["tasks"] != report.Tasks {
 		t.Errorf("counts.tasks: got %d want %d", payload.Counts["tasks"], report.Tasks)
+	}
+}
+
+// TestPortabilityService_ReplaceWithoutTruncatePreservesWorkflow asserts
+// the documented limitation: under --replace without --truncate, the
+// projects.workflow_id ON DELETE RESTRICT FK prevents a delete-then-
+// create of any referenced workflow. The apply pass deliberately skips
+// the workflow row in that case, so a dump that names the same kanban
+// workflow with a tweaked transition list leaves the live workflow
+// untouched. Faithful workflow replacement requires --truncate.
+func TestPortabilityService_ReplaceWithoutTruncatePreservesWorkflow(t *testing.T) {
+	env := newPortTestEnv(t)
+	ctx := WithActor(context.Background(), "test-player")
+
+	// Capture the current kanban workflow as the baseline for comparison.
+	originalWf, err := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
+	if err != nil {
+		t.Fatalf("loading kanban workflow: %v", err)
+	}
+
+	dump, err := env.port.Export(ctx)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	// Mutate the dump's workflow so a successful replace would visibly
+	// change the workspace.
+	for i := range dump.Workflows {
+		if dump.Workflows[i].ID == domain.KanbanWorkflowUUID {
+			dump.Workflows[i].Transitions = append(
+				dump.Workflows[i].Transitions,
+				portability.PortableWorkflowTransition{FromStatus: "deleted", ToStatus: "pending"},
+			)
+		}
+	}
+
+	if _, err := env.port.Import(ctx, dump, ImportOptions{Replace: true}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	current, err := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
+	if err != nil {
+		t.Fatalf("re-loading kanban workflow: %v", err)
+	}
+	if len(current.Transitions) != len(originalWf.Transitions) {
+		t.Errorf("workflow transitions changed without --truncate: was %d, now %d",
+			len(originalWf.Transitions), len(current.Transitions))
+	}
+	if current.Version != originalWf.Version {
+		t.Errorf("workflow version drifted without --truncate: was %d, now %d",
+			originalWf.Version, current.Version)
+	}
+}
+
+// TestPortabilityService_TruncateReplacesWorkflowFaithfully complements
+// the preserve-if-exists test above: the same dump with --truncate set
+// rewrites the workflow with the dump's payload because TruncateAll
+// wipes the workflows table before applyWorkflows runs.
+func TestPortabilityService_TruncateReplacesWorkflowFaithfully(t *testing.T) {
+	env := newPortTestEnv(t)
+	ctx := WithActor(context.Background(), "test-player")
+
+	dump, err := env.port.Export(ctx)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	want := append([]portability.PortableWorkflowTransition(nil),
+		portability.PortableWorkflowTransition{FromStatus: "deleted", ToStatus: "pending"})
+	for i := range dump.Workflows {
+		if dump.Workflows[i].ID == domain.KanbanWorkflowUUID {
+			dump.Workflows[i].Transitions = append(dump.Workflows[i].Transitions, want...)
+		}
+	}
+
+	if _, err := env.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	current, err := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
+	if err != nil {
+		t.Fatalf("loading workflow post-truncate: %v", err)
+	}
+	found := false
+	for _, tr := range current.Transitions {
+		if tr.FromStatus == "deleted" && tr.ToStatus == "pending" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected dump's deleted→pending transition to land under --truncate, got %v", current.Transitions)
 	}
 }
 
