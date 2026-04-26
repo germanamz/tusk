@@ -242,6 +242,24 @@ func (a *App) buildDimStatuses() map[string]bool {
 	return dim
 }
 
+// buildHighlightStatuses collects all highlight statuses from every workflow
+// config into a lookup set, mirroring buildDimStatuses.
+func (a *App) buildHighlightStatuses() map[string]bool {
+	workflows, err := a.workflowSvc.List(context.Background())
+	if err != nil {
+		return nil
+	}
+	highlight := make(map[string]bool)
+	for _, wf := range workflows {
+		for name, sc := range wf.Statuses {
+			if sc.HasRole(domain.RoleHighlight) {
+				highlight[name] = true
+			}
+		}
+	}
+	return highlight
+}
+
 // Run executes the Cobra command tree with the given arguments.
 func (a *App) Run(args []string) error {
 	a.root.SetArgs(args)

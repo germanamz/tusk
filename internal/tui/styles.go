@@ -21,17 +21,21 @@ type Styles struct {
 	Dim lipgloss.Style
 	// Header is used for table column headers (bold).
 	Header lipgloss.Style
+	// Bold is applied to inline highlight-role status segments (e.g. the
+	// rollup breakdown in `tusk task tree --rollup`).
+	Bold lipgloss.Style
 }
 
 // Renderer encapsulates output formatting and styling for CLI commands.
 type Renderer struct {
-	w               io.Writer
-	format          string // "text" or "json"
-	color           bool
-	styles          *Styles // nil when color=false
-	dimStatuses     map[string]bool
-	projectNames    func(uuid.UUID) string
-	taxonomyForTask func(uuid.UUID) bool
+	w                 io.Writer
+	format            string // "text" or "json"
+	color             bool
+	styles            *Styles // nil when color=false
+	dimStatuses       map[string]bool
+	highlightStatuses map[string]bool
+	projectNames      func(uuid.UUID) string
+	taxonomyForTask   func(uuid.UUID) bool
 }
 
 // SetProjectNameResolver wires a function that resolves project UUIDs to
@@ -85,6 +89,13 @@ func NewRenderer(w io.Writer, format string, color bool, dimStatuses map[string]
 // isDimStatus returns true if the given status should be rendered faint.
 func (r *Renderer) isDimStatus(status string) bool {
 	return r.styles != nil && r.dimStatuses[status]
+}
+
+// isHighlightStatus reports whether the given status carries the highlight
+// role in any configured workflow. Mirrors the dimStatuses lookup pattern;
+// the set is populated by the caller (e.g. runTree in --rollup mode).
+func (r *Renderer) isHighlightStatus(status string) bool {
+	return r.styles != nil && r.highlightStatuses[status]
 }
 
 // styledPriority returns the priority symbol with color applied if styles are active.
@@ -219,5 +230,6 @@ func newStyles() *Styles {
 		},
 		Dim:    lipgloss.NewStyle().Faint(true),
 		Header: lipgloss.NewStyle().Bold(true),
+		Bold:   lipgloss.NewStyle().Bold(true),
 	}
 }

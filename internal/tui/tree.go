@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -13,9 +14,14 @@ import (
 )
 
 // treeNode represents a task in the tree with its children.
+// Rollup is populated only when the caller asked for `--rollup`; nil means
+// "rollup not computed". A zero-value *Rollup is a legitimate state for a
+// leaf in --rollup mode and must stay distinguishable from "not computed",
+// hence the pointer.
 type treeNode struct {
 	Task     *domain.Task
 	Children []*treeNode
+	Rollup   *domain.Rollup
 }
 
 // buildTree constructs a tree from a flat list of tasks.
@@ -77,7 +83,39 @@ type treeNodeJSON struct {
 	ModifiedAt              string                `json:"modified_at"`
 	UrgencyOverrides        *urgencyOverridesJSON `json:"urgency_overrides,omitempty"`
 	EffectiveUrgencyWeights *urgencyWeightsJSON   `json:"effective_urgency_weights,omitempty"`
+	Rollup                  *rollupJSON           `json:"rollup,omitempty"`
 	Children                []treeNodeJSON        `json:"children"`
+}
+
+// rollupJSON is the JSON serialization format for a node's descendant Rollup.
+// Emitted only when --rollup is set; on every node — branch and leaf — so the
+// JSON shape stays uniform across the tree in rollup mode.
+type rollupJSON struct {
+	Done         int               `json:"done"`
+	Total        int               `json:"total"`
+	Percent      float64           `json:"percent"`
+	StatusCounts []statusCountJSON `json:"status_counts"`
+}
+
+// statusCountJSON is one entry in a rollup's status breakdown.
+type statusCountJSON struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// toRollupJSON converts a domain.Rollup to its JSON form. status_counts is
+// always a non-nil slice so it encodes as `[]` (not `null`) when empty.
+func toRollupJSON(roll domain.Rollup) rollupJSON {
+	counts := make([]statusCountJSON, 0, len(roll.StatusCounts))
+	for _, sc := range roll.StatusCounts {
+		counts = append(counts, statusCountJSON{Name: sc.Name, Count: sc.Count})
+	}
+	return rollupJSON{
+		Done:         roll.Done,
+		Total:        roll.Total,
+		Percent:      roll.Percent,
+		StatusCounts: counts,
+	}
 }
 
 // toTreeNodeJSON converts a treeNode to its JSON representation recursively.
@@ -116,6 +154,10 @@ func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
 	}
 	if t.EffectiveWeights != nil {
 		tj.EffectiveUrgencyWeights = toUrgencyWeightsJSON(*t.EffectiveWeights)
+	}
+	if node.Rollup != nil {
+		rj := toRollupJSON(*node.Rollup)
+		tj.Rollup = &rj
 	}
 	for i, child := range node.Children {
 		tj.Children[i] = r.toTreeNodeJSON(child)
@@ -165,6 +207,14 @@ func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 	if r.isDimStatus(node.Task.Status) {
 		line = r.styles.Dim.Render(line)
 	}
+	// Branch decoration for --rollup. Emitted only on visible branch nodes
+	// (len(Children) > 0). With --rollup the fetch is decoupled from --all
+	// in fetchTreeTasks, so node.Children mirrors the full DB structure
+	// (delete-role kids included), making len(Children) > 0 the correct
+	// "is a branch in the DB" check that matches the spec.
+	if node.Rollup != nil && len(node.Children) > 0 {
+		line += "  " + r.formatRollup(*node.Rollup)
+	}
 	if _, err := fmt.Fprintln(r.w, line); err != nil {
 		return err
 	}
@@ -176,6 +226,40 @@ func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 	return nil
 }
 
+// formatRollup renders the inline branch decoration for tree --rollup:
+//
+//	[done/total done, pct%] (status: count, ...)
+//
+// pct is rounded to the nearest integer; "–%" is emitted when Total == 0.
+// When color is enabled, status segments tagged with the highlight role get
+// bold styling and dim-role segments get faint styling.
+func (r *Renderer) formatRollup(roll domain.Rollup) string {
+	var pct string
+	if roll.Total == 0 {
+		pct = "–%"
+	} else {
+		pct = fmt.Sprintf("%d%%", int(math.Round(roll.Percent*100)))
+	}
+	progress := fmt.Sprintf("[%d/%d done, %s]", roll.Done, roll.Total, pct)
+
+	parts := make([]string, 0, len(roll.StatusCounts))
+	for _, sc := range roll.StatusCounts {
+		seg := fmt.Sprintf("%s: %d", sc.Name, sc.Count)
+		if r.styles != nil {
+			switch {
+			case r.isHighlightStatus(sc.Name):
+				seg = r.styles.Bold.Render(seg)
+			case r.isDimStatus(sc.Name):
+				seg = r.styles.Dim.Render(seg)
+			}
+		}
+		parts = append(parts, seg)
+	}
+	breakdown := "(" + strings.Join(parts, ", ") + ")"
+
+	return progress + " " + breakdown
+}
+
 // runTree handles the `tusk tree` and `tusk tree <short_id>` commands.
 func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
@@ -184,6 +268,8 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	if err := validateSortMode(sortMode); err != nil {
 		return err
 	}
+	rollup, _ := cmd.Flags().GetBool("rollup")
+	showAll, _ := cmd.Flags().GetBool("all")
 
 	var tasks []*domain.Task
 	var rootID *uuid.UUID
@@ -224,20 +310,133 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if rollup {
+		workflowFor, err := a.buildWorkflowLookup(ctx, tasks)
+		if err != nil {
+			return err
+		}
+		computeRollups(nodes, workflowFor)
+		// Per spec: --all controls rendering visibility; --rollup controls
+		// computation. When --rollup is set without --all we fetched the
+		// full subtree (so rollups are accurate) but must still hide
+		// delete-role nodes from rendering to match the --all=off
+		// experience. Rollups stay correct because they were computed
+		// before the prune.
+		if !showAll {
+			nodes = pruneDeleteRoleNodes(nodes, workflowFor)
+		}
+	}
+
 	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), a.buildDimStatuses())
+	if rollup {
+		r.highlightStatuses = a.buildHighlightStatuses()
+	}
 	return r.renderTree(nodes)
+}
+
+// buildWorkflowLookup resolves every distinct ProjectID in tasks to its
+// governing workflow and returns a closure suitable for AggregateRollup's
+// workflowFor parameter. A project that fails to resolve (deleted out from
+// under us, or its workflow vanished) maps to nil — AggregateRollup skips
+// those tasks rather than miscounting them.
+func (a *App) buildWorkflowLookup(ctx context.Context, tasks []*domain.Task) (func(*domain.Task) *domain.Workflow, error) {
+	if a.projectSvc == nil || a.workflowSvc == nil {
+		return func(*domain.Task) *domain.Workflow { return nil }, nil
+	}
+	wfByProject := make(map[uuid.UUID]*domain.Workflow)
+	for _, t := range tasks {
+		if t == nil {
+			continue
+		}
+		if _, ok := wfByProject[t.ProjectID]; ok {
+			continue
+		}
+		wfByProject[t.ProjectID] = nil
+		proj, err := a.projectSvc.GetByID(ctx, t.ProjectID)
+		if err != nil {
+			continue
+		}
+		wf, err := a.workflowSvc.GetByID(ctx, proj.WorkflowID)
+		if err != nil {
+			continue
+		}
+		wfByProject[t.ProjectID] = wf
+	}
+	return func(t *domain.Task) *domain.Workflow {
+		if t == nil {
+			return nil
+		}
+		return wfByProject[t.ProjectID]
+	}, nil
+}
+
+// computeRollups walks the tree depth-first and assigns a *Rollup to every
+// node, including leaves (which receive a zero-value rollup). Used only in
+// --rollup mode.
+func computeRollups(nodes []*treeNode, workflowFor func(*domain.Task) *domain.Workflow) {
+	for _, n := range nodes {
+		descendants := flattenDescendants(n)
+		roll := domain.AggregateRollup(descendants, workflowFor)
+		n.Rollup = &roll
+		computeRollups(n.Children, workflowFor)
+	}
+}
+
+// flattenDescendants returns the strict descendants of n (n's own task is
+// NOT included) in a flat slice via depth-first traversal.
+func flattenDescendants(n *treeNode) []*domain.Task {
+	var out []*domain.Task
+	for _, c := range n.Children {
+		out = append(out, c.Task)
+		out = append(out, flattenDescendants(c)...)
+	}
+	return out
+}
+
+// pruneDeleteRoleNodes removes nodes whose status carries the delete role
+// (and their entire subtrees) from the tree. workflowFor resolves a task
+// to its governing workflow; if it returns nil for a task, that task is
+// kept (we cannot classify it). Used in `--rollup` mode without `--all`
+// to keep rendering visibility aligned with the default tree view while
+// the rollup numbers (computed earlier) stay accurate.
+func pruneDeleteRoleNodes(nodes []*treeNode, workflowFor func(*domain.Task) *domain.Workflow) []*treeNode {
+	out := make([]*treeNode, 0, len(nodes))
+	for _, n := range nodes {
+		if isDeleteRoleTask(n.Task, workflowFor) {
+			continue
+		}
+		n.Children = pruneDeleteRoleNodes(n.Children, workflowFor)
+		out = append(out, n)
+	}
+	return out
+}
+
+func isDeleteRoleTask(t *domain.Task, workflowFor func(*domain.Task) *domain.Workflow) bool {
+	if t == nil {
+		return false
+	}
+	wf := workflowFor(t)
+	if wf == nil {
+		return false
+	}
+	cfg, ok := wf.Statuses[t.Status]
+	return ok && cfg.HasRole(domain.RoleDelete)
 }
 
 // fetchTreeTasks loads tasks for the tree view. rootID nil scopes the query
 // to the whole workspace; non-nil restricts the result set to descendants of
 // that task (the root itself is not included). By default excludes deleted
-// tasks; --all includes every status. Routes through TaskService.List so
+// tasks; --all includes every status. When --rollup is set we also fetch
+// every status (regardless of --all) so the aggregator sees the full subtree
+// and a delete-role-rooted branch does not silently hide its non-deleted
+// descendants from the rollup totals. Routes through TaskService.List so
 // Urgency is populated on every returned task.
 func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command, rootID *uuid.UUID) ([]*domain.Task, error) {
 	showAll, _ := cmd.Flags().GetBool("all")
+	rollup, _ := cmd.Flags().GetBool("rollup")
 
 	filter := domain.TaskFilter{RootID: rootID}
-	if !showAll {
+	if !showAll && !rollup {
 		filter.Statuses = []string{"pending", "active", "completed"}
 	}
 	return a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})

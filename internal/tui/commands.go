@@ -147,7 +147,9 @@ File expansion works on description=, title=, and any string field:
 		Short: "Display tasks as a tree hierarchy",
 		Long: `Show all tasks in a tree hierarchy. Optionally specify a short_id to show
 only that subtree. Siblings render in ascending sibling-order by default;
-pass --sort to switch.`,
+pass --sort to switch. Pass --rollup to annotate every branch node with a
+[done/total done, %] progress badge and a (status: count, ...) breakdown
+of its descendants; in JSON mode every node carries a rollup field.`,
 		Example: `  # Full task tree
   tusk task tree
 
@@ -158,12 +160,16 @@ pass --sort to switch.`,
   tusk task tree --all
 
   # Re-sort siblings by urgency
-  tusk task tree --sort urgency`,
+  tusk task tree --sort urgency
+
+  # Show progress rollup on every branch node
+  tusk task tree --rollup`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: a.runTree,
 	}
 	treeCmd.Flags().Bool("all", false, "include deleted tasks")
 	treeCmd.Flags().String("sort", "order", "sibling sort key: order|urgency|created|priority|due")
+	treeCmd.Flags().Bool("rollup", false, "annotate branch nodes with descendant rollup stats")
 
 	levelCheckCmd := &cobra.Command{
 		Use:   "level-check [filters...]",
