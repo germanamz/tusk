@@ -98,6 +98,19 @@ func TestNewClient_Notes(t *testing.T) {
 	}
 }
 
+func TestNewClient_Portability(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	client, err := NewClient(Config{DBPath: dbPath})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	if client.Portability == nil {
+		t.Fatal("Portability service should not be nil")
+	}
+}
+
 func TestClose(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	client, err := NewClient(Config{DBPath: dbPath})
