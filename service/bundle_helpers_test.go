@@ -30,6 +30,15 @@ func (w *testWriteTx) Events() repository.EventRepository {
 	return w.tx.Events(w.maxEvents, w.pruneSlack)
 }
 
+func (w *testWriteTx) Projects() repository.ProjectRepository       { return w.tx.Projects() }
+func (w *testWriteTx) Workflows() repository.WorkflowRepository     { return w.tx.Workflows() }
+func (w *testWriteTx) Players() repository.PlayerRepository         { return w.tx.Players() }
+func (w *testWriteTx) Tags() repository.TagRepository               { return w.tx.Tags() }
+func (w *testWriteTx) Annotations() repository.AnnotationRepository { return w.tx.Annotations() }
+func (w *testWriteTx) Notes() repository.NoteRepository             { return w.tx.Notes() }
+
+func (w *testWriteTx) TruncateAll(ctx context.Context) error { return w.tx.TruncateAll(ctx) }
+
 func (p *testWriteTxProvider) WithTx(ctx context.Context, fn func(tx WriteTx) error) error {
 	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
 		return fn(&testWriteTx{tx: stx, maxEvents: p.maxEvents, pruneSlack: p.pruneSlack})

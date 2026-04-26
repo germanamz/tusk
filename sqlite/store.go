@@ -97,11 +97,36 @@ func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
 // Projects returns a ProjectRepo operating within this transaction.
 func (t *Tx) Projects() *ProjectRepo { return NewProjectRepo(t.tx) }
 
+// Workflows returns a WorkflowRepo operating within this transaction.
+func (t *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(t.tx) }
+
+// Players returns a PlayerRepo operating within this transaction.
+func (t *Tx) Players() *PlayerRepo { return NewPlayerRepo(t.tx) }
+
 // Events returns an EventRepo operating within this transaction. The retention
 // parameters (maxEvents, pruneSlack) are attached at tx time because they are
 // transaction-scoped policy, not repository-scoped.
 func (t *Tx) Events(maxEvents, pruneSlack int) *EventRepo {
 	return NewEventRepo(t.tx, maxEvents, pruneSlack)
+}
+
+// TruncateAll wipes every entity table inside this transaction in
+// reverse-FK order. Used exclusively by the PortabilityService under
+// --replace --truncate. Each DELETE is issued as a raw `DELETE FROM
+// <table>` against t.tx — no per-row WHERE clauses, no version checks.
+// The single transaction wrapping the call rolls everything back
+// atomically on any error.
+func (t *Tx) TruncateAll(ctx context.Context) error {
+	tables := []string{
+		"events", "notes", "annotations", "relations", "tag_assignments",
+		"tasks", "projects", "workflows", "tags", "players",
+	}
+	for _, table := range tables {
+		if _, err := t.tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
+			return fmt.Errorf("truncating %s: %w", table, err)
+		}
+	}
+	return nil
 }
 
 // WithTx executes fn within a database transaction. If fn returns nil,
