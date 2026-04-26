@@ -25,26 +25,27 @@ type VersionInfo struct {
 
 // App holds the CLI's dependencies and Cobra command tree.
 type App struct {
-	taskSvc       *service.TaskService
-	tagSvc        *service.TagService
-	relationSvc   *service.RelationService
-	projectSvc    *service.ProjectService
-	workflowSvc   *service.WorkflowService
-	playerSvc     *service.PlayerService
-	noteSvc       *service.NoteService
-	workflowRepo  repository.WorkflowRepository
-	projectRepo   repository.ProjectRepository
-	urgencyEngine *service.UrgencyEngine
-	playerID      string // from --player flag
-	resolver      *filter.Resolver
-	root          *cobra.Command
-	format        string
-	noColor       bool
-	version       VersionInfo
-	tuiCfg        config.TUIConfig
-	mcpCfg        config.MCPConfig
-	inlineCfg     config.InlineConfig
-	loadOpts      []config.Option
+	taskSvc        *service.TaskService
+	tagSvc         *service.TagService
+	relationSvc    *service.RelationService
+	projectSvc     *service.ProjectService
+	workflowSvc    *service.WorkflowService
+	playerSvc      *service.PlayerService
+	noteSvc        *service.NoteService
+	portabilitySvc *service.PortabilityService
+	workflowRepo   repository.WorkflowRepository
+	projectRepo    repository.ProjectRepository
+	urgencyEngine  *service.UrgencyEngine
+	playerID       string // from --player flag
+	resolver       *filter.Resolver
+	root           *cobra.Command
+	format         string
+	noColor        bool
+	version        VersionInfo
+	tuiCfg         config.TUIConfig
+	mcpCfg         config.MCPConfig
+	inlineCfg      config.InlineConfig
+	loadOpts       []config.Option
 }
 
 // newRenderer creates a Renderer wired with a per-call project-name cache
@@ -107,6 +108,7 @@ func New(
 	workflowSvc *service.WorkflowService,
 	playerSvc *service.PlayerService,
 	noteSvc *service.NoteService,
+	portabilitySvc *service.PortabilityService,
 	workflowRepo repository.WorkflowRepository,
 	projectRepo repository.ProjectRepository,
 	urgencyEngine *service.UrgencyEngine,
@@ -117,21 +119,22 @@ func New(
 	loadOpts []config.Option,
 ) *App {
 	a := &App{
-		taskSvc:       taskSvc,
-		tagSvc:        tagSvc,
-		relationSvc:   relationSvc,
-		projectSvc:    projectSvc,
-		workflowSvc:   workflowSvc,
-		playerSvc:     playerSvc,
-		noteSvc:       noteSvc,
-		workflowRepo:  workflowRepo,
-		projectRepo:   projectRepo,
-		urgencyEngine: urgencyEngine,
-		version:       vi,
-		tuiCfg:        tuiCfg,
-		mcpCfg:        mcpCfg,
-		inlineCfg:     inlineCfg,
-		loadOpts:      loadOpts,
+		taskSvc:        taskSvc,
+		tagSvc:         tagSvc,
+		relationSvc:    relationSvc,
+		projectSvc:     projectSvc,
+		workflowSvc:    workflowSvc,
+		playerSvc:      playerSvc,
+		noteSvc:        noteSvc,
+		portabilitySvc: portabilitySvc,
+		workflowRepo:   workflowRepo,
+		projectRepo:    projectRepo,
+		urgencyEngine:  urgencyEngine,
+		version:        vi,
+		tuiCfg:         tuiCfg,
+		mcpCfg:         mcpCfg,
+		inlineCfg:      inlineCfg,
+		loadOpts:       loadOpts,
 	}
 	a.resolver = filter.NewResolver(taskSvc, projectSvc, collectNonTerminalStatuses(workflowSvc))
 
@@ -163,6 +166,8 @@ func New(
 	a.root.AddCommand(a.buildPlayerCmd())
 	a.root.AddCommand(a.buildNoteCmd())
 	a.root.AddCommand(a.buildConfigCmd())
+	a.root.AddCommand(a.buildExportCmd())
+	a.root.AddCommand(a.buildImportCmd())
 	a.root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print version information",

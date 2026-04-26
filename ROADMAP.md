@@ -968,7 +968,7 @@ Alongside the regrouping, v0.11 locks in a principle the CLI has been drifting t
 
 **Goal:** Make tusk usable as the source of truth for its own roadmap. Replace the hand-edited `ROADMAP.md` with a tusk project, regenerate a human-readable markdown view from tusk state, and give agents the observability and schema tools they need to plan against it.
 
-The milestone combines the foundational capabilities the self-host use case depends on — the Event Log, Task Level Taxonomy, and bidirectional Data Portability — with three capabilities that fall out of managing a roadmap inside tusk: sibling ordering, subtree urgency overrides, and a static progress rollup view. It closes with a one-shot migration from the existing `ROADMAP.md` so the milestone can be dogfooded before release.
+The milestone combines the foundational capabilities the self-host use case depends on — the Event Log, Task Level Taxonomy, and bidirectional JSON Data Portability — with three capabilities that fall out of managing a roadmap inside tusk: sibling ordering, subtree urgency overrides, and a static progress rollup view. The human-readable markdown renderer used to regenerate `ROADMAP.md` lives under the ROADMAP.md Migration initiative as an export-only `tusk task tree --format markdown`. The milestone closes with a one-shot migration from the existing `ROADMAP.md` so it can be dogfooded before release.
 
 **Exit criteria:** `ROADMAP.md` is regenerated from tusk state (never hand-edited) and every status update flows through `tusk task done` or equivalent.
 
@@ -1042,7 +1042,7 @@ The milestone combines the foundational capabilities the self-host use case depe
   - [x] `--resequence <parent>` rewrites a sibling group to evenly spaced integers when midpoints exhaust `float64` precision
   - [x] MCP tool `tusk_task_move` with the same semantics
 
-> **Note (v0.13):** The `order` field round-trips through export/import are tracked under the Data Portability initiative (JSON, Markdown, CSV stories) since they depend on those commands landing first.
+> **Note (v0.13):** The `order` field round-trip through `tusk export` / `tusk import` is tracked under the Data Portability initiative since it depends on those commands landing first.
 
 ### Initiative: Subtree Urgency Overrides
 
@@ -1083,43 +1083,50 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 ### Initiative: Data Portability
 
-> Bidirectional JSON and Markdown import and export, plus CSV export. Covers backup, migration, and keeping human-readable markdown docs in sync with tusk state.
+> Bidirectional JSON import and export. Covers backup, migration, and the v0.13 ROADMAP self-host. Markdown rendering lives under the ROADMAP.md Migration initiative; CSV is deferred (see blockquote below).
 
-- [ ] **Story: JSON export and import**
-  - [ ] `tusk export --format json [--output <path>]` writes a full workspace dump (tasks, relations, annotations, tags, players, notes, events, projects, workflows, taxonomies); stdout by default
-  - [ ] `tusk import --format json --input <path>` rehydrates the workspace with IDs, UDAs, and timestamps preserved
-  - [ ] `--replace` overwrites colliding rows; default is fail-on-collision
-  - [ ] `--dry-run` reports what would be imported without writing
-  - [ ] Import emits events so the operation appears in the event log
-  - [ ] Import runs `domain.TaxonomyValidator` on every task (both JSON and Markdown formats share this service-layer entry point); level violations reject the offending row with a `TaxonomyError`, matching the CLI and MCP enforcement paths
-  - [ ] Sibling `order` serializes as a JSON number (null preserved); import preserves exact values, treats `null` / missing key as "no opinion" (service auto-assigns)
+- [x] **Story: JSON export and import**
+  - [x] `tusk export [--output <path>]` writes a full workspace dump (workflows, projects, players, tags, tasks, relations, annotations, notes, events) to stdout by default; `--output <path>` writes atomically via `<path>.tmp` + rename
+  - [x] `tusk import --input <path>` rehydrates the workspace; `--input -` reads from stdin (TTY-guarded)
+  - [x] `--replace` overwrites collisions row-by-row; default is fail-on-collision
+  - [x] `--replace --truncate` wipes every entity table before applying the dump (wipe-and-restore mode); `--truncate` requires `--replace`
+  - [x] `--dry-run` runs the validation pass and reports counts without writing
+  - [x] Faithful semantics: IDs, timestamps, and version numbers preserved exactly; per-entity events are not emitted — one `workspace_imported` envelope event records the import
+  - [x] Pre-validation pass collects every issue (schema, FK, taxonomy, blocks-cycle, workflow well-formedness, collision) before any write so callers see the full picture in one round-trip
+  - [x] Apply pass runs in a single SQLite transaction so a failed import leaves no partial state
+  - [x] Envelope carries `schema_version: 1` + `tusk_version`; unknown `schema_version` is rejected with a structured error naming both the dump's value and the supported value
+  - [x] `domain.TaxonomyValidator` runs on every task; level violations reject the offending row with a `TaxonomyError`, matching the CLI and MCP enforcement paths
+  - [x] Sibling `order` serializes as a JSON number or `null`; import preserves exact values, treats `null` / missing key as "no opinion" (service auto-assigns)
+  - [x] **No `--format` flag** — JSON is the only format
 
-- [ ] **Story: Markdown export and import**
-  - [ ] `tusk export --format markdown [--output <path>]` writes a human-readable tree: heading per root task, nested bullets, checkboxes for status, inline UDAs for metadata (`uda.key=value`)
-  - [ ] `tusk import --format markdown --input <path>` parses the same dialect back into tasks, preserving hierarchy, status, and document-position order
-  - [ ] Fields that don't fit in the markdown shape (e.g., `urgency_overrides`, full event history) round-trip only through JSON — documented in the dialect reference
-  - [ ] Dialect rejection is strict: anything outside the exported shape fails on import with a pointer at the offending line
-  - [ ] Siblings emitted in `(order ASC NULLS LAST, created_at ASC)` sequence; import assigns dense integer `order` from document position (float precision is lost through the markdown carrier — documented behavior)
+- [x] **Story: PortabilityService and codec package**
+  - [x] `internal/portability/` package owns the JSON codec over a neutral `PortableWorkspace` value with no service-layer dependencies
+  - [x] `service.PortabilityService` orchestrates Export and Import; `Export` reads through the existing per-entity services and `Import` applies a dump inside a single `WriteTx`
+  - [x] `service.WriteTx` extended to surface every entity-kind accessor (`Workflows`, `Projects`, `Players`, `Tags`, `Tasks`, `Relations`, `Annotations`, `Notes`, `Events`) plus `TruncateAll`
+  - [x] `Client.Portability` exposes the same API to library consumers as the CLI uses
+  - [x] `domain.EventWorkspaceImported` event type + `domain.EntityWorkspace` entity-kind constant land in `domain/`; the existing event-log retention prunes them like any other event
 
-- [ ] **Story: CSV export**
-  - [ ] `tusk export --format csv [--output <path>]` flat tabular export of tasks for spreadsheet workflows (no import)
-  - [ ] Includes `order` column (float for non-null values, empty cell for NULL), placed after `priority` to match JSON/display order
-
-- [ ] **Story: MCP tools**
-  - [ ] `tusk_export` and `tusk_import` tools with format, input, output, dry-run, and replace parameters, gated through the v0.12 blocked-fields mechanism
+> **Deferred (not v0.13):** CSV export and import. JSON covers backup, migration, and the v0.13 ROADMAP self-host. CSV (in either direction) returns when there's a concrete spreadsheet-workflow demand: export needs a column-shape decision and lossy-field documentation; import additionally needs partial-row merge semantics, a story for how the lossy CSV shape interacts with `--replace`, and a CSV-specific validation pass.
 
 ### Initiative: ROADMAP.md Migration
 
 > One-shot bootstrap that moves the existing `ROADMAP.md` into a tusk workspace, so the milestone can be dogfooded before close. Script is throwaway — it lives in-repo only for the duration of v0.13.
 
+- [ ] **Story: Markdown rendering (export-only)**
+  - [ ] `tusk task tree --format markdown` extends the existing tree renderer; no top-level `tusk render` command and no markdown import path
+  - [ ] Dialect: H1 per project, H2 per root task, nested bullets for descendants, `[x]` for done-role statuses, inline `level=`, `priority=`, `due=`, `order=`, `uda.*=` tokens, trailing `+tag`
+  - [ ] `status=<name>` token emitted only for non-binary states (anything other than the initial pending and the done role); binary statuses use the `[x]` / ` ` checkbox alone
+  - [ ] Annotations and notes render as labeled child lists under their parent task
+  - [ ] `urgency_overrides`, `recurrence_rule`, `claimed_by` / `claimed_at`, and any future attachment fields are silently dropped — round-trip lives exclusively under the JSON portability codec
+
 - [ ] **Story: Migration script**
-  - [ ] `scripts/migrate-roadmap/main.go` parses `ROADMAP.md` headings, initiatives, stories, and tasks into the JSON import format (or hands the markdown file directly to `tusk import --format markdown`, whichever path lands first)
+  - [ ] `scripts/migrate-roadmap/main.go` parses `ROADMAP.md` headings, initiatives, stories, and tasks into the JSON import format
   - [ ] Emits `level` on every task following the self-host modeling convention
   - [ ] Preserves completion state (`[x]` → `completed`), hierarchy, and document-position ordering
-  - [ ] Verification step: re-exporting the migrated workspace to markdown matches the source within the round-trip guarantee
+  - [ ] Verification step: re-rendering the migrated workspace via `tusk task tree --format markdown` matches the source within the round-trip guarantee
 
 - [ ] **Story: Cutover**
-  - [ ] `ROADMAP.md` is regenerated from `tusk export --format markdown` and replaces the hand-edited file
+  - [ ] `ROADMAP.md` is regenerated from `tusk task tree --format markdown` and replaces the hand-edited file
   - [ ] Contributor docs updated to point at `tusk task` commands for roadmap edits instead of direct markdown edits
   - [ ] Migration script removed from the repo once cutover is stable
 
