@@ -1,6 +1,23 @@
 pre-commit:
   parallel: true
   commands:
+    branch-name:
+      # Validate branch naming early. Lives in pre-commit (not pre-push)
+      # because lefthook silently skips pre-push commands when the
+      # computed push-file set is empty (e.g. deletion-only or no-op
+      # pushes), which let a non-conforming branch name slip past until
+      # CI rejected it.
+      run: |
+        branch=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$branch" = "main" ]; then
+          exit 0
+        fi
+        if ! echo "$branch" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)/[a-z0-9]+(-[a-z0-9]+)*$'; then
+          echo "Branch name '$branch' does not match required pattern: <type>/<kebab-case-description>"
+          echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+          echo "Example: feat/add-filters, fix/null-pointer"
+          exit 1
+        fi
     gofmt:
       glob: "*.go"
       run: test -z "$(gofmt -l {staged_files})"
@@ -19,18 +36,3 @@ commit-msg:
   commands:
     conform:
       run: conform enforce --commit-msg-file {1}
-
-pre-push:
-  commands:
-    branch-name:
-      run: |
-        branch=$(git rev-parse --abbrev-ref HEAD)
-        if [ "$branch" = "main" ]; then
-          exit 0
-        fi
-        if ! echo "$branch" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)/[a-z0-9]+(-[a-z0-9]+)*$'; then
-          echo "Branch name '$branch' does not match required pattern: <type>/<kebab-case-description>"
-          echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
-          echo "Example: feat/add-filters, fix/null-pointer"
-          exit 1
-        fi
