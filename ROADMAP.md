@@ -1069,17 +1069,17 @@ The milestone combines the foundational capabilities the self-host use case depe
 
 > Static CLI summary views for per-subtree completion tracking. Live dashboard rollup is deferred to v0.15, where the event log can drive real-time updates without re-querying.
 
-- [ ] **Story: Rollup on tree view**
-  - [ ] `tusk task tree --rollup` — branch nodes render with `[done/total done, %]` and `(status: count, ...)` breakdown; leaf nodes unchanged
-  - [ ] Counters include all descendants at any depth — no WBS vocabulary baked in
-  - [ ] `%done` = `count(descendants with status having done role) / count(descendants with status not having delete role)` — leverages the status roles shipped in v0.9 so custom workflows work without extra configuration
+- [x] **Story: Rollup on tree view**
+  - [x] `tusk task tree --rollup` — branch nodes render with `[done/total done, %]` and `(status: count, ...)` breakdown; leaf nodes unchanged
+  - [x] Counters include all descendants at any depth — no WBS vocabulary baked in
+  - [x] `%done` = `count(descendants with status having done role) / count(descendants with status not having delete role)` — leverages the status roles shipped in v0.9 so custom workflows work without extra configuration
 
-- [ ] **Story: `tusk task summary` command**
-  - [ ] `tusk task summary <id>` — single-subtree block: title, status, `%done`, counts by status
-  - [ ] `tusk task summary` (no id) — workspace-wide rollup: one block per root task plus a totals line
-  - [ ] Accepts the same filter grammar as `task list` so scoped rollups (`tusk task summary level=story`) work without the feature itself knowing what `level` means
-  - [ ] `--output json` variant for agent consumption
-  - [ ] MCP tool `tusk_task_summary` mirrors the CLI
+- [x] **Story: `tusk task summary` command**
+  - [x] `tusk task summary <id>` — single-subtree block: title, status, `%done`, counts by status
+  - [x] `tusk task summary` (no id) — workspace-wide rollup: one block per root task plus a totals line
+  - [x] Accepts the same filter grammar as `task list` so scoped rollups (`tusk task summary level=story`) work without the feature itself knowing what `level` means
+  - [x] `--output json` variant for agent consumption
+  - [x] MCP tool `tusk_task_summary` mirrors the CLI
 
 ### Initiative: Data Portability
 
