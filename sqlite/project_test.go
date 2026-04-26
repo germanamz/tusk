@@ -41,6 +41,7 @@ func TestProjectRepo_CreateAndGetByID(t *testing.T) {
 	ctx := context.Background()
 
 	p := sampleProject("backend")
+	p.Description = "backend services and APIs"
 	if err := repo.Create(ctx, p); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -54,6 +55,46 @@ func TestProjectRepo_CreateAndGetByID(t *testing.T) {
 	}
 	if got.WorkflowID != defaultUUID {
 		t.Errorf("got workflow_id %v, want kanban UUID", got.WorkflowID)
+	}
+	if got.Description != "backend services and APIs" {
+		t.Errorf("got description %q, want %q", got.Description, "backend services and APIs")
+	}
+}
+
+func TestProjectRepo_Update_Description(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	ctx := context.Background()
+
+	p := sampleProject("backend")
+	if err := repo.Create(ctx, p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if p.Description != "" {
+		t.Fatalf("seeded description: got %q, want empty", p.Description)
+	}
+
+	p.Description = "vision text"
+	if err := repo.Update(ctx, p); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByName(ctx, "backend")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if got.Description != "vision text" {
+		t.Errorf("got description %q, want %q", got.Description, "vision text")
+	}
+}
+
+func TestProjectRepo_Default_HasEmptyDescription(t *testing.T) {
+	repo := newTestProjectRepo(t)
+	got, err := repo.GetByID(context.Background(), defaultUUID)
+	if err != nil {
+		t.Fatalf("GetByID _default: %v", err)
+	}
+	if got.Description != "" {
+		t.Errorf("_default description: got %q, want empty", got.Description)
 	}
 }
 
