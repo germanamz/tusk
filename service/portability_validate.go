@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/germanamz/tusk/internal/portability"
@@ -38,7 +39,7 @@ func (s *PortabilityService) validate(ctx context.Context, ws *portability.Porta
 	dumpIDs := newDumpIndex(ws)
 
 	issues = append(issues, s.checkReferentialIntegrity(ctx, ws, dumpIDs, opts)...)
-	issues = append(issues, s.checkTaxonomy(ctx, ws, dumpIDs)...)
+	issues = append(issues, s.checkTaxonomy(ctx, ws)...)
 	issues = append(issues, checkRelationCycles(ws.Relations)...)
 	issues = append(issues, checkWorkflowWellFormed(ws.Workflows)...)
 	if !opts.Truncate {
@@ -151,6 +152,10 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		_, err := s.players.GetByID(ctx, id)
 		return err == nil
 	}
+	var (
+		liveTagNames     map[string]struct{}
+		liveTagNamesOnce bool
+	)
 	tagNameExists := func(name string) bool {
 		if _, ok := idx.tagNames[name]; ok {
 			return true
@@ -158,19 +163,21 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		if !opts.Replace {
 			return false
 		}
-		// TagRepository has no GetByName on the service, but a tag with
-		// the same name + a different ID still satisfies a tags[] entry
-		// because the wire format keys task tags by name.
-		tags, err := s.tags.List(ctx)
-		if err != nil {
-			return false
-		}
-		for _, t := range tags {
-			if t.Name == name {
-				return true
+		// TagService has no GetByName helper, so prefetch the live tag
+		// set once and reuse it for every reference. Pulling the list
+		// per missing tag would be O(N×M) over the dump size.
+		if !liveTagNamesOnce {
+			liveTagNamesOnce = true
+			tags, err := s.tags.List(ctx)
+			if err == nil {
+				liveTagNames = make(map[string]struct{}, len(tags))
+				for _, t := range tags {
+					liveTagNames[t.Name] = struct{}{}
+				}
 			}
 		}
-		return false
+		_, ok := liveTagNames[name]
+		return ok
 	}
 
 	for _, t := range ws.Tasks {
@@ -279,7 +286,6 @@ func (s *PortabilityService) checkReferentialIntegrity(
 func (s *PortabilityService) checkTaxonomy(
 	ctx context.Context,
 	ws *portability.PortableWorkspace,
-	idx *dumpIndex,
 ) []portability.ImportIssue {
 	if len(ws.Tasks) == 0 {
 		return nil
@@ -353,7 +359,6 @@ func (s *PortabilityService) checkTaxonomy(
 			Message:    err.Error(),
 		})
 	}
-	_ = idx // reserved for cross-entity taxonomy checks; current spec only walks tasks.
 	return issues
 }
 
@@ -419,7 +424,7 @@ func checkRelationCycles(rels []portability.PortableRelation) []portability.Impo
 					Kind:       "cycle",
 					EntityKind: "relation",
 					EntityID:   edgeID.String(),
-					Message:    fmt.Sprintf("blocks cycle through %s", joinStrings(participants, " -> ")),
+					Message:    fmt.Sprintf("blocks cycle through %s", strings.Join(participants, " -> ")),
 				})
 			case stateDone:
 				continue
@@ -442,20 +447,6 @@ func checkRelationCycles(rels []portability.PortableRelation) []portability.Impo
 		dfs(root, nil)
 	}
 	return issues
-}
-
-func joinStrings(parts []string, sep string) string {
-	switch len(parts) {
-	case 0:
-		return ""
-	case 1:
-		return parts[0]
-	}
-	out := parts[0]
-	for _, s := range parts[1:] {
-		out += sep + s
-	}
-	return out
 }
 
 // checkWorkflowWellFormed validates each workflow against the same rules

@@ -495,7 +495,7 @@ func (s *PortabilityService) applyEvents(
 	if len(ws.Events) == 0 {
 		return nil
 	}
-	existing, err := tx.Events().List(ctx, eventListFilter())
+	existing, err := tx.Events().List(ctx, repository.EventFilter{})
 	if err != nil {
 		return fmt.Errorf("listing existing events: %w", err)
 	}
@@ -518,13 +518,6 @@ func (s *PortabilityService) applyEvents(
 		report.Events++
 	}
 	return nil
-}
-
-// eventListFilter returns an EventFilter that matches every row. Defined
-// as a helper because the empty-filter literal is verbose enough to be
-// noise inline.
-func eventListFilter() repository.EventFilter {
-	return repository.EventFilter{}
 }
 
 // recordImportEvent emits the workspace_imported event inside the apply
