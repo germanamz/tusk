@@ -507,6 +507,8 @@ Replace the four current stories with three narrowed stories:
 - **Story: CSV export** — unchanged from current text.
 - **Story: PortabilityService and codec package** — replaces the deleted "MCP tools" story; describes the `internal/portability/` package, the `service.PortabilityService`, the `WriteTx` extension, the `Client.Portability` exposure, and the `EventWorkspaceImported` / `EntityWorkspace` additions.
 
+Adds a `> **Deferred (not v0.13):** CSV import` blockquote at the bottom of the initiative — same pattern as the deferred-work note already used in the Task Level Taxonomy initiative (ROADMAP.md:1024). Body: *"CSV import is a future story. Editing tasks in a spreadsheet and pushing changes back requires partial-row merge semantics, a story for how the lossy CSV shape interacts with `--replace`, and a CSV-specific validation pass — none of which the v0.13 use cases need. The CSV column set defined in this initiative is the export contract; the import story will define how those columns map back."*
+
 Deletes the **Story: Markdown export and import** block entirely.
 
 ### Edit 2 — Reshape `Initiative: ROADMAP.md Migration` (ROADMAP.md:1111–1124)
@@ -540,10 +542,15 @@ Tightens the wording from "bidirectional Data Portability" to "bidirectional JSO
 
 ## Out of scope (explicitly)
 
+### Dropped permanently
+
+- Markdown import. (Markdown is a rendering format under ROADMAP.md Migration; JSON is the only import path.)
+- MCP `tusk_export` / `tusk_import` tools. (Data lifecycle is a CLI / human concern.)
+
+### Deferred to a later milestone
+
+- **CSV import.** This initiative ships CSV export only. CSV import is a future story (likely v0.14 or later) — the use case is "edit tasks in a spreadsheet, push the changes back" and it requires non-trivial design work that's not justified by current demand: how partial CSV rows merge with existing tasks, how the lossy CSV shape (no relations, no annotations, no urgency_overrides) interacts with `--replace` semantics, and whether CSV import gets its own validation pass distinct from JSON's. Tracked as a separate ROADMAP story (see ROADMAP edits below) so it surfaces in future planning.
 - Bidirectional sync between running tusk instances (separate v0.16+ initiative).
-- Markdown import (dropped permanently).
-- MCP `tusk_export` / `tusk_import` tools (dropped permanently).
-- CSV import (export only).
 - Schema conversion shims for old `schema_version` values (added when the schema first breaks).
 - Workspace-wide read locks on export (see "Known limitation").
 - Streaming codec for very large workspaces (current target: workspaces in the low-thousands range comfortably; revisit if dumps become memory-pressured).
