@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/sqlite"
 	"github.com/google/uuid"
 )
 
@@ -301,6 +302,106 @@ func TestSummarizeBlocks_FilterFull(t *testing.T) {
 	if rollA.Total != 2 || rollA.Done != 1 {
 		t.Fatalf("storyA full descendants want 1/2, got %d/%d (%v)", rollA.Done, rollA.Total, rollA.StatusCounts)
 	}
+}
+
+func TestSummarizeBlocks_FilterScopesByTag(t *testing.T) {
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	tagRepo := sqlite.NewTagRepo(env.store.DB())
+	urgent := &domain.Tag{ID: uuid.New(), Name: "urgent"}
+	if err := tagRepo.Create(ctx, urgent); err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+
+	// Two roots, each with two children. Only one child per root carries
+	// the urgent tag; SummarizeBlocks with +urgent and full=false must
+	// scope both block selection and descendant counting to urgent tasks.
+	rootA := newMinimalTask("Root A")
+	mustCreateTask(t, env.taskSvc, rootA)
+	if err := tagRepo.AssignToTask(ctx, rootA.ID, urgent.ID); err != nil {
+		t.Fatalf("tag rootA: %v", err)
+	}
+
+	urgentChild := makeChild(t, env.taskSvc, "urgent under A", rootA.ID)
+	if err := tagRepo.AssignToTask(ctx, urgentChild.ID, urgent.ID); err != nil {
+		t.Fatalf("tag urgent child: %v", err)
+	}
+	calmChild := makeChild(t, env.taskSvc, "calm under A", rootA.ID)
+	_ = calmChild
+
+	rootB := newMinimalTask("Root B (untagged)")
+	mustCreateTask(t, env.taskSvc, rootB)
+	makeChild(t, env.taskSvc, "calm under B", rootB.ID)
+
+	expr := &domain.TermFilter{TaskFilter: domain.TaskFilter{Tags: []string{"urgent"}}}
+
+	scoped, err := env.taskSvc.SummarizeBlocks(ctx, expr, false)
+	if err != nil {
+		t.Fatalf("SummarizeBlocks scoped: %v", err)
+	}
+	rollupByID := make(map[uuid.UUID]domain.Rollup, len(scoped))
+	for _, b := range scoped {
+		rollupByID[b.Task.ID] = b.Rollup
+	}
+	rollA, ok := rollupByID[rootA.ID]
+	if !ok {
+		t.Fatalf("rootA missing from scoped blocks: %v", blockShortIDs(scoped))
+	}
+	if rollA.Total != 1 {
+		t.Fatalf("descendant tag filter must drop calmChild: want Total=1, got %d (%+v)",
+			rollA.Total, rollA.StatusCounts)
+	}
+	if _, untaggedShown := rollupByID[rootB.ID]; untaggedShown {
+		t.Fatalf("rootB must not appear: blocks=%v", blockShortIDs(scoped))
+	}
+
+	full, err := env.taskSvc.SummarizeBlocks(ctx, expr, true)
+	if err != nil {
+		t.Fatalf("SummarizeBlocks full: %v", err)
+	}
+	rollupByID = make(map[uuid.UUID]domain.Rollup, len(full))
+	for _, b := range full {
+		rollupByID[b.Task.ID] = b.Rollup
+	}
+	rollA = rollupByID[rootA.ID]
+	if rollA.Total != 2 {
+		t.Fatalf("full=true must keep calmChild: want Total=2, got %d (%+v)",
+			rollA.Total, rollA.StatusCounts)
+	}
+}
+
+func TestSummarizeBlocks_FilterTreePredicateNoOpsForDescendants(t *testing.T) {
+	// tree=<X> selects blocks under X via the SQL evaluator. Each block's
+	// descendants are by definition also under X (transitivity), so the
+	// in-memory descendant pass treats RootID as match-all. Verifies that
+	// the spec'd behavior — "filter scopes both block selection AND
+	// descendant counting" — degenerates correctly when the predicate
+	// is structurally satisfied.
+	env := testTaskEnv(t)
+	ctx := context.Background()
+
+	root := newMinimalTask("Root")
+	mustCreateTask(t, env.taskSvc, root)
+
+	storyA := makeChild(t, env.taskSvc, "Story A", root.ID)
+	leaf := makeChild(t, env.taskSvc, "Leaf under A", storyA.ID)
+	_ = leaf
+
+	expr := &domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &root.ID}}
+	blocks, err := env.taskSvc.SummarizeBlocks(ctx, expr, false)
+	if err != nil {
+		t.Fatalf("SummarizeBlocks: %v", err)
+	}
+	for _, b := range blocks {
+		if b.Task.ID == storyA.ID {
+			if b.Rollup.Total != 1 {
+				t.Fatalf("storyA descendants under root must count leaf: want Total=1, got %d", b.Rollup.Total)
+			}
+			return
+		}
+	}
+	t.Fatalf("storyA missing from blocks: %v", blockShortIDs(blocks))
 }
 
 func TestSummarizeBlocks_EmptyResult(t *testing.T) {
