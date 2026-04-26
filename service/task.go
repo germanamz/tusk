@@ -718,6 +718,8 @@ func (s *TaskService) SummarizeBlocks(
 		return []*domain.SummaryBlock{}, nil
 	}
 
+	needTags := !full && blockFilter != nil && filterUsesTags(blockFilter)
+
 	out := make([]*domain.SummaryBlock, 0, len(blocks))
 	for _, block := range blocks {
 		descendants, err := bundle.Tasks.GetDescendants(ctx, block.ID)
@@ -725,9 +727,13 @@ func (s *TaskService) SummarizeBlocks(
 			return nil, fmt.Errorf("loading descendants for block %s: %w", block.ShortID, err)
 		}
 		if !full && blockFilter != nil {
+			tagsFor, err := descendantTagsLookup(ctx, bundle, descendants, needTags)
+			if err != nil {
+				return nil, fmt.Errorf("loading descendant tags for block %s: %w", block.ShortID, err)
+			}
 			filtered := descendants[:0]
 			for _, d := range descendants {
-				if domain.EvalFilter(blockFilter, d) {
+				if domain.EvalFilter(blockFilter, d, tagsFor) {
 					filtered = append(filtered, d)
 				}
 			}
@@ -796,6 +802,86 @@ func (s *TaskService) workflowsByProject(
 			return nil
 		}
 		return cache[t.ProjectID]
+	}, nil
+}
+
+// filterUsesTags reports whether expr references Tags or ExcludeTags
+// anywhere in its tree. Used to skip the tag batch-fetch in
+// SummarizeBlocks when descendant filtering doesn't need it.
+func filterUsesTags(expr domain.FilterExpr) bool {
+	switch e := expr.(type) {
+	case *domain.TermFilter:
+		return len(e.Tags) > 0 || len(e.ExcludeTags) > 0
+	case domain.TermFilter:
+		return len(e.Tags) > 0 || len(e.ExcludeTags) > 0
+	case *domain.AndFilter:
+		for _, c := range e.Children {
+			if filterUsesTags(c) {
+				return true
+			}
+		}
+	case domain.AndFilter:
+		for _, c := range e.Children {
+			if filterUsesTags(c) {
+				return true
+			}
+		}
+	case *domain.OrFilter:
+		for _, c := range e.Children {
+			if filterUsesTags(c) {
+				return true
+			}
+		}
+	case domain.OrFilter:
+		for _, c := range e.Children {
+			if filterUsesTags(c) {
+				return true
+			}
+		}
+	case *domain.NotFilter:
+		return filterUsesTags(e.Child)
+	case domain.NotFilter:
+		return filterUsesTags(e.Child)
+	}
+	return false
+}
+
+// descendantTagsLookup returns a closure that maps a task ID to its tag
+// names. When need is false, returns a nil closure so EvalFilter falls
+// through to its tag-match-all branch (saves the round-trip when no tag
+// predicate is in the filter).
+func descendantTagsLookup(
+	ctx context.Context,
+	bundle *RepoBundle,
+	descendants []*domain.Task,
+	need bool,
+) (func(uuid.UUID) []string, error) {
+	if !need || len(descendants) == 0 {
+		return nil, nil
+	}
+	ids := make([]uuid.UUID, 0, len(descendants))
+	for _, d := range descendants {
+		if d == nil {
+			continue
+		}
+		ids = append(ids, d.ID)
+	}
+	tagsByTask, err := bundle.Tags.GetTaskTagsBatch(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	cache := make(map[uuid.UUID][]string, len(tagsByTask))
+	for id, tags := range tagsByTask {
+		names := make([]string, 0, len(tags))
+		for _, t := range tags {
+			if t != nil {
+				names = append(names, t.Name)
+			}
+		}
+		cache[id] = names
+	}
+	return func(id uuid.UUID) []string {
+		return cache[id]
 	}, nil
 }
 

@@ -1,6 +1,10 @@
 package domain
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/google/uuid"
+)
 
 // EvalFilter evaluates a FilterExpr against a single Task in memory and
 // returns whether the task matches. The SQL-side evaluator in `sqlite/`
@@ -9,33 +13,44 @@ import "slices"
 //
 // Supported leaf predicates on TermFilter.TaskFilter:
 //
-//	ProjectID, ParentID, Statuses, Levels, PriorityMin, PriorityMax.
+//	ProjectID, ParentID, Statuses, Levels, PriorityMin, PriorityMax,
+//	Tags, ExcludeTags.
 //
-// Predicates that depend on data beyond the Task struct itself (Tags,
-// ExcludeTags, UDA, RootID) are not evaluated here: a TermFilter that
-// sets only such fields evaluates as match-all. Combined with other
-// supported predicates, the unsupported ones are simply ignored. The
-// SQL evaluator remains the source of truth when those predicates
-// actually need to constrain a result set.
-func EvalFilter(expr FilterExpr, t *Task) bool {
+// Tags / ExcludeTags require a non-nil tagsFor lookup. When tagsFor is
+// nil they evaluate as match-all so callers without a tag side-table
+// retain the prior "ignore tag predicates" behavior.
+//
+// RootID is treated as match-all here. The only caller is the
+// SummarizeBlocks descendant pass, where each task being evaluated is
+// already a descendant of a block that was itself selected by the same
+// RootID predicate via the SQL evaluator — so RootID is transitively
+// satisfied for every descendant we receive. Honoring it again would
+// require an in-memory ancestry walk.
+//
+// Predicates that depend on data the helper cannot see (UDA, due dates,
+// title/description substring) are not evaluated and effectively
+// match-all. Combined with supported predicates, the unsupported ones
+// are simply ignored. The SQL evaluator remains the source of truth
+// when those predicates actually need to constrain a result set.
+func EvalFilter(expr FilterExpr, t *Task, tagsFor func(uuid.UUID) []string) bool {
 	if expr == nil || t == nil {
 		return true
 	}
 	switch e := expr.(type) {
 	case *TermFilter:
-		return evalTerm(e.TaskFilter, t)
+		return evalTerm(e.TaskFilter, t, tagsFor)
 	case TermFilter:
-		return evalTerm(e.TaskFilter, t)
+		return evalTerm(e.TaskFilter, t, tagsFor)
 	case *AndFilter:
 		for _, child := range e.Children {
-			if !EvalFilter(child, t) {
+			if !EvalFilter(child, t, tagsFor) {
 				return false
 			}
 		}
 		return true
 	case AndFilter:
 		for _, child := range e.Children {
-			if !EvalFilter(child, t) {
+			if !EvalFilter(child, t, tagsFor) {
 				return false
 			}
 		}
@@ -45,7 +60,7 @@ func EvalFilter(expr FilterExpr, t *Task) bool {
 			return true
 		}
 		for _, child := range e.Children {
-			if EvalFilter(child, t) {
+			if EvalFilter(child, t, tagsFor) {
 				return true
 			}
 		}
@@ -55,20 +70,20 @@ func EvalFilter(expr FilterExpr, t *Task) bool {
 			return true
 		}
 		for _, child := range e.Children {
-			if EvalFilter(child, t) {
+			if EvalFilter(child, t, tagsFor) {
 				return true
 			}
 		}
 		return false
 	case *NotFilter:
-		return !EvalFilter(e.Child, t)
+		return !EvalFilter(e.Child, t, tagsFor)
 	case NotFilter:
-		return !EvalFilter(e.Child, t)
+		return !EvalFilter(e.Child, t, tagsFor)
 	}
 	return true
 }
 
-func evalTerm(f TaskFilter, t *Task) bool {
+func evalTerm(f TaskFilter, t *Task, tagsFor func(uuid.UUID) []string) bool {
 	if f.ProjectID != nil && t.ProjectID != *f.ProjectID {
 		return false
 	}
@@ -93,6 +108,19 @@ func evalTerm(f TaskFilter, t *Task) bool {
 	}
 	if f.PriorityMax != nil && t.Priority > *f.PriorityMax {
 		return false
+	}
+	if (len(f.Tags) > 0 || len(f.ExcludeTags) > 0) && tagsFor != nil {
+		taskTags := tagsFor(t.ID)
+		for _, want := range f.Tags {
+			if !slices.Contains(taskTags, want) {
+				return false
+			}
+		}
+		for _, exclude := range f.ExcludeTags {
+			if slices.Contains(taskTags, exclude) {
+				return false
+			}
+		}
 	}
 	return true
 }
