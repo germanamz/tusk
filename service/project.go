@@ -35,9 +35,10 @@ type ProjectDefaults struct {
 
 // CreateProjectInput describes a new project to be persisted.
 type CreateProjectInput struct {
-	Name       string
-	WorkflowID uuid.UUID
-	Settings   domain.ProjectSettings
+	Name        string
+	WorkflowID  uuid.UUID
+	Description string // TODO(phase-2): plumb description
+	Settings    domain.ProjectSettings
 }
 
 // UrgencyMutation describes urgency-weight changes for ModifyProjectInput.
@@ -69,6 +70,7 @@ type ModifyProjectInput struct {
 	WorkflowID      *uuid.UUID
 	AutoComplete    *domain.AutoCompleteConfig
 	AutoRevert      *domain.AutoRevertConfig
+	Description     **string // TODO(phase-2): plumb description
 	Urgency         UrgencyMutation
 	Taxonomy        *TaxonomyMutation
 }

@@ -15,7 +15,7 @@ import (
 
 var _ repository.ProjectRepository = (*ProjectRepo)(nil)
 
-const projectColumns = `id, name, workflow_id, settings, version, created_at, updated_at`
+const projectColumns = `id, name, workflow_id, description, settings, version, created_at, updated_at`
 
 // ProjectRepo implements project persistence using SQLite.
 type ProjectRepo struct {
@@ -35,8 +35,8 @@ func (r *ProjectRepo) Create(ctx context.Context, p *domain.Project) error {
 		return fmt.Errorf("marshaling settings: %w", err)
 	}
 	_, err = r.db.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO projects (%s) VALUES (?, ?, ?, ?, ?, ?, ?)`, projectColumns),
-		p.ID.String(), p.Name, p.WorkflowID.String(), string(settingsJSON), p.Version,
+		`INSERT INTO projects (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, projectColumns),
+		p.ID.String(), p.Name, p.WorkflowID.String(), p.Description, string(settingsJSON), p.Version,
 		p.CreatedAt.UTC().Format(timeFormat),
 		p.UpdatedAt.UTC().Format(timeFormat),
 	)
@@ -98,7 +98,7 @@ func scanProject(s projectScanner) (*domain.Project, error) {
 		createdAt    string
 		updatedAt    string
 	)
-	err := s.Scan(&idStr, &p.Name, &workflowStr, &settingsJSON, &p.Version, &createdAt, &updatedAt)
+	err := s.Scan(&idStr, &p.Name, &workflowStr, &p.Description, &settingsJSON, &p.Version, &createdAt, &updatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -138,10 +138,10 @@ func (r *ProjectRepo) Update(ctx context.Context, p *domain.Project) error {
 	nowStr := now.Format(timeFormat)
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE projects SET
-			name = ?, workflow_id = ?, settings = ?,
+			name = ?, workflow_id = ?, description = ?, settings = ?,
 			version = version + 1, updated_at = ?
 		WHERE id = ? AND version = ?`,
-		p.Name, p.WorkflowID.String(), string(settingsJSON), nowStr,
+		p.Name, p.WorkflowID.String(), p.Description, string(settingsJSON), nowStr,
 		p.ID.String(), p.Version,
 	)
 	if err != nil {
