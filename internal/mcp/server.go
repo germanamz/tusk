@@ -117,6 +117,7 @@ func (s *Server) validateConfig() error {
 		"tusk_task_move":       true,
 		"tusk_task_resequence": true,
 		"tusk_task_start":      true,
+		"tusk_task_summary":    true,
 		"tusk_task_done":       true,
 		"tusk_task_delete":     true,
 		"tusk_task_annotate":   true,
@@ -649,6 +650,53 @@ func (s *Server) registerTools() {
 		s.handleTaskTree,
 	)
 
+	s.addTool("task",
+		mcp.NewTool("tusk_task_summary",
+			mcp.WithDescription("Summarize task progress with descendant rollups. "+
+				"Returns one summary block per matching task, with done/total counts, "+
+				"% done, and a status breakdown. Single-id mode summarizes one subtree; "+
+				"filter mode picks blocks via filters; no args summarizes root tasks. "+
+				"Tasks whose status carries the 'delete' role are excluded entirely. "+
+				"The root of each block is NOT counted in its own rollup — the rollup "+
+				"describes strict descendants only."),
+			mcp.WithString("short_id",
+				mcp.Description("Single-subtree mode: summarize this task. When set, all filter params are ignored and 'full' is rejected."),
+			),
+			mcp.WithString("filter",
+				mcp.Description("Filter expression with AND/OR/NOT/parentheses support. When set, structured filter params are ignored."),
+			),
+			mcp.WithArray("status",
+				mcp.Description("Filter by status name (e.g. [\"pending\", \"active\"])"),
+				mcp.WithStringItems(),
+			),
+			mcp.WithNumber("priority_min", mcp.Description("Minimum priority (0-4)")),
+			mcp.WithNumber("priority_max", mcp.Description("Maximum priority (0-4)")),
+			mcp.WithString("project", mcp.Description("Filter by project name")),
+			mcp.WithArray("tags",
+				mcp.Description("Include tasks with these tags"),
+				mcp.WithStringItems(),
+			),
+			mcp.WithArray("exclude_tags",
+				mcp.Description("Exclude tasks with these tags"),
+				mcp.WithStringItems(),
+			),
+			mcp.WithString("due_after", mcp.Description("Tasks due after this ISO 8601 date")),
+			mcp.WithString("due_before", mcp.Description("Tasks due before this ISO 8601 date")),
+			mcp.WithString("parent", mcp.Description("Direct children of this task (short_id)")),
+			mcp.WithString("root", mcp.Description("All descendants of this task (short_id)")),
+			mcp.WithString("title", mcp.Description("Tasks whose title contains this substring (case-insensitive)")),
+			mcp.WithString("description", mcp.Description("Tasks whose description contains this substring (case-insensitive)")),
+			mcp.WithString("level", mcp.Description("Filter by level taxonomy name (e.g. \"story\")")),
+			mcp.WithBoolean("full",
+				mcp.Description("When true, the filter only selects blocks; descendants are counted across the full subtree under each block. Rejected in single-id mode."),
+			),
+			mcp.WithString("player_id",
+				mcp.Description("Player ID — updates last_seen_at if provided (no auto-register)"),
+			),
+		),
+		s.handleTaskSummary,
+	)
+
 	s.addTool("task", mcp.NewTool(
 		"tusk_task_next",
 		mcp.WithDescription("Get the highest-urgency actionable task (not waiting, not blocked)"),
@@ -988,4 +1036,4 @@ func (s *Server) ReloadConfigForTest(ctx context.Context) error {
 // WorkflowRepoForTest exposes the workflow repo handle for internal tests.
 func (s *Server) WorkflowRepoForTest() repository.WorkflowRepository { return s.workflowRepo }
 
-const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version. You can also inspect the active configuration via tusk_config_show and modify scalar config values via tusk_config_set (storage.* keys are read-only over MCP). Workflows can be created, modified, and deleted via tusk_workflow_create, tusk_workflow_modify, and tusk_workflow_delete using structured JSON inputs. Projects can be created, modified, and deleted via tusk_project_create, tusk_project_modify, and tusk_project_delete — deletion honors the built-in-default and referencing-tasks guards (pass force=true to bypass). Notes can be created, listed, and archived via tusk_note_add, tusk_note_list, and tusk_note_archive; notes are player-scoped and append-only (archive, don't edit).`
+const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version. Summarize task progress with descendant rollups via tusk_task_summary. You can also inspect the active configuration via tusk_config_show and modify scalar config values via tusk_config_set (storage.* keys are read-only over MCP). Workflows can be created, modified, and deleted via tusk_workflow_create, tusk_workflow_modify, and tusk_workflow_delete using structured JSON inputs. Projects can be created, modified, and deleted via tusk_project_create, tusk_project_modify, and tusk_project_delete — deletion honors the built-in-default and referencing-tasks guards (pass force=true to bypass). Notes can be created, listed, and archived via tusk_note_add, tusk_note_list, and tusk_note_archive; notes are player-scoped and append-only (archive, don't edit).`

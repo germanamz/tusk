@@ -445,6 +445,103 @@ func (s *Server) handleTaskNext(ctx context.Context, request mcp.CallToolRequest
 	return toolResultJSON(resp)
 }
 
+// buildTaskFilter constructs a domain.TaskFilter from a request's
+// structured filter params. It accepts a SUPERSET of the param keys any
+// individual tool registration exposes — each tool's MCP registration
+// (in server.go) controls which params are reachable. Unset / unknown
+// params are silently no-ops.
+//
+// On invalid input (malformed date, unresolvable project / parent /
+// root short_id) it returns a non-nil *mcp.CallToolResult that the
+// caller must surface as the tool's reply.
+func (s *Server) buildTaskFilter(ctx context.Context, request mcp.CallToolRequest) (*domain.TaskFilter, *mcp.CallToolResult) {
+	tf := &domain.TaskFilter{}
+
+	// Optional: status (string array)
+	if statuses := request.GetStringSlice("status", nil); len(statuses) > 0 {
+		tf.Statuses = statuses
+	}
+
+	// Optional: priority range
+	if pMin, err := request.RequireFloat("priority_min"); err == nil {
+		v := int(pMin)
+		tf.PriorityMin = &v
+	}
+	if pMax, err := request.RequireFloat("priority_max"); err == nil {
+		v := int(pMax)
+		tf.PriorityMax = &v
+	}
+
+	// Optional: project (by name)
+	if projectName, err := request.RequireString("project"); err == nil {
+		resolved, resolveErr := s.taskSvc.ResolveProjectName(ctx, projectName)
+		if resolveErr != nil {
+			return nil, toolError(resolveErr, "project "+projectName)
+		}
+		tf.ProjectID = &resolved
+	}
+
+	// Optional: tags include/exclude
+	if tags := request.GetStringSlice("tags", nil); len(tags) > 0 {
+		tf.Tags = tags
+	}
+	if exTags := request.GetStringSlice("exclude_tags", nil); len(exTags) > 0 {
+		tf.ExcludeTags = exTags
+	}
+
+	// Optional: due date range
+	if after, err := request.RequireString("due_after"); err == nil {
+		d, parseErr := time.Parse(time.RFC3339, after)
+		if parseErr != nil {
+			return nil, mcp.NewToolResultError("invalid due_after format, expected ISO 8601 (RFC3339)")
+		}
+		tf.DueAfter = &d
+	}
+	if before, err := request.RequireString("due_before"); err == nil {
+		d, parseErr := time.Parse(time.RFC3339, before)
+		if parseErr != nil {
+			return nil, mcp.NewToolResultError("invalid due_before format, expected ISO 8601 (RFC3339)")
+		}
+		tf.DueBefore = &d
+	}
+
+	// Optional: parent (direct children)
+	if parentShortID, err := request.RequireString("parent"); err == nil {
+		parent, lookupErr := s.taskSvc.GetByShortID(ctx, parentShortID)
+		if lookupErr != nil {
+			return nil, toolError(lookupErr, "parent task "+parentShortID)
+		}
+		tf.ParentID = &parent.ID
+	}
+
+	// Optional: root (all descendants)
+	if rootShortID, err := request.RequireString("root"); err == nil {
+		root, lookupErr := s.taskSvc.GetByShortID(ctx, rootShortID)
+		if lookupErr != nil {
+			return nil, toolError(lookupErr, "root task "+rootShortID)
+		}
+		tf.RootID = &root.ID
+	}
+
+	// Optional: title substring
+	if title, err := request.RequireString("title"); err == nil {
+		tf.TitleContains = &title
+	}
+
+	// Optional: description substring
+	if desc, err := request.RequireString("description"); err == nil {
+		tf.DescriptionContains = &desc
+	}
+
+	// Optional: level — single-value param maps to TaskFilter.Levels.
+	// Reachable only by tools that register the "level" parameter.
+	if level, err := request.RequireString("level"); err == nil && level != "" {
+		tf.Levels = []string{level}
+	}
+
+	return tf, nil
+}
+
 // handleTaskList handles the tusk_task_list tool.
 func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ctx = s.updatePlayerLiveness(ctx, request)
@@ -488,85 +585,12 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 		return toolResultJSON(results)
 	}
 
-	tf := domain.TaskFilter{}
-
-	// Optional: status (string array)
-	if statuses := request.GetStringSlice("status", nil); len(statuses) > 0 {
-		tf.Statuses = statuses
+	tf, errResult := s.buildTaskFilter(ctx, request)
+	if errResult != nil {
+		return errResult, nil
 	}
 
-	// Optional: priority range
-	if pMin, err := request.RequireFloat("priority_min"); err == nil {
-		v := int(pMin)
-		tf.PriorityMin = &v
-	}
-	if pMax, err := request.RequireFloat("priority_max"); err == nil {
-		v := int(pMax)
-		tf.PriorityMax = &v
-	}
-
-	// Optional: project (by name)
-	if projectName, err := request.RequireString("project"); err == nil {
-		resolved, resolveErr := s.taskSvc.ResolveProjectName(ctx, projectName)
-		if resolveErr != nil {
-			return toolError(resolveErr, "project "+projectName), nil
-		}
-		tf.ProjectID = &resolved
-	}
-
-	// Optional: tags include/exclude
-	if tags := request.GetStringSlice("tags", nil); len(tags) > 0 {
-		tf.Tags = tags
-	}
-	if exTags := request.GetStringSlice("exclude_tags", nil); len(exTags) > 0 {
-		tf.ExcludeTags = exTags
-	}
-
-	// Optional: due date range
-	if after, err := request.RequireString("due_after"); err == nil {
-		d, parseErr := time.Parse(time.RFC3339, after)
-		if parseErr != nil {
-			return mcp.NewToolResultError("invalid due_after format, expected ISO 8601 (RFC3339)"), nil
-		}
-		tf.DueAfter = &d
-	}
-	if before, err := request.RequireString("due_before"); err == nil {
-		d, parseErr := time.Parse(time.RFC3339, before)
-		if parseErr != nil {
-			return mcp.NewToolResultError("invalid due_before format, expected ISO 8601 (RFC3339)"), nil
-		}
-		tf.DueBefore = &d
-	}
-
-	// Optional: parent (direct children)
-	if parentShortID, err := request.RequireString("parent"); err == nil {
-		parent, lookupErr := s.taskSvc.GetByShortID(ctx, parentShortID)
-		if lookupErr != nil {
-			return toolError(lookupErr, "parent task "+parentShortID), nil
-		}
-		tf.ParentID = &parent.ID
-	}
-
-	// Optional: root (all descendants)
-	if rootShortID, err := request.RequireString("root"); err == nil {
-		root, lookupErr := s.taskSvc.GetByShortID(ctx, rootShortID)
-		if lookupErr != nil {
-			return toolError(lookupErr, "root task "+rootShortID), nil
-		}
-		tf.RootID = &root.ID
-	}
-
-	// Optional: title substring
-	if title, err := request.RequireString("title"); err == nil {
-		tf.TitleContains = &title
-	}
-
-	// Optional: description substring
-	if desc, err := request.RequireString("description"); err == nil {
-		tf.DescriptionContains = &desc
-	}
-
-	tasks, err := s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: tf})
+	tasks, err := s.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: *tf})
 	if err != nil {
 		return nil, err
 	}
@@ -588,6 +612,219 @@ func (s *Server) handleTaskList(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	return toolResultJSON(results)
+}
+
+// rollupResponse is the JSON-rendered shape of a domain.Rollup. Mirrors
+// the CLI envelope (internal/tui/summary.go).
+type rollupResponse struct {
+	Done         int                  `json:"done"`
+	Total        int                  `json:"total"`
+	Percent      float64              `json:"percent"`
+	StatusCounts []domain.StatusCount `json:"status_counts"`
+}
+
+// summaryBlockResponse pairs a task with its descendant rollup.
+type summaryBlockResponse struct {
+	Task   taskResponse   `json:"task"`
+	Rollup rollupResponse `json:"rollup"`
+}
+
+// summaryResponse is the wire envelope returned by tusk_task_summary.
+type summaryResponse struct {
+	Mode   string                 `json:"mode"`
+	Blocks []summaryBlockResponse `json:"blocks"`
+	Totals *rollupResponse        `json:"totals,omitempty"`
+}
+
+// toRollupResponse renders a domain.Rollup with status_counts forced to
+// an empty slice when nil. JSON consumers (especially TypeScript clients)
+// routinely choke on null arrays, so we always emit [].
+func toRollupResponse(r domain.Rollup) rollupResponse {
+	counts := r.StatusCounts
+	if counts == nil {
+		counts = []domain.StatusCount{}
+	}
+	return rollupResponse{
+		Done:         r.Done,
+		Total:        r.Total,
+		Percent:      r.Percent,
+		StatusCounts: counts,
+	}
+}
+
+// computeMCPTotals sums rollup counts across blocks, mirroring the CLI's
+// computeTotals (internal/tui/summary.go). Always returns a non-nil
+// pointer so the envelope's "totals" field is consistently present in
+// filter and roots modes. StatusCounts in the totals follow first-seen
+// order across blocks; same merging rule as domain.AggregateRollup.
+func computeMCPTotals(blocks []*domain.SummaryBlock) *domain.Rollup {
+	counts := make(map[string]int)
+	order := make([]string, 0)
+	seen := make(map[string]bool)
+
+	var done, total int
+	for _, b := range blocks {
+		if b == nil {
+			continue
+		}
+		done += b.Rollup.Done
+		total += b.Rollup.Total
+		for _, sc := range b.Rollup.StatusCounts {
+			if !seen[sc.Name] {
+				seen[sc.Name] = true
+				order = append(order, sc.Name)
+			}
+			counts[sc.Name] += sc.Count
+		}
+	}
+
+	statusCounts := make([]domain.StatusCount, 0, len(order))
+	for _, name := range order {
+		statusCounts = append(statusCounts, domain.StatusCount{Name: name, Count: counts[name]})
+	}
+
+	var percent float64
+	if total > 0 {
+		percent = float64(done) / float64(total)
+	}
+
+	return &domain.Rollup{
+		Done:         done,
+		Total:        total,
+		Percent:      percent,
+		StatusCounts: statusCounts,
+	}
+}
+
+// isEmptyTaskFilter reports whether tf has no fields set. Used to
+// distinguish "filter mode with empty filter" from "roots mode" (no
+// filter at all → blocks = root tasks). Reads only the fields
+// buildTaskFilter populates.
+func isEmptyTaskFilter(tf *domain.TaskFilter) bool {
+	if tf == nil {
+		return true
+	}
+	return tf.ProjectID == nil &&
+		tf.ParentID == nil &&
+		tf.RootID == nil &&
+		len(tf.Statuses) == 0 &&
+		len(tf.Levels) == 0 &&
+		len(tf.Tags) == 0 &&
+		len(tf.ExcludeTags) == 0 &&
+		tf.PriorityMin == nil &&
+		tf.PriorityMax == nil &&
+		tf.DueAfter == nil &&
+		tf.DueBefore == nil &&
+		tf.TitleContains == nil &&
+		tf.DescriptionContains == nil
+}
+
+// summaryToolResult builds the MCP JSON envelope for a summary response.
+// The envelope shape mirrors the CLI's `{mode, blocks[], totals?}`. Each
+// block's task is rendered through toTaskResponse so MCP consumers see
+// the same task fields tusk_task_list, tusk_task_get, etc. emit. Tags
+// are batch-fetched in one GetTaskTagsBatch call to avoid N+1.
+func (s *Server) summaryToolResult(
+	ctx context.Context,
+	mode string,
+	blocks []*domain.SummaryBlock,
+	totals *domain.Rollup,
+) (*mcp.CallToolResult, error) {
+	taskIDs := make([]uuid.UUID, 0, len(blocks))
+	for _, b := range blocks {
+		if b == nil || b.Task == nil {
+			continue
+		}
+		taskIDs = append(taskIDs, b.Task.ID)
+	}
+	tagsByTask, err := s.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	names := s.projectNames(ctx)
+
+	out := summaryResponse{
+		Mode:   mode,
+		Blocks: make([]summaryBlockResponse, 0, len(blocks)),
+	}
+	for _, b := range blocks {
+		if b == nil || b.Task == nil {
+			continue
+		}
+		out.Blocks = append(out.Blocks, summaryBlockResponse{
+			Task:   toTaskResponse(b.Task, tagsByTask[b.Task.ID], names),
+			Rollup: toRollupResponse(b.Rollup),
+		})
+	}
+	if totals != nil {
+		r := toRollupResponse(*totals)
+		out.Totals = &r
+	}
+	return toolResultJSON(out)
+}
+
+// handleTaskSummary handles the tusk_task_summary tool. Precedence:
+// short_id (single mode) > filter string > structured params > no
+// args (roots mode).
+func (s *Server) handleTaskSummary(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = s.updatePlayerLiveness(ctx, request)
+
+	// Single-id mode: short_id wins over everything.
+	if shortID, err := request.RequireString("short_id"); err == nil && shortID != "" {
+		if request.GetBool("full", false) {
+			return mcp.NewToolResultError("full is not valid in single-id mode"), nil
+		}
+		task, err := s.taskSvc.GetByShortID(ctx, shortID)
+		if err != nil {
+			return toolError(err, "task "+shortID), nil
+		}
+		block, err := s.taskSvc.SummarizeSubtree(ctx, task.ID)
+		if err != nil {
+			return nil, err
+		}
+		return s.summaryToolResult(ctx, "single", []*domain.SummaryBlock{block}, nil)
+	}
+
+	full := request.GetBool("full", false)
+
+	// Filter-string mode: parse + resolve, ignore structured params.
+	if filterStr, err := request.RequireString("filter"); err == nil && filterStr != "" {
+		expr, parseErrs := filter.ParseExpr(filterStr)
+		if len(parseErrs) > 0 {
+			return mcp.NewToolResultError("filter parse error: " + filter.FormatErrors(parseErrs)), nil
+		}
+		var filterExpr domain.FilterExpr
+		if expr != nil {
+			resolver := s.newResolver(ctx)
+			var resolveErrs []error
+			filterExpr, resolveErrs = resolver.ResolveExpr(ctx, expr)
+			if len(resolveErrs) > 0 {
+				return mcp.NewToolResultError(resolveErrs[0].Error()), nil
+			}
+		}
+		blocks, err := s.taskSvc.SummarizeBlocks(ctx, filterExpr, full)
+		if err != nil {
+			return nil, err
+		}
+		return s.summaryToolResult(ctx, "filter", blocks, computeMCPTotals(blocks))
+	}
+
+	// Structured-params mode (or no params at all → roots).
+	tf, errResult := s.buildTaskFilter(ctx, request)
+	if errResult != nil {
+		return errResult, nil
+	}
+	var filterExpr domain.FilterExpr
+	mode := "roots"
+	if !isEmptyTaskFilter(tf) {
+		filterExpr = &domain.TermFilter{TaskFilter: *tf}
+		mode = "filter"
+	}
+	blocks, err := s.taskSvc.SummarizeBlocks(ctx, filterExpr, full)
+	if err != nil {
+		return nil, err
+	}
+	return s.summaryToolResult(ctx, mode, blocks, computeMCPTotals(blocks))
 }
 
 // handleTaskModify handles the tusk_task_modify tool.
