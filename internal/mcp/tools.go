@@ -1345,6 +1345,7 @@ type projectSettingsResponse struct {
 type projectResponse struct {
 	ID                string                    `json:"id"`
 	Workflow          string                    `json:"workflow"`
+	Description       string                    `json:"description"`
 	Settings          projectSettingsResponse   `json:"settings"`
 	EffectiveTaxonomy effectiveTaxonomyResponse `json:"effective_taxonomy"`
 }
@@ -1384,9 +1385,10 @@ func (s *Server) toProjectResponse(p *domain.Project, workflowName string) proje
 		ranks = [][]string{}
 	}
 	return projectResponse{
-		ID:       p.Name,
-		Workflow: workflowName,
-		Settings: projectSettingsToResponse(p.Settings),
+		ID:          p.Name,
+		Workflow:    workflowName,
+		Description: p.Description,
+		Settings:    projectSettingsToResponse(p.Settings),
 		EffectiveTaxonomy: effectiveTaxonomyResponse{
 			Ranks:  ranks,
 			Source: taxonomySourceName(source),

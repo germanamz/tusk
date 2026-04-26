@@ -750,3 +750,55 @@ func TestPortabilityService_TruncateWithoutReplaceRejected(t *testing.T) {
 		t.Errorf("issue kind: got %q want schema", importErr.Issues[0].Kind)
 	}
 }
+
+func TestPortability_RoundTrip_ProjectDescription(t *testing.T) {
+	envA := newPortTestEnv(t)
+	ctx := WithActor(context.Background(), "test-player")
+
+	const desc = "alpha project description\nwith two lines"
+	wf, err := envA.wfSvc.GetByName(ctx, "kanban")
+	if err != nil {
+		t.Fatalf("resolving workflow: %v", err)
+	}
+	created, err := envA.projectSvc.Create(ctx, CreateProjectInput{
+		Name:        "alpha",
+		WorkflowID:  wf.ID,
+		Description: desc,
+	})
+	if err != nil {
+		t.Fatalf("seeding alpha: %v", err)
+	}
+	if created.Description != desc {
+		t.Fatalf("seed Description = %q, want %q", created.Description, desc)
+	}
+
+	dump, err := envA.port.Export(ctx)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	var found bool
+	for _, p := range dump.Projects {
+		if p.Name == "alpha" {
+			found = true
+			if p.Description != desc {
+				t.Fatalf("dump alpha Description = %q, want %q", p.Description, desc)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("alpha project missing from dump: %+v", dump.Projects)
+	}
+
+	envB := newPortTestEnv(t)
+	if _, err := envB.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	got, err := envB.projectSvc.GetByName(ctx, "alpha")
+	if err != nil {
+		t.Fatalf("GetByName after import: %v", err)
+	}
+	if got.Description != desc {
+		t.Fatalf("imported Description = %q, want %q", got.Description, desc)
+	}
+}

@@ -14,8 +14,9 @@ import (
 // projectCreateFields is the parser output for `tusk project create`. The
 // handler resolves Workflow (a name) to a UUID and builds a CreateProjectInput.
 type projectCreateFields struct {
-	Workflow string
-	Settings domain.ProjectSettings
+	Workflow    string
+	Description string
+	Settings    domain.ProjectSettings
 }
 
 // taxonomyAction captures how `tusk project modify` should update
@@ -35,6 +36,7 @@ const (
 // handler resolves Workflow (a name) to a UUID and builds a ModifyProjectInput.
 type projectModifyFields struct {
 	Workflow       *string
+	Description    **string
 	AutoComplete   *domain.AutoCompleteConfig
 	AutoRevert     *domain.AutoRevertConfig
 	UrgencySet     map[string]float64
@@ -88,6 +90,8 @@ func applyProjectCreateField(out *projectCreateFields, key, value string) error 
 	switch key {
 	case "workflow":
 		out.Workflow = value
+	case "description":
+		out.Description = value
 	case "auto-complete.trigger":
 		if out.Settings.AutoCompleteParent == nil {
 			out.Settings.AutoCompleteParent = &domain.AutoCompleteConfig{}
@@ -196,6 +200,15 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 		case "workflow":
 			v := f.Value
 			mut.Workflow = &v
+		case "description":
+			if f.Value == "" {
+				var inner *string
+				mut.Description = &inner
+			} else {
+				v := f.Value
+				inner := &v
+				mut.Description = &inner
+			}
 		case "auto-complete.trigger", "auto-complete.target":
 			if mut.AutoComplete == nil {
 				mut.AutoComplete = &domain.AutoCompleteConfig{}

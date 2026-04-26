@@ -117,6 +117,134 @@ func TestProjectService_EffectiveTaxonomy_ProjectOptOut(t *testing.T) {
 	}
 }
 
+func TestProjectService_Create_WithDescription(t *testing.T) {
+	_, projRepo, _ := sqlitetest.NewStore(t)
+	svc := NewProjectService(projRepo, nil, nil, ProjectDefaults{}, nil)
+	ctx := context.Background()
+
+	const desc = "hello world\nmulti-line"
+	created, err := svc.Create(ctx, CreateProjectInput{
+		Name:        "p1",
+		WorkflowID:  uuid.Nil,
+		Description: desc,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Description != desc {
+		t.Fatalf("created Description = %q, want %q", created.Description, desc)
+	}
+	got, err := svc.GetByName(ctx, "p1")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if got.Description != desc {
+		t.Fatalf("round-trip Description = %q, want %q", got.Description, desc)
+	}
+}
+
+func TestProjectService_Modify_SetDescription(t *testing.T) {
+	_, projRepo, _ := sqlitetest.NewStore(t)
+	svc := NewProjectService(projRepo, nil, nil, ProjectDefaults{}, nil)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, CreateProjectInput{Name: "p1", WorkflowID: uuid.Nil})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	desc := "the new description"
+	descPtr := &desc
+	updated, err := svc.Modify(ctx, ModifyProjectInput{
+		Name:            "p1",
+		ExpectedVersion: created.Version,
+		Description:     &descPtr,
+	})
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if updated.Description != desc {
+		t.Fatalf("updated Description = %q, want %q", updated.Description, desc)
+	}
+	got, err := svc.GetByName(ctx, "p1")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if got.Description != desc {
+		t.Fatalf("persisted Description = %q, want %q", got.Description, desc)
+	}
+}
+
+func TestProjectService_Modify_ClearDescription(t *testing.T) {
+	_, projRepo, _ := sqlitetest.NewStore(t)
+	svc := NewProjectService(projRepo, nil, nil, ProjectDefaults{}, nil)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, CreateProjectInput{
+		Name:        "p1",
+		WorkflowID:  uuid.Nil,
+		Description: "starts populated",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var inner *string // nil → clear
+	updated, err := svc.Modify(ctx, ModifyProjectInput{
+		Name:            "p1",
+		ExpectedVersion: created.Version,
+		Description:     &inner,
+	})
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if updated.Description != "" {
+		t.Fatalf("updated Description = %q, want empty", updated.Description)
+	}
+	got, err := svc.GetByName(ctx, "p1")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if got.Description != "" {
+		t.Fatalf("persisted Description = %q, want empty", got.Description)
+	}
+}
+
+func TestProjectService_Modify_LeaveDescription(t *testing.T) {
+	_, projRepo, _ := sqlitetest.NewStore(t)
+	svc := NewProjectService(projRepo, nil, nil, ProjectDefaults{}, nil)
+	ctx := context.Background()
+
+	const orig = "stays put"
+	created, err := svc.Create(ctx, CreateProjectInput{
+		Name:        "p1",
+		WorkflowID:  uuid.Nil,
+		Description: orig,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Outer nil → leave unchanged. Use a non-description mutation to ensure
+	// the Modify path actually exercises the persistence layer.
+	wf := uuid.Nil
+	updated, err := svc.Modify(ctx, ModifyProjectInput{
+		Name:            "p1",
+		ExpectedVersion: created.Version,
+		WorkflowID:      &wf,
+	})
+	if err != nil {
+		t.Fatalf("Modify: %v", err)
+	}
+	if updated.Description != orig {
+		t.Fatalf("updated Description = %q, want %q", updated.Description, orig)
+	}
+	got, err := svc.GetByName(ctx, "p1")
+	if err != nil {
+		t.Fatalf("GetByName: %v", err)
+	}
+	if got.Description != orig {
+		t.Fatalf("persisted Description = %q, want %q", got.Description, orig)
+	}
+}
+
 func TestProjectService_List(t *testing.T) {
 	svc := testProjectService(t)
 	ctx := context.Background()

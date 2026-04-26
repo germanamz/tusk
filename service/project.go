@@ -37,7 +37,7 @@ type ProjectDefaults struct {
 type CreateProjectInput struct {
 	Name        string
 	WorkflowID  uuid.UUID
-	Description string // TODO(phase-2): plumb description
+	Description string
 	Settings    domain.ProjectSettings
 }
 
@@ -70,7 +70,7 @@ type ModifyProjectInput struct {
 	WorkflowID      *uuid.UUID
 	AutoComplete    *domain.AutoCompleteConfig
 	AutoRevert      *domain.AutoRevertConfig
-	Description     **string // TODO(phase-2): plumb description
+	Description     **string
 	Urgency         UrgencyMutation
 	Taxonomy        *TaxonomyMutation
 }
@@ -175,13 +175,14 @@ func (s *ProjectService) Create(ctx context.Context, input CreateProjectInput) (
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	p := &domain.Project{
-		ID:         uuid.New(),
-		Name:       input.Name,
-		WorkflowID: input.WorkflowID,
-		Settings:   input.Settings,
-		Version:    1,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          uuid.New(),
+		Name:        input.Name,
+		WorkflowID:  input.WorkflowID,
+		Description: input.Description,
+		Settings:    input.Settings,
+		Version:     1,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := s.projectRepo.Create(ctx, p); err != nil {
 		return nil, fmt.Errorf("creating project %q: %w", input.Name, err)
@@ -208,6 +209,13 @@ func (s *ProjectService) Modify(ctx context.Context, input ModifyProjectInput) (
 
 	if input.WorkflowID != nil {
 		p.WorkflowID = *input.WorkflowID
+	}
+	if input.Description != nil {
+		if *input.Description == nil {
+			p.Description = ""
+		} else {
+			p.Description = **input.Description
+		}
 	}
 	if input.AutoComplete != nil {
 		ac := *input.AutoComplete
