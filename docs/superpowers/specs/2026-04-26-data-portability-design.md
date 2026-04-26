@@ -10,24 +10,26 @@
 
 ### In scope
 
-- `tusk export --format json [--output <path>]` — full workspace dump; stdout by default.
-- `tusk export --format csv [--output <path>]` — flat tabular task export.
-- `tusk import --format json --input <path>` — rehydrate workspace; `--replace` for row-level upsert; `--replace --truncate` for wipe-and-restore; `--dry-run` to preview.
-- New `internal/portability/` package owning the JSON and CSV codecs over a neutral `PortableWorkspace` value.
+- `tusk export [--output <path>]` — full workspace dump as JSON; stdout by default.
+- `tusk import --input <path>` — rehydrate workspace; `--replace` for row-level upsert; `--replace --truncate` for wipe-and-restore; `--dry-run` to preview.
+- New `internal/portability/` package owning the JSON codec over a neutral `PortableWorkspace` value.
 - New `service.PortabilityService` orchestrating Export and Import atomically through the existing repos.
 - New `domain.EventWorkspaceImported` event type + `domain.EntityWorkspace` entity-kind constant.
 - ROADMAP.md edits reflecting the narrowed initiative scope (see "ROADMAP.md edits" section below).
+
+JSON is the only format. The commands take no `--format` flag — if a second format ever lands, the flag will return then.
 
 ### Moved out
 
 - **Markdown rendering** moves under the `Initiative: ROADMAP.md Migration` block as `tusk task tree --format markdown` (export-only, thin renderer extending the existing tree renderer). Markdown import is dropped entirely.
 - **MCP `tusk_export` / `tusk_import` tools** are dropped. Data lifecycle is a CLI / human concern; agents do not back up or rehydrate workspaces.
+- **CSV export and import** are deferred. JSON covers backup, migration, and the v0.13 ROADMAP self-host. CSV (in either direction) returns when there's a concrete demand for spreadsheet workflows; deferring it now keeps the codec package, the CLI surface, and the test matrix tighter.
 
 ### Locked decisions (from the brainstorm)
 
 | Decision | Choice |
 |---|---|
-| Code home | Dedicated `internal/portability/` package (codecs) + new `service.PortabilityService` (orchestration). CLI commands are thin. |
+| Code home | Dedicated `internal/portability/` package (JSON codec) + new `service.PortabilityService` (orchestration). CLI commands are thin. |
 | Import semantics | **Faithful**: preserves IDs, `created_at`, `modified_at`, `version` exactly. Single `workspace_imported` envelope event, not per-entity events. |
 | Atomicity | Pre-validation pass collects every issue; apply pass runs inside one SQLite transaction. |
 | `--replace` | Row-level upsert on collision. |
@@ -42,14 +44,14 @@
 ```
 internal/tui (CLI)
         ↓
-service.PortabilityService    ←→    internal/portability/{json,csv}
+service.PortabilityService    ←→    internal/portability  (JSON codec)
         ↓                                    (pure codec, no DB knowledge)
 service.WriteTx + repositories
         ↓
 sqlite store
 ```
 
-The portability codecs know nothing about the database; the service knows nothing about the wire format. The CLI command picks the format, hands bytes to the codec, hands the resulting `PortableWorkspace` to the service.
+The portability codec knows nothing about the database; the service knows nothing about the wire format. The CLI command hands bytes to the codec, hands the resulting `PortableWorkspace` to the service.
 
 ### Package layout
 
@@ -58,11 +60,8 @@ The portability codecs know nothing about the database; the service knows nothin
 ```
 internal/portability/
   portable.go           # PortableWorkspace and per-entity DTOs (the neutral wire shape)
-  json/
-    encode.go           # PortableWorkspace → []byte (writer-based)
-    decode.go           # []byte → PortableWorkspace (single-pass parser, schema_version check)
-  csv/
-    encode.go           # PortableWorkspace.Tasks → []byte (export only)
+  encode.go             # PortableWorkspace → []byte (writer-based JSON encoder)
+  decode.go             # []byte → PortableWorkspace (single-pass JSON parser, schema_version check)
 service/
   portability.go        # PortabilityService — orchestrates Export/Import using existing repos via WriteTx
 domain/
@@ -71,6 +70,8 @@ internal/tui/
   export.go             # buildExportCmd, runExport
   import.go             # buildImportCmd, runImport
 ```
+
+The package collapses to a single layer (no `json/` subpackage) because there's only one format. If a second format ever lands, restructure into format-specific subpackages then.
 
 **Touched code:**
 
@@ -251,28 +252,25 @@ Under `--truncate`, tables are emptied and re-populated from the dump alone. The
 ### `tusk export`
 
 ```text
-Usage: tusk export --format <fmt> [--output <path>]
+Usage: tusk export [--output <path>]
 
 Flags:
-  --format string   "json" or "csv" (required; no default — explicit choice avoids surprises)
   --output string   path to write to; default "-" (stdout)
 ```
 
 Behavior:
 
-- Calls `Portability.Export(ctx)` once, hands the `PortableWorkspace` to the matching codec, writes bytes to stdout or the file.
-- JSON output is pretty-printed (2-space indent) for human-friendliness; consumers can re-pipe through `jq -c` for compact form.
-- CSV is one row per task (see Section "CSV columns").
+- Calls `Portability.Export(ctx)` once, hands the `PortableWorkspace` to the JSON encoder, writes bytes to stdout or the file.
+- Output is pretty-printed (2-space indent) for human-friendliness; consumers can re-pipe through `jq -c` for compact form.
 - Exit code: 0 on success; non-zero with a stderr message on read or codec failure.
 - Atomic file write: write to a `*.tmp` next to `--output` then rename, so `tusk export --output ws.json` never leaves a half-written file. Stdout is best-effort (caller's pipe).
 
 ### `tusk import`
 
 ```text
-Usage: tusk import --format json --input <path> [--replace] [--truncate] [--dry-run]
+Usage: tusk import --input <path> [--replace] [--truncate] [--dry-run]
 
 Flags:
-  --format string   "json" only (CSV import is not in scope)
   --input string    path to read from; "-" for stdin
   --replace         row-level upsert on collision (default: fail on collision)
   --truncate        wipe every entity table before applying; requires --replace
@@ -282,7 +280,7 @@ Flags:
 Behavior:
 
 - Reads the file (or stdin), decodes to `PortableWorkspace`, calls `Portability.Import(ctx, ws, opts)`.
-- On success, prints the `ImportReport` summary in text format (`--format text`) or as JSON (`--format json`).
+- On success, prints the `ImportReport` summary, respecting the existing `--format text` / `--format json` persistent flag for output rendering.
 - On validation failure, prints a structured error: kind (`taxonomy`, `cycle`, `fk`, `collision`), entity kind/ID/short_id, and a one-line human message. Exit code: non-zero. Multiple errors batch in a single report.
 - `--truncate` without `--replace` is rejected at flag-parse time with a clear message.
 - `--dry-run` always exits 0 if validation passed, 1 if it failed; stdout carries the report; nothing is written.
@@ -290,29 +288,6 @@ Behavior:
 ### Stdin / stdout symmetry
 
 `--input -` reads stdin, mirroring how `description=@-` already works in inline syntax. The TTY guard rejects `-` when stdin is not piped, same as the existing expander.
-
----
-
-## CSV columns
-
-Export only. One row per task.
-
-```text
-short_id, id, parent_short_id, project, level, status, priority, order,
-title, description, due_at, wait_until, claimed_by, claimed_at,
-tags, uda, created_at, modified_at, version
-```
-
-Conventions:
-
-- `parent_short_id` resolves the parent reference to the human-friendly short ID (parents always exist in the same dump, so the lookup never fails).
-- `project` is the project **name**, not the UUID. Spreadsheets get readable values; round-tripping is a non-goal for CSV.
-- `tags` collapses into a single space-separated cell (`api urgent`).
-- `uda` collapses into a single cell of `key1=val1;key2=val2` (semicolon-separated; values quoted if they contain `;` or `=`).
-- `description` is included as a single CSV-quoted cell. Newlines in descriptions are preserved (RFC 4180 allows quoted newlines).
-- Empty cells for nullable columns (`due_at`, `wait_until`, `claimed_by`, `claimed_at`, `parent_short_id`, `level`, `order`).
-- `order` is a float for non-null values, empty cell for NULL — placed after `priority` to match the JSON/display order. (Resolves the open v0.13 follow-up at ROADMAP.md:1305.)
-- Notes, annotations, relations, urgency_overrides, events do not appear — they don't fit a flat per-task row, and CSV is for spreadsheet workflows, not portability.
 
 ---
 
@@ -367,11 +342,9 @@ The event is emitted exactly once per import, inside the apply transaction, with
 
 ### Unit tests
 
-- `internal/portability/json/encode_test.go` and `decode_test.go`:
+- `internal/portability/encode_test.go` and `decode_test.go`:
   - Round-trip table tests: build a `PortableWorkspace` in memory, encode to JSON, decode back, assert deep equality. Cover every nullable field (especially `task.order` cleared, `urgency_overrides` empty, `claimed_*` set/unset, multi-line descriptions, UDA edge cases).
   - Schema version rejection: forge a JSON dump with `schema_version: 999`; decoder returns the typed error.
-- `internal/portability/csv/encode_test.go`:
-  - Golden-file test under `internal/portability/csv/testdata/` for a small fixture workspace; assert byte-for-byte equality.
 
 ### Service tests (`service/portability_test.go`)
 
@@ -388,9 +361,8 @@ The event is emitted exactly once per import, inside the apply transaction, with
 
 Run by the existing 2×2 harness (DB config × output format).
 
-- `tusk export --format json --output ws.json` → `tusk import --format json --input ws.json --replace` produces an identical workspace to the source. Use `tusk export` again and diff the two JSON files (modulo `exported_at`).
-- `tusk export --format json` to stdout, piped to `tusk import --format json --input -` after `--replace --truncate` — same equality check.
-- `tusk export --format csv` against a fixture workspace, golden-file diff.
+- `tusk export --output ws.json` → `tusk import --input ws.json --replace` produces an identical workspace to the source. Use `tusk export` again and diff the two JSON files (modulo `exported_at`).
+- `tusk export` to stdout, piped to `tusk import --input -` after `--replace --truncate` — same equality check.
 - Schema version error path: forge a stub dump and assert exit code + stderr contents.
 - Validation errors: bad-FK, bad-taxonomy, cycle, collision-without-replace each produce the structured exit code and report.
 - `--dry-run` produces a report and no DB mutation (verify by counting tasks before/after).
@@ -402,10 +374,10 @@ Human-run shell sequences to validate the feature end-to-end after implementatio
 **Smoke 1 — Full round-trip into an empty workspace**
 
 ```bash
-tusk export --format json --output /tmp/ws.json
+tusk export --output /tmp/ws.json
 
-TUSK_DB=$(mktemp -t tusk-smoke.XXX.db) tusk import --format json --input /tmp/ws.json
-TUSK_DB=$(mktemp -t tusk-smoke.XXX.db) tusk export --format json --output /tmp/ws-rt.json
+TUSK_DB=$(mktemp -t tusk-smoke.XXX.db) tusk import --input /tmp/ws.json
+TUSK_DB=$(mktemp -t tusk-smoke.XXX.db) tusk export --output /tmp/ws-rt.json
 
 diff <(jq 'del(.exported_at, .events[] | select(.type == "workspace_imported"))' /tmp/ws.json) \
      <(jq 'del(.exported_at, .events[] | select(.type == "workspace_imported"))' /tmp/ws-rt.json)
@@ -414,17 +386,17 @@ diff <(jq 'del(.exported_at, .events[] | select(.type == "workspace_imported"))'
 **Smoke 2 — Stdin / stdout pipeline**
 
 ```bash
-tusk export --format json | TUSK_DB=$(mktemp).db tusk import --format json --input - --replace --truncate
+tusk export | TUSK_DB=$(mktemp).db tusk import --input - --replace --truncate
 ```
 
 **Smoke 3 — `--dry-run` on a real dump**
 
 ```bash
-tusk export --format json --output /tmp/ws.json
-tusk import --format json --input /tmp/ws.json --replace --dry-run
+tusk export --output /tmp/ws.json
+tusk import --input /tmp/ws.json --replace --dry-run
 
 tusk task list --format json | jq 'length'
-tusk import --format json --input /tmp/ws.json --replace --dry-run
+tusk import --input /tmp/ws.json --replace --dry-run
 tusk task list --format json | jq 'length'  # should match
 ```
 
@@ -432,15 +404,15 @@ tusk task list --format json | jq 'length'  # should match
 
 ```bash
 jq '.tasks[0].parent_id = "00000000-0000-0000-0000-deadbeefdead"' /tmp/ws.json > /tmp/bad.json
-TUSK_DB=$(mktemp).db tusk import --format json --input /tmp/bad.json
+TUSK_DB=$(mktemp).db tusk import --input /tmp/bad.json
 echo "exit: $?"  # non-zero
 ```
 
 **Smoke 5 — Collision without `--replace` is rejected**
 
 ```bash
-tusk export --format json --output /tmp/ws.json
-tusk import --format json --input /tmp/ws.json
+tusk export --output /tmp/ws.json
+tusk import --input /tmp/ws.json
 # Expect: ImportError with Kind=collision, exit non-zero
 ```
 
@@ -449,32 +421,22 @@ tusk import --format json --input /tmp/ws.json
 ```bash
 DB=$(mktemp -t tusk-smoke.XXX.db)
 TUSK_DB=$DB tusk task create "garbage row that should disappear"
-TUSK_DB=$DB tusk import --format json --input /tmp/ws.json --replace --truncate
+TUSK_DB=$DB tusk import --input /tmp/ws.json --replace --truncate
 TUSK_DB=$DB tusk task list | grep -q "garbage row" && echo "FAIL: garbage survived" || echo "OK"
 ```
 
-**Smoke 7 — CSV opens cleanly in a spreadsheet tool**
-
-```bash
-tusk export --format csv --output /tmp/tasks.csv
-head -2 /tmp/tasks.csv
-# Open /tmp/tasks.csv in LibreOffice / Numbers / Excel — verify multi-line descriptions
-# render correctly (cells stay one row each), tags column reads "api urgent",
-# uda column reads "key1=val1;key2=val2".
-```
-
-**Smoke 8 — Schema-version mismatch path**
+**Smoke 7 — Schema-version mismatch path**
 
 ```bash
 jq '.schema_version = 999' /tmp/ws.json > /tmp/future.json
-TUSK_DB=$(mktemp).db tusk import --format json --input /tmp/future.json
+TUSK_DB=$(mktemp).db tusk import --input /tmp/future.json
 echo "exit: $?"  # non-zero, clear error message
 ```
 
-**Smoke 9 — `workspace_imported` event lands once with the right counts**
+**Smoke 8 — `workspace_imported` event lands once with the right counts**
 
 ```bash
-tusk import --format json --input /tmp/ws.json --replace
+tusk import --input /tmp/ws.json --replace
 sqlite3 ~/.local/share/tusk/tusk.db \
   "SELECT event_type, json_extract(payload, '\$.counts') FROM events
    WHERE event_type='workspace_imported' ORDER BY created_at DESC LIMIT 1;"
@@ -501,15 +463,16 @@ Three edits to roll into the implementation plan, applied as part of the first c
 
 ### Edit 1 — Reshape `Initiative: Data Portability` (ROADMAP.md:1084–1109)
 
-Replace the four current stories with three narrowed stories:
+Replaces the four current stories with two narrowed stories:
 
-- **Story: JSON export and import** — adds `--replace --truncate`, faithful import semantics, single envelope event, pre-validation pass, `schema_version: 1` envelope.
-- **Story: CSV export** — unchanged from current text.
+- **Story: JSON export and import** — adds `--replace --truncate`, faithful import semantics, single envelope event, pre-validation pass, `schema_version: 1` envelope. Drops `--format` from the CLI (JSON is the only format).
 - **Story: PortabilityService and codec package** — replaces the deleted "MCP tools" story; describes the `internal/portability/` package, the `service.PortabilityService`, the `WriteTx` extension, the `Client.Portability` exposure, and the `EventWorkspaceImported` / `EntityWorkspace` additions.
 
-Adds a `> **Deferred (not v0.13):** CSV import` blockquote at the bottom of the initiative — same pattern as the deferred-work note already used in the Task Level Taxonomy initiative (ROADMAP.md:1024). Body: *"CSV import is a future story. Editing tasks in a spreadsheet and pushing changes back requires partial-row merge semantics, a story for how the lossy CSV shape interacts with `--replace`, and a CSV-specific validation pass — none of which the v0.13 use cases need. The CSV column set defined in this initiative is the export contract; the import story will define how those columns map back."*
+Adds a `> **Deferred (not v0.13):** CSV export and import` blockquote at the bottom of the initiative — same pattern as the deferred-work note already used in the Task Level Taxonomy initiative (ROADMAP.md:1024). Body: *"CSV (in either direction) is deferred. JSON covers backup, migration, and the v0.13 ROADMAP self-host. CSV returns when there's a concrete spreadsheet-workflow demand: export needs a column-shape decision and lossy-field documentation; import additionally needs partial-row merge semantics, a story for how the lossy CSV shape interacts with `--replace`, and a CSV-specific validation pass."*
 
-Deletes the **Story: Markdown export and import** block entirely.
+Deletes the **Story: Markdown export and import** and **Story: CSV export** blocks entirely.
+
+Drops the second bullet of the existing **Story: CSV export** (about the `order` column) — it migrates into the JSON story as part of the JSON envelope spec, since the related v0.13 follow-up at ROADMAP.md:1305 is now fully covered by JSON.
 
 ### Edit 2 — Reshape `Initiative: ROADMAP.md Migration` (ROADMAP.md:1111–1124)
 
@@ -549,7 +512,7 @@ Tightens the wording from "bidirectional Data Portability" to "bidirectional JSO
 
 ### Deferred to a later milestone
 
-- **CSV import.** This initiative ships CSV export only. CSV import is a future story (likely v0.14 or later) — the use case is "edit tasks in a spreadsheet, push the changes back" and it requires non-trivial design work that's not justified by current demand: how partial CSV rows merge with existing tasks, how the lossy CSV shape (no relations, no annotations, no urgency_overrides) interacts with `--replace` semantics, and whether CSV import gets its own validation pass distinct from JSON's. Tracked as a separate ROADMAP story (see ROADMAP edits below) so it surfaces in future planning.
+- **CSV export and import.** Both directions are deferred. JSON covers backup, migration, and the v0.13 ROADMAP self-host. CSV returns when there's a concrete spreadsheet-workflow demand — export needs a column-shape decision and lossy-field documentation; import additionally needs partial-row merge semantics, a story for `--replace` interaction, and a CSV-specific validation pass. Tracked in ROADMAP edits (see Edit 1) so the deferred work surfaces in future planning.
 - Bidirectional sync between running tusk instances (separate v0.16+ initiative).
 - Schema conversion shims for old `schema_version` values (added when the schema first breaks).
 - Workspace-wide read locks on export (see "Known limitation").
