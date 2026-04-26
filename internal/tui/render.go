@@ -342,6 +342,38 @@ type urgencyWeightsJSON struct {
 	WaitingWeight     float64 `json:"waiting_weight"`
 }
 
+// rollupJSON is the JSON serialization format for a Rollup of descendants.
+// Used by `tusk task tree --rollup` (per-node) and `tusk task summary` (per
+// block and totals). status_counts is always a non-nil slice so it encodes
+// as `[]` (not `null`) when empty.
+type rollupJSON struct {
+	Done         int               `json:"done"`
+	Total        int               `json:"total"`
+	Percent      float64           `json:"percent"`
+	StatusCounts []statusCountJSON `json:"status_counts"`
+}
+
+// statusCountJSON is one entry in a rollup's status breakdown.
+type statusCountJSON struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// toRollupJSON converts a domain.Rollup to its wire form. status_counts is
+// always a non-nil slice so it encodes as `[]` (not `null`) when empty.
+func toRollupJSON(roll domain.Rollup) rollupJSON {
+	counts := make([]statusCountJSON, 0, len(roll.StatusCounts))
+	for _, sc := range roll.StatusCounts {
+		counts = append(counts, statusCountJSON{Name: sc.Name, Count: sc.Count})
+	}
+	return rollupJSON{
+		Done:         roll.Done,
+		Total:        roll.Total,
+		Percent:      roll.Percent,
+		StatusCounts: counts,
+	}
+}
+
 // taskJSON is the JSON serialization format for a task.
 // Field names use snake_case to match the domain model.
 type taskJSON struct {

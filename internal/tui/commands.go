@@ -171,6 +171,32 @@ of its descendants; in JSON mode every node carries a rollup field.`,
 	treeCmd.Flags().String("sort", "order", "sibling sort key: order|urgency|created|priority|due")
 	treeCmd.Flags().Bool("rollup", false, "annotate branch nodes with descendant rollup stats")
 
+	summaryCmd := &cobra.Command{
+		Use:   "summary [<short_id> | filter...]",
+		Short: "Summarize task progress with descendant rollups",
+		Long: `Summarize task progress as a rollup of descendants by status.
+
+With a short_id, summarize that task's subtree.
+With filter terms, one block per matching task. The filter restricts both
+which tasks become blocks and which descendants are counted, unless
+--full is passed (in which case the filter only selects blocks).
+With no arguments, summarize each root task plus a totals line.`,
+		Example: `  # Single subtree
+  tusk task summary a3f8b2c1
+
+  # All root tasks (workspace-wide)
+  tusk task summary
+
+  # One block per story; counts limited to story-level descendants
+  tusk task summary level=story
+
+  # One block per initiative; counts include the full subtree under each
+  tusk task summary --full level=initiative`,
+		Args: cobra.ArbitraryArgs,
+		RunE: a.runSummary,
+	}
+	summaryCmd.Flags().Bool("full", false, "with a filter, count the full subtree under each block (otherwise the filter restricts descendant counting too)")
+
 	levelCheckCmd := &cobra.Command{
 		Use:   "level-check [filters...]",
 		Short: "Report tasks whose level violates their project taxonomy",
@@ -233,6 +259,7 @@ date, tags, UDAs, annotations, relations, claim state, and urgency score.`,
 		},
 		modifyCmd,
 		treeCmd,
+		summaryCmd,
 		levelCheckCmd,
 		&cobra.Command{
 			Use:   "start <short_id>",

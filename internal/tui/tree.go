@@ -87,37 +87,6 @@ type treeNodeJSON struct {
 	Children                []treeNodeJSON        `json:"children"`
 }
 
-// rollupJSON is the JSON serialization format for a node's descendant Rollup.
-// Emitted only when --rollup is set; on every node — branch and leaf — so the
-// JSON shape stays uniform across the tree in rollup mode.
-type rollupJSON struct {
-	Done         int               `json:"done"`
-	Total        int               `json:"total"`
-	Percent      float64           `json:"percent"`
-	StatusCounts []statusCountJSON `json:"status_counts"`
-}
-
-// statusCountJSON is one entry in a rollup's status breakdown.
-type statusCountJSON struct {
-	Name  string `json:"name"`
-	Count int    `json:"count"`
-}
-
-// toRollupJSON converts a domain.Rollup to its JSON form. status_counts is
-// always a non-nil slice so it encodes as `[]` (not `null`) when empty.
-func toRollupJSON(roll domain.Rollup) rollupJSON {
-	counts := make([]statusCountJSON, 0, len(roll.StatusCounts))
-	for _, sc := range roll.StatusCounts {
-		counts = append(counts, statusCountJSON{Name: sc.Name, Count: sc.Count})
-	}
-	return rollupJSON{
-		Done:         roll.Done,
-		Total:        roll.Total,
-		Percent:      roll.Percent,
-		StatusCounts: counts,
-	}
-}
-
 // toTreeNodeJSON converts a treeNode to its JSON representation recursively.
 func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
 	t := node.Task
