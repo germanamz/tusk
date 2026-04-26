@@ -122,6 +122,7 @@ func testApp(t *testing.T) (*App, *service.TaskService) {
 	loadOpts := []config.Option{config.WithSearchPath(t.TempDir())}
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil, nil,
+		nil,
 		nil, nil, nil,
 		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, loadOpts,
 	)

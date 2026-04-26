@@ -32,6 +32,11 @@ func main() {
 			// listed them; suppress the redundant error line and exit 1.
 			os.Exit(1)
 		}
+		if errors.Is(err, tui.ErrImportFailed) {
+			// `tusk import` failed validation. The renderer already wrote
+			// every issue to stderr; suppress the redundant error line.
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
@@ -40,7 +45,7 @@ func main() {
 func run() error {
 	if isCompletionInvocation(os.Args[1:]) {
 		app := tui.New(
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			tui.VersionInfo{Version: version, Commit: commit, Date: date},
 			config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, nil,
 		)
@@ -168,8 +173,17 @@ func run() error {
 	playerSvc := service.NewPlayerService(defaultBundle.Players)
 	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, cfg.Notes.WindowSize)
 
+	portabilitySvc := service.NewPortabilityService(
+		writeTx,
+		taskSvc, projectSvc, workflowSvc, relationSvc,
+		tagSvc, playerSvc, noteSvc,
+		bundle,
+		version,
+	)
+
 	app := tui.New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, noteSvc,
+		portabilitySvc,
 		workflowRepo, projectRepo, urgencyEngine,
 		tui.VersionInfo{
 			Version: version,

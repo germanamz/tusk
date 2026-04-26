@@ -50,6 +50,7 @@ func testAppWithTaxonomy(t *testing.T, levels [][]string) (*App, repository.Task
 	loadOpts := []config.Option{config.WithSearchPath(t.TempDir())}
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil, nil,
+		nil,
 		nil, nil, nil,
 		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, loadOpts,
 	)

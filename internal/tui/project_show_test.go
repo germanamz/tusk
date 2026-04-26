@@ -65,6 +65,7 @@ func testAppForProjectShow(t *testing.T, workspaceLevels [][]string) (*App, *sql
 	loadOpts := []config.Option{config.WithSearchPath(t.TempDir())}
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil, nil,
+		nil,
 		nil, nil, nil,
 		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, loadOpts,
 	)

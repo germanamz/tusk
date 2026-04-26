@@ -51,6 +51,7 @@ func testAppWithConfigFile(t *testing.T, contents string) *App {
 	loadOpts := []config.Option{config.WithExplicitFile(path)}
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, nil, nil,
+		nil,
 		nil, nil, nil,
 		VersionInfo{}, config.TUIConfig{}, config.MCPConfig{}, config.InlineConfig{}, loadOpts,
 	)
