@@ -44,16 +44,23 @@ type Config struct {
 
 // Client provides access to all tusk services, backed by a SQLite database.
 type Client struct {
-	Tasks     *service.TaskService
-	Tags      *service.TagService
-	Relations *service.RelationService
-	Projects  *service.ProjectService
-	Workflows *service.WorkflowService
-	Players   *service.PlayerService
-	Notes     *service.NoteService
+	Tasks       *service.TaskService
+	Tags        *service.TagService
+	Relations   *service.RelationService
+	Projects    *service.ProjectService
+	Workflows   *service.WorkflowService
+	Players     *service.PlayerService
+	Notes       *service.NoteService
+	Portability *service.PortabilityService
 
 	store *sqlite.Store
 }
+
+// tuskVersionForClient returns the version string library consumers see
+// in exported PortableWorkspace headers. The CLI replaces this with a
+// build-injected value when constructing its own Client; library use
+// surfaces a stable placeholder because tusk_version is informational.
+func tuskVersionForClient() string { return "library" }
 
 // defaultEvents returns the builtin event-log retention defaults.
 func defaultEvents() config.EventsConfig {
@@ -226,15 +233,24 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, windowSize)
 
+	portabilitySvc := service.NewPortabilityService(
+		writeTx,
+		taskSvc, projectSvc, workflowSvc, relationSvc,
+		tagSvc, playerSvc, noteSvc,
+		bundle,
+		tuskVersionForClient(),
+	)
+
 	return &Client{
-		Tasks:     taskSvc,
-		Tags:      tagSvc,
-		Relations: relationSvc,
-		Projects:  projectSvc,
-		Workflows: workflowSvc,
-		Players:   playerSvc,
-		Notes:     noteSvc,
-		store:     store,
+		Tasks:       taskSvc,
+		Tags:        tagSvc,
+		Relations:   relationSvc,
+		Projects:    projectSvc,
+		Workflows:   workflowSvc,
+		Players:     playerSvc,
+		Notes:       noteSvc,
+		Portability: portabilitySvc,
+		store:       store,
 	}, nil
 }
 

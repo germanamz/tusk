@@ -294,6 +294,12 @@ func decodePayload(kind domain.EventType, raw []byte) (domain.EventPayload, erro
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
 		return p, nil
+	case domain.EventWorkspaceImported:
+		var p domain.WorkspaceImportedPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
+		}
+		return p, nil
 	default:
 		m := map[string]any{}
 		if err := json.Unmarshal(raw, &m); err != nil {
