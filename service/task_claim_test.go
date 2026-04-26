@@ -23,6 +23,17 @@ func (w *storeWriteTxAdapter) Tasks() repository.TaskRepository         { return
 func (w *storeWriteTxAdapter) Relations() repository.RelationRepository { return w.tx.Relations() }
 func (w *storeWriteTxAdapter) Events() repository.EventRepository       { return w.tx.Events(10000, 1000) }
 
+func (w *storeWriteTxAdapter) Projects() repository.ProjectRepository   { return w.tx.Projects() }
+func (w *storeWriteTxAdapter) Workflows() repository.WorkflowRepository { return w.tx.Workflows() }
+func (w *storeWriteTxAdapter) Players() repository.PlayerRepository     { return w.tx.Players() }
+func (w *storeWriteTxAdapter) Tags() repository.TagRepository           { return w.tx.Tags() }
+func (w *storeWriteTxAdapter) Annotations() repository.AnnotationRepository {
+	return w.tx.Annotations()
+}
+func (w *storeWriteTxAdapter) Notes() repository.NoteRepository { return w.tx.Notes() }
+
+func (w *storeWriteTxAdapter) TruncateAll(ctx context.Context) error { return w.tx.TruncateAll(ctx) }
+
 func (p *storeWriteTx) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
 	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
 		return fn(&storeWriteTxAdapter{tx: stx})

@@ -83,6 +83,15 @@ func (w *sqliteWriteTx) Events() repository.EventRepository {
 	return w.tx.Events(w.maxEvents, w.pruneSlack)
 }
 
+func (w *sqliteWriteTx) Projects() repository.ProjectRepository       { return w.tx.Projects() }
+func (w *sqliteWriteTx) Workflows() repository.WorkflowRepository     { return w.tx.Workflows() }
+func (w *sqliteWriteTx) Players() repository.PlayerRepository         { return w.tx.Players() }
+func (w *sqliteWriteTx) Tags() repository.TagRepository               { return w.tx.Tags() }
+func (w *sqliteWriteTx) Annotations() repository.AnnotationRepository { return w.tx.Annotations() }
+func (w *sqliteWriteTx) Notes() repository.NoteRepository             { return w.tx.Notes() }
+
+func (w *sqliteWriteTx) TruncateAll(ctx context.Context) error { return w.tx.TruncateAll(ctx) }
+
 func (p *sqliteWriteTxProvider) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
 	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
 		return fn(&sqliteWriteTx{tx: stx, maxEvents: p.maxEvents, pruneSlack: p.pruneSlack})

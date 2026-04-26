@@ -43,6 +43,15 @@ func (w *failingWriteTx) Tasks() repository.TaskRepository         { return w.in
 func (w *failingWriteTx) Relations() repository.RelationRepository { return w.inner.Relations() }
 func (w *failingWriteTx) Events() repository.EventRepository       { return w.events }
 
+func (w *failingWriteTx) Projects() repository.ProjectRepository       { return w.inner.Projects() }
+func (w *failingWriteTx) Workflows() repository.WorkflowRepository     { return w.inner.Workflows() }
+func (w *failingWriteTx) Players() repository.PlayerRepository         { return w.inner.Players() }
+func (w *failingWriteTx) Tags() repository.TagRepository               { return w.inner.Tags() }
+func (w *failingWriteTx) Annotations() repository.AnnotationRepository { return w.inner.Annotations() }
+func (w *failingWriteTx) Notes() repository.NoteRepository             { return w.inner.Notes() }
+
+func (w *failingWriteTx) TruncateAll(ctx context.Context) error { return w.inner.TruncateAll(ctx) }
+
 type failingProvider struct {
 	real WriteTxProvider
 }
