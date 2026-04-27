@@ -462,11 +462,65 @@ func TestRenderTreeMarkdown_GoldenBasic(t *testing.T) {
 	tags := map[uuid.UUID][]*domain.Tag{
 		storyB.ID: {{Name: "ship-blocker"}, {Name: "api"}},
 	}
+
+	annTime1 := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	annTime2 := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	noteTime1 := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
+	noteTime2 := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
+	projNoteTime := time.Date(2026, 4, 14, 7, 0, 0, 0, time.UTC)
+
+	annsByTask := map[uuid.UUID][]*domain.Annotation{
+		mile.ID: {
+			{TaskID: mile.ID, CreatedAt: annTime1, Body: "Initial scope ratified"},
+			{TaskID: mile.ID, CreatedAt: annTime2, Body: "Customer interviews booked"},
+		},
+		taskA.ID: {
+			{TaskID: taskA.ID, CreatedAt: annTime1, Body: "Schema field finalized"},
+		},
+	}
+	notesByTask := map[uuid.UUID][]*domain.Note{
+		uuid.Nil: {
+			{
+				ProjectID: proj.ID,
+				PlayerID:  "german",
+				CreatedAt: projNoteTime,
+				Body:      "caching strategy notes",
+				Metadata:  map[string]any{"topic": "perf"},
+			},
+		},
+		mile.ID: {
+			{
+				ProjectID: proj.ID,
+				PlayerID:  "german",
+				TaskID:    &mile.ID,
+				CreatedAt: noteTime1,
+				Body:      "weekly checkpoint",
+			},
+			{
+				ProjectID: proj.ID,
+				PlayerID:  "german",
+				TaskID:    &mile.ID,
+				CreatedAt: noteTime2,
+				Body:      "second checkpoint",
+				Metadata:  map[string]any{"area": "backend"},
+			},
+		},
+		taskA.ID: {
+			{
+				ProjectID: proj.ID,
+				PlayerID:  "german",
+				TaskID:    &taskA.ID,
+				CreatedAt: noteTime1,
+				Body:      "retry needed",
+			},
+		},
+	}
+
 	in := &markdownInputs{
 		project:     proj,
 		tagsByTask:  tags,
-		annsByTask:  map[uuid.UUID][]*domain.Annotation{},
-		notesByTask: map[uuid.UUID][]*domain.Note{},
+		annsByTask:  annsByTask,
+		notesByTask: notesByTask,
 		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
 	}
 	nodes := buildTree(tasks, nil)
@@ -490,6 +544,114 @@ func TestRenderTreeMarkdown_GoldenBasic(t *testing.T) {
 	}
 	if got != string(want) {
 		t.Fatalf("markdown output diverges from golden\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
+	}
+}
+
+func TestRenderTreeMarkdown_NotesAndAnnotations(t *testing.T) {
+	wf := kanbanWorkflowFixture()
+	pid := uuid.New()
+	mile := &domain.Task{
+		ID:        uuid.New(),
+		ShortID:   "m0000001",
+		ProjectID: pid,
+		Title:     "v1 launch",
+		Status:    "active",
+	}
+	leafID := uuid.New()
+	leaf := &domain.Task{
+		ID:        leafID,
+		ShortID:   "l0000001",
+		ProjectID: pid,
+		ParentID:  &mile.ID,
+		Title:     "Leaf",
+		Status:    "pending",
+	}
+	annTime := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	noteTime := time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC)
+	in := &markdownInputs{
+		project:    &domain.Project{ID: pid, Name: "x", Description: "P desc."},
+		tagsByTask: map[uuid.UUID][]*domain.Tag{},
+		annsByTask: map[uuid.UUID][]*domain.Annotation{
+			mile.ID: {{TaskID: mile.ID, CreatedAt: annTime, Body: "Initial scope ratified"}},
+			leafID:  {{TaskID: leafID, CreatedAt: annTime, Body: "Schema field finalized"}},
+		},
+		notesByTask: map[uuid.UUID][]*domain.Note{
+			mile.ID: {{ProjectID: pid, PlayerID: "german", TaskID: &mile.ID, CreatedAt: noteTime, Body: "checkpoint"}},
+			leafID:  {{ProjectID: pid, PlayerID: "german", TaskID: &leafID, CreatedAt: noteTime, Body: "retry needed"}},
+		},
+		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+	}
+	// buildTree alone gives a depth-0 milestone. Force the leaf one extra
+	// level deeper than buildTree would by hanging a story between them so
+	// the leaf renders as a depth >= 2 bullet (the indented variant).
+	nodes := []*treeNode{
+		{
+			Task: mile,
+			Children: []*treeNode{
+				{
+					Task: &domain.Task{ID: uuid.New(), ProjectID: pid, ParentID: &mile.ID, Title: "story", Status: "pending"},
+					Children: []*treeNode{
+						{Task: leaf},
+					},
+				},
+			},
+		},
+	}
+
+	got := renderTreeMarkdownFromFixture(t, in, nodes, false)
+
+	// Heading-level annotations on the milestone.
+	if !strings.Contains(got, "## v1 launch status=active\n") {
+		t.Fatalf("expected milestone heading, got:\n%s", got)
+	}
+	if !strings.Contains(got, "**Annotations:**\n- 2026-04-15: Initial scope ratified\n") {
+		t.Fatalf("expected milestone heading-level annotations, got:\n%s", got)
+	}
+	if !strings.Contains(got, "**Notes:**\n- 2026-04-16 (german): checkpoint\n") {
+		t.Fatalf("expected milestone heading-level notes, got:\n%s", got)
+	}
+	// Bullet-level annotations and notes on the leaf at depth 2 (2-space
+	// sub-indent under the bullet itself, which sits at column 0).
+	if !strings.Contains(got, "- [ ] Leaf\n  - **Annotations:**\n    - 2026-04-15: Schema field finalized\n") {
+		t.Fatalf("expected leaf bullet-level annotations indented, got:\n%s", got)
+	}
+	if !strings.Contains(got, "  - **Notes:**\n    - 2026-04-16 (german): retry needed\n") {
+		t.Fatalf("expected leaf bullet-level notes indented, got:\n%s", got)
+	}
+}
+
+func TestRenderTreeMarkdown_ProjectLevelNotes(t *testing.T) {
+	wf := kanbanWorkflowFixture()
+	pid := uuid.New()
+	root := &domain.Task{
+		ID:        uuid.New(),
+		ShortID:   "r0000001",
+		ProjectID: pid,
+		Title:     "Root",
+		Status:    "pending",
+	}
+	noteTime := time.Date(2026, 4, 14, 7, 0, 0, 0, time.UTC)
+	in := &markdownInputs{
+		project:    &domain.Project{ID: pid, Name: "x", Description: "Project description."},
+		tagsByTask: map[uuid.UUID][]*domain.Tag{},
+		annsByTask: map[uuid.UUID][]*domain.Annotation{},
+		notesByTask: map[uuid.UUID][]*domain.Note{
+			uuid.Nil: {{ProjectID: pid, PlayerID: "german", CreatedAt: noteTime, Body: "project-scope memo"}},
+		},
+		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+	}
+	nodes := buildTree([]*domain.Task{root}, nil)
+	got := renderTreeMarkdownFromFixture(t, in, nodes, false)
+
+	want := "# X\n" +
+		"> Project description.\n" +
+		"\n" +
+		"**Notes:**\n" +
+		"- 2026-04-14 (german): project-scope memo\n" +
+		"\n" +
+		"## Root\n"
+	if got != want {
+		t.Fatalf("project-level notes\n  got:  %q\n  want: %q", got, want)
 	}
 }
 
@@ -595,6 +757,162 @@ func TestRenderTreeMarkdown_EmptyDescription(t *testing.T) {
 	want := "# X\n\n## Root\n"
 	if out != want {
 		t.Fatalf("unexpected output for empty-description project\n  got:  %q\n  want: %q", out, want)
+	}
+}
+
+func TestRenderAnnotationsBlock_Empty(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderAnnotationsBlock(&buf, nil, ""); err != nil {
+		t.Fatalf("renderAnnotationsBlock: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("expected empty output, got %q", buf.String())
+	}
+}
+
+func TestRenderAnnotationsBlock_Heading(t *testing.T) {
+	t1 := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 18, 9, 30, 0, 0, time.UTC)
+	t3 := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+	anns := []*domain.Annotation{
+		{CreatedAt: t1, Body: "Blocked by upstream API changes"},
+		{CreatedAt: t2, Body: "Investigating root cause"},
+		{CreatedAt: t3, Body: "Resolved upstream"},
+	}
+	var buf bytes.Buffer
+	if err := renderAnnotationsBlock(&buf, anns, ""); err != nil {
+		t.Fatalf("renderAnnotationsBlock: %v", err)
+	}
+	want := "**Annotations:**\n" +
+		"- 2026-04-15: Blocked by upstream API changes\n" +
+		"- 2026-04-18: Investigating root cause\n" +
+		"- 2026-04-20: Resolved upstream\n\n"
+	if buf.String() != want {
+		t.Fatalf("heading annotations\n  got:  %q\n  want: %q", buf.String(), want)
+	}
+}
+
+func TestRenderAnnotationsBlock_Bullet(t *testing.T) {
+	t1 := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 4, 18, 9, 30, 0, 0, time.UTC)
+	t3 := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+	anns := []*domain.Annotation{
+		{CreatedAt: t1, Body: "Blocked by upstream API changes"},
+		{CreatedAt: t2, Body: "Investigating root cause"},
+		{CreatedAt: t3, Body: "Resolved upstream"},
+	}
+	var buf bytes.Buffer
+	if err := renderAnnotationsBlock(&buf, anns, "  "); err != nil {
+		t.Fatalf("renderAnnotationsBlock: %v", err)
+	}
+	want := "  - **Annotations:**\n" +
+		"    - 2026-04-15: Blocked by upstream API changes\n" +
+		"    - 2026-04-18: Investigating root cause\n" +
+		"    - 2026-04-20: Resolved upstream\n"
+	if buf.String() != want {
+		t.Fatalf("bullet annotations\n  got:  %q\n  want: %q", buf.String(), want)
+	}
+}
+
+func TestRenderNotesBlock_Empty(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderNotesBlock(&buf, nil, ""); err != nil {
+		t.Fatalf("renderNotesBlock: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("expected empty output, got %q", buf.String())
+	}
+}
+
+func TestRenderNotesBlock_HeadingMinimal(t *testing.T) {
+	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	notes := []*domain.Note{
+		{CreatedAt: created, PlayerID: "german", Body: "scratch pad note"},
+	}
+	var buf bytes.Buffer
+	if err := renderNotesBlock(&buf, notes, ""); err != nil {
+		t.Fatalf("renderNotesBlock: %v", err)
+	}
+	want := "**Notes:**\n" +
+		"- 2026-04-15 (german): scratch pad note\n\n"
+	if buf.String() != want {
+		t.Fatalf("heading minimal\n  got:  %q\n  want: %q", buf.String(), want)
+	}
+}
+
+func TestRenderNotesBlock_HeadingWithMetadata(t *testing.T) {
+	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	notes := []*domain.Note{
+		{
+			CreatedAt: created,
+			PlayerID:  "german",
+			Body:      "with two metadata keys",
+			Metadata:  map[string]any{"topic": "auth", "area": "backend"},
+		},
+	}
+	var buf bytes.Buffer
+	if err := renderNotesBlock(&buf, notes, ""); err != nil {
+		t.Fatalf("renderNotesBlock: %v", err)
+	}
+	want := "**Notes:**\n" +
+		"- 2026-04-15 (german, area=backend, topic=auth): with two metadata keys\n\n"
+	if buf.String() != want {
+		t.Fatalf("heading with metadata\n  got:  %q\n  want: %q", buf.String(), want)
+	}
+}
+
+func TestRenderNotesBlock_Multiline(t *testing.T) {
+	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	notes := []*domain.Note{
+		{CreatedAt: created, PlayerID: "german", Body: "line one\nline two\nline three"},
+	}
+	var buf bytes.Buffer
+	if err := renderNotesBlock(&buf, notes, ""); err != nil {
+		t.Fatalf("renderNotesBlock: %v", err)
+	}
+	want := "**Notes:**\n" +
+		"- 2026-04-15 (german): line one\n" +
+		"  line two\n" +
+		"  line three\n\n"
+	if buf.String() != want {
+		t.Fatalf("multiline note\n  got:  %q\n  want: %q", buf.String(), want)
+	}
+}
+
+func TestRenderNotesBlock_Bullet(t *testing.T) {
+	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	notes := []*domain.Note{
+		{CreatedAt: created, PlayerID: "german", Body: "leaf note"},
+	}
+	var buf bytes.Buffer
+	if err := renderNotesBlock(&buf, notes, "  "); err != nil {
+		t.Fatalf("renderNotesBlock: %v", err)
+	}
+	want := "  - **Notes:**\n" +
+		"    - 2026-04-15 (german): leaf note\n"
+	if buf.String() != want {
+		t.Fatalf("bullet note\n  got:  %q\n  want: %q", buf.String(), want)
+	}
+}
+
+func TestRenderNotesBlock_QuotedMetadata(t *testing.T) {
+	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
+	notes := []*domain.Note{
+		{
+			CreatedAt: created,
+			PlayerID:  "german",
+			Body:      "quoted meta value",
+			Metadata:  map[string]any{"topic": "two words"},
+		},
+	}
+	var buf bytes.Buffer
+	if err := renderNotesBlock(&buf, notes, ""); err != nil {
+		t.Fatalf("renderNotesBlock: %v", err)
+	}
+	want := "**Notes:**\n" +
+		`- 2026-04-15 (german, topic="two words"): quoted meta value` + "\n\n"
+	if buf.String() != want {
+		t.Fatalf("quoted metadata\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 

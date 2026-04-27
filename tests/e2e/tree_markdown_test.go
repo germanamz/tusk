@@ -60,11 +60,11 @@ func TestTreeMarkdown_FullDialect(t *testing.T) {
 		"parent="+initiativeID,
 	))
 
-	mustRunTusk(t, dbPath,
+	csvLeafID := shortIDFromCreate(t, mustRunTusk(t, dbPath,
 		"task", "create", "Wire CSV parser",
 		"project=roadmap",
 		"parent="+activeStoryID,
-	)
+	))
 	mustRunTusk(t, dbPath,
 		"task", "create", "Add fixture pack",
 		"project=roadmap",
@@ -86,6 +86,17 @@ func TestTreeMarkdown_FullDialect(t *testing.T) {
 	mustRunTusk(t, dbPath, "task", "modify", activeStoryID, "status=active")
 	mustRunTusk(t, dbPath, "task", "modify", completedStoryID, "status=active")
 	mustRunTusk(t, dbPath, "task", "modify", completedStoryID, "status=completed")
+
+	// Phase 5: annotations and notes — milestone gets an annotation, the
+	// project gets a project-level note, and the CSV-parser leaf gets a
+	// per-task note.
+	mustRunTusk(t, dbPath, "task", "annotate", milestoneID, "Initial scope ratified")
+	mustRunTusk(t, dbPath, "note", "add", "caching strategy notes",
+		"project=roadmap", "--player", "german",
+	)
+	mustRunTusk(t, dbPath, "note", "add", "retry needed",
+		"project=roadmap", "--player", "german", "--task", csvLeafID,
+	)
 
 	out := mustRunTusk(t, dbPath, "task", "tree", "--format", "markdown")
 
@@ -112,5 +123,22 @@ func TestTreeMarkdown_FullDialect(t *testing.T) {
 	}
 	if strings.Contains(out, "<!-- tusk: markdown body lands in phase 4 -->") {
 		t.Fatalf("phase-3 placeholder must be gone, got:\n%s", out)
+	}
+
+	// Phase 5 additions: annotations and notes labels and bodies.
+	if !strings.Contains(out, "**Annotations:**") {
+		t.Fatalf("expected **Annotations:** label, got:\n%s", out)
+	}
+	if !strings.Contains(out, "**Notes:**") {
+		t.Fatalf("expected **Notes:** label, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Initial scope ratified") {
+		t.Fatalf("expected milestone annotation body, got:\n%s", out)
+	}
+	if !strings.Contains(out, "caching strategy notes") {
+		t.Fatalf("expected project-level note body, got:\n%s", out)
+	}
+	if !strings.Contains(out, "retry needed") {
+		t.Fatalf("expected leaf-task note body, got:\n%s", out)
 	}
 }
