@@ -157,8 +157,8 @@ jobs:
 
       - name: Verify ROADMAP.md is up to date
         if: ${{ vars.TUSK_ROADMAP_CHECK_ENABLED == 'true' }}
-        # The repo-root tusk.toml plus walk-up config discovery (v0.9)
-        # points tusk at .data/tusk.db automatically — no TUSK_DB needed.
+        env:
+          TUSK_DB: ${{ github.workspace }}/.data/tusk.db
         run: |
           make roadmap
           git diff --exit-code ROADMAP.md
