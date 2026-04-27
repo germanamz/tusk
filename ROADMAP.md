@@ -881,21 +881,16 @@
 ### Initiative: ROADMAP.md Migration level=initiative order=7
 > One-shot bootstrap that moves the existing `ROADMAP.md` into a tusk workspace, so the milestone can be dogfooded before close. Script is throwaway — it lives in-repo only for the duration of v0.13.
 
-- [ ] Story: Markdown rendering (export-only) level=story order=1
-  - [ ] `tusk task tree --format markdown` extends the existing tree renderer; no top-level `tusk render` command and no markdown import path level=task order=1
-  - [ ] Dialect: H1 per project, H2 per root task, nested bullets for descendants, `[x]` for done-role statuses, inline `level=`, `priority=`, `due=`, `order=`, `uda.*=` tokens, trailing `+tag` level=task order=2
-  - [ ] `status=<name>` token emitted only for non-binary states (anything other than the initial pending and the done role); binary statuses use the `[x]` / ` ` checkbox alone level=task order=3
-  - [ ] Annotations and notes render as labeled child lists under their parent task level=task order=4
-  - [ ] `urgency_overrides`, `recurrence_rule`, `claimed_by` / `claimed_at`, and any future attachment fields are silently dropped — round-trip lives exclusively under the JSON portability codec level=task order=5
-- [ ] Story: Migration script level=story order=2
-  - [ ] `scripts/migrate-roadmap/main.go` parses `ROADMAP.md` headings, initiatives, stories, and tasks into the JSON import format level=task order=1
-  - [ ] Emits `level` on every task following the self-host modeling convention level=task order=2
-  - [ ] Preserves completion state (`[x]` → `completed`), hierarchy, and document-position ordering level=task order=3
-  - [ ] Verification step: re-rendering the migrated workspace via `tusk task tree --format markdown` matches the source within the round-trip guarantee level=task order=4
-- [ ] Story: Cutover level=story order=3
-  - [ ] `ROADMAP.md` is regenerated from `tusk task tree --format markdown` and replaces the hand-edited file level=task order=1
-  - [ ] Contributor docs updated to point at `tusk task` commands for roadmap edits instead of direct markdown edits level=task order=2
-  - [ ] Migration script removed from the repo once cutover is stable level=task order=3
+- [x] Story: Markdown rendering (export-only) level=story order=1
+  - [x] `tusk task tree --format markdown` extends the existing tree renderer; no top-level `tusk render` command and no markdown import path level=task order=1
+  - [x] Dialect: H1 per project, H2 per root task, nested bullets for descendants, `[x]` for done-role statuses, inline `level=`, `priority=`, `due=`, `order=`, `uda.*=` tokens, trailing `+tag` level=task order=2
+  - [x] `status=<name>` token emitted only for non-binary states (anything other than the initial pending and the done role); binary statuses use the `[x]` / ` ` checkbox alone level=task order=3
+  - [x] Annotations and notes render as labeled child lists under their parent task level=task order=4
+  - [x] `urgency_overrides`, `recurrence_rule`, `claimed_by` / `claimed_at`, and any future attachment fields are silently dropped — round-trip lives exclusively under the JSON portability codec level=task order=5
+- [x] Story: Cutover level=story order=3
+  - [x] `ROADMAP.md` is regenerated from `tusk task tree --format markdown` and replaces the hand-edited file level=task order=1
+  - [x] Contributor docs updated to point at `tusk task` commands for roadmap edits instead of direct markdown edits level=task order=2
+  - [x] Migration script removed from the repo once cutover is stable level=task order=3
 ### Initiative: Repo-Root Tusk Workspace level=initiative order=8
 > Make the tusk repo root resolve as its own tusk workspace via a committed `tusk.toml`, so any `tusk` subcommand run from anywhere inside the checkout (and CI) automatically uses the committed `.data/tusk.db` — no `TUSK_DB` env, no `--config` flag. Blocked by an e2e harness gap: tests run with CWD inside the repo and walk-up config discovery (v0.9) finds the workspace `tusk.toml` as their active file. Tests that exercise `tusk config init --local` / `tusk config set` then write into the committed file, polluting it across the rest of the suite. Captured during the v0.13 ROADMAP.md cutover (see `docs/retrospectives/v0.13-roadmap-migration.md`) — the workspace config was prepared, broke e2e, and reverted on the cutover PR.
 
