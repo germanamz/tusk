@@ -245,19 +245,13 @@ scenarios := []Scenario{
 
 `ROADMAP.md` is regenerated from tusk state — do not hand-edit.
 
-The repo root is its own tusk workspace. A committed `tusk.toml` at the
-top level points `storage.path` at `.data/tusk.db`, and tusk's walk-up
-config discovery (v0.9) means any `tusk` subcommand run from anywhere
-inside the checkout automatically uses that DB — no `TUSK_DB` env var,
-no `--config` flag.
-
-The workspace database currently holds the `tusk-roadmap` project, which
-is rendered into `ROADMAP.md` via `make roadmap`; over time it will also
-accumulate workspace-shared notes and any other tusk state worth
-committing alongside the code. CI runs `make roadmap` against the
-committed `.data/tusk.db` and diffs `ROADMAP.md`, so the file in the
-repo — not any developer's personal `~/.local/share/tusk/tusk.db` — is
-the source of truth for what CI sees.
+The workspace tusk database lives at `.data/tusk.db` (a committed SQLite
+file). It currently holds the `tusk-roadmap` project, which is rendered
+into `ROADMAP.md` via `make roadmap`; over time it will also accumulate
+workspace-shared notes and any other tusk state worth committing. CI
+points `TUSK_DB` at the committed file and runs `make roadmap`, so the
+file in the repo — not any developer's local DB — is the source of truth
+for what CI sees.
 
 `.data/tusk.db` is a binary blob, but legibility for code review is
 provided by `ROADMAP.md` itself: every PR that edits the roadmap also
@@ -266,18 +260,21 @@ change log.
 
 Workflow:
 
-1. Edit the roadmap via `tusk task` commands. From inside the repo,
-   no env var is needed:
+1. Point tusk at the committed DB (one-shot for the session):
+   ```bash
+   export TUSK_DB="$(pwd)/.data/tusk.db"
+   ```
+2. Edit the roadmap via `tusk task` commands. Examples:
    ```bash
    tusk task create "Story: my new story" level=story project=tusk-roadmap parent=<initiative-short-id>
    tusk task done <short-id>
    tusk task move <short-id> --before <target>
    ```
-2. Regenerate the markdown:
+3. Regenerate the markdown:
    ```bash
    make roadmap
    ```
-3. Commit `.data/tusk.db` and `ROADMAP.md` together with whatever code
+4. Commit `.data/tusk.db` and `ROADMAP.md` together with whatever code
    change motivates the roadmap edit.
 
 The `.data/tusk.db-wal` / `.data/tusk.db-shm` sidecar files that SQLite
