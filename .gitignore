@@ -37,6 +37,9 @@ Thumbs.db
 *.db
 *.db-shm
 *.db-wal
+# roadmap-state.db is the committed snapshot of the tusk-roadmap project;
+# CI hydrates from it for the drift check.
+!roadmap-state.db
 
 # Worktrees
 .worktrees/
