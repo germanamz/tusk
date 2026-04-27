@@ -158,11 +158,7 @@ jobs:
       - name: Verify ROADMAP.md is up to date
         if: ${{ vars.TUSK_ROADMAP_CHECK_ENABLED == 'true' }}
         env:
-          TUSK_DB: ${{ runner.temp }}/tusk-ci.db
+          TUSK_DB: ${{ github.workspace }}/roadmap-state.db
         run: |
-          make build
-          # Wipe migration-seeded rows (default project, kanban workflow)
-          # so the snapshot's UUIDs win without collision.
-          ./bin/tusk import --input roadmap-state.json --replace --truncate
           make roadmap
           git diff --exit-code ROADMAP.md

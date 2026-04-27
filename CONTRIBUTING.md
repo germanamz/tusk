@@ -245,16 +245,21 @@ scenarios := []Scenario{
 
 `ROADMAP.md` is regenerated from tusk state — do not hand-edit.
 
-The roadmap state lives in `roadmap-state.json` (the canonical snapshot,
-committed) and is rendered into `ROADMAP.md` via `make roadmap`. CI rebuilds
-its workspace from `roadmap-state.json` before running the drift check, so
-the snapshot — not your local DB — is the source of truth for what CI sees.
+The roadmap state lives in `roadmap-state.db` (a committed SQLite database)
+and is rendered into `ROADMAP.md` via `make roadmap`. CI points `TUSK_DB` at
+the committed DB and runs `make roadmap`, so the file in the repo — not any
+developer's local DB — is the source of truth for what CI sees.
+
+`roadmap-state.db` is a binary blob, but legibility for code review is
+provided by `ROADMAP.md` itself: every PR that edits the roadmap also
+regenerates `ROADMAP.md`, and the markdown diff is the human-readable
+change log.
 
 Workflow:
 
-1. Hydrate your local DB from the snapshot if you don't have it yet:
+1. Point tusk at the committed DB (one-shot for the session):
    ```bash
-   tusk import --input roadmap-state.json
+   export TUSK_DB="$(pwd)/roadmap-state.db"
    ```
 2. Edit the roadmap via `tusk task` commands. Examples:
    ```bash
@@ -262,15 +267,20 @@ Workflow:
    tusk task done <short-id>
    tusk task move <short-id> --before <target>
    ```
-3. Re-export the snapshot and regenerate `ROADMAP.md`:
+3. Regenerate the markdown:
    ```bash
-   tusk export --output roadmap-state.json
    make roadmap
    ```
-4. Commit `roadmap-state.json` and `ROADMAP.md` together with whatever code
+4. Commit `roadmap-state.db` and `ROADMAP.md` together with whatever code
    change motivates the roadmap edit.
 
-CI will fail any PR whose `ROADMAP.md` is out of sync with `roadmap-state.json`
+The `roadmap-state.db-wal` / `roadmap-state.db-shm` sidecar files that SQLite
+creates during operation are gitignored — never commit them. If your DB has
+pending WAL data, run `tusk task tree --format markdown >/dev/null` once
+against it (any read closes the connection cleanly and checkpoints the WAL
+into the main file) before staging.
+
+CI will fail any PR whose `ROADMAP.md` is out of sync with `roadmap-state.db`
 once the gate is enabled (`TUSK_ROADMAP_CHECK_ENABLED=true` repo variable).
 
 The `tusk-roadmap` project uses the canonical taxonomy:
