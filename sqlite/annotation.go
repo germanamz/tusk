@@ -109,6 +109,76 @@ func (r *AnnotationRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// annotationBatchSize is the maximum number of placeholders per SQL IN clause,
+// chosen to stay well under SQLite's default SQLITE_MAX_VARIABLE_NUMBER (999).
+const annotationBatchSize = 500
+
+// GetByTasks returns annotations for multiple tasks in a single query, keyed
+// by task ID. Each task's annotations are ordered ascending by created_at
+// (chronological reading order). Tasks with no annotations are absent from
+// the map. The returned map is always non-nil, even for empty input.
+func (r *AnnotationRepo) GetByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Annotation, error) {
+	result := make(map[uuid.UUID][]*domain.Annotation, len(taskIDs))
+	if len(taskIDs) == 0 {
+		return result, nil
+	}
+
+	for start := 0; start < len(taskIDs); start += annotationBatchSize {
+		end := start + annotationBatchSize
+		if end > len(taskIDs) {
+			end = len(taskIDs)
+		}
+		if err := r.fetchAnnotationBatch(ctx, taskIDs[start:end], result); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func (r *AnnotationRepo) fetchAnnotationBatch(ctx context.Context, taskIDs []uuid.UUID, dest map[uuid.UUID][]*domain.Annotation) error {
+	placeholders := make([]string, len(taskIDs))
+	args := make([]any, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id.String()
+	}
+
+	query := fmt.Sprintf(
+		`SELECT id, task_id, body, created_at FROM annotations WHERE task_id IN (%s) ORDER BY task_id, created_at`,
+		strings.Join(placeholders, ","),
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			a                  domain.Annotation
+			id, tid, createdAt string
+		)
+		if err := rows.Scan(&id, &tid, &a.Body, &createdAt); err != nil {
+			return err
+		}
+		a.ID, err = uuid.Parse(id)
+		if err != nil {
+			return err
+		}
+		a.TaskID, err = uuid.Parse(tid)
+		if err != nil {
+			return err
+		}
+		a.CreatedAt, err = time.Parse(timeFormat, createdAt)
+		if err != nil {
+			return err
+		}
+		dest[a.TaskID] = append(dest[a.TaskID], &a)
+	}
+	return rows.Err()
+}
+
 // CountByTasks returns annotation counts for each task ID in a single query.
 // Tasks with zero annotations are not included in the returned map.
 func (r *AnnotationRepo) CountByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {

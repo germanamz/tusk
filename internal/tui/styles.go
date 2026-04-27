@@ -29,13 +29,23 @@ type Styles struct {
 // Renderer encapsulates output formatting and styling for CLI commands.
 type Renderer struct {
 	w                 io.Writer
-	format            string // "text" or "json"
+	format            string // "text", "json", or "markdown" (markdown is tree-only)
 	color             bool
 	styles            *Styles // nil when color=false
 	dimStatuses       map[string]bool
 	highlightStatuses map[string]bool
 	projectNames      func(uuid.UUID) string
 	taxonomyForTask   func(uuid.UUID) bool
+	markdown          *markdownInputs // populated by setMarkdownInputs for tree --format markdown
+}
+
+// setMarkdownInputs stashes the inputs the markdown tree renderer needs.
+// A nil argument is a no-op so callers can unconditionally invoke it.
+func (r *Renderer) setMarkdownInputs(in *markdownInputs) {
+	if in == nil {
+		return
+	}
+	r.markdown = in
 }
 
 // SetProjectNameResolver wires a function that resolves project UUIDs to

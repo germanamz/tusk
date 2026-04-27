@@ -150,6 +150,9 @@ func (s *stubAnnotationRepo) Create(_ context.Context, _ *domain.Annotation) err
 func (s *stubAnnotationRepo) GetByTask(_ context.Context, _ uuid.UUID) ([]*domain.Annotation, error) {
 	return nil, nil
 }
+func (s *stubAnnotationRepo) GetByTasks(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]*domain.Annotation, error) {
+	return map[uuid.UUID][]*domain.Annotation{}, nil
+}
 func (s *stubAnnotationRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (s *stubAnnotationRepo) CountByTasks(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]int, error) {
 	return nil, nil

@@ -137,6 +137,7 @@ func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
 // renderTree writes the tree to w in the given format.
 // For "text", each task is rendered as: {indent}{short_id} [{status}] {title}
 // For "json", the tree is rendered as a nested JSON array with children.
+// For "markdown", delegates to renderTreeMarkdown (see tree_markdown.go).
 func (r *Renderer) renderTree(nodes []*treeNode) error {
 	if r.format == "json" {
 		jsonNodes := make([]treeNodeJSON, len(nodes))
@@ -146,6 +147,10 @@ func (r *Renderer) renderTree(nodes []*treeNode) error {
 		enc := json.NewEncoder(r.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(jsonNodes)
+	}
+
+	if r.format == "markdown" {
+		return r.renderTreeMarkdown(nodes)
 	}
 
 	// Text format
@@ -237,7 +242,14 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	if err := validateSortMode(sortMode); err != nil {
 		return err
 	}
+	format := strings.ToLower(strings.TrimSpace(a.format))
+	if format != "" && format != "text" && format != "json" && format != "markdown" {
+		return fmt.Errorf("invalid format %q: tree supports text, json, or markdown", a.format)
+	}
 	rollup, _ := cmd.Flags().GetBool("rollup")
+	if format == "markdown" && rollup {
+		return fmt.Errorf("--rollup is not supported with --format markdown")
+	}
 	showAll, _ := cmd.Flags().GetBool("all")
 
 	var tasks []*domain.Task
@@ -272,9 +284,29 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	// rendering.
 	sortTasks(tasks, sortMode)
 
+	// Markdown export is single-project only. Reject multi-project trees up
+	// front so we never call gatherMarkdownInputs with tasks spanning more
+	// than one bundle. An empty tree is allowed and falls through to the
+	// renderer, which emits nothing in that case.
+	var mdInputs *markdownInputs
+	if format == "markdown" && len(tasks) > 0 {
+		seen := make(map[uuid.UUID]struct{})
+		for _, t := range tasks {
+			seen[t.ProjectID] = struct{}{}
+			if len(seen) > 1 {
+				return fmt.Errorf("--format markdown requires a single project; pass project=<name> or run on a single-project workspace")
+			}
+		}
+		var err error
+		mdInputs, err = a.gatherMarkdownInputs(ctx, tasks)
+		if err != nil {
+			return err
+		}
+	}
+
 	nodes := buildTree(tasks, rootID)
 
-	if len(nodes) == 0 && a.format != "json" {
+	if len(nodes) == 0 && a.format != "json" && a.format != "markdown" {
 		_, err := fmt.Fprintln(cmd.ErrOrStderr(), "No tasks.")
 		return err
 	}
@@ -300,6 +332,7 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	if rollup {
 		r.highlightStatuses = a.buildHighlightStatuses()
 	}
+	r.setMarkdownInputs(mdInputs)
 	return r.renderTree(nodes)
 }
 

@@ -173,3 +173,81 @@ func TestAnnotationDeleteNotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+// TestAnnotationRepo_GetByTasks_Batch exercises the batch read used by the
+// markdown renderer. It covers three cases: a happy path with two tasks each
+// owning two annotations, an empty input slice, and a non-existent task ID.
+func TestAnnotationRepo_GetByTasks_Batch(t *testing.T) {
+	s := testStore(t)
+	taskRepo := NewTaskRepo(s.DB())
+	repo := NewAnnotationRepo(s.DB())
+	ctx := context.Background()
+
+	task1 := newTestTask()
+	mustCreateTask(t, taskRepo, task1)
+	task2 := newTestTask()
+	mustCreateTask(t, taskRepo, task2)
+
+	// Seed two annotations per task with distinct timestamps so we can assert
+	// the per-task result is sorted ascending by created_at.
+	base := time.Now().UTC().Truncate(time.Millisecond)
+	mkAnn := func(taskID uuid.UUID, body string, offset time.Duration) *domain.Annotation {
+		return &domain.Annotation{
+			ID:        uuid.New(),
+			TaskID:    taskID,
+			Body:      body,
+			CreatedAt: base.Add(offset),
+		}
+	}
+	for _, ann := range []*domain.Annotation{
+		mkAnn(task1.ID, "t1-a", 0),
+		mkAnn(task1.ID, "t1-b", time.Millisecond),
+		mkAnn(task2.ID, "t2-a", 2*time.Millisecond),
+		mkAnn(task2.ID, "t2-b", 3*time.Millisecond),
+	} {
+		if err := repo.Create(ctx, ann); err != nil {
+			t.Fatalf("Create %q: %v", ann.Body, err)
+		}
+	}
+
+	got, err := repo.GetByTasks(ctx, []uuid.UUID{task1.ID, task2.ID})
+	if err != nil {
+		t.Fatalf("GetByTasks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 keys, got %d", len(got))
+	}
+	if len(got[task1.ID]) != 2 {
+		t.Fatalf("task1: expected 2 annotations, got %d", len(got[task1.ID]))
+	}
+	if len(got[task2.ID]) != 2 {
+		t.Fatalf("task2: expected 2 annotations, got %d", len(got[task2.ID]))
+	}
+	if got[task1.ID][0].Body != "t1-a" || got[task1.ID][1].Body != "t1-b" {
+		t.Fatalf("task1: expected ascending order [t1-a, t1-b], got [%q, %q]",
+			got[task1.ID][0].Body, got[task1.ID][1].Body)
+	}
+	if got[task2.ID][0].Body != "t2-a" || got[task2.ID][1].Body != "t2-b" {
+		t.Fatalf("task2: expected ascending order [t2-a, t2-b], got [%q, %q]",
+			got[task2.ID][0].Body, got[task2.ID][1].Body)
+	}
+
+	empty, err := repo.GetByTasks(ctx, []uuid.UUID{})
+	if err != nil {
+		t.Fatalf("GetByTasks(empty): %v", err)
+	}
+	if empty == nil {
+		t.Fatal("GetByTasks(empty) returned nil map; expected non-nil")
+	}
+	if len(empty) != 0 {
+		t.Fatalf("GetByTasks(empty) expected 0 entries, got %d", len(empty))
+	}
+
+	missing, err := repo.GetByTasks(ctx, []uuid.UUID{uuid.New()})
+	if err != nil {
+		t.Fatalf("GetByTasks(missing): %v", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("GetByTasks(missing) expected 0 entries, got %d", len(missing))
+	}
+}

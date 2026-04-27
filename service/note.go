@@ -158,3 +158,15 @@ func (s *NoteService) List(ctx context.Context, params NoteListParams) ([]*domai
 	}
 	return s.notes.List(ctx, opts)
 }
+
+// ListAllForProject returns every active (non-archived) note in a project
+// with no window cap. Used by exporters (markdown tree, portability dump)
+// that need the full set rather than the player-facing recent window. Does
+// not consult the window resolution chain.
+func (s *NoteService) ListAllForProject(ctx context.Context, projectID uuid.UUID) ([]*domain.Note, error) {
+	return s.notes.List(ctx, repository.NoteListOptions{
+		ProjectID:       projectID,
+		IncludeArchived: false,
+		Limit:           0,
+	})
+}
