@@ -48,7 +48,9 @@ setup-hooks:
 	@echo "Git hooks installed via lefthook"
 
 roadmap: build
-	./$(BUILD_DIR)/$(BINARY_NAME) task tree project=tusk-roadmap --format markdown > ROADMAP.md
+	@./$(BUILD_DIR)/$(BINARY_NAME) task tree project=tusk-roadmap --format markdown > ROADMAP.md.tmp \
+		&& mv ROADMAP.md.tmp ROADMAP.md \
+		|| { rm -f ROADMAP.md.tmp; exit 1; }
 
 devcontainer-up:
 	devcontainer up --workspace-folder $(CURDIR) --build-no-cache
