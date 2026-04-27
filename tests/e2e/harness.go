@@ -1,3 +1,18 @@
+// Package e2e drives the tusk binary as a black-box subprocess.
+//
+// All test commands route through newCmd, which sets cmd.Dir to a
+// per-call t.TempDir(). Tusk's walk-up config resolver therefore
+// never reaches the repo-root tusk.toml. Tests that need to exercise
+// walk-up explicitly call env.InDir(...) to point CWD at a controlled
+// directory. No test should construct exec.Command directly — newCmd
+// is the only sanctioned construction path so the isolation invariant
+// cannot drift.
+//
+// Caveat: cmd.Env starts from os.Environ(), so a developer shell with
+// TUSK_CONFIG or TUSK_DB exported leaks into every test. CI runners
+// have clean environments; locally, run `unset TUSK_CONFIG TUSK_DB`
+// before `make test-e2e` if you need to verify isolation.
+
 // tests/e2e/harness.go
 package e2e
 
@@ -10,6 +25,19 @@ import (
 	"strings"
 	"testing"
 )
+
+// newCmd returns an exec.Cmd that runs binPath with args. cmd.Dir is set
+// to a per-call t.TempDir() so tusk's walk-up config resolver never
+// reaches an ancestor's tusk.toml. cmd.Env starts as os.Environ() with
+// NO_COLOR=1 appended; callers append further env vars and set Stdin /
+// Stdout / Stderr as needed.
+func newCmd(t *testing.T, binPath string, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(binPath, args...)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "NO_COLOR=1")
+	return cmd
+}
 
 // currentStep carries per-step context used by Env.Run. runScenarios sets
 // it before invoking Run so optional Stdin/Cwd fields propagate to the
@@ -29,16 +57,19 @@ type Result struct {
 // Env is the test environment for a single scenario run.
 // Each Env gets its own temp SQLite database file.
 type Env struct {
-	t         *testing.T
-	binPath   string   // path to compiled tusk binary
-	dbPath    string   // path to temp SQLite file
-	configDir string   // path to temp config directory (optional)
-	workDir   string   // working directory for cmd.Dir (optional)
-	extraEnv  []string // additional env vars appended to every Run (optional)
-	dbMode    string   // "flag" or "env"
-	format    string   // "text" or "json"
-	results   []Result // stored results for inter-step references
-	step      currentStep
+	t          *testing.T
+	binPath    string   // path to compiled tusk binary
+	dbPath     string   // path to temp SQLite file
+	configDir  string   // path to temp config directory (optional)
+	workDir    string   // working directory for cmd.Dir (optional)
+	extraEnv   []string // additional env vars appended to every Run (optional)
+	homeDir    string   // set by WithHome; overrides HOME / USERPROFILE
+	skipDBArg  bool     // set by WithoutDBArg; suppress --db / TUSK_DB injection
+	skipFormat bool     // set by WithoutFormat; suppress --format injection
+	dbMode     string   // "flag" or "env"
+	format     string   // "text" or "json"
+	results    []Result // stored results for inter-step references
+	step       currentStep
 }
 
 // InDir sets the working directory used for subsequent Run invocations.
@@ -51,6 +82,26 @@ func (e *Env) InDir(dir string) { e.workDir = dir }
 // TUSK_CONFIG) without adding first-class fields to Env.
 func (e *Env) WithEnv(key, value string) {
 	e.extraEnv = append(e.extraEnv, key+"="+value)
+}
+
+// WithHome overrides HOME (and USERPROFILE on Windows) for every
+// subsequent Run invocation. Used by tests that drive tusk's config
+// resolver from a synthetic home directory.
+func (e *Env) WithHome(dir string) {
+	e.homeDir = dir
+}
+
+// WithoutDBArg suppresses both the --db flag and TUSK_DB env var on
+// every subsequent Run invocation, regardless of dbMode. Used by
+// tests that exercise storage.path resolution from a config file.
+func (e *Env) WithoutDBArg() {
+	e.skipDBArg = true
+}
+
+// WithoutFormat suppresses the --format flag on every subsequent Run
+// invocation. Used by tests that assert tusk's default output format.
+func (e *Env) WithoutFormat() {
+	e.skipFormat = true
 }
 
 // newEnv creates a new Env with a fresh temp DB file.
@@ -76,6 +127,7 @@ func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
 		binPath:   binPath,
 		dbPath:    tmpFile.Name(),
 		configDir: t.TempDir(),
+		workDir:   t.TempDir(),
 		dbMode:    dbMode,
 		format:    format,
 	}
@@ -87,21 +139,22 @@ func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
 func (e *Env) Run(args ...string) Result {
 	e.t.Helper()
 
-	// Expand $N.field references in args
 	expanded := make([]string, len(args))
 	for i, arg := range args {
 		expanded[i] = e.expandRefs(arg)
 	}
 
-	// Build the full argument list
 	var fullArgs []string
-	if e.dbMode == "flag" {
+	if e.dbMode == "flag" && !e.skipDBArg {
 		fullArgs = append(fullArgs, "--db", e.dbPath)
 	}
-	fullArgs = append(fullArgs, "--format", e.format)
+	if !e.skipFormat {
+		fullArgs = append(fullArgs, "--format", e.format)
+	}
 	fullArgs = append(fullArgs, expanded...)
 
-	cmd := exec.Command(e.binPath, fullArgs...)
+	cmd := newCmd(e.t, e.binPath, fullArgs...)
+
 	if e.step.cwd != "" {
 		cmd.Dir = e.step.cwd
 	} else if e.workDir != "" {
@@ -111,17 +164,16 @@ func (e *Env) Run(args ...string) Result {
 		cmd.Stdin = strings.NewReader(e.step.stdin)
 	}
 
-	// Set environment variables
-	env := os.Environ()
-	env = append(env, "NO_COLOR=1")
-	if e.dbMode == "env" {
-		env = append(env, "TUSK_DB="+e.dbPath)
+	if e.homeDir != "" {
+		cmd.Env = append(cmd.Env, "HOME="+e.homeDir, "USERPROFILE="+e.homeDir)
+	}
+	if e.dbMode == "env" && !e.skipDBArg {
+		cmd.Env = append(cmd.Env, "TUSK_DB="+e.dbPath)
 	}
 	if e.configDir != "" {
-		env = append(env, "TUSK_CONFIG_DIR="+e.configDir)
+		cmd.Env = append(cmd.Env, "TUSK_CONFIG_DIR="+e.configDir)
 	}
-	env = append(env, e.extraEnv...)
-	cmd.Env = env
+	cmd.Env = append(cmd.Env, e.extraEnv...)
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
