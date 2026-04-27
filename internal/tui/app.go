@@ -148,7 +148,7 @@ func New(
 	a.root.CompletionOptions.DisableDefaultCmd = true
 
 	a.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
-	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text" or "json"`)
+	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text", "json", or "markdown" (markdown is supported only on tree)`)
 	a.root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output")
 	a.root.PersistentFlags().StringVar(&a.playerID, "player", "", "player ID for claim/release operations")
 

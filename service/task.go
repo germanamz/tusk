@@ -1821,6 +1821,18 @@ func (s *TaskService) GetAnnotations(ctx context.Context, taskShortID string) ([
 	return bundle.Annotations.GetByTask(ctx, task.ID)
 }
 
+// GetAnnotationsBatch returns annotations for multiple tasks belonging to a
+// single project in one query, keyed by task ID. Used by tree exporters that
+// already know the project bundle and want to avoid the per-task fan-out of
+// GetAnnotations. Tasks with no annotations are absent from the map.
+func (s *TaskService) GetAnnotationsBatch(ctx context.Context, projectID uuid.UUID, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Annotation, error) {
+	bundle, err := s.resolve(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("resolving bundle for project %v: %w", projectID, err)
+	}
+	return bundle.Annotations.GetByTasks(ctx, taskIDs)
+}
+
 // DeleteAnnotation removes an annotation by its ID. Fan-out: every
 // project store is asked to delete; returns domain.ErrNotFound if no
 // store held the row.
