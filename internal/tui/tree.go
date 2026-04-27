@@ -328,6 +328,15 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Markdown render needs delete-role nodes pruned the same way the
+	// default text view excludes them. fetchTreeTasks already filters by
+	// status when not in --rollup mode, but the workflow-driven delete
+	// role check is still necessary for any custom workflows that mark
+	// non-default statuses with delete role.
+	if format == "markdown" && !showAll && mdInputs != nil {
+		nodes = pruneDeleteRoleNodes(nodes, mdInputs.workflowFor)
+	}
+
 	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), a.buildDimStatuses())
 	if rollup {
 		r.highlightStatuses = a.buildHighlightStatuses()
