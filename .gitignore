@@ -37,9 +37,10 @@ Thumbs.db
 *.db
 *.db-shm
 *.db-wal
-# roadmap-state.db is the committed snapshot of the tusk-roadmap project;
-# CI hydrates from it for the drift check.
-!roadmap-state.db
+# .data/tusk.db is the committed workspace database — holds the
+# tusk-roadmap project (regenerated into ROADMAP.md by CI) and any
+# future workspace-shared tusk state (notes, ad-hoc tasks, etc).
+!.data/tusk.db
 
 # Worktrees
 .worktrees/

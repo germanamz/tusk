@@ -245,12 +245,15 @@ scenarios := []Scenario{
 
 `ROADMAP.md` is regenerated from tusk state — do not hand-edit.
 
-The roadmap state lives in `roadmap-state.db` (a committed SQLite database)
-and is rendered into `ROADMAP.md` via `make roadmap`. CI points `TUSK_DB` at
-the committed DB and runs `make roadmap`, so the file in the repo — not any
-developer's local DB — is the source of truth for what CI sees.
+The workspace tusk database lives at `.data/tusk.db` (a committed SQLite
+file). It currently holds the `tusk-roadmap` project, which is rendered
+into `ROADMAP.md` via `make roadmap`; over time it will also accumulate
+workspace-shared notes and any other tusk state worth committing. CI
+points `TUSK_DB` at the committed file and runs `make roadmap`, so the
+file in the repo — not any developer's local DB — is the source of truth
+for what CI sees.
 
-`roadmap-state.db` is a binary blob, but legibility for code review is
+`.data/tusk.db` is a binary blob, but legibility for code review is
 provided by `ROADMAP.md` itself: every PR that edits the roadmap also
 regenerates `ROADMAP.md`, and the markdown diff is the human-readable
 change log.
@@ -259,7 +262,7 @@ Workflow:
 
 1. Point tusk at the committed DB (one-shot for the session):
    ```bash
-   export TUSK_DB="$(pwd)/roadmap-state.db"
+   export TUSK_DB="$(pwd)/.data/tusk.db"
    ```
 2. Edit the roadmap via `tusk task` commands. Examples:
    ```bash
@@ -271,16 +274,16 @@ Workflow:
    ```bash
    make roadmap
    ```
-4. Commit `roadmap-state.db` and `ROADMAP.md` together with whatever code
+4. Commit `.data/tusk.db` and `ROADMAP.md` together with whatever code
    change motivates the roadmap edit.
 
-The `roadmap-state.db-wal` / `roadmap-state.db-shm` sidecar files that SQLite
-creates during operation are gitignored — never commit them. If your DB has
-pending WAL data, run `tusk task tree --format markdown >/dev/null` once
-against it (any read closes the connection cleanly and checkpoints the WAL
-into the main file) before staging.
+The `.data/tusk.db-wal` / `.data/tusk.db-shm` sidecar files that SQLite
+creates during operation are gitignored — never commit them. If your DB
+has pending WAL data, run `tusk task tree --format markdown >/dev/null`
+once against it (any read closes the connection cleanly and checkpoints
+the WAL into the main file) before staging.
 
-CI will fail any PR whose `ROADMAP.md` is out of sync with `roadmap-state.db`
+CI will fail any PR whose `ROADMAP.md` is out of sync with `.data/tusk.db`
 once the gate is enabled (`TUSK_ROADMAP_CHECK_ENABLED=true` repo variable).
 
 The `tusk-roadmap` project uses the canonical taxonomy:
