@@ -104,6 +104,14 @@ func (r *Renderer) renderTreeMarkdown(nodes []*treeNode) error {
 			return err
 		}
 	}
+
+	// Project-level notes (TaskID == nil) live under uuid.Nil in the
+	// notesByTask map per the gathering convention established in Phase 3.
+	// They appear under the H1 description (if any) and before the first task.
+	if err := renderNotesBlock(r.w, r.markdown.notesByTask[uuid.Nil], ""); err != nil {
+		return err
+	}
+
 	for _, node := range nodes {
 		if err := r.renderMarkdownNode(node, 0); err != nil {
 			return err
@@ -152,6 +160,24 @@ func (r *Renderer) renderMarkdownNode(node *treeNode, depth int) error {
 		if err := writeBlockquote(r.w, node.Task.Description, indent); err != nil {
 			return err
 		}
+	}
+
+	// Annotations and notes sit one indent level deeper than the bullet
+	// itself (they render as sub-bullets of the task). Phase 4's description
+	// blockquote uses the bullet's own indent (`strings.Repeat("  ", depth-2)`),
+	// not the +2 sub-content indent used here — the two blocks don't line up
+	// at the same column on bullet-rendered tasks. That's intentional: the
+	// blockquote is a free-standing markdown construct rather than a list
+	// item child.
+	subIndent := ""
+	if depth >= 2 {
+		subIndent = strings.Repeat("  ", depth-2) + "  "
+	}
+	if err := renderAnnotationsBlock(r.w, r.markdown.annsByTask[node.Task.ID], subIndent); err != nil {
+		return err
+	}
+	if err := renderNotesBlock(r.w, r.markdown.notesByTask[node.Task.ID], subIndent); err != nil {
+		return err
 	}
 
 	for _, child := range node.Children {
@@ -301,6 +327,145 @@ func projectDisplayName(name string) string {
 		fields[i] = strings.Title(tok) //nolint:staticcheck // ASCII-only per-token use; see comment above.
 	}
 	return strings.Join(fields, " ")
+}
+
+// renderAnnotationsBlock writes the labeled `**Annotations:**` list for a
+// task. indent is "" for heading-rendered tasks (depth 0/1) and the
+// sub-content indent for bullet-rendered tasks (depth >= 2 — see
+// renderMarkdownNode for how that indent is computed). Emits nothing when
+// anns is empty.
+//
+// Heading variant ends with a trailing blank line so the next block sits in
+// its own paragraph. Bullet variant emits no trailing blank — the next
+// sibling sub-bullet or child handles its own spacing.
+//
+// Annotations are written in chronological order (created_at ascending);
+// the slice is sorted defensively in case the upstream batch loader did not
+// guarantee order.
+func renderAnnotationsBlock(w io.Writer, anns []*domain.Annotation, indent string) error {
+	if len(anns) == 0 {
+		return nil
+	}
+	sorted := make([]*domain.Annotation, len(anns))
+	copy(sorted, anns)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+	})
+
+	if indent == "" {
+		if _, err := fmt.Fprint(w, "**Annotations:**\n"); err != nil {
+			return err
+		}
+		for _, a := range sorted {
+			body := strings.TrimRightFunc(a.Body, unicode.IsSpace)
+			if _, err := fmt.Fprintf(w, "- %s: %s\n", a.CreatedAt.UTC().Format("2006-01-02"), body); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(w, "%s- **Annotations:**\n", indent); err != nil {
+		return err
+	}
+	for _, a := range sorted {
+		body := strings.TrimRightFunc(a.Body, unicode.IsSpace)
+		if _, err := fmt.Fprintf(w, "%s  - %s: %s\n", indent, a.CreatedAt.UTC().Format("2006-01-02"), body); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderNotesBlock writes the labeled `**Notes:**` list for a task or for the
+// project-level scope. indent semantics match renderAnnotationsBlock. Each
+// note renders as `- {YYYY-MM-DD} ({player_id}[, {key}={val}…]): body`,
+// sorted chronologically by created_at. Multi-line bodies put line one inline
+// after the colon and indent subsequent lines under the bullet text by an
+// additional 2 spaces (no leading bullet marker).
+//
+// Metadata pairs are alphabetical by key. Values are coerced via
+// fmt.Sprintf("%v", v); strings containing whitespace or a registered prefix
+// character are quoted via quoteUDAValue so the output remains reparsable by
+// the inline-syntax lexer.
+func renderNotesBlock(w io.Writer, notes []*domain.Note, indent string) error {
+	if len(notes) == 0 {
+		return nil
+	}
+	sorted := make([]*domain.Note, len(notes))
+	copy(sorted, notes)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+	})
+
+	heading := indent == ""
+	var bulletPrefix, contPrefix string
+	if heading {
+		bulletPrefix = "- "
+		contPrefix = "  "
+	} else {
+		bulletPrefix = indent + "  - "
+		contPrefix = indent + "    "
+	}
+
+	if heading {
+		if _, err := fmt.Fprint(w, "**Notes:**\n"); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, "%s- **Notes:**\n", indent); err != nil {
+			return err
+		}
+	}
+
+	for _, n := range sorted {
+		header := fmt.Sprintf("%s%s (%s%s)", bulletPrefix,
+			n.CreatedAt.UTC().Format("2006-01-02"),
+			n.PlayerID,
+			formatNoteMetadata(n.Metadata),
+		)
+		body := strings.TrimRightFunc(n.Body, unicode.IsSpace)
+		lines := strings.Split(body, "\n")
+		if _, err := fmt.Fprintf(w, "%s: %s\n", header, lines[0]); err != nil {
+			return err
+		}
+		for _, line := range lines[1:] {
+			if _, err := fmt.Fprintf(w, "%s%s\n", contPrefix, line); err != nil {
+				return err
+			}
+		}
+	}
+	if heading {
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formatNoteMetadata returns ", k=v, k2=v2" for non-empty metadata (with a
+// leading ", ") or "" for empty. Keys are alphabetized; values are coerced
+// via fmt.Sprintf and quoted with quoteUDAValue when ambiguous.
+func formatNoteMetadata(meta map[string]any) string {
+	if len(meta) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(meta))
+	for k := range meta {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(", ")
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(quoteUDAValue(fmt.Sprintf("%v", meta[k])))
+	}
+	return b.String()
 }
 
 // writeBlockquote writes s as a markdown blockquote with each line prefixed
