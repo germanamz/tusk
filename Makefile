@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race test-e2e vet lint run install setup-hooks devcontainer-up devcontainer-shell devcontainer-shell-ops devcontainer-down devcontainer-nuke
+.PHONY: all build clean test test-race test-e2e vet lint run install setup-hooks roadmap devcontainer-up devcontainer-shell devcontainer-shell-ops devcontainer-down devcontainer-nuke
 
 DEVCONTAINER_CID = docker ps --filter "label=devcontainer.local_folder=$(CURDIR)" -q
 DEVCONTAINER_WORKDIR := /workspaces/$(notdir $(CURDIR))
@@ -46,6 +46,9 @@ setup-hooks:
 	go install github.com/siderolabs/conform/cmd/conform@latest
 	lefthook install
 	@echo "Git hooks installed via lefthook"
+
+roadmap: build
+	./$(BUILD_DIR)/$(BINARY_NAME) task tree project=tusk-roadmap --format markdown > ROADMAP.md
 
 devcontainer-up:
 	devcontainer up --workspace-folder $(CURDIR) --build-no-cache
