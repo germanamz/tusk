@@ -241,6 +241,29 @@ scenarios := []Scenario{
 }
 ```
 
+## ROADMAP.md is generated
+
+`ROADMAP.md` is regenerated from tusk state — do not hand-edit.
+
+Workflow:
+
+1. Edit the roadmap via `tusk task` commands. Examples:
+   ```bash
+   tusk task create "Story: my new story" level=story project=tusk-roadmap parent=<initiative-short-id>
+   tusk task done <short-id>
+   tusk task move <short-id> --before <target>
+   ```
+2. Run `make roadmap` to regenerate `ROADMAP.md`.
+3. Commit the regenerated `ROADMAP.md` alongside whatever code change motivates the roadmap edit.
+
+CI will fail any PR whose `ROADMAP.md` is out of sync with tusk state once the
+gate is enabled (`TUSK_ROADMAP_CHECK_ENABLED=true` repo variable). The variable
+flips on at the cutover commit (post-manual-migration); until then the check is
+a no-op.
+
+The `tusk-roadmap` project uses the canonical taxonomy:
+`milestone:initiative:story:(task,spike)`.
+
 ## Reporting Issues
 
 When reporting bugs, please include:
