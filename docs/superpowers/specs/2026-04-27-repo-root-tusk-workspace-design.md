@@ -200,26 +200,45 @@ merged. Section itself stays.
 
 ### Harness regression test — new file `tests/e2e/harness_isolation_test.go`
 
-One scenario, `TestHarness_IsolatesFromAncestorTuskToml`:
+One scenario, `TestHarness_IsolatesFromAncestorTuskToml`. Two-part
+structure (sanity + isolation) so a regression actually fails the
+test rather than passing trivially.
 
-1. Create a temp root dir.
-2. Write a `tusk.toml` at the root with a `[taxonomy] levels =
-   [["milestone"], ["initiative"], ["story"], ["task", "spike"]]`
-   section. This is the exact shape that broke the v0.13 cutover
-   attempt.
-3. Create a child dir under the root.
-4. Run `tusk task create "isolated"` via `Env.Run` — no `project=`
-   argument (so the create lands in the built-in `default` project)
-   and no `InDir` call. The default `workDir = t.TempDir()` should
-   keep walk-up out of the seeded root.
-5. Assert the create succeeds. If walk-up leaked into the seeded
-   root, the workspace `[taxonomy]` would propagate to the `default`
-   project and the level-less create would be rejected.
+**Setup.** Create a temp `seedRoot`. Write a `tusk.toml` at
+`seedRoot` containing `[taxonomy] levels = [["milestone"],
+["initiative"], ["story"], ["task", "spike"]]` — the exact shape
+that broke the v0.13 cutover. Create `seedRoot/child/` as a
+descendant directory.
 
-Rationale for one test: every other test in the suite now routes
-through `Env`/`MCPEnv`, both of which build on `newCmd`. The
-regression covers them all transitively. `config_walkup_test.go`
-already exercises walk-up resolution end to end.
+**Part 1 — sanity check.** Construct an `Env` and call
+`InDir(seedRoot/child)`. Run `tusk task create "should-fail"` (no
+`project=`, no `level=`). With CWD inside `seedRoot`'s chain,
+walk-up resolves the seed; the level-less create against the
+`default` project must be **rejected**. If the create succeeds, the
+seed is not operative — the test cannot meaningfully verify
+isolation, so `t.Fatal` with a clear message before proceeding.
+
+**Part 2 — isolation check.** `os.Chdir(seedRoot/child)` to mutate
+the **test process's** CWD. Register a `t.Cleanup` that restores
+`os.Getwd()`'s prior value. Construct a fresh `Env` and run
+`tusk task create "should-succeed"` with **no `InDir` call**. If
+the harness ever regressed to inheriting the test process's CWD,
+walk-up from the inherited CWD would hit `seedRoot/tusk.toml` and
+the level-less create would fail. With the working harness
+(`workDir = t.TempDir()`), `cmd.Dir` is somewhere unrelated to
+`seedRoot`'s ancestor chain and the create succeeds.
+
+**Concurrency note.** This test mutates process CWD, so it must
+**not** call `t.Parallel()`. Go's test runner runs sequential tests
+serially before any parallel test cohort starts; the `t.Cleanup`
+restores CWD before any subsequent test sees it.
+
+**Rationale.** Every other test now routes through `Env`/`MCPEnv`,
+both built on `newCmd`. This regression covers them transitively.
+`config_walkup_test.go` already exercises walk-up resolution end to
+end. The two-part design is what makes the test load-bearing —
+without the sanity step, the isolation assertion would pass even if
+the harness regressed.
 
 ### Package-comment documentation
 
