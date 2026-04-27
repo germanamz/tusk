@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/germanamz/tusk/domain"
 	"github.com/google/uuid"
@@ -77,11 +80,10 @@ func (a *App) gatherMarkdownInputs(ctx context.Context, tasks []*domain.Task) (*
 	}, nil
 }
 
-// renderTreeMarkdown writes the markdown export. Phase 3 emits only the
-// project header + description blockquote and a placeholder comment for the
-// body. Phase 4 fills in the title lines, structural shape, and description
-// blocks for tasks; Phase 5 adds annotations and notes.
-func (r *Renderer) renderTreeMarkdown(_ []*treeNode) error {
+// renderTreeMarkdown writes the markdown export: H1 + project description
+// blockquote followed by the recursively-rendered task body. Phase 5 will
+// append annotations and notes; Phase 4's output is a strict prefix of that.
+func (r *Renderer) renderTreeMarkdown(nodes []*treeNode) error {
 	if r.markdown == nil {
 		// Empty workspace OR caller forgot to wire inputs — emit nothing rather
 		// than panicking. runTree only sets inputs when the tree is non-empty
@@ -96,10 +98,191 @@ func (r *Renderer) renderTreeMarkdown(_ []*treeNode) error {
 		if err := writeBlockquote(r.w, proj.Description, ""); err != nil {
 			return err
 		}
+	} else {
+		// Trailing blank line between H1 and first task even when no description.
+		if _, err := fmt.Fprintln(r.w); err != nil {
+			return err
+		}
 	}
-	// Phase 4 replaces this placeholder with full body rendering.
-	_, err := fmt.Fprintln(r.w, "\n<!-- tusk: markdown body lands in phase 4 -->")
-	return err
+	for _, node := range nodes {
+		if err := r.renderMarkdownNode(node, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderMarkdownNode writes a single tree node and recurses into its children.
+// depth 0 → "## ", depth 1 → "### ", depth ≥ 2 → bullet ("- [x] " or "- [ ] ")
+// indented by 2 spaces per level past depth 2. Description (if any) is emitted
+// as a blockquote immediately below the title with the same indent.
+func (r *Renderer) renderMarkdownNode(node *treeNode, depth int) error {
+	wf := r.markdown.workflowFor(node.Task)
+	titleLine := formatMarkdownTitleLine(
+		node.Task,
+		r.markdown.tagsByTask[node.Task.ID],
+		r.hasTaxonomy(node.Task.ProjectID),
+		wf,
+	)
+
+	var indent string
+	switch depth {
+	case 0:
+		if _, err := fmt.Fprintf(r.w, "## %s\n", titleLine); err != nil {
+			return err
+		}
+	case 1:
+		if _, err := fmt.Fprintf(r.w, "### %s\n", titleLine); err != nil {
+			return err
+		}
+	default:
+		indent = strings.Repeat("  ", depth-2)
+		checkbox := " "
+		if wf != nil {
+			if cfg, ok := wf.Statuses[node.Task.Status]; ok && cfg.HasRole(domain.RoleDone) {
+				checkbox = "x"
+			}
+		}
+		if _, err := fmt.Fprintf(r.w, "%s- [%s] %s\n", indent, checkbox, titleLine); err != nil {
+			return err
+		}
+	}
+
+	if node.Task.Description != "" {
+		if err := writeBlockquote(r.w, node.Task.Description, indent); err != nil {
+			return err
+		}
+	}
+
+	for _, child := range node.Children {
+		if err := r.renderMarkdownNode(child, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formatMarkdownTitleLine builds the inline-token suffix for a task's title.
+// Output shape: "{title} status=… level=… priority=… due=… order=… uda.k=v … +tag …".
+// Tokens are emitted only when meaningful per §3.2 of the design spec.
+//
+// hasTaxonomy controls whether `level=` is emitted (matches the renderer's
+// existing taxonomy-resolver pattern).
+//
+// workflow may be nil (renderer fell back when no workflow was resolvable);
+// when nil, status binary classification cannot be performed and the
+// status= token is conservatively omitted.
+func formatMarkdownTitleLine(t *domain.Task, tags []*domain.Tag, hasTaxonomy bool, workflow *domain.Workflow) string {
+	var b strings.Builder
+	b.WriteString(t.Title)
+
+	// status=<name>: only when non-binary. Binary means: status equals the
+	// workflow's initial status name OR carries the done role.
+	if workflow != nil && t.Status != "" {
+		binary := false
+		if cfg, ok := workflow.Statuses[t.Status]; ok && cfg.HasRole(domain.RoleDone) {
+			binary = true
+		}
+		if !binary {
+			if name, ok := workflow.StatusByRole(domain.RoleInitial); ok && name == t.Status {
+				binary = true
+			}
+		}
+		if !binary {
+			b.WriteString(" status=")
+			b.WriteString(t.Status)
+		}
+	}
+
+	if hasTaxonomy && t.Level != nil && *t.Level != "" {
+		b.WriteString(" level=")
+		b.WriteString(*t.Level)
+	}
+
+	if t.Priority > 0 {
+		b.WriteString(" priority=")
+		b.WriteString(strconv.Itoa(t.Priority))
+	}
+
+	if t.DueAt != nil {
+		b.WriteString(" due=")
+		b.WriteString(t.DueAt.UTC().Format("2006-01-02"))
+	}
+
+	if t.Order != nil {
+		b.WriteString(" order=")
+		b.WriteString(strconv.FormatFloat(*t.Order, 'g', 6, 64))
+	}
+
+	if len(t.UDA) > 0 {
+		keys := make([]string, 0, len(t.UDA))
+		for k := range t.UDA {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			b.WriteString(" uda.")
+			b.WriteString(k)
+			b.WriteString("=")
+			b.WriteString(quoteUDAValue(fmt.Sprintf("%v", t.UDA[k])))
+		}
+	}
+
+	if len(tags) > 0 {
+		names := make([]string, 0, len(tags))
+		for _, tag := range tags {
+			names = append(names, tag.Name)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			b.WriteString(" +")
+			b.WriteString(n)
+		}
+	}
+
+	return b.String()
+}
+
+// quoteUDAValue returns s wrapped in double quotes when it contains
+// whitespace or one of the registered prefix characters from the inline
+// syntax lexer ('+', '-', '@'). Empty strings are emitted as `""`.
+// Internal double quotes are escaped with `\"` and backslashes with `\\`
+// to keep the output reparsable by the inline-syntax lexer when the
+// markdown is dogfood-read.
+func quoteUDAValue(s string) string {
+	needsQuote := s == ""
+	if !needsQuote {
+		switch s[0] {
+		case '+', '-', '@':
+			needsQuote = true
+		}
+	}
+	if !needsQuote {
+		for _, r := range s {
+			if unicode.IsSpace(r) {
+				needsQuote = true
+				break
+			}
+		}
+	}
+	if !needsQuote {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 2)
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // projectDisplayName converts a kebab/snake-case project name into a
