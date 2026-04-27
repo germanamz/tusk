@@ -141,4 +141,15 @@ func TestTreeMarkdown_FullDialect(t *testing.T) {
 	if !strings.Contains(out, "retry needed") {
 		t.Fatalf("expected leaf-task note body, got:\n%s", out)
 	}
+
+	// `tusk task tree project=<name>` accepts the project filter as inline
+	// syntax (per the v0.13 design spec). It must produce the same render as
+	// the bare invocation when the workspace has tasks for one project only —
+	// every fixture task above belongs to `roadmap`.
+	filteredOut := mustRunTusk(t, dbPath,
+		"task", "tree", "project=roadmap", "--format", "markdown",
+	)
+	if filteredOut != out {
+		t.Fatalf("project=<name> filter should match bare invocation in single-project workspace.\nbare:\n%s\nfiltered:\n%s", out, filteredOut)
+	}
 }

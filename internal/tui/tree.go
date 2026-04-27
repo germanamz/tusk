@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/domain"
+	"github.com/germanamz/tusk/filter"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -255,7 +256,18 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	var tasks []*domain.Task
 	var rootID *uuid.UUID
 
-	if len(args) > 0 {
+	switch {
+	case len(args) > 0 && argsAreFilter(args):
+		// Filter mode: positional args form an inline filter expression
+		// (e.g. `project=tusk-roadmap`, `+tag`). Resolve to a domain filter
+		// and apply on top of the same default status restriction
+		// fetchTreeTasks would use.
+		var err error
+		tasks, err = a.fetchTreeTasksFiltered(ctx, cmd, args)
+		if err != nil {
+			return err
+		}
+	case len(args) > 0:
 		// Subtree mode: fetch root explicitly, then pull its descendants
 		// through the urgency-scored List path. Using List (instead of the
 		// raw GetDescendants) populates Urgency on every descendant, so
@@ -270,7 +282,7 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		}
 		tasks = append([]*domain.Task{root}, descendants...)
 		rootID = &root.ID
-	} else {
+	default:
 		// Full tree: fetch all non-deleted tasks
 		var err error
 		tasks, err = a.fetchTreeTasks(ctx, cmd, nil)
@@ -451,4 +463,50 @@ func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command, rootID *uu
 		filter.Statuses = []string{"pending", "active", "completed"}
 	}
 	return a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
+}
+
+// argsAreFilter reports whether the positional args look like an inline
+// filter expression rather than a short_id. Any token containing `=`, or
+// starting with `+`/`-` (the registered modifier prefixes), is filter
+// syntax. A bare short_id never contains those characters.
+func argsAreFilter(args []string) bool {
+	for _, a := range args {
+		if strings.ContainsRune(a, '=') {
+			return true
+		}
+		if len(a) > 0 && (a[0] == '+' || a[0] == '-') {
+			return true
+		}
+	}
+	return false
+}
+
+// fetchTreeTasksFiltered parses args as an inline filter expression and
+// returns the matching tasks, AND-combined with the same default status
+// restriction fetchTreeTasks applies (pending,active,completed unless --all
+// or --rollup). Used for invocations like `tusk task tree project=<name>`.
+func (a *App) fetchTreeTasksFiltered(ctx context.Context, cmd *cobra.Command, args []string) ([]*domain.Task, error) {
+	showAll, _ := cmd.Flags().GetBool("all")
+	rollup, _ := cmd.Flags().GetBool("rollup")
+
+	input := strings.Join(args, " ")
+	expr, parseErrs := filter.ParseExpr(input)
+	if len(parseErrs) > 0 {
+		return nil, fmt.Errorf("filter errors:\n%s", filter.FormatErrors(parseErrs))
+	}
+	// Use ResolveExprAllStatuses so the resolver does not inject a `task list`-
+	// style pending/active default; tree's default is broader (also includes
+	// completed) so we apply it explicitly below.
+	resolved, resolveErrs := a.resolver.ResolveExprAllStatuses(ctx, expr)
+	if len(resolveErrs) > 0 {
+		return nil, resolveErrs[0]
+	}
+
+	if !showAll && !rollup {
+		statusTerm := &domain.TermFilter{TaskFilter: domain.TaskFilter{
+			Statuses: []string{"pending", "active", "completed"},
+		}}
+		resolved = &domain.AndFilter{Children: []domain.FilterExpr{resolved, statusTerm}}
+	}
+	return a.taskSvc.List(ctx, resolved)
 }
