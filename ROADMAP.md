@@ -899,11 +899,11 @@
   - [x] Regression test: create a `tusk.toml` in a parent dir during a test, run a tusk subcommand, assert the test's expected DB/config wins (proves walk-up isolation). level=task order=2
   - [x] Re-run the full e2e suite from a CWD inside the repo with a sentinel `tusk.toml` at the repo root containing a `[taxonomy]` section; assert no tests fail. level=task order=3
   - [x] Document the isolation pattern in the harness file's package comment so future tests don't reintroduce walk-up coupling. level=task order=4
-- [ ] Story: Commit repo-root tusk.toml and drop TUSK_DB plumbing level=story order=2
+- [x] Story: Commit repo-root tusk.toml and drop TUSK_DB plumbing level=story order=2
   - [x] Add `tusk.toml` at repo root with `[storage] path = ".data/tusk.db"` and a comment pointing readers at v0.9 walk-up discovery. level=task order=1
   - [x] Drop `TUSK_DB: ${{ github.workspace }}/.data/tusk.db` from `.github/workflows/ci.yml`'s `roadmap-drift` step — walk-up handles it. level=task order=2
   - [x] Drop the `export TUSK_DB="$(pwd)/.data/tusk.db"` step from the contributor workflow in `CONTRIBUTING.md`; from inside the repo, `tusk task ...` and `make roadmap` work with no env setup. level=task order=3
-  - [ ] Resolve the v0.13 retrospective's "Follow-up: e2e harness is not hermetic against walk-up config" section by linking to the merged PR. level=task order=4
+  - [x] Resolve the v0.13 retrospective's "Follow-up: e2e harness is not hermetic against walk-up config" section by linking to the merged PR. level=task order=4
   - [x] Verify drift check still passes end-to-end: locally and on CI, `make roadmap && git diff --exit-code ROADMAP.md` succeeds with no `TUSK_DB` set. level=task order=5
 ## v0.14 — Tusk Claude Code Plugin level=milestone order=14
 > Ship an official Claude Code plugin that accelerates the human-agent loop for roadmap work and day-to-day task triage on top of tusk. Vanilla `tusk` remains fully supported — the plugin is an optional layer for users who want an agentic loop.
