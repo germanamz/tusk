@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -280,126 +279,41 @@ func TestCLI_InlineExpansion(t *testing.T) {
 }
 
 // TestCLI_InlineExpansion_Stdin exercises the `@-` stdin path for both the
-// annotate positional body and `description=@-` on create. The harness does
-// not support stdin injection today, so this test drives exec.Command
-// directly with a pipe. It still runs across the (dbMode, format) matrix via
-// an explicit loop.
+// annotate positional body and `description=@-` on create. Each scenario
+// runs across the (dbMode, format) matrix via runScenarios.
 func TestCLI_InlineExpansion_Stdin(t *testing.T) {
-	if binPath == "" {
-		t.Skip("binary not built")
-	}
-
-	cases := []struct {
-		name string
-		run  func(t *testing.T, dbMode, format, dbPath, cfgDir string)
-	}{
+	scenarios := []Scenario{
 		{
-			name: "annotate_stdin",
-			run: func(t *testing.T, dbMode, format, dbPath, cfgDir string) {
-				// Create a task via a normal Env (no stdin needed).
-				env := &Env{
-					t:         t,
-					binPath:   binPath,
-					dbPath:    dbPath,
-					configDir: cfgDir,
-					dbMode:    dbMode,
-					format:    format,
-				}
-				cr := env.Run("task", "create", "Stdin annotate target")
-				if cr.Err != nil {
-					t.Fatalf("create: %v\n%s", cr.Err, cr.Stderr)
-				}
-
-				shortID := env.expandRefs("$0.short_id")
-				stdout, stderr, err := runWithStdin(t, dbMode, format, dbPath, cfgDir,
-					"piped note body",
-					"task", "annotate", shortID, "@-")
-				if err != nil {
-					t.Fatalf("annotate: %v\n%s", err, stderr)
-				}
-				_ = stdout
-
-				gr := env.Run("task", "get", shortID)
-				if gr.Err != nil {
-					t.Fatalf("get: %v\n%s", gr.Err, gr.Stderr)
-				}
-				assertContains(t, gr.Stdout, "piped note body")
+			Name: "annotate_stdin",
+			Steps: []Step{
+				{Args: []string{"task", "create", "Stdin annotate target"}},
+				{
+					Stdin: "piped note body",
+					Args:  []string{"task", "annotate", "$0.short_id", "@-"},
+				},
+				{
+					Args: []string{"task", "get", "$0.short_id"},
+					Assert: func(t *testing.T, r Result) {
+						assertContains(t, r.Stdout, "piped note body")
+					},
+				},
 			},
 		},
 		{
-			name: "description_stdin",
-			run: func(t *testing.T, dbMode, format, dbPath, cfgDir string) {
-				stdout, stderr, err := runWithStdin(t, dbMode, format, dbPath, cfgDir,
-					"piped description body",
-					"task", "create", "Stdin desc task", "description=@-")
-				if err != nil {
-					t.Fatalf("create: %v\n%s", err, stderr)
-				}
-
-				env := &Env{
-					t:         t,
-					binPath:   binPath,
-					dbPath:    dbPath,
-					configDir: cfgDir,
-					dbMode:    dbMode,
-					format:    format,
-					results:   []Result{{Stdout: stdout}},
-				}
-				gr := env.Run("task", "get", "$0.short_id")
-				if gr.Err != nil {
-					t.Fatalf("get: %v\n%s", gr.Err, gr.Stderr)
-				}
-				assertContains(t, gr.Stdout, "piped description body")
+			Name: "description_stdin",
+			Steps: []Step{
+				{
+					Stdin: "piped description body",
+					Args:  []string{"task", "create", "Stdin desc task", "description=@-"},
+				},
+				{
+					Args: []string{"task", "get", "$0.short_id"},
+					Assert: func(t *testing.T, r Result) {
+						assertContains(t, r.Stdout, "piped description body")
+					},
+				},
 			},
 		},
 	}
-
-	combos := combinations(
-		[]string{"flag", "env"},
-		[]string{"text", "json"},
-	)
-	for _, tc := range cases {
-		for _, combo := range combos {
-			dbMode, format := combo[0], combo[1]
-			name := tc.name + "/" + dbMode + "/" + format
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				tmpFile, err := os.CreateTemp(t.TempDir(), "tusk-stdin-*.db")
-				if err != nil {
-					t.Fatalf("temp db: %v", err)
-				}
-				_ = tmpFile.Close()
-				tc.run(t, dbMode, format, tmpFile.Name(), t.TempDir())
-			})
-		}
-	}
-}
-
-func runWithStdin(t *testing.T, dbMode, format, dbPath, cfgDir, stdin string, args ...string) (string, string, error) {
-	t.Helper()
-
-	var full []string
-	if dbMode == "flag" {
-		full = append(full, "--db", dbPath)
-	}
-	full = append(full, "--format", format)
-	full = append(full, args...)
-
-	cmd := exec.Command(binPath, full...)
-	env := os.Environ()
-	env = append(env, "NO_COLOR=1")
-	if dbMode == "env" {
-		env = append(env, "TUSK_DB="+dbPath)
-	}
-	if cfgDir != "" {
-		env = append(env, "TUSK_CONFIG_DIR="+cfgDir)
-	}
-	cmd.Env = env
-	cmd.Stdin = strings.NewReader(stdin)
-
-	var stdoutBuf, stderrBuf strings.Builder
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
-	err := cmd.Run()
-	return stdoutBuf.String(), stderrBuf.String(), err
+	runScenarios(t, binPath, scenarios)
 }
