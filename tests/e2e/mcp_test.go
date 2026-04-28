@@ -1,71 +1,10 @@
 package e2e
 
 import (
-	"bufio"
 	"encoding/json"
-	"fmt"
-	"io"
-	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
-
-// mcpEnv manages an MCP server subprocess for E2E testing.
-type mcpEnv struct {
-	t      *testing.T
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	nextID int
-}
-
-// newMCPEnv starts a `tusk mcp serve` subprocess with a fresh temp DB.
-func newMCPEnv(t *testing.T, binPath string) *mcpEnv {
-	t.Helper()
-	tmpFile, err := os.CreateTemp(t.TempDir(), "tusk-mcp-e2e-*.db")
-	if err != nil {
-		t.Fatalf("creating temp db: %v", err)
-	}
-	_ = tmpFile.Close()
-
-	cmd := exec.Command(binPath, "--db", tmpFile.Name(), "mcp", "serve")
-	// Point the subprocess at an isolated empty config dir so the post-phase-2
-	// legacy-section guard does not trip on stale ~/.config/tusk/config.toml.
-	cfgDir := t.TempDir()
-	cmd.Env = append(os.Environ(), "TUSK_CONFIG_DIR="+cfgDir)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("stdin pipe: %v", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
-	}
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("starting mcp server: %v", err)
-	}
-
-	t.Cleanup(func() {
-		_ = stdin.Close()
-		_ = cmd.Wait()
-	})
-
-	env := &mcpEnv{
-		t:      t,
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReader(stdout),
-		nextID: 1,
-	}
-
-	// Send initialize request
-	env.initialize()
-
-	return env
-}
 
 // jsonRPCRequest is a JSON-RPC 2.0 request.
 type jsonRPCRequest struct {
@@ -83,154 +22,11 @@ type jsonRPCResponse struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 
-// send sends a JSON-RPC request and reads the response.
-func (e *mcpEnv) send(method string, params any) jsonRPCResponse {
-	e.t.Helper()
-
-	req := jsonRPCRequest{
-		JSONRPC: "2.0",
-		ID:      e.nextID,
-		Method:  method,
-		Params:  params,
-	}
-	e.nextID++
-
-	b, err := json.Marshal(req)
-	if err != nil {
-		e.t.Fatalf("marshaling request: %v", err)
-	}
-
-	if _, err := fmt.Fprintf(e.stdin, "%s\n", b); err != nil {
-		e.t.Fatalf("writing request: %v", err)
-	}
-
-	line, err := e.stdout.ReadString('\n')
-	if err != nil {
-		e.t.Fatalf("reading response: %v", err)
-	}
-
-	var resp jsonRPCResponse
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		e.t.Fatalf("unmarshaling response: %v\nraw: %s", err, line)
-	}
-
-	return resp
-}
-
-// initialize sends the MCP initialize handshake.
-func (e *mcpEnv) initialize() {
-	e.t.Helper()
-	resp := e.send("initialize", map[string]any{
-		"protocolVersion": "2025-03-26",
-		"capabilities":    map[string]any{},
-		"clientInfo": map[string]any{
-			"name":    "tusk-e2e-test",
-			"version": "1.0.0",
-		},
-	})
-	if resp.Error != nil {
-		e.t.Fatalf("initialize failed: %s", resp.Error)
-	}
-
-	// Send initialized notification (no response expected for notifications)
-	notif := jsonRPCRequest{
-		JSONRPC: "2.0",
-		Method:  "notifications/initialized",
-	}
-	b, _ := json.Marshal(notif)
-	if _, err := fmt.Fprintf(e.stdin, "%s\n", b); err != nil {
-		e.t.Fatalf("writing initialized notification: %v", err)
-	}
-}
-
-// callTool sends a tools/call request and returns the parsed result.
-func (e *mcpEnv) callTool(name string, args map[string]any) map[string]any {
-	e.t.Helper()
-	resp := e.send("tools/call", map[string]any{
-		"name":      name,
-		"arguments": args,
-	})
-	if resp.Error != nil {
-		e.t.Fatalf("tool %s returned error: %s", name, resp.Error)
-	}
-
-	var result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		e.t.Fatalf("parsing tool result: %v", err)
-	}
-	if result.IsError {
-		e.t.Fatalf("tool %s returned isError=true: %s", name, result.Content[0].Text)
-	}
-
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
-		e.t.Fatalf("parsing tool JSON content: %v\nraw: %s", err, result.Content[0].Text)
-	}
-	return parsed
-}
-
-// callToolRaw sends a tools/call request and returns the raw text content.
-func (e *mcpEnv) callToolRaw(name string, args map[string]any) string {
-	e.t.Helper()
-	resp := e.send("tools/call", map[string]any{
-		"name":      name,
-		"arguments": args,
-	})
-	if resp.Error != nil {
-		e.t.Fatalf("tool %s returned error: %s", name, resp.Error)
-	}
-
-	var result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		e.t.Fatalf("parsing tool result: %v", err)
-	}
-	return result.Content[0].Text
-}
-
-// callToolExpectError sends a tools/call request and expects an isError=true result.
-func (e *mcpEnv) callToolExpectError(name string, args map[string]any) string {
-	e.t.Helper()
-	resp := e.send("tools/call", map[string]any{
-		"name":      name,
-		"arguments": args,
-	})
-	if resp.Error != nil {
-		e.t.Fatalf("tool %s returned protocol error (expected tool error): %s", name, resp.Error)
-	}
-
-	var result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		e.t.Fatalf("parsing tool result: %v", err)
-	}
-	if !result.IsError {
-		e.t.Fatalf("expected isError=true, got false. content: %s", result.Content[0].Text)
-	}
-	return result.Content[0].Text
-}
-
 func TestMCPTaskLifecycle(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// Create a task
 	created := env.callTool("tusk_task_create", map[string]any{
@@ -302,7 +98,7 @@ func TestMCPTaskModify(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{
 		"title": "Original title",
@@ -329,7 +125,7 @@ func TestMCPRelations(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	task1 := env.callTool("tusk_task_create", map[string]any{"title": "Blocker"})
 	task2 := env.callTool("tusk_task_create", map[string]any{"title": "Blocked"})
@@ -373,7 +169,7 @@ func TestMCPProjects(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// List projects (should have default)
 	listRaw := env.callToolRaw("tusk_project_list", map[string]any{})
@@ -399,7 +195,7 @@ func TestMCPErrorHandling(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// Not found
 	errMsg := env.callToolExpectError("tusk_task_get", map[string]any{
@@ -442,7 +238,7 @@ func TestMCPAnnotations(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "Annotate me"})
 	shortID := created["short_id"].(string)
@@ -467,7 +263,7 @@ func TestMCPTaskDelete(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{
 		"title": "Delete me",
@@ -522,7 +318,7 @@ func TestMCPResources(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// Create a task with tags and an annotation
 	created := env.callTool("tusk_task_create", map[string]any{
@@ -537,7 +333,7 @@ func TestMCPResources(t *testing.T) {
 	})
 
 	// Read task resource
-	resp := env.send("resources/read", map[string]any{
+	resp := env.Send("resources/read", map[string]any{
 		"uri": "tusk://tasks/" + shortID,
 	})
 	if resp.Error != nil {
@@ -576,7 +372,7 @@ func TestMCPResources(t *testing.T) {
 	}
 
 	// Read project resource
-	resp = env.send("resources/read", map[string]any{
+	resp = env.Send("resources/read", map[string]any{
 		"uri": "tusk://projects/default",
 	})
 	if resp.Error != nil {
@@ -599,7 +395,7 @@ func TestMCPResources(t *testing.T) {
 	}
 
 	// Read workflow resource
-	resp = env.send("resources/read", map[string]any{
+	resp = env.Send("resources/read", map[string]any{
 		"uri": "tusk://projects/default/workflow",
 	})
 	if resp.Error != nil {
@@ -631,7 +427,7 @@ func TestMCPTree(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	parent := env.callTool("tusk_task_create", map[string]any{"title": "Parent"})
 	parentSID := parent["short_id"].(string)

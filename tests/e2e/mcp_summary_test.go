@@ -13,7 +13,7 @@ import (
 //	├── Child A (pending)
 //	├── Child B (active)
 //	└── Child C (completed)
-func summaryFixture(t *testing.T, env *mcpEnv) (rootSID string, childSIDs []string) {
+func summaryFixture(t *testing.T, env *MCPEnv) (rootSID string, childSIDs []string) {
 	t.Helper()
 	root := env.callTool("tusk_task_create", map[string]any{"title": "Summary root"})
 	rootSID = root["short_id"].(string)
@@ -48,7 +48,7 @@ func summaryFixture(t *testing.T, env *mcpEnv) (rootSID string, childSIDs []stri
 }
 
 // callSummary runs tusk_task_summary and returns the parsed envelope.
-func callSummary(t *testing.T, env *mcpEnv, args map[string]any) map[string]any {
+func callSummary(t *testing.T, env *MCPEnv, args map[string]any) map[string]any {
 	t.Helper()
 	return env.callTool("tusk_task_summary", args)
 }
@@ -59,7 +59,7 @@ func TestMCPSummary_SingleMode(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	rootSID, _ := summaryFixture(t, env)
 
@@ -106,7 +106,7 @@ func TestMCPSummary_FilterStringMode(t *testing.T) {
 	}
 
 	taxonomyTOML := "[taxonomy]\nlevels = [[\"initiative\"], [\"story\"], [\"task\"]]\n"
-	env := newMCPEnvWithConfig(t, binPath, taxonomyTOML)
+	env := NewMCPEnv(t, binPath).WithConfigFile(taxonomyTOML)
 
 	// Roadmap (initiative)
 	//   Story 1 (story)
@@ -164,7 +164,7 @@ func TestMCPSummary_StructuredParamsMode(t *testing.T) {
 	}
 
 	taxonomyTOML := "[taxonomy]\nlevels = [[\"initiative\"], [\"story\"], [\"task\"]]\n"
-	env := newMCPEnvWithConfig(t, binPath, taxonomyTOML)
+	env := NewMCPEnv(t, binPath).WithConfigFile(taxonomyTOML)
 
 	// Two initiatives plus an unrelated story under one of them.
 	init1 := env.callTool("tusk_task_create", map[string]any{"title": "Init A", "level": "initiative"})
@@ -200,7 +200,7 @@ func TestMCPSummary_RootsMode(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// Two distinct roots; the second has a child.
 	env.callTool("tusk_task_create", map[string]any{"title": "Root A"})
@@ -230,7 +230,7 @@ func TestMCPSummary_FilterParseError(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	errMsg := env.callToolExpectError("tusk_task_summary", map[string]any{
 		"filter": "level=story AND (",
@@ -249,7 +249,7 @@ func TestMCPSummary_EmptyResult(t *testing.T) {
 	}
 
 	taxonomyTOML := "[taxonomy]\nlevels = [[\"initiative\"], [\"story\"], [\"task\"]]\n"
-	env := newMCPEnvWithConfig(t, binPath, taxonomyTOML)
+	env := NewMCPEnv(t, binPath).WithConfigFile(taxonomyTOML)
 
 	env.callTool("tusk_task_create", map[string]any{"title": "Anything", "level": "initiative"})
 
@@ -297,11 +297,11 @@ func TestMCPSummary_CustomWorkflow(t *testing.T) {
 	// Override workspace-shaping defaults: enable workflow_create /
 	// project_modify, and clear the default blocked_fields so the
 	// project_modify "workflow" field is writable.
-	env := newMCPEnvWithConfig(t, binPath,
-		"[mcp]\n"+
-			"disabled_tools = []\n"+
-			"[mcp.blocked_fields]\n"+
-			"tusk_project_modify = []\n"+
+	env := NewMCPEnv(t, binPath).WithConfigFile(
+		"[mcp]\n" +
+			"disabled_tools = []\n" +
+			"[mcp.blocked_fields]\n" +
+			"tusk_project_modify = []\n" +
 			"tusk_project_delete = []\n",
 	)
 
@@ -399,9 +399,9 @@ func TestMCPSummary_ToolListed(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
-	resp := env.send("tools/list", nil)
+	resp := env.Send("tools/list", nil)
 	if resp.Error != nil {
 		t.Fatalf("tools/list error: %s", resp.Error)
 	}
@@ -428,7 +428,7 @@ func TestMCPSummary_TaskListUnchanged(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{
 		"title": "Filterable",

@@ -10,7 +10,7 @@ func TestMCPTaskAvailable(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// Create 3 tasks with different priorities
 	env.callTool("tusk_task_create", map[string]any{"title": "avail-low", "priority": 1})
@@ -40,7 +40,7 @@ func TestMCPTaskAvailableBlocked(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// Create task A and task B
 	taskA := env.callTool("tusk_task_create", map[string]any{"title": "blocker-task"})
@@ -73,7 +73,7 @@ func TestMCPTaskPop(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// Create two tasks with different priorities
 	low := env.callTool("tusk_task_create", map[string]any{"title": "pop-low", "priority": 1})
@@ -98,7 +98,7 @@ func TestMCPTaskPopEmpty(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	// No tasks exist — pop should return informational text, not an error
 	raw := env.callToolRaw("tusk_task_pop", map[string]any{"player_id": "empty-agent"})

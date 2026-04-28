@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"os"
@@ -66,10 +65,10 @@ func TestMCP_DisabledTools(t *testing.T) {
 	}
 
 	// Start MCP server with this config.
-	env := newMCPEnvWithHome(t, binPath, homeDir)
+	env := NewMCPEnv(t, binPath).WithHome(homeDir)
 
 	// List tools.
-	resp := env.send("tools/list", nil)
+	resp := env.Send("tools/list", nil)
 	if resp.Error != nil {
 		t.Fatalf("tools/list error: %s", resp.Error)
 	}
@@ -754,47 +753,4 @@ func TestCLI_TuskEnvOverlaysExplicitConfig(t *testing.T) {
 	if _, err := os.Stat(fileDB); err == nil {
 		t.Fatalf("unexpected DB at file path %s — env should have overridden it", fileDB)
 	}
-}
-
-// newMCPEnvWithHome starts an MCP server with a custom HOME directory.
-func newMCPEnvWithHome(t *testing.T, binPath, home string) *mcpEnv {
-	t.Helper()
-	tmpFile, err := os.CreateTemp(t.TempDir(), "tusk-mcp-e2e-*.db")
-	if err != nil {
-		t.Fatalf("creating temp db: %v", err)
-	}
-	_ = tmpFile.Close()
-
-	cmd := exec.Command(binPath, "--db", tmpFile.Name(), "mcp", "serve")
-	cmd.Env = envWithHome(home)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("stdin pipe: %v", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
-	}
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("starting mcp server: %v", err)
-	}
-
-	t.Cleanup(func() {
-		_ = stdin.Close()
-		_ = cmd.Wait()
-	})
-
-	e := &mcpEnv{
-		t:      t,
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReader(stdout),
-		nextID: 1,
-	}
-
-	e.initialize()
-	return e
 }
