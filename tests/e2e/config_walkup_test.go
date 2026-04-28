@@ -353,10 +353,7 @@ func TestCLI_ConfigWalkUp_StoragePathRelative(t *testing.T) {
 	env := newEnv(t, binPath, "env", "text")
 	env.dbPath = "" // do not pre-create; we want storage.path to decide
 	env.configDir = t.TempDir()
-
-	// Disable TUSK_DB injection by switching dbMode to a sentinel the harness
-	// won't recognize. The simpler path: clear dbMode.
-	env.dbMode = ""
+	env.WithoutDBArg()
 
 	env.InDir(sub)
 	addRes := env.Run("task", "create", "walkup-foo")
