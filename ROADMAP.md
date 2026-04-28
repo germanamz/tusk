@@ -894,17 +894,17 @@
 ### Initiative: Repo-Root Tusk Workspace level=initiative order=8
 > Make the tusk repo root resolve as its own tusk workspace via a committed `tusk.toml`, so any `tusk` subcommand run from anywhere inside the checkout (and CI) automatically uses the committed `.data/tusk.db` — no `TUSK_DB` env, no `--config` flag. Blocked by an e2e harness gap: tests run with CWD inside the repo and walk-up config discovery (v0.9) finds the workspace `tusk.toml` as their active file. Tests that exercise `tusk config init --local` / `tusk config set` then write into the committed file, polluting it across the rest of the suite. Captured during the v0.13 ROADMAP.md cutover (see `docs/retrospectives/v0.13-roadmap-migration.md`) — the workspace config was prepared, broke e2e, and reverted on the cutover PR.
 
-- [ ] Story: Hermetic e2e harness against walk-up config level=story order=1
-  - [ ] `tests/e2e/harness.go`: `Env.Run` sets `TUSK_CONFIG` to a per-test temp file (or chdirs to a temp dir before `exec.Command`) so tusk's walk-up resolver never reaches the repo-root `tusk.toml`. Match the existing `TUSK_CONFIG_DIR` injection pattern. level=task order=1
-  - [ ] Regression test: create a `tusk.toml` in a parent dir during a test, run a tusk subcommand, assert the test's expected DB/config wins (proves walk-up isolation). level=task order=2
-  - [ ] Re-run the full e2e suite from a CWD inside the repo with a sentinel `tusk.toml` at the repo root containing a `[taxonomy]` section; assert no tests fail. level=task order=3
-  - [ ] Document the isolation pattern in the harness file's package comment so future tests don't reintroduce walk-up coupling. level=task order=4
+- [x] Story: Hermetic e2e harness against walk-up config level=story order=1
+  - [x] `tests/e2e/harness.go`: `Env.Run` sets `TUSK_CONFIG` to a per-test temp file (or chdirs to a temp dir before `exec.Command`) so tusk's walk-up resolver never reaches the repo-root `tusk.toml`. Match the existing `TUSK_CONFIG_DIR` injection pattern. level=task order=1
+  - [x] Regression test: create a `tusk.toml` in a parent dir during a test, run a tusk subcommand, assert the test's expected DB/config wins (proves walk-up isolation). level=task order=2
+  - [x] Re-run the full e2e suite from a CWD inside the repo with a sentinel `tusk.toml` at the repo root containing a `[taxonomy]` section; assert no tests fail. level=task order=3
+  - [x] Document the isolation pattern in the harness file's package comment so future tests don't reintroduce walk-up coupling. level=task order=4
 - [ ] Story: Commit repo-root tusk.toml and drop TUSK_DB plumbing level=story order=2
-  - [ ] Add `tusk.toml` at repo root with `[storage] path = ".data/tusk.db"` and a comment pointing readers at v0.9 walk-up discovery. level=task order=1
-  - [ ] Drop `TUSK_DB: ${{ github.workspace }}/.data/tusk.db` from `.github/workflows/ci.yml`'s `roadmap-drift` step — walk-up handles it. level=task order=2
-  - [ ] Drop the `export TUSK_DB="$(pwd)/.data/tusk.db"` step from the contributor workflow in `CONTRIBUTING.md`; from inside the repo, `tusk task ...` and `make roadmap` work with no env setup. level=task order=3
+  - [x] Add `tusk.toml` at repo root with `[storage] path = ".data/tusk.db"` and a comment pointing readers at v0.9 walk-up discovery. level=task order=1
+  - [x] Drop `TUSK_DB: ${{ github.workspace }}/.data/tusk.db` from `.github/workflows/ci.yml`'s `roadmap-drift` step — walk-up handles it. level=task order=2
+  - [x] Drop the `export TUSK_DB="$(pwd)/.data/tusk.db"` step from the contributor workflow in `CONTRIBUTING.md`; from inside the repo, `tusk task ...` and `make roadmap` work with no env setup. level=task order=3
   - [ ] Resolve the v0.13 retrospective's "Follow-up: e2e harness is not hermetic against walk-up config" section by linking to the merged PR. level=task order=4
-  - [ ] Verify drift check still passes end-to-end: locally and on CI, `make roadmap && git diff --exit-code ROADMAP.md` succeeds with no `TUSK_DB` set. level=task order=5
+  - [x] Verify drift check still passes end-to-end: locally and on CI, `make roadmap && git diff --exit-code ROADMAP.md` succeeds with no `TUSK_DB` set. level=task order=5
 ## v0.14 — Tusk Claude Code Plugin level=milestone order=14
 > Ship an official Claude Code plugin that accelerates the human-agent loop for roadmap work and day-to-day task triage on top of tusk. Vanilla `tusk` remains fully supported — the plugin is an optional layer for users who want an agentic loop.
 
