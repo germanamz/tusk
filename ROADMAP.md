@@ -1246,3 +1246,934 @@
 - [ ] Story: Profile attachment level=story order=2
   - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer level=task order=1
   - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key level=task order=2
+## v0.14 — Naming and Spacing Convention level=milestone order=18 +naming-convention +v0.14
+> Establish project-wide naming and spacing convention for the Tusk codebase, enforce it mechanically with a linter, and clean every existing package to match. No behavior changes; pure readability and tooling.
+>
+> Eight phases:
+> - P1: Convention doc + linter scaffold + rule 1
+> - P2: Custom analyzers (rules 2, 3, 4)
+> - P3: Sweep service/
+> - P4: Sweep internal/tui/
+> - P5: Sweep internal/mcp/ + internal/portability/
+> - P6: Sweep filter/ + domain/ + syntax/
+> - P7: Sweep repository/ + sqlite/ + cmd/ + tests/e2e/ + root
+> - P8: Lock-in (regression guards)
+>
+> Spec: docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md
+> Plans: docs/superpowers/plans/v014-naming-convention/
+> Tickets: docs/superpowers/plans/v014-naming-convention/tasks/
+
+### [v0.14 P1] Convention doc + linter scaffold + rule 1 level=initiative order=1 +naming-convention +phase-1 +v0.14
+> Land STYLE.md, the multichecker-shell linter binary (cmd/tusk-lint), Makefile integration, and varnamelen configured in .golangci.yml with twelve per-package path exclusions covering every existing directory. After this phase ships, make lint runs both golangci-lint and tusk-lint in CI and finds zero new violations (everything is excluded). The codebase compiles and tests pass with no behavior changes.
+>
+> Why: Phase 1 establishes the rule-1 enforcement surface and the analyzer framework that Phase 2 plugs into.
+>
+> Acceptance:
+> - STYLE.md exists at repo root with all four rules and the style guide.
+> - cmd/tusk-lint binary builds and runs.
+> - make lint runs both lint-go and lint-tusk.
+> - make build, make test, make lint all pass against the unmodified codebase.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/01-convention-and-scaffold.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1.md
+> Blocks: P2.
+
+- [ ] [v0.14 P1-T1] Write STYLE.md level=task order=1 +naming-convention +phase-1 +v0.14
+> What: Author STYLE.md at the repo root with three sections: the four mechanical rules (with before/after examples and rationales), the advisory style guide (receivers, generic type parameters, loop indices), and an enforcement summary mapping each rule to the linter that enforces it.
+>
+> Why: STYLE.md is the canonical reference cited from PR templates, review checklists, and every sweep phase.
+>
+> Code references:
+> - docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md:42-191 — full convention text and examples.
+> - service/task.go:64 — defaultProjectID block (rule 1 / rule 2 motivating example).
+> - service/task.go:325-339 — listInBundle block (rule 3 motivating example).
+>
+> Acceptance:
+> - STYLE.md exists at repo root.
+> - All four rules documented with before/after examples and one-line rationales.
+> - Style guide covers receivers, generic type parameters, and loop indices.
+> - Enforcement summary names the linter for each rule.
+> - Rule 3 explicitly states that on shadow, every err instance is renamed (including the first).
+>
+> Bridge code: None.
+> Blocks: P1-T2 (link target).
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T1.md
+
+- [ ] [v0.14 P1-T2] Cross-reference STYLE.md from CONTRIBUTING.md level=task order=2 +naming-convention +phase-1 +v0.14
+> What: Add a one-line link to STYLE.md from CONTRIBUTING.md. Do not move existing CONTRIBUTING.md content.
+>
+> Why: Contributors land in CONTRIBUTING.md first; the link makes the convention discoverable without bloating CONTRIBUTING.md.
+>
+> Code references:
+> - CONTRIBUTING.md — existing setup / commit-conventions content; locate a natural insertion point.
+>
+> Acceptance:
+> - CONTRIBUTING.md contains a link to STYLE.md from at least one location.
+> - No existing CONTRIBUTING.md content is moved or rewritten.
+>
+> Bridge code: None.
+> Depends on: P1-T1.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T2.md
+
+- [ ] [v0.14 P1-T3] Create cmd/tusk-lint multichecker shell level=task order=3 +naming-convention +phase-1 +v0.14
+> What: Create cmd/tusk-lint/main.go that calls golang.org/x/tools/go/analysis/multichecker.Main() with an empty analyzer list. The binary must compile and exit zero on any input. Add golang.org/x/tools to go.mod if not already present.
+>
+> Why: Provides the binary entry point that Phase 2 populates with analyzers. Shipping the empty shell now lets make lint wire to a real binary in this phase rather than waiting for Phase 2.
+>
+> Code references:
+> - cmd/ (existing dir) — add new tusk-lint/ subdirectory alongside tusk/.
+> - go.mod:1 — module path is github.com/germanamz/tusk; add golang.org/x/tools.
+>
+> Acceptance:
+> - cmd/tusk-lint/main.go exists and compiles.
+> - go build ./cmd/tusk-lint produces a working binary that exits zero with no input.
+> - A code comment tags the empty analyzer list as bridge code with the removal reference (Phase 2 task 5).
+> - golang.org/x/tools is listed in go.mod.
+>
+> Bridge code: Introduces empty analyzer registry; removed by P2-T5.
+> Blocks: P1-T4, P1-T6.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T3.md
+
+- [ ] [v0.14 P1-T4] Wire lint-tusk into Makefile level=task order=4 +naming-convention +phase-1 +v0.14
+> What: Add lint-tusk and lint-go targets to Makefile. Make the existing lint target depend on both. lint-go runs golangci-lint run ./...; lint-tusk runs the new cmd/tusk-lint binary over ./....
+>
+> Why: Single hook (make lint) runs both linters. CI already invokes make lint; no CI changes needed once the Makefile is updated.
+>
+> Code references:
+> - Makefile — locate the existing lint target (currently runs golangci-lint run ./...) and refactor.
+>
+> Acceptance:
+> - make lint-go runs golangci-lint run ./....
+> - make lint-tusk runs cmd/tusk-lint over the codebase.
+> - make lint depends on both lint-go and lint-tusk.
+> - make lint exits zero against the unmodified codebase.
+>
+> Bridge code: None.
+> Depends on: P1-T3.
+> Blocks: P1-T6.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T4.md
+
+- [ ] [v0.14 P1-T5] Configure varnamelen with per-package exclusions level=task order=5 +naming-convention +phase-1 +v0.14
+> What: Enable varnamelen in .golangci.yml with strict settings (min-name-length: 2, check-receiver/check-return/check-type-param: true, empty ignore-names and ignore-decls). Add twelve per-package path exclusions covering every existing directory: service/, internal/tui/, internal/mcp/, internal/portability/, filter/, domain/, syntax/, repository/, sqlite/, cmd/, tests/e2e/, and client.go. Use the v2 schema (linters.exclusions.rules, linters.settings.varnamelen) consistent with the existing config.
+>
+> Why: Per-package rules are intentional: parallel sweep phases (3–7) each remove a different rule, so branches do not merge-conflict on a single shared alternation. The full-codebase exclusion preserves CI green at the moment Phase 1 lands.
+>
+> Code references:
+> - .golangci.yml:1-9 — existing v2 schema (with errcheck exclusion rules); preserve those rules verbatim.
+> - Anchored slashes (^service/ not ^service) prevent prefix-collision matches.
+>
+> Acceptance:
+> - varnamelen enabled under linters.enable.
+> - Strict settings under linters.settings.varnamelen.
+> - Twelve linters: [varnamelen] exclusion rules under linters.exclusions.rules, one per package.
+> - Existing errcheck rules preserved verbatim.
+> - make lint exits zero against the unmodified codebase.
+>
+> Bridge code: Introduces twelve per-package varnamelen exclusion rules; removed by P3-T1, P4-T1, P5-T1, P6-T1, P7-T1; residuals removed by P8-T1.
+> Blocks: P1-T6.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T5.md
+
+- [ ] [v0.14 P1-T6] Verify Phase 1 CI green level=task order=6 +naming-convention +phase-1 +v0.14
+> What: Run the full local validation suite to confirm the Phase 1 changes are CI-clean: make build, make test, make lint, and a representative pre-commit hook execution.
+>
+> Why: Phase 1 introduces no behavior changes but does enable a new linter and add a new lint target. This task closes the phase by proving all three gates stay green.
+>
+> Code references:
+> - Makefile — build, test, lint targets.
+> - lefthook.yml (or equivalent) — pre-commit hooks if any.
+>
+> Acceptance:
+> - make build exits zero.
+> - make test exits zero.
+> - make lint exits zero (both lint-go and lint-tusk pass).
+> - Pre-commit hooks pass when committing the phase's changes.
+>
+> Bridge code: None.
+> Depends on: P1-T1, P1-T2, P1-T3, P1-T4, P1-T5.
+> Blocks: P2.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T6.md
+
+### [v0.14 P2] Custom analyzers (rules 2, 3, 4) level=initiative order=2 +naming-convention +phase-2 +v0.14
+> Implement the three custom go/analysis analyzers (blankline, namederr, testhandle), wire them into cmd/tusk-lint, and add a shared path-filter helper that all three honor. After this phase, all four rules are linter-enforced but every existing directory is still excluded — make lint continues to find zero violations against the unmodified codebase.
+>
+> Why: Phase 2 is the complete rule-enforcement surface. Every subsequent sweep phase consumes the analyzers built here.
+>
+> Acceptance:
+> - All three analyzers in internal/lint/<analyzer>/ with analyzer.go, analyzer_test.go, testdata/src/a/a.go.
+> - pathfilter.Excluded(pkgPath) honors twelve per-package entries.
+> - cmd/tusk-lint/main.go registers all three analyzers via multichecker.Main(...).
+> - make lint, make test, make build pass against the unmodified codebase.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/02-custom-analyzers.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2.md
+> Blocks: P3, P4, P5, P6, P7.
+
+- [ ] [v0.14 P2-T1] Implement blankline analyzer level=task order=1 +naming-convention +phase-2 +v0.14
+> What: Build internal/lint/blankline/ with analyzer.go, analyzer_test.go, and testdata/src/a/a.go. The analyzer detects missing blank lines around if err != nil (and <noun>Err != nil) guards: between an error-producing assignment and its guard, and between the guard's closing brace and the next statement. Test files use test *testing.T from the start (rule 4 applies to analyzer test code).
+>
+> Why: Rule 2 enforcement. Dense unspaced blocks make short identifiers visually easy to lose; even with rule 1 in place, spacing matters.
+>
+> Code references:
+> - Spec example: docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md:82-98.
+> - Motivating site: service/task.go:64 (defaultProjectID block).
+> - golang.org/x/tools/go/analysis/analysistest — test harness.
+>
+> Acceptance:
+> - internal/lint/blankline/analyzer.go exports var Analyzer = &analysis.Analyzer{...}.
+> - Diagnostic message references rule 2.
+> - analyzer_test.go runs analysistest.Run(test, testdata, blankline.Analyzer, "a") with test *testing.T.
+> - testdata/src/a/a.go contains both passing and failing patterns.
+> - go test ./internal/lint/blankline/... passes.
+>
+> Bridge code: None.
+> Blocks: P2-T5, P2-T6.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T1.md
+
+- [ ] [v0.14 P2-T2] Implement namederr analyzer level=task order=2 +naming-convention +phase-2 +v0.14
+> What: Build internal/lint/namederr/ with analyzer.go, analyzer_test.go, and testdata/src/a/a.go. The analyzer counts *ast.AssignStmt statements that declare err via := within each *ast.BlockStmt. When the count is ≥ 2, it emits a diagnostic on every such assignment (including the first), instructing the implementer to use typed names (<noun>Err). Test files use test *testing.T.
+>
+> Why: Rule 3 enforcement. Sequential err := shadows hide the failure mode at the variable; named errors document it. Renaming all instances rather than leaving the first as err keeps the block visually uniform.
+>
+> Code references:
+> - Spec example: docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md:111-144.
+> - Canonical motivating site: service/task.go:325-339 (listInBundle with three sequential err := shadows).
+>
+> Acceptance:
+> - internal/lint/namederr/analyzer.go exports var Analyzer = &analysis.Analyzer{...}.
+> - Diagnostic fires on every err := in a scope with ≥ 2 such declarations, including the first.
+> - Diagnostic message format: "namederr: 'err' is shadowed N times in this scope; rename all instances to typed names (e.g. fooErr, barErr)".
+> - A function with exactly one err does NOT fire the rule.
+> - go test ./internal/lint/namederr/... passes against testdata.
+>
+> Bridge code: None.
+> Blocks: P2-T5, P2-T6.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T2.md
+
+- [ ] [v0.14 P2-T3] Implement testhandle analyzer level=task order=3 +naming-convention +phase-2 +v0.14
+> What: Build internal/lint/testhandle/ with analyzer.go, analyzer_test.go, and testdata/src/a/a.go. The analyzer walks every *ast.FuncDecl and *ast.FuncType. For each parameter, it resolves the type and consults a hardcoded table: *testing.T → test, *testing.B → bench, testing.TB → harness. If the parameter's name does not match, it emits a diagnostic. Test files use test *testing.T.
+>
+> Why: Rule 4 enforcement. Standardized test-handle names eliminate the last universally-tolerated single-character identifier in Go.
+>
+> Code references:
+> - Spec example: docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md:165-171.
+> - Type table: docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md:156-160.
+>
+> Acceptance:
+> - internal/lint/testhandle/analyzer.go exports var Analyzer = &analysis.Analyzer{...}.
+> - Hardcoded table covers *testing.T, *testing.B, testing.TB.
+> - Diagnostic message format: "testhandle: parameter of type %s must be named %q, got %q".
+> - go test ./internal/lint/testhandle/... passes against testdata exercising all three types.
+>
+> Bridge code: None.
+> Blocks: P2-T5, P2-T6.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T3.md
+
+- [ ] [v0.14 P2-T4] Add pathfilter helper level=task order=4 +naming-convention +phase-2 +v0.14
+> What: Create internal/lint/pathfilter/pathfilter.go exporting func Excluded(pkgPath string) bool. The helper consults a compiled-in slice of twelve per-package regexes that mirror the per-package exclusion rules in .golangci.yml. Each analyzer's Run function consults this helper and short-circuits with no diagnostics when the package is excluded.
+>
+> Twelve packages: service, internal/tui, internal/mcp, internal/portability, filter, domain, syntax, repository, sqlite, cmd, tests/e2e, plus the module root (client.go).
+>
+> Why: Per-package entries are intentional: parallel sweep phases each remove a different entry, so branches do not merge-conflict on a single shared alternation. Verify the module path from go.mod (github.com/germanamz/tusk) before hardcoding.
+>
+> Code references:
+> - go.mod:1 — module path github.com/germanamz/tusk.
+> - .golangci.yml (after P1-T5) — twelve per-package varnamelen exclusion rules.
+> - Module-root pattern: ^github\.com/germanamz/tusk$ (matches client.go's root package).
+>
+> Acceptance:
+> - internal/lint/pathfilter/pathfilter.go exists and exports Excluded(pkgPath string) bool.
+> - The excluded slice contains exactly twelve regex entries, each anchored with (/|$) for sub-package boundaries (except the module-root entry).
+> - Each entry has a comment noting its removal target phase.
+>
+> Bridge code: Introduces twelve per-package exclusion entries; removed by P3-T2, P4-T2, P5-T2, P6-T2, P7-T2; residuals removed by P8-T2.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T4.md
+
+- [ ] [v0.14 P2-T5] Register analyzers in cmd/tusk-lint level=task order=5 +naming-convention +phase-2 +v0.14
+> What: Replace the empty analyzer list in cmd/tusk-lint/main.go (bridge code from P1-T3) with multichecker.Main(blankline.Analyzer, namederr.Analyzer, testhandle.Analyzer). Remove the bridge-code comment.
+>
+> Why: Activates all three rules in the linter binary. After this task ships, tusk-lint reports the rule violations defined in P2-T1 through P2-T3 wherever the package is not excluded by the pathfilter.
+>
+> Code references:
+> - cmd/tusk-lint/main.go — currently calls multichecker.Main() with no analyzers (bridge code from P1-T3).
+> - internal/lint/blankline, internal/lint/namederr, internal/lint/testhandle — packages from P2-T1, P2-T2, P2-T3.
+>
+> Acceptance:
+> - cmd/tusk-lint/main.go imports the three analyzer packages.
+> - multichecker.Main(...) is called with all three analyzers.
+> - Phase-1 bridge-code comment is gone.
+> - tusk-lint -blankline ./..., -namederr ./..., -testhandle ./... each run independently.
+> - make lint continues to exit zero against the unmodified codebase.
+>
+> Bridge code: Removes empty analyzer registry (introduced by P1-T3).
+> Depends on: P2-T1, P2-T2, P2-T3, P2-T4.
+> Blocks: P2-T6.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T5.md
+
+- [ ] [v0.14 P2-T6] Verify Phase 2 CI green level=task order=6 +naming-convention +phase-2 +v0.14
+> What: Run go test ./internal/lint/... to verify all analyzer testdata fires the documented diagnostics. Run make lint against the unmodified codebase — must report zero violations because every existing package is excluded by the path filter. Run tusk-lint -blankline ./internal/lint/blankline/testdata/... manually to confirm the per-analyzer flag works on a single analyzer over a directory it knows.
+>
+> Why: Phase 2 closes by proving each analyzer fires correctly on testdata, the per-analyzer CLI flags work, and the unmodified codebase remains clean.
+>
+> Code references:
+> - internal/lint/blankline/testdata/, internal/lint/namederr/testdata/, internal/lint/testhandle/testdata/ — fixture trees from P2-T1, P2-T2, P2-T3.
+>
+> Acceptance:
+> - go test ./internal/lint/... exits zero.
+> - make lint exits zero against the unmodified codebase.
+> - tusk-lint -blankline ./internal/lint/blankline/testdata/... reports the documented violations.
+> - make build, make test exit zero.
+>
+> Bridge code: None.
+> Depends on: P2-T1, P2-T2, P2-T3, P2-T4, P2-T5.
+> Blocks: P3, P4, P5, P6, P7.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T6.md
+
+### [v0.14 P3] Sweep service/ level=initiative order=3 +naming-convention +phase-3 +v0.14
+> Bring every file in service/ (production and tests) into compliance with STYLE.md's four rules. Remove the service/ exclusion entries from both linters. Mechanical sweep; no behavior changes.
+>
+> Why: service/ is the highest-traffic package and the original motivating example for the convention. Sweeping it first proves the convention against real call sites before parallel sweeps roll it out further.
+>
+> Acceptance:
+> - make lint passes against service/ with no exclusions.
+> - make test passes — every service-layer behavior unchanged.
+> - All MCP tools and CLI commands backed by services in this package continue to work identically.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/03-sweep-service.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3.md
+> Depends on: P2. Parallelizable with P4, P5, P6, P7. Blocks P8.
+
+- [ ] [v0.14 P3-T1] Drop service/ varnamelen exclusion level=task order=1 +naming-convention +phase-3 +v0.14
+> What: Delete the linters: [varnamelen] exclusion rule whose path is ^service/ from .golangci.yml. Other per-package rules stay untouched.
+>
+> Why: Removing the exclusion is the trigger that brings rule 1 into scope for service/.
+>
+> Code references:
+> - .golangci.yml linters.exclusions.rules — locate the entry with path: ^service/.
+>
+> Acceptance:
+> - .golangci.yml no longer contains a linters: [varnamelen] rule with path: ^service/.
+> - All other linters: [varnamelen] exclusion rules and the existing errcheck rules remain.
+>
+> Bridge code: Removes service/ varnamelen exclusion rule (introduced by P1-T5).
+> Blocks: P3-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T1.md
+
+- [ ] [v0.14 P3-T2] Drop service/ pathfilter entry level=task order=2 +naming-convention +phase-3 +v0.14
+> What: Delete the regex line for ^github\.com/germanamz/tusk/service(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
+>
+> Why: Removing this entry brings rules 2, 3, 4 into scope for service/. Pairs with P3-T1.
+>
+> Code references:
+> - internal/lint/pathfilter/pathfilter.go — locate the entry matching service.
+>
+> Acceptance:
+> - The excluded slice no longer contains the service entry.
+> - All other entries remain.
+>
+> Bridge code: Removes service/ regex entry (introduced by P2-T4).
+> Blocks: P3-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T2.md
+
+- [ ] [v0.14 P3-T3] Apply STYLE.md fixes across service/ level=task order=3 +naming-convention +phase-3 +v0.14
+> What: Run make lint to enumerate every violation in service/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. If the diff exceeds review-friendly size, split per-file (task.go, task_test.go, project.go, …).
+>
+> The service/ package contains ~44 .go files including task.go (2174 LoC) and task_test.go (1754 LoC). Expected violation classes per STYLE.md rules 1–4: single-character locals and receivers, missing blank lines around if err != nil guards, sequential err := shadows, t *testing.T parameters.
+>
+> Why: Work-bearing task of the phase. Mechanical sweep that proves the convention against the highest-traffic package.
+>
+> Code references:
+> - service/task.go:64 — defaultProjectID (rule 1 + rule 2 motivating example).
+> - service/task.go:325-339 — listInBundle shadowed-err block (rule 3 canonical site).
+> - service/task.go:361, 393, 437, 474, 503, 705, 774, 1431 and ~9 more — for _, t := range tasks sites.
+> - All service/*_test.go files — t *testing.T parameters to rename.
+>
+> Acceptance:
+> - Every file in service/ complies with STYLE.md rules 1–4.
+> - No behavior changes (verified by P3-T4).
+> - The diff is mechanical: identifier renames, blank-line insertions, named-error shadow renames, test-handle parameter renames.
+>
+> Bridge code: None.
+> Depends on: P3-T1, P3-T2.
+> Blocks: P3-T4, P3-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T3.md
+
+- [ ] [v0.14 P3-T4] Verify service/ tests pass level=task order=4 +naming-convention +phase-3 +v0.14
+> What: Run make test to verify behavior is preserved after the sweep. All existing service-layer tests must pass. Failures indicate an accidental semantic change during the sweep — investigate and fix.
+>
+> Why: Mechanical renames can accidentally change semantics (e.g., shadowing a different identifier, mis-typed := vs =). Test suite is the regression net.
+>
+> Code references:
+> - service/*_test.go — full test suite for the package.
+>
+> Acceptance:
+> - make test exits zero.
+> - No accidental semantic changes.
+> - If failures surface, root-cause and fix as part of this task before P3-T5.
+>
+> Bridge code: None.
+> Depends on: P3-T3.
+> Blocks: P3-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T4.md
+
+- [ ] [v0.14 P3-T5] Verify service/ lint clean level=task order=5 +naming-convention +phase-3 +v0.14
+> What: Run make lint to confirm zero violations across service/ with all four rules now active (no exclusions). Closes the phase.
+>
+> Why: Acceptance gate. The phase is "done" when both linters report zero violations against service/.
+>
+> Code references:
+> - service/ — all production and test files.
+>
+> Acceptance:
+> - make lint exits zero.
+> - Both lint-go (varnamelen across service/) and lint-tusk (blankline + namederr + testhandle across service/) report no diagnostics.
+> - All MCP tools and CLI commands continue to work identically.
+>
+> Bridge code: None.
+> Depends on: P3-T4.
+> Blocks: P8.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T5.md
+
+### [v0.14 P4] Sweep internal/tui/ level=initiative order=4 +naming-convention +phase-4 +v0.14
+> Bring every file in internal/tui/ (production and tests) into compliance with STYLE.md's four rules. Remove the internal/tui/ exclusion entries from both linters. CLI command output remains byte-identical to pre-sweep (verified by existing e2e snapshot tests).
+>
+> Why: internal/tui/ is the second-largest package and the CLI surface. Sweeping it exercises the convention against cobra command builders and renderer code.
+>
+> Acceptance:
+> - make lint passes against internal/tui/ with no exclusions.
+> - make test passes — every CLI command produces byte-identical output.
+> - Cobra help text remains unchanged.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/04-sweep-tui.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4.md
+> Depends on: P2. Parallelizable with P3, P5, P6, P7. Blocks P8.
+
+- [ ] [v0.14 P4-T1] Drop internal/tui/ varnamelen exclusion level=task order=1 +naming-convention +phase-4 +v0.14
+> What: Delete the linters: [varnamelen] rule whose path is ^internal/tui/ from .golangci.yml. Other per-package rules stay untouched.
+>
+> Why: Brings rule 1 into scope for internal/tui/.
+>
+> Code references:
+> - .golangci.yml linters.exclusions.rules — locate the entry with path: ^internal/tui/.
+>
+> Acceptance:
+> - .golangci.yml no longer contains a linters: [varnamelen] rule with path: ^internal/tui/.
+> - All other rules remain.
+>
+> Bridge code: Removes internal/tui/ varnamelen exclusion rule (introduced by P1-T5).
+> Blocks: P4-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T1.md
+
+- [ ] [v0.14 P4-T2] Drop internal/tui/ pathfilter entry level=task order=2 +naming-convention +phase-4 +v0.14
+> What: Delete the regex line for ^github\.com/germanamz/tusk/internal/tui(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
+>
+> Why: Brings rules 2, 3, 4 into scope for internal/tui/.
+>
+> Code references:
+> - internal/lint/pathfilter/pathfilter.go — locate the entry matching internal/tui.
+>
+> Acceptance:
+> - The excluded slice no longer contains the internal/tui entry.
+> - All other entries remain.
+>
+> Bridge code: Removes internal/tui/ regex entry (introduced by P2-T4).
+> Blocks: P4-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T2.md
+
+- [ ] [v0.14 P4-T3] Apply STYLE.md fixes across internal/tui/ level=task order=3 +naming-convention +phase-4 +v0.14
+> What: Run make lint to enumerate every violation in internal/tui/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. Split per-file if the diff is too large for one PR — commands.go and render.go are the largest candidates.
+>
+> The package contains ~50 .go files. Expected violation classes: short receivers in cobra command builders (a *App → app *App), short range vars on tasks/projects/notes, runX handlers with multiple service calls missing blank lines around guards, sequential err := shadows, and t *testing.T parameters.
+>
+> Why: Work-bearing task of the phase.
+>
+> Code references:
+> - internal/tui/commands.go (1450 LoC) — cobra command construction.
+> - internal/tui/render.go (1231 LoC) — rendering helpers.
+> - internal/tui/tree_markdown_test.go (959 LoC).
+> - internal/tui/config.go (823 LoC).
+> - internal/tui/commands_test.go (1491 LoC).
+>
+> Acceptance:
+> - Every file in internal/tui/ complies with STYLE.md rules 1–4.
+> - No behavior changes (verified by P4-T4).
+>
+> Bridge code: None.
+> Depends on: P4-T1, P4-T2.
+> Blocks: P4-T4, P4-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T3.md
+
+- [ ] [v0.14 P4-T4] Verify internal/tui/ tests pass level=task order=4 +naming-convention +phase-4 +v0.14
+> What: Run make test to verify behavior is preserved after the sweep. All internal/tui/ tests, including the e2e tests that exercise CLI command output, must pass. CLI output remains byte-identical to pre-sweep.
+>
+> Why: CLI output is user-facing and verified by snapshot tests; any accidental change would surface here.
+>
+> Code references:
+> - internal/tui/*_test.go and tests/e2e/ — exercise CLI surface.
+>
+> Acceptance:
+> - make test exits zero.
+> - tusk task create, list, get, modify, tree, next, etc. produce byte-identical output to pre-sweep.
+>
+> Bridge code: None.
+> Depends on: P4-T3.
+> Blocks: P4-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T4.md
+
+- [ ] [v0.14 P4-T5] Verify internal/tui/ lint clean level=task order=5 +naming-convention +phase-4 +v0.14
+> What: Run make lint to confirm zero violations across internal/tui/ with all four rules now active (no exclusions). Closes the phase.
+>
+> Why: Acceptance gate.
+>
+> Code references:
+> - internal/tui/ — all production and test files.
+>
+> Acceptance:
+> - make lint exits zero.
+> - Cobra help text for every command remains unchanged.
+>
+> Bridge code: None.
+> Depends on: P4-T4.
+> Blocks: P8.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T5.md
+
+### [v0.14 P5] Sweep internal/mcp/ + internal/portability/ level=initiative order=5 +naming-convention +phase-5 +v0.14
+> Bring every file in internal/mcp/ and internal/portability/ (production and tests) into compliance with STYLE.md's four rules. Remove all four exclusion entries (two packages × two linter configs) from both linters. MCP tool responses and workspace export/import JSON output remain byte-identical to pre-sweep.
+>
+> Why: internal/mcp/ is the third-largest package and the MCP protocol surface. internal/portability/ is folded in here because no other phase covers internal/-rooted code beyond tui and mcp.
+>
+> Acceptance:
+> - make lint passes against both packages with no exclusions.
+> - make test passes — every MCP tool and portability encode/decode round-trip behavior unchanged.
+> - The [mcp.blocked_fields] enforcement layer (v0.12) continues to block configured tool/field combinations.
+> - The MCP server's stdio and SSE transports continue to function.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/05-sweep-mcp.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5.md
+> Depends on: P2. Parallelizable with P3, P4, P6, P7. Blocks P8.
+
+- [ ] [v0.14 P5-T1] Drop internal/mcp/ + internal/portability/ varnamelen exclusions level=task order=1 +naming-convention +phase-5 +v0.14
+> What: Delete the two linters: [varnamelen] rules whose path is ^internal/mcp/ and ^internal/portability/ from .golangci.yml. Other per-package rules stay untouched.
+>
+> Why: Brings rule 1 into scope for both packages.
+>
+> Code references:
+> - .golangci.yml linters.exclusions.rules — locate entries with path: ^internal/mcp/ and path: ^internal/portability/.
+>
+> Acceptance:
+> - Neither rule exists in .golangci.yml after the change.
+> - All other rules remain.
+>
+> Bridge code: Removes two varnamelen exclusion rules (introduced by P1-T5).
+> Blocks: P5-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T1.md
+
+- [ ] [v0.14 P5-T2] Drop internal/mcp/ + internal/portability/ pathfilter entries level=task order=2 +naming-convention +phase-5 +v0.14
+> What: Delete the two regex lines for ^github\.com/germanamz/tusk/internal/mcp(/|$) and ^github\.com/germanamz/tusk/internal/portability(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
+>
+> Why: Brings rules 2, 3, 4 into scope for both packages.
+>
+> Code references:
+> - internal/lint/pathfilter/pathfilter.go — locate entries matching internal/mcp and internal/portability.
+>
+> Acceptance:
+> - Neither entry exists in the excluded slice after the change.
+> - All other entries remain.
+>
+> Bridge code: Removes two regex entries (introduced by P2-T4).
+> Blocks: P5-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T2.md
+
+- [ ] [v0.14 P5-T3] Apply STYLE.md fixes across internal/mcp/ + internal/portability/ level=task order=3 +naming-convention +phase-5 +v0.14
+> What: Run make lint to enumerate every violation in internal/mcp/ and internal/portability/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. Per-handler PRs are a reasonable split if tools.go produces an oversized diff.
+>
+> internal/mcp/ contains ~22 .go files. internal/portability/ contains 5. Expected violation classes: short locals during JSON marshaling (taskResponse, urgencyWeightsJSON, projectNameCache), short receivers (*ImportError), short dec/enc locals around json.NewDecoder/json.NewEncoder, short range vars (for _, b := range blocks), missing blank lines around guards in per-tool handlers, sequential err := shadows, and t *testing.T parameters.
+>
+> Why: Work-bearing task. Per-tool handlers each do multiple service calls — a high-density site for rules 2 and 3.
+>
+> Code references:
+> - internal/mcp/tools.go:666, 734, 750 — for _, b := range blocks sites.
+> - internal/mcp/tools.go (1729 LoC) — per-tool handlers.
+> - internal/mcp/server.go (1043 LoC).
+> - internal/mcp/project_handlers_test.go (619 LoC).
+> - internal/mcp/handlers_test.go (578 LoC).
+> - internal/portability/decode.go:29 — func (e *ImportError) Error() receiver rename.
+> - internal/portability/decode.go:48 — dec := json.NewDecoder(r) local rename.
+> - internal/portability/encode.go:18 — enc := json.NewEncoder(w) local rename.
+> - internal/portability/*_test.go — t *testing.T parameter renames (~30 sites).
+>
+> Acceptance:
+> - Every file in both packages complies with STYLE.md rules 1–4.
+> - No behavior changes (verified by P5-T4).
+>
+> Bridge code: None.
+> Depends on: P5-T1, P5-T2.
+> Blocks: P5-T4, P5-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T3.md
+
+- [ ] [v0.14 P5-T4] Verify MCP and portability tests pass level=task order=4 +naming-convention +phase-5 +v0.14
+> What: Run make test to verify behavior is preserved across both packages. All MCP server tests, tool-handler tests, tool-registry tests, and internal/portability/ encode/decode round-trip tests must pass.
+>
+> Why: MCP tool responses and portability JSON output are user-facing contracts; any accidental change would surface here.
+>
+> Code references:
+> - internal/mcp/*_test.go.
+> - internal/portability/encode_test.go, internal/portability/decode_test.go.
+>
+> Acceptance:
+> - make test exits zero.
+> - MCP tool responses are byte-identical to pre-sweep.
+> - Workspace export/import via internal/portability/ produces byte-identical JSON output for the same input and round-trips identically.
+>
+> Bridge code: None.
+> Depends on: P5-T3.
+> Blocks: P5-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T4.md
+
+- [ ] [v0.14 P5-T5] Verify P5 packages lint clean level=task order=5 +naming-convention +phase-5 +v0.14
+> What: Run make lint to confirm zero violations across internal/mcp/ and internal/portability/ with all four rules now active. Closes the phase.
+>
+> Why: Acceptance gate.
+>
+> Code references:
+> - internal/mcp/, internal/portability/ — all production and test files.
+>
+> Acceptance:
+> - make lint exits zero.
+>
+> Bridge code: None.
+> Depends on: P5-T4.
+> Blocks: P8.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T5.md
+
+### [v0.14 P6] Sweep filter/ + domain/ + syntax/ level=initiative order=6 +naming-convention +phase-6 +v0.14
+> Bring every file in filter/, domain/, and syntax/ (production and tests) into compliance with STYLE.md's four rules. Remove the six exclusion entries (three packages × two linter configs) from both linters. Filter expressions, urgency scoring, taxonomy validation, and syntax/ lex/AST behavior remain identical.
+>
+> Why: filter/, domain/, and syntax/ together host the parse path and the core types. Bundling avoids inflating phase count for three small/medium packages; syntax/ pairs naturally with filter/.
+>
+> Acceptance:
+> - make lint passes against all three packages with no exclusions.
+> - make test passes — filter parser, urgency scoring, taxonomy validation, workflow transitions, and syntax lex/AST behavior unchanged.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/06-sweep-filter-domain.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6.md
+> Depends on: P2. Parallelizable with P3, P4, P5, P7. Blocks P8.
+
+- [ ] [v0.14 P6-T1] Drop filter/ + domain/ + syntax/ varnamelen exclusions level=task order=1 +naming-convention +phase-6 +v0.14
+> What: Delete the three linters: [varnamelen] rules whose path is ^filter/, ^domain/, and ^syntax/ from .golangci.yml. Other per-package rules stay untouched.
+>
+> Why: Brings rule 1 into scope for all three packages.
+>
+> Code references:
+> - .golangci.yml linters.exclusions.rules — locate entries with path: ^filter/, path: ^domain/, path: ^syntax/.
+>
+> Acceptance:
+> - None of the three rules exists in .golangci.yml after the change.
+> - All other rules remain.
+>
+> Bridge code: Removes three varnamelen exclusion rules (introduced by P1-T5).
+> Blocks: P6-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T1.md
+
+- [ ] [v0.14 P6-T2] Drop filter/ + domain/ + syntax/ pathfilter entries level=task order=2 +naming-convention +phase-6 +v0.14
+> What: Delete the three regex lines for ^github\.com/germanamz/tusk/filter(/|$), ^github\.com/germanamz/tusk/domain(/|$), and ^github\.com/germanamz/tusk/syntax(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
+>
+> Why: Brings rules 2, 3, 4 into scope for all three packages.
+>
+> Code references:
+> - internal/lint/pathfilter/pathfilter.go — locate entries matching filter, domain, syntax.
+>
+> Acceptance:
+> - None of the three entries exists in the excluded slice after the change.
+> - All other entries remain.
+>
+> Bridge code: Removes three regex entries (introduced by P2-T4).
+> Blocks: P6-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T2.md
+
+- [ ] [v0.14 P6-T3] Apply STYLE.md fixes across filter/ + domain/ + syntax/ level=task order=3 +naming-convention +phase-6 +v0.14
+> What: Run make lint to enumerate every violation in filter/, domain/, and syntax/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. Per-file diffs are smaller than service/ or internal/tui/ sweeps; one PR for all three packages should still be reviewable.
+>
+> filter/ has 22 files (parser, lexer, validators, resolvers). domain/ has 36 files (entity definitions, validators, urgency overrides helpers, taxonomy validators). syntax/ has 10 files (token, AST, modifier, parse_fields). Expected violation classes: parser state-machine short locals, AST/range-var renames, missing blank lines on parser error paths, t *testing.T parameters.
+>
+> Why: Work-bearing task.
+>
+> Code references:
+> - filter/ — parser, lexer, validators.
+> - domain/ — entity definitions, urgency overrides, taxonomy validators.
+> - syntax/ast.go:37, 48 — for _, t := range fs.Tags sites.
+> - syntax/errors.go:32 — for i, e := range errs.
+> - syntax/modifier_test.go:17 — for _, b := range []byte{...}.
+> - syntax/*_test.go — extensive t *testing.T usage.
+>
+> Acceptance:
+> - Every file in all three packages complies with STYLE.md rules 1–4.
+> - No behavior changes (verified by P6-T4).
+>
+> Bridge code: None.
+> Depends on: P6-T1, P6-T2.
+> Blocks: P6-T4, P6-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T3.md
+
+- [ ] [v0.14 P6-T4] Verify filter/ + domain/ + syntax/ tests pass level=task order=4 +naming-convention +phase-6 +v0.14
+> What: Run make test to verify behavior is preserved. Filter parser tests (boolean operators, tag include/exclude, UDA fields, urgency keys), domain tests (taxonomy validation, urgency overrides math, workflow validation), and syntax/ tests (token, AST, modifier, parse_fields) must all pass.
+>
+> Why: These are the parsing and core-type contracts. Edge-case coverage in the test suite is dense; any accidental change surfaces here.
+>
+> Code references:
+> - filter/*_test.go, domain/*_test.go, syntax/*_test.go.
+>
+> Acceptance:
+> - make test exits zero.
+> - Filter expressions (status=pending,active, priority=2..4, due=today, +tag, -tag, parent=<short_id>, tree=<short_id>, uda.<key>=<value>) parse and evaluate identically.
+> - Urgency scoring produces identical scores for the same inputs.
+> - Taxonomy level validation enforces/rejects identical inputs.
+> - syntax/ modifier registration and tag-prefix recognition behave identically.
+>
+> Bridge code: None.
+> Depends on: P6-T3.
+> Blocks: P6-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T4.md
+
+- [ ] [v0.14 P6-T5] Verify P6 packages lint clean level=task order=5 +naming-convention +phase-6 +v0.14
+> What: Run make lint to confirm zero violations across filter/, domain/, and syntax/. Closes the phase.
+>
+> Why: Acceptance gate.
+>
+> Code references:
+> - filter/, domain/, syntax/.
+>
+> Acceptance:
+> - make lint exits zero.
+>
+> Bridge code: None.
+> Depends on: P6-T4.
+> Blocks: P8.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T5.md
+
+### [v0.14 P7] Sweep repository/ + sqlite/ + cmd/ + tests/e2e/ + root level=initiative order=7 +naming-convention +phase-7 +v0.14
+> Bring repository/, sqlite/, cmd/, tests/e2e/, and the root package (client.go, client_test.go) into compliance with STYLE.md's four rules. Remove the five package-level exclusion entries from both linters. After this phase (combined with Phases 3–6), every package in the repository is clean.
+>
+> Why: This phase closes out the remaining production and test code. cmd/tusk-lint/ (introduced in Phase 1) is also swept here — it must already be clean since it was written under the convention, but the linter verifies it.
+>
+> Acceptance:
+> - make lint passes against all five packages with no exclusions.
+> - make test and make test-race pass — every repository implementation, every CLI scenario, every entry-point behavior unchanged.
+> - Default DB path resolution and migration behavior unchanged.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/07-sweep-rest.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7.md
+> Depends on: P2. Parallelizable with P3, P4, P5, P6. Blocks P8.
+
+- [ ] [v0.14 P7-T1] Drop remaining varnamelen exclusions level=task order=1 +naming-convention +phase-7 +v0.14
+> What: Delete the five linters: [varnamelen] rules whose path is ^repository/, ^sqlite/, ^cmd/, ^tests/e2e/, and ^client\.go$ from .golangci.yml. Other rules stay untouched.
+>
+> Why: Brings rule 1 into scope for the final five packages.
+>
+> Code references:
+> - .golangci.yml linters.exclusions.rules — locate the five entries.
+>
+> Acceptance:
+> - None of the five rules exists in .golangci.yml after the change.
+> - Existing errcheck rules remain.
+>
+> Bridge code: Removes five varnamelen exclusion rules (introduced by P1-T5).
+> Blocks: P7-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T1.md
+
+- [ ] [v0.14 P7-T2] Drop remaining pathfilter entries level=task order=2 +naming-convention +phase-7 +v0.14
+> What: Delete the five regex lines for repository, sqlite, cmd, tests/e2e, and the module-root pattern (^github\.com/germanamz/tusk$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
+>
+> Why: Brings rules 2, 3, 4 into scope for the final five packages.
+>
+> Code references:
+> - internal/lint/pathfilter/pathfilter.go — locate the five entries.
+>
+> Acceptance:
+> - None of the five entries exists in the excluded slice after the change.
+> - After this task ships and assuming all other sweeps have shipped, the excluded slice is empty.
+>
+> Bridge code: Removes five regex entries (introduced by P2-T4).
+> Blocks: P7-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T2.md
+
+- [ ] [v0.14 P7-T3] Apply STYLE.md fixes across remaining packages level=task order=3 +naming-convention +phase-7 +v0.14
+> What: Run make lint to enumerate every violation across repository/, sqlite/, cmd/, tests/e2e/, and the root files. Apply mechanical fixes per STYLE.md.
+>
+> Coverage:
+> - repository/ (10 files) — interface definitions; mostly parameter renames and short locals in test helpers.
+> - sqlite/ (~30 files) — repository implementations; short locals around sql.Tx, sql.Rows, prepared statements.
+> - cmd/ — cmd/tusk/main.go (360 LoC), main_test.go (86 LoC), and cmd/tusk-lint/main.go (introduced in Phase 1; verify clean).
+> - tests/e2e/ — black-box CLI tests; heavy t *testing.T usage.
+> - Root files: client.go, client_test.go.
+>
+> For cmd/tusk-lint/, the analyzers themselves use AST walking patterns where short identifiers like n for ast.Node, t for types.Type, s for ast.Stmt are common — these all rename per the style guide.
+>
+> Why: Final mechanical sweep. After this task ships, every package in the repo is convention-clean.
+>
+> Code references:
+> - repository/ — 10 files of interface definitions.
+> - sqlite/ (~30 files), including sqlite/task_test.go (1093 LoC).
+> - cmd/tusk/main.go (360 LoC).
+> - cmd/tusk/main_test.go (86 LoC).
+> - cmd/tusk-lint/main.go (from P1-T3 / P2-T5).
+> - tests/e2e/ — black-box harness.
+> - client.go (~8.5 KB) and client_test.go (~2.8 KB) at repo root.
+>
+> Acceptance:
+> - Every file in the listed packages complies with STYLE.md rules 1–4.
+> - No behavior changes (verified by P7-T4).
+>
+> Bridge code: None.
+> Depends on: P7-T1, P7-T2.
+> Blocks: P7-T4, P7-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T3.md
+
+- [ ] [v0.14 P7-T4] Verify e2e and unit tests pass level=task order=4 +naming-convention +phase-7 +v0.14
+> What: Run make test and make test-race to verify behavior is preserved. The e2e suite is the most exercising — every CLI scenario, every output format, every DB-config combination must continue to pass. make test-race should also pass (no new race conditions introduced by mechanical renames).
+>
+> Why: This is the broadest test surface. Catches any accidental semantic change introduced by P7-T3 across DB layer, CLI entry points, and e2e scenarios.
+>
+> Code references:
+> - tests/e2e/ — full e2e harness across DB-config and output-format combinations.
+> - sqlite/*_test.go — repository unit tests.
+> - cmd/tusk/main_test.go.
+>
+> Acceptance:
+> - make test exits zero.
+> - make test-race exits zero.
+> - Default DB path resolution (~/.local/share/tusk/tusk.db), flag/env override (--db > TUSK_DB), and walk-up config discovery work identically.
+> - Migration application from a fresh DB produces a schema identical to pre-sweep.
+> - The tusk and tusk-lint binaries both build and run identically.
+>
+> Bridge code: None.
+> Depends on: P7-T3.
+> Blocks: P7-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T4.md
+
+- [ ] [v0.14 P7-T5] Verify P7 packages lint clean level=task order=5 +naming-convention +phase-7 +v0.14
+> What: Run make lint to confirm zero violations across repository/, sqlite/, cmd/, tests/e2e/, and the root package. Closes the phase.
+>
+> Why: Acceptance gate. After this task ships and assuming P3..P6 have also shipped, every package in the repo is convention-clean and Phase 8 can begin.
+>
+> Code references:
+> - repository/, sqlite/, cmd/, tests/e2e/, client.go, client_test.go.
+>
+> Acceptance:
+> - make lint exits zero.
+>
+> Bridge code: None.
+> Depends on: P7-T4.
+> Blocks: P8.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T5.md
+
+### [v0.14 P8] Lock-in level=initiative order=8 +naming-convention +phase-8 +v0.14
+> Verify residual exclusion infrastructure is gone and add structural regression guards so the convention cannot quietly degrade in future PRs. After this phase ships, every package in the repository is in compliance with all four STYLE.md rules and the convention is structurally protected.
+>
+> Why: Without lock-in, future PRs could reintroduce violations or add // nolint:varnamelen directives. The phase makes the milestone's done state structurally verifiable.
+>
+> Acceptance:
+> - .golangci.yml contains zero linters: [varnamelen] exclusion rules.
+> - internal/lint/pathfilter/pathfilter.go's excluded slice is empty.
+> - make lint-style-locked is wired into CI through make lint and fails on regression triggers.
+> - STYLE.md indicates "enforced repository-wide as of v0.14."
+> - make build, make test, make test-race all pass.
+>
+> Plan: docs/superpowers/plans/v014-naming-convention/08-lock-in.md
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8.md
+> Depends on: P3, P4, P5, P6, P7 — all sweep phases must ship first.
+
+- [ ] [v0.14 P8-T1] Verify all varnamelen exclusions are gone level=task order=1 +naming-convention +phase-8 +v0.14
+> What: Run grep -A 3 'linters: \[varnamelen\]' .golangci.yml and confirm no output. If any rule remains, halt this phase and identify which sweep phase failed to remove its rule — the missing sweep must complete first.
+>
+> Why: This is a structural reconciliation step: the twelve sweep-phase removals must collectively zero out the per-package exclusion list. If any rule lingers, the lock-in CI guard added in P8-T3 would trigger and block the phase.
+>
+> Code references:
+> - .golangci.yml linters.exclusions.rules — should contain only the two pre-existing errcheck rules.
+>
+> Acceptance:
+> - grep -A 3 'linters: \[varnamelen\]' .golangci.yml produces no output.
+> - The two errcheck rules from before v0.14 remain unchanged.
+>
+> Bridge code: Verifies any residual per-package varnamelen exclusion rules — should already be zero after Phases 3–7.
+> Depends on: P3, P4, P5, P6, P7.
+> Blocks: P8-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T1.md
+
+- [ ] [v0.14 P8-T2] Verify pathfilter slice is empty level=task order=2 +naming-convention +phase-8 +v0.14
+> What: Open internal/lint/pathfilter/pathfilter.go and confirm the excluded slice has zero entries. If entries remain, halt and identify the missing sweep. With an empty slice the helper is a no-op (Excluded always returns false); leave the helper in place — it remains available for future per-package rollouts without re-introducing the bridge code.
+>
+> Why: Symmetric to P8-T1 — verifies that custom-analyzer exclusions are also fully gone. Leaving the helper as no-op infrastructure is a deliberate decision (see plan rationale).
+>
+> Code references:
+> - internal/lint/pathfilter/pathfilter.go — should contain the helper function with an empty excluded slice.
+>
+> Acceptance:
+> - The excluded slice in pathfilter.go is empty.
+> - The Excluded(pkgPath) function still exists and returns false for all inputs.
+>
+> Bridge code: Verifies any residual per-package regex entries — should already be zero after Phases 3–7.
+> Depends on: P3, P4, P5, P6, P7.
+> Blocks: P8-T3.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T2.md
+
+- [ ] [v0.14 P8-T3] Add lint-style-locked CI guard level=task order=3 +naming-convention +phase-8 +v0.14
+> What: Add a lint-style-locked Makefile target that fails CI if either of the following holds:
+>
+> 1. A // nolint:varnamelen directive appears anywhere in the Go source tree.
+> 2. A linters: [varnamelen] exclusion rule appears in .golangci.yml.
+>
+> Make lint depend on lint-style-locked (in addition to lint-go and lint-tusk). Verify the target passes against the current state and fails when a directive is intentionally added then removed.
+>
+> Why: Structural regression guard. Without this, future PRs could silently reintroduce exclusions or nolint directives.
+>
+> Code references:
+> - Makefile — add the new target alongside lint-go and lint-tusk.
+>
+> Acceptance:
+> - make lint-style-locked is a Makefile target.
+> - Target fails on either trigger condition with a clear error message.
+> - make lint depends on lint-style-locked.
+> - Target passes against the current (post-lock-in) repo state.
+> - Target fails when a // nolint:varnamelen is intentionally added; passes again when removed.
+>
+> Bridge code: None.
+> Depends on: P8-T1, P8-T2.
+> Blocks: P8-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T3.md
+
+- [ ] [v0.14 P8-T4] Mark STYLE.md as enforced level=task order=4 +naming-convention +phase-8 +v0.14
+> What: Update STYLE.md to indicate the convention is fully enforced. Add a one-line status note at the top: "Status: enforced repository-wide as of v0.14." If STYLE.md has an enforcement summary section (per P1-T1), append a note: "no exclusions in .golangci.yml, no // nolint:varnamelen directives anywhere; both guarded by make lint-style-locked in CI."
+>
+> Why: Documents the milestone's done state in the canonical convention doc. Future contributors learn from STYLE.md alone that the rules are structurally enforced.
+>
+> Code references:
+> - STYLE.md (created in P1-T1).
+>
+> Acceptance:
+> - STYLE.md carries the enforcement status note at the top.
+> - The enforcement-summary section (if present) references lint-style-locked.
+>
+> Bridge code: None.
+> Depends on: P8-T3.
+> Blocks: P8-T5.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T4.md
+
+- [ ] [v0.14 P8-T5] Verify Phase 8 CI green level=task order=5 +naming-convention +phase-8 +v0.14
+> What: Run make build, make test, make test-race, and make lint. All must pass. The lint-style-locked target runs as part of make lint and must pass.
+>
+> Why: Closes the v0.14 milestone. After this task ships, the convention is structurally protected and documented as such.
+>
+> Code references:
+> - Makefile — build, test, test-race, lint, lint-style-locked.
+>
+> Acceptance:
+> - make build exits zero.
+> - make test exits zero.
+> - make test-race exits zero.
+> - make lint exits zero (including lint-style-locked).
+> - No behavior changes from the v0.14 milestone (unchanged from prior phase verifications).
+>
+> Bridge code: None.
+> Depends on: P8-T1, P8-T2, P8-T3, P8-T4.
+> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T5.md
+
