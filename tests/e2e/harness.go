@@ -86,9 +86,13 @@ func (e *Env) WithEnv(key, value string) {
 
 // WithHome overrides HOME (and USERPROFILE on Windows) for every
 // subsequent Run invocation. Used by tests that drive tusk's config
-// resolver from a synthetic home directory.
+// resolver from a synthetic home directory. Also clears configDir so
+// TUSK_CONFIG_DIR is no longer injected — otherwise tusk's resolver
+// (TUSK_CONFIG_DIR > ~/.config/tusk) would shadow the HOME-based
+// lookup the caller is trying to exercise.
 func (e *Env) WithHome(dir string) {
 	e.homeDir = dir
+	e.configDir = ""
 }
 
 // WithoutDBArg suppresses both the --db flag and TUSK_DB env var on

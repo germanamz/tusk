@@ -1,10 +1,8 @@
 package e2e
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,15 +29,12 @@ func TestCLI_WithConfigFile(t *testing.T) {
 	}
 
 	// Run tusk add (no --db flag, no TUSK_DB) with HOME overridden.
-	cmd := exec.Command(binPath, "task", "create", "Config test task")
-	cmd.Env = envWithHome(homeDir)
-
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("tusk add failed: %v\nstderr: %s", err, stderr.String())
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+	r := env.Run("task", "create", "Config test task")
+	if r.Err != nil {
+		t.Fatalf("tusk add failed: %v\nstderr: %s", r.Err, r.Stderr)
 	}
 
 	// Verify the DB file was created at the custom path.
@@ -108,13 +103,15 @@ func TestCLI_ConfigInit(t *testing.T) {
 	homeDir := t.TempDir()
 	configPath := filepath.Join(homeDir, ".config", "tusk", "config.toml")
 
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
 	// Run config init: startup auto-creates the file via ensureConfigFile in config.Load,
 	// so config init will always report "already exists" and succeed.
-	cmd := exec.Command(binPath, "config", "init")
-	cmd.Env = envWithHome(homeDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config init failed: %v\noutput: %s", err, out)
+	r := env.Run("config", "init")
+	if r.Err != nil {
+		t.Fatalf("config init failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
 	// Verify file exists (created by startup or by config init itself).
@@ -123,14 +120,12 @@ func TestCLI_ConfigInit(t *testing.T) {
 	}
 
 	// Second run: should also succeed and report already exists.
-	cmd = exec.Command(binPath, "config", "init")
-	cmd.Env = envWithHome(homeDir)
-	out, err = cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config init (second run) failed: %v\noutput: %s", err, out)
+	r = env.Run("config", "init")
+	if r.Err != nil {
+		t.Fatalf("config init (second run) failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
-	if !strings.Contains(string(out), "already exists") {
-		t.Errorf("expected 'already exists' in output, got: %s", out)
+	if !strings.Contains(r.Stdout, "already exists") {
+		t.Errorf("expected 'already exists' in output, got: %s", r.Stdout)
 	}
 }
 
@@ -140,15 +135,17 @@ func TestCLI_ConfigPath(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	cmd := exec.Command(binPath, "config", "path")
-	cmd.Env = envWithHome(homeDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config path failed: %v\noutput: %s", err, out)
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
+	r := env.Run("config", "path")
+	if r.Err != nil {
+		t.Fatalf("config path failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 	expected := filepath.Join(homeDir, ".config", "tusk", "config.toml")
-	if strings.TrimSpace(string(out)) != expected {
-		t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), expected)
+	if strings.TrimSpace(r.Stdout) != expected {
+		t.Errorf("got %q, want %q", strings.TrimSpace(r.Stdout), expected)
 	}
 }
 
@@ -158,29 +155,28 @@ func TestCLI_ConfigShow(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
 	// Config init first to create the file.
-	initCmd := exec.Command(binPath, "config", "init")
-	initCmd.Env = envWithHome(homeDir)
-	if out, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("config init failed: %v\noutput: %s", err, out)
+	if r := env.Run("config", "init"); r.Err != nil {
+		t.Fatalf("config init failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
-	cmd := exec.Command(binPath, "config", "show")
-	cmd.Env = envWithHome(homeDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config show failed: %v\noutput: %s", err, out)
+	r := env.Run("config", "show")
+	if r.Err != nil {
+		t.Fatalf("config show failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
-	output := string(out)
 	// Should contain key TOML sections.
-	if !strings.Contains(output, "[storage]") {
+	if !strings.Contains(r.Stdout, "[storage]") {
 		t.Error("config show output missing [storage] section")
 	}
-	if !strings.Contains(output, "[urgency]") {
+	if !strings.Contains(r.Stdout, "[urgency]") {
 		t.Error("config show output missing [urgency] section")
 	}
-	if !strings.Contains(output, "[tui]") {
+	if !strings.Contains(r.Stdout, "[tui]") {
 		t.Error("config show output missing [tui] section")
 	}
 }
@@ -191,49 +187,45 @@ func TestCLI_ConfigGet(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
 	// Init config first.
-	initCmd := exec.Command(binPath, "config", "init")
-	initCmd.Env = envWithHome(homeDir)
-	if out, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("config init: %v\n%s", err, out)
+	if r := env.Run("config", "init"); r.Err != nil {
+		t.Fatalf("config init: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
 	t.Run("scalar_bool", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "get", "tui.color")
-		cmd.Env = envWithHome(homeDir)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("config get: %v\n%s", err, out)
+		r := env.Run("config", "get", "tui.color")
+		if r.Err != nil {
+			t.Fatalf("config get: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
-		if strings.TrimSpace(string(out)) != "true" {
-			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "true")
+		if strings.TrimSpace(r.Stdout) != "true" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(r.Stdout), "true")
 		}
 	})
 
 	t.Run("scalar_float", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "get", "urgency.due_weight")
-		cmd.Env = envWithHome(homeDir)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("config get: %v\n%s", err, out)
+		r := env.Run("config", "get", "urgency.due_weight")
+		if r.Err != nil {
+			t.Fatalf("config get: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
-		if strings.TrimSpace(string(out)) != "12" {
-			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "12")
+		if strings.TrimSpace(r.Stdout) != "12" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(r.Stdout), "12")
 		}
 	})
 
 	t.Run("complex_value", func(t *testing.T) {
 		// `config get workflows.kanban.statuses` hydrates the workflow row
 		// from the database and returns a JSON object keyed by status name.
-		cmd := exec.Command(binPath, "config", "get", "workflows.kanban.statuses")
-		cmd.Env = envWithHome(homeDir)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("config get: %v\n%s", err, out)
+		r := env.Run("config", "get", "workflows.kanban.statuses")
+		if r.Err != nil {
+			t.Fatalf("config get: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
 		var obj map[string]interface{}
-		if err := json.Unmarshal(out, &obj); err != nil {
-			t.Fatalf("expected JSON object, got: %s", out)
+		if err := json.Unmarshal([]byte(r.Stdout), &obj); err != nil {
+			t.Fatalf("expected JSON object, got: %s", r.Stdout)
 		}
 		if len(obj) != 4 {
 			t.Errorf("expected 4 statuses, got %d", len(obj))
@@ -241,14 +233,12 @@ func TestCLI_ConfigGet(t *testing.T) {
 	})
 
 	t.Run("unknown_key", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "get", "nonexistent.key")
-		cmd.Env = envWithHome(homeDir)
-		out, err := cmd.CombinedOutput()
-		if err == nil {
+		r := env.Run("config", "get", "nonexistent.key")
+		if r.Err == nil {
 			t.Fatal("expected error for unknown key")
 		}
-		if !strings.Contains(string(out), "unknown config key") {
-			t.Errorf("expected 'unknown config key' error, got: %s", out)
+		if !strings.Contains(r.Stderr, "unknown config key") {
+			t.Errorf("expected 'unknown config key' error, got stdout=%q stderr=%q", r.Stdout, r.Stderr)
 		}
 	})
 }
@@ -259,51 +249,43 @@ func TestCLI_ConfigSet(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	env := envWithHome(homeDir)
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
 
 	// Init config first.
-	initCmd := exec.Command(binPath, "config", "init")
-	initCmd.Env = env
-	if out, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("config init: %v\n%s", err, out)
+	if r := env.Run("config", "init"); r.Err != nil {
+		t.Fatalf("config init: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
 	t.Run("set_scalar", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "set", "tui.color", "false")
-		cmd.Env = env
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("config set: %v\n%s", err, out)
+		if r := env.Run("config", "set", "tui.color", "false"); r.Err != nil {
+			t.Fatalf("config set: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
 
 		// Verify the change persisted.
-		getCmd := exec.Command(binPath, "config", "get", "tui.color")
-		getCmd.Env = env
-		out, err := getCmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("config get: %v\n%s", err, out)
+		r := env.Run("config", "get", "tui.color")
+		if r.Err != nil {
+			t.Fatalf("config get: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
-		if strings.TrimSpace(string(out)) != "false" {
-			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "false")
+		if strings.TrimSpace(r.Stdout) != "false" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(r.Stdout), "false")
 		}
 	})
 
 	t.Run("set_list", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "set", "mcp.disabled_tools", "tusk_task_delete,tusk_task_tree")
-		cmd.Env = env
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("config set: %v\n%s", err, out)
+		if r := env.Run("config", "set", "mcp.disabled_tools", "tusk_task_delete,tusk_task_tree"); r.Err != nil {
+			t.Fatalf("config set: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
 
 		// Verify.
-		getCmd := exec.Command(binPath, "config", "get", "mcp.disabled_tools")
-		getCmd.Env = env
-		out, err := getCmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("config get: %v\n%s", err, out)
+		r := env.Run("config", "get", "mcp.disabled_tools")
+		if r.Err != nil {
+			t.Fatalf("config get: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
 		var arr []string
-		if err := json.Unmarshal(out, &arr); err != nil {
-			t.Fatalf("expected JSON array, got: %s", out)
+		if err := json.Unmarshal([]byte(r.Stdout), &arr); err != nil {
+			t.Fatalf("expected JSON array, got: %s", r.Stdout)
 		}
 		if len(arr) != 2 || arr[0] != "tusk_task_delete" || arr[1] != "tusk_task_tree" {
 			t.Errorf("unexpected disabled_tools: %v", arr)
@@ -311,38 +293,32 @@ func TestCLI_ConfigSet(t *testing.T) {
 	})
 
 	t.Run("reject_unknown_key", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "set", "nonexistent.key", "value")
-		cmd.Env = env
-		out, err := cmd.CombinedOutput()
-		if err == nil {
+		r := env.Run("config", "set", "nonexistent.key", "value")
+		if r.Err == nil {
 			t.Fatal("expected error for unknown key")
 		}
-		if !strings.Contains(string(out), "unknown config key") {
-			t.Errorf("expected 'unknown config key' error, got: %s", out)
+		if !strings.Contains(r.Stderr, "unknown config key") {
+			t.Errorf("expected 'unknown config key' error, got stdout=%q stderr=%q", r.Stdout, r.Stderr)
 		}
 	})
 
 	t.Run("reject_projects_write", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "set", "projects.default.workflow", "kanban")
-		cmd.Env = env
-		out, err := cmd.CombinedOutput()
-		if err == nil {
+		r := env.Run("config", "set", "projects.default.workflow", "kanban")
+		if r.Err == nil {
 			t.Fatal("expected error for projects.* write")
 		}
-		if !strings.Contains(string(out), "projects.* is managed by the database") {
-			t.Errorf("expected projects.* rejection, got: %s", out)
+		if !strings.Contains(r.Stderr, "projects.* is managed by the database") {
+			t.Errorf("expected projects.* rejection, got stdout=%q stderr=%q", r.Stdout, r.Stderr)
 		}
 	})
 
 	t.Run("reject_workflows_write", func(t *testing.T) {
-		cmd := exec.Command(binPath, "config", "set", "workflows.kanban.statuses.pending.roles", "initial")
-		cmd.Env = env
-		out, err := cmd.CombinedOutput()
-		if err == nil {
+		r := env.Run("config", "set", "workflows.kanban.statuses.pending.roles", "initial")
+		if r.Err == nil {
 			t.Fatal("expected error for workflows.* write")
 		}
-		if !strings.Contains(string(out), "workflows.* is managed by the database") {
-			t.Errorf("expected workflows.* rejection, got: %s", out)
+		if !strings.Contains(r.Stderr, "workflows.* is managed by the database") {
+			t.Errorf("expected workflows.* rejection, got stdout=%q stderr=%q", r.Stdout, r.Stderr)
 		}
 	})
 
@@ -350,21 +326,21 @@ func TestCLI_ConfigSet(t *testing.T) {
 		// Even with a fresh HOME (no pre-existing config), config set works
 		// because Load() in main.go auto-creates the file via ensureConfigFile().
 		freshHome := t.TempDir()
-		cmd := exec.Command(binPath, "config", "set", "tui.color", "false")
-		cmd.Env = envWithHome(freshHome)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("config set with fresh home: %v\n%s", err, out)
+		freshEnv := newEnv(t, binPath, "flag", "text")
+		freshEnv.WithHome(freshHome)
+		freshEnv.WithoutDBArg()
+
+		if r := freshEnv.Run("config", "set", "tui.color", "false"); r.Err != nil {
+			t.Fatalf("config set with fresh home: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
 
 		// Verify it persisted.
-		getCmd := exec.Command(binPath, "config", "get", "tui.color")
-		getCmd.Env = envWithHome(freshHome)
-		out, err := getCmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("config get: %v\n%s", err, out)
+		r := freshEnv.Run("config", "get", "tui.color")
+		if r.Err != nil {
+			t.Fatalf("config get: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
-		if strings.TrimSpace(string(out)) != "false" {
-			t.Errorf("got %q, want %q", strings.TrimSpace(string(out)), "false")
+		if strings.TrimSpace(r.Stdout) != "false" {
+			t.Errorf("got %q, want %q", strings.TrimSpace(r.Stdout), "false")
 		}
 	})
 }
@@ -375,25 +351,21 @@ func TestCLI_ConfigSet_BlockedFields(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	env := envWithHome(homeDir)
+	env := newEnv(t, binPath, "flag", "json")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
 
-	initCmd := exec.Command(binPath, "config", "init")
-	initCmd.Env = env
-	if out, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("config init: %v\n%s", err, out)
+	if r := env.Run("config", "init"); r.Err != nil {
+		t.Fatalf("config init: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
-	setCmd := exec.Command(binPath, "config", "set", "mcp.blocked_fields.tusk_task_modify", "priority")
-	setCmd.Env = env
-	if out, err := setCmd.CombinedOutput(); err != nil {
-		t.Fatalf("config set mcp.blocked_fields.tusk_task_modify: %v\n%s", err, out)
+	if r := env.Run("config", "set", "mcp.blocked_fields.tusk_task_modify", "priority"); r.Err != nil {
+		t.Fatalf("config set mcp.blocked_fields.tusk_task_modify: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
-	showCmd := exec.Command(binPath, "--format", "json", "config", "show")
-	showCmd.Env = env
-	out, err := showCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config show --format json: %v\n%s", err, out)
+	r := env.Run("config", "show")
+	if r.Err != nil {
+		t.Fatalf("config show --format json: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
 	var parsed struct {
@@ -401,8 +373,8 @@ func TestCLI_ConfigSet_BlockedFields(t *testing.T) {
 			BlockedFields map[string][]string `json:"blocked_fields"`
 		} `json:"mcp"`
 	}
-	if err := json.Unmarshal(out, &parsed); err != nil {
-		t.Fatalf("parsing config show JSON: %v\n%s", err, out)
+	if err := json.Unmarshal([]byte(r.Stdout), &parsed); err != nil {
+		t.Fatalf("parsing config show JSON: %v\n%s", err, r.Stdout)
 	}
 	got, ok := parsed.MCP.BlockedFields["tusk_task_modify"]
 	if !ok {
@@ -420,21 +392,21 @@ func TestCLI_ConfigValidate(t *testing.T) {
 
 	t.Run("valid_config", func(t *testing.T) {
 		homeDir := t.TempDir()
+		env := newEnv(t, binPath, "flag", "text")
+		env.WithHome(homeDir)
+		env.WithoutDBArg()
+
 		// Init config (writes valid defaults).
-		initCmd := exec.Command(binPath, "config", "init")
-		initCmd.Env = envWithHome(homeDir)
-		if out, err := initCmd.CombinedOutput(); err != nil {
-			t.Fatalf("config init: %v\n%s", err, out)
+		if r := env.Run("config", "init"); r.Err != nil {
+			t.Fatalf("config init: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
 
-		cmd := exec.Command(binPath, "config", "validate")
-		cmd.Env = envWithHome(homeDir)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("config validate: %v\n%s", err, out)
+		r := env.Run("config", "validate")
+		if r.Err != nil {
+			t.Fatalf("config validate: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 		}
-		if !strings.Contains(string(out), "Config valid") {
-			t.Errorf("expected 'Config valid', got: %s", out)
+		if !strings.Contains(r.Stdout, "Config valid") {
+			t.Errorf("expected 'Config valid', got: %s", r.Stdout)
 		}
 	})
 
@@ -452,28 +424,18 @@ func TestCLI_ConfigValidate(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		cmd := exec.Command(binPath, "config", "validate")
-		cmd.Env = envWithHome(homeDir)
-		out, err := cmd.CombinedOutput()
-		if err == nil {
+		env := newEnv(t, binPath, "flag", "text")
+		env.WithHome(homeDir)
+		env.WithoutDBArg()
+
+		r := env.Run("config", "validate")
+		if r.Err == nil {
 			t.Fatal("expected error for legacy [projects.*] section")
 		}
-		if !strings.Contains(string(out), "managed in the database") {
-			t.Errorf("expected legacy-section error, got: %s", out)
+		if !strings.Contains(r.Stderr, "managed in the database") {
+			t.Errorf("expected legacy-section error, got stdout=%q stderr=%q", r.Stdout, r.Stderr)
 		}
 	})
-}
-
-// envWithHome builds an env slice with HOME overridden and TUSK_DB removed.
-func envWithHome(home string) []string {
-	var env []string
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "TUSK_DB=") || strings.HasPrefix(e, "TUSK_CONFIG=") {
-			continue
-		}
-		env = append(env, e)
-	}
-	return append(env, "HOME="+home)
 }
 
 func TestCLI_ExplicitConfigFlag(t *testing.T) {
@@ -494,12 +456,13 @@ func TestCLI_ExplicitConfigFlag(t *testing.T) {
 	// Use a fresh HOME so there is no fallback config to confuse the test.
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "--config", configFile, "task", "create", "Explicit config task")
-	cmd.Env = envWithHome(homeDir)
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("tusk --config ... add failed: %v\nstderr: %s", err, stderr.String())
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
+	r := env.Run("--config", configFile, "task", "create", "Explicit config task")
+	if r.Err != nil {
+		t.Fatalf("tusk --config ... add failed: %v\nstderr: %s", r.Err, r.Stderr)
 	}
 
 	// The custom DB should exist at the path the explicit config pointed to.
@@ -524,14 +487,14 @@ func TestCLI_TuskConfigEnv(t *testing.T) {
 
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "task", "create", "Env config task")
-	env := envWithHome(homeDir)
-	env = append(env, "TUSK_CONFIG="+configFile)
-	cmd.Env = env
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("tusk add with TUSK_CONFIG failed: %v\nstderr: %s", err, stderr.String())
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+	env.WithEnv("TUSK_CONFIG", configFile)
+
+	r := env.Run("task", "create", "Env config task")
+	if r.Err != nil {
+		t.Fatalf("tusk add with TUSK_CONFIG failed: %v\nstderr: %s", r.Err, r.Stderr)
 	}
 
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
@@ -559,14 +522,14 @@ func TestCLI_FlagBeatsEnv(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	cmd := exec.Command(binPath, "--config", flagFile, "task", "create", "Precedence task")
-	env := envWithHome(homeDir)
-	env = append(env, "TUSK_CONFIG="+envFile)
-	cmd.Env = env
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("tusk failed: %v\nstderr: %s", err, stderr.String())
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+	env.WithEnv("TUSK_CONFIG", envFile)
+
+	r := env.Run("--config", flagFile, "task", "create", "Precedence task")
+	if r.Err != nil {
+		t.Fatalf("tusk failed: %v\nstderr: %s", r.Err, r.Stderr)
 	}
 
 	if _, err := os.Stat(flagDB); os.IsNotExist(err) {
@@ -585,16 +548,16 @@ func TestCLI_MissingExplicitConfigIsHardError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.toml")
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "--config", missing, "task", "list")
-	cmd.Env = envWithHome(homeDir)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err == nil {
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
+	r := env.Run("--config", missing, "task", "list")
+	if r.Err == nil {
 		t.Fatal("expected tusk to exit non-zero when --config points at a missing file")
 	}
-	if !strings.Contains(stderr.String(), "config file not found") {
-		t.Fatalf("expected 'config file not found' in stderr, got: %s", stderr.String())
+	if !strings.Contains(r.Stderr, "config file not found") {
+		t.Fatalf("expected 'config file not found' in stderr, got: %s", r.Stderr)
 	}
 }
 
@@ -616,14 +579,16 @@ path = "/tmp/validate-explicit.db"
 		t.Fatalf("writing config: %v", err)
 	}
 
-	cmd := exec.Command(binPath, "--config", configFile, "config", "validate")
-	cmd.Env = envWithHome(t.TempDir())
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config validate failed: %v\n%s", err, out)
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(t.TempDir())
+	env.WithoutDBArg()
+
+	r := env.Run("--config", configFile, "config", "validate")
+	if r.Err != nil {
+		t.Fatalf("config validate failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
-	if !bytes.Contains(out, []byte("Config valid")) {
-		t.Fatalf("expected 'Config valid' in output, got: %s", out)
+	if !strings.Contains(r.Stdout, "Config valid") {
+		t.Fatalf("expected 'Config valid' in output, got: %s", r.Stdout)
 	}
 }
 
@@ -633,19 +598,19 @@ func TestCLI_ConfigPath_ExistingGlobal(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	initCmd := exec.Command(binPath, "config", "init")
-	initCmd.Env = envWithHome(homeDir)
-	if out, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("config init failed: %v\n%s", err, out)
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
+	if r := env.Run("config", "init"); r.Err != nil {
+		t.Fatalf("config init failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
-	cmd := exec.Command(binPath, "config", "path")
-	cmd.Env = envWithHome(homeDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config path failed: %v\n%s", err, out)
+	r := env.Run("config", "path")
+	if r.Err != nil {
+		t.Fatalf("config path failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
-	got := strings.TrimSpace(string(out))
+	got := strings.TrimSpace(r.Stdout)
 	want := filepath.Join(homeDir, ".config", "tusk", "config.toml")
 	if got != want {
 		t.Fatalf("config path = %q, want %q", got, want)
@@ -664,13 +629,15 @@ func TestCLI_ConfigPath_ExplicitFile(t *testing.T) {
 	}
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "--config", configFile, "config", "path")
-	cmd.Env = envWithHome(homeDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("config path failed: %v\n%s", err, out)
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
+	r := env.Run("--config", configFile, "config", "path")
+	if r.Err != nil {
+		t.Fatalf("config path failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
-	got := strings.TrimSpace(string(out))
+	got := strings.TrimSpace(r.Stdout)
 	if got != configFile {
 		t.Fatalf("config path = %q, want %q", got, configFile)
 	}
@@ -688,13 +655,15 @@ func TestCLI_ConfigShowHeader_ExplicitFile(t *testing.T) {
 	}
 	homeDir := t.TempDir()
 
-	cmd := exec.Command(binPath, "--config", configFile, "config", "show")
-	cmd.Env = envWithHome(homeDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("tusk config show failed: %v\n%s", err, out)
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
+	r := env.Run("--config", configFile, "config", "show")
+	if r.Err != nil {
+		t.Fatalf("tusk config show failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
-	firstLine := strings.SplitN(string(out), "\n", 2)[0]
+	firstLine := strings.SplitN(r.Stdout, "\n", 2)[0]
 	wantPrefix := "# active: " + configFile
 	if firstLine != wantPrefix {
 		t.Fatalf("first line = %q, want %q", firstLine, wantPrefix)
@@ -707,15 +676,17 @@ func TestCLI_ConfigShowHeader_GlobalFile(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	cmd := exec.Command(binPath, "config", "show")
-	cmd.Env = envWithHome(homeDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("tusk config show failed: %v\n%s", err, out)
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+
+	r := env.Run("config", "show")
+	if r.Err != nil {
+		t.Fatalf("tusk config show failed: %v\nstdout: %s\nstderr: %s", r.Err, r.Stdout, r.Stderr)
 	}
 
 	wantPath := filepath.Join(homeDir, ".config", "tusk", "config.toml")
-	firstLine := strings.SplitN(string(out), "\n", 2)[0]
+	firstLine := strings.SplitN(r.Stdout, "\n", 2)[0]
 	wantPrefix := "# active: " + wantPath
 	if firstLine != wantPrefix {
 		t.Fatalf("first line = %q, want %q", firstLine, wantPrefix)
@@ -737,14 +708,14 @@ func TestCLI_TuskEnvOverlaysExplicitConfig(t *testing.T) {
 	}
 
 	homeDir := t.TempDir()
-	cmd := exec.Command(binPath, "--config", configFile, "task", "create", "Overlay task")
-	env := envWithHome(homeDir)
-	env = append(env, "TUSK_STORAGE_PATH="+envDB)
-	cmd.Env = env
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("tusk failed: %v\nstderr: %s", err, stderr.String())
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithHome(homeDir)
+	env.WithoutDBArg()
+	env.WithEnv("TUSK_STORAGE_PATH", envDB)
+
+	r := env.Run("--config", configFile, "task", "create", "Overlay task")
+	if r.Err != nil {
+		t.Fatalf("tusk failed: %v\nstderr: %s", r.Err, r.Stderr)
 	}
 
 	if _, err := os.Stat(envDB); os.IsNotExist(err) {
