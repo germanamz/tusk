@@ -26,56 +26,60 @@ func shortIDFromCreate(t *testing.T, out string) string {
 // status checkboxes, the `status=` token for non-binary statuses, and the
 // blockquote indentation under bullets.
 func TestTreeMarkdown_FullDialect(t *testing.T) {
-	dbPath := freshDBPath(t)
+	if binPath == "" {
+		t.Skip("binary not built")
+	}
+	env := newEnv(t, binPath, "flag", "text")
+	env.WithoutFormat()
 
-	mustRunTusk(t, dbPath,
+	mustRun(t, env,
 		"project", "create", "roadmap",
 		"workflow=kanban",
 		`description="Roadmap-driven product backlog"`,
 	)
 
-	milestoneID := shortIDFromCreate(t, mustRunTusk(t, dbPath,
+	milestoneID := shortIDFromCreate(t, mustRun(t, env,
 		"task", "create", "v1 launch",
 		"project=roadmap",
 		`description="Ship the first public release."`,
-	))
+	).Stdout)
 
-	initiativeID := shortIDFromCreate(t, mustRunTusk(t, dbPath,
+	initiativeID := shortIDFromCreate(t, mustRun(t, env,
 		"task", "create", "Onboarding flow",
 		"project=roadmap",
 		`description="Make the first-run experience friendly."`,
 		"parent="+milestoneID,
-	))
+	).Stdout)
 
-	completedStoryID := shortIDFromCreate(t, mustRunTusk(t, dbPath,
+	completedStoryID := shortIDFromCreate(t, mustRun(t, env,
 		"task", "create", "Welcome screen",
 		"project=roadmap",
 		`description="Greet the user."`,
 		"parent="+initiativeID,
-	))
+	).Stdout)
 
-	activeStoryID := shortIDFromCreate(t, mustRunTusk(t, dbPath,
+	activeStoryID := shortIDFromCreate(t, mustRun(t, env,
 		"task", "create", "Sample data import",
 		"project=roadmap",
 		"parent="+initiativeID,
-	))
+	).Stdout)
 
-	csvLeafID := shortIDFromCreate(t, mustRunTusk(t, dbPath,
+	csvLeafID := shortIDFromCreate(t, mustRun(t, env,
 		"task", "create", "Wire CSV parser",
 		"project=roadmap",
 		"parent="+activeStoryID,
-	))
-	mustRunTusk(t, dbPath,
+	).Stdout)
+	mustRun(t, env,
 		"task", "create", "Add fixture pack",
 		"project=roadmap",
 		"parent="+activeStoryID,
 	)
-	mustRunTusk(t, dbPath,
+	mustRun(t, env,
 		"task", "create", "Wire welcome copy",
 		"project=roadmap",
 		"parent="+completedStoryID,
 	)
-	mustRunTusk(t, dbPath,
+	mustRun(t, env,
 		"task", "create", "Hook auth banner",
 		"project=roadmap",
 		"parent="+completedStoryID,
@@ -83,22 +87,22 @@ func TestTreeMarkdown_FullDialect(t *testing.T) {
 
 	// Walk the kanban transitions: pending → active for the active story,
 	// pending → active → completed for the completed story.
-	mustRunTusk(t, dbPath, "task", "modify", activeStoryID, "status=active")
-	mustRunTusk(t, dbPath, "task", "modify", completedStoryID, "status=active")
-	mustRunTusk(t, dbPath, "task", "modify", completedStoryID, "status=completed")
+	mustRun(t, env, "task", "modify", activeStoryID, "status=active")
+	mustRun(t, env, "task", "modify", completedStoryID, "status=active")
+	mustRun(t, env, "task", "modify", completedStoryID, "status=completed")
 
 	// Phase 5: annotations and notes — milestone gets an annotation, the
 	// project gets a project-level note, and the CSV-parser leaf gets a
 	// per-task note.
-	mustRunTusk(t, dbPath, "task", "annotate", milestoneID, "Initial scope ratified")
-	mustRunTusk(t, dbPath, "note", "add", "caching strategy notes",
+	mustRun(t, env, "task", "annotate", milestoneID, "Initial scope ratified")
+	mustRun(t, env, "note", "add", "caching strategy notes",
 		"project=roadmap", "--player", "german",
 	)
-	mustRunTusk(t, dbPath, "note", "add", "retry needed",
+	mustRun(t, env, "note", "add", "retry needed",
 		"project=roadmap", "--player", "german", "--task", csvLeafID,
 	)
 
-	out := mustRunTusk(t, dbPath, "task", "tree", "--format", "markdown")
+	out := mustRun(t, env, "task", "tree", "--format", "markdown").Stdout
 
 	if !strings.HasPrefix(out, "# Roadmap\n") {
 		t.Fatalf("expected H1 for project, got:\n%s", out)
@@ -146,9 +150,9 @@ func TestTreeMarkdown_FullDialect(t *testing.T) {
 	// syntax (per the v0.13 design spec). It must produce the same render as
 	// the bare invocation when the workspace has tasks for one project only —
 	// every fixture task above belongs to `roadmap`.
-	filteredOut := mustRunTusk(t, dbPath,
+	filteredOut := mustRun(t, env,
 		"task", "tree", "project=roadmap", "--format", "markdown",
-	)
+	).Stdout
 	if filteredOut != out {
 		t.Fatalf("project=<name> filter should match bare invocation in single-project workspace.\nbare:\n%s\nfiltered:\n%s", out, filteredOut)
 	}

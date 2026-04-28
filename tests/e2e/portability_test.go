@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,41 +14,6 @@ import (
 
 	"github.com/germanamz/tusk/internal/portability"
 )
-
-// runTusk invokes the compiled binary with the given args and the supplied
-// db path. Returns stdout, stderr, and any exec error so tests can assert
-// on non-zero exit codes.
-func runTusk(t *testing.T, dbPath string, stdin string, args ...string) (stdout, stderr string, err error) {
-	t.Helper()
-	full := append([]string{"--db", dbPath}, args...)
-	cmd := exec.Command(binPath, full...)
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
-	}
-	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TUSK_CONFIG_DIR="+t.TempDir())
-	var sout, serr bytes.Buffer
-	cmd.Stdout = &sout
-	cmd.Stderr = &serr
-	err = cmd.Run()
-	return sout.String(), serr.String(), err
-}
-
-// mustRunTusk fails the test on non-zero exit. Returns stdout.
-func mustRunTusk(t *testing.T, dbPath string, args ...string) string {
-	t.Helper()
-	out, errOut, err := runTusk(t, dbPath, "", args...)
-	if err != nil {
-		t.Fatalf("tusk %v: %v\nstderr: %s\nstdout: %s", args, err, errOut, out)
-	}
-	return out
-}
-
-// freshDBPath returns a path under t.TempDir() where the binary will create
-// a brand-new SQLite file on first invocation.
-func freshDBPath(t *testing.T) string {
-	t.Helper()
-	return filepath.Join(t.TempDir(), "tusk.db")
-}
 
 // decodeWorkspace reads a portability dump from the given path. The codec
 // rejects unknown fields so a successful decode is a structural check too.
@@ -82,25 +46,34 @@ func stripVolatile(ws *portability.PortableWorkspace) {
 	ws.Events = kept
 }
 
+func mustRun(t *testing.T, env *Env, args ...string) Result {
+	t.Helper()
+	r := env.Run(args...)
+	if r.Err != nil {
+		t.Fatalf("tusk %v: %v\nstderr: %s\nstdout: %s", args, r.Err, r.Stderr, r.Stdout)
+	}
+	return r
+}
+
 func TestPortability_RoundTrip(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	srcDB := freshDBPath(t)
-	mustRunTusk(t, srcDB, "task", "create", "first")
-	mustRunTusk(t, srcDB, "task", "create", "second")
-	mustRunTusk(t, srcDB, "task", "create", "third")
+	src := newEnv(t, binPath, "flag", "json")
+	mustRun(t, src, "task", "create", "first")
+	mustRun(t, src, "task", "create", "second")
+	mustRun(t, src, "task", "create", "third")
 
 	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRunTusk(t, srcDB, "export", "--output", dumpPath)
+	mustRun(t, src, "export", "--output", dumpPath)
 
-	dstDB := freshDBPath(t)
+	dst := newEnv(t, binPath, "flag", "json")
 	// Fresh DB is seeded with the default project + workflow on first open,
 	// so a clean rehydrate uses --replace --truncate to wipe-and-restore.
-	mustRunTusk(t, dstDB, "import", "--input", dumpPath, "--replace", "--truncate")
+	mustRun(t, dst, "import", "--input", dumpPath, "--replace", "--truncate")
 
 	rtPath := filepath.Join(t.TempDir(), "ws-rt.json")
-	mustRunTusk(t, dstDB, "export", "--output", rtPath)
+	mustRun(t, dst, "export", "--output", rtPath)
 
 	srcWS := decodeWorkspace(t, dumpPath)
 	rtWS := decodeWorkspace(t, rtPath)
@@ -124,24 +97,23 @@ func TestPortability_StdinStdout(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	srcDB := freshDBPath(t)
-	mustRunTusk(t, srcDB, "task", "create", "piped")
+	src := newEnv(t, binPath, "flag", "json")
+	mustRun(t, src, "task", "create", "piped")
 
-	exportOut, _, err := runTusk(t, srcDB, "", "export")
-	if err != nil {
-		t.Fatalf("export failed: %v", err)
+	exportRes := mustRun(t, src, "export")
+
+	dst := newEnv(t, binPath, "flag", "json")
+	dst.step = currentStep{stdin: exportRes.Stdout}
+	importRes := dst.Run("import", "--input", "-", "--replace", "--truncate")
+	dst.step = currentStep{}
+	if importRes.Err != nil {
+		t.Fatalf("piped import failed: %v\nstderr: %s\nstdout: %s", importRes.Err, importRes.Stderr, importRes.Stdout)
 	}
 
-	dstDB := freshDBPath(t)
-	out, errOut, err := runTusk(t, dstDB, exportOut, "import", "--input", "-", "--replace", "--truncate")
-	if err != nil {
-		t.Fatalf("piped import failed: %v\nstderr: %s\nstdout: %s", err, errOut, out)
-	}
-
-	taskList := mustRunTusk(t, dstDB, "--format", "json", "task", "list")
+	listRes := mustRun(t, dst, "task", "list")
 	var rows []map[string]any
-	if err := json.Unmarshal([]byte(taskList), &rows); err != nil {
-		t.Fatalf("decoding task list: %v\nraw: %s", err, taskList)
+	if err := json.Unmarshal([]byte(listRes.Stdout), &rows); err != nil {
+		t.Fatalf("decoding task list: %v\nraw: %s", err, listRes.Stdout)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 task after piped import, got %d: %v", len(rows), rows)
@@ -167,16 +139,16 @@ func TestPortability_SchemaVersionError(t *testing.T) {
 		t.Fatalf("writing stub: %v", err)
 	}
 
-	dbPath := freshDBPath(t)
-	out, errOut, err := runTusk(t, dbPath, "", "import", "--input", stubPath)
-	if err == nil {
-		t.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", out, errOut)
+	env := newEnv(t, binPath, "flag", "text")
+	r := env.Run("import", "--input", stubPath)
+	if r.Err == nil {
+		t.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", r.Stdout, r.Stderr)
 	}
-	if !strings.Contains(errOut, "999") || !strings.Contains(errOut, "1") {
-		t.Fatalf("expected stderr to name dump version 999 and supported 1; got:\n%s", errOut)
+	if !strings.Contains(r.Stderr, "999") || !strings.Contains(r.Stderr, "1") {
+		t.Fatalf("expected stderr to name dump version 999 and supported 1; got:\n%s", r.Stderr)
 	}
-	if !strings.Contains(errOut, "[schema]") {
-		t.Fatalf("expected [schema] tag in stderr; got:\n%s", errOut)
+	if !strings.Contains(r.Stderr, "[schema]") {
+		t.Fatalf("expected [schema] tag in stderr; got:\n%s", r.Stderr)
 	}
 }
 
@@ -184,11 +156,11 @@ func TestPortability_FKValidationError(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	srcDB := freshDBPath(t)
-	mustRunTusk(t, srcDB, "task", "create", "with bad parent")
+	src := newEnv(t, binPath, "flag", "text")
+	mustRun(t, src, "task", "create", "with bad parent")
 
 	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRunTusk(t, srcDB, "export", "--output", dumpPath)
+	mustRun(t, src, "export", "--output", dumpPath)
 
 	raw, err := os.ReadFile(dumpPath)
 	if err != nil {
@@ -212,13 +184,13 @@ func TestPortability_FKValidationError(t *testing.T) {
 		t.Fatalf("writing bad dump: %v", err)
 	}
 
-	dstDB := freshDBPath(t)
-	out, errOut, err := runTusk(t, dstDB, "", "import", "--input", badPath, "--replace", "--truncate")
-	if err == nil {
-		t.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", out, errOut)
+	dst := newEnv(t, binPath, "flag", "text")
+	r := dst.Run("import", "--input", badPath, "--replace", "--truncate")
+	if r.Err == nil {
+		t.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", r.Stdout, r.Stderr)
 	}
-	if !strings.Contains(errOut, "[fk]") {
-		t.Fatalf("expected [fk] kind in stderr; got:\n%s", errOut)
+	if !strings.Contains(r.Stderr, "[fk]") {
+		t.Fatalf("expected [fk] kind in stderr; got:\n%s", r.Stderr)
 	}
 }
 
@@ -226,21 +198,21 @@ func TestPortability_CollisionWithoutReplace(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	srcDB := freshDBPath(t)
-	mustRunTusk(t, srcDB, "task", "create", "collidable")
+	src := newEnv(t, binPath, "flag", "text")
+	mustRun(t, src, "task", "create", "collidable")
 
 	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRunTusk(t, srcDB, "export", "--output", dumpPath)
+	mustRun(t, src, "export", "--output", dumpPath)
 
-	dstDB := freshDBPath(t)
-	mustRunTusk(t, dstDB, "import", "--input", dumpPath, "--replace", "--truncate")
+	dst := newEnv(t, binPath, "flag", "text")
+	mustRun(t, dst, "import", "--input", dumpPath, "--replace", "--truncate")
 
-	out, errOut, err := runTusk(t, dstDB, "", "import", "--input", dumpPath)
-	if err == nil {
-		t.Fatalf("expected collision exit; stdout: %s\nstderr: %s", out, errOut)
+	r := dst.Run("import", "--input", dumpPath)
+	if r.Err == nil {
+		t.Fatalf("expected collision exit; stdout: %s\nstderr: %s", r.Stdout, r.Stderr)
 	}
-	if !strings.Contains(errOut, "[collision]") {
-		t.Fatalf("expected [collision] kind in stderr; got:\n%s", errOut)
+	if !strings.Contains(r.Stderr, "[collision]") {
+		t.Fatalf("expected [collision] kind in stderr; got:\n%s", r.Stderr)
 	}
 }
 
@@ -248,27 +220,24 @@ func TestPortability_DryRunDoesNotMutate(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	srcDB := freshDBPath(t)
-	mustRunTusk(t, srcDB, "task", "create", "before")
+	env := newEnv(t, binPath, "flag", "json")
+	mustRun(t, env, "task", "create", "before")
 
 	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRunTusk(t, srcDB, "export", "--output", dumpPath)
+	mustRun(t, env, "export", "--output", dumpPath)
+	mustRun(t, env, "task", "create", "scratch")
 
-	dstDB := freshDBPath(t)
-	mustRunTusk(t, dstDB, "import", "--input", dumpPath, "--replace", "--truncate")
-	mustRunTusk(t, dstDB, "task", "create", "scratch")
-
-	listBefore := mustRunTusk(t, dstDB, "--format", "json", "task", "list")
+	listBefore := mustRun(t, env, "task", "list")
 	var before []any
-	if err := json.Unmarshal([]byte(listBefore), &before); err != nil {
+	if err := json.Unmarshal([]byte(listBefore.Stdout), &before); err != nil {
 		t.Fatalf("decoding before list: %v", err)
 	}
 
-	mustRunTusk(t, dstDB, "import", "--input", dumpPath, "--replace", "--dry-run")
+	mustRun(t, env, "import", "--input", dumpPath, "--replace", "--dry-run")
 
-	listAfter := mustRunTusk(t, dstDB, "--format", "json", "task", "list")
+	listAfter := mustRun(t, env, "task", "list")
 	var after []any
-	if err := json.Unmarshal([]byte(listAfter), &after); err != nil {
+	if err := json.Unmarshal([]byte(listAfter.Stdout), &after); err != nil {
 		t.Fatalf("decoding after list: %v", err)
 	}
 	if len(before) != len(after) {
