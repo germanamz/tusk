@@ -1,66 +1,10 @@
 package e2e
 
 import (
-	"bufio"
 	"encoding/json"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// newMCPEnvWithConfig boots an MCP server subprocess with the given TOML
-// config snippet written into a fresh TUSK_CONFIG_DIR. Mirrors newMCPEnv
-// but lets a single test exercise mcp.blocked_fields without polluting
-// the shared harness.
-func newMCPEnvWithConfig(t *testing.T, binPath, configTOML string) *mcpEnv {
-	t.Helper()
-	tmpFile, err := os.CreateTemp(t.TempDir(), "tusk-mcp-e2e-*.db")
-	if err != nil {
-		t.Fatalf("creating temp db: %v", err)
-	}
-	_ = tmpFile.Close()
-
-	cfgDir := t.TempDir()
-	if configTOML != "" {
-		path := filepath.Join(cfgDir, "config.toml")
-		if err := os.WriteFile(path, []byte(configTOML), 0o644); err != nil {
-			t.Fatalf("writing config.toml: %v", err)
-		}
-	}
-
-	cmd := exec.Command(binPath, "--db", tmpFile.Name(), "mcp", "serve")
-	cmd.Env = append(os.Environ(), "TUSK_CONFIG_DIR="+cfgDir)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("stdin pipe: %v", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
-	}
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("starting mcp server: %v", err)
-	}
-
-	t.Cleanup(func() {
-		_ = stdin.Close()
-		_ = cmd.Wait()
-	})
-
-	env := &mcpEnv{
-		t:      t,
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReader(stdout),
-		nextID: 1,
-	}
-	env.initialize()
-	return env
-}
 
 // urgencyOverridesMap reads the urgency_overrides object from a tool
 // response, returning nil if the key is missing or null.
@@ -81,7 +25,7 @@ func TestMCPTaskModify_UrgencyOverrides_SetMultipleKeys(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "set-multi"})
 	shortID := created["short_id"].(string)
@@ -115,7 +59,7 @@ func TestMCPTaskModify_UrgencyOverrides_NullClearsSingleKey(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "null-clear-one"})
 	shortID := created["short_id"].(string)
@@ -156,7 +100,7 @@ func TestMCPTaskModify_UrgencyOverrides_EmptyPatchNoOp(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "empty-noop"})
 	shortID := created["short_id"].(string)
@@ -189,7 +133,7 @@ func TestMCPTaskModify_UrgencyOverrides_TopLevelNullRejected(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "top-null"})
 	shortID := created["short_id"].(string)
@@ -209,7 +153,7 @@ func TestMCPTaskModify_UrgencyOverrides_ClearAllThenSet(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "clear-then-set"})
 	shortID := created["short_id"].(string)
@@ -247,7 +191,7 @@ func TestMCPTaskModify_UrgencyOverrides_UnknownKeyRejected(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "unknown-key"})
 	shortID := created["short_id"].(string)
@@ -278,7 +222,7 @@ func TestMCPTaskModify_UrgencyOverrides_NonNumericRejected(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "non-numeric"})
 	shortID := created["short_id"].(string)
@@ -303,7 +247,7 @@ func TestMCPTaskModify_UrgencyOverrides_BlockedFieldsGate(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnvWithConfig(t, binPath, `
+	env := NewMCPEnv(t, binPath).WithConfigFile(`
 [mcp]
 disabled_tools = []
 disabled_tool_groups = []
@@ -343,7 +287,7 @@ func TestMCPTaskModify_UrgencyOverrides_EffectiveWeightsOnRead(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "effective-weights"})
 	shortID := created["short_id"].(string)
@@ -384,7 +328,7 @@ func TestMCPTaskModify_UrgencyOverrides_TaskTreeCarriesFields(t *testing.T) {
 	if binPath == "" {
 		t.Skip("binary not built")
 	}
-	env := newMCPEnv(t, binPath)
+	env := NewMCPEnv(t, binPath)
 
 	parent := env.callTool("tusk_task_create", map[string]any{"title": "tree-parent"})
 	parentSID := parent["short_id"].(string)
