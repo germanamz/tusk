@@ -1,0 +1,5 @@
+# Workspace config for the tusk repo itself.
+# Resolved via walk-up (v0.9), so any `tusk` invocation from inside
+# the checkout points at the committed roadmap DB without env setup.
+[storage]
+path = ".data/tusk.db"

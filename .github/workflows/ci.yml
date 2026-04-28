@@ -157,8 +157,6 @@ jobs:
 
       - name: Verify ROADMAP.md is up to date
         if: ${{ vars.TUSK_ROADMAP_CHECK_ENABLED == 'true' }}
-        env:
-          TUSK_DB: ${{ github.workspace }}/.data/tusk.db
         run: |
           make roadmap
           git diff --exit-code ROADMAP.md

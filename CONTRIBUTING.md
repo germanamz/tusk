@@ -248,10 +248,12 @@ scenarios := []Scenario{
 The workspace tusk database lives at `.data/tusk.db` (a committed SQLite
 file). It currently holds the `tusk-roadmap` project, which is rendered
 into `ROADMAP.md` via `make roadmap`; over time it will also accumulate
-workspace-shared notes and any other tusk state worth committing. CI
-points `TUSK_DB` at the committed file and runs `make roadmap`, so the
-file in the repo — not any developer's local DB — is the source of truth
-for what CI sees.
+workspace-shared notes and any other tusk state worth committing.
+`tusk.toml` at the repo root sets `[storage] path = ".data/tusk.db"`,
+so any `tusk` invocation from inside the checkout — locally or in CI —
+resolves the committed DB via walk-up config discovery (v0.9). No
+env-var setup is required, and the file in the repo — not any
+developer's local DB — is the source of truth for what CI sees.
 
 `.data/tusk.db` is a binary blob, but legibility for code review is
 provided by `ROADMAP.md` itself: every PR that edits the roadmap also
@@ -260,21 +262,17 @@ change log.
 
 Workflow:
 
-1. Point tusk at the committed DB (one-shot for the session):
-   ```bash
-   export TUSK_DB="$(pwd)/.data/tusk.db"
-   ```
-2. Edit the roadmap via `tusk task` commands. Examples:
+1. Edit the roadmap via `tusk task` commands. Examples:
    ```bash
    tusk task create "Story: my new story" level=story project=tusk-roadmap parent=<initiative-short-id>
    tusk task done <short-id>
    tusk task move <short-id> --before <target>
    ```
-3. Regenerate the markdown:
+2. Regenerate the markdown:
    ```bash
    make roadmap
    ```
-4. Commit `.data/tusk.db` and `ROADMAP.md` together with whatever code
+3. Commit `.data/tusk.db` and `ROADMAP.md` together with whatever code
    change motivates the roadmap edit.
 
 The `.data/tusk.db-wal` / `.data/tusk.db-shm` sidecar files that SQLite
