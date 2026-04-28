@@ -77,7 +77,7 @@ COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-ENV PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=/home/vscode/.claude/local/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV ZELLIJ_CONFIG_DIR=/etc/zellij
 
 # Revoke the base image's vscode user's sudo access. Keeping the default
@@ -110,8 +110,8 @@ RUN GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
         github.com/siderolabs/conform/cmd/conform@latest \
     && rm -rf /tmp/gopath
 
-# Pre-install Claude Code CLI and tree-sitter CLI globally
-RUN npm install -g @anthropic-ai/claude-code tree-sitter-cli \
+# Pre-install tree-sitter CLI globally (needed by neovim's nvim-treesitter)
+RUN npm install -g tree-sitter-cli \
     && rm -rf /root/.npm
 
 # Clone Neovim config into the image so it's writable (lazy.nvim manages a
@@ -161,6 +161,15 @@ RUN mkdir -p \
         /home/vscode/.config/gh \
         /home/vscode/.local \
         /home/vscode/.cache
+
+# Install Claude Code into ~/.claude/local/ as vscode. The .claude named volume
+# seeds from the image on first mount, so this persists across rebuilds and
+# claude's auto-updates land on a vscode-writable path (no chowning of
+# /usr/local/lib needed).
+RUN runuser -u vscode -- npm install -g \
+        --prefix=/home/vscode/.claude/local \
+        @anthropic-ai/claude-code \
+    && rm -rf /home/vscode/.npm
 
 # Stay root for PID 1 so the entrypoint can apply iptables; actual user
 # attachment happens via `docker exec -u vscode` (set by remoteUser).
