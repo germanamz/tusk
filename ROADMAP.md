@@ -1542,7 +1542,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3.md
 > Depends on: P2. Parallelizable with P4, P5, P6, P7. Blocks P8.
 
-- [ ] [v0.14 P3-T1] Drop service/ varnamelen exclusion level=task order=1 +naming-convention +phase-3 +v0.14
+- [x] [v0.14 P3-T1] Drop service/ varnamelen exclusion level=task order=1 +naming-convention +phase-3 +v0.14
 > What: Delete the linters: [varnamelen] exclusion rule whose path is ^service/ from .golangci.yml. Other per-package rules stay untouched.
 >
 > Why: Removing the exclusion is the trigger that brings rule 1 into scope for service/.
@@ -1558,7 +1558,7 @@
 > Blocks: P3-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T1.md
 
-- [ ] [v0.14 P3-T2] Drop service/ pathfilter entry level=task order=2 +naming-convention +phase-3 +v0.14
+- [x] [v0.14 P3-T2] Drop service/ pathfilter entry level=task order=2 +naming-convention +phase-3 +v0.14
 > What: Delete the regex line for ^github\.com/germanamz/tusk/service(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
 >
 > Why: Removing this entry brings rules 2, 3, 4 into scope for service/. Pairs with P3-T1.
@@ -1574,30 +1574,87 @@
 > Blocks: P3-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T2.md
 
-- [ ] [v0.14 P3-T3] Apply STYLE.md fixes across service/ level=task order=3 +naming-convention +phase-3 +v0.14
-> What: Run make lint to enumerate every violation in service/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. If the diff exceeds review-friendly size, split per-file (task.go, task_test.go, project.go, …).
+- [x] [v0.14 P3-T3a] Apply STYLE.md fixes to service/task.go level=task order=3 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to `service/task.go` (production only — task_test.go is P3-T3b). ~321 violations, ~2174 LoC.
 >
-> The service/ package contains ~44 .go files including task.go (2174 LoC) and task_test.go (1754 LoC). Expected violation classes per STYLE.md rules 1–4: single-character locals and receivers, missing blank lines around if err != nil guards, sequential err := shadows, t *testing.T parameters.
+> Mechanical sweep: identifier renames (rule 1), blank lines around if-err guards (rule 2), named errors on err shadow (rule 3). No behavior changes.
 >
-> Why: Work-bearing task of the phase. Mechanical sweep that proves the convention against the highest-traffic package.
+> `service/task.go` exclusion still in effect — fixes applied while exclusions are in place. Exclusion drop happens later (P3-T1, P3-T2).
 >
-> Code references:
-> - service/task.go:64 — defaultProjectID (rule 1 + rule 2 motivating example).
-> - service/task.go:325-339 — listInBundle shadowed-err block (rule 3 canonical site).
-> - service/task.go:361, 393, 437, 474, 503, 705, 774, 1431 and ~9 more — for _, t := range tasks sites.
-> - All service/*_test.go files — t *testing.T parameters to rename.
+> Acceptance: `go test ./service/...` exits zero. `make lint` exits zero (exclusions still cover service/). Diff is mechanical.
 >
-> Acceptance:
-> - Every file in service/ complies with STYLE.md rules 1–4.
-> - No behavior changes (verified by P3-T4).
-> - The diff is mechanical: identifier renames, blank-line insertions, named-error shadow renames, test-handle parameter renames.
->
-> Bridge code: None.
-> Depends on: P3-T1, P3-T2.
-> Blocks: P3-T4, P3-T5.
-> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T3.md
+> Part of split P3-T3.
 
-- [ ] [v0.14 P3-T4] Verify service/ tests pass level=task order=4 +naming-convention +phase-3 +v0.14
+- [x] [v0.14 P3-T3b] Apply STYLE.md fixes to service/task_test.go level=task order=4 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to `service/task_test.go`. ~182 violations, ~1754 LoC.
+>
+> Mechanical: rule-4 test-handle renames (`t *testing.T` → `test *testing.T`), rule-2 blank lines, rule-1 single-letter locals, rule-3 named errs.
+>
+> Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3c] Apply STYLE.md fixes to task_urgency_overrides_test.go level=task order=5 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to `service/task_urgency_overrides_test.go`. ~125 violations.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3d] Apply STYLE.md fixes to portability_test.go level=task order=6 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to `service/portability_test.go`. ~101 violations.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3e] Apply STYLE.md fixes to portability production suite level=task order=7 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to portability production files: `portability.go`, `portability_dto.go`, `portability_import.go`, `portability_validate.go`. ~64 violations.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3f] Apply STYLE.md fixes to tag.go + tag_test.go level=task order=8 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to `service/tag.go` and `service/tag_test.go`. ~106 violations.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3g] Apply STYLE.md fixes to workflow trio level=task order=9 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to `service/workflow.go`, `service/workflow_test.go`, `service/workflow_writes_test.go`. ~102 violations.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3h] Apply STYLE.md fixes to task auxiliary files level=task order=10 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to task subordinate files: `task_move.go`, `task_resequence.go`, `task_urgency_overrides.go`, and all `task_*_test.go` EXCEPT `task_test.go` and `task_urgency_overrides_test.go` (covered by P3-T3b, P3-T3c).
+>
+> Specifically: `task_events_test.go`, `task_move_math_test.go`, `task_move_test.go`, `task_resequence_test.go`, `task_summary_test.go`, `task_taxonomy_test.go`, `task_routing_test.go`, `task_claim_test.go`, `task_tx_invariant_test.go`, `task_level_check_test.go`. ~245 violations.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3i] Apply STYLE.md fixes to note + project + relation suites level=task order=11 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to: `note.go`, `note_test.go`, `project.go`, `project_test.go`, `relation.go`, `relation_test.go`. ~175 violations.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T3j] Apply STYLE.md fixes to remaining service/ files level=task order=12 +naming-convention +phase-3 +v0.14
+> Apply STYLE.md rules 1-4 to remaining service/ files: `actor_test.go`, `bundle_helpers_test.go`, `player.go`, `player_test.go`, `tx_test.go`, `urgency.go`, `urgency_test.go`. ~70 violations.
+>
+> After this lands, all service/ files comply with STYLE.md and the exclusion drops (P3-T1, P3-T2) can land cleanly.
+>
+> Mechanical sweep. Acceptance: `go test ./service/...` exits zero.
+>
+> Part of split P3-T3.
+
+- [x] [v0.14 P3-T4] Verify service/ tests pass level=task order=14 +naming-convention +phase-3 +v0.14
 > What: Run make test to verify behavior is preserved after the sweep. All existing service-layer tests must pass. Failures indicate an accidental semantic change during the sweep — investigate and fix.
 >
 > Why: Mechanical renames can accidentally change semantics (e.g., shadowing a different identifier, mis-typed := vs =). Test suite is the regression net.
@@ -1615,7 +1672,7 @@
 > Blocks: P3-T5.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P3-T4.md
 
-- [ ] [v0.14 P3-T5] Verify service/ lint clean level=task order=5 +naming-convention +phase-3 +v0.14
+- [x] [v0.14 P3-T5] Verify service/ lint clean level=task order=15 +naming-convention +phase-3 +v0.14
 > What: Run make lint to confirm zero violations across service/ with all four rules now active (no exclusions). Closes the phase.
 >
 > Why: Acceptance gate. The phase is "done" when both linters report zero violations against service/.
