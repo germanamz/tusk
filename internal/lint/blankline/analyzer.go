@@ -94,10 +94,15 @@ func run(pass *analysis.Pass) (any, error) {
 				}
 
 				// Check blank line BEFORE the if-guard (between assign and if).
+				// Line-gap check: gap >= 2 means at least one line (blank OR comment)
+				// separates the two statements. We deliberately treat a comment line
+				// as sufficient separation — STYLE.md targets dense unspaced blocks,
+				// not comment-annotated err handling.
 				assignEnd := pass.Fset.Position(assign.End()).Line
 				ifStart := pass.Fset.Position(ifStmt.Pos()).Line
 				if ifStart-assignEnd < 2 {
-					pass.Reportf(assign.Pos(), "blankline: missing blank line before if-err guard")
+					// Anchor at ifStmt: the if-guard is the item missing a blank line before it.
+					pass.Reportf(ifStmt.Pos(), "blankline: missing blank line before if-err guard")
 				}
 
 				// Check blank line AFTER the if-guard (between if closing brace and next stmt).
@@ -106,7 +111,8 @@ func run(pass *analysis.Pass) (any, error) {
 					ifEnd := pass.Fset.Position(ifStmt.End()).Line
 					nextStart := pass.Fset.Position(stmts[idx+2].Pos()).Line
 					if nextStart-ifEnd < 2 {
-						pass.Reportf(ifStmt.Pos(), "blankline: missing blank line after if-err guard")
+						// Anchor at the next statement: it is the item missing a blank line before it.
+						pass.Reportf(stmts[idx+2].Pos(), "blankline: missing blank line after if-err guard")
 					}
 				}
 			}

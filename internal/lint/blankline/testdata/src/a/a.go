@@ -17,8 +17,8 @@ func goodSpacing() error {
 
 // missingBefore has no blank line between the assignment and the if-guard.
 func missingBefore() error {
-	val, err := doSomething() // want "blankline: missing blank line before if-err guard"
-	if err != nil {
+	val, err := doSomething()
+	if err != nil { // want "blankline: missing blank line before if-err guard"
 		return err
 	}
 
@@ -31,15 +31,16 @@ func missingBefore() error {
 func missingAfter() error {
 	val, err := doSomething()
 
-	if err != nil { // want "blankline: missing blank line after if-err guard"
+	if err != nil {
 		return err
 	}
-	_ = val
+	_ = val // want "blankline: missing blank line after if-err guard"
 	return nil
 }
 
-// lastInBlock — the if-guard is the last statement; the after-case must NOT fire.
-func lastInBlock() error {
+// goodSpacingWithFollowStmt — good spacing with an assign, if-guard, and a
+// following statement; confirms both blank-line checks pass when spacing is correct.
+func goodSpacingWithFollowStmt() error {
 	_, err := doSomething()
 
 	if err != nil {
@@ -47,6 +48,17 @@ func lastInBlock() error {
 	}
 
 	return nil
+}
+
+// trueLastInBlock — only two statements: the assign and the if-guard.
+// The before-case fires (no blank between them); the after-case must NOT fire
+// because idx+2 is out of range (the if IS the last statement in the block).
+// The function has no return value so no trailing return is needed.
+func trueLastInBlock() {
+	_, err := doSomething()
+	if err != nil { // want "blankline: missing blank line before if-err guard"
+		_ = err
+	}
 }
 
 // singleErrProperly demonstrates a single assignment with correct spacing.
@@ -62,8 +74,8 @@ func singleErrProperly() (int, error) {
 
 // namedErrBefore uses the <noun>Err pattern and is missing the blank before.
 func namedErrBefore() error {
-	_, fooErr := doSomething() // want "blankline: missing blank line before if-err guard"
-	if fooErr != nil {
+	_, fooErr := doSomething()
+	if fooErr != nil { // want "blankline: missing blank line before if-err guard"
 		return fooErr
 	}
 
@@ -74,10 +86,10 @@ func namedErrBefore() error {
 func namedErrAfter() error {
 	_, fooErr := doSomething()
 
-	if fooErr != nil { // want "blankline: missing blank line after if-err guard"
+	if fooErr != nil {
 		return fooErr
 	}
-	return nil
+	return nil // want "blankline: missing blank line after if-err guard"
 }
 
 // namedErrGood uses the <noun>Err pattern with correct spacing.
