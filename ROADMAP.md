@@ -2066,6 +2066,58 @@
 > Blocks: P8.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T5.md
 
+### [v0.14 P-CONFIG] Sweep config/ level=task order=7.5 +naming-convention +spec-gap +v0.14
+> ## What
+>
+> Bring `config/` into compliance with STYLE.md's four rules. Drop the `^config/` exclusion from `.golangci.yml` and the corresponding `internal/lint/pathfilter` entry (added by P2). Apply fixes; verify `make test` and `make lint` are clean.
+>
+> ## Why — spec gap caught during P1-T5
+>
+> `config/` was missing from the original v0.14 plan-doc enumeration of packages. It has Go production code (`config/config.go`, `config/resolver.go`, `config/write.go`) with at least 6 varnamelen violations as of P1-T5. To preserve "Phase 1 ships CI-green" intent (per `01-convention-and-scaffold.md`), P1-T5 added a 13th `^config/` exclusion that was not in the spec. This task removes it.
+>
+> ## Scope
+>
+> - 6 known varnamelen violations (single-letter receivers/params/locals in `config/config.go` and `config/write.go`).
+> - Plus any rule-2/3/4 violations surfaced by `tusk-lint` once analyzers ship in P2 and the pathfilter entry is added.
+>
+> A single task (not the usual 5-subtask sweep) because the violation count is small.
+>
+> ## Acceptance
+>
+> - `^config/` removed from `.golangci.yml` `linters.exclusions.rules`.
+> - `^github.com/germanamz/tusk/config(/|$)` removed from `internal/lint/pathfilter` excluded slice.
+> - All STYLE.md rule violations in `config/` fixed (mechanical only — no behavior changes).
+> - `make lint` exits zero with `config/` in scope.
+> - `make test ./config/...` exits zero.
+>
+> ## Bridge code
+>
+> - Removes the `^config/` `varnamelen` exclusion (introduced by P1-T5 deviation).
+> - Removes the `config` pathfilter entry (must be added by P2-T4 — this task should land before P8).
+>
+> ## Depends on
+>
+> P2 (custom analyzers in place; pathfilter helper exists with config entry to remove).
+>
+> ## Parallelizable with
+>
+> P3, P4, P5, P6, P7.
+>
+> ## Blocks
+>
+> P8 (lock-in cannot start until all sweep gates pass — this includes config/).
+>
+> ## Follow-ups
+>
+> - P2-T4 must include `config` in the `internal/lint/pathfilter` excluded slice (to keep CI green between P2 and this sweep). Add it alongside the other 12 entries.
+> - P8-T1 should not find a `^config/` rule remaining once this task is done.
+>
+> ## References
+>
+> - Spec: `docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md` §3 (rollout strategy — config/ omitted from package enumeration).
+> - Plan: `docs/superpowers/plans/v014-naming-convention/01-convention-and-scaffold.md` task 5 (where the 13th exclusion was added).
+> - PR adding the exclusion: P1-T5 (link in tusk after merge).
+
 ### [v0.14 P8] Lock-in level=initiative order=8 +naming-convention +phase-8 +v0.14
 > Verify residual exclusion infrastructure is gone and add structural regression guards so the convention cannot quietly degrade in future PRs. After this phase ships, every package in the repository is in compliance with all four STYLE.md rules and the convention is structurally protected.
 >
@@ -2176,56 +2228,4 @@
 > Bridge code: None.
 > Depends on: P8-T1, P8-T2, P8-T3, P8-T4.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T5.md
-
-### [v0.14 P-CONFIG] Sweep config/ level=task order=9 +naming-convention +spec-gap +v0.14
-> ## What
->
-> Bring `config/` into compliance with STYLE.md's four rules. Drop the `^config/` exclusion from `.golangci.yml` and the corresponding `internal/lint/pathfilter` entry (added by P2). Apply fixes; verify `make test` and `make lint` are clean.
->
-> ## Why — spec gap caught during P1-T5
->
-> `config/` was missing from the original v0.14 plan-doc enumeration of packages. It has Go production code (`config/config.go`, `config/resolver.go`, `config/write.go`) with at least 6 varnamelen violations as of P1-T5. To preserve "Phase 1 ships CI-green" intent (per `01-convention-and-scaffold.md`), P1-T5 added a 13th `^config/` exclusion that was not in the spec. This task removes it.
->
-> ## Scope
->
-> - 6 known varnamelen violations (single-letter receivers/params/locals in `config/config.go` and `config/write.go`).
-> - Plus any rule-2/3/4 violations surfaced by `tusk-lint` once analyzers ship in P2 and the pathfilter entry is added.
->
-> A single task (not the usual 5-subtask sweep) because the violation count is small.
->
-> ## Acceptance
->
-> - `^config/` removed from `.golangci.yml` `linters.exclusions.rules`.
-> - `^github.com/germanamz/tusk/config(/|$)` removed from `internal/lint/pathfilter` excluded slice.
-> - All STYLE.md rule violations in `config/` fixed (mechanical only — no behavior changes).
-> - `make lint` exits zero with `config/` in scope.
-> - `make test ./config/...` exits zero.
->
-> ## Bridge code
->
-> - Removes the `^config/` `varnamelen` exclusion (introduced by P1-T5 deviation).
-> - Removes the `config` pathfilter entry (must be added by P2-T4 — this task should land before P8).
->
-> ## Depends on
->
-> P2 (custom analyzers in place; pathfilter helper exists with config entry to remove).
->
-> ## Parallelizable with
->
-> P3, P4, P5, P6, P7.
->
-> ## Blocks
->
-> P8 (lock-in cannot start until all sweep gates pass — this includes config/).
->
-> ## Follow-ups
->
-> - P2-T4 must include `config` in the `internal/lint/pathfilter` excluded slice (to keep CI green between P2 and this sweep). Add it alongside the other 12 entries.
-> - P8-T1 should not find a `^config/` rule remaining once this task is done.
->
-> ## References
->
-> - Spec: `docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md` §3 (rollout strategy — config/ omitted from package enumeration).
-> - Plan: `docs/superpowers/plans/v014-naming-convention/01-convention-and-scaffold.md` task 5 (where the 13th exclusion was added).
-> - PR adding the exclusion: P1-T5 (link in tusk after merge).
 
