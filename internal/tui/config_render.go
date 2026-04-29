@@ -96,8 +96,8 @@ func writeFloatField(buf *strings.Builder, name string, val *float64) {
 	fmt.Fprintf(buf, "%s = %s\n", name, formatFloat(*val))
 }
 
-func formatFloat(fl float64) string {
-	str := fmt.Sprintf("%g", fl)
+func formatFloat(value float64) string {
+	str := fmt.Sprintf("%g", value)
 	if !strings.ContainsAny(str, ".eE") {
 		str += ".0"
 	}
