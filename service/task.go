@@ -75,13 +75,13 @@ func (service *TaskService) defaultProjectID(ctx context.Context) (uuid.UUID, er
 // workflow service. Centralizes the lookup so callers that previously read
 // project.Workflow (a compat string field removed in Phase 4) share one path.
 func (service *TaskService) workflowName(ctx context.Context, project *domain.Project) (string, error) {
-	wf, wfErr := service.workflowSvc.GetByID(ctx, project.WorkflowID)
+	workflow, workflowErr := service.workflowSvc.GetByID(ctx, project.WorkflowID)
 
-	if wfErr != nil {
-		return "", fmt.Errorf("looking up workflow %v: %w", project.WorkflowID, wfErr)
+	if workflowErr != nil {
+		return "", fmt.Errorf("looking up workflow %v: %w", project.WorkflowID, workflowErr)
 	}
 
-	return wf.Name, nil
+	return workflow.Name, nil
 }
 
 // ResolveProjectName looks up a project by name and returns its UUID.
@@ -107,23 +107,23 @@ func (service *TaskService) ResolveProjectName(ctx context.Context, name string)
 // store, so operations involving them go through this bundle regardless
 // of which project a task lives in.
 func (service *TaskService) defaultBundle(ctx context.Context) (*RepoBundle, error) {
-	defID, defErr := service.defaultProjectID(ctx)
+	defaultID, defaultErr := service.defaultProjectID(ctx)
 
-	if defErr != nil {
-		return nil, defErr
+	if defaultErr != nil {
+		return nil, defaultErr
 	}
 
-	return service.resolve(ctx, defID)
+	return service.resolve(ctx, defaultID)
 }
 
 func (service *TaskService) bundleForShortID(ctx context.Context, shortID string) (*RepoBundle, *domain.Task, error) {
-	defID, defErr := service.defaultProjectID(ctx)
+	defaultID, defaultErr := service.defaultProjectID(ctx)
 
-	if defErr != nil {
-		return nil, nil, defErr
+	if defaultErr != nil {
+		return nil, nil, defaultErr
 	}
 
-	bundle, bundleErr := service.resolve(ctx, defID)
+	bundle, bundleErr := service.resolve(ctx, defaultID)
 
 	if bundleErr != nil {
 		return nil, nil, bundleErr
@@ -139,13 +139,13 @@ func (service *TaskService) bundleForShortID(ctx context.Context, shortID string
 }
 
 func (service *TaskService) bundleForID(ctx context.Context, id uuid.UUID) (*RepoBundle, *domain.Task, error) {
-	defID, defErr := service.defaultProjectID(ctx)
+	defaultID, defaultErr := service.defaultProjectID(ctx)
 
-	if defErr != nil {
-		return nil, nil, defErr
+	if defaultErr != nil {
+		return nil, nil, defaultErr
 	}
 
-	bundle, bundleErr := service.resolve(ctx, defID)
+	bundle, bundleErr := service.resolve(ctx, defaultID)
 
 	if bundleErr != nil {
 		return nil, nil, bundleErr
@@ -171,13 +171,13 @@ func (service *TaskService) Create(ctx context.Context, task *domain.Task) error
 	}
 
 	if task.ProjectID == uuid.Nil {
-		defID, defErr := service.defaultProjectID(ctx)
+		defaultID, defaultErr := service.defaultProjectID(ctx)
 
-		if defErr != nil {
-			return defErr
+		if defaultErr != nil {
+			return defaultErr
 		}
 
-		task.ProjectID = defID
+		task.ProjectID = defaultID
 	}
 
 	project, projectErr := service.projectRepo.GetByID(ctx, task.ProjectID)
@@ -189,10 +189,10 @@ func (service *TaskService) Create(ctx context.Context, task *domain.Task) error
 		return fmt.Errorf("looking up project: %w", projectErr)
 	}
 
-	wfName, wfErr := service.workflowName(ctx, project)
+	workflowName, workflowErr := service.workflowName(ctx, project)
 
-	if wfErr != nil {
-		return wfErr
+	if workflowErr != nil {
+		return workflowErr
 	}
 
 	bundle, bundleErr := service.resolve(ctx, task.ProjectID)
@@ -217,7 +217,7 @@ func (service *TaskService) Create(ctx context.Context, task *domain.Task) error
 	}
 
 	if task.Status == "" {
-		initialStatus, initialErr := service.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleInitial)
+		initialStatus, initialErr := service.workflowSvc.GetStatusByRole(ctx, workflowName, domain.RoleInitial)
 
 		if initialErr != nil {
 			return fmt.Errorf("resolving initial status: %w", initialErr)
@@ -226,7 +226,7 @@ func (service *TaskService) Create(ctx context.Context, task *domain.Task) error
 		task.Status = initialStatus
 	}
 
-	statuses, statusesErr := service.workflowSvc.GetStatuses(ctx, wfName)
+	statuses, statusesErr := service.workflowSvc.GetStatuses(ctx, workflowName)
 
 	if statusesErr != nil {
 		return fmt.Errorf("loading workflow statuses: %w", statusesErr)
@@ -240,7 +240,7 @@ func (service *TaskService) Create(ctx context.Context, task *domain.Task) error
 		}
 	}
 	if !validStatus {
-		return fmt.Errorf("status %q is not valid for workflow %q", task.Status, wfName)
+		return fmt.Errorf("status %q is not valid for workflow %q", task.Status, workflowName)
 	}
 
 	task.ID = uuid.New()
@@ -322,15 +322,15 @@ func (service *TaskService) stampEffectiveWeights(ctx context.Context, task *dom
 	if service.engine == nil || task == nil {
 		return nil
 	}
-	wt, has, weightsErr := service.ResolveEffectiveWeights(ctx, task.ID)
+	weights, has, weightsErr := service.ResolveEffectiveWeights(ctx, task.ID)
 
 	if weightsErr != nil {
 		return weightsErr
 	}
 
 	if has {
-		rw := wt.Resolved()
-		task.EffectiveWeights = &rw
+		resolved := weights.Resolved()
+		task.EffectiveWeights = &resolved
 	}
 	return nil
 }
@@ -338,13 +338,13 @@ func (service *TaskService) stampEffectiveWeights(ctx context.Context, task *dom
 // List returns tasks matching the given filter, scored and sorted by
 // urgency.
 func (service *TaskService) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
-	defID, defErr := service.defaultProjectID(ctx)
+	defaultID, defaultErr := service.defaultProjectID(ctx)
 
-	if defErr != nil {
-		return nil, defErr
+	if defaultErr != nil {
+		return nil, defaultErr
 	}
 
-	bundle, bundleErr := service.resolve(ctx, defID)
+	bundle, bundleErr := service.resolve(ctx, defaultID)
 
 	if bundleErr != nil {
 		return nil, bundleErr
@@ -418,9 +418,9 @@ func (service *TaskService) listInBundle(ctx context.Context, bundle *RepoBundle
 	}
 	service.engine.ScoreAndSort(tasks, sctx)
 	for _, task := range tasks {
-		if wt, ok := effective[task.ID]; ok {
-			rw := wt.Resolved()
-			task.EffectiveWeights = &rw
+		if weights, ok := effective[task.ID]; ok {
+			resolved := weights.Resolved()
+			task.EffectiveWeights = &resolved
 		}
 	}
 	return tasks, nil
@@ -436,13 +436,13 @@ func (service *TaskService) Next(ctx context.Context) (*domain.Task, error) {
 		return nil, nonTerminalErr
 	}
 
-	defID, defErr := service.defaultProjectID(ctx)
+	defaultID, defaultErr := service.defaultProjectID(ctx)
 
-	if defErr != nil {
-		return nil, defErr
+	if defaultErr != nil {
+		return nil, defaultErr
 	}
 
-	bundle, bundleErr := service.resolve(ctx, defID)
+	bundle, bundleErr := service.resolve(ctx, defaultID)
 
 	if bundleErr != nil {
 		return nil, bundleErr
@@ -486,8 +486,8 @@ func (service *TaskService) collectNonTerminalStatuses(ctx context.Context) ([]s
 
 	seen := make(map[string]bool)
 	var result []string
-	for _, wf := range workflows {
-		for _, name := range wf.NonTerminalStatuses() {
+	for _, workflow := range workflows {
+		for _, name := range workflow.NonTerminalStatuses() {
 			if !seen[name] {
 				seen[name] = true
 				result = append(result, name)
@@ -598,14 +598,14 @@ func (service *TaskService) buildEffectiveWeights(
 
 		contributed := false
 		for _, id := range chain {
-			if ov := overridesByID[id]; ov != nil {
-				merged = MergeWeights(merged, ov)
+			if override := overridesByID[id]; override != nil {
+				merged = MergeWeights(merged, override)
 				contributed = true
 			}
 		}
 		if contributed {
-			cp := merged
-			out[task.ID] = &cp
+			clone := merged
+			out[task.ID] = &clone
 		}
 	}
 
@@ -671,8 +671,8 @@ func (service *TaskService) resolveEffectiveWeightsFromTask(
 	}
 
 	for _, id := range chain {
-		if ov := overridesByID[id]; ov != nil {
-			merged = MergeWeights(merged, ov)
+		if override := overridesByID[id]; override != nil {
+			merged = MergeWeights(merged, override)
 		}
 	}
 	return merged, nil
@@ -702,8 +702,8 @@ func (service *TaskService) ResolveEffectiveWeights(ctx context.Context, taskID 
 		return UrgencyWeights{}, false, effectiveErr
 	}
 
-	if wt, ok := effective[task.ID]; ok {
-		return *wt, true, nil
+	if weights, ok := effective[task.ID]; ok {
+		return *weights, true, nil
 	}
 	if pw, ok := projectWeights[task.ProjectID]; ok {
 		return *pw, false, nil
@@ -753,13 +753,13 @@ func (service *TaskService) SummarizeSubtree(ctx context.Context, rootID uuid.UU
 		return nil, fmt.Errorf("loading descendants: %w", descendantsErr)
 	}
 
-	wfFor, wfErr := service.workflowsByProject(ctx, descendants, root)
+	projectWorkflows, workflowErr := service.workflowsByProject(ctx, descendants, root)
 
-	if wfErr != nil {
-		return nil, wfErr
+	if workflowErr != nil {
+		return nil, workflowErr
 	}
 
-	rollup := domain.AggregateRollup(descendants, wfFor)
+	rollup := domain.AggregateRollup(descendants, projectWorkflows)
 	return &domain.SummaryBlock{Task: root, Rollup: rollup}, nil
 }
 
@@ -775,13 +775,13 @@ func (service *TaskService) SummarizeBlocks(
 	blockFilter domain.FilterExpr,
 	full bool,
 ) ([]*domain.SummaryBlock, error) {
-	defID, defErr := service.defaultProjectID(ctx)
+	defaultID, defaultErr := service.defaultProjectID(ctx)
 
-	if defErr != nil {
-		return nil, defErr
+	if defaultErr != nil {
+		return nil, defaultErr
 	}
 
-	bundle, bundleErr := service.resolve(ctx, defID)
+	bundle, bundleErr := service.resolve(ctx, defaultID)
 
 	if bundleErr != nil {
 		return nil, bundleErr
@@ -838,13 +838,13 @@ func (service *TaskService) SummarizeBlocks(
 			}
 			descendants = filtered
 		}
-		wfFor, wfErr := service.workflowsByProject(ctx, descendants, block)
+		projectWorkflows, workflowErr := service.workflowsByProject(ctx, descendants, block)
 
-		if wfErr != nil {
-			return nil, wfErr
+		if workflowErr != nil {
+			return nil, workflowErr
 		}
 
-		rollup := domain.AggregateRollup(descendants, wfFor)
+		rollup := domain.AggregateRollup(descendants, projectWorkflows)
 		out = append(out, &domain.SummaryBlock{Task: block, Rollup: rollup})
 	}
 
@@ -890,17 +890,17 @@ func (service *TaskService) workflowsByProject(
 			return nil, fmt.Errorf("looking up project %v: %w", projectID, projectErr)
 		}
 
-		wf, wfErr := service.workflowSvc.GetByID(ctx, project.WorkflowID)
+		workflow, workflowErr := service.workflowSvc.GetByID(ctx, project.WorkflowID)
 
-		if wfErr != nil {
-			if errors.Is(wfErr, domain.ErrNotFound) {
+		if workflowErr != nil {
+			if errors.Is(workflowErr, domain.ErrNotFound) {
 				cache[projectID] = nil
 				continue
 			}
-			return nil, fmt.Errorf("looking up workflow %v: %w", project.WorkflowID, wfErr)
+			return nil, fmt.Errorf("looking up workflow %v: %w", project.WorkflowID, workflowErr)
 		}
 
-		cache[projectID] = wf
+		cache[projectID] = workflow
 	}
 	return func(task *domain.Task) *domain.Workflow {
 		if task == nil {
@@ -914,39 +914,39 @@ func (service *TaskService) workflowsByProject(
 // anywhere in its tree. Used to skip the tag batch-fetch in
 // SummarizeBlocks when descendant filtering doesn't need it.
 func filterUsesTags(expr domain.FilterExpr) bool {
-	switch fe := expr.(type) {
+	switch filterExpr := expr.(type) {
 	case *domain.TermFilter:
-		return len(fe.Tags) > 0 || len(fe.ExcludeTags) > 0
+		return len(filterExpr.Tags) > 0 || len(filterExpr.ExcludeTags) > 0
 	case domain.TermFilter:
-		return len(fe.Tags) > 0 || len(fe.ExcludeTags) > 0
+		return len(filterExpr.Tags) > 0 || len(filterExpr.ExcludeTags) > 0
 	case *domain.AndFilter:
-		for _, ch := range fe.Children {
-			if filterUsesTags(ch) {
+		for _, child := range filterExpr.Children {
+			if filterUsesTags(child) {
 				return true
 			}
 		}
 	case domain.AndFilter:
-		for _, ch := range fe.Children {
-			if filterUsesTags(ch) {
+		for _, child := range filterExpr.Children {
+			if filterUsesTags(child) {
 				return true
 			}
 		}
 	case *domain.OrFilter:
-		for _, ch := range fe.Children {
-			if filterUsesTags(ch) {
+		for _, child := range filterExpr.Children {
+			if filterUsesTags(child) {
 				return true
 			}
 		}
 	case domain.OrFilter:
-		for _, ch := range fe.Children {
-			if filterUsesTags(ch) {
+		for _, child := range filterExpr.Children {
+			if filterUsesTags(child) {
 				return true
 			}
 		}
 	case *domain.NotFilter:
-		return filterUsesTags(fe.Child)
+		return filterUsesTags(filterExpr.Child)
 	case domain.NotFilter:
-		return filterUsesTags(fe.Child)
+		return filterUsesTags(filterExpr.Child)
 	}
 	return false
 }
@@ -1128,7 +1128,7 @@ func (service *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (
 	}
 
 	statusChanged := task.Status != oldStatus
-	var wfName string
+	var workflowName string
 	if statusChanged {
 		project, projectErr := service.projectRepo.GetByID(ctx, task.ProjectID)
 
@@ -1136,14 +1136,14 @@ func (service *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (
 			return nil, fmt.Errorf("looking up project for workflow: %w", projectErr)
 		}
 
-		wfNameResolved, wfErr := service.workflowName(ctx, project)
+		resolvedWorkflowName, workflowErr := service.workflowName(ctx, project)
 
-		if wfErr != nil {
-			return nil, wfErr
+		if workflowErr != nil {
+			return nil, workflowErr
 		}
 
-		wfName = wfNameResolved
-		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, wfName, oldStatus, task.Status)
+		workflowName = resolvedWorkflowName
+		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, workflowName, oldStatus, task.Status)
 
 		if transitionErr != nil {
 			return nil, fmt.Errorf("checking transition: %w", transitionErr)
@@ -1168,21 +1168,21 @@ func (service *TaskService) Update(ctx context.Context, upd domain.TaskUpdate) (
 		result = updated
 
 		if statusChanged {
-			roles, rolesErr := service.workflowSvc.GetStatusRoles(ctx, wfName, updated.Status)
+			roles, rolesErr := service.workflowSvc.GetStatusRoles(ctx, workflowName, updated.Status)
 
 			if rolesErr != nil {
 				return fmt.Errorf("loading roles for status: %w", rolesErr)
 			}
 
-			evt := domain.NewStatusChangedEvent(updated, oldStatus, updated.Status, roles, "user", actor)
-			if evtErr := tx.Events().Record(ctx, evt); evtErr != nil {
-				return fmt.Errorf("recording status_changed event: %w", evtErr)
+			event := domain.NewStatusChangedEvent(updated, oldStatus, updated.Status, roles, "user", actor)
+			if eventErr := tx.Events().Record(ctx, event); eventErr != nil {
+				return fmt.Errorf("recording status_changed event: %w", eventErr)
 			}
 		}
 		if changes := diffTaskFields(snapshot, updated); len(changes) > 0 {
-			evt := domain.NewTaskModifiedEvent(updated, changes, actor)
-			if evtErr := tx.Events().Record(ctx, evt); evtErr != nil {
-				return fmt.Errorf("recording task_modified event: %w", evtErr)
+			event := domain.NewTaskModifiedEvent(updated, changes, actor)
+			if eventErr := tx.Events().Record(ctx, event); eventErr != nil {
+				return fmt.Errorf("recording task_modified event: %w", eventErr)
 			}
 		}
 		return nil
@@ -1215,13 +1215,13 @@ func (service *TaskService) Start(ctx context.Context, shortID string, version i
 		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, projectErr)
 	}
 
-	wfName, wfErr := service.workflowName(ctx, project)
+	workflowName, workflowErr := service.workflowName(ctx, project)
 
-	if wfErr != nil {
-		return nil, wfErr
+	if workflowErr != nil {
+		return nil, workflowErr
 	}
 
-	startStatus, startErr := service.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleStart)
+	startStatus, startErr := service.workflowSvc.GetStatusByRole(ctx, workflowName, domain.RoleStart)
 
 	if startErr != nil {
 		return nil, fmt.Errorf("resolving start status: %w", startErr)
@@ -1229,7 +1229,7 @@ func (service *TaskService) Start(ctx context.Context, shortID string, version i
 
 	oldStatus := task.Status
 	if task.Status != startStatus {
-		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, wfName, task.Status, startStatus)
+		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, workflowName, task.Status, startStatus)
 
 		if transitionErr != nil {
 			return nil, fmt.Errorf("checking transition: %w", transitionErr)
@@ -1439,13 +1439,13 @@ func (service *TaskService) Complete(ctx context.Context, shortID string, versio
 		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, projectErr)
 	}
 
-	wfName, wfErr := service.workflowName(ctx, project)
+	workflowName, workflowErr := service.workflowName(ctx, project)
 
-	if wfErr != nil {
-		return nil, wfErr
+	if workflowErr != nil {
+		return nil, workflowErr
 	}
 
-	doneStatus, doneErr := service.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleDone)
+	doneStatus, doneErr := service.workflowSvc.GetStatusByRole(ctx, workflowName, domain.RoleDone)
 
 	if doneErr != nil {
 		return nil, fmt.Errorf("resolving done status: %w", doneErr)
@@ -1454,7 +1454,7 @@ func (service *TaskService) Complete(ctx context.Context, shortID string, versio
 	oldStatus := task.Status
 	statusChanged := oldStatus != doneStatus
 	if statusChanged {
-		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, wfName, oldStatus, doneStatus)
+		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, workflowName, oldStatus, doneStatus)
 
 		if transitionErr != nil {
 			return nil, fmt.Errorf("checking transition: %w", transitionErr)
@@ -1510,13 +1510,13 @@ func (service *TaskService) Delete(ctx context.Context, shortID string, version 
 		return nil, fmt.Errorf("loading project %v: %w", task.ProjectID, projectErr)
 	}
 
-	wfName, wfErr := service.workflowName(ctx, project)
+	workflowName, workflowErr := service.workflowName(ctx, project)
 
-	if wfErr != nil {
-		return nil, wfErr
+	if workflowErr != nil {
+		return nil, workflowErr
 	}
 
-	deleteStatus, deleteErr := service.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleDelete)
+	deleteStatus, deleteErr := service.workflowSvc.GetStatusByRole(ctx, workflowName, domain.RoleDelete)
 
 	if deleteErr != nil {
 		return nil, fmt.Errorf("resolving delete status: %w", deleteErr)
@@ -1525,7 +1525,7 @@ func (service *TaskService) Delete(ctx context.Context, shortID string, version 
 	oldStatus := task.Status
 	statusChanged := oldStatus != deleteStatus
 	if statusChanged {
-		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, wfName, oldStatus, deleteStatus)
+		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, workflowName, oldStatus, deleteStatus)
 
 		if transitionErr != nil {
 			return nil, fmt.Errorf("checking transition: %w", transitionErr)
@@ -1581,13 +1581,13 @@ func (service *TaskService) Available(ctx context.Context, filter domain.FilterE
 		baseFilter.Children = append(baseFilter.Children, filter)
 	}
 
-	defID, defErr := service.defaultProjectID(ctx)
+	defaultID, defaultErr := service.defaultProjectID(ctx)
 
-	if defErr != nil {
-		return nil, defErr
+	if defaultErr != nil {
+		return nil, defaultErr
 	}
 
-	bundle, bundleErr := service.resolve(ctx, defID)
+	bundle, bundleErr := service.resolve(ctx, defaultID)
 
 	if bundleErr != nil {
 		return nil, bundleErr
@@ -1680,20 +1680,20 @@ func (service *TaskService) Pop(ctx context.Context, playerID string, filter dom
 			return nil, fmt.Errorf("loading project: %w", projectErr)
 		}
 
-		wfName, wfErr := service.workflowName(ctx, project)
+		workflowName, workflowErr := service.workflowName(ctx, project)
 
-		if wfErr != nil {
-			return nil, wfErr
+		if workflowErr != nil {
+			return nil, workflowErr
 		}
 
-		startStatus, startErr := service.workflowSvc.GetStatusByRole(ctx, wfName, domain.RoleStart)
+		startStatus, startErr := service.workflowSvc.GetStatusByRole(ctx, workflowName, domain.RoleStart)
 
 		if startErr != nil {
 			return nil, fmt.Errorf("resolving start status: %w", startErr)
 		}
 
 		if task.Status != startStatus {
-			allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, wfName, task.Status, startStatus)
+			allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, workflowName, task.Status, startStatus)
 
 			if transitionErr != nil {
 				return nil, fmt.Errorf("checking transition: %w", transitionErr)
@@ -1947,11 +1947,11 @@ func (service *TaskService) validateTaxonomy(ctx context.Context, bundle *RepoBu
 			return parentErr
 		}
 
-		var lvl string
+		var level string
 		if parent.Level != nil {
-			lvl = *parent.Level
+			level = *parent.Level
 		}
-		parentLevel = &lvl
+		parentLevel = &level
 	}
 
 	return domain.TaxonomyValidator{}.Check(
@@ -2017,18 +2017,18 @@ func (service *TaskService) Annotate(ctx context.Context, taskShortID string, bo
 		return nil, bundleErr
 	}
 
-	ann := &domain.Annotation{
+	annotation := &domain.Annotation{
 		ID:        uuid.New(),
 		TaskID:    task.ID,
 		Body:      body,
 		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
 	}
 
-	if createErr := bundle.Annotations.Create(ctx, ann); createErr != nil {
+	if createErr := bundle.Annotations.Create(ctx, annotation); createErr != nil {
 		return nil, createErr
 	}
 
-	return ann, nil
+	return annotation, nil
 }
 
 // GetAnnotations returns all annotations for a task, identified by
@@ -2129,10 +2129,10 @@ func (service *TaskService) checkAutoComplete(
 			return nil
 		}
 
-		wfName, wfErr := service.workflowName(ctx, project)
+		workflowName, workflowErr := service.workflowName(ctx, project)
 
-		if wfErr != nil {
-			return wfErr
+		if workflowErr != nil {
+			return workflowErr
 		}
 
 		children, childrenErr := tr.GetChildren(ctx, parent.ID)
@@ -2141,7 +2141,7 @@ func (service *TaskService) checkAutoComplete(
 			return fmt.Errorf("loading siblings for propagation: %w", childrenErr)
 		}
 
-		deleteStatus, deleteErr := service.workflowSvc.GetDeleteStatus(ctx, wfName)
+		deleteStatus, deleteErr := service.workflowSvc.GetDeleteStatus(ctx, workflowName)
 
 		if deleteErr != nil {
 			return fmt.Errorf("resolving delete status for propagation: %w", deleteErr)
@@ -2161,7 +2161,7 @@ func (service *TaskService) checkAutoComplete(
 			return nil
 		}
 
-		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, wfName, parent.Status, cfg.TargetStatus)
+		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, workflowName, parent.Status, cfg.TargetStatus)
 
 		if transitionErr != nil {
 			return fmt.Errorf("checking propagation transition: %w", transitionErr)
@@ -2185,15 +2185,15 @@ func (service *TaskService) checkAutoComplete(
 		}
 
 		current = reread
-		roles, rolesErr := service.workflowSvc.GetStatusRoles(ctx, wfName, current.Status)
+		roles, rolesErr := service.workflowSvc.GetStatusRoles(ctx, workflowName, current.Status)
 
 		if rolesErr != nil {
 			return fmt.Errorf("loading roles for auto-complete status: %w", rolesErr)
 		}
 
-		evt := domain.NewStatusChangedEvent(current, prevParentStatus, current.Status, roles, "auto_complete", actor)
-		if evtErr := tx.Events().Record(ctx, evt); evtErr != nil {
-			return fmt.Errorf("recording auto_complete event: %w", evtErr)
+		event := domain.NewStatusChangedEvent(current, prevParentStatus, current.Status, roles, "auto_complete", actor)
+		if eventErr := tx.Events().Record(ctx, event); eventErr != nil {
+			return fmt.Errorf("recording auto_complete event: %w", eventErr)
 		}
 	}
 	return fmt.Errorf("auto-complete propagation exceeded maximum depth (%d)", maxParentDepth)
@@ -2249,13 +2249,13 @@ func (service *TaskService) checkAutoRevert(
 			return nil
 		}
 
-		wfName, wfErr := service.workflowName(ctx, project)
+		workflowName, workflowErr := service.workflowName(ctx, project)
 
-		if wfErr != nil {
-			return wfErr
+		if workflowErr != nil {
+			return workflowErr
 		}
 
-		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, wfName, parent.Status, revertCfg.TargetStatus)
+		allowed, transitionErr := service.workflowSvc.IsTransitionAllowed(ctx, workflowName, parent.Status, revertCfg.TargetStatus)
 
 		if transitionErr != nil {
 			return fmt.Errorf("checking revert transition: %w", transitionErr)
@@ -2279,15 +2279,15 @@ func (service *TaskService) checkAutoRevert(
 		}
 
 		current = reread
-		roles, rolesErr := service.workflowSvc.GetStatusRoles(ctx, wfName, current.Status)
+		roles, rolesErr := service.workflowSvc.GetStatusRoles(ctx, workflowName, current.Status)
 
 		if rolesErr != nil {
 			return fmt.Errorf("loading roles for auto-revert status: %w", rolesErr)
 		}
 
-		evt := domain.NewStatusChangedEvent(current, prevParentStatus, current.Status, roles, "auto_revert", actor)
-		if evtErr := tx.Events().Record(ctx, evt); evtErr != nil {
-			return fmt.Errorf("recording auto_revert event: %w", evtErr)
+		event := domain.NewStatusChangedEvent(current, prevParentStatus, current.Status, roles, "auto_revert", actor)
+		if eventErr := tx.Events().Record(ctx, event); eventErr != nil {
+			return fmt.Errorf("recording auto_revert event: %w", eventErr)
 		}
 
 		currentOldStatus = prevParentStatus
@@ -2349,8 +2349,8 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 	}
 	projectCache := make(map[uuid.UUID]*projectCtx)
 	resolveProject := func(pid uuid.UUID) (*projectCtx, error) {
-		if pc, ok := projectCache[pid]; ok {
-			return pc, nil
+		if projectCtx, ok := projectCache[pid]; ok {
+			return projectCtx, nil
 		}
 		proj, projErr := service.projectRepo.GetByID(ctx, pid)
 
@@ -2359,9 +2359,9 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 		}
 
 		tx, src := service.projectSvc.EffectiveTaxonomy(proj)
-		pc := &projectCtx{project: proj, taxonomy: tx, source: src}
-		projectCache[pid] = pc
-		return pc, nil
+		projectCtx := &projectCtx{project: proj, taxonomy: tx, source: src}
+		projectCache[pid] = projectCtx
+		return projectCtx, nil
 	}
 
 	var violations []LevelViolation
@@ -2373,13 +2373,13 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 		}
 
 		for _, task := range tasks {
-			pc, pcErr := resolveProject(task.ProjectID)
+			projectCtx, projectCtxErr := resolveProject(task.ProjectID)
 
-			if pcErr != nil {
-				return nil, pcErr
+			if projectCtxErr != nil {
+				return nil, projectCtxErr
 			}
 
-			if pc.taxonomy.IsEmpty() {
+			if projectCtx.taxonomy.IsEmpty() {
 				continue
 			}
 
@@ -2394,15 +2394,15 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 					return nil, fmt.Errorf("loading parent %v: %w", *task.ParentID, parentErr)
 				}
 
-				var lvl string
+				var level string
 				if parent.Level != nil {
-					lvl = *parent.Level
+					level = *parent.Level
 				}
-				parentLevel = &lvl
+				parentLevel = &level
 			}
 
 			checkErr := domain.TaxonomyValidator{}.Check(
-				domain.ValidationContext{Taxonomy: pc.taxonomy, ParentLevel: parentLevel},
+				domain.ValidationContext{Taxonomy: projectCtx.taxonomy, ParentLevel: parentLevel},
 				task,
 			)
 			if checkErr == nil {
@@ -2414,18 +2414,18 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 			}
 			violations = append(violations, LevelViolation{
 				Task:     task,
-				Taxonomy: pc.taxonomy,
-				Source:   pc.source,
+				Taxonomy: projectCtx.taxonomy,
+				Source:   projectCtx.source,
 				Err:      te,
 			})
 		}
 	}
 
 	sort.SliceStable(violations, func(ii, jj int) bool {
-		pi := projectCache[violations[ii].Task.ProjectID].project.Name
-		pj := projectCache[violations[jj].Task.ProjectID].project.Name
-		if pi != pj {
-			return pi < pj
+		nameI := projectCache[violations[ii].Task.ProjectID].project.Name
+		nameJ := projectCache[violations[jj].Task.ProjectID].project.Name
+		if nameI != nameJ {
+			return nameI < nameJ
 		}
 		return violations[ii].Task.ShortID < violations[jj].Task.ShortID
 	})
