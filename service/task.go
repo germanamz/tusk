@@ -2342,13 +2342,13 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 		bundles = append(bundles, bundle)
 	}
 
-	type projectCtx struct {
+	type projectInfo struct {
 		project  *domain.Project
 		taxonomy domain.Taxonomy
 		source   TaxonomySource
 	}
-	projectCache := make(map[uuid.UUID]*projectCtx)
-	resolveProject := func(pid uuid.UUID) (*projectCtx, error) {
+	projectCache := make(map[uuid.UUID]*projectInfo)
+	resolveProject := func(pid uuid.UUID) (*projectInfo, error) {
 		if projectCtx, ok := projectCache[pid]; ok {
 			return projectCtx, nil
 		}
@@ -2359,7 +2359,7 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 		}
 
 		tx, src := service.projectSvc.EffectiveTaxonomy(proj)
-		projectCtx := &projectCtx{project: proj, taxonomy: tx, source: src}
+		projectCtx := &projectInfo{project: proj, taxonomy: tx, source: src}
 		projectCache[pid] = projectCtx
 		return projectCtx, nil
 	}
