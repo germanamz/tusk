@@ -31,6 +31,14 @@ func TestExcluded(test *testing.T) {
 		{"github.com/germanamz/tusk/internal/tui/render", true},
 		{"github.com/germanamz/tusk/config/subpkg", true},
 
+		// In-scope: external test packages (Go's `package foo_test`
+		// convention). pkgPath ends with `_test`; trimmed before match.
+		{"github.com/germanamz/tusk/service_test", true},
+		{"github.com/germanamz/tusk/sqlite_test", true},
+		{"github.com/germanamz/tusk/repository_test", true},
+		{"github.com/germanamz/tusk/domain_test", true},
+		{"github.com/germanamz/tusk/internal/portability_test", true},
+
 		// Out-of-scope: lint packages themselves are not excluded.
 		{"github.com/germanamz/tusk/internal/lint/blankline", false},
 		{"github.com/germanamz/tusk/internal/lint/namederr", false},
