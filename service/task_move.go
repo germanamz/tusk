@@ -52,7 +52,7 @@ type MoveRequest struct {
 // surfaced verbatim. On underflow the returned error wraps ErrOrderGapExhausted
 // with the parent's short ID so callers can point the user at
 // `tusk task move --resequence <parent>`.
-func (s *TaskService) Move(ctx context.Context, req MoveRequest) (*domain.Task, error) {
+func (service *TaskService) Move(ctx context.Context, req MoveRequest) (*domain.Task, error) {
 	switch req.Position {
 	case MovePositionBefore, MovePositionAfter:
 		if req.TargetID == nil {
@@ -66,7 +66,7 @@ func (s *TaskService) Move(ctx context.Context, req MoveRequest) (*domain.Task, 
 		return nil, fmt.Errorf("invalid move position: %d", req.Position)
 	}
 
-	bundle, subject, err := s.bundleForID(ctx, req.TaskID)
+	bundle, subject, err := service.bundleForID(ctx, req.TaskID)
 
 	if err != nil {
 		return nil, err
