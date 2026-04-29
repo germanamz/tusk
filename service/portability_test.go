@@ -444,18 +444,18 @@ func TestPortabilityService_TruncateWipesAndRehydrates(test *testing.T) {
 
 	// Build a fresh dump with one project + one task only.
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	wfDump, wfDumpErr := env.port.Export(ctx)
+	workflowDump, workflowDumpErr := env.port.Export(ctx)
 
-	if wfDumpErr != nil {
-		test.Fatalf("Export to capture workflows: %v", wfDumpErr)
+	if workflowDumpErr != nil {
+		test.Fatalf("Export to capture workflows: %v", workflowDumpErr)
 	}
 
 	one := &portability.PortableWorkspace{
 		SchemaVersion: portability.SchemaVersion,
 		TuskVersion:   "test",
 		ExportedAt:    now,
-		Workflows:     wfDump.Workflows,
-		Projects:      wfDump.Projects[:1],
+		Workflows:     workflowDump.Workflows,
+		Projects:      workflowDump.Projects[:1],
 		Players:       []portability.PortablePlayer{},
 		Tags:          []portability.PortableTag{},
 		Tasks: []portability.PortableTask{{
@@ -515,15 +515,15 @@ func TestPortabilityService_ValidationErrorsBatchCorrectly(test *testing.T) {
 
 	// Project with a taxonomy so we can raise a level-violation issue.
 	taxStrict := domain.Taxonomy{{"epic"}, {"task"}}
-	def, defErr := env.projectRepo.GetByID(ctx, domain.DefaultProjectUUID)
+	defaultProject, defaultProjectErr := env.projectRepo.GetByID(ctx, domain.DefaultProjectUUID)
 
-	if defErr != nil {
-		test.Fatalf("loading default project: %v", defErr)
+	if defaultProjectErr != nil {
+		test.Fatalf("loading default project: %v", defaultProjectErr)
 	}
 
 	tax := taxStrict.Clone()
-	def.Settings.Taxonomy = &tax
-	if updateErr := env.projectRepo.Update(ctx, def); updateErr != nil {
+	defaultProject.Settings.Taxonomy = &tax
+	if updateErr := env.projectRepo.Update(ctx, defaultProject); updateErr != nil {
 		test.Fatalf("attaching taxonomy: %v", updateErr)
 	}
 
@@ -694,10 +694,10 @@ func TestPortabilityService_ReplaceWithoutTruncatePreservesWorkflow(test *testin
 	ctx := WithActor(context.Background(), "test-player")
 
 	// Capture the current kanban workflow as the baseline for comparison.
-	originalWf, originalWfErr := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
+	originalWorkflow, originalWorkflowErr := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
 
-	if originalWfErr != nil {
-		test.Fatalf("loading kanban workflow: %v", originalWfErr)
+	if originalWorkflowErr != nil {
+		test.Fatalf("loading kanban workflow: %v", originalWorkflowErr)
 	}
 
 	dump, exportErr := env.port.Export(ctx)
@@ -727,13 +727,13 @@ func TestPortabilityService_ReplaceWithoutTruncatePreservesWorkflow(test *testin
 		test.Fatalf("re-loading kanban workflow: %v", currentErr)
 	}
 
-	if len(current.Transitions) != len(originalWf.Transitions) {
+	if len(current.Transitions) != len(originalWorkflow.Transitions) {
 		test.Errorf("workflow transitions changed without --truncate: was %d, now %d",
-			len(originalWf.Transitions), len(current.Transitions))
+			len(originalWorkflow.Transitions), len(current.Transitions))
 	}
-	if current.Version != originalWf.Version {
+	if current.Version != originalWorkflow.Version {
 		test.Errorf("workflow version drifted without --truncate: was %d, now %d",
-			originalWf.Version, current.Version)
+			originalWorkflow.Version, current.Version)
 	}
 }
 
@@ -816,10 +816,10 @@ func TestPortability_RoundTrip_ProjectDescription(test *testing.T) {
 	ctx := WithActor(context.Background(), "test-player")
 
 	const desc = "alpha project description\nwith two lines"
-	wf, wfErr := envA.wfSvc.GetByName(ctx, "kanban")
+	wf, workflowErr := envA.wfSvc.GetByName(ctx, "kanban")
 
-	if wfErr != nil {
-		test.Fatalf("resolving workflow: %v", wfErr)
+	if workflowErr != nil {
+		test.Fatalf("resolving workflow: %v", workflowErr)
 	}
 
 	created, createdErr := envA.projectSvc.Create(ctx, CreateProjectInput{
