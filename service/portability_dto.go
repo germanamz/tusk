@@ -16,214 +16,214 @@ import (
 // workflowToPortable copies every persisted workflow field into the wire
 // shape. Status roles are stringified so the wire format does not couple
 // to domain.StatusRole.
-func workflowToPortable(w *domain.Workflow) portability.PortableWorkflow {
-	statuses := make(map[string]portability.PortableStatusConfig, len(w.Statuses))
-	for name, sc := range w.Statuses {
+func workflowToPortable(workflow *domain.Workflow) portability.PortableWorkflow {
+	statuses := make(map[string]portability.PortableStatusConfig, len(workflow.Statuses))
+	for name, sc := range workflow.Statuses {
 		roles := make([]string, len(sc.Roles))
-		for i, r := range sc.Roles {
-			roles[i] = string(r)
+		for i, role := range sc.Roles {
+			roles[i] = string(role)
 		}
 		statuses[name] = portability.PortableStatusConfig{Roles: roles}
 	}
-	transitions := make([]portability.PortableWorkflowTransition, len(w.Transitions))
-	for i, t := range w.Transitions {
+	transitions := make([]portability.PortableWorkflowTransition, len(workflow.Transitions))
+	for i, transition := range workflow.Transitions {
 		transitions[i] = portability.PortableWorkflowTransition{
-			FromStatus: t.FromStatus,
-			ToStatus:   t.ToStatus,
+			FromStatus: transition.FromStatus,
+			ToStatus:   transition.ToStatus,
 		}
 	}
 	return portability.PortableWorkflow{
-		ID:          w.ID,
-		Name:        w.Name,
+		ID:          workflow.ID,
+		Name:        workflow.Name,
 		Statuses:    statuses,
 		Transitions: transitions,
-		Version:     w.Version,
-		CreatedAt:   w.CreatedAt,
-		UpdatedAt:   w.UpdatedAt,
+		Version:     workflow.Version,
+		CreatedAt:   workflow.CreatedAt,
+		UpdatedAt:   workflow.UpdatedAt,
 	}
 }
 
 // workflowFromPortable inverts workflowToPortable. Status role strings are
 // passed through unchanged — domain.ValidateWorkflow rejects unknown
 // roles, so the validation pass surfaces malformed dumps.
-func workflowFromPortable(p portability.PortableWorkflow) *domain.Workflow {
-	statuses := make(map[string]domain.StatusConfig, len(p.Statuses))
-	for name, sc := range p.Statuses {
+func workflowFromPortable(portable portability.PortableWorkflow) *domain.Workflow {
+	statuses := make(map[string]domain.StatusConfig, len(portable.Statuses))
+	for name, sc := range portable.Statuses {
 		roles := make([]domain.StatusRole, len(sc.Roles))
-		for i, r := range sc.Roles {
-			roles[i] = domain.StatusRole(r)
+		for i, role := range sc.Roles {
+			roles[i] = domain.StatusRole(role)
 		}
 		statuses[name] = domain.StatusConfig{Roles: roles}
 	}
-	transitions := make([]domain.WorkflowTransition, len(p.Transitions))
-	for i, t := range p.Transitions {
+	transitions := make([]domain.WorkflowTransition, len(portable.Transitions))
+	for i, transition := range portable.Transitions {
 		transitions[i] = domain.WorkflowTransition{
-			FromStatus: t.FromStatus,
-			ToStatus:   t.ToStatus,
+			FromStatus: transition.FromStatus,
+			ToStatus:   transition.ToStatus,
 		}
 	}
 	return &domain.Workflow{
-		ID:          p.ID,
-		Name:        p.Name,
+		ID:          portable.ID,
+		Name:        portable.Name,
 		Statuses:    statuses,
 		Transitions: transitions,
-		Version:     p.Version,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
+		Version:     portable.Version,
+		CreatedAt:   portable.CreatedAt,
+		UpdatedAt:   portable.UpdatedAt,
 	}
 }
 
 // projectToPortable copies every persisted project field. Settings nested
 // pointer fields are shallow-cloned so the dump is safe to mutate without
 // corrupting the live workspace.
-func projectToPortable(p *domain.Project) portability.PortableProject {
+func projectToPortable(project *domain.Project) portability.PortableProject {
 	return portability.PortableProject{
-		ID:          p.ID,
-		Name:        p.Name,
-		WorkflowID:  p.WorkflowID,
-		Description: p.Description,
-		Settings:    projectSettingsToPortable(p.Settings),
-		Version:     p.Version,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
+		ID:          project.ID,
+		Name:        project.Name,
+		WorkflowID:  project.WorkflowID,
+		Description: project.Description,
+		Settings:    projectSettingsToPortable(project.Settings),
+		Version:     project.Version,
+		CreatedAt:   project.CreatedAt,
+		UpdatedAt:   project.UpdatedAt,
 	}
 }
 
-func projectFromPortable(p portability.PortableProject) *domain.Project {
+func projectFromPortable(portable portability.PortableProject) *domain.Project {
 	return &domain.Project{
-		ID:          p.ID,
-		Name:        p.Name,
-		WorkflowID:  p.WorkflowID,
-		Description: p.Description,
-		Settings:    projectSettingsFromPortable(p.Settings),
-		Version:     p.Version,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
+		ID:          portable.ID,
+		Name:        portable.Name,
+		WorkflowID:  portable.WorkflowID,
+		Description: portable.Description,
+		Settings:    projectSettingsFromPortable(portable.Settings),
+		Version:     portable.Version,
+		CreatedAt:   portable.CreatedAt,
+		UpdatedAt:   portable.UpdatedAt,
 	}
 }
 
-func projectSettingsToPortable(s domain.ProjectSettings) portability.PortableProjectSettings {
+func projectSettingsToPortable(settings domain.ProjectSettings) portability.PortableProjectSettings {
 	out := portability.PortableProjectSettings{
-		NoteWindowSize: copyIntPtr(s.NoteWindowSize),
+		NoteWindowSize: copyIntPtr(settings.NoteWindowSize),
 	}
-	if s.AutoCompleteParent != nil {
+	if settings.AutoCompleteParent != nil {
 		out.AutoCompleteParent = &portability.PortableAutoCompleteConfig{
-			TriggerStatus: s.AutoCompleteParent.TriggerStatus,
-			TargetStatus:  s.AutoCompleteParent.TargetStatus,
+			TriggerStatus: settings.AutoCompleteParent.TriggerStatus,
+			TargetStatus:  settings.AutoCompleteParent.TargetStatus,
 		}
 	}
-	if s.AutoRevertParent != nil {
+	if settings.AutoRevertParent != nil {
 		out.AutoRevertParent = &portability.PortableAutoRevertConfig{
-			TriggerStatus: s.AutoRevertParent.TriggerStatus,
-			TargetStatus:  s.AutoRevertParent.TargetStatus,
+			TriggerStatus: settings.AutoRevertParent.TriggerStatus,
+			TargetStatus:  settings.AutoRevertParent.TargetStatus,
 		}
 	}
-	if s.Urgency != nil {
-		out.Urgency = urgencyToPortable(s.Urgency)
+	if settings.Urgency != nil {
+		out.Urgency = urgencyToPortable(settings.Urgency)
 	}
-	if s.Taxonomy != nil {
-		clone := s.Taxonomy.Clone()
+	if settings.Taxonomy != nil {
+		clone := settings.Taxonomy.Clone()
 		tax := portability.PortableTaxonomy(clone)
 		out.Taxonomy = &tax
 	}
 	return out
 }
 
-func projectSettingsFromPortable(s portability.PortableProjectSettings) domain.ProjectSettings {
+func projectSettingsFromPortable(settings portability.PortableProjectSettings) domain.ProjectSettings {
 	out := domain.ProjectSettings{
-		NoteWindowSize: copyIntPtr(s.NoteWindowSize),
+		NoteWindowSize: copyIntPtr(settings.NoteWindowSize),
 	}
-	if s.AutoCompleteParent != nil {
+	if settings.AutoCompleteParent != nil {
 		out.AutoCompleteParent = &domain.AutoCompleteConfig{
-			TriggerStatus: s.AutoCompleteParent.TriggerStatus,
-			TargetStatus:  s.AutoCompleteParent.TargetStatus,
+			TriggerStatus: settings.AutoCompleteParent.TriggerStatus,
+			TargetStatus:  settings.AutoCompleteParent.TargetStatus,
 		}
 	}
-	if s.AutoRevertParent != nil {
+	if settings.AutoRevertParent != nil {
 		out.AutoRevertParent = &domain.AutoRevertConfig{
-			TriggerStatus: s.AutoRevertParent.TriggerStatus,
-			TargetStatus:  s.AutoRevertParent.TargetStatus,
+			TriggerStatus: settings.AutoRevertParent.TriggerStatus,
+			TargetStatus:  settings.AutoRevertParent.TargetStatus,
 		}
 	}
-	if s.Urgency != nil {
-		out.Urgency = urgencyFromPortable(s.Urgency)
+	if settings.Urgency != nil {
+		out.Urgency = urgencyFromPortable(settings.Urgency)
 	}
-	if s.Taxonomy != nil {
-		tax := domain.Taxonomy(*s.Taxonomy).Clone()
+	if settings.Taxonomy != nil {
+		tax := domain.Taxonomy(*settings.Taxonomy).Clone()
 		out.Taxonomy = &tax
 	}
 	return out
 }
 
-func urgencyToPortable(u *domain.UrgencyOverrides) *portability.PortableUrgencyOverrides {
-	if u == nil {
+func urgencyToPortable(urgency *domain.UrgencyOverrides) *portability.PortableUrgencyOverrides {
+	if urgency == nil {
 		return nil
 	}
 	return &portability.PortableUrgencyOverrides{
-		PriorityWeight:    copyFloatPtr(u.PriorityWeight),
-		DueWeight:         copyFloatPtr(u.DueWeight),
-		AgeWeight:         copyFloatPtr(u.AgeWeight),
-		ActiveWeight:      copyFloatPtr(u.ActiveWeight),
-		BlockingWeight:    copyFloatPtr(u.BlockingWeight),
-		BlockedWeight:     copyFloatPtr(u.BlockedWeight),
-		TagsWeight:        copyFloatPtr(u.TagsWeight),
-		ProjectWeight:     copyFloatPtr(u.ProjectWeight),
-		AnnotationsWeight: copyFloatPtr(u.AnnotationsWeight),
-		WaitingWeight:     copyFloatPtr(u.WaitingWeight),
+		PriorityWeight:    copyFloatPtr(urgency.PriorityWeight),
+		DueWeight:         copyFloatPtr(urgency.DueWeight),
+		AgeWeight:         copyFloatPtr(urgency.AgeWeight),
+		ActiveWeight:      copyFloatPtr(urgency.ActiveWeight),
+		BlockingWeight:    copyFloatPtr(urgency.BlockingWeight),
+		BlockedWeight:     copyFloatPtr(urgency.BlockedWeight),
+		TagsWeight:        copyFloatPtr(urgency.TagsWeight),
+		ProjectWeight:     copyFloatPtr(urgency.ProjectWeight),
+		AnnotationsWeight: copyFloatPtr(urgency.AnnotationsWeight),
+		WaitingWeight:     copyFloatPtr(urgency.WaitingWeight),
 	}
 }
 
-func urgencyFromPortable(u *portability.PortableUrgencyOverrides) *domain.UrgencyOverrides {
-	if u == nil {
+func urgencyFromPortable(urgency *portability.PortableUrgencyOverrides) *domain.UrgencyOverrides {
+	if urgency == nil {
 		return nil
 	}
 	return &domain.UrgencyOverrides{
-		PriorityWeight:    copyFloatPtr(u.PriorityWeight),
-		DueWeight:         copyFloatPtr(u.DueWeight),
-		AgeWeight:         copyFloatPtr(u.AgeWeight),
-		ActiveWeight:      copyFloatPtr(u.ActiveWeight),
-		BlockingWeight:    copyFloatPtr(u.BlockingWeight),
-		BlockedWeight:     copyFloatPtr(u.BlockedWeight),
-		TagsWeight:        copyFloatPtr(u.TagsWeight),
-		ProjectWeight:     copyFloatPtr(u.ProjectWeight),
-		AnnotationsWeight: copyFloatPtr(u.AnnotationsWeight),
-		WaitingWeight:     copyFloatPtr(u.WaitingWeight),
+		PriorityWeight:    copyFloatPtr(urgency.PriorityWeight),
+		DueWeight:         copyFloatPtr(urgency.DueWeight),
+		AgeWeight:         copyFloatPtr(urgency.AgeWeight),
+		ActiveWeight:      copyFloatPtr(urgency.ActiveWeight),
+		BlockingWeight:    copyFloatPtr(urgency.BlockingWeight),
+		BlockedWeight:     copyFloatPtr(urgency.BlockedWeight),
+		TagsWeight:        copyFloatPtr(urgency.TagsWeight),
+		ProjectWeight:     copyFloatPtr(urgency.ProjectWeight),
+		AnnotationsWeight: copyFloatPtr(urgency.AnnotationsWeight),
+		WaitingWeight:     copyFloatPtr(urgency.WaitingWeight),
 	}
 }
 
-func playerToPortable(p *domain.Player) portability.PortablePlayer {
+func playerToPortable(player *domain.Player) portability.PortablePlayer {
 	return portability.PortablePlayer{
-		ID:             p.ID,
-		Type:           p.Type,
-		NoteWindowSize: copyIntPtr(p.NoteWindowSize),
-		RegisteredAt:   p.RegisteredAt,
-		LastSeenAt:     p.LastSeenAt,
+		ID:             player.ID,
+		Type:           player.Type,
+		NoteWindowSize: copyIntPtr(player.NoteWindowSize),
+		RegisteredAt:   player.RegisteredAt,
+		LastSeenAt:     player.LastSeenAt,
 	}
 }
 
-func playerFromPortable(p portability.PortablePlayer) *domain.Player {
+func playerFromPortable(portable portability.PortablePlayer) *domain.Player {
 	return &domain.Player{
-		ID:             p.ID,
-		Type:           p.Type,
-		NoteWindowSize: copyIntPtr(p.NoteWindowSize),
-		RegisteredAt:   p.RegisteredAt,
-		LastSeenAt:     p.LastSeenAt,
+		ID:             portable.ID,
+		Type:           portable.Type,
+		NoteWindowSize: copyIntPtr(portable.NoteWindowSize),
+		RegisteredAt:   portable.RegisteredAt,
+		LastSeenAt:     portable.LastSeenAt,
 	}
 }
 
-func tagToPortable(t *domain.Tag) portability.PortableTag {
+func tagToPortable(tag *domain.Tag) portability.PortableTag {
 	return portability.PortableTag{
-		ID:    t.ID,
-		Name:  t.Name,
-		Color: copyStringPtr(t.Color),
+		ID:    tag.ID,
+		Name:  tag.Name,
+		Color: copyStringPtr(tag.Color),
 	}
 }
 
-func tagFromPortable(t portability.PortableTag) *domain.Tag {
+func tagFromPortable(portable portability.PortableTag) *domain.Tag {
 	return &domain.Tag{
-		ID:    t.ID,
-		Name:  t.Name,
-		Color: copyStringPtr(t.Color),
+		ID:    portable.ID,
+		Name:  portable.Name,
+		Color: copyStringPtr(portable.Color),
 	}
 }
 
@@ -231,39 +231,39 @@ func tagFromPortable(t portability.PortableTag) *domain.Tag {
 // wire shape. UDA values are constrained to strings by domain.ValidateUDA;
 // any non-string value is dropped so the dump still encodes — exporting a
 // domain-invalid task should not block a backup.
-func taskToPortable(t *domain.Task, tags []*domain.Tag) portability.PortableTask {
+func taskToPortable(task *domain.Task, tags []*domain.Tag) portability.PortableTask {
 	tagNames := make([]string, len(tags))
-	for i, tg := range tags {
-		tagNames[i] = tg.Name
+	for i, tag := range tags {
+		tagNames[i] = tag.Name
 	}
-	uda := make(map[string]string, len(t.UDA))
-	for k, v := range t.UDA {
-		if s, ok := v.(string); ok {
-			uda[k] = s
+	uda := make(map[string]string, len(task.UDA))
+	for k, v := range task.UDA {
+		if str, ok := v.(string); ok {
+			uda[k] = str
 		}
 	}
 	return portability.PortableTask{
-		ID:               t.ID,
-		ShortID:          t.ShortID,
-		ParentID:         copyUUIDPtr(t.ParentID),
-		ProjectID:        t.ProjectID,
-		Title:            t.Title,
-		Description:      t.Description,
-		Level:            copyStringPtr(t.Level),
-		Status:           t.Status,
-		Priority:         t.Priority,
-		Order:            copyFloatPtr(t.Order),
-		Version:          t.Version,
-		DueAt:            copyTimePtr(t.DueAt),
-		WaitUntil:        copyTimePtr(t.WaitUntil),
-		RecurrenceRule:   copyStringPtr(t.RecurrenceRule),
+		ID:               task.ID,
+		ShortID:          task.ShortID,
+		ParentID:         copyUUIDPtr(task.ParentID),
+		ProjectID:        task.ProjectID,
+		Title:            task.Title,
+		Description:      task.Description,
+		Level:            copyStringPtr(task.Level),
+		Status:           task.Status,
+		Priority:         task.Priority,
+		Order:            copyFloatPtr(task.Order),
+		Version:          task.Version,
+		DueAt:            copyTimePtr(task.DueAt),
+		WaitUntil:        copyTimePtr(task.WaitUntil),
+		RecurrenceRule:   copyStringPtr(task.RecurrenceRule),
 		Tags:             tagNames,
 		UDA:              uda,
-		UrgencyOverrides: urgencyToPortable(t.UrgencyOverrides),
-		ClaimedBy:        copyStringPtr(t.ClaimedBy),
-		ClaimedAt:        copyTimePtr(t.ClaimedAt),
-		CreatedAt:        t.CreatedAt,
-		ModifiedAt:       t.ModifiedAt,
+		UrgencyOverrides: urgencyToPortable(task.UrgencyOverrides),
+		ClaimedBy:        copyStringPtr(task.ClaimedBy),
+		ClaimedAt:        copyTimePtr(task.ClaimedAt),
+		CreatedAt:        task.CreatedAt,
+		ModifiedAt:       task.ModifiedAt,
 	}
 }
 
@@ -271,110 +271,110 @@ func taskToPortable(t *domain.Task, tags []*domain.Tag) portability.PortableTask
 // Tags field is intentionally not copied — the join-table writes happen
 // in a separate step so the apply pass can reorder them after the parent
 // task has been inserted.
-func taskFromPortable(p portability.PortableTask) *domain.Task {
-	uda := make(map[string]any, len(p.UDA))
-	for k, v := range p.UDA {
+func taskFromPortable(portable portability.PortableTask) *domain.Task {
+	uda := make(map[string]any, len(portable.UDA))
+	for k, v := range portable.UDA {
 		uda[k] = v
 	}
 	return &domain.Task{
-		ID:               p.ID,
-		ShortID:          p.ShortID,
-		ParentID:         copyUUIDPtr(p.ParentID),
-		ProjectID:        p.ProjectID,
-		Title:            p.Title,
-		Description:      p.Description,
-		Level:            copyStringPtr(p.Level),
-		Status:           p.Status,
-		Priority:         p.Priority,
-		Order:            copyFloatPtr(p.Order),
-		Version:          p.Version,
-		DueAt:            copyTimePtr(p.DueAt),
-		WaitUntil:        copyTimePtr(p.WaitUntil),
-		RecurrenceRule:   copyStringPtr(p.RecurrenceRule),
+		ID:               portable.ID,
+		ShortID:          portable.ShortID,
+		ParentID:         copyUUIDPtr(portable.ParentID),
+		ProjectID:        portable.ProjectID,
+		Title:            portable.Title,
+		Description:      portable.Description,
+		Level:            copyStringPtr(portable.Level),
+		Status:           portable.Status,
+		Priority:         portable.Priority,
+		Order:            copyFloatPtr(portable.Order),
+		Version:          portable.Version,
+		DueAt:            copyTimePtr(portable.DueAt),
+		WaitUntil:        copyTimePtr(portable.WaitUntil),
+		RecurrenceRule:   copyStringPtr(portable.RecurrenceRule),
 		UDA:              uda,
-		UrgencyOverrides: urgencyFromPortable(p.UrgencyOverrides),
-		ClaimedBy:        copyStringPtr(p.ClaimedBy),
-		ClaimedAt:        copyTimePtr(p.ClaimedAt),
-		CreatedAt:        p.CreatedAt,
-		ModifiedAt:       p.ModifiedAt,
+		UrgencyOverrides: urgencyFromPortable(portable.UrgencyOverrides),
+		ClaimedBy:        copyStringPtr(portable.ClaimedBy),
+		ClaimedAt:        copyTimePtr(portable.ClaimedAt),
+		CreatedAt:        portable.CreatedAt,
+		ModifiedAt:       portable.ModifiedAt,
 	}
 }
 
-func relationToPortable(r *domain.Relation) portability.PortableRelation {
+func relationToPortable(relation *domain.Relation) portability.PortableRelation {
 	return portability.PortableRelation{
-		ID:           r.ID,
-		SourceID:     r.SourceID,
-		TargetID:     r.TargetID,
-		RelationType: r.RelationType,
-		CreatedAt:    r.CreatedAt,
+		ID:           relation.ID,
+		SourceID:     relation.SourceID,
+		TargetID:     relation.TargetID,
+		RelationType: relation.RelationType,
+		CreatedAt:    relation.CreatedAt,
 	}
 }
 
-func relationFromPortable(p portability.PortableRelation) *domain.Relation {
+func relationFromPortable(portable portability.PortableRelation) *domain.Relation {
 	return &domain.Relation{
-		ID:           p.ID,
-		SourceID:     p.SourceID,
-		TargetID:     p.TargetID,
-		RelationType: p.RelationType,
-		CreatedAt:    p.CreatedAt,
+		ID:           portable.ID,
+		SourceID:     portable.SourceID,
+		TargetID:     portable.TargetID,
+		RelationType: portable.RelationType,
+		CreatedAt:    portable.CreatedAt,
 	}
 }
 
-func annotationToPortable(a *domain.Annotation) portability.PortableAnnotation {
+func annotationToPortable(annotation *domain.Annotation) portability.PortableAnnotation {
 	return portability.PortableAnnotation{
-		ID:        a.ID,
-		TaskID:    a.TaskID,
-		Body:      a.Body,
-		CreatedAt: a.CreatedAt,
+		ID:        annotation.ID,
+		TaskID:    annotation.TaskID,
+		Body:      annotation.Body,
+		CreatedAt: annotation.CreatedAt,
 	}
 }
 
-func annotationFromPortable(p portability.PortableAnnotation) *domain.Annotation {
+func annotationFromPortable(portable portability.PortableAnnotation) *domain.Annotation {
 	return &domain.Annotation{
-		ID:        p.ID,
-		TaskID:    p.TaskID,
-		Body:      p.Body,
-		CreatedAt: p.CreatedAt,
+		ID:        portable.ID,
+		TaskID:    portable.TaskID,
+		Body:      portable.Body,
+		CreatedAt: portable.CreatedAt,
 	}
 }
 
-func noteToPortable(n *domain.Note) portability.PortableNote {
+func noteToPortable(note *domain.Note) portability.PortableNote {
 	var meta map[string]any
-	if len(n.Metadata) > 0 {
-		meta = make(map[string]any, len(n.Metadata))
-		for k, v := range n.Metadata {
+	if len(note.Metadata) > 0 {
+		meta = make(map[string]any, len(note.Metadata))
+		for k, v := range note.Metadata {
 			meta[k] = v
 		}
 	}
 	return portability.PortableNote{
-		ID:         n.ID,
-		ProjectID:  n.ProjectID,
-		PlayerID:   n.PlayerID,
-		TaskID:     copyUUIDPtr(n.TaskID),
-		Body:       n.Body,
+		ID:         note.ID,
+		ProjectID:  note.ProjectID,
+		PlayerID:   note.PlayerID,
+		TaskID:     copyUUIDPtr(note.TaskID),
+		Body:       note.Body,
 		Metadata:   meta,
-		ArchivedAt: copyTimePtr(n.ArchivedAt),
-		CreatedAt:  n.CreatedAt,
+		ArchivedAt: copyTimePtr(note.ArchivedAt),
+		CreatedAt:  note.CreatedAt,
 	}
 }
 
-func noteFromPortable(p portability.PortableNote) *domain.Note {
+func noteFromPortable(portable portability.PortableNote) *domain.Note {
 	var meta map[string]any
-	if len(p.Metadata) > 0 {
-		meta = make(map[string]any, len(p.Metadata))
-		for k, v := range p.Metadata {
+	if len(portable.Metadata) > 0 {
+		meta = make(map[string]any, len(portable.Metadata))
+		for k, v := range portable.Metadata {
 			meta[k] = v
 		}
 	}
 	return &domain.Note{
-		ID:         p.ID,
-		ProjectID:  p.ProjectID,
-		PlayerID:   p.PlayerID,
-		TaskID:     copyUUIDPtr(p.TaskID),
-		Body:       p.Body,
+		ID:         portable.ID,
+		ProjectID:  portable.ProjectID,
+		PlayerID:   portable.PlayerID,
+		TaskID:     copyUUIDPtr(portable.TaskID),
+		Body:       portable.Body,
 		Metadata:   meta,
-		ArchivedAt: copyTimePtr(p.ArchivedAt),
-		CreatedAt:  p.CreatedAt,
+		ArchivedAt: copyTimePtr(portable.ArchivedAt),
+		CreatedAt:  portable.CreatedAt,
 	}
 }
 
@@ -382,31 +382,33 @@ func noteFromPortable(p portability.PortableNote) *domain.Note {
 // every payload kind — including UnknownPayload from future event types —
 // round-trips losslessly. UnknownPayload's Raw field is tagged json:"-",
 // so a direct Marshal would drop the bytes; serialize Raw instead.
-func eventToPortable(e *domain.Event) (portability.PortableEvent, error) {
+func eventToPortable(event *domain.Event) (portability.PortableEvent, error) {
 	var raw json.RawMessage
-	if e.Payload != nil {
+	if event.Payload != nil {
 		var (
-			bytes []byte
-			err   error
+			rawBytes   []byte
+			marshalErr error
 		)
-		if up, ok := e.Payload.(domain.UnknownPayload); ok {
-			bytes, err = json.Marshal(up.Raw)
+		if up, ok := event.Payload.(domain.UnknownPayload); ok {
+			rawBytes, marshalErr = json.Marshal(up.Raw)
 		} else {
-			bytes, err = json.Marshal(e.Payload)
+			rawBytes, marshalErr = json.Marshal(event.Payload)
 		}
-		if err != nil {
-			return portability.PortableEvent{}, fmt.Errorf("marshaling event %s payload: %w", e.ID, err)
+
+		if marshalErr != nil {
+			return portability.PortableEvent{}, fmt.Errorf("marshaling event %s payload: %w", event.ID, marshalErr)
 		}
-		raw = bytes
+
+		raw = rawBytes
 	}
 	return portability.PortableEvent{
-		ID:         e.ID,
-		Type:       string(e.Type),
-		EntityID:   e.EntityID,
-		EntityKind: string(e.EntityKind),
-		PlayerID:   copyStringPtr(e.PlayerID),
+		ID:         event.ID,
+		Type:       string(event.Type),
+		EntityID:   event.EntityID,
+		EntityKind: string(event.EntityKind),
+		PlayerID:   copyStringPtr(event.PlayerID),
 		Payload:    raw,
-		CreatedAt:  e.CreatedAt,
+		CreatedAt:  event.CreatedAt,
 	}, nil
 }
 
@@ -414,24 +416,24 @@ func eventToPortable(e *domain.Event) (portability.PortableEvent, error) {
 // payload is wrapped in domain.UnknownPayload because the codec stores
 // payload as opaque JSON; the EventRepo's Record path normalizes the
 // stored bytes regardless of payload kind.
-func eventFromPortable(p portability.PortableEvent) (*domain.Event, error) {
+func eventFromPortable(portable portability.PortableEvent) (*domain.Event, error) {
 	var raw map[string]any
-	if len(p.Payload) > 0 {
-		if err := json.Unmarshal(p.Payload, &raw); err != nil {
-			return nil, fmt.Errorf("decoding event %s payload: %w", p.ID, err)
+	if len(portable.Payload) > 0 {
+		if unmarshalErr := json.Unmarshal(portable.Payload, &raw); unmarshalErr != nil {
+			return nil, fmt.Errorf("decoding event %s payload: %w", portable.ID, unmarshalErr)
 		}
 	}
 	return &domain.Event{
-		ID:         p.ID,
-		Type:       domain.EventType(p.Type),
-		EntityID:   p.EntityID,
-		EntityKind: domain.EntityKind(p.EntityKind),
-		PlayerID:   copyStringPtr(p.PlayerID),
+		ID:         portable.ID,
+		Type:       domain.EventType(portable.Type),
+		EntityID:   portable.EntityID,
+		EntityKind: domain.EntityKind(portable.EntityKind),
+		PlayerID:   copyStringPtr(portable.PlayerID),
 		Payload: domain.UnknownPayload{
-			Kind: domain.EventType(p.Type),
+			Kind: domain.EventType(portable.Type),
 			Raw:  raw,
 		},
-		CreatedAt: p.CreatedAt,
+		CreatedAt: portable.CreatedAt,
 	}, nil
 }
 

@@ -23,7 +23,7 @@ import (
 // validate is read-only. Workspace residency lookups are issued through
 // the bundle's repositories outside any transaction; the apply pass
 // rechecks each existence inside the transaction via the same logic.
-func (s *PortabilityService) validate(ctx context.Context, ws *portability.PortableWorkspace, opts ImportOptions) *portability.ImportError {
+func (service *PortabilityService) validate(ctx context.Context, ws *portability.PortableWorkspace, opts ImportOptions) *portability.ImportError {
 	var issues []portability.ImportIssue
 
 	if ws.SchemaVersion != portability.SchemaVersion {
@@ -38,12 +38,12 @@ func (s *PortabilityService) validate(ctx context.Context, ws *portability.Porta
 
 	dumpIDs := newDumpIndex(ws)
 
-	issues = append(issues, s.checkReferentialIntegrity(ctx, ws, dumpIDs, opts)...)
-	issues = append(issues, s.checkTaxonomy(ctx, ws)...)
+	issues = append(issues, service.checkReferentialIntegrity(ctx, ws, dumpIDs, opts)...)
+	issues = append(issues, service.checkTaxonomy(ctx, ws)...)
 	issues = append(issues, checkRelationCycles(ws.Relations)...)
 	issues = append(issues, checkWorkflowWellFormed(ws.Workflows)...)
 	if !opts.Truncate {
-		issues = append(issues, s.checkCollisions(ctx, ws, opts)...)
+		issues = append(issues, service.checkCollisions(ctx, ws, opts)...)
 	}
 
 	if len(issues) == 0 {
@@ -101,7 +101,7 @@ func taskIdentifier(t portability.PortableTask) string {
 	return t.ID.String()
 }
 
-func (s *PortabilityService) checkReferentialIntegrity(
+func (service *PortabilityService) checkReferentialIntegrity(
 	ctx context.Context,
 	ws *portability.PortableWorkspace,
 	idx *dumpIndex,
@@ -116,7 +116,7 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		if !opts.Replace {
 			return false
 		}
-		_, err := s.bundle.Tasks.GetByID(ctx, id)
+		_, err := service.bundle.Tasks.GetByID(ctx, id)
 		return err == nil
 	}
 	projectExists := func(id uuid.UUID) bool {
@@ -126,7 +126,7 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		if !opts.Replace {
 			return false
 		}
-		_, err := s.projects.GetByID(ctx, id)
+		_, err := service.projects.GetByID(ctx, id)
 		return err == nil
 	}
 	workflowExists := func(id uuid.UUID) bool {
@@ -136,7 +136,7 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		if !opts.Replace {
 			return false
 		}
-		_, err := s.workflows.GetByID(ctx, id)
+		_, err := service.workflows.GetByID(ctx, id)
 		return err == nil
 	}
 	playerExists := func(id string) bool {
@@ -149,7 +149,7 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		if !opts.Replace {
 			return false
 		}
-		_, err := s.players.GetByID(ctx, id)
+		_, err := service.players.GetByID(ctx, id)
 		return err == nil
 	}
 	var (
@@ -168,7 +168,7 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		// per missing tag would be O(N×M) over the dump size.
 		if !liveTagNamesOnce {
 			liveTagNamesOnce = true
-			tags, err := s.tags.List(ctx)
+			tags, err := service.tags.List(ctx)
 			if err == nil {
 				liveTagNames = make(map[string]struct{}, len(tags))
 				for _, t := range tags {
@@ -180,88 +180,88 @@ func (s *PortabilityService) checkReferentialIntegrity(
 		return ok
 	}
 
-	for _, t := range ws.Tasks {
-		if t.ParentID != nil && !taskExists(*t.ParentID) {
+	for _, task := range ws.Tasks {
+		if task.ParentID != nil && !taskExists(*task.ParentID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "task",
-				EntityID:   taskIdentifier(t),
-				Message:    fmt.Sprintf("parent_id %s does not resolve to a task in the dump or workspace", t.ParentID),
+				EntityID:   taskIdentifier(task),
+				Message:    fmt.Sprintf("parent_id %s does not resolve to a task in the dump or workspace", task.ParentID),
 			})
 		}
-		if !projectExists(t.ProjectID) {
+		if !projectExists(task.ProjectID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "task",
-				EntityID:   taskIdentifier(t),
-				Message:    fmt.Sprintf("project_id %s does not resolve to a project in the dump or workspace", t.ProjectID),
+				EntityID:   taskIdentifier(task),
+				Message:    fmt.Sprintf("project_id %s does not resolve to a project in the dump or workspace", task.ProjectID),
 			})
 		}
-		for _, name := range t.Tags {
+		for _, name := range task.Tags {
 			if !tagNameExists(name) {
 				issues = append(issues, portability.ImportIssue{
 					Kind:       "fk",
 					EntityKind: "task",
-					EntityID:   taskIdentifier(t),
+					EntityID:   taskIdentifier(task),
 					Message:    fmt.Sprintf("tag %q is not declared in the dump or workspace", name),
 				})
 			}
 		}
 	}
 
-	for _, r := range ws.Relations {
-		if !taskExists(r.SourceID) {
+	for _, relation := range ws.Relations {
+		if !taskExists(relation.SourceID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "relation",
-				EntityID:   r.ID.String(),
-				Message:    fmt.Sprintf("source_id %s does not resolve to a task in the dump or workspace", r.SourceID),
+				EntityID:   relation.ID.String(),
+				Message:    fmt.Sprintf("source_id %s does not resolve to a task in the dump or workspace", relation.SourceID),
 			})
 		}
-		if !taskExists(r.TargetID) {
+		if !taskExists(relation.TargetID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "relation",
-				EntityID:   r.ID.String(),
-				Message:    fmt.Sprintf("target_id %s does not resolve to a task in the dump or workspace", r.TargetID),
+				EntityID:   relation.ID.String(),
+				Message:    fmt.Sprintf("target_id %s does not resolve to a task in the dump or workspace", relation.TargetID),
 			})
 		}
 	}
 
-	for _, a := range ws.Annotations {
-		if !taskExists(a.TaskID) {
+	for _, annotation := range ws.Annotations {
+		if !taskExists(annotation.TaskID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "annotation",
-				EntityID:   a.ID.String(),
-				Message:    fmt.Sprintf("task_id %s does not resolve to a task in the dump or workspace", a.TaskID),
+				EntityID:   annotation.ID.String(),
+				Message:    fmt.Sprintf("task_id %s does not resolve to a task in the dump or workspace", annotation.TaskID),
 			})
 		}
 	}
 
-	for _, n := range ws.Notes {
-		if !projectExists(n.ProjectID) {
+	for _, note := range ws.Notes {
+		if !projectExists(note.ProjectID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "note",
-				EntityID:   n.ID.String(),
-				Message:    fmt.Sprintf("project_id %s does not resolve to a project in the dump or workspace", n.ProjectID),
+				EntityID:   note.ID.String(),
+				Message:    fmt.Sprintf("project_id %s does not resolve to a project in the dump or workspace", note.ProjectID),
 			})
 		}
-		if !playerExists(n.PlayerID) {
+		if !playerExists(note.PlayerID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "note",
-				EntityID:   n.ID.String(),
-				Message:    fmt.Sprintf("player_id %q does not resolve to a player in the dump or workspace", n.PlayerID),
+				EntityID:   note.ID.String(),
+				Message:    fmt.Sprintf("player_id %q does not resolve to a player in the dump or workspace", note.PlayerID),
 			})
 		}
-		if n.TaskID != nil && !taskExists(*n.TaskID) {
+		if note.TaskID != nil && !taskExists(*note.TaskID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "note",
-				EntityID:   n.ID.String(),
-				Message:    fmt.Sprintf("task_id %s does not resolve to a task in the dump or workspace", *n.TaskID),
+				EntityID:   note.ID.String(),
+				Message:    fmt.Sprintf("task_id %s does not resolve to a task in the dump or workspace", *note.TaskID),
 			})
 		}
 	}
@@ -283,7 +283,7 @@ func (s *PortabilityService) checkReferentialIntegrity(
 // checkTaxonomy applies the project's effective taxonomy to every task in
 // that project. Parent levels are pre-computed by walking the dump once
 // so the check works on dumps that do not match the live workspace yet.
-func (s *PortabilityService) checkTaxonomy(
+func (service *PortabilityService) checkTaxonomy(
 	ctx context.Context,
 	ws *portability.PortableWorkspace,
 ) []portability.ImportIssue {
@@ -300,10 +300,12 @@ func (s *PortabilityService) checkTaxonomy(
 		if p, ok := projectsByID[id]; ok {
 			return p
 		}
-		live, err := s.projects.GetByID(ctx, id)
+		live, err := service.projects.GetByID(ctx, id)
+
 		if err != nil {
 			return nil
 		}
+
 		projectsByID[id] = live
 		return live
 	}
@@ -333,21 +335,21 @@ func (s *PortabilityService) checkTaxonomy(
 	}
 
 	var issues []portability.ImportIssue
-	for _, t := range ws.Tasks {
-		project := resolveProject(t.ProjectID)
+	for _, task := range ws.Tasks {
+		project := resolveProject(task.ProjectID)
 		if project == nil {
 			// Project resolves nowhere — the FK check reports that
 			// separately, so taxonomy enforcement is moot.
 			continue
 		}
-		taxonomy, _ := s.projects.EffectiveTaxonomy(project)
+		taxonomy, _ := service.projects.EffectiveTaxonomy(project)
 		if taxonomy.IsEmpty() {
 			continue
 		}
-		dom := taskFromPortable(t)
+		dom := taskFromPortable(task)
 		err := domain.TaxonomyValidator{}.Check(domain.ValidationContext{
 			Taxonomy:    taxonomy,
-			ParentLevel: parentLevel(t),
+			ParentLevel: parentLevel(task),
 		}, dom)
 		if err == nil {
 			continue
@@ -355,7 +357,7 @@ func (s *PortabilityService) checkTaxonomy(
 		issues = append(issues, portability.ImportIssue{
 			Kind:       "taxonomy",
 			EntityKind: "task",
-			EntityID:   taskIdentifier(t),
+			EntityID:   taskIdentifier(task),
 			Message:    err.Error(),
 		})
 	}
@@ -454,13 +456,13 @@ func checkRelationCycles(rels []portability.PortableRelation) []portability.Impo
 // workflow the live system would refuse.
 func checkWorkflowWellFormed(workflows []portability.PortableWorkflow) []portability.ImportIssue {
 	var issues []portability.ImportIssue
-	for _, w := range workflows {
-		dom := workflowFromPortable(w)
+	for _, workflow := range workflows {
+		dom := workflowFromPortable(workflow)
 		if err := domain.ValidateWorkflow(dom); err != nil {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "workflow",
 				EntityKind: "workflow",
-				EntityID:   w.ID.String(),
+				EntityID:   workflow.ID.String(),
 				Message:    err.Error(),
 			})
 		}
@@ -472,7 +474,7 @@ func checkWorkflowWellFormed(workflows []portability.PortableWorkflow) []portabi
 // exists in the workspace when --replace is not set. Under --replace the
 // apply pass takes care of overwriting the row; under --truncate the
 // caller already cleared the table, so we skip the check entirely.
-func (s *PortabilityService) checkCollisions(
+func (service *PortabilityService) checkCollisions(
 	ctx context.Context,
 	ws *portability.PortableWorkspace,
 	opts ImportOptions,
@@ -483,23 +485,23 @@ func (s *PortabilityService) checkCollisions(
 	var issues []portability.ImportIssue
 
 	for _, w := range ws.Workflows {
-		if _, err := s.workflows.GetByID(ctx, w.ID); err == nil {
+		if _, err := service.workflows.GetByID(ctx, w.ID); err == nil {
 			issues = append(issues, collisionIssue("workflow", w.ID.String()))
 		}
 	}
 	for _, p := range ws.Projects {
-		if _, err := s.projects.GetByID(ctx, p.ID); err == nil {
+		if _, err := service.projects.GetByID(ctx, p.ID); err == nil {
 			issues = append(issues, collisionIssue("project", p.ID.String()))
 		}
 	}
 	for _, p := range ws.Players {
-		if _, err := s.players.GetByID(ctx, p.ID); err == nil {
+		if _, err := service.players.GetByID(ctx, p.ID); err == nil {
 			issues = append(issues, collisionIssue("player", p.ID))
 		}
 	}
 	tagByID := make(map[uuid.UUID]struct{}, len(ws.Tags))
 	if len(ws.Tags) > 0 {
-		existing, err := s.tags.List(ctx)
+		existing, err := service.tags.List(ctx)
 		if err == nil {
 			for _, t := range existing {
 				tagByID[t.ID] = struct{}{}
@@ -511,46 +513,50 @@ func (s *PortabilityService) checkCollisions(
 			}
 		}
 	}
-	for _, t := range ws.Tasks {
-		if _, err := s.bundle.Tasks.GetByID(ctx, t.ID); err == nil {
-			issues = append(issues, collisionIssue("task", taskIdentifier(t)))
+	for _, task := range ws.Tasks {
+		if _, err := service.bundle.Tasks.GetByID(ctx, task.ID); err == nil {
+			issues = append(issues, collisionIssue("task", taskIdentifier(task)))
 		} else if !errors.Is(err, domain.ErrNotFound) {
 			// Surface unexpected errors as a collision too — silent
 			// failures here would let the apply pass crash mid-import.
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "collision",
 				EntityKind: "task",
-				EntityID:   taskIdentifier(t),
+				EntityID:   taskIdentifier(task),
 				Message:    fmt.Sprintf("could not check collision: %v", err),
 			})
 		}
 	}
-	for _, r := range ws.Relations {
-		existing, err := s.bundle.Relations.GetByTask(ctx, r.SourceID)
+	for _, relation := range ws.Relations {
+		existing, err := service.bundle.Relations.GetByTask(ctx, relation.SourceID)
+
 		if err != nil {
 			continue
 		}
-		for _, e := range existing {
-			if e.ID == r.ID {
-				issues = append(issues, collisionIssue("relation", r.ID.String()))
+
+		for _, existing2 := range existing {
+			if existing2.ID == relation.ID {
+				issues = append(issues, collisionIssue("relation", relation.ID.String()))
 				break
 			}
 		}
 	}
-	for _, a := range ws.Annotations {
-		existing, err := s.bundle.Annotations.GetByTask(ctx, a.TaskID)
+	for _, annotation := range ws.Annotations {
+		existing, err := service.bundle.Annotations.GetByTask(ctx, annotation.TaskID)
+
 		if err != nil {
 			continue
 		}
-		for _, e := range existing {
-			if e.ID == a.ID {
-				issues = append(issues, collisionIssue("annotation", a.ID.String()))
+
+		for _, existing2 := range existing {
+			if existing2.ID == annotation.ID {
+				issues = append(issues, collisionIssue("annotation", annotation.ID.String()))
 				break
 			}
 		}
 	}
 	for _, n := range ws.Notes {
-		if _, err := s.bundle.Notes.GetByID(ctx, n.ID); err == nil {
+		if _, err := service.bundle.Notes.GetByID(ctx, n.ID); err == nil {
 			issues = append(issues, collisionIssue("note", n.ID.String()))
 		}
 	}
