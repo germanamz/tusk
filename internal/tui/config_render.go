@@ -14,30 +14,30 @@ import (
 // deterministic: workflows are sorted by name, statuses within each
 // workflow are sorted by name, and transitions preserve domain order.
 func RenderWorkflowsTOML(workflows []*domain.Workflow) string {
-	var b strings.Builder
-	b.WriteString("# workflows (from database — use `tusk workflow` to modify)\n")
+	var buf strings.Builder
+	buf.WriteString("# workflows (from database — use `tusk workflow` to modify)\n")
 
 	sorted := append([]*domain.Workflow(nil), workflows...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	sort.Slice(sorted, func(ii, jj int) bool { return sorted[ii].Name < sorted[jj].Name })
 
-	for _, w := range sorted {
-		statusNames := make([]string, 0, len(w.Statuses))
-		for name := range w.Statuses {
+	for _, workflow := range sorted {
+		statusNames := make([]string, 0, len(workflow.Statuses))
+		for name := range workflow.Statuses {
 			statusNames = append(statusNames, name)
 		}
 		sort.Strings(statusNames)
-		for _, sn := range statusNames {
-			sc := w.Statuses[sn]
-			fmt.Fprintf(&b, "\n[workflows.%s.statuses.%s]\n", tomlKey(w.Name), tomlKey(sn))
-			fmt.Fprintf(&b, "roles = %s\n", tomlStringArray(rolesToStrings(sc.Roles)))
+		for _, statusName := range statusNames {
+			statusCfg := workflow.Statuses[statusName]
+			fmt.Fprintf(&buf, "\n[workflows.%s.statuses.%s]\n", tomlKey(workflow.Name), tomlKey(statusName))
+			fmt.Fprintf(&buf, "roles = %s\n", tomlStringArray(rolesToStrings(statusCfg.Roles)))
 		}
-		for _, tr := range w.Transitions {
-			fmt.Fprintf(&b, "\n[[workflows.%s.transitions]]\n", tomlKey(w.Name))
-			fmt.Fprintf(&b, "from = %s\n", tomlString(tr.FromStatus))
-			fmt.Fprintf(&b, "to = %s\n", tomlString(tr.ToStatus))
+		for _, transition := range workflow.Transitions {
+			fmt.Fprintf(&buf, "\n[[workflows.%s.transitions]]\n", tomlKey(workflow.Name))
+			fmt.Fprintf(&buf, "from = %s\n", tomlString(transition.FromStatus))
+			fmt.Fprintf(&buf, "to = %s\n", tomlString(transition.ToStatus))
 		}
 	}
-	return b.String()
+	return buf.String()
 }
 
 // RenderProjectsTOML renders a slice of domain projects as a TOML fragment
@@ -45,102 +45,102 @@ func RenderWorkflowsTOML(workflows []*domain.Workflow) string {
 // to resolve each project's workflow back to its name. Projects whose
 // workflow cannot be resolved are rendered with an empty workflow string.
 func RenderProjectsTOML(projects []*domain.Project, workflowsByID map[uuid.UUID]*domain.Workflow) string {
-	var b strings.Builder
-	b.WriteString("# projects (from database — use `tusk project` to modify)\n")
+	var buf strings.Builder
+	buf.WriteString("# projects (from database — use `tusk project` to modify)\n")
 
 	sorted := append([]*domain.Project(nil), projects...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	sort.Slice(sorted, func(ii, jj int) bool { return sorted[ii].Name < sorted[jj].Name })
 
-	for _, p := range sorted {
+	for _, project := range sorted {
 		wfName := ""
-		if wf, ok := workflowsByID[p.WorkflowID]; ok && wf != nil {
-			wfName = wf.Name
+		if workflow, ok := workflowsByID[project.WorkflowID]; ok && workflow != nil {
+			wfName = workflow.Name
 		}
-		fmt.Fprintf(&b, "\n[projects.%s]\n", tomlKey(p.Name))
-		fmt.Fprintf(&b, "workflow = %s\n", tomlString(wfName))
-		if p.Description != "" {
-			fmt.Fprintf(&b, "description = %s\n", tomlString(p.Description))
+		fmt.Fprintf(&buf, "\n[projects.%s]\n", tomlKey(project.Name))
+		fmt.Fprintf(&buf, "workflow = %s\n", tomlString(wfName))
+		if project.Description != "" {
+			fmt.Fprintf(&buf, "description = %s\n", tomlString(project.Description))
 		}
 
-		if p.Settings.AutoCompleteParent != nil {
-			fmt.Fprintf(&b, "\n[projects.%s.settings.auto_complete_parent]\n", tomlKey(p.Name))
-			fmt.Fprintf(&b, "trigger_status = %s\n", tomlString(p.Settings.AutoCompleteParent.TriggerStatus))
-			fmt.Fprintf(&b, "target_status = %s\n", tomlString(p.Settings.AutoCompleteParent.TargetStatus))
+		if project.Settings.AutoCompleteParent != nil {
+			fmt.Fprintf(&buf, "\n[projects.%s.settings.auto_complete_parent]\n", tomlKey(project.Name))
+			fmt.Fprintf(&buf, "trigger_status = %s\n", tomlString(project.Settings.AutoCompleteParent.TriggerStatus))
+			fmt.Fprintf(&buf, "target_status = %s\n", tomlString(project.Settings.AutoCompleteParent.TargetStatus))
 		}
-		if p.Settings.AutoRevertParent != nil {
-			fmt.Fprintf(&b, "\n[projects.%s.settings.auto_revert_parent]\n", tomlKey(p.Name))
-			fmt.Fprintf(&b, "trigger_status = %s\n", tomlString(p.Settings.AutoRevertParent.TriggerStatus))
-			fmt.Fprintf(&b, "target_status = %s\n", tomlString(p.Settings.AutoRevertParent.TargetStatus))
+		if project.Settings.AutoRevertParent != nil {
+			fmt.Fprintf(&buf, "\n[projects.%s.settings.auto_revert_parent]\n", tomlKey(project.Name))
+			fmt.Fprintf(&buf, "trigger_status = %s\n", tomlString(project.Settings.AutoRevertParent.TriggerStatus))
+			fmt.Fprintf(&buf, "target_status = %s\n", tomlString(project.Settings.AutoRevertParent.TargetStatus))
 		}
-		if u := p.Settings.Urgency; u != nil {
-			fmt.Fprintf(&b, "\n[projects.%s.settings.urgency]\n", tomlKey(p.Name))
-			writeFloatField(&b, "priority_weight", u.PriorityWeight)
-			writeFloatField(&b, "due_weight", u.DueWeight)
-			writeFloatField(&b, "age_weight", u.AgeWeight)
-			writeFloatField(&b, "active_weight", u.ActiveWeight)
-			writeFloatField(&b, "blocking_weight", u.BlockingWeight)
-			writeFloatField(&b, "blocked_weight", u.BlockedWeight)
-			writeFloatField(&b, "tags_weight", u.TagsWeight)
-			writeFloatField(&b, "project_weight", u.ProjectWeight)
-			writeFloatField(&b, "annotations_weight", u.AnnotationsWeight)
-			writeFloatField(&b, "waiting_weight", u.WaitingWeight)
+		if urgency := project.Settings.Urgency; urgency != nil {
+			fmt.Fprintf(&buf, "\n[projects.%s.settings.urgency]\n", tomlKey(project.Name))
+			writeFloatField(&buf, "priority_weight", urgency.PriorityWeight)
+			writeFloatField(&buf, "due_weight", urgency.DueWeight)
+			writeFloatField(&buf, "age_weight", urgency.AgeWeight)
+			writeFloatField(&buf, "active_weight", urgency.ActiveWeight)
+			writeFloatField(&buf, "blocking_weight", urgency.BlockingWeight)
+			writeFloatField(&buf, "blocked_weight", urgency.BlockedWeight)
+			writeFloatField(&buf, "tags_weight", urgency.TagsWeight)
+			writeFloatField(&buf, "project_weight", urgency.ProjectWeight)
+			writeFloatField(&buf, "annotations_weight", urgency.AnnotationsWeight)
+			writeFloatField(&buf, "waiting_weight", urgency.WaitingWeight)
 		}
 	}
-	return b.String()
+	return buf.String()
 }
 
-func writeFloatField(b *strings.Builder, name string, v *float64) {
-	if v == nil {
+func writeFloatField(buf *strings.Builder, name string, val *float64) {
+	if val == nil {
 		return
 	}
-	fmt.Fprintf(b, "%s = %s\n", name, formatFloat(*v))
+	fmt.Fprintf(buf, "%s = %s\n", name, formatFloat(*val))
 }
 
-func formatFloat(f float64) string {
-	s := fmt.Sprintf("%g", f)
-	if !strings.ContainsAny(s, ".eE") {
-		s += ".0"
+func formatFloat(fl float64) string {
+	str := fmt.Sprintf("%g", fl)
+	if !strings.ContainsAny(str, ".eE") {
+		str += ".0"
 	}
-	return s
+	return str
 }
 
 func rolesToStrings(roles []domain.StatusRole) []string {
 	out := make([]string, len(roles))
-	for i, r := range roles {
-		out[i] = string(r)
+	for index, role := range roles {
+		out[index] = string(role)
 	}
 	return out
 }
 
 func tomlStringArray(values []string) string {
 	parts := make([]string, len(values))
-	for i, v := range values {
-		parts[i] = tomlString(v)
+	for index, val := range values {
+		parts[index] = tomlString(val)
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // tomlString quotes a string value using TOML basic-string escaping.
-func tomlString(s string) string {
-	return fmt.Sprintf("%q", s)
+func tomlString(str string) string {
+	return fmt.Sprintf("%q", str)
 }
 
 // tomlKey renders a table-path key segment. Bare keys (ASCII letters,
 // digits, hyphen, underscore) are emitted literally; anything else is
 // quoted as a basic string.
-func tomlKey(s string) string {
-	if s == "" {
+func tomlKey(str string) string {
+	if str == "" {
 		return `""`
 	}
-	for _, r := range s {
+	for _, char := range str {
 		switch {
-		case r >= 'A' && r <= 'Z':
-		case r >= 'a' && r <= 'z':
-		case r >= '0' && r <= '9':
-		case r == '-' || r == '_':
+		case char >= 'A' && char <= 'Z':
+		case char >= 'a' && char <= 'z':
+		case char >= '0' && char <= '9':
+		case char == '-' || char == '_':
 		default:
-			return tomlString(s)
+			return tomlString(str)
 		}
 	}
-	return s
+	return str
 }

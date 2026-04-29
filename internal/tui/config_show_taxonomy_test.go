@@ -19,15 +19,15 @@ import (
 // testAppWithConfigFile wires an App whose config.Load() reads the provided
 // file contents. Returns the app plus the file path so tests can rewrite it
 // between assertions.
-func testAppWithConfigFile(t *testing.T, contents string) *App {
-	t.Helper()
-	dir := t.TempDir()
+func testAppWithConfigFile(test *testing.T, contents string) *App {
+	test.Helper()
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
-		t.Fatalf("writing config: %v", err)
+		test.Fatalf("writing config: %v", err)
 	}
 
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t)
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 	db := store.DB()
 	bundle := &service.RepoBundle{
 		Store:       store,
@@ -58,8 +58,8 @@ func testAppWithConfigFile(t *testing.T, contents string) *App {
 	return app
 }
 
-func TestRunConfigShow_TaxonomyBlockRendered(t *testing.T) {
-	app := testAppWithConfigFile(t, `
+func TestRunConfigShow_TaxonomyBlockRendered(test *testing.T) {
+	app := testAppWithConfigFile(test, `
 [taxonomy]
 levels = [["milestone"], ["story"], ["task", "spike"]]
 `)
@@ -69,28 +69,28 @@ levels = [["milestone"], ["story"], ["task", "spike"]]
 	app.root.SetErr(&buf)
 	app.root.SetArgs([]string{"config", "show"})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("config show: %v", err)
+		test.Fatalf("config show: %v", err)
 	}
 	out := buf.String()
 	if !strings.Contains(out, "[taxonomy]") {
-		t.Fatalf("expected [taxonomy] block, got:\n%s", out)
+		test.Fatalf("expected [taxonomy] block, got:\n%s", out)
 	}
 	if !strings.Contains(out, `levels = "milestone:story:(task,spike)"`) {
-		t.Fatalf("expected inline levels, got:\n%s", out)
+		test.Fatalf("expected inline levels, got:\n%s", out)
 	}
 }
 
-func TestRunConfigShow_TaxonomyBlockOmittedWhenEmpty(t *testing.T) {
-	app := testAppWithConfigFile(t, "")
+func TestRunConfigShow_TaxonomyBlockOmittedWhenEmpty(test *testing.T) {
+	app := testAppWithConfigFile(test, "")
 
 	var buf bytes.Buffer
 	app.root.SetOut(&buf)
 	app.root.SetErr(&buf)
 	app.root.SetArgs([]string{"config", "show"})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("config show: %v", err)
+		test.Fatalf("config show: %v", err)
 	}
 	if strings.Contains(buf.String(), "[taxonomy]") {
-		t.Fatalf("did not expect [taxonomy] block when empty, got:\n%s", buf.String())
+		test.Fatalf("did not expect [taxonomy] block when empty, got:\n%s", buf.String())
 	}
 }
