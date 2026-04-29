@@ -50,24 +50,24 @@ func applyUrgencyMergePatch(task *domain.Task, patch *domain.UrgencyOverridesPat
 		task.UrgencyOverrides = &domain.UrgencyOverrides{}
 	}
 	for key := range patch.Clear {
-		fp := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
+		fieldPtr := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
 
-		if fp == nil {
+		if fieldPtr == nil {
 			return fmt.Errorf("urgency_overrides patch: unknown key %q", key)
 		}
 
-		*fp = nil
+		*fieldPtr = nil
 	}
 
 	for key, value := range patch.Set {
-		fp := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
+		fieldPtr := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
 
-		if fp == nil {
+		if fieldPtr == nil {
 			return fmt.Errorf("urgency_overrides patch: unknown key %q", key)
 		}
 
 		valueCopy := value
-		*fp = &valueCopy
+		*fieldPtr = &valueCopy
 	}
 	return nil
 }
@@ -110,9 +110,9 @@ func (service *TaskService) applyUrgencyDelta(
 			return fmt.Errorf("urgency_overrides delta: unknown key %q", key)
 		}
 		newValue := base + delta[key]
-		fp := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
+		fieldPtr := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
 		newValueCopy := newValue
-		*fp = &newValueCopy
+		*fieldPtr = &newValueCopy
 	}
 	return nil
 }

@@ -51,14 +51,14 @@ func assertTaxonomyReason(test *testing.T, err error, reason string) {
 		test.Fatalf("expected ErrTaxonomyViolation, got %v", err)
 	}
 
-	var te *domain.TaxonomyError
+	var taxonomyErr *domain.TaxonomyError
 
-	if !errors.As(err, &te) {
+	if !errors.As(err, &taxonomyErr) {
 		test.Fatalf("expected *TaxonomyError, got %T: %v", err, err)
 	}
 
-	if te.Reason != reason {
-		test.Fatalf("reason = %q, want %q", te.Reason, reason)
+	if taxonomyErr.Reason != reason {
+		test.Fatalf("reason = %q, want %q", taxonomyErr.Reason, reason)
 	}
 }
 
@@ -153,11 +153,11 @@ func TestTaxonomy_Update_ReparentIncompatibleRank(test *testing.T) {
 
 	// Re-parent a milestone under another milestone — ranks equal.
 	pid := rootB.ID
-	pp := &pid
+	parentPtr := &pid
 	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
 		ShortID:  rootA.ShortID,
 		Version:  rootA.Version,
-		ParentID: &pp,
+		ParentID: &parentPtr,
 	})
 	assertTaxonomyReason(test, err, "parent_rank_not_lower")
 }
@@ -197,11 +197,11 @@ func TestTaxonomy_Update_LevelOnly_ReloadsParent(test *testing.T) {
 
 	// Changing Level only — parent must be re-loaded by validateTaxonomy.
 	newLevel := "story"
-	lp := &newLevel
+	levelPtr := &newLevel
 	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
 		ShortID: child.ShortID,
 		Version: child.Version,
-		Level:   &lp,
+		Level:   &levelPtr,
 	})
 
 	if err != nil {
@@ -252,12 +252,12 @@ func TestTaxonomy_Update_ChangingLevel_EmitsTaskModifiedWithLevelDiff(test *test
 	mustCreateTask(test, env.taskSvc, child)
 
 	newLevel := "spike"
-	lp := &newLevel
+	levelPtr := &newLevel
 
 	if _, updateErr := env.taskSvc.Update(ctx, domain.TaskUpdate{
 		ShortID: child.ShortID,
 		Version: child.Version,
-		Level:   &lp,
+		Level:   &levelPtr,
 	}); updateErr != nil {
 		test.Fatalf("Update: %v", updateErr)
 	}
