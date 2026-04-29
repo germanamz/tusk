@@ -26,14 +26,14 @@ func TestResolveSummaryMode(test *testing.T) {
 		{name: "tag positional is filter", args: []string{"+urgent"}, wantMode: summaryModeFilter},
 		{name: "two args is filter", args: []string{"a3f8b2c1", "level=story"}, wantMode: summaryModeFilter},
 	}
-	for _, tc := range cases {
-		test.Run(tc.name, func(test *testing.T) {
-			gotMode, gotID := resolveSummaryMode(tc.args)
-			if gotMode != tc.wantMode {
-				test.Fatalf("mode: got %d, want %d", gotMode, tc.wantMode)
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			gotMode, gotID := resolveSummaryMode(testCase.args)
+			if gotMode != testCase.wantMode {
+				test.Fatalf("mode: got %d, want %d", gotMode, testCase.wantMode)
 			}
-			if gotID != tc.wantID {
-				test.Fatalf("id: got %q, want %q", gotID, tc.wantID)
+			if gotID != testCase.wantID {
+				test.Fatalf("id: got %q, want %q", gotID, testCase.wantID)
 			}
 		})
 	}
