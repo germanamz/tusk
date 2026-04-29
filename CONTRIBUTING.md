@@ -202,6 +202,8 @@ When contributing, respect these boundaries:
 
 ## Code Conventions
 
+For code style, see [STYLE.md](STYLE.md).
+
 ### Commits
 
 Use conventional commits with scope:
