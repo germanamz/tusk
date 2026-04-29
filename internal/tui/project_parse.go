@@ -61,11 +61,13 @@ func urgencyCLIToConfigKey(cliKey string) (string, bool) {
 }
 
 func parseFloatField(key, value string) (float64, error) {
-	f, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return 0, fmt.Errorf("field %q: %v", key, err)
+	floatVal, parseErr := strconv.ParseFloat(value, 64)
+
+	if parseErr != nil {
+		return 0, fmt.Errorf("field %q: %v", key, parseErr)
 	}
-	return f, nil
+
+	return floatVal, nil
 }
 
 func parseProjectCreate(args []string) (projectCreateFields, error) {
@@ -75,11 +77,11 @@ func parseProjectCreate(args []string) (projectCreateFields, error) {
 		return projectCreateFields{}, fmt.Errorf("parse error: %s", parseErrs[0].Message)
 	}
 	out := projectCreateFields{}
-	for _, f := range fs.Fields {
-		if f.Modifier != 0 {
-			return projectCreateFields{}, fmt.Errorf("project create does not accept modifier %q on %q", f.Modifier, f.Key)
+	for _, field := range fs.Fields {
+		if field.Modifier != 0 {
+			return projectCreateFields{}, fmt.Errorf("project create does not accept modifier %q on %q", field.Modifier, field.Key)
 		}
-		if err := applyProjectCreateField(&out, f.Key, f.Value); err != nil {
+		if err := applyProjectCreateField(&out, field.Key, field.Value); err != nil {
 			return projectCreateFields{}, err
 		}
 	}
@@ -117,19 +119,21 @@ func applyProjectCreateField(out *projectCreateFields, key, value string) error 
 		if !ok {
 			return fmt.Errorf("unknown field %q", key)
 		}
-		f, err := parseFloatField(key, value)
-		if err != nil {
-			return err
+		floatVal, floatErr := parseFloatField(key, value)
+
+		if floatErr != nil {
+			return floatErr
 		}
+
 		if out.Settings.Urgency == nil {
 			out.Settings.Urgency = &domain.UrgencyOverrides{}
 		}
-		fp := domain.UrgencyOverrideFieldPtr(out.Settings.Urgency, cfgKey)
-		if fp == nil {
+		fieldPtr := domain.UrgencyOverrideFieldPtr(out.Settings.Urgency, cfgKey)
+		if fieldPtr == nil {
 			return fmt.Errorf("unknown urgency key %q", cfgKey)
 		}
-		val := f
-		*fp = &val
+		val := floatVal
+		*fieldPtr = &val
 	}
 	return nil
 }
@@ -152,10 +156,13 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 		key, value, ok := strings.Cut(arg, "=")
 		if ok && key == "taxonomy" {
 			sawTaxBare = true
-			tax, action, err := decodeTaxonomyJSON(value)
-			if err != nil {
-				return projectModifyFields{}, fmt.Errorf("taxonomy: %w", err)
+
+			tax, action, taxErr := decodeTaxonomyJSON(value)
+
+			if taxErr != nil {
+				return projectModifyFields{}, fmt.Errorf("taxonomy: %w", taxErr)
 			}
+
 			mut.TaxonomyAction = action
 			mut.TaxonomyValue = tax
 			continue
@@ -174,13 +181,16 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 	}
 
 	urgencyInputs := make([]urgencyFieldInput, len(fs.Fields))
-	for i, f := range fs.Fields {
-		urgencyInputs[i] = urgencyFieldInput{Key: f.Key, Value: f.Value, Modifier: f.Modifier}
+	for index, field := range fs.Fields {
+		urgencyInputs[index] = urgencyFieldInput{Key: field.Key, Value: field.Value, Modifier: field.Modifier}
 	}
-	urgencyResult, notConsumed, err := parseUrgencyFields(urgencyInputs)
-	if err != nil {
-		return projectModifyFields{}, err
+
+	urgencyResult, notConsumed, urgencyErr := parseUrgencyFields(urgencyInputs)
+
+	if urgencyErr != nil {
+		return projectModifyFields{}, urgencyErr
 	}
+
 	if urgencyResult.ClearAll || len(urgencyResult.Clear) > 0 {
 		return projectModifyFields{}, fmt.Errorf("urgency.clear=true and urgency.<weight>= (empty-value clear) are not supported on project modify; use tusk task modify for task-level overrides")
 	}
@@ -188,61 +198,63 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 	maps.Copy(mut.UrgencyDelta, urgencyResult.Delta)
 
 	for _, idx := range notConsumed {
-		f := fs.Fields[idx]
-		if f.Modifier != 0 {
-			if strings.HasPrefix(f.Key, "taxonomy") {
-				return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q", string(f.Modifier), f.Key)
+		field := fs.Fields[idx]
+		if field.Modifier != 0 {
+			if strings.HasPrefix(field.Key, "taxonomy") {
+				return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q", string(field.Modifier), field.Key)
 			}
-			return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q (only urgency weights)", f.Modifier, f.Key)
+			return projectModifyFields{}, fmt.Errorf("modifier %q not supported on %q (only urgency weights)", field.Modifier, field.Key)
 		}
 
-		switch f.Key {
+		switch field.Key {
 		case "workflow":
-			v := f.Value
-			mut.Workflow = &v
+			value := field.Value
+			mut.Workflow = &value
 		case "description":
-			if f.Value == "" {
+			if field.Value == "" {
 				var inner *string
 				mut.Description = &inner
 			} else {
-				v := f.Value
-				inner := &v
+				value := field.Value
+				inner := &value
 				mut.Description = &inner
 			}
 		case "auto-complete.trigger", "auto-complete.target":
 			if mut.AutoComplete == nil {
 				mut.AutoComplete = &domain.AutoCompleteConfig{}
 			}
-			if f.Key == "auto-complete.trigger" {
-				mut.AutoComplete.TriggerStatus = f.Value
+			if field.Key == "auto-complete.trigger" {
+				mut.AutoComplete.TriggerStatus = field.Value
 			} else {
-				mut.AutoComplete.TargetStatus = f.Value
+				mut.AutoComplete.TargetStatus = field.Value
 			}
 		case "auto-revert.trigger", "auto-revert.target":
 			if mut.AutoRevert == nil {
 				mut.AutoRevert = &domain.AutoRevertConfig{}
 			}
-			if f.Key == "auto-revert.trigger" {
-				mut.AutoRevert.TriggerStatus = f.Value
+			if field.Key == "auto-revert.trigger" {
+				mut.AutoRevert.TriggerStatus = field.Value
 			} else {
-				mut.AutoRevert.TargetStatus = f.Value
+				mut.AutoRevert.TargetStatus = field.Value
 			}
 		case "taxonomy.levels":
 			sawTaxLevels = true
-			if f.Value == "" {
+			if field.Value == "" {
 				mut.TaxonomyAction = taxonomyActionClear
 				mut.TaxonomyValue = nil
 				continue
 			}
-			tax, err := ParseTaxonomyInline(f.Value)
-			if err != nil {
-				return projectModifyFields{}, fmt.Errorf("taxonomy.levels: %w", err)
+			tax, taxonomyErr := ParseTaxonomyInline(field.Value)
+
+			if taxonomyErr != nil {
+				return projectModifyFields{}, fmt.Errorf("taxonomy.levels: %w", taxonomyErr)
 			}
+
 			mut.TaxonomyAction = taxonomyActionSet
 			mut.TaxonomyValue = tax
 		case "taxonomy.disable":
 			sawTaxDisable = true
-			switch f.Value {
+			switch field.Value {
 			case "true":
 				mut.TaxonomyAction = taxonomyActionEmpty
 				mut.TaxonomyValue = domain.Taxonomy{}
@@ -250,7 +262,7 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 				mut.TaxonomyAction = taxonomyActionClear
 				mut.TaxonomyValue = nil
 			default:
-				return projectModifyFields{}, fmt.Errorf("taxonomy.disable expects true or false, got %q", f.Value)
+				return projectModifyFields{}, fmt.Errorf("taxonomy.disable expects true or false, got %q", field.Value)
 			}
 		case "taxonomy":
 			// Bare `taxonomy=<json>` is intercepted before the lexer pass above.
@@ -259,7 +271,7 @@ func parseProjectModify(args []string) (projectModifyFields, error) {
 			// `taxonomy=` — reject so we do not silently ignore it.
 			return projectModifyFields{}, fmt.Errorf("taxonomy= must be supplied as a single argument with a JSON object value")
 		default:
-			return projectModifyFields{}, fmt.Errorf("unknown field %q", f.Key)
+			return projectModifyFields{}, fmt.Errorf("unknown field %q", field.Key)
 		}
 	}
 
@@ -289,15 +301,19 @@ func decodeTaxonomyJSON(value string) (domain.Taxonomy, taxonomyAction, error) {
 	var payload struct {
 		Ranks [][]string `json:"ranks"`
 	}
-	if err := json.Unmarshal([]byte(value), &payload); err != nil {
-		return nil, taxonomyActionNone, fmt.Errorf("decoding JSON: %w", err)
+
+	if unmarshalErr := json.Unmarshal([]byte(value), &payload); unmarshalErr != nil {
+		return nil, taxonomyActionNone, fmt.Errorf("decoding JSON: %w", unmarshalErr)
 	}
+
 	tax := domain.Taxonomy(payload.Ranks)
 	if tax.IsEmpty() {
 		return domain.Taxonomy{}, taxonomyActionEmpty, nil
 	}
-	if err := tax.Validate(); err != nil {
-		return nil, taxonomyActionNone, err
+
+	if validateErr := tax.Validate(); validateErr != nil {
+		return nil, taxonomyActionNone, validateErr
 	}
+
 	return tax, taxonomyActionSet, nil
 }
