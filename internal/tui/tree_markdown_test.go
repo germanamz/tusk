@@ -113,10 +113,10 @@ func TestProjectDisplayName(test *testing.T) {
 		{"a", "A"},
 		{"multi-word_project", "Multi Word Project"},
 	}
-	for _, tc := range cases {
-		got := projectDisplayName(tc.in)
-		if got != tc.want {
-			test.Errorf("projectDisplayName(%q) = %q, want %q", tc.in, got, tc.want)
+	for _, testCase := range cases {
+		got := projectDisplayName(testCase.in)
+		if got != testCase.want {
+			test.Errorf("projectDisplayName(%q) = %q, want %q", testCase.in, got, testCase.want)
 		}
 	}
 }
@@ -339,11 +339,11 @@ func TestFormatMarkdownTitleLine(test *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		test.Run(tc.name, func(test *testing.T) {
-			got := formatMarkdownTitleLine(tc.task, tc.tags, tc.hasTaxonomy, tc.workflow)
-			if got != tc.want {
-				test.Errorf("formatMarkdownTitleLine\n  got:  %q\n  want: %q", got, tc.want)
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			got := formatMarkdownTitleLine(testCase.task, testCase.tags, testCase.hasTaxonomy, testCase.workflow)
+			if got != testCase.want {
+				test.Errorf("formatMarkdownTitleLine\n  got:  %q\n  want: %q", got, testCase.want)
 			}
 		})
 	}
@@ -363,10 +363,10 @@ func TestQuoteUDAValue(test *testing.T) {
 		{`back\slash`, `back\slash`},
 		{`back\slash and space`, `"back\\slash and space"`},
 	}
-	for _, tc := range cases {
-		got := quoteUDAValue(tc.in)
-		if got != tc.want {
-			test.Errorf("quoteUDAValue(%q) = %q, want %q", tc.in, got, tc.want)
+	for _, testCase := range cases {
+		got := quoteUDAValue(testCase.in)
+		if got != testCase.want {
+			test.Errorf("quoteUDAValue(%q) = %q, want %q", testCase.in, got, testCase.want)
 		}
 	}
 }

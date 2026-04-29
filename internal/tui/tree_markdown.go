@@ -326,8 +326,8 @@ func quoteUDAValue(str string) string {
 // remains correct for single ASCII words and avoids pulling in
 // golang.org/x/text/cases for what is otherwise a one-line conversion.
 func projectDisplayName(name string) string {
-	fields := strings.FieldsFunc(name, func(ch rune) bool {
-		return ch == '-' || ch == '_'
+	fields := strings.FieldsFunc(name, func(char rune) bool {
+		return char == '-' || char == '_'
 	})
 	for i, tok := range fields {
 		fields[i] = strings.Title(tok) //nolint:staticcheck // ASCII-only per-token use; see comment above.

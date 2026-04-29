@@ -52,8 +52,8 @@ func isSummaryShortID(str string) bool {
 		return false
 	}
 	for i := 0; i < len(str); i++ {
-		ch := str[i]
-		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
+		char := str[i]
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
 			return false
 		}
 	}
