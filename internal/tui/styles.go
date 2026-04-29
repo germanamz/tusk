@@ -41,111 +41,111 @@ type Renderer struct {
 
 // setMarkdownInputs stashes the inputs the markdown tree renderer needs.
 // A nil argument is a no-op so callers can unconditionally invoke it.
-func (r *Renderer) setMarkdownInputs(in *markdownInputs) {
+func (renderer *Renderer) setMarkdownInputs(in *markdownInputs) {
 	if in == nil {
 		return
 	}
-	r.markdown = in
+	renderer.markdown = in
 }
 
 // SetProjectNameResolver wires a function that resolves project UUIDs to
 // their human names. Callers should pass a per-invocation cache so that
 // list views avoid N+1 lookups.
-func (r *Renderer) SetProjectNameResolver(fn func(uuid.UUID) string) {
-	r.projectNames = fn
+func (renderer *Renderer) SetProjectNameResolver(fn func(uuid.UUID) string) {
+	renderer.projectNames = fn
 }
 
 // SetTaxonomyResolver wires a function that reports whether a project has a
 // non-empty effective taxonomy. Used by renderTaskInfo / renderTree to decide
 // whether to show the level line / [level] suffix. nil means "always off",
 // which preserves pre-Phase-5 rendering for commands that do not care.
-func (r *Renderer) SetTaxonomyResolver(fn func(uuid.UUID) bool) {
-	r.taxonomyForTask = fn
+func (renderer *Renderer) SetTaxonomyResolver(fn func(uuid.UUID) bool) {
+	renderer.taxonomyForTask = fn
 }
 
 // hasTaxonomy returns true when the task's project has a non-empty effective
 // taxonomy. Falls back to false when no resolver is wired.
-func (r *Renderer) hasTaxonomy(projectID uuid.UUID) bool {
-	if r.taxonomyForTask == nil {
+func (renderer *Renderer) hasTaxonomy(projectID uuid.UUID) bool {
+	if renderer.taxonomyForTask == nil {
 		return false
 	}
-	return r.taxonomyForTask(projectID)
+	return renderer.taxonomyForTask(projectID)
 }
 
 // projectName returns the display name for a project UUID, falling back to
 // the stringified UUID when no resolver is wired.
-func (r *Renderer) projectName(id uuid.UUID) string {
-	if r.projectNames == nil {
+func (renderer *Renderer) projectName(id uuid.UUID) string {
+	if renderer.projectNames == nil {
 		return id.String()
 	}
-	return r.projectNames(id)
+	return renderer.projectNames(id)
 }
 
 // NewRenderer creates a Renderer. When color is true, styles are initialized.
 // dimStatuses is a set of status names that should be rendered faint.
 func NewRenderer(w io.Writer, format string, color bool, dimStatuses map[string]bool) *Renderer {
-	r := &Renderer{
+	result := &Renderer{
 		w:           w,
 		format:      format,
 		color:       color,
 		dimStatuses: dimStatuses,
 	}
 	if color {
-		r.styles = newStyles()
+		result.styles = newStyles()
 	}
-	return r
+	return result
 }
 
 // isDimStatus returns true if the given status should be rendered faint.
-func (r *Renderer) isDimStatus(status string) bool {
-	return r.styles != nil && r.dimStatuses[status]
+func (renderer *Renderer) isDimStatus(status string) bool {
+	return renderer.styles != nil && renderer.dimStatuses[status]
 }
 
 // isHighlightStatus reports whether the given status carries the highlight
 // role in any configured workflow. Mirrors the dimStatuses lookup pattern;
 // the set is populated by the caller (e.g. runTree in --rollup mode).
-func (r *Renderer) isHighlightStatus(status string) bool {
-	return r.styles != nil && r.highlightStatuses[status]
+func (renderer *Renderer) isHighlightStatus(status string) bool {
+	return renderer.styles != nil && renderer.highlightStatuses[status]
 }
 
 // styledPriority returns the priority symbol with color applied if styles are active.
-func (r *Renderer) styledPriority(priority int) string {
+func (renderer *Renderer) styledPriority(priority int) string {
 	sym := formatPriority(priority)
-	if r.styles == nil {
+	if renderer.styles == nil {
 		return sym
 	}
 	idx := priority
 	if idx < 0 || idx > 4 {
 		idx = 0
 	}
-	return r.styles.Priority[idx].Render(sym)
+	return renderer.styles.Priority[idx].Render(sym)
 }
 
 // styledHeader returns text with bold styling if styles are active.
-func (r *Renderer) styledHeader(text string) string {
-	if r.styles == nil {
+func (renderer *Renderer) styledHeader(text string) string {
+	if renderer.styles == nil {
 		return text
 	}
-	return r.styles.Header.Render(text)
+	return renderer.styles.Header.Render(text)
 }
 
 // styledLabel returns text with bold styling if styles are active (used for info labels).
-func (r *Renderer) styledLabel(text string) string {
-	return r.styledHeader(text)
+func (renderer *Renderer) styledLabel(text string) string {
+	return renderer.styledHeader(text)
 }
 
 // paddedLabel returns a label styled and padded to a fixed visible width.
-func (r *Renderer) paddedLabel(text string, width int) string {
-	styled := r.styledLabel(text)
+func (renderer *Renderer) paddedLabel(text string, width int) string {
+	styled := renderer.styledLabel(text)
 	pad := max(0, width-lipgloss.Width(styled))
 	return styled + strings.Repeat(" ", pad)
 }
 
 // styledTag returns "+tagname" with the tag's hex color applied as foreground if color is enabled
 // and the tag has a color set. Otherwise returns plain "+tagname".
-func (r *Renderer) styledTag(tag *domain.Tag) string {
+func (renderer *Renderer) styledTag(tag *domain.Tag) string {
 	text := "+" + tag.Name
-	if r.styles == nil || tag.Color == nil {
+	if renderer.styles == nil || tag.Color == nil {
 		return text
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(*tag.Color)).Render(text)
@@ -155,20 +155,20 @@ func (r *Renderer) styledTag(tag *domain.Tag) string {
 // Based on DarkStyleConfig with cleaner headings, subtler inline code, and
 // visible code block backgrounds.
 func markdownStyle() ansi.StyleConfig {
-	s := styles.DarkStyleConfig
+	cfg := styles.DarkStyleConfig
 
 	// Document: use terminal default foreground instead of hardcoded light gray.
-	s.Document.Color = nil
+	cfg.Document.Color = nil
 
 	// Headings: bold only, no markdown prefixes, backgrounds, or vibrant colors.
-	s.Heading.Color = nil
+	cfg.Heading.Color = nil
 	noPrefix := ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: ""}}
-	s.H1 = noPrefix
-	s.H2 = noPrefix
-	s.H3 = noPrefix
-	s.H4 = noPrefix
-	s.H5 = noPrefix
-	s.H6 = ansi.StyleBlock{
+	cfg.H1 = noPrefix
+	cfg.H2 = noPrefix
+	cfg.H3 = noPrefix
+	cfg.H4 = noPrefix
+	cfg.H5 = noPrefix
+	cfg.H6 = ansi.StyleBlock{
 		StylePrimitive: ansi.StylePrimitive{
 			Prefix: "",
 			Bold:   boolPtr(false),
@@ -176,7 +176,7 @@ func markdownStyle() ansi.StyleConfig {
 	}
 
 	// Inline code: bold with backtick delimiters, no color or background.
-	s.Code = ansi.StyleBlock{
+	cfg.Code = ansi.StyleBlock{
 		StylePrimitive: ansi.StylePrimitive{
 			Prefix: "`",
 			Suffix: "`",
@@ -186,9 +186,9 @@ func markdownStyle() ansi.StyleConfig {
 
 	// Code blocks: closing fence delimiter. The opening ```lang is injected
 	// by labelCodeBlocks since glamour strips the info string.
-	s.CodeBlock.BlockSuffix = "```"
+	cfg.CodeBlock.BlockSuffix = "```"
 
-	return s
+	return cfg
 }
 
 func boolPtr(b bool) *bool { return &b }
@@ -205,24 +205,26 @@ func labelCodeBlocks(text string) string {
 
 // renderMarkdown renders markdown text for terminal display using glamour.
 // When color is disabled, uses NoTTY style for plain ASCII formatting.
-func (r *Renderer) renderMarkdown(text string) (string, error) {
+func (renderer *Renderer) renderMarkdown(text string) (string, error) {
 	var opts []glamour.TermRendererOption
 
-	if r.color {
+	if renderer.color {
 		opts = append(opts, glamour.WithStyles(markdownStyle()))
 	} else {
 		opts = append(opts, glamour.WithStyles(styles.NoTTYStyleConfig))
 	}
 	opts = append(opts, glamour.WithWordWrap(0))
 
-	renderer, err := glamour.NewTermRenderer(opts...)
-	if err != nil {
-		return text, err
+	termRenderer, termRendererErr := glamour.NewTermRenderer(opts...)
+
+	if termRendererErr != nil {
+		return text, termRendererErr
 	}
 
-	rendered, err := renderer.Render(labelCodeBlocks(text))
-	if err != nil {
-		return text, err
+	rendered, renderErr := termRenderer.Render(labelCodeBlocks(text))
+
+	if renderErr != nil {
+		return text, renderErr
 	}
 
 	return strings.TrimRight(rendered, "\n"), nil

@@ -47,13 +47,13 @@ func resolveSummaryMode(args []string) (summaryMode, string) {
 // isSummaryShortID reports whether s looks like a canonical short_id (exactly
 // 8 hex characters, lowercase or uppercase). Anything else — including
 // strings containing filter-syntax characters — is treated as filter input.
-func isSummaryShortID(s string) bool {
-	if len(s) != 8 {
+func isSummaryShortID(str string) bool {
+	if len(str) != 8 {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+	for i := 0; i < len(str); i++ {
+		ch := str[i]
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
 			return false
 		}
 	}
@@ -62,7 +62,7 @@ func isSummaryShortID(s string) bool {
 
 // runSummary dispatches `tusk task summary` based on its positional args
 // and the --full flag.
-func (a *App) runSummary(cmd *cobra.Command, args []string) error {
+func (app *App) runSummary(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	full, _ := cmd.Flags().GetBool("full")
 
@@ -73,18 +73,18 @@ func (a *App) runSummary(cmd *cobra.Command, args []string) error {
 		if full {
 			return fmt.Errorf("--full is not valid in single-id mode")
 		}
-		return a.runSummarySingle(ctx, cmd, shortID)
+		return app.runSummarySingle(ctx, cmd, shortID)
 	case summaryModeRoots:
 		if full {
 			return fmt.Errorf("--full is not valid without a filter")
 		}
-		return a.runSummaryBlocks(ctx, cmd, nil, false)
+		return app.runSummaryBlocks(ctx, cmd, nil, false)
 	case summaryModeFilter:
-		expr, err := a.parseSummaryFilter(ctx, args)
+		expr, err := app.parseSummaryFilter(ctx, args)
 		if err != nil {
 			return err
 		}
-		return a.runSummaryBlocks(ctx, cmd, expr, full)
+		return app.runSummaryBlocks(ctx, cmd, expr, full)
 	}
 	return nil
 }
@@ -92,7 +92,7 @@ func (a *App) runSummary(cmd *cobra.Command, args []string) error {
 // parseSummaryFilter parses positional args as a filter expression and
 // resolves it against the workspace. Mirrors runList's pipeline so error
 // messages stay consistent.
-func (a *App) parseSummaryFilter(ctx context.Context, args []string) (domain.FilterExpr, error) {
+func (app *App) parseSummaryFilter(ctx context.Context, args []string) (domain.FilterExpr, error) {
 	input := strings.Join(args, " ")
 	expr, parseErrs := filter.ParseExpr(input)
 	if len(parseErrs) > 0 {
@@ -101,7 +101,7 @@ func (a *App) parseSummaryFilter(ctx context.Context, args []string) (domain.Fil
 	if expr == nil {
 		return nil, nil
 	}
-	resolved, resolveErrs := a.resolver.ResolveExpr(ctx, expr)
+	resolved, resolveErrs := app.resolver.ResolveExpr(ctx, expr)
 	if len(resolveErrs) > 0 {
 		return nil, resolveErrs[0]
 	}
@@ -109,25 +109,28 @@ func (a *App) parseSummaryFilter(ctx context.Context, args []string) (domain.Fil
 }
 
 // runSummarySingle handles `tusk task summary <short_id>`.
-func (a *App) runSummarySingle(ctx context.Context, cmd *cobra.Command, shortID string) error {
-	task, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+func (app *App) runSummarySingle(ctx context.Context, cmd *cobra.Command, shortID string) error {
+	task, taskErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if taskErr != nil {
+		return fmt.Errorf("%s", formatError(taskErr, shortID))
 	}
-	block, err := a.taskSvc.SummarizeSubtree(ctx, task.ID)
-	if err != nil {
-		return err
+
+	block, blockErr := app.taskSvc.SummarizeSubtree(ctx, task.ID)
+
+	if blockErr != nil {
+		return blockErr
 	}
 	summary := &domain.Summary{
 		Mode:   "single",
 		Blocks: []*domain.SummaryBlock{block},
 	}
-	return a.renderSummary(cmd, summary)
+	return app.renderSummary(cmd, summary)
 }
 
 // runSummaryBlocks handles roots and filter modes. expr == nil means roots.
-func (a *App) runSummaryBlocks(ctx context.Context, cmd *cobra.Command, expr domain.FilterExpr, full bool) error {
-	blocks, err := a.taskSvc.SummarizeBlocks(ctx, expr, full)
+func (app *App) runSummaryBlocks(ctx context.Context, cmd *cobra.Command, expr domain.FilterExpr, full bool) error {
+	blocks, err := app.taskSvc.SummarizeBlocks(ctx, expr, full)
 	if err != nil {
 		return err
 	}
@@ -140,7 +143,7 @@ func (a *App) runSummaryBlocks(ctx context.Context, cmd *cobra.Command, expr dom
 		Blocks: blocks,
 		Totals: computeTotals(blocks),
 	}
-	return a.renderSummary(cmd, summary)
+	return app.renderSummary(cmd, summary)
 }
 
 // computeTotals sums rollup counts across blocks. Returns the zero rollup
@@ -153,18 +156,18 @@ func computeTotals(blocks []*domain.SummaryBlock) *domain.Rollup {
 	seen := make(map[string]bool)
 
 	var done, total int
-	for _, b := range blocks {
-		if b == nil {
+	for _, block := range blocks {
+		if block == nil {
 			continue
 		}
-		done += b.Rollup.Done
-		total += b.Rollup.Total
-		for _, sc := range b.Rollup.StatusCounts {
-			if !seen[sc.Name] {
-				seen[sc.Name] = true
-				order = append(order, sc.Name)
+		done += block.Rollup.Done
+		total += block.Rollup.Total
+		for _, statusCount := range block.Rollup.StatusCounts {
+			if !seen[statusCount.Name] {
+				seen[statusCount.Name] = true
+				order = append(order, statusCount.Name)
 			}
-			counts[sc.Name] += sc.Count
+			counts[statusCount.Name] += statusCount.Count
 		}
 	}
 
@@ -188,45 +191,45 @@ func computeTotals(blocks []*domain.SummaryBlock) *domain.Rollup {
 
 // renderSummary dispatches between text and JSON output based on the active
 // format.
-func (a *App) renderSummary(cmd *cobra.Command, summary *domain.Summary) error {
-	if a.format == "json" {
-		r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-		return r.renderSummaryJSON(summary)
+func (app *App) renderSummary(cmd *cobra.Command, summary *domain.Summary) error {
+	if app.format == "json" {
+		renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+		return renderer.renderSummaryJSON(summary)
 	}
-	return a.renderSummaryText(cmd, summary)
+	return app.renderSummaryText(cmd, summary)
 }
 
 // renderSummaryText writes a text-mode summary. When the result has no
 // blocks (filter or roots mode), it prints "No tasks matched." to stderr
 // and returns without rendering totals.
-func (a *App) renderSummaryText(cmd *cobra.Command, summary *domain.Summary) error {
-	w := cmd.OutOrStdout()
+func (app *App) renderSummaryText(cmd *cobra.Command, summary *domain.Summary) error {
+	out := cmd.OutOrStdout()
 	if len(summary.Blocks) == 0 {
 		_, err := fmt.Fprintln(cmd.ErrOrStderr(), "No tasks matched.")
 		return err
 	}
 
-	r := a.newRenderer(cmd.Context(), w, a.buildDimStatuses())
-	r.highlightStatuses = a.buildHighlightStatuses()
-	for i, block := range summary.Blocks {
-		if i > 0 {
-			if _, err := fmt.Fprintln(w); err != nil {
+	renderer := app.newRenderer(cmd.Context(), out, app.buildDimStatuses())
+	renderer.highlightStatuses = app.buildHighlightStatuses()
+	for index, block := range summary.Blocks {
+		if index > 0 {
+			if _, err := fmt.Fprintln(out); err != nil {
 				return err
 			}
 		}
-		if err := renderBlockText(w, r, block); err != nil {
+		if err := renderBlockText(out, renderer, block); err != nil {
 			return err
 		}
 	}
 
 	if summary.Totals != nil {
-		if _, err := fmt.Fprintln(w); err != nil {
+		if _, err := fmt.Fprintln(out); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(w, strings.Repeat("─", 40)); err != nil {
+		if _, err := fmt.Fprintln(out, strings.Repeat("─", 40)); err != nil {
 			return err
 		}
-		if err := renderTotalsText(w, r, summary.Totals); err != nil {
+		if err := renderTotalsText(out, renderer, summary.Totals); err != nil {
 			return err
 		}
 	}
@@ -240,28 +243,28 @@ func (a *App) renderSummaryText(cmd *cobra.Command, summary *domain.Summary) err
 //	  level:     {level}        (omitted when the task has no level)
 //	  progress:  {done}/{total} done, {pct}%
 //	  breakdown: name: count, ... (omitted when StatusCounts is empty)
-func renderBlockText(w io.Writer, r *Renderer, block *domain.SummaryBlock) error {
-	t := block.Task
-	header := fmt.Sprintf("%s  %s", t.ShortID, t.Title)
-	if r.styles != nil {
-		header = r.styles.Header.Render(header)
+func renderBlockText(writer io.Writer, renderer *Renderer, block *domain.SummaryBlock) error {
+	task := block.Task
+	header := fmt.Sprintf("%s  %s", task.ShortID, task.Title)
+	if renderer.styles != nil {
+		header = renderer.styles.Header.Render(header)
 	}
-	if _, err := fmt.Fprintln(w, header); err != nil {
+	if _, err := fmt.Fprintln(writer, header); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "  %-10s %s\n", "status:", t.Status); err != nil {
+	if _, err := fmt.Fprintf(writer, "  %-10s %s\n", "status:", task.Status); err != nil {
 		return err
 	}
-	if t.Level != nil && *t.Level != "" {
-		if _, err := fmt.Fprintf(w, "  %-10s %s\n", "level:", *t.Level); err != nil {
+	if task.Level != nil && *task.Level != "" {
+		if _, err := fmt.Fprintf(writer, "  %-10s %s\n", "level:", *task.Level); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(w, "  %-10s %s\n", "progress:", formatProgressLine(block.Rollup)); err != nil {
+	if _, err := fmt.Fprintf(writer, "  %-10s %s\n", "progress:", formatProgressLine(block.Rollup)); err != nil {
 		return err
 	}
 	if len(block.Rollup.StatusCounts) > 0 {
-		if _, err := fmt.Fprintf(w, "  %-10s %s\n", "breakdown:", formatBreakdown(r, block.Rollup.StatusCounts)); err != nil {
+		if _, err := fmt.Fprintf(writer, "  %-10s %s\n", "breakdown:", formatBreakdown(renderer, block.Rollup.StatusCounts)); err != nil {
 			return err
 		}
 	}
@@ -272,16 +275,16 @@ func renderBlockText(w io.Writer, r *Renderer, block *domain.SummaryBlock) error
 //
 //	TOTALS    {done}/{total} done, {pct}%
 //	          name: count, ...   (omitted when StatusCounts is empty)
-func renderTotalsText(w io.Writer, r *Renderer, totals *domain.Rollup) error {
+func renderTotalsText(writer io.Writer, renderer *Renderer, totals *domain.Rollup) error {
 	label := "TOTALS"
-	if r.styles != nil {
-		label = r.styles.Bold.Render(label)
+	if renderer.styles != nil {
+		label = renderer.styles.Bold.Render(label)
 	}
-	if _, err := fmt.Fprintf(w, "%s    %s\n", label, formatProgressLine(*totals)); err != nil {
+	if _, err := fmt.Fprintf(writer, "%s    %s\n", label, formatProgressLine(*totals)); err != nil {
 		return err
 	}
 	if len(totals.StatusCounts) > 0 {
-		if _, err := fmt.Fprintf(w, "          %s\n", formatBreakdown(r, totals.StatusCounts)); err != nil {
+		if _, err := fmt.Fprintf(writer, "          %s\n", formatBreakdown(renderer, totals.StatusCounts)); err != nil {
 			return err
 		}
 	}
@@ -300,16 +303,16 @@ func formatProgressLine(roll domain.Rollup) string {
 
 // formatBreakdown renders status counts as "name: count, name: count, ..."
 // with bold/dim styling applied to highlight/dim role statuses.
-func formatBreakdown(r *Renderer, counts []domain.StatusCount) string {
+func formatBreakdown(renderer *Renderer, counts []domain.StatusCount) string {
 	parts := make([]string, 0, len(counts))
-	for _, sc := range counts {
-		seg := fmt.Sprintf("%s: %d", sc.Name, sc.Count)
-		if r.styles != nil {
+	for _, statusCount := range counts {
+		seg := fmt.Sprintf("%s: %d", statusCount.Name, statusCount.Count)
+		if renderer.styles != nil {
 			switch {
-			case r.isHighlightStatus(sc.Name):
-				seg = r.styles.Bold.Render(seg)
-			case r.isDimStatus(sc.Name):
-				seg = r.styles.Dim.Render(seg)
+			case renderer.isHighlightStatus(statusCount.Name):
+				seg = renderer.styles.Bold.Render(seg)
+			case renderer.isDimStatus(statusCount.Name):
+				seg = renderer.styles.Dim.Render(seg)
 			}
 		}
 		parts = append(parts, seg)
@@ -335,25 +338,25 @@ type summaryBlockJSON struct {
 // renderSummaryJSON emits the summary envelope. Project IDs are resolved
 // to project names through the renderer's cache, matching the shape
 // `tusk task get --format json` uses.
-func (r *Renderer) renderSummaryJSON(summary *domain.Summary) error {
+func (renderer *Renderer) renderSummaryJSON(summary *domain.Summary) error {
 	out := summaryJSON{
 		Mode:   summary.Mode,
 		Blocks: make([]summaryBlockJSON, 0, len(summary.Blocks)),
 	}
-	for _, b := range summary.Blocks {
-		if b == nil {
+	for _, block := range summary.Blocks {
+		if block == nil {
 			continue
 		}
 		out.Blocks = append(out.Blocks, summaryBlockJSON{
-			Task:   r.toTaskJSON(b.Task, nil),
-			Rollup: toRollupJSON(b.Rollup),
+			Task:   renderer.toTaskJSON(block.Task, nil),
+			Rollup: toRollupJSON(block.Rollup),
 		})
 	}
 	if summary.Totals != nil {
-		rj := toRollupJSON(*summary.Totals)
-		out.Totals = &rj
+		rollupJSON := toRollupJSON(*summary.Totals)
+		out.Totals = &rollupJSON
 	}
-	enc := json.NewEncoder(r.w)
+	enc := json.NewEncoder(renderer.w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
 }

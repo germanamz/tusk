@@ -9,8 +9,8 @@ import (
 	"github.com/germanamz/tusk/domain"
 )
 
-func TestStyledPriority_NoColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
+func TestStyledPriority_NoColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", false, nil)
 	tests := []struct {
 		priority int
 		want     string
@@ -22,15 +22,15 @@ func TestStyledPriority_NoColor(t *testing.T) {
 		{4, "U"},
 	}
 	for _, tt := range tests {
-		got := r.styledPriority(tt.priority)
+		got := renderer.styledPriority(tt.priority)
 		if got != tt.want {
-			t.Errorf("styledPriority(%d) = %q, want %q", tt.priority, got, tt.want)
+			test.Errorf("styledPriority(%d) = %q, want %q", tt.priority, got, tt.want)
 		}
 	}
 }
 
-func TestStyledPriority_WithColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+func TestStyledPriority_WithColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	tests := []struct {
 		priority int
 		wantText string // the visible text inside the ANSI codes
@@ -42,146 +42,146 @@ func TestStyledPriority_WithColor(t *testing.T) {
 		{4, "U"},
 	}
 	for _, tt := range tests {
-		got := r.styledPriority(tt.priority)
+		got := renderer.styledPriority(tt.priority)
 		// With color enabled, output should contain ANSI escape sequences
 		if !strings.Contains(got, tt.wantText) {
-			t.Errorf("styledPriority(%d) = %q, should contain %q", tt.priority, got, tt.wantText)
+			test.Errorf("styledPriority(%d) = %q, should contain %q", tt.priority, got, tt.wantText)
 		}
 		// Should contain escape character
 		if !strings.Contains(got, "\x1b[") {
-			t.Errorf("styledPriority(%d) = %q, should contain ANSI escape codes", tt.priority, got)
+			test.Errorf("styledPriority(%d) = %q, should contain ANSI escape codes", tt.priority, got)
 		}
 	}
 }
 
-func TestStyledHeader_NoColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
-	got := r.styledHeader("Title")
+func TestStyledHeader_NoColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", false, nil)
+	got := renderer.styledHeader("Title")
 	if got != "Title" {
-		t.Errorf("styledHeader(\"Title\") = %q, want \"Title\"", got)
+		test.Errorf("styledHeader(\"Title\") = %q, want \"Title\"", got)
 	}
 }
 
-func TestStyledHeader_WithColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
-	got := r.styledHeader("Title")
+func TestStyledHeader_WithColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+	got := renderer.styledHeader("Title")
 	if !strings.Contains(got, "Title") {
-		t.Errorf("styledHeader should contain \"Title\", got %q", got)
+		test.Errorf("styledHeader should contain \"Title\", got %q", got)
 	}
 	if !strings.Contains(got, "\x1b[") {
-		t.Errorf("styledHeader should contain ANSI codes, got %q", got)
+		test.Errorf("styledHeader should contain ANSI codes, got %q", got)
 	}
 }
 
-func TestIsDimStatus(t *testing.T) {
+func TestIsDimStatus(test *testing.T) {
 	dim := map[string]bool{"completed": true, "deleted": true}
 
-	t.Run("dim status with color", func(t *testing.T) {
-		r := NewRenderer(&bytes.Buffer{}, "text", true, dim)
-		if !r.isDimStatus("completed") {
-			t.Error("expected completed to be dim")
+	test.Run("dim status with color", func(test *testing.T) {
+		renderer := NewRenderer(&bytes.Buffer{}, "text", true, dim)
+		if !renderer.isDimStatus("completed") {
+			test.Error("expected completed to be dim")
 		}
-		if !r.isDimStatus("deleted") {
-			t.Error("expected deleted to be dim")
+		if !renderer.isDimStatus("deleted") {
+			test.Error("expected deleted to be dim")
 		}
-		if r.isDimStatus("active") {
-			t.Error("expected active to not be dim")
+		if renderer.isDimStatus("active") {
+			test.Error("expected active to not be dim")
 		}
-		if r.isDimStatus("pending") {
-			t.Error("expected pending to not be dim")
-		}
-	})
-
-	t.Run("no color disables dim", func(t *testing.T) {
-		r := NewRenderer(&bytes.Buffer{}, "text", false, dim)
-		if r.isDimStatus("completed") {
-			t.Error("expected dim to be disabled when color is off")
+		if renderer.isDimStatus("pending") {
+			test.Error("expected pending to not be dim")
 		}
 	})
 
-	t.Run("nil dim map", func(t *testing.T) {
-		r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
-		if r.isDimStatus("completed") {
-			t.Error("expected false for nil map")
+	test.Run("no color disables dim", func(test *testing.T) {
+		renderer := NewRenderer(&bytes.Buffer{}, "text", false, dim)
+		if renderer.isDimStatus("completed") {
+			test.Error("expected dim to be disabled when color is off")
+		}
+	})
+
+	test.Run("nil dim map", func(test *testing.T) {
+		renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+		if renderer.isDimStatus("completed") {
+			test.Error("expected false for nil map")
 		}
 	})
 }
 
-func TestStyledTag_NoColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
+func TestStyledTag_NoColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", false, nil)
 	tag := &domain.Tag{Name: "bug"}
-	got := r.styledTag(tag)
+	got := renderer.styledTag(tag)
 	if got != "+bug" {
-		t.Errorf("styledTag = %q, want \"+bug\"", got)
+		test.Errorf("styledTag = %q, want \"+bug\"", got)
 	}
 }
 
-func TestStyledTag_WithColorNoTagColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+func TestStyledTag_WithColorNoTagColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	tag := &domain.Tag{Name: "bug"}
-	got := r.styledTag(tag)
+	got := renderer.styledTag(tag)
 	// No tag color set — should return plain "+bug" without ANSI codes
 	if got != "+bug" {
-		t.Errorf("styledTag = %q, want \"+bug\"", got)
+		test.Errorf("styledTag = %q, want \"+bug\"", got)
 	}
 }
 
-func TestStyledTag_WithColorAndTagColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+func TestStyledTag_WithColorAndTagColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	color := "#ff4444"
 	tag := &domain.Tag{Name: "urgent", Color: &color}
-	got := r.styledTag(tag)
+	got := renderer.styledTag(tag)
 	if !strings.Contains(got, "urgent") {
-		t.Errorf("styledTag should contain \"urgent\", got %q", got)
+		test.Errorf("styledTag should contain \"urgent\", got %q", got)
 	}
 	if !strings.Contains(got, "\x1b[") {
-		t.Errorf("styledTag should contain ANSI codes when tag has color, got %q", got)
+		test.Errorf("styledTag should contain ANSI codes when tag has color, got %q", got)
 	}
 }
 
-func TestRenderMarkdown_WithColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+func TestRenderMarkdown_WithColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	input := "# Hello\n\nThis is **bold** text."
-	got, err := r.renderMarkdown(input)
+	got, err := renderer.renderMarkdown(input)
 	if err != nil {
-		t.Fatalf("renderMarkdown error: %v", err)
+		test.Fatalf("renderMarkdown error: %v", err)
 	}
 	if !strings.Contains(got, "Hello") {
-		t.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
+		test.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
 	}
 	if !strings.Contains(got, "bold") {
-		t.Errorf("renderMarkdown should contain \"bold\", got %q", got)
+		test.Errorf("renderMarkdown should contain \"bold\", got %q", got)
 	}
 }
 
-func TestRenderMarkdown_NoColor(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", false, nil)
+func TestRenderMarkdown_NoColor(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", false, nil)
 	input := "# Hello\n\nSome text."
-	got, err := r.renderMarkdown(input)
+	got, err := renderer.renderMarkdown(input)
 	if err != nil {
-		t.Fatalf("renderMarkdown error: %v", err)
+		test.Fatalf("renderMarkdown error: %v", err)
 	}
 	if !strings.Contains(got, "Hello") {
-		t.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
+		test.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
 	}
 	if strings.Contains(got, "\x1b[") {
-		t.Errorf("renderMarkdown with no color should not contain ANSI codes, got %q", got)
+		test.Errorf("renderMarkdown with no color should not contain ANSI codes, got %q", got)
 	}
 }
 
-func TestRenderMarkdown_PlainText(t *testing.T) {
-	r := NewRenderer(&bytes.Buffer{}, "text", true, nil)
+func TestRenderMarkdown_PlainText(test *testing.T) {
+	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	input := "Just a plain description with no markdown."
-	got, err := r.renderMarkdown(input)
+	got, err := renderer.renderMarkdown(input)
 	if err != nil {
-		t.Fatalf("renderMarkdown error: %v", err)
+		test.Fatalf("renderMarkdown error: %v", err)
 	}
 	if !strings.Contains(got, "plain description") {
-		t.Errorf("renderMarkdown should contain original text, got %q", got)
+		test.Errorf("renderMarkdown should contain original text, got %q", got)
 	}
 }
 
-func TestColorEnabled(t *testing.T) {
+func TestColorEnabled(test *testing.T) {
 	tests := []struct {
 		name     string
 		noColor  bool
@@ -196,16 +196,16 @@ func TestColorEnabled(t *testing.T) {
 		{"flag takes precedence over env", true, true, true, false},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := &App{
+		test.Run(tt.name, func(test *testing.T) {
+			app := &App{
 				noColor: tt.noColor,
 				tuiCfg:  config.TUIConfig{Color: tt.cfgColor},
 			}
 			if tt.envSet {
-				t.Setenv("NO_COLOR", "1")
+				test.Setenv("NO_COLOR", "1")
 			}
-			if got := a.colorEnabled(); got != tt.want {
-				t.Errorf("colorEnabled() = %v, want %v", got, tt.want)
+			if got := app.colorEnabled(); got != tt.want {
+				test.Errorf("colorEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}
