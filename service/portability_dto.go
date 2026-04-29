@@ -18,16 +18,16 @@ import (
 // to domain.StatusRole.
 func workflowToPortable(workflow *domain.Workflow) portability.PortableWorkflow {
 	statuses := make(map[string]portability.PortableStatusConfig, len(workflow.Statuses))
-	for name, sc := range workflow.Statuses {
-		roles := make([]string, len(sc.Roles))
-		for i, role := range sc.Roles {
-			roles[i] = string(role)
+	for name, status := range workflow.Statuses {
+		roles := make([]string, len(status.Roles))
+		for index, role := range status.Roles {
+			roles[index] = string(role)
 		}
 		statuses[name] = portability.PortableStatusConfig{Roles: roles}
 	}
 	transitions := make([]portability.PortableWorkflowTransition, len(workflow.Transitions))
-	for i, transition := range workflow.Transitions {
-		transitions[i] = portability.PortableWorkflowTransition{
+	for index, transition := range workflow.Transitions {
+		transitions[index] = portability.PortableWorkflowTransition{
 			FromStatus: transition.FromStatus,
 			ToStatus:   transition.ToStatus,
 		}
@@ -48,16 +48,16 @@ func workflowToPortable(workflow *domain.Workflow) portability.PortableWorkflow 
 // roles, so the validation pass surfaces malformed dumps.
 func workflowFromPortable(portable portability.PortableWorkflow) *domain.Workflow {
 	statuses := make(map[string]domain.StatusConfig, len(portable.Statuses))
-	for name, sc := range portable.Statuses {
-		roles := make([]domain.StatusRole, len(sc.Roles))
-		for i, role := range sc.Roles {
-			roles[i] = domain.StatusRole(role)
+	for name, status := range portable.Statuses {
+		roles := make([]domain.StatusRole, len(status.Roles))
+		for index, role := range status.Roles {
+			roles[index] = domain.StatusRole(role)
 		}
 		statuses[name] = domain.StatusConfig{Roles: roles}
 	}
 	transitions := make([]domain.WorkflowTransition, len(portable.Transitions))
-	for i, transition := range portable.Transitions {
-		transitions[i] = domain.WorkflowTransition{
+	for index, transition := range portable.Transitions {
+		transitions[index] = domain.WorkflowTransition{
 			FromStatus: transition.FromStatus,
 			ToStatus:   transition.ToStatus,
 		}
@@ -233,13 +233,13 @@ func tagFromPortable(portable portability.PortableTag) *domain.Tag {
 // domain-invalid task should not block a backup.
 func taskToPortable(task *domain.Task, tags []*domain.Tag) portability.PortableTask {
 	tagNames := make([]string, len(tags))
-	for i, tag := range tags {
-		tagNames[i] = tag.Name
+	for index, tag := range tags {
+		tagNames[index] = tag.Name
 	}
 	uda := make(map[string]string, len(task.UDA))
-	for k, v := range task.UDA {
-		if str, ok := v.(string); ok {
-			uda[k] = str
+	for key, value := range task.UDA {
+		if str, ok := value.(string); ok {
+			uda[key] = str
 		}
 	}
 	return portability.PortableTask{
@@ -273,8 +273,8 @@ func taskToPortable(task *domain.Task, tags []*domain.Tag) portability.PortableT
 // task has been inserted.
 func taskFromPortable(portable portability.PortableTask) *domain.Task {
 	uda := make(map[string]any, len(portable.UDA))
-	for k, v := range portable.UDA {
-		uda[k] = v
+	for key, value := range portable.UDA {
+		uda[key] = value
 	}
 	return &domain.Task{
 		ID:               portable.ID,
@@ -342,8 +342,8 @@ func noteToPortable(note *domain.Note) portability.PortableNote {
 	var meta map[string]any
 	if len(note.Metadata) > 0 {
 		meta = make(map[string]any, len(note.Metadata))
-		for k, v := range note.Metadata {
-			meta[k] = v
+		for key, value := range note.Metadata {
+			meta[key] = value
 		}
 	}
 	return portability.PortableNote{
@@ -362,8 +362,8 @@ func noteFromPortable(portable portability.PortableNote) *domain.Note {
 	var meta map[string]any
 	if len(portable.Metadata) > 0 {
 		meta = make(map[string]any, len(portable.Metadata))
-		for k, v := range portable.Metadata {
-			meta[k] = v
+		for key, value := range portable.Metadata {
+			meta[key] = value
 		}
 	}
 	return &domain.Note{
@@ -389,8 +389,8 @@ func eventToPortable(event *domain.Event) (portability.PortableEvent, error) {
 			rawBytes   []byte
 			marshalErr error
 		)
-		if up, ok := event.Payload.(domain.UnknownPayload); ok {
-			rawBytes, marshalErr = json.Marshal(up.Raw)
+		if unknownPayload, ok := event.Payload.(domain.UnknownPayload); ok {
+			rawBytes, marshalErr = json.Marshal(unknownPayload.Raw)
 		} else {
 			rawBytes, marshalErr = json.Marshal(event.Payload)
 		}

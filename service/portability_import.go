@@ -86,13 +86,13 @@ func (service *PortabilityService) Import(
 		if err := service.applyEvents(ctx, tx, ws, report); err != nil {
 			return err
 		}
-		evtID, evtErr := service.recordImportEvent(ctx, tx, ws, opts, report)
+		eventID, eventErr := service.recordImportEvent(ctx, tx, ws, opts, report)
 
-		if evtErr != nil {
-			return evtErr
+		if eventErr != nil {
+			return eventErr
 		}
 
-		report.EventID = evtID
+		report.EventID = eventID
 		return nil
 	})
 
@@ -125,7 +125,7 @@ func (service *PortabilityService) applyWorkflows(
 	report *ImportReport,
 ) error {
 	for _, workflow := range ws.Workflows {
-		dom := workflowFromPortable(workflow)
+		domainWorkflow := workflowFromPortable(workflow)
 		existing, err := tx.Workflows().GetByID(ctx, workflow.ID)
 
 		if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -140,7 +140,7 @@ func (service *PortabilityService) applyWorkflows(
 			// existing row.
 			continue
 		}
-		if err := tx.Workflows().Create(ctx, dom); err != nil {
+		if err := tx.Workflows().Create(ctx, domainWorkflow); err != nil {
 			return fmt.Errorf("creating workflow %s: %w", workflow.ID, err)
 		}
 		report.Workflows++
@@ -155,7 +155,7 @@ func (service *PortabilityService) applyPlayers(
 	report *ImportReport,
 ) error {
 	for _, player := range ws.Players {
-		dom := playerFromPortable(player)
+		domainPlayer := playerFromPortable(player)
 		existing, err := tx.Players().GetByID(ctx, player.ID)
 
 		if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -169,7 +169,7 @@ func (service *PortabilityService) applyPlayers(
 			// crashing on a UNIQUE collision.
 			continue
 		}
-		if err := tx.Players().Create(ctx, dom); err != nil {
+		if err := tx.Players().Create(ctx, domainPlayer); err != nil {
 			return fmt.Errorf("creating player %q: %w", player.ID, err)
 		}
 		report.Players++
@@ -184,7 +184,7 @@ func (service *PortabilityService) applyProjects(
 	report *ImportReport,
 ) error {
 	for _, project := range ws.Projects {
-		dom := projectFromPortable(project)
+		domainProject := projectFromPortable(project)
 		existing, err := tx.Projects().GetByID(ctx, project.ID)
 
 		if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -198,7 +198,7 @@ func (service *PortabilityService) applyProjects(
 			// supported path when faithful project replacement matters.
 			continue
 		}
-		if err := tx.Projects().Create(ctx, dom); err != nil {
+		if err := tx.Projects().Create(ctx, domainProject); err != nil {
 			return fmt.Errorf("creating project %s: %w", project.ID, err)
 		}
 		report.Projects++
@@ -213,7 +213,7 @@ func (service *PortabilityService) applyTags(
 	report *ImportReport,
 ) error {
 	for _, tag := range ws.Tags {
-		dom := tagFromPortable(tag)
+		domainTag := tagFromPortable(tag)
 		existing, err := tx.Tags().GetByID(ctx, tag.ID)
 
 		if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -226,7 +226,7 @@ func (service *PortabilityService) applyTags(
 			}
 			report.Replaced++
 		}
-		if err := tx.Tags().Create(ctx, dom); err != nil {
+		if err := tx.Tags().Create(ctx, domainTag); err != nil {
 			return fmt.Errorf("creating tag %s: %w", tag.ID, err)
 		}
 		report.Tags++
@@ -301,7 +301,7 @@ func (service *PortabilityService) applyOneTask(
 	task portability.PortableTask,
 	report *ImportReport,
 ) error {
-	dom := taskFromPortable(task)
+	domainTask := taskFromPortable(task)
 	existing, err := tx.Tasks().GetByID(ctx, task.ID)
 
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -314,7 +314,7 @@ func (service *PortabilityService) applyOneTask(
 		}
 		report.Replaced++
 	}
-	if err := tx.Tasks().Create(ctx, dom); err != nil {
+	if err := tx.Tasks().Create(ctx, domainTask); err != nil {
 		return fmt.Errorf("creating task %s: %w", task.ID, err)
 	}
 	report.Tasks++
@@ -396,7 +396,7 @@ func (service *PortabilityService) applyRelations(
 	report *ImportReport,
 ) error {
 	for _, relation := range ws.Relations {
-		dom := relationFromPortable(relation)
+		domainRelation := relationFromPortable(relation)
 		existing, err := service.relationExists(ctx, tx, relation.SourceID, relation.ID)
 
 		if err != nil {
@@ -409,7 +409,7 @@ func (service *PortabilityService) applyRelations(
 			}
 			report.Replaced++
 		}
-		if err := tx.Relations().Create(ctx, dom); err != nil {
+		if err := tx.Relations().Create(ctx, domainRelation); err != nil {
 			return fmt.Errorf("creating relation %s: %w", relation.ID, err)
 		}
 		report.Relations++
@@ -443,7 +443,7 @@ func (service *PortabilityService) applyAnnotations(
 	report *ImportReport,
 ) error {
 	for _, annotation := range ws.Annotations {
-		dom := annotationFromPortable(annotation)
+		domainAnnotation := annotationFromPortable(annotation)
 		existing, err := service.annotationExists(ctx, tx, annotation.TaskID, annotation.ID)
 
 		if err != nil {
@@ -456,7 +456,7 @@ func (service *PortabilityService) applyAnnotations(
 			}
 			report.Replaced++
 		}
-		if err := tx.Annotations().Create(ctx, dom); err != nil {
+		if err := tx.Annotations().Create(ctx, domainAnnotation); err != nil {
 			return fmt.Errorf("creating annotation %s: %w", annotation.ID, err)
 		}
 		report.Annotations++
@@ -475,8 +475,8 @@ func (service *PortabilityService) annotationExists(
 		return false, fmt.Errorf("looking up annotations on task %s: %w", taskID, err)
 	}
 
-	for _, ann := range anns {
-		if ann.ID == annotationID {
+	for _, annotation := range anns {
+		if annotation.ID == annotationID {
 			return true, nil
 		}
 	}
@@ -490,7 +490,7 @@ func (service *PortabilityService) applyNotes(
 	report *ImportReport,
 ) error {
 	for _, note := range ws.Notes {
-		dom := noteFromPortable(note)
+		domainNote := noteFromPortable(note)
 		existing, err := tx.Notes().GetByID(ctx, note.ID)
 
 		if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -503,7 +503,7 @@ func (service *PortabilityService) applyNotes(
 			// body. Preserve the live row to keep --replace safe.
 			continue
 		}
-		if err := tx.Notes().Create(ctx, dom); err != nil {
+		if err := tx.Notes().Create(ctx, domainNote); err != nil {
 			return fmt.Errorf("creating note %s: %w", note.ID, err)
 		}
 		report.Notes++
@@ -532,23 +532,23 @@ func (service *PortabilityService) applyEvents(
 	}
 
 	seen := make(map[uuid.UUID]struct{}, len(existing))
-	for _, ev := range existing {
-		seen[ev.ID] = struct{}{}
+	for _, event := range existing {
+		seen[event.ID] = struct{}{}
 	}
-	for _, ev := range ws.Events {
-		if _, dup := seen[ev.ID]; dup {
+	for _, event := range ws.Events {
+		if _, dup := seen[event.ID]; dup {
 			continue
 		}
-		dom, eventErr := eventFromPortable(ev)
+		domainEvent, eventErr := eventFromPortable(event)
 
 		if eventErr != nil {
 			return eventErr
 		}
 
-		if err := tx.Events().Record(ctx, dom); err != nil {
-			return fmt.Errorf("recording imported event %s: %w", ev.ID, err)
+		if err := tx.Events().Record(ctx, domainEvent); err != nil {
+			return fmt.Errorf("recording imported event %s: %w", event.ID, err)
 		}
-		seen[ev.ID] = struct{}{}
+		seen[event.ID] = struct{}{}
 		report.Events++
 	}
 	return nil
@@ -584,7 +584,7 @@ func (service *PortabilityService) recordImportEvent(
 			"events":      report.Events,
 		},
 	}
-	evt := &domain.Event{
+	event := &domain.Event{
 		ID:         uuid.New(),
 		Type:       domain.EventWorkspaceImported,
 		EntityID:   "",
@@ -593,8 +593,8 @@ func (service *PortabilityService) recordImportEvent(
 		Payload:    payload,
 		CreatedAt:  time.Now().UTC().Truncate(time.Millisecond),
 	}
-	if err := tx.Events().Record(ctx, evt); err != nil {
+	if err := tx.Events().Record(ctx, event); err != nil {
 		return uuid.Nil, fmt.Errorf("recording workspace_imported event: %w", err)
 	}
-	return evt.ID, nil
+	return event.ID, nil
 }
