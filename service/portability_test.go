@@ -18,7 +18,7 @@ import (
 // portTestEnv bundles every service the PortabilityService needs plus the
 // raw repo handles tests use to seed and assert workspace state directly.
 type portTestEnv struct {
-	t          *testing.T
+	test       *testing.T
 	bundle     *RepoBundle
 	projectSvc *ProjectService
 	taskSvc    *TaskService
@@ -34,9 +34,9 @@ type portTestEnv struct {
 	eventRepo   repository.EventRepository
 }
 
-func newPortTestEnv(t *testing.T) *portTestEnv {
-	t.Helper()
-	bundle, projectRepo, wfRepo := newSeededBundle(t)
+func newPortTestEnv(test *testing.T) *portTestEnv {
+	test.Helper()
+	bundle, projectRepo, wfRepo := newSeededBundle(test)
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
 
 	wfSvc := NewWorkflowService(wfRepo, projectRepo)
@@ -54,7 +54,7 @@ func newPortTestEnv(t *testing.T) *portTestEnv {
 	)
 
 	return &portTestEnv{
-		t:           t,
+		test:        test,
 		bundle:      bundle,
 		projectSvc:  projectSvc,
 		taskSvc:     taskSvc,
@@ -86,45 +86,46 @@ type seededWorkspace struct {
 	projNote   *domain.Note
 }
 
-func (e *portTestEnv) seedRichWorkspace(ctx context.Context) *seededWorkspace {
-	e.t.Helper()
+func (env *portTestEnv) seedRichWorkspace(ctx context.Context) *seededWorkspace {
+	env.test.Helper()
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	playerID := "test-player"
-	if _, err := e.playerSvc.Register(ctx, playerID, "human"); err != nil {
-		e.t.Fatalf("seeding player: %v", err)
+	if _, err := env.playerSvc.Register(ctx, playerID, "human"); err != nil {
+		env.test.Fatalf("seeding player: %v", err)
 	}
 
 	tagID := uuid.New()
 	tag := &domain.Tag{ID: tagID, Name: "feature"}
-	if err := e.bundle.Tags.Create(ctx, tag); err != nil {
-		e.t.Fatalf("seeding tag: %v", err)
+	if err := env.bundle.Tags.Create(ctx, tag); err != nil {
+		env.test.Fatalf("seeding tag: %v", err)
 	}
 
 	parent := &domain.Task{Title: "parent task"}
-	if err := e.taskSvc.Create(ctx, parent); err != nil {
-		e.t.Fatalf("seeding parent task: %v", err)
+	if err := env.taskSvc.Create(ctx, parent); err != nil {
+		env.test.Fatalf("seeding parent task: %v", err)
 	}
 	child := &domain.Task{Title: "child task", ParentID: &parent.ID}
-	if err := e.taskSvc.Create(ctx, child); err != nil {
-		e.t.Fatalf("seeding child task: %v", err)
+	if err := env.taskSvc.Create(ctx, child); err != nil {
+		env.test.Fatalf("seeding child task: %v", err)
 	}
 
-	if err := e.bundle.Tags.AssignToTask(ctx, child.ID, tagID); err != nil {
-		e.t.Fatalf("seeding tag assignment: %v", err)
+	if err := env.bundle.Tags.AssignToTask(ctx, child.ID, tagID); err != nil {
+		env.test.Fatalf("seeding tag assignment: %v", err)
 	}
 
-	rel, err := e.relSvc.Add(ctx, parent.ShortID, child.ShortID, "blocks")
+	rel, err := env.relSvc.Add(ctx, parent.ShortID, child.ShortID, "blocks")
+
 	if err != nil {
-		e.t.Fatalf("seeding relation: %v", err)
+		env.test.Fatalf("seeding relation: %v", err)
 	}
 
 	annID := uuid.New()
-	ann := &domain.Annotation{
+	annotation := &domain.Annotation{
 		ID: annID, TaskID: parent.ID, Body: "first annotation", CreatedAt: now,
 	}
-	if err := e.bundle.Annotations.Create(ctx, ann); err != nil {
-		e.t.Fatalf("seeding annotation: %v", err)
+	if err := env.bundle.Annotations.Create(ctx, annotation); err != nil {
+		env.test.Fatalf("seeding annotation: %v", err)
 	}
 
 	taskNote := &domain.Note{
@@ -133,16 +134,16 @@ func (e *portTestEnv) seedRichWorkspace(ctx context.Context) *seededWorkspace {
 		TaskID:    &parent.ID,
 		Body:      "note attached to task",
 	}
-	if err := e.noteSvc.Create(ctx, taskNote); err != nil {
-		e.t.Fatalf("seeding task note: %v", err)
+	if err := env.noteSvc.Create(ctx, taskNote); err != nil {
+		env.test.Fatalf("seeding task note: %v", err)
 	}
 	projNote := &domain.Note{
 		ProjectID: domain.DefaultProjectUUID,
 		PlayerID:  playerID,
 		Body:      "project-level note",
 	}
-	if err := e.noteSvc.Create(ctx, projNote); err != nil {
-		e.t.Fatalf("seeding project note: %v", err)
+	if err := env.noteSvc.Create(ctx, projNote); err != nil {
+		env.test.Fatalf("seeding project note: %v", err)
 	}
 
 	return &seededWorkspace{
@@ -150,7 +151,7 @@ func (e *portTestEnv) seedRichWorkspace(ctx context.Context) *seededWorkspace {
 		childTask:  child,
 		relation:   rel,
 		tag:        tag,
-		annotation: ann,
+		annotation: annotation,
 		playerID:   playerID,
 		projectID:  domain.DefaultProjectUUID,
 		taskNote:   taskNote,
@@ -158,36 +159,43 @@ func (e *portTestEnv) seedRichWorkspace(ctx context.Context) *seededWorkspace {
 	}
 }
 
-func TestPortabilityService_RoundTripIntoEmptyWorkspace(t *testing.T) {
-	envA := newPortTestEnv(t)
+func TestPortabilityService_RoundTripIntoEmptyWorkspace(test *testing.T) {
+	envA := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 	envA.seedRichWorkspace(ctx)
 
-	dump, err := envA.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export A: %v", err)
+	exportErr := error(nil)
+	dump, exportErr := envA.port.Export(ctx)
+
+	if exportErr != nil {
+		test.Fatalf("Export A: %v", exportErr)
 	}
+
 	if dump.SchemaVersion != portability.SchemaVersion {
-		t.Fatalf("schema version: got %d want %d", dump.SchemaVersion, portability.SchemaVersion)
+		test.Fatalf("schema version: got %d want %d", dump.SchemaVersion, portability.SchemaVersion)
 	}
 	if len(dump.Tasks) != 2 {
-		t.Fatalf("dump tasks: got %d want 2", len(dump.Tasks))
+		test.Fatalf("dump tasks: got %d want 2", len(dump.Tasks))
 	}
 
-	envB := newPortTestEnv(t)
-	report, err := envB.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true})
-	if err != nil {
-		t.Fatalf("Import B: %v", err)
+	envB := newPortTestEnv(test)
+	report, importErr := envB.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true})
+
+	if importErr != nil {
+		test.Fatalf("Import B: %v", importErr)
 	}
+
 	if report.Tasks != len(dump.Tasks) {
-		t.Fatalf("report.Tasks: got %d want %d", report.Tasks, len(dump.Tasks))
+		test.Fatalf("report.Tasks: got %d want %d", report.Tasks, len(dump.Tasks))
 	}
 
-	dumpB, err := envB.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export B: %v", err)
+	dumpB, exportBErr := envB.port.Export(ctx)
+
+	if exportBErr != nil {
+		test.Fatalf("Export B: %v", exportBErr)
 	}
-	assertWorkspaceDeepEqualModuloImport(t, dump, dumpB)
+
+	assertWorkspaceDeepEqualModuloImport(test, dump, dumpB)
 }
 
 // assertWorkspaceDeepEqualModuloImport reports a test failure when any
@@ -196,15 +204,15 @@ func TestPortabilityService_RoundTripIntoEmptyWorkspace(t *testing.T) {
 // fields, which are scoped to the receiving workspace, and (b) the
 // EventWorkspaceImported event added by the import. Every other field —
 // IDs, timestamps, version on every task — must round-trip exactly.
-func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.PortableWorkspace) {
-	t.Helper()
+func assertWorkspaceDeepEqualModuloImport(test *testing.T, want, got *portability.PortableWorkspace) {
+	test.Helper()
 
 	wfWant := append([]portability.PortableWorkflow(nil), want.Workflows...)
 	wfGot := append([]portability.PortableWorkflow(nil), got.Workflows...)
 	sort.Slice(wfWant, func(i, j int) bool { return wfWant[i].ID.String() < wfWant[j].ID.String() })
 	sort.Slice(wfGot, func(i, j int) bool { return wfGot[i].ID.String() < wfGot[j].ID.String() })
 	if !reflect.DeepEqual(wfWant, wfGot) {
-		t.Errorf("workflows mismatch:\n want=%#v\n got=%#v", wfWant, wfGot)
+		test.Errorf("workflows mismatch:\n want=%#v\n got=%#v", wfWant, wfGot)
 	}
 
 	prWant := append([]portability.PortableProject(nil), want.Projects...)
@@ -212,7 +220,7 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 	sort.Slice(prWant, func(i, j int) bool { return prWant[i].ID.String() < prWant[j].ID.String() })
 	sort.Slice(prGot, func(i, j int) bool { return prGot[i].ID.String() < prGot[j].ID.String() })
 	if !reflect.DeepEqual(prWant, prGot) {
-		t.Errorf("projects mismatch:\n want=%#v\n got=%#v", prWant, prGot)
+		test.Errorf("projects mismatch:\n want=%#v\n got=%#v", prWant, prGot)
 	}
 
 	plWant := append([]portability.PortablePlayer(nil), want.Players...)
@@ -220,7 +228,7 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 	sort.Slice(plWant, func(i, j int) bool { return plWant[i].ID < plWant[j].ID })
 	sort.Slice(plGot, func(i, j int) bool { return plGot[i].ID < plGot[j].ID })
 	if !reflect.DeepEqual(plWant, plGot) {
-		t.Errorf("players mismatch:\n want=%#v\n got=%#v", plWant, plGot)
+		test.Errorf("players mismatch:\n want=%#v\n got=%#v", plWant, plGot)
 	}
 
 	tgWant := append([]portability.PortableTag(nil), want.Tags...)
@@ -228,21 +236,21 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 	sort.Slice(tgWant, func(i, j int) bool { return tgWant[i].ID.String() < tgWant[j].ID.String() })
 	sort.Slice(tgGot, func(i, j int) bool { return tgGot[i].ID.String() < tgGot[j].ID.String() })
 	if !reflect.DeepEqual(tgWant, tgGot) {
-		t.Errorf("tags mismatch:\n want=%#v\n got=%#v", tgWant, tgGot)
+		test.Errorf("tags mismatch:\n want=%#v\n got=%#v", tgWant, tgGot)
 	}
 
 	tkWant := append([]portability.PortableTask(nil), want.Tasks...)
 	tkGot := append([]portability.PortableTask(nil), got.Tasks...)
 	sort.Slice(tkWant, func(i, j int) bool { return tkWant[i].ID.String() < tkWant[j].ID.String() })
 	sort.Slice(tkGot, func(i, j int) bool { return tkGot[i].ID.String() < tkGot[j].ID.String() })
-	for i := range tkWant {
-		sort.Strings(tkWant[i].Tags)
+	for index := range tkWant {
+		sort.Strings(tkWant[index].Tags)
 	}
-	for i := range tkGot {
-		sort.Strings(tkGot[i].Tags)
+	for index := range tkGot {
+		sort.Strings(tkGot[index].Tags)
 	}
 	if !reflect.DeepEqual(tkWant, tkGot) {
-		t.Errorf("tasks mismatch:\n want=%#v\n got=%#v", tkWant, tkGot)
+		test.Errorf("tasks mismatch:\n want=%#v\n got=%#v", tkWant, tkGot)
 	}
 
 	rlWant := append([]portability.PortableRelation(nil), want.Relations...)
@@ -250,7 +258,7 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 	sort.Slice(rlWant, func(i, j int) bool { return rlWant[i].ID.String() < rlWant[j].ID.String() })
 	sort.Slice(rlGot, func(i, j int) bool { return rlGot[i].ID.String() < rlGot[j].ID.String() })
 	if !reflect.DeepEqual(rlWant, rlGot) {
-		t.Errorf("relations mismatch:\n want=%#v\n got=%#v", rlWant, rlGot)
+		test.Errorf("relations mismatch:\n want=%#v\n got=%#v", rlWant, rlGot)
 	}
 
 	anWant := append([]portability.PortableAnnotation(nil), want.Annotations...)
@@ -258,7 +266,7 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 	sort.Slice(anWant, func(i, j int) bool { return anWant[i].ID.String() < anWant[j].ID.String() })
 	sort.Slice(anGot, func(i, j int) bool { return anGot[i].ID.String() < anGot[j].ID.String() })
 	if !reflect.DeepEqual(anWant, anGot) {
-		t.Errorf("annotations mismatch:\n want=%#v\n got=%#v", anWant, anGot)
+		test.Errorf("annotations mismatch:\n want=%#v\n got=%#v", anWant, anGot)
 	}
 
 	ntWant := append([]portability.PortableNote(nil), want.Notes...)
@@ -266,7 +274,7 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 	sort.Slice(ntWant, func(i, j int) bool { return ntWant[i].ID.String() < ntWant[j].ID.String() })
 	sort.Slice(ntGot, func(i, j int) bool { return ntGot[i].ID.String() < ntGot[j].ID.String() })
 	if !reflect.DeepEqual(ntWant, ntGot) {
-		t.Errorf("notes mismatch:\n want=%#v\n got=%#v", ntWant, ntGot)
+		test.Errorf("notes mismatch:\n want=%#v\n got=%#v", ntWant, ntGot)
 	}
 
 	evWant := filterOutImportEvent(want.Events)
@@ -278,11 +286,11 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 		return evGot[i].CreatedAt.Before(evGot[j].CreatedAt) || (evGot[i].CreatedAt.Equal(evGot[j].CreatedAt) && evGot[i].ID.String() < evGot[j].ID.String())
 	})
 	if len(evWant) != len(evGot) {
-		t.Errorf("event count drift (excluding workspace_imported): want %d got %d", len(evWant), len(evGot))
+		test.Errorf("event count drift (excluding workspace_imported): want %d got %d", len(evWant), len(evGot))
 	} else {
-		for i := range evWant {
-			if evWant[i].ID != evGot[i].ID || evWant[i].Type != evGot[i].Type || !evWant[i].CreatedAt.Equal(evGot[i].CreatedAt) {
-				t.Errorf("event %d drift: want=%v got=%v", i, evWant[i], evGot[i])
+		for index := range evWant {
+			if evWant[index].ID != evGot[index].ID || evWant[index].Type != evGot[index].Type || !evWant[index].CreatedAt.Equal(evGot[index].CreatedAt) {
+				test.Errorf("event %d drift: want=%v got=%v", index, evWant[index], evGot[index])
 			}
 		}
 	}
@@ -290,75 +298,81 @@ func assertWorkspaceDeepEqualModuloImport(t *testing.T, want, got *portability.P
 
 func filterOutImportEvent(events []portability.PortableEvent) []portability.PortableEvent {
 	out := make([]portability.PortableEvent, 0, len(events))
-	for _, e := range events {
-		if e.Type == string(domain.EventWorkspaceImported) {
+	for _, event := range events {
+		if event.Type == string(domain.EventWorkspaceImported) {
 			continue
 		}
-		out = append(out, e)
+		out = append(out, event)
 	}
 	return out
 }
 
-func TestPortabilityService_StrictModeCollisionLeavesWorkspaceUnchanged(t *testing.T) {
-	env := newPortTestEnv(t)
+func TestPortabilityService_StrictModeCollisionLeavesWorkspaceUnchanged(test *testing.T) {
+	env := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 	seed := env.seedRichWorkspace(ctx)
 
-	dump, err := env.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export: %v", err)
+	dump, exportErr := env.port.Export(ctx)
+
+	if exportErr != nil {
+		test.Fatalf("Export: %v", exportErr)
 	}
-	for i := range dump.Tasks {
-		if dump.Tasks[i].ID == seed.parentTask.ID {
-			dump.Tasks[i].Title = "rewritten title"
+
+	for index := range dump.Tasks {
+		if dump.Tasks[index].ID == seed.parentTask.ID {
+			dump.Tasks[index].Title = "rewritten title"
 		}
 	}
 
-	report, err := env.port.Import(ctx, dump, ImportOptions{})
-	if err == nil {
-		t.Fatal("expected ImportError in strict mode, got nil")
+	report, importErr := env.port.Import(ctx, dump, ImportOptions{})
+
+	if importErr == nil {
+		test.Fatal("expected ImportError in strict mode, got nil")
 	}
-	var importErr *portability.ImportError
-	if !errors.As(err, &importErr) {
-		t.Fatalf("expected *portability.ImportError, got %T: %v", err, err)
+
+	var importErrTyped *portability.ImportError
+	if !errors.As(importErr, &importErrTyped) {
+		test.Fatalf("expected *portability.ImportError, got %T: %v", importErr, importErr)
 	}
-	if len(importErr.Issues) == 0 {
-		t.Fatal("expected at least one issue in ImportError")
+	if len(importErrTyped.Issues) == 0 {
+		test.Fatal("expected at least one issue in ImportError")
 	}
 	sawCollision := false
-	for _, iss := range importErr.Issues {
+	for _, iss := range importErrTyped.Issues {
 		if iss.Kind == "collision" {
 			sawCollision = true
 		}
 	}
 	if !sawCollision {
-		t.Fatalf("expected at least one collision issue, got %#v", importErr.Issues)
+		test.Fatalf("expected at least one collision issue, got %#v", importErrTyped.Issues)
 	}
 
-	live, err := env.bundle.Tasks.GetByID(ctx, seed.parentTask.ID)
-	if err != nil {
-		t.Fatalf("loading live parent task: %v", err)
+	live, liveErr := env.bundle.Tasks.GetByID(ctx, seed.parentTask.ID)
+
+	if liveErr != nil {
+		test.Fatalf("loading live parent task: %v", liveErr)
 	}
+
 	if live.Title != seed.parentTask.Title {
-		t.Errorf("strict-mode collision wrote workspace: title became %q", live.Title)
+		test.Errorf("strict-mode collision wrote workspace: title became %q", live.Title)
 	}
 
 	if report == nil {
-		t.Fatal("expected non-nil report even on validation failure")
+		test.Fatal("expected non-nil report even on validation failure")
 	}
 	if report.Tasks != len(dump.Tasks) {
-		t.Errorf("report.Tasks should reflect dump size on validation error: got %d want %d", report.Tasks, len(dump.Tasks))
+		test.Errorf("report.Tasks should reflect dump size on validation error: got %d want %d", report.Tasks, len(dump.Tasks))
 	}
 }
 
-func TestPortabilityService_ReplaceUpdatesInPlaceFaithful(t *testing.T) {
+func TestPortabilityService_ReplaceUpdatesInPlaceFaithful(test *testing.T) {
 	for _, parented := range []bool{false, true} {
 		name := "root"
 		if parented {
 			name = "parented"
 		}
-		t.Run(name, func(t *testing.T) {
-			env := newPortTestEnv(t)
+		test.Run(name, func(test *testing.T) {
+			env := newPortTestEnv(test)
 			ctx := WithActor(context.Background(), "test-player")
 
 			var (
@@ -371,59 +385,69 @@ func TestPortabilityService_ReplaceUpdatesInPlaceFaithful(t *testing.T) {
 				original = seed.childTask
 			} else {
 				task := &domain.Task{Title: "old"}
-				if err := env.taskSvc.Create(ctx, task); err != nil {
-					t.Fatalf("seed root task: %v", err)
+				taskErr := env.taskSvc.Create(ctx, task)
+
+				if taskErr != nil {
+					test.Fatalf("seed root task: %v", taskErr)
 				}
+
 				targetID = task.ID
 				original = task
 			}
 
-			dump, err := env.port.Export(ctx)
-			if err != nil {
-				t.Fatalf("Export: %v", err)
+			dump, exportErr := env.port.Export(ctx)
+
+			if exportErr != nil {
+				test.Fatalf("Export: %v", exportErr)
 			}
-			for i := range dump.Tasks {
-				if dump.Tasks[i].ID == targetID {
-					dump.Tasks[i].Title = "new"
-					dump.Tasks[i].Version = 42
+
+			for index := range dump.Tasks {
+				if dump.Tasks[index].ID == targetID {
+					dump.Tasks[index].Title = "new"
+					dump.Tasks[index].Version = 42
 				}
 			}
 
-			report, err := env.port.Import(ctx, dump, ImportOptions{Replace: true})
-			if err != nil {
-				t.Fatalf("Import (replace): %v", err)
-			}
-			if report.Replaced == 0 {
-				t.Errorf("expected at least one replacement, got %d", report.Replaced)
+			report, importErr := env.port.Import(ctx, dump, ImportOptions{Replace: true})
+
+			if importErr != nil {
+				test.Fatalf("Import (replace): %v", importErr)
 			}
 
-			updated, err := env.bundle.Tasks.GetByID(ctx, targetID)
-			if err != nil {
-				t.Fatalf("loading replaced task: %v", err)
+			if report.Replaced == 0 {
+				test.Errorf("expected at least one replacement, got %d", report.Replaced)
 			}
+
+			updated, updatedErr := env.bundle.Tasks.GetByID(ctx, targetID)
+
+			if updatedErr != nil {
+				test.Fatalf("loading replaced task: %v", updatedErr)
+			}
+
 			if updated.Title != "new" {
-				t.Errorf("title not replaced: got %q want %q", updated.Title, "new")
+				test.Errorf("title not replaced: got %q want %q", updated.Title, "new")
 			}
 			if updated.Version != 42 {
-				t.Errorf("version not preserved: got %d want 42", updated.Version)
+				test.Errorf("version not preserved: got %d want 42", updated.Version)
 			}
 			if updated.ID != original.ID {
-				t.Errorf("id drifted: got %s want %s", updated.ID, original.ID)
+				test.Errorf("id drifted: got %s want %s", updated.ID, original.ID)
 			}
 		})
 	}
 }
 
-func TestPortabilityService_TruncateWipesAndRehydrates(t *testing.T) {
-	env := newPortTestEnv(t)
+func TestPortabilityService_TruncateWipesAndRehydrates(test *testing.T) {
+	env := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 	env.seedRichWorkspace(ctx)
 
 	// Build a fresh dump with one project + one task only.
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	wfDump, err := env.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export to capture workflows: %v", err)
+	wfDump, wfDumpErr := env.port.Export(ctx)
+
+	if wfDumpErr != nil {
+		test.Fatalf("Export to capture workflows: %v", wfDumpErr)
 	}
 
 	one := &portability.PortableWorkspace{
@@ -452,47 +476,55 @@ func TestPortabilityService_TruncateWipesAndRehydrates(t *testing.T) {
 		Events:      []portability.PortableEvent{},
 	}
 
-	report, err := env.port.Import(ctx, one, ImportOptions{Replace: true, Truncate: true})
-	if err != nil {
-		t.Fatalf("Import (truncate): %v", err)
-	}
-	if !report.Truncated {
-		t.Error("expected report.Truncated == true")
+	report, importErr := env.port.Import(ctx, one, ImportOptions{Replace: true, Truncate: true})
+
+	if importErr != nil {
+		test.Fatalf("Import (truncate): %v", importErr)
 	}
 
-	tasks, err := env.bundle.Tasks.List(ctx, &domain.TermFilter{})
-	if err != nil {
-		t.Fatalf("listing tasks: %v", err)
+	if !report.Truncated {
+		test.Error("expected report.Truncated == true")
 	}
+
+	tasks, tasksErr := env.bundle.Tasks.List(ctx, &domain.TermFilter{})
+
+	if tasksErr != nil {
+		test.Fatalf("listing tasks: %v", tasksErr)
+	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected exactly one task post-truncate, got %d", len(tasks))
+		test.Fatalf("expected exactly one task post-truncate, got %d", len(tasks))
 	}
 	if tasks[0].Title != "lone survivor" {
-		t.Errorf("post-truncate task title: got %q", tasks[0].Title)
+		test.Errorf("post-truncate task title: got %q", tasks[0].Title)
 	}
-	projects, err := env.projectSvc.List(ctx)
-	if err != nil {
-		t.Fatalf("listing projects: %v", err)
+	projects, projectsErr := env.projectSvc.List(ctx)
+
+	if projectsErr != nil {
+		test.Fatalf("listing projects: %v", projectsErr)
 	}
+
 	if len(projects) != 1 {
-		t.Fatalf("expected exactly one project post-truncate, got %d", len(projects))
+		test.Fatalf("expected exactly one project post-truncate, got %d", len(projects))
 	}
 }
 
-func TestPortabilityService_ValidationErrorsBatchCorrectly(t *testing.T) {
-	env := newPortTestEnv(t)
+func TestPortabilityService_ValidationErrorsBatchCorrectly(test *testing.T) {
+	env := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 
 	// Project with a taxonomy so we can raise a level-violation issue.
 	taxStrict := domain.Taxonomy{{"epic"}, {"task"}}
-	def, err := env.projectRepo.GetByID(ctx, domain.DefaultProjectUUID)
-	if err != nil {
-		t.Fatalf("loading default project: %v", err)
+	def, defErr := env.projectRepo.GetByID(ctx, domain.DefaultProjectUUID)
+
+	if defErr != nil {
+		test.Fatalf("loading default project: %v", defErr)
 	}
+
 	tax := taxStrict.Clone()
 	def.Settings.Taxonomy = &tax
-	if err := env.projectRepo.Update(ctx, def); err != nil {
-		t.Fatalf("attaching taxonomy: %v", err)
+	if updateErr := env.projectRepo.Update(ctx, def); updateErr != nil {
+		test.Fatalf("attaching taxonomy: %v", updateErr)
 	}
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -524,113 +556,129 @@ func TestPortabilityService_ValidationErrorsBatchCorrectly(t *testing.T) {
 		Events:      []portability.PortableEvent{},
 	}
 
-	_, err = env.port.Import(ctx, dump, ImportOptions{})
-	if err == nil {
-		t.Fatal("expected ImportError, got nil")
+	_, importErr := env.port.Import(ctx, dump, ImportOptions{})
+
+	if importErr == nil {
+		test.Fatal("expected ImportError, got nil")
 	}
-	var importErr *portability.ImportError
-	if !errors.As(err, &importErr) {
-		t.Fatalf("expected *portability.ImportError, got %T: %v", err, err)
+
+	var importErrTyped *portability.ImportError
+	if !errors.As(importErr, &importErrTyped) {
+		test.Fatalf("expected *portability.ImportError, got %T: %v", importErr, importErr)
 	}
 
 	kinds := map[string]int{}
-	for _, iss := range importErr.Issues {
+	for _, iss := range importErrTyped.Issues {
 		kinds[iss.Kind]++
 	}
 	if kinds["fk"] == 0 {
-		t.Errorf("expected at least one fk issue, got %v", kinds)
+		test.Errorf("expected at least one fk issue, got %v", kinds)
 	}
 	if kinds["taxonomy"] == 0 {
-		t.Errorf("expected at least one taxonomy issue, got %v", kinds)
+		test.Errorf("expected at least one taxonomy issue, got %v", kinds)
 	}
 	if kinds["cycle"] == 0 {
-		t.Errorf("expected at least one cycle issue, got %v", kinds)
+		test.Errorf("expected at least one cycle issue, got %v", kinds)
 	}
 }
 
-func TestPortabilityService_DryRunDoesNotMutate(t *testing.T) {
-	env := newPortTestEnv(t)
+func TestPortabilityService_DryRunDoesNotMutate(test *testing.T) {
+	env := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 	env.seedRichWorkspace(ctx)
 
-	dump, err := env.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export: %v", err)
+	dump, exportErr := env.port.Export(ctx)
+
+	if exportErr != nil {
+		test.Fatalf("Export: %v", exportErr)
 	}
 
-	preTasks, err := env.bundle.Tasks.List(ctx, &domain.TermFilter{})
-	if err != nil {
-		t.Fatalf("pre-count: %v", err)
-	}
-	preEvents, err := env.eventRepo.Count(ctx)
-	if err != nil {
-		t.Fatalf("pre-event count: %v", err)
+	preTasks, preTasksErr := env.bundle.Tasks.List(ctx, &domain.TermFilter{})
+
+	if preTasksErr != nil {
+		test.Fatalf("pre-count: %v", preTasksErr)
 	}
 
-	report, err := env.port.Import(ctx, dump, ImportOptions{DryRun: true, Replace: true})
-	if err != nil {
-		t.Fatalf("dry-run import: %v", err)
+	preEvents, preEventsErr := env.eventRepo.Count(ctx)
+
+	if preEventsErr != nil {
+		test.Fatalf("pre-event count: %v", preEventsErr)
 	}
+
+	report, importErr := env.port.Import(ctx, dump, ImportOptions{DryRun: true, Replace: true})
+
+	if importErr != nil {
+		test.Fatalf("dry-run import: %v", importErr)
+	}
+
 	if report.Tasks != len(dump.Tasks) {
-		t.Errorf("report.Tasks: got %d want %d", report.Tasks, len(dump.Tasks))
+		test.Errorf("report.Tasks: got %d want %d", report.Tasks, len(dump.Tasks))
 	}
 	if report.EventID != uuid.Nil {
-		t.Errorf("dry-run should not record an event, got %s", report.EventID)
+		test.Errorf("dry-run should not record an event, got %s", report.EventID)
 	}
 
-	postTasks, err := env.bundle.Tasks.List(ctx, &domain.TermFilter{})
-	if err != nil {
-		t.Fatalf("post-count: %v", err)
+	postTasks, postTasksErr := env.bundle.Tasks.List(ctx, &domain.TermFilter{})
+
+	if postTasksErr != nil {
+		test.Fatalf("post-count: %v", postTasksErr)
 	}
+
 	if len(postTasks) != len(preTasks) {
-		t.Errorf("dry-run mutated tasks: pre=%d post=%d", len(preTasks), len(postTasks))
+		test.Errorf("dry-run mutated tasks: pre=%d post=%d", len(preTasks), len(postTasks))
 	}
-	postEvents, err := env.eventRepo.Count(ctx)
-	if err != nil {
-		t.Fatalf("post-event count: %v", err)
+	postEvents, postEventsErr := env.eventRepo.Count(ctx)
+
+	if postEventsErr != nil {
+		test.Fatalf("post-event count: %v", postEventsErr)
 	}
+
 	if postEvents != preEvents {
-		t.Errorf("dry-run mutated events: pre=%d post=%d", preEvents, postEvents)
+		test.Errorf("dry-run mutated events: pre=%d post=%d", preEvents, postEvents)
 	}
 }
 
-func TestPortabilityService_WorkspaceImportedEventLandsOnce(t *testing.T) {
-	envA := newPortTestEnv(t)
+func TestPortabilityService_WorkspaceImportedEventLandsOnce(test *testing.T) {
+	envA := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 	envA.seedRichWorkspace(ctx)
 
-	dump, err := envA.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export: %v", err)
+	dump, exportErr := envA.port.Export(ctx)
+
+	if exportErr != nil {
+		test.Fatalf("Export: %v", exportErr)
 	}
 
-	envB := newPortTestEnv(t)
-	report, err := envB.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true})
-	if err != nil {
-		t.Fatalf("Import: %v", err)
+	envB := newPortTestEnv(test)
+	report, importErr := envB.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true})
+
+	if importErr != nil {
+		test.Fatalf("Import: %v", importErr)
 	}
 
 	wantType := domain.EventWorkspaceImported
-	events, err := envB.eventRepo.List(ctx, repository.EventFilter{Type: &wantType})
-	if err != nil {
-		t.Fatalf("listing import events: %v", err)
+	events, eventsErr := envB.eventRepo.List(ctx, repository.EventFilter{Type: &wantType})
+
+	if eventsErr != nil {
+		test.Fatalf("listing import events: %v", eventsErr)
 	}
+
 	if len(events) != 1 {
-		t.Fatalf("expected exactly one workspace_imported event, got %d", len(events))
+		test.Fatalf("expected exactly one workspace_imported event, got %d", len(events))
 	}
-	evt := events[0]
-	if evt.ID != report.EventID {
-		t.Errorf("event id: got %s want %s", evt.ID, report.EventID)
+	event := events[0]
+	if event.ID != report.EventID {
+		test.Errorf("event id: got %s want %s", event.ID, report.EventID)
 	}
-	if evt.PlayerID == nil || *evt.PlayerID != "test-player" {
-		t.Errorf("event player id: got %v want test-player", evt.PlayerID)
+	if event.PlayerID == nil || *event.PlayerID != "test-player" {
+		test.Errorf("event player id: got %v want test-player", event.PlayerID)
 	}
-	payload, ok := evt.Payload.(domain.WorkspaceImportedPayload)
+	payload, ok := event.Payload.(domain.WorkspaceImportedPayload)
 	if !ok {
-		t.Fatalf("expected WorkspaceImportedPayload, got %T", evt.Payload)
+		test.Fatalf("expected WorkspaceImportedPayload, got %T", event.Payload)
 	}
 	if payload.Counts["tasks"] != report.Tasks {
-		t.Errorf("counts.tasks: got %d want %d", payload.Counts["tasks"], report.Tasks)
+		test.Errorf("counts.tasks: got %d want %d", payload.Counts["tasks"], report.Tasks)
 	}
 }
 
@@ -641,45 +689,50 @@ func TestPortabilityService_WorkspaceImportedEventLandsOnce(t *testing.T) {
 // the workflow row in that case, so a dump that names the same kanban
 // workflow with a tweaked transition list leaves the live workflow
 // untouched. Faithful workflow replacement requires --truncate.
-func TestPortabilityService_ReplaceWithoutTruncatePreservesWorkflow(t *testing.T) {
-	env := newPortTestEnv(t)
+func TestPortabilityService_ReplaceWithoutTruncatePreservesWorkflow(test *testing.T) {
+	env := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 
 	// Capture the current kanban workflow as the baseline for comparison.
-	originalWf, err := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
-	if err != nil {
-		t.Fatalf("loading kanban workflow: %v", err)
+	originalWf, originalWfErr := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
+
+	if originalWfErr != nil {
+		test.Fatalf("loading kanban workflow: %v", originalWfErr)
 	}
 
-	dump, err := env.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export: %v", err)
+	dump, exportErr := env.port.Export(ctx)
+
+	if exportErr != nil {
+		test.Fatalf("Export: %v", exportErr)
 	}
+
 	// Mutate the dump's workflow so a successful replace would visibly
 	// change the workspace.
-	for i := range dump.Workflows {
-		if dump.Workflows[i].ID == domain.KanbanWorkflowUUID {
-			dump.Workflows[i].Transitions = append(
-				dump.Workflows[i].Transitions,
+	for index := range dump.Workflows {
+		if dump.Workflows[index].ID == domain.KanbanWorkflowUUID {
+			dump.Workflows[index].Transitions = append(
+				dump.Workflows[index].Transitions,
 				portability.PortableWorkflowTransition{FromStatus: "deleted", ToStatus: "pending"},
 			)
 		}
 	}
 
-	if _, err := env.port.Import(ctx, dump, ImportOptions{Replace: true}); err != nil {
-		t.Fatalf("Import: %v", err)
+	if _, importErr := env.port.Import(ctx, dump, ImportOptions{Replace: true}); importErr != nil {
+		test.Fatalf("Import: %v", importErr)
 	}
 
-	current, err := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
-	if err != nil {
-		t.Fatalf("re-loading kanban workflow: %v", err)
+	current, currentErr := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
+
+	if currentErr != nil {
+		test.Fatalf("re-loading kanban workflow: %v", currentErr)
 	}
+
 	if len(current.Transitions) != len(originalWf.Transitions) {
-		t.Errorf("workflow transitions changed without --truncate: was %d, now %d",
+		test.Errorf("workflow transitions changed without --truncate: was %d, now %d",
 			len(originalWf.Transitions), len(current.Transitions))
 	}
 	if current.Version != originalWf.Version {
-		t.Errorf("workflow version drifted without --truncate: was %d, now %d",
+		test.Errorf("workflow version drifted without --truncate: was %d, now %d",
 			originalWf.Version, current.Version)
 	}
 }
@@ -688,30 +741,34 @@ func TestPortabilityService_ReplaceWithoutTruncatePreservesWorkflow(t *testing.T
 // the preserve-if-exists test above: the same dump with --truncate set
 // rewrites the workflow with the dump's payload because TruncateAll
 // wipes the workflows table before applyWorkflows runs.
-func TestPortabilityService_TruncateReplacesWorkflowFaithfully(t *testing.T) {
-	env := newPortTestEnv(t)
+func TestPortabilityService_TruncateReplacesWorkflowFaithfully(test *testing.T) {
+	env := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 
-	dump, err := env.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export: %v", err)
+	dump, exportErr := env.port.Export(ctx)
+
+	if exportErr != nil {
+		test.Fatalf("Export: %v", exportErr)
 	}
+
 	want := append([]portability.PortableWorkflowTransition(nil),
 		portability.PortableWorkflowTransition{FromStatus: "deleted", ToStatus: "pending"})
-	for i := range dump.Workflows {
-		if dump.Workflows[i].ID == domain.KanbanWorkflowUUID {
-			dump.Workflows[i].Transitions = append(dump.Workflows[i].Transitions, want...)
+	for index := range dump.Workflows {
+		if dump.Workflows[index].ID == domain.KanbanWorkflowUUID {
+			dump.Workflows[index].Transitions = append(dump.Workflows[index].Transitions, want...)
 		}
 	}
 
-	if _, err := env.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true}); err != nil {
-		t.Fatalf("Import: %v", err)
+	if _, importErr := env.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true}); importErr != nil {
+		test.Fatalf("Import: %v", importErr)
 	}
 
-	current, err := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
-	if err != nil {
-		t.Fatalf("loading workflow post-truncate: %v", err)
+	current, currentErr := env.wfSvc.GetByID(ctx, domain.KanbanWorkflowUUID)
+
+	if currentErr != nil {
+		test.Fatalf("loading workflow post-truncate: %v", currentErr)
 	}
+
 	found := false
 	for _, tr := range current.Transitions {
 		if tr.FromStatus == "deleted" && tr.ToStatus == "pending" {
@@ -720,12 +777,12 @@ func TestPortabilityService_TruncateReplacesWorkflowFaithfully(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected dump's deleted→pending transition to land under --truncate, got %v", current.Transitions)
+		test.Errorf("expected dump's deleted→pending transition to land under --truncate, got %v", current.Transitions)
 	}
 }
 
-func TestPortabilityService_TruncateWithoutReplaceRejected(t *testing.T) {
-	env := newPortTestEnv(t)
+func TestPortabilityService_TruncateWithoutReplaceRejected(test *testing.T) {
+	env := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -735,70 +792,81 @@ func TestPortabilityService_TruncateWithoutReplaceRejected(t *testing.T) {
 		ExportedAt:    now,
 	}
 
-	_, err := env.port.Import(ctx, dump, ImportOptions{Truncate: true})
-	if err == nil {
-		t.Fatal("expected ImportError, got nil")
+	_, importErr := env.port.Import(ctx, dump, ImportOptions{Truncate: true})
+
+	if importErr == nil {
+		test.Fatal("expected ImportError, got nil")
 	}
-	var importErr *portability.ImportError
-	if !errors.As(err, &importErr) {
-		t.Fatalf("expected *portability.ImportError, got %T: %v", err, err)
+
+	var importErrTyped *portability.ImportError
+	if !errors.As(importErr, &importErrTyped) {
+		test.Fatalf("expected *portability.ImportError, got %T: %v", importErr, importErr)
 	}
-	if len(importErr.Issues) != 1 {
-		t.Fatalf("expected one issue, got %d", len(importErr.Issues))
+
+	if len(importErrTyped.Issues) != 1 {
+		test.Fatalf("expected one issue, got %d", len(importErrTyped.Issues))
 	}
-	if importErr.Issues[0].Kind != "schema" {
-		t.Errorf("issue kind: got %q want schema", importErr.Issues[0].Kind)
+	if importErrTyped.Issues[0].Kind != "schema" {
+		test.Errorf("issue kind: got %q want schema", importErrTyped.Issues[0].Kind)
 	}
 }
 
-func TestPortability_RoundTrip_ProjectDescription(t *testing.T) {
-	envA := newPortTestEnv(t)
+func TestPortability_RoundTrip_ProjectDescription(test *testing.T) {
+	envA := newPortTestEnv(test)
 	ctx := WithActor(context.Background(), "test-player")
 
 	const desc = "alpha project description\nwith two lines"
-	wf, err := envA.wfSvc.GetByName(ctx, "kanban")
-	if err != nil {
-		t.Fatalf("resolving workflow: %v", err)
+	wf, wfErr := envA.wfSvc.GetByName(ctx, "kanban")
+
+	if wfErr != nil {
+		test.Fatalf("resolving workflow: %v", wfErr)
 	}
-	created, err := envA.projectSvc.Create(ctx, CreateProjectInput{
+
+	created, createdErr := envA.projectSvc.Create(ctx, CreateProjectInput{
 		Name:        "alpha",
 		WorkflowID:  wf.ID,
 		Description: desc,
 	})
-	if err != nil {
-		t.Fatalf("seeding alpha: %v", err)
-	}
-	if created.Description != desc {
-		t.Fatalf("seed Description = %q, want %q", created.Description, desc)
+
+	if createdErr != nil {
+		test.Fatalf("seeding alpha: %v", createdErr)
 	}
 
-	dump, err := envA.port.Export(ctx)
-	if err != nil {
-		t.Fatalf("Export: %v", err)
+	if created.Description != desc {
+		test.Fatalf("seed Description = %q, want %q", created.Description, desc)
 	}
+
+	dump, exportErr := envA.port.Export(ctx)
+
+	if exportErr != nil {
+		test.Fatalf("Export: %v", exportErr)
+	}
+
 	var found bool
-	for _, p := range dump.Projects {
-		if p.Name == "alpha" {
+	for _, proj := range dump.Projects {
+		if proj.Name == "alpha" {
 			found = true
-			if p.Description != desc {
-				t.Fatalf("dump alpha Description = %q, want %q", p.Description, desc)
+			if proj.Description != desc {
+				test.Fatalf("dump alpha Description = %q, want %q", proj.Description, desc)
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("alpha project missing from dump: %+v", dump.Projects)
+		test.Fatalf("alpha project missing from dump: %+v", dump.Projects)
 	}
 
-	envB := newPortTestEnv(t)
-	if _, err := envB.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true}); err != nil {
-		t.Fatalf("Import: %v", err)
+	envB := newPortTestEnv(test)
+	if _, importErr := envB.port.Import(ctx, dump, ImportOptions{Replace: true, Truncate: true}); importErr != nil {
+		test.Fatalf("Import: %v", importErr)
 	}
 
-	got, err := envB.projectSvc.GetByName(ctx, "alpha")
-	if err != nil {
-		t.Fatalf("GetByName after import: %v", err)
+	got, gotErr := envB.projectSvc.GetByName(ctx, "alpha")
+
+	if gotErr != nil {
+		test.Fatalf("GetByName after import: %v", gotErr)
 	}
+
 	if got.Description != desc {
-		t.Fatalf("imported Description = %q, want %q", got.Description, desc)
+		test.Fatalf("imported Description = %q, want %q", got.Description, desc)
 	}
 }
