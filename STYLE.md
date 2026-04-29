@@ -5,8 +5,6 @@ spacing convention. Rules 1–4 are linter-enforced; the style guide that
 follows is advisory review-time guidance. The enforcement summary at the end
 maps each rule to the tool that checks it.
 
-Cross-reference: `CONTRIBUTING.md` → "For code style, see [STYLE.md](STYLE.md)."
-
 ---
 
 ## Rules
@@ -81,13 +79,12 @@ When two or more `err` variables are declared at the same lexical scope,
 (`<noun>Err`). A function that produces exactly one `err` keeps it named
 `err`; this rule fires only on shadow.
 
-Renaming **every** instance rather than leaving the first as `err` keeps the
-block visually uniform — readers do not have to track which slot is `err` and
-which is a named variant. Sequential `err :=` shadows also hide the failure
-mode at the call site; named errors document it.
-
-**Rationale:** `blockingErr` in a guard immediately identifies what failed.
-Generic `err` in a multi-error block tells the reader nothing.
+**Rationale:** Sequential `err :=` shadows hide the failure mode at the
+variable; named errors document it. Renaming **every** instance rather than
+leaving the first as `err` keeps the block visually uniform — readers do not
+have to track which slot is which. `blockingErr` in a guard immediately
+identifies what failed; generic `err` in a multi-error block tells the reader
+nothing.
 
 ```go
 // before — service/task.go:325–339
