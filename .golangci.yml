@@ -21,8 +21,6 @@ linters:
       # by its corresponding sweep phase (3–7); any residual rules are
       # removed in Phase 8.
       - linters: [varnamelen]
-        path: ^service/
-      - linters: [varnamelen]
         path: ^internal/tui/
       - linters: [varnamelen]
         path: ^internal/mcp/
