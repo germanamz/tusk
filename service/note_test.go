@@ -23,13 +23,13 @@ type noteTestEnv struct {
 	taskRepo *sqlite.TaskRepo
 }
 
-func newNoteTestEnv(t *testing.T) *noteTestEnv {
-	return newNoteTestEnvWithWindow(t, 20)
+func newNoteTestEnv(test *testing.T) *noteTestEnv {
+	return newNoteTestEnvWithWindow(test, 20)
 }
 
-func newNoteTestEnvWithWindow(t *testing.T, defaultWindow int) *noteTestEnv {
-	t.Helper()
-	store, projRepo, _ := sqlitetest.NewStore(t)
+func newNoteTestEnvWithWindow(test *testing.T, defaultWindow int) *noteTestEnv {
+	test.Helper()
+	store, projRepo, _ := sqlitetest.NewStore(test)
 	db := store.DB()
 	noteRepo := sqlite.NewNoteRepo(db)
 	playerRepo := sqlite.NewPlayerRepo(db)
@@ -44,56 +44,62 @@ func newNoteTestEnvWithWindow(t *testing.T, defaultWindow int) *noteTestEnv {
 	}
 }
 
-func seedPlayerWithWindow(t *testing.T, repo *sqlite.PlayerRepo, id string, size *int) {
-	t.Helper()
+func seedPlayerWithWindow(test *testing.T, repo *sqlite.PlayerRepo, id string, size *int) {
+	test.Helper()
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	p := &domain.Player{ID: id, Type: "human", NoteWindowSize: size, RegisteredAt: now, LastSeenAt: now}
-	if err := repo.Create(context.Background(), p); err != nil {
-		t.Fatalf("seed player %q: %v", id, err)
+	player := &domain.Player{ID: id, Type: "human", NoteWindowSize: size, RegisteredAt: now, LastSeenAt: now}
+	createErr := repo.Create(context.Background(), player)
+
+	if createErr != nil {
+		test.Fatalf("seed player %q: %v", id, createErr)
 	}
 }
 
-func setProjectWindow(t *testing.T, repo *sqlite.ProjectRepo, id uuid.UUID, size *int) {
-	t.Helper()
+func setProjectWindow(test *testing.T, repo *sqlite.ProjectRepo, id uuid.UUID, size *int) {
+	test.Helper()
 	ctx := context.Background()
-	proj, err := repo.GetByID(ctx, id)
-	if err != nil {
-		t.Fatalf("get project: %v", err)
+	proj, getErr := repo.GetByID(ctx, id)
+
+	if getErr != nil {
+		test.Fatalf("get project: %v", getErr)
 	}
+
 	proj.Settings.NoteWindowSize = size
-	if err := repo.Update(ctx, proj); err != nil {
-		t.Fatalf("update project: %v", err)
+	updateErr := repo.Update(ctx, proj)
+
+	if updateErr != nil {
+		test.Fatalf("update project: %v", updateErr)
 	}
 }
 
-func seedNotes(t *testing.T, svc *service.NoteService, n int, playerID string, projectID uuid.UUID) {
-	t.Helper()
+func seedNotes(test *testing.T, svc *service.NoteService, count int, playerID string, projectID uuid.UUID) {
+	test.Helper()
 	ctx := context.Background()
-	for i := range n {
+	for index := range count {
 		note := &domain.Note{
 			ProjectID: projectID,
 			PlayerID:  playerID,
-			Body:      fmt.Sprintf("note %d", i),
+			Body:      fmt.Sprintf("note %d", index),
 		}
 		if err := svc.Create(ctx, note); err != nil {
-			t.Fatalf("seed note %d: %v", i, err)
+			test.Fatalf("seed note %d: %v", index, err)
 		}
 	}
 }
 
-func intPtr(v int) *int { return &v }
+func intPtr(value int) *int { return &value }
 
-func seedPlayer(t *testing.T, repo *sqlite.PlayerRepo, id string) {
-	t.Helper()
+func seedPlayer(test *testing.T, repo *sqlite.PlayerRepo, id string) {
+	test.Helper()
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	p := &domain.Player{ID: id, Type: "human", RegisteredAt: now, LastSeenAt: now}
-	if err := repo.Create(context.Background(), p); err != nil {
-		t.Fatalf("seed player %q: %v", id, err)
+	player := &domain.Player{ID: id, Type: "human", RegisteredAt: now, LastSeenAt: now}
+	if err := repo.Create(context.Background(), player); err != nil {
+		test.Fatalf("seed player %q: %v", id, err)
 	}
 }
 
-func seedTask(t *testing.T, repo *sqlite.TaskRepo, projectID uuid.UUID, shortID string) *domain.Task {
-	t.Helper()
+func seedTask(test *testing.T, repo *sqlite.TaskRepo, projectID uuid.UUID, shortID string) *domain.Task {
+	test.Helper()
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	task := &domain.Task{
 		ID:         uuid.New(),
@@ -106,329 +112,363 @@ func seedTask(t *testing.T, repo *sqlite.TaskRepo, projectID uuid.UUID, shortID 
 		ModifiedAt: now,
 	}
 	if err := repo.Create(context.Background(), task); err != nil {
-		t.Fatalf("seed task %q: %v", shortID, err)
+		test.Fatalf("seed task %q: %v", shortID, err)
 	}
 	return task
 }
 
-func TestNoteService_Create(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Create(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p1")
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "hello"}
 	if err := env.svc.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 	if note.ID == uuid.Nil {
-		t.Error("expected ID set")
+		test.Error("expected ID set")
 	}
 	if note.CreatedAt.IsZero() {
-		t.Error("expected CreatedAt set")
+		test.Error("expected CreatedAt set")
 	}
 	if note.ArchivedAt != nil {
-		t.Error("expected ArchivedAt nil on fresh note")
+		test.Error("expected ArchivedAt nil on fresh note")
 	}
 }
 
-func TestNoteService_Create_WithTask(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Create_WithTask(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
-	task := seedTask(t, env.taskRepo, uuid.Nil, "withtask1")
+	seedPlayer(test, env.playRepo, "p1")
+	task := seedTask(test, env.taskRepo, uuid.Nil, "withtask1")
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "task note", TaskID: &task.ID}
 	if err := env.svc.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 }
 
-func TestNoteService_Create_TaskWrongProject(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Create_TaskWrongProject(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
-	other := sqlitetest.SeedProject(t, env.projRepo, "other")
-	task := seedTask(t, env.taskRepo, uuid.Nil, "wrongproj")
+	seedPlayer(test, env.playRepo, "p1")
+	other := sqlitetest.SeedProject(test, env.projRepo, "other")
+	task := seedTask(test, env.taskRepo, uuid.Nil, "wrongproj")
 
 	note := &domain.Note{ProjectID: other.ID, PlayerID: "p1", Body: "oops", TaskID: &task.ID}
 	err := env.svc.Create(ctx, note)
 	if err == nil {
-		t.Fatal("expected error for task in wrong project")
+		test.Fatal("expected error for task in wrong project")
 	}
 	if !strings.Contains(err.Error(), "belongs to project") {
-		t.Errorf("got %v, want message containing 'belongs to project'", err)
+		test.Errorf("got %v, want message containing 'belongs to project'", err)
 	}
 }
 
-func TestNoteService_Create_EmptyBody(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Create_EmptyBody(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p1")
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "  "}
 	err := env.svc.Create(ctx, note)
 	if err == nil {
-		t.Fatal("expected error for empty body")
+		test.Fatal("expected error for empty body")
 	}
 	if !strings.Contains(err.Error(), "body must not be empty") {
-		t.Errorf("got %v, want 'body must not be empty'", err)
+		test.Errorf("got %v, want 'body must not be empty'", err)
 	}
 }
 
-func TestNoteService_Create_MissingPlayer(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Create_MissingPlayer(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "ghost", Body: "hi"}
 	err := env.svc.Create(ctx, note)
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("got %v, want wrapping ErrNotFound", err)
+		test.Fatalf("got %v, want wrapping ErrNotFound", err)
 	}
 }
 
-func TestNoteService_Create_MissingProject(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Create_MissingProject(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p1")
 
 	note := &domain.Note{ProjectID: uuid.New(), PlayerID: "p1", Body: "hi"}
 	err := env.svc.Create(ctx, note)
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("got %v, want wrapping ErrNotFound", err)
+		test.Fatalf("got %v, want wrapping ErrNotFound", err)
 	}
 }
 
-func TestNoteService_GetByID(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_GetByID(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p1")
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "fetch me"}
-	if err := env.svc.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
+	createErr := env.svc.Create(ctx, note)
+
+	if createErr != nil {
+		test.Fatalf("Create: %v", createErr)
 	}
-	got, err := env.svc.GetByID(ctx, note.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+
+	got, getErr := env.svc.GetByID(ctx, note.ID)
+
+	if getErr != nil {
+		test.Fatalf("GetByID: %v", getErr)
 	}
+
 	if got.ID != note.ID || got.Body != "fetch me" {
-		t.Errorf("got %+v, want id=%s body=%q", got, note.ID, "fetch me")
+		test.Errorf("got %+v, want id=%s body=%q", got, note.ID, "fetch me")
 	}
 
 	if _, err := env.svc.GetByID(ctx, uuid.New()); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("GetByID unknown: got %v, want wrapping ErrNotFound", err)
+		test.Errorf("GetByID unknown: got %v, want wrapping ErrNotFound", err)
 	}
 }
 
-func TestNoteService_FindByIDPrefix(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_FindByIDPrefix(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p1")
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "prefix me"}
-	if err := env.svc.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	prefix := note.ID.String()[:8]
-	matches, err := env.svc.FindByIDPrefix(ctx, prefix)
-	if err != nil {
-		t.Fatalf("FindByIDPrefix: %v", err)
-	}
-	if len(matches) != 1 || matches[0].ID != note.ID {
-		t.Errorf("got %d matches, want 1 matching %s", len(matches), note.ID)
+	createErr := env.svc.Create(ctx, note)
+
+	if createErr != nil {
+		test.Fatalf("Create: %v", createErr)
 	}
 
-	none, err := env.svc.FindByIDPrefix(ctx, "00000000")
-	if err != nil {
-		t.Fatalf("FindByIDPrefix miss: %v", err)
+	prefix := note.ID.String()[:8]
+	matches, matchErr := env.svc.FindByIDPrefix(ctx, prefix)
+
+	if matchErr != nil {
+		test.Fatalf("FindByIDPrefix: %v", matchErr)
 	}
+
+	if len(matches) != 1 || matches[0].ID != note.ID {
+		test.Errorf("got %d matches, want 1 matching %s", len(matches), note.ID)
+	}
+
+	none, noneErr := env.svc.FindByIDPrefix(ctx, "00000000")
+
+	if noneErr != nil {
+		test.Fatalf("FindByIDPrefix miss: %v", noneErr)
+	}
+
 	if len(none) != 0 {
-		t.Errorf("expected empty result for miss, got %d", len(none))
+		test.Errorf("expected empty result for miss, got %d", len(none))
 	}
 }
 
-func TestNoteService_Archive(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Archive(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p1")
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "to archive"}
-	if err := env.svc.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
+	createErr := env.svc.Create(ctx, note)
+
+	if createErr != nil {
+		test.Fatalf("Create: %v", createErr)
 	}
-	if err := env.svc.Archive(ctx, note.ID, "p1"); err != nil {
-		t.Fatalf("Archive: %v", err)
+
+	archiveErr := env.svc.Archive(ctx, note.ID, "p1")
+
+	if archiveErr != nil {
+		test.Fatalf("Archive: %v", archiveErr)
 	}
-	got, err := env.noteRepo.GetByID(ctx, note.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+
+	got, getErr := env.noteRepo.GetByID(ctx, note.ID)
+
+	if getErr != nil {
+		test.Fatalf("GetByID: %v", getErr)
 	}
+
 	if got.ArchivedAt == nil {
-		t.Error("expected ArchivedAt set after Archive")
+		test.Error("expected ArchivedAt set after Archive")
 	}
 }
 
-func TestNoteService_Archive_NotAuthor(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Archive_NotAuthor(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
-	seedPlayer(t, env.playRepo, "p2")
+	seedPlayer(test, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p2")
 
 	note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "mine"}
 	if err := env.svc.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 	err := env.svc.Archive(ctx, note.ID, "p2")
 	if !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("got %v, want wrapping ErrForbidden", err)
+		test.Fatalf("got %v, want wrapping ErrForbidden", err)
 	}
 }
 
-func TestNoteService_Archive_NotFound(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_Archive_NotFound(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
 
 	err := env.svc.Archive(ctx, uuid.New(), "p1")
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("got %v, want wrapping ErrNotFound", err)
+		test.Fatalf("got %v, want wrapping ErrNotFound", err)
 	}
 }
 
-func TestNoteService_List_DefaultWindow(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_List_DefaultWindow(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p1")
 
-	for i := range 25 {
+	for index := range 25 {
 		note := &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "n"}
 		if err := env.svc.Create(ctx, note); err != nil {
-			t.Fatalf("Create %d: %v", i, err)
+			test.Fatalf("Create %d: %v", index, err)
 		}
 	}
-	notes, err := env.svc.List(ctx, service.NoteListParams{ProjectID: uuid.Nil})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+	notes, listErr := env.svc.List(ctx, service.NoteListParams{ProjectID: uuid.Nil})
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
 	}
+
 	if len(notes) != 20 {
-		t.Errorf("got %d notes, want 20", len(notes))
+		test.Errorf("got %d notes, want 20", len(notes))
 	}
 }
 
-func TestNoteService_List_PlayerFilter(t *testing.T) {
-	env := newNoteTestEnv(t)
+func TestNoteService_List_PlayerFilter(test *testing.T) {
+	env := newNoteTestEnv(test)
 	ctx := context.Background()
-	seedPlayer(t, env.playRepo, "p1")
-	seedPlayer(t, env.playRepo, "p2")
+	seedPlayer(test, env.playRepo, "p1")
+	seedPlayer(test, env.playRepo, "p2")
 
-	for i := range 3 {
+	for index := range 3 {
 		if err := env.svc.Create(ctx, &domain.Note{ProjectID: uuid.Nil, PlayerID: "p1", Body: "a"}); err != nil {
-			t.Fatalf("Create p1 %d: %v", i, err)
+			test.Fatalf("Create p1 %d: %v", index, err)
 		}
 	}
-	for i := range 2 {
+	for index := range 2 {
 		if err := env.svc.Create(ctx, &domain.Note{ProjectID: uuid.Nil, PlayerID: "p2", Body: "b"}); err != nil {
-			t.Fatalf("Create p2 %d: %v", i, err)
+			test.Fatalf("Create p2 %d: %v", index, err)
 		}
 	}
-	notes, err := env.svc.List(ctx, service.NoteListParams{ProjectID: uuid.Nil, PlayerID: "p1"})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+	notes, listErr := env.svc.List(ctx, service.NoteListParams{ProjectID: uuid.Nil, PlayerID: "p1"})
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
 	}
+
 	if len(notes) != 3 {
-		t.Errorf("got %d, want 3", len(notes))
+		test.Errorf("got %d, want 3", len(notes))
 	}
 }
 
-func TestNoteService_ResolveWindow_CLIOverride(t *testing.T) {
-	env := newNoteTestEnvWithWindow(t, 20)
+func TestNoteService_ResolveWindow_CLIOverride(test *testing.T) {
+	env := newNoteTestEnvWithWindow(test, 20)
 	ctx := context.Background()
-	seedPlayerWithWindow(t, env.playRepo, "p1", intPtr(50))
-	setProjectWindow(t, env.projRepo, uuid.Nil, intPtr(30))
-	seedNotes(t, env.svc, 15, "p1", uuid.Nil)
+	seedPlayerWithWindow(test, env.playRepo, "p1", intPtr(50))
+	setProjectWindow(test, env.projRepo, uuid.Nil, intPtr(30))
+	seedNotes(test, env.svc, 15, "p1", uuid.Nil)
 
-	notes, err := env.svc.List(ctx, service.NoteListParams{
+	notes, listErr := env.svc.List(ctx, service.NoteListParams{
 		ProjectID:      uuid.Nil,
 		CallerPlayerID: "p1",
 		WindowOverride: intPtr(10),
 	})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
 	}
+
 	if len(notes) != 10 {
-		t.Errorf("got %d notes, want 10 (CLI override)", len(notes))
+		test.Errorf("got %d notes, want 10 (CLI override)", len(notes))
 	}
 }
 
-func TestNoteService_ResolveWindow_PlayerSetting(t *testing.T) {
-	env := newNoteTestEnvWithWindow(t, 20)
+func TestNoteService_ResolveWindow_PlayerSetting(test *testing.T) {
+	env := newNoteTestEnvWithWindow(test, 20)
 	ctx := context.Background()
-	seedPlayerWithWindow(t, env.playRepo, "p1", intPtr(5))
-	setProjectWindow(t, env.projRepo, uuid.Nil, intPtr(30))
-	seedNotes(t, env.svc, 10, "p1", uuid.Nil)
+	seedPlayerWithWindow(test, env.playRepo, "p1", intPtr(5))
+	setProjectWindow(test, env.projRepo, uuid.Nil, intPtr(30))
+	seedNotes(test, env.svc, 10, "p1", uuid.Nil)
 
-	notes, err := env.svc.List(ctx, service.NoteListParams{
+	notes, listErr := env.svc.List(ctx, service.NoteListParams{
 		ProjectID:      uuid.Nil,
 		CallerPlayerID: "p1",
 	})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
 	}
+
 	if len(notes) != 5 {
-		t.Errorf("got %d notes, want 5 (player setting)", len(notes))
+		test.Errorf("got %d notes, want 5 (player setting)", len(notes))
 	}
 }
 
-func TestNoteService_ResolveWindow_ProjectSetting(t *testing.T) {
-	env := newNoteTestEnvWithWindow(t, 20)
+func TestNoteService_ResolveWindow_ProjectSetting(test *testing.T) {
+	env := newNoteTestEnvWithWindow(test, 20)
 	ctx := context.Background()
-	seedPlayerWithWindow(t, env.playRepo, "p1", nil)
-	setProjectWindow(t, env.projRepo, uuid.Nil, intPtr(8))
-	seedNotes(t, env.svc, 12, "p1", uuid.Nil)
+	seedPlayerWithWindow(test, env.playRepo, "p1", nil)
+	setProjectWindow(test, env.projRepo, uuid.Nil, intPtr(8))
+	seedNotes(test, env.svc, 12, "p1", uuid.Nil)
 
-	notes, err := env.svc.List(ctx, service.NoteListParams{
+	notes, listErr := env.svc.List(ctx, service.NoteListParams{
 		ProjectID:      uuid.Nil,
 		CallerPlayerID: "p1",
 	})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
 	}
+
 	if len(notes) != 8 {
-		t.Errorf("got %d notes, want 8 (project setting)", len(notes))
+		test.Errorf("got %d notes, want 8 (project setting)", len(notes))
 	}
 }
 
-func TestNoteService_ResolveWindow_ConfigDefault(t *testing.T) {
-	env := newNoteTestEnvWithWindow(t, 15)
+func TestNoteService_ResolveWindow_ConfigDefault(test *testing.T) {
+	env := newNoteTestEnvWithWindow(test, 15)
 	ctx := context.Background()
-	seedPlayerWithWindow(t, env.playRepo, "p1", nil)
-	seedNotes(t, env.svc, 20, "p1", uuid.Nil)
+	seedPlayerWithWindow(test, env.playRepo, "p1", nil)
+	seedNotes(test, env.svc, 20, "p1", uuid.Nil)
 
-	notes, err := env.svc.List(ctx, service.NoteListParams{
+	notes, listErr := env.svc.List(ctx, service.NoteListParams{
 		ProjectID:      uuid.Nil,
 		CallerPlayerID: "p1",
 	})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
 	}
+
 	if len(notes) != 15 {
-		t.Errorf("got %d notes, want 15 (config default)", len(notes))
+		test.Errorf("got %d notes, want 15 (config default)", len(notes))
 	}
 }
 
-func TestNoteService_ResolveWindow_HardcodedFallback(t *testing.T) {
-	env := newNoteTestEnvWithWindow(t, 0)
+func TestNoteService_ResolveWindow_HardcodedFallback(test *testing.T) {
+	env := newNoteTestEnvWithWindow(test, 0)
 	ctx := context.Background()
-	seedPlayerWithWindow(t, env.playRepo, "p1", nil)
-	seedNotes(t, env.svc, 25, "p1", uuid.Nil)
+	seedPlayerWithWindow(test, env.playRepo, "p1", nil)
+	seedNotes(test, env.svc, 25, "p1", uuid.Nil)
 
-	notes, err := env.svc.List(ctx, service.NoteListParams{
+	notes, listErr := env.svc.List(ctx, service.NoteListParams{
 		ProjectID:      uuid.Nil,
 		CallerPlayerID: "p1",
 	})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
 	}
+
 	if len(notes) != 20 {
-		t.Errorf("got %d notes, want 20 (hardcoded fallback)", len(notes))
+		test.Errorf("got %d notes, want 20 (hardcoded fallback)", len(notes))
 	}
 }

@@ -128,53 +128,55 @@ const (
 //
 // Callers must treat the returned Taxonomy as read-only unless they know
 // it was cloned; the ProjectOverride path returns the project's own slice.
-func (s *ProjectService) EffectiveTaxonomy(p *domain.Project) (domain.Taxonomy, TaxonomySource) {
-	if p != nil && p.Settings.Taxonomy != nil {
-		return *p.Settings.Taxonomy, TaxonomySourceProjectOverride
+func (service *ProjectService) EffectiveTaxonomy(project *domain.Project) (domain.Taxonomy, TaxonomySource) {
+	if project != nil && project.Settings.Taxonomy != nil {
+		return *project.Settings.Taxonomy, TaxonomySourceProjectOverride
 	}
-	if s.cfg != nil && len(s.cfg.Taxonomy.Levels) > 0 {
-		return domain.Taxonomy(s.cfg.Taxonomy.Levels).Clone(), TaxonomySourceWorkspace
+	if service.cfg != nil && len(service.cfg.Taxonomy.Levels) > 0 {
+		return domain.Taxonomy(service.cfg.Taxonomy.Levels).Clone(), TaxonomySourceWorkspace
 	}
 	return domain.Taxonomy{}, TaxonomySourceNone
 }
 
 // GetByName retrieves a project by its human-readable name.
 // Returns domain.ErrNotFound if not found.
-func (s *ProjectService) GetByName(ctx context.Context, name string) (*domain.Project, error) {
-	return s.projectRepo.GetByName(ctx, name)
+func (service *ProjectService) GetByName(ctx context.Context, name string) (*domain.Project, error) {
+	return service.projectRepo.GetByName(ctx, name)
 }
 
 // GetByID retrieves a project by its typed UUID.
 // Returns domain.ErrNotFound if not found.
-func (s *ProjectService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
-	return s.projectRepo.GetByID(ctx, id)
+func (service *ProjectService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
+	return service.projectRepo.GetByID(ctx, id)
 }
 
 // List returns all projects, sorted by name.
-func (s *ProjectService) List(ctx context.Context) ([]*domain.Project, error) {
-	return s.projectRepo.List(ctx)
+func (service *ProjectService) List(ctx context.Context) ([]*domain.Project, error) {
+	return service.projectRepo.List(ctx)
 }
 
 // Create inserts a new project with the given name, workflow, and settings.
 // The caller is expected to have resolved the workflow name to an ID already
 // (e.g. via WorkflowService.GetByName).
-func (s *ProjectService) Create(ctx context.Context, input CreateProjectInput) (*domain.Project, error) {
+func (service *ProjectService) Create(ctx context.Context, input CreateProjectInput) (*domain.Project, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: project name is empty", domain.ErrNotFound)
 	}
 	if input.Name == defaultProjectName {
 		return nil, fmt.Errorf("cannot create project %q: name is reserved", input.Name)
 	}
-	existing, err := s.projectRepo.GetByName(ctx, input.Name)
+	existing, err := service.projectRepo.GetByName(ctx, input.Name)
+
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return nil, fmt.Errorf("checking existing project %q: %w", input.Name, err)
 	}
+
 	if existing != nil {
 		return nil, fmt.Errorf("project %q already exists: %w", input.Name, domain.ErrConflict)
 	}
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	p := &domain.Project{
+	domainProject := &domain.Project{
 		ID:          uuid.New(),
 		Name:        input.Name,
 		WorkflowID:  input.WorkflowID,
@@ -184,51 +186,56 @@ func (s *ProjectService) Create(ctx context.Context, input CreateProjectInput) (
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := s.projectRepo.Create(ctx, p); err != nil {
-		return nil, fmt.Errorf("creating project %q: %w", input.Name, err)
+	createErr := service.projectRepo.Create(ctx, domainProject)
+
+	if createErr != nil {
+		return nil, fmt.Errorf("creating project %q: %w", input.Name, createErr)
 	}
-	return p, nil
+
+	return domainProject, nil
 }
 
 // Modify applies a mutation to an existing project. Optimistic locking is
 // enforced via input.ExpectedVersion; a mismatch returns domain.ErrConflict.
 // Urgency deltas are resolved against the global defaults passed to
 // NewProjectService.
-func (s *ProjectService) Modify(ctx context.Context, input ModifyProjectInput) (*domain.Project, error) {
+func (service *ProjectService) Modify(ctx context.Context, input ModifyProjectInput) (*domain.Project, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: project name is empty", domain.ErrNotFound)
 	}
-	p, err := s.projectRepo.GetByName(ctx, input.Name)
+	domainProject, err := service.projectRepo.GetByName(ctx, input.Name)
+
 	if err != nil {
 		return nil, err
 	}
-	if p.Version != input.ExpectedVersion {
+
+	if domainProject.Version != input.ExpectedVersion {
 		return nil, fmt.Errorf("project %q: expected version %d, got %d: %w",
-			input.Name, input.ExpectedVersion, p.Version, domain.ErrConflict)
+			input.Name, input.ExpectedVersion, domainProject.Version, domain.ErrConflict)
 	}
 
 	if input.WorkflowID != nil {
-		p.WorkflowID = *input.WorkflowID
+		domainProject.WorkflowID = *input.WorkflowID
 	}
 	if input.Description != nil {
 		if *input.Description == nil {
-			p.Description = ""
+			domainProject.Description = ""
 		} else {
-			p.Description = **input.Description
+			domainProject.Description = **input.Description
 		}
 	}
 	if input.AutoComplete != nil {
 		ac := *input.AutoComplete
-		p.Settings.AutoCompleteParent = &ac
+		domainProject.Settings.AutoCompleteParent = &ac
 	}
 	if input.AutoRevert != nil {
 		ar := *input.AutoRevert
-		p.Settings.AutoRevertParent = &ar
+		domainProject.Settings.AutoRevertParent = &ar
 	}
 
 	if input.Taxonomy != nil {
 		if input.Taxonomy.Clear {
-			p.Settings.Taxonomy = nil
+			domainProject.Settings.Taxonomy = nil
 		} else {
 			if !input.Taxonomy.Value.IsEmpty() {
 				if err := input.Taxonomy.Value.Validate(); err != nil {
@@ -239,80 +246,90 @@ func (s *ProjectService) Modify(ctx context.Context, input ModifyProjectInput) (
 			if tax == nil {
 				tax = domain.Taxonomy{}
 			}
-			p.Settings.Taxonomy = &tax
+			domainProject.Settings.Taxonomy = &tax
 		}
 	}
 
-	for k := range input.Urgency.Set {
-		if _, dup := input.Urgency.Delta[k]; dup {
-			return nil, fmt.Errorf("urgency key %q has both absolute and delta", k)
+	for key := range input.Urgency.Set {
+		if _, dup := input.Urgency.Delta[key]; dup {
+			return nil, fmt.Errorf("urgency key %q has both absolute and delta", key)
 		}
 	}
 	if len(input.Urgency.Set) > 0 || len(input.Urgency.Delta) > 0 {
-		if p.Settings.Urgency == nil {
-			p.Settings.Urgency = &domain.UrgencyOverrides{}
+		if domainProject.Settings.Urgency == nil {
+			domainProject.Settings.Urgency = &domain.UrgencyOverrides{}
 		}
-		for k, v := range input.Urgency.Set {
-			if err := urgencySetAbsolute(p.Settings.Urgency, k, v); err != nil {
+		for key, value := range input.Urgency.Set {
+			if err := urgencySetAbsolute(domainProject.Settings.Urgency, key, value); err != nil {
 				return nil, err
 			}
 		}
-		for k, delta := range input.Urgency.Delta {
-			base, ok := urgencyDefaultByKey(s.defaults.Urgency, k)
+		for key, delta := range input.Urgency.Delta {
+			base, ok := urgencyDefaultByKey(service.defaults.Urgency, key)
 			if !ok {
-				return nil, fmt.Errorf("unknown urgency key %q", k)
+				return nil, fmt.Errorf("unknown urgency key %q", key)
 			}
-			current := urgencyOverrideByKey(p.Settings.Urgency, k)
+			current := urgencyOverrideByKey(domainProject.Settings.Urgency, key)
 			if current != nil {
 				base = *current
 			}
-			if err := urgencySetAbsolute(p.Settings.Urgency, k, base+delta); err != nil {
+			if err := urgencySetAbsolute(domainProject.Settings.Urgency, key, base+delta); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	if err := s.projectRepo.Update(ctx, p); err != nil {
-		return nil, fmt.Errorf("updating project %q: %w", input.Name, err)
+	updateErr := service.projectRepo.Update(ctx, domainProject)
+
+	if updateErr != nil {
+		return nil, fmt.Errorf("updating project %q: %w", input.Name, updateErr)
 	}
-	return p, nil
+
+	return domainProject, nil
 }
 
 // Delete removes a project by ID with optimistic locking. Rejects the built-in
 // _default project and projects with referencing tasks unless force is true.
 // Under force, referencing tasks are bulk-reassigned to _default in the same
 // transaction as the delete so the FK on projects(id) does not fire.
-func (s *ProjectService) Delete(ctx context.Context, id uuid.UUID, expectedVersion int, force bool) error {
+func (service *ProjectService) Delete(ctx context.Context, id uuid.UUID, expectedVersion int, force bool) error {
 	if id == domain.DefaultProjectUUID && !force {
 		return fmt.Errorf("cannot delete built-in %q project (use --force to override)", defaultProjectName)
 	}
 
-	if s.taskCounter == nil {
+	if service.taskCounter == nil {
 		return fmt.Errorf("project delete requires task counter")
 	}
-	count, err := s.taskCounter.CountByProject(ctx, id)
-	if err != nil {
-		return fmt.Errorf("counting referencing tasks: %w", err)
+	count, countErr := service.taskCounter.CountByProject(ctx, id)
+
+	if countErr != nil {
+		return fmt.Errorf("counting referencing tasks: %w", countErr)
 	}
+
 	if count > 0 && !force {
 		return fmt.Errorf("project %s has %d referencing task(s): %w", id, count, domain.ErrProjectHasTasks)
 	}
 
-	if s.tx == nil {
+	if service.tx == nil {
 		return fmt.Errorf("project delete requires transactional store")
 	}
-	return s.tx.WithProjectTx(ctx, func(projects repository.ProjectRepository, tasks repository.TaskRepository) error {
+	return service.tx.WithProjectTx(ctx, func(projects repository.ProjectRepository, tasks repository.TaskRepository) error {
 		if count > 0 && force {
-			if _, err := tasks.ReassignProject(ctx, id, domain.DefaultProjectUUID); err != nil {
-				return fmt.Errorf("reassigning tasks off project %s: %w", id, err)
+			_, reassignErr := tasks.ReassignProject(ctx, id, domain.DefaultProjectUUID)
+
+			if reassignErr != nil {
+				return fmt.Errorf("reassigning tasks off project %s: %w", id, reassignErr)
 			}
 		}
-		if err := projects.Delete(ctx, id, expectedVersion); err != nil {
-			if errors.Is(err, domain.ErrConflict) {
+		deleteErr := projects.Delete(ctx, id, expectedVersion)
+
+		if deleteErr != nil {
+			if errors.Is(deleteErr, domain.ErrConflict) {
 				return fmt.Errorf("project %s: version conflict: %w", id, domain.ErrConflict)
 			}
-			return fmt.Errorf("deleting project %s: %w", id, err)
+			return fmt.Errorf("deleting project %s: %w", id, deleteErr)
 		}
+
 		return nil
 	})
 }
@@ -323,88 +340,88 @@ const defaultProjectName = "default"
 
 // urgencyDefaultByKey maps a canonical config key to the corresponding
 // default weight in UrgencyWeights.
-func urgencyDefaultByKey(w UrgencyWeights, key string) (float64, bool) {
+func urgencyDefaultByKey(weights UrgencyWeights, key string) (float64, bool) {
 	switch key {
 	case "priority_weight":
-		return w.Priority, true
+		return weights.Priority, true
 	case "due_weight":
-		return w.Due, true
+		return weights.Due, true
 	case "age_weight":
-		return w.Age, true
+		return weights.Age, true
 	case "active_weight":
-		return w.Active, true
+		return weights.Active, true
 	case "blocking_weight":
-		return w.Blocking, true
+		return weights.Blocking, true
 	case "blocked_weight":
-		return w.Blocked, true
+		return weights.Blocked, true
 	case "tags_weight":
-		return w.Tags, true
+		return weights.Tags, true
 	case "project_weight":
-		return w.Project, true
+		return weights.Project, true
 	case "annotations_weight":
-		return w.Annotations, true
+		return weights.Annotations, true
 	case "waiting_weight":
-		return w.Waiting, true
+		return weights.Waiting, true
 	}
 	return 0, false
 }
 
 // urgencyOverrideByKey returns the current per-project override value for a
 // canonical config key, or nil if not set.
-func urgencyOverrideByKey(o *domain.UrgencyOverrides, key string) *float64 {
-	if o == nil {
+func urgencyOverrideByKey(overrides *domain.UrgencyOverrides, key string) *float64 {
+	if overrides == nil {
 		return nil
 	}
 	switch key {
 	case "priority_weight":
-		return o.PriorityWeight
+		return overrides.PriorityWeight
 	case "due_weight":
-		return o.DueWeight
+		return overrides.DueWeight
 	case "age_weight":
-		return o.AgeWeight
+		return overrides.AgeWeight
 	case "active_weight":
-		return o.ActiveWeight
+		return overrides.ActiveWeight
 	case "blocking_weight":
-		return o.BlockingWeight
+		return overrides.BlockingWeight
 	case "blocked_weight":
-		return o.BlockedWeight
+		return overrides.BlockedWeight
 	case "tags_weight":
-		return o.TagsWeight
+		return overrides.TagsWeight
 	case "project_weight":
-		return o.ProjectWeight
+		return overrides.ProjectWeight
 	case "annotations_weight":
-		return o.AnnotationsWeight
+		return overrides.AnnotationsWeight
 	case "waiting_weight":
-		return o.WaitingWeight
+		return overrides.WaitingWeight
 	}
 	return nil
 }
 
 // urgencySetAbsolute writes an absolute weight value to the override struct
 // for the given canonical config key.
-func urgencySetAbsolute(o *domain.UrgencyOverrides, key string, value float64) error {
-	v := value
+func urgencySetAbsolute(overrides *domain.UrgencyOverrides, key string, value float64) error {
+	val := value
 	switch key {
 	case "priority_weight":
-		o.PriorityWeight = &v
+		overrides.PriorityWeight = &val
 	case "due_weight":
-		o.DueWeight = &v
+		overrides.DueWeight = &val
 	case "age_weight":
-		o.AgeWeight = &v
+		overrides.AgeWeight = &val
 	case "active_weight":
-		o.ActiveWeight = &v
+		overrides.ActiveWeight = &val
 	case "blocking_weight":
-		o.BlockingWeight = &v
+		overrides.BlockingWeight = &val
 	case "blocked_weight":
-		o.BlockedWeight = &v
+		overrides.BlockedWeight = &val
 	case "tags_weight":
-		o.TagsWeight = &v
+		overrides.TagsWeight = &val
 	case "project_weight":
-		o.ProjectWeight = &v
+		overrides.ProjectWeight = &val
 	case "annotations_weight":
-		o.AnnotationsWeight = &v
+		overrides.AnnotationsWeight = &val
 	case "waiting_weight":
-		o.WaitingWeight = &v
+		overrides.WaitingWeight = &val
 	default:
 		return fmt.Errorf("unknown urgency key %q", key)
 	}
