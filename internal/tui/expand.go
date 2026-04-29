@@ -46,67 +46,74 @@ func expandRefsWithState(raw string, stdin *os.File, maxSize int64, state *expan
 
 	atBoundary := true
 
-	i := 0
-	for i < len(raw) {
-		c := raw[i]
+	pos := 0
+	for pos < len(raw) {
+		char := raw[pos]
 
-		if c != '@' || !atBoundary {
-			out.WriteByte(c)
-			atBoundary = c == ' ' || c == '\t'
-			i++
+		if char != '@' || !atBoundary {
+			out.WriteByte(char)
+			atBoundary = char == ' ' || char == '\t'
+			pos++
 			continue
 		}
 
-		// c == '@' and atBoundary == true.
+		// char == '@' and atBoundary == true.
 		next := byte(0)
-		if i+1 < len(raw) {
-			next = raw[i+1]
+		if pos+1 < len(raw) {
+			next = raw[pos+1]
 		}
 
 		// Escape: @@ → literal @.
 		if next == '@' {
 			out.WriteByte('@')
 			atBoundary = false
-			i += 2
+			pos += 2
 			continue
 		}
 
 		// Quoted path: @"...".
 		if next == '"' {
-			body, end, err := scanQuotedPath(raw, i+1)
-			if err != nil {
-				return "", err
+			body, end, quotedErr := scanQuotedPath(raw, pos+1)
+
+			if quotedErr != nil {
+				return "", quotedErr
 			}
+
 			if body == "" {
 				return "", fmt.Errorf("empty path after @")
 			}
-			content, err := loadRef(body, stdin, maxSize, state)
-			if err != nil {
-				return "", err
+
+			content, contentErr := loadRef(body, stdin, maxSize, state)
+
+			if contentErr != nil {
+				return "", contentErr
 			}
+
 			out.WriteString(content)
 			atBoundary = false
-			i = end
+			pos = end
 			continue
 		}
 
 		// Bare path: scan until whitespace or end-of-string.
-		j := i + 1
-		for j < len(raw) && raw[j] != ' ' && raw[j] != '\t' {
-			j++
+		end := pos + 1
+		for end < len(raw) && raw[end] != ' ' && raw[end] != '\t' {
+			end++
 		}
-		path := raw[i+1 : j]
+		path := raw[pos+1 : end]
 		if path == "" {
 			return "", fmt.Errorf("bare @ is not a valid reference")
 		}
 
-		content, err := loadRef(path, stdin, maxSize, state)
-		if err != nil {
-			return "", err
+		content, contentErr := loadRef(path, stdin, maxSize, state)
+
+		if contentErr != nil {
+			return "", contentErr
 		}
+
 		out.WriteString(content)
 		atBoundary = false
-		i = j
+		pos = end
 	}
 
 	return out.String(), nil
@@ -118,19 +125,19 @@ func expandRefsWithState(raw string, stdin *os.File, maxSize int64, state *expan
 // Supports \" as an escaped literal quote. Mirrors syntax/token.go:226 —
 // duplicated here to avoid a cross-package import for a 15-line routine.
 func scanQuotedPath(input string, pos int) (string, int, error) {
-	i := pos + 1
+	cursor := pos + 1
 	var buf []byte
-	for i < len(input) {
-		if input[i] == '\\' && i+1 < len(input) && input[i+1] == '"' {
+	for cursor < len(input) {
+		if input[cursor] == '\\' && cursor+1 < len(input) && input[cursor+1] == '"' {
 			buf = append(buf, '"')
-			i += 2
+			cursor += 2
 			continue
 		}
-		if input[i] == '"' {
-			return string(buf), i + 1, nil
+		if input[cursor] == '"' {
+			return string(buf), cursor + 1, nil
 		}
-		buf = append(buf, input[i])
-		i++
+		buf = append(buf, input[cursor])
+		cursor++
 	}
 	return "", pos, fmt.Errorf("unclosed quoted path after @")
 }
@@ -150,25 +157,32 @@ func loadRef(path string, stdin *os.File, maxSize int64, state *expandState) (st
 }
 
 func readFile(path string, maxSize int64) (string, error) {
-	resolved, err := resolvePath(path)
-	if err != nil {
-		return "", fmt.Errorf("@%s: %w", path, err)
+	resolved, resolveErr := resolvePath(path)
+
+	if resolveErr != nil {
+		return "", fmt.Errorf("@%s: %w", path, resolveErr)
 	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		if os.IsNotExist(err) {
+
+	info, statErr := os.Stat(resolved)
+
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
 			return "", fmt.Errorf("@%s: no such file", path)
 		}
-		return "", fmt.Errorf("@%s: %w", path, err)
+		return "", fmt.Errorf("@%s: %w", path, statErr)
 	}
+
 	if info.Size() > maxSize {
 		return "", fmt.Errorf("@%s: file is %s, exceeds %s limit for inline expansion",
 			path, humanBytes(info.Size()), humanBytes(maxSize))
 	}
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return "", fmt.Errorf("@%s: %w", path, err)
+
+	data, readErr := os.ReadFile(resolved)
+
+	if readErr != nil {
+		return "", fmt.Errorf("@%s: %w", path, readErr)
 	}
+
 	if hasNUL(data) {
 		return "", fmt.Errorf("@%s: appears to be a binary file; tusk descriptions and annotations must be text (binary file attachments are planned for a future release)", path)
 	}
@@ -182,10 +196,12 @@ func readStdin(stdin *os.File, maxSize int64) (string, error) {
 	if term.IsTerminal(int(stdin.Fd())) {
 		return "", fmt.Errorf("@-: stdin is a terminal, not a pipe")
 	}
-	data, err := io.ReadAll(io.LimitReader(stdin, maxSize+1))
-	if err != nil {
-		return "", fmt.Errorf("@-: %w", err)
+	data, readErr := io.ReadAll(io.LimitReader(stdin, maxSize+1))
+
+	if readErr != nil {
+		return "", fmt.Errorf("@-: %w", readErr)
 	}
+
 	if int64(len(data)) > maxSize {
 		return "", fmt.Errorf("@-: stdin is %s, exceeds %s limit for inline expansion",
 			humanBytes(int64(len(data)-1)), humanBytes(maxSize))
@@ -200,12 +216,12 @@ func readStdin(stdin *os.File, maxSize int64) (string, error) {
 // window marks the input as binary. NUL bytes past the scan window are a
 // documented limitation of the heuristic.
 func hasNUL(data []byte) bool {
-	n := len(data)
-	if n > 8192 {
-		n = 8192
+	scanLen := len(data)
+	if scanLen > 8192 {
+		scanLen = 8192
 	}
-	for i := 0; i < n; i++ {
-		if data[i] == 0 {
+	for index := 0; index < scanLen; index++ {
+		if data[index] == 0 {
 			return true
 		}
 	}
@@ -215,54 +231,58 @@ func hasNUL(data []byte) bool {
 // resolvePath expands a leading ~ to the user's home directory. Bare relative
 // and absolute paths are returned unchanged — os.ReadFile resolves them against
 // the current working directory already.
-func resolvePath(p string) (string, error) {
-	if p == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+func resolvePath(path string) (string, error) {
+	if path == "~" {
+		home, homeErr := os.UserHomeDir()
+
+		if homeErr != nil {
+			return "", homeErr
 		}
+
 		return home, nil
 	}
-	if strings.HasPrefix(p, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+	if strings.HasPrefix(path, "~/") {
+		home, homeErr := os.UserHomeDir()
+
+		if homeErr != nil {
+			return "", homeErr
 		}
-		return filepath.Join(home, strings.TrimPrefix(p, "~/")), nil
+
+		return filepath.Join(home, strings.TrimPrefix(path, "~/")), nil
 	}
-	return p, nil
+	return path, nil
 }
 
 // humanBytes renders a byte count as "1.0 MB", "512.0 KB", etc. Local helper —
 // no new dependency. Only used for error messages.
-func humanBytes(n int64) string {
+func humanBytes(byteCount int64) string {
 	const (
 		kb = 1024
 		mb = kb * 1024
 		gb = mb * 1024
 	)
 	switch {
-	case n >= gb:
-		return fmt.Sprintf("%.1f GB", float64(n)/float64(gb))
-	case n >= mb:
-		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb))
-	case n >= kb:
-		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb))
+	case byteCount >= gb:
+		return fmt.Sprintf("%.1f GB", float64(byteCount)/float64(gb))
+	case byteCount >= mb:
+		return fmt.Sprintf("%.1f MB", float64(byteCount)/float64(mb))
+	case byteCount >= kb:
+		return fmt.Sprintf("%.1f KB", float64(byteCount)/float64(kb))
 	default:
-		return fmt.Sprintf("%d B", n)
+		return fmt.Sprintf("%d B", byteCount)
 	}
 }
 
 // expandRefs is the App-scoped wrapper that threads the configured per-reference
 // size limit. Command code should prefer this over the free function so the
 // limit stays consistent with config.
-func (a *App) expandRefs(raw string, stdin *os.File) (string, error) {
-	return expandRefs(raw, stdin, a.inlineCfg.MaxExpansionSize)
+func (app *App) expandRefs(raw string, stdin *os.File) (string, error) {
+	return expandRefs(raw, stdin, app.inlineCfg.MaxExpansionSize)
 }
 
 // expandRefsWithState is the App-scoped stateful wrapper. Use this when a
 // single command invocation expands multiple strings that must share the
 // stdin-once-per-invocation invariant.
-func (a *App) expandRefsWithState(raw string, stdin *os.File, state *expandState) (string, error) {
-	return expandRefsWithState(raw, stdin, a.inlineCfg.MaxExpansionSize, state)
+func (app *App) expandRefsWithState(raw string, stdin *os.File, state *expandState) (string, error) {
+	return expandRefsWithState(raw, stdin, app.inlineCfg.MaxExpansionSize, state)
 }
