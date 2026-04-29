@@ -12,7 +12,7 @@ import (
 // urgency-related fields on upd. Order of operations: full-replace OR
 // (merge-patch then delta). Mutual exclusion between full-replace and the
 // other two is enforced earlier in TaskService.Update.
-func (s *TaskService) applyUrgencyOverridesUpdate(
+func (service *TaskService) applyUrgencyOverridesUpdate(
 	ctx context.Context,
 	bundle *RepoBundle,
 	task *domain.Task,
@@ -31,7 +31,7 @@ func (s *TaskService) applyUrgencyOverridesUpdate(
 	}
 
 	if len(upd.UrgencyDelta) > 0 {
-		if err := s.applyUrgencyDelta(ctx, bundle, task, upd.UrgencyDelta); err != nil {
+		if err := service.applyUrgencyDelta(ctx, bundle, task, upd.UrgencyDelta); err != nil {
 			return err
 		}
 		normalizeUrgencyOverrides(task)
@@ -51,18 +51,23 @@ func applyUrgencyMergePatch(task *domain.Task, patch *domain.UrgencyOverridesPat
 	}
 	for key := range patch.Clear {
 		fp := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
+
 		if fp == nil {
 			return fmt.Errorf("urgency_overrides patch: unknown key %q", key)
 		}
+
 		*fp = nil
 	}
+
 	for key, value := range patch.Set {
 		fp := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
+
 		if fp == nil {
 			return fmt.Errorf("urgency_overrides patch: unknown key %q", key)
 		}
-		v := value
-		*fp = &v
+
+		valueCopy := value
+		*fp = &valueCopy
 	}
 	return nil
 }
@@ -71,7 +76,7 @@ func applyUrgencyMergePatch(task *domain.Task, patch *domain.UrgencyOverridesPat
 // each named key, writing the result back to task.UrgencyOverrides. The
 // baseline is computed from the post-patch in-memory task state, so a delta
 // applied after a merge-patch sees the patched value.
-func (s *TaskService) applyUrgencyDelta(
+func (service *TaskService) applyUrgencyDelta(
 	ctx context.Context,
 	bundle *RepoBundle,
 	task *domain.Task,
@@ -83,14 +88,16 @@ func (s *TaskService) applyUrgencyDelta(
 		}
 	}
 
-	baseline, err := s.resolveEffectiveWeightsFromTask(ctx, bundle, task)
+	baseline, err := service.resolveEffectiveWeightsFromTask(ctx, bundle, task)
+
 	if err != nil {
 		return fmt.Errorf("resolving baseline for urgency delta: %w", err)
 	}
 
 	keys := make([]string, 0, len(delta))
-	for k := range delta {
-		keys = append(keys, k)
+
+	for key := range delta {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
@@ -104,8 +111,8 @@ func (s *TaskService) applyUrgencyDelta(
 		}
 		newValue := base + delta[key]
 		fp := domain.UrgencyOverrideFieldPtr(task.UrgencyOverrides, key)
-		v := newValue
-		*fp = &v
+		newValueCopy := newValue
+		*fp = &newValueCopy
 	}
 	return nil
 }
@@ -118,11 +125,13 @@ func normalizeUrgencyOverrides(task *domain.Task) {
 	if task.UrgencyOverrides == nil {
 		return
 	}
-	o := task.UrgencyOverrides
-	if o.PriorityWeight == nil && o.DueWeight == nil && o.AgeWeight == nil &&
-		o.ActiveWeight == nil && o.BlockingWeight == nil && o.BlockedWeight == nil &&
-		o.TagsWeight == nil && o.ProjectWeight == nil && o.AnnotationsWeight == nil &&
-		o.WaitingWeight == nil {
+
+	overrides := task.UrgencyOverrides
+
+	if overrides.PriorityWeight == nil && overrides.DueWeight == nil && overrides.AgeWeight == nil &&
+		overrides.ActiveWeight == nil && overrides.BlockingWeight == nil && overrides.BlockedWeight == nil &&
+		overrides.TagsWeight == nil && overrides.ProjectWeight == nil && overrides.AnnotationsWeight == nil &&
+		overrides.WaitingWeight == nil {
 		task.UrgencyOverrides = nil
 	}
 }

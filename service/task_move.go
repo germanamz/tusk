@@ -67,9 +67,11 @@ func (s *TaskService) Move(ctx context.Context, req MoveRequest) (*domain.Task, 
 	}
 
 	bundle, subject, err := s.bundleForID(ctx, req.TaskID)
+
 	if err != nil {
 		return nil, err
 	}
+
 	if subject.Version != req.Version {
 		return nil, domain.ErrConflict
 	}
@@ -80,48 +82,58 @@ func (s *TaskService) Move(ctx context.Context, req MoveRequest) (*domain.Task, 
 	}
 
 	var result *domain.Task
-	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
-		tr := tx.Tasks()
 
-		fresh, err := tr.GetByID(ctx, req.TaskID)
-		if err != nil {
-			return err
+	err = bundle.WriteTx.WithTx(ctx, func(tx WriteTx) error {
+		taskRepo := tx.Tasks()
+
+		fresh, fetchErr := taskRepo.GetByID(ctx, req.TaskID)
+
+		if fetchErr != nil {
+			return fetchErr
 		}
+
 		if fresh.Version != req.Version {
 			return domain.ErrConflict
 		}
 
-		newParent, refParent, err := resolveMoveParent(ctx, tr, fresh, req)
-		if err != nil {
-			return err
+		newParent, refParent, resolveErr := resolveMoveParent(ctx, taskRepo, fresh, req)
+
+		if resolveErr != nil {
+			return resolveErr
 		}
 
-		if err := ensureNotDescendant(ctx, tr, fresh.ID, newParent); err != nil {
-			return err
+		if cycleErr := ensureNotDescendant(ctx, taskRepo, fresh.ID, newParent); cycleErr != nil {
+			return cycleErr
 		}
 
-		newOrder, err := computeMoveOrder(ctx, tr, req, newParent, refParent)
-		if err != nil {
-			return err
+		newOrder, orderErr := computeMoveOrder(ctx, taskRepo, req, newParent, refParent)
+
+		if orderErr != nil {
+			return orderErr
 		}
 
 		now := time.Now().UTC().Truncate(time.Millisecond)
-		if _, err := tr.UpdateOrderAndParent(ctx, fresh.ID, newParent, newOrder, fresh.Version, now); err != nil {
-			return err
+
+		if _, updateErr := taskRepo.UpdateOrderAndParent(ctx, fresh.ID, newParent, newOrder, fresh.Version, now); updateErr != nil {
+			return updateErr
 		}
 
-		updated, err := tr.GetByID(ctx, fresh.ID)
-		if err != nil {
-			return err
+		updated, reloadErr := taskRepo.GetByID(ctx, fresh.ID)
+
+		if reloadErr != nil {
+			return reloadErr
 		}
+
 		result = updated
 
-		evt := domain.NewTaskMovedEvent(updated, fresh.ParentID, newParent, fresh.Order, &newOrder, actor)
-		return tx.Events().Record(ctx, evt)
+		event := domain.NewTaskMovedEvent(updated, fresh.ParentID, newParent, fresh.Order, &newOrder, actor)
+		return tx.Events().Record(ctx, event)
 	})
+
 	if err != nil {
 		return nil, err
 	}
+
 	return result, nil
 }
 
@@ -131,29 +143,35 @@ func (s *TaskService) Move(ctx context.Context, req MoveRequest) (*domain.Task, 
 // First/Last it is simply the new parent.
 func resolveMoveParent(
 	ctx context.Context,
-	tr repository.TaskRepository,
+	taskRepo repository.TaskRepository,
 	subject *domain.Task,
 	req MoveRequest,
 ) (newParent *uuid.UUID, refParent *uuid.UUID, err error) {
 	switch req.Position {
 	case MovePositionBefore, MovePositionAfter:
-		target, err := tr.GetByID(ctx, *req.TargetID)
-		if err != nil {
-			return nil, nil, err
+		target, fetchErr := taskRepo.GetByID(ctx, *req.TargetID)
+
+		if fetchErr != nil {
+			return nil, nil, fetchErr
 		}
+
 		return target.ParentID, target.ParentID, nil
 
 	case MovePositionFirst, MovePositionLast:
 		if req.ParentID == nil {
 			return subject.ParentID, subject.ParentID, nil
 		}
+
 		desired := *req.ParentID
+
 		if desired == nil {
 			return nil, nil, nil
 		}
-		if _, err := tr.GetByID(ctx, *desired); err != nil {
-			return nil, nil, err
+
+		if _, checkErr := taskRepo.GetByID(ctx, *desired); checkErr != nil {
+			return nil, nil, checkErr
 		}
+
 		return desired, desired, nil
 	}
 	return nil, nil, fmt.Errorf("invalid move position: %d", req.Position)
@@ -164,7 +182,7 @@ func resolveMoveParent(
 // parent→child graph.
 func ensureNotDescendant(
 	ctx context.Context,
-	tr repository.TaskRepository,
+	taskRepo repository.TaskRepository,
 	subjectID uuid.UUID,
 	newParent *uuid.UUID,
 ) error {
@@ -174,12 +192,14 @@ func ensureNotDescendant(
 	if *newParent == subjectID {
 		return domain.ErrCyclicParent
 	}
-	descendants, err := tr.GetDescendants(ctx, subjectID)
+	descendants, err := taskRepo.GetDescendants(ctx, subjectID)
+
 	if err != nil {
 		return fmt.Errorf("loading descendants for cycle check: %w", err)
 	}
-	for _, d := range descendants {
-		if d.ID == *newParent {
+
+	for _, descendant := range descendants {
+		if descendant.ID == *newParent {
 			return domain.ErrCyclicParent
 		}
 	}
@@ -191,49 +211,62 @@ func ensureNotDescendant(
 // repo's FirstOrder / NextOrder helpers (dense ±1 off the extremes).
 func computeMoveOrder(
 	ctx context.Context,
-	tr repository.TaskRepository,
+	taskRepo repository.TaskRepository,
 	req MoveRequest,
 	newParent *uuid.UUID,
 	refParent *uuid.UUID,
 ) (float64, error) {
 	switch req.Position {
 	case MovePositionBefore, MovePositionAfter:
-		target, err := tr.GetByID(ctx, *req.TargetID)
-		if err != nil {
-			return 0, err
+		target, fetchErr := taskRepo.GetByID(ctx, *req.TargetID)
+
+		if fetchErr != nil {
+			return 0, fetchErr
 		}
+
 		pivot := 1.0
+
 		if target.Order != nil {
 			pivot = *target.Order
 		}
-		prev, next, err := tr.NeighborOrders(ctx, refParent, pivot)
-		if err != nil {
-			return 0, err
+
+		prev, next, neighborErr := taskRepo.NeighborOrders(ctx, refParent, pivot)
+
+		if neighborErr != nil {
+			return 0, neighborErr
 		}
+
 		if req.Position == MovePositionBefore {
 			if prev == nil {
 				return pivot - 1.0, nil
 			}
-			mid, err := computeMidpoint(*prev, pivot)
-			if err != nil {
-				return 0, fmt.Errorf("%w: parent %s", err, formatParentShortID(refParent))
+
+			mid, midErr := computeMidpoint(*prev, pivot)
+
+			if midErr != nil {
+				return 0, fmt.Errorf("%w: parent %s", midErr, formatParentShortID(refParent))
 			}
+
 			return mid, nil
 		}
+
 		if next == nil {
 			return pivot + 1.0, nil
 		}
-		mid, err := computeMidpoint(pivot, *next)
-		if err != nil {
-			return 0, fmt.Errorf("%w: parent %s", err, formatParentShortID(refParent))
+
+		mid, midErr := computeMidpoint(pivot, *next)
+
+		if midErr != nil {
+			return 0, fmt.Errorf("%w: parent %s", midErr, formatParentShortID(refParent))
 		}
+
 		return mid, nil
 
 	case MovePositionFirst:
-		return tr.FirstOrder(ctx, newParent)
+		return taskRepo.FirstOrder(ctx, newParent)
 
 	case MovePositionLast:
-		return tr.NextOrder(ctx, newParent)
+		return taskRepo.NextOrder(ctx, newParent)
 	}
 	return 0, fmt.Errorf("invalid move position: %d", req.Position)
 }
@@ -245,9 +278,12 @@ func formatParentShortID(id *uuid.UUID) string {
 	if id == nil {
 		return "root"
 	}
-	s := strings.ReplaceAll(id.String(), "-", "")
-	if len(s) < 8 {
-		return s
+
+	hex := strings.ReplaceAll(id.String(), "-", "")
+
+	if len(hex) < 8 {
+		return hex
 	}
-	return s[:8]
+
+	return hex[:8]
 }

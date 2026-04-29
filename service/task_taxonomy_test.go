@@ -15,9 +15,9 @@ import (
 // taxonomyTestEnv wires a TaskService with a ProjectService configured to use
 // the supplied workspace taxonomy. projectRepo is returned so tests can seed
 // additional projects with override taxonomies.
-func taxonomyTestEnv(t *testing.T, workspaceLevels [][]string) (*testEnv, *sqlite.ProjectRepo, *RepoBundle) {
-	t.Helper()
-	bundle, projectRepo, _ := newSeededBundle(t)
+func taxonomyTestEnv(test *testing.T, workspaceLevels [][]string) (*testEnv, *sqlite.ProjectRepo, *RepoBundle) {
+	test.Helper()
+	bundle, projectRepo, _ := newSeededBundle(test)
 	workflowRepo := sqlite.NewWorkflowRepo(bundle.Store.DB())
 
 	resolver, projects := singleBundleResolver(bundle, domain.DefaultProjectUUID)
@@ -33,66 +33,72 @@ func taxonomyTestEnv(t *testing.T, workspaceLevels [][]string) (*testEnv, *sqlit
 		workflowSvc: workflowSvc,
 		store:       bundle.Store,
 	}
+
 	return env, projectRepo, bundle
 }
 
 // basicTaxonomy is the shared three-rank taxonomy used by most tests.
 var basicTaxonomy = [][]string{{"milestone"}, {"story"}, {"task", "spike"}}
 
-func assertTaxonomyReason(t *testing.T, err error, reason string) {
-	t.Helper()
+func assertTaxonomyReason(test *testing.T, err error, reason string) {
+	test.Helper()
+
 	if err == nil {
-		t.Fatalf("expected taxonomy error with reason %q, got nil", reason)
+		test.Fatalf("expected taxonomy error with reason %q, got nil", reason)
 	}
+
 	if !errors.Is(err, domain.ErrTaxonomyViolation) {
-		t.Fatalf("expected ErrTaxonomyViolation, got %v", err)
+		test.Fatalf("expected ErrTaxonomyViolation, got %v", err)
 	}
+
 	var te *domain.TaxonomyError
+
 	if !errors.As(err, &te) {
-		t.Fatalf("expected *TaxonomyError, got %T: %v", err, err)
+		test.Fatalf("expected *TaxonomyError, got %T: %v", err, err)
 	}
+
 	if te.Reason != reason {
-		t.Fatalf("reason = %q, want %q", te.Reason, reason)
+		test.Fatalf("reason = %q, want %q", te.Reason, reason)
 	}
 }
 
-func TestTaxonomy_Create_MissingLevel(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Create_MissingLevel(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	task := newMinimalTask("no level")
 	err := env.taskSvc.Create(ctx, task)
-	assertTaxonomyReason(t, err, "missing")
+	assertTaxonomyReason(test, err, "missing")
 }
 
-func TestTaxonomy_Create_UnknownLevel(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Create_UnknownLevel(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	task := newMinimalTask("bogus")
 	task.Level = ptr("bogus")
 	err := env.taskSvc.Create(ctx, task)
-	assertTaxonomyReason(t, err, "unknown_level")
+	assertTaxonomyReason(test, err, "unknown_level")
 }
 
-func TestTaxonomy_Create_RootMustBeTopRank(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Create_RootMustBeTopRank(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	task := newMinimalTask("orphan story")
 	task.Level = ptr("story")
 	err := env.taskSvc.Create(ctx, task)
-	assertTaxonomyReason(t, err, "root_requires_top_rank")
+	assertTaxonomyReason(test, err, "root_requires_top_rank")
 }
 
-func TestTaxonomy_Create_ParentRankNotLower(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Create_ParentRankNotLower(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	// Milestone → root.
 	root := newMinimalTask("roadmap")
 	root.Level = ptr("milestone")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
 	// Sibling milestone under another milestone is rejected — parent rank
 	// is not strictly lower than child rank.
@@ -100,45 +106,50 @@ func TestTaxonomy_Create_ParentRankNotLower(t *testing.T) {
 	child.Level = ptr("milestone")
 	child.ParentID = &root.ID
 	err := env.taskSvc.Create(ctx, child)
-	assertTaxonomyReason(t, err, "parent_rank_not_lower")
+	assertTaxonomyReason(test, err, "parent_rank_not_lower")
 }
 
-func TestTaxonomy_Create_Success(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Create_Success(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	root := newMinimalTask("roadmap")
 	root.Level = ptr("milestone")
+
 	if err := env.taskSvc.Create(ctx, root); err != nil {
-		t.Fatalf("Create root: %v", err)
+		test.Fatalf("Create root: %v", err)
 	}
 
 	child := newMinimalTask("q1 story")
 	child.Level = ptr("story")
 	child.ParentID = &root.ID
+
 	if err := env.taskSvc.Create(ctx, child); err != nil {
-		t.Fatalf("Create child: %v", err)
+		test.Fatalf("Create child: %v", err)
 	}
+
 	got, err := env.taskSvc.GetByShortID(ctx, child.ShortID)
+
 	if err != nil {
-		t.Fatalf("GetByShortID: %v", err)
+		test.Fatalf("GetByShortID: %v", err)
 	}
+
 	if got.Level == nil || *got.Level != "story" {
-		t.Fatalf("persisted level = %v, want 'story'", got.Level)
+		test.Fatalf("persisted level = %v, want 'story'", got.Level)
 	}
 }
 
-func TestTaxonomy_Update_ReparentIncompatibleRank(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Update_ReparentIncompatibleRank(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	rootA := newMinimalTask("roadmap A")
 	rootA.Level = ptr("milestone")
-	mustCreateTask(t, env.taskSvc, rootA)
+	mustCreateTask(test, env.taskSvc, rootA)
 
 	rootB := newMinimalTask("roadmap B")
 	rootB.Level = ptr("milestone")
-	mustCreateTask(t, env.taskSvc, rootB)
+	mustCreateTask(test, env.taskSvc, rootB)
 
 	// Re-parent a milestone under another milestone — ranks equal.
 	pid := rootB.ID
@@ -148,19 +159,19 @@ func TestTaxonomy_Update_ReparentIncompatibleRank(t *testing.T) {
 		Version:  rootA.Version,
 		ParentID: &pp,
 	})
-	assertTaxonomyReason(t, err, "parent_rank_not_lower")
+	assertTaxonomyReason(test, err, "parent_rank_not_lower")
 }
 
-func TestTaxonomy_Update_ReassignProjectToIncompatibleTaxonomy(t *testing.T) {
-	env, projectRepo, _ := taxonomyTestEnv(t, [][]string{{"alpha"}, {"beta"}})
+func TestTaxonomy_Update_ReassignProjectToIncompatibleTaxonomy(test *testing.T) {
+	env, projectRepo, _ := taxonomyTestEnv(test, [][]string{{"alpha"}, {"beta"}})
 	ctx := context.Background()
 
 	task := newMinimalTask("work")
 	task.Level = ptr("alpha")
-	mustCreateTask(t, env.taskSvc, task)
+	mustCreateTask(test, env.taskSvc, task)
 
 	// Seed a project whose own taxonomy does NOT include "alpha".
-	overrideProject := seedProjectWithTaxonomy(t, projectRepo, "override", domain.Taxonomy{{"red"}, {"blue"}})
+	overrideProject := seedProjectWithTaxonomy(test, projectRepo, "override", domain.Taxonomy{{"red"}, {"blue"}})
 
 	newProjectID := overrideProject.ID
 	_, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
@@ -168,21 +179,21 @@ func TestTaxonomy_Update_ReassignProjectToIncompatibleTaxonomy(t *testing.T) {
 		Version:   task.Version,
 		ProjectID: &newProjectID,
 	})
-	assertTaxonomyReason(t, err, "unknown_level")
+	assertTaxonomyReason(test, err, "unknown_level")
 }
 
-func TestTaxonomy_Update_LevelOnly_ReloadsParent(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Update_LevelOnly_ReloadsParent(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	root := newMinimalTask("roadmap")
 	root.Level = ptr("milestone")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
 	child := newMinimalTask("q1 task")
 	child.Level = ptr("task")
 	child.ParentID = &root.ID
-	mustCreateTask(t, env.taskSvc, child)
+	mustCreateTask(test, env.taskSvc, child)
 
 	// Changing Level only — parent must be re-loaded by validateTaxonomy.
 	newLevel := "story"
@@ -192,22 +203,24 @@ func TestTaxonomy_Update_LevelOnly_ReloadsParent(t *testing.T) {
 		Version: child.Version,
 		Level:   &lp,
 	})
+
 	if err != nil {
-		t.Fatalf("Update: %v", err)
+		test.Fatalf("Update: %v", err)
 	}
+
 	if updated.Level == nil || *updated.Level != "story" {
-		t.Fatalf("level = %v, want 'story'", updated.Level)
+		test.Fatalf("level = %v, want 'story'", updated.Level)
 	}
 }
 
-func TestTaxonomy_Update_ClearLevel_WithoutTaxonomy_Accepted(t *testing.T) {
+func TestTaxonomy_Update_ClearLevel_WithoutTaxonomy_Accepted(test *testing.T) {
 	// No workspace taxonomy configured → validator short-circuits.
-	env, _, _ := taxonomyTestEnv(t, nil)
+	env, _, _ := taxonomyTestEnv(test, nil)
 	ctx := context.Background()
 
 	task := newMinimalTask("plain")
 	task.Level = ptr("legacy")
-	mustCreateTask(t, env.taskSvc, task)
+	mustCreateTask(test, env.taskSvc, task)
 
 	var nilStr *string
 	updated, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
@@ -215,49 +228,56 @@ func TestTaxonomy_Update_ClearLevel_WithoutTaxonomy_Accepted(t *testing.T) {
 		Version: task.Version,
 		Level:   &nilStr,
 	})
+
 	if err != nil {
-		t.Fatalf("Update: %v", err)
+		test.Fatalf("Update: %v", err)
 	}
+
 	if updated.Level != nil {
-		t.Fatalf("level = %v, want nil", updated.Level)
+		test.Fatalf("level = %v, want nil", updated.Level)
 	}
 }
 
-func TestTaxonomy_Update_ChangingLevel_EmitsTaskModifiedWithLevelDiff(t *testing.T) {
-	env, _, _ := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Update_ChangingLevel_EmitsTaskModifiedWithLevelDiff(test *testing.T) {
+	env, _, _ := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := WithActor(context.Background(), "german")
 
 	root := newMinimalTask("roadmap")
 	root.Level = ptr("milestone")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
 	child := newMinimalTask("child")
 	child.Level = ptr("task")
 	child.ParentID = &root.ID
-	mustCreateTask(t, env.taskSvc, child)
+	mustCreateTask(test, env.taskSvc, child)
 
 	newLevel := "spike"
 	lp := &newLevel
-	if _, err := env.taskSvc.Update(ctx, domain.TaskUpdate{
+
+	if _, updateErr := env.taskSvc.Update(ctx, domain.TaskUpdate{
 		ShortID: child.ShortID,
 		Version: child.Version,
 		Level:   &lp,
-	}); err != nil {
-		t.Fatalf("Update: %v", err)
+	}); updateErr != nil {
+		test.Fatalf("Update: %v", updateErr)
 	}
 
-	events := listAllEvents(t, env.store)
-	evt := firstEventOfType(t, events, domain.EventTaskModified)
-	payload, ok := evt.Payload.(domain.TaskModifiedPayload)
+	events := listAllEvents(test, env.store)
+	event := firstEventOfType(test, events, domain.EventTaskModified)
+	payload, ok := event.Payload.(domain.TaskModifiedPayload)
+
 	if !ok {
-		t.Fatalf("payload: got %T, want TaskModifiedPayload", evt.Payload)
+		test.Fatalf("payload: got %T, want TaskModifiedPayload", event.Payload)
 	}
+
 	change, hasLevel := payload.Changes["level"]
+
 	if !hasLevel {
-		t.Fatalf("changes should include 'level', got keys=%v", keysOf(payload.Changes))
+		test.Fatalf("changes should include 'level', got keys=%v", keysOf(payload.Changes))
 	}
+
 	if change.From != "task" || change.To != "spike" {
-		t.Fatalf("level change = %v → %v, want 'task' → 'spike'", change.From, change.To)
+		test.Fatalf("level change = %v → %v, want 'task' → 'spike'", change.From, change.To)
 	}
 }
 
@@ -265,10 +285,10 @@ func TestTaxonomy_Update_ChangingLevel_EmitsTaskModifiedWithLevelDiff(t *testing
 // Release, and Complete do not re-run taxonomy validation. The task is
 // seeded directly through the bundle so it violates the workspace
 // taxonomy; each lifecycle call must still succeed.
-func TestTaxonomy_LifecyclePaths_DoNotValidate(t *testing.T) {
-	env, _, bundle := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_LifecyclePaths_DoNotValidate(test *testing.T) {
+	env, _, bundle := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
-	registerTestPlayer(t, env, "agent-1")
+	registerTestPlayer(test, env, "agent-1")
 
 	// Insert a task that violates the taxonomy (no level).
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -283,39 +303,43 @@ func TestTaxonomy_LifecyclePaths_DoNotValidate(t *testing.T) {
 		ModifiedAt: now,
 		UDA:        map[string]any{},
 	}
+
 	if err := bundle.Tasks.Create(ctx, task); err != nil {
-		t.Fatalf("seed task: %v", err)
+		test.Fatalf("seed task: %v", err)
 	}
 
 	// Start — must not invoke validator.
-	started, err := env.taskSvc.Start(ctx, task.ShortID, task.Version, "")
-	if err != nil {
-		t.Fatalf("Start: %v", err)
+	started, startErr := env.taskSvc.Start(ctx, task.ShortID, task.Version, "")
+
+	if startErr != nil {
+		test.Fatalf("Start: %v", startErr)
 	}
 
 	// Claim — must not invoke validator.
-	claimed, err := env.taskSvc.Claim(ctx, started.ShortID, "agent-1", started.Version)
-	if err != nil {
-		t.Fatalf("Claim: %v", err)
+	claimed, claimErr := env.taskSvc.Claim(ctx, started.ShortID, "agent-1", started.Version)
+
+	if claimErr != nil {
+		test.Fatalf("Claim: %v", claimErr)
 	}
 
 	// Release — must not invoke validator.
-	released, err := env.taskSvc.Release(ctx, claimed.ShortID, "agent-1", claimed.Version)
-	if err != nil {
-		t.Fatalf("Release: %v", err)
+	released, releaseErr := env.taskSvc.Release(ctx, claimed.ShortID, "agent-1", claimed.Version)
+
+	if releaseErr != nil {
+		test.Fatalf("Release: %v", releaseErr)
 	}
 
 	// Complete — must not invoke validator.
-	if _, err := env.taskSvc.Complete(ctx, released.ShortID, released.Version); err != nil {
-		t.Fatalf("Complete: %v", err)
+	if _, completeErr := env.taskSvc.Complete(ctx, released.ShortID, released.Version); completeErr != nil {
+		test.Fatalf("Complete: %v", completeErr)
 	}
 }
 
 // TestTaxonomy_Delete_DoesNotValidate verifies Delete from pending does
 // not re-run taxonomy validation even when the task violates the
 // workspace taxonomy.
-func TestTaxonomy_Delete_DoesNotValidate(t *testing.T) {
-	env, _, bundle := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Delete_DoesNotValidate(test *testing.T) {
+	env, _, bundle := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -330,19 +354,20 @@ func TestTaxonomy_Delete_DoesNotValidate(t *testing.T) {
 		ModifiedAt: now,
 		UDA:        map[string]any{},
 	}
+
 	if err := bundle.Tasks.Create(ctx, task); err != nil {
-		t.Fatalf("seed task: %v", err)
+		test.Fatalf("seed task: %v", err)
 	}
 
-	if _, err := env.taskSvc.Delete(ctx, task.ShortID, task.Version); err != nil {
-		t.Fatalf("Delete: %v", err)
+	if _, deleteErr := env.taskSvc.Delete(ctx, task.ShortID, task.Version); deleteErr != nil {
+		test.Fatalf("Delete: %v", deleteErr)
 	}
 }
 
-func TestTaxonomy_Pop_DoesNotValidate(t *testing.T) {
-	env, _, bundle := taxonomyTestEnv(t, basicTaxonomy)
+func TestTaxonomy_Pop_DoesNotValidate(test *testing.T) {
+	env, _, bundle := taxonomyTestEnv(test, basicTaxonomy)
 	ctx := context.Background()
-	registerTestPlayer(t, env, "agent-1")
+	registerTestPlayer(test, env, "agent-1")
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	task := &domain.Task{
@@ -356,21 +381,22 @@ func TestTaxonomy_Pop_DoesNotValidate(t *testing.T) {
 		ModifiedAt: now,
 		UDA:        map[string]any{},
 	}
+
 	if err := bundle.Tasks.Create(ctx, task); err != nil {
-		t.Fatalf("seed task: %v", err)
+		test.Fatalf("seed task: %v", err)
 	}
 
-	if _, err := env.taskSvc.Pop(ctx, "agent-1", nil); err != nil {
-		t.Fatalf("Pop: %v", err)
+	if _, popErr := env.taskSvc.Pop(ctx, "agent-1", nil); popErr != nil {
+		test.Fatalf("Pop: %v", popErr)
 	}
 }
 
 // seedProjectWithTaxonomy inserts a project bound to the builtin kanban
 // workflow and with the given override taxonomy.
-func seedProjectWithTaxonomy(t *testing.T, repo *sqlite.ProjectRepo, name string, tax domain.Taxonomy) *domain.Project {
-	t.Helper()
+func seedProjectWithTaxonomy(test *testing.T, repo *sqlite.ProjectRepo, name string, tax domain.Taxonomy) *domain.Project {
+	test.Helper()
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	p := &domain.Project{
+	project := &domain.Project{
 		ID:         uuid.New(),
 		Name:       name,
 		WorkflowID: uuid.Nil,
@@ -379,8 +405,10 @@ func seedProjectWithTaxonomy(t *testing.T, repo *sqlite.ProjectRepo, name string
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := repo.Create(context.Background(), p); err != nil {
-		t.Fatalf("seed project %q: %v", name, err)
+
+	if err := repo.Create(context.Background(), project); err != nil {
+		test.Fatalf("seed project %q: %v", name, err)
 	}
-	return p
+
+	return project
 }

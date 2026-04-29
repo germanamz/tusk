@@ -14,105 +14,119 @@ import (
 
 // moveEnv returns a ready-to-use TaskService env; thin wrapper around
 // testTaskEnv so move tests read linearly.
-func moveEnv(t *testing.T) *testEnv {
-	t.Helper()
-	return testTaskEnv(t)
+func moveEnv(test *testing.T) *testEnv {
+	test.Helper()
+	return testTaskEnv(test)
 }
 
 // makeTask creates a task through the service and returns the persisted row.
-func makeTask(t *testing.T, env *testEnv, title string, parent *uuid.UUID) *domain.Task {
-	t.Helper()
+func makeTask(test *testing.T, env *testEnv, title string, parent *uuid.UUID) *domain.Task {
+	test.Helper()
 	task := &domain.Task{Title: title}
+
 	if parent != nil {
 		task.ParentID = parent
 	}
+
 	if err := env.taskSvc.Create(context.Background(), task); err != nil {
-		t.Fatalf("Create %q: %v", title, err)
+		test.Fatalf("Create %q: %v", title, err)
 	}
+
 	return task
 }
 
-func lastMovedEvent(t *testing.T, env *testEnv) *domain.Event {
-	t.Helper()
-	events := listAllEvents(t, env.store)
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Type == domain.EventTaskMoved {
-			return events[i]
+func lastMovedEvent(test *testing.T, env *testEnv) *domain.Event {
+	test.Helper()
+	events := listAllEvents(test, env.store)
+
+	for index := len(events) - 1; index >= 0; index-- {
+		if events[index].Type == domain.EventTaskMoved {
+			return events[index]
 		}
 	}
-	t.Fatalf("no task_moved event found among %d events", len(events))
+
+	test.Fatalf("no task_moved event found among %d events", len(events))
 	return nil
 }
 
-func TestMove_Before_SameParent_UsesMidpoint(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_Before_SameParent_UsesMidpoint(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := WithActor(context.Background(), "german")
 
-	a := makeTask(t, env, "a", nil) // order 1
-	b := makeTask(t, env, "b", nil) // order 2
-	c := makeTask(t, env, "c", nil) // order 3
+	taskA := makeTask(test, env, "a", nil) // order 1
+	taskB := makeTask(test, env, "b", nil) // order 2
+	taskC := makeTask(test, env, "c", nil) // order 3
 
 	moved, err := env.taskSvc.Move(ctx, MoveRequest{
-		TaskID:   c.ID,
-		Version:  c.Version,
+		TaskID:   taskC.ID,
+		Version:  taskC.Version,
 		Position: MovePositionBefore,
-		TargetID: &b.ID,
+		TargetID: &taskB.ID,
 	})
+
 	if err != nil {
-		t.Fatalf("Move: %v", err)
-	}
-	if moved.Order == nil || *moved.Order != 1.5 {
-		t.Fatalf("order: got %v, want 1.5", moved.Order)
+		test.Fatalf("Move: %v", err)
 	}
 
-	evt := lastMovedEvent(t, env)
-	payload := evt.Payload.(domain.TaskMovedPayload)
+	if moved.Order == nil || *moved.Order != 1.5 {
+		test.Fatalf("order: got %v, want 1.5", moved.Order)
+	}
+
+	event := lastMovedEvent(test, env)
+	payload := event.Payload.(domain.TaskMovedPayload)
+
 	if payload.OldOrder == nil || *payload.OldOrder != 3.0 {
-		t.Fatalf("old_order: got %v, want 3.0", payload.OldOrder)
+		test.Fatalf("old_order: got %v, want 3.0", payload.OldOrder)
 	}
+
 	if payload.NewOrder == nil || *payload.NewOrder != 1.5 {
-		t.Fatalf("new_order: got %v, want 1.5", payload.NewOrder)
+		test.Fatalf("new_order: got %v, want 1.5", payload.NewOrder)
 	}
+
 	if payload.OldParentID != nil || payload.NewParentID != nil {
-		t.Fatalf("parents: got old=%v new=%v, want nil/nil", payload.OldParentID, payload.NewParentID)
+		test.Fatalf("parents: got old=%v new=%v, want nil/nil", payload.OldParentID, payload.NewParentID)
 	}
-	_ = a
+
+	_ = taskA
 }
 
-func TestMove_After_SameParent_UsesMidpoint(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_After_SameParent_UsesMidpoint(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	a := makeTask(t, env, "a", nil) // order 1
-	b := makeTask(t, env, "b", nil) // order 2
-	c := makeTask(t, env, "c", nil) // order 3
+	taskA := makeTask(test, env, "a", nil) // order 1
+	taskB := makeTask(test, env, "b", nil) // order 2
+	taskC := makeTask(test, env, "c", nil) // order 3
 
 	moved, err := env.taskSvc.Move(ctx, MoveRequest{
-		TaskID:   a.ID,
-		Version:  a.Version,
+		TaskID:   taskA.ID,
+		Version:  taskA.Version,
 		Position: MovePositionAfter,
-		TargetID: &b.ID,
+		TargetID: &taskB.ID,
 	})
+
 	if err != nil {
-		t.Fatalf("Move: %v", err)
+		test.Fatalf("Move: %v", err)
 	}
+
 	if moved.Order == nil || *moved.Order != 2.5 {
-		t.Fatalf("order: got %v, want 2.5", moved.Order)
+		test.Fatalf("order: got %v, want 2.5", moved.Order)
 	}
-	_ = c
+
+	_ = taskC
 }
 
-func TestMove_Before_CrossParent_ReparentsAndRecordsParents(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_Before_CrossParent_ReparentsAndRecordsParents(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := WithActor(context.Background(), "german")
 
-	parentA := makeTask(t, env, "A", nil)
-	parentB := makeTask(t, env, "B", nil)
-	childA1 := makeTask(t, env, "A1", &parentA.ID) // under A, order 1
-	childB1 := makeTask(t, env, "B1", &parentB.ID) // under B, order 1
+	parentA := makeTask(test, env, "A", nil)
+	parentB := makeTask(test, env, "B", nil)
+	childA1 := makeTask(test, env, "A1", &parentA.ID) // under A, order 1
+	childB1 := makeTask(test, env, "B1", &parentB.ID) // under B, order 1
 
 	moved, err := env.taskSvc.Move(ctx, MoveRequest{
 		TaskID:   childA1.ID,
@@ -120,62 +134,71 @@ func TestMove_Before_CrossParent_ReparentsAndRecordsParents(t *testing.T) {
 		Position: MovePositionBefore,
 		TargetID: &childB1.ID,
 	})
+
 	if err != nil {
-		t.Fatalf("Move: %v", err)
-	}
-	if moved.ParentID == nil || *moved.ParentID != parentB.ID {
-		t.Fatalf("parent: got %v, want parentB %v", moved.ParentID, parentB.ID)
-	}
-	if moved.Order == nil || *moved.Order != 0.0 {
-		t.Fatalf("order: got %v, want 0.0", moved.Order)
+		test.Fatalf("Move: %v", err)
 	}
 
-	evt := lastMovedEvent(t, env)
-	p := evt.Payload.(domain.TaskMovedPayload)
-	if p.OldParentID == nil || *p.OldParentID != parentA.ID {
-		t.Fatalf("old_parent_id: got %v, want parentA %v", p.OldParentID, parentA.ID)
+	if moved.ParentID == nil || *moved.ParentID != parentB.ID {
+		test.Fatalf("parent: got %v, want parentB %v", moved.ParentID, parentB.ID)
 	}
-	if p.NewParentID == nil || *p.NewParentID != parentB.ID {
-		t.Fatalf("new_parent_id: got %v, want parentB %v", p.NewParentID, parentB.ID)
+
+	if moved.Order == nil || *moved.Order != 0.0 {
+		test.Fatalf("order: got %v, want 0.0", moved.Order)
+	}
+
+	event := lastMovedEvent(test, env)
+	payload := event.Payload.(domain.TaskMovedPayload)
+
+	if payload.OldParentID == nil || *payload.OldParentID != parentA.ID {
+		test.Fatalf("old_parent_id: got %v, want parentA %v", payload.OldParentID, parentA.ID)
+	}
+
+	if payload.NewParentID == nil || *payload.NewParentID != parentB.ID {
+		test.Fatalf("new_parent_id: got %v, want parentB %v", payload.NewParentID, parentB.ID)
 	}
 }
 
-func TestMove_First_KeepCurrentParent(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_First_KeepCurrentParent(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	p := makeTask(t, env, "P", nil)
-	c1 := makeTask(t, env, "c1", &p.ID) // order 1
-	c2 := makeTask(t, env, "c2", &p.ID) // order 2
-	c3 := makeTask(t, env, "c3", &p.ID) // order 3
+	parent := makeTask(test, env, "P", nil)
+	child1 := makeTask(test, env, "c1", &parent.ID) // order 1
+	child2 := makeTask(test, env, "c2", &parent.ID) // order 2
+	child3 := makeTask(test, env, "c3", &parent.ID) // order 3
 
 	moved, err := env.taskSvc.Move(ctx, MoveRequest{
-		TaskID:   c3.ID,
-		Version:  c3.Version,
+		TaskID:   child3.ID,
+		Version:  child3.Version,
 		Position: MovePositionFirst,
 	})
+
 	if err != nil {
-		t.Fatalf("Move: %v", err)
+		test.Fatalf("Move: %v", err)
 	}
-	if moved.ParentID == nil || *moved.ParentID != p.ID {
-		t.Fatalf("parent: got %v, want p %v", moved.ParentID, p.ID)
+
+	if moved.ParentID == nil || *moved.ParentID != parent.ID {
+		test.Fatalf("parent: got %v, want p %v", moved.ParentID, parent.ID)
 	}
+
 	if moved.Order == nil || *moved.Order != 0.0 {
-		t.Fatalf("order: got %v, want 0.0 (min(1,2)-1)", moved.Order)
+		test.Fatalf("order: got %v, want 0.0 (min(1,2)-1)", moved.Order)
 	}
-	_ = c1
-	_ = c2
+
+	_ = child1
+	_ = child2
 }
 
-func TestMove_First_ToRoot_FromNested(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_First_ToRoot_FromNested(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	rootA := makeTask(t, env, "rootA", nil) // order 1
-	rootB := makeTask(t, env, "rootB", nil) // order 2
-	nested := makeTask(t, env, "nested", &rootA.ID)
+	rootA := makeTask(test, env, "rootA", nil) // order 1
+	rootB := makeTask(test, env, "rootB", nil) // order 2
+	nested := makeTask(test, env, "nested", &rootA.ID)
 
 	nilParent := (*uuid.UUID)(nil)
 	moved, err := env.taskSvc.Move(ctx, MoveRequest{
@@ -184,33 +207,37 @@ func TestMove_First_ToRoot_FromNested(t *testing.T) {
 		Position: MovePositionFirst,
 		ParentID: &nilParent,
 	})
+
 	if err != nil {
-		t.Fatalf("Move: %v", err)
+		test.Fatalf("Move: %v", err)
 	}
+
 	if moved.ParentID != nil {
-		t.Fatalf("parent: got %v, want nil (root)", moved.ParentID)
+		test.Fatalf("parent: got %v, want nil (root)", moved.ParentID)
 	}
+
 	if moved.Order == nil || *moved.Order != 0.0 {
-		t.Fatalf("order: got %v, want 0.0 (min(1,2)-1)", moved.Order)
+		test.Fatalf("order: got %v, want 0.0 (min(1,2)-1)", moved.Order)
 	}
+
 	_ = rootB
 }
 
-func TestMove_Last_ExplicitParent(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_Last_ExplicitParent(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	pA := makeTask(t, env, "A", nil)
-	pB := makeTask(t, env, "B", nil)
+	parentA := makeTask(test, env, "A", nil)
+	parentB := makeTask(test, env, "B", nil)
 	// three children under B so Last is well-defined: order 1,2,3
-	makeTask(t, env, "b1", &pB.ID)
-	makeTask(t, env, "b2", &pB.ID)
-	makeTask(t, env, "b3", &pB.ID)
+	makeTask(test, env, "b1", &parentB.ID)
+	makeTask(test, env, "b2", &parentB.ID)
+	makeTask(test, env, "b3", &parentB.ID)
 	// subject starts under A
-	subject := makeTask(t, env, "sub", &pA.ID)
+	subject := makeTask(test, env, "sub", &parentA.ID)
 
-	pbID := pB.ID
+	pbID := parentB.ID
 	pbPtr := &pbID
 	moved, err := env.taskSvc.Move(ctx, MoveRequest{
 		TaskID:   subject.ID,
@@ -218,47 +245,54 @@ func TestMove_Last_ExplicitParent(t *testing.T) {
 		Position: MovePositionLast,
 		ParentID: &pbPtr,
 	})
+
 	if err != nil {
-		t.Fatalf("Move: %v", err)
+		test.Fatalf("Move: %v", err)
 	}
-	if moved.ParentID == nil || *moved.ParentID != pB.ID {
-		t.Fatalf("parent: got %v, want pB %v", moved.ParentID, pB.ID)
+
+	if moved.ParentID == nil || *moved.ParentID != parentB.ID {
+		test.Fatalf("parent: got %v, want pB %v", moved.ParentID, parentB.ID)
 	}
+
 	if moved.Order == nil || *moved.Order != 4.0 {
-		t.Fatalf("order: got %v, want 4.0 (max(1,2,3)+1)", moved.Order)
+		test.Fatalf("order: got %v, want 4.0 (max(1,2,3)+1)", moved.Order)
 	}
 }
 
-func TestMove_Cycle_Rejected(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_Cycle_Rejected(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	p := makeTask(t, env, "p", nil)
-	c := makeTask(t, env, "c", &p.ID)
+	parent := makeTask(test, env, "p", nil)
+	child := makeTask(test, env, "c", &parent.ID)
 
-	cid := c.ID
+	cid := child.ID
 	cPtr := &cid
 	_, err := env.taskSvc.Move(ctx, MoveRequest{
-		TaskID:   p.ID,
-		Version:  p.Version,
+		TaskID:   parent.ID,
+		Version:  parent.Version,
 		Position: MovePositionLast,
 		ParentID: &cPtr,
 	})
+
 	if !errors.Is(err, domain.ErrCyclicParent) {
-		t.Fatalf("err: got %v, want ErrCyclicParent", err)
+		test.Fatalf("err: got %v, want ErrCyclicParent", err)
 	}
 
 	// DB untouched: p still has no parent.
-	got, err := env.taskSvc.GetByID(ctx, p.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+	got, lookupErr := env.taskSvc.GetByID(ctx, parent.ID)
+
+	if lookupErr != nil {
+		test.Fatalf("GetByID: %v", lookupErr)
 	}
+
 	if got.ParentID != nil {
-		t.Fatalf("parent changed on rejected move: got %v, want nil", got.ParentID)
+		test.Fatalf("parent changed on rejected move: got %v, want nil", got.ParentID)
 	}
-	if got.Version != p.Version {
-		t.Fatalf("version changed on rejected move: got %d, want %d", got.Version, p.Version)
+
+	if got.Version != parent.Version {
+		test.Fatalf("version changed on rejected move: got %d, want %d", got.Version, parent.Version)
 	}
 }
 
@@ -266,72 +300,81 @@ func TestMove_Cycle_Rejected(t *testing.T) {
 // by setting two sibling orders to adjacent float64 values and asking Move to
 // slot a third task between them. Orders are rewritten through the bundle's
 // repo directly so the test does not depend on the TaskUpdate.Order path.
-func TestMove_Underflow_WrapsErrOrderGapExhausted(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_Underflow_WrapsErrOrderGapExhausted(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	parent := makeTask(t, env, "P", nil)
-	childA := makeTask(t, env, "A", &parent.ID)
-	childB := makeTask(t, env, "B", &parent.ID)
-	subject := makeTask(t, env, "S", &parent.ID)
+	parent := makeTask(test, env, "P", nil)
+	childA := makeTask(test, env, "A", &parent.ID)
+	childB := makeTask(test, env, "B", &parent.ID)
+	subject := makeTask(test, env, "S", &parent.ID)
 
-	bundle, err := env.taskSvc.resolve(ctx, domain.DefaultProjectUUID)
-	if err != nil {
-		t.Fatalf("resolve bundle: %v", err)
+	bundle, resolveErr := env.taskSvc.resolve(ctx, domain.DefaultProjectUUID)
+
+	if resolveErr != nil {
+		test.Fatalf("resolve bundle: %v", resolveErr)
 	}
+
 	hi := math.Nextafter(1.0, 2.0)
 	lo := 1.0
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	if _, err := bundle.Tasks.UpdateOrderAndParent(ctx, childA.ID, &parent.ID, lo, childA.Version, now); err != nil {
-		t.Fatalf("seed A order: %v", err)
-	}
-	if _, err := bundle.Tasks.UpdateOrderAndParent(ctx, childB.ID, &parent.ID, hi, childB.Version, now); err != nil {
-		t.Fatalf("seed B order: %v", err)
+
+	if _, seedAErr := bundle.Tasks.UpdateOrderAndParent(ctx, childA.ID, &parent.ID, lo, childA.Version, now); seedAErr != nil {
+		test.Fatalf("seed A order: %v", seedAErr)
 	}
 
-	subject, err = env.taskSvc.GetByID(ctx, subject.ID)
-	if err != nil {
-		t.Fatalf("re-read subject: %v", err)
+	if _, seedBErr := bundle.Tasks.UpdateOrderAndParent(ctx, childB.ID, &parent.ID, hi, childB.Version, now); seedBErr != nil {
+		test.Fatalf("seed B order: %v", seedBErr)
 	}
 
-	_, err = env.taskSvc.Move(ctx, MoveRequest{
+	subject, reloadErr := env.taskSvc.GetByID(ctx, subject.ID)
+
+	if reloadErr != nil {
+		test.Fatalf("re-read subject: %v", reloadErr)
+	}
+
+	_, err := env.taskSvc.Move(ctx, MoveRequest{
 		TaskID:   subject.ID,
 		Version:  subject.Version,
 		Position: MovePositionBefore,
 		TargetID: &childB.ID,
 	})
+
 	if !errors.Is(err, domain.ErrOrderGapExhausted) {
-		t.Fatalf("err: got %v, want wrapping ErrOrderGapExhausted", err)
+		test.Fatalf("err: got %v, want wrapping ErrOrderGapExhausted", err)
 	}
+
 	short := strings.ReplaceAll(parent.ID.String(), "-", "")[:8]
+
 	if !strings.Contains(err.Error(), short) {
-		t.Fatalf("err message missing parent short id %q: %v", short, err)
+		test.Fatalf("err message missing parent short id %q: %v", short, err)
 	}
 }
 
-func TestMove_VersionMismatch_ReturnsConflict(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_VersionMismatch_ReturnsConflict(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	a := makeTask(t, env, "a", nil)
-	b := makeTask(t, env, "b", nil)
+	taskA := makeTask(test, env, "a", nil)
+	taskB := makeTask(test, env, "b", nil)
 
 	_, err := env.taskSvc.Move(ctx, MoveRequest{
-		TaskID:   a.ID,
-		Version:  a.Version + 5, // stale
+		TaskID:   taskA.ID,
+		Version:  taskA.Version + 5, // stale
 		Position: MovePositionAfter,
-		TargetID: &b.ID,
+		TargetID: &taskB.ID,
 	})
+
 	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("err: got %v, want ErrConflict", err)
+		test.Fatalf("err: got %v, want ErrConflict", err)
 	}
 }
 
-func TestMove_SubjectNotFound_ReturnsNotFound(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_SubjectNotFound_ReturnsNotFound(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
 	_, err := env.taskSvc.Move(ctx, MoveRequest{
@@ -339,25 +382,28 @@ func TestMove_SubjectNotFound_ReturnsNotFound(t *testing.T) {
 		Version:  1,
 		Position: MovePositionFirst,
 	})
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("err: got %v, want ErrNotFound", err)
+		test.Fatalf("err: got %v, want ErrNotFound", err)
 	}
 }
 
-func TestMove_TargetNotFound_ReturnsNotFound(t *testing.T) {
-	t.Parallel()
-	env := moveEnv(t)
+func TestMove_TargetNotFound_ReturnsNotFound(test *testing.T) {
+	test.Parallel()
+	env := moveEnv(test)
 	ctx := context.Background()
 
-	a := makeTask(t, env, "a", nil)
+	taskA := makeTask(test, env, "a", nil)
 	missing := uuid.New()
+
 	_, err := env.taskSvc.Move(ctx, MoveRequest{
-		TaskID:   a.ID,
-		Version:  a.Version,
+		TaskID:   taskA.ID,
+		Version:  taskA.Version,
 		Position: MovePositionBefore,
 		TargetID: &missing,
 	})
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("err: got %v, want ErrNotFound", err)
+		test.Fatalf("err: got %v, want ErrNotFound", err)
 	}
 }

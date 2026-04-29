@@ -34,16 +34,16 @@ func (w *storeWriteTxAdapter) Notes() repository.NoteRepository { return w.tx.No
 
 func (w *storeWriteTxAdapter) TruncateAll(ctx context.Context) error { return w.tx.TruncateAll(ctx) }
 
-func (p *storeWriteTx) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
-	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
+func (provider *storeWriteTx) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
+	return provider.store.WithTx(ctx, func(stx *sqlite.Tx) error {
 		return fn(&storeWriteTxAdapter{tx: stx})
 	})
 }
 
 // newClaimTestEnv creates a full service environment for claim tests.
-func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService) {
-	t.Helper()
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t)
+func newClaimTestEnv(test *testing.T) (*service.TaskService, *service.PlayerService) {
+	test.Helper()
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 
 	db := store.DB()
 	playerRepo := sqlite.NewPlayerRepo(db)
@@ -71,154 +71,172 @@ func newClaimTestEnv(t *testing.T) (*service.TaskService, *service.PlayerService
 	return taskSvc, playerSvc
 }
 
-func createTestTask(t *testing.T, svc *service.TaskService, title string) *domain.Task {
-	t.Helper()
+func createTestTask(test *testing.T, svc *service.TaskService, title string) *domain.Task {
+	test.Helper()
 	ctx := context.Background()
 	task := &domain.Task{Title: title}
+
 	if err := svc.Create(ctx, task); err != nil {
-		t.Fatalf("Create task: %v", err)
+		test.Fatalf("Create task: %v", err)
 	}
+
 	return task
 }
 
-func TestTaskService_Claim(t *testing.T) {
-	taskSvc, playerSvc := newClaimTestEnv(t)
+func TestTaskService_Claim(test *testing.T) {
+	taskSvc, playerSvc := newClaimTestEnv(test)
 	ctx := context.Background()
 
 	playerSvc.Register(ctx, "agent-1", "agent")
-	task := createTestTask(t, taskSvc, "Claimable task")
+	task := createTestTask(test, taskSvc, "Claimable task")
 
 	claimed, err := taskSvc.Claim(ctx, task.ShortID, "agent-1", task.Version)
+
 	if err != nil {
-		t.Fatalf("Claim: %v", err)
+		test.Fatalf("Claim: %v", err)
 	}
+
 	if claimed.ClaimedBy == nil || *claimed.ClaimedBy != "agent-1" {
-		t.Errorf("ClaimedBy: got %v, want agent-1", claimed.ClaimedBy)
+		test.Errorf("ClaimedBy: got %v, want agent-1", claimed.ClaimedBy)
 	}
+
 	if claimed.ClaimedAt == nil {
-		t.Error("ClaimedAt should be set")
+		test.Error("ClaimedAt should be set")
 	}
 }
 
-func TestTaskService_Claim_AlreadyClaimed(t *testing.T) {
-	taskSvc, playerSvc := newClaimTestEnv(t)
+func TestTaskService_Claim_AlreadyClaimed(test *testing.T) {
+	taskSvc, playerSvc := newClaimTestEnv(test)
 	ctx := context.Background()
 
 	playerSvc.Register(ctx, "agent-1", "agent")
 	playerSvc.Register(ctx, "agent-2", "agent")
-	task := createTestTask(t, taskSvc, "Contested task")
+	task := createTestTask(test, taskSvc, "Contested task")
 
 	claimed, _ := taskSvc.Claim(ctx, task.ShortID, "agent-1", task.Version)
 
 	_, err := taskSvc.Claim(ctx, task.ShortID, "agent-2", claimed.Version)
+
 	if !errors.Is(err, domain.ErrTaskClaimed) {
-		t.Fatalf("Claim by agent-2: got %v, want ErrTaskClaimed", err)
+		test.Fatalf("Claim by agent-2: got %v, want ErrTaskClaimed", err)
 	}
 }
 
-func TestTaskService_Claim_SamePlayer(t *testing.T) {
-	taskSvc, playerSvc := newClaimTestEnv(t)
+func TestTaskService_Claim_SamePlayer(test *testing.T) {
+	taskSvc, playerSvc := newClaimTestEnv(test)
 	ctx := context.Background()
 
 	playerSvc.Register(ctx, "agent-1", "agent")
-	task := createTestTask(t, taskSvc, "Re-claimable task")
+	task := createTestTask(test, taskSvc, "Re-claimable task")
 
 	claimed, _ := taskSvc.Claim(ctx, task.ShortID, "agent-1", task.Version)
 
 	// Same player re-claiming should succeed (idempotent)
 	reclaimed, err := taskSvc.Claim(ctx, task.ShortID, "agent-1", claimed.Version)
+
 	if err != nil {
-		t.Fatalf("re-Claim same player: %v", err)
+		test.Fatalf("re-Claim same player: %v", err)
 	}
+
 	if *reclaimed.ClaimedBy != "agent-1" {
-		t.Errorf("ClaimedBy: got %v, want agent-1", *reclaimed.ClaimedBy)
+		test.Errorf("ClaimedBy: got %v, want agent-1", *reclaimed.ClaimedBy)
 	}
 }
 
-func TestTaskService_Release(t *testing.T) {
-	taskSvc, playerSvc := newClaimTestEnv(t)
+func TestTaskService_Release(test *testing.T) {
+	taskSvc, playerSvc := newClaimTestEnv(test)
 	ctx := context.Background()
 
 	playerSvc.Register(ctx, "agent-1", "agent")
-	task := createTestTask(t, taskSvc, "Releasable task")
+	task := createTestTask(test, taskSvc, "Releasable task")
 
 	claimed, _ := taskSvc.Claim(ctx, task.ShortID, "agent-1", task.Version)
 
 	released, err := taskSvc.Release(ctx, task.ShortID, "agent-1", claimed.Version)
+
 	if err != nil {
-		t.Fatalf("Release: %v", err)
+		test.Fatalf("Release: %v", err)
 	}
+
 	if released.ClaimedBy != nil {
-		t.Errorf("ClaimedBy should be nil after release, got %v", *released.ClaimedBy)
+		test.Errorf("ClaimedBy should be nil after release, got %v", *released.ClaimedBy)
 	}
+
 	if released.ClaimedAt != nil {
-		t.Errorf("ClaimedAt should be nil after release")
+		test.Errorf("ClaimedAt should be nil after release")
 	}
 }
 
-func TestTaskService_Release_WrongPlayer(t *testing.T) {
-	taskSvc, playerSvc := newClaimTestEnv(t)
+func TestTaskService_Release_WrongPlayer(test *testing.T) {
+	taskSvc, playerSvc := newClaimTestEnv(test)
 	ctx := context.Background()
 
 	playerSvc.Register(ctx, "agent-1", "agent")
 	playerSvc.Register(ctx, "agent-2", "agent")
-	task := createTestTask(t, taskSvc, "Guarded task")
+	task := createTestTask(test, taskSvc, "Guarded task")
 
 	claimed, _ := taskSvc.Claim(ctx, task.ShortID, "agent-1", task.Version)
 
 	_, err := taskSvc.Release(ctx, task.ShortID, "agent-2", claimed.Version)
+
 	if err == nil {
-		t.Fatal("Release by wrong player should fail")
+		test.Fatal("Release by wrong player should fail")
 	}
 }
 
-func TestTaskService_Start_AutoClaim(t *testing.T) {
-	taskSvc, playerSvc := newClaimTestEnv(t)
+func TestTaskService_Start_AutoClaim(test *testing.T) {
+	taskSvc, playerSvc := newClaimTestEnv(test)
 	ctx := context.Background()
 
 	playerSvc.Register(ctx, "agent-1", "agent")
-	task := createTestTask(t, taskSvc, "Auto-claim task")
+	task := createTestTask(test, taskSvc, "Auto-claim task")
 
 	started, err := taskSvc.Start(ctx, task.ShortID, task.Version, "agent-1")
+
 	if err != nil {
-		t.Fatalf("Start with player: %v", err)
+		test.Fatalf("Start with player: %v", err)
 	}
+
 	if started.ClaimedBy == nil || *started.ClaimedBy != "agent-1" {
-		t.Errorf("auto-claim: ClaimedBy should be agent-1, got %v", started.ClaimedBy)
+		test.Errorf("auto-claim: ClaimedBy should be agent-1, got %v", started.ClaimedBy)
 	}
+
 	if started.Status != "active" {
-		t.Errorf("status should be active, got %s", started.Status)
+		test.Errorf("status should be active, got %s", started.Status)
 	}
 }
 
-func TestTaskService_Start_ClaimedByOther(t *testing.T) {
-	taskSvc, playerSvc := newClaimTestEnv(t)
+func TestTaskService_Start_ClaimedByOther(test *testing.T) {
+	taskSvc, playerSvc := newClaimTestEnv(test)
 	ctx := context.Background()
 
 	playerSvc.Register(ctx, "agent-1", "agent")
 	playerSvc.Register(ctx, "agent-2", "agent")
-	task := createTestTask(t, taskSvc, "Contested start")
+	task := createTestTask(test, taskSvc, "Contested start")
 
 	claimed, _ := taskSvc.Claim(ctx, task.ShortID, "agent-1", task.Version)
 
 	_, err := taskSvc.Start(ctx, task.ShortID, claimed.Version, "agent-2")
+
 	if !errors.Is(err, domain.ErrTaskClaimed) {
-		t.Fatalf("Start by other player: got %v, want ErrTaskClaimed", err)
+		test.Fatalf("Start by other player: got %v, want ErrTaskClaimed", err)
 	}
 }
 
-func TestTaskService_Start_NoPlayer(t *testing.T) {
-	taskSvc, _ := newClaimTestEnv(t)
+func TestTaskService_Start_NoPlayer(test *testing.T) {
+	taskSvc, _ := newClaimTestEnv(test)
 	ctx := context.Background()
 
-	task := createTestTask(t, taskSvc, "No player start")
+	task := createTestTask(test, taskSvc, "No player start")
 
 	// Empty player ID — should work as before (no claim logic)
 	started, err := taskSvc.Start(ctx, task.ShortID, task.Version, "")
+
 	if err != nil {
-		t.Fatalf("Start without player: %v", err)
+		test.Fatalf("Start without player: %v", err)
 	}
+
 	if started.ClaimedBy != nil {
-		t.Errorf("ClaimedBy should be nil when no player specified")
+		test.Errorf("ClaimedBy should be nil when no player specified")
 	}
 }
