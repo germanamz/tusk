@@ -21,7 +21,7 @@ func NewPlayerService(repo repository.PlayerRepository) *PlayerService {
 
 // Register creates a new player. Type must be "human" or "agent".
 // Returns domain.ErrConflict if a player with the same ID already exists.
-func (s *PlayerService) Register(ctx context.Context, id, playerType string) (*domain.Player, error) {
+func (service *PlayerService) Register(ctx context.Context, id, playerType string) (*domain.Player, error) {
 	if id == "" {
 		return nil, fmt.Errorf("player ID must not be empty")
 	}
@@ -36,25 +36,25 @@ func (s *PlayerService) Register(ctx context.Context, id, playerType string) (*d
 		RegisteredAt: now,
 		LastSeenAt:   now,
 	}
-	if err := s.repo.Create(ctx, player); err != nil {
+	if err := service.repo.Create(ctx, player); err != nil {
 		return nil, err
 	}
 	return player, nil
 }
 
 // GetByID retrieves a player by ID.
-func (s *PlayerService) GetByID(ctx context.Context, id string) (*domain.Player, error) {
-	return s.repo.GetByID(ctx, id)
+func (service *PlayerService) GetByID(ctx context.Context, id string) (*domain.Player, error) {
+	return service.repo.GetByID(ctx, id)
 }
 
 // UpdateLastSeen refreshes a player's last_seen_at timestamp.
-func (s *PlayerService) UpdateLastSeen(ctx context.Context, id string) error {
-	return s.repo.UpdateLastSeen(ctx, id)
+func (service *PlayerService) UpdateLastSeen(ctx context.Context, id string) error {
+	return service.repo.UpdateLastSeen(ctx, id)
 }
 
 // List returns all registered players.
-func (s *PlayerService) List(ctx context.Context) ([]*domain.Player, error) {
-	return s.repo.List(ctx)
+func (service *PlayerService) List(ctx context.Context) ([]*domain.Player, error) {
+	return service.repo.List(ctx)
 }
 
 // SetNoteWindowSize updates the caller-scoped note-window override on a
@@ -63,7 +63,7 @@ func (s *PlayerService) List(ctx context.Context) ([]*domain.Player, error) {
 // global defaults. Size must be positive when non-nil.
 //
 // Returns domain.ErrNotFound if no player matches.
-func (s *PlayerService) SetNoteWindowSize(ctx context.Context, id string, size *int) (*domain.Player, error) {
+func (service *PlayerService) SetNoteWindowSize(ctx context.Context, id string, size *int) (*domain.Player, error) {
 	if id == "" {
 		return nil, fmt.Errorf("player ID must not be empty")
 	}
@@ -71,17 +71,19 @@ func (s *PlayerService) SetNoteWindowSize(ctx context.Context, id string, size *
 		return nil, fmt.Errorf("note window size must be positive, got %d", *size)
 	}
 
-	if _, err := s.repo.GetByID(ctx, id); err != nil {
+	if _, err := service.repo.GetByID(ctx, id); err != nil {
 		return nil, fmt.Errorf("player %q: %w", id, err)
 	}
 
-	if err := s.repo.UpdateNoteWindowSize(ctx, id, size); err != nil {
+	if err := service.repo.UpdateNoteWindowSize(ctx, id, size); err != nil {
 		return nil, fmt.Errorf("updating player %q note window size: %w", id, err)
 	}
 
-	updated, err := s.repo.GetByID(ctx, id)
+	updated, err := service.repo.GetByID(ctx, id)
+
 	if err != nil {
 		return nil, fmt.Errorf("reloading player %q: %w", id, err)
 	}
+
 	return updated, nil
 }

@@ -74,76 +74,76 @@ func NewUrgencyEngine(defaults UrgencyWeights) *UrgencyEngine {
 
 // Reload atomically replaces the default weights used when a task's project
 // has no per-project overrides. Safe for concurrent readers.
-func (e *UrgencyEngine) Reload(defaults UrgencyWeights) {
-	e.mu.Lock()
-	e.defaults = defaults
-	e.mu.Unlock()
+func (engine *UrgencyEngine) Reload(defaults UrgencyWeights) {
+	engine.mu.Lock()
+	engine.defaults = defaults
+	engine.mu.Unlock()
 }
 
 // Score computes the urgency score for a single task.
-func (e *UrgencyEngine) Score(task *domain.Task, ctx ScoringContext) float64 {
-	w := e.weightsFor(task, ctx)
+func (engine *UrgencyEngine) Score(task *domain.Task, ctx ScoringContext) float64 {
+	weights := engine.weightsFor(task, ctx)
 
 	var score float64
 
 	// Priority: normalized to [0, 1] then scaled by weight.
 	if task.Priority > 0 {
-		score += (float64(task.Priority) / maxPriority) * w.Priority
+		score += (float64(task.Priority) / maxPriority) * weights.Priority
 	}
 
 	// Due date: sigmoid curve maps proximity to [0, 1].
 	if task.DueAt != nil {
-		score += dueDateCoefficient(*task.DueAt) * w.Due
+		score += dueDateCoefficient(*task.DueAt) * weights.Due
 	}
 
 	// Age: days since creation capped at ageCeilingDays, scaled by weight.
 	age := time.Since(task.CreatedAt).Hours() / hoursPerDay
-	score += math.Min(age/ageCeilingDays, 1.0) * w.Age
+	score += math.Min(age/ageCeilingDays, 1.0) * weights.Age
 
 	// Active status
 	if task.Status == "active" {
-		score += w.Active
+		score += weights.Active
 	}
 
 	// Blocking
 	if ctx.BlockingCount[task.ID] > 0 {
-		score += w.Blocking
+		score += weights.Blocking
 	}
 
 	// Blocked
 	if ctx.BlockedByCount[task.ID] > 0 {
-		score += w.Blocked
+		score += weights.Blocked
 	}
 
 	// Tags
 	tagCount := ctx.TagCount[task.ID]
 	if tagCount > 0 {
-		score += math.Min(float64(tagCount)/maxTagsForFullWeight, 1.0) * w.Tags
+		score += math.Min(float64(tagCount)/maxTagsForFullWeight, 1.0) * weights.Tags
 	}
 
 	// Project
 	if task.ProjectID != uuid.Nil {
-		score += w.Project
+		score += weights.Project
 	}
 
 	// Annotations
 	annCount := ctx.AnnotationCount[task.ID]
 	if annCount > 0 {
-		score += math.Min(float64(annCount)/maxAnnotationsForFullWeight, 1.0) * w.Annotations
+		score += math.Min(float64(annCount)/maxAnnotationsForFullWeight, 1.0) * weights.Annotations
 	}
 
 	// Waiting
 	if task.WaitUntil != nil && task.WaitUntil.After(time.Now()) {
-		score += w.Waiting
+		score += weights.Waiting
 	}
 
 	return score
 }
 
 // ScoreAndSort computes urgency for all tasks and sorts them descending.
-func (e *UrgencyEngine) ScoreAndSort(tasks []*domain.Task, ctx ScoringContext) {
-	for _, t := range tasks {
-		t.Urgency = e.Score(t, ctx)
+func (engine *UrgencyEngine) ScoreAndSort(tasks []*domain.Task, ctx ScoringContext) {
+	for _, task := range tasks {
+		task.Urgency = engine.Score(task, ctx)
 	}
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].Urgency > tasks[j].Urgency
@@ -153,73 +153,73 @@ func (e *UrgencyEngine) ScoreAndSort(tasks []*domain.Task, ctx ScoringContext) {
 // weightsFor returns the effective weights for a task. Resolution order:
 // 1. ctx.EffectiveWeights[task.ID] (project + ancestor + self chain), 2.
 // ctx.ProjectWeights[task.ProjectID], 3. engine defaults.
-func (e *UrgencyEngine) weightsFor(task *domain.Task, ctx ScoringContext) UrgencyWeights {
+func (engine *UrgencyEngine) weightsFor(task *domain.Task, ctx ScoringContext) UrgencyWeights {
 	if ctx.EffectiveWeights != nil {
-		if w, ok := ctx.EffectiveWeights[task.ID]; ok {
-			return *w
+		if resolved, ok := ctx.EffectiveWeights[task.ID]; ok {
+			return *resolved
 		}
 	}
 	if ctx.ProjectWeights != nil {
-		if pw, ok := ctx.ProjectWeights[task.ProjectID]; ok {
-			return *pw
+		if projectWeights, ok := ctx.ProjectWeights[task.ProjectID]; ok {
+			return *projectWeights
 		}
 	}
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.defaults
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return engine.defaults
 }
 
 // Defaults returns a copy of the engine's default weights, using the
 // internal RW mutex for safe concurrent access.
-func (e *UrgencyEngine) Defaults() UrgencyWeights {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.defaults
+func (engine *UrgencyEngine) Defaults() UrgencyWeights {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return engine.defaults
 }
 
 // WeightByKey returns the named weight's resolved value using the snake_case
 // keys listed in domain.ValidUrgencyWeightKeys. Returns (0, false) for
 // unknown keys.
-func WeightByKey(w UrgencyWeights, key string) (float64, bool) {
+func WeightByKey(weights UrgencyWeights, key string) (float64, bool) {
 	switch key {
 	case "priority_weight":
-		return w.Priority, true
+		return weights.Priority, true
 	case "due_weight":
-		return w.Due, true
+		return weights.Due, true
 	case "age_weight":
-		return w.Age, true
+		return weights.Age, true
 	case "active_weight":
-		return w.Active, true
+		return weights.Active, true
 	case "blocking_weight":
-		return w.Blocking, true
+		return weights.Blocking, true
 	case "blocked_weight":
-		return w.Blocked, true
+		return weights.Blocked, true
 	case "tags_weight":
-		return w.Tags, true
+		return weights.Tags, true
 	case "project_weight":
-		return w.Project, true
+		return weights.Project, true
 	case "annotations_weight":
-		return w.Annotations, true
+		return weights.Annotations, true
 	case "waiting_weight":
-		return w.Waiting, true
+		return weights.Waiting, true
 	}
 	return 0, false
 }
 
 // Resolved converts an internal UrgencyWeights to the domain-level,
 // JSON-friendly ResolvedUrgencyWeights shape used by renderers.
-func (w UrgencyWeights) Resolved() domain.ResolvedUrgencyWeights {
+func (weights UrgencyWeights) Resolved() domain.ResolvedUrgencyWeights {
 	return domain.ResolvedUrgencyWeights{
-		PriorityWeight:    w.Priority,
-		DueWeight:         w.Due,
-		AgeWeight:         w.Age,
-		ActiveWeight:      w.Active,
-		BlockingWeight:    w.Blocking,
-		BlockedWeight:     w.Blocked,
-		TagsWeight:        w.Tags,
-		ProjectWeight:     w.Project,
-		AnnotationsWeight: w.Annotations,
-		WaitingWeight:     w.Waiting,
+		PriorityWeight:    weights.Priority,
+		DueWeight:         weights.Due,
+		AgeWeight:         weights.Age,
+		ActiveWeight:      weights.Active,
+		BlockingWeight:    weights.Blocking,
+		BlockedWeight:     weights.Blocked,
+		TagsWeight:        weights.Tags,
+		ProjectWeight:     weights.Project,
+		AnnotationsWeight: weights.Annotations,
+		WaitingWeight:     weights.Waiting,
 	}
 }
 

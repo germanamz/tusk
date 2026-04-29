@@ -15,8 +15,8 @@ import (
 // TestWithTx_AtomicTaskAndEvent demonstrates that the Phase 2 WriteTx adapter
 // exposes Tasks, Relations, and Events through a single transaction: a task
 // and an event created inside one WithTx call both land after commit.
-func TestWithTx_AtomicTaskAndEvent(t *testing.T) {
-	store, _, _ := sqlitetest.NewStore(t)
+func TestWithTx_AtomicTaskAndEvent(test *testing.T) {
+	store, _, _ := sqlitetest.NewStore(test)
 	provider := &testWriteTxProvider{store: store, maxEvents: 10000, pruneSlack: 1000}
 
 	task := newSmokeTask("tx_smoke")
@@ -29,35 +29,37 @@ func TestWithTx_AtomicTaskAndEvent(t *testing.T) {
 		}
 		return tx.Events().Record(ctx, event)
 	}); err != nil {
-		t.Fatalf("WithTx: %v", err)
+		test.Fatalf("WithTx: %v", err)
 	}
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
 	if _, err := taskRepo.GetByID(ctx, task.ID); err != nil {
-		t.Fatalf("task missing after commit: %v", err)
+		test.Fatalf("task missing after commit: %v", err)
 	}
 
 	eventRepo := sqlite.NewEventRepo(store.DB(), 10000, 1000)
 	count, err := eventRepo.Count(ctx)
+
 	if err != nil {
-		t.Fatalf("Count: %v", err)
+		test.Fatalf("Count: %v", err)
 	}
+
 	if count != 1 {
-		t.Fatalf("expected 1 event after commit, got %d", count)
+		test.Fatalf("expected 1 event after commit, got %d", count)
 	}
 }
 
 // TestWithTx_RollbackOnError confirms the adapter respects the error path:
 // returning a non-nil error must roll back both inserts.
-func TestWithTx_RollbackOnError(t *testing.T) {
-	store, _, _ := sqlitetest.NewStore(t)
+func TestWithTx_RollbackOnError(test *testing.T) {
+	store, _, _ := sqlitetest.NewStore(test)
 	provider := &testWriteTxProvider{store: store, maxEvents: 10000, pruneSlack: 1000}
 
 	task := newSmokeTask("tx_rollback")
 	event := domain.NewTaskCreatedEvent(task, nil)
 
 	sentinel := errors.New("rollback")
-	err := provider.WithTx(context.Background(), func(tx WriteTx) error {
+	txErr := provider.WithTx(context.Background(), func(tx WriteTx) error {
 		if err := tx.Tasks().Create(context.Background(), task); err != nil {
 			return err
 		}
@@ -66,21 +68,23 @@ func TestWithTx_RollbackOnError(t *testing.T) {
 		}
 		return sentinel
 	})
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("expected sentinel, got %v", err)
+	if !errors.Is(txErr, sentinel) {
+		test.Fatalf("expected sentinel, got %v", txErr)
 	}
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
 	if _, err := taskRepo.GetByID(context.Background(), task.ID); err == nil {
-		t.Fatalf("expected task lookup to fail after rollback")
+		test.Fatalf("expected task lookup to fail after rollback")
 	}
 	eventRepo := sqlite.NewEventRepo(store.DB(), 10000, 1000)
-	count, err := eventRepo.Count(context.Background())
-	if err != nil {
-		t.Fatalf("Count: %v", err)
+	count, countErr := eventRepo.Count(context.Background())
+
+	if countErr != nil {
+		test.Fatalf("Count: %v", countErr)
 	}
+
 	if count != 0 {
-		t.Fatalf("expected 0 events after rollback, got %d", count)
+		test.Fatalf("expected 0 events after rollback, got %d", count)
 	}
 }
 
