@@ -15,23 +15,26 @@ import (
 // Whitespace inside groups is trimmed. Empty input (after trimming) returns
 // an empty domain.Taxonomy. Structural validation is delegated to
 // domain.Taxonomy.Validate.
-func ParseTaxonomyInline(s string) (domain.Taxonomy, error) {
-	trimmed := strings.TrimSpace(s)
+func ParseTaxonomyInline(str string) (domain.Taxonomy, error) {
+	trimmed := strings.TrimSpace(str)
 	if trimmed == "" {
 		return domain.Taxonomy{}, nil
 	}
 
-	segments, err := splitTaxonomyRanks(trimmed)
-	if err != nil {
-		return nil, err
+	segments, splitErr := splitTaxonomyRanks(trimmed)
+
+	if splitErr != nil {
+		return nil, splitErr
 	}
 
 	result := make(domain.Taxonomy, 0, len(segments))
 	for _, seg := range segments {
-		peers, err := parseRankSegment(seg)
-		if err != nil {
-			return nil, err
+		peers, parseErr := parseRankSegment(seg)
+
+		if parseErr != nil {
+			return nil, parseErr
 		}
+
 		result = append(result, peers)
 	}
 
@@ -44,48 +47,48 @@ func ParseTaxonomyInline(s string) (domain.Taxonomy, error) {
 // FormatTaxonomyInline renders a domain.Taxonomy as its inline form. Single-
 // peer ranks emit the bare level name; multi-peer ranks emit "(a,b,c)".
 // Ranks are joined by ':'. Returns "" for an empty taxonomy.
-func FormatTaxonomyInline(t domain.Taxonomy) string {
-	if len(t) == 0 {
+func FormatTaxonomyInline(taxonomy domain.Taxonomy) string {
+	if len(taxonomy) == 0 {
 		return ""
 	}
-	parts := make([]string, len(t))
-	for i, peers := range t {
+	parts := make([]string, len(taxonomy))
+	for index, peers := range taxonomy {
 		if len(peers) == 1 {
-			parts[i] = peers[0]
+			parts[index] = peers[0]
 		} else {
-			parts[i] = "(" + strings.Join(peers, ",") + ")"
+			parts[index] = "(" + strings.Join(peers, ",") + ")"
 		}
 	}
 	return strings.Join(parts, ":")
 }
 
-// splitTaxonomyRanks splits s on top-level ':' characters, respecting
+// splitTaxonomyRanks splits str on top-level ':' characters, respecting
 // parenthesized groups. Unmatched parens return an error.
-func splitTaxonomyRanks(s string) ([]string, error) {
+func splitTaxonomyRanks(str string) ([]string, error) {
 	var segments []string
 	depth := 0
 	start := 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
+	for index := 0; index < len(str); index++ {
+		char := str[index]
+		switch char {
 		case '(':
 			depth++
 		case ')':
 			if depth == 0 {
-				return nil, fmt.Errorf("taxonomy: unmatched ')' at position %d", i)
+				return nil, fmt.Errorf("taxonomy: unmatched ')' at position %d", index)
 			}
 			depth--
 		case ':':
 			if depth == 0 {
-				segments = append(segments, s[start:i])
-				start = i + 1
+				segments = append(segments, str[start:index])
+				start = index + 1
 			}
 		}
 	}
 	if depth != 0 {
-		return nil, fmt.Errorf("taxonomy: unmatched '(' in %q", s)
+		return nil, fmt.Errorf("taxonomy: unmatched '(' in %q", str)
 	}
-	segments = append(segments, s[start:])
+	segments = append(segments, str[start:])
 	return segments, nil
 }
 
@@ -104,8 +107,8 @@ func parseRankSegment(seg string) ([]string, error) {
 		}
 		rawPeers := strings.Split(body, ",")
 		peers := make([]string, 0, len(rawPeers))
-		for _, p := range rawPeers {
-			name := strings.TrimSpace(p)
+		for _, peer := range rawPeers {
+			name := strings.TrimSpace(peer)
 			if name == "" {
 				return nil, fmt.Errorf("taxonomy: empty peer name in group %q", seg)
 			}
