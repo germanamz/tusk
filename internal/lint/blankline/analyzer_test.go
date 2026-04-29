@@ -9,5 +9,5 @@ import (
 
 func TestBlankline(test *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(test, testdata, blankline.Analyzer, "a")
+	analysistest.Run(test, testdata, blankline.Analyzer, "fixtures")
 }

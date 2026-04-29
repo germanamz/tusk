@@ -9,5 +9,5 @@ import (
 
 func TestNamederr(test *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(test, testdata, namederr.Analyzer, "a")
+	analysistest.Run(test, testdata, namederr.Analyzer, "fixtures")
 }

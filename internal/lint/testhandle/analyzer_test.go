@@ -9,5 +9,5 @@ import (
 
 func TestTesthandle(test *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(test, testdata, testhandle.Analyzer, "a")
+	analysistest.Run(test, testdata, testhandle.Analyzer, "fixtures")
 }

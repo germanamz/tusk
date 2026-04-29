@@ -1,5 +1,5 @@
-// Package a contains test fixtures for the testhandle analyzer.
-package a
+// Package fixtures contains test fixtures for the testhandle analyzer.
+package fixtures
 
 import "testing"
 
