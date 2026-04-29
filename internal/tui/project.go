@@ -13,7 +13,7 @@ import (
 )
 
 // buildProjectCmd creates the `tusk project` command group.
-func (a *App) buildProjectCmd() *cobra.Command {
+func (app *App) buildProjectCmd() *cobra.Command {
 	projectCmd := &cobra.Command{
 		Use:   "project",
 		Short: "Manage projects",
@@ -25,7 +25,7 @@ func (a *App) buildProjectCmd() *cobra.Command {
 		Short: "Delete a project",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runProjectDelete(cmd, args, force)
+			return app.runProjectDelete(cmd, args, force)
 		},
 	}
 	deleteCmd.Flags().BoolVar(&force, "force", false, "bypass task-reference and built-in guards")
@@ -35,7 +35,7 @@ func (a *App) buildProjectCmd() *cobra.Command {
 			Use:   "list",
 			Short: "List all projects",
 			Args:  cobra.NoArgs,
-			RunE:  a.runProjectList,
+			RunE:  app.runProjectList,
 		},
 		&cobra.Command{
 			Use:   "show <name>",
@@ -43,7 +43,7 @@ func (a *App) buildProjectCmd() *cobra.Command {
 			Long: `Display a single project in full detail, including the effective taxonomy
 and provenance source (workspace default vs. project override).`,
 			Args: cobra.ExactArgs(1),
-			RunE: a.runProjectShow,
+			RunE: app.runProjectShow,
 		},
 		&cobra.Command{
 			Use:   "create <name> [fields...]",
@@ -60,7 +60,7 @@ Accepted fields:
 			Example: `  tusk project create backend workflow=kanban
   tusk project create ops workflow=kanban urgency.blocking-weight=15 auto-complete.trigger=completed`,
 			Args: cobra.MinimumNArgs(1),
-			RunE: a.runProjectCreate,
+			RunE: app.runProjectCreate,
 		},
 		&cobra.Command{
 			Use:   "modify <name> [fields...]",
@@ -76,121 +76,149 @@ numeric urgency weights apply arithmetic deltas relative to the effective value.
   tusk project modify backend +urgency.blocking-weight=2
   tusk project modify backend auto-complete.trigger=completed auto-complete.target=completed`,
 			Args: cobra.MinimumNArgs(2),
-			RunE: a.runProjectModify,
+			RunE: app.runProjectModify,
 		},
 		deleteCmd,
 	)
 	return projectCmd
 }
 
-func (a *App) runProjectShow(cmd *cobra.Command, args []string) error {
+func (app *App) runProjectShow(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
-	p, err := a.projectSvc.GetByName(ctx, name)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
+
+	project, projectErr := app.projectSvc.GetByName(ctx, name)
+
+	if projectErr != nil {
+		if errors.Is(projectErr, domain.ErrNotFound) {
 			return fmt.Errorf("project %q: not found", name)
 		}
-		return err
+		return projectErr
 	}
-	wf, err := a.workflowSvc.GetByID(ctx, p.WorkflowID)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return err
+
+	workflow, workflowErr := app.workflowSvc.GetByID(ctx, project.WorkflowID)
+
+	if workflowErr != nil && !errors.Is(workflowErr, domain.ErrNotFound) {
+		return workflowErr
 	}
+
 	workflowName := ""
-	if wf != nil {
-		workflowName = wf.Name
+	if workflow != nil {
+		workflowName = workflow.Name
 	}
-	taxonomy, source := a.projectSvc.EffectiveTaxonomy(p)
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderProjectShow(p, workflowName, taxonomy, source)
+	taxonomy, source := app.projectSvc.EffectiveTaxonomy(project)
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderProjectShow(project, workflowName, taxonomy, source)
 }
 
-func (a *App) runProjectList(cmd *cobra.Command, args []string) error {
+func (app *App) runProjectList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	projects, err := a.projectSvc.List(ctx)
-	if err != nil {
-		return err
+
+	projects, projectsErr := app.projectSvc.List(ctx)
+
+	if projectsErr != nil {
+		return projectsErr
 	}
-	workflows, err := a.workflowSvc.List(ctx)
-	if err != nil {
-		return err
+
+	workflows, workflowsErr := app.workflowSvc.List(ctx)
+
+	if workflowsErr != nil {
+		return workflowsErr
 	}
+
 	wfNames := make(map[uuid.UUID]string, len(workflows))
-	for _, wf := range workflows {
-		wfNames[wf.ID] = wf.Name
+	for _, workflow := range workflows {
+		wfNames[workflow.ID] = workflow.Name
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderProjectList(projects, wfNames)
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderProjectList(projects, wfNames)
 }
 
-func (a *App) runProjectCreate(cmd *cobra.Command, args []string) error {
+func (app *App) runProjectCreate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
-	parsed, err := parseProjectCreate(args[1:])
-	if err != nil {
-		return err
+
+	parsed, parseErr := parseProjectCreate(args[1:])
+
+	if parseErr != nil {
+		return parseErr
 	}
+
 	if parsed.Workflow == "" {
 		return fmt.Errorf("project create requires workflow=<name>")
 	}
 	var stdinFile *os.File
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		stdinFile = f
+	if stdinAsFile, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = stdinAsFile
 	}
 	if parsed.Description != "" {
-		expanded, err := a.expandRefs(parsed.Description, stdinFile)
-		if err != nil {
-			return fmt.Errorf("description: %w", err)
+		expanded, expandErr := app.expandRefs(parsed.Description, stdinFile)
+
+		if expandErr != nil {
+			return fmt.Errorf("description: %w", expandErr)
 		}
+
 		parsed.Description = expanded
 	}
-	wf, err := a.workflowSvc.GetByName(ctx, parsed.Workflow)
-	if err != nil {
-		return fmt.Errorf("resolving workflow %q: %w", parsed.Workflow, err)
+
+	workflow, workflowErr := app.workflowSvc.GetByName(ctx, parsed.Workflow)
+
+	if workflowErr != nil {
+		return fmt.Errorf("resolving workflow %q: %w", parsed.Workflow, workflowErr)
 	}
-	if _, err := a.projectSvc.Create(ctx, service.CreateProjectInput{
+
+	if _, createErr := app.projectSvc.Create(ctx, service.CreateProjectInput{
 		Name:        name,
-		WorkflowID:  wf.ID,
+		WorkflowID:  workflow.ID,
 		Description: parsed.Description,
 		Settings:    parsed.Settings,
-	}); err != nil {
-		return err
+	}); createErr != nil {
+		return createErr
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderProjectMutation("Created", name)
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderProjectMutation("Created", name)
 }
 
-func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
+func (app *App) runProjectModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 
 	var stdinFile *os.File
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		stdinFile = f
-	}
-	expanded, err := expandProjectFieldRefs(args[1:], stdinFile, a.inlineCfg.MaxExpansionSize)
-	if err != nil {
-		return err
+	if stdinAsFile, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = stdinAsFile
 	}
 
-	parsed, err := parseProjectModify(expanded)
-	if err != nil {
-		return err
+	expanded, expandErr := expandProjectFieldRefs(args[1:], stdinFile, app.inlineCfg.MaxExpansionSize)
+
+	if expandErr != nil {
+		return expandErr
 	}
+
+	parsed, parseErr := parseProjectModify(expanded)
+
+	if parseErr != nil {
+		return parseErr
+	}
+
 	if parsed.Description != nil && *parsed.Description != nil && **parsed.Description != "" {
 		state := &expandState{}
-		expandedDesc, err := a.expandRefsWithState(**parsed.Description, stdinFile, state)
-		if err != nil {
-			return fmt.Errorf("description: %w", err)
+
+		expandedDesc, descErr := app.expandRefsWithState(**parsed.Description, stdinFile, state)
+
+		if descErr != nil {
+			return fmt.Errorf("description: %w", descErr)
 		}
+
 		inner := &expandedDesc
 		parsed.Description = &inner
 	}
-	current, err := a.projectSvc.GetByName(ctx, name)
-	if err != nil {
-		return err
+
+	current, lookupErr := app.projectSvc.GetByName(ctx, name)
+
+	if lookupErr != nil {
+		return lookupErr
 	}
+
 	input := service.ModifyProjectInput{
 		Name:            name,
 		ExpectedVersion: current.Version,
@@ -203,12 +231,14 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 		},
 	}
 	if parsed.Workflow != nil {
-		wf, err := a.workflowSvc.GetByName(ctx, *parsed.Workflow)
-		if err != nil {
-			return fmt.Errorf("resolving workflow %q: %w", *parsed.Workflow, err)
+		workflow, workflowErr := app.workflowSvc.GetByName(ctx, *parsed.Workflow)
+
+		if workflowErr != nil {
+			return fmt.Errorf("resolving workflow %q: %w", *parsed.Workflow, workflowErr)
 		}
-		id := wf.ID
-		input.WorkflowID = &id
+
+		wfID := workflow.ID
+		input.WorkflowID = &wfID
 	}
 	switch parsed.TaxonomyAction {
 	case taxonomyActionNone:
@@ -220,11 +250,13 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 	case taxonomyActionSet:
 		input.Taxonomy = &service.TaxonomyMutation{Value: parsed.TaxonomyValue}
 	}
-	if _, err := a.projectSvc.Modify(ctx, input); err != nil {
-		return err
+
+	if _, modifyErr := app.projectSvc.Modify(ctx, input); modifyErr != nil {
+		return modifyErr
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderProjectMutation("Modified", name)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderProjectMutation("Modified", name)
 }
 
 // expandProjectFieldRefs pre-processes `taxonomy=@...` arguments so that the
@@ -234,34 +266,41 @@ func (a *App) runProjectModify(cmd *cobra.Command, args []string) error {
 func expandProjectFieldRefs(args []string, stdin *os.File, maxSize int64) ([]string, error) {
 	out := make([]string, len(args))
 	state := &expandState{}
-	for i, arg := range args {
+	for index, arg := range args {
 		key, value, ok := strings.Cut(arg, "=")
 		if !ok || key != "taxonomy" || value == "" || value[0] != '@' {
-			out[i] = arg
+			out[index] = arg
 			continue
 		}
-		expanded, err := expandRefsWithState(value, stdin, maxSize, state)
-		if err != nil {
-			return nil, err
+
+		expanded, expandErr := expandRefsWithState(value, stdin, maxSize, state)
+
+		if expandErr != nil {
+			return nil, expandErr
 		}
-		out[i] = key + "=" + expanded
+
+		out[index] = key + "=" + expanded
 	}
 	return out, nil
 }
 
-func (a *App) runProjectDelete(cmd *cobra.Command, args []string, force bool) error {
+func (app *App) runProjectDelete(cmd *cobra.Command, args []string, force bool) error {
 	ctx := cmd.Context()
 	name := args[0]
-	p, err := a.projectSvc.GetByName(ctx, name)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
+
+	project, lookupErr := app.projectSvc.GetByName(ctx, name)
+
+	if lookupErr != nil {
+		if errors.Is(lookupErr, domain.ErrNotFound) {
 			return fmt.Errorf("project %q: not found", name)
 		}
-		return err
+		return lookupErr
 	}
-	if err := a.projectSvc.Delete(ctx, p.ID, p.Version, force); err != nil {
-		return err
+
+	if deleteErr := app.projectSvc.Delete(ctx, project.ID, project.Version, force); deleteErr != nil {
+		return deleteErr
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderProjectMutation("Deleted", name)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderProjectMutation("Deleted", name)
 }
