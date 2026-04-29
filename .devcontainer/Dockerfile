@@ -77,7 +77,7 @@ COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-ENV PATH=/home/vscode/.claude/local/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=/home/vscode/.local/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV ZELLIJ_CONFIG_DIR=/etc/zellij
 
 # Revoke the base image's vscode user's sudo access. Keeping the default
@@ -162,14 +162,14 @@ RUN mkdir -p \
         /home/vscode/.local \
         /home/vscode/.cache
 
-# Install Claude Code into ~/.claude/local/ as vscode. The .claude named volume
-# seeds from the image on first mount, so this persists across rebuilds and
-# claude's auto-updates land on a vscode-writable path (no chowning of
-# /usr/local/lib needed).
-RUN runuser -u vscode -- npm install -g \
-        --prefix=/home/vscode/.claude/local \
-        @anthropic-ai/claude-code \
-    && rm -rf /home/vscode/.npm
+# Install Claude Code via the official native installer. Self-contained
+# binary at ~/.local/bin/claude, no node runtime dependency, and the
+# auto-updater writes back in-place without sudo. The previous npm-global
+# layout failed to auto-update because npm targets `npm config get prefix`
+# (/usr/local, root-owned) regardless of where the binary actually lives.
+# User credentials/settings still persist via the .claude named volume.
+RUN runuser -u vscode -- bash -c \
+        'curl -fsSL https://claude.ai/install.sh | bash'
 
 # Stay root for PID 1 so the entrypoint can apply iptables; actual user
 # attachment happens via `docker exec -u vscode` (set by remoteUser).
