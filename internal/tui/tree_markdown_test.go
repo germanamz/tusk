@@ -44,9 +44,9 @@ func kanbanWorkflowFixture() *domain.Workflow {
 // so runTree --format markdown can call ListAllForProject during input
 // gathering. The base testApp helper passes nil for these, which would panic
 // inside gatherMarkdownInputs.
-func testAppForMarkdown(t *testing.T) (*App, *service.TaskService, *service.ProjectService) {
-	t.Helper()
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t)
+func testAppForMarkdown(test *testing.T) (*App, *service.TaskService, *service.ProjectService) {
+	test.Helper()
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 
 	db := store.DB()
 	bundle := &service.RepoBundle{
@@ -71,7 +71,7 @@ func testAppForMarkdown(t *testing.T) (*App, *service.TaskService, *service.Proj
 	playerSvc := service.NewPlayerService(bundle.Players)
 	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, 0)
 
-	loadOpts := []config.Option{config.WithSearchPath(t.TempDir())}
+	loadOpts := []config.Option{config.WithSearchPath(test.TempDir())}
 	app := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, noteSvc,
 		nil,
@@ -83,25 +83,28 @@ func testAppForMarkdown(t *testing.T) (*App, *service.TaskService, *service.Proj
 
 // setProjectDescription updates the seeded default project so subsequent runs
 // see a non-empty description.
-func setProjectDescription(t *testing.T, projectSvc *service.ProjectService, name, desc string) {
-	t.Helper()
+func setProjectDescription(test *testing.T, projectSvc *service.ProjectService, name, desc string) {
+	test.Helper()
 	ctx := context.Background()
-	p, err := projectSvc.GetByName(ctx, name)
+	proj, err := projectSvc.GetByName(ctx, name)
+
 	if err != nil {
-		t.Fatalf("GetByName(%q): %v", name, err)
+		test.Fatalf("GetByName(%q): %v", name, err)
 	}
+
 	descPtr := &desc
 	_, err = projectSvc.Modify(ctx, service.ModifyProjectInput{
 		Name:            name,
-		ExpectedVersion: p.Version,
+		ExpectedVersion: proj.Version,
 		Description:     &descPtr,
 	})
+
 	if err != nil {
-		t.Fatalf("Modify(%q) description: %v", name, err)
+		test.Fatalf("Modify(%q) description: %v", name, err)
 	}
 }
 
-func TestProjectDisplayName(t *testing.T) {
+func TestProjectDisplayName(test *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
@@ -110,116 +113,118 @@ func TestProjectDisplayName(t *testing.T) {
 		{"a", "A"},
 		{"multi-word_project", "Multi Word Project"},
 	}
-	for _, c := range cases {
-		got := projectDisplayName(c.in)
-		if got != c.want {
-			t.Errorf("projectDisplayName(%q) = %q, want %q", c.in, got, c.want)
+	for _, tc := range cases {
+		got := projectDisplayName(tc.in)
+		if got != tc.want {
+			test.Errorf("projectDisplayName(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
 
-func TestWriteBlockquote(t *testing.T) {
-	t.Run("single line", func(t *testing.T) {
+func TestWriteBlockquote(test *testing.T) {
+	test.Run("single line", func(test *testing.T) {
 		var buf bytes.Buffer
 		if err := writeBlockquote(&buf, "hello", ""); err != nil {
-			t.Fatalf("writeBlockquote: %v", err)
+			test.Fatalf("writeBlockquote: %v", err)
 		}
 		want := "> hello\n\n"
 		if buf.String() != want {
-			t.Fatalf("got %q, want %q", buf.String(), want)
+			test.Fatalf("got %q, want %q", buf.String(), want)
 		}
 	})
 
-	t.Run("multi paragraph", func(t *testing.T) {
+	test.Run("multi paragraph", func(test *testing.T) {
 		var buf bytes.Buffer
 		if err := writeBlockquote(&buf, "first\n\nsecond", ""); err != nil {
-			t.Fatalf("writeBlockquote: %v", err)
+			test.Fatalf("writeBlockquote: %v", err)
 		}
 		want := "> first\n>\n> second\n\n"
 		if buf.String() != want {
-			t.Fatalf("got %q, want %q", buf.String(), want)
+			test.Fatalf("got %q, want %q", buf.String(), want)
 		}
 	})
 
-	t.Run("with indent", func(t *testing.T) {
+	test.Run("with indent", func(test *testing.T) {
 		var buf bytes.Buffer
 		if err := writeBlockquote(&buf, "line a\nline b", "  "); err != nil {
-			t.Fatalf("writeBlockquote: %v", err)
+			test.Fatalf("writeBlockquote: %v", err)
 		}
 		want := "  > line a\n  > line b\n\n"
 		if buf.String() != want {
-			t.Fatalf("got %q, want %q", buf.String(), want)
+			test.Fatalf("got %q, want %q", buf.String(), want)
 		}
 	})
 }
 
-func TestRunTree_MarkdownRejectsRollup(t *testing.T) {
-	app, _, _ := testAppForMarkdown(t)
+func TestRunTree_MarkdownRejectsRollup(test *testing.T) {
+	app, _, _ := testAppForMarkdown(test)
 
 	app.root.SetArgs([]string{"task", "tree", "--format", "markdown", "--rollup"})
 	err := app.root.Execute()
 	if err == nil {
-		t.Fatal("expected error for --format markdown --rollup, got nil")
+		test.Fatal("expected error for --format markdown --rollup, got nil")
 	}
 	if !strings.Contains(err.Error(), "--rollup is not supported with --format markdown") {
-		t.Fatalf("error %q should mention rollup-not-supported", err.Error())
+		test.Fatalf("error %q should mention rollup-not-supported", err.Error())
 	}
 }
 
-func TestRunTree_MarkdownRejectsMultiProject(t *testing.T) {
-	app, taskSvc, projectSvc := testAppForMarkdown(t)
+func TestRunTree_MarkdownRejectsMultiProject(test *testing.T) {
+	app, taskSvc, projectSvc := testAppForMarkdown(test)
 	ctx := context.Background()
 
-	defaultProj, err := projectSvc.GetByName(ctx, "default")
-	if err != nil {
-		t.Fatalf("GetByName(default): %v", err)
+	defaultProj, defaultProjErr := projectSvc.GetByName(ctx, "default")
+
+	if defaultProjErr != nil {
+		test.Fatalf("GetByName(default): %v", defaultProjErr)
 	}
 
-	other, err := projectSvc.Create(ctx, service.CreateProjectInput{
+	other, otherErr := projectSvc.Create(ctx, service.CreateProjectInput{
 		Name:       "second",
 		WorkflowID: defaultProj.WorkflowID,
 	})
-	if err != nil {
-		t.Fatalf("create second project: %v", err)
+
+	if otherErr != nil {
+		test.Fatalf("create second project: %v", otherErr)
 	}
 
 	if err := taskSvc.Create(ctx, &domain.Task{Title: "in default"}); err != nil {
-		t.Fatalf("create default task: %v", err)
+		test.Fatalf("create default task: %v", err)
 	}
 	if err := taskSvc.Create(ctx, &domain.Task{Title: "in second", ProjectID: other.ID}); err != nil {
-		t.Fatalf("create second task: %v", err)
+		test.Fatalf("create second task: %v", err)
 	}
 
 	app.root.SetArgs([]string{"task", "tree", "--format", "markdown"})
-	err = app.root.Execute()
-	if err == nil {
-		t.Fatal("expected error for multi-project markdown export, got nil")
+	executeErr := app.root.Execute()
+	if executeErr == nil {
+		test.Fatal("expected error for multi-project markdown export, got nil")
 	}
-	if !strings.Contains(err.Error(), "requires a single project") {
-		t.Fatalf("error %q should mention single-project requirement", err.Error())
+	if !strings.Contains(executeErr.Error(), "requires a single project") {
+		test.Fatalf("error %q should mention single-project requirement", executeErr.Error())
 	}
 }
 
-func TestRunTree_MarkdownEmptyWorkspace(t *testing.T) {
-	app, _, _ := testAppForMarkdown(t)
+func TestRunTree_MarkdownEmptyWorkspace(test *testing.T) {
+	app, _, _ := testAppForMarkdown(test)
 
 	var stdout, stderr bytes.Buffer
 	app.root.SetOut(&stdout)
 	app.root.SetErr(&stderr)
 	app.root.SetArgs([]string{"task", "tree", "--format", "markdown"})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("execute: %v", err)
+		test.Fatalf("execute: %v", err)
 	}
 	if stdout.String() != "" {
-		t.Fatalf("expected empty stdout, got %q", stdout.String())
+		test.Fatalf("expected empty stdout, got %q", stdout.String())
 	}
 	if stderr.String() != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr.String())
+		test.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
 }
 
-func TestFormatMarkdownTitleLine(t *testing.T) {
-	wf := kanbanWorkflowFixture()
+func TestFormatMarkdownTitleLine(test *testing.T) {
+	workflow := kanbanWorkflowFixture()
 	level := "milestone"
 	due := time.Date(2026, 4, 26, 15, 30, 0, 0, time.UTC)
 	order := 1.25
@@ -238,70 +243,70 @@ func TestFormatMarkdownTitleLine(t *testing.T) {
 		{
 			name:     "bare title pending omits status",
 			task:     &domain.Task{Title: "Bare", Status: "pending"},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Bare",
 		},
 		{
 			name:     "active emits status token",
 			task:     &domain.Task{Title: "Work item", Status: "active"},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Work item status=active",
 		},
 		{
 			name:     "completed (done role) omits status",
 			task:     &domain.Task{Title: "Shipped", Status: "completed"},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Shipped",
 		},
 		{
 			name:     "priority 3 emits priority token",
 			task:     &domain.Task{Title: "Hot", Status: "pending", Priority: 3},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Hot priority=3",
 		},
 		{
 			name:     "priority 0 omits priority token",
 			task:     &domain.Task{Title: "Cold", Status: "pending", Priority: 0},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Cold",
 		},
 		{
 			name:     "due renders YYYY-MM-DD only",
 			task:     &domain.Task{Title: "Deadline", Status: "pending", DueAt: tm(due)},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Deadline due=2026-04-26",
 		},
 		{
 			name:     "order renders short float",
 			task:     &domain.Task{Title: "Sorted", Status: "pending", Order: flt(order)},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Sorted order=1.25",
 		},
 		{
 			name:     "uda alphabetical",
 			task:     &domain.Task{Title: "Custom", Status: "pending", UDA: map[string]any{"team": "backend", "env": "prod"}},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Custom uda.env=prod uda.team=backend",
 		},
 		{
 			name:     "tags trailing alphabetical",
 			task:     &domain.Task{Title: "Tagged", Status: "pending"},
 			tags:     []*domain.Tag{{Name: "ship-blocker"}, {Name: "api"}},
-			workflow: wf,
+			workflow: workflow,
 			want:     "Tagged +api +ship-blocker",
 		},
 		{
 			name:        "level emitted with taxonomy on",
 			task:        &domain.Task{Title: "Level", Status: "pending", Level: &level},
 			hasTaxonomy: true,
-			workflow:    wf,
+			workflow:    workflow,
 			want:        "Level level=milestone",
 		},
 		{
 			name:        "level absent with taxonomy off",
 			task:        &domain.Task{Title: "Level", Status: "pending", Level: &level},
 			hasTaxonomy: false,
-			workflow:    wf,
+			workflow:    workflow,
 			want:        "Level",
 		},
 		{
@@ -323,28 +328,28 @@ func TestFormatMarkdownTitleLine(t *testing.T) {
 			},
 			tags:        []*domain.Tag{{Name: "ship-blocker"}, {Name: "api"}},
 			hasTaxonomy: true,
-			workflow:    wf,
+			workflow:    workflow,
 			want:        "Combined status=active level=milestone priority=3 due=2026-04-26 order=1.25 uda.env=prod uda.team=backend +api +ship-blocker",
 		},
 		{
 			name:     "uda value with whitespace gets quoted",
 			task:     &domain.Task{Title: "Q", Status: "pending", UDA: map[string]any{"k": "two words"}},
-			workflow: wf,
+			workflow: workflow,
 			want:     `Q uda.k="two words"`,
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := formatMarkdownTitleLine(c.task, c.tags, c.hasTaxonomy, c.workflow)
-			if got != c.want {
-				t.Errorf("formatMarkdownTitleLine\n  got:  %q\n  want: %q", got, c.want)
+	for _, tc := range cases {
+		test.Run(tc.name, func(test *testing.T) {
+			got := formatMarkdownTitleLine(tc.task, tc.tags, tc.hasTaxonomy, tc.workflow)
+			if got != tc.want {
+				test.Errorf("formatMarkdownTitleLine\n  got:  %q\n  want: %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestQuoteUDAValue(t *testing.T) {
+func TestQuoteUDAValue(test *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
@@ -358,10 +363,10 @@ func TestQuoteUDAValue(t *testing.T) {
 		{`back\slash`, `back\slash`},
 		{`back\slash and space`, `"back\\slash and space"`},
 	}
-	for _, c := range cases {
-		got := quoteUDAValue(c.in)
-		if got != c.want {
-			t.Errorf("quoteUDAValue(%q) = %q, want %q", c.in, got, c.want)
+	for _, tc := range cases {
+		got := quoteUDAValue(tc.in)
+		if got != tc.want {
+			test.Errorf("quoteUDAValue(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -369,27 +374,27 @@ func TestQuoteUDAValue(t *testing.T) {
 // renderTreeMarkdownFromFixture builds a Renderer with the given inputs and
 // returns the rendered markdown. Used by golden-file and string-assertion
 // tests that don't need an end-to-end CLI execution.
-func renderTreeMarkdownFromFixture(t *testing.T, in *markdownInputs, nodes []*treeNode, hasTaxonomy bool) string {
-	t.Helper()
+func renderTreeMarkdownFromFixture(test *testing.T, in *markdownInputs, nodes []*treeNode, hasTaxonomy bool) string {
+	test.Helper()
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "markdown", false, nil)
-	r.setMarkdownInputs(in)
+	renderer := NewRenderer(&buf, "markdown", false, nil)
+	renderer.setMarkdownInputs(in)
 	if hasTaxonomy {
-		r.SetTaxonomyResolver(func(uuid.UUID) bool { return true })
+		renderer.SetTaxonomyResolver(func(uuid.UUID) bool { return true })
 	}
-	if err := r.renderTreeMarkdown(nodes); err != nil {
-		t.Fatalf("renderTreeMarkdown: %v", err)
+	if err := renderer.renderTreeMarkdown(nodes); err != nil {
+		test.Fatalf("renderTreeMarkdown: %v", err)
 	}
 	return buf.String()
 }
 
-func TestRenderTreeMarkdown_GoldenBasic(t *testing.T) {
-	wf := kanbanWorkflowFixture()
+func TestRenderTreeMarkdown_GoldenBasic(test *testing.T) {
+	workflow := kanbanWorkflowFixture()
 	proj := &domain.Project{
 		ID:          uuid.New(),
 		Name:        "tusk-roadmap",
 		Description: "The product backlog for tusk.",
-		WorkflowID:  wf.ID,
+		WorkflowID:  workflow.ID,
 	}
 
 	str := func(s string) *string { return &s }
@@ -521,34 +526,34 @@ func TestRenderTreeMarkdown_GoldenBasic(t *testing.T) {
 		tagsByTask:  tags,
 		annsByTask:  annsByTask,
 		notesByTask: notesByTask,
-		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+		workflowFor: func(*domain.Task) *domain.Workflow { return workflow },
 	}
 	nodes := buildTree(tasks, nil)
 
-	got := renderTreeMarkdownFromFixture(t, in, nodes, true)
+	got := renderTreeMarkdownFromFixture(test, in, nodes, true)
 
 	goldenPath := filepath.Join("testdata", "tree_markdown_basic.golden.md")
 	if *updateGolden || os.Getenv("TUSK_UPDATE_GOLDEN") == "1" {
 		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
-			t.Fatalf("mkdir testdata: %v", err)
+			test.Fatalf("mkdir testdata: %v", err)
 		}
 		if err := os.WriteFile(goldenPath, []byte(got), 0o644); err != nil {
-			t.Fatalf("write golden: %v", err)
+			test.Fatalf("write golden: %v", err)
 		}
 		return
 	}
 
 	want, err := os.ReadFile(goldenPath)
 	if err != nil {
-		t.Fatalf("read golden %s: %v (re-run with -update or TUSK_UPDATE_GOLDEN=1 to create it)", goldenPath, err)
+		test.Fatalf("read golden %s: %v (re-run with -update or TUSK_UPDATE_GOLDEN=1 to create it)", goldenPath, err)
 	}
 	if got != string(want) {
-		t.Fatalf("markdown output diverges from golden\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
+		test.Fatalf("markdown output diverges from golden\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
 	}
 }
 
-func TestRenderTreeMarkdown_NotesAndAnnotations(t *testing.T) {
-	wf := kanbanWorkflowFixture()
+func TestRenderTreeMarkdown_NotesAndAnnotations(test *testing.T) {
+	workflow := kanbanWorkflowFixture()
 	pid := uuid.New()
 	mile := &domain.Task{
 		ID:        uuid.New(),
@@ -579,7 +584,7 @@ func TestRenderTreeMarkdown_NotesAndAnnotations(t *testing.T) {
 			mile.ID: {{ProjectID: pid, PlayerID: "german", TaskID: &mile.ID, CreatedAt: noteTime, Body: "checkpoint"}},
 			leafID:  {{ProjectID: pid, PlayerID: "german", TaskID: &leafID, CreatedAt: noteTime, Body: "retry needed"}},
 		},
-		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+		workflowFor: func(*domain.Task) *domain.Workflow { return workflow },
 	}
 	// buildTree alone gives a depth-0 milestone. Force the leaf one extra
 	// level deeper than buildTree would by hanging a story between them so
@@ -598,30 +603,30 @@ func TestRenderTreeMarkdown_NotesAndAnnotations(t *testing.T) {
 		},
 	}
 
-	got := renderTreeMarkdownFromFixture(t, in, nodes, false)
+	got := renderTreeMarkdownFromFixture(test, in, nodes, false)
 
 	// Heading-level annotations on the milestone.
 	if !strings.Contains(got, "## v1 launch status=active\n") {
-		t.Fatalf("expected milestone heading, got:\n%s", got)
+		test.Fatalf("expected milestone heading, got:\n%s", got)
 	}
 	if !strings.Contains(got, "**Annotations:**\n- 2026-04-15: Initial scope ratified\n") {
-		t.Fatalf("expected milestone heading-level annotations, got:\n%s", got)
+		test.Fatalf("expected milestone heading-level annotations, got:\n%s", got)
 	}
 	if !strings.Contains(got, "**Notes:**\n- 2026-04-16 (german): checkpoint\n") {
-		t.Fatalf("expected milestone heading-level notes, got:\n%s", got)
+		test.Fatalf("expected milestone heading-level notes, got:\n%s", got)
 	}
 	// Bullet-level annotations and notes on the leaf at depth 2 (2-space
 	// sub-indent under the bullet itself, which sits at column 0).
 	if !strings.Contains(got, "- [ ] Leaf\n  - **Annotations:**\n    - 2026-04-15: Schema field finalized\n") {
-		t.Fatalf("expected leaf bullet-level annotations indented, got:\n%s", got)
+		test.Fatalf("expected leaf bullet-level annotations indented, got:\n%s", got)
 	}
 	if !strings.Contains(got, "  - **Notes:**\n    - 2026-04-16 (german): retry needed\n") {
-		t.Fatalf("expected leaf bullet-level notes indented, got:\n%s", got)
+		test.Fatalf("expected leaf bullet-level notes indented, got:\n%s", got)
 	}
 }
 
-func TestRenderTreeMarkdown_ProjectLevelNotes(t *testing.T) {
-	wf := kanbanWorkflowFixture()
+func TestRenderTreeMarkdown_ProjectLevelNotes(test *testing.T) {
+	workflow := kanbanWorkflowFixture()
 	pid := uuid.New()
 	root := &domain.Task{
 		ID:        uuid.New(),
@@ -638,10 +643,10 @@ func TestRenderTreeMarkdown_ProjectLevelNotes(t *testing.T) {
 		notesByTask: map[uuid.UUID][]*domain.Note{
 			uuid.Nil: {{ProjectID: pid, PlayerID: "german", CreatedAt: noteTime, Body: "project-scope memo"}},
 		},
-		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+		workflowFor: func(*domain.Task) *domain.Workflow { return workflow },
 	}
 	nodes := buildTree([]*domain.Task{root}, nil)
-	got := renderTreeMarkdownFromFixture(t, in, nodes, false)
+	got := renderTreeMarkdownFromFixture(test, in, nodes, false)
 
 	want := "# X\n" +
 		"> Project description.\n" +
@@ -651,12 +656,12 @@ func TestRenderTreeMarkdown_ProjectLevelNotes(t *testing.T) {
 		"\n" +
 		"## Root\n"
 	if got != want {
-		t.Fatalf("project-level notes\n  got:  %q\n  want: %q", got, want)
+		test.Fatalf("project-level notes\n  got:  %q\n  want: %q", got, want)
 	}
 }
 
-func TestRenderMarkdownNode_Bullet_WithDescription(t *testing.T) {
-	wf := kanbanWorkflowFixture()
+func TestRenderMarkdownNode_Bullet_WithDescription(test *testing.T) {
+	workflow := kanbanWorkflowFixture()
 	pid := uuid.New()
 	storyID := uuid.New()
 	story := &domain.Task{
@@ -680,7 +685,7 @@ func TestRenderMarkdownNode_Bullet_WithDescription(t *testing.T) {
 		tagsByTask:  map[uuid.UUID][]*domain.Tag{},
 		annsByTask:  map[uuid.UUID][]*domain.Annotation{},
 		notesByTask: map[uuid.UUID][]*domain.Note{},
-		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+		workflowFor: func(*domain.Task) *domain.Workflow { return workflow },
 	}
 	storyNode := &treeNode{
 		Task:     story,
@@ -688,28 +693,28 @@ func TestRenderMarkdownNode_Bullet_WithDescription(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	r := NewRenderer(&buf, "markdown", false, nil)
-	r.setMarkdownInputs(in)
+	renderer := NewRenderer(&buf, "markdown", false, nil)
+	renderer.setMarkdownInputs(in)
 	// Render the story at depth 2 directly so we exercise the bullet path
 	// with its blockquote indent.
-	if err := r.renderMarkdownNode(storyNode, 2); err != nil {
-		t.Fatalf("render: %v", err)
+	if err := renderer.renderMarkdownNode(storyNode, 2); err != nil {
+		test.Fatalf("render: %v", err)
 	}
 	out := buf.String()
 	// Story is depth 2 → bullet with no indent. Leaf is depth 3 → 2-space indent.
 	if !strings.Contains(out, "- [ ] Story\n") {
-		t.Fatalf("expected story bullet without indent, got:\n%s", out)
+		test.Fatalf("expected story bullet without indent, got:\n%s", out)
 	}
 	if !strings.Contains(out, "  - [ ] Leaf status=active\n") {
-		t.Fatalf("expected indented leaf bullet with status=active, got:\n%s", out)
+		test.Fatalf("expected indented leaf bullet with status=active, got:\n%s", out)
 	}
 	if !strings.Contains(out, "  > Para one.\n  >\n  > Para two.\n") {
-		t.Fatalf("expected indented multi-paragraph blockquote for leaf, got:\n%s", out)
+		test.Fatalf("expected indented multi-paragraph blockquote for leaf, got:\n%s", out)
 	}
 }
 
-func TestRenderTreeMarkdown_TaxonomyDisabled(t *testing.T) {
-	wf := kanbanWorkflowFixture()
+func TestRenderTreeMarkdown_TaxonomyDisabled(test *testing.T) {
+	workflow := kanbanWorkflowFixture()
 	pid := uuid.New()
 	level := "milestone"
 	root := &domain.Task{
@@ -725,17 +730,17 @@ func TestRenderTreeMarkdown_TaxonomyDisabled(t *testing.T) {
 		tagsByTask:  map[uuid.UUID][]*domain.Tag{},
 		annsByTask:  map[uuid.UUID][]*domain.Annotation{},
 		notesByTask: map[uuid.UUID][]*domain.Note{},
-		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+		workflowFor: func(*domain.Task) *domain.Workflow { return workflow },
 	}
 	nodes := buildTree([]*domain.Task{root}, nil)
-	out := renderTreeMarkdownFromFixture(t, in, nodes, false)
+	out := renderTreeMarkdownFromFixture(test, in, nodes, false)
 	if strings.Contains(out, "level=") {
-		t.Fatalf("expected no level= token when taxonomy disabled, got:\n%s", out)
+		test.Fatalf("expected no level= token when taxonomy disabled, got:\n%s", out)
 	}
 }
 
-func TestRenderTreeMarkdown_EmptyDescription(t *testing.T) {
-	wf := kanbanWorkflowFixture()
+func TestRenderTreeMarkdown_EmptyDescription(test *testing.T) {
+	workflow := kanbanWorkflowFixture()
 	pid := uuid.New()
 	root := &domain.Task{
 		ID:        uuid.New(),
@@ -749,28 +754,28 @@ func TestRenderTreeMarkdown_EmptyDescription(t *testing.T) {
 		tagsByTask:  map[uuid.UUID][]*domain.Tag{},
 		annsByTask:  map[uuid.UUID][]*domain.Annotation{},
 		notesByTask: map[uuid.UUID][]*domain.Note{},
-		workflowFor: func(*domain.Task) *domain.Workflow { return wf },
+		workflowFor: func(*domain.Task) *domain.Workflow { return workflow },
 	}
 	nodes := buildTree([]*domain.Task{root}, nil)
-	out := renderTreeMarkdownFromFixture(t, in, nodes, false)
+	out := renderTreeMarkdownFromFixture(test, in, nodes, false)
 	// No description → header line, blank line, then the task heading.
 	want := "# X\n\n## Root\n"
 	if out != want {
-		t.Fatalf("unexpected output for empty-description project\n  got:  %q\n  want: %q", out, want)
+		test.Fatalf("unexpected output for empty-description project\n  got:  %q\n  want: %q", out, want)
 	}
 }
 
-func TestRenderAnnotationsBlock_Empty(t *testing.T) {
+func TestRenderAnnotationsBlock_Empty(test *testing.T) {
 	var buf bytes.Buffer
 	if err := renderAnnotationsBlock(&buf, nil, ""); err != nil {
-		t.Fatalf("renderAnnotationsBlock: %v", err)
+		test.Fatalf("renderAnnotationsBlock: %v", err)
 	}
 	if buf.Len() != 0 {
-		t.Fatalf("expected empty output, got %q", buf.String())
+		test.Fatalf("expected empty output, got %q", buf.String())
 	}
 }
 
-func TestRenderAnnotationsBlock_Heading(t *testing.T) {
+func TestRenderAnnotationsBlock_Heading(test *testing.T) {
 	t1 := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 4, 18, 9, 30, 0, 0, time.UTC)
 	t3 := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
@@ -781,18 +786,18 @@ func TestRenderAnnotationsBlock_Heading(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	if err := renderAnnotationsBlock(&buf, anns, ""); err != nil {
-		t.Fatalf("renderAnnotationsBlock: %v", err)
+		test.Fatalf("renderAnnotationsBlock: %v", err)
 	}
 	want := "**Annotations:**\n" +
 		"- 2026-04-15: Blocked by upstream API changes\n" +
 		"- 2026-04-18: Investigating root cause\n" +
 		"- 2026-04-20: Resolved upstream\n\n"
 	if buf.String() != want {
-		t.Fatalf("heading annotations\n  got:  %q\n  want: %q", buf.String(), want)
+		test.Fatalf("heading annotations\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 
-func TestRenderAnnotationsBlock_Bullet(t *testing.T) {
+func TestRenderAnnotationsBlock_Bullet(test *testing.T) {
 	t1 := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 4, 18, 9, 30, 0, 0, time.UTC)
 	t3 := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
@@ -803,44 +808,44 @@ func TestRenderAnnotationsBlock_Bullet(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	if err := renderAnnotationsBlock(&buf, anns, "  "); err != nil {
-		t.Fatalf("renderAnnotationsBlock: %v", err)
+		test.Fatalf("renderAnnotationsBlock: %v", err)
 	}
 	want := "  - **Annotations:**\n" +
 		"    - 2026-04-15: Blocked by upstream API changes\n" +
 		"    - 2026-04-18: Investigating root cause\n" +
 		"    - 2026-04-20: Resolved upstream\n"
 	if buf.String() != want {
-		t.Fatalf("bullet annotations\n  got:  %q\n  want: %q", buf.String(), want)
+		test.Fatalf("bullet annotations\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 
-func TestRenderNotesBlock_Empty(t *testing.T) {
+func TestRenderNotesBlock_Empty(test *testing.T) {
 	var buf bytes.Buffer
 	if err := renderNotesBlock(&buf, nil, ""); err != nil {
-		t.Fatalf("renderNotesBlock: %v", err)
+		test.Fatalf("renderNotesBlock: %v", err)
 	}
 	if buf.Len() != 0 {
-		t.Fatalf("expected empty output, got %q", buf.String())
+		test.Fatalf("expected empty output, got %q", buf.String())
 	}
 }
 
-func TestRenderNotesBlock_HeadingMinimal(t *testing.T) {
+func TestRenderNotesBlock_HeadingMinimal(test *testing.T) {
 	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
 	notes := []*domain.Note{
 		{CreatedAt: created, PlayerID: "german", Body: "scratch pad note"},
 	}
 	var buf bytes.Buffer
 	if err := renderNotesBlock(&buf, notes, ""); err != nil {
-		t.Fatalf("renderNotesBlock: %v", err)
+		test.Fatalf("renderNotesBlock: %v", err)
 	}
 	want := "**Notes:**\n" +
 		"- 2026-04-15 (german): scratch pad note\n\n"
 	if buf.String() != want {
-		t.Fatalf("heading minimal\n  got:  %q\n  want: %q", buf.String(), want)
+		test.Fatalf("heading minimal\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 
-func TestRenderNotesBlock_HeadingWithMetadata(t *testing.T) {
+func TestRenderNotesBlock_HeadingWithMetadata(test *testing.T) {
 	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
 	notes := []*domain.Note{
 		{
@@ -852,50 +857,50 @@ func TestRenderNotesBlock_HeadingWithMetadata(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	if err := renderNotesBlock(&buf, notes, ""); err != nil {
-		t.Fatalf("renderNotesBlock: %v", err)
+		test.Fatalf("renderNotesBlock: %v", err)
 	}
 	want := "**Notes:**\n" +
 		"- 2026-04-15 (german, area=backend, topic=auth): with two metadata keys\n\n"
 	if buf.String() != want {
-		t.Fatalf("heading with metadata\n  got:  %q\n  want: %q", buf.String(), want)
+		test.Fatalf("heading with metadata\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 
-func TestRenderNotesBlock_Multiline(t *testing.T) {
+func TestRenderNotesBlock_Multiline(test *testing.T) {
 	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
 	notes := []*domain.Note{
 		{CreatedAt: created, PlayerID: "german", Body: "line one\nline two\nline three"},
 	}
 	var buf bytes.Buffer
 	if err := renderNotesBlock(&buf, notes, ""); err != nil {
-		t.Fatalf("renderNotesBlock: %v", err)
+		test.Fatalf("renderNotesBlock: %v", err)
 	}
 	want := "**Notes:**\n" +
 		"- 2026-04-15 (german): line one\n" +
 		"  line two\n" +
 		"  line three\n\n"
 	if buf.String() != want {
-		t.Fatalf("multiline note\n  got:  %q\n  want: %q", buf.String(), want)
+		test.Fatalf("multiline note\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 
-func TestRenderNotesBlock_Bullet(t *testing.T) {
+func TestRenderNotesBlock_Bullet(test *testing.T) {
 	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
 	notes := []*domain.Note{
 		{CreatedAt: created, PlayerID: "german", Body: "leaf note"},
 	}
 	var buf bytes.Buffer
 	if err := renderNotesBlock(&buf, notes, "  "); err != nil {
-		t.Fatalf("renderNotesBlock: %v", err)
+		test.Fatalf("renderNotesBlock: %v", err)
 	}
 	want := "  - **Notes:**\n" +
 		"    - 2026-04-15 (german): leaf note\n"
 	if buf.String() != want {
-		t.Fatalf("bullet note\n  got:  %q\n  want: %q", buf.String(), want)
+		test.Fatalf("bullet note\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 
-func TestRenderNotesBlock_QuotedMetadata(t *testing.T) {
+func TestRenderNotesBlock_QuotedMetadata(test *testing.T) {
 	created := time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)
 	notes := []*domain.Note{
 		{
@@ -907,53 +912,53 @@ func TestRenderNotesBlock_QuotedMetadata(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	if err := renderNotesBlock(&buf, notes, ""); err != nil {
-		t.Fatalf("renderNotesBlock: %v", err)
+		test.Fatalf("renderNotesBlock: %v", err)
 	}
 	want := "**Notes:**\n" +
 		`- 2026-04-15 (german, topic="two words"): quoted meta value` + "\n\n"
 	if buf.String() != want {
-		t.Fatalf("quoted metadata\n  got:  %q\n  want: %q", buf.String(), want)
+		test.Fatalf("quoted metadata\n  got:  %q\n  want: %q", buf.String(), want)
 	}
 }
 
-func TestRunTree_MarkdownDeleteRoleTaskExcluded(t *testing.T) {
-	app, taskSvc, projectSvc := testAppForMarkdown(t)
+func TestRunTree_MarkdownDeleteRoleTaskExcluded(test *testing.T) {
+	app, taskSvc, projectSvc := testAppForMarkdown(test)
 	ctx := context.Background()
 
-	setProjectDescription(t, projectSvc, "default", "An overview.")
+	setProjectDescription(test, projectSvc, "default", "An overview.")
 	if err := taskSvc.Create(ctx, &domain.Task{Title: "Keep me"}); err != nil {
-		t.Fatalf("create alive task: %v", err)
+		test.Fatalf("create alive task: %v", err)
 	}
 	gone := &domain.Task{Title: "Drop me"}
 	if err := taskSvc.Create(ctx, gone); err != nil {
-		t.Fatalf("create soon-deleted task: %v", err)
+		test.Fatalf("create soon-deleted task: %v", err)
 	}
 	// Transition through `active` because kanban does not allow pending → deleted directly.
 	stActive := "active"
 	if _, err := taskSvc.Update(ctx, domain.TaskUpdate{ShortID: gone.ShortID, Version: gone.Version, Status: &stActive}); err != nil {
-		t.Fatalf("activate task: %v", err)
+		test.Fatalf("activate task: %v", err)
 	}
 	// Refetch to pick up the new version.
 	refreshed, err := taskSvc.GetByShortID(ctx, gone.ShortID)
 	if err != nil {
-		t.Fatalf("refetch: %v", err)
+		test.Fatalf("refetch: %v", err)
 	}
 	stDeleted := "deleted"
 	if _, err := taskSvc.Update(ctx, domain.TaskUpdate{ShortID: refreshed.ShortID, Version: refreshed.Version, Status: &stDeleted}); err != nil {
-		t.Fatalf("delete task: %v", err)
+		test.Fatalf("delete task: %v", err)
 	}
 
 	var stdout bytes.Buffer
 	app.root.SetOut(&stdout)
 	app.root.SetArgs([]string{"task", "tree", "--format", "markdown"})
 	if err := app.root.Execute(); err != nil {
-		t.Fatalf("execute: %v", err)
+		test.Fatalf("execute: %v", err)
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "Keep me") {
-		t.Fatalf("expected alive task to be rendered, got:\n%s", out)
+		test.Fatalf("expected alive task to be rendered, got:\n%s", out)
 	}
 	if strings.Contains(out, "Drop me") {
-		t.Fatalf("expected delete-role task to be excluded, got:\n%s", out)
+		test.Fatalf("expected delete-role task to be excluded, got:\n%s", out)
 	}
 }

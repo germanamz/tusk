@@ -27,48 +27,54 @@ type markdownInputs struct {
 // gatherMarkdownInputs assembles the markdown render inputs after the
 // tree has been built. Must be called only when the tree is single-project
 // (validated by the caller) and tasks is non-empty.
-func (a *App) gatherMarkdownInputs(ctx context.Context, tasks []*domain.Task) (*markdownInputs, error) {
+func (app *App) gatherMarkdownInputs(ctx context.Context, tasks []*domain.Task) (*markdownInputs, error) {
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("gatherMarkdownInputs: tasks must not be empty")
 	}
 
 	projectID := tasks[0].ProjectID
-	project, err := a.projectSvc.GetByID(ctx, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("loading project %v for markdown export: %w", projectID, err)
+	project, projectErr := app.projectSvc.GetByID(ctx, projectID)
+
+	if projectErr != nil {
+		return nil, fmt.Errorf("loading project %v for markdown export: %w", projectID, projectErr)
 	}
 
 	taskIDs := make([]uuid.UUID, len(tasks))
-	for i, t := range tasks {
-		taskIDs[i] = t.ID
+	for index, task := range tasks {
+		taskIDs[index] = task.ID
 	}
 
-	tagsByTask, err := a.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
-	if err != nil {
-		return nil, fmt.Errorf("loading tags for markdown export: %w", err)
+	tagsByTask, tagsErr := app.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+
+	if tagsErr != nil {
+		return nil, fmt.Errorf("loading tags for markdown export: %w", tagsErr)
 	}
 
-	annsByTask, err := a.taskSvc.GetAnnotationsBatch(ctx, project.ID, taskIDs)
-	if err != nil {
-		return nil, fmt.Errorf("loading annotations for markdown export: %w", err)
+	annsByTask, annotationsErr := app.taskSvc.GetAnnotationsBatch(ctx, project.ID, taskIDs)
+
+	if annotationsErr != nil {
+		return nil, fmt.Errorf("loading annotations for markdown export: %w", annotationsErr)
 	}
 
-	allNotes, err := a.noteSvc.ListAllForProject(ctx, project.ID)
-	if err != nil {
-		return nil, fmt.Errorf("loading notes for markdown export: %w", err)
+	allNotes, notesErr := app.noteSvc.ListAllForProject(ctx, project.ID)
+
+	if notesErr != nil {
+		return nil, fmt.Errorf("loading notes for markdown export: %w", notesErr)
 	}
+
 	notesByTask := make(map[uuid.UUID][]*domain.Note)
-	for _, n := range allNotes {
+	for _, note := range allNotes {
 		key := uuid.Nil
-		if n.TaskID != nil {
-			key = *n.TaskID
+		if note.TaskID != nil {
+			key = *note.TaskID
 		}
-		notesByTask[key] = append(notesByTask[key], n)
+		notesByTask[key] = append(notesByTask[key], note)
 	}
 
-	workflowFor, err := a.buildWorkflowLookup(ctx, tasks)
-	if err != nil {
-		return nil, err
+	workflowFor, workflowErr := app.buildWorkflowLookup(ctx, tasks)
+
+	if workflowErr != nil {
+		return nil, workflowErr
 	}
 
 	return &markdownInputs{
@@ -83,24 +89,24 @@ func (a *App) gatherMarkdownInputs(ctx context.Context, tasks []*domain.Task) (*
 // renderTreeMarkdown writes the markdown export: H1 + project description
 // blockquote followed by the recursively-rendered task body. Phase 5 will
 // append annotations and notes; Phase 4's output is a strict prefix of that.
-func (r *Renderer) renderTreeMarkdown(nodes []*treeNode) error {
-	if r.markdown == nil {
+func (renderer *Renderer) renderTreeMarkdown(nodes []*treeNode) error {
+	if renderer.markdown == nil {
 		// Empty workspace OR caller forgot to wire inputs — emit nothing rather
 		// than panicking. runTree only sets inputs when the tree is non-empty
 		// and single-project.
 		return nil
 	}
-	proj := r.markdown.project
-	if _, err := fmt.Fprintf(r.w, "# %s\n", projectDisplayName(proj.Name)); err != nil {
+	proj := renderer.markdown.project
+	if _, err := fmt.Fprintf(renderer.w, "# %s\n", projectDisplayName(proj.Name)); err != nil {
 		return err
 	}
 	if proj.Description != "" {
-		if err := writeBlockquote(r.w, proj.Description, ""); err != nil {
+		if err := writeBlockquote(renderer.w, proj.Description, ""); err != nil {
 			return err
 		}
 	} else {
 		// Trailing blank line between H1 and first task even when no description.
-		if _, err := fmt.Fprintln(r.w); err != nil {
+		if _, err := fmt.Fprintln(renderer.w); err != nil {
 			return err
 		}
 	}
@@ -108,12 +114,12 @@ func (r *Renderer) renderTreeMarkdown(nodes []*treeNode) error {
 	// Project-level notes (TaskID == nil) live under uuid.Nil in the
 	// notesByTask map per the gathering convention established in Phase 3.
 	// They appear under the H1 description (if any) and before the first task.
-	if err := renderNotesBlock(r.w, r.markdown.notesByTask[uuid.Nil], ""); err != nil {
+	if err := renderNotesBlock(renderer.w, renderer.markdown.notesByTask[uuid.Nil], ""); err != nil {
 		return err
 	}
 
 	for _, node := range nodes {
-		if err := r.renderMarkdownNode(node, 0); err != nil {
+		if err := renderer.renderMarkdownNode(node, 0); err != nil {
 			return err
 		}
 	}
@@ -124,40 +130,40 @@ func (r *Renderer) renderTreeMarkdown(nodes []*treeNode) error {
 // depth 0 → "## ", depth 1 → "### ", depth ≥ 2 → bullet ("- [x] " or "- [ ] ")
 // indented by 2 spaces per level past depth 2. Description (if any) is emitted
 // as a blockquote immediately below the title with the same indent.
-func (r *Renderer) renderMarkdownNode(node *treeNode, depth int) error {
-	wf := r.markdown.workflowFor(node.Task)
+func (renderer *Renderer) renderMarkdownNode(node *treeNode, depth int) error {
+	workflow := renderer.markdown.workflowFor(node.Task)
 	titleLine := formatMarkdownTitleLine(
 		node.Task,
-		r.markdown.tagsByTask[node.Task.ID],
-		r.hasTaxonomy(node.Task.ProjectID),
-		wf,
+		renderer.markdown.tagsByTask[node.Task.ID],
+		renderer.hasTaxonomy(node.Task.ProjectID),
+		workflow,
 	)
 
 	var indent string
 	switch depth {
 	case 0:
-		if _, err := fmt.Fprintf(r.w, "## %s\n", titleLine); err != nil {
+		if _, err := fmt.Fprintf(renderer.w, "## %s\n", titleLine); err != nil {
 			return err
 		}
 	case 1:
-		if _, err := fmt.Fprintf(r.w, "### %s\n", titleLine); err != nil {
+		if _, err := fmt.Fprintf(renderer.w, "### %s\n", titleLine); err != nil {
 			return err
 		}
 	default:
 		indent = strings.Repeat("  ", depth-2)
 		checkbox := " "
-		if wf != nil {
-			if cfg, ok := wf.Statuses[node.Task.Status]; ok && cfg.HasRole(domain.RoleDone) {
+		if workflow != nil {
+			if statusConfig, ok := workflow.Statuses[node.Task.Status]; ok && statusConfig.HasRole(domain.RoleDone) {
 				checkbox = "x"
 			}
 		}
-		if _, err := fmt.Fprintf(r.w, "%s- [%s] %s\n", indent, checkbox, titleLine); err != nil {
+		if _, err := fmt.Fprintf(renderer.w, "%s- [%s] %s\n", indent, checkbox, titleLine); err != nil {
 			return err
 		}
 	}
 
 	if node.Task.Description != "" {
-		if err := writeBlockquote(r.w, node.Task.Description, indent); err != nil {
+		if err := writeBlockquote(renderer.w, node.Task.Description, indent); err != nil {
 			return err
 		}
 	}
@@ -173,15 +179,15 @@ func (r *Renderer) renderMarkdownNode(node *treeNode, depth int) error {
 	if depth >= 2 {
 		subIndent = strings.Repeat("  ", depth-2) + "  "
 	}
-	if err := renderAnnotationsBlock(r.w, r.markdown.annsByTask[node.Task.ID], subIndent); err != nil {
+	if err := renderAnnotationsBlock(renderer.w, renderer.markdown.annsByTask[node.Task.ID], subIndent); err != nil {
 		return err
 	}
-	if err := renderNotesBlock(r.w, r.markdown.notesByTask[node.Task.ID], subIndent); err != nil {
+	if err := renderNotesBlock(renderer.w, renderer.markdown.notesByTask[node.Task.ID], subIndent); err != nil {
 		return err
 	}
 
 	for _, child := range node.Children {
-		if err := r.renderMarkdownNode(child, depth+1); err != nil {
+		if err := renderer.renderMarkdownNode(child, depth+1); err != nil {
 			return err
 		}
 	}
@@ -198,59 +204,59 @@ func (r *Renderer) renderMarkdownNode(node *treeNode, depth int) error {
 // workflow may be nil (renderer fell back when no workflow was resolvable);
 // when nil, status binary classification cannot be performed and the
 // status= token is conservatively omitted.
-func formatMarkdownTitleLine(t *domain.Task, tags []*domain.Tag, hasTaxonomy bool, workflow *domain.Workflow) string {
-	var b strings.Builder
-	b.WriteString(t.Title)
+func formatMarkdownTitleLine(task *domain.Task, tags []*domain.Tag, hasTaxonomy bool, workflow *domain.Workflow) string {
+	var builder strings.Builder
+	builder.WriteString(task.Title)
 
 	// status=<name>: only when non-binary. Binary means: status equals the
 	// workflow's initial status name OR carries the done role.
-	if workflow != nil && t.Status != "" {
+	if workflow != nil && task.Status != "" {
 		binary := false
-		if cfg, ok := workflow.Statuses[t.Status]; ok && cfg.HasRole(domain.RoleDone) {
+		if statusConfig, ok := workflow.Statuses[task.Status]; ok && statusConfig.HasRole(domain.RoleDone) {
 			binary = true
 		}
 		if !binary {
-			if name, ok := workflow.StatusByRole(domain.RoleInitial); ok && name == t.Status {
+			if name, ok := workflow.StatusByRole(domain.RoleInitial); ok && name == task.Status {
 				binary = true
 			}
 		}
 		if !binary {
-			b.WriteString(" status=")
-			b.WriteString(t.Status)
+			builder.WriteString(" status=")
+			builder.WriteString(task.Status)
 		}
 	}
 
-	if hasTaxonomy && t.Level != nil && *t.Level != "" {
-		b.WriteString(" level=")
-		b.WriteString(*t.Level)
+	if hasTaxonomy && task.Level != nil && *task.Level != "" {
+		builder.WriteString(" level=")
+		builder.WriteString(*task.Level)
 	}
 
-	if t.Priority > 0 {
-		b.WriteString(" priority=")
-		b.WriteString(strconv.Itoa(t.Priority))
+	if task.Priority > 0 {
+		builder.WriteString(" priority=")
+		builder.WriteString(strconv.Itoa(task.Priority))
 	}
 
-	if t.DueAt != nil {
-		b.WriteString(" due=")
-		b.WriteString(t.DueAt.UTC().Format("2006-01-02"))
+	if task.DueAt != nil {
+		builder.WriteString(" due=")
+		builder.WriteString(task.DueAt.UTC().Format("2006-01-02"))
 	}
 
-	if t.Order != nil {
-		b.WriteString(" order=")
-		b.WriteString(strconv.FormatFloat(*t.Order, 'g', 6, 64))
+	if task.Order != nil {
+		builder.WriteString(" order=")
+		builder.WriteString(strconv.FormatFloat(*task.Order, 'g', 6, 64))
 	}
 
-	if len(t.UDA) > 0 {
-		keys := make([]string, 0, len(t.UDA))
-		for k := range t.UDA {
-			keys = append(keys, k)
+	if len(task.UDA) > 0 {
+		keys := make([]string, 0, len(task.UDA))
+		for key := range task.UDA {
+			keys = append(keys, key)
 		}
 		sort.Strings(keys)
-		for _, k := range keys {
-			b.WriteString(" uda.")
-			b.WriteString(k)
-			b.WriteString("=")
-			b.WriteString(quoteUDAValue(fmt.Sprintf("%v", t.UDA[k])))
+		for _, key := range keys {
+			builder.WriteString(" uda.")
+			builder.WriteString(key)
+			builder.WriteString("=")
+			builder.WriteString(quoteUDAValue(fmt.Sprintf("%v", task.UDA[key])))
 		}
 	}
 
@@ -260,13 +266,13 @@ func formatMarkdownTitleLine(t *domain.Task, tags []*domain.Tag, hasTaxonomy boo
 			names = append(names, tag.Name)
 		}
 		sort.Strings(names)
-		for _, n := range names {
-			b.WriteString(" +")
-			b.WriteString(n)
+		for _, name := range names {
+			builder.WriteString(" +")
+			builder.WriteString(name)
 		}
 	}
 
-	return b.String()
+	return builder.String()
 }
 
 // quoteUDAValue returns s wrapped in double quotes when it contains
@@ -275,40 +281,40 @@ func formatMarkdownTitleLine(t *domain.Task, tags []*domain.Tag, hasTaxonomy boo
 // Internal double quotes are escaped with `\"` and backslashes with `\\`
 // to keep the output reparsable by the inline-syntax lexer when the
 // markdown is dogfood-read.
-func quoteUDAValue(s string) string {
-	needsQuote := s == ""
+func quoteUDAValue(str string) string {
+	needsQuote := str == ""
 	if !needsQuote {
-		switch s[0] {
+		switch str[0] {
 		case '+', '-', '@':
 			needsQuote = true
 		}
 	}
 	if !needsQuote {
-		for _, r := range s {
-			if unicode.IsSpace(r) {
+		for _, char := range str {
+			if unicode.IsSpace(char) {
 				needsQuote = true
 				break
 			}
 		}
 	}
 	if !needsQuote {
-		return s
+		return str
 	}
-	var b strings.Builder
-	b.Grow(len(s) + 2)
-	b.WriteByte('"')
-	for _, r := range s {
-		switch r {
+	var builder strings.Builder
+	builder.Grow(len(str) + 2)
+	builder.WriteByte('"')
+	for _, char := range str {
+		switch char {
 		case '\\':
-			b.WriteString(`\\`)
+			builder.WriteString(`\\`)
 		case '"':
-			b.WriteString(`\"`)
+			builder.WriteString(`\"`)
 		default:
-			b.WriteRune(r)
+			builder.WriteRune(char)
 		}
 	}
-	b.WriteByte('"')
-	return b.String()
+	builder.WriteByte('"')
+	return builder.String()
 }
 
 // projectDisplayName converts a kebab/snake-case project name into a
@@ -320,8 +326,8 @@ func quoteUDAValue(s string) string {
 // remains correct for single ASCII words and avoids pulling in
 // golang.org/x/text/cases for what is otherwise a one-line conversion.
 func projectDisplayName(name string) string {
-	fields := strings.FieldsFunc(name, func(r rune) bool {
-		return r == '-' || r == '_'
+	fields := strings.FieldsFunc(name, func(ch rune) bool {
+		return ch == '-' || ch == '_'
 	})
 	for i, tok := range fields {
 		fields[i] = strings.Title(tok) //nolint:staticcheck // ASCII-only per-token use; see comment above.
@@ -342,7 +348,7 @@ func projectDisplayName(name string) string {
 // Annotations are written in chronological order (created_at ascending);
 // the slice is sorted defensively in case the upstream batch loader did not
 // guarantee order.
-func renderAnnotationsBlock(w io.Writer, anns []*domain.Annotation, indent string) error {
+func renderAnnotationsBlock(writer io.Writer, anns []*domain.Annotation, indent string) error {
 	if len(anns) == 0 {
 		return nil
 	}
@@ -353,27 +359,27 @@ func renderAnnotationsBlock(w io.Writer, anns []*domain.Annotation, indent strin
 	})
 
 	if indent == "" {
-		if _, err := fmt.Fprint(w, "**Annotations:**\n"); err != nil {
+		if _, err := fmt.Fprint(writer, "**Annotations:**\n"); err != nil {
 			return err
 		}
-		for _, a := range sorted {
-			body := strings.TrimRightFunc(a.Body, unicode.IsSpace)
-			if _, err := fmt.Fprintf(w, "- %s: %s\n", a.CreatedAt.UTC().Format("2006-01-02"), body); err != nil {
+		for _, annotation := range sorted {
+			body := strings.TrimRightFunc(annotation.Body, unicode.IsSpace)
+			if _, err := fmt.Fprintf(writer, "- %s: %s\n", annotation.CreatedAt.UTC().Format("2006-01-02"), body); err != nil {
 				return err
 			}
 		}
-		if _, err := fmt.Fprintln(w); err != nil {
+		if _, err := fmt.Fprintln(writer); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(w, "%s- **Annotations:**\n", indent); err != nil {
+	if _, err := fmt.Fprintf(writer, "%s- **Annotations:**\n", indent); err != nil {
 		return err
 	}
-	for _, a := range sorted {
-		body := strings.TrimRightFunc(a.Body, unicode.IsSpace)
-		if _, err := fmt.Fprintf(w, "%s  - %s: %s\n", indent, a.CreatedAt.UTC().Format("2006-01-02"), body); err != nil {
+	for _, annotation := range sorted {
+		body := strings.TrimRightFunc(annotation.Body, unicode.IsSpace)
+		if _, err := fmt.Fprintf(writer, "%s  - %s: %s\n", indent, annotation.CreatedAt.UTC().Format("2006-01-02"), body); err != nil {
 			return err
 		}
 	}
@@ -391,7 +397,7 @@ func renderAnnotationsBlock(w io.Writer, anns []*domain.Annotation, indent strin
 // fmt.Sprintf("%v", v); strings containing whitespace or a registered prefix
 // character are quoted via quoteUDAValue so the output remains reparsable by
 // the inline-syntax lexer.
-func renderNotesBlock(w io.Writer, notes []*domain.Note, indent string) error {
+func renderNotesBlock(writer io.Writer, notes []*domain.Note, indent string) error {
 	if len(notes) == 0 {
 		return nil
 	}
@@ -412,34 +418,34 @@ func renderNotesBlock(w io.Writer, notes []*domain.Note, indent string) error {
 	}
 
 	if heading {
-		if _, err := fmt.Fprint(w, "**Notes:**\n"); err != nil {
+		if _, err := fmt.Fprint(writer, "**Notes:**\n"); err != nil {
 			return err
 		}
 	} else {
-		if _, err := fmt.Fprintf(w, "%s- **Notes:**\n", indent); err != nil {
+		if _, err := fmt.Fprintf(writer, "%s- **Notes:**\n", indent); err != nil {
 			return err
 		}
 	}
 
-	for _, n := range sorted {
+	for _, note := range sorted {
 		header := fmt.Sprintf("%s%s (%s%s)", bulletPrefix,
-			n.CreatedAt.UTC().Format("2006-01-02"),
-			n.PlayerID,
-			formatNoteMetadata(n.Metadata),
+			note.CreatedAt.UTC().Format("2006-01-02"),
+			note.PlayerID,
+			formatNoteMetadata(note.Metadata),
 		)
-		body := strings.TrimRightFunc(n.Body, unicode.IsSpace)
+		body := strings.TrimRightFunc(note.Body, unicode.IsSpace)
 		lines := strings.Split(body, "\n")
-		if _, err := fmt.Fprintf(w, "%s: %s\n", header, lines[0]); err != nil {
+		if _, err := fmt.Fprintf(writer, "%s: %s\n", header, lines[0]); err != nil {
 			return err
 		}
 		for _, line := range lines[1:] {
-			if _, err := fmt.Fprintf(w, "%s%s\n", contPrefix, line); err != nil {
+			if _, err := fmt.Fprintf(writer, "%s%s\n", contPrefix, line); err != nil {
 				return err
 			}
 		}
 	}
 	if heading {
-		if _, err := fmt.Fprintln(w); err != nil {
+		if _, err := fmt.Fprintln(writer); err != nil {
 			return err
 		}
 	}
@@ -454,18 +460,18 @@ func formatNoteMetadata(meta map[string]any) string {
 		return ""
 	}
 	keys := make([]string, 0, len(meta))
-	for k := range meta {
-		keys = append(keys, k)
+	for key := range meta {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		b.WriteString(", ")
-		b.WriteString(k)
-		b.WriteByte('=')
-		b.WriteString(quoteUDAValue(fmt.Sprintf("%v", meta[k])))
+	var builder strings.Builder
+	for _, key := range keys {
+		builder.WriteString(", ")
+		builder.WriteString(key)
+		builder.WriteByte('=')
+		builder.WriteString(quoteUDAValue(fmt.Sprintf("%v", meta[key])))
 	}
-	return b.String()
+	return builder.String()
 }
 
 // writeBlockquote writes s as a markdown blockquote with each line prefixed
@@ -473,19 +479,19 @@ func formatNoteMetadata(meta map[string]any) string {
 // pass "" for headings. Empty input lines (paragraph separators) are emitted
 // as `<indent>>` (no trailing space). A blank line is appended after the
 // blockquote so following content sits in its own paragraph.
-func writeBlockquote(w io.Writer, s, indent string) error {
-	for _, line := range strings.Split(s, "\n") {
+func writeBlockquote(writer io.Writer, text, indent string) error {
+	for _, line := range strings.Split(text, "\n") {
 		var out string
 		if line == "" {
 			out = indent + ">\n"
 		} else {
 			out = indent + "> " + line + "\n"
 		}
-		if _, err := fmt.Fprint(w, out); err != nil {
+		if _, err := fmt.Fprint(writer, out); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintln(w); err != nil {
+	if _, err := fmt.Fprintln(writer); err != nil {
 		return err
 	}
 	return nil

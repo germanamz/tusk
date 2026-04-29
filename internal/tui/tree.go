@@ -36,20 +36,20 @@ func buildTree(tasks []*domain.Task, rootID *uuid.UUID) []*treeNode {
 
 	// Index tasks by ID
 	byID := make(map[uuid.UUID]*treeNode, len(tasks))
-	for _, t := range tasks {
-		byID[t.ID] = &treeNode{Task: t}
+	for _, task := range tasks {
+		byID[task.ID] = &treeNode{Task: task}
 	}
 
 	// Group children under parents
 	var roots []*treeNode
-	for _, t := range tasks {
-		node := byID[t.ID]
-		if rootID != nil && t.ID == *rootID {
+	for _, task := range tasks {
+		node := byID[task.ID]
+		if rootID != nil && task.ID == *rootID {
 			roots = append(roots, node)
 			continue
 		}
-		if t.ParentID != nil {
-			if parent, ok := byID[*t.ParentID]; ok {
+		if task.ParentID != nil {
+			if parent, ok := byID[*task.ParentID]; ok {
 				parent.Children = append(parent.Children, node)
 				continue
 			}
@@ -89,48 +89,48 @@ type treeNodeJSON struct {
 }
 
 // toTreeNodeJSON converts a treeNode to its JSON representation recursively.
-func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
-	t := node.Task
+func (renderer *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
+	task := node.Task
 	tj := treeNodeJSON{
-		ID:          t.ID.String(),
-		ShortID:     t.ShortID,
-		Title:       t.Title,
-		Description: t.Description,
-		Status:      t.Status,
-		Priority:    t.Priority,
-		Order:       t.Order,
-		Version:     t.Version,
-		UDA:         t.UDA,
-		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
-		ModifiedAt:  t.ModifiedAt.Format(time.RFC3339),
+		ID:          task.ID.String(),
+		ShortID:     task.ShortID,
+		Title:       task.Title,
+		Description: task.Description,
+		Status:      task.Status,
+		Priority:    task.Priority,
+		Order:       task.Order,
+		Version:     task.Version,
+		UDA:         task.UDA,
+		CreatedAt:   task.CreatedAt.Format(time.RFC3339),
+		ModifiedAt:  task.ModifiedAt.Format(time.RFC3339),
 		Children:    make([]treeNodeJSON, len(node.Children)),
 	}
-	if t.ParentID != nil {
-		s := t.ParentID.String()
-		tj.ParentID = &s
+	if task.ParentID != nil {
+		str := task.ParentID.String()
+		tj.ParentID = &str
 	}
-	tj.ProjectID = r.projectName(t.ProjectID)
-	if t.DueAt != nil {
-		s := t.DueAt.Format(time.RFC3339)
-		tj.DueAt = &s
+	tj.ProjectID = renderer.projectName(task.ProjectID)
+	if task.DueAt != nil {
+		str := task.DueAt.Format(time.RFC3339)
+		tj.DueAt = &str
 	}
-	if t.WaitUntil != nil {
-		s := t.WaitUntil.Format(time.RFC3339)
-		tj.WaitUntil = &s
+	if task.WaitUntil != nil {
+		str := task.WaitUntil.Format(time.RFC3339)
+		tj.WaitUntil = &str
 	}
-	tj.RecurrenceRule = t.RecurrenceRule
-	if t.UrgencyOverrides != nil {
-		tj.UrgencyOverrides = toUrgencyOverridesJSON(t.UrgencyOverrides)
+	tj.RecurrenceRule = task.RecurrenceRule
+	if task.UrgencyOverrides != nil {
+		tj.UrgencyOverrides = toUrgencyOverridesJSON(task.UrgencyOverrides)
 	}
-	if t.EffectiveWeights != nil {
-		tj.EffectiveUrgencyWeights = toUrgencyWeightsJSON(*t.EffectiveWeights)
+	if task.EffectiveWeights != nil {
+		tj.EffectiveUrgencyWeights = toUrgencyWeightsJSON(*task.EffectiveWeights)
 	}
 	if node.Rollup != nil {
-		rj := toRollupJSON(*node.Rollup)
-		tj.Rollup = &rj
+		rollupJSON := toRollupJSON(*node.Rollup)
+		tj.Rollup = &rollupJSON
 	}
-	for i, child := range node.Children {
-		tj.Children[i] = r.toTreeNodeJSON(child)
+	for index, child := range node.Children {
+		tj.Children[index] = renderer.toTreeNodeJSON(child)
 	}
 	return tj
 }
@@ -139,24 +139,24 @@ func (r *Renderer) toTreeNodeJSON(node *treeNode) treeNodeJSON {
 // For "text", each task is rendered as: {indent}{short_id} [{status}] {title}
 // For "json", the tree is rendered as a nested JSON array with children.
 // For "markdown", delegates to renderTreeMarkdown (see tree_markdown.go).
-func (r *Renderer) renderTree(nodes []*treeNode) error {
-	if r.format == "json" {
+func (renderer *Renderer) renderTree(nodes []*treeNode) error {
+	if renderer.format == "json" {
 		jsonNodes := make([]treeNodeJSON, len(nodes))
-		for i, n := range nodes {
-			jsonNodes[i] = r.toTreeNodeJSON(n)
+		for index, node := range nodes {
+			jsonNodes[index] = renderer.toTreeNodeJSON(node)
 		}
-		enc := json.NewEncoder(r.w)
+		enc := json.NewEncoder(renderer.w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(jsonNodes)
 	}
 
-	if r.format == "markdown" {
-		return r.renderTreeMarkdown(nodes)
+	if renderer.format == "markdown" {
+		return renderer.renderTreeMarkdown(nodes)
 	}
 
 	// Text format
 	for _, node := range nodes {
-		if err := r.renderTreeNode(node, 0); err != nil {
+		if err := renderer.renderTreeNode(node, 0); err != nil {
 			return err
 		}
 	}
@@ -165,22 +165,22 @@ func (r *Renderer) renderTree(nodes []*treeNode) error {
 
 // renderTreeNode recursively renders a single tree node and its children.
 // depth controls the indentation level (2 spaces per level).
-func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
+func (renderer *Renderer) renderTreeNode(node *treeNode, depth int) error {
 	indent := strings.Repeat("  ", depth)
 	line := fmt.Sprintf("%s%s [%s] %s", indent, node.Task.ShortID, node.Task.Status, node.Task.Title)
-	if r.hasTaxonomy(node.Task.ProjectID) {
+	if renderer.hasTaxonomy(node.Task.ProjectID) {
 		level := "—"
 		if node.Task.Level != nil && *node.Task.Level != "" {
 			level = *node.Task.Level
 		}
 		suffix := fmt.Sprintf(" [%s]", level)
-		if r.styles != nil {
-			suffix = r.styles.Dim.Render(suffix)
+		if renderer.styles != nil {
+			suffix = renderer.styles.Dim.Render(suffix)
 		}
 		line += suffix
 	}
-	if r.isDimStatus(node.Task.Status) {
-		line = r.styles.Dim.Render(line)
+	if renderer.isDimStatus(node.Task.Status) {
+		line = renderer.styles.Dim.Render(line)
 	}
 	// Branch decoration for --rollup. Emitted only on visible branch nodes
 	// (len(Children) > 0). With --rollup the fetch is decoupled from --all
@@ -188,13 +188,13 @@ func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 	// (delete-role kids included), making len(Children) > 0 the correct
 	// "is a branch in the DB" check that matches the spec.
 	if node.Rollup != nil && len(node.Children) > 0 {
-		line += "  " + r.formatRollup(*node.Rollup)
+		line += "  " + renderer.formatRollup(*node.Rollup)
 	}
-	if _, err := fmt.Fprintln(r.w, line); err != nil {
+	if _, err := fmt.Fprintln(renderer.w, line); err != nil {
 		return err
 	}
 	for _, child := range node.Children {
-		if err := r.renderTreeNode(child, depth+1); err != nil {
+		if err := renderer.renderTreeNode(child, depth+1); err != nil {
 			return err
 		}
 	}
@@ -208,7 +208,7 @@ func (r *Renderer) renderTreeNode(node *treeNode, depth int) error {
 // pct is rounded to the nearest integer; "–%" is emitted when Total == 0.
 // When color is enabled, status segments tagged with the highlight role get
 // bold styling and dim-role segments get faint styling.
-func (r *Renderer) formatRollup(roll domain.Rollup) string {
+func (renderer *Renderer) formatRollup(roll domain.Rollup) string {
 	var pct string
 	if roll.Total == 0 {
 		pct = "–%"
@@ -218,14 +218,14 @@ func (r *Renderer) formatRollup(roll domain.Rollup) string {
 	progress := fmt.Sprintf("[%d/%d done, %s]", roll.Done, roll.Total, pct)
 
 	parts := make([]string, 0, len(roll.StatusCounts))
-	for _, sc := range roll.StatusCounts {
-		seg := fmt.Sprintf("%s: %d", sc.Name, sc.Count)
-		if r.styles != nil {
+	for _, statusCount := range roll.StatusCounts {
+		seg := fmt.Sprintf("%s: %d", statusCount.Name, statusCount.Count)
+		if renderer.styles != nil {
 			switch {
-			case r.isHighlightStatus(sc.Name):
-				seg = r.styles.Bold.Render(seg)
-			case r.isDimStatus(sc.Name):
-				seg = r.styles.Dim.Render(seg)
+			case renderer.isHighlightStatus(statusCount.Name):
+				seg = renderer.styles.Bold.Render(seg)
+			case renderer.isDimStatus(statusCount.Name):
+				seg = renderer.styles.Dim.Render(seg)
 			}
 		}
 		parts = append(parts, seg)
@@ -236,16 +236,16 @@ func (r *Renderer) formatRollup(roll domain.Rollup) string {
 }
 
 // runTree handles the `tusk tree` and `tusk tree <short_id>` commands.
-func (a *App) runTree(cmd *cobra.Command, args []string) error {
+func (app *App) runTree(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	sortMode, _ := cmd.Flags().GetString("sort")
 	if err := validateSortMode(sortMode); err != nil {
 		return err
 	}
-	format := strings.ToLower(strings.TrimSpace(a.format))
+	format := strings.ToLower(strings.TrimSpace(app.format))
 	if format != "" && format != "text" && format != "json" && format != "markdown" {
-		return fmt.Errorf("invalid format %q: tree supports text, json, or markdown", a.format)
+		return fmt.Errorf("invalid format %q: tree supports text, json, or markdown", app.format)
 	}
 	rollup, _ := cmd.Flags().GetBool("rollup")
 	if format == "markdown" && rollup {
@@ -263,7 +263,7 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		// and apply on top of the same default status restriction
 		// fetchTreeTasks would use.
 		var err error
-		tasks, err = a.fetchTreeTasksFiltered(ctx, cmd, args)
+		tasks, err = app.fetchTreeTasksFiltered(ctx, cmd, args)
 		if err != nil {
 			return err
 		}
@@ -272,20 +272,23 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		// through the urgency-scored List path. Using List (instead of the
 		// raw GetDescendants) populates Urgency on every descendant, so
 		// `--sort urgency` produces the same behavior as in full-tree mode.
-		root, err := a.taskSvc.GetByShortID(ctx, args[0])
-		if err != nil {
-			return fmt.Errorf("%s", formatError(err, args[0]))
+		root, rootErr := app.taskSvc.GetByShortID(ctx, args[0])
+
+		if rootErr != nil {
+			return fmt.Errorf("%s", formatError(rootErr, args[0]))
 		}
-		descendants, err := a.fetchTreeTasks(ctx, cmd, &root.ID)
-		if err != nil {
-			return err
+
+		descendants, descendantsErr := app.fetchTreeTasks(ctx, cmd, &root.ID)
+
+		if descendantsErr != nil {
+			return descendantsErr
 		}
 		tasks = append([]*domain.Task{root}, descendants...)
 		rootID = &root.ID
 	default:
 		// Full tree: fetch all non-deleted tasks
 		var err error
-		tasks, err = a.fetchTreeTasks(ctx, cmd, nil)
+		tasks, err = app.fetchTreeTasks(ctx, cmd, nil)
 		if err != nil {
 			return err
 		}
@@ -303,30 +306,32 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 	var mdInputs *markdownInputs
 	if format == "markdown" && len(tasks) > 0 {
 		seen := make(map[uuid.UUID]struct{})
-		for _, t := range tasks {
-			seen[t.ProjectID] = struct{}{}
+		for _, task := range tasks {
+			seen[task.ProjectID] = struct{}{}
 			if len(seen) > 1 {
 				return fmt.Errorf("--format markdown requires a single project; pass project=<name> or run on a single-project workspace")
 			}
 		}
-		var err error
-		mdInputs, err = a.gatherMarkdownInputs(ctx, tasks)
-		if err != nil {
-			return err
+		var markdownErr error
+		mdInputs, markdownErr = app.gatherMarkdownInputs(ctx, tasks)
+
+		if markdownErr != nil {
+			return markdownErr
 		}
 	}
 
 	nodes := buildTree(tasks, rootID)
 
-	if len(nodes) == 0 && a.format != "json" && a.format != "markdown" {
+	if len(nodes) == 0 && app.format != "json" && app.format != "markdown" {
 		_, err := fmt.Fprintln(cmd.ErrOrStderr(), "No tasks.")
 		return err
 	}
 
 	if rollup {
-		workflowFor, err := a.buildWorkflowLookup(ctx, tasks)
-		if err != nil {
-			return err
+		workflowFor, workflowLookupErr := app.buildWorkflowLookup(ctx, tasks)
+
+		if workflowLookupErr != nil {
+			return workflowLookupErr
 		}
 		computeRollups(nodes, workflowFor)
 		// Per spec: --all controls rendering visibility; --rollup controls
@@ -349,12 +354,12 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 		nodes = pruneDeleteRoleNodes(nodes, mdInputs.workflowFor)
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), a.buildDimStatuses())
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), app.buildDimStatuses())
 	if rollup {
-		r.highlightStatuses = a.buildHighlightStatuses()
+		renderer.highlightStatuses = app.buildHighlightStatuses()
 	}
-	r.setMarkdownInputs(mdInputs)
-	return r.renderTree(nodes)
+	renderer.setMarkdownInputs(mdInputs)
+	return renderer.renderTree(nodes)
 }
 
 // buildWorkflowLookup resolves every distinct ProjectID in tasks to its
@@ -362,34 +367,38 @@ func (a *App) runTree(cmd *cobra.Command, args []string) error {
 // workflowFor parameter. A project that fails to resolve (deleted out from
 // under us, or its workflow vanished) maps to nil — AggregateRollup skips
 // those tasks rather than miscounting them.
-func (a *App) buildWorkflowLookup(ctx context.Context, tasks []*domain.Task) (func(*domain.Task) *domain.Workflow, error) {
-	if a.projectSvc == nil || a.workflowSvc == nil {
+func (app *App) buildWorkflowLookup(ctx context.Context, tasks []*domain.Task) (func(*domain.Task) *domain.Workflow, error) {
+	if app.projectSvc == nil || app.workflowSvc == nil {
 		return func(*domain.Task) *domain.Workflow { return nil }, nil
 	}
 	wfByProject := make(map[uuid.UUID]*domain.Workflow)
-	for _, t := range tasks {
-		if t == nil {
+	for _, task := range tasks {
+		if task == nil {
 			continue
 		}
-		if _, ok := wfByProject[t.ProjectID]; ok {
+		if _, ok := wfByProject[task.ProjectID]; ok {
 			continue
 		}
-		wfByProject[t.ProjectID] = nil
-		proj, err := a.projectSvc.GetByID(ctx, t.ProjectID)
-		if err != nil {
+		wfByProject[task.ProjectID] = nil
+		proj, projectErr := app.projectSvc.GetByID(ctx, task.ProjectID)
+
+		if projectErr != nil {
 			continue
 		}
-		wf, err := a.workflowSvc.GetByID(ctx, proj.WorkflowID)
-		if err != nil {
+
+		workflow, workflowErr := app.workflowSvc.GetByID(ctx, proj.WorkflowID)
+
+		if workflowErr != nil {
 			continue
 		}
-		wfByProject[t.ProjectID] = wf
+
+		wfByProject[task.ProjectID] = workflow
 	}
-	return func(t *domain.Task) *domain.Workflow {
-		if t == nil {
+	return func(task *domain.Task) *domain.Workflow {
+		if task == nil {
 			return nil
 		}
-		return wfByProject[t.ProjectID]
+		return wfByProject[task.ProjectID]
 	}, nil
 }
 
@@ -397,21 +406,21 @@ func (a *App) buildWorkflowLookup(ctx context.Context, tasks []*domain.Task) (fu
 // node, including leaves (which receive a zero-value rollup). Used only in
 // --rollup mode.
 func computeRollups(nodes []*treeNode, workflowFor func(*domain.Task) *domain.Workflow) {
-	for _, n := range nodes {
-		descendants := flattenDescendants(n)
-		roll := domain.AggregateRollup(descendants, workflowFor)
-		n.Rollup = &roll
-		computeRollups(n.Children, workflowFor)
+	for _, node := range nodes {
+		descendants := flattenDescendants(node)
+		rollup := domain.AggregateRollup(descendants, workflowFor)
+		node.Rollup = &rollup
+		computeRollups(node.Children, workflowFor)
 	}
 }
 
 // flattenDescendants returns the strict descendants of n (n's own task is
 // NOT included) in a flat slice via depth-first traversal.
-func flattenDescendants(n *treeNode) []*domain.Task {
+func flattenDescendants(node *treeNode) []*domain.Task {
 	var out []*domain.Task
-	for _, c := range n.Children {
-		out = append(out, c.Task)
-		out = append(out, flattenDescendants(c)...)
+	for _, child := range node.Children {
+		out = append(out, child.Task)
+		out = append(out, flattenDescendants(child)...)
 	}
 	return out
 }
@@ -424,26 +433,26 @@ func flattenDescendants(n *treeNode) []*domain.Task {
 // the rollup numbers (computed earlier) stay accurate.
 func pruneDeleteRoleNodes(nodes []*treeNode, workflowFor func(*domain.Task) *domain.Workflow) []*treeNode {
 	out := make([]*treeNode, 0, len(nodes))
-	for _, n := range nodes {
-		if isDeleteRoleTask(n.Task, workflowFor) {
+	for _, node := range nodes {
+		if isDeleteRoleTask(node.Task, workflowFor) {
 			continue
 		}
-		n.Children = pruneDeleteRoleNodes(n.Children, workflowFor)
-		out = append(out, n)
+		node.Children = pruneDeleteRoleNodes(node.Children, workflowFor)
+		out = append(out, node)
 	}
 	return out
 }
 
-func isDeleteRoleTask(t *domain.Task, workflowFor func(*domain.Task) *domain.Workflow) bool {
-	if t == nil {
+func isDeleteRoleTask(task *domain.Task, workflowFor func(*domain.Task) *domain.Workflow) bool {
+	if task == nil {
 		return false
 	}
-	wf := workflowFor(t)
-	if wf == nil {
+	workflow := workflowFor(task)
+	if workflow == nil {
 		return false
 	}
-	cfg, ok := wf.Statuses[t.Status]
-	return ok && cfg.HasRole(domain.RoleDelete)
+	statusConfig, ok := workflow.Statuses[task.Status]
+	return ok && statusConfig.HasRole(domain.RoleDelete)
 }
 
 // fetchTreeTasks loads tasks for the tree view. rootID nil scopes the query
@@ -454,15 +463,15 @@ func isDeleteRoleTask(t *domain.Task, workflowFor func(*domain.Task) *domain.Wor
 // and a delete-role-rooted branch does not silently hide its non-deleted
 // descendants from the rollup totals. Routes through TaskService.List so
 // Urgency is populated on every returned task.
-func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command, rootID *uuid.UUID) ([]*domain.Task, error) {
+func (app *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command, rootID *uuid.UUID) ([]*domain.Task, error) {
 	showAll, _ := cmd.Flags().GetBool("all")
 	rollup, _ := cmd.Flags().GetBool("rollup")
 
-	filter := domain.TaskFilter{RootID: rootID}
+	taskFilter := domain.TaskFilter{RootID: rootID}
 	if !showAll && !rollup {
-		filter.Statuses = []string{"pending", "active", "completed"}
+		taskFilter.Statuses = []string{"pending", "active", "completed"}
 	}
-	return a.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: filter})
+	return app.taskSvc.List(ctx, &domain.TermFilter{TaskFilter: taskFilter})
 }
 
 // argsAreFilter reports whether the positional args look like an inline
@@ -470,11 +479,11 @@ func (a *App) fetchTreeTasks(ctx context.Context, cmd *cobra.Command, rootID *uu
 // starting with `+`/`-` (the registered modifier prefixes), is filter
 // syntax. A bare short_id never contains those characters.
 func argsAreFilter(args []string) bool {
-	for _, a := range args {
-		if strings.ContainsRune(a, '=') {
+	for _, arg := range args {
+		if strings.ContainsRune(arg, '=') {
 			return true
 		}
-		if len(a) > 0 && (a[0] == '+' || a[0] == '-') {
+		if len(arg) > 0 && (arg[0] == '+' || arg[0] == '-') {
 			return true
 		}
 	}
@@ -485,7 +494,7 @@ func argsAreFilter(args []string) bool {
 // returns the matching tasks, AND-combined with the same default status
 // restriction fetchTreeTasks applies (pending,active,completed unless --all
 // or --rollup). Used for invocations like `tusk task tree project=<name>`.
-func (a *App) fetchTreeTasksFiltered(ctx context.Context, cmd *cobra.Command, args []string) ([]*domain.Task, error) {
+func (app *App) fetchTreeTasksFiltered(ctx context.Context, cmd *cobra.Command, args []string) ([]*domain.Task, error) {
 	showAll, _ := cmd.Flags().GetBool("all")
 	rollup, _ := cmd.Flags().GetBool("rollup")
 
@@ -497,7 +506,7 @@ func (a *App) fetchTreeTasksFiltered(ctx context.Context, cmd *cobra.Command, ar
 	// Use ResolveExprAllStatuses so the resolver does not inject a `task list`-
 	// style pending/active default; tree's default is broader (also includes
 	// completed) so we apply it explicitly below.
-	resolved, resolveErrs := a.resolver.ResolveExprAllStatuses(ctx, expr)
+	resolved, resolveErrs := app.resolver.ResolveExprAllStatuses(ctx, expr)
 	if len(resolveErrs) > 0 {
 		return nil, resolveErrs[0]
 	}
@@ -508,5 +517,5 @@ func (a *App) fetchTreeTasksFiltered(ctx context.Context, cmd *cobra.Command, ar
 		}}
 		resolved = &domain.AndFilter{Children: []domain.FilterExpr{resolved, statusTerm}}
 	}
-	return a.taskSvc.List(ctx, resolved)
+	return app.taskSvc.List(ctx, resolved)
 }
