@@ -9,6 +9,8 @@ import (
 	"go/token"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/germanamz/tusk/internal/lint/pathfilter"
 )
 
 // Analyzer is the exported analysis.Analyzer for the namederr rule.
@@ -48,6 +50,9 @@ func errDefAssignments(block *ast.BlockStmt) []*ast.AssignStmt {
 }
 
 func run(pass *analysis.Pass) (any, error) {
+	if pathfilter.Excluded(pass.Pkg.Path()) {
+		return nil, nil
+	}
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(node ast.Node) bool {
 			block, ok := node.(*ast.BlockStmt)

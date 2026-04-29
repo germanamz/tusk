@@ -8,6 +8,8 @@ import (
 	"go/ast"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/germanamz/tusk/internal/lint/pathfilter"
 )
 
 // Analyzer is the exported analysis.Analyzer for the testhandle rule.
@@ -99,6 +101,9 @@ func checkFields(pass *analysis.Pass, fields []*ast.Field) {
 }
 
 func run(pass *analysis.Pass) (any, error) {
+	if pathfilter.Excluded(pass.Pkg.Path()) {
+		return nil, nil
+	}
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(node ast.Node) bool {
 			decl, ok := node.(*ast.FuncType)

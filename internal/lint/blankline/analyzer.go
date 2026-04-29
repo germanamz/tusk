@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/germanamz/tusk/internal/lint/pathfilter"
 )
 
 var Analyzer = &analysis.Analyzer{
@@ -64,6 +66,9 @@ func ifGuardErrName(ifStmt *ast.IfStmt) string {
 }
 
 func run(pass *analysis.Pass) (any, error) {
+	if pathfilter.Excluded(pass.Pkg.Path()) {
+		return nil, nil
+	}
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(node ast.Node) bool {
 			block, ok := node.(*ast.BlockStmt)
