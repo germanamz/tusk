@@ -101,55 +101,72 @@ type ImportReport struct {
 // using portability for backup should pause writers themselves.
 // (See the spec → "Known limitation".)
 func (service *PortabilityService) Export(ctx context.Context) (*portability.PortableWorkspace, error) {
-	workflows, err := service.workflows.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing workflows: %w", err)
+	workflows, workflowsErr := service.workflows.List(ctx)
+
+	if workflowsErr != nil {
+		return nil, fmt.Errorf("listing workflows: %w", workflowsErr)
 	}
-	projects, err := service.projects.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing projects: %w", err)
+
+	projects, projectsErr := service.projects.List(ctx)
+
+	if projectsErr != nil {
+		return nil, fmt.Errorf("listing projects: %w", projectsErr)
 	}
-	players, err := service.players.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing players: %w", err)
+
+	players, playersErr := service.players.List(ctx)
+
+	if playersErr != nil {
+		return nil, fmt.Errorf("listing players: %w", playersErr)
 	}
-	tags, err := service.tags.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing tags: %w", err)
+
+	tags, tagsErr := service.tags.List(ctx)
+
+	if tagsErr != nil {
+		return nil, fmt.Errorf("listing tags: %w", tagsErr)
 	}
 
 	// Bypass TaskService.List so terminal tasks (completed/deleted) are
 	// included and so we skip the urgency-scoring pass — portability is
 	// workspace-wide, not user-facing.
-	tasks, err := service.bundle.Tasks.List(ctx, &domain.TermFilter{})
-	if err != nil {
-		return nil, fmt.Errorf("listing tasks: %w", err)
+	tasks, tasksErr := service.bundle.Tasks.List(ctx, &domain.TermFilter{})
+
+	if tasksErr != nil {
+		return nil, fmt.Errorf("listing tasks: %w", tasksErr)
 	}
 
 	taskIDs := make([]uuid.UUID, len(tasks))
 	for index, task := range tasks {
 		taskIDs[index] = task.ID
 	}
-	tagsByTask, err := service.bundle.Tags.GetTaskTagsBatch(ctx, taskIDs)
-	if err != nil {
-		return nil, fmt.Errorf("loading task tags: %w", err)
+
+	tagsByTask, tagsByTaskErr := service.bundle.Tags.GetTaskTagsBatch(ctx, taskIDs)
+
+	if tagsByTaskErr != nil {
+		return nil, fmt.Errorf("loading task tags: %w", tagsByTaskErr)
 	}
 
-	relationDTOs, err := service.exportRelations(ctx, taskIDs)
-	if err != nil {
-		return nil, err
+	relationDTOs, relationsErr := service.exportRelations(ctx, taskIDs)
+
+	if relationsErr != nil {
+		return nil, relationsErr
 	}
-	annotationDTOs, err := service.exportAnnotations(ctx, taskIDs)
-	if err != nil {
-		return nil, err
+
+	annotationDTOs, annotationsErr := service.exportAnnotations(ctx, taskIDs)
+
+	if annotationsErr != nil {
+		return nil, annotationsErr
 	}
-	noteDTOs, err := service.exportNotes(ctx, projects)
-	if err != nil {
-		return nil, err
+
+	noteDTOs, notesErr := service.exportNotes(ctx, projects)
+
+	if notesErr != nil {
+		return nil, notesErr
 	}
-	eventDTOs, err := service.exportEvents(ctx)
-	if err != nil {
-		return nil, err
+
+	eventDTOs, eventsErr := service.exportEvents(ctx)
+
+	if eventsErr != nil {
+		return nil, eventsErr
 	}
 
 	workflowDTOs := make([]portability.PortableWorkflow, len(workflows))
@@ -197,9 +214,11 @@ func (service *PortabilityService) exportRelations(ctx context.Context, taskIDs 
 	out := make([]portability.PortableRelation, 0)
 	for _, id := range taskIDs {
 		rels, err := service.bundle.Relations.GetByTask(ctx, id)
+
 		if err != nil {
 			return nil, fmt.Errorf("loading relations for task %s: %w", id, err)
 		}
+
 		for _, relation := range rels {
 			if _, dup := seen[relation.ID]; dup {
 				continue
@@ -217,9 +236,11 @@ func (service *PortabilityService) exportAnnotations(ctx context.Context, taskID
 	out := make([]portability.PortableAnnotation, 0)
 	for _, id := range taskIDs {
 		anns, err := service.bundle.Annotations.GetByTask(ctx, id)
+
 		if err != nil {
 			return nil, fmt.Errorf("loading annotations for task %s: %w", id, err)
 		}
+
 		for _, annotation := range anns {
 			out = append(out, annotationToPortable(annotation))
 		}
@@ -239,9 +260,11 @@ func (service *PortabilityService) exportNotes(ctx context.Context, projects []*
 			IncludeArchived: true,
 			Limit:           0,
 		})
+
 		if err != nil {
 			return nil, fmt.Errorf("loading notes for project %s: %w", project.ID, err)
 		}
+
 		for _, note := range notes {
 			out = append(out, noteToPortable(note))
 		}
@@ -256,16 +279,21 @@ func (service *PortabilityService) exportEvents(ctx context.Context) ([]portabil
 	if service.events == nil {
 		return []portability.PortableEvent{}, nil
 	}
+
 	events, err := service.events.List(ctx, repository.EventFilter{})
+
 	if err != nil {
 		return nil, fmt.Errorf("listing events: %w", err)
 	}
+
 	out := make([]portability.PortableEvent, len(events))
 	for index, event := range events {
 		dto, err := eventToPortable(event)
+
 		if err != nil {
 			return nil, err
 		}
+
 		out[index] = dto
 	}
 	return out, nil
