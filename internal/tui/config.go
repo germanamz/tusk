@@ -20,7 +20,7 @@ import (
 )
 
 // buildConfigCmd creates the `tusk config` command group.
-func (a *App) buildConfigCmd() *cobra.Command {
+func (app *App) buildConfigCmd() *cobra.Command {
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage configuration",
@@ -30,7 +30,7 @@ func (a *App) buildConfigCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Create config file with defaults if none exists",
 		Args:  cobra.NoArgs,
-		RunE:  a.runConfigInit,
+		RunE:  app.runConfigInit,
 	}
 	initCmd.Flags().Bool("local", false, "Write ./tusk.toml instead of the global config file")
 
@@ -38,7 +38,7 @@ func (a *App) buildConfigCmd() *cobra.Command {
 		Use:   "set <key> <value>",
 		Short: "Set a config value and write to file",
 		Args:  cobra.ExactArgs(2),
-		RunE:  a.runConfigSet,
+		RunE:  app.runConfigSet,
 	}
 	setCmd.Flags().Bool("global", false, "Write to the global config (~/.config/tusk/config.toml) even when a local tusk.toml is active")
 
@@ -47,32 +47,32 @@ func (a *App) buildConfigCmd() *cobra.Command {
 			Use:   "show",
 			Short: "Display current effective configuration",
 			Args:  cobra.NoArgs,
-			RunE:  a.runConfigShow,
+			RunE:  app.runConfigShow,
 		},
 		&cobra.Command{
 			Use:   "path",
 			Short: "Print resolved config file path",
 			Args:  cobra.NoArgs,
-			RunE:  a.runConfigPath,
+			RunE:  app.runConfigPath,
 		},
 		initCmd,
 		&cobra.Command{
 			Use:   "get <key>",
 			Short: "Get a specific config value by dot-path key",
 			Args:  cobra.ExactArgs(1),
-			RunE:  a.runConfigGet,
+			RunE:  app.runConfigGet,
 		},
 		&cobra.Command{
 			Use:   "validate",
 			Short: "Validate config file for errors",
 			Args:  cobra.NoArgs,
-			RunE:  a.runConfigValidate,
+			RunE:  app.runConfigValidate,
 		},
 		&cobra.Command{
 			Use:   "edit",
 			Short: "Open config file in $EDITOR",
 			Args:  cobra.NoArgs,
-			RunE:  a.runConfigEdit,
+			RunE:  app.runConfigEdit,
 		},
 		setCmd,
 	)
@@ -80,10 +80,11 @@ func (a *App) buildConfigCmd() *cobra.Command {
 	return configCmd
 }
 
-func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(a.loadOpts...)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+func (app *App) runConfigShow(cmd *cobra.Command, _ []string) error {
+	cfg, loadErr := config.Load(app.loadOpts...)
+
+	if loadErr != nil {
+		return fmt.Errorf("loading config: %w", loadErr)
 	}
 
 	ctx := cmd.Context()
@@ -91,22 +92,26 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	projects, err := a.projectSvc.List(ctx)
-	if err != nil {
-		return fmt.Errorf("listing projects: %w", err)
+	projects, projectsErr := app.projectSvc.List(ctx)
+
+	if projectsErr != nil {
+		return fmt.Errorf("listing projects: %w", projectsErr)
 	}
-	workflows, err := a.workflowSvc.List(ctx)
-	if err != nil {
-		return fmt.Errorf("listing workflows: %w", err)
+
+	workflows, workflowsErr := app.workflowSvc.List(ctx)
+
+	if workflowsErr != nil {
+		return fmt.Errorf("listing workflows: %w", workflowsErr)
 	}
+
 	wfByID := make(map[uuid.UUID]*domain.Workflow, len(workflows))
-	for _, w := range workflows {
-		wfByID[w.ID] = w
+	for _, workflow := range workflows {
+		wfByID[workflow.ID] = workflow
 	}
 
 	out := cmd.OutOrStdout()
 
-	if a.format == "json" {
+	if app.format == "json" {
 		payload := configShowJSON{
 			Storage:   cfg.Storage,
 			Urgency:   cfg.Urgency,
@@ -117,11 +122,11 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 			Projects:  make(map[string]configProjectView, len(projects)),
 			Workflows: make(map[string]configWorkflowView, len(workflows)),
 		}
-		for _, p := range projects {
-			payload.Projects[p.Name] = projectToConfigView(p, wfByID)
+		for _, project := range projects {
+			payload.Projects[project.Name] = projectToConfigView(project, wfByID)
 		}
-		for _, w := range workflows {
-			payload.Workflows[w.Name] = workflowToConfigView(w)
+		for _, workflow := range workflows {
+			payload.Workflows[workflow.Name] = workflowToConfigView(workflow)
 		}
 		enc := json.NewEncoder(out)
 		return enc.Encode(payload)
@@ -145,10 +150,12 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 		Inline:  cfg.Inline,
 		Events:  cfg.Events,
 	}
-	data, err := toml.Marshal(wrapper)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
+	data, marshalErr := toml.Marshal(wrapper)
+
+	if marshalErr != nil {
+		return fmt.Errorf("marshaling config: %w", marshalErr)
 	}
+
 	if _, err := out.Write(data); err != nil {
 		return err
 	}
@@ -169,69 +176,70 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 	if _, err := fmt.Fprintln(out); err != nil {
 		return err
 	}
-	_, err = fmt.Fprint(out, RenderProjectsTOML(projects, wfByID))
+	_, err := fmt.Fprint(out, RenderProjectsTOML(projects, wfByID))
 	return err
 }
 
-func projectToConfigView(p *domain.Project, wfByID map[uuid.UUID]*domain.Workflow) configProjectView {
+func projectToConfigView(project *domain.Project, wfByID map[uuid.UUID]*domain.Workflow) configProjectView {
 	out := configProjectView{}
-	if wf, ok := wfByID[p.WorkflowID]; ok && wf != nil {
-		out.Workflow = wf.Name
+	if workflow, ok := wfByID[project.WorkflowID]; ok && workflow != nil {
+		out.Workflow = workflow.Name
 	}
-	if p.Settings.AutoCompleteParent != nil {
+	if project.Settings.AutoCompleteParent != nil {
 		out.Settings.AutoCompleteParent = &configAutoView{
-			TriggerStatus: p.Settings.AutoCompleteParent.TriggerStatus,
-			TargetStatus:  p.Settings.AutoCompleteParent.TargetStatus,
+			TriggerStatus: project.Settings.AutoCompleteParent.TriggerStatus,
+			TargetStatus:  project.Settings.AutoCompleteParent.TargetStatus,
 		}
 	}
-	if p.Settings.AutoRevertParent != nil {
+	if project.Settings.AutoRevertParent != nil {
 		out.Settings.AutoRevertParent = &configAutoView{
-			TriggerStatus: p.Settings.AutoRevertParent.TriggerStatus,
-			TargetStatus:  p.Settings.AutoRevertParent.TargetStatus,
+			TriggerStatus: project.Settings.AutoRevertParent.TriggerStatus,
+			TargetStatus:  project.Settings.AutoRevertParent.TargetStatus,
 		}
 	}
-	if u := p.Settings.Urgency; u != nil {
+	if urgency := project.Settings.Urgency; urgency != nil {
 		out.Settings.Urgency = &configUrgencyView{
-			PriorityWeight:    u.PriorityWeight,
-			DueWeight:         u.DueWeight,
-			AgeWeight:         u.AgeWeight,
-			ActiveWeight:      u.ActiveWeight,
-			BlockingWeight:    u.BlockingWeight,
-			BlockedWeight:     u.BlockedWeight,
-			TagsWeight:        u.TagsWeight,
-			ProjectWeight:     u.ProjectWeight,
-			AnnotationsWeight: u.AnnotationsWeight,
-			WaitingWeight:     u.WaitingWeight,
+			PriorityWeight:    urgency.PriorityWeight,
+			DueWeight:         urgency.DueWeight,
+			AgeWeight:         urgency.AgeWeight,
+			ActiveWeight:      urgency.ActiveWeight,
+			BlockingWeight:    urgency.BlockingWeight,
+			BlockedWeight:     urgency.BlockedWeight,
+			TagsWeight:        urgency.TagsWeight,
+			ProjectWeight:     urgency.ProjectWeight,
+			AnnotationsWeight: urgency.AnnotationsWeight,
+			WaitingWeight:     urgency.WaitingWeight,
 		}
 	}
 	return out
 }
 
-func workflowToConfigView(w *domain.Workflow) configWorkflowView {
+func workflowToConfigView(workflow *domain.Workflow) configWorkflowView {
 	out := configWorkflowView{
-		Statuses:    make(map[string]configWorkflowStatusView, len(w.Statuses)),
-		Transitions: make([]configWorkflowTransitionView, 0, len(w.Transitions)),
+		Statuses:    make(map[string]configWorkflowStatusView, len(workflow.Statuses)),
+		Transitions: make([]configWorkflowTransitionView, 0, len(workflow.Transitions)),
 	}
-	for name, sc := range w.Statuses {
-		roles := make([]string, len(sc.Roles))
-		for i, r := range sc.Roles {
-			roles[i] = string(r)
+	for name, statusCfg := range workflow.Statuses {
+		roles := make([]string, len(statusCfg.Roles))
+		for index, role := range statusCfg.Roles {
+			roles[index] = string(role)
 		}
 		out.Statuses[name] = configWorkflowStatusView{Roles: roles}
 	}
-	for _, tr := range w.Transitions {
+	for _, transition := range workflow.Transitions {
 		out.Transitions = append(out.Transitions, configWorkflowTransitionView{
-			From: tr.FromStatus,
-			To:   tr.ToStatus,
+			From: transition.FromStatus,
+			To:   transition.ToStatus,
 		})
 	}
 	return out
 }
 
-func (a *App) runConfigPath(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(a.loadOpts...)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+func (app *App) runConfigPath(cmd *cobra.Command, _ []string) error {
+	cfg, loadErr := config.Load(app.loadOpts...)
+
+	if loadErr != nil {
+		return fmt.Errorf("loading config: %w", loadErr)
 	}
 
 	if cfg.Sources.File != "" {
@@ -239,25 +247,28 @@ func (a *App) runConfigPath(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	path, err := config.ConfigFilePath(a.loadOpts...)
-	if err != nil {
-		return err
+	path, pathErr := config.ConfigFilePath(app.loadOpts...)
+
+	if pathErr != nil {
+		return pathErr
 	}
+
 	if _, err := fmt.Fprintln(cmd.OutOrStdout(), path); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(cmd.ErrOrStderr(), "(not yet created)")
+	_, err := fmt.Fprintln(cmd.ErrOrStderr(), "(not yet created)")
 	return err
 }
 
-func (a *App) runConfigInit(cmd *cobra.Command, args []string) error {
+func (app *App) runConfigInit(cmd *cobra.Command, _ []string) error {
 	if local, _ := cmd.Flags().GetBool("local"); local {
-		return a.runConfigInitLocal(cmd)
+		return app.runConfigInitLocal(cmd)
 	}
 
-	path, err := config.ConfigFilePath(a.loadOpts...)
-	if err != nil {
-		return err
+	path, pathErr := config.ConfigFilePath(app.loadOpts...)
+
+	if pathErr != nil {
+		return pathErr
 	}
 
 	if _, err := os.Stat(path); err == nil {
@@ -271,23 +282,27 @@ func (a *App) runConfigInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load embedded defaults and write them.
-	cfg, err := config.Load(a.loadOpts...)
-	if err != nil {
-		return fmt.Errorf("loading defaults: %w", err)
+	cfg, loadErr := config.Load(app.loadOpts...)
+
+	if loadErr != nil {
+		return fmt.Errorf("loading defaults: %w", loadErr)
 	}
+
 	if err := config.WriteConfig(cfg, path); err != nil {
 		return err
 	}
 
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", path)
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", path)
 	return err
 }
 
-func (a *App) runConfigInitLocal(cmd *cobra.Command) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("resolving working directory: %w", err)
+func (app *App) runConfigInitLocal(cmd *cobra.Command) error {
+	cwd, cwdErr := os.Getwd()
+
+	if cwdErr != nil {
+		return fmt.Errorf("resolving working directory: %w", cwdErr)
 	}
+
 	target := filepath.Join(cwd, "tusk.toml")
 
 	if _, err := os.Stat(target); err == nil {
@@ -296,15 +311,17 @@ func (a *App) runConfigInitLocal(cmd *cobra.Command) error {
 		return fmt.Errorf("stat %s: %w", target, err)
 	}
 
-	cfg, err := config.Load(a.loadOpts...)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+	cfg, loadErr := config.Load(app.loadOpts...)
+
+	if loadErr != nil {
+		return fmt.Errorf("loading config: %w", loadErr)
 	}
+
 	if err := config.WriteConfig(cfg, target); err != nil {
 		return err
 	}
 
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", target)
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", target)
 	return err
 }
 
@@ -314,13 +331,15 @@ func (a *App) runConfigInitLocal(cmd *cobra.Command) error {
 // does not yet exist). When global is false, the path matches whatever
 // Load() would read — typically the walk-up hit or the global file. An
 // error is returned when no file exists yet and no --global was requested.
-func (a *App) resolveConfigWritePath(global bool) (string, error) {
+func (app *App) resolveConfigWritePath(global bool) (string, error) {
 	if global {
 		opts := stripLocalOpts()
-		path, err := config.ConfigFilePath(opts...)
-		if err != nil {
-			return "", err
+		path, pathErr := config.ConfigFilePath(opts...)
+
+		if pathErr != nil {
+			return "", pathErr
 		}
+
 		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 			if err := ensureGlobalConfigFile(path, opts); err != nil {
 				return "", err
@@ -329,10 +348,12 @@ func (a *App) resolveConfigWritePath(global bool) (string, error) {
 		return path, nil
 	}
 
-	path, err := config.ConfigFilePath(a.loadOpts...)
-	if err != nil {
-		return "", err
+	path, pathErr := config.ConfigFilePath(app.loadOpts...)
+
+	if pathErr != nil {
+		return "", pathErr
 	}
+
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 		return "", fmt.Errorf(`no config file found; run "tusk config init" or "tusk config init --local"`)
 	}
@@ -353,14 +374,17 @@ func ensureGlobalConfigFile(path string, opts []config.Option) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
-	cfg, err := config.Load(opts...)
-	if err != nil {
-		return fmt.Errorf("loading defaults: %w", err)
+
+	cfg, loadErr := config.Load(opts...)
+
+	if loadErr != nil {
+		return fmt.Errorf("loading defaults: %w", loadErr)
 	}
+
 	return config.WriteConfig(cfg, path)
 }
 
-func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
+func (app *App) runConfigGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	if strings.HasPrefix(key, "projects.") || strings.HasPrefix(key, "workflows.") {
@@ -368,11 +392,13 @@ func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		val, err := a.configGetFromDB(ctx, key)
-		if err != nil {
-			return err
+		val, dbErr := app.configGetFromDB(ctx, key)
+
+		if dbErr != nil {
+			return dbErr
 		}
-		return a.writeConfigGetValue(cmd, val)
+
+		return app.writeConfigGetValue(cmd, val)
 	}
 
 	if !config.IsValidKey(key) {
@@ -380,44 +406,47 @@ func (a *App) runConfigGet(cmd *cobra.Command, args []string) error {
 	}
 
 	if key == "taxonomy.levels" {
-		cfg, err := config.Load(a.loadOpts...)
-		if err != nil {
-			return fmt.Errorf("loading config: %w", err)
+		cfg, loadErr := config.Load(app.loadOpts...)
+
+		if loadErr != nil {
+			return fmt.Errorf("loading config: %w", loadErr)
 		}
-		return a.writeConfigGetValue(cmd, FormatTaxonomyInline(domain.Taxonomy(cfg.Taxonomy.Levels)))
+
+		return app.writeConfigGetValue(cmd, FormatTaxonomyInline(domain.Taxonomy(cfg.Taxonomy.Levels)))
 	}
 
 	// Build a Viper instance with the same config as Load() to get dot-path resolution.
-	v, err := a.buildConfigViper()
-	if err != nil {
-		return err
+	viperInst, viperErr := app.buildConfigViper()
+
+	if viperErr != nil {
+		return viperErr
 	}
 
-	val := v.Get(key)
+	val := viperInst.Get(key)
 	if val == nil {
 		return fmt.Errorf("unknown config key: %q", key)
 	}
 
-	return a.writeConfigGetValue(cmd, val)
+	return app.writeConfigGetValue(cmd, val)
 }
 
 // writeConfigGetValue formats a scalar or complex value to the command output
 // using the same rules as the original runConfigGet body.
-func (a *App) writeConfigGetValue(cmd *cobra.Command, val any) error {
-	switch v := val.(type) {
+func (app *App) writeConfigGetValue(cmd *cobra.Command, val any) error {
+	switch typed := val.(type) {
 	case nil:
-		if a.format == "json" {
+		if app.format == "json" {
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			return enc.Encode(nil)
 		}
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), "")
 		return err
 	case string, bool, int, int64, float64:
-		if a.format == "json" {
+		if app.format == "json" {
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			return enc.Encode(val)
 		}
-		_, err := fmt.Fprintln(cmd.OutOrStdout(), v)
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), typed)
 		return err
 	default:
 		enc := json.NewEncoder(cmd.OutOrStdout())
@@ -430,7 +459,7 @@ func (a *App) writeConfigGetValue(cmd *cobra.Command, val any) error {
 // database-backed project and workflow services. It returns typed scalar
 // values for leaf segments, structured JSON-shaped values for table segments,
 // and an error for unknown keys.
-func (a *App) configGetFromDB(ctx context.Context, key string) (any, error) {
+func (app *App) configGetFromDB(ctx context.Context, key string) (any, error) {
 	parts := strings.Split(key, ".")
 	unknown := func() (any, error) { return nil, fmt.Errorf("unknown config key: %q", key) }
 
@@ -440,78 +469,84 @@ func (a *App) configGetFromDB(ctx context.Context, key string) (any, error) {
 			return unknown()
 		}
 		name := parts[1]
-		p, err := a.projectSvc.GetByName(ctx, name)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
+		project, projectErr := app.projectSvc.GetByName(ctx, name)
+
+		if projectErr != nil {
+			if errors.Is(projectErr, domain.ErrNotFound) {
 				return unknown()
 			}
-			return nil, err
+			return nil, projectErr
 		}
-		workflows, err := a.workflowSvc.List(ctx)
-		if err != nil {
-			return nil, err
+
+		workflows, workflowsErr := app.workflowSvc.List(ctx)
+
+		if workflowsErr != nil {
+			return nil, workflowsErr
 		}
+
 		wfByID := make(map[uuid.UUID]*domain.Workflow, len(workflows))
-		for _, w := range workflows {
-			wfByID[w.ID] = w
+		for _, workflow := range workflows {
+			wfByID[workflow.ID] = workflow
 		}
 		if len(parts) == 2 {
-			return projectToConfigView(p, wfByID), nil
+			return projectToConfigView(project, wfByID), nil
 		}
-		return resolveProjectLeaf(p, wfByID, parts[2:], unknown)
+		return resolveProjectLeaf(project, wfByID, parts[2:], unknown)
 
 	case "workflows":
 		if len(parts) < 2 {
 			return unknown()
 		}
 		name := parts[1]
-		w, err := a.workflowSvc.GetByName(ctx, name)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
+		workflow, workflowErr := app.workflowSvc.GetByName(ctx, name)
+
+		if workflowErr != nil {
+			if errors.Is(workflowErr, domain.ErrNotFound) {
 				return unknown()
 			}
-			return nil, err
+			return nil, workflowErr
 		}
+
 		if len(parts) == 2 {
-			return workflowToConfigView(w), nil
+			return workflowToConfigView(workflow), nil
 		}
-		return resolveWorkflowLeaf(w, parts[2:], unknown)
+		return resolveWorkflowLeaf(workflow, parts[2:], unknown)
 	}
 
 	return unknown()
 }
 
-func resolveProjectLeaf(p *domain.Project, wfByID map[uuid.UUID]*domain.Workflow, parts []string, unknown func() (any, error)) (any, error) {
+func resolveProjectLeaf(project *domain.Project, wfByID map[uuid.UUID]*domain.Workflow, parts []string, unknown func() (any, error)) (any, error) {
 	switch parts[0] {
 	case "workflow":
 		if len(parts) != 1 {
 			return unknown()
 		}
-		if wf, ok := wfByID[p.WorkflowID]; ok && wf != nil {
-			return wf.Name, nil
+		if workflow, ok := wfByID[project.WorkflowID]; ok && workflow != nil {
+			return workflow.Name, nil
 		}
 		return "", nil
 	case "settings":
 		if len(parts) == 1 {
-			return projectToConfigView(p, wfByID).Settings, nil
+			return projectToConfigView(project, wfByID).Settings, nil
 		}
-		return resolveProjectSettingsLeaf(p, parts[1:], unknown)
+		return resolveProjectSettingsLeaf(project, parts[1:], unknown)
 	}
 	return unknown()
 }
 
-func resolveProjectSettingsLeaf(p *domain.Project, parts []string, unknown func() (any, error)) (any, error) {
+func resolveProjectSettingsLeaf(project *domain.Project, parts []string, unknown func() (any, error)) (any, error) {
 	switch parts[0] {
 	case "auto_complete_parent":
-		return resolveAutoLeaf(p.Settings.AutoCompleteParent, parts[1:], unknown)
+		return resolveAutoLeaf(project.Settings.AutoCompleteParent, parts[1:], unknown)
 	case "auto_revert_parent":
-		ar := p.Settings.AutoRevertParent
+		ar := project.Settings.AutoRevertParent
 		if ar == nil {
 			return resolveAutoLeaf(nil, parts[1:], unknown)
 		}
 		return resolveAutoLeaf(&domain.AutoCompleteConfig{TriggerStatus: ar.TriggerStatus, TargetStatus: ar.TargetStatus}, parts[1:], unknown)
 	case "urgency":
-		return resolveUrgencyLeaf(p.Settings.Urgency, parts[1:], unknown)
+		return resolveUrgencyLeaf(project.Settings.Urgency, parts[1:], unknown)
 	}
 	return unknown()
 }
@@ -545,129 +580,132 @@ func resolveAutoLeaf(ac *domain.AutoCompleteConfig, parts []string, unknown func
 	return unknown()
 }
 
-func resolveUrgencyLeaf(u *domain.UrgencyOverrides, parts []string, unknown func() (any, error)) (any, error) {
+func resolveUrgencyLeaf(urgency *domain.UrgencyOverrides, parts []string, unknown func() (any, error)) (any, error) {
 	if len(parts) == 0 {
-		if u == nil {
+		if urgency == nil {
 			return nil, nil
 		}
 		return (&configUrgencyView{
-			PriorityWeight:    u.PriorityWeight,
-			DueWeight:         u.DueWeight,
-			AgeWeight:         u.AgeWeight,
-			ActiveWeight:      u.ActiveWeight,
-			BlockingWeight:    u.BlockingWeight,
-			BlockedWeight:     u.BlockedWeight,
-			TagsWeight:        u.TagsWeight,
-			ProjectWeight:     u.ProjectWeight,
-			AnnotationsWeight: u.AnnotationsWeight,
-			WaitingWeight:     u.WaitingWeight,
+			PriorityWeight:    urgency.PriorityWeight,
+			DueWeight:         urgency.DueWeight,
+			AgeWeight:         urgency.AgeWeight,
+			ActiveWeight:      urgency.ActiveWeight,
+			BlockingWeight:    urgency.BlockingWeight,
+			BlockedWeight:     urgency.BlockedWeight,
+			TagsWeight:        urgency.TagsWeight,
+			ProjectWeight:     urgency.ProjectWeight,
+			AnnotationsWeight: urgency.AnnotationsWeight,
+			WaitingWeight:     urgency.WaitingWeight,
 		}), nil
 	}
 	if len(parts) != 1 {
 		return unknown()
 	}
-	var ptr *float64
+	var fieldPtr *float64
 	switch parts[0] {
 	case "priority_weight":
-		if u != nil {
-			ptr = u.PriorityWeight
+		if urgency != nil {
+			fieldPtr = urgency.PriorityWeight
 		}
 	case "due_weight":
-		if u != nil {
-			ptr = u.DueWeight
+		if urgency != nil {
+			fieldPtr = urgency.DueWeight
 		}
 	case "age_weight":
-		if u != nil {
-			ptr = u.AgeWeight
+		if urgency != nil {
+			fieldPtr = urgency.AgeWeight
 		}
 	case "active_weight":
-		if u != nil {
-			ptr = u.ActiveWeight
+		if urgency != nil {
+			fieldPtr = urgency.ActiveWeight
 		}
 	case "blocking_weight":
-		if u != nil {
-			ptr = u.BlockingWeight
+		if urgency != nil {
+			fieldPtr = urgency.BlockingWeight
 		}
 	case "blocked_weight":
-		if u != nil {
-			ptr = u.BlockedWeight
+		if urgency != nil {
+			fieldPtr = urgency.BlockedWeight
 		}
 	case "tags_weight":
-		if u != nil {
-			ptr = u.TagsWeight
+		if urgency != nil {
+			fieldPtr = urgency.TagsWeight
 		}
 	case "project_weight":
-		if u != nil {
-			ptr = u.ProjectWeight
+		if urgency != nil {
+			fieldPtr = urgency.ProjectWeight
 		}
 	case "annotations_weight":
-		if u != nil {
-			ptr = u.AnnotationsWeight
+		if urgency != nil {
+			fieldPtr = urgency.AnnotationsWeight
 		}
 	case "waiting_weight":
-		if u != nil {
-			ptr = u.WaitingWeight
+		if urgency != nil {
+			fieldPtr = urgency.WaitingWeight
 		}
 	default:
 		return unknown()
 	}
-	if ptr == nil {
+	if fieldPtr == nil {
 		return nil, nil
 	}
-	return *ptr, nil
+	return *fieldPtr, nil
 }
 
-func resolveWorkflowLeaf(w *domain.Workflow, parts []string, unknown func() (any, error)) (any, error) {
+func resolveWorkflowLeaf(workflow *domain.Workflow, parts []string, unknown func() (any, error)) (any, error) {
 	switch parts[0] {
 	case "statuses":
 		if len(parts) == 1 {
-			return workflowToConfigView(w).Statuses, nil
+			return workflowToConfigView(workflow).Statuses, nil
 		}
-		status, ok := w.Statuses[parts[1]]
+		statusCfg, ok := workflow.Statuses[parts[1]]
 		if !ok {
 			return unknown()
 		}
 		if len(parts) == 2 {
-			return configWorkflowStatusView{Roles: rolesToStrings(status.Roles)}, nil
+			return configWorkflowStatusView{Roles: rolesToStrings(statusCfg.Roles)}, nil
 		}
 		if len(parts) == 3 && parts[2] == "roles" {
-			return rolesToStrings(status.Roles), nil
+			return rolesToStrings(statusCfg.Roles), nil
 		}
 		return unknown()
 	case "transitions":
 		if len(parts) != 1 {
 			return unknown()
 		}
-		return workflowToConfigView(w).Transitions, nil
+		return workflowToConfigView(workflow).Transitions, nil
 	}
 	return unknown()
 }
 
 // buildConfigViper creates a Viper instance mirroring the Load() setup for dot-path access.
-func (a *App) buildConfigViper() (*viper.Viper, error) {
-	cfg, err := config.Load(a.loadOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
+func (app *App) buildConfigViper() (*viper.Viper, error) {
+	cfg, loadErr := config.Load(app.loadOpts...)
+
+	if loadErr != nil {
+		return nil, fmt.Errorf("loading config: %w", loadErr)
 	}
 
-	data, err := toml.Marshal(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling config: %w", err)
+	data, marshalErr := toml.Marshal(cfg)
+
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshaling config: %w", marshalErr)
 	}
 
-	v := viper.New()
-	v.SetConfigType("toml")
-	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+	viperInst := viper.New()
+	viperInst.SetConfigType("toml")
+	if err := viperInst.ReadConfig(bytes.NewReader(data)); err != nil {
 		return nil, fmt.Errorf("reading config into viper: %w", err)
 	}
 
-	return v, nil
+	return viperInst, nil
 }
 
-func (a *App) runConfigValidate(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(a.loadOpts...)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+func (app *App) runConfigValidate(cmd *cobra.Command, _ []string) error {
+	cfg, loadErr := config.Load(app.loadOpts...)
+
+	if loadErr != nil {
+		return fmt.Errorf("loading config: %w", loadErr)
 	}
 
 	if cfg.Sources.File == "" {
@@ -675,19 +713,21 @@ func (a *App) runConfigValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fileCfg, err := config.LoadFile(cfg.Sources.File)
-	if err != nil {
-		return err
+	fileCfg, fileErr := config.LoadFile(cfg.Sources.File)
+
+	if fileErr != nil {
+		return fileErr
 	}
+
 	if err := fileCfg.Validate(); err != nil {
 		return err
 	}
 
-	_, err = fmt.Fprintln(cmd.OutOrStdout(), "Config valid")
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), "Config valid")
 	return err
 }
 
-func (a *App) runConfigEdit(cmd *cobra.Command, args []string) error {
+func (app *App) runConfigEdit(cmd *cobra.Command, _ []string) error {
 	editor := os.Getenv("VISUAL")
 	if editor == "" {
 		editor = os.Getenv("EDITOR")
@@ -696,17 +736,20 @@ func (a *App) runConfigEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("$EDITOR is not set")
 	}
 
-	cfg, err := config.Load(a.loadOpts...)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+	cfg, loadErr := config.Load(app.loadOpts...)
+
+	if loadErr != nil {
+		return fmt.Errorf("loading config: %w", loadErr)
 	}
 
 	path := cfg.Sources.File
 	if path == "" {
-		initPath, err := config.ConfigFilePath(a.loadOpts...)
-		if err != nil {
-			return err
+		initPath, pathErr := config.ConfigFilePath(app.loadOpts...)
+
+		if pathErr != nil {
+			return pathErr
 		}
+
 		if err := os.MkdirAll(filepath.Dir(initPath), 0o755); err != nil {
 			return fmt.Errorf("creating config directory: %w", err)
 		}
@@ -716,14 +759,14 @@ func (a *App) runConfigEdit(cmd *cobra.Command, args []string) error {
 		path = initPath
 	}
 
-	c := exec.Command(editor, path)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	return c.Run()
+	editorCmd := exec.Command(editor, path)
+	editorCmd.Stdin = os.Stdin
+	editorCmd.Stdout = os.Stdout
+	editorCmd.Stderr = os.Stderr
+	return editorCmd.Run()
 }
 
-func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
+func (app *App) runConfigSet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
 
@@ -739,9 +782,10 @@ func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	global, _ := cmd.Flags().GetBool("global")
-	path, err := a.resolveConfigWritePath(global)
-	if err != nil {
-		return err
+	path, pathErr := app.resolveConfigWritePath(global)
+
+	if pathErr != nil {
+		return pathErr
 	}
 
 	// taxonomy.levels uses its own inline grammar — bypass the generic
@@ -751,20 +795,22 @@ func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load the file contents (no defaults, no env).
-	fileCfg, err := config.LoadFile(path)
-	if err != nil {
-		return err
+	fileCfg, fileErr := config.LoadFile(path)
+
+	if fileErr != nil {
+		return fileErr
 	}
 
 	// Marshal to TOML, load into Viper for dot-path Set().
-	data, err := toml.Marshal(fileCfg)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
+	data, marshalErr := toml.Marshal(fileCfg)
+
+	if marshalErr != nil {
+		return fmt.Errorf("marshaling config: %w", marshalErr)
 	}
 
-	v := viper.New()
-	v.SetConfigType("toml")
-	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+	viperInst := viper.New()
+	viperInst.SetConfigType("toml")
+	if err := viperInst.ReadConfig(bytes.NewReader(data)); err != nil {
 		return fmt.Errorf("reading config into viper: %w", err)
 	}
 
@@ -776,11 +822,11 @@ func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 		parsedValue = value
 	}
 
-	v.Set(key, parsedValue)
+	viperInst.Set(key, parsedValue)
 
 	// Unmarshal back to Config.
 	var newCfg config.Config
-	if err := v.Unmarshal(&newCfg); err != nil {
+	if err := viperInst.Unmarshal(&newCfg); err != nil {
 		return fmt.Errorf("applying config change: %w", err)
 	}
 
@@ -797,19 +843,22 @@ func (a *App) runConfigSet(cmd *cobra.Command, args []string) error {
 // embedded defaults / disable taxonomy). A non-empty value is parsed as
 // inline syntax, validated, and written.
 func setTaxonomyLevelsInline(path, value string) error {
-	fileCfg, err := config.LoadFile(path)
-	if err != nil {
-		return err
+	fileCfg, fileErr := config.LoadFile(path)
+
+	if fileErr != nil {
+		return fileErr
 	}
 
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		fileCfg.Taxonomy.Levels = nil
 	} else {
-		tax, err := ParseTaxonomyInline(trimmed)
-		if err != nil {
-			return err
+		tax, parseErr := ParseTaxonomyInline(trimmed)
+
+		if parseErr != nil {
+			return parseErr
 		}
+
 		if err := tax.Validate(); err != nil {
 			return fmt.Errorf("invalid taxonomy: %w", err)
 		}

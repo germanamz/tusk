@@ -8,17 +8,17 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestRenderWorkflowsTOML_Empty(t *testing.T) {
+func TestRenderWorkflowsTOML_Empty(test *testing.T) {
 	got := RenderWorkflowsTOML(nil)
 	if !strings.Contains(got, "# workflows") {
-		t.Fatalf("expected header in empty render, got %q", got)
+		test.Fatalf("expected header in empty render, got %q", got)
 	}
 	if strings.Contains(got, "[workflows.") {
-		t.Fatalf("did not expect any workflow tables in empty render, got %q", got)
+		test.Fatalf("did not expect any workflow tables in empty render, got %q", got)
 	}
 }
 
-func TestRenderWorkflowsTOML_Kanban(t *testing.T) {
+func TestRenderWorkflowsTOML_Kanban(test *testing.T) {
 	wfs := []*domain.Workflow{
 		{
 			Name: "kanban",
@@ -51,7 +51,7 @@ func TestRenderWorkflowsTOML_Kanban(t *testing.T) {
 	}
 	for _, line := range want {
 		if !strings.Contains(got, line) {
-			t.Errorf("missing %q in:\n%s", line, got)
+			test.Errorf("missing %q in:\n%s", line, got)
 		}
 	}
 
@@ -60,7 +60,7 @@ func TestRenderWorkflowsTOML_Kanban(t *testing.T) {
 	iCompleted := strings.Index(got, "[workflows.kanban.statuses.completed]")
 	iPending := strings.Index(got, "[workflows.kanban.statuses.pending]")
 	if iActive >= iCompleted || iCompleted >= iPending {
-		t.Fatalf("expected sorted status order, got:\n%s", got)
+		test.Fatalf("expected sorted status order, got:\n%s", got)
 	}
 
 	// Transitions preserve domain order.
@@ -68,17 +68,17 @@ func TestRenderWorkflowsTOML_Kanban(t *testing.T) {
 	iFromPending := strings.Index(got[iTrans:], `from = "pending"`)
 	iFromActive := strings.Index(got[iTrans:], `from = "active"`)
 	if iFromPending < 0 || iFromActive < 0 || iFromPending > iFromActive {
-		t.Fatalf("expected pending transition before active transition, got:\n%s", got)
+		test.Fatalf("expected pending transition before active transition, got:\n%s", got)
 	}
 
 	// Determinism: two calls produce identical output.
 	again := RenderWorkflowsTOML(wfs)
 	if got != again {
-		t.Fatalf("renderer not deterministic:\nfirst:\n%s\nsecond:\n%s", got, again)
+		test.Fatalf("renderer not deterministic:\nfirst:\n%s\nsecond:\n%s", got, again)
 	}
 }
 
-func TestRenderWorkflowsTOML_MultiWorkflowSorted(t *testing.T) {
+func TestRenderWorkflowsTOML_MultiWorkflowSorted(test *testing.T) {
 	wfs := []*domain.Workflow{
 		{
 			Name:     "zeta",
@@ -93,27 +93,27 @@ func TestRenderWorkflowsTOML_MultiWorkflowSorted(t *testing.T) {
 	iAlpha := strings.Index(got, "[workflows.alpha.")
 	iZeta := strings.Index(got, "[workflows.zeta.")
 	if iAlpha < 0 || iZeta < 0 || iAlpha > iZeta {
-		t.Fatalf("expected alpha before zeta, got:\n%s", got)
+		test.Fatalf("expected alpha before zeta, got:\n%s", got)
 	}
 }
 
-func TestRenderProjectsTOML_Empty(t *testing.T) {
+func TestRenderProjectsTOML_Empty(test *testing.T) {
 	got := RenderProjectsTOML(nil, nil)
 	if !strings.Contains(got, "# projects") {
-		t.Fatalf("expected header in empty render, got %q", got)
+		test.Fatalf("expected header in empty render, got %q", got)
 	}
 	if strings.Contains(got, "[projects.") {
-		t.Fatalf("did not expect any project tables in empty render, got %q", got)
+		test.Fatalf("did not expect any project tables in empty render, got %q", got)
 	}
 }
 
-func TestRenderProjectsTOML_DefaultKanban(t *testing.T) {
+func TestRenderProjectsTOML_DefaultKanban(test *testing.T) {
 	wfID := uuid.New()
-	wf := &domain.Workflow{ID: wfID, Name: "kanban"}
+	workflow := &domain.Workflow{ID: wfID, Name: "kanban"}
 	projects := []*domain.Project{
 		{Name: "default", WorkflowID: wfID},
 	}
-	got := RenderProjectsTOML(projects, map[uuid.UUID]*domain.Workflow{wfID: wf})
+	got := RenderProjectsTOML(projects, map[uuid.UUID]*domain.Workflow{wfID: workflow})
 
 	want := []string{
 		"[projects.default]",
@@ -121,14 +121,14 @@ func TestRenderProjectsTOML_DefaultKanban(t *testing.T) {
 	}
 	for _, line := range want {
 		if !strings.Contains(got, line) {
-			t.Errorf("missing %q in:\n%s", line, got)
+			test.Errorf("missing %q in:\n%s", line, got)
 		}
 	}
 }
 
-func TestRenderProjectsTOML_UrgencyOverrides(t *testing.T) {
+func TestRenderProjectsTOML_UrgencyOverrides(test *testing.T) {
 	wfID := uuid.New()
-	wf := &domain.Workflow{ID: wfID, Name: "kanban"}
+	workflow := &domain.Workflow{ID: wfID, Name: "kanban"}
 	blocking := 15.0
 	due := 9.5
 	projects := []*domain.Project{
@@ -143,7 +143,7 @@ func TestRenderProjectsTOML_UrgencyOverrides(t *testing.T) {
 			},
 		},
 	}
-	got := RenderProjectsTOML(projects, map[uuid.UUID]*domain.Workflow{wfID: wf})
+	got := RenderProjectsTOML(projects, map[uuid.UUID]*domain.Workflow{wfID: workflow})
 
 	want := []string{
 		"[projects.backend]",
@@ -154,18 +154,18 @@ func TestRenderProjectsTOML_UrgencyOverrides(t *testing.T) {
 	}
 	for _, line := range want {
 		if !strings.Contains(got, line) {
-			t.Errorf("missing %q in:\n%s", line, got)
+			test.Errorf("missing %q in:\n%s", line, got)
 		}
 	}
 	// Unset urgency fields must be omitted.
 	if strings.Contains(got, "priority_weight") {
-		t.Errorf("expected unset priority_weight to be omitted, got:\n%s", got)
+		test.Errorf("expected unset priority_weight to be omitted, got:\n%s", got)
 	}
 }
 
-func TestRenderProjectsTOML_AutoCompleteRevert(t *testing.T) {
+func TestRenderProjectsTOML_AutoCompleteRevert(test *testing.T) {
 	wfID := uuid.New()
-	wf := &domain.Workflow{ID: wfID, Name: "kanban"}
+	workflow := &domain.Workflow{ID: wfID, Name: "kanban"}
 	projects := []*domain.Project{
 		{
 			Name:       "flows",
@@ -182,7 +182,7 @@ func TestRenderProjectsTOML_AutoCompleteRevert(t *testing.T) {
 			},
 		},
 	}
-	got := RenderProjectsTOML(projects, map[uuid.UUID]*domain.Workflow{wfID: wf})
+	got := RenderProjectsTOML(projects, map[uuid.UUID]*domain.Workflow{wfID: workflow})
 	want := []string{
 		"[projects.flows.settings.auto_complete_parent]",
 		`trigger_status = "completed"`,
@@ -193,27 +193,27 @@ func TestRenderProjectsTOML_AutoCompleteRevert(t *testing.T) {
 	}
 	for _, line := range want {
 		if !strings.Contains(got, line) {
-			t.Errorf("missing %q in:\n%s", line, got)
+			test.Errorf("missing %q in:\n%s", line, got)
 		}
 	}
 }
 
-func TestRenderProjectsTOML_Deterministic(t *testing.T) {
+func TestRenderProjectsTOML_Deterministic(test *testing.T) {
 	wfID := uuid.New()
-	wf := &domain.Workflow{ID: wfID, Name: "kanban"}
-	lookup := map[uuid.UUID]*domain.Workflow{wfID: wf}
+	workflow := &domain.Workflow{ID: wfID, Name: "kanban"}
+	lookup := map[uuid.UUID]*domain.Workflow{wfID: workflow}
 	projects := []*domain.Project{
 		{Name: "zeta", WorkflowID: wfID},
 		{Name: "alpha", WorkflowID: wfID},
 	}
-	a := RenderProjectsTOML(projects, lookup)
-	b := RenderProjectsTOML(projects, lookup)
-	if a != b {
-		t.Fatalf("renderer not deterministic:\nfirst:\n%s\nsecond:\n%s", a, b)
+	first := RenderProjectsTOML(projects, lookup)
+	second := RenderProjectsTOML(projects, lookup)
+	if first != second {
+		test.Fatalf("renderer not deterministic:\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
-	iAlpha := strings.Index(a, "[projects.alpha]")
-	iZeta := strings.Index(a, "[projects.zeta]")
+	iAlpha := strings.Index(first, "[projects.alpha]")
+	iZeta := strings.Index(first, "[projects.zeta]")
 	if iAlpha < 0 || iZeta < 0 || iAlpha > iZeta {
-		t.Fatalf("expected alpha before zeta, got:\n%s", a)
+		test.Fatalf("expected alpha before zeta, got:\n%s", first)
 	}
 }
