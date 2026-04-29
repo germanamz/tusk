@@ -143,9 +143,11 @@ func TestRenderMarkdown_WithColor(test *testing.T) {
 	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	input := "# Hello\n\nThis is **bold** text."
 	got, err := renderer.renderMarkdown(input)
+
 	if err != nil {
 		test.Fatalf("renderMarkdown error: %v", err)
 	}
+
 	if !strings.Contains(got, "Hello") {
 		test.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
 	}
@@ -158,9 +160,11 @@ func TestRenderMarkdown_NoColor(test *testing.T) {
 	renderer := NewRenderer(&bytes.Buffer{}, "text", false, nil)
 	input := "# Hello\n\nSome text."
 	got, err := renderer.renderMarkdown(input)
+
 	if err != nil {
 		test.Fatalf("renderMarkdown error: %v", err)
 	}
+
 	if !strings.Contains(got, "Hello") {
 		test.Errorf("renderMarkdown should contain \"Hello\", got %q", got)
 	}
@@ -173,9 +177,11 @@ func TestRenderMarkdown_PlainText(test *testing.T) {
 	renderer := NewRenderer(&bytes.Buffer{}, "text", true, nil)
 	input := "Just a plain description with no markdown."
 	got, err := renderer.renderMarkdown(input)
+
 	if err != nil {
 		test.Fatalf("renderMarkdown error: %v", err)
 	}
+
 	if !strings.Contains(got, "plain description") {
 		test.Errorf("renderMarkdown should contain original text, got %q", got)
 	}

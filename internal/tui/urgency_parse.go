@@ -15,8 +15,8 @@ type UrgencyParseResult struct {
 }
 
 // Empty returns true when no urgency-related field was consumed.
-func (r UrgencyParseResult) Empty() bool {
-	return !r.ClearAll && len(r.Clear) == 0 && len(r.Set) == 0 && len(r.Delta) == 0
+func (result UrgencyParseResult) Empty() bool {
+	return !result.ClearAll && len(result.Clear) == 0 && len(result.Set) == 0 && len(result.Delta) == 0
 }
 
 // urgencyFieldInput is the minimal shape parseUrgencyFields needs. Both
@@ -37,55 +37,55 @@ func parseUrgencyFields(fields []urgencyFieldInput) (UrgencyParseResult, []int, 
 		Delta: map[string]float64{},
 	}
 	var notConsumed []int
-	for i, f := range fields {
-		if f.Key == "urgency.clear" {
-			if f.Modifier != 0 {
-				return UrgencyParseResult{}, nil, fmt.Errorf("modifier %q not supported on %q", string(f.Modifier), f.Key)
+	for index, field := range fields {
+		if field.Key == "urgency.clear" {
+			if field.Modifier != 0 {
+				return UrgencyParseResult{}, nil, fmt.Errorf("modifier %q not supported on %q", string(field.Modifier), field.Key)
 			}
-			switch f.Value {
+			switch field.Value {
 			case "true":
 				result.ClearAll = true
 			case "false":
 				// no-op, but consume the field
 			default:
-				return UrgencyParseResult{}, nil, fmt.Errorf("urgency.clear expects true or false, got %q", f.Value)
+				return UrgencyParseResult{}, nil, fmt.Errorf("urgency.clear expects true or false, got %q", field.Value)
 			}
 			continue
 		}
-		if !strings.HasPrefix(f.Key, "urgency.") {
-			notConsumed = append(notConsumed, i)
+		if !strings.HasPrefix(field.Key, "urgency.") {
+			notConsumed = append(notConsumed, index)
 			continue
 		}
-		cfgKey, ok := urgencyCLIToConfigKey(f.Key)
+		cfgKey, ok := urgencyCLIToConfigKey(field.Key)
 		if !ok {
-			notConsumed = append(notConsumed, i)
+			notConsumed = append(notConsumed, index)
 			continue
 		}
-		switch f.Modifier {
+		switch field.Modifier {
 		case 0:
-			if f.Value == "" {
+			if field.Value == "" {
 				result.Clear[cfgKey] = true
 				continue
 			}
-			v, err := strconv.ParseFloat(f.Value, 64)
-			if err != nil {
-				return UrgencyParseResult{}, nil, fmt.Errorf("field %q: invalid float %q: %w", f.Key, f.Value, err)
+			floatVal, parseErr := strconv.ParseFloat(field.Value, 64)
+			if parseErr != nil {
+				return UrgencyParseResult{}, nil, fmt.Errorf("field %q: invalid float %q: %w", field.Key, field.Value, parseErr)
 			}
-			result.Set[cfgKey] = v
+			result.Set[cfgKey] = floatVal
 		case '+':
-			v, err := strconv.ParseFloat(f.Value, 64)
-			if err != nil {
-				return UrgencyParseResult{}, nil, fmt.Errorf("field %q: invalid float %q: %w", f.Key, f.Value, err)
+			floatVal, parseErr := strconv.ParseFloat(field.Value, 64)
+			if parseErr != nil {
+				return UrgencyParseResult{}, nil, fmt.Errorf("field %q: invalid float %q: %w", field.Key, field.Value, parseErr)
 			}
-			result.Delta[cfgKey] = v
+			result.Delta[cfgKey] = floatVal
 		case '-':
-			v, err := strconv.ParseFloat(f.Value, 64)
-			if err != nil {
-				return UrgencyParseResult{}, nil, fmt.Errorf("field %q: invalid float %q: %w", f.Key, f.Value, err)
+			floatVal, parseErr := strconv.ParseFloat(field.Value, 64)
+			if parseErr != nil {
+				return UrgencyParseResult{}, nil, fmt.Errorf("field %q: invalid float %q: %w", field.Key, field.Value, parseErr)
 			}
-			result.Delta[cfgKey] = -v
+			result.Delta[cfgKey] = -floatVal
 		default:
-			return UrgencyParseResult{}, nil, fmt.Errorf("modifier %q not supported on %q", string(f.Modifier), f.Key)
+			return UrgencyParseResult{}, nil, fmt.Errorf("modifier %q not supported on %q", string(field.Modifier), field.Key)
 		}
 	}
 	return result, notConsumed, nil

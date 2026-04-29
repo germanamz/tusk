@@ -24,7 +24,7 @@ tusk completion powershell | Out-String | Invoke-Expression
 // buildCompletionCmd returns the `tusk completion` parent command and its
 // four shell leaves. The generators emit scripts to cmd.OutOrStdout() so
 // that tests redirecting the root's output stream capture the content.
-func (a *App) buildCompletionCmd() *cobra.Command {
+func (app *App) buildCompletionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               "completion [bash|zsh|fish|powershell]",
 		Short:             "Generate shell completion scripts",

@@ -121,6 +121,7 @@ func (app *App) runSummarySingle(ctx context.Context, cmd *cobra.Command, shortI
 	if blockErr != nil {
 		return blockErr
 	}
+
 	summary := &domain.Summary{
 		Mode:   "single",
 		Blocks: []*domain.SummaryBlock{block},
@@ -131,9 +132,11 @@ func (app *App) runSummarySingle(ctx context.Context, cmd *cobra.Command, shortI
 // runSummaryBlocks handles roots and filter modes. expr == nil means roots.
 func (app *App) runSummaryBlocks(ctx context.Context, cmd *cobra.Command, expr domain.FilterExpr, full bool) error {
 	blocks, err := app.taskSvc.SummarizeBlocks(ctx, expr, full)
+
 	if err != nil {
 		return err
 	}
+
 	mode := "filter"
 	if expr == nil {
 		mode = "roots"

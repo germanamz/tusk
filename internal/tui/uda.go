@@ -39,13 +39,13 @@ var reservedTaskFields = map[string]struct{}{
 //     which rejects empty, digit-led, and dot-containing tails
 func collectUDAs(fs *filter.FilterSet) (map[string]any, error) {
 	var out map[string]any
-	for _, f := range fs.Fields {
-		key, ok := strings.CutPrefix(f.Key, "uda.")
+	for _, field := range fs.Fields {
+		key, ok := strings.CutPrefix(field.Key, "uda.")
 		if !ok {
 			continue
 		}
-		if f.Modifier != 0 {
-			return nil, fmt.Errorf("modifier %q not supported on uda fields", string(f.Modifier))
+		if field.Modifier != 0 {
+			return nil, fmt.Errorf("modifier %q not supported on uda fields", string(field.Modifier))
 		}
 		if err := domain.ValidateUDAKey(key); err != nil {
 			return nil, err
@@ -53,7 +53,7 @@ func collectUDAs(fs *filter.FilterSet) (map[string]any, error) {
 		if out == nil {
 			out = make(map[string]any)
 		}
-		out[key] = f.Value
+		out[key] = field.Value
 	}
 	return out, nil
 }
@@ -66,17 +66,17 @@ func collectUDAs(fs *filter.FilterSet) (map[string]any, error) {
 // Dotted unknown keys return a plain "unknown field" error — a dot
 // in the key signals intent, so a did-you-mean hint would be noise.
 func validateKnownFields(fs *filter.FilterSet) error {
-	for _, f := range fs.Fields {
-		if _, ok := reservedTaskFields[f.Key]; ok {
+	for _, field := range fs.Fields {
+		if _, ok := reservedTaskFields[field.Key]; ok {
 			continue
 		}
-		if strings.HasPrefix(f.Key, "uda.") {
+		if strings.HasPrefix(field.Key, "uda.") {
 			continue
 		}
-		if strings.Contains(f.Key, ".") {
-			return fmt.Errorf("unknown field %q", f.Key)
+		if strings.Contains(field.Key, ".") {
+			return fmt.Errorf("unknown field %q", field.Key)
 		}
-		return fmt.Errorf("unknown field %q; did you mean uda.%s?", f.Key, f.Key)
+		return fmt.Errorf("unknown field %q; did you mean uda.%s?", field.Key, field.Key)
 	}
 	return nil
 }

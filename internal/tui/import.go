@@ -23,7 +23,7 @@ import (
 var ErrImportFailed = errors.New("import failed")
 
 // buildImportCmd builds the `tusk import` subcommand.
-func (a *App) buildImportCmd() *cobra.Command {
+func (app *App) buildImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import --input <path> [--replace] [--truncate] [--dry-run]",
 		Short: "Import a JSON dump into the workspace",
@@ -54,7 +54,7 @@ collision) so you see the full picture in one round-trip.`,
 
   # Read from stdin
   cat ws.json | tusk import --input -`,
-		RunE: a.runImport,
+		RunE: app.runImport,
 	}
 	cmd.Flags().StringP("input", "i", "", `path to read from; "-" for stdin`)
 	cmd.Flags().Bool("replace", false, "row-level upsert on collision")
@@ -64,71 +64,86 @@ collision) so you see the full picture in one round-trip.`,
 	return cmd
 }
 
-func (a *App) runImport(cmd *cobra.Command, _ []string) error {
-	if a.portabilitySvc == nil {
+func (app *App) runImport(cmd *cobra.Command, _ []string) error {
+	if app.portabilitySvc == nil {
 		return fmt.Errorf("portability service not configured")
 	}
-	input, err := cmd.Flags().GetString("input")
-	if err != nil {
-		return err
+	input, inputErr := cmd.Flags().GetString("input")
+
+	if inputErr != nil {
+		return inputErr
 	}
-	replace, err := cmd.Flags().GetBool("replace")
-	if err != nil {
-		return err
+
+	replace, replaceErr := cmd.Flags().GetBool("replace")
+
+	if replaceErr != nil {
+		return replaceErr
 	}
-	truncate, err := cmd.Flags().GetBool("truncate")
-	if err != nil {
-		return err
+
+	truncate, truncateErr := cmd.Flags().GetBool("truncate")
+
+	if truncateErr != nil {
+		return truncateErr
 	}
-	dryRun, err := cmd.Flags().GetBool("dry-run")
-	if err != nil {
-		return err
+
+	dryRun, dryRunErr := cmd.Flags().GetBool("dry-run")
+
+	if dryRunErr != nil {
+		return dryRunErr
 	}
+
 	if truncate && !replace {
 		return fmt.Errorf("--truncate requires --replace")
 	}
 
-	reader, closer, err := a.openImportSource(cmd, input)
-	if err != nil {
-		return err
+	reader, closer, openErr := app.openImportSource(cmd, input)
+
+	if openErr != nil {
+		return openErr
 	}
+
 	defer closer()
 
-	ws, err := portability.Decode(reader)
-	if err != nil {
+	ws, decodeErr := portability.Decode(reader)
+
+	if decodeErr != nil {
 		var ie *portability.ImportError
-		if errors.As(err, &ie) {
-			a.renderImportError(cmd.ErrOrStderr(), ie)
+		if errors.As(decodeErr, &ie) {
+			app.renderImportError(cmd.ErrOrStderr(), ie)
 			return ErrImportFailed
 		}
-		return err
+		return decodeErr
 	}
 
-	report, err := a.portabilitySvc.Import(cmd.Context(), ws, service.ImportOptions{
+	report, importErr := app.portabilitySvc.Import(cmd.Context(), ws, service.ImportOptions{
 		Replace:  replace,
 		Truncate: truncate,
 		DryRun:   dryRun,
 	})
-	if err != nil {
+
+	if importErr != nil {
 		var ie *portability.ImportError
-		if errors.As(err, &ie) {
-			a.renderImportError(cmd.ErrOrStderr(), ie)
+		if errors.As(importErr, &ie) {
+			app.renderImportError(cmd.ErrOrStderr(), ie)
 			return ErrImportFailed
 		}
-		return err
+		return importErr
 	}
-	return a.renderImportReport(cmd.OutOrStdout(), report, dryRun)
+
+	return app.renderImportReport(cmd.OutOrStdout(), report, dryRun)
 }
 
 // openImportSource opens the dump source — a file path or "-" for stdin.
 // The returned closer is always safe to call.
-func (a *App) openImportSource(cmd *cobra.Command, input string) (io.Reader, func(), error) {
+func (app *App) openImportSource(cmd *cobra.Command, input string) (io.Reader, func(), error) {
 	if input != "-" {
-		f, err := os.Open(input)
-		if err != nil {
-			return nil, func() {}, fmt.Errorf("opening %s: %w", input, err)
+		file, openErr := os.Open(input)
+
+		if openErr != nil {
+			return nil, func() {}, fmt.Errorf("opening %s: %w", input, openErr)
 		}
-		return f, func() { _ = f.Close() }, nil
+
+		return file, func() { _ = file.Close() }, nil
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		return nil, func() {}, fmt.Errorf("--input -: stdin is a terminal; pipe a file or omit the flag")
@@ -153,37 +168,37 @@ type importReportJSON struct {
 	EventID     string `json:"event_id,omitempty"`
 }
 
-func (a *App) renderImportReport(w io.Writer, r *service.ImportReport, dryRun bool) error {
-	if a.format == "json" {
+func (app *App) renderImportReport(writer io.Writer, report *service.ImportReport, dryRun bool) error {
+	if app.format == "json" {
 		payload := importReportJSON{
-			Workflows:   r.Workflows,
-			Projects:    r.Projects,
-			Players:     r.Players,
-			Tags:        r.Tags,
-			Tasks:       r.Tasks,
-			Relations:   r.Relations,
-			Annotations: r.Annotations,
-			Notes:       r.Notes,
-			Events:      r.Events,
-			Replaced:    r.Replaced,
-			Truncated:   r.Truncated,
+			Workflows:   report.Workflows,
+			Projects:    report.Projects,
+			Players:     report.Players,
+			Tags:        report.Tags,
+			Tasks:       report.Tasks,
+			Relations:   report.Relations,
+			Annotations: report.Annotations,
+			Notes:       report.Notes,
+			Events:      report.Events,
+			Replaced:    report.Replaced,
+			Truncated:   report.Truncated,
 			DryRun:      dryRun,
 		}
-		if r.EventID.String() != "00000000-0000-0000-0000-000000000000" {
-			payload.EventID = r.EventID.String()
+		if report.EventID.String() != "00000000-0000-0000-0000-000000000000" {
+			payload.EventID = report.EventID.String()
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(writer)
 		enc.SetIndent("", "  ")
 		return enc.Encode(payload)
 	}
 
 	if dryRun {
-		if _, err := fmt.Fprintln(w, "dry-run: no writes performed"); err != nil {
+		if _, err := fmt.Fprintln(writer, "dry-run: no writes performed"); err != nil {
 			return err
 		}
 	}
-	if r.Truncated {
-		if _, err := fmt.Fprintln(w, "truncated: yes"); err != nil {
+	if report.Truncated {
+		if _, err := fmt.Fprintln(writer, "truncated: yes"); err != nil {
 			return err
 		}
 	}
@@ -191,28 +206,28 @@ func (a *App) renderImportReport(w io.Writer, r *service.ImportReport, dryRun bo
 		name  string
 		count int
 	}{
-		{"workflows", r.Workflows},
-		{"projects", r.Projects},
-		{"players", r.Players},
-		{"tags", r.Tags},
-		{"tasks", r.Tasks},
-		{"relations", r.Relations},
-		{"annotations", r.Annotations},
-		{"notes", r.Notes},
-		{"events", r.Events},
+		{"workflows", report.Workflows},
+		{"projects", report.Projects},
+		{"players", report.Players},
+		{"tags", report.Tags},
+		{"tasks", report.Tasks},
+		{"relations", report.Relations},
+		{"annotations", report.Annotations},
+		{"notes", report.Notes},
+		{"events", report.Events},
 	}
-	for _, k := range kinds {
-		if _, err := fmt.Fprintf(w, "%-12s %d\n", k.name+":", k.count); err != nil {
+	for _, kind := range kinds {
+		if _, err := fmt.Fprintf(writer, "%-12s %d\n", kind.name+":", kind.count); err != nil {
 			return err
 		}
 	}
-	if r.Replaced > 0 {
-		if _, err := fmt.Fprintf(w, "%-12s %d\n", "replaced:", r.Replaced); err != nil {
+	if report.Replaced > 0 {
+		if _, err := fmt.Fprintf(writer, "%-12s %d\n", "replaced:", report.Replaced); err != nil {
 			return err
 		}
 	}
-	if r.EventID.String() != "00000000-0000-0000-0000-000000000000" {
-		if _, err := fmt.Fprintf(w, "%-12s %s\n", "event:", r.EventID.String()); err != nil {
+	if report.EventID.String() != "00000000-0000-0000-0000-000000000000" {
+		if _, err := fmt.Fprintf(writer, "%-12s %s\n", "event:", report.EventID.String()); err != nil {
 			return err
 		}
 	}
@@ -234,48 +249,48 @@ type importErrorJSON struct {
 	Issues []importIssueJSON `json:"issues"`
 }
 
-func (a *App) renderImportError(w io.Writer, e *portability.ImportError) {
-	issues := make([]portability.ImportIssue, len(e.Issues))
-	copy(issues, e.Issues)
-	sort.SliceStable(issues, func(i, j int) bool {
-		if issues[i].Kind != issues[j].Kind {
-			return issues[i].Kind < issues[j].Kind
+func (app *App) renderImportError(writer io.Writer, importErr *portability.ImportError) {
+	issues := make([]portability.ImportIssue, len(importErr.Issues))
+	copy(issues, importErr.Issues)
+	sort.SliceStable(issues, func(ii, jj int) bool {
+		if issues[ii].Kind != issues[jj].Kind {
+			return issues[ii].Kind < issues[jj].Kind
 		}
-		if issues[i].EntityKind != issues[j].EntityKind {
-			return issues[i].EntityKind < issues[j].EntityKind
+		if issues[ii].EntityKind != issues[jj].EntityKind {
+			return issues[ii].EntityKind < issues[jj].EntityKind
 		}
-		return issues[i].EntityID < issues[j].EntityID
+		return issues[ii].EntityID < issues[jj].EntityID
 	})
 
-	if a.format == "json" {
+	if app.format == "json" {
 		payload := importErrorJSON{Issues: make([]importIssueJSON, len(issues))}
-		for i, iss := range issues {
-			payload.Issues[i] = importIssueJSON{
-				Kind:        iss.Kind,
-				EntityKind:  iss.EntityKind,
-				EntityID:    iss.EntityID,
-				JSONPointer: iss.JSONPointer,
-				Message:     iss.Message,
+		for index, issue := range issues {
+			payload.Issues[index] = importIssueJSON{
+				Kind:        issue.Kind,
+				EntityKind:  issue.EntityKind,
+				EntityID:    issue.EntityID,
+				JSONPointer: issue.JSONPointer,
+				Message:     issue.Message,
 			}
 		}
-		enc := json.NewEncoder(w)
+		enc := json.NewEncoder(writer)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(payload)
 		return
 	}
 
-	for _, iss := range issues {
+	for _, issue := range issues {
 		var prefix string
 		switch {
-		case iss.EntityKind != "" && iss.EntityID != "":
-			prefix = fmt.Sprintf("[%s] %s %s: ", iss.Kind, iss.EntityKind, iss.EntityID)
-		case iss.EntityKind != "":
-			prefix = fmt.Sprintf("[%s] %s: ", iss.Kind, iss.EntityKind)
-		case iss.JSONPointer != "":
-			prefix = fmt.Sprintf("[%s] %s: ", iss.Kind, iss.JSONPointer)
+		case issue.EntityKind != "" && issue.EntityID != "":
+			prefix = fmt.Sprintf("[%s] %s %s: ", issue.Kind, issue.EntityKind, issue.EntityID)
+		case issue.EntityKind != "":
+			prefix = fmt.Sprintf("[%s] %s: ", issue.Kind, issue.EntityKind)
+		case issue.JSONPointer != "":
+			prefix = fmt.Sprintf("[%s] %s: ", issue.Kind, issue.JSONPointer)
 		default:
-			prefix = fmt.Sprintf("[%s] ", iss.Kind)
+			prefix = fmt.Sprintf("[%s] ", issue.Kind)
 		}
-		_, _ = fmt.Fprintf(w, "%s%s\n", prefix, iss.Message)
+		_, _ = fmt.Fprintf(writer, "%s%s\n", prefix, issue.Message)
 	}
 }
