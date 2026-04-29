@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race test-e2e vet lint run install setup-hooks roadmap devcontainer-up devcontainer-shell devcontainer-shell-ops devcontainer-down devcontainer-nuke
+.PHONY: all build clean test test-race test-e2e vet lint lint-go lint-tusk run install setup-hooks roadmap devcontainer-up devcontainer-shell devcontainer-shell-ops devcontainer-down devcontainer-nuke
 
 DEVCONTAINER_CID = docker ps --filter "label=devcontainer.local_folder=$(CURDIR)" -q
 DEVCONTAINER_WORKDIR := /workspaces/$(notdir $(CURDIR))
@@ -32,8 +32,13 @@ test-e2e:
 vet:
 	$(GO) vet ./...
 
-lint:
+lint: lint-go lint-tusk
+
+lint-go:
 	golangci-lint run ./...
+
+lint-tusk:
+	$(GO) run ./cmd/tusk-lint ./...
 
 run: build
 	./$(BUILD_DIR)/$(BINARY_NAME)
