@@ -29,65 +29,75 @@ func NewTagService(resolve BundleResolver) *TagService {
 // definitions returns the default bundle's tag repository. All tag
 // definition operations (FindOrCreate, Create, Delete, Rename, Modify,
 // List, ListWithUsage) run against this repo.
-func (s *TagService) definitions(ctx context.Context) (repository.TagRepository, error) {
-	bundle, err := s.resolve(ctx, domain.DefaultProjectUUID)
-	if err != nil {
-		return nil, fmt.Errorf("resolving default bundle for tags: %w", err)
+func (service *TagService) definitions(ctx context.Context) (repository.TagRepository, error) {
+	bundle, bundleErr := service.resolve(ctx, domain.DefaultProjectUUID)
+
+	if bundleErr != nil {
+		return nil, fmt.Errorf("resolving default bundle for tags: %w", bundleErr)
 	}
+
 	return bundle.Tags, nil
 }
 
 // FindOrCreate returns the existing tag with the given name, or creates
 // a new one if it doesn't exist. Empty or whitespace-only names are
 // rejected.
-func (s *TagService) FindOrCreate(ctx context.Context, name string) (*domain.Tag, error) {
+func (service *TagService) FindOrCreate(ctx context.Context, name string) (*domain.Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("tag name must not be empty")
 	}
 
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
 
-	tag, err := repo.GetByName(ctx, name)
-	if err == nil {
+	tag, lookupErr := repo.GetByName(ctx, name)
+
+	if lookupErr == nil {
 		return tag, nil
 	}
-	if !errors.Is(err, domain.ErrNotFound) {
-		return nil, fmt.Errorf("looking up tag %q: %w", name, err)
+
+	if !errors.Is(lookupErr, domain.ErrNotFound) {
+		return nil, fmt.Errorf("looking up tag %q: %w", name, lookupErr)
 	}
 
 	tag = &domain.Tag{
 		ID:   uuid.New(),
 		Name: name,
 	}
-	if err := repo.Create(ctx, tag); err != nil {
-		return nil, fmt.Errorf("creating tag %q: %w", name, err)
+
+	if createErr := repo.Create(ctx, tag); createErr != nil {
+		return nil, fmt.Errorf("creating tag %q: %w", name, createErr)
 	}
+
 	return tag, nil
 }
 
 // Create explicitly creates a new tag with the given name and optional
 // color. Fails with ErrConflict if the tag already exists.
-func (s *TagService) Create(ctx context.Context, name string, color *string) (*domain.Tag, error) {
+func (service *TagService) Create(ctx context.Context, name string, color *string) (*domain.Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("tag name must not be empty")
 	}
 
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
 
-	_, err = repo.GetByName(ctx, name)
-	if err == nil {
+	_, lookupErr := repo.GetByName(ctx, name)
+
+	if lookupErr == nil {
 		return nil, fmt.Errorf("tag %q already exists: %w", name, domain.ErrConflict)
 	}
-	if !errors.Is(err, domain.ErrNotFound) {
-		return nil, fmt.Errorf("looking up tag %q: %w", name, err)
+
+	if !errors.Is(lookupErr, domain.ErrNotFound) {
+		return nil, fmt.Errorf("looking up tag %q: %w", name, lookupErr)
 	}
 
 	tag := &domain.Tag{
@@ -95,95 +105,114 @@ func (s *TagService) Create(ctx context.Context, name string, color *string) (*d
 		Name:  name,
 		Color: color,
 	}
-	if err := repo.Create(ctx, tag); err != nil {
-		return nil, fmt.Errorf("creating tag %q: %w", name, err)
+
+	if createErr := repo.Create(ctx, tag); createErr != nil {
+		return nil, fmt.Errorf("creating tag %q: %w", name, createErr)
 	}
+
 	return tag, nil
 }
 
 // Delete removes a tag by name. Returns the deleted tag on success.
-func (s *TagService) Delete(ctx context.Context, name string) (*domain.Tag, error) {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+func (service *TagService) Delete(ctx context.Context, name string) (*domain.Tag, error) {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
 
-	tag, err := repo.GetByName(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("looking up tag %q: %w", name, err)
+	tag, lookupErr := repo.GetByName(ctx, name)
+
+	if lookupErr != nil {
+		return nil, fmt.Errorf("looking up tag %q: %w", name, lookupErr)
 	}
 
-	count, err := repo.CountTasksByTagID(ctx, tag.ID)
-	if err != nil {
-		return nil, fmt.Errorf("counting tasks for tag %q: %w", name, err)
+	count, countErr := repo.CountTasksByTagID(ctx, tag.ID)
+
+	if countErr != nil {
+		return nil, fmt.Errorf("counting tasks for tag %q: %w", name, countErr)
 	}
+
 	if count > 0 {
 		return nil, fmt.Errorf("tag %q is assigned to %d task(s): %w", name, count, domain.ErrTagInUse)
 	}
 
-	if err := repo.Delete(ctx, tag.ID); err != nil {
-		return nil, fmt.Errorf("deleting tag %q: %w", name, err)
+	if deleteErr := repo.Delete(ctx, tag.ID); deleteErr != nil {
+		return nil, fmt.Errorf("deleting tag %q: %w", name, deleteErr)
 	}
+
 	return tag, nil
 }
 
 // Rename changes a tag's name.
-func (s *TagService) Rename(ctx context.Context, oldName, newName string) (*domain.Tag, error) {
+func (service *TagService) Rename(ctx context.Context, oldName, newName string) (*domain.Tag, error) {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return nil, fmt.Errorf("new tag name must not be empty")
 	}
 
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
 
-	tag, err := repo.GetByName(ctx, oldName)
-	if err != nil {
-		return nil, fmt.Errorf("looking up tag %q: %w", oldName, err)
+	tag, lookupErr := repo.GetByName(ctx, oldName)
+
+	if lookupErr != nil {
+		return nil, fmt.Errorf("looking up tag %q: %w", oldName, lookupErr)
 	}
 
-	_, err = repo.GetByName(ctx, newName)
-	if err == nil {
+	_, conflictErr := repo.GetByName(ctx, newName)
+
+	if conflictErr == nil {
 		return nil, fmt.Errorf("tag %q already exists: %w", newName, domain.ErrConflict)
 	}
-	if !errors.Is(err, domain.ErrNotFound) {
-		return nil, fmt.Errorf("checking tag %q: %w", newName, err)
+
+	if !errors.Is(conflictErr, domain.ErrNotFound) {
+		return nil, fmt.Errorf("checking tag %q: %w", newName, conflictErr)
 	}
 
 	tag.Name = newName
-	if err := repo.Update(ctx, tag); err != nil {
-		return nil, fmt.Errorf("renaming tag to %q: %w", newName, err)
+
+	if updateErr := repo.Update(ctx, tag); updateErr != nil {
+		return nil, fmt.Errorf("renaming tag to %q: %w", newName, updateErr)
 	}
+
 	return tag, nil
 }
 
 // Modify updates a tag's color.
-func (s *TagService) Modify(ctx context.Context, name string, color *string) (*domain.Tag, error) {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+func (service *TagService) Modify(ctx context.Context, name string, color *string) (*domain.Tag, error) {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
 
-	tag, err := repo.GetByName(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("looking up tag %q: %w", name, err)
+	tag, lookupErr := repo.GetByName(ctx, name)
+
+	if lookupErr != nil {
+		return nil, fmt.Errorf("looking up tag %q: %w", name, lookupErr)
 	}
 
 	tag.Color = color
-	if err := repo.Update(ctx, tag); err != nil {
-		return nil, fmt.Errorf("updating tag %q: %w", name, err)
+
+	if updateErr := repo.Update(ctx, tag); updateErr != nil {
+		return nil, fmt.Errorf("updating tag %q: %w", name, updateErr)
 	}
+
 	return tag, nil
 }
 
 // ListWithUsage returns all tags with their task assignment counts.
-func (s *TagService) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, error) {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+func (service *TagService) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, error) {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
+
 	return repo.ListWithUsage(ctx)
 }
 
@@ -191,68 +220,86 @@ func (s *TagService) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, 
 // the task. Task-tag junctions are written to the default bundle's tag
 // repository — this will need to move to each task's own store when
 // per-project SQLite files are in use for cross-project tagging.
-func (s *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return err
+func (service *TagService) AssignToTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return repoErr
 	}
+
 	for _, name := range tagNames {
-		tag, err := s.FindOrCreate(ctx, name)
-		if err != nil {
-			return err
+		tag, findErr := service.FindOrCreate(ctx, name)
+
+		if findErr != nil {
+			return findErr
 		}
-		if err := repo.AssignToTask(ctx, taskID, tag.ID); err != nil {
-			return fmt.Errorf("assigning tag %q to task: %w", name, err)
+
+		if assignErr := repo.AssignToTask(ctx, taskID, tag.ID); assignErr != nil {
+			return fmt.Errorf("assigning tag %q to task: %w", name, assignErr)
 		}
 	}
+
 	return nil
 }
 
 // GetTaskTags returns all tags assigned to a task.
-func (s *TagService) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error) {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+func (service *TagService) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error) {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
+
 	return repo.GetTaskTags(ctx, taskID)
 }
 
 // RemoveFromTask removes the named tags from the task.
-func (s *TagService) RemoveFromTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return err
+func (service *TagService) RemoveFromTask(ctx context.Context, taskID uuid.UUID, tagNames []string) error {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return repoErr
 	}
+
 	for _, name := range tagNames {
-		tag, err := repo.GetByName(ctx, name)
-		if errors.Is(err, domain.ErrNotFound) {
+		tag, lookupErr := repo.GetByName(ctx, name)
+
+		if errors.Is(lookupErr, domain.ErrNotFound) {
 			continue
 		}
-		if err != nil {
-			return fmt.Errorf("looking up tag %q: %w", name, err)
+
+		if lookupErr != nil {
+			return fmt.Errorf("looking up tag %q: %w", name, lookupErr)
 		}
-		err = repo.RemoveFromTask(ctx, taskID, tag.ID)
-		if err != nil && !errors.Is(err, domain.ErrNotFound) {
-			return fmt.Errorf("removing tag %q from task: %w", name, err)
+
+		removeErr := repo.RemoveFromTask(ctx, taskID, tag.ID)
+
+		if removeErr != nil && !errors.Is(removeErr, domain.ErrNotFound) {
+			return fmt.Errorf("removing tag %q from task: %w", name, removeErr)
 		}
 	}
+
 	return nil
 }
 
 // GetTaskTagsBatch returns tags for multiple tasks in a single query.
-func (s *TagService) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+func (service *TagService) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
+
 	return repo.GetTaskTagsBatch(ctx, taskIDs)
 }
 
 // List returns all tags in the system.
-func (s *TagService) List(ctx context.Context) ([]*domain.Tag, error) {
-	repo, err := s.definitions(ctx)
-	if err != nil {
-		return nil, err
+func (service *TagService) List(ctx context.Context) ([]*domain.Tag, error) {
+	repo, repoErr := service.definitions(ctx)
+
+	if repoErr != nil {
+		return nil, repoErr
 	}
+
 	return repo.List(ctx)
 }
