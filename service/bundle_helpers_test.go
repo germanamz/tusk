@@ -48,9 +48,9 @@ func (p *testWriteTxProvider) WithTx(ctx context.Context, fn func(tx WriteTx) er
 // newTestBundle creates an in-memory SQLite store and returns a
 // RepoBundle wrapping real repositories against it. The store is
 // closed via t.Cleanup.
-func newTestBundle(t *testing.T) *RepoBundle {
-	t.Helper()
-	store, _, _ := sqlitetest.NewStore(t)
+func newTestBundle(test *testing.T) *RepoBundle {
+	test.Helper()
+	store, _, _ := sqlitetest.NewStore(test)
 	return bundleFromStore(store)
 }
 
@@ -59,9 +59,9 @@ func newTestBundle(t *testing.T) *RepoBundle {
 // default project; additional projects can be added via
 // sqlitetest.SeedProject. All repos share the same store so task ↔ project
 // FKs are satisfied.
-func newSeededBundle(t *testing.T) (*RepoBundle, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
-	t.Helper()
-	store, projRepo, wfRepo := sqlitetest.NewStore(t)
+func newSeededBundle(test *testing.T) (*RepoBundle, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
+	test.Helper()
+	store, projRepo, wfRepo := sqlitetest.NewStore(test)
 	return bundleFromStore(store), projRepo, wfRepo
 }
 

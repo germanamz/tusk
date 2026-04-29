@@ -33,7 +33,7 @@ func emptyContext() ScoringContext {
 	}
 }
 
-func TestUrgencyPriorityFactor(t *testing.T) {
+func TestUrgencyPriorityFactor(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 	ctx := emptyContext()
 
@@ -54,12 +54,12 @@ func TestUrgencyPriorityFactor(t *testing.T) {
 		baseline := engine.Score(&domain.Task{ID: uuid.New(), Priority: 0, Status: "pending", CreatedAt: task.CreatedAt}, ctx)
 		contrib := got - baseline
 		if diff := contrib - tt.want; diff > 0.01 || diff < -0.01 {
-			t.Errorf("priority %d: got contribution %.2f, want %.2f", tt.priority, contrib, tt.want)
+			test.Errorf("priority %d: got contribution %.2f, want %.2f", tt.priority, contrib, tt.want)
 		}
 	}
 }
 
-func TestUrgencyDueDateFactor(t *testing.T) {
+func TestUrgencyDueDateFactor(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 	ctx := emptyContext()
 	now := time.Now()
@@ -74,7 +74,7 @@ func TestUrgencyDueDateFactor(t *testing.T) {
 	past := &domain.Task{ID: uuid.New(), Status: "pending", CreatedAt: created, DueAt: &pastDue}
 	pastScore := engine.Score(past, ctx)
 	if pastScore-baseScore < 10.0 {
-		t.Errorf("past due contribution too low: %.2f", pastScore-baseScore)
+		test.Errorf("past due contribution too low: %.2f", pastScore-baseScore)
 	}
 
 	// Due in 30 days: low contribution
@@ -82,11 +82,11 @@ func TestUrgencyDueDateFactor(t *testing.T) {
 	farTask := &domain.Task{ID: uuid.New(), Status: "pending", CreatedAt: created, DueAt: &far}
 	farScore := engine.Score(farTask, ctx)
 	if farScore-baseScore > 3.0 {
-		t.Errorf("far due contribution too high: %.2f", farScore-baseScore)
+		test.Errorf("far due contribution too high: %.2f", farScore-baseScore)
 	}
 }
 
-func TestUrgencyActiveFactor(t *testing.T) {
+func TestUrgencyActiveFactor(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 	ctx := emptyContext()
 	created := time.Now()
@@ -96,11 +96,11 @@ func TestUrgencyActiveFactor(t *testing.T) {
 
 	diff := engine.Score(active, ctx) - engine.Score(pending, ctx)
 	if diff < 3.9 || diff > 4.1 {
-		t.Errorf("active factor: got diff %.2f, want ~4.0", diff)
+		test.Errorf("active factor: got diff %.2f, want ~4.0", diff)
 	}
 }
 
-func TestUrgencyBlockingFactor(t *testing.T) {
+func TestUrgencyBlockingFactor(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 	id := uuid.New()
 	ctx := emptyContext()
@@ -110,11 +110,11 @@ func TestUrgencyBlockingFactor(t *testing.T) {
 	task := &domain.Task{ID: id, Status: "pending", CreatedAt: time.Now()}
 	diff := engine.Score(task, ctxBlocking) - engine.Score(task, ctx)
 	if diff < 7.9 || diff > 8.1 {
-		t.Errorf("blocking factor: got diff %.2f, want ~8.0", diff)
+		test.Errorf("blocking factor: got diff %.2f, want ~8.0", diff)
 	}
 }
 
-func TestUrgencyBlockedFactor(t *testing.T) {
+func TestUrgencyBlockedFactor(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 	id := uuid.New()
 	ctx := emptyContext()
@@ -124,11 +124,11 @@ func TestUrgencyBlockedFactor(t *testing.T) {
 	task := &domain.Task{ID: id, Status: "pending", CreatedAt: time.Now()}
 	diff := engine.Score(task, ctxBlocked) - engine.Score(task, ctx)
 	if diff > -4.9 || diff < -5.1 {
-		t.Errorf("blocked factor: got diff %.2f, want ~-5.0", diff)
+		test.Errorf("blocked factor: got diff %.2f, want ~-5.0", diff)
 	}
 }
 
-func TestUrgencyWaitingFactor(t *testing.T) {
+func TestUrgencyWaitingFactor(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 	ctx := emptyContext()
 	created := time.Now()
@@ -139,11 +139,11 @@ func TestUrgencyWaitingFactor(t *testing.T) {
 
 	diff := engine.Score(waiting, ctx) - engine.Score(noWait, ctx)
 	if diff > -2.9 || diff < -3.1 {
-		t.Errorf("waiting factor: got diff %.2f, want ~-3.0", diff)
+		test.Errorf("waiting factor: got diff %.2f, want ~-3.0", diff)
 	}
 }
 
-func TestUrgencyScoreAndSort(t *testing.T) {
+func TestUrgencyScoreAndSort(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 	ctx := emptyContext()
 	now := time.Now()
@@ -156,25 +156,25 @@ func TestUrgencyScoreAndSort(t *testing.T) {
 	engine.ScoreAndSort(tasks, ctx)
 
 	if tasks[0].ID != high.ID {
-		t.Error("expected highest urgency task first")
+		test.Error("expected highest urgency task first")
 	}
 	if tasks[2].ID != low.ID {
-		t.Error("expected lowest urgency task last")
+		test.Error("expected lowest urgency task last")
 	}
 	for _, task := range tasks {
 		if task.Urgency == 0 && task.Priority > 0 {
-			t.Errorf("task %s: urgency should be non-zero", task.ShortID)
+			test.Errorf("task %s: urgency should be non-zero", task.ShortID)
 		}
 	}
 }
 
-func TestMergeWeights(t *testing.T) {
+func TestMergeWeights(test *testing.T) {
 	defaults := defaultWeights()
 
 	// Nil overrides returns defaults unchanged
 	merged := MergeWeights(defaults, nil)
 	if merged.Priority != 6.0 {
-		t.Errorf("expected 6.0, got %.1f", merged.Priority)
+		test.Errorf("expected 6.0, got %.1f", merged.Priority)
 	}
 
 	// Override one field
@@ -184,17 +184,17 @@ func TestMergeWeights(t *testing.T) {
 	}
 	merged = MergeWeights(defaults, overrides)
 	if merged.Blocking != 20.0 {
-		t.Errorf("expected blocking 20.0, got %.1f", merged.Blocking)
+		test.Errorf("expected blocking 20.0, got %.1f", merged.Blocking)
 	}
 	if merged.Priority != 6.0 {
-		t.Errorf("expected priority 6.0, got %.1f", merged.Priority)
+		test.Errorf("expected priority 6.0, got %.1f", merged.Priority)
 	}
 	if merged.Due != 12.0 {
-		t.Errorf("expected due 12.0, got %.1f", merged.Due)
+		test.Errorf("expected due 12.0, got %.1f", merged.Due)
 	}
 }
 
-func TestMergeWeightsChained(t *testing.T) {
+func TestMergeWeightsChained(test *testing.T) {
 	// 5-layer chain: defaults → project → ancestor-root → ancestor-mid → self.
 	// Each layer overrides specific keys; verifies that the closer layer wins per-key
 	// and that unrelated keys fall back to defaults.
@@ -219,39 +219,39 @@ func TestMergeWeightsChained(t *testing.T) {
 	merged = MergeWeights(merged, self)
 
 	if merged.Priority != projectPriority {
-		t.Errorf("Priority: got %v, want %v (from project)", merged.Priority, projectPriority)
+		test.Errorf("Priority: got %v, want %v (from project)", merged.Priority, projectPriority)
 	}
 	if merged.Due != midDue {
-		t.Errorf("Due: got %v, want %v (mid should win over root)", merged.Due, midDue)
+		test.Errorf("Due: got %v, want %v (mid should win over root)", merged.Due, midDue)
 	}
 	if merged.Age != midAge {
-		t.Errorf("Age: got %v, want %v (from mid)", merged.Age, midAge)
+		test.Errorf("Age: got %v, want %v (from mid)", merged.Age, midAge)
 	}
 	if merged.Blocking != selfBlocking {
-		t.Errorf("Blocking: got %v, want %v (from self)", merged.Blocking, selfBlocking)
+		test.Errorf("Blocking: got %v, want %v (from self)", merged.Blocking, selfBlocking)
 	}
 	// Unrelated keys must come from defaults.
 	if merged.Active != defaults.Active {
-		t.Errorf("Active: got %v, want %v (defaults)", merged.Active, defaults.Active)
+		test.Errorf("Active: got %v, want %v (defaults)", merged.Active, defaults.Active)
 	}
 	if merged.Blocked != defaults.Blocked {
-		t.Errorf("Blocked: got %v, want %v (defaults)", merged.Blocked, defaults.Blocked)
+		test.Errorf("Blocked: got %v, want %v (defaults)", merged.Blocked, defaults.Blocked)
 	}
 	if merged.Tags != defaults.Tags {
-		t.Errorf("Tags: got %v, want %v (defaults)", merged.Tags, defaults.Tags)
+		test.Errorf("Tags: got %v, want %v (defaults)", merged.Tags, defaults.Tags)
 	}
 	if merged.Project != defaults.Project {
-		t.Errorf("Project: got %v, want %v (defaults)", merged.Project, defaults.Project)
+		test.Errorf("Project: got %v, want %v (defaults)", merged.Project, defaults.Project)
 	}
 	if merged.Annotations != defaults.Annotations {
-		t.Errorf("Annotations: got %v, want %v (defaults)", merged.Annotations, defaults.Annotations)
+		test.Errorf("Annotations: got %v, want %v (defaults)", merged.Annotations, defaults.Annotations)
 	}
 	if merged.Waiting != defaults.Waiting {
-		t.Errorf("Waiting: got %v, want %v (defaults)", merged.Waiting, defaults.Waiting)
+		test.Errorf("Waiting: got %v, want %v (defaults)", merged.Waiting, defaults.Waiting)
 	}
 }
 
-func TestUrgencyProjectWeightOverride(t *testing.T) {
+func TestUrgencyProjectWeightOverride(test *testing.T) {
 	engine := NewUrgencyEngine(defaultWeights())
 
 	overridePriority := 20.0
@@ -285,23 +285,23 @@ func TestUrgencyProjectWeightOverride(t *testing.T) {
 	customScore := engine.Score(customTask, ctx)
 
 	if customScore <= defaultScore {
-		t.Errorf("custom project should score higher (%.2f) than default (%.2f)", customScore, defaultScore)
+		test.Errorf("custom project should score higher (%.2f) than default (%.2f)", customScore, defaultScore)
 	}
 }
 
-func TestUrgencyEngine_Reload(t *testing.T) {
-	e := NewUrgencyEngine(UrgencyWeights{Priority: 10})
+func TestUrgencyEngine_Reload(test *testing.T) {
+	engine := NewUrgencyEngine(UrgencyWeights{Priority: 10})
 	task := &domain.Task{Priority: 4}
 	ctx := ScoringContext{}
 
-	before := e.Score(task, ctx)
+	before := engine.Score(task, ctx)
 	if before == 0 {
-		t.Fatalf("expected non-zero score before reload")
+		test.Fatalf("expected non-zero score before reload")
 	}
 
-	e.Reload(UrgencyWeights{Priority: 0})
-	after := e.Score(task, ctx)
+	engine.Reload(UrgencyWeights{Priority: 0})
+	after := engine.Score(task, ctx)
 	if after != 0 {
-		t.Fatalf("expected zero score after reload, got %v", after)
+		test.Fatalf("expected zero score after reload, got %v", after)
 	}
 }
