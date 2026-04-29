@@ -18,7 +18,7 @@ import (
 
 // buildTaskCmd creates the `tusk task` parent command. Every task-scoped
 // verb — CRUD, lifecycle, claim, queue, and relation — lives under this parent.
-func (a *App) buildTaskCmd() *cobra.Command {
+func (app *App) buildTaskCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "task",
 		Short: "Manage tasks",
@@ -100,7 +100,7 @@ File expansion:
   # Subtask
   tusk task create "Subtask" parent=a3f8b2c1`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: a.runCreate,
+		RunE: app.runCreate,
 	}
 
 	modifyCmd := &cobra.Command{
@@ -139,7 +139,7 @@ File expansion works on description=, title=, and any string field:
   # Remove a tag (use -- to prevent flag parsing)
   tusk task modify a3f8b2c1 -- -obsolete`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: a.runModify,
+		RunE: app.runModify,
 	}
 
 	treeCmd := &cobra.Command{
@@ -165,7 +165,7 @@ of its descendants; in JSON mode every node carries a rollup field.`,
   # Show progress rollup on every branch node
   tusk task tree --rollup`,
 		Args: cobra.MaximumNArgs(1),
-		RunE: a.runTree,
+		RunE: app.runTree,
 	}
 	treeCmd.Flags().Bool("all", false, "include deleted tasks")
 	treeCmd.Flags().String("sort", "order", "sibling sort key: order|urgency|created|priority|due")
@@ -193,7 +193,7 @@ With no arguments, summarize each root task plus a totals line.`,
   # One block per initiative; counts include the full subtree under each
   tusk task summary --full level=initiative`,
 		Args: cobra.ArbitraryArgs,
-		RunE: a.runSummary,
+		RunE: app.runSummary,
 	}
 	summaryCmd.Flags().Bool("full", false, "with a filter, count the full subtree under each block (otherwise the filter restricts descendant counting too)")
 
@@ -214,7 +214,7 @@ Exit code is 0 when the workspace is clean and 1 when any violations exist.`,
 
   # JSON report for machine consumption
   tusk task level-check --format json`,
-		RunE: a.runLevelCheck,
+		RunE: app.runLevelCheck,
 	}
 
 	listCmd := &cobra.Command{
@@ -242,7 +242,7 @@ key.`,
 
   # Siblings under a parent, in sibling-order
   tusk task list parent=a3f8b2c1 --sort order`,
-		RunE: a.runList,
+		RunE: app.runList,
 	}
 	listCmd.Flags().String("sort", "urgency", "sort key: order|urgency|created|priority|due")
 
@@ -255,7 +255,7 @@ key.`,
 			Long: `Show full details for a single task including status, priority, project, due
 date, tags, UDAs, annotations, relations, claim state, and urgency score.`,
 			Args: cobra.ExactArgs(1),
-			RunE: a.runGet,
+			RunE: app.runGet,
 		},
 		modifyCmd,
 		treeCmd,
@@ -268,7 +268,7 @@ date, tags, UDAs, annotations, relations, claim state, and urgency score.`,
 if unclaimed. Rejects if claimed by another player. Use --player to identify
 yourself.`,
 			Args: cobra.ExactArgs(1),
-			RunE: a.runStart,
+			RunE: app.runStart,
 		},
 		&cobra.Command{
 			Use:   "done <short_id>",
@@ -276,7 +276,7 @@ yourself.`,
 			Long: `Transition a task to completed status. The task must be in a status that has a
 valid transition to the workflow's "done" status.`,
 			Args: cobra.ExactArgs(1),
-			RunE: a.runDone,
+			RunE: app.runDone,
 		},
 		&cobra.Command{
 			Use:   "delete <short_id>",
@@ -284,7 +284,7 @@ valid transition to the workflow's "done" status.`,
 			Long: `Soft-delete a task by transitioning it to the workflow's "delete" status. The
 task remains in the database for history; it is excluded from default list views.`,
 			Args: cobra.ExactArgs(1),
-			RunE: a.runDelete,
+			RunE: app.runDelete,
 		},
 		&cobra.Command{
 			Use:   "next",
@@ -292,7 +292,7 @@ task remains in the database for history; it is excluded from default list views
 			Long: `Show the single highest-urgency actionable task. "Actionable" means the task is
 in a non-terminal status, is not blocked by other tasks, and is not waiting.`,
 			Args: cobra.NoArgs,
-			RunE: a.runNext,
+			RunE: app.runNext,
 		},
 		&cobra.Command{
 			Use:   "annotate <short_id> <message...>",
@@ -309,7 +309,7 @@ escape a literal @.`,
   # Annotation from stdin
   echo "piped content" | tusk task annotate a3f8b2c1 @-`,
 			Args: cobra.MinimumNArgs(2),
-			RunE: a.runAnnotate,
+			RunE: app.runAnnotate,
 		},
 		&cobra.Command{
 			Use:   "claim <short_id>",
@@ -317,7 +317,7 @@ escape a literal @.`,
 			Long: `Claim a task for the current player, signaling intent and preventing other
 players from starting it. Requires --player to identify the claimant.`,
 			Args: cobra.ExactArgs(1),
-			RunE: a.runClaim,
+			RunE: app.runClaim,
 		},
 		&cobra.Command{
 			Use:   "release <short_id>",
@@ -325,7 +325,7 @@ players from starting it. Requires --player to identify the claimant.`,
 			Long: `Release a task claim. Only the current claimant can release. Requires --player
 to verify identity.`,
 			Args: cobra.ExactArgs(1),
-			RunE: a.runRelease,
+			RunE: app.runRelease,
 		},
 		&cobra.Command{
 			Use:   "available [filters...]",
@@ -337,7 +337,7 @@ other tasks. Accepts filters to narrow results (e.g., project, tags, priority).`
 
   # Available tasks in a specific project
   tusk task available project=backend --player agent-1`,
-			RunE: a.runAvailable,
+			RunE: app.runAvailable,
 		},
 		&cobra.Command{
 			Use:   "pop [filters...]",
@@ -350,7 +350,7 @@ with one command, eliminating race conditions. Requires --player.`,
 
   # Pop from a specific project
   tusk task pop project=backend --player agent-1`,
-			RunE: a.runPop,
+			RunE: app.runPop,
 		},
 		&cobra.Command{
 			Use:   "link <short_id> <relation_type> <short_id>",
@@ -360,7 +360,7 @@ with one command, eliminating race conditions. Requires --player.`,
   tusk task link a3f8b2c1 relates_to c8d2e5f3
   tusk task link a3f8b2c1 duplicates d9e3f6a4`,
 			Args: cobra.ExactArgs(3),
-			RunE: a.runLink,
+			RunE: app.runLink,
 		},
 		&cobra.Command{
 			Use:     "unlink <short_id> <relation_type> <short_id>",
@@ -368,9 +368,9 @@ with one command, eliminating race conditions. Requires --player.`,
 			Long:    `Remove a typed relation. Types: blocks, relates_to, duplicates.`,
 			Example: `  tusk task unlink a3f8b2c1 blocks b7c9d4e2`,
 			Args:    cobra.ExactArgs(3),
-			RunE:    a.runUnlink,
+			RunE:    app.runUnlink,
 		},
-		a.buildTaskMoveCmd(),
+		app.buildTaskMoveCmd(),
 	)
 
 	return parent
@@ -403,18 +403,20 @@ func formatError(err error, shortID string) string {
 // ProjectID, falling back to the stringified UUID when the lookup fails.
 // Used in handlers that want to include the project in TaxonomyError
 // messages without exposing raw UUIDs to users.
-func (a *App) projectNameForTask(ctx context.Context, projectID uuid.UUID) string {
-	if a.projectSvc == nil {
+func (app *App) projectNameForTask(ctx context.Context, projectID uuid.UUID) string {
+	if app.projectSvc == nil {
 		return projectID.String()
 	}
-	p, err := a.projectSvc.GetByID(ctx, projectID)
+	project, err := app.projectSvc.GetByID(ctx, projectID)
+
 	if err != nil {
 		return projectID.String()
 	}
-	return p.Name
+
+	return project.Name
 }
 
-func (a *App) runCreate(cmd *cobra.Command, args []string) error {
+func (app *App) runCreate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	input := strings.Join(args, " ")
@@ -424,144 +426,160 @@ func (a *App) runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var stdinFile *os.File
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		stdinFile = f
+	if file, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = file
 	}
 	state := &expandState{}
 
 	var rawTitle string
-	if f, ok := fs.GetField("title"); ok {
-		rawTitle = f.Value
+	if field, ok := fs.GetField("title"); ok {
+		rawTitle = field.Value
 	} else {
 		rawTitle = fs.Title()
 	}
 	if rawTitle == "" {
 		return fmt.Errorf("title is required")
 	}
-	expandedTitle, err := a.expandRefsWithState(rawTitle, stdinFile, state)
-	if err != nil {
-		return err
+	expandedTitle, expandTitleErr := app.expandRefsWithState(rawTitle, stdinFile, state)
+
+	if expandTitleErr != nil {
+		return expandTitleErr
 	}
 
 	task := &domain.Task{
 		Title: expandedTitle,
 	}
 
-	if f, ok := fs.GetField("description"); ok {
-		expandedDesc, err := a.expandRefsWithState(f.Value, stdinFile, state)
-		if err != nil {
-			return err
+	if field, ok := fs.GetField("description"); ok {
+		expandedDesc, expandDescErr := app.expandRefsWithState(field.Value, stdinFile, state)
+
+		if expandDescErr != nil {
+			return expandDescErr
 		}
+
 		task.Description = expandedDesc
 	}
 
 	// Level (inline taxonomy assignment)
-	if f, ok := fs.GetField("level"); ok {
-		if f.Modifier != 0 {
-			return fmt.Errorf("modifier %q not supported on level", string(f.Modifier))
+	if field, ok := fs.GetField("level"); ok {
+		if field.Modifier != 0 {
+			return fmt.Errorf("modifier %q not supported on level", string(field.Modifier))
 		}
-		if f.Value == "" {
+		if field.Value == "" {
 			return fmt.Errorf("level= on create requires a value; use modify to clear")
 		}
-		v := f.Value
-		task.Level = &v
+		levelVal := field.Value
+		task.Level = &levelVal
 	}
 
 	// Project
-	if f, ok := fs.GetField("project"); ok {
-		resolved, err := a.taskSvc.ResolveProjectName(cmd.Context(), f.Value)
-		if err != nil {
-			return fmt.Errorf("resolving project %q: %w", f.Value, err)
+	if field, ok := fs.GetField("project"); ok {
+		resolved, resolveErr := app.taskSvc.ResolveProjectName(cmd.Context(), field.Value)
+
+		if resolveErr != nil {
+			return fmt.Errorf("resolving project %q: %w", field.Value, resolveErr)
 		}
+
 		task.ProjectID = resolved
 	}
 
 	// Priority
-	if f, ok := fs.GetField("priority"); ok {
-		p, err := filter.ParsePriorityValue(f.Value)
-		if err != nil {
-			return err
+	if field, ok := fs.GetField("priority"); ok {
+		priority, priorityErr := filter.ParsePriorityValue(field.Value)
+
+		if priorityErr != nil {
+			return priorityErr
 		}
-		task.Priority = p
+
+		task.Priority = priority
 	}
 
 	// Order
-	if f, ok := fs.GetField("order"); ok {
-		if f.Modifier != 0 {
+	if field, ok := fs.GetField("order"); ok {
+		if field.Modifier != 0 {
 			return fmt.Errorf("order does not accept + or - modifiers; use tusk task move to reposition")
 		}
-		if f.Value == "" {
+		if field.Value == "" {
 			return fmt.Errorf("order= requires a numeric value on create")
 		}
-		v, err := strconv.ParseFloat(f.Value, 64)
-		if err != nil {
-			return fmt.Errorf("invalid order value %q: %w", f.Value, err)
+		orderVal, orderErr := strconv.ParseFloat(field.Value, 64)
+
+		if orderErr != nil {
+			return fmt.Errorf("invalid order value %q: %w", field.Value, orderErr)
 		}
-		task.Order = &v
+
+		task.Order = &orderVal
 	}
 
 	// Status (rarely used, defaults to pending in service)
-	if f, ok := fs.GetField("status"); ok {
-		task.Status = f.Value
+	if field, ok := fs.GetField("status"); ok {
+		task.Status = field.Value
 	}
 
 	// Due date
-	if f, ok := fs.GetField("due"); ok {
-		d, err := filter.ParseDateValue(f.Value)
-		if err != nil {
-			return err
+	if field, ok := fs.GetField("due"); ok {
+		dueDate, dueDateErr := filter.ParseDateValue(field.Value)
+
+		if dueDateErr != nil {
+			return dueDateErr
 		}
-		task.DueAt = &d
+
+		task.DueAt = &dueDate
 	}
 
 	// Parent
-	if f, ok := fs.GetField("parent"); ok {
-		parent, err := a.taskSvc.GetByShortID(ctx, f.Value)
-		if err != nil {
-			return fmt.Errorf("%s", formatError(err, f.Value))
+	if field, ok := fs.GetField("parent"); ok {
+		parentTask, parentErr := app.taskSvc.GetByShortID(ctx, field.Value)
+
+		if parentErr != nil {
+			return fmt.Errorf("%s", formatError(parentErr, field.Value))
 		}
-		task.ParentID = &parent.ID
+
+		task.ParentID = &parentTask.ID
 	}
 
-	if err := validateKnownFields(fs); err != nil {
-		return err
+	if validateErr := validateKnownFields(fs); validateErr != nil {
+		return validateErr
 	}
-	udaMap, err := collectUDAs(fs)
-	if err != nil {
-		return err
+	udaMap, udaErr := collectUDAs(fs)
+
+	if udaErr != nil {
+		return udaErr
 	}
+
 	if udaMap != nil {
 		task.UDA = udaMap
 	}
 
-	if err := a.taskSvc.Create(ctx, task); err != nil {
-		if errors.Is(err, domain.ErrTaxonomyViolation) {
-			if msg, ok := formatTaxonomyError(err, a.projectNameForTask(ctx, task.ProjectID)); ok {
+	if createErr := app.taskSvc.Create(ctx, task); createErr != nil {
+		if errors.Is(createErr, domain.ErrTaxonomyViolation) {
+			if msg, ok := formatTaxonomyError(createErr, app.projectNameForTask(ctx, task.ProjectID)); ok {
 				return fmt.Errorf("%s", msg)
 			}
 		}
-		return fmt.Errorf("%s", err)
+		return fmt.Errorf("%s", createErr)
 	}
 
 	// Assign tags if any were specified
 	incTags := fs.IncludeTags()
 	if len(incTags) > 0 {
-		if err := a.tagSvc.AssignToTask(ctx, task.ID, incTags); err != nil {
-			return fmt.Errorf("assigning tags: %w", err)
+		if assignErr := app.tagSvc.AssignToTask(ctx, task.ID, incTags); assignErr != nil {
+			return fmt.Errorf("assigning tags: %w", assignErr)
 		}
 	}
 
 	// Fetch tags for output
-	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("loading tags: %w", err)
+	tags, tagsErr := app.tagSvc.GetTaskTags(ctx, task.ID)
+
+	if tagsErr != nil {
+		return fmt.Errorf("loading tags: %w", tagsErr)
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Created", task, tags)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Created", task, tags)
 }
 
-func (a *App) runList(cmd *cobra.Command, args []string) error {
+func (app *App) runList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	sortMode, _ := cmd.Flags().GetString("sort")
@@ -578,7 +596,7 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 	var filterExpr domain.FilterExpr
 	if expr != nil {
 		var resolveErrs []error
-		filterExpr, resolveErrs = a.resolver.ResolveExpr(ctx, expr)
+		filterExpr, resolveErrs = app.resolver.ResolveExpr(ctx, expr)
 		if len(resolveErrs) > 0 {
 			return resolveErrs[0]
 		}
@@ -589,9 +607,10 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 		}}
 	}
 
-	tasks, err := a.taskSvc.List(ctx, filterExpr)
-	if err != nil {
-		return err
+	tasks, listErr := app.taskSvc.List(ctx, filterExpr)
+
+	if listErr != nil {
+		return listErr
 	}
 
 	// Service returns tasks sorted by urgency; re-sort when the user asked
@@ -601,25 +620,26 @@ func (a *App) runList(cmd *cobra.Command, args []string) error {
 
 	// Fetch tags for all tasks in one query
 	taskIDs := make([]uuid.UUID, len(tasks))
-	for i, t := range tasks {
-		taskIDs[i] = t.ID
+	for index, task := range tasks {
+		taskIDs[index] = task.ID
 	}
-	tagsByTaskID, err := a.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
-	if err != nil {
-		return fmt.Errorf("loading tags: %w", err)
+	tagsByTaskID, tagsErr := app.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+
+	if tagsErr != nil {
+		return fmt.Errorf("loading tags: %w", tagsErr)
 	}
 
 	// Convert uuid.UUID keys to string keys for the render layer
 	taskTags := make(map[string][]*domain.Tag, len(tagsByTaskID))
-	for id, tags := range tagsByTaskID {
-		taskTags[id.String()] = tags
+	for taskID, tags := range tagsByTaskID {
+		taskTags[taskID.String()] = tags
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), a.buildDimStatuses())
-	return r.renderTaskList(tasks, taskTags)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), app.buildDimStatuses())
+	return renderer.renderTaskList(tasks, taskTags)
 }
 
-func (a *App) runLevelCheck(cmd *cobra.Command, args []string) error {
+func (app *App) runLevelCheck(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	input := strings.Join(args, " ")
@@ -631,20 +651,21 @@ func (a *App) runLevelCheck(cmd *cobra.Command, args []string) error {
 	var filterExpr domain.FilterExpr
 	if expr != nil {
 		var resolveErrs []error
-		filterExpr, resolveErrs = a.resolver.ResolveExprAllStatuses(ctx, expr)
+		filterExpr, resolveErrs = app.resolver.ResolveExprAllStatuses(ctx, expr)
 		if len(resolveErrs) > 0 {
 			return resolveErrs[0]
 		}
 	}
 
-	violations, err := a.taskSvc.LevelCheck(ctx, filterExpr)
-	if err != nil {
-		return err
+	violations, checkErr := app.taskSvc.LevelCheck(ctx, filterExpr)
+
+	if checkErr != nil {
+		return checkErr
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	if err := r.renderLevelCheck(violations); err != nil {
-		return err
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	if renderErr := renderer.renderLevelCheck(violations); renderErr != nil {
+		return renderErr
 	}
 	if len(violations) > 0 {
 		return ErrLevelViolations
@@ -658,33 +679,38 @@ func (a *App) runLevelCheck(cmd *cobra.Command, args []string) error {
 // line — the renderer has already listed the violations.
 var ErrLevelViolations = errors.New("taxonomy violations detected")
 
-func (a *App) runGet(cmd *cobra.Command, args []string) error {
+func (app *App) runGet(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
-	task, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	task, taskErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if taskErr != nil {
+		return fmt.Errorf("%s", formatError(taskErr, shortID))
 	}
 
-	annotations, err := a.taskSvc.GetAnnotations(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("loading annotations: %w", err)
+	annotations, annotationsErr := app.taskSvc.GetAnnotations(ctx, shortID)
+
+	if annotationsErr != nil {
+		return fmt.Errorf("loading annotations: %w", annotationsErr)
 	}
 
 	// Fetch tags
-	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("loading tags: %w", err)
+	tags, tagsErr := app.tagSvc.GetTaskTags(ctx, task.ID)
+
+	if tagsErr != nil {
+		return fmt.Errorf("loading tags: %w", tagsErr)
 	}
 
 	// Fetch and resolve relations
 	var resolved []resolvedRelation
-	if a.relationSvc != nil {
-		rels, relErr := a.relationSvc.GetByTask(ctx, shortID)
+	if app.relationSvc != nil {
+		rels, relErr := app.relationSvc.GetByTask(ctx, shortID)
+
 		if relErr != nil {
 			return fmt.Errorf("loading relations: %w", relErr)
 		}
+
 		for _, rel := range rels {
 			rr := resolvedRelation{Relation: rel}
 			if rel.TargetID == task.ID {
@@ -697,13 +723,13 @@ func (a *App) runGet(cmd *cobra.Command, args []string) error {
 				case "duplicates":
 					rr.Label = "duplicated_by"
 				}
-				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
+				if other, lookupErr := app.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
 					rr.RelatedShortID = other.ShortID
 					rr.RelatedTitle = other.Title
 				}
 			} else {
 				rr.Label = rel.RelationType
-				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
+				if other, lookupErr := app.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
 					rr.RelatedShortID = other.ShortID
 					rr.RelatedTitle = other.Title
 				}
@@ -712,38 +738,43 @@ func (a *App) runGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderTaskInfo(task, annotations, tags, resolved)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderTaskInfo(task, annotations, tags, resolved)
 }
 
-func (a *App) runNext(cmd *cobra.Command, args []string) error {
+func (app *App) runNext(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	task, err := a.taskSvc.Next(ctx)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
+	task, taskErr := app.taskSvc.Next(ctx)
+
+	if taskErr != nil {
+		if errors.Is(taskErr, domain.ErrNotFound) {
 			return fmt.Errorf("no actionable tasks")
 		}
-		return err
+		return taskErr
 	}
 
-	annotations, err := a.taskSvc.GetAnnotations(ctx, task.ShortID)
-	if err != nil {
-		return fmt.Errorf("loading annotations: %w", err)
+	annotations, annotationsErr := app.taskSvc.GetAnnotations(ctx, task.ShortID)
+
+	if annotationsErr != nil {
+		return fmt.Errorf("loading annotations: %w", annotationsErr)
 	}
 
-	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("loading tags: %w", err)
+	tags, tagsErr := app.tagSvc.GetTaskTags(ctx, task.ID)
+
+	if tagsErr != nil {
+		return fmt.Errorf("loading tags: %w", tagsErr)
 	}
 
 	// Fetch and resolve relations (same pattern as runGet)
 	var resolved []resolvedRelation
-	if a.relationSvc != nil {
-		rels, relErr := a.relationSvc.GetByTask(ctx, task.ShortID)
+	if app.relationSvc != nil {
+		rels, relErr := app.relationSvc.GetByTask(ctx, task.ShortID)
+
 		if relErr != nil {
 			return fmt.Errorf("loading relations: %w", relErr)
 		}
+
 		for _, rel := range rels {
 			rr := resolvedRelation{Relation: rel}
 			if rel.TargetID == task.ID {
@@ -755,13 +786,13 @@ func (a *App) runNext(cmd *cobra.Command, args []string) error {
 				case "duplicates":
 					rr.Label = "duplicated_by"
 				}
-				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
+				if other, lookupErr := app.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
 					rr.RelatedShortID = other.ShortID
 					rr.RelatedTitle = other.Title
 				}
 			} else {
 				rr.Label = rel.RelationType
-				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
+				if other, lookupErr := app.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
 					rr.RelatedShortID = other.ShortID
 					rr.RelatedTitle = other.Title
 				}
@@ -770,11 +801,11 @@ func (a *App) runNext(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderTaskInfo(task, annotations, tags, resolved)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderTaskInfo(task, annotations, tags, resolved)
 }
 
-func (a *App) runModify(cmd *cobra.Command, args []string) error {
+func (app *App) runModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
@@ -785,13 +816,15 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	}
 
 	urgencyInputs := make([]urgencyFieldInput, len(fs.Fields))
-	for i, f := range fs.Fields {
-		urgencyInputs[i] = urgencyFieldInput{Key: f.Key, Value: f.Value, Modifier: f.Modifier}
+	for index, field := range fs.Fields {
+		urgencyInputs[index] = urgencyFieldInput{Key: field.Key, Value: field.Value, Modifier: field.Modifier}
 	}
-	urgencyResult, notConsumed, err := parseUrgencyFields(urgencyInputs)
-	if err != nil {
-		return err
+	urgencyResult, notConsumed, urgencyErr := parseUrgencyFields(urgencyInputs)
+
+	if urgencyErr != nil {
+		return urgencyErr
 	}
+
 	if len(notConsumed) != len(fs.Fields) {
 		remaining := make([]filter.FieldFilter, 0, len(notConsumed))
 		for _, idx := range notConsumed {
@@ -801,9 +834,10 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	}
 
 	// Auto-fetch current version
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	current, currentErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if currentErr != nil {
+		return fmt.Errorf("%s", formatError(currentErr, shortID))
 	}
 
 	upd := domain.TaskUpdate{
@@ -823,270 +857,299 @@ func (a *App) runModify(cmd *cobra.Command, args []string) error {
 	}
 
 	var stdinFile *os.File
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		stdinFile = f
+	if file, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = file
 	}
 	state := &expandState{}
 
 	// Title: inline field wins over free text; both pass through the expander.
-	if f, ok := fs.GetField("title"); ok {
-		expanded, err := a.expandRefsWithState(f.Value, stdinFile, state)
-		if err != nil {
-			return err
+	if field, ok := fs.GetField("title"); ok {
+		expanded, expandErr := app.expandRefsWithState(field.Value, stdinFile, state)
+
+		if expandErr != nil {
+			return expandErr
 		}
+
 		upd.Title = &expanded
 	} else if title := fs.Title(); title != "" {
-		expanded, err := a.expandRefsWithState(title, stdinFile, state)
-		if err != nil {
-			return err
+		expanded, expandErr := app.expandRefsWithState(title, stdinFile, state)
+
+		if expandErr != nil {
+			return expandErr
 		}
+
 		upd.Title = &expanded
 	}
 
 	// Description (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
-	if f, ok := fs.GetField("description"); ok {
-		if f.Value == "" {
+	if field, ok := fs.GetField("description"); ok {
+		if field.Value == "" {
 			var nilStr *string
 			upd.Description = &nilStr
 		} else {
-			expanded, err := a.expandRefsWithState(f.Value, stdinFile, state)
-			if err != nil {
-				return err
+			expanded, expandErr := app.expandRefsWithState(field.Value, stdinFile, state)
+
+			if expandErr != nil {
+				return expandErr
 			}
+
 			dp := &expanded
 			upd.Description = &dp
 		}
 	}
 
 	// Level (double pointer: empty value clears the level)
-	if f, ok := fs.GetField("level"); ok {
-		if f.Modifier != 0 {
-			return fmt.Errorf("modifier %q not supported on level", string(f.Modifier))
+	if field, ok := fs.GetField("level"); ok {
+		if field.Modifier != 0 {
+			return fmt.Errorf("modifier %q not supported on level", string(field.Modifier))
 		}
-		if f.Value == "" {
+		if field.Value == "" {
 			var nilStr *string
 			upd.Level = &nilStr
 		} else {
-			v := f.Value
-			lp := &v
-			upd.Level = &lp
+			levelVal := field.Value
+			levelPtr := &levelVal
+			upd.Level = &levelPtr
 		}
 	}
 
 	// Priority
-	if f, ok := fs.GetField("priority"); ok {
-		p, err := filter.ParsePriorityValue(f.Value)
-		if err != nil {
-			return err
+	if field, ok := fs.GetField("priority"); ok {
+		priority, priorityErr := filter.ParsePriorityValue(field.Value)
+
+		if priorityErr != nil {
+			return priorityErr
 		}
-		upd.Priority = &p
+
+		upd.Priority = &priority
 	}
 
 	// Order (double pointer: nil = don't change, *nil = clear, *v = set absolute)
-	if f, ok := fs.GetField("order"); ok {
-		if f.Modifier != 0 {
+	if field, ok := fs.GetField("order"); ok {
+		if field.Modifier != 0 {
 			return fmt.Errorf("order does not accept + or - modifiers; use tusk task move to reposition")
 		}
-		if f.Value == "" {
+		if field.Value == "" {
 			var nilFloat *float64
 			upd.Order = &nilFloat
 		} else {
-			v, err := strconv.ParseFloat(f.Value, 64)
-			if err != nil {
-				return fmt.Errorf("invalid order value %q: %w", f.Value, err)
+			orderVal, orderErr := strconv.ParseFloat(field.Value, 64)
+
+			if orderErr != nil {
+				return fmt.Errorf("invalid order value %q: %w", field.Value, orderErr)
 			}
-			vp := &v
-			upd.Order = &vp
+
+			orderPtr := &orderVal
+			upd.Order = &orderPtr
 		}
 	}
 
 	// Status
-	if f, ok := fs.GetField("status"); ok {
-		v := f.Value
-		upd.Status = &v
+	if field, ok := fs.GetField("status"); ok {
+		statusVal := field.Value
+		upd.Status = &statusVal
 	}
 
 	// Due date (double pointer: outer nil = don't change, outer non-nil + inner nil = clear)
-	if f, ok := fs.GetField("due"); ok {
-		if f.Value == "" {
+	if field, ok := fs.GetField("due"); ok {
+		if field.Value == "" {
 			var nilTime *time.Time
 			upd.DueAt = &nilTime
 		} else {
-			d, err := filter.ParseDateValue(f.Value)
-			if err != nil {
-				return err
+			dueDate, dueDateErr := filter.ParseDateValue(field.Value)
+
+			if dueDateErr != nil {
+				return dueDateErr
 			}
-			dp := &d
-			upd.DueAt = &dp
+
+			duePtr := &dueDate
+			upd.DueAt = &duePtr
 		}
 	}
 
 	// Project
-	if f, ok := fs.GetField("project"); ok {
-		resolved, err := a.taskSvc.ResolveProjectName(ctx, f.Value)
-		if err != nil {
-			return fmt.Errorf("resolving project %q: %w", f.Value, err)
+	if field, ok := fs.GetField("project"); ok {
+		resolved, resolveErr := app.taskSvc.ResolveProjectName(ctx, field.Value)
+
+		if resolveErr != nil {
+			return fmt.Errorf("resolving project %q: %w", field.Value, resolveErr)
 		}
+
 		upd.ProjectID = &resolved
 	}
 
 	// Parent (double pointer: empty string = clear parent)
-	if f, ok := fs.GetField("parent"); ok {
-		if f.Value == "" {
+	if field, ok := fs.GetField("parent"); ok {
+		if field.Value == "" {
 			var nilUUID *uuid.UUID
 			upd.ParentID = &nilUUID
 		} else {
-			parent, err := a.taskSvc.GetByShortID(ctx, f.Value)
-			if err != nil {
-				return fmt.Errorf("%s", formatError(err, f.Value))
+			parentTask, parentErr := app.taskSvc.GetByShortID(ctx, field.Value)
+
+			if parentErr != nil {
+				return fmt.Errorf("%s", formatError(parentErr, field.Value))
 			}
-			pid := parent.ID
-			pp := &pid
-			upd.ParentID = &pp
+
+			parentID := parentTask.ID
+			parentPtr := &parentID
+			upd.ParentID = &parentPtr
 		}
 	}
 
-	if err := validateKnownFields(fs); err != nil {
-		return err
+	if validateErr := validateKnownFields(fs); validateErr != nil {
+		return validateErr
 	}
-	udaMap, err := collectUDAs(fs)
-	if err != nil {
-		return err
+	udaMap, udaErr := collectUDAs(fs)
+
+	if udaErr != nil {
+		return udaErr
 	}
+
 	if udaMap != nil {
 		upd.UDA = &udaMap
 	}
 
-	updated, err := a.taskSvc.Update(ctx, upd)
-	if err != nil {
-		if errors.Is(err, domain.ErrTaxonomyViolation) {
+	updated, updateErr := app.taskSvc.Update(ctx, upd)
+
+	if updateErr != nil {
+		if errors.Is(updateErr, domain.ErrTaxonomyViolation) {
 			projectID := current.ProjectID
 			if upd.ProjectID != nil {
 				projectID = *upd.ProjectID
 			}
-			if msg, ok := formatTaxonomyError(err, a.projectNameForTask(ctx, projectID)); ok {
+			if msg, ok := formatTaxonomyError(updateErr, app.projectNameForTask(ctx, projectID)); ok {
 				return fmt.Errorf("%s", msg)
 			}
 		}
-		return fmt.Errorf("%s", formatError(err, shortID))
+		return fmt.Errorf("%s", formatError(updateErr, shortID))
 	}
 
 	// Add new tags
 	incTags := fs.IncludeTags()
 	if len(incTags) > 0 {
-		if err := a.tagSvc.AssignToTask(ctx, updated.ID, incTags); err != nil {
-			return fmt.Errorf("assigning tags: %w", err)
+		if assignErr := app.tagSvc.AssignToTask(ctx, updated.ID, incTags); assignErr != nil {
+			return fmt.Errorf("assigning tags: %w", assignErr)
 		}
 	}
 
 	// Remove excluded tags
 	excTags := fs.ExcludeTags()
 	if len(excTags) > 0 {
-		if err := a.tagSvc.RemoveFromTask(ctx, updated.ID, excTags); err != nil {
-			return fmt.Errorf("removing tags: %w", err)
+		if removeErr := app.tagSvc.RemoveFromTask(ctx, updated.ID, excTags); removeErr != nil {
+			return fmt.Errorf("removing tags: %w", removeErr)
 		}
 	}
 
 	// Fetch tags for output
-	modTags, err := a.tagSvc.GetTaskTags(ctx, updated.ID)
-	if err != nil {
-		return fmt.Errorf("loading tags: %w", err)
+	modTags, modTagsErr := app.tagSvc.GetTaskTags(ctx, updated.ID)
+
+	if modTagsErr != nil {
+		return fmt.Errorf("loading tags: %w", modTagsErr)
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Modified", updated, modTags)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Modified", updated, modTags)
 }
 
-func (a *App) runStart(cmd *cobra.Command, args []string) error {
+func (app *App) runStart(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
 	// Auto-register player if --player is set
-	if a.playerID != "" {
-		if err := a.ensurePlayer(ctx); err != nil {
+	if app.playerID != "" {
+		if err := app.ensurePlayer(ctx); err != nil {
 			return err
 		}
 	}
 
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	current, currentErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if currentErr != nil {
+		return fmt.Errorf("%s", formatError(currentErr, shortID))
 	}
 
-	updated, err := a.taskSvc.Start(ctx, shortID, current.Version, a.playerID)
-	if err != nil {
-		if errors.Is(err, domain.ErrTaskClaimed) {
-			return fmt.Errorf("%s", formatClaimError(err, shortID))
+	updated, updateErr := app.taskSvc.Start(ctx, shortID, current.Version, app.playerID)
+
+	if updateErr != nil {
+		if errors.Is(updateErr, domain.ErrTaskClaimed) {
+			return fmt.Errorf("%s", formatClaimError(updateErr, shortID))
 		}
-		return fmt.Errorf("%s", formatError(err, shortID))
+		return fmt.Errorf("%s", formatError(updateErr, shortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Started", updated, nil)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Started", updated, nil)
 }
 
-func (a *App) runDone(cmd *cobra.Command, args []string) error {
+func (app *App) runDone(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	current, currentErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if currentErr != nil {
+		return fmt.Errorf("%s", formatError(currentErr, shortID))
 	}
 
-	updated, err := a.taskSvc.Complete(ctx, shortID, current.Version)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	updated, updateErr := app.taskSvc.Complete(ctx, shortID, current.Version)
+
+	if updateErr != nil {
+		return fmt.Errorf("%s", formatError(updateErr, shortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Completed", updated, nil)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Completed", updated, nil)
 }
 
-func (a *App) runDelete(cmd *cobra.Command, args []string) error {
+func (app *App) runDelete(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	current, currentErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if currentErr != nil {
+		return fmt.Errorf("%s", formatError(currentErr, shortID))
 	}
 
-	updated, err := a.taskSvc.Delete(ctx, shortID, current.Version)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	updated, updateErr := app.taskSvc.Delete(ctx, shortID, current.Version)
+
+	if updateErr != nil {
+		return fmt.Errorf("%s", formatError(updateErr, shortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Deleted", updated, nil)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Deleted", updated, nil)
 }
 
-func (a *App) runAnnotate(cmd *cobra.Command, args []string) error {
+func (app *App) runAnnotate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 	body := strings.Join(args[1:], " ")
 
 	var stdinFile *os.File
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		stdinFile = f
+	if file, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = file
 	}
-	expandedBody, err := a.expandRefs(body, stdinFile)
-	if err != nil {
-		return err
+	expandedBody, expandBodyErr := app.expandRefs(body, stdinFile)
+
+	if expandBodyErr != nil {
+		return expandBodyErr
 	}
 
-	_, err = a.taskSvc.Annotate(ctx, shortID, expandedBody)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	_, annotateErr := app.taskSvc.Annotate(ctx, shortID, expandedBody)
+
+	if annotateErr != nil {
+		return fmt.Errorf("%s", formatError(annotateErr, shortID))
 	}
 
-	task, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	task, taskErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if taskErr != nil {
+		return fmt.Errorf("%s", formatError(taskErr, shortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Annotated", task, nil)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Annotated", task, nil)
 }
 
 func formatRelationError(err error, sourceShortID, targetShortID string) string {
@@ -1106,95 +1169,100 @@ func formatRelationError(err error, sourceShortID, targetShortID string) string 
 	}
 }
 
-func (a *App) runLink(cmd *cobra.Command, args []string) error {
+func (app *App) runLink(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	sourceShortID := args[0]
 	relType := args[1]
 	targetShortID := args[2]
 
-	rel, err := a.relationSvc.Add(ctx, sourceShortID, targetShortID, relType)
-	if err != nil {
-		return fmt.Errorf("%s", formatRelationError(err, sourceShortID, targetShortID))
+	rel, linkErr := app.relationSvc.Add(ctx, sourceShortID, targetShortID, relType)
+
+	if linkErr != nil {
+		return fmt.Errorf("%s", formatRelationError(linkErr, sourceShortID, targetShortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderLinkResult(rel, sourceShortID, targetShortID)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderLinkResult(rel, sourceShortID, targetShortID)
 }
 
-func (a *App) runUnlink(cmd *cobra.Command, args []string) error {
+func (app *App) runUnlink(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	sourceShortID := args[0]
 	relType := args[1]
 	targetShortID := args[2]
 
-	if err := a.relationSvc.Remove(ctx, sourceShortID, targetShortID, relType); err != nil {
+	if err := app.relationSvc.Remove(ctx, sourceShortID, targetShortID, relType); err != nil {
 		return fmt.Errorf("%s", formatRelationError(err, sourceShortID, targetShortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderUnlinkResult(sourceShortID, relType, targetShortID)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderUnlinkResult(sourceShortID, relType, targetShortID)
 }
 
-func (a *App) runClaim(cmd *cobra.Command, args []string) error {
+func (app *App) runClaim(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
-	if a.playerID == "" {
+	if app.playerID == "" {
 		return fmt.Errorf("--player flag is required for claim")
 	}
 
 	// Auto-register player if not already registered
-	if err := a.ensurePlayer(ctx); err != nil {
+	if err := app.ensurePlayer(ctx); err != nil {
 		return err
 	}
 
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	current, currentErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if currentErr != nil {
+		return fmt.Errorf("%s", formatError(currentErr, shortID))
 	}
 
-	updated, err := a.taskSvc.Claim(ctx, shortID, a.playerID, current.Version)
-	if err != nil {
-		return fmt.Errorf("%s", formatClaimError(err, shortID))
+	updated, updateErr := app.taskSvc.Claim(ctx, shortID, app.playerID, current.Version)
+
+	if updateErr != nil {
+		return fmt.Errorf("%s", formatClaimError(updateErr, shortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Claimed", updated, nil)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Claimed", updated, nil)
 }
 
-func (a *App) runRelease(cmd *cobra.Command, args []string) error {
+func (app *App) runRelease(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	shortID := args[0]
 
-	if a.playerID == "" {
+	if app.playerID == "" {
 		return fmt.Errorf("--player flag is required for release")
 	}
 
-	current, err := a.taskSvc.GetByShortID(ctx, shortID)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, shortID))
+	current, currentErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+	if currentErr != nil {
+		return fmt.Errorf("%s", formatError(currentErr, shortID))
 	}
 
-	updated, err := a.taskSvc.Release(ctx, shortID, a.playerID, current.Version)
-	if err != nil {
-		return fmt.Errorf("%s", formatClaimError(err, shortID))
+	updated, updateErr := app.taskSvc.Release(ctx, shortID, app.playerID, current.Version)
+
+	if updateErr != nil {
+		return fmt.Errorf("%s", formatClaimError(updateErr, shortID))
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderMutationResult("Released", updated, nil)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderMutationResult("Released", updated, nil)
 }
 
 // ensurePlayer auto-registers the current --player as "human" if not yet registered.
-func (a *App) ensurePlayer(ctx context.Context) error {
-	if a.playerSvc == nil || a.playerID == "" {
+func (app *App) ensurePlayer(ctx context.Context) error {
+	if app.playerSvc == nil || app.playerID == "" {
 		return nil
 	}
-	_, err := a.playerSvc.GetByID(ctx, a.playerID)
+	_, err := app.playerSvc.GetByID(ctx, app.playerID)
 	if err == nil {
 		return nil // already registered
 	}
 	if errors.Is(err, domain.ErrNotFound) {
-		_, regErr := a.playerSvc.Register(ctx, a.playerID, "human")
+		_, regErr := app.playerSvc.Register(ctx, app.playerID, "human")
 		if regErr != nil && !errors.Is(regErr, domain.ErrConflict) {
 			return fmt.Errorf("auto-registering player: %w", regErr)
 		}
@@ -1216,14 +1284,14 @@ func formatClaimError(err error, shortID string) string {
 	}
 }
 
-func (a *App) runAvailable(cmd *cobra.Command, args []string) error {
+func (app *App) runAvailable(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	if a.playerID == "" {
+	if app.playerID == "" {
 		return fmt.Errorf("--player flag is required for available")
 	}
 
-	if err := a.ensurePlayer(ctx); err != nil {
+	if err := app.ensurePlayer(ctx); err != nil {
 		return err
 	}
 
@@ -1236,44 +1304,46 @@ func (a *App) runAvailable(cmd *cobra.Command, args []string) error {
 	var filterExpr domain.FilterExpr
 	if expr != nil {
 		var resolveErrs []error
-		filterExpr, resolveErrs = a.resolver.ResolveExpr(ctx, expr)
+		filterExpr, resolveErrs = app.resolver.ResolveExpr(ctx, expr)
 		if len(resolveErrs) > 0 {
 			return resolveErrs[0]
 		}
 	}
 
-	tasks, err := a.taskSvc.Available(ctx, filterExpr)
-	if err != nil {
-		return err
+	tasks, listErr := app.taskSvc.Available(ctx, filterExpr)
+
+	if listErr != nil {
+		return listErr
 	}
 
 	// Fetch tags for all tasks in one query
 	taskIDs := make([]uuid.UUID, len(tasks))
-	for i, t := range tasks {
-		taskIDs[i] = t.ID
+	for index, task := range tasks {
+		taskIDs[index] = task.ID
 	}
-	tagsByTaskID, err := a.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
-	if err != nil {
-		return fmt.Errorf("loading tags: %w", err)
+	tagsByTaskID, tagsErr := app.tagSvc.GetTaskTagsBatch(ctx, taskIDs)
+
+	if tagsErr != nil {
+		return fmt.Errorf("loading tags: %w", tagsErr)
 	}
 
 	taskTags := make(map[string][]*domain.Tag, len(tagsByTaskID))
-	for id, tags := range tagsByTaskID {
-		taskTags[id.String()] = tags
+	for taskID, tags := range tagsByTaskID {
+		taskTags[taskID.String()] = tags
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), a.buildDimStatuses())
-	return r.renderTaskList(tasks, taskTags)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), app.buildDimStatuses())
+	return renderer.renderTaskList(tasks, taskTags)
 }
 
-func (a *App) runPop(cmd *cobra.Command, args []string) error {
+func (app *App) runPop(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	if a.playerID == "" {
+	if app.playerID == "" {
 		return fmt.Errorf("--player flag is required for pop")
 	}
 
-	if err := a.ensurePlayer(ctx); err != nil {
+	if err := app.ensurePlayer(ctx); err != nil {
 		return err
 	}
 
@@ -1286,35 +1356,40 @@ func (a *App) runPop(cmd *cobra.Command, args []string) error {
 	var filterExpr domain.FilterExpr
 	if expr != nil {
 		var resolveErrs []error
-		filterExpr, resolveErrs = a.resolver.ResolveExpr(ctx, expr)
+		filterExpr, resolveErrs = app.resolver.ResolveExpr(ctx, expr)
 		if len(resolveErrs) > 0 {
 			return resolveErrs[0]
 		}
 	}
 
-	task, err := a.taskSvc.Pop(ctx, a.playerID, filterExpr)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, ""))
+	task, popErr := app.taskSvc.Pop(ctx, app.playerID, filterExpr)
+
+	if popErr != nil {
+		return fmt.Errorf("%s", formatError(popErr, ""))
 	}
 
 	// Load tags for the task
-	tags, err := a.tagSvc.GetTaskTags(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("loading tags: %w", err)
+	tags, tagsErr := app.tagSvc.GetTaskTags(ctx, task.ID)
+
+	if tagsErr != nil {
+		return fmt.Errorf("loading tags: %w", tagsErr)
 	}
 
-	annotations, err := a.taskSvc.GetAnnotations(ctx, task.ShortID)
-	if err != nil {
-		return fmt.Errorf("loading annotations: %w", err)
+	annotations, annotationsErr := app.taskSvc.GetAnnotations(ctx, task.ShortID)
+
+	if annotationsErr != nil {
+		return fmt.Errorf("loading annotations: %w", annotationsErr)
 	}
 
 	// Fetch and resolve relations
 	var resolved []resolvedRelation
-	if a.relationSvc != nil {
-		rels, relErr := a.relationSvc.GetByTask(ctx, task.ShortID)
+	if app.relationSvc != nil {
+		rels, relErr := app.relationSvc.GetByTask(ctx, task.ShortID)
+
 		if relErr != nil {
 			return fmt.Errorf("loading relations: %w", relErr)
 		}
+
 		for _, rel := range rels {
 			rr := resolvedRelation{Relation: rel}
 			if rel.TargetID == task.ID {
@@ -1326,13 +1401,13 @@ func (a *App) runPop(cmd *cobra.Command, args []string) error {
 				case "duplicates":
 					rr.Label = "duplicated_by"
 				}
-				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
+				if other, lookupErr := app.taskSvc.GetByID(ctx, rel.SourceID); lookupErr == nil {
 					rr.RelatedShortID = other.ShortID
 					rr.RelatedTitle = other.Title
 				}
 			} else {
 				rr.Label = rel.RelationType
-				if other, lookupErr := a.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
+				if other, lookupErr := app.taskSvc.GetByID(ctx, rel.TargetID); lookupErr == nil {
 					rr.RelatedShortID = other.ShortID
 					rr.RelatedTitle = other.Title
 				}
@@ -1341,17 +1416,17 @@ func (a *App) runPop(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderTaskInfo(task, annotations, tags, resolved)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderTaskInfo(task, annotations, tags, resolved)
 }
 
 // buildPlayerCmd creates the `tusk player` subcommand group.
-func (a *App) buildPlayerCmd() *cobra.Command {
+func (app *App) buildPlayerCmd() *cobra.Command {
 	registerCmd := &cobra.Command{
 		Use:   "register <id>",
 		Short: "Register a new player",
 		Args:  cobra.ExactArgs(1),
-		RunE:  a.runPlayerRegister,
+		RunE:  app.runPlayerRegister,
 	}
 	registerCmd.Flags().String("type", "agent", `player type: "human" or "agent"`)
 
@@ -1368,7 +1443,7 @@ Examples:
   tusk player modify agent-1 note-window-size=50
   tusk player modify agent-1 note-window-size=`,
 		Args: cobra.MinimumNArgs(2),
-		RunE: a.runPlayerModify,
+		RunE: app.runPlayerModify,
 	}
 
 	playerCmd := &cobra.Command{
@@ -1380,21 +1455,22 @@ Examples:
 	return playerCmd
 }
 
-func (a *App) runPlayerRegister(cmd *cobra.Command, args []string) error {
+func (app *App) runPlayerRegister(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	id := args[0]
 	playerType, _ := cmd.Flags().GetString("type")
 
-	player, err := a.playerSvc.Register(ctx, id, playerType)
-	if err != nil {
-		return fmt.Errorf("%s", err)
+	player, registerErr := app.playerSvc.Register(ctx, id, playerType)
+
+	if registerErr != nil {
+		return fmt.Errorf("%s", registerErr)
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderPlayerResult("Registered", player)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderPlayerResult("Registered", player)
 }
 
-func (a *App) runPlayerModify(cmd *cobra.Command, args []string) error {
+func (app *App) runPlayerModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	id := args[0]
 	if id == "" {
@@ -1411,28 +1487,29 @@ func (a *App) runPlayerModify(cmd *cobra.Command, args []string) error {
 		newSize       *int
 	)
 
-	for _, f := range fs.Fields {
-		switch f.Key {
+	for _, field := range fs.Fields {
+		switch field.Key {
 		case "note-window-size":
-			if f.Modifier != 0 {
-				return fmt.Errorf("note-window-size does not accept %q prefix", string(f.Modifier))
+			if field.Modifier != 0 {
+				return fmt.Errorf("note-window-size does not accept %q prefix", string(field.Modifier))
 			}
 			sawNoteWindow = true
-			if f.Value == "" {
+			if field.Value == "" {
 				newSize = nil
 				continue
 			}
-			n, parseErr := strconv.Atoi(f.Value)
+			size, parseErr := strconv.Atoi(field.Value)
+
 			if parseErr != nil {
-				return fmt.Errorf("note-window-size must be an integer, got %q", f.Value)
+				return fmt.Errorf("note-window-size must be an integer, got %q", field.Value)
 			}
-			if n <= 0 {
-				return fmt.Errorf("note-window-size must be positive, got %d", n)
+
+			if size <= 0 {
+				return fmt.Errorf("note-window-size must be positive, got %d", size)
 			}
-			v := n
-			newSize = &v
+			newSize = &size
 		default:
-			return fmt.Errorf("unknown field %q on player modify", f.Key)
+			return fmt.Errorf("unknown field %q on player modify", field.Key)
 		}
 	}
 
@@ -1440,11 +1517,12 @@ func (a *App) runPlayerModify(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no modifiable fields supplied")
 	}
 
-	player, err := a.playerSvc.SetNoteWindowSize(ctx, id, newSize)
-	if err != nil {
-		return fmt.Errorf("%s", err)
+	player, updateErr := app.playerSvc.SetNoteWindowSize(ctx, id, newSize)
+
+	if updateErr != nil {
+		return fmt.Errorf("%s", updateErr)
 	}
 
-	r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-	return r.renderPlayerResult("Updated", player)
+	renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+	return renderer.renderPlayerResult("Updated", player)
 }
