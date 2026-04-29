@@ -1408,7 +1408,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2.md
 > Blocks: P3, P4, P5, P6, P7.
 
-- [ ] [v0.14 P2-T1] Implement blankline analyzer level=task order=1 +naming-convention +phase-2 +v0.14
+- [x] [v0.14 P2-T1] Implement blankline analyzer level=task order=1 +naming-convention +phase-2 +v0.14
 > What: Build internal/lint/blankline/ with analyzer.go, analyzer_test.go, and testdata/src/a/a.go. The analyzer detects missing blank lines around if err != nil (and <noun>Err != nil) guards: between an error-producing assignment and its guard, and between the guard's closing brace and the next statement. Test files use test *testing.T from the start (rule 4 applies to analyzer test code).
 >
 > Why: Rule 2 enforcement. Dense unspaced blocks make short identifiers visually easy to lose; even with rule 1 in place, spacing matters.
@@ -1429,7 +1429,7 @@
 > Blocks: P2-T5, P2-T6.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T1.md
 
-- [ ] [v0.14 P2-T2] Implement namederr analyzer level=task order=2 +naming-convention +phase-2 +v0.14
+- [x] [v0.14 P2-T2] Implement namederr analyzer level=task order=2 +naming-convention +phase-2 +v0.14
 > What: Build internal/lint/namederr/ with analyzer.go, analyzer_test.go, and testdata/src/a/a.go. The analyzer counts *ast.AssignStmt statements that declare err via := within each *ast.BlockStmt. When the count is ≥ 2, it emits a diagnostic on every such assignment (including the first), instructing the implementer to use typed names (<noun>Err). Test files use test *testing.T.
 >
 > Why: Rule 3 enforcement. Sequential err := shadows hide the failure mode at the variable; named errors document it. Renaming all instances rather than leaving the first as err keeps the block visually uniform.
@@ -1449,7 +1449,7 @@
 > Blocks: P2-T5, P2-T6.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T2.md
 
-- [ ] [v0.14 P2-T3] Implement testhandle analyzer level=task order=3 +naming-convention +phase-2 +v0.14
+- [x] [v0.14 P2-T3] Implement testhandle analyzer level=task order=3 +naming-convention +phase-2 +v0.14
 > What: Build internal/lint/testhandle/ with analyzer.go, analyzer_test.go, and testdata/src/a/a.go. The analyzer walks every *ast.FuncDecl and *ast.FuncType. For each parameter, it resolves the type and consults a hardcoded table: *testing.T → test, *testing.B → bench, testing.TB → harness. If the parameter's name does not match, it emits a diagnostic. Test files use test *testing.T.
 >
 > Why: Rule 4 enforcement. Standardized test-handle names eliminate the last universally-tolerated single-character identifier in Go.
@@ -1468,7 +1468,7 @@
 > Blocks: P2-T5, P2-T6.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T3.md
 
-- [ ] [v0.14 P2-T4] Add pathfilter helper level=task order=4 +naming-convention +phase-2 +v0.14
+- [x] [v0.14 P2-T4] Add pathfilter helper level=task order=4 +naming-convention +phase-2 +v0.14
 > What: Create internal/lint/pathfilter/pathfilter.go exporting func Excluded(pkgPath string) bool. The helper consults a compiled-in slice of twelve per-package regexes that mirror the per-package exclusion rules in .golangci.yml. Each analyzer's Run function consults this helper and short-circuits with no diagnostics when the package is excluded.
 >
 > Twelve packages: service, internal/tui, internal/mcp, internal/portability, filter, domain, syntax, repository, sqlite, cmd, tests/e2e, plus the module root (client.go).
@@ -1488,7 +1488,7 @@
 > Bridge code: Introduces twelve per-package exclusion entries; removed by P3-T2, P4-T2, P5-T2, P6-T2, P7-T2; residuals removed by P8-T2.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T4.md
 
-- [ ] [v0.14 P2-T5] Register analyzers in cmd/tusk-lint level=task order=5 +naming-convention +phase-2 +v0.14
+- [x] [v0.14 P2-T5] Register analyzers in cmd/tusk-lint level=task order=5 +naming-convention +phase-2 +v0.14
 > What: Replace the empty analyzer list in cmd/tusk-lint/main.go (bridge code from P1-T3) with multichecker.Main(blankline.Analyzer, namederr.Analyzer, testhandle.Analyzer). Remove the bridge-code comment.
 >
 > Why: Activates all three rules in the linter binary. After this task ships, tusk-lint reports the rule violations defined in P2-T1 through P2-T3 wherever the package is not excluded by the pathfilter.
@@ -1509,7 +1509,7 @@
 > Blocks: P2-T6.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P2-T5.md
 
-- [ ] [v0.14 P2-T6] Verify Phase 2 CI green level=task order=6 +naming-convention +phase-2 +v0.14
+- [x] [v0.14 P2-T6] Verify Phase 2 CI green level=task order=6 +naming-convention +phase-2 +v0.14
 > What: Run go test ./internal/lint/... to verify all analyzer testdata fires the documented diagnostics. Run make lint against the unmodified codebase — must report zero violations because every existing package is excluded by the path filter. Run tusk-lint -blankline ./internal/lint/blankline/testdata/... manually to confirm the per-analyzer flag works on a single analyzer over a directory it knows.
 >
 > Why: Phase 2 closes by proving each analyzer fires correctly on testdata, the per-analyzer CLI flags work, and the unmodified codebase remains clean.
