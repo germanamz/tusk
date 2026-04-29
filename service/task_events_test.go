@@ -537,11 +537,11 @@ func TestEvents_ActorPropagation(test *testing.T) {
 		{name: "no_actor", actor: ""},
 	}
 
-	for _, tc := range cases {
-		test.Run(tc.name, func(test *testing.T) {
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
 			env := testTaskEnv(test)
-			ctx := WithActor(context.Background(), tc.actor)
-			task := newMinimalTask("actor test " + tc.name)
+			ctx := WithActor(context.Background(), testCase.actor)
+			task := newMinimalTask("actor test " + testCase.name)
 
 			if err := env.taskSvc.Create(ctx, task); err != nil {
 				test.Fatalf("Create: %v", err)
@@ -549,13 +549,13 @@ func TestEvents_ActorPropagation(test *testing.T) {
 
 			event := firstEventOfType(test, listAllEvents(test, env.store), domain.EventTaskCreated)
 
-			if tc.actor == "" {
+			if testCase.actor == "" {
 				if event.PlayerID != nil {
 					test.Fatalf("player_id: got %v, want nil", *event.PlayerID)
 				}
 			} else {
-				if event.PlayerID == nil || *event.PlayerID != tc.actor {
-					test.Fatalf("player_id: got %v, want %q", event.PlayerID, tc.actor)
+				if event.PlayerID == nil || *event.PlayerID != testCase.actor {
+					test.Fatalf("player_id: got %v, want %q", event.PlayerID, testCase.actor)
 				}
 			}
 		})

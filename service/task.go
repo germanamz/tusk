@@ -2408,15 +2408,15 @@ func (service *TaskService) LevelCheck(ctx context.Context, filter domain.Filter
 			if checkErr == nil {
 				continue
 			}
-			var te *domain.TaxonomyError
-			if !errors.As(checkErr, &te) {
+			var taxonomyErr *domain.TaxonomyError
+			if !errors.As(checkErr, &taxonomyErr) {
 				continue
 			}
 			violations = append(violations, LevelViolation{
 				Task:     task,
 				Taxonomy: projectCtx.taxonomy,
 				Source:   projectCtx.source,
-				Err:      te,
+				Err:      taxonomyErr,
 			})
 		}
 	}

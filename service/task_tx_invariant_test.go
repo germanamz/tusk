@@ -18,20 +18,20 @@ type failingEvents struct {
 	inner repository.EventRepository
 }
 
-func (f *failingEvents) Record(_ context.Context, _ *domain.Event) error {
+func (events *failingEvents) Record(_ context.Context, _ *domain.Event) error {
 	return errInjectedEventFailure
 }
 
-func (f *failingEvents) List(ctx context.Context, ff repository.EventFilter) ([]*domain.Event, error) {
-	return f.inner.List(ctx, ff)
+func (events *failingEvents) List(ctx context.Context, filter repository.EventFilter) ([]*domain.Event, error) {
+	return events.inner.List(ctx, filter)
 }
 
-func (f *failingEvents) Count(ctx context.Context) (int64, error) {
-	return f.inner.Count(ctx)
+func (events *failingEvents) Count(ctx context.Context) (int64, error) {
+	return events.inner.Count(ctx)
 }
 
-func (f *failingEvents) PruneToSize(ctx context.Context, maxRows int) (int64, error) {
-	return f.inner.PruneToSize(ctx, maxRows)
+func (events *failingEvents) PruneToSize(ctx context.Context, maxRows int) (int64, error) {
+	return events.inner.PruneToSize(ctx, maxRows)
 }
 
 type failingWriteTx struct {

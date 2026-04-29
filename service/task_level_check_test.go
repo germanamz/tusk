@@ -41,14 +41,14 @@ func TestLevelCheck_NoTaxonomyReturnsNoViolations(test *testing.T) {
 
 	seedTaskDirect(test, bundle, domain.DefaultProjectUUID, "aaaaaaaa", "no taxonomy", nil, nil, "pending")
 
-	vs, err := env.taskSvc.LevelCheck(ctx, nil)
+	violations, err := env.taskSvc.LevelCheck(ctx, nil)
 
 	if err != nil {
 		test.Fatalf("LevelCheck: %v", err)
 	}
 
-	if len(vs) != 0 {
-		test.Fatalf("expected 0 violations, got %d", len(vs))
+	if len(violations) != 0 {
+		test.Fatalf("expected 0 violations, got %d", len(violations))
 	}
 }
 
@@ -73,19 +73,19 @@ func TestLevelCheck_ReportsAllReasons(test *testing.T) {
 	// valid task — milestone root, not a violation.
 	_ = seedTaskDirect(test, bundle, domain.DefaultProjectUUID, "66666666", "valid", ptr("milestone"), nil, "pending")
 
-	vs, err := env.taskSvc.LevelCheck(ctx, nil)
+	violations, err := env.taskSvc.LevelCheck(ctx, nil)
 
 	if err != nil {
 		test.Fatalf("LevelCheck: %v", err)
 	}
 
-	if len(vs) != 4 {
-		test.Fatalf("expected 4 violations, got %d", len(vs))
+	if len(violations) != 4 {
+		test.Fatalf("expected 4 violations, got %d", len(violations))
 	}
 
-	byShort := make(map[string]*domain.TaxonomyError, len(vs))
+	byShort := make(map[string]*domain.TaxonomyError, len(violations))
 
-	for _, violation := range vs {
+	for _, violation := range violations {
 		byShort[violation.Task.ShortID] = violation.Err
 	}
 
@@ -99,15 +99,15 @@ func TestLevelCheck_ReportsAllReasons(test *testing.T) {
 		{bad.ShortID, "parent_rank_not_lower"},
 	}
 
-	for _, tc := range cases {
-		te, ok := byShort[tc.shortID]
+	for _, testCase := range cases {
+		taxonomyErr, ok := byShort[testCase.shortID]
 
 		if !ok {
-			test.Fatalf("expected violation for %q, not found", tc.shortID)
+			test.Fatalf("expected violation for %q, not found", testCase.shortID)
 		}
 
-		if te.Reason != tc.reason {
-			test.Errorf("%q: reason = %q, want %q", tc.shortID, te.Reason, tc.reason)
+		if taxonomyErr.Reason != testCase.reason {
+			test.Errorf("%q: reason = %q, want %q", testCase.shortID, taxonomyErr.Reason, testCase.reason)
 		}
 	}
 }
@@ -119,14 +119,14 @@ func TestLevelCheck_TerminalTasksIncluded(test *testing.T) {
 	seedTaskDirect(test, bundle, domain.DefaultProjectUUID, "deadbeef", "completed-violating", nil, nil, "completed")
 	seedTaskDirect(test, bundle, domain.DefaultProjectUUID, "feedface", "deleted-violating", nil, nil, "deleted")
 
-	vs, err := env.taskSvc.LevelCheck(ctx, nil)
+	violations, err := env.taskSvc.LevelCheck(ctx, nil)
 
 	if err != nil {
 		test.Fatalf("LevelCheck: %v", err)
 	}
 
-	if len(vs) != 2 {
-		test.Fatalf("expected 2 violations (terminal tasks must be scanned), got %d", len(vs))
+	if len(violations) != 2 {
+		test.Fatalf("expected 2 violations (terminal tasks must be scanned), got %d", len(violations))
 	}
 }
 
@@ -143,22 +143,22 @@ func TestLevelCheck_ProjectWithEmptyTaxonomy_NotFlagged(test *testing.T) {
 	// Override project has a taxonomy — this task with no level MUST flag.
 	seedTaskDirect(test, bundle, override.ID, "88888888", "override-no-level", nil, nil, "pending")
 
-	vs, err := env.taskSvc.LevelCheck(ctx, nil)
+	violations, err := env.taskSvc.LevelCheck(ctx, nil)
 
 	if err != nil {
 		test.Fatalf("LevelCheck: %v", err)
 	}
 
-	if len(vs) != 1 {
-		test.Fatalf("expected 1 violation, got %d", len(vs))
+	if len(violations) != 1 {
+		test.Fatalf("expected 1 violation, got %d", len(violations))
 	}
 
-	if vs[0].Task.ShortID != "88888888" {
-		test.Fatalf("violating task: got %q, want %q", vs[0].Task.ShortID, "88888888")
+	if violations[0].Task.ShortID != "88888888" {
+		test.Fatalf("violating task: got %q, want %q", violations[0].Task.ShortID, "88888888")
 	}
 
-	if vs[0].Source != TaxonomySourceProjectOverride {
-		test.Fatalf("source: got %v, want TaxonomySourceProjectOverride", vs[0].Source)
+	if violations[0].Source != TaxonomySourceProjectOverride {
+		test.Fatalf("source: got %v, want TaxonomySourceProjectOverride", violations[0].Source)
 	}
 }
 
@@ -170,17 +170,17 @@ func TestLevelCheck_FilterNarrowsResults(test *testing.T) {
 	seedTaskDirect(test, bundle, domain.DefaultProjectUUID, "a0000001", "bad-completed", nil, nil, "completed")
 
 	filter := &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending"}}}
-	vs, err := env.taskSvc.LevelCheck(ctx, filter)
+	violations, err := env.taskSvc.LevelCheck(ctx, filter)
 
 	if err != nil {
 		test.Fatalf("LevelCheck: %v", err)
 	}
 
-	if len(vs) != 1 {
-		test.Fatalf("expected 1 violation under status=pending, got %d", len(vs))
+	if len(violations) != 1 {
+		test.Fatalf("expected 1 violation under status=pending, got %d", len(violations))
 	}
 
-	if vs[0].Task.ShortID != "a0000000" {
-		test.Fatalf("violating task: got %q, want %q", vs[0].Task.ShortID, "a0000000")
+	if violations[0].Task.ShortID != "a0000000" {
+		test.Fatalf("violating task: got %q, want %q", violations[0].Task.ShortID, "a0000000")
 	}
 }

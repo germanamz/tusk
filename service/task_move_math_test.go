@@ -24,13 +24,13 @@ func TestComputeMidpoint(test *testing.T) {
 		{name: "equal", low: 1, high: 1, wantErr: domain.ErrOrderGapExhausted},
 	}
 
-	for _, tc := range cases {
-		test.Run(tc.name, func(test *testing.T) {
-			got, err := computeMidpoint(tc.low, tc.high)
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			got, err := computeMidpoint(testCase.low, testCase.high)
 
-			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					test.Fatalf("err: got %v, want %v", err, tc.wantErr)
+			if testCase.wantErr != nil {
+				if !errors.Is(err, testCase.wantErr) {
+					test.Fatalf("err: got %v, want %v", err, testCase.wantErr)
 				}
 
 				return
@@ -40,8 +40,8 @@ func TestComputeMidpoint(test *testing.T) {
 				test.Fatalf("unexpected err: %v", err)
 			}
 
-			if got != tc.want {
-				test.Fatalf("mid: got %v, want %v", got, tc.want)
+			if got != testCase.want {
+				test.Fatalf("mid: got %v, want %v", got, testCase.want)
 			}
 		})
 	}
