@@ -12,9 +12,12 @@ maps each rule to the tool that checks it.
 ### Rule 1 — No single-character identifiers anywhere
 
 Locals, range variables, function and method parameters, receivers, loop
-indices, and generic type parameters all require at least two characters.
-There are no exemptions, including `*testing.T`, `*testing.B`, `testing.TB`,
-and short generic type parameters.
+indices, generic type parameters, **package names, and file names** all
+require at least two characters. There are no exemptions, including
+`*testing.T`, `*testing.B`, `testing.TB`, short generic type parameters,
+and the analysistest stdlib convention of single-letter testdata packages
+(`package a`, `a.go`) — those use `package fixtures` and `cases.go` (or
+similarly named ≥ 2-character files) instead.
 
 **Rationale:** Single-character names force readers to hold an implicit
 mapping in working memory. A two-character minimum is enough to make the name
@@ -180,6 +183,10 @@ error is unnecessary and unwanted.
 | 2    | Blank lines around `if err != nil` guards     | `tusk-lint -blankline`     |
 | 3    | Named errors on `err` shadow                  | `tusk-lint -namederr`      |
 | 4    | Standardized test-handle parameter names      | `tusk-lint -testhandle`    |
+
+`varnamelen` checks identifier-kind names (locals, parameters, receivers,
+range variables, loop indices, generic type parameters) but does not
+check package or file names. Those parts of rule 1 are review-enforced.
 
 Run `make lint` to execute both `golangci-lint` (rule 1) and `tusk-lint`
 (rules 2–4) in one step.
