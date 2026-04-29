@@ -9,7 +9,7 @@ import (
 )
 
 // buildWorkflowCmd creates the `tusk workflow` command group.
-func (a *App) buildWorkflowCmd() *cobra.Command {
+func (app *App) buildWorkflowCmd() *cobra.Command {
 	workflowCmd := &cobra.Command{
 		Use:   "workflow",
 		Short: "Manage workflows",
@@ -20,13 +20,13 @@ func (a *App) buildWorkflowCmd() *cobra.Command {
 			Use:   "list",
 			Short: "List all workflows",
 			Args:  cobra.NoArgs,
-			RunE:  a.runWorkflowList,
+			RunE:  app.runWorkflowList,
 		},
 		&cobra.Command{
 			Use:   "info <name>",
 			Short: "Show workflow details",
 			Args:  cobra.ExactArgs(1),
-			RunE:  a.runWorkflowInfo,
+			RunE:  app.runWorkflowInfo,
 		},
 		&cobra.Command{
 			Use:   "create <name> [fields...]",
@@ -45,7 +45,7 @@ Constraints: exactly one initial, one start, at least one terminal.`,
     status=cancelled(terminal,delete,dim) \
     transition=backlog:doing,doing:done,doing:cancelled`,
 			Args: cobra.MinimumNArgs(1),
-			RunE: a.runWorkflowCreate,
+			RunE: app.runWorkflowCreate,
 		},
 		&cobra.Command{
 			Use:   "modify <name> [fields...]",
@@ -67,105 +67,127 @@ remove list entries.
   # Remove a status and its transitions
   tusk workflow modify sprint -status=review -transition=doing:review,review:done`,
 			Args: cobra.MinimumNArgs(1),
-			RunE: a.runWorkflowModify,
+			RunE: app.runWorkflowModify,
 		},
 		&cobra.Command{
 			Use:   "delete <name>",
 			Short: "Delete a workflow",
 			Args:  cobra.ExactArgs(1),
-			RunE:  a.runWorkflowDelete,
+			RunE:  app.runWorkflowDelete,
 		},
 	)
 
 	return workflowCmd
 }
 
-func (a *App) runWorkflowList(cmd *cobra.Command, args []string) error {
+func (app *App) runWorkflowList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	workflows, err := a.workflowSvc.List(ctx)
+
+	workflows, err := app.workflowSvc.List(ctx)
+
 	if err != nil {
 		return err
 	}
 
 	workflowProjects := make(map[string][]string, len(workflows))
-	for _, wf := range workflows {
-		_, projectIDs, err := a.workflowSvc.GetWorkflowWithProjects(ctx, wf.Name)
+	for _, workflow := range workflows {
+		_, projectIDs, err := app.workflowSvc.GetWorkflowWithProjects(ctx, workflow.Name)
+
 		if err != nil {
 			return err
 		}
-		workflowProjects[wf.Name] = projectIDs
+
+		workflowProjects[workflow.Name] = projectIDs
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderWorkflowList(workflows, workflowProjects)
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderWorkflowList(workflows, workflowProjects)
 }
 
-func (a *App) runWorkflowInfo(cmd *cobra.Command, args []string) error {
+func (app *App) runWorkflowInfo(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 
-	wf, projectIDs, err := a.workflowSvc.GetWorkflowWithProjects(ctx, name)
+	workflow, projectIDs, err := app.workflowSvc.GetWorkflowWithProjects(ctx, name)
+
 	if err != nil {
 		return fmt.Errorf("workflow %q: %w", name, err)
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderWorkflowInfo(wf, projectIDs)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderWorkflowInfo(workflow, projectIDs)
 }
 
-func (a *App) runWorkflowCreate(cmd *cobra.Command, args []string) error {
+func (app *App) runWorkflowCreate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 	if len(args) < 2 {
 		return fmt.Errorf("at least one status definition is required")
 	}
-	input, err := parseWorkflowCreate(args[1:])
-	if err != nil {
-		return err
+
+	input, inputErr := parseWorkflowCreate(args[1:])
+
+	if inputErr != nil {
+		return inputErr
 	}
+
 	input.Name = name
-	if _, err := a.workflowSvc.Create(ctx, input); err != nil {
-		return err
+
+	if _, createErr := app.workflowSvc.Create(ctx, input); createErr != nil {
+		return createErr
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderWorkflowMutation("Created", name)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderWorkflowMutation("Created", name)
 }
 
-func (a *App) runWorkflowModify(cmd *cobra.Command, args []string) error {
+func (app *App) runWorkflowModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 	if len(args) < 2 {
 		return fmt.Errorf("at least one modification is required")
 	}
-	input, err := parseWorkflowModify(args[1:])
-	if err != nil {
-		return err
+
+	input, inputErr := parseWorkflowModify(args[1:])
+
+	if inputErr != nil {
+		return inputErr
 	}
-	current, err := a.workflowSvc.GetByName(ctx, name)
-	if err != nil {
-		return err
+
+	current, currentErr := app.workflowSvc.GetByName(ctx, name)
+
+	if currentErr != nil {
+		return currentErr
 	}
+
 	input.Name = name
 	input.ExpectedVersion = current.Version
-	if _, err := a.workflowSvc.Modify(ctx, input); err != nil {
-		return err
+
+	if _, modifyErr := app.workflowSvc.Modify(ctx, input); modifyErr != nil {
+		return modifyErr
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderWorkflowMutation("Modified", name)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderWorkflowMutation("Modified", name)
 }
 
-func (a *App) runWorkflowDelete(cmd *cobra.Command, args []string) error {
+func (app *App) runWorkflowDelete(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
-	wf, err := a.workflowSvc.GetByName(ctx, name)
+
+	workflow, err := app.workflowSvc.GetByName(ctx, name)
+
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("workflow %q: not found", name)
 		}
 		return err
 	}
-	if err := a.workflowSvc.Delete(ctx, wf.ID, wf.Version); err != nil {
-		return err
+
+	if deleteErr := app.workflowSvc.Delete(ctx, workflow.ID, workflow.Version); deleteErr != nil {
+		return deleteErr
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderWorkflowMutation("Deleted", name)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderWorkflowMutation("Deleted", name)
 }
