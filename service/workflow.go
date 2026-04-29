@@ -26,14 +26,15 @@ func NewWorkflowService(wr repository.WorkflowRepository, pr repository.ProjectR
 
 // IsTransitionAllowed checks whether a status transition is permitted
 // by the named workflow.
-func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, workflowName string, from string, to string) (bool, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+func (service *WorkflowService) IsTransitionAllowed(ctx context.Context, workflowName string, from string, to string) (bool, error) {
+	workflow, err := service.workflowRepo.GetByName(ctx, workflowName)
+
 	if err != nil {
 		return false, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
 
-	for _, t := range wf.Transitions {
-		if t.FromStatus == from && t.ToStatus == to {
+	for _, transition := range workflow.Transitions {
+		if transition.FromStatus == from && transition.ToStatus == to {
 			return true, nil
 		}
 	}
@@ -41,22 +42,26 @@ func (s *WorkflowService) IsTransitionAllowed(ctx context.Context, workflowName 
 }
 
 // GetStatuses returns the ordered list of valid statuses for the named workflow.
-func (s *WorkflowService) GetStatuses(ctx context.Context, workflowName string) ([]string, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+func (service *WorkflowService) GetStatuses(ctx context.Context, workflowName string) ([]string, error) {
+	workflow, err := service.workflowRepo.GetByName(ctx, workflowName)
+
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
-	return wf.StatusNames(), nil
+
+	return workflow.StatusNames(), nil
 }
 
 // GetStatusByRole returns the name of the status with the given role in the named workflow.
 // Returns an error if the workflow doesn't exist or no status has the role.
-func (s *WorkflowService) GetStatusByRole(ctx context.Context, workflowName string, role domain.StatusRole) (string, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+func (service *WorkflowService) GetStatusByRole(ctx context.Context, workflowName string, role domain.StatusRole) (string, error) {
+	workflow, err := service.workflowRepo.GetByName(ctx, workflowName)
+
 	if err != nil {
 		return "", fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
-	name, ok := wf.StatusByRole(role)
+
+	name, ok := workflow.StatusByRole(role)
 	if !ok {
 		return "", fmt.Errorf("workflow %q has no status with role %q", workflowName, role)
 	}
@@ -66,83 +71,91 @@ func (s *WorkflowService) GetStatusByRole(ctx context.Context, workflowName stri
 // GetStatusRoles returns the roles attached to the named status in the named
 // workflow. Returns an empty slice if the status exists but has no roles, and
 // an error if the workflow or status does not exist.
-func (s *WorkflowService) GetStatusRoles(ctx context.Context, workflowName, status string) ([]string, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+func (service *WorkflowService) GetStatusRoles(ctx context.Context, workflowName, status string) ([]string, error) {
+	workflow, err := service.workflowRepo.GetByName(ctx, workflowName)
+
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
-	sc, ok := wf.Statuses[status]
+
+	statusConfig, ok := workflow.Statuses[status]
 	if !ok {
 		return nil, fmt.Errorf("workflow %q has no status %q", workflowName, status)
 	}
-	roles := make([]string, 0, len(sc.Roles))
-	for _, r := range sc.Roles {
-		roles = append(roles, string(r))
+	roles := make([]string, 0, len(statusConfig.Roles))
+	for _, role := range statusConfig.Roles {
+		roles = append(roles, string(role))
 	}
 	return roles, nil
 }
 
 // GetNonTerminalStatuses returns status names without the terminal role, sorted.
-func (s *WorkflowService) GetNonTerminalStatuses(ctx context.Context, workflowName string) ([]string, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+func (service *WorkflowService) GetNonTerminalStatuses(ctx context.Context, workflowName string) ([]string, error) {
+	workflow, err := service.workflowRepo.GetByName(ctx, workflowName)
+
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
-	return wf.NonTerminalStatuses(), nil
+
+	return workflow.NonTerminalStatuses(), nil
 }
 
 // GetDeleteStatus returns the name of the status with the delete role.
-func (s *WorkflowService) GetDeleteStatus(ctx context.Context, workflowName string) (string, error) {
-	return s.GetStatusByRole(ctx, workflowName, domain.RoleDelete)
+func (service *WorkflowService) GetDeleteStatus(ctx context.Context, workflowName string) (string, error) {
+	return service.GetStatusByRole(ctx, workflowName, domain.RoleDelete)
 }
 
 // GetTransitions returns all allowed transitions for the named workflow.
-func (s *WorkflowService) GetTransitions(ctx context.Context, workflowName string) ([]domain.WorkflowTransition, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, workflowName)
+func (service *WorkflowService) GetTransitions(ctx context.Context, workflowName string) ([]domain.WorkflowTransition, error) {
+	workflow, err := service.workflowRepo.GetByName(ctx, workflowName)
+
 	if err != nil {
 		return nil, fmt.Errorf("loading workflow %q: %w", workflowName, err)
 	}
-	return wf.Transitions, nil
+
+	return workflow.Transitions, nil
 }
 
 // List returns all workflows from the repository.
-func (s *WorkflowService) List(ctx context.Context) ([]*domain.Workflow, error) {
-	return s.workflowRepo.List(ctx)
+func (service *WorkflowService) List(ctx context.Context) ([]*domain.Workflow, error) {
+	return service.workflowRepo.List(ctx)
 }
 
 // GetByName returns a single workflow by name.
 // Returns domain.ErrNotFound if the workflow does not exist.
-func (s *WorkflowService) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
-	return s.workflowRepo.GetByName(ctx, name)
+func (service *WorkflowService) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
+	return service.workflowRepo.GetByName(ctx, name)
 }
 
 // GetByID returns a single workflow by typed UUID.
 // Returns domain.ErrNotFound if the workflow does not exist.
-func (s *WorkflowService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workflow, error) {
-	return s.workflowRepo.GetByID(ctx, id)
+func (service *WorkflowService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workflow, error) {
+	return service.workflowRepo.GetByID(ctx, id)
 }
 
 // GetWorkflowWithProjects returns a workflow and the sorted list of project IDs
 // that reference it. Returns domain.ErrNotFound if the workflow does not exist.
-func (s *WorkflowService) GetWorkflowWithProjects(ctx context.Context, name string) (*domain.Workflow, []string, error) {
-	wf, err := s.workflowRepo.GetByName(ctx, name)
-	if err != nil {
-		return nil, nil, err
+func (service *WorkflowService) GetWorkflowWithProjects(ctx context.Context, name string) (*domain.Workflow, []string, error) {
+	workflow, lookupErr := service.workflowRepo.GetByName(ctx, name)
+
+	if lookupErr != nil {
+		return nil, nil, lookupErr
 	}
 
-	projects, err := s.projectRepo.List(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("listing projects: %w", err)
+	projects, listErr := service.projectRepo.List(ctx)
+
+	if listErr != nil {
+		return nil, nil, fmt.Errorf("listing projects: %w", listErr)
 	}
 
 	var projectIDs []string
-	for _, p := range projects {
-		if p.WorkflowID == wf.ID {
-			projectIDs = append(projectIDs, p.Name)
+	for _, project := range projects {
+		if project.WorkflowID == workflow.ID {
+			projectIDs = append(projectIDs, project.Name)
 		}
 	}
 	sort.Strings(projectIDs)
-	return wf, projectIDs, nil
+	return workflow, projectIDs, nil
 }
 
 // CreateWorkflowInput describes a new workflow to be persisted.
@@ -166,30 +179,32 @@ type ModifyWorkflowInput struct {
 }
 
 // Create inserts a new workflow after running role-schema validation.
-func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput) (*domain.Workflow, error) {
+func (service *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput) (*domain.Workflow, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: workflow name is empty", domain.ErrInvalidWorkflow)
 	}
 
-	existing, err := s.workflowRepo.GetByName(ctx, input.Name)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return nil, fmt.Errorf("checking existing workflow %q: %w", input.Name, err)
+	existing, lookupErr := service.workflowRepo.GetByName(ctx, input.Name)
+
+	if lookupErr != nil && !errors.Is(lookupErr, domain.ErrNotFound) {
+		return nil, fmt.Errorf("checking existing workflow %q: %w", input.Name, lookupErr)
 	}
+
 	if existing != nil {
 		return nil, fmt.Errorf("workflow %q already exists: %w", input.Name, domain.ErrConflict)
 	}
 
 	statuses := make(map[string]domain.StatusConfig, len(input.Statuses))
-	for n, sc := range input.Statuses {
-		roles := make([]domain.StatusRole, len(sc.Roles))
-		copy(roles, sc.Roles)
-		statuses[n] = domain.StatusConfig{Roles: roles}
+	for statusName, statusConfig := range input.Statuses {
+		roles := make([]domain.StatusRole, len(statusConfig.Roles))
+		copy(roles, statusConfig.Roles)
+		statuses[statusName] = domain.StatusConfig{Roles: roles}
 	}
 	transitions := make([]domain.WorkflowTransition, len(input.Transitions))
 	copy(transitions, input.Transitions)
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	wf := &domain.Workflow{
+	workflow := &domain.Workflow{
 		ID:          uuid.New(),
 		Name:        input.Name,
 		Statuses:    statuses,
@@ -198,108 +213,118 @@ func (s *WorkflowService) Create(ctx context.Context, input CreateWorkflowInput)
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := domain.ValidateWorkflow(wf); err != nil {
-		return nil, err
+
+	if validateErr := domain.ValidateWorkflow(workflow); validateErr != nil {
+		return nil, validateErr
 	}
-	if err := s.workflowRepo.Create(ctx, wf); err != nil {
-		return nil, fmt.Errorf("creating workflow %q: %w", input.Name, err)
+
+	if createErr := service.workflowRepo.Create(ctx, workflow); createErr != nil {
+		return nil, fmt.Errorf("creating workflow %q: %w", input.Name, createErr)
 	}
-	return wf, nil
+
+	return workflow, nil
 }
 
 // Modify applies a mutation to an existing workflow under optimistic locking.
 // Removed statuses cause referencing transitions to be pruned. The mutated
 // workflow is re-validated before being written.
-func (s *WorkflowService) Modify(ctx context.Context, input ModifyWorkflowInput) (*domain.Workflow, error) {
+func (service *WorkflowService) Modify(ctx context.Context, input ModifyWorkflowInput) (*domain.Workflow, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: workflow name is empty", domain.ErrInvalidWorkflow)
 	}
 
-	wf, err := s.workflowRepo.GetByName(ctx, input.Name)
+	workflow, err := service.workflowRepo.GetByName(ctx, input.Name)
+
 	if err != nil {
 		return nil, err
 	}
-	if wf.Version != input.ExpectedVersion {
+
+	if workflow.Version != input.ExpectedVersion {
 		return nil, fmt.Errorf("workflow %q: expected version %d, got %d: %w",
-			input.Name, input.ExpectedVersion, wf.Version, domain.ErrConflict)
+			input.Name, input.ExpectedVersion, workflow.Version, domain.ErrConflict)
 	}
 
-	if wf.Statuses == nil {
-		wf.Statuses = make(map[string]domain.StatusConfig)
+	if workflow.Statuses == nil {
+		workflow.Statuses = make(map[string]domain.StatusConfig)
 	}
 
 	removed := make(map[string]bool, len(input.RemoveStatuses))
 	for _, name := range input.RemoveStatuses {
-		delete(wf.Statuses, name)
+		delete(workflow.Statuses, name)
 		removed[name] = true
 	}
 	if len(removed) > 0 {
-		kept := wf.Transitions[:0:0]
-		for _, t := range wf.Transitions {
-			if !removed[t.FromStatus] && !removed[t.ToStatus] {
-				kept = append(kept, t)
+		kept := workflow.Transitions[:0:0]
+		for _, transition := range workflow.Transitions {
+			if !removed[transition.FromStatus] && !removed[transition.ToStatus] {
+				kept = append(kept, transition)
 			}
 		}
-		wf.Transitions = kept
+		workflow.Transitions = kept
 	}
 
-	for name, sc := range input.AddStatuses {
-		if _, exists := wf.Statuses[name]; exists {
+	for name, statusConfig := range input.AddStatuses {
+		if _, exists := workflow.Statuses[name]; exists {
 			return nil, fmt.Errorf("status %q already exists in workflow %q", name, input.Name)
 		}
-		roles := make([]domain.StatusRole, len(sc.Roles))
-		copy(roles, sc.Roles)
-		wf.Statuses[name] = domain.StatusConfig{Roles: roles}
+		roles := make([]domain.StatusRole, len(statusConfig.Roles))
+		copy(roles, statusConfig.Roles)
+		workflow.Statuses[name] = domain.StatusConfig{Roles: roles}
 	}
 
-	for name, sc := range input.SetStatuses {
-		roles := make([]domain.StatusRole, len(sc.Roles))
-		copy(roles, sc.Roles)
-		wf.Statuses[name] = domain.StatusConfig{Roles: roles}
+	for name, statusConfig := range input.SetStatuses {
+		roles := make([]domain.StatusRole, len(statusConfig.Roles))
+		copy(roles, statusConfig.Roles)
+		workflow.Statuses[name] = domain.StatusConfig{Roles: roles}
 	}
 
-	for _, rm := range input.RemoveTransitions {
-		kept := wf.Transitions[:0:0]
-		for _, t := range wf.Transitions {
-			if t.FromStatus != rm.FromStatus || t.ToStatus != rm.ToStatus {
-				kept = append(kept, t)
+	for _, remove := range input.RemoveTransitions {
+		kept := workflow.Transitions[:0:0]
+		for _, transition := range workflow.Transitions {
+			if transition.FromStatus != remove.FromStatus || transition.ToStatus != remove.ToStatus {
+				kept = append(kept, transition)
 			}
 		}
-		wf.Transitions = kept
+		workflow.Transitions = kept
 	}
 
-	wf.Transitions = append(wf.Transitions, input.AddTransitions...)
+	workflow.Transitions = append(workflow.Transitions, input.AddTransitions...)
 
-	if err := domain.ValidateWorkflow(wf); err != nil {
-		return nil, err
+	if validateErr := domain.ValidateWorkflow(workflow); validateErr != nil {
+		return nil, validateErr
 	}
 
-	if err := s.workflowRepo.Update(ctx, wf); err != nil {
-		return nil, fmt.Errorf("updating workflow %q: %w", input.Name, err)
+	if updateErr := service.workflowRepo.Update(ctx, workflow); updateErr != nil {
+		return nil, fmt.Errorf("updating workflow %q: %w", input.Name, updateErr)
 	}
-	return wf, nil
+
+	return workflow, nil
 }
 
 // Delete removes a workflow with optimistic locking. Refuses to delete the
 // built-in kanban workflow or any workflow currently referenced by a project.
 // Project-reference is checked before the built-in guard so the error message
 // matches the user's intent when both conditions hold.
-func (s *WorkflowService) Delete(ctx context.Context, id uuid.UUID, expectedVersion int) error {
-	count, err := s.projectRepo.CountProjectsByWorkflow(ctx, id)
+func (service *WorkflowService) Delete(ctx context.Context, id uuid.UUID, expectedVersion int) error {
+	count, err := service.projectRepo.CountProjectsByWorkflow(ctx, id)
+
 	if err != nil {
 		return fmt.Errorf("counting projects for workflow %s: %w", id, err)
 	}
+
 	if count > 0 {
 		return fmt.Errorf("workflow %s referenced by %d project(s): %w", id, count, domain.ErrWorkflowInUse)
 	}
 	if id == domain.KanbanWorkflowUUID {
 		return fmt.Errorf("kanban: %w", domain.ErrBuiltInWorkflow)
 	}
-	if err := s.workflowRepo.Delete(ctx, id, expectedVersion); err != nil {
-		if errors.Is(err, domain.ErrConflict) {
+
+	if deleteErr := service.workflowRepo.Delete(ctx, id, expectedVersion); deleteErr != nil {
+		if errors.Is(deleteErr, domain.ErrConflict) {
 			return fmt.Errorf("workflow %s: version conflict: %w", id, domain.ErrConflict)
 		}
-		return fmt.Errorf("deleting workflow %s: %w", id, err)
+		return fmt.Errorf("deleting workflow %s: %w", id, deleteErr)
 	}
+
 	return nil
 }

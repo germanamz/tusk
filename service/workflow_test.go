@@ -9,140 +9,154 @@ import (
 	"github.com/germanamz/tusk/sqlite/sqlitetest"
 )
 
-func testWorkflowEnv(t *testing.T) *WorkflowService {
-	t.Helper()
-	_, projRepo, wfRepo := sqlitetest.NewStore(t)
-	sqlitetest.SeedProject(t, projRepo, "backend")
-	return NewWorkflowService(wfRepo, projRepo)
+func testWorkflowEnv(test *testing.T) *WorkflowService {
+	test.Helper()
+	_, projRepo, workflowRepo := sqlitetest.NewStore(test)
+	sqlitetest.SeedProject(test, projRepo, "backend")
+	return NewWorkflowService(workflowRepo, projRepo)
 }
 
-func TestIsTransitionAllowed_Allowed(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestIsTransitionAllowed_Allowed(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	allowed, err := svc.IsTransitionAllowed(context.Background(), "kanban", "pending", "active")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	if !allowed {
-		t.Fatal("expected pending->active to be allowed")
+		test.Fatal("expected pending->active to be allowed")
 	}
 }
 
-func TestIsTransitionAllowed_Disallowed(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestIsTransitionAllowed_Disallowed(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	allowed, err := svc.IsTransitionAllowed(context.Background(), "kanban", "pending", "completed")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	if allowed {
-		t.Fatal("expected pending->completed to be disallowed")
+		test.Fatal("expected pending->completed to be disallowed")
 	}
 }
 
-func TestIsTransitionAllowed_WorkflowNotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestIsTransitionAllowed_WorkflowNotFound(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	_, err := svc.IsTransitionAllowed(context.Background(), "nonexistent", "pending", "active")
 	if err == nil {
-		t.Fatal("expected error for nonexistent workflow")
+		test.Fatal("expected error for nonexistent workflow")
 	}
 }
 
-func TestGetStatuses(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestGetStatuses(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	statuses, err := svc.GetStatuses(context.Background(), "kanban")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	// StatusNames() returns sorted names.
 	expected := []string{"active", "completed", "deleted", "pending"}
 	if len(statuses) != len(expected) {
-		t.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
+		test.Fatalf("expected %d statuses, got %d", len(expected), len(statuses))
 	}
-	for i, s := range statuses {
-		if s != expected[i] {
-			t.Fatalf("status[%d]: expected %q, got %q", i, expected[i], s)
+	for index, status := range statuses {
+		if status != expected[index] {
+			test.Fatalf("status[%d]: expected %q, got %q", index, expected[index], status)
 		}
 	}
 }
 
-func TestGetStatuses_WorkflowNotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestGetStatuses_WorkflowNotFound(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	_, err := svc.GetStatuses(context.Background(), "nonexistent")
 	if err == nil {
-		t.Fatal("expected error for nonexistent workflow")
+		test.Fatal("expected error for nonexistent workflow")
 	}
 }
 
-func TestGetTransitions(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestGetTransitions(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	transitions, err := svc.GetTransitions(context.Background(), "kanban")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(transitions) != 6 {
-		t.Fatalf("expected 6 transitions, got %d", len(transitions))
+		test.Fatalf("expected 6 transitions, got %d", len(transitions))
 	}
 }
 
-func TestWorkflowList(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestWorkflowList(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	workflows, err := svc.List(context.Background())
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(workflows) != 1 || workflows[0].Name != "kanban" {
-		t.Fatalf("expected [kanban], got %v", workflows)
+		test.Fatalf("expected [kanban], got %v", workflows)
 	}
 }
 
-func TestGetByName(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	wf, err := svc.GetByName(context.Background(), "kanban")
+func TestGetByName(test *testing.T) {
+	svc := testWorkflowEnv(test)
+	workflow, err := svc.GetByName(context.Background(), "kanban")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
-	if wf.Name != "kanban" {
-		t.Fatalf("expected 'kanban', got %q", wf.Name)
+
+	if workflow.Name != "kanban" {
+		test.Fatalf("expected 'kanban', got %q", workflow.Name)
 	}
 }
 
-func TestGetByName_NotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestGetByName_NotFound(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	_, err := svc.GetByName(context.Background(), "nonexistent")
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestGetWorkflowWithProjects(t *testing.T) {
-	svc := testWorkflowEnv(t)
-	wf, projectIDs, err := svc.GetWorkflowWithProjects(context.Background(), "kanban")
+func TestGetWorkflowWithProjects(test *testing.T) {
+	svc := testWorkflowEnv(test)
+	workflow, projectIDs, err := svc.GetWorkflowWithProjects(context.Background(), "kanban")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
-	if wf.Name != "kanban" {
-		t.Fatalf("expected 'kanban', got %q", wf.Name)
+
+	if workflow.Name != "kanban" {
+		test.Fatalf("expected 'kanban', got %q", workflow.Name)
 	}
 	if len(projectIDs) != 2 || projectIDs[0] != "backend" || projectIDs[1] != "default" {
-		t.Fatalf("expected [backend, default], got %v", projectIDs)
+		test.Fatalf("expected [backend, default], got %v", projectIDs)
 	}
 }
 
-func TestGetWorkflowWithProjects_NotFound(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestGetWorkflowWithProjects_NotFound(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	_, _, err := svc.GetWorkflowWithProjects(context.Background(), "nonexistent")
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func roleWorkflowEnv(t *testing.T) *WorkflowService {
-	t.Helper()
-	_, projRepo, wfRepo := sqlitetest.NewStore(t)
-	return NewWorkflowService(wfRepo, projRepo)
+func roleWorkflowEnv(test *testing.T) *WorkflowService {
+	test.Helper()
+	_, projRepo, workflowRepo := sqlitetest.NewStore(test)
+	return NewWorkflowService(workflowRepo, projRepo)
 }
 
-func TestGetStatusByRole(t *testing.T) {
-	svc := roleWorkflowEnv(t)
+func TestGetStatusByRole(test *testing.T) {
+	svc := roleWorkflowEnv(test)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -156,76 +170,85 @@ func TestGetStatusByRole(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.role), func(t *testing.T) {
+		test.Run(string(tt.role), func(test *testing.T) {
 			name, err := svc.GetStatusByRole(ctx, "kanban", tt.role)
+
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				test.Fatalf("unexpected error: %v", err)
 			}
+
 			if name != tt.expected {
-				t.Fatalf("expected %q, got %q", tt.expected, name)
+				test.Fatalf("expected %q, got %q", tt.expected, name)
 			}
 		})
 	}
 }
 
-func TestGetStatusByRole_UnknownWorkflow(t *testing.T) {
-	svc := roleWorkflowEnv(t)
+func TestGetStatusByRole_UnknownWorkflow(test *testing.T) {
+	svc := roleWorkflowEnv(test)
 	_, err := svc.GetStatusByRole(context.Background(), "nonexistent", domain.RoleInitial)
 	if err == nil {
-		t.Fatal("expected error for unknown workflow")
+		test.Fatal("expected error for unknown workflow")
 	}
 }
 
-func TestGetStatusByRole_NoMatchingRole(t *testing.T) {
-	svc := roleWorkflowEnv(t)
+func TestGetStatusByRole_NoMatchingRole(test *testing.T) {
+	svc := roleWorkflowEnv(test)
 	_, err := svc.GetStatusByRole(context.Background(), "kanban", "nonexistent")
 	if err == nil {
-		t.Fatal("expected error for nonexistent role")
+		test.Fatal("expected error for nonexistent role")
 	}
 }
 
-func TestGetNonTerminalStatuses(t *testing.T) {
-	svc := roleWorkflowEnv(t)
+func TestGetNonTerminalStatuses(test *testing.T) {
+	svc := roleWorkflowEnv(test)
 	statuses, err := svc.GetNonTerminalStatuses(context.Background(), "kanban")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	expected := []string{"active", "pending"}
 	if len(statuses) != len(expected) {
-		t.Fatalf("expected %d non-terminal statuses, got %d: %v", len(expected), len(statuses), statuses)
+		test.Fatalf("expected %d non-terminal statuses, got %d: %v", len(expected), len(statuses), statuses)
 	}
-	for i, s := range statuses {
-		if s != expected[i] {
-			t.Fatalf("index %d: expected %q, got %q", i, expected[i], s)
+	for index, status := range statuses {
+		if status != expected[index] {
+			test.Fatalf("index %d: expected %q, got %q", index, expected[index], status)
 		}
 	}
 }
 
-func TestGetDeleteStatus(t *testing.T) {
-	svc := roleWorkflowEnv(t)
+func TestGetDeleteStatus(test *testing.T) {
+	svc := roleWorkflowEnv(test)
 	name, err := svc.GetDeleteStatus(context.Background(), "kanban")
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	if name != "deleted" {
-		t.Fatalf("expected %q, got %q", "deleted", name)
+		test.Fatalf("expected %q, got %q", "deleted", name)
 	}
 }
 
-func TestWorkflowService_GetByID(t *testing.T) {
-	svc := testWorkflowEnv(t)
+func TestWorkflowService_GetByID(test *testing.T) {
+	svc := testWorkflowEnv(test)
 	ctx := context.Background()
 
-	byName, err := svc.GetByName(ctx, "kanban")
-	if err != nil {
-		t.Fatalf("GetByName: %v", err)
+	byName, byNameErr := svc.GetByName(ctx, "kanban")
+
+	if byNameErr != nil {
+		test.Fatalf("GetByName: %v", byNameErr)
 	}
 
-	got, err := svc.GetByID(ctx, byName.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+	got, byIDErr := svc.GetByID(ctx, byName.ID)
+
+	if byIDErr != nil {
+		test.Fatalf("GetByID: %v", byIDErr)
 	}
+
 	if got.Name != "kanban" {
-		t.Errorf("got name %q, want kanban", got.Name)
+		test.Errorf("got name %q, want kanban", got.Name)
 	}
 }
