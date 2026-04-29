@@ -1,5 +1,5 @@
-// Package a contains test fixtures for the namederr analyzer.
-package a
+// Package fixtures contains test fixtures for the namederr analyzer.
+package fixtures
 
 import "errors"
 
