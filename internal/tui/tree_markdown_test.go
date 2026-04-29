@@ -544,9 +544,11 @@ func TestRenderTreeMarkdown_GoldenBasic(test *testing.T) {
 	}
 
 	want, err := os.ReadFile(goldenPath)
+
 	if err != nil {
 		test.Fatalf("read golden %s: %v (re-run with -update or TUSK_UPDATE_GOLDEN=1 to create it)", goldenPath, err)
 	}
+
 	if got != string(want) {
 		test.Fatalf("markdown output diverges from golden\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
 	}
@@ -940,9 +942,11 @@ func TestRunTree_MarkdownDeleteRoleTaskExcluded(test *testing.T) {
 	}
 	// Refetch to pick up the new version.
 	refreshed, err := taskSvc.GetByShortID(ctx, gone.ShortID)
+
 	if err != nil {
 		test.Fatalf("refetch: %v", err)
 	}
+
 	stDeleted := "deleted"
 	if _, err := taskSvc.Update(ctx, domain.TaskUpdate{ShortID: refreshed.ShortID, Version: refreshed.Version, Status: &stDeleted}); err != nil {
 		test.Fatalf("delete task: %v", err)

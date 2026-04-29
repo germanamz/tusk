@@ -25,6 +25,7 @@ func TestRenderTaskList_Text_SingleTask(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "text", false, nil)
 	err := renderer.renderTaskList(tasks, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskList: %v", err)
 	}
@@ -56,9 +57,11 @@ func TestRenderTaskList_Text_Empty(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "text", false, nil)
 	err := renderer.renderTaskList([]*domain.Task{}, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskList: %v", err)
 	}
+
 	if buf.String() != "" {
 		test.Fatalf("expected empty output for no tasks, got %q", buf.String())
 	}
@@ -83,9 +86,11 @@ func TestRenderTaskList_JSON(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "json", false, nil)
 	err := renderer.renderTaskList(tasks, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskList: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, `"short_id"`) {
 		test.Fatalf("expected snake_case JSON keys, got %s", out)
@@ -150,9 +155,11 @@ func TestRenderTaskList_Text_WithTags(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "text", false, nil)
 	err := renderer.renderTaskList(tasks, taskTags)
+
 	if err != nil {
 		test.Fatalf("renderTaskList: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, "+api") {
 		test.Fatalf("expected +api in output, got:\n%s", out)
@@ -185,9 +192,11 @@ func TestRenderTaskList_JSON_WithTags(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "json", false, nil)
 	err := renderer.renderTaskList(tasks, taskTags)
+
 	if err != nil {
 		test.Fatalf("renderTaskList: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, `"api"`) {
 		test.Fatalf("expected tag 'api' in JSON output, got:\n%s", out)
@@ -213,9 +222,11 @@ func TestRenderTaskInfo_Text_WithTags(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "text", false, nil)
 	err := renderer.renderTaskInfo(task, nil, tags, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskInfo: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, "Tags:") {
 		test.Fatalf("expected Tags: row in output, got:\n%s", out)
@@ -247,9 +258,11 @@ func TestRenderTaskInfo_JSON_WithTags(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "json", false, nil)
 	err := renderer.renderTaskInfo(task, nil, tags, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskInfo: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, `"tags"`) {
 		test.Fatalf("expected tags field in JSON output, got:\n%s", out)
@@ -278,9 +291,11 @@ func TestRenderMutationResult_JSON_WithTags(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "json", false, nil)
 	err := renderer.renderMutationResult("Created", task, tags)
+
 	if err != nil {
 		test.Fatalf("renderMutationResult: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, `"bug"`) {
 		test.Fatalf("expected tag 'bug' in JSON output, got:\n%s", out)
@@ -356,9 +371,11 @@ func TestRenderTaskInfo_Text_AllFields(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "text", false, nil)
 	err := renderer.renderTaskInfo(task, annotations, nil, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskInfo: %v", err)
 	}
+
 	out := buf.String()
 	for _, want := range []string{"a3f8b2c1", "Implement auth", "active", "high", "Blocked by upstream", "Unblocked"} {
 		if !strings.Contains(out, want) {
@@ -433,9 +450,11 @@ func TestRenderTaskInfo_Text_NullableFieldsOmitted(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "text", false, nil)
 	err := renderer.renderTaskInfo(task, nil, nil, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskInfo: %v", err)
 	}
+
 	out := buf.String()
 	if strings.Contains(out, "Due:") {
 		test.Fatalf("expected Due to be omitted, got:\n%s", out)
@@ -463,9 +482,11 @@ func TestRenderTaskInfo_JSON(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "json", false, nil)
 	err := renderer.renderTaskInfo(task, nil, nil, nil)
+
 	if err != nil {
 		test.Fatalf("renderTaskInfo: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, `"short_id"`) {
 		test.Fatalf("expected snake_case JSON, got:\n%s", out)
@@ -483,9 +504,11 @@ func TestRenderMutationResult_Text(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "text", false, nil)
 	err := renderer.renderMutationResult("Created", task, nil)
+
 	if err != nil {
 		test.Fatalf("renderMutationResult: %v", err)
 	}
+
 	out := strings.TrimSpace(buf.String())
 	if out != "Created task a3f8b2c1" {
 		test.Fatalf("expected 'Created task a3f8b2c1', got %q", out)
@@ -507,9 +530,11 @@ func TestRenderMutationResult_JSON(test *testing.T) {
 	var buf bytes.Buffer
 	renderer := NewRenderer(&buf, "json", false, nil)
 	err := renderer.renderMutationResult("Created", task, nil)
+
 	if err != nil {
 		test.Fatalf("renderMutationResult: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, `"short_id"`) {
 		test.Fatalf("expected JSON output with short_id, got:\n%s", out)

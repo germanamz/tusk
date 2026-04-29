@@ -13,7 +13,7 @@ import (
 )
 
 // buildExportCmd builds the `tusk export` subcommand.
-func (a *App) buildExportCmd() *cobra.Command {
+func (app *App) buildExportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "export [--output <path>]",
 		Short: "Export the workspace to a JSON dump",
@@ -31,24 +31,26 @@ introduce conversion shims for older versions.`,
 
   # Write to a file (atomic — written via *.tmp then rename)
   tusk export --output /tmp/ws.json`,
-		RunE: a.runExport,
+		RunE: app.runExport,
 	}
 	cmd.Flags().StringP("output", "o", "-", `path to write to; "-" for stdout`)
 	return cmd
 }
 
-func (a *App) runExport(cmd *cobra.Command, _ []string) error {
-	if a.portabilitySvc == nil {
+func (app *App) runExport(cmd *cobra.Command, _ []string) error {
+	if app.portabilitySvc == nil {
 		return fmt.Errorf("portability service not configured")
 	}
-	output, err := cmd.Flags().GetString("output")
-	if err != nil {
-		return err
+	output, outputErr := cmd.Flags().GetString("output")
+
+	if outputErr != nil {
+		return outputErr
 	}
 
-	ws, err := a.portabilitySvc.Export(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("exporting workspace: %w", err)
+	ws, exportErr := app.portabilitySvc.Export(cmd.Context())
+
+	if exportErr != nil {
+		return fmt.Errorf("exporting workspace: %w", exportErr)
 	}
 
 	if output == "-" {
@@ -56,25 +58,27 @@ func (a *App) runExport(cmd *cobra.Command, _ []string) error {
 	}
 
 	dir := filepath.Dir(output)
-	tmp, err := os.CreateTemp(dir, filepath.Base(output)+".tmp.*")
-	if err != nil {
-		return fmt.Errorf("creating temp file in %s: %w", dir, err)
+	tmp, tmpErr := os.CreateTemp(dir, filepath.Base(output)+".tmp.*")
+
+	if tmpErr != nil {
+		return fmt.Errorf("creating temp file in %s: %w", dir, tmpErr)
 	}
+
 	tmpName := tmp.Name()
 	cleanup := func() { _ = os.Remove(tmpName) }
 
-	if err := portability.Encode(tmp, ws); err != nil {
+	if encodeErr := portability.Encode(tmp, ws); encodeErr != nil {
 		_ = tmp.Close()
 		cleanup()
-		return fmt.Errorf("encoding workspace: %w", err)
+		return fmt.Errorf("encoding workspace: %w", encodeErr)
 	}
-	if err := tmp.Close(); err != nil {
+	if closeErr := tmp.Close(); closeErr != nil {
 		cleanup()
-		return fmt.Errorf("closing temp file: %w", err)
+		return fmt.Errorf("closing temp file: %w", closeErr)
 	}
-	if err := os.Rename(tmpName, output); err != nil {
+	if renameErr := os.Rename(tmpName, output); renameErr != nil {
 		cleanup()
-		return fmt.Errorf("renaming temp file to %s: %w", output, err)
+		return fmt.Errorf("renaming temp file to %s: %w", output, renameErr)
 	}
 	return nil
 }

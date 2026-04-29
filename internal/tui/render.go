@@ -675,6 +675,7 @@ func (renderer *Renderer) renderTaskInfo(task *domain.Task, annotations []*domai
 		}
 
 		rendered, markdownErr := renderer.renderMarkdown(task.Description)
+
 		if markdownErr != nil {
 			rendered = task.Description
 		}

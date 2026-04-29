@@ -8,7 +8,7 @@ import (
 )
 
 // buildTagCmd creates the `tusk tag` command group with its subcommands.
-func (a *App) buildTagCmd() *cobra.Command {
+func (app *App) buildTagCmd() *cobra.Command {
 	tagCmd := &cobra.Command{
 		Use:   "tag",
 		Short: "Manage tags",
@@ -19,7 +19,7 @@ func (a *App) buildTagCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all tags",
 		Args:  cobra.NoArgs,
-		RunE:  a.runTagList,
+		RunE:  app.runTagList,
 	}
 	listCmd.Flags().String("color", "", `filter by color: "any", "none", or a hex value`)
 	listCmd.Flags().Bool("usage", false, "show task count per tag")
@@ -30,7 +30,7 @@ func (a *App) buildTagCmd() *cobra.Command {
 		Use:   "create <name>",
 		Short: "Create a new tag",
 		Args:  cobra.ExactArgs(1),
-		RunE:  a.runTagCreate,
+		RunE:  app.runTagCreate,
 	}
 	createCmd.Flags().String("color", "", "tag color as hex (e.g. #ff0000)")
 	tagCmd.AddCommand(createCmd)
@@ -40,7 +40,7 @@ func (a *App) buildTagCmd() *cobra.Command {
 		Use:   "modify <name>",
 		Short: "Modify a tag",
 		Args:  cobra.ExactArgs(1),
-		RunE:  a.runTagModify,
+		RunE:  app.runTagModify,
 	}
 	modifyCmd.Flags().String("color", "", `tag color as hex, or "" to clear`)
 	tagCmd.AddCommand(modifyCmd)
@@ -50,7 +50,7 @@ func (a *App) buildTagCmd() *cobra.Command {
 		Use:   "delete <name>",
 		Short: "Delete a tag (must not be assigned to any tasks)",
 		Args:  cobra.ExactArgs(1),
-		RunE:  a.runTagDelete,
+		RunE:  app.runTagDelete,
 	})
 
 	// tusk tag rename <old> <new>
@@ -58,17 +58,18 @@ func (a *App) buildTagCmd() *cobra.Command {
 		Use:   "rename <old> <new>",
 		Short: "Rename a tag",
 		Args:  cobra.ExactArgs(2),
-		RunE:  a.runTagRename,
+		RunE:  app.runTagRename,
 	})
 
 	return tagCmd
 }
 
-func (a *App) runTagList(cmd *cobra.Command, args []string) error {
+func (app *App) runTagList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	showUsage, _ := cmd.Flags().GetBool("usage")
 
-	tags, err := a.tagSvc.ListWithUsage(ctx)
+	tags, err := app.tagSvc.ListWithUsage(ctx)
+
 	if err != nil {
 		return err
 	}
@@ -79,53 +80,55 @@ func (a *App) runTagList(cmd *cobra.Command, args []string) error {
 		tags = filterTagsByColor(tags, colorFilter)
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderTagList(tags, showUsage)
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderTagList(tags, showUsage)
 }
 
 // filterTagsByColor filters tags based on the color flag value.
 // "any" = tags with a color set, "none" = tags without a color,
 // anything else = exact color match.
-func filterTagsByColor(tags []domain.TagWithUsage, filter string) []domain.TagWithUsage {
+func filterTagsByColor(tags []domain.TagWithUsage, colorFilter string) []domain.TagWithUsage {
 	result := make([]domain.TagWithUsage, 0, len(tags))
-	for _, tw := range tags {
-		switch filter {
+	for _, tagWithUsage := range tags {
+		switch colorFilter {
 		case "any":
-			if tw.Tag.Color != nil {
-				result = append(result, tw)
+			if tagWithUsage.Tag.Color != nil {
+				result = append(result, tagWithUsage)
 			}
 		case "none":
-			if tw.Tag.Color == nil {
-				result = append(result, tw)
+			if tagWithUsage.Tag.Color == nil {
+				result = append(result, tagWithUsage)
 			}
 		default:
-			if tw.Tag.Color != nil && *tw.Tag.Color == filter {
-				result = append(result, tw)
+			if tagWithUsage.Tag.Color != nil && *tagWithUsage.Tag.Color == colorFilter {
+				result = append(result, tagWithUsage)
 			}
 		}
 	}
 	return result
 }
 
-func (a *App) runTagCreate(cmd *cobra.Command, args []string) error {
+func (app *App) runTagCreate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 
 	var color *string
 	if cmd.Flags().Changed("color") {
-		c, _ := cmd.Flags().GetString("color")
-		color = &c
+		colorStr, _ := cmd.Flags().GetString("color")
+		color = &colorStr
 	}
 
-	tag, err := a.tagSvc.Create(ctx, name, color)
+	tag, err := app.tagSvc.Create(ctx, name, color)
+
 	if err != nil {
 		return err
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderTagResult("Created", tag)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderTagResult("Created", tag)
 }
 
-func (a *App) runTagModify(cmd *cobra.Command, args []string) error {
+func (app *App) runTagModify(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 
@@ -140,35 +143,40 @@ func (a *App) runTagModify(cmd *cobra.Command, args []string) error {
 	}
 	// If colorStr is empty string, color stays nil — this clears the color
 
-	tag, err := a.tagSvc.Modify(ctx, name, color)
+	tag, err := app.tagSvc.Modify(ctx, name, color)
+
 	if err != nil {
 		return err
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderTagResult("Modified", tag)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderTagResult("Modified", tag)
 }
 
-func (a *App) runTagDelete(cmd *cobra.Command, args []string) error {
+func (app *App) runTagDelete(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	name := args[0]
 
-	tag, err := a.tagSvc.Delete(ctx, name)
+	tag, err := app.tagSvc.Delete(ctx, name)
+
 	if err != nil {
 		return err
 	}
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderTagResult("Deleted", tag)
+
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderTagResult("Deleted", tag)
 }
 
-func (a *App) runTagRename(cmd *cobra.Command, args []string) error {
+func (app *App) runTagRename(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	oldName, newName := args[0], args[1]
 
-	tag, err := a.tagSvc.Rename(ctx, oldName, newName)
+	tag, err := app.tagSvc.Rename(ctx, oldName, newName)
+
 	if err != nil {
 		return err
 	}
 
-	r := NewRenderer(cmd.OutOrStdout(), a.format, a.colorEnabled(), nil)
-	return r.renderTagRenameResult(oldName, tag)
+	renderer := NewRenderer(cmd.OutOrStdout(), app.format, app.colorEnabled(), nil)
+	return renderer.renderTagRenameResult(oldName, tag)
 }

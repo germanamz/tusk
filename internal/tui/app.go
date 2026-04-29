@@ -50,52 +50,56 @@ type App struct {
 
 // newRenderer creates a Renderer wired with a per-call project-name cache
 // backed by the configured ProjectService. dimStatuses may be nil.
-func (a *App) newRenderer(ctx context.Context, w io.Writer, dimStatuses map[string]bool) *Renderer {
-	r := NewRenderer(w, a.format, a.colorEnabled(), dimStatuses)
-	if a.projectSvc != nil {
+func (app *App) newRenderer(ctx context.Context, writer io.Writer, dimStatuses map[string]bool) *Renderer {
+	renderer := NewRenderer(writer, app.format, app.colorEnabled(), dimStatuses)
+	if app.projectSvc != nil {
 		nameCache := map[uuid.UUID]string{}
-		r.SetProjectNameResolver(func(id uuid.UUID) string {
+		renderer.SetProjectNameResolver(func(id uuid.UUID) string {
 			if name, ok := nameCache[id]; ok {
 				return name
 			}
-			p, err := a.projectSvc.GetByID(ctx, id)
+			project, err := app.projectSvc.GetByID(ctx, id)
+
 			if err != nil {
 				nameCache[id] = id.String()
 				return id.String()
 			}
-			nameCache[id] = p.Name
-			return p.Name
+
+			nameCache[id] = project.Name
+			return project.Name
 		})
 
 		taxCache := map[uuid.UUID]bool{}
-		r.SetTaxonomyResolver(func(id uuid.UUID) bool {
-			if v, ok := taxCache[id]; ok {
-				return v
+		renderer.SetTaxonomyResolver(func(id uuid.UUID) bool {
+			if cached, ok := taxCache[id]; ok {
+				return cached
 			}
-			p, err := a.projectSvc.GetByID(ctx, id)
+			project, err := app.projectSvc.GetByID(ctx, id)
+
 			if err != nil {
 				taxCache[id] = false
 				return false
 			}
-			tax, _ := a.projectSvc.EffectiveTaxonomy(p)
-			has := !tax.IsEmpty()
+
+			taxonomy, _ := app.projectSvc.EffectiveTaxonomy(project)
+			has := !taxonomy.IsEmpty()
 			taxCache[id] = has
 			return has
 		})
 	}
-	return r
+	return renderer
 }
 
 // colorEnabled resolves whether color output is active.
 // Precedence: --no-color flag > NO_COLOR env > tui.color config.
-func (a *App) colorEnabled() bool {
-	if a.noColor {
+func (app *App) colorEnabled() bool {
+	if app.noColor {
 		return false
 	}
 	if _, ok := os.LookupEnv("NO_COLOR"); ok {
 		return false
 	}
-	return a.tuiCfg.Color
+	return app.tuiCfg.Color
 }
 
 // New creates a new App and builds the Cobra command tree.
@@ -118,7 +122,7 @@ func New(
 	inlineCfg config.InlineConfig,
 	loadOpts []config.Option,
 ) *App {
-	a := &App{
+	app := &App{
 		taskSvc:        taskSvc,
 		tagSvc:         tagSvc,
 		relationSvc:    relationSvc,
@@ -136,39 +140,39 @@ func New(
 		inlineCfg:      inlineCfg,
 		loadOpts:       loadOpts,
 	}
-	a.resolver = filter.NewResolver(taskSvc, projectSvc, collectNonTerminalStatuses(workflowSvc))
+	app.resolver = filter.NewResolver(taskSvc, projectSvc, collectNonTerminalStatuses(workflowSvc))
 
-	a.root = &cobra.Command{
+	app.root = &cobra.Command{
 		Use:           "tusk",
 		Short:         "A concurrent-safe task management tool",
 		Version:       vi.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	a.root.CompletionOptions.DisableDefaultCmd = true
+	app.root.CompletionOptions.DisableDefaultCmd = true
 
-	a.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
-	a.root.PersistentFlags().StringVar(&a.format, "format", "text", `output format: "text", "json", or "markdown" (markdown is supported only on tree)`)
-	a.root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output")
-	a.root.PersistentFlags().StringVar(&a.playerID, "player", "", "player ID for claim/release operations")
+	app.root.SetVersionTemplate(fmt.Sprintf("tusk %s (commit: %s, built: %s)\n", vi.Version, vi.Commit, vi.Date))
+	app.root.PersistentFlags().StringVar(&app.format, "format", "text", `output format: "text", "json", or "markdown" (markdown is supported only on tree)`)
+	app.root.PersistentFlags().BoolVar(&app.noColor, "no-color", false, "disable colored output")
+	app.root.PersistentFlags().StringVar(&app.playerID, "player", "", "player ID for claim/release operations")
 
-	a.root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		if a.playerID != "" {
-			cmd.SetContext(service.WithActor(cmd.Context(), a.playerID))
+	app.root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		if app.playerID != "" {
+			cmd.SetContext(service.WithActor(cmd.Context(), app.playerID))
 		}
 	}
 
-	a.root.AddCommand(a.buildTaskCmd())
-	a.registerMovedStubs()
-	a.root.AddCommand(a.buildProjectCmd())
-	a.root.AddCommand(a.buildTagCmd())
-	a.root.AddCommand(a.buildWorkflowCmd())
-	a.root.AddCommand(a.buildPlayerCmd())
-	a.root.AddCommand(a.buildNoteCmd())
-	a.root.AddCommand(a.buildConfigCmd())
-	a.root.AddCommand(a.buildExportCmd())
-	a.root.AddCommand(a.buildImportCmd())
-	a.root.AddCommand(&cobra.Command{
+	app.root.AddCommand(app.buildTaskCmd())
+	app.registerMovedStubs()
+	app.root.AddCommand(app.buildProjectCmd())
+	app.root.AddCommand(app.buildTagCmd())
+	app.root.AddCommand(app.buildWorkflowCmd())
+	app.root.AddCommand(app.buildPlayerCmd())
+	app.root.AddCommand(app.buildNoteCmd())
+	app.root.AddCommand(app.buildConfigCmd())
+	app.root.AddCommand(app.buildExportCmd())
+	app.root.AddCommand(app.buildImportCmd())
+	app.root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -186,20 +190,22 @@ func New(
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mcpServer, err := tuskmcp.New(
 				taskSvc, tagSvc, relationSvc, projectSvc,
-				a.workflowSvc, a.playerSvc, a.noteSvc,
-				a.workflowRepo, a.projectRepo, a.urgencyEngine,
-				vi.Version, a.mcpCfg, a.loadOpts,
+				app.workflowSvc, app.playerSvc, app.noteSvc,
+				app.workflowRepo, app.projectRepo, app.urgencyEngine,
+				vi.Version, app.mcpCfg, app.loadOpts,
 			)
+
 			if err != nil {
 				return fmt.Errorf("initializing MCP server: %w", err)
 			}
+
 			return mcpServer.Serve()
 		},
 	})
-	a.root.AddCommand(mcpCmd)
-	a.root.AddCommand(a.buildCompletionCmd())
+	app.root.AddCommand(mcpCmd)
+	app.root.AddCommand(app.buildCompletionCmd())
 
-	return a
+	return app
 }
 
 // collectNonTerminalStatuses returns the union of non-terminal status names
@@ -211,13 +217,15 @@ func collectNonTerminalStatuses(wfSvc *service.WorkflowService) []string {
 		return []string{"pending", "active"}
 	}
 	workflows, err := wfSvc.List(context.Background())
+
 	if err != nil {
 		return []string{"pending", "active"}
 	}
+
 	seen := make(map[string]bool)
 	var result []string
-	for _, wf := range workflows {
-		for _, name := range wf.NonTerminalStatuses() {
+	for _, workflow := range workflows {
+		for _, name := range workflow.NonTerminalStatuses() {
 			if !seen[name] {
 				seen[name] = true
 				result = append(result, name)
@@ -231,15 +239,17 @@ func collectNonTerminalStatuses(wfSvc *service.WorkflowService) []string {
 }
 
 // buildDimStatuses collects all dim statuses from all workflow configs into a lookup set.
-func (a *App) buildDimStatuses() map[string]bool {
-	workflows, err := a.workflowSvc.List(context.Background())
+func (app *App) buildDimStatuses() map[string]bool {
+	workflows, err := app.workflowSvc.List(context.Background())
+
 	if err != nil {
 		return nil
 	}
+
 	dim := make(map[string]bool)
-	for _, wf := range workflows {
-		for name, sc := range wf.Statuses {
-			if sc.HasRole(domain.RoleDim) {
+	for _, workflow := range workflows {
+		for name, statusConfig := range workflow.Statuses {
+			if statusConfig.HasRole(domain.RoleDim) {
 				dim[name] = true
 			}
 		}
@@ -249,15 +259,17 @@ func (a *App) buildDimStatuses() map[string]bool {
 
 // buildHighlightStatuses collects all highlight statuses from every workflow
 // config into a lookup set, mirroring buildDimStatuses.
-func (a *App) buildHighlightStatuses() map[string]bool {
-	workflows, err := a.workflowSvc.List(context.Background())
+func (app *App) buildHighlightStatuses() map[string]bool {
+	workflows, err := app.workflowSvc.List(context.Background())
+
 	if err != nil {
 		return nil
 	}
+
 	highlight := make(map[string]bool)
-	for _, wf := range workflows {
-		for name, sc := range wf.Statuses {
-			if sc.HasRole(domain.RoleHighlight) {
+	for _, workflow := range workflows {
+		for name, statusConfig := range workflow.Statuses {
+			if statusConfig.HasRole(domain.RoleHighlight) {
 				highlight[name] = true
 			}
 		}
@@ -266,7 +278,7 @@ func (a *App) buildHighlightStatuses() map[string]bool {
 }
 
 // Run executes the Cobra command tree with the given arguments.
-func (a *App) Run(args []string) error {
-	a.root.SetArgs(args)
-	return a.root.Execute()
+func (app *App) Run(args []string) error {
+	app.root.SetArgs(args)
+	return app.root.Execute()
 }

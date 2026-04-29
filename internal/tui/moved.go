@@ -9,7 +9,7 @@ import (
 // registerMovedStubs registers hidden stub commands for flat task verbs that
 // have moved under `tusk task`. Each stub returns an error pointing the user
 // at the new invocation.
-func (a *App) registerMovedStubs() {
+func (app *App) registerMovedStubs() {
 	moved := map[string]string{
 		"add":       "task create",
 		"info":      "task get",
@@ -30,7 +30,7 @@ func (a *App) registerMovedStubs() {
 	}
 
 	for old, newPath := range moved {
-		a.root.AddCommand(&cobra.Command{
+		app.root.AddCommand(&cobra.Command{
 			Use:                old,
 			Hidden:             true,
 			DisableFlagParsing: true,

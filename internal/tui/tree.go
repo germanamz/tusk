@@ -333,6 +333,7 @@ func (app *App) runTree(cmd *cobra.Command, args []string) error {
 		if workflowLookupErr != nil {
 			return workflowLookupErr
 		}
+
 		computeRollups(nodes, workflowFor)
 		// Per spec: --all controls rendering visibility; --rollup controls
 		// computation. When --rollup is set without --all we fetched the

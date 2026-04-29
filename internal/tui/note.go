@@ -19,7 +19,7 @@ import (
 )
 
 // buildNoteCmd creates the `tusk note` subcommand group.
-func (a *App) buildNoteCmd() *cobra.Command {
+func (app *App) buildNoteCmd() *cobra.Command {
 	noteCmd := &cobra.Command{
 		Use:   "note",
 		Short: "Player notebook — create, archive, and list notes",
@@ -38,7 +38,7 @@ Arbitrary metadata is namespaced under meta. — e.g., meta.topic=auth.
 Bare key=value tokens that are not reserved (project=, task=) are
 rejected to surface typos.`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: a.runNoteAdd,
+		RunE: app.runNoteAdd,
 	}
 	addCmd.Flags().String("task", "", "attach the note to a task by short ID")
 
@@ -49,7 +49,7 @@ rejected to surface typos.`,
 
 Only the note's author can archive it.`,
 		Args: cobra.ExactArgs(1),
-		RunE: a.runNoteArchive,
+		RunE: app.runNoteArchive,
 	}
 
 	listCmd := &cobra.Command{
@@ -72,7 +72,7 @@ with either filter form above.
 The window size is resolved through the chain:
   --window flag → player DB setting → project config → global config → 20`,
 		Args: cobra.ArbitraryArgs,
-		RunE: a.runNoteList,
+		RunE: app.runNoteList,
 	}
 	listCmd.Flags().String("task", "", "show notes attached to a task by short ID")
 	listCmd.Flags().Bool("all-players", false, "show notes from every player")
@@ -87,13 +87,13 @@ The window size is resolved through the chain:
 	return noteCmd
 }
 
-func (a *App) runNoteAdd(cmd *cobra.Command, args []string) error {
+func (app *App) runNoteAdd(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	if a.playerID == "" {
+	if app.playerID == "" {
 		return fmt.Errorf("--player flag is required for note add")
 	}
-	if err := a.ensurePlayer(ctx); err != nil {
+	if err := app.ensurePlayer(ctx); err != nil {
 		return err
 	}
 
@@ -127,89 +127,100 @@ func (a *App) runNoteAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	var stdinFile *os.File
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		stdinFile = f
+	if file, ok := cmd.InOrStdin().(*os.File); ok {
+		stdinFile = file
 	}
 	state := &expandState{}
 
-	body, err := a.expandRefsWithState(rawBody, stdinFile, state)
-	if err != nil {
-		return err
+	bodyErr := error(nil)
+	body, bodyErr := app.expandRefsWithState(rawBody, stdinFile, state)
+
+	if bodyErr != nil {
+		return bodyErr
 	}
+
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("note body must not be empty")
 	}
 
-	project, err := a.projectSvc.GetByName(ctx, projectName)
-	if err != nil {
-		return fmt.Errorf("resolving project %q: %w", projectName, err)
+	project, projectErr := app.projectSvc.GetByName(ctx, projectName)
+
+	if projectErr != nil {
+		return fmt.Errorf("resolving project %q: %w", projectName, projectErr)
 	}
 
 	var taskID *uuid.UUID
 	if taskShort, _ := cmd.Flags().GetString("task"); taskShort != "" {
-		task, err := a.taskSvc.GetByShortID(ctx, taskShort)
-		if err != nil {
-			return fmt.Errorf("resolving task %q: %w", taskShort, err)
+		task, taskErr := app.taskSvc.GetByShortID(ctx, taskShort)
+
+		if taskErr != nil {
+			return fmt.Errorf("resolving task %q: %w", taskShort, taskErr)
 		}
+
 		id := task.ID
 		taskID = &id
 	}
 
 	note := &domain.Note{
 		ProjectID: project.ID,
-		PlayerID:  a.playerID,
+		PlayerID:  app.playerID,
 		TaskID:    taskID,
 		Body:      body,
 		Metadata:  metadata,
 	}
-	if err := a.noteSvc.Create(ctx, note); err != nil {
-		return fmt.Errorf("creating note: %w", err)
+	if createErr := app.noteSvc.Create(ctx, note); createErr != nil {
+		return fmt.Errorf("creating note: %w", createErr)
 	}
 
-	return a.renderNoteResult(cmd, "Created", note)
+	return app.renderNoteResult(cmd, "Created", note)
 }
 
-func (a *App) runNoteArchive(cmd *cobra.Command, args []string) error {
+func (app *App) runNoteArchive(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	if a.playerID == "" {
+	if app.playerID == "" {
 		return fmt.Errorf("--player flag is required for note archive")
 	}
-	if err := a.ensurePlayer(ctx); err != nil {
+	if err := app.ensurePlayer(ctx); err != nil {
 		return err
 	}
 
 	token := strings.ToLower(strings.TrimSpace(args[0]))
-	id, err := a.resolveNoteID(ctx, token)
-	if err != nil {
-		return err
+	id, resolveErr := app.resolveNoteID(ctx, token)
+
+	if resolveErr != nil {
+		return resolveErr
 	}
 
-	if err := a.noteSvc.Archive(ctx, id, a.playerID); err != nil {
-		return fmt.Errorf("archiving note: %w", err)
+	if archiveErr := app.noteSvc.Archive(ctx, id, app.playerID); archiveErr != nil {
+		return fmt.Errorf("archiving note: %w", archiveErr)
 	}
 
-	archived, err := a.noteSvc.GetByID(ctx, id)
-	if err != nil {
-		return a.renderNoteArchivedBare(cmd, id)
+	archived, getErr := app.noteSvc.GetByID(ctx, id)
+
+	if getErr != nil {
+		return app.renderNoteArchivedBare(cmd, id)
 	}
-	return a.renderNoteResult(cmd, "Archived", archived)
+
+	return app.renderNoteResult(cmd, "Archived", archived)
 }
 
 // resolveNoteID accepts either a full UUID or a prefix of at least 8
 // characters and returns the matching note's UUID. Prefix ambiguity is
 // reported with the candidate IDs so the caller can disambiguate.
-func (a *App) resolveNoteID(ctx context.Context, token string) (uuid.UUID, error) {
+func (app *App) resolveNoteID(ctx context.Context, token string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(token); err == nil {
 		return id, nil
 	}
 	if len(token) < 8 {
 		return uuid.Nil, fmt.Errorf("note id prefix must be at least 8 characters, got %d", len(token))
 	}
-	matches, err := a.noteSvc.FindByIDPrefix(ctx, token)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("resolving note id: %w", err)
+	matches, findErr := app.noteSvc.FindByIDPrefix(ctx, token)
+
+	if findErr != nil {
+		return uuid.Nil, fmt.Errorf("resolving note id: %w", findErr)
 	}
+
 	switch len(matches) {
 	case 0:
 		return uuid.Nil, fmt.Errorf("no note matches id prefix %q", token)
@@ -217,8 +228,8 @@ func (a *App) resolveNoteID(ctx context.Context, token string) (uuid.UUID, error
 		return matches[0].ID, nil
 	default:
 		ids := make([]string, 0, len(matches))
-		for _, n := range matches {
-			ids = append(ids, n.ID.String())
+		for _, match := range matches {
+			ids = append(ids, match.ID.String())
 		}
 		return uuid.Nil, fmt.Errorf("note id prefix %q is ambiguous: matches %s", token, strings.Join(ids, ", "))
 	}
@@ -236,30 +247,30 @@ type noteJSON struct {
 	ArchivedAt *string        `json:"archived_at,omitempty"`
 }
 
-func toNoteJSON(n *domain.Note) noteJSON {
-	j := noteJSON{
-		ID:        n.ID.String(),
-		ProjectID: n.ProjectID.String(),
-		PlayerID:  n.PlayerID,
-		Body:      n.Body,
-		Metadata:  n.Metadata,
-		CreatedAt: n.CreatedAt.Format(time.RFC3339),
+func toNoteJSON(note *domain.Note) noteJSON {
+	result := noteJSON{
+		ID:        note.ID.String(),
+		ProjectID: note.ProjectID.String(),
+		PlayerID:  note.PlayerID,
+		Body:      note.Body,
+		Metadata:  note.Metadata,
+		CreatedAt: note.CreatedAt.Format(time.RFC3339),
 	}
-	if n.TaskID != nil {
-		s := n.TaskID.String()
-		j.TaskID = &s
+	if note.TaskID != nil {
+		str := note.TaskID.String()
+		result.TaskID = &str
 	}
-	if n.ArchivedAt != nil {
-		s := n.ArchivedAt.Format(time.RFC3339)
-		j.ArchivedAt = &s
+	if note.ArchivedAt != nil {
+		str := note.ArchivedAt.Format(time.RFC3339)
+		result.ArchivedAt = &str
 	}
-	return j
+	return result
 }
 
-func (a *App) renderNoteResult(cmd *cobra.Command, action string, note *domain.Note) error {
-	w := cmd.OutOrStdout()
-	if a.format == "json" {
-		enc := json.NewEncoder(w)
+func (app *App) renderNoteResult(cmd *cobra.Command, action string, note *domain.Note) error {
+	writer := cmd.OutOrStdout()
+	if app.format == "json" {
+		enc := json.NewEncoder(writer)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
 			"action": strings.ToLower(action),
@@ -271,31 +282,31 @@ func (a *App) renderNoteResult(cmd *cobra.Command, action string, note *domain.N
 	if note.ArchivedAt != nil {
 		archivedMarker = " [archived]"
 	}
-	_, err := fmt.Fprintf(w, "%s note %s%s\n", action, shortID, archivedMarker)
+	_, err := fmt.Fprintf(writer, "%s note %s%s\n", action, shortID, archivedMarker)
 	return err
 }
 
-func (a *App) renderNoteArchivedBare(cmd *cobra.Command, id uuid.UUID) error {
-	w := cmd.OutOrStdout()
-	if a.format == "json" {
-		enc := json.NewEncoder(w)
+func (app *App) renderNoteArchivedBare(cmd *cobra.Command, id uuid.UUID) error {
+	writer := cmd.OutOrStdout()
+	if app.format == "json" {
+		enc := json.NewEncoder(writer)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
 			"action": "archived",
 			"id":     id.String(),
 		})
 	}
-	_, err := fmt.Fprintf(w, "Archived note %s\n", id.String()[:8])
+	_, err := fmt.Fprintf(writer, "Archived note %s\n", id.String()[:8])
 	return err
 }
 
-func (a *App) runNoteList(cmd *cobra.Command, args []string) error {
+func (app *App) runNoteList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	if a.playerID == "" {
+	if app.playerID == "" {
 		return fmt.Errorf("--player flag is required for note list (caller identity)")
 	}
-	if err := a.ensurePlayer(ctx); err != nil {
+	if err := app.ensurePlayer(ctx); err != nil {
 		return err
 	}
 
@@ -323,9 +334,10 @@ func (a *App) runNoteList(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("unknown field %q on note list", key)
 		}
 	}
-	project, err := a.projectSvc.GetByName(ctx, projectName)
-	if err != nil {
-		return fmt.Errorf("resolving project %q: %w", projectName, err)
+	project, projectErr := app.projectSvc.GetByName(ctx, projectName)
+
+	if projectErr != nil {
+		return fmt.Errorf("resolving project %q: %w", projectName, projectErr)
 	}
 
 	allPlayers, _ := cmd.Flags().GetBool("all-players")
@@ -340,7 +352,7 @@ func (a *App) runNoteList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--all-players cannot be combined with a specific player filter")
 	}
 
-	targetPlayer := a.playerID
+	targetPlayer := app.playerID
 	if allPlayers {
 		targetPlayer = ""
 	} else if filterPlayer != "" {
@@ -349,119 +361,124 @@ func (a *App) runNoteList(cmd *cobra.Command, args []string) error {
 
 	var taskID *uuid.UUID
 	if taskShort, _ := cmd.Flags().GetString("task"); taskShort != "" {
-		task, err := a.taskSvc.GetByShortID(ctx, taskShort)
-		if err != nil {
-			return fmt.Errorf("resolving task %q: %w", taskShort, err)
+		task, taskErr := app.taskSvc.GetByShortID(ctx, taskShort)
+
+		if taskErr != nil {
+			return fmt.Errorf("resolving task %q: %w", taskShort, taskErr)
 		}
+
 		id := task.ID
 		taskID = &id
 	}
 
 	var windowOverride *int
-	if w, _ := cmd.Flags().GetInt("window"); w > 0 {
-		windowOverride = &w
-	} else if w < 0 {
-		return fmt.Errorf("--window must be positive, got %d", w)
+	if windowVal, _ := cmd.Flags().GetInt("window"); windowVal > 0 {
+		windowOverride = &windowVal
+	} else if windowVal < 0 {
+		return fmt.Errorf("--window must be positive, got %d", windowVal)
 	}
 
 	var since *time.Time
 	if sinceStr, _ := cmd.Flags().GetString("since"); sinceStr != "" {
-		d, err := filter.ParseRelativeDuration(sinceStr)
-		if err != nil {
-			return fmt.Errorf("parsing --since: %w", err)
+		duration, durationErr := filter.ParseRelativeDuration(sinceStr)
+
+		if durationErr != nil {
+			return fmt.Errorf("parsing --since: %w", durationErr)
 		}
-		t := time.Now().UTC().Add(-d)
-		since = &t
+
+		sinceTime := time.Now().UTC().Add(-duration)
+		since = &sinceTime
 	}
 
 	includeArchived, _ := cmd.Flags().GetBool("archived")
 
-	notes, err := a.noteSvc.List(ctx, service.NoteListParams{
+	notes, listErr := app.noteSvc.List(ctx, service.NoteListParams{
 		ProjectID:       project.ID,
 		PlayerID:        targetPlayer,
-		CallerPlayerID:  a.playerID,
+		CallerPlayerID:  app.playerID,
 		TaskID:          taskID,
 		Since:           since,
 		IncludeArchived: includeArchived,
 		WindowOverride:  windowOverride,
 	})
-	if err != nil {
-		return fmt.Errorf("listing notes: %w", err)
+
+	if listErr != nil {
+		return fmt.Errorf("listing notes: %w", listErr)
 	}
 
-	return a.renderNoteList(cmd, notes)
+	return app.renderNoteList(cmd, notes)
 }
 
-func (a *App) renderNoteList(cmd *cobra.Command, notes []*domain.Note) error {
-	w := cmd.OutOrStdout()
-	if a.format == "json" {
-		enc := json.NewEncoder(w)
+func (app *App) renderNoteList(cmd *cobra.Command, notes []*domain.Note) error {
+	writer := cmd.OutOrStdout()
+	if app.format == "json" {
+		enc := json.NewEncoder(writer)
 		enc.SetIndent("", "  ")
 		jsonItems := make([]noteJSON, 0, len(notes))
-		for _, n := range notes {
-			jsonItems = append(jsonItems, toNoteJSON(n))
+		for _, note := range notes {
+			jsonItems = append(jsonItems, toNoteJSON(note))
 		}
 		return enc.Encode(jsonItems)
 	}
 
 	if len(notes) == 0 {
-		_, err := fmt.Fprintln(w, "No notes.")
+		_, err := fmt.Fprintln(writer, "No notes.")
 		return err
 	}
 
-	bodyRenderer := a.noteBodyRenderer()
-	for i, n := range notes {
-		if i > 0 {
-			if _, err := fmt.Fprintln(w); err != nil {
+	bodyRenderer := app.noteBodyRenderer()
+	for index, note := range notes {
+		if index > 0 {
+			if _, err := fmt.Fprintln(writer); err != nil {
 				return err
 			}
 		}
-		if err := a.renderNoteEntry(w, n, bodyRenderer); err != nil {
+		if err := app.renderNoteEntry(writer, note, bodyRenderer); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (a *App) renderNoteEntry(w io.Writer, n *domain.Note, body func(string) string) error {
-	shortID := n.ID.String()[:8]
+func (app *App) renderNoteEntry(writer io.Writer, note *domain.Note, body func(string) string) error {
+	shortID := note.ID.String()[:8]
 	taskPart := ""
-	if n.TaskID != nil {
-		taskPart = fmt.Sprintf("  task=%s", n.TaskID.String()[:8])
+	if note.TaskID != nil {
+		taskPart = fmt.Sprintf("  task=%s", note.TaskID.String()[:8])
 	}
 	archivedPart := ""
-	if n.ArchivedAt != nil {
+	if note.ArchivedAt != nil {
 		archivedPart = "  [archived]"
 	}
 	header := fmt.Sprintf("● %s  %s  %s%s%s\n",
 		shortID,
-		n.PlayerID,
-		n.CreatedAt.Local().Format("2006-01-02 15:04"),
+		note.PlayerID,
+		note.CreatedAt.Local().Format("2006-01-02 15:04"),
 		taskPart,
 		archivedPart,
 	)
-	if _, err := fmt.Fprint(w, header); err != nil {
+	if _, err := fmt.Fprint(writer, header); err != nil {
 		return err
 	}
 
-	rendered := body(n.Body)
+	rendered := body(note.Body)
 	for line := range strings.SplitSeq(strings.TrimRight(rendered, "\n"), "\n") {
-		if _, err := fmt.Fprintf(w, "  %s\n", line); err != nil {
+		if _, err := fmt.Fprintf(writer, "  %s\n", line); err != nil {
 			return err
 		}
 	}
 
-	if len(n.Metadata) > 0 {
-		keys := make([]string, 0, len(n.Metadata))
-		for k := range n.Metadata {
-			keys = append(keys, k)
+	if len(note.Metadata) > 0 {
+		keys := make([]string, 0, len(note.Metadata))
+		for key := range note.Metadata {
+			keys = append(keys, key)
 		}
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			parts = append(parts, fmt.Sprintf("meta.%s=%v", k, n.Metadata[k]))
+		for _, key := range keys {
+			parts = append(parts, fmt.Sprintf("meta.%s=%v", key, note.Metadata[key]))
 		}
-		if _, err := fmt.Fprintf(w, "  %s\n", strings.Join(parts, "  ")); err != nil {
+		if _, err := fmt.Fprintf(writer, "  %s\n", strings.Join(parts, "  ")); err != nil {
 			return err
 		}
 	}
@@ -470,19 +487,23 @@ func (a *App) renderNoteEntry(w io.Writer, n *domain.Note, body func(string) str
 
 // noteBodyRenderer returns a function that renders a note body as styled
 // markdown if color is enabled, or returns the raw body otherwise.
-func (a *App) noteBodyRenderer() func(string) string {
-	if !a.colorEnabled() {
-		return func(s string) string { return s }
+func (app *App) noteBodyRenderer() func(string) string {
+	if !app.colorEnabled() {
+		return func(str string) string { return str }
 	}
-	r, err := glamour.NewTermRenderer(glamour.WithWordWrap(100))
-	if err != nil {
-		return func(s string) string { return s }
+	glamourRenderer, glamourErr := glamour.NewTermRenderer(glamour.WithWordWrap(100))
+
+	if glamourErr != nil {
+		return func(str string) string { return str }
 	}
-	return func(s string) string {
-		out, err := r.Render(s)
-		if err != nil {
-			return s
+
+	return func(str string) string {
+		out, renderErr := glamourRenderer.Render(str)
+
+		if renderErr != nil {
+			return str
 		}
+
 		return out
 	}
 }

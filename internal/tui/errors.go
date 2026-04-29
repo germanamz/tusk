@@ -14,48 +14,48 @@ import (
 // through to the generic error path. projectName may be empty — in that case
 // the message uses "project" as a placeholder.
 func formatTaxonomyError(err error, projectName string) (string, bool) {
-	var te *domain.TaxonomyError
-	if !errors.As(err, &te) {
+	var taxonomyErr *domain.TaxonomyError
+	if !errors.As(err, &taxonomyErr) {
 		return "", false
 	}
 	pName := projectName
 	if pName == "" {
 		pName = "project"
 	}
-	switch te.Reason {
+	switch taxonomyErr.Reason {
 	case "missing":
-		peers := topRankPeers(te.Taxonomy)
+		peers := topRankPeers(taxonomyErr.Taxonomy)
 		return fmt.Sprintf(
 			"project %s requires a level; supply level=%s (or any rank on modify)",
 			pName, peers,
 		), true
 	case "unknown_level":
-		inline := FormatTaxonomyInline(te.Taxonomy)
+		inline := FormatTaxonomyInline(taxonomyErr.Taxonomy)
 		return fmt.Sprintf(
 			"level %s is not in the taxonomy for %s: %s",
-			te.Level, pName, inline,
+			taxonomyErr.Level, pName, inline,
 		), true
 	case "root_requires_top_rank":
-		peers := topRankPeers(te.Taxonomy)
+		peers := topRankPeers(taxonomyErr.Taxonomy)
 		return fmt.Sprintf(
 			"root tasks must use the top-rank level (%s); got %s",
-			peers, te.Level,
+			peers, taxonomyErr.Level,
 		), true
 	case "parent_rank_not_lower":
 		return fmt.Sprintf(
 			"%s cannot sit under %s — parent rank must be strictly lower",
-			te.Level, te.ParentLevel,
+			taxonomyErr.Level, taxonomyErr.ParentLevel,
 		), true
 	}
-	return te.Error(), true
+	return taxonomyErr.Error(), true
 }
 
 // topRankPeers returns a comma-separated list of the top-rank peer level
 // names for a taxonomy, used in the `missing` and `root_requires_top_rank`
 // CLI messages.
-func topRankPeers(t domain.Taxonomy) string {
-	if len(t) == 0 || len(t[0]) == 0 {
+func topRankPeers(taxonomy domain.Taxonomy) string {
+	if len(taxonomy) == 0 || len(taxonomy[0]) == 0 {
 		return ""
 	}
-	return strings.Join(t[0], ",")
+	return strings.Join(taxonomy[0], ",")
 }
