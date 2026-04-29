@@ -22,8 +22,8 @@ func parseStatusValue(value string) (string, []domain.StatusRole) {
 	}
 	parts := strings.Split(rolesStr, ",")
 	roles := make([]domain.StatusRole, len(parts))
-	for i, p := range parts {
-		roles[i] = domain.StatusRole(p)
+	for roleIdx, part := range parts {
+		roles[roleIdx] = domain.StatusRole(part)
 	}
 	return name, roles
 }
@@ -55,25 +55,25 @@ func parseWorkflowCreate(args []string) (service.CreateWorkflowInput, error) {
 		Statuses: make(map[string]domain.StatusConfig),
 	}
 
-	for _, f := range fs.Fields {
-		if f.Modifier != 0 {
-			return service.CreateWorkflowInput{}, fmt.Errorf("workflow create does not accept modifier %q on %q", f.Modifier, f.Key)
+	for _, field := range fs.Fields {
+		if field.Modifier != 0 {
+			return service.CreateWorkflowInput{}, fmt.Errorf("workflow create does not accept modifier %q on %q", field.Modifier, field.Key)
 		}
-		if f.Value == "" {
-			return service.CreateWorkflowInput{}, fmt.Errorf("invalid field %q", f.Key)
+		if field.Value == "" {
+			return service.CreateWorkflowInput{}, fmt.Errorf("invalid field %q", field.Key)
 		}
-		switch f.Key {
+		switch field.Key {
 		case "status":
-			name, roles := parseStatusValue(f.Value)
+			name, roles := parseStatusValue(field.Value)
 			out.Statuses[name] = domain.StatusConfig{Roles: roles}
 		case "transition":
-			transitions, err := parseTransitions(f.Value)
+			transitions, err := parseTransitions(field.Value)
 			if err != nil {
 				return service.CreateWorkflowInput{}, err
 			}
 			out.Transitions = append(out.Transitions, transitions...)
 		default:
-			return service.CreateWorkflowInput{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", f.Key)
+			return service.CreateWorkflowInput{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", field.Key)
 		}
 	}
 
@@ -97,15 +97,15 @@ func parseWorkflowModify(args []string) (service.ModifyWorkflowInput, error) {
 		SetStatuses: make(map[string]domain.StatusConfig),
 	}
 
-	for _, f := range fs.Fields {
-		if f.Value == "" {
-			return service.ModifyWorkflowInput{}, fmt.Errorf("invalid field %q", f.Key)
+	for _, field := range fs.Fields {
+		if field.Value == "" {
+			return service.ModifyWorkflowInput{}, fmt.Errorf("invalid field %q", field.Key)
 		}
 
-		switch f.Key {
+		switch field.Key {
 		case "status":
-			name, roles := parseStatusValue(f.Value)
-			switch f.Modifier {
+			name, roles := parseStatusValue(field.Value)
+			switch field.Modifier {
 			case '+':
 				out.AddStatuses[name] = domain.StatusConfig{Roles: roles}
 			case '-':
@@ -113,15 +113,15 @@ func parseWorkflowModify(args []string) (service.ModifyWorkflowInput, error) {
 			case 0:
 				out.SetStatuses[name] = domain.StatusConfig{Roles: roles}
 			default:
-				return service.ModifyWorkflowInput{}, fmt.Errorf("unsupported modifier %q on status", f.Modifier)
+				return service.ModifyWorkflowInput{}, fmt.Errorf("unsupported modifier %q on status", field.Modifier)
 			}
 
 		case "transition":
-			transitions, err := parseTransitions(f.Value)
+			transitions, err := parseTransitions(field.Value)
 			if err != nil {
 				return service.ModifyWorkflowInput{}, err
 			}
-			switch f.Modifier {
+			switch field.Modifier {
 			case '+':
 				out.AddTransitions = append(out.AddTransitions, transitions...)
 			case '-':
@@ -131,7 +131,7 @@ func parseWorkflowModify(args []string) (service.ModifyWorkflowInput, error) {
 			}
 
 		default:
-			return service.ModifyWorkflowInput{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", f.Key)
+			return service.ModifyWorkflowInput{}, fmt.Errorf("unknown field %q (expected 'status' or 'transition')", field.Key)
 		}
 	}
 
