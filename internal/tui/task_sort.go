@@ -37,35 +37,35 @@ func validateSortMode(mode string) error {
 func sortTasks(tasks []*domain.Task, mode string) {
 	switch mode {
 	case "order":
-		sort.SliceStable(tasks, func(i, j int) bool {
-			return siblingLess(tasks[i], tasks[j])
+		sort.SliceStable(tasks, func(ii, jj int) bool {
+			return siblingLess(tasks[ii], tasks[jj])
 		})
 	case "urgency":
-		sort.SliceStable(tasks, func(i, j int) bool {
-			return tasks[i].Urgency > tasks[j].Urgency
+		sort.SliceStable(tasks, func(ii, jj int) bool {
+			return tasks[ii].Urgency > tasks[jj].Urgency
 		})
 	case "created":
-		sort.SliceStable(tasks, func(i, j int) bool {
-			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
+		sort.SliceStable(tasks, func(ii, jj int) bool {
+			return tasks[ii].CreatedAt.Before(tasks[jj].CreatedAt)
 		})
 	case "priority":
-		sort.SliceStable(tasks, func(i, j int) bool {
-			if tasks[i].Priority != tasks[j].Priority {
-				return tasks[i].Priority > tasks[j].Priority
+		sort.SliceStable(tasks, func(ii, jj int) bool {
+			if tasks[ii].Priority != tasks[jj].Priority {
+				return tasks[ii].Priority > tasks[jj].Priority
 			}
-			return tasks[i].Urgency > tasks[j].Urgency
+			return tasks[ii].Urgency > tasks[jj].Urgency
 		})
 	case "due":
-		sort.SliceStable(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(ii, jj int) bool {
 			switch {
-			case tasks[i].DueAt == nil && tasks[j].DueAt != nil:
+			case tasks[ii].DueAt == nil && tasks[jj].DueAt != nil:
 				return false
-			case tasks[i].DueAt != nil && tasks[j].DueAt == nil:
+			case tasks[ii].DueAt != nil && tasks[jj].DueAt == nil:
 				return true
-			case tasks[i].DueAt != nil && tasks[j].DueAt != nil && !tasks[i].DueAt.Equal(*tasks[j].DueAt):
-				return tasks[i].DueAt.Before(*tasks[j].DueAt)
+			case tasks[ii].DueAt != nil && tasks[jj].DueAt != nil && !tasks[ii].DueAt.Equal(*tasks[jj].DueAt):
+				return tasks[ii].DueAt.Before(*tasks[jj].DueAt)
 			}
-			return tasks[i].Urgency > tasks[j].Urgency
+			return tasks[ii].Urgency > tasks[jj].Urgency
 		})
 	}
 }
@@ -74,17 +74,17 @@ func sortTasks(tasks []*domain.Task, mode string) {
 // order ASC NULLS LAST, then created_at ASC, then id ASC as the final
 // tie-breaker. Duplicated from service/task_resequence.go intentionally to
 // avoid leaking a sort helper across the public service API.
-func siblingLess(a, b *domain.Task) bool {
+func siblingLess(left, right *domain.Task) bool {
 	switch {
-	case a.Order == nil && b.Order != nil:
+	case left.Order == nil && right.Order != nil:
 		return false
-	case a.Order != nil && b.Order == nil:
+	case left.Order != nil && right.Order == nil:
 		return true
-	case a.Order != nil && b.Order != nil && *a.Order != *b.Order:
-		return *a.Order < *b.Order
+	case left.Order != nil && right.Order != nil && *left.Order != *right.Order:
+		return *left.Order < *right.Order
 	}
-	if !a.CreatedAt.Equal(b.CreatedAt) {
-		return a.CreatedAt.Before(b.CreatedAt)
+	if !left.CreatedAt.Equal(right.CreatedAt) {
+		return left.CreatedAt.Before(right.CreatedAt)
 	}
-	return a.ID.String() < b.ID.String()
+	return left.ID.String() < right.ID.String()
 }

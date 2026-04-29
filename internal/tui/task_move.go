@@ -27,8 +27,8 @@ type moveFlags struct {
 // buildTaskMoveCmd wires the `tusk task move` subcommand. Kept in its own
 // file because the positional shape and flag mutual-exclusion rules are
 // substantially larger than every other task subcommand.
-func (a *App) buildTaskMoveCmd() *cobra.Command {
-	f := &moveFlags{}
+func (app *App) buildTaskMoveCmd() *cobra.Command {
+	flags := &moveFlags{}
 	cmd := &cobra.Command{
 		Use:   "move [<short_id>]",
 		Short: "Reposition a task within its sibling group or re-parent it",
@@ -47,35 +47,35 @@ set. --parent is allowed only with --first or --last; use the literal value
   tusk task move --resequence b7c9d4e2
   tusk task move --resequence root`,
 		Args:    cobra.MaximumNArgs(1),
-		PreRunE: a.validateMoveFlags(f),
-		RunE:    a.runMove(f),
+		PreRunE: app.validateMoveFlags(flags),
+		RunE:    app.runMove(flags),
 	}
-	cmd.Flags().StringVar(&f.before, "before", "", "place task immediately before target short_id")
-	cmd.Flags().StringVar(&f.after, "after", "", "place task immediately after target short_id")
-	cmd.Flags().BoolVar(&f.first, "first", false, "place task at the head of its (optionally re-homed) sibling group")
-	cmd.Flags().BoolVar(&f.last, "last", false, "place task at the tail of its (optionally re-homed) sibling group")
-	cmd.Flags().StringVar(&f.parent, "parent", "", "new parent short_id (or \"root\"); only valid with --first or --last")
-	cmd.Flags().StringVar(&f.resequence, "resequence", "", "rewrite the entire sibling group under this parent short_id (or \"root\") to dense integer orders")
-	cmd.Flags().IntVar(&f.version, "version", 0, "expected task version (optimistic lock); fetched automatically when omitted")
+	cmd.Flags().StringVar(&flags.before, "before", "", "place task immediately before target short_id")
+	cmd.Flags().StringVar(&flags.after, "after", "", "place task immediately after target short_id")
+	cmd.Flags().BoolVar(&flags.first, "first", false, "place task at the head of its (optionally re-homed) sibling group")
+	cmd.Flags().BoolVar(&flags.last, "last", false, "place task at the tail of its (optionally re-homed) sibling group")
+	cmd.Flags().StringVar(&flags.parent, "parent", "", "new parent short_id (or \"root\"); only valid with --first or --last")
+	cmd.Flags().StringVar(&flags.resequence, "resequence", "", "rewrite the entire sibling group under this parent short_id (or \"root\") to dense integer orders")
+	cmd.Flags().IntVar(&flags.version, "version", 0, "expected task version (optimistic lock); fetched automatically when omitted")
 	return cmd
 }
 
 // validateMoveFlags enforces the mutual-exclusion rules described in the
 // command's long help. Positional arg is required for every mode except
 // --resequence, which takes its parent through the flag.
-func (a *App) validateMoveFlags(f *moveFlags) func(cmd *cobra.Command, args []string) error {
+func (app *App) validateMoveFlags(flags *moveFlags) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		positions := 0
-		if f.before != "" {
+		if flags.before != "" {
 			positions++
 		}
-		if f.after != "" {
+		if flags.after != "" {
 			positions++
 		}
-		if f.first {
+		if flags.first {
 			positions++
 		}
-		if f.last {
+		if flags.last {
 			positions++
 		}
 		resequenceSet := cmd.Flags().Changed("resequence")
@@ -89,7 +89,7 @@ func (a *App) validateMoveFlags(f *moveFlags) func(cmd *cobra.Command, args []st
 			return fmt.Errorf("exactly one of --before, --after, --first, --last, or --resequence may be set")
 		}
 
-		if f.parent != "" && !f.first && !f.last {
+		if flags.parent != "" && !flags.first && !flags.last {
 			return fmt.Errorf("--parent is only valid with --first or --last")
 		}
 
@@ -97,10 +97,10 @@ func (a *App) validateMoveFlags(f *moveFlags) func(cmd *cobra.Command, args []st
 			if len(args) > 0 {
 				return fmt.Errorf("--resequence takes its parent through the flag; do not pass a positional short_id")
 			}
-			if f.parent != "" {
+			if flags.parent != "" {
 				return fmt.Errorf("--parent cannot be combined with --resequence")
 			}
-			if f.version != 0 {
+			if flags.version != 0 {
 				return fmt.Errorf("--version is not valid with --resequence")
 			}
 			return nil
@@ -115,21 +115,22 @@ func (a *App) validateMoveFlags(f *moveFlags) func(cmd *cobra.Command, args []st
 
 // runMove dispatches into either service.Move or service.Resequence based on
 // the validated flag combination.
-func (a *App) runMove(f *moveFlags) func(cmd *cobra.Command, args []string) error {
+func (app *App) runMove(flags *moveFlags) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
 		if cmd.Flags().Changed("resequence") {
-			return a.runResequence(cmd, f.resequence)
+			return app.runResequence(cmd, flags.resequence)
 		}
 
 		shortID := args[0]
-		current, err := a.taskSvc.GetByShortID(ctx, shortID)
-		if err != nil {
-			return fmt.Errorf("%s", formatError(err, shortID))
+		current, getErr := app.taskSvc.GetByShortID(ctx, shortID)
+
+		if getErr != nil {
+			return fmt.Errorf("%s", formatError(getErr, shortID))
 		}
 
-		version := f.version
+		version := flags.version
 		if version == 0 {
 			version = current.Version
 		}
@@ -138,114 +139,125 @@ func (a *App) runMove(f *moveFlags) func(cmd *cobra.Command, args []string) erro
 			TaskID:  current.ID,
 			Version: version,
 		}
-		if a.playerID != "" {
-			p := a.playerID
-			req.ActorID = &p
+		if app.playerID != "" {
+			playerID := app.playerID
+			req.ActorID = &playerID
 		}
 
 		switch {
-		case f.before != "":
-			target, err := a.taskSvc.GetByShortID(ctx, f.before)
-			if err != nil {
-				return fmt.Errorf("%s", formatError(err, f.before))
+		case flags.before != "":
+			target, targetErr := app.taskSvc.GetByShortID(ctx, flags.before)
+
+			if targetErr != nil {
+				return fmt.Errorf("%s", formatError(targetErr, flags.before))
 			}
+
 			req.Position = service.MovePositionBefore
 			tid := target.ID
 			req.TargetID = &tid
-		case f.after != "":
-			target, err := a.taskSvc.GetByShortID(ctx, f.after)
-			if err != nil {
-				return fmt.Errorf("%s", formatError(err, f.after))
+		case flags.after != "":
+			target, targetErr := app.taskSvc.GetByShortID(ctx, flags.after)
+
+			if targetErr != nil {
+				return fmt.Errorf("%s", formatError(targetErr, flags.after))
 			}
+
 			req.Position = service.MovePositionAfter
 			tid := target.ID
 			req.TargetID = &tid
-		case f.first:
+		case flags.first:
 			req.Position = service.MovePositionFirst
-			if err := a.setMoveParent(cmd, f, &req); err != nil {
+			if err := app.setMoveParent(cmd, flags, &req); err != nil {
 				return err
 			}
-		case f.last:
+		case flags.last:
 			req.Position = service.MovePositionLast
-			if err := a.setMoveParent(cmd, f, &req); err != nil {
+			if err := app.setMoveParent(cmd, flags, &req); err != nil {
 				return err
 			}
 		}
 
-		updated, err := a.taskSvc.Move(ctx, req)
-		if err != nil {
-			return formatMoveError(err, shortID)
+		updated, moveErr := app.taskSvc.Move(ctx, req)
+
+		if moveErr != nil {
+			return formatMoveError(moveErr, shortID)
 		}
-		r := a.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
-		return r.renderMutationResult("Moved", updated, nil)
+
+		renderer := app.newRenderer(cmd.Context(), cmd.OutOrStdout(), nil)
+		return renderer.renderMutationResult("Moved", updated, nil)
 	}
 }
 
 // setMoveParent translates the --parent flag (including the "root" sentinel)
 // into a tristate **uuid.UUID on the MoveRequest. Only invoked in first/last
 // branches where --parent is meaningful.
-func (a *App) setMoveParent(cmd *cobra.Command, f *moveFlags, req *service.MoveRequest) error {
+func (app *App) setMoveParent(cmd *cobra.Command, flags *moveFlags, req *service.MoveRequest) error {
 	if !cmd.Flags().Changed("parent") {
 		return nil
 	}
-	if f.parent == "root" {
+	if flags.parent == "root" {
 		var nilUUID *uuid.UUID
 		req.ParentID = &nilUUID
 		return nil
 	}
-	parent, err := a.taskSvc.GetByShortID(cmd.Context(), f.parent)
-	if err != nil {
-		return fmt.Errorf("%s", formatError(err, f.parent))
+	parent, parentErr := app.taskSvc.GetByShortID(cmd.Context(), flags.parent)
+
+	if parentErr != nil {
+		return fmt.Errorf("%s", formatError(parentErr, flags.parent))
 	}
+
 	pid := parent.ID
-	pp := &pid
-	req.ParentID = &pp
+	parentPtr := &pid
+	req.ParentID = &parentPtr
 	return nil
 }
 
 // runResequence handles the --resequence branch. Resolves the parent short_id
 // ("root" → nil) and calls TaskService.Resequence.
-func (a *App) runResequence(cmd *cobra.Command, parentRef string) error {
+func (app *App) runResequence(cmd *cobra.Command, parentRef string) error {
 	ctx := cmd.Context()
 
 	var parentID *uuid.UUID
 	parentLabel := "root"
 	if parentRef != "root" {
-		parent, err := a.taskSvc.GetByShortID(ctx, parentRef)
-		if err != nil {
-			return fmt.Errorf("%s", formatError(err, parentRef))
+		parent, parentErr := app.taskSvc.GetByShortID(ctx, parentRef)
+
+		if parentErr != nil {
+			return fmt.Errorf("%s", formatError(parentErr, parentRef))
 		}
+
 		pid := parent.ID
 		parentID = &pid
 		parentLabel = parent.ShortID
 	}
 
 	var actor *string
-	if a.playerID != "" {
-		p := a.playerID
-		actor = &p
+	if app.playerID != "" {
+		playerID := app.playerID
+		actor = &playerID
 	}
 
-	rewritten, err := a.taskSvc.Resequence(ctx, parentID, actor)
-	if err != nil {
-		return formatMoveError(err, parentRef)
+	rewritten, resequenceErr := app.taskSvc.Resequence(ctx, parentID, actor)
+
+	if resequenceErr != nil {
+		return formatMoveError(resequenceErr, parentRef)
 	}
 
-	if a.format == "json" {
+	if app.format == "json" {
 		type resp struct {
 			Rewritten int     `json:"rewritten"`
 			ParentID  *string `json:"parent_id"`
 		}
-		r := resp{Rewritten: rewritten}
+		response := resp{Rewritten: rewritten}
 		if parentID != nil {
-			s := parentID.String()
-			r.ParentID = &s
+			str := parentID.String()
+			response.ParentID = &str
 		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(r)
+		return enc.Encode(response)
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "resequenced %d tasks under parent %s\n", rewritten, parentLabel)
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "resequenced %d tasks under parent %s\n", rewritten, parentLabel)
 	return err
 }
 
