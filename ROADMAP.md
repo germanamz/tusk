@@ -1278,7 +1278,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1.md
 > Blocks: P2.
 
-- [ ] [v0.14 P1-T1] Write STYLE.md level=task order=1 +naming-convention +phase-1 +v0.14
+- [x] [v0.14 P1-T1] Write STYLE.md level=task order=1 +naming-convention +phase-1 +v0.14
 > What: Author STYLE.md at the repo root with three sections: the four mechanical rules (with before/after examples and rationales), the advisory style guide (receivers, generic type parameters, loop indices), and an enforcement summary mapping each rule to the linter that enforces it.
 >
 > Why: STYLE.md is the canonical reference cited from PR templates, review checklists, and every sweep phase.
@@ -1299,7 +1299,7 @@
 > Blocks: P1-T2 (link target).
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T1.md
 
-- [ ] [v0.14 P1-T2] Cross-reference STYLE.md from CONTRIBUTING.md level=task order=2 +naming-convention +phase-1 +v0.14
+- [x] [v0.14 P1-T2] Cross-reference STYLE.md from CONTRIBUTING.md level=task order=2 +naming-convention +phase-1 +v0.14
 > What: Add a one-line link to STYLE.md from CONTRIBUTING.md. Do not move existing CONTRIBUTING.md content.
 >
 > Why: Contributors land in CONTRIBUTING.md first; the link makes the convention discoverable without bloating CONTRIBUTING.md.
@@ -1315,7 +1315,7 @@
 > Depends on: P1-T1.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T2.md
 
-- [ ] [v0.14 P1-T3] Create cmd/tusk-lint multichecker shell level=task order=3 +naming-convention +phase-1 +v0.14
+- [x] [v0.14 P1-T3] Create cmd/tusk-lint multichecker shell level=task order=3 +naming-convention +phase-1 +v0.14
 > What: Create cmd/tusk-lint/main.go that calls golang.org/x/tools/go/analysis/multichecker.Main() with an empty analyzer list. The binary must compile and exit zero on any input. Add golang.org/x/tools to go.mod if not already present.
 >
 > Why: Provides the binary entry point that Phase 2 populates with analyzers. Shipping the empty shell now lets make lint wire to a real binary in this phase rather than waiting for Phase 2.
@@ -1334,7 +1334,7 @@
 > Blocks: P1-T4, P1-T6.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T3.md
 
-- [ ] [v0.14 P1-T4] Wire lint-tusk into Makefile level=task order=4 +naming-convention +phase-1 +v0.14
+- [x] [v0.14 P1-T4] Wire lint-tusk into Makefile level=task order=4 +naming-convention +phase-1 +v0.14
 > What: Add lint-tusk and lint-go targets to Makefile. Make the existing lint target depend on both. lint-go runs golangci-lint run ./...; lint-tusk runs the new cmd/tusk-lint binary over ./....
 >
 > Why: Single hook (make lint) runs both linters. CI already invokes make lint; no CI changes needed once the Makefile is updated.
@@ -1353,7 +1353,7 @@
 > Blocks: P1-T6.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T4.md
 
-- [ ] [v0.14 P1-T5] Configure varnamelen with per-package exclusions level=task order=5 +naming-convention +phase-1 +v0.14
+- [x] [v0.14 P1-T5] Configure varnamelen with per-package exclusions level=task order=5 +naming-convention +phase-1 +v0.14
 > What: Enable varnamelen in .golangci.yml with strict settings (min-name-length: 2, check-receiver/check-return/check-type-param: true, empty ignore-names and ignore-decls). Add twelve per-package path exclusions covering every existing directory: service/, internal/tui/, internal/mcp/, internal/portability/, filter/, domain/, syntax/, repository/, sqlite/, cmd/, tests/e2e/, and client.go. Use the v2 schema (linters.exclusions.rules, linters.settings.varnamelen) consistent with the existing config.
 >
 > Why: Per-package rules are intentional: parallel sweep phases (3–7) each remove a different rule, so branches do not merge-conflict on a single shared alternation. The full-codebase exclusion preserves CI green at the moment Phase 1 lands.
@@ -1373,7 +1373,7 @@
 > Blocks: P1-T6.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P1-T5.md
 
-- [ ] [v0.14 P1-T6] Verify Phase 1 CI green level=task order=6 +naming-convention +phase-1 +v0.14
+- [x] [v0.14 P1-T6] Verify Phase 1 CI green level=task order=6 +naming-convention +phase-1 +v0.14
 > What: Run the full local validation suite to confirm the Phase 1 changes are CI-clean: make build, make test, make lint, and a representative pre-commit hook execution.
 >
 > Why: Phase 1 introduces no behavior changes but does enable a new linter and add a new lint target. This task closes the phase by proving all three gates stay green.
@@ -2176,4 +2176,56 @@
 > Bridge code: None.
 > Depends on: P8-T1, P8-T2, P8-T3, P8-T4.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T5.md
+
+### [v0.14 P-CONFIG] Sweep config/ level=task order=9 +naming-convention +spec-gap +v0.14
+> ## What
+>
+> Bring `config/` into compliance with STYLE.md's four rules. Drop the `^config/` exclusion from `.golangci.yml` and the corresponding `internal/lint/pathfilter` entry (added by P2). Apply fixes; verify `make test` and `make lint` are clean.
+>
+> ## Why — spec gap caught during P1-T5
+>
+> `config/` was missing from the original v0.14 plan-doc enumeration of packages. It has Go production code (`config/config.go`, `config/resolver.go`, `config/write.go`) with at least 6 varnamelen violations as of P1-T5. To preserve "Phase 1 ships CI-green" intent (per `01-convention-and-scaffold.md`), P1-T5 added a 13th `^config/` exclusion that was not in the spec. This task removes it.
+>
+> ## Scope
+>
+> - 6 known varnamelen violations (single-letter receivers/params/locals in `config/config.go` and `config/write.go`).
+> - Plus any rule-2/3/4 violations surfaced by `tusk-lint` once analyzers ship in P2 and the pathfilter entry is added.
+>
+> A single task (not the usual 5-subtask sweep) because the violation count is small.
+>
+> ## Acceptance
+>
+> - `^config/` removed from `.golangci.yml` `linters.exclusions.rules`.
+> - `^github.com/germanamz/tusk/config(/|$)` removed from `internal/lint/pathfilter` excluded slice.
+> - All STYLE.md rule violations in `config/` fixed (mechanical only — no behavior changes).
+> - `make lint` exits zero with `config/` in scope.
+> - `make test ./config/...` exits zero.
+>
+> ## Bridge code
+>
+> - Removes the `^config/` `varnamelen` exclusion (introduced by P1-T5 deviation).
+> - Removes the `config` pathfilter entry (must be added by P2-T4 — this task should land before P8).
+>
+> ## Depends on
+>
+> P2 (custom analyzers in place; pathfilter helper exists with config entry to remove).
+>
+> ## Parallelizable with
+>
+> P3, P4, P5, P6, P7.
+>
+> ## Blocks
+>
+> P8 (lock-in cannot start until all sweep gates pass — this includes config/).
+>
+> ## Follow-ups
+>
+> - P2-T4 must include `config` in the `internal/lint/pathfilter` excluded slice (to keep CI green between P2 and this sweep). Add it alongside the other 12 entries.
+> - P8-T1 should not find a `^config/` rule remaining once this task is done.
+>
+> ## References
+>
+> - Spec: `docs/superpowers/specs/2026-04-28-v0.14-naming-convention-design.md` §3 (rollout strategy — config/ omitted from package enumeration).
+> - Plan: `docs/superpowers/plans/v014-naming-convention/01-convention-and-scaffold.md` task 5 (where the 13th exclusion was added).
+> - PR adding the exclusion: P1-T5 (link in tusk after merge).
 
