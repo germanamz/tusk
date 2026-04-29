@@ -73,32 +73,32 @@ func newDumpIndex(ws *portability.PortableWorkspace) *dumpIndex {
 		tagsByID:  make(map[uuid.UUID]struct{}, len(ws.Tags)),
 		tagNames:  make(map[string]struct{}, len(ws.Tags)),
 	}
-	for _, t := range ws.Tasks {
-		idx.tasks[t.ID] = struct{}{}
+	for _, task := range ws.Tasks {
+		idx.tasks[task.ID] = struct{}{}
 	}
-	for _, p := range ws.Projects {
-		idx.projects[p.ID] = struct{}{}
+	for _, project := range ws.Projects {
+		idx.projects[project.ID] = struct{}{}
 	}
-	for _, w := range ws.Workflows {
-		idx.workflows[w.ID] = struct{}{}
+	for _, workflow := range ws.Workflows {
+		idx.workflows[workflow.ID] = struct{}{}
 	}
-	for _, p := range ws.Players {
-		idx.players[p.ID] = struct{}{}
+	for _, player := range ws.Players {
+		idx.players[player.ID] = struct{}{}
 	}
-	for _, t := range ws.Tags {
-		idx.tagsByID[t.ID] = struct{}{}
-		idx.tagNames[t.Name] = struct{}{}
+	for _, tag := range ws.Tags {
+		idx.tagsByID[tag.ID] = struct{}{}
+		idx.tagNames[tag.Name] = struct{}{}
 	}
 	return idx
 }
 
 // taskIdentifier returns the short ID when present, otherwise the full
 // UUID so every issue carries a stable handle the caller can show.
-func taskIdentifier(t portability.PortableTask) string {
-	if t.ShortID != "" {
-		return t.ShortID
+func taskIdentifier(task portability.PortableTask) string {
+	if task.ShortID != "" {
+		return task.ShortID
 	}
-	return t.ID.String()
+	return task.ID.String()
 }
 
 func (service *PortabilityService) checkReferentialIntegrity(
@@ -171,8 +171,8 @@ func (service *PortabilityService) checkReferentialIntegrity(
 			tags, err := service.tags.List(ctx)
 			if err == nil {
 				liveTagNames = make(map[string]struct{}, len(tags))
-				for _, t := range tags {
-					liveTagNames[t.Name] = struct{}{}
+				for _, tag := range tags {
+					liveTagNames[tag.Name] = struct{}{}
 				}
 			}
 		}
@@ -266,13 +266,13 @@ func (service *PortabilityService) checkReferentialIntegrity(
 		}
 	}
 
-	for _, p := range ws.Projects {
-		if !workflowExists(p.WorkflowID) {
+	for _, project := range ws.Projects {
+		if !workflowExists(project.WorkflowID) {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "fk",
 				EntityKind: "project",
-				EntityID:   p.ID.String(),
-				Message:    fmt.Sprintf("workflow_id %s does not resolve to a workflow in the dump or workspace", p.WorkflowID),
+				EntityID:   project.ID.String(),
+				Message:    fmt.Sprintf("workflow_id %s does not resolve to a workflow in the dump or workspace", project.WorkflowID),
 			})
 		}
 	}
@@ -292,13 +292,13 @@ func (service *PortabilityService) checkTaxonomy(
 	}
 
 	projectsByID := make(map[uuid.UUID]*domain.Project, len(ws.Projects))
-	for i := range ws.Projects {
-		dom := projectFromPortable(ws.Projects[i])
-		projectsByID[dom.ID] = dom
+	for index := range ws.Projects {
+		domainProject := projectFromPortable(ws.Projects[index])
+		projectsByID[domainProject.ID] = domainProject
 	}
 	resolveProject := func(id uuid.UUID) *domain.Project {
-		if p, ok := projectsByID[id]; ok {
-			return p
+		if project, ok := projectsByID[id]; ok {
+			return project
 		}
 		live, err := service.projects.GetByID(ctx, id)
 
@@ -311,15 +311,15 @@ func (service *PortabilityService) checkTaxonomy(
 	}
 
 	taskByID := make(map[uuid.UUID]portability.PortableTask, len(ws.Tasks))
-	for _, t := range ws.Tasks {
-		taskByID[t.ID] = t
+	for _, task := range ws.Tasks {
+		taskByID[task.ID] = task
 	}
 
-	parentLevel := func(t portability.PortableTask) *string {
-		if t.ParentID == nil {
+	parentLevel := func(task portability.PortableTask) *string {
+		if task.ParentID == nil {
 			return nil
 		}
-		parent, ok := taskByID[*t.ParentID]
+		parent, ok := taskByID[*task.ParentID]
 		if !ok {
 			// Parent not in dump (must already exist in workspace under
 			// --replace; FK check covers --strict); cannot resolve a
@@ -346,11 +346,11 @@ func (service *PortabilityService) checkTaxonomy(
 		if taxonomy.IsEmpty() {
 			continue
 		}
-		dom := taskFromPortable(task)
+		domainTask := taskFromPortable(task)
 		err := domain.TaxonomyValidator{}.Check(domain.ValidationContext{
 			Taxonomy:    taxonomy,
 			ParentLevel: parentLevel(task),
-		}, dom)
+		}, domainTask)
 		if err == nil {
 			continue
 		}
@@ -375,12 +375,12 @@ func checkRelationCycles(rels []portability.PortableRelation) []portability.Impo
 	}
 	adj := make(map[uuid.UUID][]uuid.UUID)
 	relByEdge := make(map[[2]uuid.UUID]uuid.UUID)
-	for _, r := range rels {
-		if r.RelationType != "blocks" {
+	for _, relation := range rels {
+		if relation.RelationType != "blocks" {
 			continue
 		}
-		adj[r.SourceID] = append(adj[r.SourceID], r.TargetID)
-		relByEdge[[2]uuid.UUID{r.SourceID, r.TargetID}] = r.ID
+		adj[relation.SourceID] = append(adj[relation.SourceID], relation.TargetID)
+		relByEdge[[2]uuid.UUID{relation.SourceID, relation.TargetID}] = relation.ID
 	}
 	if len(adj) == 0 {
 		return nil
@@ -405,9 +405,9 @@ func checkRelationCycles(rels []portability.PortableRelation) []portability.Impo
 				cycle = append(cycle, next)
 				participants := make([]string, 0, len(cycle))
 				start := 0
-				for i, id := range cycle {
+				for index, id := range cycle {
 					if id == next {
-						start = i
+						start = index
 						break
 					}
 				}
@@ -457,8 +457,8 @@ func checkRelationCycles(rels []portability.PortableRelation) []portability.Impo
 func checkWorkflowWellFormed(workflows []portability.PortableWorkflow) []portability.ImportIssue {
 	var issues []portability.ImportIssue
 	for _, workflow := range workflows {
-		dom := workflowFromPortable(workflow)
-		if err := domain.ValidateWorkflow(dom); err != nil {
+		domainWorkflow := workflowFromPortable(workflow)
+		if err := domain.ValidateWorkflow(domainWorkflow); err != nil {
 			issues = append(issues, portability.ImportIssue{
 				Kind:       "workflow",
 				EntityKind: "workflow",
@@ -484,32 +484,32 @@ func (service *PortabilityService) checkCollisions(
 	}
 	var issues []portability.ImportIssue
 
-	for _, w := range ws.Workflows {
-		if _, err := service.workflows.GetByID(ctx, w.ID); err == nil {
-			issues = append(issues, collisionIssue("workflow", w.ID.String()))
+	for _, workflow := range ws.Workflows {
+		if _, err := service.workflows.GetByID(ctx, workflow.ID); err == nil {
+			issues = append(issues, collisionIssue("workflow", workflow.ID.String()))
 		}
 	}
-	for _, p := range ws.Projects {
-		if _, err := service.projects.GetByID(ctx, p.ID); err == nil {
-			issues = append(issues, collisionIssue("project", p.ID.String()))
+	for _, project := range ws.Projects {
+		if _, err := service.projects.GetByID(ctx, project.ID); err == nil {
+			issues = append(issues, collisionIssue("project", project.ID.String()))
 		}
 	}
-	for _, p := range ws.Players {
-		if _, err := service.players.GetByID(ctx, p.ID); err == nil {
-			issues = append(issues, collisionIssue("player", p.ID))
+	for _, player := range ws.Players {
+		if _, err := service.players.GetByID(ctx, player.ID); err == nil {
+			issues = append(issues, collisionIssue("player", player.ID))
 		}
 	}
 	tagByID := make(map[uuid.UUID]struct{}, len(ws.Tags))
 	if len(ws.Tags) > 0 {
 		existing, err := service.tags.List(ctx)
 		if err == nil {
-			for _, t := range existing {
-				tagByID[t.ID] = struct{}{}
+			for _, tag := range existing {
+				tagByID[tag.ID] = struct{}{}
 			}
 		}
-		for _, t := range ws.Tags {
-			if _, ok := tagByID[t.ID]; ok {
-				issues = append(issues, collisionIssue("tag", t.ID.String()))
+		for _, tag := range ws.Tags {
+			if _, ok := tagByID[tag.ID]; ok {
+				issues = append(issues, collisionIssue("tag", tag.ID.String()))
 			}
 		}
 	}
@@ -555,9 +555,9 @@ func (service *PortabilityService) checkCollisions(
 			}
 		}
 	}
-	for _, n := range ws.Notes {
-		if _, err := service.bundle.Notes.GetByID(ctx, n.ID); err == nil {
-			issues = append(issues, collisionIssue("note", n.ID.String()))
+	for _, note := range ws.Notes {
+		if _, err := service.bundle.Notes.GetByID(ctx, note.ID); err == nil {
+			issues = append(issues, collisionIssue("note", note.ID.String()))
 		}
 	}
 	return issues

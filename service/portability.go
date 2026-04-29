@@ -127,8 +127,8 @@ func (s *PortabilityService) Export(ctx context.Context) (*portability.PortableW
 	}
 
 	taskIDs := make([]uuid.UUID, len(tasks))
-	for i, t := range tasks {
-		taskIDs[i] = t.ID
+	for index, task := range tasks {
+		taskIDs[index] = task.ID
 	}
 	tagsByTask, err := s.bundle.Tags.GetTaskTagsBatch(ctx, taskIDs)
 	if err != nil {
@@ -153,24 +153,24 @@ func (s *PortabilityService) Export(ctx context.Context) (*portability.PortableW
 	}
 
 	workflowDTOs := make([]portability.PortableWorkflow, len(workflows))
-	for i, w := range workflows {
-		workflowDTOs[i] = workflowToPortable(w)
+	for index, workflow := range workflows {
+		workflowDTOs[index] = workflowToPortable(workflow)
 	}
 	projectDTOs := make([]portability.PortableProject, len(projects))
-	for i, p := range projects {
-		projectDTOs[i] = projectToPortable(p)
+	for index, project := range projects {
+		projectDTOs[index] = projectToPortable(project)
 	}
 	playerDTOs := make([]portability.PortablePlayer, len(players))
-	for i, p := range players {
-		playerDTOs[i] = playerToPortable(p)
+	for index, player := range players {
+		playerDTOs[index] = playerToPortable(player)
 	}
 	tagDTOs := make([]portability.PortableTag, len(tags))
-	for i, t := range tags {
-		tagDTOs[i] = tagToPortable(t)
+	for index, tag := range tags {
+		tagDTOs[index] = tagToPortable(tag)
 	}
 	taskDTOs := make([]portability.PortableTask, len(tasks))
-	for i, t := range tasks {
-		taskDTOs[i] = taskToPortable(t, tagsByTask[t.ID])
+	for index, task := range tasks {
+		taskDTOs[index] = taskToPortable(task, tagsByTask[task.ID])
 	}
 
 	return &portability.PortableWorkspace{
@@ -200,12 +200,12 @@ func (s *PortabilityService) exportRelations(ctx context.Context, taskIDs []uuid
 		if err != nil {
 			return nil, fmt.Errorf("loading relations for task %s: %w", id, err)
 		}
-		for _, r := range rels {
-			if _, dup := seen[r.ID]; dup {
+		for _, relation := range rels {
+			if _, dup := seen[relation.ID]; dup {
 				continue
 			}
-			seen[r.ID] = struct{}{}
-			out = append(out, relationToPortable(r))
+			seen[relation.ID] = struct{}{}
+			out = append(out, relationToPortable(relation))
 		}
 	}
 	return out, nil
@@ -220,8 +220,8 @@ func (s *PortabilityService) exportAnnotations(ctx context.Context, taskIDs []uu
 		if err != nil {
 			return nil, fmt.Errorf("loading annotations for task %s: %w", id, err)
 		}
-		for _, a := range anns {
-			out = append(out, annotationToPortable(a))
+		for _, annotation := range anns {
+			out = append(out, annotationToPortable(annotation))
 		}
 	}
 	return out, nil
@@ -233,17 +233,17 @@ func (s *PortabilityService) exportAnnotations(ctx context.Context, taskIDs []uu
 // repo directly.
 func (s *PortabilityService) exportNotes(ctx context.Context, projects []*domain.Project) ([]portability.PortableNote, error) {
 	out := make([]portability.PortableNote, 0)
-	for _, p := range projects {
+	for _, project := range projects {
 		notes, err := s.bundle.Notes.List(ctx, repository.NoteListOptions{
-			ProjectID:       p.ID,
+			ProjectID:       project.ID,
 			IncludeArchived: true,
 			Limit:           0,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("loading notes for project %s: %w", p.ID, err)
+			return nil, fmt.Errorf("loading notes for project %s: %w", project.ID, err)
 		}
-		for _, n := range notes {
-			out = append(out, noteToPortable(n))
+		for _, note := range notes {
+			out = append(out, noteToPortable(note))
 		}
 	}
 	return out, nil
@@ -261,12 +261,12 @@ func (s *PortabilityService) exportEvents(ctx context.Context) ([]portability.Po
 		return nil, fmt.Errorf("listing events: %w", err)
 	}
 	out := make([]portability.PortableEvent, len(events))
-	for i, e := range events {
-		dto, err := eventToPortable(e)
+	for index, event := range events {
+		dto, err := eventToPortable(event)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = dto
+		out[index] = dto
 	}
 	return out, nil
 }
