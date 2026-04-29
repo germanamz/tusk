@@ -13,411 +13,481 @@ import (
 // statusOf transitions a task through the kanban workflow to the given
 // terminal status by calling Start/Complete/Delete on the service. The
 // resulting task pointer is returned (with refreshed version).
-func statusOf(t *testing.T, svc *TaskService, task *domain.Task, target string) *domain.Task {
-	t.Helper()
+func statusOf(test *testing.T, svc *TaskService, task *domain.Task, target string) *domain.Task {
+	test.Helper()
 	ctx := context.Background()
+
 	switch target {
 	case "pending":
 		// initial status; nothing to do.
 		return task
 	case "active":
 		got, err := svc.Start(ctx, task.ShortID, task.Version, "")
+
 		if err != nil {
-			t.Fatalf("Start: %v", err)
+			test.Fatalf("Start: %v", err)
 		}
+
 		return got
 	case "completed":
-		got, err := svc.Start(ctx, task.ShortID, task.Version, "")
-		if err != nil {
-			t.Fatalf("Start: %v", err)
+		got, startErr := svc.Start(ctx, task.ShortID, task.Version, "")
+
+		if startErr != nil {
+			test.Fatalf("Start: %v", startErr)
 		}
-		got, err = svc.Complete(ctx, got.ShortID, got.Version)
-		if err != nil {
-			t.Fatalf("Complete: %v", err)
+
+		got, completeErr := svc.Complete(ctx, got.ShortID, got.Version)
+
+		if completeErr != nil {
+			test.Fatalf("Complete: %v", completeErr)
 		}
+
 		return got
 	case "deleted":
 		got, err := svc.Delete(ctx, task.ShortID, task.Version)
+
 		if err != nil {
-			t.Fatalf("Delete: %v", err)
+			test.Fatalf("Delete: %v", err)
 		}
+
 		return got
 	}
-	t.Fatalf("unknown target status %q", target)
+
+	test.Fatalf("unknown target status %q", target)
 	return nil
 }
 
-func makeChild(t *testing.T, svc *TaskService, title string, parentID uuid.UUID) *domain.Task {
-	t.Helper()
+func makeChild(test *testing.T, svc *TaskService, title string, parentID uuid.UUID) *domain.Task {
+	test.Helper()
 	task := newMinimalTask(title)
 	task.ParentID = &parentID
-	mustCreateTask(t, svc, task)
+	mustCreateTask(test, svc, task)
 	return task
 }
 
-func TestSummarizeSubtree_Leaf(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeSubtree_Leaf(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	leaf := newMinimalTask("Leaf")
-	mustCreateTask(t, env.taskSvc, leaf)
+	mustCreateTask(test, env.taskSvc, leaf)
 
 	got, err := env.taskSvc.SummarizeSubtree(ctx, leaf.ID)
+
 	if err != nil {
-		t.Fatalf("SummarizeSubtree: %v", err)
+		test.Fatalf("SummarizeSubtree: %v", err)
 	}
+
 	if got.Task.ID != leaf.ID {
-		t.Fatalf("returned block must be the root, got %v", got.Task.ID)
+		test.Fatalf("returned block must be the root, got %v", got.Task.ID)
 	}
+
 	if got.Rollup.Total != 0 || got.Rollup.Done != 0 {
-		t.Fatalf("leaf rollup must be 0/0, got %d/%d", got.Rollup.Done, got.Rollup.Total)
+		test.Fatalf("leaf rollup must be 0/0, got %d/%d", got.Rollup.Done, got.Rollup.Total)
 	}
+
 	if got.Rollup.Percent != 0.0 {
-		t.Fatalf("leaf percent must be 0.0, got %v", got.Rollup.Percent)
+		test.Fatalf("leaf percent must be 0.0, got %v", got.Rollup.Percent)
 	}
+
 	if len(got.Rollup.StatusCounts) != 0 {
-		t.Fatalf("leaf StatusCounts must be empty, got %v", got.Rollup.StatusCounts)
+		test.Fatalf("leaf StatusCounts must be empty, got %v", got.Rollup.StatusCounts)
 	}
 }
 
-func TestSummarizeSubtree_OneLevel(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeSubtree_OneLevel(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	root := newMinimalTask("Root")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
-	c1 := makeChild(t, env.taskSvc, "C1", root.ID)
-	c2 := makeChild(t, env.taskSvc, "C2", root.ID)
-	c3 := makeChild(t, env.taskSvc, "C3", root.ID)
+	child1 := makeChild(test, env.taskSvc, "C1", root.ID)
+	child2 := makeChild(test, env.taskSvc, "C2", root.ID)
+	child3 := makeChild(test, env.taskSvc, "C3", root.ID)
 
-	statusOf(t, env.taskSvc, c1, "active")
-	statusOf(t, env.taskSvc, c2, "completed")
-	_ = c3 // remains pending
+	statusOf(test, env.taskSvc, child1, "active")
+	statusOf(test, env.taskSvc, child2, "completed")
+	_ = child3 // remains pending
 
 	got, err := env.taskSvc.SummarizeSubtree(ctx, root.ID)
+
 	if err != nil {
-		t.Fatalf("SummarizeSubtree: %v", err)
+		test.Fatalf("SummarizeSubtree: %v", err)
 	}
+
 	if got.Rollup.Total != 3 || got.Rollup.Done != 1 {
-		t.Fatalf("want Done=1 Total=3, got Done=%d Total=%d", got.Rollup.Done, got.Rollup.Total)
+		test.Fatalf("want Done=1 Total=3, got Done=%d Total=%d", got.Rollup.Done, got.Rollup.Total)
 	}
+
 	if got.Rollup.Percent < 0.333 || got.Rollup.Percent > 0.334 {
-		t.Fatalf("want Percent ≈ 0.333, got %v", got.Rollup.Percent)
+		test.Fatalf("want Percent ≈ 0.333, got %v", got.Rollup.Percent)
 	}
+
 	// Kanban order should be pending, active, completed.
 	if !hasOrder(got.Rollup.StatusCounts, []string{"pending", "active", "completed"}) {
-		t.Fatalf("unexpected order: %v", got.Rollup.StatusCounts)
+		test.Fatalf("unexpected order: %v", got.Rollup.StatusCounts)
 	}
 }
 
-func TestSummarizeSubtree_DeepTree(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeSubtree_DeepTree(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	root := newMinimalTask("Root")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
-	a := makeChild(t, env.taskSvc, "a", root.ID)
-	b := makeChild(t, env.taskSvc, "b", a.ID)
-	c := makeChild(t, env.taskSvc, "c", b.ID)
-	d := makeChild(t, env.taskSvc, "d", c.ID)
-	deletedChild := makeChild(t, env.taskSvc, "deleted", root.ID)
+	nodeA := makeChild(test, env.taskSvc, "a", root.ID)
+	nodeB := makeChild(test, env.taskSvc, "b", nodeA.ID)
+	nodeC := makeChild(test, env.taskSvc, "c", nodeB.ID)
+	nodeD := makeChild(test, env.taskSvc, "d", nodeC.ID)
+	deletedChild := makeChild(test, env.taskSvc, "deleted", root.ID)
 
-	statusOf(t, env.taskSvc, b, "active")
-	statusOf(t, env.taskSvc, d, "completed")
-	statusOf(t, env.taskSvc, deletedChild, "deleted")
+	statusOf(test, env.taskSvc, nodeB, "active")
+	statusOf(test, env.taskSvc, nodeD, "completed")
+	statusOf(test, env.taskSvc, deletedChild, "deleted")
 
 	got, err := env.taskSvc.SummarizeSubtree(ctx, root.ID)
+
 	if err != nil {
-		t.Fatalf("SummarizeSubtree: %v", err)
+		test.Fatalf("SummarizeSubtree: %v", err)
 	}
+
 	// Descendants: a (pending), b (active), c (pending), d (completed),
 	// deletedChild (deleted — excluded). Total = 4, Done = 1.
 	if got.Rollup.Total != 4 || got.Rollup.Done != 1 {
-		t.Fatalf("want Done=1 Total=4, got Done=%d Total=%d (counts: %v)",
+		test.Fatalf("want Done=1 Total=4, got Done=%d Total=%d (counts: %v)",
 			got.Rollup.Done, got.Rollup.Total, got.Rollup.StatusCounts)
 	}
-	for _, sc := range got.Rollup.StatusCounts {
-		if sc.Name == "deleted" {
-			t.Fatalf("deleted bucket must be absent: %v", got.Rollup.StatusCounts)
+
+	for _, statusCount := range got.Rollup.StatusCounts {
+		if statusCount.Name == "deleted" {
+			test.Fatalf("deleted bucket must be absent: %v", got.Rollup.StatusCounts)
 		}
 	}
 }
 
-func TestSummarizeSubtree_NotFound(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeSubtree_NotFound(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	_, err := env.taskSvc.SummarizeSubtree(ctx, uuid.New())
+
 	if err == nil {
-		t.Fatal("expected error for unknown rootID")
+		test.Fatal("expected error for unknown rootID")
 	}
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("want ErrNotFound, got %v", err)
+		test.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
 
-func TestSummarizeBlocks_NilFilterReturnsRoots(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeBlocks_NilFilterReturnsRoots(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
-	r1 := newMinimalTask("Root 1")
-	mustCreateTask(t, env.taskSvc, r1)
-	makeChild(t, env.taskSvc, "r1c1", r1.ID)
-	r1c2 := makeChild(t, env.taskSvc, "r1c2", r1.ID)
-	statusOf(t, env.taskSvc, r1c2, "completed")
+	root1 := newMinimalTask("Root 1")
+	mustCreateTask(test, env.taskSvc, root1)
+	makeChild(test, env.taskSvc, "r1c1", root1.ID)
+	r1c2 := makeChild(test, env.taskSvc, "r1c2", root1.ID)
+	statusOf(test, env.taskSvc, r1c2, "completed")
 
-	r2 := newMinimalTask("Root 2")
-	mustCreateTask(t, env.taskSvc, r2)
-	r2c1 := makeChild(t, env.taskSvc, "r2c1", r2.ID)
-	statusOf(t, env.taskSvc, r2c1, "completed")
+	root2 := newMinimalTask("Root 2")
+	mustCreateTask(test, env.taskSvc, root2)
+	r2c1 := makeChild(test, env.taskSvc, "r2c1", root2.ID)
+	statusOf(test, env.taskSvc, r2c1, "completed")
 
 	blocks, err := env.taskSvc.SummarizeBlocks(ctx, nil, false)
+
 	if err != nil {
-		t.Fatalf("SummarizeBlocks: %v", err)
+		test.Fatalf("SummarizeBlocks: %v", err)
 	}
+
 	if len(blocks) != 2 {
-		t.Fatalf("want 2 root blocks, got %d", len(blocks))
+		test.Fatalf("want 2 root blocks, got %d", len(blocks))
 	}
+
 	rollupByID := make(map[uuid.UUID]domain.Rollup)
-	for _, b := range blocks {
-		rollupByID[b.Task.ID] = b.Rollup
+
+	for _, block := range blocks {
+		rollupByID[block.Task.ID] = block.Rollup
 	}
-	r1roll, ok := rollupByID[r1.ID]
+
+	r1roll, ok := rollupByID[root1.ID]
+
 	if !ok {
-		t.Fatalf("expected r1 in blocks")
+		test.Fatalf("expected r1 in blocks")
 	}
+
 	if r1roll.Total != 2 || r1roll.Done != 1 {
-		t.Fatalf("r1 want 1/2, got %d/%d", r1roll.Done, r1roll.Total)
+		test.Fatalf("r1 want 1/2, got %d/%d", r1roll.Done, r1roll.Total)
 	}
-	r2roll := rollupByID[r2.ID]
+
+	r2roll := rollupByID[root2.ID]
+
 	if r2roll.Total != 1 || r2roll.Done != 1 {
-		t.Fatalf("r2 want 1/1, got %d/%d", r2roll.Done, r2roll.Total)
+		test.Fatalf("r2 want 1/1, got %d/%d", r2roll.Done, r2roll.Total)
 	}
 }
 
-func TestSummarizeBlocks_FilterScopesBoth(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeBlocks_FilterScopesBoth(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	storyLevel := "story"
 	taskLevel := "task"
 
 	root := newMinimalTask("Root milestone")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
 	storyA := newMinimalTask("Story A")
 	storyA.ParentID = &root.ID
 	storyA.Level = &storyLevel
-	mustCreateTask(t, env.taskSvc, storyA)
+	mustCreateTask(test, env.taskSvc, storyA)
 
 	storyB := newMinimalTask("Story B")
 	storyB.ParentID = &root.ID
 	storyB.Level = &storyLevel
-	mustCreateTask(t, env.taskSvc, storyB)
+	mustCreateTask(test, env.taskSvc, storyB)
 
 	// Sub-stories under storyA.
 	subStory := newMinimalTask("Sub-story under A")
 	subStory.ParentID = &storyA.ID
 	subStory.Level = &storyLevel
-	mustCreateTask(t, env.taskSvc, subStory)
+	mustCreateTask(test, env.taskSvc, subStory)
 
 	// Non-story descendants under storyA — must be excluded when filter
 	// scopes descendants too.
 	taskUnderA := newMinimalTask("Task under A")
 	taskUnderA.ParentID = &storyA.ID
 	taskUnderA.Level = &taskLevel
-	mustCreateTask(t, env.taskSvc, taskUnderA)
+	mustCreateTask(test, env.taskSvc, taskUnderA)
 
-	statusOf(t, env.taskSvc, subStory, "completed")
+	statusOf(test, env.taskSvc, subStory, "completed")
 	// taskUnderA stays pending.
 
 	expr := &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: []string{"story"}}}
 	blocks, err := env.taskSvc.SummarizeBlocks(ctx, expr, false)
+
 	if err != nil {
-		t.Fatalf("SummarizeBlocks: %v", err)
+		test.Fatalf("SummarizeBlocks: %v", err)
 	}
+
 	// Three story-level tasks total. Each becomes a block, with descendant
 	// counts restricted to story-level descendants.
 	if len(blocks) != 3 {
-		t.Fatalf("want 3 story blocks, got %d (%+v)", len(blocks), blockShortIDs(blocks))
+		test.Fatalf("want 3 story blocks, got %d (%+v)", len(blocks), blockShortIDs(blocks))
 	}
+
 	rollupByID := make(map[uuid.UUID]domain.Rollup)
-	for _, b := range blocks {
-		rollupByID[b.Task.ID] = b.Rollup
+
+	for _, block := range blocks {
+		rollupByID[block.Task.ID] = block.Rollup
 	}
+
 	// storyA's descendants: subStory (story, completed), taskUnderA (task, excluded by filter).
 	rollA := rollupByID[storyA.ID]
+
 	if rollA.Total != 1 || rollA.Done != 1 {
-		t.Fatalf("storyA scoped descendants want 1/1, got %d/%d (%v)", rollA.Done, rollA.Total, rollA.StatusCounts)
+		test.Fatalf("storyA scoped descendants want 1/1, got %d/%d (%v)", rollA.Done, rollA.Total, rollA.StatusCounts)
 	}
+
 	rollB := rollupByID[storyB.ID]
+
 	if rollB.Total != 0 {
-		t.Fatalf("storyB has no descendants, got Total=%d", rollB.Total)
+		test.Fatalf("storyB has no descendants, got Total=%d", rollB.Total)
 	}
+
 	rollSub := rollupByID[subStory.ID]
+
 	if rollSub.Total != 0 {
-		t.Fatalf("subStory leaf rollup want 0, got %d", rollSub.Total)
+		test.Fatalf("subStory leaf rollup want 0, got %d", rollSub.Total)
 	}
 }
 
-func TestSummarizeBlocks_FilterFull(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeBlocks_FilterFull(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	storyLevel := "story"
 	taskLevel := "task"
 
 	root := newMinimalTask("Root")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
 	storyA := newMinimalTask("Story A")
 	storyA.ParentID = &root.ID
 	storyA.Level = &storyLevel
-	mustCreateTask(t, env.taskSvc, storyA)
+	mustCreateTask(test, env.taskSvc, storyA)
 
 	subStory := newMinimalTask("Sub-story")
 	subStory.ParentID = &storyA.ID
 	subStory.Level = &storyLevel
-	mustCreateTask(t, env.taskSvc, subStory)
-	statusOf(t, env.taskSvc, subStory, "completed")
+	mustCreateTask(test, env.taskSvc, subStory)
+	statusOf(test, env.taskSvc, subStory, "completed")
 
 	taskUnderA := newMinimalTask("Task under A")
 	taskUnderA.ParentID = &storyA.ID
 	taskUnderA.Level = &taskLevel
-	mustCreateTask(t, env.taskSvc, taskUnderA)
+	mustCreateTask(test, env.taskSvc, taskUnderA)
 
 	expr := &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: []string{"story"}}}
 	blocks, err := env.taskSvc.SummarizeBlocks(ctx, expr, true)
+
 	if err != nil {
-		t.Fatalf("SummarizeBlocks: %v", err)
+		test.Fatalf("SummarizeBlocks: %v", err)
 	}
+
 	rollupByID := make(map[uuid.UUID]domain.Rollup)
-	for _, b := range blocks {
-		rollupByID[b.Task.ID] = b.Rollup
+
+	for _, block := range blocks {
+		rollupByID[block.Task.ID] = block.Rollup
 	}
+
 	// With full=true, storyA must include taskUnderA in Total.
 	rollA := rollupByID[storyA.ID]
+
 	if rollA.Total != 2 || rollA.Done != 1 {
-		t.Fatalf("storyA full descendants want 1/2, got %d/%d (%v)", rollA.Done, rollA.Total, rollA.StatusCounts)
+		test.Fatalf("storyA full descendants want 1/2, got %d/%d (%v)", rollA.Done, rollA.Total, rollA.StatusCounts)
 	}
 }
 
-func TestSummarizeBlocks_FilterScopesByTag(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeBlocks_FilterScopesByTag(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	tagRepo := sqlite.NewTagRepo(env.store.DB())
 	urgent := &domain.Tag{ID: uuid.New(), Name: "urgent"}
+
 	if err := tagRepo.Create(ctx, urgent); err != nil {
-		t.Fatalf("create tag: %v", err)
+		test.Fatalf("create tag: %v", err)
 	}
 
 	// Two roots, each with two children. Only one child per root carries
 	// the urgent tag; SummarizeBlocks with +urgent and full=false must
 	// scope both block selection and descendant counting to urgent tasks.
 	rootA := newMinimalTask("Root A")
-	mustCreateTask(t, env.taskSvc, rootA)
-	if err := tagRepo.AssignToTask(ctx, rootA.ID, urgent.ID); err != nil {
-		t.Fatalf("tag rootA: %v", err)
+	mustCreateTask(test, env.taskSvc, rootA)
+
+	if tagErr := tagRepo.AssignToTask(ctx, rootA.ID, urgent.ID); tagErr != nil {
+		test.Fatalf("tag rootA: %v", tagErr)
 	}
 
-	urgentChild := makeChild(t, env.taskSvc, "urgent under A", rootA.ID)
-	if err := tagRepo.AssignToTask(ctx, urgentChild.ID, urgent.ID); err != nil {
-		t.Fatalf("tag urgent child: %v", err)
+	urgentChild := makeChild(test, env.taskSvc, "urgent under A", rootA.ID)
+
+	if tagErr := tagRepo.AssignToTask(ctx, urgentChild.ID, urgent.ID); tagErr != nil {
+		test.Fatalf("tag urgent child: %v", tagErr)
 	}
-	calmChild := makeChild(t, env.taskSvc, "calm under A", rootA.ID)
+
+	calmChild := makeChild(test, env.taskSvc, "calm under A", rootA.ID)
 	_ = calmChild
 
 	rootB := newMinimalTask("Root B (untagged)")
-	mustCreateTask(t, env.taskSvc, rootB)
-	makeChild(t, env.taskSvc, "calm under B", rootB.ID)
+	mustCreateTask(test, env.taskSvc, rootB)
+	makeChild(test, env.taskSvc, "calm under B", rootB.ID)
 
 	expr := &domain.TermFilter{TaskFilter: domain.TaskFilter{Tags: []string{"urgent"}}}
 
-	scoped, err := env.taskSvc.SummarizeBlocks(ctx, expr, false)
-	if err != nil {
-		t.Fatalf("SummarizeBlocks scoped: %v", err)
-	}
-	rollupByID := make(map[uuid.UUID]domain.Rollup, len(scoped))
-	for _, b := range scoped {
-		rollupByID[b.Task.ID] = b.Rollup
-	}
-	rollA, ok := rollupByID[rootA.ID]
-	if !ok {
-		t.Fatalf("rootA missing from scoped blocks: %v", blockShortIDs(scoped))
-	}
-	if rollA.Total != 1 {
-		t.Fatalf("descendant tag filter must drop calmChild: want Total=1, got %d (%+v)",
-			rollA.Total, rollA.StatusCounts)
-	}
-	if _, untaggedShown := rollupByID[rootB.ID]; untaggedShown {
-		t.Fatalf("rootB must not appear: blocks=%v", blockShortIDs(scoped))
+	scoped, scopedErr := env.taskSvc.SummarizeBlocks(ctx, expr, false)
+
+	if scopedErr != nil {
+		test.Fatalf("SummarizeBlocks scoped: %v", scopedErr)
 	}
 
-	full, err := env.taskSvc.SummarizeBlocks(ctx, expr, true)
-	if err != nil {
-		t.Fatalf("SummarizeBlocks full: %v", err)
+	rollupByID := make(map[uuid.UUID]domain.Rollup, len(scoped))
+
+	for _, block := range scoped {
+		rollupByID[block.Task.ID] = block.Rollup
 	}
+
+	rollA, ok := rollupByID[rootA.ID]
+
+	if !ok {
+		test.Fatalf("rootA missing from scoped blocks: %v", blockShortIDs(scoped))
+	}
+
+	if rollA.Total != 1 {
+		test.Fatalf("descendant tag filter must drop calmChild: want Total=1, got %d (%+v)",
+			rollA.Total, rollA.StatusCounts)
+	}
+
+	if _, untaggedShown := rollupByID[rootB.ID]; untaggedShown {
+		test.Fatalf("rootB must not appear: blocks=%v", blockShortIDs(scoped))
+	}
+
+	full, fullErr := env.taskSvc.SummarizeBlocks(ctx, expr, true)
+
+	if fullErr != nil {
+		test.Fatalf("SummarizeBlocks full: %v", fullErr)
+	}
+
 	rollupByID = make(map[uuid.UUID]domain.Rollup, len(full))
-	for _, b := range full {
-		rollupByID[b.Task.ID] = b.Rollup
+
+	for _, block := range full {
+		rollupByID[block.Task.ID] = block.Rollup
 	}
+
 	rollA = rollupByID[rootA.ID]
+
 	if rollA.Total != 2 {
-		t.Fatalf("full=true must keep calmChild: want Total=2, got %d (%+v)",
+		test.Fatalf("full=true must keep calmChild: want Total=2, got %d (%+v)",
 			rollA.Total, rollA.StatusCounts)
 	}
 }
 
-func TestSummarizeBlocks_FilterTreePredicateNoOpsForDescendants(t *testing.T) {
+func TestSummarizeBlocks_FilterTreePredicateNoOpsForDescendants(test *testing.T) {
 	// tree=<X> selects blocks under X via the SQL evaluator. Each block's
 	// descendants are by definition also under X (transitivity), so the
 	// in-memory descendant pass treats RootID as match-all. Verifies that
 	// the spec'd behavior — "filter scopes both block selection AND
 	// descendant counting" — degenerates correctly when the predicate
 	// is structurally satisfied.
-	env := testTaskEnv(t)
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	root := newMinimalTask("Root")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
-	storyA := makeChild(t, env.taskSvc, "Story A", root.ID)
-	leaf := makeChild(t, env.taskSvc, "Leaf under A", storyA.ID)
+	storyA := makeChild(test, env.taskSvc, "Story A", root.ID)
+	leaf := makeChild(test, env.taskSvc, "Leaf under A", storyA.ID)
 	_ = leaf
 
 	expr := &domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &root.ID}}
 	blocks, err := env.taskSvc.SummarizeBlocks(ctx, expr, false)
+
 	if err != nil {
-		t.Fatalf("SummarizeBlocks: %v", err)
+		test.Fatalf("SummarizeBlocks: %v", err)
 	}
-	for _, b := range blocks {
-		if b.Task.ID == storyA.ID {
-			if b.Rollup.Total != 1 {
-				t.Fatalf("storyA descendants under root must count leaf: want Total=1, got %d", b.Rollup.Total)
+
+	for _, block := range blocks {
+		if block.Task.ID == storyA.ID {
+			if block.Rollup.Total != 1 {
+				test.Fatalf("storyA descendants under root must count leaf: want Total=1, got %d", block.Rollup.Total)
 			}
+
 			return
 		}
 	}
-	t.Fatalf("storyA missing from blocks: %v", blockShortIDs(blocks))
+
+	test.Fatalf("storyA missing from blocks: %v", blockShortIDs(blocks))
 }
 
-func TestSummarizeBlocks_EmptyResult(t *testing.T) {
-	env := testTaskEnv(t)
+func TestSummarizeBlocks_EmptyResult(test *testing.T) {
+	env := testTaskEnv(test)
 	ctx := context.Background()
 
 	root := newMinimalTask("Root")
-	mustCreateTask(t, env.taskSvc, root)
+	mustCreateTask(test, env.taskSvc, root)
 
 	expr := &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: []string{"nonexistent_level"}}}
 	blocks, err := env.taskSvc.SummarizeBlocks(ctx, expr, false)
+
 	if err != nil {
-		t.Fatalf("SummarizeBlocks: %v", err)
+		test.Fatalf("SummarizeBlocks: %v", err)
 	}
+
 	if len(blocks) != 0 {
-		t.Fatalf("want empty result, got %d", len(blocks))
+		test.Fatalf("want empty result, got %d", len(blocks))
 	}
 }
 
@@ -425,25 +495,34 @@ func hasOrder(got []domain.StatusCount, want []string) bool {
 	if len(got) < len(want) {
 		return false
 	}
+
 	idx := make(map[string]int, len(got))
-	for i, sc := range got {
-		idx[sc.Name] = i
+
+	for index, statusCount := range got {
+		idx[statusCount.Name] = index
 	}
+
 	last := -1
+
 	for _, name := range want {
-		i, ok := idx[name]
-		if !ok || i <= last {
+		pos, ok := idx[name]
+
+		if !ok || pos <= last {
 			return false
 		}
-		last = i
+
+		last = pos
 	}
+
 	return true
 }
 
 func blockShortIDs(blocks []*domain.SummaryBlock) []string {
 	ids := make([]string, 0, len(blocks))
-	for _, b := range blocks {
-		ids = append(ids, b.Task.ShortID)
+
+	for _, block := range blocks {
+		ids = append(ids, block.Task.ShortID)
 	}
+
 	return ids
 }

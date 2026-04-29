@@ -8,8 +8,8 @@ import (
 	"github.com/germanamz/tusk/domain"
 )
 
-func TestComputeMidpoint(t *testing.T) {
-	t.Parallel()
+func TestComputeMidpoint(test *testing.T) {
+	test.Parallel()
 
 	cases := []struct {
 		name    string
@@ -23,20 +23,25 @@ func TestComputeMidpoint(t *testing.T) {
 		{name: "reversed", low: 2, high: 1, wantErr: domain.ErrOrderGapExhausted},
 		{name: "equal", low: 1, high: 1, wantErr: domain.ErrOrderGapExhausted},
 	}
+
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		test.Run(tc.name, func(test *testing.T) {
 			got, err := computeMidpoint(tc.low, tc.high)
+
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("err: got %v, want %v", err, tc.wantErr)
+					test.Fatalf("err: got %v, want %v", err, tc.wantErr)
 				}
+
 				return
 			}
+
 			if err != nil {
-				t.Fatalf("unexpected err: %v", err)
+				test.Fatalf("unexpected err: %v", err)
 			}
+
 			if got != tc.want {
-				t.Fatalf("mid: got %v, want %v", got, tc.want)
+				test.Fatalf("mid: got %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -46,15 +51,18 @@ func TestComputeMidpoint(t *testing.T) {
 // With low = 1.0 and high = math.Nextafter(1.0, 2.0) there is no representable
 // float64 strictly between the two, so the midpoint equals one endpoint and
 // computeMidpoint must flag an exhausted gap.
-func TestComputeMidpoint_AdjacentFloats(t *testing.T) {
-	t.Parallel()
+func TestComputeMidpoint_AdjacentFloats(test *testing.T) {
+	test.Parallel()
 	low := 1.0
 	high := math.Nextafter(1.0, 2.0)
+
 	if low >= high {
-		t.Fatalf("test setup invalid: Nextafter produced %v which is not > %v", high, low)
+		test.Fatalf("test setup invalid: Nextafter produced %v which is not > %v", high, low)
 	}
+
 	_, err := computeMidpoint(low, high)
+
 	if !errors.Is(err, domain.ErrOrderGapExhausted) {
-		t.Fatalf("err: got %v, want %v", err, domain.ErrOrderGapExhausted)
+		test.Fatalf("err: got %v, want %v", err, domain.ErrOrderGapExhausted)
 	}
 }
