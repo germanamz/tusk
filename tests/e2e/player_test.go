@@ -4,23 +4,23 @@ import (
 	"testing"
 )
 
-func TestPlayerRegistration(t *testing.T) {
+func TestPlayerRegistration(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "register_player",
 			Steps: []Step{
 				{
 					Args: []string{"player", "register", "test-agent", "--type", "agent"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["id"], "test-agent")
-						assertEqual(t, m["type"], "agent")
+						assertEqual(test, m["id"], "test-agent")
+						assertEqual(test, m["type"], "agent")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Registered")
-						assertContains(t, output, "test-agent")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Registered")
+						assertContains(test, output, "test-agent")
 					},
 				},
 			},
@@ -30,10 +30,10 @@ func TestPlayerRegistration(t *testing.T) {
 			Steps: []Step{
 				{
 					Args: []string{"player", "register", "default-agent"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["type"], "agent")
+						assertEqual(test, m["type"], "agent")
 					},
 				},
 			},
@@ -43,19 +43,19 @@ func TestPlayerRegistration(t *testing.T) {
 			Steps: []Step{
 				{
 					Args: []string{"player", "register", "german", "--type", "human"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["type"], "human")
+						assertEqual(test, m["type"], "human")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestClaimRelease(t *testing.T) {
+func TestClaimRelease(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "claim_and_release",
@@ -64,31 +64,31 @@ func TestClaimRelease(t *testing.T) {
 				{Args: []string{"task", "create", "Claimable task"}},
 				{
 					Args: []string{"task", "claim", "$1.short_id", "--player", "agent-1"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["claimed_by"], "agent-1")
+						assertEqual(test, m["claimed_by"], "agent-1")
 						if m["claimed_at"] == nil {
-							t.Error("expected claimed_at to be set")
+							test.Error("expected claimed_at to be set")
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Claimed")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Claimed")
 					},
 				},
 				{
 					Args: []string{"task", "release", "$1.short_id", "--player", "agent-1"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
 						if m["claimed_by"] != nil {
-							t.Errorf("expected claimed_by to be nil after release, got %v", m["claimed_by"])
+							test.Errorf("expected claimed_by to be nil after release, got %v", m["claimed_by"])
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Released")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Released")
 					},
 				},
 			},
@@ -103,18 +103,18 @@ func TestClaimRelease(t *testing.T) {
 				{
 					Args:    []string{"task", "claim", "$2.short_id", "--player", "agent-2"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stderr, "already claimed")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stderr, "already claimed")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestStartAutoClaim(t *testing.T) {
+func TestStartAutoClaim(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "start_auto_claims",
@@ -122,11 +122,11 @@ func TestStartAutoClaim(t *testing.T) {
 				{Args: []string{"task", "create", "Auto-claim task"}},
 				{
 					Args: []string{"task", "start", "$0.short_id", "--player", "agent-auto"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["status"], "active")
-						assertEqual(t, m["claimed_by"], "agent-auto")
+						assertEqual(test, m["status"], "active")
+						assertEqual(test, m["claimed_by"], "agent-auto")
 					},
 				},
 			},
@@ -137,12 +137,12 @@ func TestStartAutoClaim(t *testing.T) {
 				{Args: []string{"task", "create", "No-claim task"}},
 				{
 					Args: []string{"task", "start", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["status"], "active")
+						assertEqual(test, m["status"], "active")
 						if m["claimed_by"] != nil {
-							t.Errorf("expected no claim, got %v", m["claimed_by"])
+							test.Errorf("expected no claim, got %v", m["claimed_by"])
 						}
 					},
 				},
@@ -158,18 +158,18 @@ func TestStartAutoClaim(t *testing.T) {
 				{
 					Args:    []string{"task", "start", "$2.short_id", "--player", "agent-2"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stderr, "already claimed")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stderr, "already claimed")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestClaimVisibleInInfo(t *testing.T) {
+func TestClaimVisibleInInfo(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "info_shows_claim",
@@ -178,24 +178,24 @@ func TestClaimVisibleInInfo(t *testing.T) {
 				{Args: []string{"task", "claim", "$0.short_id", "--player", "agent-vis"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["claimed_by"], "agent-vis")
+						assertEqual(test, m["claimed_by"], "agent-vis")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Claimed By:")
-						assertContains(t, output, "agent-vis")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Claimed By:")
+						assertContains(test, output, "agent-vis")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestClaimPreservedAfterDone(t *testing.T) {
+func TestClaimPreservedAfterDone(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "done_preserves_claim",
@@ -204,20 +204,20 @@ func TestClaimPreservedAfterDone(t *testing.T) {
 				{Args: []string{"task", "start", "$0.short_id", "--player", "agent-done"}},
 				{
 					Args: []string{"task", "done", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["status"], "completed")
-						assertEqual(t, m["claimed_by"], "agent-done")
+						assertEqual(test, m["status"], "completed")
+						assertEqual(test, m["claimed_by"], "agent-done")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestPlayerModify(t *testing.T) {
+func TestPlayerModify(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "set_note_window_size",
@@ -225,19 +225,19 @@ func TestPlayerModify(t *testing.T) {
 				{Args: []string{"player", "register", "agent-1", "--type", "agent"}},
 				{
 					Args: []string{"player", "modify", "agent-1", "note-window-size=50"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["id"], "agent-1")
+						assertEqual(test, m["id"], "agent-1")
 						if m["note_window_size"] == nil {
-							t.Fatal("expected note_window_size to be set")
+							test.Fatal("expected note_window_size to be set")
 						}
-						assertEqual(t, m["note_window_size"], float64(50))
+						assertEqual(test, m["note_window_size"], float64(50))
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Updated")
-						assertContains(t, output, "note_window_size: 50")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Updated")
+						assertContains(test, output, "note_window_size: 50")
 					},
 				},
 			},
@@ -249,16 +249,16 @@ func TestPlayerModify(t *testing.T) {
 				{Args: []string{"player", "modify", "agent-1", "note-window-size=50"}},
 				{
 					Args: []string{"player", "modify", "agent-1", "note-window-size="},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
 						if _, ok := m["note_window_size"]; ok {
-							t.Fatalf("expected note_window_size to be absent, got %v", m["note_window_size"])
+							test.Fatalf("expected note_window_size to be absent, got %v", m["note_window_size"])
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertNotContains(t, output, "note_window_size:")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertNotContains(test, output, "note_window_size:")
 					},
 				},
 			},
@@ -270,9 +270,9 @@ func TestPlayerModify(t *testing.T) {
 				{
 					Args:    []string{"player", "modify", "agent-1", "note-window-size=-5"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stderr, "must be positive")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stderr, "must be positive")
 					},
 				},
 			},
@@ -284,9 +284,9 @@ func TestPlayerModify(t *testing.T) {
 				{
 					Args:    []string{"player", "modify", "agent-1", "note-window-size=abc"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stderr, "must be an integer")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stderr, "must be an integer")
 					},
 				},
 			},
@@ -298,9 +298,9 @@ func TestPlayerModify(t *testing.T) {
 				{
 					Args:    []string{"player", "modify", "agent-1", "bogus=1"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stderr, `unknown field "bogus"`)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stderr, `unknown field "bogus"`)
 					},
 				},
 			},
@@ -311,18 +311,18 @@ func TestPlayerModify(t *testing.T) {
 				{
 					Args:    []string{"player", "modify", "ghost", "note-window-size=50"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stderr, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stderr, "not found")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestClaimFilters(t *testing.T) {
+func TestClaimFilters(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "filter_claimed_by",
@@ -332,14 +332,14 @@ func TestClaimFilters(t *testing.T) {
 				{Args: []string{"task", "claim", "$0.short_id", "--player", "agent-filter"}},
 				{
 					Args: []string{"task", "list", "claimed_by=agent-filter"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						items := parsed.([]any)
 						if len(items) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(items))
+							test.Fatalf("expected 1 task, got %d", len(items))
 						}
 						m := items[0].(map[string]any)
-						assertEqual(t, m["claimed_by"], "agent-filter")
+						assertEqual(test, m["claimed_by"], "agent-filter")
 					},
 				},
 			},
@@ -352,16 +352,16 @@ func TestClaimFilters(t *testing.T) {
 				{Args: []string{"task", "claim", "$1.short_id", "--player", "agent-unc"}},
 				{
 					Args: []string{"task", "list", "unclaimed=true"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						items := parsed.([]any)
 						if len(items) != 1 {
-							t.Fatalf("expected 1 unclaimed task, got %d", len(items))
+							test.Fatalf("expected 1 unclaimed task, got %d", len(items))
 						}
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
