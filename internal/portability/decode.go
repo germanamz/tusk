@@ -26,11 +26,11 @@ type ImportError struct {
 	Issues []ImportIssue
 }
 
-func (e *ImportError) Error() string {
-	return fmt.Sprintf("import failed: %d issues", len(e.Issues))
+func (importErr *ImportError) Error() string {
+	return fmt.Sprintf("import failed: %d issues", len(importErr.Issues))
 }
 
-// Decode reads a JSON-encoded PortableWorkspace from r. It returns
+// Decode reads a JSON-encoded PortableWorkspace from reader. It returns
 // (*PortableWorkspace, nil) on success.
 //
 // Failure modes:
@@ -43,11 +43,11 @@ func (e *ImportError) Error() string {
 //
 // Decode does not validate referential integrity, taxonomy, or cycles;
 // those are the PortabilityService's responsibility.
-func Decode(r io.Reader) (*PortableWorkspace, error) {
+func Decode(reader io.Reader) (*PortableWorkspace, error) {
 	var ws PortableWorkspace
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&ws); err != nil {
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&ws); err != nil {
 		return nil, &ImportError{Issues: []ImportIssue{{
 			Kind:    "json",
 			Message: fmt.Sprintf("decode failed: %v", err),

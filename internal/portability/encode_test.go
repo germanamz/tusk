@@ -14,14 +14,14 @@ import (
 // normalizePayloads rewrites every event Payload to a compact form so
 // pretty-printed round-trips compare cleanly with reflect.DeepEqual.
 func normalizePayloads(ws *PortableWorkspace) {
-	for i := range ws.Events {
-		raw := ws.Events[i].Payload
+	for index := range ws.Events {
+		raw := ws.Events[index].Payload
 		if len(raw) == 0 {
 			continue
 		}
 		var buf bytes.Buffer
 		if err := json.Compact(&buf, raw); err == nil {
-			ws.Events[i].Payload = buf.Bytes()
+			ws.Events[index].Payload = buf.Bytes()
 		}
 	}
 }
@@ -160,28 +160,30 @@ func buildFullWorkspace() *PortableWorkspace {
 	}
 }
 
-func TestEncodeDecode_RoundTrip_HappyPath(t *testing.T) {
+func TestEncodeDecode_RoundTrip_HappyPath(test *testing.T) {
 	want := buildFullWorkspace()
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, want); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
 
 	got, err := Decode(&buf)
+
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		test.Fatalf("Decode: %v", err)
 	}
 
 	normalizePayloads(want)
 	normalizePayloads(got)
 
 	if !reflect.DeepEqual(want, got) {
-		t.Errorf("round-trip mismatch\n want=%#v\n got=%#v", want, got)
+		test.Errorf("round-trip mismatch\n want=%#v\n got=%#v", want, got)
 	}
 }
 
-func TestEncode_OrderNullEmittedExplicitly(t *testing.T) {
+func TestEncode_OrderNullEmittedExplicitly(test *testing.T) {
 	// v0.13 follow-up at ROADMAP.md:1305 — cleared task.order must
 	// serialize as JSON null, never omitted, so import can distinguish
 	// "no change" from "clear to default".
@@ -202,20 +204,23 @@ func TestEncode_OrderNullEmittedExplicitly(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, ws); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
 
 	var compact bytes.Buffer
+
 	if err := json.Compact(&compact, buf.Bytes()); err != nil {
-		t.Fatalf("Compact: %v", err)
+		test.Fatalf("Compact: %v", err)
 	}
+
 	if !strings.Contains(compact.String(), `"order":null`) {
-		t.Errorf("expected `\"order\":null` in compacted output, got:\n%s", compact.String())
+		test.Errorf("expected `\"order\":null` in compacted output, got:\n%s", compact.String())
 	}
 }
 
-func TestEncodeDecode_UrgencyOverridesNilOmitted(t *testing.T) {
+func TestEncodeDecode_UrgencyOverridesNilOmitted(test *testing.T) {
 	ws := &PortableWorkspace{
 		SchemaVersion: SchemaVersion,
 		TuskVersion:   "v0.13.0",
@@ -233,23 +238,27 @@ func TestEncodeDecode_UrgencyOverridesNilOmitted(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, ws); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
+
 	if strings.Contains(buf.String(), "urgency_overrides") {
-		t.Errorf("expected urgency_overrides to be omitted, got:\n%s", buf.String())
+		test.Errorf("expected urgency_overrides to be omitted, got:\n%s", buf.String())
 	}
 
 	got, err := Decode(&buf)
+
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		test.Fatalf("Decode: %v", err)
 	}
+
 	if got.Tasks[0].UrgencyOverrides != nil {
-		t.Errorf("expected UrgencyOverrides == nil after round-trip, got %+v", got.Tasks[0].UrgencyOverrides)
+		test.Errorf("expected UrgencyOverrides == nil after round-trip, got %+v", got.Tasks[0].UrgencyOverrides)
 	}
 }
 
-func TestEncodeDecode_MultilineDescription(t *testing.T) {
+func TestEncodeDecode_MultilineDescription(test *testing.T) {
 	desc := "first\nsecond\nthird"
 	ws := &PortableWorkspace{
 		SchemaVersion: SchemaVersion,
@@ -268,19 +277,23 @@ func TestEncodeDecode_MultilineDescription(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, ws); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
+
 	got, err := Decode(&buf)
+
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		test.Fatalf("Decode: %v", err)
 	}
+
 	if got.Tasks[0].Description != desc {
-		t.Errorf("description mismatch\n want=%q\n got=%q", desc, got.Tasks[0].Description)
+		test.Errorf("description mismatch\n want=%q\n got=%q", desc, got.Tasks[0].Description)
 	}
 }
 
-func TestEncodeDecode_ClaimUnsetOmitted(t *testing.T) {
+func TestEncodeDecode_ClaimUnsetOmitted(test *testing.T) {
 	ws := &PortableWorkspace{
 		SchemaVersion: SchemaVersion,
 		TuskVersion:   "v0.13.0",
@@ -299,24 +312,28 @@ func TestEncodeDecode_ClaimUnsetOmitted(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, ws); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
+
 	out := buf.String()
 	if strings.Contains(out, "claimed_by") || strings.Contains(out, "claimed_at") {
-		t.Errorf("expected claimed_by/claimed_at omitted, got:\n%s", out)
+		test.Errorf("expected claimed_by/claimed_at omitted, got:\n%s", out)
 	}
 
 	got, err := Decode(&buf)
+
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		test.Fatalf("Decode: %v", err)
 	}
+
 	if got.Tasks[0].ClaimedBy != nil || got.Tasks[0].ClaimedAt != nil {
-		t.Errorf("expected unset claim, got by=%v at=%v", got.Tasks[0].ClaimedBy, got.Tasks[0].ClaimedAt)
+		test.Errorf("expected unset claim, got by=%v at=%v", got.Tasks[0].ClaimedBy, got.Tasks[0].ClaimedAt)
 	}
 }
 
-func TestEncodeDecode_ClaimSetRoundTrip(t *testing.T) {
+func TestEncodeDecode_ClaimSetRoundTrip(test *testing.T) {
 	claimedAt := time.Date(2026, 4, 26, 10, 0, 0, 0, time.UTC)
 	ws := &PortableWorkspace{
 		SchemaVersion: SchemaVersion,
@@ -336,19 +353,23 @@ func TestEncodeDecode_ClaimSetRoundTrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, ws); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
+
 	got, err := Decode(&buf)
+
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		test.Fatalf("Decode: %v", err)
 	}
+
 	gotTask := got.Tasks[0]
 	if gotTask.ClaimedBy == nil || *gotTask.ClaimedBy != "alice" {
-		t.Errorf("ClaimedBy mismatch: got %v", gotTask.ClaimedBy)
+		test.Errorf("ClaimedBy mismatch: got %v", gotTask.ClaimedBy)
 	}
 	if gotTask.ClaimedAt == nil || !gotTask.ClaimedAt.Equal(claimedAt) {
-		t.Errorf("ClaimedAt mismatch: got %v want %v", gotTask.ClaimedAt, claimedAt)
+		test.Errorf("ClaimedAt mismatch: got %v want %v", gotTask.ClaimedAt, claimedAt)
 	}
 }
 
@@ -358,8 +379,8 @@ func TestEncodeDecode_ClaimSetRoundTrip(t *testing.T) {
 // nil; an empty map encodes as `{}` and decodes back to a non-nil but
 // empty map. Consumers of the codec who treat these as equivalent
 // should normalize after Decode.
-func TestEncodeDecode_UDAEmptyAndNil(t *testing.T) {
-	t.Run("nil_stays_nil", func(t *testing.T) {
+func TestEncodeDecode_UDAEmptyAndNil(test *testing.T) {
+	test.Run("nil_stays_nil", func(test *testing.T) {
 		ws := &PortableWorkspace{
 			SchemaVersion: SchemaVersion,
 			TuskVersion:   "v0.13.0",
@@ -375,19 +396,23 @@ func TestEncodeDecode_UDAEmptyAndNil(t *testing.T) {
 			}},
 		}
 		var buf bytes.Buffer
+
 		if err := Encode(&buf, ws); err != nil {
-			t.Fatalf("Encode: %v", err)
+			test.Fatalf("Encode: %v", err)
 		}
+
 		got, err := Decode(&buf)
+
 		if err != nil {
-			t.Fatalf("Decode: %v", err)
+			test.Fatalf("Decode: %v", err)
 		}
+
 		if got.Tasks[0].UDA != nil {
-			t.Errorf("expected UDA == nil, got %#v", got.Tasks[0].UDA)
+			test.Errorf("expected UDA == nil, got %#v", got.Tasks[0].UDA)
 		}
 	})
 
-	t.Run("empty_stays_empty", func(t *testing.T) {
+	test.Run("empty_stays_empty", func(test *testing.T) {
 		ws := &PortableWorkspace{
 			SchemaVersion: SchemaVersion,
 			TuskVersion:   "v0.13.0",
@@ -403,23 +428,27 @@ func TestEncodeDecode_UDAEmptyAndNil(t *testing.T) {
 			}},
 		}
 		var buf bytes.Buffer
+
 		if err := Encode(&buf, ws); err != nil {
-			t.Fatalf("Encode: %v", err)
+			test.Fatalf("Encode: %v", err)
 		}
+
 		got, err := Decode(&buf)
+
 		if err != nil {
-			t.Fatalf("Decode: %v", err)
+			test.Fatalf("Decode: %v", err)
 		}
+
 		if got.Tasks[0].UDA == nil {
-			t.Errorf("expected UDA == empty map (non-nil), got nil")
+			test.Errorf("expected UDA == empty map (non-nil), got nil")
 		}
 		if len(got.Tasks[0].UDA) != 0 {
-			t.Errorf("expected len(UDA) == 0, got %d", len(got.Tasks[0].UDA))
+			test.Errorf("expected len(UDA) == 0, got %d", len(got.Tasks[0].UDA))
 		}
 	})
 }
 
-func TestEncodeDecode_UnknownEventTypeRoundTrip(t *testing.T) {
+func TestEncodeDecode_UnknownEventTypeRoundTrip(test *testing.T) {
 	payload := json.RawMessage(`{"future_field":42,"nested":{"a":"b"}}`)
 	ws := &PortableWorkspace{
 		SchemaVersion: SchemaVersion,
@@ -437,27 +466,33 @@ func TestEncodeDecode_UnknownEventTypeRoundTrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, ws); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
+
 	got, err := Decode(&buf)
+
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		test.Fatalf("Decode: %v", err)
 	}
+
 	if got.Events[0].Type != "future_event_kind" {
-		t.Errorf("Type mismatch: got %q", got.Events[0].Type)
+		test.Errorf("Type mismatch: got %q", got.Events[0].Type)
 	}
 
 	var compact bytes.Buffer
+
 	if err := json.Compact(&compact, got.Events[0].Payload); err != nil {
-		t.Fatalf("Compact: %v", err)
+		test.Fatalf("Compact: %v", err)
 	}
+
 	if compact.String() != string(payload) {
-		t.Errorf("payload round-trip mismatch\n want=%s\n got=%s", payload, compact.String())
+		test.Errorf("payload round-trip mismatch\n want=%s\n got=%s", payload, compact.String())
 	}
 }
 
-func TestEncode_HTMLSpecialCharsLiteral(t *testing.T) {
+func TestEncode_HTMLSpecialCharsLiteral(test *testing.T) {
 	ws := &PortableWorkspace{
 		SchemaVersion: SchemaVersion,
 		TuskVersion:   "v0.13.0",
@@ -475,27 +510,31 @@ func TestEncode_HTMLSpecialCharsLiteral(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+
 	if err := Encode(&buf, ws); err != nil {
-		t.Fatalf("Encode: %v", err)
+		test.Fatalf("Encode: %v", err)
 	}
+
 	out := buf.String()
-	for _, ch := range []string{"<a href=", "click</a>", "& more"} {
-		if !strings.Contains(out, ch) {
-			t.Errorf("expected literal %q in output, got:\n%s", ch, out)
+	for _, literal := range []string{"<a href=", "click</a>", "& more"} {
+		if !strings.Contains(out, literal) {
+			test.Errorf("expected literal %q in output, got:\n%s", literal, out)
 		}
 	}
-	for _, esc := range []string{"\\u003c", "\\u003e", "\\u0026"} {
-		if strings.Contains(out, esc) {
-			t.Errorf("expected no JSON unicode escape %q in output, got:\n%s", esc, out)
+	for _, escape := range []string{"\\u003c", "\\u003e", "\\u0026"} {
+		if strings.Contains(out, escape) {
+			test.Errorf("expected no JSON unicode escape %q in output, got:\n%s", escape, out)
 		}
 	}
 
 	got, err := Decode(&buf)
+
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		test.Fatalf("Decode: %v", err)
 	}
+
 	if got.Tasks[0].Description != ws.Tasks[0].Description {
-		t.Errorf("description mismatch: got %q want %q",
+		test.Errorf("description mismatch: got %q want %q",
 			got.Tasks[0].Description, ws.Tasks[0].Description)
 	}
 }
