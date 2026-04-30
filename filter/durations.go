@@ -22,49 +22,51 @@ import (
 //	ParseRelativeDuration("2w")  → 14 * 24h
 //	ParseRelativeDuration("24h") → 24h
 //	ParseRelativeDuration("30m") → 30m
-func ParseRelativeDuration(s string) (time.Duration, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
+func ParseRelativeDuration(input string) (time.Duration, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
 		return 0, fmt.Errorf("duration must not be empty")
 	}
 
-	var i int
-	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-		i++
+	var digitEnd int
+	for digitEnd < len(input) && input[digitEnd] >= '0' && input[digitEnd] <= '9' {
+		digitEnd++
 	}
-	if i == 0 {
-		return 0, fmt.Errorf("duration %q must begin with a positive integer", s)
+	if digitEnd == 0 {
+		return 0, fmt.Errorf("duration %q must begin with a positive integer", input)
 	}
-	if i == len(s) {
-		return 0, fmt.Errorf("duration %q missing unit suffix (d, w, h, m, s)", s)
+	if digitEnd == len(input) {
+		return 0, fmt.Errorf("duration %q missing unit suffix (d, w, h, m, s)", input)
 	}
 
-	numStr := s[:i]
-	unit := s[i:]
+	numStr := input[:digitEnd]
+	unit := input[digitEnd:]
 
-	n, err := strconv.ParseUint(numStr, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parsing duration %q: %w", s, err)
+	count, parseErr := strconv.ParseUint(numStr, 10, 64)
+
+	if parseErr != nil {
+		return 0, fmt.Errorf("parsing duration %q: %w", input, parseErr)
 	}
-	if n == 0 {
-		return 0, fmt.Errorf("duration %q must be positive", s)
+	if count == 0 {
+		return 0, fmt.Errorf("duration %q must be positive", input)
 	}
 
 	switch unit {
 	case "d":
-		return time.Duration(n) * 24 * time.Hour, nil
+		return time.Duration(count) * 24 * time.Hour, nil
 	case "w":
-		return time.Duration(n) * 7 * 24 * time.Hour, nil
+		return time.Duration(count) * 7 * 24 * time.Hour, nil
 	case "h", "m", "s", "ms", "us", "ns":
-		d, err := time.ParseDuration(s)
-		if err != nil {
-			return 0, fmt.Errorf("parsing duration %q: %w", s, err)
+		dur, durErr := time.ParseDuration(input)
+
+		if durErr != nil {
+			return 0, fmt.Errorf("parsing duration %q: %w", input, durErr)
 		}
-		if d <= 0 {
-			return 0, fmt.Errorf("duration %q must be positive", s)
+		if dur <= 0 {
+			return 0, fmt.Errorf("duration %q must be positive", input)
 		}
-		return d, nil
+		return dur, nil
 	default:
-		return 0, fmt.Errorf("unknown duration unit %q in %q (expected d, w, h, m, s)", unit, s)
+		return 0, fmt.Errorf("unknown duration unit %q in %q (expected d, w, h, m, s)", unit, input)
 	}
 }

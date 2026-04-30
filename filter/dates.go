@@ -9,8 +9,8 @@ import (
 // parseDate converts a string to a time.Time.
 // Accepts: RFC 3339 ("2026-04-10T15:30:00Z"), date-only ("2026-04-10"),
 // relative ("today", "tomorrow", "thisweek"), or weekday names ("monday"-"sunday").
-func parseDate(s string) (time.Time, error) {
-	lower := strings.ToLower(s)
+func parseDate(input string) (time.Time, error) {
+	lower := strings.ToLower(input)
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
@@ -42,29 +42,33 @@ func parseDate(s string) (time.Time, error) {
 	}
 
 	// RFC 3339
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, nil
+	if parsed, err := time.Parse(time.RFC3339, input); err == nil {
+		return parsed, nil
 	}
 
 	// Date-only
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t, nil
+	if parsed, err := time.Parse("2006-01-02", input); err == nil {
+		return parsed, nil
 	}
 
-	return time.Time{}, fmt.Errorf("invalid date %q: use YYYY-MM-DD, RFC3339, today, tomorrow, thisweek, or a weekday name", s)
+	return time.Time{}, fmt.Errorf("invalid date %q: use YYYY-MM-DD, RFC3339, today, tomorrow, thisweek, or a weekday name", input)
 }
 
 // parseDateRange splits a "start..end" string and parses both sides.
-func parseDateRange(s string) (start, end time.Time, err error) {
-	parts := strings.SplitN(s, "..", 2)
+func parseDateRange(rangeStr string) (start, end time.Time, err error) {
+	parts := strings.SplitN(rangeStr, "..", 2)
 	if len(parts) != 2 {
-		return time.Time{}, time.Time{}, fmt.Errorf("invalid date range %q: use start..end", s)
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid date range %q: use start..end", rangeStr)
 	}
+
 	start, err = parseDate(parts[0])
+
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid range start: %w", err)
 	}
+
 	end, err = parseDate(parts[1])
+
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid range end: %w", err)
 	}
@@ -73,6 +77,6 @@ func parseDateRange(s string) (start, end time.Time, err error) {
 
 // ParseDateValue is the exported version of parseDate for use by the TUI
 // layer when creating tasks (not filtering).
-func ParseDateValue(s string) (time.Time, error) {
-	return parseDate(s)
+func ParseDateValue(input string) (time.Time, error) {
+	return parseDate(input)
 }

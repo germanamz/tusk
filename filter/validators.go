@@ -12,77 +12,79 @@ var priorityNames = map[string]int{
 	"none": 0, "low": 1, "medium": 2, "high": 3, "urgent": 4,
 }
 
-func validateStatus(v string) error {
-	if v == "" {
+func validateStatus(value string) error {
+	if value == "" {
 		return fmt.Errorf("status value cannot be empty")
 	}
-	parts := strings.Split(v, ",")
-	for _, p := range parts {
-		if p == "" {
-			return fmt.Errorf("status contains empty value in %q", v)
+	parts := strings.Split(value, ",")
+	for _, part := range parts {
+		if part == "" {
+			return fmt.Errorf("status contains empty value in %q", value)
 		}
 	}
 	return nil
 }
 
-func validateProject(v string) error {
-	if v == "" {
+func validateProject(value string) error {
+	if value == "" {
 		return fmt.Errorf("project name cannot be empty")
 	}
 	return nil
 }
 
-func validatePriority(v string) error {
-	if v == "" {
+func validatePriority(value string) error {
+	if value == "" {
 		return fmt.Errorf("priority value cannot be empty")
 	}
 
-	if strings.Contains(v, "..") {
-		parts := strings.SplitN(v, "..", 2)
+	if strings.Contains(value, "..") {
+		parts := strings.SplitN(value, "..", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return fmt.Errorf("invalid priority range %q: use min..max", v)
+			return fmt.Errorf("invalid priority range %q: use min..max", value)
 		}
-		min, errMin := parsePriorityValue(parts[0])
-		max, errMax := parsePriorityValue(parts[1])
-		if errMin != nil {
-			return fmt.Errorf("invalid priority range min %q: %w", parts[0], errMin)
+		minVal, minErr := parsePriorityValue(parts[0])
+		maxVal, maxErr := parsePriorityValue(parts[1])
+
+		if minErr != nil {
+			return fmt.Errorf("invalid priority range min %q: %w", parts[0], minErr)
 		}
-		if errMax != nil {
-			return fmt.Errorf("invalid priority range max %q: %w", parts[1], errMax)
+
+		if maxErr != nil {
+			return fmt.Errorf("invalid priority range max %q: %w", parts[1], maxErr)
 		}
-		if min > max {
-			return fmt.Errorf("invalid priority range: min (%d) must be <= max (%d)", min, max)
+		if minVal > maxVal {
+			return fmt.Errorf("invalid priority range: min (%d) must be <= max (%d)", minVal, maxVal)
 		}
 		return nil
 	}
 
-	_, err := parsePriorityValue(v)
+	_, err := parsePriorityValue(value)
 	return err
 }
 
 // parsePriorityValue converts a single priority string to an int.
 // Accepts numeric (0-4) or named (none, low, medium, high, urgent).
-func parsePriorityValue(s string) (int, error) {
-	if v, ok := priorityNames[strings.ToLower(s)]; ok {
-		return v, nil
+func parsePriorityValue(input string) (int, error) {
+	if named, ok := priorityNames[strings.ToLower(input)]; ok {
+		return named, nil
 	}
-	v, err := strconv.Atoi(s)
-	if err != nil || v < 0 || v > 4 {
-		return 0, fmt.Errorf("invalid priority %q: expected 0-4 or none/low/medium/high/urgent", s)
+	num, err := strconv.Atoi(input)
+	if err != nil || num < 0 || num > 4 {
+		return 0, fmt.Errorf("invalid priority %q: expected 0-4 or none/low/medium/high/urgent", input)
 	}
-	return v, nil
+	return num, nil
 }
 
-func validateDue(v string) error {
-	if v == "" {
+func validateDue(value string) error {
+	if value == "" {
 		return nil // empty means "clear" in modify context
 	}
 
 	// Range: "today..friday" or "2026-04-01..2026-04-10"
-	if strings.Contains(v, "..") {
-		parts := strings.SplitN(v, "..", 2)
+	if strings.Contains(value, "..") {
+		parts := strings.SplitN(value, "..", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return fmt.Errorf("invalid due range %q: use start..end", v)
+			return fmt.Errorf("invalid due range %q: use start..end", value)
 		}
 		if err := validateSingleDue(parts[0]); err != nil {
 			return fmt.Errorf("invalid due range start: %w", err)
@@ -93,12 +95,12 @@ func validateDue(v string) error {
 		return nil
 	}
 
-	return validateSingleDue(v)
+	return validateSingleDue(value)
 }
 
 // validateSingleDue checks that a single due value is a recognized format.
-func validateSingleDue(v string) error {
-	lower := strings.ToLower(v)
+func validateSingleDue(value string) error {
+	lower := strings.ToLower(value)
 
 	switch lower {
 	case "today", "tomorrow", "thisweek",
@@ -107,43 +109,43 @@ func validateSingleDue(v string) error {
 	}
 
 	// RFC 3339
-	if _, err := time.Parse(time.RFC3339, v); err == nil {
+	if _, err := time.Parse(time.RFC3339, value); err == nil {
 		return nil
 	}
 
 	// Date-only
-	if _, err := time.Parse("2006-01-02", v); err == nil {
+	if _, err := time.Parse("2006-01-02", value); err == nil {
 		return nil
 	}
 
-	return fmt.Errorf("invalid due date %q: use YYYY-MM-DD, RFC3339, today, tomorrow, thisweek, or a weekday name", v)
+	return fmt.Errorf("invalid due date %q: use YYYY-MM-DD, RFC3339, today, tomorrow, thisweek, or a weekday name", value)
 }
 
-func validateShortID(v string) error {
-	if v == "" {
+func validateShortID(value string) error {
+	if value == "" {
 		return nil // empty means "clear" in modify context
 	}
-	if len(v) < 4 {
-		return fmt.Errorf("short ID %q is too short: minimum 4 hex characters", v)
+	if len(value) < 4 {
+		return fmt.Errorf("short ID %q is too short: minimum 4 hex characters", value)
 	}
-	for i := 0; i < len(v); i++ {
-		c := v[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
-			return fmt.Errorf("short ID %q contains non-hex character %q", v, string(c))
+	for idx := 0; idx < len(value); idx++ {
+		char := value[idx]
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
+			return fmt.Errorf("short ID %q contains non-hex character %q", value, string(char))
 		}
 	}
 	return nil
 }
 
-func validateBool(v string) error {
-	if v != "true" && v != "false" {
-		return fmt.Errorf("expected \"true\" or \"false\", got %q", v)
+func validateBool(value string) error {
+	if value != "true" && value != "false" {
+		return fmt.Errorf("expected \"true\" or \"false\", got %q", value)
 	}
 	return nil
 }
 
-func validateNonEmpty(v string) error {
-	if v == "" {
+func validateNonEmpty(value string) error {
+	if value == "" {
 		return fmt.Errorf("value cannot be empty")
 	}
 	return nil
@@ -152,12 +154,12 @@ func validateNonEmpty(v string) error {
 // validateAny accepts any value, including empty. Used by fields where an
 // empty value has a defined meaning (e.g. `description=` clears the
 // description on `tusk task modify`).
-func validateAny(string) error { return nil }
+func validateAny(_ string) error { return nil }
 
 // ParsePriorityValue is the exported version of parsePriorityValue for use
 // by the TUI layer when creating tasks (not filtering).
-func ParsePriorityValue(s string) (int, error) {
-	return parsePriorityValue(s)
+func ParsePriorityValue(input string) (int, error) {
+	return parsePriorityValue(input)
 }
 
 // validateOrder accepts:
@@ -167,33 +169,36 @@ func ParsePriorityValue(s string) (int, error) {
 //
 // Rejects comma-separated lists and any modifier prefix (handled at token
 // level — filter/resolve.go never sees a Modifier on numeric fields).
-func validateOrder(v string) error {
-	if v == "" {
+func validateOrder(value string) error {
+	if value == "" {
 		return nil
 	}
-	if strings.Contains(v, ",") {
+	if strings.Contains(value, ",") {
 		return fmt.Errorf("order does not accept comma-separated values; use a single value or a..b range")
 	}
-	if strings.Contains(v, "..") {
-		parts := strings.SplitN(v, "..", 2)
+	if strings.Contains(value, "..") {
+		parts := strings.SplitN(value, "..", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return fmt.Errorf("invalid order range %q: use min..max", v)
+			return fmt.Errorf("invalid order range %q: use min..max", value)
 		}
-		lo, err := strconv.ParseFloat(parts[0], 64)
-		if err != nil {
-			return fmt.Errorf("invalid order range min %q: %w", parts[0], err)
+		lo, minErr := strconv.ParseFloat(parts[0], 64)
+
+		if minErr != nil {
+			return fmt.Errorf("invalid order range min %q: %w", parts[0], minErr)
 		}
-		hi, err := strconv.ParseFloat(parts[1], 64)
-		if err != nil {
-			return fmt.Errorf("invalid order range max %q: %w", parts[1], err)
+
+		hi, maxErr := strconv.ParseFloat(parts[1], 64)
+
+		if maxErr != nil {
+			return fmt.Errorf("invalid order range max %q: %w", parts[1], maxErr)
 		}
 		if lo > hi {
 			return fmt.Errorf("invalid order range: min (%g) must be <= max (%g)", lo, hi)
 		}
 		return nil
 	}
-	if _, err := strconv.ParseFloat(v, 64); err != nil {
-		return fmt.Errorf("invalid order value %q: %w", v, err)
+	if _, err := strconv.ParseFloat(value, 64); err != nil {
+		return fmt.Errorf("invalid order value %q: %w", value, err)
 	}
 	return nil
 }
