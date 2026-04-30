@@ -72,6 +72,7 @@ func parseDateRange(rangeStr string) (start, end time.Time, err error) {
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid range end: %w", err)
 	}
+
 	return start, end, nil
 }
 

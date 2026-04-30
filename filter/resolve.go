@@ -223,6 +223,7 @@ func (resolver *Resolver) resolveField(ctx context.Context, field FieldFilter, t
 			if maxErr != nil {
 				return fmt.Errorf("priority range max: %w", maxErr)
 			}
+
 			tf.PriorityMin = &minVal
 			tf.PriorityMax = &maxVal
 		} else {
@@ -231,6 +232,7 @@ func (resolver *Resolver) resolveField(ctx context.Context, field FieldFilter, t
 			if priorityErr != nil {
 				return fmt.Errorf("priority: %w", priorityErr)
 			}
+
 			tf.PriorityMin = &priorityVal
 			tf.PriorityMax = &priorityVal
 		}
@@ -254,6 +256,7 @@ func (resolver *Resolver) resolveField(ctx context.Context, field FieldFilter, t
 			if maxErr != nil {
 				return fmt.Errorf("order range max: %w", maxErr)
 			}
+
 			tf.OrderMin = &lo
 			tf.OrderMax = &hi
 		} else {
@@ -262,6 +265,7 @@ func (resolver *Resolver) resolveField(ctx context.Context, field FieldFilter, t
 			if orderErr != nil {
 				return fmt.Errorf("order: %w", orderErr)
 			}
+
 			tf.OrderMin = &orderVal
 			tf.OrderMax = &orderVal
 		}
@@ -273,6 +277,7 @@ func (resolver *Resolver) resolveField(ctx context.Context, field FieldFilter, t
 			if rangeErr != nil {
 				return fmt.Errorf("due range: %w", rangeErr)
 			}
+
 			tf.DueAfter = &start
 			tf.DueBefore = &end
 		} else {
@@ -281,6 +286,7 @@ func (resolver *Resolver) resolveField(ctx context.Context, field FieldFilter, t
 			if dueDateErr != nil {
 				return fmt.Errorf("due: %w", dueDateErr)
 			}
+
 			tf.DueAfter = &dueDate
 			end := dueDate.AddDate(0, 0, 1)
 			tf.DueBefore = &end

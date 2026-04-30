@@ -7,9 +7,11 @@ import (
 
 func TestParseDate_RFC3339(test *testing.T) {
 	got, err := parseDate("2026-04-10T15:30:00Z")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	want := time.Date(2026, 4, 10, 15, 30, 0, 0, time.UTC)
 	if !got.Equal(want) {
 		test.Fatalf("expected %v, got %v", want, got)
@@ -18,9 +20,11 @@ func TestParseDate_RFC3339(test *testing.T) {
 
 func TestParseDate_DateOnly(test *testing.T) {
 	got, err := parseDate("2026-04-10")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	want := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
 		test.Fatalf("expected %v, got %v", want, got)
@@ -29,9 +33,11 @@ func TestParseDate_DateOnly(test *testing.T) {
 
 func TestParseDate_Today(test *testing.T) {
 	got, err := parseDate("today")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	now := time.Now().UTC()
 	want := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
@@ -41,9 +47,11 @@ func TestParseDate_Today(test *testing.T) {
 
 func TestParseDate_Tomorrow(test *testing.T) {
 	got, err := parseDate("tomorrow")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	now := time.Now().UTC().AddDate(0, 0, 1)
 	want := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
@@ -53,9 +61,11 @@ func TestParseDate_Tomorrow(test *testing.T) {
 
 func TestParseDate_Thisweek(test *testing.T) {
 	got, err := parseDate("thisweek")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	// thisweek should be the end of the current week (next Sunday 23:59:59)
@@ -71,9 +81,11 @@ func TestParseDate_Thisweek(test *testing.T) {
 
 func TestParseDate_Weekday(test *testing.T) {
 	got, err := parseDate("monday")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	if got.Weekday() != time.Monday {
 		test.Fatalf("expected Monday, got %s", got.Weekday())
 	}
@@ -93,9 +105,11 @@ func TestParseDate_Invalid(test *testing.T) {
 
 func TestParseDateRange(test *testing.T) {
 	start, end, err := parseDateRange("today..friday")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	if !start.Equal(today) {
@@ -108,9 +122,11 @@ func TestParseDateRange(test *testing.T) {
 
 func TestParseDateRange_Absolute(test *testing.T) {
 	start, end, err := parseDateRange("2026-04-01..2026-04-10")
+
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
 	}
+
 	wantStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	wantEnd := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
 	if !start.Equal(wantStart) {
