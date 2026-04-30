@@ -8,11 +8,11 @@ import (
 	"github.com/germanamz/tusk/domain"
 )
 
-func TestNewClient_CreateAndGetTask(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+func TestNewClient_CreateAndGetTask(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "test.db")
 	client, err := NewClient(Config{DBPath: dbPath})
 	if err != nil {
-		t.Fatalf("NewClient: %v", err)
+		test.Fatalf("NewClient: %v", err)
 	}
 	defer client.Close()
 
@@ -20,28 +20,28 @@ func TestNewClient_CreateAndGetTask(t *testing.T) {
 
 	task := &domain.Task{Title: "Test task"}
 	if err := client.Tasks.Create(ctx, task); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 
 	if task.ShortID == "" {
-		t.Fatal("expected ShortID to be set after create")
+		test.Fatal("expected ShortID to be set after create")
 	}
 
 	got, err := client.Tasks.GetByShortID(ctx, task.ShortID)
 	if err != nil {
-		t.Fatalf("GetByShortID: %v", err)
+		test.Fatalf("GetByShortID: %v", err)
 	}
 
 	if got.Title != "Test task" {
-		t.Errorf("Title = %q, want %q", got.Title, "Test task")
+		test.Errorf("Title = %q, want %q", got.Title, "Test task")
 	}
 }
 
-func TestNewClient_DefaultConfig(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+func TestNewClient_DefaultConfig(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "test.db")
 	client, err := NewClient(Config{DBPath: dbPath})
 	if err != nil {
-		t.Fatalf("NewClient: %v", err)
+		test.Fatalf("NewClient: %v", err)
 	}
 	defer client.Close()
 
@@ -49,83 +49,83 @@ func TestNewClient_DefaultConfig(t *testing.T) {
 
 	projects, err := client.Projects.List(ctx)
 	if err != nil {
-		t.Fatalf("Projects.List: %v", err)
+		test.Fatalf("Projects.List: %v", err)
 	}
 	found := false
-	for _, p := range projects {
-		if p.Name == "default" {
+	for _, project := range projects {
+		if project.Name == "default" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("expected builtin 'default' project")
+		test.Error("expected builtin 'default' project")
 	}
 
 	workflows, err := client.Workflows.List(ctx)
 	if err != nil {
-		t.Fatalf("Workflows.List: %v", err)
+		test.Fatalf("Workflows.List: %v", err)
 	}
 	found = false
-	for _, w := range workflows {
-		if w.Name == "kanban" {
+	for _, workflow := range workflows {
+		if workflow.Name == "kanban" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("expected builtin 'kanban' workflow")
+		test.Error("expected builtin 'kanban' workflow")
 	}
 }
 
-func TestNewClient_EmptyDBPath(t *testing.T) {
+func TestNewClient_EmptyDBPath(test *testing.T) {
 	_, err := NewClient(Config{})
 	if err == nil {
-		t.Fatal("expected error for empty DBPath")
+		test.Fatal("expected error for empty DBPath")
 	}
 }
 
-func TestNewClient_Notes(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+func TestNewClient_Notes(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "test.db")
 	client, err := NewClient(Config{DBPath: dbPath})
 	if err != nil {
-		t.Fatalf("NewClient: %v", err)
+		test.Fatalf("NewClient: %v", err)
 	}
 	defer client.Close()
 
 	if client.Notes == nil {
-		t.Fatal("Notes service should not be nil")
+		test.Fatal("Notes service should not be nil")
 	}
 }
 
-func TestNewClient_Portability(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+func TestNewClient_Portability(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "test.db")
 	client, err := NewClient(Config{DBPath: dbPath})
 	if err != nil {
-		t.Fatalf("NewClient: %v", err)
+		test.Fatalf("NewClient: %v", err)
 	}
 	defer client.Close()
 
 	if client.Portability == nil {
-		t.Fatal("Portability service should not be nil")
+		test.Fatal("Portability service should not be nil")
 	}
 }
 
-func TestClose(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+func TestClose(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "test.db")
 	client, err := NewClient(Config{DBPath: dbPath})
 	if err != nil {
-		t.Fatalf("NewClient: %v", err)
+		test.Fatalf("NewClient: %v", err)
 	}
 
 	if err := client.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+		test.Fatalf("Close: %v", err)
 	}
 
 	// Operations after close should fail.
 	ctx := context.Background()
 	task := &domain.Task{Title: "After close"}
 	if err := client.Tasks.Create(ctx, task); err == nil {
-		t.Fatal("expected error after Close")
+		test.Fatal("expected error after Close")
 	}
 }

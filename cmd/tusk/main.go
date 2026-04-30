@@ -52,9 +52,10 @@ func run() error {
 		return app.Run(stripConfigFlag(stripDBFlag(os.Args[1:])))
 	}
 
-	explicitConfig, err := resolveConfigPath()
-	if err != nil {
-		return err
+	explicitConfig, configPathErr := resolveConfigPath()
+
+	if configPathErr != nil {
+		return configPathErr
 	}
 
 	var loadOpts []config.Option
@@ -65,14 +66,16 @@ func run() error {
 		loadOpts = append(loadOpts, config.WithStartDir(startDir))
 	}
 
-	cfg, err := config.Load(loadOpts...)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+	cfg, configErr := config.Load(loadOpts...)
+
+	if configErr != nil {
+		return fmt.Errorf("loading config: %w", configErr)
 	}
 
-	dbPath, err := resolveDBPath(cfg.Storage.Path)
-	if err != nil {
-		return err
+	dbPath, dbPathErr := resolveDBPath(cfg.Storage.Path)
+
+	if dbPathErr != nil {
+		return dbPathErr
 	}
 
 	baseDir := "."
@@ -80,17 +83,22 @@ func run() error {
 		baseDir = filepath.Dir(cfg.Sources.File)
 	}
 
-	absDB, err := sqlite.ResolveWorkspacePath(dbPath, baseDir)
-	if err != nil {
-		return fmt.Errorf("resolving db path: %w", err)
+	absDB, resolveErr := sqlite.ResolveWorkspacePath(dbPath, baseDir)
+
+	if resolveErr != nil {
+		return fmt.Errorf("resolving db path: %w", resolveErr)
 	}
+
 	if err := os.MkdirAll(filepath.Dir(absDB), 0o755); err != nil {
 		return fmt.Errorf("creating db dir: %w", err)
 	}
-	store, err := sqlite.New(absDB, migrations.FS)
-	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+
+	store, storeErr := sqlite.New(absDB, migrations.FS)
+
+	if storeErr != nil {
+		return fmt.Errorf("opening database: %w", storeErr)
 	}
+
 	defer store.Close()
 
 	db := store.DB()
@@ -136,12 +144,14 @@ func run() error {
 	}
 	projectLister := func(ctx context.Context) ([]uuid.UUID, error) {
 		projects, err := projectRepo.List(ctx)
+
 		if err != nil {
 			return nil, err
 		}
+
 		ids := make([]uuid.UUID, 0, len(projects))
-		for _, p := range projects {
-			ids = append(ids, p.ID)
+		for _, project := range projects {
+			ids = append(ids, project.ID)
 		}
 		return ids, nil
 	}
@@ -166,10 +176,12 @@ func run() error {
 	tagSvc := service.NewTagService(resolver)
 	relationSvc := service.NewRelationService(resolver, projectLister)
 
-	defaultBundle, err := resolver(context.Background(), domain.DefaultProjectUUID)
-	if err != nil {
-		return fmt.Errorf("resolving default bundle for players: %w", err)
+	defaultBundle, bundleErr := resolver(context.Background(), domain.DefaultProjectUUID)
+
+	if bundleErr != nil {
+		return fmt.Errorf("resolving default bundle for players: %w", bundleErr)
 	}
+
 	playerSvc := service.NewPlayerService(defaultBundle.Players)
 	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, cfg.Notes.WindowSize)
 
@@ -209,39 +221,47 @@ type sqliteWriteTx struct {
 	pruneSlack int
 }
 
-func (w *sqliteWriteTx) Tasks() repository.TaskRepository         { return w.tx.Tasks() }
-func (w *sqliteWriteTx) Relations() repository.RelationRepository { return w.tx.Relations() }
-func (w *sqliteWriteTx) Events() repository.EventRepository {
-	return w.tx.Events(w.maxEvents, w.pruneSlack)
+func (writeTx *sqliteWriteTx) Tasks() repository.TaskRepository { return writeTx.tx.Tasks() }
+func (writeTx *sqliteWriteTx) Relations() repository.RelationRepository {
+	return writeTx.tx.Relations()
+}
+func (writeTx *sqliteWriteTx) Events() repository.EventRepository {
+	return writeTx.tx.Events(writeTx.maxEvents, writeTx.pruneSlack)
 }
 
-func (w *sqliteWriteTx) Projects() repository.ProjectRepository       { return w.tx.Projects() }
-func (w *sqliteWriteTx) Workflows() repository.WorkflowRepository     { return w.tx.Workflows() }
-func (w *sqliteWriteTx) Players() repository.PlayerRepository         { return w.tx.Players() }
-func (w *sqliteWriteTx) Tags() repository.TagRepository               { return w.tx.Tags() }
-func (w *sqliteWriteTx) Annotations() repository.AnnotationRepository { return w.tx.Annotations() }
-func (w *sqliteWriteTx) Notes() repository.NoteRepository             { return w.tx.Notes() }
+func (writeTx *sqliteWriteTx) Projects() repository.ProjectRepository { return writeTx.tx.Projects() }
+func (writeTx *sqliteWriteTx) Workflows() repository.WorkflowRepository {
+	return writeTx.tx.Workflows()
+}
+func (writeTx *sqliteWriteTx) Players() repository.PlayerRepository { return writeTx.tx.Players() }
+func (writeTx *sqliteWriteTx) Tags() repository.TagRepository       { return writeTx.tx.Tags() }
+func (writeTx *sqliteWriteTx) Annotations() repository.AnnotationRepository {
+	return writeTx.tx.Annotations()
+}
+func (writeTx *sqliteWriteTx) Notes() repository.NoteRepository { return writeTx.tx.Notes() }
 
-func (w *sqliteWriteTx) TruncateAll(ctx context.Context) error { return w.tx.TruncateAll(ctx) }
+func (writeTx *sqliteWriteTx) TruncateAll(ctx context.Context) error {
+	return writeTx.tx.TruncateAll(ctx)
+}
 
-func (p *sqliteWriteTxProvider) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
-	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
-		return fn(&sqliteWriteTx{tx: stx, maxEvents: p.maxEvents, pruneSlack: p.pruneSlack})
+func (provider *sqliteWriteTxProvider) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
+	return provider.store.WithTx(ctx, func(stx *sqlite.Tx) error {
+		return fn(&sqliteWriteTx{tx: stx, maxEvents: provider.maxEvents, pruneSlack: provider.pruneSlack})
 	})
 }
 
 // stripDBFlag removes --db and its value from args so Cobra doesn't see them.
 func stripDBFlag(args []string) []string {
 	var out []string
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--db" && i+1 < len(args) {
-			i++ // skip value
+	for index := 0; index < len(args); index++ {
+		if args[index] == "--db" && index+1 < len(args) {
+			index++ // skip value
 			continue
 		}
-		if strings.HasPrefix(args[i], "--db=") {
+		if strings.HasPrefix(args[index], "--db=") {
 			continue
 		}
-		out = append(out, args[i])
+		out = append(out, args[index])
 	}
 	return out
 }
@@ -250,15 +270,15 @@ func stripDBFlag(args []string) []string {
 // Mirrors stripDBFlag for the --config global flag.
 func stripConfigFlag(args []string) []string {
 	var out []string
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--config" && i+1 < len(args) {
-			i++ // skip value
+	for index := 0; index < len(args); index++ {
+		if args[index] == "--config" && index+1 < len(args) {
+			index++ // skip value
 			continue
 		}
-		if strings.HasPrefix(args[i], "--config=") {
+		if strings.HasPrefix(args[index], "--config=") {
 			continue
 		}
-		out = append(out, args[i])
+		out = append(out, args[index])
 	}
 	return out
 }
@@ -267,12 +287,12 @@ func stripConfigFlag(args []string) []string {
 // The config value always has a default ("~/.local/share/tusk/tusk.db") so it acts as
 // the final fallback. We check os.Args directly for --db because Cobra hasn't parsed yet.
 func resolveDBPath(configPath string) (string, error) {
-	for i, arg := range os.Args {
+	for index, arg := range os.Args {
 		if arg == "--db" {
-			if i+1 >= len(os.Args) {
+			if index+1 >= len(os.Args) {
 				return "", fmt.Errorf("--db requires a value")
 			}
-			return os.Args[i+1], nil
+			return os.Args[index+1], nil
 		}
 		if strings.HasPrefix(arg, "--db=") {
 			val := arg[5:]
@@ -284,8 +304,8 @@ func resolveDBPath(configPath string) (string, error) {
 	}
 
 	// Check environment variable
-	if v := os.Getenv("TUSK_DB"); v != "" {
-		return v, nil
+	if envVal := os.Getenv("TUSK_DB"); envVal != "" {
+		return envVal, nil
 	}
 
 	// Config value (with tilde expansion). Always populated — Viper provides
@@ -301,12 +321,12 @@ func resolveDBPath(configPath string) (string, error) {
 // It does not stat the file; config.Load is responsible for turning a
 // missing explicit file into a hard error via config.WithExplicitFile.
 func resolveConfigPath() (string, error) {
-	for i, arg := range os.Args {
+	for index, arg := range os.Args {
 		if arg == "--config" {
-			if i+1 >= len(os.Args) {
+			if index+1 >= len(os.Args) {
 				return "", fmt.Errorf("--config requires a value")
 			}
-			return os.Args[i+1], nil
+			return os.Args[index+1], nil
 		}
 		if strings.HasPrefix(arg, "--config=") {
 			val := arg[len("--config="):]
@@ -317,8 +337,8 @@ func resolveConfigPath() (string, error) {
 		}
 	}
 
-	if v := os.Getenv("TUSK_CONFIG"); v != "" {
-		return v, nil
+	if envVal := os.Getenv("TUSK_CONFIG"); envVal != "" {
+		return envVal, nil
 	}
 	return "", nil
 }
@@ -339,22 +359,22 @@ func isCompletionInvocation(args []string) bool {
 	boolFlags := map[string]bool{
 		"--no-color": true,
 	}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if eq := strings.IndexByte(a, '='); eq > 0 {
-			name := a[:eq]
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if eq := strings.IndexByte(arg, '='); eq > 0 {
+			name := arg[:eq]
 			if valueFlags[name] || boolFlags[name] {
 				continue
 			}
 		}
-		if valueFlags[a] {
-			i++ // skip value
+		if valueFlags[arg] {
+			index++ // skip value
 			continue
 		}
-		if boolFlags[a] {
+		if boolFlags[arg] {
 			continue
 		}
-		return a == "completion" || a == "__complete"
+		return arg == "completion" || arg == "__complete"
 	}
 	return false
 }

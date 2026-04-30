@@ -84,24 +84,32 @@ type sqliteWriteTx struct {
 	pruneSlack int
 }
 
-func (w *sqliteWriteTx) Tasks() repository.TaskRepository         { return w.tx.Tasks() }
-func (w *sqliteWriteTx) Relations() repository.RelationRepository { return w.tx.Relations() }
-func (w *sqliteWriteTx) Events() repository.EventRepository {
-	return w.tx.Events(w.maxEvents, w.pruneSlack)
+func (writeTx *sqliteWriteTx) Tasks() repository.TaskRepository { return writeTx.tx.Tasks() }
+func (writeTx *sqliteWriteTx) Relations() repository.RelationRepository {
+	return writeTx.tx.Relations()
+}
+func (writeTx *sqliteWriteTx) Events() repository.EventRepository {
+	return writeTx.tx.Events(writeTx.maxEvents, writeTx.pruneSlack)
 }
 
-func (w *sqliteWriteTx) Projects() repository.ProjectRepository       { return w.tx.Projects() }
-func (w *sqliteWriteTx) Workflows() repository.WorkflowRepository     { return w.tx.Workflows() }
-func (w *sqliteWriteTx) Players() repository.PlayerRepository         { return w.tx.Players() }
-func (w *sqliteWriteTx) Tags() repository.TagRepository               { return w.tx.Tags() }
-func (w *sqliteWriteTx) Annotations() repository.AnnotationRepository { return w.tx.Annotations() }
-func (w *sqliteWriteTx) Notes() repository.NoteRepository             { return w.tx.Notes() }
+func (writeTx *sqliteWriteTx) Projects() repository.ProjectRepository { return writeTx.tx.Projects() }
+func (writeTx *sqliteWriteTx) Workflows() repository.WorkflowRepository {
+	return writeTx.tx.Workflows()
+}
+func (writeTx *sqliteWriteTx) Players() repository.PlayerRepository { return writeTx.tx.Players() }
+func (writeTx *sqliteWriteTx) Tags() repository.TagRepository       { return writeTx.tx.Tags() }
+func (writeTx *sqliteWriteTx) Annotations() repository.AnnotationRepository {
+	return writeTx.tx.Annotations()
+}
+func (writeTx *sqliteWriteTx) Notes() repository.NoteRepository { return writeTx.tx.Notes() }
 
-func (w *sqliteWriteTx) TruncateAll(ctx context.Context) error { return w.tx.TruncateAll(ctx) }
+func (writeTx *sqliteWriteTx) TruncateAll(ctx context.Context) error {
+	return writeTx.tx.TruncateAll(ctx)
+}
 
-func (p *sqliteWriteTxProvider) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
-	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
-		return fn(&sqliteWriteTx{tx: stx, maxEvents: p.maxEvents, pruneSlack: p.pruneSlack})
+func (provider *sqliteWriteTxProvider) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
+	return provider.store.WithTx(ctx, func(stx *sqlite.Tx) error {
+		return fn(&sqliteWriteTx{tx: stx, maxEvents: provider.maxEvents, pruneSlack: provider.pruneSlack})
 	})
 }
 
@@ -145,6 +153,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 	// Open SQLite with WAL mode, auto-migrate.
 	store, err := sqlite.New(cfg.DBPath, migrations.FS)
+
 	if err != nil {
 		return nil, fmt.Errorf("tusk: opening database: %w", err)
 	}
@@ -177,12 +186,14 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 	projectLister := func(ctx context.Context) ([]uuid.UUID, error) {
 		projects, err := projectRepo.List(ctx)
+
 		if err != nil {
 			return nil, err
 		}
+
 		ids := make([]uuid.UUID, 0, len(projects))
-		for _, p := range projects {
-			ids = append(ids, p.ID)
+		for _, project := range projects {
+			ids = append(ids, project.ID)
 		}
 		return ids, nil
 	}
@@ -255,6 +266,6 @@ func NewClient(cfg Config) (*Client, error) {
 }
 
 // Close releases the underlying database connection.
-func (c *Client) Close() error {
-	return c.store.Close()
+func (client *Client) Close() error {
+	return client.store.Close()
 }
