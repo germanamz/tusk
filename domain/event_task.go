@@ -138,17 +138,19 @@ func newTaskEvent(task *Task, kind EventType, payload EventPayload, actor *strin
 // ordering is not load-bearing.
 func newEventID() uuid.UUID {
 	id, err := uuid.NewV7()
+
 	if err != nil {
 		return uuid.New()
 	}
+
 	return id
 }
 
 func NewTaskCreatedEvent(task *Task, actor *string) *Event {
 	var parentID *string
 	if task.ParentID != nil {
-		s := task.ParentID.String()
-		parentID = &s
+		str := task.ParentID.String()
+		parentID = &str
 	}
 	payload := TaskCreatedPayload{
 		Kind:      EventTaskCreated,

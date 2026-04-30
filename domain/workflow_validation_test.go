@@ -27,57 +27,57 @@ func baseValidWorkflow() *Workflow {
 	}
 }
 
-func TestValidateWorkflow_Happy(t *testing.T) {
+func TestValidateWorkflow_Happy(test *testing.T) {
 	if err := ValidateWorkflow(baseValidWorkflow()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		test.Fatalf("expected no error, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_NilWorkflow(t *testing.T) {
+func TestValidateWorkflow_NilWorkflow(test *testing.T) {
 	err := ValidateWorkflow(nil)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_NoStatuses(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Statuses = nil
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_NoStatuses(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Statuses = nil
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_UnknownRole(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Statuses["pending"] = StatusConfig{Roles: []StatusRole{"bogus", RoleInitial}}
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_UnknownRole(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Statuses["pending"] = StatusConfig{Roles: []StatusRole{"bogus", RoleInitial}}
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_MissingInitial(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Statuses["pending"] = StatusConfig{}
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_MissingInitial(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Statuses["pending"] = StatusConfig{}
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_DuplicateStart(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Statuses["pending"] = StatusConfig{Roles: []StatusRole{RoleInitial, RoleStart}}
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_DuplicateStart(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Statuses["pending"] = StatusConfig{Roles: []StatusRole{RoleInitial, RoleStart}}
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_MissingTerminal(t *testing.T) {
-	wf := &Workflow{
+func TestValidateWorkflow_MissingTerminal(test *testing.T) {
+	workflow := &Workflow{
 		Name: "w",
 		Statuses: map[string]StatusConfig{
 			"a": {Roles: []StatusRole{RoleInitial}},
@@ -87,56 +87,56 @@ func TestValidateWorkflow_MissingTerminal(t *testing.T) {
 		},
 		Transitions: []WorkflowTransition{{FromStatus: "a", ToStatus: "b"}},
 	}
-	err := ValidateWorkflow(wf)
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_DoneWithoutTerminal(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Statuses["completed"] = StatusConfig{Roles: []StatusRole{RoleDone}}
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_DoneWithoutTerminal(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Statuses["completed"] = StatusConfig{Roles: []StatusRole{RoleDone}}
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_DeleteWithoutTerminal(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Statuses["deleted"] = StatusConfig{Roles: []StatusRole{RoleDelete}}
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_DeleteWithoutTerminal(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Statuses["deleted"] = StatusConfig{Roles: []StatusRole{RoleDelete}}
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_HighlightAndDim(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Statuses["active"] = StatusConfig{Roles: []StatusRole{RoleStart, RoleHighlight, RoleDim}}
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_HighlightAndDim(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Statuses["active"] = StatusConfig{Roles: []StatusRole{RoleStart, RoleHighlight, RoleDim}}
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_OrphanTransition(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Transitions = append(wf.Transitions, WorkflowTransition{FromStatus: "active", ToStatus: "ghost"})
-	err := ValidateWorkflow(wf)
+func TestValidateWorkflow_OrphanTransition(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Transitions = append(workflow.Transitions, WorkflowTransition{FromStatus: "active", ToStatus: "ghost"})
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }
 
-func TestValidateWorkflow_MissingInitialToStartTransition(t *testing.T) {
-	wf := baseValidWorkflow()
-	wf.Transitions = []WorkflowTransition{
+func TestValidateWorkflow_MissingInitialToStartTransition(test *testing.T) {
+	workflow := baseValidWorkflow()
+	workflow.Transitions = []WorkflowTransition{
 		{FromStatus: "active", ToStatus: "completed"},
 		{FromStatus: "active", ToStatus: "deleted"},
 	}
-	err := ValidateWorkflow(wf)
+	err := ValidateWorkflow(workflow)
 	if !errors.Is(err, ErrInvalidWorkflow) {
-		t.Fatalf("expected ErrInvalidWorkflow, got %v", err)
+		test.Fatalf("expected ErrInvalidWorkflow, got %v", err)
 	}
 }

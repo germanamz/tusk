@@ -22,18 +22,18 @@ import "fmt"
 //
 // All failures are wrapped errors of ErrInvalidWorkflow so callers can match
 // with errors.Is.
-func ValidateWorkflow(w *Workflow) error {
-	if w == nil {
+func ValidateWorkflow(workflow *Workflow) error {
+	if workflow == nil {
 		return fmt.Errorf("%w: workflow is nil", ErrInvalidWorkflow)
 	}
-	name := w.Name
-	if len(w.Statuses) == 0 {
+	name := workflow.Name
+	if len(workflow.Statuses) == 0 {
 		return fmt.Errorf("%w: workflow %q must have at least one status", ErrInvalidWorkflow, name)
 	}
 
 	roleCounts := make(map[StatusRole]int)
-	for statusName, sc := range w.Statuses {
-		for _, role := range sc.Roles {
+	for statusName, statusConfig := range workflow.Statuses {
+		for _, role := range statusConfig.Roles {
 			if !validRole(role) {
 				return fmt.Errorf("%w: workflow %q: status %q has unknown role %q", ErrInvalidWorkflow, name, statusName, role)
 			}
@@ -57,9 +57,9 @@ func ValidateWorkflow(w *Workflow) error {
 		return fmt.Errorf("%w: workflow %q must have exactly one status with role %q (found %d)", ErrInvalidWorkflow, name, RoleDelete, roleCounts[RoleDelete])
 	}
 
-	for statusName, sc := range w.Statuses {
+	for statusName, statusConfig := range workflow.Statuses {
 		var hasDone, hasDelete, hasTerminal, hasHighlight, hasDim bool
-		for _, role := range sc.Roles {
+		for _, role := range statusConfig.Roles {
 			switch role {
 			case RoleDone:
 				hasDone = true
@@ -84,18 +84,18 @@ func ValidateWorkflow(w *Workflow) error {
 		}
 	}
 
-	for _, t := range w.Transitions {
-		if _, ok := w.Statuses[t.FromStatus]; !ok {
-			return fmt.Errorf("%w: workflow %q: transition references unknown status %q", ErrInvalidWorkflow, name, t.FromStatus)
+	for _, transition := range workflow.Transitions {
+		if _, ok := workflow.Statuses[transition.FromStatus]; !ok {
+			return fmt.Errorf("%w: workflow %q: transition references unknown status %q", ErrInvalidWorkflow, name, transition.FromStatus)
 		}
-		if _, ok := w.Statuses[t.ToStatus]; !ok {
-			return fmt.Errorf("%w: workflow %q: transition references unknown status %q", ErrInvalidWorkflow, name, t.ToStatus)
+		if _, ok := workflow.Statuses[transition.ToStatus]; !ok {
+			return fmt.Errorf("%w: workflow %q: transition references unknown status %q", ErrInvalidWorkflow, name, transition.ToStatus)
 		}
 	}
 
 	var initialStatus, startStatus string
-	for statusName, sc := range w.Statuses {
-		for _, role := range sc.Roles {
+	for statusName, statusConfig := range workflow.Statuses {
+		for _, role := range statusConfig.Roles {
 			if role == RoleInitial {
 				initialStatus = statusName
 			}
@@ -104,16 +104,16 @@ func ValidateWorkflow(w *Workflow) error {
 			}
 		}
 	}
-	for _, t := range w.Transitions {
-		if t.FromStatus == initialStatus && t.ToStatus == startStatus {
+	for _, transition := range workflow.Transitions {
+		if transition.FromStatus == initialStatus && transition.ToStatus == startStatus {
 			return nil
 		}
 	}
 	return fmt.Errorf("%w: workflow %q: no transition from %q (%s) to %q (%s)", ErrInvalidWorkflow, name, initialStatus, RoleInitial, startStatus, RoleStart)
 }
 
-func validRole(r StatusRole) bool {
-	switch r {
+func validRole(role StatusRole) bool {
+	switch role {
 	case RoleInitial, RoleStart, RoleTerminal, RoleDone, RoleDelete, RoleHighlight, RoleDim:
 		return true
 	}

@@ -17,8 +17,8 @@ var ValidUrgencyWeightKeys = []string{
 // for O(1) key-validity checks.
 var validUrgencyWeightKeySet = func() map[string]struct{} {
 	m := make(map[string]struct{}, len(ValidUrgencyWeightKeys))
-	for _, k := range ValidUrgencyWeightKeys {
-		m[k] = struct{}{}
+	for _, key := range ValidUrgencyWeightKeys {
+		m[key] = struct{}{}
 	}
 	return m
 }()

@@ -52,24 +52,24 @@ type UnknownPayload struct {
 
 // EventKind returns the stored discriminator so UnknownPayload satisfies
 // the EventPayload interface.
-func (p UnknownPayload) EventKind() EventType { return p.Kind }
+func (unknownPayload UnknownPayload) EventKind() EventType { return unknownPayload.Kind }
 
 // MarshalJSON emits the original payload bytes captured in Raw rather
 // than the struct itself, so an UnknownPayload re-marshaled by EventRepo
 // (e.g. during portability import) preserves every field. Without this
 // override, the default encoder would drop Raw (json:"-") and produce
 // `{"kind": "..."}`, losing any data the original sender wrote.
-func (p UnknownPayload) MarshalJSON() ([]byte, error) {
-	if p.Raw == nil {
+func (unknownPayload UnknownPayload) MarshalJSON() ([]byte, error) {
+	if unknownPayload.Raw == nil {
 		return json.Marshal(struct {
 			Kind EventType `json:"kind"`
-		}{Kind: p.Kind})
+		}{Kind: unknownPayload.Kind})
 	}
-	if _, ok := p.Raw["kind"]; !ok {
-		merged := make(map[string]any, len(p.Raw)+1)
-		maps.Copy(merged, p.Raw)
-		merged["kind"] = string(p.Kind)
+	if _, ok := unknownPayload.Raw["kind"]; !ok {
+		merged := make(map[string]any, len(unknownPayload.Raw)+1)
+		maps.Copy(merged, unknownPayload.Raw)
+		merged["kind"] = string(unknownPayload.Kind)
 		return json.Marshal(merged)
 	}
-	return json.Marshal(p.Raw)
+	return json.Marshal(unknownPayload.Raw)
 }

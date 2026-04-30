@@ -89,114 +89,114 @@ func taskAt(status string) *Task {
 	return &Task{ID: uuid.New(), Status: status}
 }
 
-func TestAggregateRollup_EmptyInput(t *testing.T) {
+func TestAggregateRollup_EmptyInput(test *testing.T) {
 	got := AggregateRollup(nil, func(*Task) *Workflow { return kanbanWorkflow() })
 	if got.Done != 0 || got.Total != 0 || got.Percent != 0.0 {
-		t.Fatalf("got Done=%d Total=%d Percent=%v, want all zeros", got.Done, got.Total, got.Percent)
+		test.Fatalf("got Done=%d Total=%d Percent=%v, want all zeros", got.Done, got.Total, got.Percent)
 	}
 	if got.StatusCounts == nil {
-		t.Fatalf("StatusCounts must be non-nil empty slice")
+		test.Fatalf("StatusCounts must be non-nil empty slice")
 	}
 	if len(got.StatusCounts) != 0 {
-		t.Fatalf("StatusCounts should be empty, got %v", got.StatusCounts)
+		test.Fatalf("StatusCounts should be empty, got %v", got.StatusCounts)
 	}
 }
 
-func TestAggregateRollup_AllDone(t *testing.T) {
-	wf := kanbanWorkflow()
+func TestAggregateRollup_AllDone(test *testing.T) {
+	workflow := kanbanWorkflow()
 	tasks := []*Task{taskAt("completed"), taskAt("completed"), taskAt("completed")}
-	got := AggregateRollup(tasks, func(*Task) *Workflow { return wf })
+	got := AggregateRollup(tasks, func(*Task) *Workflow { return workflow })
 	if got.Done != 3 || got.Total != 3 {
-		t.Fatalf("want Done=3 Total=3, got Done=%d Total=%d", got.Done, got.Total)
+		test.Fatalf("want Done=3 Total=3, got Done=%d Total=%d", got.Done, got.Total)
 	}
 	if got.Percent != 1.0 {
-		t.Fatalf("want Percent=1.0, got %v", got.Percent)
+		test.Fatalf("want Percent=1.0, got %v", got.Percent)
 	}
 	wantOrder := []string{"pending", "active", "completed"}
 	if !statusOrder(got.StatusCounts, wantOrder) {
-		t.Fatalf("StatusCounts order want %v, got %v", wantOrder, got.StatusCounts)
+		test.Fatalf("StatusCounts order want %v, got %v", wantOrder, got.StatusCounts)
 	}
 	if findCount(got.StatusCounts, "completed") != 3 {
-		t.Fatalf("completed bucket want 3, got %d", findCount(got.StatusCounts, "completed"))
+		test.Fatalf("completed bucket want 3, got %d", findCount(got.StatusCounts, "completed"))
 	}
 }
 
-func TestAggregateRollup_AllDeleted(t *testing.T) {
-	wf := kanbanWorkflow()
+func TestAggregateRollup_AllDeleted(test *testing.T) {
+	workflow := kanbanWorkflow()
 	tasks := []*Task{taskAt("deleted"), taskAt("deleted")}
-	got := AggregateRollup(tasks, func(*Task) *Workflow { return wf })
+	got := AggregateRollup(tasks, func(*Task) *Workflow { return workflow })
 	if got.Total != 0 {
-		t.Fatalf("want Total=0 (all delete-role excluded), got %d", got.Total)
+		test.Fatalf("want Total=0 (all delete-role excluded), got %d", got.Total)
 	}
 	if got.Done != 0 || got.Percent != 0.0 {
-		t.Fatalf("want zero done/percent, got Done=%d Percent=%v", got.Done, got.Percent)
+		test.Fatalf("want zero done/percent, got Done=%d Percent=%v", got.Done, got.Percent)
 	}
 	if len(got.StatusCounts) != 0 {
-		t.Fatalf("StatusCounts must be empty (no non-delete descendants seeded the breakdown), got %v", got.StatusCounts)
+		test.Fatalf("StatusCounts must be empty (no non-delete descendants seeded the breakdown), got %v", got.StatusCounts)
 	}
 }
 
-func TestAggregateRollup_MixedKanban(t *testing.T) {
-	wf := kanbanWorkflow()
+func TestAggregateRollup_MixedKanban(test *testing.T) {
+	workflow := kanbanWorkflow()
 	tasks := []*Task{
 		taskAt("pending"),
 		taskAt("active"),
 		taskAt("completed"), taskAt("completed"), taskAt("completed"),
 		taskAt("deleted"),
 	}
-	got := AggregateRollup(tasks, func(*Task) *Workflow { return wf })
+	got := AggregateRollup(tasks, func(*Task) *Workflow { return workflow })
 	if got.Done != 3 || got.Total != 5 {
-		t.Fatalf("want Done=3 Total=5, got Done=%d Total=%d", got.Done, got.Total)
+		test.Fatalf("want Done=3 Total=5, got Done=%d Total=%d", got.Done, got.Total)
 	}
 	if got.Percent < 0.599 || got.Percent > 0.601 {
-		t.Fatalf("want Percent≈0.6, got %v", got.Percent)
+		test.Fatalf("want Percent≈0.6, got %v", got.Percent)
 	}
 	wantOrder := []string{"pending", "active", "completed"}
 	if !statusOrder(got.StatusCounts, wantOrder) {
-		t.Fatalf("order want %v, got %v", wantOrder, got.StatusCounts)
+		test.Fatalf("order want %v, got %v", wantOrder, got.StatusCounts)
 	}
 	if findCount(got.StatusCounts, "deleted") != 0 || hasBucket(got.StatusCounts, "deleted") {
-		t.Fatalf("deleted bucket must be absent, got %v", got.StatusCounts)
+		test.Fatalf("deleted bucket must be absent, got %v", got.StatusCounts)
 	}
 	if findCount(got.StatusCounts, "pending") != 1 ||
 		findCount(got.StatusCounts, "active") != 1 ||
 		findCount(got.StatusCounts, "completed") != 3 {
-		t.Fatalf("bucket counts wrong: %v", got.StatusCounts)
+		test.Fatalf("bucket counts wrong: %v", got.StatusCounts)
 	}
 }
 
-func TestAggregateRollup_CustomDoneRole(t *testing.T) {
-	wf := shipWorkflow()
+func TestAggregateRollup_CustomDoneRole(test *testing.T) {
+	workflow := shipWorkflow()
 	tasks := []*Task{taskAt("triage"), taskAt("shipped"), taskAt("shipped")}
-	got := AggregateRollup(tasks, func(*Task) *Workflow { return wf })
+	got := AggregateRollup(tasks, func(*Task) *Workflow { return workflow })
 	if got.Done != 2 || got.Total != 3 {
-		t.Fatalf("want Done=2 Total=3, got Done=%d Total=%d", got.Done, got.Total)
+		test.Fatalf("want Done=2 Total=3, got Done=%d Total=%d", got.Done, got.Total)
 	}
 	wantOrder := []string{"triage", "shipped"}
 	if !statusOrder(got.StatusCounts, wantOrder) {
-		t.Fatalf("order want %v, got %v", wantOrder, got.StatusCounts)
+		test.Fatalf("order want %v, got %v", wantOrder, got.StatusCounts)
 	}
 	if hasBucket(got.StatusCounts, "dropped") {
-		t.Fatalf("delete-role bucket leaked: %v", got.StatusCounts)
+		test.Fatalf("delete-role bucket leaked: %v", got.StatusCounts)
 	}
 }
 
-func TestAggregateRollup_NoDoneRole(t *testing.T) {
-	wf := noDoneWorkflow()
+func TestAggregateRollup_NoDoneRole(test *testing.T) {
+	workflow := noDoneWorkflow()
 	tasks := []*Task{taskAt("open"), taskAt("closed"), taskAt("trashed")}
-	got := AggregateRollup(tasks, func(*Task) *Workflow { return wf })
+	got := AggregateRollup(tasks, func(*Task) *Workflow { return workflow })
 	if got.Done != 0 {
-		t.Fatalf("want Done=0 (workflow has no done role), got %d", got.Done)
+		test.Fatalf("want Done=0 (workflow has no done role), got %d", got.Done)
 	}
 	if got.Total != 2 {
-		t.Fatalf("want Total=2 (open+closed; trashed excluded), got %d", got.Total)
+		test.Fatalf("want Total=2 (open+closed; trashed excluded), got %d", got.Total)
 	}
 	if got.Percent != 0.0 {
-		t.Fatalf("want Percent=0.0, got %v", got.Percent)
+		test.Fatalf("want Percent=0.0, got %v", got.Percent)
 	}
 }
 
-func TestAggregateRollup_MultiWorkflowMerge(t *testing.T) {
+func TestAggregateRollup_MultiWorkflowMerge(test *testing.T) {
 	kan := kanbanWorkflow()
 	ovl := overlapWorkflow()
 	// Half from kanban (pending, active, completed), half from overlap
@@ -209,8 +209,8 @@ func TestAggregateRollup_MultiWorkflowMerge(t *testing.T) {
 		{ID: uuid.New(), Status: "active"},    // overlap (merges into kanban's active bucket)
 		{ID: uuid.New(), Status: "shipped"},   // overlap
 	}
-	wfBy := func(t *Task) *Workflow {
-		switch t.Status {
+	wfBy := func(task *Task) *Workflow {
+		switch task.Status {
 		case "pending", "completed":
 			return kan
 		case "active":
@@ -228,38 +228,38 @@ func TestAggregateRollup_MultiWorkflowMerge(t *testing.T) {
 	// Done: only "completed" (kanban) and "shipped" (overlap) count → 2
 	// (deletion-role: none). Total: all 6 are non-delete.
 	if got.Done != 2 {
-		t.Fatalf("want Done=2 (completed + shipped), got %d", got.Done)
+		test.Fatalf("want Done=2 (completed + shipped), got %d", got.Done)
 	}
 	if got.Total != 6 {
-		t.Fatalf("want Total=6, got %d", got.Total)
+		test.Fatalf("want Total=6, got %d", got.Total)
 	}
 	// Order: kanban seed (pending, active, completed) then overlap newcomers
 	// (triage, shipped). The "active" bucket from overlap merges with kanban's.
 	wantOrder := []string{"pending", "active", "completed", "triage", "shipped"}
 	if !statusOrder(got.StatusCounts, wantOrder) {
-		t.Fatalf("order want %v, got %v", wantOrder, got.StatusCounts)
+		test.Fatalf("order want %v, got %v", wantOrder, got.StatusCounts)
 	}
 	if findCount(got.StatusCounts, "active") != 2 {
-		t.Fatalf("active bucket should merge to 2, got %d", findCount(got.StatusCounts, "active"))
+		test.Fatalf("active bucket should merge to 2, got %d", findCount(got.StatusCounts, "active"))
 	}
 }
 
-func TestAggregateRollup_NilWorkflowSkipsTask(t *testing.T) {
-	wf := kanbanWorkflow()
+func TestAggregateRollup_NilWorkflowSkipsTask(test *testing.T) {
+	workflow := kanbanWorkflow()
 	tasks := []*Task{
 		taskAt("pending"),
 		{ID: uuid.New(), Status: "orphan"}, // workflowFor returns nil
 		taskAt("completed"),
 	}
-	wfBy := func(t *Task) *Workflow {
-		if t.Status == "orphan" {
+	wfBy := func(task *Task) *Workflow {
+		if task.Status == "orphan" {
 			return nil
 		}
-		return wf
+		return workflow
 	}
 	got := AggregateRollup(tasks, wfBy)
 	if got.Done != 1 || got.Total != 2 {
-		t.Fatalf("nil-workflow tasks must be silently skipped: got Done=%d Total=%d, want 1/2", got.Done, got.Total)
+		test.Fatalf("nil-workflow tasks must be silently skipped: got Done=%d Total=%d, want 1/2", got.Done, got.Total)
 	}
 }
 
@@ -268,32 +268,32 @@ func statusOrder(got []StatusCount, want []string) bool {
 		return false
 	}
 	idx := make(map[string]int, len(got))
-	for i, sc := range got {
-		idx[sc.Name] = i
+	for ii, statusCount := range got {
+		idx[statusCount.Name] = ii
 	}
 	last := -1
 	for _, name := range want {
-		i, ok := idx[name]
-		if !ok || i <= last {
+		pos, ok := idx[name]
+		if !ok || pos <= last {
 			return false
 		}
-		last = i
+		last = pos
 	}
 	return true
 }
 
 func findCount(got []StatusCount, name string) int {
-	for _, sc := range got {
-		if sc.Name == name {
-			return sc.Count
+	for _, statusCount := range got {
+		if statusCount.Name == name {
+			return statusCount.Count
 		}
 	}
 	return 0
 }
 
 func hasBucket(got []StatusCount, name string) bool {
-	for _, sc := range got {
-		if sc.Name == name {
+	for _, statusCount := range got {
+		if statusCount.Name == name {
 			return true
 		}
 	}

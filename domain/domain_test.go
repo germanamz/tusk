@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestTypesCompile(t *testing.T) {
+func TestTypesCompile(test *testing.T) {
 	now := time.Now()
 	id := uuid.New()
 	priority := 3
@@ -93,20 +93,20 @@ func TestTypesCompile(t *testing.T) {
 	}
 }
 
-func TestSentinelErrors(t *testing.T) {
-	errors := []error{
+func TestSentinelErrors(test *testing.T) {
+	sentinels := []error{
 		domain.ErrNotFound,
 		domain.ErrConflict,
 		domain.ErrCyclicBlock,
 		domain.ErrInvalidTransition,
 		domain.ErrDuplicateRelation,
 	}
-	for _, err := range errors {
-		if err == nil {
-			t.Fatal("sentinel error is nil")
+	for _, sentinel := range sentinels {
+		if sentinel == nil {
+			test.Fatal("sentinel error is nil")
 		}
-		if err.Error() == "" {
-			t.Fatal("sentinel error has empty message")
+		if sentinel.Error() == "" {
+			test.Fatal("sentinel error has empty message")
 		}
 	}
 }

@@ -40,19 +40,19 @@ type TaxonomyError struct {
 	Taxonomy    Taxonomy // taxonomy that produced the violation; for rendering
 }
 
-func (e *TaxonomyError) Error() string {
-	switch e.Reason {
+func (taxonomyErr *TaxonomyError) Error() string {
+	switch taxonomyErr.Reason {
 	case "missing":
 		return "task violates project taxonomy: level is required"
 	case "unknown_level":
-		return fmt.Sprintf("task violates project taxonomy: level %q is not declared", e.Level)
+		return fmt.Sprintf("task violates project taxonomy: level %q is not declared", taxonomyErr.Level)
 	case "root_requires_top_rank":
-		return fmt.Sprintf("task violates project taxonomy: root task with level %q must be at top rank", e.Level)
+		return fmt.Sprintf("task violates project taxonomy: root task with level %q must be at top rank", taxonomyErr.Level)
 	case "parent_rank_not_lower":
-		return fmt.Sprintf("task violates project taxonomy: level %q cannot sit under parent level %q", e.Level, e.ParentLevel)
+		return fmt.Sprintf("task violates project taxonomy: level %q cannot sit under parent level %q", taxonomyErr.Level, taxonomyErr.ParentLevel)
 	default:
 		return "task violates project taxonomy"
 	}
 }
 
-func (e *TaxonomyError) Unwrap() error { return ErrTaxonomyViolation }
+func (taxonomyErr *TaxonomyError) Unwrap() error { return ErrTaxonomyViolation }
