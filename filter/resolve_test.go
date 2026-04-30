@@ -16,13 +16,16 @@ var defaultProjectUUID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 // testResolver creates an in-memory SQLite store and returns a Resolver wired
 // to its TaskRepo and a fake ProjectLookup containing one "default" project.
-func testResolver(t *testing.T) (*Resolver, *sqlite.Store) {
-	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
+func testResolver(test *testing.T) (*Resolver, *sqlite.Store) {
+	test.Helper()
+
+	store, storeErr := sqlite.New(":memory:", migrations.FS)
+
+	if storeErr != nil {
+		test.Fatalf("opening test store: %v", storeErr)
 	}
-	t.Cleanup(func() { store.Close() })
+
+	test.Cleanup(func() { store.Close() })
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
 	projects := &fakeProjectLookup{
@@ -33,230 +36,230 @@ func testResolver(t *testing.T) (*Resolver, *sqlite.Store) {
 	return NewResolver(taskRepo, projects, []string{"pending", "active"}), store
 }
 
-func TestResolve_DefaultStatuses(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_DefaultStatuses(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tf.Statuses) != 2 || tf.Statuses[0] != "pending" || tf.Statuses[1] != "active" {
-		t.Fatalf("expected default statuses [pending active], got %v", tf.Statuses)
+		test.Fatalf("expected default statuses [pending active], got %v", tf.Statuses)
 	}
 }
 
-func TestResolve_ExplicitStatuses(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_ExplicitStatuses(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "status", Value: "completed"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tf.Statuses) != 1 || tf.Statuses[0] != "completed" {
-		t.Fatalf("expected [completed], got %v", tf.Statuses)
+		test.Fatalf("expected [completed], got %v", tf.Statuses)
 	}
 }
 
-func TestResolve_MultipleStatuses(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_MultipleStatuses(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "status", Value: "pending,active,completed"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tf.Statuses) != 3 {
-		t.Fatalf("expected 3 statuses, got %d", len(tf.Statuses))
+		test.Fatalf("expected 3 statuses, got %d", len(tf.Statuses))
 	}
 }
 
-func TestResolve_ProjectByID(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_ProjectByID(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "project", Value: "default"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.ProjectID == nil {
-		t.Fatal("expected ProjectID to be set")
+		test.Fatal("expected ProjectID to be set")
 	}
 	if *tf.ProjectID != defaultProjectUUID {
-		t.Fatalf("expected ProjectID=%v, got %v", defaultProjectUUID, *tf.ProjectID)
+		test.Fatalf("expected ProjectID=%v, got %v", defaultProjectUUID, *tf.ProjectID)
 	}
 }
 
-func TestResolve_ProjectNotFound(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_ProjectNotFound(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "project", Value: "nonexistent"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for unknown project, got %d: %v", len(errs), errs)
+		test.Fatalf("expected 1 error for unknown project, got %d: %v", len(errs), errs)
 	}
 	if tf.ProjectID != nil {
-		t.Fatalf("expected ProjectID nil after error, got %v", tf.ProjectID)
+		test.Fatalf("expected ProjectID nil after error, got %v", tf.ProjectID)
 	}
 }
 
-func TestResolve_PrioritySingle(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_PrioritySingle(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "priority", Value: "3"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.PriorityMin == nil || *tf.PriorityMin != 3 {
-		t.Fatalf("expected PriorityMin=3, got %v", tf.PriorityMin)
+		test.Fatalf("expected PriorityMin=3, got %v", tf.PriorityMin)
 	}
 	if tf.PriorityMax == nil || *tf.PriorityMax != 3 {
-		t.Fatalf("expected PriorityMax=3, got %v", tf.PriorityMax)
+		test.Fatalf("expected PriorityMax=3, got %v", tf.PriorityMax)
 	}
 }
 
-func TestResolve_PriorityRange(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_PriorityRange(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "priority", Value: "2..4"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.PriorityMin == nil || *tf.PriorityMin != 2 {
-		t.Fatalf("expected PriorityMin=2, got %v", tf.PriorityMin)
+		test.Fatalf("expected PriorityMin=2, got %v", tf.PriorityMin)
 	}
 	if tf.PriorityMax == nil || *tf.PriorityMax != 4 {
-		t.Fatalf("expected PriorityMax=4, got %v", tf.PriorityMax)
+		test.Fatalf("expected PriorityMax=4, got %v", tf.PriorityMax)
 	}
 }
 
-func TestResolve_OrderSingle(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_OrderSingle(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "order", Value: "2.5"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.OrderMin == nil || *tf.OrderMin != 2.5 {
-		t.Fatalf("expected OrderMin=2.5, got %v", tf.OrderMin)
+		test.Fatalf("expected OrderMin=2.5, got %v", tf.OrderMin)
 	}
 	if tf.OrderMax == nil || *tf.OrderMax != 2.5 {
-		t.Fatalf("expected OrderMax=2.5, got %v", tf.OrderMax)
+		test.Fatalf("expected OrderMax=2.5, got %v", tf.OrderMax)
 	}
 }
 
-func TestResolve_OrderRange(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_OrderRange(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "order", Value: "1..5"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.OrderMin == nil || *tf.OrderMin != 1 {
-		t.Fatalf("expected OrderMin=1, got %v", tf.OrderMin)
+		test.Fatalf("expected OrderMin=1, got %v", tf.OrderMin)
 	}
 	if tf.OrderMax == nil || *tf.OrderMax != 5 {
-		t.Fatalf("expected OrderMax=5, got %v", tf.OrderMax)
+		test.Fatalf("expected OrderMax=5, got %v", tf.OrderMax)
 	}
 }
 
-func TestResolve_OrderEmptyIsNull(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_OrderEmptyIsNull(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "order", Value: ""}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.OrderIsNull == nil || !*tf.OrderIsNull {
-		t.Fatalf("expected OrderIsNull=true, got %v", tf.OrderIsNull)
+		test.Fatalf("expected OrderIsNull=true, got %v", tf.OrderIsNull)
 	}
 	if tf.OrderMin != nil || tf.OrderMax != nil {
-		t.Fatalf("expected Min/Max to be nil when IS NULL, got min=%v max=%v", tf.OrderMin, tf.OrderMax)
+		test.Fatalf("expected Min/Max to be nil when IS NULL, got min=%v max=%v", tf.OrderMin, tf.OrderMax)
 	}
 }
 
-func TestResolve_PriorityNamed(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_PriorityNamed(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "priority", Value: "high"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.PriorityMin == nil || *tf.PriorityMin != 3 {
-		t.Fatalf("expected PriorityMin=3 (high), got %v", tf.PriorityMin)
+		test.Fatalf("expected PriorityMin=3 (high), got %v", tf.PriorityMin)
 	}
 }
 
-func TestResolve_DueSingle(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_DueSingle(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "due", Value: "2026-04-10"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	// Single due date sets DueBefore to end of that day
 	wantDate := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
 	if tf.DueAfter == nil || !tf.DueAfter.Equal(wantDate) {
-		t.Fatalf("expected DueAfter=%v, got %v", wantDate, tf.DueAfter)
+		test.Fatalf("expected DueAfter=%v, got %v", wantDate, tf.DueAfter)
 	}
 	wantEnd := wantDate.AddDate(0, 0, 1)
 	if tf.DueBefore == nil || !tf.DueBefore.Equal(wantEnd) {
-		t.Fatalf("expected DueBefore=%v, got %v", wantEnd, tf.DueBefore)
+		test.Fatalf("expected DueBefore=%v, got %v", wantEnd, tf.DueBefore)
 	}
 }
 
-func TestResolve_DueRange(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_DueRange(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "due", Value: "2026-04-01..2026-04-10"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	wantAfter := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	wantBefore := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
 	if tf.DueAfter == nil || !tf.DueAfter.Equal(wantAfter) {
-		t.Fatalf("expected DueAfter=%v, got %v", wantAfter, tf.DueAfter)
+		test.Fatalf("expected DueAfter=%v, got %v", wantAfter, tf.DueAfter)
 	}
 	if tf.DueBefore == nil || !tf.DueBefore.Equal(wantBefore) {
-		t.Fatalf("expected DueBefore=%v, got %v", wantBefore, tf.DueBefore)
+		test.Fatalf("expected DueBefore=%v, got %v", wantBefore, tf.DueBefore)
 	}
 }
 
-func TestResolve_Tags(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_Tags(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Tags: []TagFilter{
 			{Name: "api", Exclude: false},
@@ -265,50 +268,50 @@ func TestResolve_Tags(t *testing.T) {
 		},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tf.Tags) != 2 || tf.Tags[0] != "api" || tf.Tags[1] != "frontend" {
-		t.Fatalf("expected Tags=[api frontend], got %v", tf.Tags)
+		test.Fatalf("expected Tags=[api frontend], got %v", tf.Tags)
 	}
 	if len(tf.ExcludeTags) != 1 || tf.ExcludeTags[0] != "docs" {
-		t.Fatalf("expected ExcludeTags=[docs], got %v", tf.ExcludeTags)
+		test.Fatalf("expected ExcludeTags=[docs], got %v", tf.ExcludeTags)
 	}
 }
 
-func TestResolve_WaitingTrue(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_WaitingTrue(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "waiting", Value: "true"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.WaitingOnly == nil || !*tf.WaitingOnly {
-		t.Fatal("expected WaitingOnly=true")
+		test.Fatal("expected WaitingOnly=true")
 	}
 }
 
-func TestResolve_WaitingFalse(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_WaitingFalse(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "waiting", Value: "false"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.WaitingOnly == nil || *tf.WaitingOnly {
-		t.Fatal("expected WaitingOnly=false")
+		test.Fatal("expected WaitingOnly=false")
 	}
 }
 
-func TestResolve_ParentShortID(t *testing.T) {
-	r, store := testResolver(t)
+func TestResolve_ParentShortID(test *testing.T) {
+	resolver, store := testResolver(test)
 	ctx := context.Background()
 
 	// Create a task to use as parent
@@ -320,25 +323,26 @@ func TestResolve_ParentShortID(t *testing.T) {
 		Status:  "pending",
 		Version: 1,
 	}
-	if err := taskRepo.Create(ctx, parent); err != nil {
-		t.Fatalf("creating parent task: %v", err)
+
+	if createErr := taskRepo.Create(ctx, parent); createErr != nil {
+		test.Fatalf("creating parent task: %v", createErr)
 	}
 
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "parent", Value: "a3f8b2c1"}},
 	}
 
-	tf, errs := r.Resolve(ctx, fs)
+	tf, errs := resolver.Resolve(ctx, fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.ParentID == nil || *tf.ParentID != parent.ID {
-		t.Fatalf("expected ParentID=%v, got %v", parent.ID, tf.ParentID)
+		test.Fatalf("expected ParentID=%v, got %v", parent.ID, tf.ParentID)
 	}
 }
 
-func TestResolve_TreeShortID(t *testing.T) {
-	r, store := testResolver(t)
+func TestResolve_TreeShortID(test *testing.T) {
+	resolver, store := testResolver(test)
 	ctx := context.Background()
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
@@ -349,37 +353,38 @@ func TestResolve_TreeShortID(t *testing.T) {
 		Status:  "pending",
 		Version: 1,
 	}
-	if err := taskRepo.Create(ctx, root); err != nil {
-		t.Fatalf("creating root task: %v", err)
+
+	if createErr := taskRepo.Create(ctx, root); createErr != nil {
+		test.Fatalf("creating root task: %v", createErr)
 	}
 
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "tree", Value: "deadbeef"}},
 	}
 
-	tf, errs := r.Resolve(ctx, fs)
+	tf, errs := resolver.Resolve(ctx, fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if tf.RootID == nil || *tf.RootID != root.ID {
-		t.Fatalf("expected RootID=%v, got %v", root.ID, tf.RootID)
+		test.Fatalf("expected RootID=%v, got %v", root.ID, tf.RootID)
 	}
 }
 
-func TestResolve_ParentNotFound(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_ParentNotFound(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "parent", Value: "ffffffff"}},
 	}
 
-	_, errs := r.Resolve(context.Background(), fs)
+	_, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 1 {
-		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+		test.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
 	}
 }
 
-func TestResolve_MultipleErrors(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_MultipleErrors(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{
 			{Key: "parent", Value: "ffffffff"},
@@ -387,91 +392,91 @@ func TestResolve_MultipleErrors(t *testing.T) {
 		},
 	}
 
-	_, errs := r.Resolve(context.Background(), fs)
+	_, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 2 {
-		t.Fatalf("expected 2 errors, got %d: %v", len(errs), errs)
+		test.Fatalf("expected 2 errors, got %d: %v", len(errs), errs)
 	}
 }
 
-func TestResolve_LevelSingle(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_LevelSingle(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "level", Value: "story"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tf.Levels) != 1 || tf.Levels[0] != "story" {
-		t.Fatalf("expected levels [story], got %v", tf.Levels)
+		test.Fatalf("expected levels [story], got %v", tf.Levels)
 	}
 }
 
-func TestResolve_LevelMultiple(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_LevelMultiple(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "level", Value: "story,task"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tf.Levels) != 2 || tf.Levels[0] != "story" || tf.Levels[1] != "task" {
-		t.Fatalf("expected levels [story task], got %v", tf.Levels)
+		test.Fatalf("expected levels [story task], got %v", tf.Levels)
 	}
 }
 
-func TestResolveExpr_NotLevel(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolveExpr_NotLevel(test *testing.T) {
+	resolver, _ := testResolver(test)
 	expr := AndExpr{Children: []Expr{
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "pending"}},
 		NotExpr{Child: TermExpr{Field: &FieldFilter{Key: "level", Value: "spike"}}},
 	}}
 
-	result, errs := r.ResolveExpr(context.Background(), expr)
+	result, errs := resolver.ResolveExpr(context.Background(), expr)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 
-	af, ok := result.(*domain.AndFilter)
+	andFilter, ok := result.(*domain.AndFilter)
 	if !ok {
-		t.Fatalf("expected *domain.AndFilter, got %T", result)
+		test.Fatalf("expected *domain.AndFilter, got %T", result)
 	}
-	var nf *domain.NotFilter
-	for _, child := range af.Children {
-		if n, ok := child.(*domain.NotFilter); ok {
-			nf = n
+	var notFilter *domain.NotFilter
+	for _, child := range andFilter.Children {
+		if nf, ok := child.(*domain.NotFilter); ok {
+			notFilter = nf
 			break
 		}
 	}
-	if nf == nil {
-		t.Fatalf("expected NotFilter child, got %#v", af.Children)
+	if notFilter == nil {
+		test.Fatalf("expected NotFilter child, got %#v", andFilter.Children)
 	}
-	tf, ok := nf.Child.(*domain.TermFilter)
+	termFilter, ok := notFilter.Child.(*domain.TermFilter)
 	if !ok {
-		t.Fatalf("expected NotFilter.Child == *domain.TermFilter, got %T", nf.Child)
+		test.Fatalf("expected NotFilter.Child == *domain.TermFilter, got %T", notFilter.Child)
 	}
-	if len(tf.Levels) != 1 || tf.Levels[0] != "spike" {
-		t.Fatalf("expected levels [spike], got %v", tf.Levels)
+	if len(termFilter.Levels) != 1 || termFilter.Levels[0] != "spike" {
+		test.Fatalf("expected levels [spike], got %v", termFilter.Levels)
 	}
 }
 
-func TestResolve_UdaLevelStillRoutesToUDA(t *testing.T) {
-	r, _ := testResolver(t)
+func TestResolve_UdaLevelStillRoutesToUDA(test *testing.T) {
+	resolver, _ := testResolver(test)
 	fs := &FilterSet{
 		Fields: []FieldFilter{{Key: "uda.level", Value: "whatever"}},
 	}
 
-	tf, errs := r.Resolve(context.Background(), fs)
+	tf, errs := resolver.Resolve(context.Background(), fs)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if got := tf.UDA["level"]; got != "whatever" {
-		t.Fatalf("expected UDA[level]=whatever, got %q", got)
+		test.Fatalf("expected UDA[level]=whatever, got %q", got)
 	}
 	if len(tf.Levels) != 0 {
-		t.Fatalf("expected no Levels routing for uda.level, got %v", tf.Levels)
+		test.Fatalf("expected no Levels routing for uda.level, got %v", tf.Levels)
 	}
 }

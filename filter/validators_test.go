@@ -4,48 +4,48 @@ import (
 	"testing"
 )
 
-func TestValidateStatus(t *testing.T) {
+func TestValidateStatus(test *testing.T) {
 	valid := []string{"active", "pending", "pending,active", "pending,active,completed"}
-	for _, v := range valid {
-		if err := validateStatus(v); err != nil {
-			t.Errorf("validateStatus(%q) unexpected error: %v", v, err)
+	for _, value := range valid {
+		if err := validateStatus(value); err != nil {
+			test.Errorf("validateStatus(%q) unexpected error: %v", value, err)
 		}
 	}
 
 	invalid := []string{"", ",", ",active", "active,"}
-	for _, v := range invalid {
-		if err := validateStatus(v); err == nil {
-			t.Errorf("validateStatus(%q) expected error", v)
+	for _, value := range invalid {
+		if err := validateStatus(value); err == nil {
+			test.Errorf("validateStatus(%q) expected error", value)
 		}
 	}
 }
 
-func TestValidateProject(t *testing.T) {
+func TestValidateProject(test *testing.T) {
 	if err := validateProject("backend"); err != nil {
-		t.Errorf("validateProject(\"backend\") unexpected error: %v", err)
+		test.Errorf("validateProject(\"backend\") unexpected error: %v", err)
 	}
 	if err := validateProject(""); err == nil {
-		t.Error("validateProject(\"\") expected error")
+		test.Error("validateProject(\"\") expected error")
 	}
 }
 
-func TestValidatePriority(t *testing.T) {
+func TestValidatePriority(test *testing.T) {
 	valid := []string{"0", "1", "2", "3", "4", "none", "low", "medium", "high", "urgent", "2..4", "low..high", "4..4"}
-	for _, v := range valid {
-		if err := validatePriority(v); err != nil {
-			t.Errorf("validatePriority(%q) unexpected error: %v", v, err)
+	for _, value := range valid {
+		if err := validatePriority(value); err != nil {
+			test.Errorf("validatePriority(%q) unexpected error: %v", value, err)
 		}
 	}
 
 	invalid := []string{"", "5", "-1", "critical", "abc", "5..6", "high..low"}
-	for _, v := range invalid {
-		if err := validatePriority(v); err == nil {
-			t.Errorf("validatePriority(%q) expected error", v)
+	for _, value := range invalid {
+		if err := validatePriority(value); err == nil {
+			test.Errorf("validatePriority(%q) expected error", value)
 		}
 	}
 }
 
-func TestValidateDue(t *testing.T) {
+func TestValidateDue(test *testing.T) {
 	valid := []string{
 		"",
 		"2026-04-10",
@@ -58,46 +58,46 @@ func TestValidateDue(t *testing.T) {
 		"today..friday",
 		"2026-04-01..2026-04-10",
 	}
-	for _, v := range valid {
-		if err := validateDue(v); err != nil {
-			t.Errorf("validateDue(%q) unexpected error: %v", v, err)
+	for _, value := range valid {
+		if err := validateDue(value); err != nil {
+			test.Errorf("validateDue(%q) unexpected error: %v", value, err)
 		}
 	}
 
 	invalid := []string{"notadate", "13-13-2026", "..friday", "today.."}
-	for _, v := range invalid {
-		if err := validateDue(v); err == nil {
-			t.Errorf("validateDue(%q) expected error", v)
+	for _, value := range invalid {
+		if err := validateDue(value); err == nil {
+			test.Errorf("validateDue(%q) expected error", value)
 		}
 	}
 }
 
-func TestValidateShortID(t *testing.T) {
+func TestValidateShortID(test *testing.T) {
 	valid := []string{"", "a3f8b2c1", "DEADBEEF", "abcd1234", "abcdef012"}
-	for _, v := range valid {
-		if err := validateShortID(v); err != nil {
-			t.Errorf("validateShortID(%q) unexpected error: %v", v, err)
+	for _, value := range valid {
+		if err := validateShortID(value); err != nil {
+			test.Errorf("validateShortID(%q) unexpected error: %v", value, err)
 		}
 	}
 
 	invalid := []string{"xyz!", "ab", "abc", "not-hex!!"}
-	for _, v := range invalid {
-		if err := validateShortID(v); err == nil {
-			t.Errorf("validateShortID(%q) expected error", v)
+	for _, value := range invalid {
+		if err := validateShortID(value); err == nil {
+			test.Errorf("validateShortID(%q) expected error", value)
 		}
 	}
 }
 
-func TestValidateBool(t *testing.T) {
-	for _, v := range []string{"true", "false"} {
-		if err := validateBool(v); err != nil {
-			t.Errorf("validateBool(%q) unexpected error: %v", v, err)
+func TestValidateBool(test *testing.T) {
+	for _, value := range []string{"true", "false"} {
+		if err := validateBool(value); err != nil {
+			test.Errorf("validateBool(%q) unexpected error: %v", value, err)
 		}
 	}
 
-	for _, v := range []string{"", "yes", "1", "TRUE"} {
-		if err := validateBool(v); err == nil {
-			t.Errorf("validateBool(%q) expected error", v)
+	for _, value := range []string{"", "yes", "1", "TRUE"} {
+		if err := validateBool(value); err == nil {
+			test.Errorf("validateBool(%q) expected error", value)
 		}
 	}
 }

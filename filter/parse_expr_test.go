@@ -3,134 +3,134 @@ package filter
 import "testing"
 
 // exprEqual is a test helper that compares two Expr trees structurally.
-func exprEqual(a, b Expr) bool {
-	switch a := a.(type) {
+func exprEqual(left, right Expr) bool {
+	switch left := left.(type) {
 	case TermExpr:
-		b, ok := b.(TermExpr)
+		right, ok := right.(TermExpr)
 		if !ok {
 			return false
 		}
-		if a.Text != b.Text {
+		if left.Text != right.Text {
 			return false
 		}
-		if (a.Field == nil) != (b.Field == nil) {
+		if (left.Field == nil) != (right.Field == nil) {
 			return false
 		}
-		if a.Field != nil && (a.Field.Key != b.Field.Key || a.Field.Value != b.Field.Value) {
+		if left.Field != nil && (left.Field.Key != right.Field.Key || left.Field.Value != right.Field.Value) {
 			return false
 		}
-		if (a.Tag == nil) != (b.Tag == nil) {
+		if (left.Tag == nil) != (right.Tag == nil) {
 			return false
 		}
-		if a.Tag != nil && (a.Tag.Name != b.Tag.Name || a.Tag.Exclude != b.Tag.Exclude) {
+		if left.Tag != nil && (left.Tag.Name != right.Tag.Name || left.Tag.Exclude != right.Tag.Exclude) {
 			return false
 		}
 		return true
 	case AndExpr:
-		b, ok := b.(AndExpr)
-		if !ok || len(a.Children) != len(b.Children) {
+		right, ok := right.(AndExpr)
+		if !ok || len(left.Children) != len(right.Children) {
 			return false
 		}
-		for i := range a.Children {
-			if !exprEqual(a.Children[i], b.Children[i]) {
+		for index := range left.Children {
+			if !exprEqual(left.Children[index], right.Children[index]) {
 				return false
 			}
 		}
 		return true
 	case OrExpr:
-		b, ok := b.(OrExpr)
-		if !ok || len(a.Children) != len(b.Children) {
+		right, ok := right.(OrExpr)
+		if !ok || len(left.Children) != len(right.Children) {
 			return false
 		}
-		for i := range a.Children {
-			if !exprEqual(a.Children[i], b.Children[i]) {
+		for index := range left.Children {
+			if !exprEqual(left.Children[index], right.Children[index]) {
 				return false
 			}
 		}
 		return true
 	case NotExpr:
-		b, ok := b.(NotExpr)
+		right, ok := right.(NotExpr)
 		if !ok {
 			return false
 		}
-		return exprEqual(a.Child, b.Child)
+		return exprEqual(left.Child, right.Child)
 	default:
 		return false
 	}
 }
 
-func TestParseExpr_SingleTerm(t *testing.T) {
+func TestParseExpr_SingleTerm(test *testing.T) {
 	expr, errs := ParseExpr("status=active")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected %+v, got %+v", want, expr)
+		test.Fatalf("expected %+v, got %+v", want, expr)
 	}
 }
 
-func TestParseExpr_ImplicitAnd(t *testing.T) {
+func TestParseExpr_ImplicitAnd(test *testing.T) {
 	expr, errs := ParseExpr("status=active +api")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := AndExpr{Children: []Expr{
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
 		TermExpr{Tag: &TagFilter{Name: "api"}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected AndExpr with 2 children, got %+v", expr)
+		test.Fatalf("expected AndExpr with 2 children, got %+v", expr)
 	}
 }
 
-func TestParseExpr_ExplicitAnd(t *testing.T) {
+func TestParseExpr_ExplicitAnd(test *testing.T) {
 	expr, errs := ParseExpr("status=active AND +api")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := AndExpr{Children: []Expr{
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
 		TermExpr{Tag: &TagFilter{Name: "api"}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected AndExpr with 2 children, got %+v", expr)
+		test.Fatalf("expected AndExpr with 2 children, got %+v", expr)
 	}
 }
 
-func TestParseExpr_Or(t *testing.T) {
+func TestParseExpr_Or(test *testing.T) {
 	expr, errs := ParseExpr("status=active OR status=pending")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := OrExpr{Children: []Expr{
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "pending"}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected OrExpr with 2 children, got %+v", expr)
+		test.Fatalf("expected OrExpr with 2 children, got %+v", expr)
 	}
 }
 
-func TestParseExpr_Not(t *testing.T) {
+func TestParseExpr_Not(test *testing.T) {
 	expr, errs := ParseExpr("NOT status=deleted")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := NotExpr{
 		Child: TermExpr{Field: &FieldFilter{Key: "status", Value: "deleted"}},
 	}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected NotExpr, got %+v", expr)
+		test.Fatalf("expected NotExpr, got %+v", expr)
 	}
 }
 
-func TestParseExpr_Precedence_AndBeforeOr(t *testing.T) {
+func TestParseExpr_Precedence_AndBeforeOr(test *testing.T) {
 	// "a OR b AND c" should parse as "a OR (b AND c)"
 	// because AND binds tighter than OR
 	expr, errs := ParseExpr("status=active OR +api priority=3")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := OrExpr{Children: []Expr{
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
@@ -140,15 +140,15 @@ func TestParseExpr_Precedence_AndBeforeOr(t *testing.T) {
 		}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("precedence wrong: expected OR(term, AND(term, term)), got %+v", expr)
+		test.Fatalf("precedence wrong: expected OR(term, AND(term, term)), got %+v", expr)
 	}
 }
 
-func TestParseExpr_Parentheses(t *testing.T) {
+func TestParseExpr_Parentheses(test *testing.T) {
 	// "(a OR b) AND c" — parens override default precedence
 	expr, errs := ParseExpr("(status=active OR status=pending) +api")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := AndExpr{Children: []Expr{
 		OrExpr{Children: []Expr{
@@ -158,14 +158,14 @@ func TestParseExpr_Parentheses(t *testing.T) {
 		TermExpr{Tag: &TagFilter{Name: "api"}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected AND(OR(...), term), got %+v", expr)
+		test.Fatalf("expected AND(OR(...), term), got %+v", expr)
 	}
 }
 
-func TestParseExpr_NestedNot(t *testing.T) {
+func TestParseExpr_NestedNot(test *testing.T) {
 	expr, errs := ParseExpr("NOT NOT status=active")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := NotExpr{
 		Child: NotExpr{
@@ -173,61 +173,61 @@ func TestParseExpr_NestedNot(t *testing.T) {
 		},
 	}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected NOT(NOT(term)), got %+v", expr)
+		test.Fatalf("expected NOT(NOT(term)), got %+v", expr)
 	}
 }
 
-func TestParseExpr_EmptyInput(t *testing.T) {
+func TestParseExpr_EmptyInput(test *testing.T) {
 	expr, errs := ParseExpr("")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if expr != nil {
-		t.Fatalf("expected nil expr for empty input, got %+v", expr)
+		test.Fatalf("expected nil expr for empty input, got %+v", expr)
 	}
 }
 
-func TestParseExpr_MismatchedParen(t *testing.T) {
+func TestParseExpr_MismatchedParen(test *testing.T) {
 	_, errs := ParseExpr("(status=active")
 	if len(errs) == 0 {
-		t.Fatal("expected error for unclosed paren")
+		test.Fatal("expected error for unclosed paren")
 	}
 }
 
-func TestParseExpr_UnexpectedRParen(t *testing.T) {
+func TestParseExpr_UnexpectedRParen(test *testing.T) {
 	_, errs := ParseExpr("status=active)")
 	if len(errs) == 0 {
-		t.Fatal("expected error for unexpected )")
+		test.Fatal("expected error for unexpected )")
 	}
 }
 
-func TestParseExpr_TagExclude(t *testing.T) {
+func TestParseExpr_TagExclude(test *testing.T) {
 	expr, errs := ParseExpr("-docs")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := TermExpr{Tag: &TagFilter{Name: "docs", Exclude: true}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected exclude tag term, got %+v", expr)
+		test.Fatalf("expected exclude tag term, got %+v", expr)
 	}
 }
 
-func TestParseExpr_TextTerm(t *testing.T) {
+func TestParseExpr_TextTerm(test *testing.T) {
 	expr, errs := ParseExpr("sometext")
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := TermExpr{Text: "sometext"}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected text term, got %+v", expr)
+		test.Fatalf("expected text term, got %+v", expr)
 	}
 }
 
-func TestParseExpr_ComplexExpression(t *testing.T) {
+func TestParseExpr_ComplexExpression(test *testing.T) {
 	// (project=backend OR project=frontend) AND +api AND NOT status=deleted
 	expr, errs := ParseExpr(`(project=backend OR project=frontend) AND +api AND NOT status=deleted`)
 	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	want := AndExpr{Children: []Expr{
 		OrExpr{Children: []Expr{
@@ -238,71 +238,71 @@ func TestParseExpr_ComplexExpression(t *testing.T) {
 		NotExpr{Child: TermExpr{Field: &FieldFilter{Key: "status", Value: "deleted"}}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("complex expression mismatch, got %+v", expr)
+		test.Fatalf("complex expression mismatch, got %+v", expr)
 	}
 }
 
-func TestParseExpr_FieldValidation(t *testing.T) {
+func TestParseExpr_FieldValidation(test *testing.T) {
 	// Unknown field should produce an error but continue
 	expr, errs := ParseExpr("foo=bar OR status=active")
 	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
+		test.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
 	}
 	// The valid status=active side of OR should still be preserved
 	if expr == nil {
-		t.Fatal("expected non-nil expr — valid terms should survive validation errors")
+		test.Fatal("expected non-nil expr — valid terms should survive validation errors")
 	}
 }
 
-func TestParseExpr_FieldValidation_ImplicitAnd(t *testing.T) {
+func TestParseExpr_FieldValidation_ImplicitAnd(test *testing.T) {
 	// "foo=bar status=active" — bad field should not truncate the AND chain
 	expr, errs := ParseExpr("foo=bar status=active")
 	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
+		test.Fatalf("expected 1 error for unknown field, got %d: %v", len(errs), errs)
 	}
 	if expr == nil {
-		t.Fatal("expected non-nil expr — status=active should survive")
+		test.Fatal("expected non-nil expr — status=active should survive")
 	}
 	// The surviving expression should be the status=active term
 	want := TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected status=active term to survive, got %+v", expr)
+		test.Fatalf("expected status=active term to survive, got %+v", expr)
 	}
 }
 
-func TestParseExpr_FieldValidation_MiddleBadTerm(t *testing.T) {
+func TestParseExpr_FieldValidation_MiddleBadTerm(test *testing.T) {
 	// "+api foo=bar status=active" — bad field in the middle should not affect surrounding terms
 	expr, errs := ParseExpr("+api foo=bar status=active")
 	if len(errs) != 1 {
-		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+		test.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
 	}
 	want := AndExpr{Children: []Expr{
 		TermExpr{Tag: &TagFilter{Name: "api"}},
 		TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
 	}}
 	if !exprEqual(expr, want) {
-		t.Fatalf("expected AND(+api, status=active), got %+v", expr)
+		test.Fatalf("expected AND(+api, status=active), got %+v", expr)
 	}
 }
 
-func TestParseExprFieldCarriesModifier(t *testing.T) {
+func TestParseExprFieldCarriesModifier(test *testing.T) {
 	expr, errs := ParseExpr("+priority=4")
 	if len(errs) > 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	term, ok := expr.(TermExpr)
 	if !ok || term.Field == nil {
-		t.Fatalf("expected TermExpr with Field, got %T", expr)
+		test.Fatalf("expected TermExpr with Field, got %T", expr)
 	}
 	if term.Field.Modifier != '+' || term.Field.Key != "priority" || term.Field.Value != "4" {
-		t.Errorf("unexpected field: %+v", term.Field)
+		test.Errorf("unexpected field: %+v", term.Field)
 	}
 }
 
-func TestParseExprTagRoundTrip(t *testing.T) {
+func TestParseExprTagRoundTrip(test *testing.T) {
 	expr, _ := ParseExpr("+urgent")
 	term, ok := expr.(TermExpr)
 	if !ok || term.Tag == nil || term.Tag.Name != "urgent" || term.Tag.Exclude {
-		t.Fatalf("unexpected: %+v", expr)
+		test.Fatalf("unexpected: %+v", expr)
 	}
 }
