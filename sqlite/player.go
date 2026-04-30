@@ -22,94 +22,116 @@ func NewPlayerRepo(db DBTX) *PlayerRepo {
 }
 
 // Create inserts a new player. Returns domain.ErrConflict if the ID already exists.
-func (r *PlayerRepo) Create(ctx context.Context, player *domain.Player) error {
+func (repo *PlayerRepo) Create(ctx context.Context, player *domain.Player) error {
 	var noteWindowSize any
 	if player.NoteWindowSize != nil {
 		noteWindowSize = *player.NoteWindowSize
 	}
-	_, err := r.db.ExecContext(ctx,
+
+	_, execErr := repo.db.ExecContext(ctx,
 		`INSERT INTO players (id, type, note_window_size, registered_at, last_seen_at) VALUES (?, ?, ?, ?, ?)`,
 		player.ID, player.Type, noteWindowSize,
 		player.RegisteredAt.UTC().Format(timeFormat),
 		player.LastSeenAt.UTC().Format(timeFormat),
 	)
-	if err != nil {
+
+	if execErr != nil {
 		// SQLite returns UNIQUE constraint error for duplicate PK.
 		// Check if it's a conflict by attempting to look up the ID.
-		if _, lookupErr := r.GetByID(ctx, player.ID); lookupErr == nil {
+		if _, lookupErr := repo.GetByID(ctx, player.ID); lookupErr == nil {
 			return domain.ErrConflict
 		}
-		return err
+
+		return execErr
 	}
+
 	return nil
 }
 
 // GetByID retrieves a player by ID. Returns domain.ErrNotFound if missing.
-func (r *PlayerRepo) GetByID(ctx context.Context, id string) (*domain.Player, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *PlayerRepo) GetByID(ctx context.Context, id string) (*domain.Player, error) {
+	row := repo.db.QueryRowContext(ctx,
 		`SELECT `+playerColumns+` FROM players WHERE id = ?`, id)
+
 	return scanPlayer(row)
 }
 
 // UpdateNoteWindowSize sets the player's note window preference.
 // Pass nil to clear the preference (sets column to NULL).
 // Returns domain.ErrNotFound if the player does not exist.
-func (r *PlayerRepo) UpdateNoteWindowSize(ctx context.Context, id string, size *int) error {
+func (repo *PlayerRepo) UpdateNoteWindowSize(ctx context.Context, id string, size *int) error {
 	var val any
 	if size != nil {
 		val = *size
 	}
-	res, err := r.db.ExecContext(ctx,
+
+	res, execErr := repo.db.ExecContext(ctx,
 		`UPDATE players SET note_window_size = ? WHERE id = ?`, val, id)
-	if err != nil {
-		return err
+
+	if execErr != nil {
+		return execErr
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	rowsAffected, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return rowsErr
 	}
-	if n == 0 {
+
+	if rowsAffected == 0 {
 		return domain.ErrNotFound
 	}
+
 	return nil
 }
 
 // UpdateLastSeen updates the last_seen_at timestamp for a player.
 // Returns domain.ErrNotFound if the player does not exist.
-func (r *PlayerRepo) UpdateLastSeen(ctx context.Context, id string) error {
+func (repo *PlayerRepo) UpdateLastSeen(ctx context.Context, id string) error {
 	now := time.Now().UTC().Truncate(time.Millisecond).Format(timeFormat)
-	res, err := r.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`UPDATE players SET last_seen_at = ? WHERE id = ?`, now, id)
-	if err != nil {
-		return err
+
+	if execErr != nil {
+		return execErr
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	rowsAffected, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return rowsErr
 	}
-	if n == 0 {
+
+	if rowsAffected == 0 {
 		return domain.ErrNotFound
 	}
+
 	return nil
 }
 
 // List returns all registered players ordered by registration time.
-func (r *PlayerRepo) List(ctx context.Context) ([]*domain.Player, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *PlayerRepo) List(ctx context.Context) ([]*domain.Player, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		`SELECT `+playerColumns+` FROM players ORDER BY registered_at`)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	result := make([]*domain.Player, 0)
+
 	for rows.Next() {
-		p, err := scanPlayer(rows)
-		if err != nil {
-			return nil, err
+		player, scanErr := scanPlayer(rows)
+
+		if scanErr != nil {
+			return nil, scanErr
 		}
-		result = append(result, p)
+
+		result = append(result, player)
 	}
+
 	return result, rows.Err()
 }
 
@@ -118,31 +140,42 @@ type playerScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanPlayer(s playerScanner) (*domain.Player, error) {
+func scanPlayer(scanner playerScanner) (*domain.Player, error) {
 	var (
-		p              domain.Player
+		player         domain.Player
 		noteWindowSize sql.NullInt64
 		registeredAt   string
 		lastSeenAt     string
 	)
-	err := s.Scan(&p.ID, &p.Type, &noteWindowSize, &registeredAt, &lastSeenAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+
+	scanErr := scanner.Scan(&player.ID, &player.Type, &noteWindowSize, &registeredAt, &lastSeenAt)
+
+	if scanErr != nil {
+		if errors.Is(scanErr, sql.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
-		return nil, err
+
+		return nil, scanErr
 	}
+
 	if noteWindowSize.Valid {
-		v := int(noteWindowSize.Int64)
-		p.NoteWindowSize = &v
+		windowSize := int(noteWindowSize.Int64)
+		player.NoteWindowSize = &windowSize
 	}
-	p.RegisteredAt, err = time.Parse(timeFormat, registeredAt)
-	if err != nil {
-		return nil, err
+
+	parseRegisteredAtErr := error(nil)
+	player.RegisteredAt, parseRegisteredAtErr = time.Parse(timeFormat, registeredAt)
+
+	if parseRegisteredAtErr != nil {
+		return nil, parseRegisteredAtErr
 	}
-	p.LastSeenAt, err = time.Parse(timeFormat, lastSeenAt)
-	if err != nil {
-		return nil, err
+
+	parseLastSeenAtErr := error(nil)
+	player.LastSeenAt, parseLastSeenAtErr = time.Parse(timeFormat, lastSeenAt)
+
+	if parseLastSeenAtErr != nil {
+		return nil, parseLastSeenAtErr
 	}
-	return &p, nil
+
+	return &player, nil
 }
