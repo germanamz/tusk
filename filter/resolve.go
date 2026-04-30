@@ -39,7 +39,7 @@ func NewResolver(taskLookup TaskLookup, projectLookup ProjectLookup, defaultStat
 
 // Resolve converts the AST into a domain.TaskFilter. Resolution errors
 // (e.g., project not found) are collected rather than failing fast.
-func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilter, []error) {
+func (resolver *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilter, []error) {
 	var tf domain.TaskFilter
 	var errs []error
 
@@ -58,13 +58,13 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 		if field.Key == "status" {
 			hasStatus = true
 		}
-		if err := r.resolveField(ctx, field, &tf); err != nil {
+		if err := resolver.resolveField(ctx, field, &tf); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	if !hasStatus {
-		tf.Statuses = r.defaultStatuses
+		tf.Statuses = resolver.defaultStatuses
 	}
 
 	return &tf, errs
@@ -75,19 +75,19 @@ func (r *Resolver) Resolve(ctx context.Context, fs *FilterSet) (*domain.TaskFilt
 // If the expression tree contains no explicit status term, the result is wrapped
 // in AndFilter{TermFilter{Statuses: [pending, active]}, userExpr} to preserve
 // default status behavior.
-func (r *Resolver) ResolveExpr(ctx context.Context, expr Expr) (domain.FilterExpr, []error) {
+func (resolver *Resolver) ResolveExpr(ctx context.Context, expr Expr) (domain.FilterExpr, []error) {
 	if expr == nil {
 		return nil, nil
 	}
 
 	var errs []error
-	result := r.resolveNode(ctx, expr, &errs)
+	result := resolver.resolveNode(ctx, expr, &errs)
 
 	// Default status injection: if no status term anywhere in the tree, wrap
 	if !exprHasStatus(expr) {
 		defaultStatus := &domain.TermFilter{
 			TaskFilter: domain.TaskFilter{
-				Statuses: r.defaultStatuses,
+				Statuses: resolver.defaultStatuses,
 			},
 		}
 		result = &domain.AndFilter{
@@ -103,21 +103,21 @@ func (r *Resolver) ResolveExpr(ctx context.Context, expr Expr) (domain.FilterExp
 // scan every task regardless of status (e.g., tusk task level-check) use this
 // so terminal tasks stay in the result set. When expr is nil, the returned
 // expression is nil as well, meaning "no filter — match every task".
-func (r *Resolver) ResolveExprAllStatuses(ctx context.Context, expr Expr) (domain.FilterExpr, []error) {
+func (resolver *Resolver) ResolveExprAllStatuses(ctx context.Context, expr Expr) (domain.FilterExpr, []error) {
 	if expr == nil {
 		return nil, nil
 	}
 	var errs []error
-	result := r.resolveNode(ctx, expr, &errs)
+	result := resolver.resolveNode(ctx, expr, &errs)
 	return result, errs
 }
 
-func (r *Resolver) resolveNode(ctx context.Context, expr Expr, errs *[]error) domain.FilterExpr {
-	switch e := expr.(type) {
+func (resolver *Resolver) resolveNode(ctx context.Context, expr Expr, errs *[]error) domain.FilterExpr {
+	switch node := expr.(type) {
 	case AndExpr:
-		children := make([]domain.FilterExpr, 0, len(e.Children))
-		for _, child := range e.Children {
-			resolved := r.resolveNode(ctx, child, errs)
+		children := make([]domain.FilterExpr, 0, len(node.Children))
+		for _, child := range node.Children {
+			resolved := resolver.resolveNode(ctx, child, errs)
 			if resolved != nil {
 				children = append(children, resolved)
 			}
@@ -131,9 +131,9 @@ func (r *Resolver) resolveNode(ctx context.Context, expr Expr, errs *[]error) do
 		return &domain.AndFilter{Children: children}
 
 	case OrExpr:
-		children := make([]domain.FilterExpr, 0, len(e.Children))
-		for _, child := range e.Children {
-			resolved := r.resolveNode(ctx, child, errs)
+		children := make([]domain.FilterExpr, 0, len(node.Children))
+		for _, child := range node.Children {
+			resolved := resolver.resolveNode(ctx, child, errs)
 			if resolved != nil {
 				children = append(children, resolved)
 			}
@@ -147,21 +147,21 @@ func (r *Resolver) resolveNode(ctx context.Context, expr Expr, errs *[]error) do
 		return &domain.OrFilter{Children: children}
 
 	case NotExpr:
-		child := r.resolveNode(ctx, e.Child, errs)
+		child := resolver.resolveNode(ctx, node.Child, errs)
 		if child == nil {
 			return nil
 		}
 		return &domain.NotFilter{Child: child}
 
 	case TermExpr:
-		return r.resolveTerm(ctx, e, errs)
+		return resolver.resolveTerm(ctx, node, errs)
 
 	default:
 		return nil
 	}
 }
 
-func (r *Resolver) resolveTerm(ctx context.Context, term TermExpr, errs *[]error) domain.FilterExpr {
+func (resolver *Resolver) resolveTerm(ctx context.Context, term TermExpr, errs *[]error) domain.FilterExpr {
 	if term.Text != "" {
 		*errs = append(*errs, fmt.Errorf("free text %q is not supported in filter expressions", term.Text))
 		return nil
@@ -178,7 +178,7 @@ func (r *Resolver) resolveTerm(ctx context.Context, term TermExpr, errs *[]error
 	}
 
 	if term.Field != nil {
-		if err := r.resolveField(ctx, *term.Field, &tf); err != nil {
+		if err := resolver.resolveField(ctx, *term.Field, &tf); err != nil {
 			*errs = append(*errs, err)
 			return nil
 		}
@@ -189,7 +189,7 @@ func (r *Resolver) resolveTerm(ctx context.Context, term TermExpr, errs *[]error
 
 // resolveField applies a single FieldFilter to the given TaskFilter.
 // Returns a non-nil error if resolution fails (e.g., task lookup not found).
-func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *domain.TaskFilter) error {
+func (resolver *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *domain.TaskFilter) error {
 	switch field.Key {
 	case "status":
 		tf.Statuses = strings.Split(field.Value, ",")
@@ -198,12 +198,13 @@ func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *doma
 		tf.Levels = strings.Split(field.Value, ",")
 
 	case "project":
-		proj, err := r.projectLookup.GetByName(ctx, field.Value)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
+		proj, projErr := resolver.projectLookup.GetByName(ctx, field.Value)
+
+		if projErr != nil {
+			if errors.Is(projErr, domain.ErrNotFound) {
 				return fmt.Errorf("project %q not found", field.Value)
 			}
-			return fmt.Errorf("looking up project %q: %w", field.Value, err)
+			return fmt.Errorf("looking up project %q: %w", field.Value, projErr)
 		}
 		id := proj.ID
 		tf.ProjectID = &id
@@ -211,109 +212,121 @@ func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *doma
 	case "priority":
 		if strings.Contains(field.Value, "..") {
 			parts := strings.SplitN(field.Value, "..", 2)
-			min, err := parsePriorityValue(parts[0])
-			if err != nil {
-				return fmt.Errorf("priority range min: %w", err)
+			minVal, minErr := parsePriorityValue(parts[0])
+
+			if minErr != nil {
+				return fmt.Errorf("priority range min: %w", minErr)
 			}
-			max, err := parsePriorityValue(parts[1])
-			if err != nil {
-				return fmt.Errorf("priority range max: %w", err)
+
+			maxVal, maxErr := parsePriorityValue(parts[1])
+
+			if maxErr != nil {
+				return fmt.Errorf("priority range max: %w", maxErr)
 			}
-			tf.PriorityMin = &min
-			tf.PriorityMax = &max
+			tf.PriorityMin = &minVal
+			tf.PriorityMax = &maxVal
 		} else {
-			v, err := parsePriorityValue(field.Value)
-			if err != nil {
-				return fmt.Errorf("priority: %w", err)
+			priorityVal, priorityErr := parsePriorityValue(field.Value)
+
+			if priorityErr != nil {
+				return fmt.Errorf("priority: %w", priorityErr)
 			}
-			tf.PriorityMin = &v
-			tf.PriorityMax = &v
+			tf.PriorityMin = &priorityVal
+			tf.PriorityMax = &priorityVal
 		}
 
 	case "order":
 		if field.Value == "" {
-			t := true
-			tf.OrderIsNull = &t
+			isNull := true
+			tf.OrderIsNull = &isNull
 			return nil
 		}
 		if strings.Contains(field.Value, "..") {
 			parts := strings.SplitN(field.Value, "..", 2)
-			lo, err := strconv.ParseFloat(parts[0], 64)
-			if err != nil {
-				return fmt.Errorf("order range min: %w", err)
+			lo, minErr := strconv.ParseFloat(parts[0], 64)
+
+			if minErr != nil {
+				return fmt.Errorf("order range min: %w", minErr)
 			}
-			hi, err := strconv.ParseFloat(parts[1], 64)
-			if err != nil {
-				return fmt.Errorf("order range max: %w", err)
+
+			hi, maxErr := strconv.ParseFloat(parts[1], 64)
+
+			if maxErr != nil {
+				return fmt.Errorf("order range max: %w", maxErr)
 			}
 			tf.OrderMin = &lo
 			tf.OrderMax = &hi
 		} else {
-			v, err := strconv.ParseFloat(field.Value, 64)
-			if err != nil {
-				return fmt.Errorf("order: %w", err)
+			orderVal, orderErr := strconv.ParseFloat(field.Value, 64)
+
+			if orderErr != nil {
+				return fmt.Errorf("order: %w", orderErr)
 			}
-			tf.OrderMin = &v
-			tf.OrderMax = &v
+			tf.OrderMin = &orderVal
+			tf.OrderMax = &orderVal
 		}
 
 	case "due":
 		if strings.Contains(field.Value, "..") {
-			start, end, err := parseDateRange(field.Value)
-			if err != nil {
-				return fmt.Errorf("due range: %w", err)
+			start, end, rangeErr := parseDateRange(field.Value)
+
+			if rangeErr != nil {
+				return fmt.Errorf("due range: %w", rangeErr)
 			}
 			tf.DueAfter = &start
 			tf.DueBefore = &end
 		} else {
-			d, err := parseDate(field.Value)
-			if err != nil {
-				return fmt.Errorf("due: %w", err)
+			dueDate, dueDateErr := parseDate(field.Value)
+
+			if dueDateErr != nil {
+				return fmt.Errorf("due: %w", dueDateErr)
 			}
-			tf.DueAfter = &d
-			end := d.AddDate(0, 0, 1)
+			tf.DueAfter = &dueDate
+			end := dueDate.AddDate(0, 0, 1)
 			tf.DueBefore = &end
 		}
 
 	case "parent":
-		task, err := r.taskLookup.GetByShortID(ctx, field.Value)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
+		parentTask, parentErr := resolver.taskLookup.GetByShortID(ctx, field.Value)
+
+		if parentErr != nil {
+			if errors.Is(parentErr, domain.ErrNotFound) {
 				return fmt.Errorf("parent task %q not found", field.Value)
 			}
-			return fmt.Errorf("looking up parent %q: %w", field.Value, err)
+			return fmt.Errorf("looking up parent %q: %w", field.Value, parentErr)
 		}
-		tf.ParentID = &task.ID
+		tf.ParentID = &parentTask.ID
 
 	case "tree":
-		task, err := r.taskLookup.GetByShortID(ctx, field.Value)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
+		rootTask, rootErr := resolver.taskLookup.GetByShortID(ctx, field.Value)
+
+		if rootErr != nil {
+			if errors.Is(rootErr, domain.ErrNotFound) {
 				return fmt.Errorf("tree root task %q not found", field.Value)
 			}
-			return fmt.Errorf("looking up tree root %q: %w", field.Value, err)
+			return fmt.Errorf("looking up tree root %q: %w", field.Value, rootErr)
 		}
-		tf.RootID = &task.ID
+		tf.RootID = &rootTask.ID
 
 	case "waiting":
-		v := field.Value == "true"
-		tf.WaitingOnly = &v
+		waitingVal := field.Value == "true"
+		tf.WaitingOnly = &waitingVal
 
 	case "title":
-		v := field.Value
-		tf.TitleContains = &v
+		titleVal := field.Value
+		tf.TitleContains = &titleVal
 
 	case "description":
-		v := field.Value
-		tf.DescriptionContains = &v
+		descVal := field.Value
+		tf.DescriptionContains = &descVal
 
 	case "claimed_by":
-		v := field.Value
-		tf.ClaimedBy = &v
+		claimedByVal := field.Value
+		tf.ClaimedBy = &claimedByVal
 
 	case "unclaimed":
-		v := field.Value == "true"
-		tf.Unclaimed = &v
+		unclaimedVal := field.Value == "true"
+		tf.Unclaimed = &unclaimedVal
 
 	default:
 		if udaKey, ok := strings.CutPrefix(field.Key, "uda."); ok {
@@ -329,23 +342,23 @@ func (r *Resolver) resolveField(ctx context.Context, field FieldFilter, tf *doma
 
 // exprHasStatus checks if any TermExpr in the tree has a status field.
 func exprHasStatus(expr Expr) bool {
-	switch e := expr.(type) {
+	switch node := expr.(type) {
 	case TermExpr:
-		return e.Field != nil && e.Field.Key == "status"
+		return node.Field != nil && node.Field.Key == "status"
 	case AndExpr:
-		for _, child := range e.Children {
+		for _, child := range node.Children {
 			if exprHasStatus(child) {
 				return true
 			}
 		}
 	case OrExpr:
-		for _, child := range e.Children {
+		for _, child := range node.Children {
 			if exprHasStatus(child) {
 				return true
 			}
 		}
 	case NotExpr:
-		return exprHasStatus(e.Child)
+		return exprHasStatus(node.Child)
 	}
 	return false
 }

@@ -21,26 +21,26 @@ func ParseExpr(input string) (Expr, []ParseError) {
 		return nil, errs
 	}
 
-	p := &exprParser{
+	ep := &exprParser{
 		tokens: tokens,
 		pos:    0,
 		errs:   errs,
 	}
 
-	expr := p.parseOr()
+	expr := ep.parseOr()
 
 	// Check for leftover tokens (e.g., unmatched ")")
-	if p.pos < len(p.tokens) {
-		tok := p.tokens[p.pos]
+	if ep.pos < len(ep.tokens) {
+		tok := ep.tokens[ep.pos]
 		if tok.Type == TokenRParen {
-			p.errs = append(p.errs, ParseError{
+			ep.errs = append(ep.errs, ParseError{
 				Pos:     tok.Pos,
 				Message: "unexpected ')'",
 			})
 		}
 	}
 
-	return expr, p.errs
+	return expr, ep.errs
 }
 
 type exprParser struct {
@@ -49,44 +49,44 @@ type exprParser struct {
 	errs   []ParseError
 }
 
-func (p *exprParser) peek() (Token, bool) {
-	if p.pos >= len(p.tokens) {
+func (parser *exprParser) peek() (Token, bool) {
+	if parser.pos >= len(parser.tokens) {
 		return Token{}, false
 	}
-	return p.tokens[p.pos], true
+	return parser.tokens[parser.pos], true
 }
 
-func (p *exprParser) advance() Token {
-	tok := p.tokens[p.pos]
-	p.pos++
+func (parser *exprParser) advance() Token {
+	tok := parser.tokens[parser.pos]
+	parser.pos++
 	return tok
 }
 
 // parseOr: or_expr = and_expr ("OR" and_expr)*
-func (p *exprParser) parseOr() Expr {
+func (parser *exprParser) parseOr() Expr {
 	var children []Expr
 
 	// Parse the first AND group, skipping validation errors
-	posBefore := p.pos
-	left := p.parseAnd()
+	posBefore := parser.pos
+	left := parser.parseAnd()
 	if left != nil {
 		children = append(children, left)
-	} else if p.pos == posBefore {
+	} else if parser.pos == posBefore {
 		return nil
 	}
 	// If left is nil but tokens were consumed, continue to look for OR
 
 	for {
-		tok, ok := p.peek()
+		tok, ok := parser.peek()
 		if !ok || tok.Type != TokenOr {
 			break
 		}
-		p.advance() // consume OR
-		posBefore := p.pos
-		right := p.parseAnd()
+		parser.advance() // consume OR
+		posBefore := parser.pos
+		right := parser.parseAnd()
 		if right == nil {
-			if p.pos == posBefore {
-				p.errs = append(p.errs, ParseError{
+			if parser.pos == posBefore {
+				parser.errs = append(parser.errs, ParseError{
 					Pos:     tok.Pos,
 					Message: "expected expression after OR",
 				})
@@ -109,38 +109,38 @@ func (p *exprParser) parseOr() Expr {
 
 // parseAnd: and_expr = unary (("AND")? unary)*
 // Adjacent terms without explicit AND are implicit AND.
-func (p *exprParser) parseAnd() Expr {
+func (parser *exprParser) parseAnd() Expr {
 	var children []Expr
 
 	// Parse the first term, skipping validation errors
 	for {
-		posBefore := p.pos
-		left := p.parseUnary()
+		posBefore := parser.pos
+		left := parser.parseUnary()
 		if left != nil {
 			children = append(children, left)
 			break
 		}
-		if p.pos == posBefore {
+		if parser.pos == posBefore {
 			// No tokens consumed — nothing to parse
 			return nil
 		}
 		// Tokens consumed but validation failed — try the next term
 	}
 	for {
-		tok, ok := p.peek()
+		tok, ok := parser.peek()
 		if !ok {
 			break
 		}
 
 		// Explicit AND
 		if tok.Type == TokenAnd {
-			p.advance() // consume AND
-			posBefore := p.pos
-			right := p.parseUnary()
+			parser.advance() // consume AND
+			posBefore := parser.pos
+			right := parser.parseUnary()
 			if right == nil {
-				if p.pos == posBefore {
+				if parser.pos == posBefore {
 					// No tokens consumed — nothing after AND
-					p.errs = append(p.errs, ParseError{
+					parser.errs = append(parser.errs, ParseError{
 						Pos:     tok.Pos,
 						Message: "expected expression after AND",
 					})
@@ -160,10 +160,10 @@ func (p *exprParser) parseAnd() Expr {
 		}
 
 		// Must be a term-starting token (Field, TagInclude, TagExclude, Text, Not, LParen)
-		posBefore := p.pos
-		right := p.parseUnary()
+		posBefore := parser.pos
+		right := parser.parseUnary()
 		if right == nil {
-			if p.pos == posBefore {
+			if parser.pos == posBefore {
 				// No tokens consumed — not a term-starting token
 				break
 			}
@@ -180,17 +180,17 @@ func (p *exprParser) parseAnd() Expr {
 }
 
 // parseUnary: unary = "NOT" unary | primary
-func (p *exprParser) parseUnary() Expr {
-	tok, ok := p.peek()
+func (parser *exprParser) parseUnary() Expr {
+	tok, ok := parser.peek()
 	if !ok {
 		return nil
 	}
 
 	if tok.Type == TokenNot {
-		p.advance() // consume NOT
-		child := p.parseUnary()
+		parser.advance() // consume NOT
+		child := parser.parseUnary()
 		if child == nil {
-			p.errs = append(p.errs, ParseError{
+			parser.errs = append(parser.errs, ParseError{
 				Pos:     tok.Pos,
 				Message: "expected expression after NOT",
 			})
@@ -199,52 +199,52 @@ func (p *exprParser) parseUnary() Expr {
 		return NotExpr{Child: child}
 	}
 
-	return p.parsePrimary()
+	return parser.parsePrimary()
 }
 
 // parsePrimary: primary = "(" expr ")" | term
-func (p *exprParser) parsePrimary() Expr {
-	tok, ok := p.peek()
+func (parser *exprParser) parsePrimary() Expr {
+	tok, ok := parser.peek()
 	if !ok {
 		return nil
 	}
 
 	if tok.Type == TokenLParen {
-		p.advance() // consume (
-		expr := p.parseOr()
+		parser.advance() // consume (
+		expr := parser.parseOr()
 
 		// Expect closing paren
-		closeTok, closeOk := p.peek()
+		closeTok, closeOk := parser.peek()
 		if !closeOk || closeTok.Type != TokenRParen {
-			p.errs = append(p.errs, ParseError{
+			parser.errs = append(parser.errs, ParseError{
 				Pos:     tok.Pos,
 				Message: "unclosed '('",
 			})
 			return expr // return what we have
 		}
-		p.advance() // consume )
+		parser.advance() // consume )
 		return expr
 	}
 
-	return p.parseTerm()
+	return parser.parseTerm()
 }
 
 // parseTerm: term = field | tag_include | tag_exclude | text
-func (p *exprParser) parseTerm() Expr {
-	tok, ok := p.peek()
+func (parser *exprParser) parseTerm() Expr {
+	tok, ok := parser.peek()
 	if !ok {
 		return nil
 	}
 
 	switch tok.Type {
 	case TokenField:
-		p.advance()
+		parser.advance()
 		key, value, _ := strings.Cut(tok.Value, "=")
 
 		// Validate field — same logic as Parse() in parser.go
 		if udaKey, ok := strings.CutPrefix(key, "uda."); ok {
 			if udaKey == "" {
-				p.errs = append(p.errs, ParseError{
+				parser.errs = append(parser.errs, ParseError{
 					Pos:     tok.Pos,
 					Field:   key,
 					Message: "empty UDA key name",
@@ -252,7 +252,7 @@ func (p *exprParser) parseTerm() Expr {
 				return nil
 			}
 			if err := domain.ValidateUDAKey(udaKey); err != nil {
-				p.errs = append(p.errs, ParseError{
+				parser.errs = append(parser.errs, ParseError{
 					Pos:     tok.Pos,
 					Field:   key,
 					Message: err.Error(),
@@ -273,7 +273,7 @@ func (p *exprParser) parseTerm() Expr {
 			if !strings.Contains(key, ".") {
 				msg = fmt.Sprintf("unknown field; did you mean uda.%s?", key)
 			}
-			p.errs = append(p.errs, ParseError{
+			parser.errs = append(parser.errs, ParseError{
 				Pos:     tok.Pos,
 				Field:   key,
 				Message: msg,
@@ -281,7 +281,7 @@ func (p *exprParser) parseTerm() Expr {
 			return nil
 		}
 		if err := validator(value); err != nil {
-			p.errs = append(p.errs, ParseError{
+			parser.errs = append(parser.errs, ParseError{
 				Pos:     tok.Pos,
 				Field:   key,
 				Message: err.Error(),
@@ -296,15 +296,15 @@ func (p *exprParser) parseTerm() Expr {
 		}}
 
 	case TokenTagInclude:
-		p.advance()
+		parser.advance()
 		return TermExpr{Tag: &TagFilter{Name: tok.Value, Pos: tok.Pos}}
 
 	case TokenTagExclude:
-		p.advance()
+		parser.advance()
 		return TermExpr{Tag: &TagFilter{Name: tok.Value, Exclude: true, Pos: tok.Pos}}
 
 	case TokenText:
-		p.advance()
+		parser.advance()
 		return TermExpr{Text: tok.Value}
 
 	default:
