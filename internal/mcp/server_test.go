@@ -21,9 +21,11 @@ func mustNew(test *testing.T, cfg config.MCPConfig) *Server {
 		nil, nil, nil,
 		"test", cfg, nil,
 	)
+
 	if err != nil {
 		test.Fatalf("New() returned unexpected error: %v", err)
 	}
+
 	return server
 }
 
@@ -178,6 +180,7 @@ func TestValidation_NoErrorForValidEntries(test *testing.T) {
 		nil, nil, nil,
 		"test", cfg, nil,
 	)
+
 	if err != nil {
 		test.Errorf("expected no error, got: %v", err)
 	}
@@ -190,6 +193,7 @@ func TestValidation_NoteDisable(test *testing.T) {
 			nil, nil, nil,
 			"test", config.MCPConfig{DisabledTools: []string{"tusk_note_add"}}, nil,
 		)
+
 		if err != nil {
 			test.Errorf("expected no error disabling tusk_note_add, got: %v", err)
 		}
@@ -201,6 +205,7 @@ func TestValidation_NoteDisable(test *testing.T) {
 			nil, nil, nil,
 			"test", config.MCPConfig{DisabledToolGroups: []string{"note"}}, nil,
 		)
+
 		if err != nil {
 			test.Errorf("expected no error disabling note group, got: %v", err)
 		}
@@ -277,6 +282,7 @@ func TestValidateConfig_BlockedFields_Valid(test *testing.T) {
 			BlockedFields: map[string][]string{"tusk_project_modify": {"workflow"}},
 		}, nil,
 	)
+
 	if err != nil {
 		test.Errorf("expected no error for valid blocked_fields entry, got: %v", err)
 	}
@@ -285,34 +291,39 @@ func TestValidateConfig_BlockedFields_Valid(test *testing.T) {
 func TestServer_ReloadConfig_SmokeTest(test *testing.T) {
 	dir := test.TempDir()
 	configPath := filepath.Join(dir, "tusk.toml")
-	seed, err := os.ReadFile("../../config/default.toml")
-	if err != nil {
-		test.Fatalf("reading default.toml seed: %v", err)
+
+	seedBytes, readErr := os.ReadFile("../../config/default.toml")
+
+	if readErr != nil {
+		test.Fatalf("reading default.toml seed: %v", readErr)
 	}
-	if err := os.WriteFile(configPath, seed, 0o644); err != nil {
+
+	if err := os.WriteFile(configPath, seedBytes, 0o644); err != nil {
 		test.Fatalf("writing seed config: %v", err)
 	}
 
 	_, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
-	server, err := New(
+	server, newErr := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		workflowRepo, projectRepo, urgencyEngine,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configPath)},
 	)
-	if err != nil {
-		test.Fatalf("New: %v", err)
+
+	if newErr != nil {
+		test.Fatalf("New: %v", newErr)
 	}
 
 	if err := server.ReloadConfigForTest(context.Background()); err != nil {
 		test.Fatalf("reloadConfig: %v", err)
 	}
 
-	wfs, err := workflowRepo.List(context.Background())
-	if err != nil || len(wfs) == 0 {
-		test.Fatalf("post-reload workflows: got %+v err=%v", wfs, err)
+	wfs, listErr := workflowRepo.List(context.Background())
+
+	if listErr != nil || len(wfs) == 0 {
+		test.Fatalf("post-reload workflows: got %+v err=%v", wfs, listErr)
 	}
 }
 
@@ -320,11 +331,14 @@ func TestReloadConfig_BlockedFieldsHotSwap(test *testing.T) {
 	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
 
-	initial, err := config.LoadFile("../../config/default.toml")
-	if err != nil {
-		test.Fatalf("reading default.toml seed: %v", err)
+	initial, loadErr := config.LoadFile("../../config/default.toml")
+
+	if loadErr != nil {
+		test.Fatalf("reading default.toml seed: %v", loadErr)
 	}
+
 	initial.MCP.BlockedFields = nil
+
 	if err := config.WriteConfig(initial, path); err != nil {
 		test.Fatalf("writing initial config: %v", err)
 	}
@@ -333,13 +347,15 @@ func TestReloadConfig_BlockedFieldsHotSwap(test *testing.T) {
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
 	loadOpts := []config.Option{config.WithExplicitFile(path)}
-	server, err := New(
+
+	server, newErr := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		workflowRepo, projectRepo, urgencyEngine,
 		"test", initial.MCP, loadOpts,
 	)
-	if err != nil {
-		test.Fatalf("New: %v", err)
+
+	if newErr != nil {
+		test.Fatalf("New: %v", newErr)
 	}
 
 	req := blockedReq(map[string]any{
@@ -351,13 +367,16 @@ func TestReloadConfig_BlockedFieldsHotSwap(test *testing.T) {
 		test.Fatalf("pre-reload: expected no block, got %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
-	updated, err := config.LoadFile(path)
-	if err != nil {
-		test.Fatalf("re-reading config: %v", err)
+	updated, reloadErr := config.LoadFile(path)
+
+	if reloadErr != nil {
+		test.Fatalf("re-reading config: %v", reloadErr)
 	}
+
 	updated.MCP.BlockedFields = map[string][]string{
 		"tusk_project_modify": {"workflow"},
 	}
+
 	if err := config.WriteConfig(updated, path); err != nil {
 		test.Fatalf("rewriting config: %v", err)
 	}
