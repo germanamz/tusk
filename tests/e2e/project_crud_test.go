@@ -5,195 +5,195 @@ import (
 	"testing"
 )
 
-func TestProjectCreateAndList(t *testing.T) {
+func TestProjectCreateAndList(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
 		name := "create_list/" + dbMode + "/" + format
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run(name, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
-			r := env.Run("project", "create", "backend", "workflow=kanban")
-			if r.Err != nil {
-				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result := env.Run("project", "create", "backend", "workflow=kanban")
+			if result.Err != nil {
+				test.Fatalf("create: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 
-			r = env.Run("project", "list")
-			if r.Err != nil {
-				t.Fatalf("list: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("project", "list")
+			if result.Err != nil {
+				test.Fatalf("list: %v\nstderr: %s", result.Err, result.Stderr)
 			}
-			assertContains(t, r.Stdout, "backend")
+			assertContains(test, result.Stdout, "backend")
 		})
 	}
 }
 
-func TestProjectShowDescription(t *testing.T) {
+func TestProjectShowDescription(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
 		name := "show_description/" + dbMode + "/" + format
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run(name, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
 			const desc = "the project blurb"
-			r := env.Run("project", "create", "backend",
+			result := env.Run("project", "create", "backend",
 				"workflow=kanban", `description="`+desc+`"`)
-			if r.Err != nil {
-				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			if result.Err != nil {
+				test.Fatalf("create: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 
-			r = env.Run("project", "show", "backend")
-			if r.Err != nil {
-				t.Fatalf("show: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("project", "show", "backend")
+			if result.Err != nil {
+				test.Fatalf("show: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 			if format == "json" {
-				if !strings.Contains(r.Stdout, `"description"`) {
-					t.Fatalf("json output missing description key: %s", r.Stdout)
+				if !strings.Contains(result.Stdout, `"description"`) {
+					test.Fatalf("json output missing description key: %s", result.Stdout)
 				}
-				if !strings.Contains(r.Stdout, desc) {
-					t.Fatalf("json output missing description value %q: %s", desc, r.Stdout)
+				if !strings.Contains(result.Stdout, desc) {
+					test.Fatalf("json output missing description value %q: %s", desc, result.Stdout)
 				}
 			} else {
-				if !strings.Contains(r.Stdout, "Description:") {
-					t.Fatalf("text output missing Description label: %s", r.Stdout)
+				if !strings.Contains(result.Stdout, "Description:") {
+					test.Fatalf("text output missing Description label: %s", result.Stdout)
 				}
-				if !strings.Contains(r.Stdout, desc) {
-					t.Fatalf("text output missing description body %q: %s", desc, r.Stdout)
+				if !strings.Contains(result.Stdout, desc) {
+					test.Fatalf("text output missing description body %q: %s", desc, result.Stdout)
 				}
 			}
 
-			r = env.Run("project", "modify", "backend", "description=")
-			if r.Err != nil {
-				t.Fatalf("modify clear: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result = env.Run("project", "modify", "backend", "description=")
+			if result.Err != nil {
+				test.Fatalf("modify clear: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
-			r = env.Run("project", "show", "backend")
-			if r.Err != nil {
-				t.Fatalf("show after clear: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("project", "show", "backend")
+			if result.Err != nil {
+				test.Fatalf("show after clear: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 			if format == "json" {
-				if !strings.Contains(r.Stdout, `"description": ""`) {
-					t.Fatalf("json output should still emit empty description: %s", r.Stdout)
+				if !strings.Contains(result.Stdout, `"description": ""`) {
+					test.Fatalf("json output should still emit empty description: %s", result.Stdout)
 				}
 			} else {
-				if strings.Contains(r.Stdout, "Description:") {
-					t.Fatalf("text output should omit Description block when empty: %s", r.Stdout)
+				if strings.Contains(result.Stdout, "Description:") {
+					test.Fatalf("text output should omit Description block when empty: %s", result.Stdout)
 				}
 			}
 		})
 	}
 }
 
-func TestProjectModifyUrgencyDelta(t *testing.T) {
+func TestProjectModifyUrgencyDelta(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
 		name := "modify_delta/" + dbMode + "/" + format
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run(name, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
-			r := env.Run("project", "create", "backend",
+			result := env.Run("project", "create", "backend",
 				"workflow=kanban", "urgency.blocking-weight=5")
-			if r.Err != nil {
-				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			if result.Err != nil {
+				test.Fatalf("create: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 
-			r = env.Run("project", "modify", "backend", "+urgency.blocking-weight=2")
-			if r.Err != nil {
-				t.Fatalf("modify: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result = env.Run("project", "modify", "backend", "+urgency.blocking-weight=2")
+			if result.Err != nil {
+				test.Fatalf("modify: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 		})
 	}
 }
 
-func TestProjectDeleteRejectsDefault(t *testing.T) {
+func TestProjectDeleteRejectsDefault(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
 		name := "delete_default/" + dbMode + "/" + format
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run(name, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
-			r := env.Run("project", "delete", "default")
-			if r.Err == nil {
-				t.Fatalf("expected error deleting default, stdout: %s", r.Stdout)
+			result := env.Run("project", "delete", "default")
+			if result.Err == nil {
+				test.Fatalf("expected error deleting default, stdout: %s", result.Stdout)
 			}
-			combined := r.Stdout + r.Stderr
-			assertContains(t, combined, "default")
+			combined := result.Stdout + result.Stderr
+			assertContains(test, combined, "default")
 		})
 	}
 }
 
-func TestProjectDeleteRejectsWhenReferenced(t *testing.T) {
+func TestProjectDeleteRejectsWhenReferenced(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
 		name := "delete_referenced/" + dbMode + "/" + format
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run(name, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
-			r := env.Run("project", "create", "backend", "workflow=kanban")
-			if r.Err != nil {
-				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result := env.Run("project", "create", "backend", "workflow=kanban")
+			if result.Err != nil {
+				test.Fatalf("create: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 
-			r = env.Run("task", "create", "task in backend", "project=backend")
-			if r.Err != nil {
-				t.Fatalf("add task: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result = env.Run("task", "create", "task in backend", "project=backend")
+			if result.Err != nil {
+				test.Fatalf("add task: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 
-			r = env.Run("project", "delete", "backend")
-			if r.Err == nil {
-				t.Fatalf("expected error deleting referenced project, stdout: %s", r.Stdout)
+			result = env.Run("project", "delete", "backend")
+			if result.Err == nil {
+				test.Fatalf("expected error deleting referenced project, stdout: %s", result.Stdout)
 			}
 		})
 	}
 }
 
-func TestProjectDeleteForceWithRefs(t *testing.T) {
+func TestProjectDeleteForceWithRefs(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
 		name := "delete_force/" + dbMode + "/" + format
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run(name, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
-			r := env.Run("project", "create", "backend", "workflow=kanban")
-			if r.Err != nil {
-				t.Fatalf("create: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result := env.Run("project", "create", "backend", "workflow=kanban")
+			if result.Err != nil {
+				test.Fatalf("create: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 
-			r = env.Run("task", "create", "task in backend", "project=backend")
-			if r.Err != nil {
-				t.Fatalf("add task: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result = env.Run("task", "create", "task in backend", "project=backend")
+			if result.Err != nil {
+				test.Fatalf("add task: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 
-			r = env.Run("project", "delete", "backend", "--force")
-			if r.Err != nil {
-				t.Fatalf("force delete: %v\nstderr: %s\nstdout: %s", r.Err, r.Stderr, r.Stdout)
+			result = env.Run("project", "delete", "backend", "--force")
+			if result.Err != nil {
+				test.Fatalf("force delete: %v\nstderr: %s\nstdout: %s", result.Err, result.Stderr, result.Stdout)
 			}
 		})
 	}

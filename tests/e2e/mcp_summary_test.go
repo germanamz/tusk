@@ -13,78 +13,78 @@ import (
 //	├── Child A (pending)
 //	├── Child B (active)
 //	└── Child C (completed)
-func summaryFixture(t *testing.T, env *MCPEnv) (rootSID string, childSIDs []string) {
-	t.Helper()
+func summaryFixture(test *testing.T, env *MCPEnv) (rootSID string, childSIDs []string) {
+	test.Helper()
 	root := env.callTool("tusk_task_create", map[string]any{"title": "Summary root"})
 	rootSID = root["short_id"].(string)
 
-	a := env.callTool("tusk_task_create", map[string]any{"title": "Child A", "parent": rootSID})
-	b := env.callTool("tusk_task_create", map[string]any{"title": "Child B", "parent": rootSID})
-	c := env.callTool("tusk_task_create", map[string]any{"title": "Child C", "parent": rootSID})
+	childA := env.callTool("tusk_task_create", map[string]any{"title": "Child A", "parent": rootSID})
+	childB := env.callTool("tusk_task_create", map[string]any{"title": "Child B", "parent": rootSID})
+	childC := env.callTool("tusk_task_create", map[string]any{"title": "Child C", "parent": rootSID})
 
-	bv := b["version"].(float64)
+	bVersion := childB["version"].(float64)
 	bStarted := env.callTool("tusk_task_start", map[string]any{
-		"short_id": b["short_id"].(string),
-		"version":  bv,
+		"short_id": childB["short_id"].(string),
+		"version":  bVersion,
 	})
 	_ = bStarted
 
-	cv := c["version"].(float64)
+	cVersion := childC["version"].(float64)
 	cStarted := env.callTool("tusk_task_start", map[string]any{
-		"short_id": c["short_id"].(string),
-		"version":  cv,
+		"short_id": childC["short_id"].(string),
+		"version":  cVersion,
 	})
-	cv2 := cStarted["version"].(float64)
+	cVersion2 := cStarted["version"].(float64)
 	env.callTool("tusk_task_done", map[string]any{
-		"short_id": c["short_id"].(string),
-		"version":  cv2,
+		"short_id": childC["short_id"].(string),
+		"version":  cVersion2,
 	})
 
 	return rootSID, []string{
-		a["short_id"].(string),
-		b["short_id"].(string),
-		c["short_id"].(string),
+		childA["short_id"].(string),
+		childB["short_id"].(string),
+		childC["short_id"].(string),
 	}
 }
 
 // callSummary runs tusk_task_summary and returns the parsed envelope.
-func callSummary(t *testing.T, env *MCPEnv, args map[string]any) map[string]any {
-	t.Helper()
+func callSummary(test *testing.T, env *MCPEnv, args map[string]any) map[string]any {
+	test.Helper()
 	return env.callTool("tusk_task_summary", args)
 }
 
 // TestMCPSummary_SingleMode covers single-subtree summaries (mode=single,
 // totals omitted) and the full=true rejection in single-id mode.
-func TestMCPSummary_SingleMode(t *testing.T) {
+func TestMCPSummary_SingleMode(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
-	rootSID, _ := summaryFixture(t, env)
+	rootSID, _ := summaryFixture(test, env)
 
-	resp := callSummary(t, env, map[string]any{"short_id": rootSID})
+	resp := callSummary(test, env, map[string]any{"short_id": rootSID})
 	if resp["mode"] != "single" {
-		t.Fatalf("expected mode 'single', got %v", resp["mode"])
+		test.Fatalf("expected mode 'single', got %v", resp["mode"])
 	}
 	blocks := resp["blocks"].([]any)
 	if len(blocks) != 1 {
-		t.Fatalf("expected 1 block, got %d", len(blocks))
+		test.Fatalf("expected 1 block, got %d", len(blocks))
 	}
 	block := blocks[0].(map[string]any)
 	task := block["task"].(map[string]any)
 	if task["short_id"] != rootSID {
-		t.Fatalf("expected block task short_id %q, got %v", rootSID, task["short_id"])
+		test.Fatalf("expected block task short_id %q, got %v", rootSID, task["short_id"])
 	}
 	roll := block["rollup"].(map[string]any)
 	if roll["done"].(float64) != 1 {
-		t.Fatalf("expected done=1, got %v", roll["done"])
+		test.Fatalf("expected done=1, got %v", roll["done"])
 	}
 	if roll["total"].(float64) != 3 {
-		t.Fatalf("expected total=3, got %v", roll["total"])
+		test.Fatalf("expected total=3, got %v", roll["total"])
 	}
 	if _, ok := resp["totals"]; ok {
-		t.Fatalf("expected totals to be absent in single mode, got: %v", resp["totals"])
+		test.Fatalf("expected totals to be absent in single mode, got: %v", resp["totals"])
 	}
 
 	// full=true is rejected in single mode.
@@ -93,20 +93,20 @@ func TestMCPSummary_SingleMode(t *testing.T) {
 		"full":     true,
 	})
 	if !strings.Contains(errMsg, "single-id mode") {
-		t.Fatalf("expected 'single-id mode' error, got: %s", errMsg)
+		test.Fatalf("expected 'single-id mode' error, got: %s", errMsg)
 	}
 }
 
 // TestMCPSummary_FilterStringMode exercises the boolean filter expression
 // path and verifies that, when the filter string is present, structured
 // filter params are ignored.
-func TestMCPSummary_FilterStringMode(t *testing.T) {
+func TestMCPSummary_FilterStringMode(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 
 	taxonomyTOML := "[taxonomy]\nlevels = [[\"initiative\"], [\"story\"], [\"task\"]]\n"
-	env := NewMCPEnv(t, binPath).WithConfigFile(taxonomyTOML)
+	env := NewMCPEnv(test, binPath).WithConfigFile(taxonomyTOML)
 
 	// Roadmap (initiative)
 	//   Story 1 (story)
@@ -133,38 +133,38 @@ func TestMCPSummary_FilterStringMode(t *testing.T) {
 
 	// Filter-string mode: structured params (level: "task") must be
 	// ignored when filter string is set.
-	resp := callSummary(t, env, map[string]any{
+	resp := callSummary(test, env, map[string]any{
 		"filter": "level=story",
 		"level":  "task",
 	})
 	if resp["mode"] != "filter" {
-		t.Fatalf("expected mode 'filter', got %v", resp["mode"])
+		test.Fatalf("expected mode 'filter', got %v", resp["mode"])
 	}
 	blocks := resp["blocks"].([]any)
 	if len(blocks) != 2 {
-		t.Fatalf("expected 2 story blocks (filter wins over structured level=task), got %d", len(blocks))
+		test.Fatalf("expected 2 story blocks (filter wins over structured level=task), got %d", len(blocks))
 	}
-	for _, b := range blocks {
-		task := b.(map[string]any)["task"].(map[string]any)
+	for _, block := range blocks {
+		task := block.(map[string]any)["task"].(map[string]any)
 		if task["level"] != "story" {
-			t.Fatalf("expected story-level block, got level=%v title=%v", task["level"], task["title"])
+			test.Fatalf("expected story-level block, got level=%v title=%v", task["level"], task["title"])
 		}
 	}
 	if _, ok := resp["totals"]; !ok {
-		t.Fatalf("expected totals populated in filter mode, got nil")
+		test.Fatalf("expected totals populated in filter mode, got nil")
 	}
 }
 
 // TestMCPSummary_StructuredParamsMode exercises the structured-params
 // path: passing only `level: "initiative"` (no filter, no short_id)
 // should produce filter-mode blocks of initiative-level tasks.
-func TestMCPSummary_StructuredParamsMode(t *testing.T) {
+func TestMCPSummary_StructuredParamsMode(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 
 	taxonomyTOML := "[taxonomy]\nlevels = [[\"initiative\"], [\"story\"], [\"task\"]]\n"
-	env := NewMCPEnv(t, binPath).WithConfigFile(taxonomyTOML)
+	env := NewMCPEnv(test, binPath).WithConfigFile(taxonomyTOML)
 
 	// Two initiatives plus an unrelated story under one of them.
 	init1 := env.callTool("tusk_task_create", map[string]any{"title": "Init A", "level": "initiative"})
@@ -175,32 +175,32 @@ func TestMCPSummary_StructuredParamsMode(t *testing.T) {
 		"parent": init1["short_id"].(string),
 	})
 
-	resp := callSummary(t, env, map[string]any{"level": "initiative"})
+	resp := callSummary(test, env, map[string]any{"level": "initiative"})
 	if resp["mode"] != "filter" {
-		t.Fatalf("expected mode 'filter' (any populated structured filter), got %v", resp["mode"])
+		test.Fatalf("expected mode 'filter' (any populated structured filter), got %v", resp["mode"])
 	}
 	blocks := resp["blocks"].([]any)
 	if len(blocks) != 2 {
-		t.Fatalf("expected 2 initiative blocks, got %d", len(blocks))
+		test.Fatalf("expected 2 initiative blocks, got %d", len(blocks))
 	}
-	for _, b := range blocks {
-		task := b.(map[string]any)["task"].(map[string]any)
+	for _, block := range blocks {
+		task := block.(map[string]any)["task"].(map[string]any)
 		if task["level"] != "initiative" {
-			t.Fatalf("expected initiative-level block, got level=%v", task["level"])
+			test.Fatalf("expected initiative-level block, got level=%v", task["level"])
 		}
 	}
 	if _, ok := resp["totals"]; !ok {
-		t.Fatalf("expected totals populated in structured-params mode, got nil")
+		test.Fatalf("expected totals populated in structured-params mode, got nil")
 	}
 }
 
 // TestMCPSummary_RootsMode verifies that calling with no filter / short_id
 // summarizes root tasks (mode=roots) and returns one block per root.
-func TestMCPSummary_RootsMode(t *testing.T) {
+func TestMCPSummary_RootsMode(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// Two distinct roots; the second has a child.
 	env.callTool("tusk_task_create", map[string]any{"title": "Root A"})
@@ -210,78 +210,78 @@ func TestMCPSummary_RootsMode(t *testing.T) {
 		"parent": rootB["short_id"].(string),
 	})
 
-	resp := callSummary(t, env, nil)
+	resp := callSummary(test, env, nil)
 	if resp["mode"] != "roots" {
-		t.Fatalf("expected mode 'roots', got %v", resp["mode"])
+		test.Fatalf("expected mode 'roots', got %v", resp["mode"])
 	}
 	blocks := resp["blocks"].([]any)
 	if len(blocks) != 2 {
-		t.Fatalf("expected 2 root blocks, got %d", len(blocks))
+		test.Fatalf("expected 2 root blocks, got %d", len(blocks))
 	}
 	totals := resp["totals"].(map[string]any)
 	if totals["total"].(float64) != 1 {
-		t.Fatalf("expected total=1 (one descendant across both roots), got %v", totals["total"])
+		test.Fatalf("expected total=1 (one descendant across both roots), got %v", totals["total"])
 	}
 }
 
 // TestMCPSummary_FilterParseError surfaces filter parse errors as a tool
 // error (isError=true), not a JSON-RPC protocol error.
-func TestMCPSummary_FilterParseError(t *testing.T) {
+func TestMCPSummary_FilterParseError(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	errMsg := env.callToolExpectError("tusk_task_summary", map[string]any{
 		"filter": "level=story AND (",
 	})
 	if !strings.Contains(errMsg, "filter parse error") {
-		t.Fatalf("expected 'filter parse error' in error, got: %s", errMsg)
+		test.Fatalf("expected 'filter parse error' in error, got: %s", errMsg)
 	}
 }
 
 // TestMCPSummary_EmptyResult verifies that a filter matching nothing
 // returns mode=filter with empty blocks and a zero-rollup totals block
 // whose status_counts is `[]`, not `null`.
-func TestMCPSummary_EmptyResult(t *testing.T) {
+func TestMCPSummary_EmptyResult(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 
 	taxonomyTOML := "[taxonomy]\nlevels = [[\"initiative\"], [\"story\"], [\"task\"]]\n"
-	env := NewMCPEnv(t, binPath).WithConfigFile(taxonomyTOML)
+	env := NewMCPEnv(test, binPath).WithConfigFile(taxonomyTOML)
 
 	env.callTool("tusk_task_create", map[string]any{"title": "Anything", "level": "initiative"})
 
 	rawText := env.callToolRaw("tusk_task_summary", map[string]any{"level": "nonexistent"})
 	var resp map[string]any
 	if err := json.Unmarshal([]byte(rawText), &resp); err != nil {
-		t.Fatalf("parsing summary result: %v\nraw: %s", err, rawText)
+		test.Fatalf("parsing summary result: %v\nraw: %s", err, rawText)
 	}
 	if resp["mode"] != "filter" {
-		t.Fatalf("expected mode 'filter', got %v", resp["mode"])
+		test.Fatalf("expected mode 'filter', got %v", resp["mode"])
 	}
 	blocks := resp["blocks"].([]any)
 	if len(blocks) != 0 {
-		t.Fatalf("expected empty blocks, got %d", len(blocks))
+		test.Fatalf("expected empty blocks, got %d", len(blocks))
 	}
 	totals, ok := resp["totals"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected totals to be present, got: %v", resp["totals"])
+		test.Fatalf("expected totals to be present, got: %v", resp["totals"])
 	}
 	if totals["total"].(float64) != 0 {
-		t.Fatalf("expected total=0, got %v", totals["total"])
+		test.Fatalf("expected total=0, got %v", totals["total"])
 	}
 	// Critical: status_counts must serialize as [] not null.
 	if !strings.Contains(rawText, `"status_counts": []`) {
-		t.Fatalf("expected status_counts to be empty array `[]`, raw output:\n%s", rawText)
+		test.Fatalf("expected status_counts to be empty array `[]`, raw output:\n%s", rawText)
 	}
-	sc, ok := totals["status_counts"].([]any)
+	statusCounts, ok := totals["status_counts"].([]any)
 	if !ok {
-		t.Fatalf("expected status_counts to decode as array, got %T", totals["status_counts"])
+		test.Fatalf("expected status_counts to decode as array, got %T", totals["status_counts"])
 	}
-	if len(sc) != 0 {
-		t.Fatalf("expected empty status_counts, got %v", sc)
+	if len(statusCounts) != 0 {
+		test.Fatalf("expected empty status_counts, got %v", statusCounts)
 	}
 }
 
@@ -290,14 +290,14 @@ func TestMCPSummary_EmptyResult(t *testing.T) {
 // custom-workflow case but via the MCP surface. Workspace-shaping tools
 // (workflow_create, project_modify) are disabled by default in
 // config/default.toml — opt them back in for this test.
-func TestMCPSummary_CustomWorkflow(t *testing.T) {
+func TestMCPSummary_CustomWorkflow(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	// Override workspace-shaping defaults: enable workflow_create /
 	// project_modify, and clear the default blocked_fields so the
 	// project_modify "workflow" field is writable.
-	env := NewMCPEnv(t, binPath).WithConfigFile(
+	env := NewMCPEnv(test, binPath).WithConfigFile(
 		"[mcp]\n" +
 			"disabled_tools = []\n" +
 			"[mcp.blocked_fields]\n" +
@@ -335,75 +335,75 @@ func TestMCPSummary_CustomWorkflow(t *testing.T) {
 	// Build root + 2 children, ship one of them.
 	root := env.callTool("tusk_task_create", map[string]any{"title": "Custom rollup root"})
 	rootSID := root["short_id"].(string)
-	a := env.callTool("tusk_task_create", map[string]any{"title": "A", "parent": rootSID})
-	b := env.callTool("tusk_task_create", map[string]any{"title": "B", "parent": rootSID})
+	taskA := env.callTool("tusk_task_create", map[string]any{"title": "A", "parent": rootSID})
+	taskB := env.callTool("tusk_task_create", map[string]any{"title": "B", "parent": rootSID})
 
 	aStarted := env.callTool("tusk_task_start", map[string]any{
-		"short_id": a["short_id"].(string),
-		"version":  a["version"].(float64),
+		"short_id": taskA["short_id"].(string),
+		"version":  taskA["version"].(float64),
 	})
 	_ = aStarted
 
 	bStarted := env.callTool("tusk_task_start", map[string]any{
-		"short_id": b["short_id"].(string),
-		"version":  b["version"].(float64),
+		"short_id": taskB["short_id"].(string),
+		"version":  taskB["version"].(float64),
 	})
 	env.callTool("tusk_task_done", map[string]any{
-		"short_id": b["short_id"].(string),
+		"short_id": taskB["short_id"].(string),
 		"version":  bStarted["version"].(float64),
 	})
 
-	resp := callSummary(t, env, map[string]any{"short_id": rootSID})
+	resp := callSummary(test, env, map[string]any{"short_id": rootSID})
 	blocks := resp["blocks"].([]any)
 	if len(blocks) != 1 {
-		t.Fatalf("expected 1 block, got %d", len(blocks))
+		test.Fatalf("expected 1 block, got %d", len(blocks))
 	}
 	roll := blocks[0].(map[string]any)["rollup"].(map[string]any)
 	if roll["done"].(float64) != 1 {
-		t.Fatalf("expected done=1 (shipped task), got %v", roll["done"])
+		test.Fatalf("expected done=1 (shipped task), got %v", roll["done"])
 	}
 	if roll["total"].(float64) != 2 {
-		t.Fatalf("expected total=2 (in_progress + shipped, wontfix excluded), got %v", roll["total"])
+		test.Fatalf("expected total=2 (in_progress + shipped, wontfix excluded), got %v", roll["total"])
 	}
 	counts := roll["status_counts"].([]any)
 	foundShipped, foundInProgress, foundBacklog := false, false, false
-	for _, c := range counts {
-		m := c.(map[string]any)
-		switch m["name"].(string) {
+	for _, count := range counts {
+		statusMap := count.(map[string]any)
+		switch statusMap["name"].(string) {
 		case "shipped":
 			foundShipped = true
-			if m["count"].(float64) != 1 {
-				t.Fatalf("expected shipped: 1, got %v", m["count"])
+			if statusMap["count"].(float64) != 1 {
+				test.Fatalf("expected shipped: 1, got %v", statusMap["count"])
 			}
 		case "in_progress":
 			foundInProgress = true
-			if m["count"].(float64) != 1 {
-				t.Fatalf("expected in_progress: 1, got %v", m["count"])
+			if statusMap["count"].(float64) != 1 {
+				test.Fatalf("expected in_progress: 1, got %v", statusMap["count"])
 			}
 		case "backlog":
 			foundBacklog = true
-			if m["count"].(float64) != 0 {
-				t.Fatalf("expected backlog: 0, got %v", m["count"])
+			if statusMap["count"].(float64) != 0 {
+				test.Fatalf("expected backlog: 0, got %v", statusMap["count"])
 			}
 		case "wontfix":
-			t.Fatalf("wontfix bucket must be excluded by delete role, got: %v", m)
+			test.Fatalf("wontfix bucket must be excluded by delete role, got: %v", statusMap)
 		}
 	}
 	if !foundShipped || !foundInProgress || !foundBacklog {
-		t.Fatalf("expected scrum status buckets present, got: %v", counts)
+		test.Fatalf("expected scrum status buckets present, got: %v", counts)
 	}
 }
 
 // TestMCPSummary_ToolListed verifies the new tool appears in tools/list.
-func TestMCPSummary_ToolListed(t *testing.T) {
+func TestMCPSummary_ToolListed(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	resp := env.Send("tools/list", nil)
 	if resp.Error != nil {
-		t.Fatalf("tools/list error: %s", resp.Error)
+		test.Fatalf("tools/list error: %s", resp.Error)
 	}
 	var result struct {
 		Tools []struct {
@@ -411,24 +411,24 @@ func TestMCPSummary_ToolListed(t *testing.T) {
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		t.Fatalf("parsing tools/list: %v", err)
+		test.Fatalf("parsing tools/list: %v", err)
 	}
 	for _, tool := range result.Tools {
 		if tool.Name == "tusk_task_summary" {
 			return
 		}
 	}
-	t.Fatal("tusk_task_summary not found in tools/list")
+	test.Fatal("tusk_task_summary not found in tools/list")
 }
 
 // TestMCPSummary_TaskListUnchanged is a regression check for Task 4.1's
 // buildTaskFilter extraction: the structured-param filter path on
 // tusk_task_list must still produce the expected output.
-func TestMCPSummary_TaskListUnchanged(t *testing.T) {
+func TestMCPSummary_TaskListUnchanged(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{
 		"title": "Filterable",
@@ -442,17 +442,17 @@ func TestMCPSummary_TaskListUnchanged(t *testing.T) {
 	})
 	var listed []map[string]any
 	if err := json.Unmarshal([]byte(listRaw), &listed); err != nil {
-		t.Fatalf("parsing list: %v", err)
+		test.Fatalf("parsing list: %v", err)
 	}
 	if len(listed) != 1 {
-		t.Fatalf("expected 1 task with tag alpha, got %d", len(listed))
+		test.Fatalf("expected 1 task with tag alpha, got %d", len(listed))
 	}
 	if listed[0]["short_id"] != shortID {
-		t.Fatalf("expected short_id %q, got %v", shortID, listed[0]["short_id"])
+		test.Fatalf("expected short_id %q, got %v", shortID, listed[0]["short_id"])
 	}
 	tags, _ := listed[0]["tags"].([]any)
 	if len(tags) != 1 || tags[0] != "alpha" {
-		t.Fatalf("expected tags [alpha], got %v", tags)
+		test.Fatalf("expected tags [alpha], got %v", tags)
 	}
 
 	// Filter by status — second structured-params path.
@@ -461,9 +461,9 @@ func TestMCPSummary_TaskListUnchanged(t *testing.T) {
 	})
 	var pending []map[string]any
 	if err := json.Unmarshal([]byte(pendingRaw), &pending); err != nil {
-		t.Fatalf("parsing pending list: %v", err)
+		test.Fatalf("parsing pending list: %v", err)
 	}
 	if len(pending) != 1 {
-		t.Fatalf("expected 1 pending task, got %d", len(pending))
+		test.Fatalf("expected 1 pending task, got %d", len(pending))
 	}
 }

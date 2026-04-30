@@ -8,7 +8,7 @@ import (
 // TestLevelsProjectOverride sets a per-project taxonomy override and asserts
 // that `tusk project show` reports the override with provenance, while MCP-
 // facing responses emit `effective_taxonomy.source=project_override`.
-func TestLevelsProjectOverride(t *testing.T) {
+func TestLevelsProjectOverride(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "project_override_surfaces_provenance",
@@ -24,46 +24,46 @@ func TestLevelsProjectOverride(t *testing.T) {
 				},
 				{
 					Args: []string{"project", "show", "backend"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						if !strings.Contains(output, "alpha:beta:gamma") {
-							t.Fatalf("expected override taxonomy inline, got:\n%s", output)
+							test.Fatalf("expected override taxonomy inline, got:\n%s", output)
 						}
 						if !strings.Contains(output, "project override") {
-							t.Fatalf("expected 'project override' source, got:\n%s", output)
+							test.Fatalf("expected 'project override' source, got:\n%s", output)
 						}
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						eff, ok := m["effective_taxonomy"].(map[string]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						eff, ok := mapped["effective_taxonomy"].(map[string]any)
 						if !ok {
-							t.Fatalf("expected effective_taxonomy object, got: %v", m)
+							test.Fatalf("expected effective_taxonomy object, got: %v", mapped)
 						}
-						assertEqual(t, eff["source"], "project_override")
+						assertEqual(test, eff["source"], "project_override")
 					},
 				},
 				{
 					// Default project should still report workspace provenance.
 					Args: []string{"project", "show", "default"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						if !strings.Contains(output, "milestone:story") {
-							t.Fatalf("expected workspace taxonomy inline, got:\n%s", output)
+							test.Fatalf("expected workspace taxonomy inline, got:\n%s", output)
 						}
 						if !strings.Contains(output, "workspace default") {
-							t.Fatalf("expected 'workspace default' source, got:\n%s", output)
+							test.Fatalf("expected 'workspace default' source, got:\n%s", output)
 						}
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						eff := m["effective_taxonomy"].(map[string]any)
-						assertEqual(t, eff["source"], "workspace_default")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						eff := mapped["effective_taxonomy"].(map[string]any)
+						assertEqual(test, eff["source"], "workspace_default")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

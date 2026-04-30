@@ -2,7 +2,7 @@ package e2e
 
 import "testing"
 
-func TestErrorHandling(t *testing.T) {
+func TestErrorHandling(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "info_not_found",
@@ -10,9 +10,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "get", "nonexist"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -23,9 +23,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "modify", "nonexist", "New title"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -36,9 +36,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "start", "nonexist"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -49,9 +49,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "done", "nonexist"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -62,9 +62,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "delete", "nonexist"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -79,9 +79,9 @@ func TestErrorHandling(t *testing.T) {
 					// pending -> completed is not an allowed transition
 					Args:    []string{"task", "done", "$0.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not allowed")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not allowed")
 					},
 				},
 			},
@@ -92,12 +92,12 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "create"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
 						// Cobra enforces MinimumNArgs(1) — error goes to stderr
-						combined := r.Stderr + r.Stdout
+						combined := result.Stderr + result.Stdout
 						if combined == "" {
-							t.Fatal("expected some error output")
+							test.Fatal("expected some error output")
 						}
 					},
 				},
@@ -110,9 +110,9 @@ func TestErrorHandling(t *testing.T) {
 					// Only key=value args, no free text for title
 					Args:    []string{"task", "create", "priority=3"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "title is required")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "title is required")
 					},
 				},
 			},
@@ -123,9 +123,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "annotate", "nonexist", "A note"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -146,9 +146,9 @@ func TestErrorHandling(t *testing.T) {
 					// completed -> active is not an allowed transition
 					Args:    []string{"task", "start", "$0.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not allowed")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not allowed")
 					},
 				},
 			},
@@ -159,9 +159,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "Bad project", "project=nonexistent_project"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -172,9 +172,9 @@ func TestErrorHandling(t *testing.T) {
 				{
 					Args:    []string{"task", "list", "badfield=value"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "unknown field")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "unknown field")
 					},
 				},
 			},
@@ -192,15 +192,15 @@ func TestErrorHandling(t *testing.T) {
 					// active -> active: service skips workflow check for same-status,
 					// so this succeeds as a no-op (just bumps version)
 					Args: []string{"task", "start", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["status"], "active")
-						assertEqual(t, m["version"], float64(3))
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["status"], "active")
+						assertEqual(test, mapped["version"], float64(3))
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Started task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Started task")
 					},
 				},
 			},
@@ -220,15 +220,15 @@ func TestErrorHandling(t *testing.T) {
 				{
 					// completed -> completed: same-status, succeeds as no-op
 					Args: []string{"task", "done", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["status"], "completed")
-						assertEqual(t, m["version"], float64(4))
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["status"], "completed")
+						assertEqual(test, mapped["version"], float64(4))
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Completed task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Completed task")
 					},
 				},
 			},
@@ -245,20 +245,20 @@ func TestErrorHandling(t *testing.T) {
 				{
 					// deleted -> deleted: same-status, succeeds as no-op
 					Args: []string{"task", "delete", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["status"], "deleted")
-						assertEqual(t, m["version"], float64(3))
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["status"], "deleted")
+						assertEqual(test, mapped["version"], float64(3))
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Deleted task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Deleted task")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

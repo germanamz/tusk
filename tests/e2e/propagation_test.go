@@ -25,7 +25,7 @@ var bothPropagationSetup = [][]string{
 	},
 }
 
-func TestPropagation_Disabled(t *testing.T) {
+func TestPropagation_Disabled(test *testing.T) {
 	// Propagation is disabled by default — completing all children should NOT
 	// auto-complete the parent.
 	scenarios := []Scenario{
@@ -39,66 +39,66 @@ func TestPropagation_Disabled(t *testing.T) {
 				{Args: []string{"task", "done", "$2.short_id"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stdout, "active")
-						assertNotContains(t, r.Stdout, "completed")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stdout, "active")
+						assertNotContains(test, result.Stdout, "completed")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "active" {
-							t.Fatalf("expected parent status 'active', got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "active" {
+							test.Fatalf("expected parent status 'active', got %v", mapped["status"])
 						}
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
 // runPropagationScenarios runs scenarios after executing the given setup
 // commands on a fresh env. Setup commands are not indexed into env.results,
 // so scenario step refs ($0, $1, ...) still match the pre-phase-2 layout.
 // JSON-only since assertions use AssertJSON.
-func runPropagationScenarios(t *testing.T, scenarios []Scenario, setup [][]string) {
-	t.Helper()
+func runPropagationScenarios(test *testing.T, scenarios []Scenario, setup [][]string) {
+	test.Helper()
 	combos := combinations(
 		[]string{"flag", "env"},
 		[]string{"json"},
 	)
-	for _, sc := range scenarios {
+	for _, scenario := range scenarios {
 		for _, combo := range combos {
 			dbMode := combo[0]
-			name := sc.Name + "/" + dbMode + "/json"
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				env := newEnv(t, binPath, dbMode, "json")
+			name := scenario.Name + "/" + dbMode + "/json"
+			test.Run(name, func(test *testing.T) {
+				test.Parallel()
+				env := newEnv(test, binPath, dbMode, "json")
 				for _, cmd := range setup {
-					r := env.Run(cmd...)
-					if r.Err != nil {
-						t.Fatalf("setup %v: %v\nstderr: %s", cmd, r.Err, r.Stderr)
+					result := env.Run(cmd...)
+					if result.Err != nil {
+						test.Fatalf("setup %v: %v\nstderr: %s", cmd, result.Err, result.Stderr)
 					}
 				}
 				// Discard setup results so scenario $N refs index into the
 				// actual scenario steps, not the setup preamble.
 				env.results = nil
 
-				for i, step := range sc.Steps {
-					r := env.Run(step.Args...)
-					if step.WantErr && r.Err == nil {
-						t.Fatalf("step %d: expected error, got none. stdout:\n%s", i, r.Stdout)
+				for index, step := range scenario.Steps {
+					result := env.Run(step.Args...)
+					if step.WantErr && result.Err == nil {
+						test.Fatalf("step %d: expected error, got none. stdout:\n%s", index, result.Stdout)
 					}
-					if !step.WantErr && r.Err != nil {
-						t.Fatalf("step %d: unexpected error: %v\nstderr: %s\nstdout: %s", i, r.Err, r.Stderr, r.Stdout)
+					if !step.WantErr && result.Err != nil {
+						test.Fatalf("step %d: unexpected error: %v\nstderr: %s\nstdout: %s", index, result.Err, result.Stderr, result.Stdout)
 					}
 					if step.AssertJSON != nil {
 						var parsed any
-						if err := json.Unmarshal([]byte(r.Stdout), &parsed); err != nil {
-							t.Fatalf("step %d: failed to parse JSON: %v\nraw:\n%s", i, err, r.Stdout)
+						if err := json.Unmarshal([]byte(result.Stdout), &parsed); err != nil {
+							test.Fatalf("step %d: failed to parse JSON: %v\nraw:\n%s", index, err, result.Stdout)
 						}
-						step.AssertJSON(t, parsed)
+						step.AssertJSON(test, parsed)
 					}
 				}
 			})
@@ -106,7 +106,7 @@ func runPropagationScenarios(t *testing.T, scenarios []Scenario, setup [][]strin
 	}
 }
 
-func TestPropagation_AutoComplete(t *testing.T) {
+func TestPropagation_AutoComplete(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "auto_complete_all_children_done",
@@ -119,11 +119,11 @@ func TestPropagation_AutoComplete(t *testing.T) {
 				{Args: []string{"task", "done", "$2.short_id"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "active" {
-							t.Fatalf("expected parent still 'active', got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "active" {
+							test.Fatalf("expected parent still 'active', got %v", mapped["status"])
 						}
 					},
 				},
@@ -131,11 +131,11 @@ func TestPropagation_AutoComplete(t *testing.T) {
 				{Args: []string{"task", "done", "$3.short_id"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "completed" {
-							t.Fatalf("expected parent 'completed' (auto-complete), got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "completed" {
+							test.Fatalf("expected parent 'completed' (auto-complete), got %v", mapped["status"])
 						}
 					},
 				},
@@ -153,11 +153,11 @@ func TestPropagation_AutoComplete(t *testing.T) {
 				{Args: []string{"task", "done", "$2.short_id"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "completed" {
-							t.Fatalf("expected parent 'completed', got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "completed" {
+							test.Fatalf("expected parent 'completed', got %v", mapped["status"])
 						}
 					},
 				},
@@ -172,11 +172,11 @@ func TestPropagation_AutoComplete(t *testing.T) {
 				{Args: []string{"task", "done", "$1.short_id"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "pending" {
-							t.Fatalf("expected parent still 'pending' (workflow guard), got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "pending" {
+							test.Fatalf("expected parent still 'pending' (workflow guard), got %v", mapped["status"])
 						}
 					},
 				},
@@ -184,10 +184,10 @@ func TestPropagation_AutoComplete(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, autoCompleteSetup)
+	runPropagationScenarios(test, scenarios, autoCompleteSetup)
 }
 
-func TestPropagation_Recursive(t *testing.T) {
+func TestPropagation_Recursive(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "auto_complete_recursive",
@@ -201,21 +201,21 @@ func TestPropagation_Recursive(t *testing.T) {
 				{Args: []string{"task", "done", "$4.short_id"}},
 				{
 					Args: []string{"task", "get", "$2.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "completed" {
-							t.Fatalf("expected parent 'completed', got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "completed" {
+							test.Fatalf("expected parent 'completed', got %v", mapped["status"])
 						}
 					},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "completed" {
-							t.Fatalf("expected grandparent 'completed', got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "completed" {
+							test.Fatalf("expected grandparent 'completed', got %v", mapped["status"])
 						}
 					},
 				},
@@ -223,10 +223,10 @@ func TestPropagation_Recursive(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, autoCompleteSetup)
+	runPropagationScenarios(test, scenarios, autoCompleteSetup)
 }
 
-func TestPropagation_AutoRevert(t *testing.T) {
+func TestPropagation_AutoRevert(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "auto_revert_child_reopened",
@@ -238,22 +238,22 @@ func TestPropagation_AutoRevert(t *testing.T) {
 				{Args: []string{"task", "done", "$2.short_id"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "completed" {
-							t.Fatalf("expected parent 'completed', got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "completed" {
+							test.Fatalf("expected parent 'completed', got %v", mapped["status"])
 						}
 					},
 				},
 				{Args: []string{"task", "modify", "$2.short_id", "status=pending"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "pending" {
-							t.Fatalf("expected parent 'pending' after revert, got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "pending" {
+							test.Fatalf("expected parent 'pending' after revert, got %v", mapped["status"])
 						}
 					},
 				},
@@ -271,32 +271,32 @@ func TestPropagation_AutoRevert(t *testing.T) {
 				{Args: []string{"task", "done", "$4.short_id"}},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "completed" {
-							t.Fatalf("expected grandparent 'completed', got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "completed" {
+							test.Fatalf("expected grandparent 'completed', got %v", mapped["status"])
 						}
 					},
 				},
 				{Args: []string{"task", "modify", "$4.short_id", "status=pending"}},
 				{
 					Args: []string{"task", "get", "$2.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "pending" {
-							t.Fatalf("expected parent 'pending' after revert, got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "pending" {
+							test.Fatalf("expected parent 'pending' after revert, got %v", mapped["status"])
 						}
 					},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["status"] != "pending" {
-							t.Fatalf("expected grandparent 'pending' after revert, got %v", m["status"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["status"] != "pending" {
+							test.Fatalf("expected grandparent 'pending' after revert, got %v", mapped["status"])
 						}
 					},
 				},
@@ -304,5 +304,5 @@ func TestPropagation_AutoRevert(t *testing.T) {
 		},
 	}
 
-	runPropagationScenarios(t, scenarios, bothPropagationSetup)
+	runPropagationScenarios(test, scenarios, bothPropagationSetup)
 }

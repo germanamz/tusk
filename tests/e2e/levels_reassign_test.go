@@ -8,7 +8,7 @@ import (
 // TestLevelsReassign moves a task between projects with differing taxonomies.
 // Moving between projects whose taxonomies share the task's level succeeds;
 // moving to a project whose taxonomy does not contain the level is rejected.
-func TestLevelsReassign(t *testing.T) {
+func TestLevelsReassign(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "reassign_compatible_and_incompatible",
@@ -24,25 +24,25 @@ func TestLevelsReassign(t *testing.T) {
 				{
 					// Reassign to default — still has milestone — must succeed.
 					Args: []string{"task", "modify", "$4.short_id", "project=default"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["project_id"], "default")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["project_id"], "default")
 					},
 				},
 				{
 					// Reassign to beta — its taxonomy lacks "milestone" — must fail.
 					Args:    []string{"task", "modify", "$4.short_id", "project=beta"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if !strings.Contains(r.Stderr, "not in the taxonomy") {
-							t.Fatalf("expected taxonomy violation when reassigning to incompatible project, got: %q", r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if !strings.Contains(result.Stderr, "not in the taxonomy") {
+							test.Fatalf("expected taxonomy violation when reassigning to incompatible project, got: %q", result.Stderr)
 						}
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

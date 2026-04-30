@@ -5,36 +5,36 @@ import (
 	"testing"
 )
 
-func TestUDA(t *testing.T) {
+func TestUDA(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "create_with_multiple_udas",
 			Steps: []Step{
 				{
 					Args: []string{"task", "create", "UDA inline test", "uda.env=prod", "uda.region=eu"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Created task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Created task")
 					},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "env:")
-						assertContains(t, output, "prod")
-						assertContains(t, output, "region:")
-						assertContains(t, output, "eu")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "env:")
+						assertContains(test, output, "prod")
+						assertContains(test, output, "region:")
+						assertContains(test, output, "eu")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						uda, ok := m["uda"].(map[string]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						uda, ok := mapped["uda"].(map[string]any)
 						if !ok {
-							t.Fatal("expected uda object in JSON")
+							test.Fatal("expected uda object in JSON")
 						}
-						assertEqual(t, uda["env"], "prod")
-						assertEqual(t, uda["region"], "eu")
+						assertEqual(test, uda["env"], "prod")
+						assertEqual(test, uda["region"], "eu")
 					},
 				},
 			},
@@ -47,26 +47,26 @@ func TestUDA(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "modify", "$0.short_id", "uda.team=backend"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Modified task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Modified task")
 					},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						uda := m["uda"].(map[string]any)
-						assertEqual(t, uda["env"], "prod")
-						assertEqual(t, uda["team"], "backend")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						uda := mapped["uda"].(map[string]any)
+						assertEqual(test, uda["env"], "prod")
+						assertEqual(test, uda["team"], "backend")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "env:")
-						assertContains(t, output, "prod")
-						assertContains(t, output, "team:")
-						assertContains(t, output, "backend")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "env:")
+						assertContains(test, output, "prod")
+						assertContains(test, output, "team:")
+						assertContains(test, output, "backend")
 					},
 				},
 			},
@@ -82,20 +82,20 @@ func TestUDA(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						uda := m["uda"].(map[string]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						uda := mapped["uda"].(map[string]any)
 						if _, exists := uda["env"]; exists {
-							t.Fatal("expected env key to be removed")
+							test.Fatal("expected env key to be removed")
 						}
-						assertEqual(t, uda["region"], "eu")
+						assertEqual(test, uda["region"], "eu")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertNotContains(t, output, "env:")
-						assertContains(t, output, "region:")
-						assertContains(t, output, "eu")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertNotContains(test, output, "env:")
+						assertContains(test, output, "region:")
+						assertContains(test, output, "eu")
 					},
 				},
 			},
@@ -108,11 +108,11 @@ func TestUDA(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						uda := m["uda"].(map[string]any)
-						assertEqual(t, uda["env"], "b")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						uda := mapped["uda"].(map[string]any)
+						assertEqual(test, uda["env"], "b")
 					},
 				},
 			},
@@ -128,11 +128,11 @@ func TestUDA(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						uda := m["uda"].(map[string]any)
-						assertEqual(t, uda["env"], "prod")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						uda := mapped["uda"].(map[string]any)
+						assertEqual(test, uda["env"], "prod")
 					},
 				},
 			},
@@ -145,18 +145,18 @@ func TestUDA(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) == 0 {
-							t.Fatal("expected at least 1 task")
+							test.Fatal("expected at least 1 task")
 						}
-						m := arr[0].(map[string]any)
-						uda, ok := m["uda"].(map[string]any)
+						mapped := arr[0].(map[string]any)
+						uda, ok := mapped["uda"].(map[string]any)
 						if !ok {
-							t.Fatal("expected uda in list JSON output")
+							test.Fatal("expected uda in list JSON output")
 						}
-						assertEqual(t, uda["env"], "prod")
+						assertEqual(test, uda["env"], "prod")
 					},
 				},
 			},
@@ -167,11 +167,11 @@ func TestUDA(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "bad key", "uda.1env=x"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						combined := strings.ToLower(r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						combined := strings.ToLower(result.Stderr)
 						if !strings.Contains(combined, "uda") {
-							t.Fatalf("stderr should mention uda: %s", r.Stderr)
+							test.Fatalf("stderr should mention uda: %s", result.Stderr)
 						}
 					},
 				},
@@ -183,10 +183,10 @@ func TestUDA(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "unknown field", "env=prod"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "unknown field")
-						assertStderrContains(t, r, "did you mean uda.env?")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "unknown field")
+						assertStderrContains(test, result, "did you mean uda.env?")
 					},
 				},
 			},
@@ -197,11 +197,11 @@ func TestUDA(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "dotted unknown", "foo.bar=1"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "unknown field")
-						if strings.Contains(r.Stderr, "did you mean") {
-							t.Fatalf("stderr should NOT contain hint: %s", r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "unknown field")
+						if strings.Contains(result.Stderr, "did you mean") {
+							test.Fatalf("stderr should NOT contain hint: %s", result.Stderr)
 						}
 					},
 				},
@@ -213,9 +213,9 @@ func TestUDA(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "modifier uda", "+uda.env=prod"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "modifier")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "modifier")
 					},
 				},
 			},
@@ -226,9 +226,9 @@ func TestUDA(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "--uda", "env=prod", "stale flag"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "unknown flag")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "unknown flag")
 					},
 				},
 			},
@@ -239,21 +239,21 @@ func TestUDA(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "-u", "env=prod", "stale shorthand"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						combined := strings.ToLower(r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						combined := strings.ToLower(result.Stderr)
 						if !strings.Contains(combined, "unknown") {
-							t.Fatalf("stderr should contain 'unknown': %s", r.Stderr)
+							test.Fatalf("stderr should contain 'unknown': %s", result.Stderr)
 						}
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestUDAFilter(t *testing.T) {
+func TestUDAFilter(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "filter_uda_match",
@@ -266,18 +266,18 @@ func TestUDAFilter(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "uda.env=prod"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(arr))
+							test.Fatalf("expected 1 task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Prod task")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Prod task")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Prod task")
-						assertNotContains(t, output, "Dev task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Prod task")
+						assertNotContains(test, output, "Dev task")
 					},
 				},
 			},
@@ -293,13 +293,13 @@ func TestUDAFilter(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "uda.env=prod", "uda.team=backend"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(arr))
+							test.Fatalf("expected 1 task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Prod backend")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Prod backend")
 					},
 				},
 			},
@@ -315,18 +315,18 @@ func TestUDAFilter(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "uda.env="},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task (without env), got %d", len(arr))
+							test.Fatalf("expected 1 task (without env), got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "No env")
+						assertEqual(test, arr[0].(map[string]any)["title"], "No env")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "No env")
-						assertNotContains(t, output, "Has env")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "No env")
+						assertNotContains(test, output, "Has env")
 					},
 				},
 			},
@@ -339,11 +339,11 @@ func TestUDAFilter(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "uda.env=staging"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 0 {
-							t.Fatalf("expected 0 tasks, got %d", len(arr))
+							test.Fatalf("expected 0 tasks, got %d", len(arr))
 						}
 					},
 				},
@@ -357,16 +357,16 @@ func TestUDAFilter(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "uda.nonexistent=value"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 0 {
-							t.Fatalf("expected 0 tasks, got %d", len(arr))
+							test.Fatalf("expected 0 tasks, got %d", len(arr))
 						}
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

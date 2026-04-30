@@ -17,17 +17,21 @@ import (
 
 // decodeWorkspace reads a portability dump from the given path. The codec
 // rejects unknown fields so a successful decode is a structural check too.
-func decodeWorkspace(t *testing.T, path string) *portability.PortableWorkspace {
-	t.Helper()
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatalf("opening %s: %v", path, err)
+func decodeWorkspace(test *testing.T, path string) *portability.PortableWorkspace {
+	test.Helper()
+	fileHandle, openErr := os.Open(path)
+
+	if openErr != nil {
+		test.Fatalf("opening %s: %v", path, openErr)
 	}
-	defer f.Close()
-	ws, err := portability.Decode(f)
-	if err != nil {
-		t.Fatalf("decoding %s: %v", path, err)
+
+	defer fileHandle.Close()
+	ws, decodeErr := portability.Decode(fileHandle)
+
+	if decodeErr != nil {
+		test.Fatalf("decoding %s: %v", path, decodeErr)
 	}
+
 	return ws
 }
 
@@ -37,95 +41,99 @@ func decodeWorkspace(t *testing.T, path string) *portability.PortableWorkspace {
 func stripVolatile(ws *portability.PortableWorkspace) {
 	ws.ExportedAt = time.Time{}
 	kept := ws.Events[:0]
-	for _, e := range ws.Events {
-		if e.Type == "workspace_imported" {
+	for _, event := range ws.Events {
+		if event.Type == "workspace_imported" {
 			continue
 		}
-		kept = append(kept, e)
+		kept = append(kept, event)
 	}
 	ws.Events = kept
 }
 
-func mustRun(t *testing.T, env *Env, args ...string) Result {
-	t.Helper()
-	r := env.Run(args...)
-	if r.Err != nil {
-		t.Fatalf("tusk %v: %v\nstderr: %s\nstdout: %s", args, r.Err, r.Stderr, r.Stdout)
+func mustRun(test *testing.T, env *Env, args ...string) Result {
+	test.Helper()
+	result := env.Run(args...)
+	if result.Err != nil {
+		test.Fatalf("tusk %v: %v\nstderr: %s\nstdout: %s", args, result.Err, result.Stderr, result.Stdout)
 	}
-	return r
+	return result
 }
 
-func TestPortability_RoundTrip(t *testing.T) {
+func TestPortability_RoundTrip(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	src := newEnv(t, binPath, "flag", "json")
-	mustRun(t, src, "task", "create", "first")
-	mustRun(t, src, "task", "create", "second")
-	mustRun(t, src, "task", "create", "third")
+	src := newEnv(test, binPath, "flag", "json")
+	mustRun(test, src, "task", "create", "first")
+	mustRun(test, src, "task", "create", "second")
+	mustRun(test, src, "task", "create", "third")
 
-	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRun(t, src, "export", "--output", dumpPath)
+	dumpPath := filepath.Join(test.TempDir(), "ws.json")
+	mustRun(test, src, "export", "--output", dumpPath)
 
-	dst := newEnv(t, binPath, "flag", "json")
+	dst := newEnv(test, binPath, "flag", "json")
 	// Fresh DB is seeded with the default project + workflow on first open,
 	// so a clean rehydrate uses --replace --truncate to wipe-and-restore.
-	mustRun(t, dst, "import", "--input", dumpPath, "--replace", "--truncate")
+	mustRun(test, dst, "import", "--input", dumpPath, "--replace", "--truncate")
 
-	rtPath := filepath.Join(t.TempDir(), "ws-rt.json")
-	mustRun(t, dst, "export", "--output", rtPath)
+	rtPath := filepath.Join(test.TempDir(), "ws-rt.json")
+	mustRun(test, dst, "export", "--output", rtPath)
 
-	srcWS := decodeWorkspace(t, dumpPath)
-	rtWS := decodeWorkspace(t, rtPath)
+	srcWS := decodeWorkspace(test, dumpPath)
+	rtWS := decodeWorkspace(test, rtPath)
 	stripVolatile(srcWS)
 	stripVolatile(rtWS)
 
-	srcJSON, err := json.MarshalIndent(srcWS, "", "  ")
-	if err != nil {
-		t.Fatalf("marshaling source: %v", err)
+	srcJSON, srcMarshalErr := json.MarshalIndent(srcWS, "", "  ")
+
+	if srcMarshalErr != nil {
+		test.Fatalf("marshaling source: %v", srcMarshalErr)
 	}
-	rtJSON, err := json.MarshalIndent(rtWS, "", "  ")
-	if err != nil {
-		t.Fatalf("marshaling round-trip: %v", err)
+
+	rtJSON, rtMarshalErr := json.MarshalIndent(rtWS, "", "  ")
+
+	if rtMarshalErr != nil {
+		test.Fatalf("marshaling round-trip: %v", rtMarshalErr)
 	}
+
 	if !bytes.Equal(srcJSON, rtJSON) {
-		t.Fatalf("round-trip diverged.\nsource:\n%s\nrehydrated:\n%s", srcJSON, rtJSON)
+		test.Fatalf("round-trip diverged.\nsource:\n%s\nrehydrated:\n%s", srcJSON, rtJSON)
 	}
 }
 
-func TestPortability_StdinStdout(t *testing.T) {
+func TestPortability_StdinStdout(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	src := newEnv(t, binPath, "flag", "json")
-	mustRun(t, src, "task", "create", "piped")
+	src := newEnv(test, binPath, "flag", "json")
+	mustRun(test, src, "task", "create", "piped")
 
-	exportRes := mustRun(t, src, "export")
+	exportRes := mustRun(test, src, "export")
 
-	dst := newEnv(t, binPath, "flag", "json")
+	dst := newEnv(test, binPath, "flag", "json")
 	dst.step = currentStep{stdin: exportRes.Stdout}
 	importRes := dst.Run("import", "--input", "-", "--replace", "--truncate")
 	dst.step = currentStep{}
 	if importRes.Err != nil {
-		t.Fatalf("piped import failed: %v\nstderr: %s\nstdout: %s", importRes.Err, importRes.Stderr, importRes.Stdout)
+		test.Fatalf("piped import failed: %v\nstderr: %s\nstdout: %s", importRes.Err, importRes.Stderr, importRes.Stdout)
 	}
 
-	listRes := mustRun(t, dst, "task", "list")
+	listRes := mustRun(test, dst, "task", "list")
 	var rows []map[string]any
 	if err := json.Unmarshal([]byte(listRes.Stdout), &rows); err != nil {
-		t.Fatalf("decoding task list: %v\nraw: %s", err, listRes.Stdout)
+		test.Fatalf("decoding task list: %v\nraw: %s", err, listRes.Stdout)
 	}
 	if len(rows) != 1 {
-		t.Fatalf("expected 1 task after piped import, got %d: %v", len(rows), rows)
+		test.Fatalf("expected 1 task after piped import, got %d: %v", len(rows), rows)
 	}
 	if got, _ := rows[0]["title"].(string); got != "piped" {
-		t.Fatalf("expected title \"piped\", got %q", got)
+		test.Fatalf("expected title \"piped\", got %q", got)
 	}
 }
 
-func TestPortability_SchemaVersionError(t *testing.T) {
+func TestPortability_SchemaVersionError(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	stub := []byte(`{
   "schema_version": 999,
@@ -134,113 +142,118 @@ func TestPortability_SchemaVersionError(t *testing.T) {
   "workflows": [], "projects": [], "players": [], "tags": [],
   "tasks": [], "relations": [], "annotations": [], "notes": [], "events": []
 }`)
-	stubPath := filepath.Join(t.TempDir(), "future.json")
+	stubPath := filepath.Join(test.TempDir(), "future.json")
 	if err := os.WriteFile(stubPath, stub, 0o644); err != nil {
-		t.Fatalf("writing stub: %v", err)
+		test.Fatalf("writing stub: %v", err)
 	}
 
-	env := newEnv(t, binPath, "flag", "text")
-	r := env.Run("import", "--input", stubPath)
-	if r.Err == nil {
-		t.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", r.Stdout, r.Stderr)
+	env := newEnv(test, binPath, "flag", "text")
+	result := env.Run("import", "--input", stubPath)
+	if result.Err == nil {
+		test.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", result.Stdout, result.Stderr)
 	}
-	if !strings.Contains(r.Stderr, "999") || !strings.Contains(r.Stderr, "1") {
-		t.Fatalf("expected stderr to name dump version 999 and supported 1; got:\n%s", r.Stderr)
+	if !strings.Contains(result.Stderr, "999") || !strings.Contains(result.Stderr, "1") {
+		test.Fatalf("expected stderr to name dump version 999 and supported 1; got:\n%s", result.Stderr)
 	}
-	if !strings.Contains(r.Stderr, "[schema]") {
-		t.Fatalf("expected [schema] tag in stderr; got:\n%s", r.Stderr)
+	if !strings.Contains(result.Stderr, "[schema]") {
+		test.Fatalf("expected [schema] tag in stderr; got:\n%s", result.Stderr)
 	}
 }
 
-func TestPortability_FKValidationError(t *testing.T) {
+func TestPortability_FKValidationError(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	src := newEnv(t, binPath, "flag", "text")
-	mustRun(t, src, "task", "create", "with bad parent")
+	src := newEnv(test, binPath, "flag", "text")
+	mustRun(test, src, "task", "create", "with bad parent")
 
-	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRun(t, src, "export", "--output", dumpPath)
+	dumpPath := filepath.Join(test.TempDir(), "ws.json")
+	mustRun(test, src, "export", "--output", dumpPath)
 
-	raw, err := os.ReadFile(dumpPath)
-	if err != nil {
-		t.Fatalf("reading dump: %v", err)
+	raw, readErr := os.ReadFile(dumpPath)
+
+	if readErr != nil {
+		test.Fatalf("reading dump: %v", readErr)
 	}
+
 	var ws map[string]any
-	if err := json.Unmarshal(raw, &ws); err != nil {
-		t.Fatalf("parsing dump: %v", err)
+	if unmarshalErr := json.Unmarshal(raw, &ws); unmarshalErr != nil {
+		test.Fatalf("parsing dump: %v", unmarshalErr)
 	}
+
 	tasks := ws["tasks"].([]any)
 	if len(tasks) == 0 {
-		t.Fatalf("no tasks in dump")
+		test.Fatalf("no tasks in dump")
 	}
 	tasks[0].(map[string]any)["parent_id"] = "00000000-0000-0000-0000-deadbeefdead"
-	patched, err := json.Marshal(ws)
-	if err != nil {
-		t.Fatalf("re-encoding dump: %v", err)
-	}
-	badPath := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(badPath, patched, 0o644); err != nil {
-		t.Fatalf("writing bad dump: %v", err)
+	patched, marshalErr := json.Marshal(ws)
+
+	if marshalErr != nil {
+		test.Fatalf("re-encoding dump: %v", marshalErr)
 	}
 
-	dst := newEnv(t, binPath, "flag", "text")
-	r := dst.Run("import", "--input", badPath, "--replace", "--truncate")
-	if r.Err == nil {
-		t.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", r.Stdout, r.Stderr)
+	badPath := filepath.Join(test.TempDir(), "bad.json")
+	if writeErr := os.WriteFile(badPath, patched, 0o644); writeErr != nil {
+		test.Fatalf("writing bad dump: %v", writeErr)
 	}
-	if !strings.Contains(r.Stderr, "[fk]") {
-		t.Fatalf("expected [fk] kind in stderr; got:\n%s", r.Stderr)
+
+	dst := newEnv(test, binPath, "flag", "text")
+	result := dst.Run("import", "--input", badPath, "--replace", "--truncate")
+	if result.Err == nil {
+		test.Fatalf("expected non-zero exit; stdout: %s\nstderr: %s", result.Stdout, result.Stderr)
 	}
-}
-
-func TestPortability_CollisionWithoutReplace(t *testing.T) {
-	if binPath == "" {
-		t.Skip("binary not built")
-	}
-	src := newEnv(t, binPath, "flag", "text")
-	mustRun(t, src, "task", "create", "collidable")
-
-	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRun(t, src, "export", "--output", dumpPath)
-
-	dst := newEnv(t, binPath, "flag", "text")
-	mustRun(t, dst, "import", "--input", dumpPath, "--replace", "--truncate")
-
-	r := dst.Run("import", "--input", dumpPath)
-	if r.Err == nil {
-		t.Fatalf("expected collision exit; stdout: %s\nstderr: %s", r.Stdout, r.Stderr)
-	}
-	if !strings.Contains(r.Stderr, "[collision]") {
-		t.Fatalf("expected [collision] kind in stderr; got:\n%s", r.Stderr)
+	if !strings.Contains(result.Stderr, "[fk]") {
+		test.Fatalf("expected [fk] kind in stderr; got:\n%s", result.Stderr)
 	}
 }
 
-func TestPortability_DryRunDoesNotMutate(t *testing.T) {
+func TestPortability_CollisionWithoutReplace(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := newEnv(t, binPath, "flag", "json")
-	mustRun(t, env, "task", "create", "before")
+	src := newEnv(test, binPath, "flag", "text")
+	mustRun(test, src, "task", "create", "collidable")
 
-	dumpPath := filepath.Join(t.TempDir(), "ws.json")
-	mustRun(t, env, "export", "--output", dumpPath)
-	mustRun(t, env, "task", "create", "scratch")
+	dumpPath := filepath.Join(test.TempDir(), "ws.json")
+	mustRun(test, src, "export", "--output", dumpPath)
 
-	listBefore := mustRun(t, env, "task", "list")
+	dst := newEnv(test, binPath, "flag", "text")
+	mustRun(test, dst, "import", "--input", dumpPath, "--replace", "--truncate")
+
+	result := dst.Run("import", "--input", dumpPath)
+	if result.Err == nil {
+		test.Fatalf("expected collision exit; stdout: %s\nstderr: %s", result.Stdout, result.Stderr)
+	}
+	if !strings.Contains(result.Stderr, "[collision]") {
+		test.Fatalf("expected [collision] kind in stderr; got:\n%s", result.Stderr)
+	}
+}
+
+func TestPortability_DryRunDoesNotMutate(test *testing.T) {
+	if binPath == "" {
+		test.Skip("binary not built")
+	}
+	env := newEnv(test, binPath, "flag", "json")
+	mustRun(test, env, "task", "create", "before")
+
+	dumpPath := filepath.Join(test.TempDir(), "ws.json")
+	mustRun(test, env, "export", "--output", dumpPath)
+	mustRun(test, env, "task", "create", "scratch")
+
+	listBefore := mustRun(test, env, "task", "list")
 	var before []any
 	if err := json.Unmarshal([]byte(listBefore.Stdout), &before); err != nil {
-		t.Fatalf("decoding before list: %v", err)
+		test.Fatalf("decoding before list: %v", err)
 	}
 
-	mustRun(t, env, "import", "--input", dumpPath, "--replace", "--dry-run")
+	mustRun(test, env, "import", "--input", dumpPath, "--replace", "--dry-run")
 
-	listAfter := mustRun(t, env, "task", "list")
+	listAfter := mustRun(test, env, "task", "list")
 	var after []any
 	if err := json.Unmarshal([]byte(listAfter.Stdout), &after); err != nil {
-		t.Fatalf("decoding after list: %v", err)
+		test.Fatalf("decoding after list: %v", err)
 	}
 	if len(before) != len(after) {
-		t.Fatalf("dry-run mutated workspace: before=%d after=%d", len(before), len(after))
+		test.Fatalf("dry-run mutated workspace: before=%d after=%d", len(before), len(after))
 	}
 }

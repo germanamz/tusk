@@ -2,7 +2,7 @@ package e2e
 
 import "testing"
 
-func TestOutputFormat(t *testing.T) {
+func TestOutputFormat(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "text_list_column_headers",
@@ -12,14 +12,14 @@ func TestOutputFormat(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						// The header line should contain these column names
-						assertContains(t, output, "ID")
-						assertContains(t, output, "Status")
-						assertContains(t, output, "Pri")
-						assertContains(t, output, "Age")
-						assertContains(t, output, "Title")
+						assertContains(test, output, "ID")
+						assertContains(test, output, "Status")
+						assertContains(test, output, "Pri")
+						assertContains(test, output, "Age")
+						assertContains(test, output, "Title")
 					},
 				},
 			},
@@ -44,14 +44,14 @@ func TestOutputFormat(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						// Check that priority symbols appear in the output.
 						// "-" is the default (priority 0), "L"=1, "M"=2, "H"=3, "U"=4
-						assertContains(t, output, "L")
-						assertContains(t, output, "M")
-						assertContains(t, output, "H")
-						assertContains(t, output, "U")
+						assertContains(test, output, "L")
+						assertContains(test, output, "M")
+						assertContains(test, output, "H")
+						assertContains(test, output, "U")
 					},
 				},
 			},
@@ -64,12 +64,12 @@ func TestOutputFormat(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						// parsed should be a []any (JSON array), not a map
-						arr := jsonArray(t, parsed)
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 item in array, got %d", len(arr))
+							test.Fatalf("expected 1 item in array, got %d", len(arr))
 						}
 					},
 				},
@@ -80,9 +80,9 @@ func TestOutputFormat(t *testing.T) {
 			Steps: []Step{
 				{
 					Args: []string{"task", "create", "Key check", "priority=2"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
 						// Check that all expected snake_case keys exist
 						requiredKeys := []string{
 							"id", "short_id", "title", "description",
@@ -90,8 +90,8 @@ func TestOutputFormat(t *testing.T) {
 							"created_at", "modified_at",
 						}
 						for _, key := range requiredKeys {
-							if _, ok := m[key]; !ok {
-								t.Fatalf("missing required JSON key: %q", key)
+							if _, ok := mapped[key]; !ok {
+								test.Fatalf("missing required JSON key: %q", key)
 							}
 						}
 					},
@@ -106,9 +106,9 @@ func TestOutputFormat(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
 						// Info JSON should have all task fields plus annotations
 						requiredKeys := []string{
 							"id", "short_id", "title", "description",
@@ -116,8 +116,8 @@ func TestOutputFormat(t *testing.T) {
 							"created_at", "modified_at",
 						}
 						for _, key := range requiredKeys {
-							if _, ok := m[key]; !ok {
-								t.Fatalf("missing required JSON key in info: %q", key)
+							if _, ok := mapped[key]; !ok {
+								test.Fatalf("missing required JSON key in info: %q", key)
 							}
 						}
 						// annotations key should exist (even if empty/nil)
@@ -133,10 +133,10 @@ func TestOutputFormat(t *testing.T) {
 				{
 					// Fresh DB — no tasks
 					Args: []string{"task", "list"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						if output != "" {
-							t.Fatalf("expected empty text output for no tasks, got:\n%s", output)
+							test.Fatalf("expected empty text output for no tasks, got:\n%s", output)
 						}
 					},
 				},
@@ -148,11 +148,11 @@ func TestOutputFormat(t *testing.T) {
 				{
 					// Fresh DB — no tasks
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 0 {
-							t.Fatalf("expected empty JSON array, got %d items", len(arr))
+							test.Fatalf("expected empty JSON array, got %d items", len(arr))
 						}
 					},
 				},
@@ -166,10 +166,10 @@ func TestOutputFormat(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						// Info view shows full priority name, not symbol
-						assertContains(t, output, "low")
+						assertContains(test, output, "low")
 					},
 				},
 			},
@@ -182,10 +182,10 @@ func TestOutputFormat(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Version:")
-						assertContains(t, output, "1")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Version:")
+						assertContains(test, output, "1")
 					},
 				},
 			},
@@ -198,20 +198,20 @@ func TestOutputFormat(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Created:")
-						assertContains(t, output, "Modified:")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Created:")
+						assertContains(test, output, "Modified:")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestMarkdownDescriptionInInfo(t *testing.T) {
+func TestMarkdownDescriptionInInfo(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "info_renders_description",
@@ -223,13 +223,13 @@ Some **bold** text."`},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stdout, "Heading")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stdout, "Heading")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

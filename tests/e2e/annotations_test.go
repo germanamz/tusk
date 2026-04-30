@@ -2,7 +2,7 @@ package e2e
 
 import "testing"
 
-func TestAnnotations(t *testing.T) {
+func TestAnnotations(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "annotate_then_info",
@@ -12,39 +12,39 @@ func TestAnnotations(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "annotate", "$0.short_id", "This is a note"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						// annotate returns the task object
-						m := parsed.(map[string]any)
-						assertEqual(t, m["title"], "Annotate target")
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["title"], "Annotate target")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Annotated task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Annotated task")
 					},
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						annotations := m["annotations"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						annotations := mapped["annotations"].([]any)
 						if len(annotations) != 1 {
-							t.Fatalf("expected 1 annotation, got %d", len(annotations))
+							test.Fatalf("expected 1 annotation, got %d", len(annotations))
 						}
-						ann := annotations[0].(map[string]any)
-						assertEqual(t, ann["body"], "This is a note")
-						if ann["id"] == nil || ann["id"] == "" {
-							t.Fatal("expected annotation id to be set")
+						annotation := annotations[0].(map[string]any)
+						assertEqual(test, annotation["body"], "This is a note")
+						if annotation["id"] == nil || annotation["id"] == "" {
+							test.Fatal("expected annotation id to be set")
 						}
-						if ann["created_at"] == nil || ann["created_at"] == "" {
-							t.Fatal("expected annotation created_at to be set")
+						if annotation["created_at"] == nil || annotation["created_at"] == "" {
+							test.Fatal("expected annotation created_at to be set")
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Annotations:")
-						assertContains(t, output, "This is a note")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Annotations:")
+						assertContains(test, output, "This is a note")
 					},
 				},
 			},
@@ -66,34 +66,34 @@ func TestAnnotations(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						annotations := m["annotations"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						annotations := mapped["annotations"].([]any)
 						if len(annotations) != 3 {
-							t.Fatalf("expected 3 annotations, got %d", len(annotations))
+							test.Fatalf("expected 3 annotations, got %d", len(annotations))
 						}
 						bodies := make([]string, len(annotations))
-						for i, a := range annotations {
-							bodies[i] = a.(map[string]any)["body"].(string)
+						for index, annotation := range annotations {
+							bodies[index] = annotation.(map[string]any)["body"].(string)
 						}
 						// All three should be present
 						found := map[string]bool{}
-						for _, b := range bodies {
-							found[b] = true
+						for _, body := range bodies {
+							found[body] = true
 						}
 						for _, want := range []string{"First note", "Second note", "Third note"} {
 							if !found[want] {
-								t.Fatalf("missing annotation %q in %v", want, bodies)
+								test.Fatalf("missing annotation %q in %v", want, bodies)
 							}
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Annotations:")
-						assertContains(t, output, "First note")
-						assertContains(t, output, "Second note")
-						assertContains(t, output, "Third note")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Annotations:")
+						assertContains(test, output, "First note")
+						assertContains(test, output, "Second note")
+						assertContains(test, output, "Third note")
 					},
 				},
 			},
@@ -104,14 +104,14 @@ func TestAnnotations(t *testing.T) {
 				{
 					Args:    []string{"task", "annotate", "nonexist", "A note"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

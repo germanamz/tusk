@@ -7,7 +7,7 @@ import (
 
 // TestLevelsValidation exercises all four TaxonomyError reasons end-to-end:
 // missing, unknown_level, root_requires_top_rank, parent_rank_not_lower.
-func TestLevelsValidation(t *testing.T) {
+func TestLevelsValidation(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "missing_level_rejected",
@@ -16,10 +16,10 @@ func TestLevelsValidation(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "no level"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if !strings.Contains(r.Stderr, "requires a level") {
-							t.Fatalf("expected 'requires a level', got: %q", r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if !strings.Contains(result.Stderr, "requires a level") {
+							test.Fatalf("expected 'requires a level', got: %q", result.Stderr)
 						}
 					},
 				},
@@ -32,10 +32,10 @@ func TestLevelsValidation(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "bogus", "level=bogus"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if !strings.Contains(r.Stderr, "not in the taxonomy") {
-							t.Fatalf("expected 'not in the taxonomy', got: %q", r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if !strings.Contains(result.Stderr, "not in the taxonomy") {
+							test.Fatalf("expected 'not in the taxonomy', got: %q", result.Stderr)
 						}
 					},
 				},
@@ -48,10 +48,10 @@ func TestLevelsValidation(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "orphan story", "level=story"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if !strings.Contains(r.Stderr, "top-rank level") {
-							t.Fatalf("expected 'top-rank level', got: %q", r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if !strings.Contains(result.Stderr, "top-rank level") {
+							test.Fatalf("expected 'top-rank level', got: %q", result.Stderr)
 						}
 					},
 				},
@@ -65,15 +65,15 @@ func TestLevelsValidation(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "sibling milestone", "level=milestone", "parent=$1.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if !strings.Contains(r.Stderr, "strictly lower") {
-							t.Fatalf("expected 'strictly lower', got: %q", r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if !strings.Contains(result.Stderr, "strictly lower") {
+							test.Fatalf("expected 'strictly lower', got: %q", result.Stderr)
 						}
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

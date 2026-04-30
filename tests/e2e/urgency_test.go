@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestUrgencySorting(t *testing.T) {
+func TestUrgencySorting(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "list_sorted_by_urgency",
@@ -18,26 +18,26 @@ func TestUrgencySorting(t *testing.T) {
 				// List — should be sorted: high, med, low
 				{
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 3 {
-							t.Fatalf("expected 3 tasks, got %d", len(arr))
+							test.Fatalf("expected 3 tasks, got %d", len(arr))
 						}
 						first := arr[0].(map[string]any)
 						last := arr[len(arr)-1].(map[string]any)
-						assertEqual(t, first["title"], "High prio task")
-						assertEqual(t, last["title"], "Low prio task")
+						assertEqual(test, first["title"], "High prio task")
+						assertEqual(test, last["title"], "Low prio task")
 
 						// Verify urgency field is present and non-zero for all
 						for _, item := range arr {
-							m := item.(map[string]any)
-							urg, ok := m["urgency"].(float64)
+							mapped := item.(map[string]any)
+							urg, ok := mapped["urgency"].(float64)
 							if !ok {
-								t.Fatal("urgency field missing or not a number")
+								test.Fatal("urgency field missing or not a number")
 							}
 							if urg <= 0 {
-								t.Errorf("expected positive urgency for %s, got %.2f", m["title"], urg)
+								test.Errorf("expected positive urgency for %s, got %.2f", mapped["title"], urg)
 							}
 						}
 
@@ -45,15 +45,15 @@ func TestUrgencySorting(t *testing.T) {
 						firstUrg := first["urgency"].(float64)
 						lastUrg := last["urgency"].(float64)
 						if firstUrg <= lastUrg {
-							t.Errorf("expected descending urgency: first=%.2f, last=%.2f", firstUrg, lastUrg)
+							test.Errorf("expected descending urgency: first=%.2f, last=%.2f", firstUrg, lastUrg)
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						// Verify Urg column header exists
-						assertContains(t, output, "Urg")
+						assertContains(test, output, "Urg")
 						// Verify high priority task appears in output
-						assertContains(t, output, "High prio task")
+						assertContains(test, output, "High prio task")
 					},
 				},
 			},
@@ -69,24 +69,24 @@ func TestUrgencySorting(t *testing.T) {
 				// List — active should rank higher
 				{
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 2 {
-							t.Fatalf("expected 2 tasks, got %d", len(arr))
+							test.Fatalf("expected 2 tasks, got %d", len(arr))
 						}
 						first := arr[0].(map[string]any)
-						assertEqual(t, first["title"], "Active task")
+						assertEqual(test, first["title"], "Active task")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestTaskNext(t *testing.T) {
+func TestTaskNext(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "next_returns_highest_urgency",
@@ -95,14 +95,14 @@ func TestTaskNext(t *testing.T) {
 				{Args: []string{"task", "create", "High prio", "priority=4"}},
 				{
 					Args: []string{"task", "next"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["title"], "High prio")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["title"], "High prio")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "High prio")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "High prio")
 					},
 				},
 			},
@@ -121,5 +121,5 @@ func TestTaskNext(t *testing.T) {
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

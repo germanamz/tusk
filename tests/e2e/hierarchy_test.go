@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestHierarchy(t *testing.T) {
+func TestHierarchy(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "create_with_parent",
@@ -16,24 +16,24 @@ func TestHierarchy(t *testing.T) {
 				// Step 1: Create child with parent reference
 				{
 					Args: []string{"task", "create", "Child task", "parent=$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Created task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Created task")
 					},
 				},
 				// Step 2: Verify child's parent via info
 				{
 					Args: []string{"task", "get", "$1.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["parent_id"] == nil || m["parent_id"] == "" {
-							t.Fatal("expected parent_id to be set")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["parent_id"] == nil || mapped["parent_id"] == "" {
+							test.Fatal("expected parent_id to be set")
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Parent:")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Parent:")
 					},
 				},
 			},
@@ -52,24 +52,24 @@ func TestHierarchy(t *testing.T) {
 				// Step 2: Set B's parent to A
 				{
 					Args: []string{"task", "modify", "$1.short_id", "parent=$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Modified task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Modified task")
 					},
 				},
 				// Step 3: Verify B's parent is A
 				{
 					Args: []string{"task", "get", "$1.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["parent_id"] == nil || m["parent_id"] == "" {
-							t.Fatal("expected parent_id to be set after modify")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["parent_id"] == nil || mapped["parent_id"] == "" {
+							test.Fatal("expected parent_id to be set after modify")
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Parent:")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Parent:")
 					},
 				},
 			},
@@ -88,33 +88,33 @@ func TestHierarchy(t *testing.T) {
 				// Step 2: Clear child's parent
 				{
 					Args: []string{"task", "modify", "$1.short_id", "parent="},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Modified task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Modified task")
 					},
 				},
 				// Step 3: Verify parent is cleared
 				{
 					Args: []string{"task", "get", "$1.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						if m["parent_id"] != nil {
-							t.Fatalf("expected parent_id to be nil after clearing, got %v", m["parent_id"])
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						if mapped["parent_id"] != nil {
+							test.Fatalf("expected parent_id to be nil after clearing, got %v", mapped["parent_id"])
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertNotContains(t, output, "Parent:")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertNotContains(test, output, "Parent:")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestTree(t *testing.T) {
+func TestTree(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "tree_full_view",
@@ -134,23 +134,23 @@ func TestTree(t *testing.T) {
 				// Step 3: Run tree — should show all three
 				{
 					Args: []string{"task", "tree"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 root in tree, got %d", len(arr))
+							test.Fatalf("expected 1 root in tree, got %d", len(arr))
 						}
 						root := arr[0].(map[string]any)
 						children := root["children"].([]any)
 						if len(children) != 2 {
-							t.Fatalf("expected 2 children, got %d", len(children))
+							test.Fatalf("expected 2 children, got %d", len(children))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Root task")
-						assertContains(t, output, "Child one")
-						assertContains(t, output, "Child two")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Root task")
+						assertContains(test, output, "Child one")
+						assertContains(test, output, "Child two")
 					},
 				},
 			},
@@ -177,30 +177,30 @@ func TestTree(t *testing.T) {
 				// Step 4: Run tree with root A — should show A's subtree only
 				{
 					Args: []string{"task", "tree", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 root, got %d", len(arr))
+							test.Fatalf("expected 1 root, got %d", len(arr))
 						}
 						root := arr[0].(map[string]any)
-						assertEqual(t, root["title"], "Root A")
+						assertEqual(test, root["title"], "Root A")
 						children := root["children"].([]any)
 						if len(children) != 1 {
-							t.Fatalf("expected 1 child, got %d", len(children))
+							test.Fatalf("expected 1 child, got %d", len(children))
 						}
 						child := children[0].(map[string]any)
 						grandchildren := child["children"].([]any)
 						if len(grandchildren) != 1 {
-							t.Fatalf("expected 1 grandchild, got %d", len(grandchildren))
+							test.Fatalf("expected 1 grandchild, got %d", len(grandchildren))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Root A")
-						assertContains(t, output, "Child of A")
-						assertContains(t, output, "Grandchild of A")
-						assertNotContains(t, output, "Root B")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Root A")
+						assertContains(test, output, "Child of A")
+						assertContains(test, output, "Grandchild of A")
+						assertNotContains(test, output, "Root B")
 					},
 				},
 			},
@@ -211,18 +211,18 @@ func TestTree(t *testing.T) {
 				// No tasks created — text prints "No tasks." to stderr, json prints empty array
 				{
 					Args: []string{"task", "tree"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 0 {
-							t.Fatalf("expected empty tree, got %d roots", len(arr))
+							test.Fatalf("expected empty tree, got %d roots", len(arr))
 						}
 					},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
 						// In text mode, "No tasks." goes to stderr; stdout stays empty
-						if r.Stdout == "" && r.Stderr != "" {
-							assertStderrContains(t, r, "No tasks.")
+						if result.Stdout == "" && result.Stderr != "" {
+							assertStderrContains(test, result, "No tasks.")
 						}
 					},
 				},
@@ -234,18 +234,18 @@ func TestTree(t *testing.T) {
 				{
 					Args:    []string{"task", "tree", "nonexist"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestHierarchyErrors(t *testing.T) {
+func TestHierarchyErrors(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "circular_parent_direct",
@@ -262,9 +262,9 @@ func TestHierarchyErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "modify", "$0.short_id", "parent=$1.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "cycle")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "cycle")
 					},
 				},
 			},
@@ -288,9 +288,9 @@ func TestHierarchyErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "modify", "$0.short_id", "parent=$2.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "cycle")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "cycle")
 					},
 				},
 			},
@@ -301,9 +301,9 @@ func TestHierarchyErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "Orphan task", "parent=nonexist"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "non-hex character")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "non-hex character")
 					},
 				},
 			},
@@ -314,13 +314,13 @@ func TestHierarchyErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "create", "Orphan task", "parent=deadbeef"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

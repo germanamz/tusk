@@ -15,238 +15,238 @@ import (
 type inlineScenario struct {
 	name    string
 	skipFmt []string
-	run     func(t *testing.T, env *Env, dir string)
+	run     func(test *testing.T, env *Env, dir string)
 }
 
-func runInlineScenarios(t *testing.T, scenarios []inlineScenario) {
-	t.Helper()
+func runInlineScenarios(test *testing.T, scenarios []inlineScenario) {
+	test.Helper()
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 	combos := combinations(
 		[]string{"flag", "env"},
 		[]string{"text", "json"},
 	)
-	for _, sc := range scenarios {
+	for _, scenario := range scenarios {
 		for _, combo := range combos {
 			dbMode, format := combo[0], combo[1]
-			if slices.Contains(sc.skipFmt, format) {
+			if slices.Contains(scenario.skipFmt, format) {
 				continue
 			}
-			name := sc.name + "/" + dbMode + "/" + format
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				env := newEnv(t, binPath, dbMode, format)
-				dir := t.TempDir()
+			name := scenario.name + "/" + dbMode + "/" + format
+			test.Run(name, func(test *testing.T) {
+				test.Parallel()
+				env := newEnv(test, binPath, dbMode, format)
+				dir := test.TempDir()
 				env.InDir(dir)
-				sc.run(t, env, dir)
+				scenario.run(test, env, dir)
 			})
 		}
 	}
 }
 
-func writeFixture(t *testing.T, dir, name, content string) {
-	t.Helper()
+func writeFixture(test *testing.T, dir, name, content string) {
+	test.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-		t.Fatalf("writing fixture %s: %v", name, err)
+		test.Fatalf("writing fixture %s: %v", name, err)
 	}
 }
 
-func TestCLI_InlineExpansion(t *testing.T) {
+func TestCLI_InlineExpansion(test *testing.T) {
 	scenarios := []inlineScenario{
 		{
 			name: "description_whole_file",
-			run: func(t *testing.T, env *Env, dir string) {
-				writeFixture(t, dir, "spec.md", "## Spec body\n\nDetails here.")
-				r := env.Run("task", "create", "Spec task", "description=@./spec.md")
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, dir string) {
+				writeFixture(test, dir, "spec.md", "## Spec body\n\nDetails here.")
+				createResult := env.Run("task", "create", "Spec task", "description=@./spec.md")
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				r2 := env.Run("task", "get", "$0.short_id")
-				if r2.Err != nil {
-					t.Fatalf("get: %v\n%s", r2.Err, r2.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, r2.Stdout, "Spec body")
-				assertContains(t, r2.Stdout, "Details here.")
+				assertContains(test, getResult.Stdout, "Spec body")
+				assertContains(test, getResult.Stdout, "Details here.")
 			},
 		},
 		{
 			name: "description_midstring_expansion",
-			run: func(t *testing.T, env *Env, dir string) {
-				writeFixture(t, dir, "notes.md", "the relevant notes")
-				r := env.Run("task", "create", "Mid task", `description="see @./notes.md for details"`)
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, dir string) {
+				writeFixture(test, dir, "notes.md", "the relevant notes")
+				createResult := env.Run("task", "create", "Mid task", `description="see @./notes.md for details"`)
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				r2 := env.Run("task", "get", "$0.short_id")
-				if r2.Err != nil {
-					t.Fatalf("get: %v\n%s", r2.Err, r2.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, r2.Stdout, "see the relevant notes for details")
+				assertContains(test, getResult.Stdout, "see the relevant notes for details")
 			},
 		},
 		{
 			name: "description_word_internal_at_preserved",
-			run: func(t *testing.T, env *Env, _ string) {
-				r := env.Run("task", "create", "Email task", `description="email@example.com"`)
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, _ string) {
+				createResult := env.Run("task", "create", "Email task", `description="email@example.com"`)
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				r2 := env.Run("task", "get", "$0.short_id")
-				if r2.Err != nil {
-					t.Fatalf("get: %v\n%s", r2.Err, r2.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, r2.Stdout, "email@example.com")
+				assertContains(test, getResult.Stdout, "email@example.com")
 			},
 		},
 		{
 			name: "description_at_escape",
-			run: func(t *testing.T, env *Env, _ string) {
-				r := env.Run("task", "create", "Escape task", `description="@@literal"`)
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, _ string) {
+				createResult := env.Run("task", "create", "Escape task", `description="@@literal"`)
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				r2 := env.Run("task", "get", "$0.short_id")
-				if r2.Err != nil {
-					t.Fatalf("get: %v\n%s", r2.Err, r2.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, r2.Stdout, "@literal")
-				assertNotContains(t, r2.Stdout, "@@literal")
+				assertContains(test, getResult.Stdout, "@literal")
+				assertNotContains(test, getResult.Stdout, "@@literal")
 			},
 		},
 		{
 			name: "modify_description_from_file",
-			run: func(t *testing.T, env *Env, dir string) {
-				writeFixture(t, dir, "new.md", "updated content")
-				r := env.Run("task", "create", "Replace target")
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, dir string) {
+				writeFixture(test, dir, "new.md", "updated content")
+				createResult := env.Run("task", "create", "Replace target")
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				rm := env.Run("task", "modify", "$0.short_id", "description=@./new.md")
-				if rm.Err != nil {
-					t.Fatalf("modify: %v\n%s", rm.Err, rm.Stderr)
+				modifyResult := env.Run("task", "modify", "$0.short_id", "description=@./new.md")
+				if modifyResult.Err != nil {
+					test.Fatalf("modify: %v\n%s", modifyResult.Err, modifyResult.Stderr)
 				}
-				rg := env.Run("task", "get", "$0.short_id")
-				if rg.Err != nil {
-					t.Fatalf("get: %v\n%s", rg.Err, rg.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, rg.Stdout, "updated content")
+				assertContains(test, getResult.Stdout, "updated content")
 			},
 		},
 		{
 			name: "modify_title_from_file",
-			run: func(t *testing.T, env *Env, dir string) {
-				writeFixture(t, dir, "title.txt", "New Title From File")
-				r := env.Run("task", "create", "Original title")
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, dir string) {
+				writeFixture(test, dir, "title.txt", "New Title From File")
+				createResult := env.Run("task", "create", "Original title")
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				rm := env.Run("task", "modify", "$0.short_id", "title=@./title.txt")
-				if rm.Err != nil {
-					t.Fatalf("modify: %v\n%s", rm.Err, rm.Stderr)
+				modifyResult := env.Run("task", "modify", "$0.short_id", "title=@./title.txt")
+				if modifyResult.Err != nil {
+					test.Fatalf("modify: %v\n%s", modifyResult.Err, modifyResult.Stderr)
 				}
-				rg := env.Run("task", "get", "$0.short_id")
-				if rg.Err != nil {
-					t.Fatalf("get: %v\n%s", rg.Err, rg.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, rg.Stdout, "New Title From File")
+				assertContains(test, getResult.Stdout, "New Title From File")
 			},
 		},
 		{
 			name: "create_title_and_description_from_files",
-			run: func(t *testing.T, env *Env, dir string) {
-				writeFixture(t, dir, "title.txt", "Loaded Title")
-				writeFixture(t, dir, "body.md", "Loaded body content")
-				r := env.Run("task", "create", "title=@./title.txt", "description=@./body.md")
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, dir string) {
+				writeFixture(test, dir, "title.txt", "Loaded Title")
+				writeFixture(test, dir, "body.md", "Loaded body content")
+				createResult := env.Run("task", "create", "title=@./title.txt", "description=@./body.md")
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				rg := env.Run("task", "get", "$0.short_id")
-				if rg.Err != nil {
-					t.Fatalf("get: %v\n%s", rg.Err, rg.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, rg.Stdout, "Loaded Title")
-				assertContains(t, rg.Stdout, "Loaded body content")
+				assertContains(test, getResult.Stdout, "Loaded Title")
+				assertContains(test, getResult.Stdout, "Loaded body content")
 			},
 		},
 		{
 			name: "annotate_positional_file",
-			run: func(t *testing.T, env *Env, dir string) {
-				writeFixture(t, dir, "note.md", "annotation loaded from file")
-				r := env.Run("task", "create", "Annotate target")
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+			run: func(test *testing.T, env *Env, dir string) {
+				writeFixture(test, dir, "note.md", "annotation loaded from file")
+				createResult := env.Run("task", "create", "Annotate target")
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				ra := env.Run("task", "annotate", "$0.short_id", "@./note.md")
-				if ra.Err != nil {
-					t.Fatalf("annotate: %v\n%s", ra.Err, ra.Stderr)
+				annotateResult := env.Run("task", "annotate", "$0.short_id", "@./note.md")
+				if annotateResult.Err != nil {
+					test.Fatalf("annotate: %v\n%s", annotateResult.Err, annotateResult.Stderr)
 				}
-				rg := env.Run("task", "get", "$0.short_id")
-				if rg.Err != nil {
-					t.Fatalf("get: %v\n%s", rg.Err, rg.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, rg.Stdout, "annotation loaded from file")
+				assertContains(test, getResult.Stdout, "annotation loaded from file")
 			},
 		},
 		{
 			name: "stale_short_flag_rejected",
-			run: func(t *testing.T, env *Env, _ string) {
-				r := env.Run("task", "create", "t", "-d", "body")
-				if r.Err == nil {
-					t.Fatalf("expected error, stdout: %s", r.Stdout)
+			run: func(test *testing.T, env *Env, _ string) {
+				result := env.Run("task", "create", "t", "-d", "body")
+				if result.Err == nil {
+					test.Fatalf("expected error, stdout: %s", result.Stdout)
 				}
-				if !strings.Contains(r.Stderr, "unknown shorthand flag") &&
-					!strings.Contains(r.Stderr, "unknown shorthand") {
-					t.Fatalf("expected unknown shorthand flag error, got stderr:\n%s", r.Stderr)
+				if !strings.Contains(result.Stderr, "unknown shorthand flag") &&
+					!strings.Contains(result.Stderr, "unknown shorthand") {
+					test.Fatalf("expected unknown shorthand flag error, got stderr:\n%s", result.Stderr)
 				}
 			},
 		},
 		{
 			name: "stale_long_flag_rejected",
-			run: func(t *testing.T, env *Env, _ string) {
-				r := env.Run("task", "create", "t", "--description", "body")
-				if r.Err == nil {
-					t.Fatalf("expected error, stdout: %s", r.Stdout)
+			run: func(test *testing.T, env *Env, _ string) {
+				result := env.Run("task", "create", "t", "--description", "body")
+				if result.Err == nil {
+					test.Fatalf("expected error, stdout: %s", result.Stdout)
 				}
-				if !strings.Contains(r.Stderr, "unknown flag") {
-					t.Fatalf("expected unknown flag error, got stderr:\n%s", r.Stderr)
+				if !strings.Contains(result.Stderr, "unknown flag") {
+					test.Fatalf("expected unknown flag error, got stderr:\n%s", result.Stderr)
 				}
 			},
 		},
 		{
 			name: "binary_file_rejected",
-			run: func(t *testing.T, env *Env, dir string) {
+			run: func(test *testing.T, env *Env, dir string) {
 				path := filepath.Join(dir, "binary.bin")
 				if err := os.WriteFile(path, []byte("hello\x00world"), 0o644); err != nil {
-					t.Fatalf("writing binary fixture: %v", err)
+					test.Fatalf("writing binary fixture: %v", err)
 				}
-				r := env.Run("task", "create", "Bin task", "description=@./binary.bin")
-				if r.Err == nil {
-					t.Fatalf("expected error, stdout: %s", r.Stdout)
+				result := env.Run("task", "create", "Bin task", "description=@./binary.bin")
+				if result.Err == nil {
+					test.Fatalf("expected error, stdout: %s", result.Stdout)
 				}
-				if !strings.Contains(r.Stderr, "binary file") {
-					t.Fatalf("expected binary file error, got stderr:\n%s", r.Stderr)
+				if !strings.Contains(result.Stderr, "binary file") {
+					test.Fatalf("expected binary file error, got stderr:\n%s", result.Stderr)
 				}
 			},
 		},
 		{
 			name: "file_over_size_cap",
-			run: func(t *testing.T, env *Env, dir string) {
+			run: func(test *testing.T, env *Env, dir string) {
 				// Override the default 1 MB cap with a tiny 100-byte cap via
 				// a workspace tusk.toml at the scenario root. The binary's
 				// walk-up config loader picks it up because InDir sets the
 				// CLI's working directory to `dir`.
 				cfg := "[inline]\nmax_expansion_size = 100\n"
-				writeFixture(t, dir, "tusk.toml", cfg)
+				writeFixture(test, dir, "tusk.toml", cfg)
 				big := strings.Repeat("x", 200)
-				writeFixture(t, dir, "big.txt", big)
+				writeFixture(test, dir, "big.txt", big)
 
-				r := env.Run("task", "create", "Big task", "description=@./big.txt")
-				if r.Err == nil {
-					t.Fatalf("expected error, stdout: %s", r.Stdout)
+				result := env.Run("task", "create", "Big task", "description=@./big.txt")
+				if result.Err == nil {
+					test.Fatalf("expected error, stdout: %s", result.Stdout)
 				}
-				if !strings.Contains(r.Stderr, "exceeds") || !strings.Contains(r.Stderr, "limit") {
-					t.Fatalf("expected size-cap error with 'exceeds' and 'limit', got stderr:\n%s", r.Stderr)
+				if !strings.Contains(result.Stderr, "exceeds") || !strings.Contains(result.Stderr, "limit") {
+					test.Fatalf("expected size-cap error with 'exceeds' and 'limit', got stderr:\n%s", result.Stderr)
 				}
 			},
 		},
@@ -259,29 +259,29 @@ func TestCLI_InlineExpansion(t *testing.T) {
 			// token quotes before the expander runs. The mid-string form
 			// below is the documented way to reference a path with a space.
 			name: "quoted_path_with_space",
-			run: func(t *testing.T, env *Env, dir string) {
-				writeFixture(t, dir, "my file.txt", "spaced content")
-				r := env.Run("task", "create", "Spaced task",
+			run: func(test *testing.T, env *Env, dir string) {
+				writeFixture(test, dir, "my file.txt", "spaced content")
+				createResult := env.Run("task", "create", "Spaced task",
 					`description="prefix @\"./my file.txt\" suffix"`)
-				if r.Err != nil {
-					t.Fatalf("create: %v\n%s", r.Err, r.Stderr)
+				if createResult.Err != nil {
+					test.Fatalf("create: %v\n%s", createResult.Err, createResult.Stderr)
 				}
-				rg := env.Run("task", "get", "$0.short_id")
-				if rg.Err != nil {
-					t.Fatalf("get: %v\n%s", rg.Err, rg.Stderr)
+				getResult := env.Run("task", "get", "$0.short_id")
+				if getResult.Err != nil {
+					test.Fatalf("get: %v\n%s", getResult.Err, getResult.Stderr)
 				}
-				assertContains(t, rg.Stdout, "prefix spaced content suffix")
+				assertContains(test, getResult.Stdout, "prefix spaced content suffix")
 			},
 		},
 	}
 
-	runInlineScenarios(t, scenarios)
+	runInlineScenarios(test, scenarios)
 }
 
 // TestCLI_InlineExpansion_Stdin exercises the `@-` stdin path for both the
 // annotate positional body and `description=@-` on create. Each scenario
 // runs across the (dbMode, format) matrix via runScenarios.
-func TestCLI_InlineExpansion_Stdin(t *testing.T) {
+func TestCLI_InlineExpansion_Stdin(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "annotate_stdin",
@@ -293,8 +293,8 @@ func TestCLI_InlineExpansion_Stdin(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					Assert: func(t *testing.T, r Result) {
-						assertContains(t, r.Stdout, "piped note body")
+					Assert: func(test *testing.T, result Result) {
+						assertContains(test, result.Stdout, "piped note body")
 					},
 				},
 			},
@@ -308,12 +308,12 @@ func TestCLI_InlineExpansion_Stdin(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					Assert: func(t *testing.T, r Result) {
-						assertContains(t, r.Stdout, "piped description body")
+					Assert: func(test *testing.T, result Result) {
+						assertContains(test, result.Stdout, "piped description body")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

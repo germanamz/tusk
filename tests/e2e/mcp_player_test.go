@@ -4,23 +4,23 @@ import (
 	"testing"
 )
 
-func TestMCPPlayerRegister(t *testing.T) {
+func TestMCPPlayerRegister(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	result := env.callTool("tusk_player_register", map[string]any{
 		"player_id": "mcp-agent-1",
 	})
 	if result["id"] != "mcp-agent-1" {
-		t.Fatalf("expected id 'mcp-agent-1', got %v", result["id"])
+		test.Fatalf("expected id 'mcp-agent-1', got %v", result["id"])
 	}
 	if result["type"] != "agent" {
-		t.Fatalf("expected type 'agent', got %v", result["type"])
+		test.Fatalf("expected type 'agent', got %v", result["type"])
 	}
 	if result["registered_at"] == nil {
-		t.Fatal("expected registered_at to be set")
+		test.Fatal("expected registered_at to be set")
 	}
 
 	// Duplicate registration should fail
@@ -28,15 +28,15 @@ func TestMCPPlayerRegister(t *testing.T) {
 		"player_id": "mcp-agent-1",
 	})
 	if errMsg == "" {
-		t.Fatal("expected error on duplicate registration")
+		test.Fatal("expected error on duplicate registration")
 	}
 }
 
-func TestMCPTaskClaim(t *testing.T) {
+func TestMCPTaskClaim(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// Register player and create task
 	env.callTool("tusk_player_register", map[string]any{"player_id": "claimer-1"})
@@ -51,18 +51,18 @@ func TestMCPTaskClaim(t *testing.T) {
 		"version":   version,
 	})
 	if claimed["claimed_by"] != "claimer-1" {
-		t.Fatalf("expected claimed_by 'claimer-1', got %v", claimed["claimed_by"])
+		test.Fatalf("expected claimed_by 'claimer-1', got %v", claimed["claimed_by"])
 	}
 	if claimed["claimed_at"] == nil {
-		t.Fatal("expected claimed_at to be set")
+		test.Fatal("expected claimed_at to be set")
 	}
 }
 
-func TestMCPTaskRelease(t *testing.T) {
+func TestMCPTaskRelease(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	env.callTool("tusk_player_register", map[string]any{"player_id": "releaser-1"})
 	created := env.callTool("tusk_task_create", map[string]any{"title": "MCP release test"})
@@ -83,18 +83,18 @@ func TestMCPTaskRelease(t *testing.T) {
 		"version":   claimedVersion,
 	})
 	if released["claimed_by"] != nil {
-		t.Fatalf("expected claimed_by nil after release, got %v", released["claimed_by"])
+		test.Fatalf("expected claimed_by nil after release, got %v", released["claimed_by"])
 	}
 	if released["claimed_at"] != nil {
-		t.Fatalf("expected claimed_at nil after release, got %v", released["claimed_at"])
+		test.Fatalf("expected claimed_at nil after release, got %v", released["claimed_at"])
 	}
 }
 
-func TestMCPTaskStartWithPlayer(t *testing.T) {
+func TestMCPTaskStartWithPlayer(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// Create task — do NOT pre-register player (auto-register should handle it)
 	created := env.callTool("tusk_task_create", map[string]any{"title": "MCP start auto-claim"})
@@ -108,18 +108,18 @@ func TestMCPTaskStartWithPlayer(t *testing.T) {
 		"player_id": "auto-agent",
 	})
 	if started["status"] != "active" {
-		t.Fatalf("expected status 'active', got %v", started["status"])
+		test.Fatalf("expected status 'active', got %v", started["status"])
 	}
 	if started["claimed_by"] != "auto-agent" {
-		t.Fatalf("expected claimed_by 'auto-agent', got %v", started["claimed_by"])
+		test.Fatalf("expected claimed_by 'auto-agent', got %v", started["claimed_by"])
 	}
 }
 
-func TestMCPTaskClaimAlreadyClaimed(t *testing.T) {
+func TestMCPTaskClaimAlreadyClaimed(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	env.callTool("tusk_player_register", map[string]any{"player_id": "first"})
 	env.callTool("tusk_player_register", map[string]any{"player_id": "second"})
@@ -142,15 +142,15 @@ func TestMCPTaskClaimAlreadyClaimed(t *testing.T) {
 		"version":   claimedVersion,
 	})
 	if errMsg == "" {
-		t.Fatal("expected error when second player claims")
+		test.Fatal("expected error when second player claims")
 	}
 }
 
-func TestMCPReadToolLiveness(t *testing.T) {
+func TestMCPReadToolLiveness(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// Register player
 	env.callTool("tusk_player_register", map[string]any{"player_id": "liveness-agent"})
@@ -163,6 +163,6 @@ func TestMCPReadToolLiveness(t *testing.T) {
 		"player_id": "liveness-agent",
 	})
 	if fetched["title"] != "Liveness test" {
-		t.Fatalf("expected title 'Liveness test', got %v", fetched["title"])
+		test.Fatalf("expected title 'Liveness test', got %v", fetched["title"])
 	}
 }

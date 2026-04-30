@@ -22,11 +22,11 @@ type jsonRPCResponse struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 
-func TestMCPTaskLifecycle(t *testing.T) {
+func TestMCPTaskLifecycle(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// Create a task
 	created := env.callTool("tusk_task_create", map[string]any{
@@ -37,13 +37,13 @@ func TestMCPTaskLifecycle(t *testing.T) {
 
 	shortID, ok := created["short_id"].(string)
 	if !ok || shortID == "" {
-		t.Fatal("created task missing short_id")
+		test.Fatal("created task missing short_id")
 	}
 	if created["title"] != "MCP test task" {
-		t.Fatalf("expected title 'MCP test task', got %v", created["title"])
+		test.Fatalf("expected title 'MCP test task', got %v", created["title"])
 	}
 	if created["status"] != "pending" {
-		t.Fatalf("expected status 'pending', got %v", created["status"])
+		test.Fatalf("expected status 'pending', got %v", created["status"])
 	}
 
 	// Get the task (rich response)
@@ -51,11 +51,11 @@ func TestMCPTaskLifecycle(t *testing.T) {
 		"short_id": shortID,
 	})
 	if fetched["title"] != "MCP test task" {
-		t.Fatalf("get: expected title 'MCP test task', got %v", fetched["title"])
+		test.Fatalf("get: expected title 'MCP test task', got %v", fetched["title"])
 	}
 	tags, _ := fetched["tags"].([]any)
 	if len(tags) != 2 {
-		t.Fatalf("get: expected 2 tags, got %d", len(tags))
+		test.Fatalf("get: expected 2 tags, got %d", len(tags))
 	}
 
 	// Start the task
@@ -65,7 +65,7 @@ func TestMCPTaskLifecycle(t *testing.T) {
 		"version":  version,
 	})
 	if started["status"] != "active" {
-		t.Fatalf("expected status 'active', got %v", started["status"])
+		test.Fatalf("expected status 'active', got %v", started["status"])
 	}
 
 	// Complete the task
@@ -75,7 +75,7 @@ func TestMCPTaskLifecycle(t *testing.T) {
 		"version":  version,
 	})
 	if completed["status"] != "completed" {
-		t.Fatalf("expected status 'completed', got %v", completed["status"])
+		test.Fatalf("expected status 'completed', got %v", completed["status"])
 	}
 
 	// List tasks
@@ -84,21 +84,21 @@ func TestMCPTaskLifecycle(t *testing.T) {
 	})
 	var listed []map[string]any
 	if err := json.Unmarshal([]byte(listRaw), &listed); err != nil {
-		t.Fatalf("parsing list result: %v", err)
+		test.Fatalf("parsing list result: %v", err)
 	}
 	if len(listed) != 1 {
-		t.Fatalf("expected 1 completed task, got %d", len(listed))
+		test.Fatalf("expected 1 completed task, got %d", len(listed))
 	}
 	if listed[0]["short_id"] != shortID {
-		t.Fatalf("listed task short_id mismatch")
+		test.Fatalf("listed task short_id mismatch")
 	}
 }
 
-func TestMCPTaskModify(t *testing.T) {
+func TestMCPTaskModify(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{
 		"title": "Original title",
@@ -114,18 +114,18 @@ func TestMCPTaskModify(t *testing.T) {
 		"add_tags": []string{"urgent"},
 	})
 	if modified["title"] != "Updated title" {
-		t.Fatalf("expected 'Updated title', got %v", modified["title"])
+		test.Fatalf("expected 'Updated title', got %v", modified["title"])
 	}
 	if modified["priority"].(float64) != 2 {
-		t.Fatalf("expected priority 2, got %v", modified["priority"])
+		test.Fatalf("expected priority 2, got %v", modified["priority"])
 	}
 }
 
-func TestMCPRelations(t *testing.T) {
+func TestMCPRelations(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	task1 := env.callTool("tusk_task_create", map[string]any{"title": "Blocker"})
 	task2 := env.callTool("tusk_task_create", map[string]any{"title": "Blocked"})
@@ -140,14 +140,14 @@ func TestMCPRelations(t *testing.T) {
 		"type":   "blocks",
 	})
 	if rel["relation_type"] != "blocks" {
-		t.Fatalf("expected relation_type 'blocks', got %v", rel["relation_type"])
+		test.Fatalf("expected relation_type 'blocks', got %v", rel["relation_type"])
 	}
 
 	// Verify relation in task get
 	fetched := env.callTool("tusk_task_get", map[string]any{"short_id": shortID2})
 	relations, _ := fetched["relations"].([]any)
 	if len(relations) != 1 {
-		t.Fatalf("expected 1 relation, got %d", len(relations))
+		test.Fatalf("expected 1 relation, got %d", len(relations))
 	}
 
 	// Remove relation
@@ -161,48 +161,48 @@ func TestMCPRelations(t *testing.T) {
 	fetched2 := env.callTool("tusk_task_get", map[string]any{"short_id": shortID2})
 	relations2, _ := fetched2["relations"].([]any)
 	if len(relations2) != 0 {
-		t.Fatalf("expected 0 relations after remove, got %d", len(relations2))
+		test.Fatalf("expected 0 relations after remove, got %d", len(relations2))
 	}
 }
 
-func TestMCPProjects(t *testing.T) {
+func TestMCPProjects(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// List projects (should have default)
 	listRaw := env.callToolRaw("tusk_project_list", map[string]any{})
 	var projects []map[string]any
 	if err := json.Unmarshal([]byte(listRaw), &projects); err != nil {
-		t.Fatalf("parsing project list: %v", err)
+		test.Fatalf("parsing project list: %v", err)
 	}
 	found := false
-	for _, p := range projects {
-		if p["id"] == "default" {
+	for _, project := range projects {
+		if project["id"] == "default" {
 			found = true
-			if p["workflow"] != "kanban" {
-				t.Fatalf("expected workflow 'kanban', got %v", p["workflow"])
+			if project["workflow"] != "kanban" {
+				test.Fatalf("expected workflow 'kanban', got %v", project["workflow"])
 			}
 		}
 	}
 	if !found {
-		t.Fatal("default project not found in list")
+		test.Fatal("default project not found in list")
 	}
 }
 
-func TestMCPErrorHandling(t *testing.T) {
+func TestMCPErrorHandling(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// Not found
 	errMsg := env.callToolExpectError("tusk_task_get", map[string]any{
 		"short_id": "nonexistent",
 	})
 	if !strings.Contains(errMsg, "not found") {
-		t.Fatalf("expected 'not found' error, got: %s", errMsg)
+		test.Fatalf("expected 'not found' error, got: %s", errMsg)
 	}
 
 	// Version conflict
@@ -214,7 +214,7 @@ func TestMCPErrorHandling(t *testing.T) {
 		"version":  999,
 	})
 	if !strings.Contains(errMsg, "version conflict") {
-		t.Fatalf("expected 'version conflict' error, got: %s", errMsg)
+		test.Fatalf("expected 'version conflict' error, got: %s", errMsg)
 	}
 
 	// Cyclic blocks
@@ -230,40 +230,40 @@ func TestMCPErrorHandling(t *testing.T) {
 		"source": sid2, "target": sid1, "type": "blocks",
 	})
 	if !strings.Contains(errMsg, "cycle") {
-		t.Fatalf("expected 'cycle' error, got: %s", errMsg)
+		test.Fatalf("expected 'cycle' error, got: %s", errMsg)
 	}
 }
 
-func TestMCPAnnotations(t *testing.T) {
+func TestMCPAnnotations(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "Annotate me"})
 	shortID := created["short_id"].(string)
 
-	ann := env.callTool("tusk_task_annotate", map[string]any{
+	annotation := env.callTool("tusk_task_annotate", map[string]any{
 		"short_id": shortID,
 		"body":     "This is a note",
 	})
-	if ann["body"] != "This is a note" {
-		t.Fatalf("expected annotation body 'This is a note', got %v", ann["body"])
+	if annotation["body"] != "This is a note" {
+		test.Fatalf("expected annotation body 'This is a note', got %v", annotation["body"])
 	}
 
 	// Verify annotation appears in task get
 	fetched := env.callTool("tusk_task_get", map[string]any{"short_id": shortID})
 	annotations, _ := fetched["annotations"].([]any)
 	if len(annotations) != 1 {
-		t.Fatalf("expected 1 annotation, got %d", len(annotations))
+		test.Fatalf("expected 1 annotation, got %d", len(annotations))
 	}
 }
 
-func TestMCPTaskDelete(t *testing.T) {
+func TestMCPTaskDelete(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{
 		"title": "Delete me",
@@ -282,7 +282,7 @@ func TestMCPTaskDelete(t *testing.T) {
 	// Verify start returns tags
 	startTags, _ := started["tags"].([]any)
 	if len(startTags) != 1 || startTags[0] != "doomed" {
-		t.Fatalf("start: expected tags [doomed], got %v", startTags)
+		test.Fatalf("start: expected tags [doomed], got %v", startTags)
 	}
 
 	deleted := env.callTool("tusk_task_delete", map[string]any{
@@ -290,13 +290,13 @@ func TestMCPTaskDelete(t *testing.T) {
 		"version":  version,
 	})
 	if deleted["status"] != "deleted" {
-		t.Fatalf("expected status 'deleted', got %v", deleted["status"])
+		test.Fatalf("expected status 'deleted', got %v", deleted["status"])
 	}
 
 	// Verify delete also returns tags
 	deleteTags, _ := deleted["tags"].([]any)
 	if len(deleteTags) != 1 || deleteTags[0] != "doomed" {
-		t.Fatalf("delete: expected tags [doomed], got %v", deleteTags)
+		test.Fatalf("delete: expected tags [doomed], got %v", deleteTags)
 	}
 
 	// Verify it no longer appears in default list
@@ -305,20 +305,20 @@ func TestMCPTaskDelete(t *testing.T) {
 	})
 	var listed []map[string]any
 	if err := json.Unmarshal([]byte(listRaw), &listed); err != nil {
-		t.Fatalf("parsing list: %v", err)
+		test.Fatalf("parsing list: %v", err)
 	}
 	for _, task := range listed {
 		if task["short_id"] == shortID {
-			t.Fatal("deleted task should not appear in pending/active list")
+			test.Fatal("deleted task should not appear in pending/active list")
 		}
 	}
 }
 
-func TestMCPResources(t *testing.T) {
+func TestMCPResources(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	// Create a task with tags and an annotation
 	created := env.callTool("tusk_task_create", map[string]any{
@@ -337,7 +337,7 @@ func TestMCPResources(t *testing.T) {
 		"uri": "tusk://tasks/" + shortID,
 	})
 	if resp.Error != nil {
-		t.Fatalf("task resource error: %s", resp.Error)
+		test.Fatalf("task resource error: %s", resp.Error)
 	}
 	var taskRes struct {
 		Contents []struct {
@@ -347,28 +347,28 @@ func TestMCPResources(t *testing.T) {
 		} `json:"contents"`
 	}
 	if err := json.Unmarshal(resp.Result, &taskRes); err != nil {
-		t.Fatalf("parsing task resource: %v", err)
+		test.Fatalf("parsing task resource: %v", err)
 	}
 	if len(taskRes.Contents) != 1 {
-		t.Fatalf("expected 1 content block, got %d", len(taskRes.Contents))
+		test.Fatalf("expected 1 content block, got %d", len(taskRes.Contents))
 	}
 	if taskRes.Contents[0].MIMEType != "application/json" {
-		t.Fatalf("expected application/json, got %s", taskRes.Contents[0].MIMEType)
+		test.Fatalf("expected application/json, got %s", taskRes.Contents[0].MIMEType)
 	}
 	var taskData map[string]any
 	if err := json.Unmarshal([]byte(taskRes.Contents[0].Text), &taskData); err != nil {
-		t.Fatalf("parsing task resource JSON: %v", err)
+		test.Fatalf("parsing task resource JSON: %v", err)
 	}
 	if taskData["title"] != "Resource test task" {
-		t.Fatalf("expected title 'Resource test task', got %v", taskData["title"])
+		test.Fatalf("expected title 'Resource test task', got %v", taskData["title"])
 	}
 	annotations, _ := taskData["annotations"].([]any)
 	if len(annotations) != 1 {
-		t.Fatalf("expected 1 annotation in resource, got %d", len(annotations))
+		test.Fatalf("expected 1 annotation in resource, got %d", len(annotations))
 	}
 	tags, _ := taskData["tags"].([]any)
 	if len(tags) != 1 || tags[0] != "res-tag" {
-		t.Fatalf("expected tags [res-tag], got %v", tags)
+		test.Fatalf("expected tags [res-tag], got %v", tags)
 	}
 
 	// Read project resource
@@ -376,7 +376,7 @@ func TestMCPResources(t *testing.T) {
 		"uri": "tusk://projects/default",
 	})
 	if resp.Error != nil {
-		t.Fatalf("project resource error: %s", resp.Error)
+		test.Fatalf("project resource error: %s", resp.Error)
 	}
 	var projRes struct {
 		Contents []struct {
@@ -384,14 +384,14 @@ func TestMCPResources(t *testing.T) {
 		} `json:"contents"`
 	}
 	if err := json.Unmarshal(resp.Result, &projRes); err != nil {
-		t.Fatalf("parsing project resource: %v", err)
+		test.Fatalf("parsing project resource: %v", err)
 	}
 	var projData map[string]any
 	if err := json.Unmarshal([]byte(projRes.Contents[0].Text), &projData); err != nil {
-		t.Fatalf("parsing project JSON: %v", err)
+		test.Fatalf("parsing project JSON: %v", err)
 	}
 	if projData["id"] != "default" {
-		t.Fatalf("expected project id 'default', got %v", projData["id"])
+		test.Fatalf("expected project id 'default', got %v", projData["id"])
 	}
 
 	// Read workflow resource
@@ -399,35 +399,35 @@ func TestMCPResources(t *testing.T) {
 		"uri": "tusk://projects/default/workflow",
 	})
 	if resp.Error != nil {
-		t.Fatalf("workflow resource error: %s", resp.Error)
+		test.Fatalf("workflow resource error: %s", resp.Error)
 	}
-	var wfRes struct {
+	var workflowRes struct {
 		Contents []struct {
 			Text string `json:"text"`
 		} `json:"contents"`
 	}
-	if err := json.Unmarshal(resp.Result, &wfRes); err != nil {
-		t.Fatalf("parsing workflow resource: %v", err)
+	if err := json.Unmarshal(resp.Result, &workflowRes); err != nil {
+		test.Fatalf("parsing workflow resource: %v", err)
 	}
-	var wfData map[string]any
-	if err := json.Unmarshal([]byte(wfRes.Contents[0].Text), &wfData); err != nil {
-		t.Fatalf("parsing workflow JSON: %v", err)
+	var workflowData map[string]any
+	if err := json.Unmarshal([]byte(workflowRes.Contents[0].Text), &workflowData); err != nil {
+		test.Fatalf("parsing workflow JSON: %v", err)
 	}
-	statuses, _ := wfData["statuses"].([]any)
+	statuses, _ := workflowData["statuses"].([]any)
 	if len(statuses) == 0 {
-		t.Fatal("workflow resource returned no statuses")
+		test.Fatal("workflow resource returned no statuses")
 	}
-	transitions, _ := wfData["transitions"].([]any)
+	transitions, _ := workflowData["transitions"].([]any)
 	if len(transitions) == 0 {
-		t.Fatal("workflow resource returned no transitions")
+		test.Fatal("workflow resource returned no transitions")
 	}
 }
 
-func TestMCPTree(t *testing.T) {
+func TestMCPTree(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	parent := env.callTool("tusk_task_create", map[string]any{"title": "Parent"})
 	parentSID := parent["short_id"].(string)
@@ -446,13 +446,13 @@ func TestMCPTree(t *testing.T) {
 	})
 	var tree []map[string]any
 	if err := json.Unmarshal([]byte(treeRaw), &tree); err != nil {
-		t.Fatalf("parsing tree: %v", err)
+		test.Fatalf("parsing tree: %v", err)
 	}
 	if len(tree) != 1 {
-		t.Fatalf("expected 1 root node, got %d", len(tree))
+		test.Fatalf("expected 1 root node, got %d", len(tree))
 	}
 	children, _ := tree[0]["children"].([]any)
 	if len(children) != 2 {
-		t.Fatalf("expected 2 children, got %d", len(children))
+		test.Fatalf("expected 2 children, got %d", len(children))
 	}
 }

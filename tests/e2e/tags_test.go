@@ -2,19 +2,19 @@ package e2e
 
 import "testing"
 
-func TestTags(t *testing.T) {
+func TestTags(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "create_with_tags",
 			Steps: []Step{
 				{
 					Args: []string{"task", "create", "Tagged task", "+api", "+backend"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						tags := m["tags"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						tags := mapped["tags"].([]any)
 						if len(tags) != 2 {
-							t.Fatalf("expected 2 tags, got %d", len(tags))
+							test.Fatalf("expected 2 tags, got %d", len(tags))
 						}
 						// Tags may be in any order, check both exist
 						tagSet := map[string]bool{}
@@ -22,12 +22,12 @@ func TestTags(t *testing.T) {
 							tagSet[tag.(string)] = true
 						}
 						if !tagSet["api"] || !tagSet["backend"] {
-							t.Fatalf("expected tags [api, backend], got %v", tags)
+							test.Fatalf("expected tags [api, backend], got %v", tags)
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Created task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Created task")
 					},
 				},
 			},
@@ -40,18 +40,18 @@ func TestTags(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "modify", "$0.short_id", "+newtag"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						tags := m["tags"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						tags := mapped["tags"].([]any)
 						if len(tags) != 1 {
-							t.Fatalf("expected 1 tag, got %d", len(tags))
+							test.Fatalf("expected 1 tag, got %d", len(tags))
 						}
-						assertEqual(t, tags[0], "newtag")
+						assertEqual(test, tags[0], "newtag")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Modified task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Modified task")
 					},
 				},
 			},
@@ -64,17 +64,17 @@ func TestTags(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "modify", "$0.short_id", "--", "-removeme"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						tags := m["tags"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						tags := mapped["tags"].([]any)
 						if len(tags) != 0 {
-							t.Fatalf("expected 0 tags after removal, got %d: %v", len(tags), tags)
+							test.Fatalf("expected 0 tags after removal, got %d: %v", len(tags), tags)
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Modified task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Modified task")
 					},
 				},
 			},
@@ -87,20 +87,20 @@ func TestTags(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(arr))
+							test.Fatalf("expected 1 task, got %d", len(arr))
 						}
 						tags := arr[0].(map[string]any)["tags"].([]any)
 						if len(tags) != 1 || tags[0] != "visible" {
-							t.Fatalf("expected tags [visible], got %v", tags)
+							test.Fatalf("expected tags [visible], got %v", tags)
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "+visible")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "+visible")
 					},
 				},
 			},
@@ -113,19 +113,19 @@ func TestTags(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						tags := m["tags"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						tags := mapped["tags"].([]any)
 						if len(tags) != 2 {
-							t.Fatalf("expected 2 tags, got %d", len(tags))
+							test.Fatalf("expected 2 tags, got %d", len(tags))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Tags:")
-						assertContains(t, output, "+frontend")
-						assertContains(t, output, "+urgent")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Tags:")
+						assertContains(test, output, "+frontend")
+						assertContains(test, output, "+urgent")
 					},
 				},
 			},
@@ -144,23 +144,23 @@ func TestTags(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "+searchable"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task with tag, got %d", len(arr))
+							test.Fatalf("expected 1 task with tag, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Will get tag")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Will get tag")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Will get tag")
-						assertNotContains(t, output, "Never gets tag")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Will get tag")
+						assertNotContains(test, output, "Never gets tag")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
