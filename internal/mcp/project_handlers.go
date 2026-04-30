@@ -20,12 +20,12 @@ func parseStringMap(raw any) (map[string]string, error) {
 		return nil, fmt.Errorf("expected object")
 	}
 	out := make(map[string]string, len(m))
-	for k, v := range m {
-		s, ok := v.(string)
+	for key, value := range m {
+		strVal, ok := value.(string)
 		if !ok {
-			return nil, fmt.Errorf("key %q: expected string value", k)
+			return nil, fmt.Errorf("key %q: expected string value", key)
 		}
-		out[k] = s
+		out[key] = strVal
 	}
 	return out, nil
 }
@@ -39,12 +39,12 @@ func parseFloatMap(raw any) (map[string]float64, error) {
 		return nil, fmt.Errorf("expected object")
 	}
 	out := make(map[string]float64, len(m))
-	for k, v := range m {
-		f, ok := v.(float64)
+	for key, value := range m {
+		floatVal, ok := value.(float64)
 		if !ok {
-			return nil, fmt.Errorf("key %q: expected number", k)
+			return nil, fmt.Errorf("key %q: expected number", key)
 		}
-		out[k] = f
+		out[key] = floatVal
 	}
 	return out, nil
 }
@@ -53,35 +53,35 @@ func urgencyOverrideFromMap(weights map[string]float64) (*domain.UrgencyOverride
 	if len(weights) == 0 {
 		return nil, nil
 	}
-	o := &domain.UrgencyOverrides{}
-	for k, v := range weights {
-		val := v
-		switch k {
+	overrides := &domain.UrgencyOverrides{}
+	for key, val := range weights {
+		weight := val
+		switch key {
 		case "priority_weight":
-			o.PriorityWeight = &val
+			overrides.PriorityWeight = &weight
 		case "due_weight":
-			o.DueWeight = &val
+			overrides.DueWeight = &weight
 		case "age_weight":
-			o.AgeWeight = &val
+			overrides.AgeWeight = &weight
 		case "active_weight":
-			o.ActiveWeight = &val
+			overrides.ActiveWeight = &weight
 		case "blocking_weight":
-			o.BlockingWeight = &val
+			overrides.BlockingWeight = &weight
 		case "blocked_weight":
-			o.BlockedWeight = &val
+			overrides.BlockedWeight = &weight
 		case "tags_weight":
-			o.TagsWeight = &val
+			overrides.TagsWeight = &weight
 		case "project_weight":
-			o.ProjectWeight = &val
+			overrides.ProjectWeight = &weight
 		case "annotations_weight":
-			o.AnnotationsWeight = &val
+			overrides.AnnotationsWeight = &weight
 		case "waiting_weight":
-			o.WaitingWeight = &val
+			overrides.WaitingWeight = &weight
 		default:
-			return nil, fmt.Errorf("unknown urgency key %q", k)
+			return nil, fmt.Errorf("unknown urgency key %q", key)
 		}
 	}
-	return o, nil
+	return overrides, nil
 }
 
 func autoCompleteFromMap(raw map[string]string) *domain.AutoCompleteConfig {
@@ -128,18 +128,25 @@ func parseTaxonomyInput(args map[string]any) (bool, *service.TaxonomyMutation, e
 	if !ok {
 		return true, nil, fmt.Errorf("taxonomy: missing ranks")
 	}
-	ranks, err := parseRanks(ranksRaw)
-	if err != nil {
-		return true, nil, fmt.Errorf("taxonomy: %w", err)
+
+	ranks, ranksErr := parseRanks(ranksRaw)
+
+	if ranksErr != nil {
+		return true, nil, fmt.Errorf("taxonomy: %w", ranksErr)
 	}
+
 	if len(ranks) == 0 {
 		return true, &service.TaxonomyMutation{Value: domain.Taxonomy{}}, nil
 	}
-	tax := domain.Taxonomy(ranks)
-	if err := tax.Validate(); err != nil {
-		return true, nil, fmt.Errorf("taxonomy: %w", err)
+	taxonomy := domain.Taxonomy(ranks)
+
+	validateErr := taxonomy.Validate()
+
+	if validateErr != nil {
+		return true, nil, fmt.Errorf("taxonomy: %w", validateErr)
 	}
-	return true, &service.TaxonomyMutation{Value: tax}, nil
+
+	return true, &service.TaxonomyMutation{Value: taxonomy}, nil
 }
 
 // parseRanks converts a JSON-decoded ranks array ([]any of []any of string)
@@ -150,97 +157,117 @@ func parseRanks(raw any) ([][]string, error) {
 		return nil, fmt.Errorf("ranks: expected array")
 	}
 	out := make([][]string, 0, len(arr))
-	for i, rank := range arr {
+	for rankIdx, rank := range arr {
 		peersArr, ok := rank.([]any)
 		if !ok {
-			return nil, fmt.Errorf("ranks[%d]: expected array", i)
+			return nil, fmt.Errorf("ranks[%d]: expected array", rankIdx)
 		}
 		peers := make([]string, 0, len(peersArr))
-		for j, p := range peersArr {
-			s, ok := p.(string)
+		for j, peer := range peersArr {
+			str, ok := peer.(string)
 			if !ok {
-				return nil, fmt.Errorf("ranks[%d][%d]: expected string", i, j)
+				return nil, fmt.Errorf("ranks[%d][%d]: expected string", rankIdx, j)
 			}
-			peers = append(peers, s)
+			peers = append(peers, str)
 		}
 		out = append(out, peers)
 	}
 	return out, nil
 }
 
-func (s *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_project_create", req); result != nil {
+func (server *Server) handleProjectCreate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_project_create", req); result != nil {
 		return result, nil
 	}
-	name, err := req.RequireString("name")
-	if err != nil {
+
+	name, nameErr := req.RequireString("name")
+
+	if nameErr != nil {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	workflowName, err := req.RequireString("workflow")
-	if err != nil {
+
+	workflowName, workflowNameErr := req.RequireString("workflow")
+
+	if workflowNameErr != nil {
 		return mcp.NewToolResultError("workflow is required"), nil
 	}
+
 	args := req.GetArguments()
 
-	weights, err := parseFloatMap(args["urgency"])
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("urgency: %v", err)), nil
-	}
-	ac, err := parseStringMap(args["auto_complete"])
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("auto_complete: %v", err)), nil
-	}
-	ar, err := parseStringMap(args["auto_revert"])
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("auto_revert: %v", err)), nil
-	}
-	urgency, err := urgencyOverrideFromMap(weights)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	weights, weightsErr := parseFloatMap(args["urgency"])
+
+	if weightsErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("urgency: %v", weightsErr)), nil
 	}
 
-	wf, err := s.workflowSvc.GetByName(ctx, workflowName)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving workflow %q: %v", workflowName, err)), nil
+	autoCompleteMap, autoCompleteErr := parseStringMap(args["auto_complete"])
+
+	if autoCompleteErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("auto_complete: %v", autoCompleteErr)), nil
+	}
+
+	autoRevertMap, autoRevertErr := parseStringMap(args["auto_revert"])
+
+	if autoRevertErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("auto_revert: %v", autoRevertErr)), nil
+	}
+
+	urgency, urgencyErr := urgencyOverrideFromMap(weights)
+
+	if urgencyErr != nil {
+		return mcp.NewToolResultError(urgencyErr.Error()), nil
+	}
+
+	workflow, workflowErr := server.workflowSvc.GetByName(ctx, workflowName)
+
+	if workflowErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolving workflow %q: %v", workflowName, workflowErr)), nil
 	}
 
 	settings := domain.ProjectSettings{
-		AutoCompleteParent: autoCompleteFromMap(ac),
-		AutoRevertParent:   autoRevertFromMap(ar),
+		AutoCompleteParent: autoCompleteFromMap(autoCompleteMap),
+		AutoRevertParent:   autoRevertFromMap(autoRevertMap),
 		Urgency:            urgency,
 	}
 
 	desc, _ := args["description"].(string)
 
-	p, err := s.projectSvc.Create(ctx, service.CreateProjectInput{
+	project, createErr := server.projectSvc.Create(ctx, service.CreateProjectInput{
 		Name:        name,
-		WorkflowID:  wf.ID,
+		WorkflowID:  workflow.ID,
 		Description: desc,
 		Settings:    settings,
 	})
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+
+	if createErr != nil {
+		return mcp.NewToolResultError(createErr.Error()), nil
 	}
-	return toolResultJSON(map[string]any{"ok": true, "project": s.toProjectResponse(p, workflowName)})
+
+	return toolResultJSON(map[string]any{"ok": true, "project": server.toProjectResponse(project, workflowName)})
 }
 
 // HandleProjectCreateForTest exposes handleProjectCreate for internal tests.
-func (s *Server) HandleProjectCreateForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleProjectCreate(ctx, req)
+func (server *Server) HandleProjectCreateForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return server.handleProjectCreate(ctx, req)
 }
 
-func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_project_modify", req); result != nil {
+func (server *Server) handleProjectModify(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_project_modify", req); result != nil {
 		return result, nil
 	}
-	name, err := req.RequireString("name")
-	if err != nil {
+
+	name, nameErr := req.RequireString("name")
+
+	if nameErr != nil {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	versionF, err := req.RequireFloat("version")
-	if err != nil {
+
+	versionF, versionErr := req.RequireFloat("version")
+
+	if versionErr != nil {
 		return mcp.NewToolResultError("version is required"), nil
 	}
+
 	args := req.GetArguments()
 
 	input := service.ModifyProjectInput{
@@ -253,12 +280,14 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 	}
 
 	if wfName, ok := args["workflow"].(string); ok && wfName != "" {
-		wf, err := s.workflowSvc.GetByName(ctx, wfName)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("resolving workflow %q: %v", wfName, err)), nil
+		workflow, workflowErr := server.workflowSvc.GetByName(ctx, wfName)
+
+		if workflowErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("resolving workflow %q: %v", wfName, workflowErr)), nil
 		}
-		id := wf.ID
-		input.WorkflowID = &id
+
+		workflowID := workflow.ID
+		input.WorkflowID = &workflowID
 	}
 
 	if rawDesc, present := args["description"]; present {
@@ -268,106 +297,128 @@ func (s *Server) handleProjectModify(ctx context.Context, req mcp.CallToolReques
 		}
 		var inner *string
 		if descStr != "" {
-			s := descStr
-			inner = &s
+			str := descStr
+			inner = &str
 		}
 		input.Description = &inner
 	}
 
-	setWeights, err := parseFloatMap(args["urgency_set"])
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("urgency_set: %v", err)), nil
-	}
-	for k, v := range setWeights {
-		input.Urgency.Set[k] = v
+	setWeights, setWeightsErr := parseFloatMap(args["urgency_set"])
+
+	if setWeightsErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("urgency_set: %v", setWeightsErr)), nil
 	}
 
-	deltaWeights, err := parseFloatMap(args["urgency_delta"])
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("urgency_delta: %v", err)), nil
-	}
-	for k, v := range deltaWeights {
-		input.Urgency.Delta[k] = v
+	for key, val := range setWeights {
+		input.Urgency.Set[key] = val
 	}
 
-	ac, err := parseStringMap(args["auto_complete"])
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("auto_complete: %v", err)), nil
-	}
-	input.AutoComplete = autoCompleteFromMap(ac)
+	deltaWeights, deltaWeightsErr := parseFloatMap(args["urgency_delta"])
 
-	ar, err := parseStringMap(args["auto_revert"])
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("auto_revert: %v", err)), nil
+	if deltaWeightsErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("urgency_delta: %v", deltaWeightsErr)), nil
 	}
-	input.AutoRevert = autoRevertFromMap(ar)
 
-	_, taxMut, err := parseTaxonomyInput(args)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	for key, val := range deltaWeights {
+		input.Urgency.Delta[key] = val
 	}
-	input.Taxonomy = taxMut
 
-	p, err := s.projectSvc.Modify(ctx, input)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	autoCompleteMap, autoCompleteErr := parseStringMap(args["auto_complete"])
+
+	if autoCompleteErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("auto_complete: %v", autoCompleteErr)), nil
 	}
-	wfName, err := s.resolveWorkflowName(ctx, p.WorkflowID)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+
+	input.AutoComplete = autoCompleteFromMap(autoCompleteMap)
+
+	autoRevertMap, autoRevertErr := parseStringMap(args["auto_revert"])
+
+	if autoRevertErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("auto_revert: %v", autoRevertErr)), nil
 	}
-	return toolResultJSON(map[string]any{"ok": true, "project": s.toProjectResponse(p, wfName)})
+
+	input.AutoRevert = autoRevertFromMap(autoRevertMap)
+
+	_, taxMutation, taxMutationErr := parseTaxonomyInput(args)
+
+	if taxMutationErr != nil {
+		return mcp.NewToolResultError(taxMutationErr.Error()), nil
+	}
+
+	input.Taxonomy = taxMutation
+
+	project, modifyErr := server.projectSvc.Modify(ctx, input)
+
+	if modifyErr != nil {
+		return mcp.NewToolResultError(modifyErr.Error()), nil
+	}
+
+	resolvedWorkflowName, resolveErr := server.resolveWorkflowName(ctx, project.WorkflowID)
+
+	if resolveErr != nil {
+		return mcp.NewToolResultError(resolveErr.Error()), nil
+	}
+
+	return toolResultJSON(map[string]any{"ok": true, "project": server.toProjectResponse(project, resolvedWorkflowName)})
 }
 
 // resolveWorkflowName looks up the workflow name for the given id, returning
 // an empty string when the workflow has been deleted out from under the
 // project. Used so project responses can surface the workflow's human name
 // without each handler duplicating the lookup.
-func (s *Server) resolveWorkflowName(ctx context.Context, id uuid.UUID) (string, error) {
-	wf, err := s.workflowSvc.GetByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
+func (server *Server) resolveWorkflowName(ctx context.Context, id uuid.UUID) (string, error) {
+	workflow, workflowErr := server.workflowSvc.GetByID(ctx, id)
+
+	if workflowErr != nil {
+		if errors.Is(workflowErr, domain.ErrNotFound) {
 			return "", nil
 		}
-		return "", err
+		return "", workflowErr
 	}
-	return wf.Name, nil
+
+	return workflow.Name, nil
 }
 
 // HandleProjectModifyForTest exposes handleProjectModify for internal tests.
-func (s *Server) HandleProjectModifyForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleProjectModify(ctx, req)
+func (server *Server) HandleProjectModifyForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return server.handleProjectModify(ctx, req)
 }
 
-func (s *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_project_delete", req); result != nil {
+func (server *Server) handleProjectDelete(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_project_delete", req); result != nil {
 		return result, nil
 	}
-	name, err := req.RequireString("name")
-	if err != nil {
+
+	name, nameErr := req.RequireString("name")
+
+	if nameErr != nil {
 		return mcp.NewToolResultError("name is required"), nil
 	}
-	versionF, err := req.RequireFloat("version")
-	if err != nil {
+
+	versionF, versionErr := req.RequireFloat("version")
+
+	if versionErr != nil {
 		return mcp.NewToolResultError("version is required"), nil
 	}
+
 	force, _ := req.GetArguments()["force"].(bool)
 
-	p, err := s.projectSvc.GetByName(ctx, name)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
+	project, lookupErr := server.projectSvc.GetByName(ctx, name)
+
+	if lookupErr != nil {
+		if errors.Is(lookupErr, domain.ErrNotFound) {
 			return mcp.NewToolResultError(fmt.Sprintf("project %q: not found", name)), nil
 		}
-		return mcp.NewToolResultError(err.Error()), nil
+		return mcp.NewToolResultError(lookupErr.Error()), nil
 	}
 
-	if err := s.projectSvc.Delete(ctx, p.ID, int(versionF), force); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	if deleteErr := server.projectSvc.Delete(ctx, project.ID, int(versionF), force); deleteErr != nil {
+		return mcp.NewToolResultError(deleteErr.Error()), nil
 	}
 	return toolResultJSON(map[string]any{"ok": true, "name": name})
 }
 
 // HandleProjectDeleteForTest exposes handleProjectDelete for internal tests.
-func (s *Server) HandleProjectDeleteForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleProjectDelete(ctx, req)
+func (server *Server) HandleProjectDeleteForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return server.handleProjectDelete(ctx, req)
 }
