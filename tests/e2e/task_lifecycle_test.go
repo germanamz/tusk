@@ -11,15 +11,15 @@ func TestTaskLifecycle(test *testing.T) {
 					Args: []string{"task", "create", "Buy milk", "priority=3"},
 					AssertJSON: func(test *testing.T, parsed any) {
 						test.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(test, m["title"], "Buy milk")
-						assertEqual(test, m["status"], "pending")
-						assertEqual(test, m["priority"], float64(3))
-						if m["short_id"] == nil || m["short_id"] == "" {
+						taskMap := parsed.(map[string]any)
+						assertEqual(test, taskMap["title"], "Buy milk")
+						assertEqual(test, taskMap["status"], "pending")
+						assertEqual(test, taskMap["priority"], float64(3))
+						if taskMap["short_id"] == nil || taskMap["short_id"] == "" {
 							test.Fatal("expected short_id to be set")
 						}
-						if m["version"] != float64(1) {
-							test.Fatalf("expected version 1, got %v", m["version"])
+						if taskMap["version"] != float64(1) {
+							test.Fatalf("expected version 1, got %v", taskMap["version"])
 						}
 					},
 					AssertText: func(test *testing.T, output string) {
@@ -197,15 +197,15 @@ func TestTaskLifecycle(test *testing.T) {
 					Args: []string{"task", "get", "$0.short_id"},
 					AssertJSON: func(test *testing.T, parsed any) {
 						test.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(test, m["title"], "Detail task")
-						assertEqual(test, m["status"], "pending")
-						assertEqual(test, m["priority"], float64(2))
-						assertEqual(test, m["version"], float64(1))
-						if m["created_at"] == nil {
+						taskMap := parsed.(map[string]any)
+						assertEqual(test, taskMap["title"], "Detail task")
+						assertEqual(test, taskMap["status"], "pending")
+						assertEqual(test, taskMap["priority"], float64(2))
+						assertEqual(test, taskMap["version"], float64(1))
+						if taskMap["created_at"] == nil {
 							test.Fatal("expected created_at")
 						}
-						if m["modified_at"] == nil {
+						if taskMap["modified_at"] == nil {
 							test.Fatal("expected modified_at")
 						}
 					},

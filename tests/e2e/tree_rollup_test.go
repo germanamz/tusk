@@ -334,13 +334,13 @@ func TestTreeRollupCustomWorkflow(test *testing.T) {
 // requireRollup returns the rollup map from a tree-node JSON object or fails.
 func requireRollup(test *testing.T, node map[string]any) map[string]any {
 	test.Helper()
-	v, ok := node["rollup"]
-	if !ok || v == nil {
+	rawVal, ok := node["rollup"]
+	if !ok || rawVal == nil {
 		test.Fatalf("expected rollup field on node, got %#v", node)
 	}
-	mapped, ok := v.(map[string]any)
+	mapped, ok := rawVal.(map[string]any)
 	if !ok {
-		test.Fatalf("expected rollup to be object, got %T", v)
+		test.Fatalf("expected rollup to be object, got %T", rawVal)
 	}
 	return mapped
 }
@@ -349,13 +349,13 @@ func requireRollup(test *testing.T, node map[string]any) map[string]any {
 // JSON-decoded floats (encoding/json always returns float64 for numbers).
 func assertJSONNumber(test *testing.T, m map[string]any, key string, want float64) {
 	test.Helper()
-	v, ok := m[key]
+	rawVal, ok := m[key]
 	if !ok {
 		test.Fatalf("missing key %q in %#v", key, m)
 	}
-	got, ok := v.(float64)
+	got, ok := rawVal.(float64)
 	if !ok {
-		test.Fatalf("expected %q to be number, got %T", key, v)
+		test.Fatalf("expected %q to be number, got %T", key, rawVal)
 	}
 	if got != want {
 		test.Fatalf("expected %q == %v, got %v", key, want, got)

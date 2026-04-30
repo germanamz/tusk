@@ -28,15 +28,19 @@ func NewTaskRepo(db DBTX) *TaskRepo {
 }
 
 func (repo *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
-	udaJSON, err := marshalJSON(task.UDA)
-	if err != nil {
-		return err
+	udaJSON, udaErr := marshalJSON(task.UDA)
+
+	if udaErr != nil {
+		return udaErr
 	}
-	urgencyArg, err := nullableUrgencyOverrides(task.UrgencyOverrides)
-	if err != nil {
-		return err
+
+	urgencyArg, urgencyErr := nullableUrgencyOverrides(task.UrgencyOverrides)
+
+	if urgencyErr != nil {
+		return urgencyErr
 	}
-	_, err = repo.db.ExecContext(ctx, fmt.Sprintf(
+
+	_, err := repo.db.ExecContext(ctx, fmt.Sprintf(
 		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskColumns),
 		task.ID.String(), task.ShortID,
@@ -68,17 +72,21 @@ func (repo *TaskRepo) GetByShortID(ctx context.Context, shortID string) (*domain
 }
 
 func (repo *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
-	udaJSON, err := marshalJSON(task.UDA)
-	if err != nil {
-		return err
+	udaJSON, udaErr := marshalJSON(task.UDA)
+
+	if udaErr != nil {
+		return udaErr
 	}
-	urgencyArg, err := nullableUrgencyOverrides(task.UrgencyOverrides)
-	if err != nil {
-		return err
+
+	urgencyArg, urgencyErr := nullableUrgencyOverrides(task.UrgencyOverrides)
+
+	if urgencyErr != nil {
+		return urgencyErr
 	}
+
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	nowStr := now.Format(timeFormat)
-	res, err := repo.db.ExecContext(ctx, `
+	res, execErr := repo.db.ExecContext(ctx, `
 		UPDATE tasks SET
 			parent_id = ?, project_id = ?, title = ?, description = ?,
 			status = ?, priority = ?, "order" = ?, due_at = ?, wait_until = ?,
@@ -95,45 +103,55 @@ func (repo *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 		nullableString(task.Level),
 		task.ID.String(), task.Version,
 	)
-	if err != nil {
-		return err
+
+	if execErr != nil {
+		return execErr
 	}
-	rowCount, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	rowCount, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return rowsErr
 	}
+
 	if rowCount == 0 {
 		// Distinguish "task does not exist" from "version mismatch".
 		var exists int
-		err := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, task.ID.String()).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
+		lookupErr := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, task.ID.String()).Scan(&exists)
+		if errors.Is(lookupErr, sql.ErrNoRows) {
 			return domain.ErrNotFound
 		}
 		return domain.ErrConflict
 	}
+
 	task.Version++
 	task.ModifiedAt = now
 	return nil
 }
 
 func (repo *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM tasks WHERE id = ? AND version = ?`, id.String(), version)
-	if err != nil {
-		return err
+
+	if execErr != nil {
+		return execErr
 	}
-	rowCount, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	rowCount, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return rowsErr
 	}
+
 	if rowCount == 0 {
 		var exists int
-		err := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
+		lookupErr := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
+		if errors.Is(lookupErr, sql.ErrNoRows) {
 			return domain.ErrNotFound
 		}
 		return domain.ErrConflict
 	}
+
 	return nil
 }
 
@@ -142,9 +160,11 @@ func (repo *TaskRepo) CountByProject(ctx context.Context, projectID uuid.UUID) (
 	var count int
 	err := repo.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM tasks WHERE project_id = ?`, projectID.String()).Scan(&count)
+
 	if err != nil {
 		return 0, err
 	}
+
 	return count, nil
 }
 
@@ -153,16 +173,20 @@ func (repo *TaskRepo) CountByProject(ctx context.Context, projectID uuid.UUID) (
 // being removed so the FK on projects(id) does not fire. Does not bump version
 // or modified_at — this is a migration operation, not a user mutation.
 func (repo *TaskRepo) ReassignProject(ctx context.Context, fromID, toID uuid.UUID) (int, error) {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`UPDATE tasks SET project_id = ? WHERE project_id = ?`,
 		toID.String(), fromID.String())
-	if err != nil {
-		return 0, err
+
+	if execErr != nil {
+		return 0, execErr
 	}
-	rowCount, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
+
+	rowCount, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return 0, rowsErr
 	}
+
 	return int(rowCount), nil
 }
 
@@ -175,9 +199,11 @@ func (repo *TaskRepo) List(ctx context.Context, filter domain.FilterExpr) ([]*do
 		query += " WHERE " + where
 	}
 	rows, err := repo.db.QueryContext(ctx, query, args...)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	return repo.scanRows(rows)
 }
@@ -188,9 +214,11 @@ func (repo *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*d
 		fmt.Sprintf(`SELECT %s FROM tasks WHERE parent_id = ? ORDER BY "order" ASC NULLS LAST, created_at ASC, id ASC`, taskColumns),
 		parentID.String(),
 	)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	return repo.scanRows(rows)
 }
@@ -209,9 +237,11 @@ func (repo *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*
 		SELECT * FROM descendants ORDER BY "order" ASC NULLS LAST, created_at ASC, id ASC`, taskColumns, prefixColumns("tk", taskColumns)),
 		rootID.String(),
 	)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	return repo.scanRows(rows)
 }
@@ -242,10 +272,12 @@ func (repo *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.U
 		)
 		SELECT id, parent_id, project_id, urgency_overrides FROM ancestors`,
 		strings.Join(placeholders, ","))
-	rows, err := repo.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
+	rows, queryErr := repo.db.QueryContext(ctx, query, args...)
+
+	if queryErr != nil {
+		return nil, queryErr
 	}
+
 	defer rows.Close()
 	result := make([]repository.AncestorOverride, 0)
 	for rows.Next() {
@@ -255,26 +287,32 @@ func (repo *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.U
 			projectStr   string
 			ovNull       sql.NullString
 		)
-		if err := rows.Scan(&idStr, &parentIDNull, &projectStr, &ovNull); err != nil {
-			return nil, err
+		if scanErr := rows.Scan(&idStr, &parentIDNull, &projectStr, &ovNull); scanErr != nil {
+			return nil, scanErr
 		}
-		taskID, err := uuid.Parse(idStr)
-		if err != nil {
-			return nil, fmt.Errorf("parsing ancestor task id: %w", err)
+		taskID, parseTaskErr := uuid.Parse(idStr)
+
+		if parseTaskErr != nil {
+			return nil, fmt.Errorf("parsing ancestor task id: %w", parseTaskErr)
 		}
-		parentID, err := parseUUID(parentIDNull)
-		if err != nil {
-			return nil, fmt.Errorf("parsing ancestor parent_id: %w", err)
+
+		parentID, parseParentErr := parseUUID(parentIDNull)
+
+		if parseParentErr != nil {
+			return nil, fmt.Errorf("parsing ancestor parent_id: %w", parseParentErr)
 		}
-		projectID, err := uuid.Parse(projectStr)
-		if err != nil {
-			return nil, fmt.Errorf("parsing ancestor project_id: %w", err)
+
+		projectID, parseProjectErr := uuid.Parse(projectStr)
+
+		if parseProjectErr != nil {
+			return nil, fmt.Errorf("parsing ancestor project_id: %w", parseProjectErr)
 		}
+
 		var overrides *domain.UrgencyOverrides
 		if ovNull.Valid {
 			var override domain.UrgencyOverrides
-			if err := json.Unmarshal([]byte(ovNull.String), &override); err != nil {
-				return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", idStr, err)
+			if unmarshalErr := json.Unmarshal([]byte(ovNull.String), &override); unmarshalErr != nil {
+				return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", idStr, unmarshalErr)
 			}
 			overrides = &override
 		}
@@ -285,8 +323,8 @@ func (repo *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.U
 			Overrides: overrides,
 		})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, rowsErr
 	}
 	return result, nil
 }
@@ -345,28 +383,33 @@ func (repo *TaskRepo) UpdateOrderAndParent(
 	fromVersion int,
 	updatedAt time.Time,
 ) (int, error) {
-	res, err := repo.db.ExecContext(ctx, `
+	res, execErr := repo.db.ExecContext(ctx, `
 		UPDATE tasks SET parent_id = ?, "order" = ?, version = version + 1, modified_at = ?
 		WHERE id = ? AND version = ?`,
 		nullableUUID(parentID), order,
 		updatedAt.UTC().Format(timeFormat),
 		id.String(), fromVersion,
 	)
-	if err != nil {
-		return 0, err
+
+	if execErr != nil {
+		return 0, execErr
 	}
-	rowCount, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
+
+	rowCount, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return 0, rowsErr
 	}
+
 	if rowCount == 0 {
 		var exists int
-		err := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
+		lookupErr := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
+		if errors.Is(lookupErr, sql.ErrNoRows) {
 			return 0, domain.ErrNotFound
 		}
 		return 0, domain.ErrConflict
 	}
+
 	return fromVersion + 1, nil
 }
 
@@ -591,9 +634,11 @@ func buildFilterExpr(expr domain.FilterExpr) (where string, args []any) {
 
 func (repo *TaskRepo) scanOne(row *sql.Row) (*domain.Task, error) {
 	task, err := scanTask(row)
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
+
 	return task, err
 }
 
@@ -601,9 +646,11 @@ func (repo *TaskRepo) scanRows(rows *sql.Rows) ([]*domain.Task, error) {
 	result := make([]*domain.Task, 0)
 	for rows.Next() {
 		task, err := scanTask(rows)
+
 		if err != nil {
 			return nil, err
 		}
+
 		result = append(result, task)
 	}
 	return result, rows.Err()
@@ -641,67 +688,86 @@ func scanTask(scanner taskScanner) (*domain.Task, error) {
 		claimedAt        sql.NullString
 		level            sql.NullString
 	)
-	err := scanner.Scan(
+	scanErr := scanner.Scan(
 		&id, &result.ShortID, &parentID, &projectID,
 		&result.Title, &result.Description, &result.Status, &result.Priority, &order, &result.Version,
 		&dueAt, &waitUntil, &recurrence, &udaJSON, &urgencyOverrides,
 		&createdAt, &modifiedAt, &claimedBy, &claimedAt, &level,
 	)
-	if err != nil {
-		return nil, err
+
+	if scanErr != nil {
+		return nil, scanErr
 	}
-	result.ID, err = uuid.Parse(id)
-	if err != nil {
-		return nil, fmt.Errorf("parsing task ID: %w", err)
+
+	var parseErr error
+	result.ID, parseErr = uuid.Parse(id)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing task ID: %w", parseErr)
 	}
-	result.ParentID, err = parseUUID(parentID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing parent_id: %w", err)
+
+	result.ParentID, parseErr = parseUUID(parentID)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing parent_id: %w", parseErr)
 	}
-	result.ProjectID, err = uuid.Parse(projectID)
-	if err != nil {
-		return nil, fmt.Errorf("parsing task.project_id: %w", err)
+
+	result.ProjectID, parseErr = uuid.Parse(projectID)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing task.project_id: %w", parseErr)
 	}
+
 	if order.Valid {
 		orderVal := order.Float64
 		result.Order = &orderVal
 	}
-	result.DueAt, err = parseTime(dueAt)
-	if err != nil {
-		return nil, fmt.Errorf("parsing due_at: %w", err)
+	result.DueAt, parseErr = parseTime(dueAt)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing due_at: %w", parseErr)
 	}
-	result.WaitUntil, err = parseTime(waitUntil)
-	if err != nil {
-		return nil, fmt.Errorf("parsing wait_until: %w", err)
+
+	result.WaitUntil, parseErr = parseTime(waitUntil)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing wait_until: %w", parseErr)
 	}
+
 	if recurrence.Valid {
 		result.RecurrenceRule = &recurrence.String
 	}
-	if err := json.Unmarshal([]byte(udaJSON), &result.UDA); err != nil {
-		return nil, fmt.Errorf("parsing uda: %w", err)
+	if udaErr := json.Unmarshal([]byte(udaJSON), &result.UDA); udaErr != nil {
+		return nil, fmt.Errorf("parsing uda: %w", udaErr)
 	}
 	if urgencyOverrides.Valid {
 		var override domain.UrgencyOverrides
-		if err := json.Unmarshal([]byte(urgencyOverrides.String), &override); err != nil {
-			return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", id, err)
+		if urgencyErr := json.Unmarshal([]byte(urgencyOverrides.String), &override); urgencyErr != nil {
+			return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", id, urgencyErr)
 		}
 		result.UrgencyOverrides = &override
 	}
-	result.CreatedAt, err = time.Parse(timeFormat, createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("parsing created_at: %w", err)
+	result.CreatedAt, parseErr = time.Parse(timeFormat, createdAt)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing created_at: %w", parseErr)
 	}
-	result.ModifiedAt, err = time.Parse(timeFormat, modifiedAt)
-	if err != nil {
-		return nil, fmt.Errorf("parsing modified_at: %w", err)
+
+	result.ModifiedAt, parseErr = time.Parse(timeFormat, modifiedAt)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing modified_at: %w", parseErr)
 	}
+
 	if claimedBy.Valid {
 		result.ClaimedBy = &claimedBy.String
 	}
-	result.ClaimedAt, err = parseTime(claimedAt)
-	if err != nil {
-		return nil, fmt.Errorf("parsing claimed_at: %w", err)
+	result.ClaimedAt, parseErr = parseTime(claimedAt)
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing claimed_at: %w", parseErr)
 	}
+
 	if level.Valid {
 		result.Level = &level.String
 	}

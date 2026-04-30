@@ -10,26 +10,29 @@ import (
 
 func TestNewClient_CreateAndGetTask(test *testing.T) {
 	dbPath := filepath.Join(test.TempDir(), "test.db")
-	client, err := NewClient(Config{DBPath: dbPath})
-	if err != nil {
-		test.Fatalf("NewClient: %v", err)
+	client, openErr := NewClient(Config{DBPath: dbPath})
+
+	if openErr != nil {
+		test.Fatalf("NewClient: %v", openErr)
 	}
+
 	defer client.Close()
 
 	ctx := context.Background()
 
 	task := &domain.Task{Title: "Test task"}
-	if err := client.Tasks.Create(ctx, task); err != nil {
-		test.Fatalf("Create: %v", err)
+	if createErr := client.Tasks.Create(ctx, task); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
 	}
 
 	if task.ShortID == "" {
 		test.Fatal("expected ShortID to be set after create")
 	}
 
-	got, err := client.Tasks.GetByShortID(ctx, task.ShortID)
-	if err != nil {
-		test.Fatalf("GetByShortID: %v", err)
+	got, getErr := client.Tasks.GetByShortID(ctx, task.ShortID)
+
+	if getErr != nil {
+		test.Fatalf("GetByShortID: %v", getErr)
 	}
 
 	if got.Title != "Test task" {
@@ -39,18 +42,22 @@ func TestNewClient_CreateAndGetTask(test *testing.T) {
 
 func TestNewClient_DefaultConfig(test *testing.T) {
 	dbPath := filepath.Join(test.TempDir(), "test.db")
-	client, err := NewClient(Config{DBPath: dbPath})
-	if err != nil {
-		test.Fatalf("NewClient: %v", err)
+	client, openErr := NewClient(Config{DBPath: dbPath})
+
+	if openErr != nil {
+		test.Fatalf("NewClient: %v", openErr)
 	}
+
 	defer client.Close()
 
 	ctx := context.Background()
 
-	projects, err := client.Projects.List(ctx)
-	if err != nil {
-		test.Fatalf("Projects.List: %v", err)
+	projects, listProjectsErr := client.Projects.List(ctx)
+
+	if listProjectsErr != nil {
+		test.Fatalf("Projects.List: %v", listProjectsErr)
 	}
+
 	found := false
 	for _, project := range projects {
 		if project.Name == "default" {
@@ -62,10 +69,12 @@ func TestNewClient_DefaultConfig(test *testing.T) {
 		test.Error("expected builtin 'default' project")
 	}
 
-	workflows, err := client.Workflows.List(ctx)
-	if err != nil {
-		test.Fatalf("Workflows.List: %v", err)
+	workflows, listWorkflowsErr := client.Workflows.List(ctx)
+
+	if listWorkflowsErr != nil {
+		test.Fatalf("Workflows.List: %v", listWorkflowsErr)
 	}
+
 	found = false
 	for _, workflow := range workflows {
 		if workflow.Name == "kanban" {
@@ -87,10 +96,12 @@ func TestNewClient_EmptyDBPath(test *testing.T) {
 
 func TestNewClient_Notes(test *testing.T) {
 	dbPath := filepath.Join(test.TempDir(), "test.db")
-	client, err := NewClient(Config{DBPath: dbPath})
-	if err != nil {
-		test.Fatalf("NewClient: %v", err)
+	client, openErr := NewClient(Config{DBPath: dbPath})
+
+	if openErr != nil {
+		test.Fatalf("NewClient: %v", openErr)
 	}
+
 	defer client.Close()
 
 	if client.Notes == nil {
@@ -100,10 +111,12 @@ func TestNewClient_Notes(test *testing.T) {
 
 func TestNewClient_Portability(test *testing.T) {
 	dbPath := filepath.Join(test.TempDir(), "test.db")
-	client, err := NewClient(Config{DBPath: dbPath})
-	if err != nil {
-		test.Fatalf("NewClient: %v", err)
+	client, openErr := NewClient(Config{DBPath: dbPath})
+
+	if openErr != nil {
+		test.Fatalf("NewClient: %v", openErr)
 	}
+
 	defer client.Close()
 
 	if client.Portability == nil {
@@ -113,13 +126,14 @@ func TestNewClient_Portability(test *testing.T) {
 
 func TestClose(test *testing.T) {
 	dbPath := filepath.Join(test.TempDir(), "test.db")
-	client, err := NewClient(Config{DBPath: dbPath})
-	if err != nil {
-		test.Fatalf("NewClient: %v", err)
+	client, openErr := NewClient(Config{DBPath: dbPath})
+
+	if openErr != nil {
+		test.Fatalf("NewClient: %v", openErr)
 	}
 
-	if err := client.Close(); err != nil {
-		test.Fatalf("Close: %v", err)
+	if closeErr := client.Close(); closeErr != nil {
+		test.Fatalf("Close: %v", closeErr)
 	}
 
 	// Operations after close should fail.

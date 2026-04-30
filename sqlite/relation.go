@@ -56,17 +56,17 @@ func (repo *RelationRepo) Create(ctx context.Context, rel *domain.Relation) erro
 //
 // Uses the same RowsAffected pattern as AnnotationRepo.Delete.
 func (repo *RelationRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM relations WHERE id = ?`, id.String())
 
-	if err != nil {
-		return err
+	if execErr != nil {
+		return execErr
 	}
 
-	rowCount, err := res.RowsAffected()
+	rowCount, rowsErr := res.RowsAffected()
 
-	if err != nil {
-		return err
+	if rowsErr != nil {
+		return rowsErr
 	}
 
 	if rowCount == 0 {
@@ -78,18 +78,18 @@ func (repo *RelationRepo) Delete(ctx context.Context, id uuid.UUID) error {
 // DeleteByFields removes a relation matching the exact (source, target, type) triple.
 // Returns domain.ErrNotFound if no such relation exists.
 func (repo *RelationRepo) DeleteByFields(ctx context.Context, sourceID, targetID uuid.UUID, relType string) error {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?`,
 		sourceID.String(), targetID.String(), relType)
 
-	if err != nil {
-		return err
+	if execErr != nil {
+		return execErr
 	}
 
-	rowCount, err := res.RowsAffected()
+	rowCount, rowsErr := res.RowsAffected()
 
-	if err != nil {
-		return err
+	if rowsErr != nil {
+		return rowsErr
 	}
 
 	if rowCount == 0 {
