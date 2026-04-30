@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestStripConfigFlag(t *testing.T) {
+func TestStripConfigFlag(test *testing.T) {
 	tests := []struct {
 		name string
 		in   []string
@@ -43,17 +43,17 @@ func TestStripConfigFlag(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := stripConfigFlag(tc.in)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("got %v, want %v", got, tc.want)
+	for _, testCase := range tests {
+		test.Run(testCase.name, func(test *testing.T) {
+			got := stripConfigFlag(testCase.in)
+			if !reflect.DeepEqual(got, testCase.want) {
+				test.Fatalf("got %v, want %v", got, testCase.want)
 			}
 		})
 	}
 }
 
-func TestIsCompletionInvocation(t *testing.T) {
+func TestIsCompletionInvocation(test *testing.T) {
 	tests := []struct {
 		name string
 		in   []string
@@ -76,10 +76,10 @@ func TestIsCompletionInvocation(t *testing.T) {
 		{name: "mcp serve", in: []string{"mcp", "serve"}, want: false},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isCompletionInvocation(tc.in); got != tc.want {
-				t.Fatalf("isCompletionInvocation(%v) = %v, want %v", tc.in, got, tc.want)
+	for _, testCase := range tests {
+		test.Run(testCase.name, func(test *testing.T) {
+			if got := isCompletionInvocation(testCase.in); got != testCase.want {
+				test.Fatalf("isCompletionInvocation(%v) = %v, want %v", testCase.in, got, testCase.want)
 			}
 		})
 	}
