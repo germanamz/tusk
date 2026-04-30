@@ -2001,7 +2001,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7.md
 > Depends on: P2. Parallelizable with P3, P4, P5, P6. Blocks P8.
 
-- [ ] [v0.14 P7-T1] Drop remaining varnamelen exclusions level=task order=1 +naming-convention +phase-7 +v0.14
+- [x] [v0.14 P7-T1] Drop remaining varnamelen exclusions level=task order=1 +naming-convention +phase-7 +v0.14
 > What: Delete the five linters: [varnamelen] rules whose path is ^repository/, ^sqlite/, ^cmd/, ^tests/e2e/, and ^client\.go$ from .golangci.yml. Other rules stay untouched.
 >
 > Why: Brings rule 1 into scope for the final five packages.
@@ -2017,7 +2017,7 @@
 > Blocks: P7-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T1.md
 
-- [ ] [v0.14 P7-T2] Drop remaining pathfilter entries level=task order=2 +naming-convention +phase-7 +v0.14
+- [x] [v0.14 P7-T2] Drop remaining pathfilter entries level=task order=2 +naming-convention +phase-7 +v0.14
 > What: Delete the five regex lines for repository, sqlite, cmd, tests/e2e, and the module-root pattern (^github\.com/germanamz/tusk$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
 >
 > Why: Brings rules 2, 3, 4 into scope for the final five packages.
@@ -2033,39 +2033,31 @@
 > Blocks: P7-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T2.md
 
-- [ ] [v0.14 P7-T3] Apply STYLE.md fixes across remaining packages level=task order=3 +naming-convention +phase-7 +v0.14
-> What: Run make lint to enumerate every violation across repository/, sqlite/, cmd/, tests/e2e/, and the root files. Apply mechanical fixes per STYLE.md.
->
-> Coverage:
-> - repository/ (10 files) — interface definitions; mostly parameter renames and short locals in test helpers.
-> - sqlite/ (~30 files) — repository implementations; short locals around sql.Tx, sql.Rows, prepared statements.
-> - cmd/ — cmd/tusk/main.go (360 LoC), main_test.go (86 LoC), and cmd/tusk-lint/main.go (introduced in Phase 1; verify clean).
-> - tests/e2e/ — black-box CLI tests; heavy t *testing.T usage.
-> - Root files: client.go, client_test.go.
->
-> For cmd/tusk-lint/, the analyzers themselves use AST walking patterns where short identifiers like n for ast.Node, t for types.Type, s for ast.Stmt are common — these all rename per the style guide.
->
-> Why: Final mechanical sweep. After this task ships, every package in the repo is convention-clean.
->
-> Code references:
-> - repository/ — 10 files of interface definitions.
-> - sqlite/ (~30 files), including sqlite/task_test.go (1093 LoC).
-> - cmd/tusk/main.go (360 LoC).
-> - cmd/tusk/main_test.go (86 LoC).
-> - cmd/tusk-lint/main.go (from P1-T3 / P2-T5).
-> - tests/e2e/ — black-box harness.
-> - client.go (~8.5 KB) and client_test.go (~2.8 KB) at repo root.
->
-> Acceptance:
-> - Every file in the listed packages complies with STYLE.md rules 1–4.
-> - No behavior changes (verified by P7-T4).
->
-> Bridge code: None.
-> Depends on: P7-T1, P7-T2.
-> Blocks: P7-T4, P7-T5.
-> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T3.md
+- [x] [v0.14 P7-T3a] Apply STYLE.md fixes to sqlite/task suite level=task order=3 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to `sqlite/task.go`, `task_test.go`, `task_order_test.go`, `task_fk_test.go`. ~260 violations, largest sub-bucket of P7. Mechanical sweep, no behavior changes. Part of split P7-T3.
 
-- [ ] [v0.14 P7-T4] Verify e2e and unit tests pass level=task order=4 +naming-convention +phase-7 +v0.14
+- [x] [v0.14 P7-T3b] Apply STYLE.md fixes to sqlite/note + project level=task order=4 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to `sqlite/note.go`, `note_test.go`, `project.go`, `project_test.go`, `project_seed_test.go`. ~150 violations. Part of split P7-T3.
+
+- [x] [v0.14 P7-T3c] Apply STYLE.md fixes to sqlite/tag + relation level=task order=5 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to `sqlite/tag.go`, `tag_test.go`, `relation.go`, `relation_test.go`, `relation_count_test.go`. ~180 violations. Part of split P7-T3.
+
+- [x] [v0.14 P7-T3d] Apply STYLE.md fixes to sqlite/workflow+event+annotation+player level=task order=6 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to: `sqlite/workflow.go`, `workflow_test.go`, `event.go`, `event_test.go`, `annotation.go`, `annotation_test.go`, `annotation_count_test.go`, `player.go`, `player_test.go`. ~225 violations. Part of split P7-T3.
+
+- [x] [v0.14 P7-T3e] Apply STYLE.md fixes to sqlite/infrastructure + repository/ level=task order=7 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to: `sqlite/store.go`, `store_test.go`, `paths.go`, `sqlitetest/*`, plus all of `repository/`. ~50 violations. Part of split P7-T3.
+
+- [x] [v0.14 P7-T3f] Apply STYLE.md fixes to cmd/ + root level=task order=8 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to `cmd/tusk/*`, `cmd/tusk-lint/*`, `client.go`, `client_test.go`. ~50 violations. Part of split P7-T3.
+
+- [x] [v0.14 P7-T3g] Apply STYLE.md fixes to tests/e2e bucket 1 level=task order=9 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to tests/e2e/ top-6 files: `note_test.go`, `task_lifecycle_test.go`, `player_test.go`, `filtering_test.go`, `config_test.go`, `tag_management_test.go`. ~200 violations. Part of split P7-T3.
+
+- [x] [v0.14 P7-T3h] Apply STYLE.md fixes to tests/e2e bucket 2 level=task order=10 +naming-convention +phase-7 +v0.14
+> Apply STYLE.md rules 1-4 to remaining tests/e2e files: `workflow_test.go`, `harness*.go`, `uda_test.go`, `sibling_ordering_test.go`, `portability_test.go`, `hierarchy_test.go`, `summary_test.go`, `tree_rollup_test.go`, `mcp_summary_test.go`, `config_walkup_test.go`, and any other not in P7-T3g. ~250 violations. After this lands, all P7 packages comply with STYLE.md. Part of split P7-T3.
+
+- [x] [v0.14 P7-T4] Verify e2e and unit tests pass level=task order=12 +naming-convention +phase-7 +v0.14
 > What: Run make test and make test-race to verify behavior is preserved. The e2e suite is the most exercising — every CLI scenario, every output format, every DB-config combination must continue to pass. make test-race should also pass (no new race conditions introduced by mechanical renames).
 >
 > Why: This is the broadest test surface. Catches any accidental semantic change introduced by P7-T3 across DB layer, CLI entry points, and e2e scenarios.
@@ -2087,7 +2079,7 @@
 > Blocks: P7-T5.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P7-T4.md
 
-- [ ] [v0.14 P7-T5] Verify P7 packages lint clean level=task order=5 +naming-convention +phase-7 +v0.14
+- [x] [v0.14 P7-T5] Verify P7 packages lint clean level=task order=13 +naming-convention +phase-7 +v0.14
 > What: Run make lint to confirm zero violations across repository/, sqlite/, cmd/, tests/e2e/, and the root package. Closes the phase.
 >
 > Why: Acceptance gate. After this task ships and assuming P3..P6 have also shipped, every package in the repo is convention-clean and Phase 8 can begin.
