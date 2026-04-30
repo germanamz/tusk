@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidateUrgencyOverridesPatch_Valid(t *testing.T) {
+func TestValidateUrgencyOverridesPatch_Valid(test *testing.T) {
 	cases := []struct {
 		name string
 		raw  map[string]any
@@ -30,31 +30,31 @@ func TestValidateUrgencyOverridesPatch_Valid(t *testing.T) {
 			"waiting_weight":     10.0,
 		}},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := ValidateUrgencyOverridesPatch(tc.raw); err != nil {
-				t.Errorf("ValidateUrgencyOverridesPatch(%v) = %v, want nil", tc.raw, err)
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			if err := ValidateUrgencyOverridesPatch(testCase.raw); err != nil {
+				test.Errorf("ValidateUrgencyOverridesPatch(%v) = %v, want nil", testCase.raw, err)
 			}
 		})
 	}
 }
 
-func TestValidateUrgencyOverridesPatch_UnknownKey(t *testing.T) {
+func TestValidateUrgencyOverridesPatch_UnknownKey(test *testing.T) {
 	err := ValidateUrgencyOverridesPatch(map[string]any{"unknown_weight": 1.0})
 	if err == nil {
-		t.Fatalf("expected error for unknown key, got nil")
+		test.Fatalf("expected error for unknown key, got nil")
 	}
 	if !strings.Contains(err.Error(), "unknown_weight") {
-		t.Errorf("error message should name the offending key: %v", err)
+		test.Errorf("error message should name the offending key: %v", err)
 	}
-	for _, k := range ValidUrgencyWeightKeys {
-		if !strings.Contains(err.Error(), k) {
-			t.Errorf("error message should list valid key %q: %v", k, err)
+	for _, key := range ValidUrgencyWeightKeys {
+		if !strings.Contains(err.Error(), key) {
+			test.Errorf("error message should list valid key %q: %v", key, err)
 		}
 	}
 }
 
-func TestValidateUrgencyOverridesPatch_InvalidValueType(t *testing.T) {
+func TestValidateUrgencyOverridesPatch_InvalidValueType(test *testing.T) {
 	cases := []struct {
 		name  string
 		value any
@@ -64,14 +64,14 @@ func TestValidateUrgencyOverridesPatch_InvalidValueType(t *testing.T) {
 		{"slice", []float64{1, 2}},
 		{"map", map[string]any{"x": 1}},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := ValidateUrgencyOverridesPatch(map[string]any{"priority_weight": tc.value})
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			err := ValidateUrgencyOverridesPatch(map[string]any{"priority_weight": testCase.value})
 			if err == nil {
-				t.Fatalf("expected error for value type %T, got nil", tc.value)
+				test.Fatalf("expected error for value type %T, got nil", testCase.value)
 			}
 			if !strings.Contains(err.Error(), "priority_weight") {
-				t.Errorf("error message should name the offending key: %v", err)
+				test.Errorf("error message should name the offending key: %v", err)
 			}
 		})
 	}

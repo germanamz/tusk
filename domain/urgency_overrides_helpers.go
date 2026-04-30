@@ -4,28 +4,28 @@ package domain
 // UrgencyOverrides matching the given snake_case key. Returns nil for
 // unknown keys. Both the CLI parser and the service write path use this
 // to translate key strings into concrete field pointers.
-func UrgencyOverrideFieldPtr(o *UrgencyOverrides, key string) **float64 {
+func UrgencyOverrideFieldPtr(overrides *UrgencyOverrides, key string) **float64 {
 	switch key {
 	case "priority_weight":
-		return &o.PriorityWeight
+		return &overrides.PriorityWeight
 	case "due_weight":
-		return &o.DueWeight
+		return &overrides.DueWeight
 	case "age_weight":
-		return &o.AgeWeight
+		return &overrides.AgeWeight
 	case "active_weight":
-		return &o.ActiveWeight
+		return &overrides.ActiveWeight
 	case "blocking_weight":
-		return &o.BlockingWeight
+		return &overrides.BlockingWeight
 	case "blocked_weight":
-		return &o.BlockedWeight
+		return &overrides.BlockedWeight
 	case "tags_weight":
-		return &o.TagsWeight
+		return &overrides.TagsWeight
 	case "project_weight":
-		return &o.ProjectWeight
+		return &overrides.ProjectWeight
 	case "annotations_weight":
-		return &o.AnnotationsWeight
+		return &overrides.AnnotationsWeight
 	case "waiting_weight":
-		return &o.WaitingWeight
+		return &overrides.WaitingWeight
 	}
 	return nil
 }

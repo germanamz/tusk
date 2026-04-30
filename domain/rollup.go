@@ -71,10 +71,10 @@ func AggregateRollup(descendants []*Task, workflowFor func(*Task) *Workflow) Rol
 		bucketOrder = append(bucketOrder, name)
 	}
 
-	seedFromWorkflow := func(wf *Workflow) {
-		for _, name := range workflowStatusOrder(wf) {
-			cfg := wf.Statuses[name]
-			if cfg.HasRole(RoleDelete) {
+	seedFromWorkflow := func(workflow *Workflow) {
+		for _, name := range workflowStatusOrder(workflow) {
+			statusCfg := workflow.Statuses[name]
+			if statusCfg.HasRole(RoleDelete) {
 				continue
 			}
 			addBucket(name)
@@ -83,28 +83,28 @@ func AggregateRollup(descendants []*Task, workflowFor func(*Task) *Workflow) Rol
 
 	var done, total int
 	seeded := false
-	for _, t := range descendants {
-		if t == nil {
+	for _, descendant := range descendants {
+		if descendant == nil {
 			continue
 		}
-		wf := workflowFor(t)
-		if wf == nil {
+		workflow := workflowFor(descendant)
+		if workflow == nil {
 			continue
 		}
-		cfg, ok := wf.Statuses[t.Status]
-		if ok && cfg.HasRole(RoleDelete) {
+		statusCfg, ok := workflow.Statuses[descendant.Status]
+		if ok && statusCfg.HasRole(RoleDelete) {
 			continue
 		}
 		if !seeded {
-			seedFromWorkflow(wf)
+			seedFromWorkflow(workflow)
 			seeded = true
 		}
 		total++
-		if ok && cfg.HasRole(RoleDone) {
+		if ok && statusCfg.HasRole(RoleDone) {
 			done++
 		}
-		addBucket(t.Status)
-		counts[t.Status]++
+		addBucket(descendant.Status)
+		counts[descendant.Status]++
 	}
 
 	statusCounts := make([]StatusCount, 0, len(bucketOrder))
@@ -133,27 +133,27 @@ func AggregateRollup(descendants []*Task, workflowFor func(*Task) *Workflow) Rol
 // intended progression (e.g. for kanban: pending → active → completed
 // → deleted). Statuses that do not appear in any transition are
 // appended last in the deterministic StatusNames() order.
-func workflowStatusOrder(wf *Workflow) []string {
-	if wf == nil {
+func workflowStatusOrder(workflow *Workflow) []string {
+	if workflow == nil {
 		return nil
 	}
-	seen := make(map[string]bool, len(wf.Statuses))
-	order := make([]string, 0, len(wf.Statuses))
+	seen := make(map[string]bool, len(workflow.Statuses))
+	order := make([]string, 0, len(workflow.Statuses))
 	add := func(name string) {
 		if name == "" || seen[name] {
 			return
 		}
-		if _, ok := wf.Statuses[name]; !ok {
+		if _, ok := workflow.Statuses[name]; !ok {
 			return
 		}
 		seen[name] = true
 		order = append(order, name)
 	}
-	for _, t := range wf.Transitions {
-		add(t.FromStatus)
-		add(t.ToStatus)
+	for _, transition := range workflow.Transitions {
+		add(transition.FromStatus)
+		add(transition.ToStatus)
 	}
-	for _, name := range wf.StatusNames() {
+	for _, name := range workflow.StatusNames() {
 		add(name)
 	}
 	return order

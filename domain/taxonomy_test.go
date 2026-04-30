@@ -5,56 +5,56 @@ import (
 	"testing"
 )
 
-func TestTaxonomy_Validate_Accepts(t *testing.T) {
-	tax := Taxonomy{{"milestone"}, {"initiative"}, {"story"}, {"task", "spike"}}
-	if err := tax.Validate(); err != nil {
-		t.Fatalf("expected valid taxonomy, got %v", err)
+func TestTaxonomy_Validate_Accepts(test *testing.T) {
+	taxonomy := Taxonomy{{"milestone"}, {"initiative"}, {"story"}, {"task", "spike"}}
+	if err := taxonomy.Validate(); err != nil {
+		test.Fatalf("expected valid taxonomy, got %v", err)
 	}
 }
 
-func TestTaxonomy_Validate_RejectsEmpty(t *testing.T) {
-	var tax Taxonomy
-	err := tax.Validate()
+func TestTaxonomy_Validate_RejectsEmpty(test *testing.T) {
+	var taxonomy Taxonomy
+	err := taxonomy.Validate()
 	if err == nil {
-		t.Fatal("expected error for empty taxonomy")
+		test.Fatal("expected error for empty taxonomy")
 	}
 }
 
-func TestTaxonomy_Validate_RejectsEmptyPeerGroup(t *testing.T) {
-	tax := Taxonomy{{"milestone"}, {}}
-	err := tax.Validate()
+func TestTaxonomy_Validate_RejectsEmptyPeerGroup(test *testing.T) {
+	taxonomy := Taxonomy{{"milestone"}, {}}
+	err := taxonomy.Validate()
 	if err == nil {
-		t.Fatal("expected error for empty peer group")
+		test.Fatal("expected error for empty peer group")
 	}
 	if !strings.Contains(err.Error(), "rank 1") {
-		t.Fatalf("expected error to reference the offending rank index, got %v", err)
+		test.Fatalf("expected error to reference the offending rank index, got %v", err)
 	}
 }
 
-func TestTaxonomy_Validate_RejectsBadName(t *testing.T) {
-	tax := Taxonomy{{"milestone"}, {"1bad"}}
-	err := tax.Validate()
+func TestTaxonomy_Validate_RejectsBadName(test *testing.T) {
+	taxonomy := Taxonomy{{"milestone"}, {"1bad"}}
+	err := taxonomy.Validate()
 	if err == nil {
-		t.Fatal("expected error for invalid name")
+		test.Fatal("expected error for invalid name")
 	}
 	if !strings.Contains(err.Error(), "1bad") {
-		t.Fatalf("expected error to reference %q, got %v", "1bad", err)
+		test.Fatalf("expected error to reference %q, got %v", "1bad", err)
 	}
 }
 
-func TestTaxonomy_Validate_RejectsDuplicate(t *testing.T) {
-	tax := Taxonomy{{"milestone"}, {"story"}, {"story"}}
-	err := tax.Validate()
+func TestTaxonomy_Validate_RejectsDuplicate(test *testing.T) {
+	taxonomy := Taxonomy{{"milestone"}, {"story"}, {"story"}}
+	err := taxonomy.Validate()
 	if err == nil {
-		t.Fatal("expected error for duplicate level")
+		test.Fatal("expected error for duplicate level")
 	}
 	if !strings.Contains(err.Error(), "story") {
-		t.Fatalf("expected error to mention the duplicate, got %v", err)
+		test.Fatalf("expected error to mention the duplicate, got %v", err)
 	}
 }
 
-func TestTaxonomy_RankOf(t *testing.T) {
-	tax := Taxonomy{{"milestone"}, {"story"}, {"task", "spike"}}
+func TestTaxonomy_RankOf(test *testing.T) {
+	taxonomy := Taxonomy{{"milestone"}, {"story"}, {"task", "spike"}}
 	cases := []struct {
 		level   string
 		want    int
@@ -67,61 +67,61 @@ func TestTaxonomy_RankOf(t *testing.T) {
 		{"spike", 2, true, "peer member"},
 		{"unknown", 0, false, "not declared"},
 	}
-	for _, c := range cases {
-		got, ok := tax.RankOf(c.level)
-		if ok != c.wantOK {
-			t.Errorf("%s: RankOf(%q) ok = %v, want %v", c.comment, c.level, ok, c.wantOK)
+	for _, testCase := range cases {
+		got, ok := taxonomy.RankOf(testCase.level)
+		if ok != testCase.wantOK {
+			test.Errorf("%s: RankOf(%q) ok = %v, want %v", testCase.comment, testCase.level, ok, testCase.wantOK)
 		}
-		if got != c.want {
-			t.Errorf("%s: RankOf(%q) = %d, want %d", c.comment, c.level, got, c.want)
+		if got != testCase.want {
+			test.Errorf("%s: RankOf(%q) = %d, want %d", testCase.comment, testCase.level, got, testCase.want)
 		}
 	}
 }
 
-func TestTaxonomy_Contains(t *testing.T) {
-	tax := Taxonomy{{"milestone"}, {"story"}}
-	if !tax.Contains("milestone") {
-		t.Error("expected Contains(milestone) = true")
+func TestTaxonomy_Contains(test *testing.T) {
+	taxonomy := Taxonomy{{"milestone"}, {"story"}}
+	if !taxonomy.Contains("milestone") {
+		test.Error("expected Contains(milestone) = true")
 	}
-	if tax.Contains("task") {
-		t.Error("expected Contains(task) = false")
-	}
-}
-
-func TestTaxonomy_IsTopRank(t *testing.T) {
-	tax := Taxonomy{{"milestone"}, {"story"}}
-	if !tax.IsTopRank("milestone") {
-		t.Error("expected milestone to be top rank")
-	}
-	if tax.IsTopRank("story") {
-		t.Error("expected story NOT to be top rank")
-	}
-	if tax.IsTopRank("unknown") {
-		t.Error("expected unknown NOT to be top rank")
+	if taxonomy.Contains("task") {
+		test.Error("expected Contains(task) = false")
 	}
 }
 
-func TestTaxonomy_IsEmpty(t *testing.T) {
+func TestTaxonomy_IsTopRank(test *testing.T) {
+	taxonomy := Taxonomy{{"milestone"}, {"story"}}
+	if !taxonomy.IsTopRank("milestone") {
+		test.Error("expected milestone to be top rank")
+	}
+	if taxonomy.IsTopRank("story") {
+		test.Error("expected story NOT to be top rank")
+	}
+	if taxonomy.IsTopRank("unknown") {
+		test.Error("expected unknown NOT to be top rank")
+	}
+}
+
+func TestTaxonomy_IsEmpty(test *testing.T) {
 	var empty Taxonomy
 	if !empty.IsEmpty() {
-		t.Error("expected nil taxonomy to be empty")
+		test.Error("expected nil taxonomy to be empty")
 	}
 	populated := Taxonomy{{"a"}}
 	if populated.IsEmpty() {
-		t.Error("expected populated taxonomy not to be empty")
+		test.Error("expected populated taxonomy not to be empty")
 	}
 }
 
-func TestTaxonomy_Clone(t *testing.T) {
+func TestTaxonomy_Clone(test *testing.T) {
 	original := Taxonomy{{"milestone"}, {"task", "spike"}}
 	clone := original.Clone()
 	clone[1][0] = "mutated"
 	if original[1][0] != "task" {
-		t.Fatalf("Clone did not produce a deep copy: original was mutated to %q", original[1][0])
+		test.Fatalf("Clone did not produce a deep copy: original was mutated to %q", original[1][0])
 	}
 
 	var nilTax Taxonomy
 	if got := nilTax.Clone(); got != nil {
-		t.Errorf("expected nil clone for nil taxonomy, got %v", got)
+		test.Errorf("expected nil clone for nil taxonomy, got %v", got)
 	}
 }

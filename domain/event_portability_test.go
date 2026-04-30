@@ -7,8 +7,8 @@ import (
 	"github.com/germanamz/tusk/domain"
 )
 
-func TestWorkspaceImportedPayload_EventKind(t *testing.T) {
-	p := domain.WorkspaceImportedPayload{
+func TestWorkspaceImportedPayload_EventKind(test *testing.T) {
+	payload := domain.WorkspaceImportedPayload{
 		Kind:          domain.EventWorkspaceImported,
 		SchemaVersion: 1,
 		SourceTuskVer: "v0.13.0",
@@ -17,7 +17,7 @@ func TestWorkspaceImportedPayload_EventKind(t *testing.T) {
 		Truncate:      false,
 		Counts:        map[string]int{"tasks": 42, "projects": 1},
 	}
-	if got := p.EventKind(); got != domain.EventWorkspaceImported {
-		t.Fatalf("EventKind() = %q, want %q", got, domain.EventWorkspaceImported)
+	if got := payload.EventKind(); got != domain.EventWorkspaceImported {
+		test.Fatalf("EventKind() = %q, want %q", got, domain.EventWorkspaceImported)
 	}
 }

@@ -31,9 +31,9 @@ type StatusConfig struct {
 }
 
 // HasRole returns true if this status has the given role.
-func (sc StatusConfig) HasRole(role StatusRole) bool {
-	for _, r := range sc.Roles {
-		if r == role {
+func (statusConfig StatusConfig) HasRole(role StatusRole) bool {
+	for _, candidate := range statusConfig.Roles {
+		if candidate == role {
 			return true
 		}
 	}
@@ -54,9 +54,9 @@ type Workflow struct {
 }
 
 // StatusNames returns the status names as a sorted slice.
-func (w *Workflow) StatusNames() []string {
-	names := make([]string, 0, len(w.Statuses))
-	for name := range w.Statuses {
+func (workflow *Workflow) StatusNames() []string {
+	names := make([]string, 0, len(workflow.Statuses))
+	for name := range workflow.Statuses {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -65,9 +65,9 @@ func (w *Workflow) StatusNames() []string {
 
 // StatusByRole returns the name of the status with the given role.
 // Returns ("", false) if no status has the role.
-func (w *Workflow) StatusByRole(role StatusRole) (string, bool) {
-	for name, sc := range w.Statuses {
-		if sc.HasRole(role) {
+func (workflow *Workflow) StatusByRole(role StatusRole) (string, bool) {
+	for name, statusConfig := range workflow.Statuses {
+		if statusConfig.HasRole(role) {
 			return name, true
 		}
 	}
@@ -75,10 +75,10 @@ func (w *Workflow) StatusByRole(role StatusRole) (string, bool) {
 }
 
 // NonTerminalStatuses returns all status names that do not have the terminal role, sorted.
-func (w *Workflow) NonTerminalStatuses() []string {
+func (workflow *Workflow) NonTerminalStatuses() []string {
 	var names []string
-	for name, sc := range w.Statuses {
-		if !sc.HasRole(RoleTerminal) {
+	for name, statusConfig := range workflow.Statuses {
+		if !statusConfig.HasRole(RoleTerminal) {
 			names = append(names, name)
 		}
 	}
