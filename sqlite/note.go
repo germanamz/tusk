@@ -96,20 +96,20 @@ func (repo *NoteRepo) FindByIDPrefix(ctx context.Context, prefix string) ([]*dom
 // Archive sets the archived_at timestamp on a note.
 // Returns domain.ErrNotFound if no note with that ID exists.
 func (repo *NoteRepo) Archive(ctx context.Context, id uuid.UUID, archivedAt time.Time) error {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`UPDATE notes SET archived_at = ? WHERE id = ?`,
 		archivedAt.UTC().Format(timeFormat),
 		id.String(),
 	)
 
-	if err != nil {
-		return err
+	if execErr != nil {
+		return execErr
 	}
 
-	rowCount, err := res.RowsAffected()
+	rowCount, rowsErr := res.RowsAffected()
 
-	if err != nil {
-		return err
+	if rowsErr != nil {
+		return rowsErr
 	}
 
 	if rowCount == 0 {

@@ -51,19 +51,19 @@ func (repo *TagRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tag, er
 }
 
 func (repo *TagRepo) Update(ctx context.Context, tag *domain.Tag) error {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`UPDATE tags SET name = ?, color = ? WHERE id = ?`,
 		tag.Name, nullableString(tag.Color), tag.ID.String(),
 	)
 
-	if err != nil {
-		return err
+	if execErr != nil {
+		return execErr
 	}
 
-	rowCount, err := res.RowsAffected()
+	rowCount, rowsErr := res.RowsAffected()
 
-	if err != nil {
-		return err
+	if rowsErr != nil {
+		return rowsErr
 	}
 
 	if rowCount == 0 {
@@ -73,17 +73,17 @@ func (repo *TagRepo) Update(ctx context.Context, tag *domain.Tag) error {
 }
 
 func (repo *TagRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM tags WHERE id = ?`, id.String())
 
-	if err != nil {
-		return err
+	if execErr != nil {
+		return execErr
 	}
 
-	rowCount, err := res.RowsAffected()
+	rowCount, rowsErr := res.RowsAffected()
 
-	if err != nil {
-		return err
+	if rowsErr != nil {
+		return rowsErr
 	}
 
 	if rowCount == 0 {
@@ -167,18 +167,18 @@ func (repo *TagRepo) AssignToTask(ctx context.Context, taskID, tagID uuid.UUID) 
 }
 
 func (repo *TagRepo) RemoveFromTask(ctx context.Context, taskID, tagID uuid.UUID) error {
-	res, err := repo.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM tag_assignments WHERE task_id = ? AND tag_id = ?`,
 		taskID.String(), tagID.String())
 
-	if err != nil {
-		return err
+	if execErr != nil {
+		return execErr
 	}
 
-	rowCount, err := res.RowsAffected()
+	rowCount, rowsErr := res.RowsAffected()
 
-	if err != nil {
-		return err
+	if rowsErr != nil {
+		return rowsErr
 	}
 
 	if rowCount == 0 {
