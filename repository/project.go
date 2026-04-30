@@ -21,11 +21,11 @@ type ProjectRepository interface {
 	List(ctx context.Context) ([]*domain.Project, error)
 
 	// Create inserts a new project. Returns domain.ErrConflict on name collision.
-	Create(ctx context.Context, p *domain.Project) error
+	Create(ctx context.Context, project *domain.Project) error
 
 	// Update persists changes to a project with optimistic locking.
 	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
-	Update(ctx context.Context, p *domain.Project) error
+	Update(ctx context.Context, project *domain.Project) error
 
 	// Delete removes a project with optimistic locking on version.
 	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.

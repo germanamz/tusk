@@ -47,6 +47,7 @@ func New(dbPath string, migrationsFS fs.FS) (*Store, error) {
 	// and would silently default to OFF on new pooled connections without this.
 	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
+
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
@@ -56,21 +57,21 @@ func New(dbPath string, migrationsFS fs.FS) (*Store, error) {
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 
-	s := &Store{db: db}
+	store := &Store{db: db}
 
-	if err := s.migrate(migrationsFS); err != nil {
+	if err := store.migrate(migrationsFS); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
-	return s, nil
+	return store, nil
 }
 
 // DB returns the underlying *sql.DB connection pool.
-func (s *Store) DB() *sql.DB { return s.db }
+func (store *Store) DB() *sql.DB { return store.db }
 
 // Close closes the database connection.
-func (s *Store) Close() error { return s.db.Close() }
+func (store *Store) Close() error { return store.db.Close() }
 
 // Tx wraps an active database transaction and provides access to
 // transactional repository instances. Repos created from a Tx share
@@ -80,49 +81,49 @@ type Tx struct {
 }
 
 // Tasks returns a TaskRepo operating within this transaction.
-func (t *Tx) Tasks() *TaskRepo { return NewTaskRepo(t.tx) }
+func (txw *Tx) Tasks() *TaskRepo { return NewTaskRepo(txw.tx) }
 
 // Relations returns a RelationRepo operating within this transaction.
-func (t *Tx) Relations() *RelationRepo { return NewRelationRepo(t.tx) }
+func (txw *Tx) Relations() *RelationRepo { return NewRelationRepo(txw.tx) }
 
 // Annotations returns an AnnotationRepo operating within this transaction.
-func (t *Tx) Annotations() *AnnotationRepo { return NewAnnotationRepo(t.tx) }
+func (txw *Tx) Annotations() *AnnotationRepo { return NewAnnotationRepo(txw.tx) }
 
 // Notes returns a NoteRepo operating within this transaction.
-func (t *Tx) Notes() *NoteRepo { return NewNoteRepo(t.tx) }
+func (txw *Tx) Notes() *NoteRepo { return NewNoteRepo(txw.tx) }
 
 // Tags returns a TagRepo operating within this transaction.
-func (t *Tx) Tags() *TagRepo { return NewTagRepo(t.tx) }
+func (txw *Tx) Tags() *TagRepo { return NewTagRepo(txw.tx) }
 
 // Projects returns a ProjectRepo operating within this transaction.
-func (t *Tx) Projects() *ProjectRepo { return NewProjectRepo(t.tx) }
+func (txw *Tx) Projects() *ProjectRepo { return NewProjectRepo(txw.tx) }
 
 // Workflows returns a WorkflowRepo operating within this transaction.
-func (t *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(t.tx) }
+func (txw *Tx) Workflows() *WorkflowRepo { return NewWorkflowRepo(txw.tx) }
 
 // Players returns a PlayerRepo operating within this transaction.
-func (t *Tx) Players() *PlayerRepo { return NewPlayerRepo(t.tx) }
+func (txw *Tx) Players() *PlayerRepo { return NewPlayerRepo(txw.tx) }
 
 // Events returns an EventRepo operating within this transaction. The retention
 // parameters (maxEvents, pruneSlack) are attached at tx time because they are
 // transaction-scoped policy, not repository-scoped.
-func (t *Tx) Events(maxEvents, pruneSlack int) *EventRepo {
-	return NewEventRepo(t.tx, maxEvents, pruneSlack)
+func (txw *Tx) Events(maxEvents, pruneSlack int) *EventRepo {
+	return NewEventRepo(txw.tx, maxEvents, pruneSlack)
 }
 
 // TruncateAll wipes every entity table inside this transaction in
 // reverse-FK order. Used exclusively by the PortabilityService under
 // --replace --truncate. Each DELETE is issued as a raw `DELETE FROM
-// <table>` against t.tx — no per-row WHERE clauses, no version checks.
+// <table>` against txw.tx — no per-row WHERE clauses, no version checks.
 // The single transaction wrapping the call rolls everything back
 // atomically on any error.
-func (t *Tx) TruncateAll(ctx context.Context) error {
+func (txw *Tx) TruncateAll(ctx context.Context) error {
 	tables := []string{
 		"events", "notes", "annotations", "relations", "tag_assignments",
 		"tasks", "projects", "workflows", "tags", "players",
 	}
 	for _, table := range tables {
-		if _, err := t.tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
+		if _, err := txw.tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("truncating %s: %w", table, err)
 		}
 	}
@@ -132,31 +133,34 @@ func (t *Tx) TruncateAll(ctx context.Context) error {
 // WithTx executes fn within a database transaction. If fn returns nil,
 // the transaction is committed. If fn returns an error (or panics),
 // the transaction is rolled back and the error is returned.
-func (s *Store) WithTx(ctx context.Context, fn func(tx *Tx) error) error {
-	sqlTx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("beginning transaction: %w", err)
+func (store *Store) WithTx(ctx context.Context, fn func(tx *Tx) error) error {
+	sqlTx, beginErr := store.db.BeginTx(ctx, nil)
+
+	if beginErr != nil {
+		return fmt.Errorf("beginning transaction: %w", beginErr)
 	}
+
 	defer sqlTx.Rollback() //nolint:errcheck // Rollback after commit returns sql.ErrTxDone, which is expected.
 
-	if err := fn(&Tx{tx: sqlTx}); err != nil {
-		return err
+	if fnErr := fn(&Tx{tx: sqlTx}); fnErr != nil {
+		return fnErr
 	}
+
 	return sqlTx.Commit()
 }
 
 // WithTaskTx executes fn with a TaskRepository backed by a transaction.
 // This is the concrete implementation of service.TaskTxProvider.
-func (s *Store) WithTaskTx(ctx context.Context, fn func(tr repository.TaskRepository) error) error {
-	return s.WithTx(ctx, func(tx *Tx) error {
+func (store *Store) WithTaskTx(ctx context.Context, fn func(tasks repository.TaskRepository) error) error {
+	return store.WithTx(ctx, func(tx *Tx) error {
 		return fn(tx.Tasks())
 	})
 }
 
 // WithRelationTx executes fn with a RelationRepository backed by a transaction.
 // This is the concrete implementation of service.RelationTxProvider.
-func (s *Store) WithRelationTx(ctx context.Context, fn func(rr repository.RelationRepository) error) error {
-	return s.WithTx(ctx, func(tx *Tx) error {
+func (store *Store) WithRelationTx(ctx context.Context, fn func(rr repository.RelationRepository) error) error {
+	return store.WithTx(ctx, func(tx *Tx) error {
 		return fn(tx.Relations())
 	})
 }
@@ -166,86 +170,92 @@ func (s *Store) WithRelationTx(ctx context.Context, fn func(rr repository.Relati
 // service.ProjectTxProvider. Used by ProjectService.Delete to reassign
 // referencing tasks off a project under --force before deleting the project
 // row, so the FK on projects(id) does not fire.
-func (s *Store) WithProjectTx(
+func (store *Store) WithProjectTx(
 	ctx context.Context,
 	fn func(projects repository.ProjectRepository, tasks repository.TaskRepository) error,
 ) error {
-	return s.WithTx(ctx, func(tx *Tx) error {
+	return store.WithTx(ctx, func(tx *Tx) error {
 		return fn(tx.Projects(), tx.Tasks())
 	})
 }
 
 // migrate applies pending database migrations from the provided filesystem.
-func (s *Store) migrate(migrationsFS fs.FS) error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+func (store *Store) migrate(migrationsFS fs.FS) error {
+	_, createErr := store.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
 		applied_at TEXT NOT NULL
 	)`)
-	if err != nil {
-		return fmt.Errorf("creating schema_migrations: %w", err)
+
+	if createErr != nil {
+		return fmt.Errorf("creating schema_migrations: %w", createErr)
 	}
 
 	applied := map[int]bool{}
-	rows, err := s.db.Query("SELECT version FROM schema_migrations")
-	if err != nil {
-		return fmt.Errorf("reading applied migrations: %w", err)
+	rows, queryErr := store.db.Query("SELECT version FROM schema_migrations")
+
+	if queryErr != nil {
+		return fmt.Errorf("reading applied migrations: %w", queryErr)
 	}
+
 	defer rows.Close()
 	for rows.Next() {
-		var v int
-		if err := rows.Scan(&v); err != nil {
+		var version int
+		if err := rows.Scan(&version); err != nil {
 			return err
 		}
-		applied[v] = true
+		applied[version] = true
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 
-	entries, err := fs.Glob(migrationsFS, "*.up.sql")
-	if err != nil {
-		return fmt.Errorf("listing migration files: %w", err)
+	entries, globErr := fs.Glob(migrationsFS, "*.up.sql")
+
+	if globErr != nil {
+		return fmt.Errorf("listing migration files: %w", globErr)
 	}
 
 	sort.Strings(entries)
 
 	for _, name := range entries {
-		var version int
-		if _, err := fmt.Sscanf(name, "%d_", &version); err != nil {
-			return fmt.Errorf("parsing version from %s: %w", name, err)
+		var versionNum int
+		if _, scanErr := fmt.Sscanf(name, "%d_", &versionNum); scanErr != nil {
+			return fmt.Errorf("parsing version from %s: %w", name, scanErr)
 		}
 
-		if applied[version] {
+		if applied[versionNum] {
 			continue
 		}
 
-		data, err := fs.ReadFile(migrationsFS, name)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", name, err)
+		data, readErr := fs.ReadFile(migrationsFS, name)
+
+		if readErr != nil {
+			return fmt.Errorf("reading %s: %w", name, readErr)
 		}
 
 		statements := stripPragmas(string(data))
 
-		tx, err := s.db.Begin()
-		if err != nil {
-			return fmt.Errorf("beginning tx for %s: %w", name, err)
+		migTx, beginErr := store.db.Begin()
+
+		if beginErr != nil {
+			return fmt.Errorf("beginning tx for %s: %w", name, beginErr)
 		}
 
-		if _, err := tx.Exec(statements); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("executing %s: %w", name, err)
+		if _, execErr := migTx.Exec(statements); execErr != nil {
+			_ = migTx.Rollback()
+			return fmt.Errorf("executing %s: %w", name, execErr)
 		}
 
-		if _, err := tx.Exec(
+		if _, recordErr := migTx.Exec(
 			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-			version, time.Now().UTC().Format(timeFormat),
-		); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("recording %s: %w", name, err)
+			versionNum, time.Now().UTC().Format(timeFormat),
+		); recordErr != nil {
+			_ = migTx.Rollback()
+			return fmt.Errorf("recording %s: %w", name, recordErr)
 		}
 
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("committing %s: %w", name, err)
+		if commitErr := migTx.Commit(); commitErr != nil {
+			return fmt.Errorf("committing %s: %w", name, commitErr)
 		}
 	}
 	return nil
@@ -280,29 +290,29 @@ func nullableUUID(id *uuid.UUID) any {
 
 // nullableTime converts a *time.Time to a value suitable for a SQL parameter.
 // If the pointer is nil, it returns nil (SQL NULL).
-func nullableTime(t *time.Time) any {
-	if t == nil {
+func nullableTime(timePtr *time.Time) any {
+	if timePtr == nil {
 		return nil
 	}
-	return t.UTC().Format(timeFormat)
+	return timePtr.UTC().Format(timeFormat)
 }
 
 // nullableString converts a *string to a value suitable for a SQL parameter.
 // If the pointer is nil, it returns nil (SQL NULL).
-func nullableString(s *string) any {
-	if s == nil {
+func nullableString(str *string) any {
+	if str == nil {
 		return nil
 	}
-	return *s
+	return *str
 }
 
 // nullableFloat converts a *float64 to a value suitable for a SQL parameter.
 // If the pointer is nil, it returns nil (SQL NULL).
-func nullableFloat(f *float64) any {
-	if f == nil {
+func nullableFloat(floatPtr *float64) any {
+	if floatPtr == nil {
 		return nil
 	}
-	return *f
+	return *floatPtr
 }
 
 // nullableUrgencyOverrides converts a *domain.UrgencyOverrides to a value
@@ -310,15 +320,17 @@ func nullableFloat(f *float64) any {
 // nil; otherwise marshals the struct to JSON and returns the resulting
 // string. Errors here surface JSON marshalling failures so the caller can
 // wrap them with context.
-func nullableUrgencyOverrides(o *domain.UrgencyOverrides) (any, error) {
-	if o == nil {
+func nullableUrgencyOverrides(overrides *domain.UrgencyOverrides) (any, error) {
+	if overrides == nil {
 		return nil, nil
 	}
-	b, err := json.Marshal(o)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling urgency_overrides: %w", err)
+	jsonBytes, marshalErr := json.Marshal(overrides)
+
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshaling urgency_overrides: %w", marshalErr)
 	}
-	return string(b), nil
+
+	return string(jsonBytes), nil
 }
 
 // parseUUID converts a sql.NullString back into a *uuid.UUID.
@@ -327,10 +339,12 @@ func parseUUID(ns sql.NullString) (*uuid.UUID, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	id, err := uuid.Parse(ns.String)
-	if err != nil {
-		return nil, err
+	id, parseErr := uuid.Parse(ns.String)
+
+	if parseErr != nil {
+		return nil, parseErr
 	}
+
 	return &id, nil
 }
 
@@ -340,22 +354,26 @@ func parseTime(ns sql.NullString) (*time.Time, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	t, err := time.Parse(timeFormat, ns.String)
-	if err != nil {
-		return nil, err
+	parsedTime, parseErr := time.Parse(timeFormat, ns.String)
+
+	if parseErr != nil {
+		return nil, parseErr
 	}
-	return &t, nil
+
+	return &parsedTime, nil
 }
 
 // marshalJSON converts a Go value to a JSON string for storage in a TEXT column.
 // If the value is nil, it returns "{}" (empty JSON object).
-func marshalJSON(v any) (string, error) {
-	if v == nil {
+func marshalJSON(val any) (string, error) {
+	if val == nil {
 		return "{}", nil
 	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "", fmt.Errorf("marshaling JSON: %w", err)
+	jsonBytes, marshalErr := json.Marshal(val)
+
+	if marshalErr != nil {
+		return "", fmt.Errorf("marshaling JSON: %w", marshalErr)
 	}
-	return string(b), nil
+
+	return string(jsonBytes), nil
 }

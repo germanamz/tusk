@@ -8,7 +8,7 @@ import (
 )
 
 type AnnotationRepository interface {
-	Create(ctx context.Context, ann *domain.Annotation) error
+	Create(ctx context.Context, annotation *domain.Annotation) error
 	GetByTask(ctx context.Context, taskID uuid.UUID) ([]*domain.Annotation, error)
 	GetByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Annotation, error)
 	Delete(ctx context.Context, id uuid.UUID) error
