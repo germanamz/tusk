@@ -12,11 +12,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func TestHandleWorkflowCreate_Success(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleWorkflowCreate_Success(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
@@ -34,42 +34,48 @@ func TestHandleWorkflowCreate_Success(t *testing.T) {
 			},
 		}},
 	}
-	res, err := srv.HandleWorkflowCreateForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleWorkflowCreateForTest: %v", err)
-	}
-	if res.IsError {
-		text := res.Content[0].(mcp.TextContent).Text
-		t.Fatalf("unexpected error: %s", text)
+
+	result, createErr := srv.HandleWorkflowCreateForTest(context.Background(), req)
+
+	if createErr != nil {
+		test.Fatalf("HandleWorkflowCreateForTest: %v", createErr)
 	}
 
-	wf, err := srv.WorkflowRepoForTest().GetByName(context.Background(), "sprint")
-	if err != nil {
-		t.Fatalf("GetByName sprint: %v", err)
+	if result.IsError {
+		text := result.Content[0].(mcp.TextContent).Text
+		test.Fatalf("unexpected error: %s", text)
 	}
-	if len(wf.Statuses) != 4 || len(wf.Transitions) != 3 {
-		t.Fatalf("unexpected shape: %+v", wf)
+
+	workflow, getErr := srv.WorkflowRepoForTest().GetByName(context.Background(), "sprint")
+
+	if getErr != nil {
+		test.Fatalf("GetByName sprint: %v", getErr)
 	}
-	if wf.Version != 1 {
-		t.Fatalf("expected version 1, got %d", wf.Version)
+
+	if len(workflow.Statuses) != 4 || len(workflow.Transitions) != 3 {
+		test.Fatalf("unexpected shape: %+v", workflow)
+	}
+	if workflow.Version != 1 {
+		test.Fatalf("expected version 1, got %d", workflow.Version)
 	}
 }
 
-func TestHandleWorkflowModify_AddAndRemove(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleWorkflowModify_AddAndRemove(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 
-	wf, err := srv.WorkflowRepoForTest().GetByName(context.Background(), "kanban")
-	if err != nil {
-		t.Fatalf("GetByName kanban: %v", err)
+	workflow, getErr := srv.WorkflowRepoForTest().GetByName(context.Background(), "kanban")
+
+	if getErr != nil {
+		test.Fatalf("GetByName kanban: %v", getErr)
 	}
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "kanban",
-			"version": float64(wf.Version),
+			"version": float64(workflow.Version),
 			"add_statuses": []any{
 				map[string]any{"name": "in_review", "roles": []any{}},
 			},
@@ -79,31 +85,36 @@ func TestHandleWorkflowModify_AddAndRemove(t *testing.T) {
 			},
 		}},
 	}
-	res, err := srv.HandleWorkflowModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleWorkflowModifyForTest: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	result, modifyErr := srv.HandleWorkflowModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("HandleWorkflowModifyForTest: %v", modifyErr)
 	}
 
-	updated, err := srv.WorkflowRepoForTest().GetByName(context.Background(), "kanban")
-	if err != nil {
-		t.Fatalf("GetByName kanban after modify: %v", err)
+	if result.IsError {
+		test.Fatalf("unexpected error: %s", result.Content[0].(mcp.TextContent).Text)
 	}
+
+	updated, updatedErr := srv.WorkflowRepoForTest().GetByName(context.Background(), "kanban")
+
+	if updatedErr != nil {
+		test.Fatalf("GetByName kanban after modify: %v", updatedErr)
+	}
+
 	if _, ok := updated.Statuses["in_review"]; !ok {
-		t.Fatalf("in_review not added: %+v", updated.Statuses)
+		test.Fatalf("in_review not added: %+v", updated.Statuses)
 	}
-	if updated.Version != wf.Version+1 {
-		t.Fatalf("expected bumped version, got %d", updated.Version)
+	if updated.Version != workflow.Version+1 {
+		test.Fatalf("expected bumped version, got %d", updated.Version)
 	}
 }
 
-func TestHandleWorkflowDelete_Success(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleWorkflowDelete_Success(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 	ctx := context.Background()
 
 	createReq := mcp.CallToolRequest{
@@ -122,63 +133,69 @@ func TestHandleWorkflowDelete_Success(t *testing.T) {
 			},
 		}},
 	}
-	if res, err := srv.HandleWorkflowCreateForTest(ctx, createReq); err != nil || res.IsError {
-		t.Fatalf("seed create failed: %v / %+v", err, res)
+
+	if result, err := srv.HandleWorkflowCreateForTest(ctx, createReq); err != nil || result.IsError {
+		test.Fatalf("seed create failed: %v / %+v", err, result)
 	}
 
-	wf, err := srv.WorkflowRepoForTest().GetByName(ctx, "sprint")
-	if err != nil {
-		t.Fatalf("GetByName sprint: %v", err)
+	workflow, getErr := srv.WorkflowRepoForTest().GetByName(ctx, "sprint")
+
+	if getErr != nil {
+		test.Fatalf("GetByName sprint: %v", getErr)
 	}
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "sprint",
-			"version": float64(wf.Version),
+			"version": float64(workflow.Version),
 		}},
 	}
-	res, err := srv.HandleWorkflowDeleteForTest(ctx, req)
-	if err != nil {
-		t.Fatalf("HandleWorkflowDeleteForTest: %v", err)
+
+	result, deleteErr := srv.HandleWorkflowDeleteForTest(ctx, req)
+
+	if deleteErr != nil {
+		test.Fatalf("HandleWorkflowDeleteForTest: %v", deleteErr)
 	}
-	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	if result.IsError {
+		test.Fatalf("unexpected error: %s", result.Content[0].(mcp.TextContent).Text)
 	}
 
 	if _, err := srv.WorkflowRepoForTest().GetByName(ctx, "sprint"); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+		test.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }
 
-func TestHandleWorkflowDelete_ReferencedByProject(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleWorkflowDelete_ReferencedByProject(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 	ctx := context.Background()
 
-	wf, err := srv.WorkflowRepoForTest().GetByName(ctx, "kanban")
-	if err != nil {
-		t.Fatalf("GetByName kanban: %v", err)
+	workflow, getErr := srv.WorkflowRepoForTest().GetByName(ctx, "kanban")
+
+	if getErr != nil {
+		test.Fatalf("GetByName kanban: %v", getErr)
 	}
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "kanban",
-			"version": float64(wf.Version),
+			"version": float64(workflow.Version),
 		}},
 	}
-	res, _ := srv.HandleWorkflowDeleteForTest(ctx, req)
-	if !res.IsError {
-		t.Fatalf("expected error deleting referenced workflow")
+	result, _ := srv.HandleWorkflowDeleteForTest(ctx, req)
+	if !result.IsError {
+		test.Fatalf("expected error deleting referenced workflow")
 	}
 }
 
-func TestHandleWorkflowCreate_ValidationError(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleWorkflowCreate_ValidationError(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
@@ -193,9 +210,9 @@ func TestHandleWorkflowCreate_ValidationError(t *testing.T) {
 			},
 		}},
 	}
-	res, _ := srv.HandleWorkflowCreateForTest(context.Background(), req)
-	if !res.IsError {
-		t.Fatalf("expected validation error")
+	result, _ := srv.HandleWorkflowCreateForTest(context.Background(), req)
+	if !result.IsError {
+		test.Fatalf("expected validation error")
 	}
 }
 
@@ -203,21 +220,21 @@ func TestHandleWorkflowCreate_ValidationError(t *testing.T) {
 // workflow create operations and verifies that every workflow lands in the
 // repository. The server-level mutex serializes the read-modify-write paths
 // inside the service so creates do not race with each other.
-func TestHandleWorkflow_ConcurrentMutationsAreSerialized(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleWorkflow_ConcurrentMutationsAreSerialized(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	srv := newTestServer(test, path)
 
 	const goroutines = 40
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		go func(i int) {
+	for idx := 0; idx < goroutines; idx++ {
+		go func(idx int) {
 			defer wg.Done()
-			name := fmt.Sprintf("wf_%03d", i)
+			name := fmt.Sprintf("wf_%03d", idx)
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{Arguments: map[string]any{
 					"name": name,
@@ -233,23 +250,26 @@ func TestHandleWorkflow_ConcurrentMutationsAreSerialized(t *testing.T) {
 					},
 				}},
 			}
-			res, err := srv.HandleWorkflowCreateForTest(context.Background(), req)
+
+			result, err := srv.HandleWorkflowCreateForTest(context.Background(), req)
+
 			if err != nil {
-				t.Errorf("HandleWorkflowCreateForTest(%s): %v", name, err)
+				test.Errorf("HandleWorkflowCreateForTest(%s): %v", name, err)
 				return
 			}
-			if res.IsError {
-				text, _ := res.Content[0].(mcp.TextContent)
-				t.Errorf("unexpected error creating %s: %s", name, text.Text)
+
+			if result.IsError {
+				text, _ := result.Content[0].(mcp.TextContent)
+				test.Errorf("unexpected error creating %s: %s", name, text.Text)
 			}
-		}(i)
+		}(idx)
 	}
 	wg.Wait()
 
-	for i := 0; i < goroutines; i++ {
-		name := fmt.Sprintf("wf_%03d", i)
+	for idx := 0; idx < goroutines; idx++ {
+		name := fmt.Sprintf("wf_%03d", idx)
 		if _, err := srv.WorkflowRepoForTest().GetByName(context.Background(), name); err != nil {
-			t.Errorf("workflow %q lost to race: %v", name, err)
+			test.Errorf("workflow %q lost to race: %v", name, err)
 		}
 	}
 }
