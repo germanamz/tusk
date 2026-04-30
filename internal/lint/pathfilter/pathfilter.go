@@ -12,16 +12,6 @@ import (
 )
 
 var excluded = []*regexp.Regexp{
-	// repository/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/repository(/|$)`),
-	// sqlite/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/sqlite(/|$)`),
-	// cmd/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/cmd(/|$)`),
-	// tests/e2e/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/tests/e2e(/|$)`),
-	// root package (client.go) — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk$`),
 	// config/ omitted from the v0.14 spec enumeration; tracked as
 	// follow-up sweep (tusk task 06fa0f50) and removed by that task.
 	regexp.MustCompile(`^github\.com/germanamz/tusk/config(/|$)`),
