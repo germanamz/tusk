@@ -21,11 +21,11 @@ type WorkflowRepository interface {
 	List(ctx context.Context) ([]*domain.Workflow, error)
 
 	// Create inserts a new workflow. Returns domain.ErrConflict on name collision.
-	Create(ctx context.Context, w *domain.Workflow) error
+	Create(ctx context.Context, workflow *domain.Workflow) error
 
 	// Update persists changes to a workflow with optimistic locking.
 	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
-	Update(ctx context.Context, w *domain.Workflow) error
+	Update(ctx context.Context, workflow *domain.Workflow) error
 
 	// Delete removes a workflow with optimistic locking on version.
 	// Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.

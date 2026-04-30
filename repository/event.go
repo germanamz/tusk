@@ -23,8 +23,8 @@ type EventFilter struct {
 // is kind-agnostic: filters operate on the generic Event fields, and payload
 // decoding dispatches on Event.Type.
 type EventRepository interface {
-	Record(ctx context.Context, evt *domain.Event) error
-	List(ctx context.Context, f EventFilter) ([]*domain.Event, error)
+	Record(ctx context.Context, event *domain.Event) error
+	List(ctx context.Context, filter EventFilter) ([]*domain.Event, error)
 	Count(ctx context.Context) (int64, error)
 	PruneToSize(ctx context.Context, maxRows int) (deleted int64, err error)
 }

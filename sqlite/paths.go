@@ -14,9 +14,11 @@ import (
 func ResolveWorkspacePath(path, baseDir string) (string, error) {
 	if len(path) > 1 && path[0] == '~' && (path[1] == '/' || path[1] == os.PathSeparator) {
 		home, err := os.UserHomeDir()
+
 		if err != nil {
 			return "", err
 		}
+
 		path = filepath.Join(home, path[2:])
 	}
 	if filepath.IsAbs(path) {

@@ -18,18 +18,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// NewStore opens a fresh SQLite store inside t.TempDir, applies migrations,
+// NewStore opens a fresh SQLite store inside harness.TempDir, applies migrations,
 // and returns the store plus project/workflow repos wired to it. Migrations
 // alone seed the builtin kanban workflow and the default project row — no
-// additional seeding is required. Close is registered with t.Cleanup.
-func NewStore(t testing.TB) (*sqlite.Store, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
-	t.Helper()
-	dir := t.TempDir()
+// additional seeding is required. Close is registered with harness.Cleanup.
+func NewStore(harness testing.TB) (*sqlite.Store, *sqlite.ProjectRepo, *sqlite.WorkflowRepo) {
+	harness.Helper()
+	dir := harness.TempDir()
 	store, err := sqlite.New(filepath.Join(dir, "test.db"), migrations.FS)
+
 	if err != nil {
-		t.Fatalf("sqlite.New: %v", err)
+		harness.Fatalf("sqlite.New: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
+
+	harness.Cleanup(func() { _ = store.Close() })
 
 	projRepo := sqlite.NewProjectRepo(store.DB())
 	wfRepo := sqlite.NewWorkflowRepo(store.DB())
@@ -39,10 +41,10 @@ func NewStore(t testing.TB) (*sqlite.Store, *sqlite.ProjectRepo, *sqlite.Workflo
 // SeedProject inserts a project with the given name bound to the builtin
 // kanban workflow (uuid.Nil). Tests that need an extra project beyond the
 // migration-seeded default call this to avoid hand-rolling repo writes.
-func SeedProject(t testing.TB, repo *sqlite.ProjectRepo, name string) *domain.Project {
-	t.Helper()
+func SeedProject(harness testing.TB, repo *sqlite.ProjectRepo, name string) *domain.Project {
+	harness.Helper()
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	p := &domain.Project{
+	project := &domain.Project{
 		ID:         uuid.New(),
 		Name:       name,
 		WorkflowID: uuid.Nil,
@@ -50,8 +52,8 @@ func SeedProject(t testing.TB, repo *sqlite.ProjectRepo, name string) *domain.Pr
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := repo.Create(context.Background(), p); err != nil {
-		t.Fatalf("seed project %q: %v", name, err)
+	if err := repo.Create(context.Background(), project); err != nil {
+		harness.Fatalf("seed project %q: %v", name, err)
 	}
-	return p
+	return project
 }
