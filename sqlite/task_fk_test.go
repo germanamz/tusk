@@ -15,14 +15,16 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestMigration005_TasksHaveFKToProjects(t *testing.T) {
-	store, err := sqlite.New(t.TempDir()+"/test.db", migrations.FS)
+func TestMigration005_TasksHaveFKToProjects(test *testing.T) {
+	store, err := sqlite.New(test.TempDir()+"/test.db", migrations.FS)
+
 	if err != nil {
-		t.Fatalf("opening test db: %v", err)
+		test.Fatalf("opening test db: %v", err)
 	}
+
 	defer store.Close()
 
-	tr := sqlite.NewTaskRepo(store.DB())
+	taskRepo := sqlite.NewTaskRepo(store.DB())
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	ok := &domain.Task{
@@ -36,8 +38,9 @@ func TestMigration005_TasksHaveFKToProjects(t *testing.T) {
 		CreatedAt:  now,
 		ModifiedAt: now,
 	}
-	if err := tr.Create(context.Background(), ok); err != nil {
-		t.Fatalf("insert with seeded project: %v", err)
+
+	if err := taskRepo.Create(context.Background(), ok); err != nil {
+		test.Fatalf("insert with seeded project: %v", err)
 	}
 
 	bad := &domain.Task{
@@ -51,11 +54,11 @@ func TestMigration005_TasksHaveFKToProjects(t *testing.T) {
 		CreatedAt:  now,
 		ModifiedAt: now,
 	}
-	err = tr.Create(context.Background(), bad)
+	err = taskRepo.Create(context.Background(), bad)
 	if err == nil {
-		t.Fatalf("expected FK violation, got nil")
+		test.Fatalf("expected FK violation, got nil")
 	}
 	if !strings.Contains(strings.ToLower(err.Error()), "foreign key") {
-		t.Errorf("expected foreign-key error, got: %v", err)
+		test.Errorf("expected foreign-key error, got: %v", err)
 	}
 }

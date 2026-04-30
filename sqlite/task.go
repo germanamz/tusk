@@ -27,7 +27,7 @@ func NewTaskRepo(db DBTX) *TaskRepo {
 	return &TaskRepo{db: db}
 }
 
-func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
+func (repo *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 	udaJSON, err := marshalJSON(task.UDA)
 	if err != nil {
 		return err
@@ -36,7 +36,7 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, fmt.Sprintf(
+	_, err = repo.db.ExecContext(ctx, fmt.Sprintf(
 		`INSERT INTO tasks (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskColumns),
 		task.ID.String(), task.ShortID,
@@ -55,19 +55,19 @@ func (r *TaskRepo) Create(ctx context.Context, task *domain.Task) error {
 	return err
 }
 
-func (r *TaskRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *TaskRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+	row := repo.db.QueryRowContext(ctx,
 		fmt.Sprintf(`SELECT %s FROM tasks WHERE id = ?`, taskColumns), id.String())
-	return r.scanOne(row)
+	return repo.scanOne(row)
 }
 
-func (r *TaskRepo) GetByShortID(ctx context.Context, shortID string) (*domain.Task, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *TaskRepo) GetByShortID(ctx context.Context, shortID string) (*domain.Task, error) {
+	row := repo.db.QueryRowContext(ctx,
 		fmt.Sprintf(`SELECT %s FROM tasks WHERE short_id = ?`, taskColumns), shortID)
-	return r.scanOne(row)
+	return repo.scanOne(row)
 }
 
-func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
+func (repo *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 	udaJSON, err := marshalJSON(task.UDA)
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	nowStr := now.Format(timeFormat)
-	res, err := r.db.ExecContext(ctx, `
+	res, err := repo.db.ExecContext(ctx, `
 		UPDATE tasks SET
 			parent_id = ?, project_id = ?, title = ?, description = ?,
 			status = ?, priority = ?, "order" = ?, due_at = ?, wait_until = ?,
@@ -98,14 +98,14 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+	rowCount, err := res.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+	if rowCount == 0 {
 		// Distinguish "task does not exist" from "version mismatch".
 		var exists int
-		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, task.ID.String()).Scan(&exists)
+		err := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, task.ID.String()).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.ErrNotFound
 		}
@@ -116,19 +116,19 @@ func (r *TaskRepo) Update(ctx context.Context, task *domain.Task) error {
 	return nil
 }
 
-func (r *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error {
+	res, err := repo.db.ExecContext(ctx,
 		`DELETE FROM tasks WHERE id = ? AND version = ?`, id.String(), version)
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+	rowCount, err := res.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+	if rowCount == 0 {
 		var exists int
-		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
+		err := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.ErrNotFound
 		}
@@ -138,53 +138,53 @@ func (r *TaskRepo) Delete(ctx context.Context, id uuid.UUID, version int) error 
 }
 
 // CountByProject returns how many tasks reference the given project.
-func (r *TaskRepo) CountByProject(ctx context.Context, projectID uuid.UUID) (int, error) {
-	var n int
-	err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM tasks WHERE project_id = ?`, projectID.String()).Scan(&n)
+func (repo *TaskRepo) CountByProject(ctx context.Context, projectID uuid.UUID) (int, error) {
+	var count int
+	err := repo.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tasks WHERE project_id = ?`, projectID.String()).Scan(&count)
 	if err != nil {
 		return 0, err
 	}
-	return n, nil
+	return count, nil
 }
 
 // ReassignProject bulk-updates tasks.project_id from one project to another.
 // Used by ProjectService.Delete under --force to migrate tasks off the project
 // being removed so the FK on projects(id) does not fire. Does not bump version
 // or modified_at — this is a migration operation, not a user mutation.
-func (r *TaskRepo) ReassignProject(ctx context.Context, fromID, toID uuid.UUID) (int, error) {
-	res, err := r.db.ExecContext(ctx,
+func (repo *TaskRepo) ReassignProject(ctx context.Context, fromID, toID uuid.UUID) (int, error) {
+	res, err := repo.db.ExecContext(ctx,
 		`UPDATE tasks SET project_id = ? WHERE project_id = ?`,
 		toID.String(), fromID.String())
 	if err != nil {
 		return 0, err
 	}
-	n, err := res.RowsAffected()
+	rowCount, err := res.RowsAffected()
 	if err != nil {
 		return 0, err
 	}
-	return int(n), nil
+	return int(rowCount), nil
 }
 
 // List retrieves tasks matching the given filter expression. A nil filter
 // returns all tasks.
-func (r *TaskRepo) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
+func (repo *TaskRepo) List(ctx context.Context, filter domain.FilterExpr) ([]*domain.Task, error) {
 	where, args := buildFilterExpr(filter)
 	query := fmt.Sprintf(`SELECT %s FROM tasks`, taskColumns)
 	if where != "" {
 		query += " WHERE " + where
 	}
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := repo.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return r.scanRows(rows)
+	return repo.scanRows(rows)
 }
 
 // GetChildren retrieves all direct children of the given parent task.
-func (r *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*domain.Task, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		fmt.Sprintf(`SELECT %s FROM tasks WHERE parent_id = ? ORDER BY "order" ASC NULLS LAST, created_at ASC, id ASC`, taskColumns),
 		parentID.String(),
 	)
@@ -192,43 +192,43 @@ func (r *TaskRepo) GetChildren(ctx context.Context, parentID uuid.UUID) ([]*doma
 		return nil, err
 	}
 	defer rows.Close()
-	return r.scanRows(rows)
+	return repo.scanRows(rows)
 }
 
 // GetDescendants retrieves all descendants (children, grandchildren, etc.)
 // of the given root task using a recursive CTE.
 // SQLite's default SQLITE_MAX_RECURSIVE limit (1000) acts as a safety net
 // against cycles or excessively deep hierarchies.
-func (r *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error) {
-	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
+func (repo *TaskRepo) GetDescendants(ctx context.Context, rootID uuid.UUID) ([]*domain.Task, error) {
+	rows, err := repo.db.QueryContext(ctx, fmt.Sprintf(`
 		WITH RECURSIVE descendants AS (
 			SELECT %[1]s FROM tasks WHERE parent_id = ?
 			UNION ALL
-			SELECT %[2]s FROM tasks t JOIN descendants d ON t.parent_id = d.id
+			SELECT %[2]s FROM tasks tk JOIN descendants sub ON tk.parent_id = sub.id
 		)
-		SELECT * FROM descendants ORDER BY "order" ASC NULLS LAST, created_at ASC, id ASC`, taskColumns, prefixColumns("t", taskColumns)),
+		SELECT * FROM descendants ORDER BY "order" ASC NULLS LAST, created_at ASC, id ASC`, taskColumns, prefixColumns("tk", taskColumns)),
 		rootID.String(),
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return r.scanRows(rows)
+	return repo.scanRows(rows)
 }
 
 // GetAncestorOverrides returns every input task plus every ancestor reachable
 // via parent_id, one row per visited node. Root nodes have a nil ParentID.
 // Nodes without urgency_overrides have a nil Overrides pointer. Calling with
 // a zero-length input returns an empty slice and no error.
-func (r *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.UUID) ([]repository.AncestorOverride, error) {
+func (repo *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.UUID) ([]repository.AncestorOverride, error) {
 	if len(taskIDs) == 0 {
 		return []repository.AncestorOverride{}, nil
 	}
 	placeholders := make([]string, len(taskIDs))
 	args := make([]any, len(taskIDs))
-	for i, id := range taskIDs {
-		placeholders[i] = "?"
-		args[i] = id.String()
+	for index, id := range taskIDs {
+		placeholders[index] = "?"
+		args[index] = id.String()
 	}
 	query := fmt.Sprintf(`
 		WITH RECURSIVE ancestors(id, parent_id, project_id, urgency_overrides) AS (
@@ -236,13 +236,13 @@ func (r *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.UUID
 			FROM tasks
 			WHERE id IN (%s)
 			UNION
-			SELECT t.id, t.parent_id, t.project_id, t.urgency_overrides
-			FROM tasks t
-			INNER JOIN ancestors a ON t.id = a.parent_id
+			SELECT tk.id, tk.parent_id, tk.project_id, tk.urgency_overrides
+			FROM tasks tk
+			INNER JOIN ancestors anc ON tk.id = anc.parent_id
 		)
 		SELECT id, parent_id, project_id, urgency_overrides FROM ancestors`,
 		strings.Join(placeholders, ","))
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := repo.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -272,11 +272,11 @@ func (r *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.UUID
 		}
 		var overrides *domain.UrgencyOverrides
 		if ovNull.Valid {
-			var ov domain.UrgencyOverrides
-			if err := json.Unmarshal([]byte(ovNull.String), &ov); err != nil {
+			var override domain.UrgencyOverrides
+			if err := json.Unmarshal([]byte(ovNull.String), &override); err != nil {
 				return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", idStr, err)
 			}
-			overrides = &ov
+			overrides = &override
 		}
 		result = append(result, repository.AncestorOverride{
 			TaskID:    taskID,
@@ -293,51 +293,51 @@ func (r *TaskRepo) GetAncestorOverrides(ctx context.Context, taskIDs []uuid.UUID
 
 // NextOrder returns max("order") + 1.0 for siblings under parentID. parentID == nil
 // scopes to root-level siblings. Returns 1.0 when the group is empty.
-func (r *TaskRepo) NextOrder(ctx context.Context, parentID *uuid.UUID) (float64, error) {
-	var max sql.NullFloat64
+func (repo *TaskRepo) NextOrder(ctx context.Context, parentID *uuid.UUID) (float64, error) {
+	var maxOrder sql.NullFloat64
 	var err error
 	if parentID == nil {
-		err = r.db.QueryRowContext(ctx,
-			`SELECT MAX("order") FROM tasks WHERE parent_id IS NULL`).Scan(&max)
+		err = repo.db.QueryRowContext(ctx,
+			`SELECT MAX("order") FROM tasks WHERE parent_id IS NULL`).Scan(&maxOrder)
 	} else {
-		err = r.db.QueryRowContext(ctx,
-			`SELECT MAX("order") FROM tasks WHERE parent_id = ?`, parentID.String()).Scan(&max)
+		err = repo.db.QueryRowContext(ctx,
+			`SELECT MAX("order") FROM tasks WHERE parent_id = ?`, parentID.String()).Scan(&maxOrder)
 	}
 	if err != nil {
 		return 0, err
 	}
-	if !max.Valid {
+	if !maxOrder.Valid {
 		return 1.0, nil
 	}
-	return max.Float64 + 1.0, nil
+	return maxOrder.Float64 + 1.0, nil
 }
 
 // FirstOrder returns min("order") - 1.0 for siblings under parentID. parentID == nil
 // scopes to root-level siblings. Returns 1.0 when the group is empty.
-func (r *TaskRepo) FirstOrder(ctx context.Context, parentID *uuid.UUID) (float64, error) {
-	var min sql.NullFloat64
+func (repo *TaskRepo) FirstOrder(ctx context.Context, parentID *uuid.UUID) (float64, error) {
+	var minOrder sql.NullFloat64
 	var err error
 	if parentID == nil {
-		err = r.db.QueryRowContext(ctx,
-			`SELECT MIN("order") FROM tasks WHERE parent_id IS NULL`).Scan(&min)
+		err = repo.db.QueryRowContext(ctx,
+			`SELECT MIN("order") FROM tasks WHERE parent_id IS NULL`).Scan(&minOrder)
 	} else {
-		err = r.db.QueryRowContext(ctx,
-			`SELECT MIN("order") FROM tasks WHERE parent_id = ?`, parentID.String()).Scan(&min)
+		err = repo.db.QueryRowContext(ctx,
+			`SELECT MIN("order") FROM tasks WHERE parent_id = ?`, parentID.String()).Scan(&minOrder)
 	}
 	if err != nil {
 		return 0, err
 	}
-	if !min.Valid {
+	if !minOrder.Valid {
 		return 1.0, nil
 	}
-	return min.Float64 - 1.0, nil
+	return minOrder.Float64 - 1.0, nil
 }
 
 // UpdateOrderAndParent runs the narrow move statement: parent_id, "order",
 // version (+1), and modified_at for a single row under an optimistic-lock
 // check. It intentionally leaves every other column untouched so Move and
 // Resequence cannot clobber fields they never loaded.
-func (r *TaskRepo) UpdateOrderAndParent(
+func (repo *TaskRepo) UpdateOrderAndParent(
 	ctx context.Context,
 	id uuid.UUID,
 	parentID *uuid.UUID,
@@ -345,7 +345,7 @@ func (r *TaskRepo) UpdateOrderAndParent(
 	fromVersion int,
 	updatedAt time.Time,
 ) (int, error) {
-	res, err := r.db.ExecContext(ctx, `
+	res, err := repo.db.ExecContext(ctx, `
 		UPDATE tasks SET parent_id = ?, "order" = ?, version = version + 1, modified_at = ?
 		WHERE id = ? AND version = ?`,
 		nullableUUID(parentID), order,
@@ -355,13 +355,13 @@ func (r *TaskRepo) UpdateOrderAndParent(
 	if err != nil {
 		return 0, err
 	}
-	n, err := res.RowsAffected()
+	rowCount, err := res.RowsAffected()
 	if err != nil {
 		return 0, err
 	}
-	if n == 0 {
+	if rowCount == 0 {
 		var exists int
-		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
+		err := repo.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id.String()).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, domain.ErrNotFound
 		}
@@ -373,20 +373,20 @@ func (r *TaskRepo) UpdateOrderAndParent(
 // NeighborOrders returns the nearest ordered neighbors of pivot within the sibling
 // group under parentID. prev is the largest order < pivot (nil if none); next is
 // the smallest order > pivot (nil if none). parentID == nil scopes to root.
-func (r *TaskRepo) NeighborOrders(ctx context.Context, parentID *uuid.UUID, pivot float64) (prev, next *float64, err error) {
+func (repo *TaskRepo) NeighborOrders(ctx context.Context, parentID *uuid.UUID, pivot float64) (prev, next *float64, err error) {
 	var (
 		prevN sql.NullFloat64
 		nextN sql.NullFloat64
 	)
 	if parentID == nil {
-		err = r.db.QueryRowContext(ctx, `
+		err = repo.db.QueryRowContext(ctx, `
 			SELECT
 				(SELECT "order" FROM tasks WHERE parent_id IS NULL AND "order" < ? ORDER BY "order" DESC LIMIT 1),
 				(SELECT "order" FROM tasks WHERE parent_id IS NULL AND "order" > ? ORDER BY "order" ASC LIMIT 1)
 		`, pivot, pivot).Scan(&prevN, &nextN)
 	} else {
 		pid := parentID.String()
-		err = r.db.QueryRowContext(ctx, `
+		err = repo.db.QueryRowContext(ctx, `
 			SELECT
 				(SELECT "order" FROM tasks WHERE parent_id = ? AND "order" < ? ORDER BY "order" DESC LIMIT 1),
 				(SELECT "order" FROM tasks WHERE parent_id = ? AND "order" > ? ORDER BY "order" ASC LIMIT 1)
@@ -396,12 +396,12 @@ func (r *TaskRepo) NeighborOrders(ctx context.Context, parentID *uuid.UUID, pivo
 		return nil, nil, err
 	}
 	if prevN.Valid {
-		v := prevN.Float64
-		prev = &v
+		prevVal := prevN.Float64
+		prev = &prevVal
 	}
 	if nextN.Valid {
-		v := nextN.Float64
-		next = &v
+		nextVal := nextN.Float64
+		next = &nextVal
 	}
 	return prev, next, nil
 }
@@ -423,7 +423,7 @@ func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 			WITH RECURSIVE descendants(id) AS (
 				SELECT id FROM tasks WHERE parent_id = ?
 				UNION ALL
-				SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+				SELECT tk.id FROM tasks tk JOIN descendants sub ON tk.parent_id = sub.id
 			)
 			SELECT id FROM descendants
 		)`)
@@ -431,24 +431,24 @@ func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 	}
 	if len(filter.Statuses) > 0 {
 		placeholders := make([]string, len(filter.Statuses))
-		for i, s := range filter.Statuses {
-			placeholders[i] = "?"
-			args = append(args, s)
+		for index, status := range filter.Statuses {
+			placeholders[index] = "?"
+			args = append(args, status)
 		}
 		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ",")))
 	}
 	if len(filter.Levels) > 0 {
 		placeholders := make([]string, len(filter.Levels))
-		for i, lvl := range filter.Levels {
-			placeholders[i] = "?"
-			args = append(args, lvl)
+		for index, level := range filter.Levels {
+			placeholders[index] = "?"
+			args = append(args, level)
 		}
 		conditions = append(conditions, fmt.Sprintf("level IN (%s)", strings.Join(placeholders, ",")))
 	}
 	if len(filter.Tags) > 0 {
 		placeholders := make([]string, len(filter.Tags))
-		for i, tag := range filter.Tags {
-			placeholders[i] = "?"
+		for index, tag := range filter.Tags {
+			placeholders[index] = "?"
 			args = append(args, tag)
 		}
 		conditions = append(conditions, fmt.Sprintf(
@@ -460,8 +460,8 @@ func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 	}
 	if len(filter.ExcludeTags) > 0 {
 		placeholders := make([]string, len(filter.ExcludeTags))
-		for i, tag := range filter.ExcludeTags {
-			placeholders[i] = "?"
+		for index, tag := range filter.ExcludeTags {
+			placeholders[index] = "?"
 			args = append(args, tag)
 		}
 		conditions = append(conditions, fmt.Sprintf(
@@ -519,20 +519,20 @@ func buildFilter(filter domain.TaskFilter) (where string, args []any) {
 	if len(filter.UDA) > 0 {
 		// Sort keys for deterministic query generation (important for tests)
 		udaKeys := make([]string, 0, len(filter.UDA))
-		for k := range filter.UDA {
-			udaKeys = append(udaKeys, k)
+		for key := range filter.UDA {
+			udaKeys = append(udaKeys, key)
 		}
 		sort.Strings(udaKeys)
-		for _, k := range udaKeys {
-			v := filter.UDA[k]
-			jsonPath := "$." + k
-			if v == "" {
+		for _, key := range udaKeys {
+			udaValue := filter.UDA[key]
+			jsonPath := "$." + key
+			if udaValue == "" {
 				// Empty value = key absent or empty string
 				conditions = append(conditions, "(json_extract(uda, ?) IS NULL OR json_extract(uda, ?) = '')")
 				args = append(args, jsonPath, jsonPath)
 			} else {
 				conditions = append(conditions, "json_extract(uda, ?) = ?")
-				args = append(args, jsonPath, v)
+				args = append(args, jsonPath, udaValue)
 			}
 		}
 	}
@@ -545,17 +545,17 @@ func buildFilterExpr(expr domain.FilterExpr) (where string, args []any) {
 		return "", nil
 	}
 
-	switch e := expr.(type) {
+	switch filterNode := expr.(type) {
 	case *domain.TermFilter:
-		return buildFilter(e.TaskFilter)
+		return buildFilter(filterNode.TaskFilter)
 
 	case *domain.AndFilter:
 		var conditions []string
-		for _, child := range e.Children {
-			w, a := buildFilterExpr(child)
-			if w != "" {
-				conditions = append(conditions, w)
-				args = append(args, a...)
+		for _, child := range filterNode.Children {
+			clause, clauseArgs := buildFilterExpr(child)
+			if clause != "" {
+				conditions = append(conditions, clause)
+				args = append(args, clauseArgs...)
 			}
 		}
 		if len(conditions) == 0 {
@@ -565,11 +565,11 @@ func buildFilterExpr(expr domain.FilterExpr) (where string, args []any) {
 
 	case *domain.OrFilter:
 		var conditions []string
-		for _, child := range e.Children {
-			w, a := buildFilterExpr(child)
-			if w != "" {
-				conditions = append(conditions, w)
-				args = append(args, a...)
+		for _, child := range filterNode.Children {
+			clause, clauseArgs := buildFilterExpr(child)
+			if clause != "" {
+				conditions = append(conditions, clause)
+				args = append(args, clauseArgs...)
 			}
 		}
 		if len(conditions) == 0 {
@@ -578,33 +578,33 @@ func buildFilterExpr(expr domain.FilterExpr) (where string, args []any) {
 		return "(" + strings.Join(conditions, " OR ") + ")", args
 
 	case *domain.NotFilter:
-		w, a := buildFilterExpr(e.Child)
-		if w == "" {
-			return "", a
+		clause, clauseArgs := buildFilterExpr(filterNode.Child)
+		if clause == "" {
+			return "", clauseArgs
 		}
-		return "NOT (" + w + ")", a
+		return "NOT (" + clause + ")", clauseArgs
 
 	default:
 		return "", nil
 	}
 }
 
-func (r *TaskRepo) scanOne(row *sql.Row) (*domain.Task, error) {
-	t, err := scanTask(row)
+func (repo *TaskRepo) scanOne(row *sql.Row) (*domain.Task, error) {
+	task, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
-	return t, err
+	return task, err
 }
 
-func (r *TaskRepo) scanRows(rows *sql.Rows) ([]*domain.Task, error) {
+func (repo *TaskRepo) scanRows(rows *sql.Rows) ([]*domain.Task, error) {
 	result := make([]*domain.Task, 0)
 	for rows.Next() {
-		t, err := scanTask(rows)
+		task, err := scanTask(rows)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, t)
+		result = append(result, task)
 	}
 	return result, rows.Err()
 }
@@ -613,8 +613,8 @@ func (r *TaskRepo) scanRows(rows *sql.Rows) ([]*domain.Task, error) {
 // e.g. prefixColumns("t", "id, name") -> "t.id, t.name"
 func prefixColumns(alias, cols string) string {
 	parts := strings.Split(cols, ",")
-	for i, p := range parts {
-		parts[i] = alias + "." + strings.TrimSpace(p)
+	for index, part := range parts {
+		parts[index] = alias + "." + strings.TrimSpace(part)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -623,9 +623,9 @@ type taskScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanTask(s taskScanner) (*domain.Task, error) {
+func scanTask(scanner taskScanner) (*domain.Task, error) {
 	var (
-		t                domain.Task
+		result           domain.Task
 		id               string
 		parentID         sql.NullString
 		projectID        string
@@ -641,69 +641,69 @@ func scanTask(s taskScanner) (*domain.Task, error) {
 		claimedAt        sql.NullString
 		level            sql.NullString
 	)
-	err := s.Scan(
-		&id, &t.ShortID, &parentID, &projectID,
-		&t.Title, &t.Description, &t.Status, &t.Priority, &order, &t.Version,
+	err := scanner.Scan(
+		&id, &result.ShortID, &parentID, &projectID,
+		&result.Title, &result.Description, &result.Status, &result.Priority, &order, &result.Version,
 		&dueAt, &waitUntil, &recurrence, &udaJSON, &urgencyOverrides,
 		&createdAt, &modifiedAt, &claimedBy, &claimedAt, &level,
 	)
 	if err != nil {
 		return nil, err
 	}
-	t.ID, err = uuid.Parse(id)
+	result.ID, err = uuid.Parse(id)
 	if err != nil {
 		return nil, fmt.Errorf("parsing task ID: %w", err)
 	}
-	t.ParentID, err = parseUUID(parentID)
+	result.ParentID, err = parseUUID(parentID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing parent_id: %w", err)
 	}
-	t.ProjectID, err = uuid.Parse(projectID)
+	result.ProjectID, err = uuid.Parse(projectID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing task.project_id: %w", err)
 	}
 	if order.Valid {
-		v := order.Float64
-		t.Order = &v
+		orderVal := order.Float64
+		result.Order = &orderVal
 	}
-	t.DueAt, err = parseTime(dueAt)
+	result.DueAt, err = parseTime(dueAt)
 	if err != nil {
 		return nil, fmt.Errorf("parsing due_at: %w", err)
 	}
-	t.WaitUntil, err = parseTime(waitUntil)
+	result.WaitUntil, err = parseTime(waitUntil)
 	if err != nil {
 		return nil, fmt.Errorf("parsing wait_until: %w", err)
 	}
 	if recurrence.Valid {
-		t.RecurrenceRule = &recurrence.String
+		result.RecurrenceRule = &recurrence.String
 	}
-	if err := json.Unmarshal([]byte(udaJSON), &t.UDA); err != nil {
+	if err := json.Unmarshal([]byte(udaJSON), &result.UDA); err != nil {
 		return nil, fmt.Errorf("parsing uda: %w", err)
 	}
 	if urgencyOverrides.Valid {
-		var ov domain.UrgencyOverrides
-		if err := json.Unmarshal([]byte(urgencyOverrides.String), &ov); err != nil {
+		var override domain.UrgencyOverrides
+		if err := json.Unmarshal([]byte(urgencyOverrides.String), &override); err != nil {
 			return nil, fmt.Errorf("scanning task %s: decoding urgency_overrides: %w", id, err)
 		}
-		t.UrgencyOverrides = &ov
+		result.UrgencyOverrides = &override
 	}
-	t.CreatedAt, err = time.Parse(timeFormat, createdAt)
+	result.CreatedAt, err = time.Parse(timeFormat, createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("parsing created_at: %w", err)
 	}
-	t.ModifiedAt, err = time.Parse(timeFormat, modifiedAt)
+	result.ModifiedAt, err = time.Parse(timeFormat, modifiedAt)
 	if err != nil {
 		return nil, fmt.Errorf("parsing modified_at: %w", err)
 	}
 	if claimedBy.Valid {
-		t.ClaimedBy = &claimedBy.String
+		result.ClaimedBy = &claimedBy.String
 	}
-	t.ClaimedAt, err = parseTime(claimedAt)
+	result.ClaimedAt, err = parseTime(claimedAt)
 	if err != nil {
 		return nil, fmt.Errorf("parsing claimed_at: %w", err)
 	}
 	if level.Valid {
-		t.Level = &level.String
+		result.Level = &level.String
 	}
-	return &t, nil
+	return &result, nil
 }

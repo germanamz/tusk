@@ -30,20 +30,22 @@ func newTestTask() *domain.Task {
 	}
 }
 
-func mustCreateTask(t *testing.T, repo *TaskRepo, task *domain.Task) {
-	t.Helper()
+func mustCreateTask(test *testing.T, repo *TaskRepo, task *domain.Task) {
+	test.Helper()
+
 	if err := repo.Create(context.Background(), task); err != nil {
-		t.Fatalf("mustCreateTask: %v", err)
+		test.Fatalf("mustCreateTask: %v", err)
 	}
 }
 
 // mustCreateTestProject inserts a project row so FK-bound tasks can reference it.
 // It uses the seeded kanban workflow (uuid.Nil).
-func mustCreateTestProject(t *testing.T, s *Store, id uuid.UUID, name string) {
-	t.Helper()
+func mustCreateTestProject(test *testing.T, store *Store, id uuid.UUID, name string) {
+	test.Helper()
+
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	repo := NewProjectRepo(s.DB())
-	p := &domain.Project{
+	repo := NewProjectRepo(store.DB())
+	project := &domain.Project{
 		ID:         id,
 		Name:       name,
 		WorkflowID: uuid.Nil,
@@ -51,34 +53,39 @@ func mustCreateTestProject(t *testing.T, s *Store, id uuid.UUID, name string) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := repo.Create(context.Background(), p); err != nil {
-		t.Fatalf("creating test project %q: %v", name, err)
+
+	if err := repo.Create(context.Background(), project); err != nil {
+		test.Fatalf("creating test project %q: %v", name, err)
 	}
 }
 
-func TestTaskCreate(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskCreate(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
+
 	if err := repo.Create(ctx, task); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
+
 	got, err := repo.GetByID(ctx, task.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.Title != "Test task" {
-		t.Fatalf("expected title 'Test task', got %q", got.Title)
+		test.Fatalf("expected title 'Test task', got %q", got.Title)
 	}
 	if got.Version != 1 {
-		t.Fatalf("expected version 1, got %d", got.Version)
+		test.Fatalf("expected version 1, got %d", got.Version)
 	}
 }
 
-func TestTaskCreateWithNullables(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskCreateWithNullables(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	due := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	wait := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
@@ -89,719 +96,788 @@ func TestTaskCreateWithNullables(t *testing.T) {
 	task.WaitUntil = &wait
 	task.RecurrenceRule = &rrule
 	task.UDA = map[string]any{"custom": "value"}
+
 	if err := repo.Create(ctx, task); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
+
 	got, err := repo.GetByID(ctx, task.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.ProjectID != domain.DefaultProjectUUID {
-		t.Fatalf("expected project ID %v, got %v", domain.DefaultProjectUUID, got.ProjectID)
+		test.Fatalf("expected project ID %v, got %v", domain.DefaultProjectUUID, got.ProjectID)
 	}
 	if got.DueAt == nil || !got.DueAt.Equal(due) {
-		t.Fatalf("expected due %v, got %v", due, got.DueAt)
+		test.Fatalf("expected due %v, got %v", due, got.DueAt)
 	}
 	if got.WaitUntil == nil || !got.WaitUntil.Equal(wait) {
-		t.Fatalf("expected wait %v, got %v", wait, got.WaitUntil)
+		test.Fatalf("expected wait %v, got %v", wait, got.WaitUntil)
 	}
 	if got.RecurrenceRule == nil || *got.RecurrenceRule != rrule {
-		t.Fatalf("expected rrule %s, got %v", rrule, got.RecurrenceRule)
+		test.Fatalf("expected rrule %s, got %v", rrule, got.RecurrenceRule)
 	}
 	if got.UDA["custom"] != "value" {
-		t.Fatalf("expected UDA custom=value, got %v", got.UDA)
+		test.Fatalf("expected UDA custom=value, got %v", got.UDA)
 	}
 }
 
-func TestTaskGetByShortID(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskGetByShortID(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
+
 	got, err := repo.GetByShortID(ctx, task.ShortID)
+
 	if err != nil {
-		t.Fatalf("GetByShortID: %v", err)
+		test.Fatalf("GetByShortID: %v", err)
 	}
+
 	if got.ID != task.ID {
-		t.Fatalf("expected ID %s, got %s", task.ID, got.ID)
+		test.Fatalf("expected ID %s, got %s", task.ID, got.ID)
 	}
 }
 
-func TestTaskGetByIDNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskGetByIDNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	_, err := repo.GetByID(context.Background(), uuid.New())
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestTaskGetByShortIDNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskGetByShortIDNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	_, err := repo.GetByShortID(context.Background(), "nonexist")
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestTaskUpdate(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskUpdate(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
 	task.Title = "Updated title"
 	task.Priority = 4
+
 	if err := repo.Update(ctx, task); err != nil {
-		t.Fatalf("Update: %v", err)
+		test.Fatalf("Update: %v", err)
 	}
+
 	if task.Version != 2 {
-		t.Fatalf("expected version bumped to 2, got %d", task.Version)
+		test.Fatalf("expected version bumped to 2, got %d", task.Version)
 	}
+
 	got, err := repo.GetByID(ctx, task.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if got.Title != "Updated title" {
-		t.Fatalf("expected updated title, got %q", got.Title)
+		test.Fatalf("expected updated title, got %q", got.Title)
 	}
 	if got.Version != 2 {
-		t.Fatalf("expected version 2, got %d", got.Version)
+		test.Fatalf("expected version 2, got %d", got.Version)
 	}
 }
 
-func TestTaskUpdateNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskUpdateNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	task := newTestTask()
 	err := repo.Update(context.Background(), task)
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestTaskUpdateConflict(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskUpdateConflict(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
 	task.Version = 99
 	task.Title = "Stale update"
 	err := repo.Update(ctx, task)
 	if err != domain.ErrConflict {
-		t.Fatalf("expected ErrConflict, got %v", err)
+		test.Fatalf("expected ErrConflict, got %v", err)
 	}
 }
 
-func TestTaskDelete(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskDelete(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
+
 	if err := repo.Delete(ctx, task.ID, task.Version); err != nil {
-		t.Fatalf("Delete: %v", err)
+		test.Fatalf("Delete: %v", err)
 	}
+
 	_, err := repo.GetByID(ctx, task.ID)
+
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+		test.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }
 
-func TestTaskDeleteConflict(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskDeleteConflict(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
 	err := repo.Delete(ctx, task.ID, 99)
 	if err != domain.ErrConflict {
-		t.Fatalf("expected ErrConflict, got %v", err)
+		test.Fatalf("expected ErrConflict, got %v", err)
 	}
 }
 
-func TestTaskDeleteNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskDeleteNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	err := repo.Delete(context.Background(), uuid.New(), 1)
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestTaskListEmpty(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListEmpty(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	tasks, err := repo.List(context.Background(), &domain.TermFilter{})
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
+
 	if len(tasks) != 0 {
-		t.Fatalf("expected 0 tasks, got %d", len(tasks))
+		test.Fatalf("expected 0 tasks, got %d", len(tasks))
 	}
 }
 
-func TestTaskListAll(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListAll(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
-		mustCreateTask(t, repo, newTestTask())
+	for index := 0; index < 3; index++ {
+		mustCreateTask(test, repo, newTestTask())
 	}
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 3 {
-		t.Fatalf("expected 3 tasks, got %d", len(tasks))
+		test.Fatalf("expected 3 tasks, got %d", len(tasks))
 	}
 }
 
-func TestTaskListByStatus(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByStatus(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
-	t1 := newTestTask()
-	t1.Status = "pending"
-	mustCreateTask(t, repo, t1)
-	t2 := newTestTask()
-	t2.Status = "active"
-	mustCreateTask(t, repo, t2)
+	task1 := newTestTask()
+	task1.Status = "pending"
+	mustCreateTask(test, repo, task1)
+	task2 := newTestTask()
+	task2.Status = "active"
+	mustCreateTask(test, repo, task2)
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
+		test.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 	if tasks[0].Status != "active" {
-		t.Fatalf("expected active, got %s", tasks[0].Status)
+		test.Fatalf("expected active, got %s", tasks[0].Status)
 	}
 }
 
-func TestTaskListByStatusMultiple(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByStatusMultiple(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	for _, status := range []string{"pending", "active", "completed"} {
 		task := newTestTask()
 		task.Status = status
-		mustCreateTask(t, repo, task)
+		mustCreateTask(test, repo, task)
 	}
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending", "active"}}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 2 {
-		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+		test.Fatalf("expected 2 tasks, got %d", len(tasks))
 	}
 }
 
-func seedLeveledTasks(t *testing.T, repo *TaskRepo) (story, task, unset *domain.Task) {
-	t.Helper()
+func seedLeveledTasks(test *testing.T, repo *TaskRepo) (story, task, unset *domain.Task) {
+	test.Helper()
 	story = newTestTask()
 	storyLvl := "story"
 	story.Level = &storyLvl
-	mustCreateTask(t, repo, story)
+	mustCreateTask(test, repo, story)
 
 	task = newTestTask()
 	taskLvl := "task"
 	task.Level = &taskLvl
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
 
 	unset = newTestTask()
-	mustCreateTask(t, repo, unset)
+	mustCreateTask(test, repo, unset)
 	return story, task, unset
 }
 
-func TestTaskListByLevelSingle(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByLevelSingle(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
-	story, _, _ := seedLeveledTasks(t, repo)
+	story, _, _ := seedLeveledTasks(test, repo)
 
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: []string{"story"}}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
+		test.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 	if tasks[0].ID != story.ID {
-		t.Fatalf("expected story task %s, got %s", story.ID, tasks[0].ID)
+		test.Fatalf("expected story task %s, got %s", story.ID, tasks[0].ID)
 	}
 }
 
-func TestTaskListByLevelMultiple(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByLevelMultiple(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
-	seedLeveledTasks(t, repo)
+	seedLeveledTasks(test, repo)
 
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: []string{"story", "task"}}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 2 {
-		t.Fatalf("expected 2 tasks (story + task), got %d", len(tasks))
+		test.Fatalf("expected 2 tasks (story + task), got %d", len(tasks))
 	}
 	gotLevels := map[string]bool{}
 	for _, ts := range tasks {
 		if ts.Level == nil {
-			t.Fatalf("unexpected task with NULL level: %s", ts.ID)
+			test.Fatalf("unexpected task with NULL level: %s", ts.ID)
 		}
 		gotLevels[*ts.Level] = true
 	}
 	if !gotLevels["story"] || !gotLevels["task"] {
-		t.Fatalf("expected levels {story, task}, got %v", gotLevels)
+		test.Fatalf("expected levels {story, task}, got %v", gotLevels)
 	}
 }
 
-func TestTaskListByLevelNilReturnsAll(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByLevelNilReturnsAll(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
-	seedLeveledTasks(t, repo)
+	seedLeveledTasks(test, repo)
 
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{Levels: nil}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 3 {
-		t.Fatalf("expected 3 tasks (including NULL level), got %d", len(tasks))
+		test.Fatalf("expected 3 tasks (including NULL level), got %d", len(tasks))
 	}
 }
 
-func TestTaskListByProject(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByProject(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 
 	projID := uuid.New()
-	mustCreateTestProject(t, s, projID, "backend-list")
-	t1 := newTestTask()
-	t1.ProjectID = projID
-	mustCreateTask(t, repo, t1)
+	mustCreateTestProject(test, store, projID, "backend-list")
+	task1 := newTestTask()
+	task1.ProjectID = projID
+	mustCreateTask(test, repo, task1)
 
-	t2 := newTestTask()
-	mustCreateTask(t, repo, t2)
+	task2 := newTestTask()
+	mustCreateTask(test, repo, task2)
 
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{ProjectID: &projID}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
+		test.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 }
 
-func TestTaskListByPriority(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByPriority(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
-	for _, p := range []int{1, 2, 3, 4} {
+	for _, priority := range []int{1, 2, 3, 4} {
 		task := newTestTask()
-		task.Priority = p
-		mustCreateTask(t, repo, task)
+		task.Priority = priority
+		mustCreateTask(test, repo, task)
 	}
 	min, max := 2, 3
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{PriorityMin: &min, PriorityMax: &max}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 2 {
-		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+		test.Fatalf("expected 2 tasks, got %d", len(tasks))
 	}
 }
 
-func TestTaskListByDueDate(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByDueDate(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
-	d1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	d2 := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
-	d3 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	for _, d := range []*time.Time{&d1, &d2, &d3} {
+	date1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	date2 := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	date3 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	for _, due := range []*time.Time{&date1, &date2, &date3} {
 		task := newTestTask()
-		task.DueAt = d
-		mustCreateTask(t, repo, task)
+		task.DueAt = due
+		mustCreateTask(test, repo, task)
 	}
 	after := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 	before := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{DueAfter: &after, DueBefore: &before}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 2 {
-		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+		test.Fatalf("expected 2 tasks, got %d", len(tasks))
 	}
 }
 
-func TestTaskListByParent(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByParent(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	parent := newTestTask()
-	mustCreateTask(t, repo, parent)
+	mustCreateTask(test, repo, parent)
 	child := newTestTask()
 	child.ParentID = &parent.ID
-	mustCreateTask(t, repo, child)
+	mustCreateTask(test, repo, child)
 	orphan := newTestTask()
-	mustCreateTask(t, repo, orphan)
+	mustCreateTask(test, repo, orphan)
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{ParentID: &parent.ID}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 child, got %d", len(tasks))
+		test.Fatalf("expected 1 child, got %d", len(tasks))
 	}
 }
 
-func TestTaskListWaitingOnly(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListWaitingOnly(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	future := time.Now().UTC().Add(24 * time.Hour)
 	past := time.Now().UTC().Add(-24 * time.Hour)
-	t1 := newTestTask()
-	t1.WaitUntil = &future
-	mustCreateTask(t, repo, t1)
-	t2 := newTestTask()
-	t2.WaitUntil = &past
-	mustCreateTask(t, repo, t2)
-	t3 := newTestTask()
-	mustCreateTask(t, repo, t3)
+	task1 := newTestTask()
+	task1.WaitUntil = &future
+	mustCreateTask(test, repo, task1)
+	task2 := newTestTask()
+	task2.WaitUntil = &past
+	mustCreateTask(test, repo, task2)
+	task3 := newTestTask()
+	mustCreateTask(test, repo, task3)
 	waitingOnly := true
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{WaitingOnly: &waitingOnly}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 waiting task, got %d", len(tasks))
+		test.Fatalf("expected 1 waiting task, got %d", len(tasks))
 	}
 }
 
-func TestTaskListCombinedFilters(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListCombinedFilters(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 
 	projID := uuid.New()
-	mustCreateTestProject(t, s, projID, "combined-list")
+	mustCreateTestProject(test, store, projID, "combined-list")
 
 	// Task matches both filters: status=active AND project=combined
-	t1 := newTestTask()
-	t1.Status = "active"
-	t1.ProjectID = projID
-	mustCreateTask(t, repo, t1)
+	task1 := newTestTask()
+	task1.Status = "active"
+	task1.ProjectID = projID
+	mustCreateTask(test, repo, task1)
 
 	// Matches status but not project
-	t2 := newTestTask()
-	t2.Status = "active"
-	mustCreateTask(t, repo, t2)
+	task2 := newTestTask()
+	task2.Status = "active"
+	mustCreateTask(test, repo, task2)
 
 	// Matches project but not status
-	t3 := newTestTask()
-	t3.Status = "pending"
-	t3.ProjectID = projID
-	mustCreateTask(t, repo, t3)
+	task3 := newTestTask()
+	task3.Status = "pending"
+	task3.ProjectID = projID
+	mustCreateTask(test, repo, task3)
 
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{
 		Statuses:  []string{"active"},
 		ProjectID: &projID,
 	}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task matching both filters, got %d", len(tasks))
+		test.Fatalf("expected 1 task matching both filters, got %d", len(tasks))
 	}
-	if tasks[0].ID != t1.ID {
-		t.Fatalf("expected task %s, got %s", t1.ID, tasks[0].ID)
+	if tasks[0].ID != task1.ID {
+		test.Fatalf("expected task %s, got %s", task1.ID, tasks[0].ID)
 	}
 }
 
 // ── UDA filter tests ───────────────────────────────────────────────────
 
-func TestBuildFilter_UDA(t *testing.T) {
+func TestBuildFilter_UDA(test *testing.T) {
 	filter := domain.TaskFilter{
 		UDA: map[string]string{"env": "prod"},
 	}
 	where, args := buildFilter(filter)
 	if !strings.Contains(where, "json_extract") {
-		t.Fatalf("expected json_extract in WHERE clause, got %q", where)
+		test.Fatalf("expected json_extract in WHERE clause, got %q", where)
 	}
 	if len(args) != 2 {
-		t.Fatalf("expected 2 args, got %d", len(args))
+		test.Fatalf("expected 2 args, got %d", len(args))
 	}
 	if args[0] != "$.env" {
-		t.Fatalf("expected first arg $.env, got %v", args[0])
+		test.Fatalf("expected first arg $.env, got %v", args[0])
 	}
 	if args[1] != "prod" {
-		t.Fatalf("expected second arg prod, got %v", args[1])
+		test.Fatalf("expected second arg prod, got %v", args[1])
 	}
 }
 
-func TestBuildFilter_UDAEmptyValue(t *testing.T) {
+func TestBuildFilter_UDAEmptyValue(test *testing.T) {
 	filter := domain.TaskFilter{
 		UDA: map[string]string{"env": ""},
 	}
 	where, args := buildFilter(filter)
 	if !strings.Contains(where, "IS NULL") {
-		t.Fatalf("expected IS NULL in WHERE clause for empty value, got %q", where)
+		test.Fatalf("expected IS NULL in WHERE clause for empty value, got %q", where)
 	}
 	if len(args) != 2 {
-		t.Fatalf("expected 2 args, got %d: %v", len(args), args)
+		test.Fatalf("expected 2 args, got %d: %v", len(args), args)
 	}
 }
 
-func TestBuildFilter_UDAMultiple(t *testing.T) {
+func TestBuildFilter_UDAMultiple(test *testing.T) {
 	filter := domain.TaskFilter{
 		UDA: map[string]string{"env": "prod", "team": "backend"},
 	}
 	where, args := buildFilter(filter)
 	if strings.Count(where, "json_extract") != 2 {
-		t.Fatalf("expected 2 json_extract conditions, got %q", where)
+		test.Fatalf("expected 2 json_extract conditions, got %q", where)
 	}
 	if len(args) != 4 {
-		t.Fatalf("expected 4 args, got %d", len(args))
+		test.Fatalf("expected 4 args, got %d", len(args))
 	}
 }
 
 // ── Phase 5: Hierarchy tests ───────────────────────────────────────────
 
-func TestTaskGetChildren(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskGetChildren(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	parent := newTestTask()
-	mustCreateTask(t, repo, parent)
+	mustCreateTask(test, repo, parent)
 	child1 := newTestTask()
 	child1.ParentID = &parent.ID
-	mustCreateTask(t, repo, child1)
+	mustCreateTask(test, repo, child1)
 	child2 := newTestTask()
 	child2.ParentID = &parent.ID
-	mustCreateTask(t, repo, child2)
+	mustCreateTask(test, repo, child2)
 	grandchild := newTestTask()
 	grandchild.ParentID = &child1.ID
-	mustCreateTask(t, repo, grandchild)
+	mustCreateTask(test, repo, grandchild)
+
 	children, err := repo.GetChildren(ctx, parent.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(children) != 2 {
-		t.Fatalf("expected 2 children, got %d", len(children))
+		test.Fatalf("expected 2 children, got %d", len(children))
 	}
 }
 
-func TestTaskGetChildrenEmpty(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskGetChildrenEmpty(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
+
 	children, err := repo.GetChildren(context.Background(), task.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(children) != 0 {
-		t.Fatalf("expected 0 children, got %d", len(children))
+		test.Fatalf("expected 0 children, got %d", len(children))
 	}
 }
 
-func TestTaskGetDescendants(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskGetDescendants(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	root := newTestTask()
-	mustCreateTask(t, repo, root)
+	mustCreateTask(test, repo, root)
 	child1 := newTestTask()
 	child1.ParentID = &root.ID
-	mustCreateTask(t, repo, child1)
+	mustCreateTask(test, repo, child1)
 	child2 := newTestTask()
 	child2.ParentID = &root.ID
-	mustCreateTask(t, repo, child2)
+	mustCreateTask(test, repo, child2)
 	grandchild := newTestTask()
 	grandchild.ParentID = &child1.ID
-	mustCreateTask(t, repo, grandchild)
+	mustCreateTask(test, repo, grandchild)
+
 	descendants, err := repo.GetDescendants(ctx, root.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(descendants) != 3 {
-		t.Fatalf("expected 3 descendants, got %d", len(descendants))
+		test.Fatalf("expected 3 descendants, got %d", len(descendants))
 	}
 	ids := map[uuid.UUID]bool{}
-	for _, d := range descendants {
-		ids[d.ID] = true
+	for _, desc := range descendants {
+		ids[desc.ID] = true
 	}
 	for _, expected := range []uuid.UUID{child1.ID, child2.ID, grandchild.ID} {
 		if !ids[expected] {
-			t.Fatalf("missing descendant %s", expected)
+			test.Fatalf("missing descendant %s", expected)
 		}
 	}
 }
 
-func TestTaskGetDescendantsEmpty(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskGetDescendantsEmpty(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
+
 	descendants, err := repo.GetDescendants(context.Background(), task.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(descendants) != 0 {
-		t.Fatalf("expected 0 descendants, got %d", len(descendants))
+		test.Fatalf("expected 0 descendants, got %d", len(descendants))
 	}
 }
 
-func TestTaskListByRootID(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskListByRootID(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	root := newTestTask()
-	mustCreateTask(t, repo, root)
+	mustCreateTask(test, repo, root)
 	child := newTestTask()
 	child.ParentID = &root.ID
-	mustCreateTask(t, repo, child)
+	mustCreateTask(test, repo, child)
 	grandchild := newTestTask()
 	grandchild.ParentID = &child.ID
-	mustCreateTask(t, repo, grandchild)
+	mustCreateTask(test, repo, grandchild)
 	unrelated := newTestTask()
-	mustCreateTask(t, repo, unrelated)
+	mustCreateTask(test, repo, unrelated)
+
 	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &root.ID}})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(tasks) != 2 {
-		t.Fatalf("expected 2 descendants via List, got %d", len(tasks))
+		test.Fatalf("expected 2 descendants via List, got %d", len(tasks))
 	}
 }
 
-func TestBuildFilter_TitleContains(t *testing.T) {
-	v := "auth"
-	filter := domain.TaskFilter{TitleContains: &v}
+func TestBuildFilter_TitleContains(test *testing.T) {
+	filterValue := "auth"
+	filter := domain.TaskFilter{TitleContains: &filterValue}
 	where, args := buildFilter(filter)
 	if !strings.Contains(where, "LOWER(title)") {
-		t.Fatalf("expected LOWER(title) in WHERE clause, got %q", where)
+		test.Fatalf("expected LOWER(title) in WHERE clause, got %q", where)
 	}
 	if len(args) != 1 || args[0] != "auth" {
-		t.Fatalf("expected args [auth], got %v", args)
+		test.Fatalf("expected args [auth], got %v", args)
 	}
 }
 
-func TestBuildFilter_DescriptionContains(t *testing.T) {
-	v := "implement"
-	filter := domain.TaskFilter{DescriptionContains: &v}
+func TestBuildFilter_DescriptionContains(test *testing.T) {
+	filterValue := "implement"
+	filter := domain.TaskFilter{DescriptionContains: &filterValue}
 	where, args := buildFilter(filter)
 	if !strings.Contains(where, "LOWER(description)") {
-		t.Fatalf("expected LOWER(description) in WHERE clause, got %q", where)
+		test.Fatalf("expected LOWER(description) in WHERE clause, got %q", where)
 	}
 	if len(args) != 1 || args[0] != "implement" {
-		t.Fatalf("expected args [implement], got %v", args)
+		test.Fatalf("expected args [implement], got %v", args)
 	}
 }
 
-func TestList_TitleContains(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestList_TitleContains(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t1.Title = "Implement auth middleware"
-	mustCreateTask(t, repo, t1)
+	task1 := newTestTask()
+	task1.Title = "Implement auth middleware"
+	mustCreateTask(test, repo, task1)
 
-	t2 := newTestTask()
-	t2.Title = "Write unit tests"
-	mustCreateTask(t, repo, t2)
+	task2 := newTestTask()
+	task2.Title = "Write unit tests"
+	mustCreateTask(test, repo, task2)
 
-	v := "auth"
-	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{TitleContains: &v}})
+	filterValue := "auth"
+
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{TitleContains: &filterValue}})
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
+		test.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 	if tasks[0].Title != "Implement auth middleware" {
-		t.Fatalf("expected auth task, got %q", tasks[0].Title)
+		test.Fatalf("expected auth task, got %q", tasks[0].Title)
 	}
 }
 
-func TestList_DescriptionContains(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestList_DescriptionContains(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t1.Title = "Task A"
-	t1.Description = "This handles authentication"
-	mustCreateTask(t, repo, t1)
+	task1 := newTestTask()
+	task1.Title = "Task A"
+	task1.Description = "This handles authentication"
+	mustCreateTask(test, repo, task1)
 
-	t2 := newTestTask()
-	t2.Title = "Task B"
-	t2.Description = "This handles logging"
-	mustCreateTask(t, repo, t2)
+	task2 := newTestTask()
+	task2.Title = "Task B"
+	task2.Description = "This handles logging"
+	mustCreateTask(test, repo, task2)
 
-	v := "authentication"
-	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{DescriptionContains: &v}})
+	filterValue := "authentication"
+
+	tasks, err := repo.List(ctx, &domain.TermFilter{TaskFilter: domain.TaskFilter{DescriptionContains: &filterValue}})
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
+		test.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 	if tasks[0].Title != "Task A" {
-		t.Fatalf("expected Task A, got %q", tasks[0].Title)
+		test.Fatalf("expected Task A, got %q", tasks[0].Title)
 	}
 }
 
-func TestBuildFilterExpr_And(t *testing.T) {
+func TestBuildFilterExpr_And(test *testing.T) {
 	expr := &domain.AndFilter{Children: []domain.FilterExpr{
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Tags: []string{"api"}}},
 	}}
 	where, _ := buildFilterExpr(expr)
 	if !strings.Contains(where, " AND ") {
-		t.Fatalf("expected AND in WHERE, got %q", where)
+		test.Fatalf("expected AND in WHERE, got %q", where)
 	}
 }
 
-func TestBuildFilterExpr_Or(t *testing.T) {
+func TestBuildFilterExpr_Or(test *testing.T) {
 	expr := &domain.OrFilter{Children: []domain.FilterExpr{
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"pending"}}},
 	}}
 	where, _ := buildFilterExpr(expr)
 	if !strings.Contains(where, " OR ") {
-		t.Fatalf("expected OR in WHERE, got %q", where)
+		test.Fatalf("expected OR in WHERE, got %q", where)
 	}
 }
 
-func TestBuildFilterExpr_Not(t *testing.T) {
+func TestBuildFilterExpr_Not(test *testing.T) {
 	expr := &domain.NotFilter{
 		Child: &domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"deleted"}}},
 	}
 	where, _ := buildFilterExpr(expr)
 	if !strings.Contains(where, "NOT (") {
-		t.Fatalf("expected NOT in WHERE, got %q", where)
+		test.Fatalf("expected NOT in WHERE, got %q", where)
 	}
 }
 
-func TestBuildFilterExpr_Nil(t *testing.T) {
+func TestBuildFilterExpr_Nil(test *testing.T) {
 	where, args := buildFilterExpr(nil)
 	if where != "" {
-		t.Fatalf("expected empty WHERE for nil, got %q", where)
+		test.Fatalf("expected empty WHERE for nil, got %q", where)
 	}
 	if len(args) != 0 {
-		t.Fatalf("expected no args for nil, got %v", args)
+		test.Fatalf("expected no args for nil, got %v", args)
 	}
 }
 
-func TestBuildFilterExpr_TreeWithOtherFilters(t *testing.T) {
+func TestBuildFilterExpr_TreeWithOtherFilters(test *testing.T) {
 	rootID := uuid.New()
 	expr := &domain.AndFilter{Children: []domain.FilterExpr{
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
@@ -809,285 +885,323 @@ func TestBuildFilterExpr_TreeWithOtherFilters(t *testing.T) {
 	}}
 	where, args := buildFilterExpr(expr)
 	if !strings.Contains(where, "WITH RECURSIVE") {
-		t.Fatalf("expected inline CTE in WHERE, got %q", where)
+		test.Fatalf("expected inline CTE in WHERE, got %q", where)
 	}
 	// Args must be in placeholder order: status first, then root ID
 	if len(args) != 2 {
-		t.Fatalf("expected 2 args, got %d: %v", len(args), args)
+		test.Fatalf("expected 2 args, got %d: %v", len(args), args)
 	}
 	if args[0] != "active" {
-		t.Fatalf("expected first arg 'active', got %v", args[0])
+		test.Fatalf("expected first arg 'active', got %v", args[0])
 	}
 	if args[1] != rootID.String() {
-		t.Fatalf("expected second arg root ID, got %v", args[1])
+		test.Fatalf("expected second arg root ID, got %v", args[1])
 	}
 }
 
-func TestListByRootID_WithStatusFilter(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestListByRootID_WithStatusFilter(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 
 	root := newTestTask()
 	root.Status = "active"
-	mustCreateTask(t, repo, root)
+	mustCreateTask(test, repo, root)
 
 	activeChild := newTestTask()
 	activeChild.ParentID = &root.ID
 	activeChild.Status = "active"
-	mustCreateTask(t, repo, activeChild)
+	mustCreateTask(test, repo, activeChild)
 
 	pendingChild := newTestTask()
 	pendingChild.ParentID = &root.ID
 	pendingChild.Status = "pending"
-	mustCreateTask(t, repo, pendingChild)
+	mustCreateTask(test, repo, pendingChild)
 
 	// Compound: status=active AND tree=<root> — should return only the active child
 	expr := &domain.AndFilter{Children: []domain.FilterExpr{
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{Statuses: []string{"active"}}},
 		&domain.TermFilter{TaskFilter: domain.TaskFilter{RootID: &root.ID}},
 	}}
+
 	tasks, err := repo.List(ctx, expr)
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
+
 	if len(tasks) != 1 {
-		t.Fatalf("expected 1 active descendant, got %d", len(tasks))
+		test.Fatalf("expected 1 active descendant, got %d", len(tasks))
 	}
 	if tasks[0].ID != activeChild.ID {
-		t.Fatalf("expected active child, got %v", tasks[0].ID)
+		test.Fatalf("expected active child, got %v", tasks[0].ID)
 	}
 }
 
 // ── Level (Phase 1) ────────────────────────────────────────────────────
 
-func TestTaskLevel_CreateRoundTrip(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskLevel_CreateRoundTrip(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
 	story := "story"
 	task.Level = &story
+
 	if err := repo.Create(ctx, task); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
+
 	got, err := repo.GetByID(ctx, task.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.Level == nil || *got.Level != "story" {
-		t.Fatalf("expected level 'story', got %v", got.Level)
+		test.Fatalf("expected level 'story', got %v", got.Level)
 	}
 }
 
-func TestTaskLevel_UpdateSwitchAndClear(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskLevel_UpdateSwitchAndClear(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
 	story := "story"
 	task.Level = &story
+
 	if err := repo.Create(ctx, task); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 
 	next := "task"
 	task.Level = &next
+
 	if err := repo.Update(ctx, task); err != nil {
-		t.Fatalf("Update (switch): %v", err)
+		test.Fatalf("Update (switch): %v", err)
 	}
+
 	got, err := repo.GetByID(ctx, task.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if got.Level == nil || *got.Level != "task" {
-		t.Fatalf("expected level 'task', got %v", got.Level)
+		test.Fatalf("expected level 'task', got %v", got.Level)
 	}
 
 	task.Level = nil
+
 	if err := repo.Update(ctx, task); err != nil {
-		t.Fatalf("Update (clear): %v", err)
+		test.Fatalf("Update (clear): %v", err)
 	}
+
 	got, err = repo.GetByID(ctx, task.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if got.Level != nil {
-		t.Fatalf("expected level to be nil after clear, got %v", *got.Level)
+		test.Fatalf("expected level to be nil after clear, got %v", *got.Level)
 	}
 }
 
-func TestTaskLevel_ScanOneNullable(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskLevel_ScanOneNullable(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 	task := newTestTask()
+
 	if err := repo.Create(ctx, task); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
+
 	got, err := repo.GetByID(ctx, task.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.Level != nil {
-		t.Fatalf("expected Level == nil for task without level, got %v", *got.Level)
+		test.Fatalf("expected Level == nil for task without level, got %v", *got.Level)
 	}
 }
 
 // ── Phase 1 (subtree urgency overrides): urgency_overrides round-trip ──
 
-func TestTaskUrgencyOverridesRoundTrip(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestTaskUrgencyOverridesRoundTrip(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 
 	// Round-trip a populated overrides struct via Update.
 	task := newTestTask()
-	mustCreateTask(t, repo, task)
+	mustCreateTask(test, repo, task)
 
 	task.UrgencyOverrides = &domain.UrgencyOverrides{
 		BlockingWeight: ptrFloat(20.0),
 		DueWeight:      ptrFloat(3.5),
 	}
-	if err := repo.Update(ctx, task); err != nil {
-		t.Fatalf("Update: %v", err)
+
+	updateErr := repo.Update(ctx, task)
+
+	if updateErr != nil {
+		test.Fatalf("Update: %v", updateErr)
 	}
 
-	got, err := repo.GetByID(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+	got, getErr := repo.GetByID(ctx, task.ID)
+
+	if getErr != nil {
+		test.Fatalf("GetByID: %v", getErr)
 	}
+
 	if got.UrgencyOverrides == nil {
-		t.Fatalf("expected UrgencyOverrides round-trip, got nil")
+		test.Fatalf("expected UrgencyOverrides round-trip, got nil")
 	}
 	want := &domain.UrgencyOverrides{
 		BlockingWeight: ptrFloat(20.0),
 		DueWeight:      ptrFloat(3.5),
 	}
 	if !reflect.DeepEqual(got.UrgencyOverrides, want) {
-		t.Fatalf("round-trip mismatch:\n  want %+v\n  got  %+v", want, got.UrgencyOverrides)
+		test.Fatalf("round-trip mismatch:\n  want %+v\n  got  %+v", want, got.UrgencyOverrides)
 	}
 
 	// Confirm a task with nil overrides reads back as nil (NOT &{}).
 	plain := newTestTask()
-	mustCreateTask(t, repo, plain)
-	gotPlain, err := repo.GetByID(ctx, plain.ID)
-	if err != nil {
-		t.Fatalf("GetByID plain: %v", err)
+	mustCreateTask(test, repo, plain)
+
+	gotPlain, plainErr := repo.GetByID(ctx, plain.ID)
+
+	if plainErr != nil {
+		test.Fatalf("GetByID plain: %v", plainErr)
 	}
+
 	if gotPlain.UrgencyOverrides != nil {
-		t.Fatalf("expected nil UrgencyOverrides for task without overrides, got %+v", gotPlain.UrgencyOverrides)
+		test.Fatalf("expected nil UrgencyOverrides for task without overrides, got %+v", gotPlain.UrgencyOverrides)
 	}
 
 	// Verify the column itself is NULL (not, e.g., the literal string "null").
 	var raw any
-	if err := s.DB().QueryRow(`SELECT urgency_overrides FROM tasks WHERE id = ?`, plain.ID.String()).Scan(&raw); err != nil {
-		t.Fatalf("raw scan: %v", err)
+
+	rawErr := store.DB().QueryRow(`SELECT urgency_overrides FROM tasks WHERE id = ?`, plain.ID.String()).Scan(&raw)
+
+	if rawErr != nil {
+		test.Fatalf("raw scan: %v", rawErr)
 	}
+
 	if raw != nil {
-		t.Fatalf("expected NULL urgency_overrides column, got %v (%T)", raw, raw)
+		test.Fatalf("expected NULL urgency_overrides column, got %v (%T)", raw, raw)
 	}
 }
 
-func TestGetAncestorOverrides(t *testing.T) {
-	s := testStore(t)
-	repo := NewTaskRepo(s.DB())
+func TestGetAncestorOverrides(test *testing.T) {
+	store := testStore(test)
+	repo := NewTaskRepo(store.DB())
 	ctx := context.Background()
 
 	// Build root → A → B → C plus an unrelated sibling under root.
 	root := newTestTask()
 	root.UrgencyOverrides = &domain.UrgencyOverrides{BlockingWeight: ptrFloat(10)}
-	mustCreateTask(t, repo, root)
+	mustCreateTask(test, repo, root)
 
-	a := newTestTask()
-	a.ParentID = &root.ID
-	mustCreateTask(t, repo, a)
+	nodeA := newTestTask()
+	nodeA.ParentID = &root.ID
+	mustCreateTask(test, repo, nodeA)
 
-	b := newTestTask()
-	b.ParentID = &a.ID
-	b.UrgencyOverrides = &domain.UrgencyOverrides{DueWeight: ptrFloat(5)}
-	mustCreateTask(t, repo, b)
+	nodeB := newTestTask()
+	nodeB.ParentID = &nodeA.ID
+	nodeB.UrgencyOverrides = &domain.UrgencyOverrides{DueWeight: ptrFloat(5)}
+	mustCreateTask(test, repo, nodeB)
 
-	c := newTestTask()
-	c.ParentID = &b.ID
-	mustCreateTask(t, repo, c)
+	nodeC := newTestTask()
+	nodeC.ParentID = &nodeB.ID
+	mustCreateTask(test, repo, nodeC)
 
 	sibling := newTestTask()
 	sibling.ParentID = &root.ID
-	mustCreateTask(t, repo, sibling)
+	mustCreateTask(test, repo, sibling)
 
 	// Walk from C only — should yield {C, B, A, root}, sibling absent.
-	got, err := repo.GetAncestorOverrides(ctx, []uuid.UUID{c.ID})
-	if err != nil {
-		t.Fatalf("GetAncestorOverrides: %v", err)
+	got, gotErr := repo.GetAncestorOverrides(ctx, []uuid.UUID{nodeC.ID})
+
+	if gotErr != nil {
+		test.Fatalf("GetAncestorOverrides: %v", gotErr)
 	}
+
 	byID := map[uuid.UUID]repository.AncestorOverride{}
-	for _, ov := range got {
-		byID[ov.TaskID] = ov
+	for _, override := range got {
+		byID[override.TaskID] = override
 	}
-	wantIDs := []uuid.UUID{c.ID, b.ID, a.ID, root.ID}
+	wantIDs := []uuid.UUID{nodeC.ID, nodeB.ID, nodeA.ID, root.ID}
 	if len(got) != len(wantIDs) {
-		t.Fatalf("expected %d nodes, got %d (%+v)", len(wantIDs), len(got), got)
+		test.Fatalf("expected %d nodes, got %d (%+v)", len(wantIDs), len(got), got)
 	}
 	for _, id := range wantIDs {
 		if _, ok := byID[id]; !ok {
-			t.Fatalf("missing expected ancestor %s", id)
+			test.Fatalf("missing expected ancestor %s", id)
 		}
 	}
 	if _, ok := byID[sibling.ID]; ok {
-		t.Fatalf("sibling %s should not appear in C's ancestor walk", sibling.ID)
+		test.Fatalf("sibling %s should not appear in C's ancestor walk", sibling.ID)
 	}
 
 	// Verify Overrides pointers per node.
 	if byID[root.ID].Overrides == nil {
-		t.Fatalf("root should have non-nil Overrides")
+		test.Fatalf("root should have non-nil Overrides")
 	}
-	if byID[b.ID].Overrides == nil {
-		t.Fatalf("B should have non-nil Overrides")
+	if byID[nodeB.ID].Overrides == nil {
+		test.Fatalf("B should have non-nil Overrides")
 	}
-	if byID[a.ID].Overrides != nil {
-		t.Fatalf("A should have nil Overrides, got %+v", byID[a.ID].Overrides)
+	if byID[nodeA.ID].Overrides != nil {
+		test.Fatalf("A should have nil Overrides, got %+v", byID[nodeA.ID].Overrides)
 	}
-	if byID[c.ID].Overrides != nil {
-		t.Fatalf("C should have nil Overrides, got %+v", byID[c.ID].Overrides)
+	if byID[nodeC.ID].Overrides != nil {
+		test.Fatalf("C should have nil Overrides, got %+v", byID[nodeC.ID].Overrides)
 	}
 
 	// Verify ParentID semantics: root has nil, leaves chain correctly.
 	if byID[root.ID].ParentID != nil {
-		t.Fatalf("root.ParentID should be nil, got %v", byID[root.ID].ParentID)
+		test.Fatalf("root.ParentID should be nil, got %v", byID[root.ID].ParentID)
 	}
-	if byID[c.ID].ParentID == nil || *byID[c.ID].ParentID != b.ID {
-		t.Fatalf("C.ParentID should be B (%s), got %v", b.ID, byID[c.ID].ParentID)
+	if byID[nodeC.ID].ParentID == nil || *byID[nodeC.ID].ParentID != nodeB.ID {
+		test.Fatalf("C.ParentID should be B (%s), got %v", nodeB.ID, byID[nodeC.ID].ParentID)
 	}
 
 	// Walk from {C, sibling} — union should be {C, B, A, root, sibling}, no dup root.
-	got2, err := repo.GetAncestorOverrides(ctx, []uuid.UUID{c.ID, sibling.ID})
-	if err != nil {
-		t.Fatalf("GetAncestorOverrides (2): %v", err)
+	got2, got2Err := repo.GetAncestorOverrides(ctx, []uuid.UUID{nodeC.ID, sibling.ID})
+
+	if got2Err != nil {
+		test.Fatalf("GetAncestorOverrides (2): %v", got2Err)
 	}
+
 	seen := map[uuid.UUID]int{}
-	for _, ov := range got2 {
-		seen[ov.TaskID]++
+	for _, override := range got2 {
+		seen[override.TaskID]++
 	}
-	wantIDs2 := []uuid.UUID{c.ID, b.ID, a.ID, root.ID, sibling.ID}
+	wantIDs2 := []uuid.UUID{nodeC.ID, nodeB.ID, nodeA.ID, root.ID, sibling.ID}
 	if len(got2) != len(wantIDs2) {
-		t.Fatalf("expected %d nodes (deduped), got %d (%+v)", len(wantIDs2), len(got2), got2)
+		test.Fatalf("expected %d nodes (deduped), got %d (%+v)", len(wantIDs2), len(got2), got2)
 	}
 	for _, id := range wantIDs2 {
 		if seen[id] != 1 {
-			t.Fatalf("expected exactly 1 occurrence of %s, got %d", id, seen[id])
+			test.Fatalf("expected exactly 1 occurrence of %s, got %d", id, seen[id])
 		}
 	}
 
 	// Empty input returns empty slice, no error.
-	empty, err := repo.GetAncestorOverrides(ctx, []uuid.UUID{})
-	if err != nil {
-		t.Fatalf("GetAncestorOverrides empty: %v", err)
+	empty, emptyErr := repo.GetAncestorOverrides(ctx, []uuid.UUID{})
+
+	if emptyErr != nil {
+		test.Fatalf("GetAncestorOverrides empty: %v", emptyErr)
 	}
+
 	if empty == nil {
-		t.Fatalf("expected non-nil empty slice, got nil")
+		test.Fatalf("expected non-nil empty slice, got nil")
 	}
 	if len(empty) != 0 {
-		t.Fatalf("expected empty slice, got %d items", len(empty))
+		test.Fatalf("expected empty slice, got %d items", len(empty))
 	}
 }
