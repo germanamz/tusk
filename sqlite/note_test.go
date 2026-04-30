@@ -15,29 +15,30 @@ import (
 // Compile-time check: *NoteRepo must implement repository.NoteRepository.
 var _ repository.NoteRepository = (*NoteRepo)(nil)
 
-func mustCreatePlayer(t *testing.T, s *Store, id string) {
-	t.Helper()
-	repo := NewPlayerRepo(s.DB())
-	p := &domain.Player{
+func mustCreatePlayer(test *testing.T, store *Store, id string) {
+	test.Helper()
+	repo := NewPlayerRepo(store.DB())
+	player := &domain.Player{
 		ID:           id,
 		Type:         "human",
 		RegisteredAt: time.Now().UTC().Truncate(time.Millisecond),
 		LastSeenAt:   time.Now().UTC().Truncate(time.Millisecond),
 	}
-	if err := repo.Create(context.Background(), p); err != nil {
-		t.Fatalf("mustCreatePlayer: %v", err)
+
+	if err := repo.Create(context.Background(), player); err != nil {
+		test.Fatalf("mustCreatePlayer: %v", err)
 	}
 }
 
-func TestNoteCreateAndGetByID(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewNoteRepo(s.DB())
+func TestNoteCreateAndGetByID(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 	task := newTestTask()
-	mustCreateTask(t, taskRepo, task)
+	mustCreateTask(test, taskRepo, task)
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	taskID := task.ID
@@ -52,46 +53,49 @@ func TestNoteCreateAndGetByID(t *testing.T) {
 	}
 
 	if err := repo.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 
 	got, err := repo.GetByID(ctx, note.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.Body != note.Body {
-		t.Fatalf("body: got %q, want %q", got.Body, note.Body)
+		test.Fatalf("body: got %q, want %q", got.Body, note.Body)
 	}
 	if got.PlayerID != "german" {
-		t.Fatalf("player_id: got %q, want %q", got.PlayerID, "german")
+		test.Fatalf("player_id: got %q, want %q", got.PlayerID, "german")
 	}
 	if got.TaskID == nil || *got.TaskID != taskID {
-		t.Fatalf("task_id: got %v, want %v", got.TaskID, taskID)
+		test.Fatalf("task_id: got %v, want %v", got.TaskID, taskID)
 	}
 	if got.ArchivedAt != nil {
-		t.Fatalf("archived_at: expected nil, got %v", got.ArchivedAt)
+		test.Fatalf("archived_at: expected nil, got %v", got.ArchivedAt)
 	}
 	if got.Metadata["topic"] != "auth" {
-		t.Fatalf("metadata: got %v, want topic=auth", got.Metadata)
+		test.Fatalf("metadata: got %v, want topic=auth", got.Metadata)
 	}
 }
 
-func TestNoteGetByIDNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteGetByIDNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 
 	_, err := repo.GetByID(context.Background(), uuid.New())
+
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestNoteCreateProjectLevel(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteCreateProjectLevel(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "agent-1")
+	mustCreatePlayer(test, store, "agent-1")
 
 	note := &domain.Note{
 		ID:        uuid.New(),
@@ -104,24 +108,26 @@ func TestNoteCreateProjectLevel(t *testing.T) {
 	}
 
 	if err := repo.Create(ctx, note); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 
 	got, err := repo.GetByID(ctx, note.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.TaskID != nil {
-		t.Fatalf("task_id: expected nil, got %v", got.TaskID)
+		test.Fatalf("task_id: expected nil, got %v", got.TaskID)
 	}
 }
 
-func TestNoteArchive(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteArchive(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	note := &domain.Note{
 		ID:        uuid.New(),
@@ -131,50 +137,55 @@ func TestNoteArchive(t *testing.T) {
 		Metadata:  map[string]any{},
 		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
 	}
+
 	if err := repo.Create(ctx, note); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	archivedAt := time.Now().UTC().Truncate(time.Millisecond)
+
 	if err := repo.Archive(ctx, note.ID, archivedAt); err != nil {
-		t.Fatalf("Archive: %v", err)
+		test.Fatalf("Archive: %v", err)
 	}
 
 	got, err := repo.GetByID(ctx, note.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if got.ArchivedAt == nil {
-		t.Fatal("expected archived_at to be set")
+		test.Fatal("expected archived_at to be set")
 	}
 	if !got.ArchivedAt.Equal(archivedAt) {
-		t.Fatalf("archived_at: got %v, want %v", got.ArchivedAt, archivedAt)
+		test.Fatalf("archived_at: got %v, want %v", got.ArchivedAt, archivedAt)
 	}
 }
 
-func TestNoteArchiveNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteArchiveNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 
 	err := repo.Archive(context.Background(), uuid.New(), time.Now().UTC())
+
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestNoteList(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewNoteRepo(s.DB())
+func TestNoteList(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 	task := newTestTask()
-	mustCreateTask(t, taskRepo, task)
+	mustCreateTask(test, taskRepo, task)
 
 	// Create 3 notes with increasing timestamps.
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i, body := range []string{"First", "Second", "Third"} {
+	for idx, body := range []string{"First", "Second", "Third"} {
 		taskID := task.ID
 		note := &domain.Note{
 			ID:        uuid.New(),
@@ -183,10 +194,10 @@ func TestNoteList(t *testing.T) {
 			TaskID:    &taskID,
 			Body:      body,
 			Metadata:  map[string]any{},
-			CreatedAt: base.Add(time.Duration(i) * time.Hour),
+			CreatedAt: base.Add(time.Duration(idx) * time.Hour),
 		}
 		if err := repo.Create(ctx, note); err != nil {
-			t.Fatal(err)
+			test.Fatal(err)
 		}
 	}
 
@@ -195,37 +206,39 @@ func TestNoteList(t *testing.T) {
 		ProjectID: domain.DefaultProjectUUID,
 		PlayerID:  "german",
 	})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(notes) != 3 {
-		t.Fatalf("expected 3 notes, got %d", len(notes))
+		test.Fatalf("expected 3 notes, got %d", len(notes))
 	}
 	// Should be in descending created_at order (newest first).
 	if notes[0].Body != "Third" {
-		t.Fatalf("expected newest first, got %q", notes[0].Body)
+		test.Fatalf("expected newest first, got %q", notes[0].Body)
 	}
 }
 
-func TestNoteListWindowLimit(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteListWindowLimit(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := range 5 {
+	for idx := range 5 {
 		note := &domain.Note{
 			ID:        uuid.New(),
 			ProjectID: domain.DefaultProjectUUID,
 			PlayerID:  "german",
-			Body:      fmt.Sprintf("Note %d", i),
+			Body:      fmt.Sprintf("Note %d", idx),
 			Metadata:  map[string]any{},
-			CreatedAt: base.Add(time.Duration(i) * time.Hour),
+			CreatedAt: base.Add(time.Duration(idx) * time.Hour),
 		}
 		if err := repo.Create(ctx, note); err != nil {
-			t.Fatal(err)
+			test.Fatal(err)
 		}
 	}
 
@@ -235,39 +248,41 @@ func TestNoteListWindowLimit(t *testing.T) {
 		PlayerID:  "german",
 		Limit:     2,
 	})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(notes) != 2 {
-		t.Fatalf("expected 2 notes, got %d", len(notes))
+		test.Fatalf("expected 2 notes, got %d", len(notes))
 	}
 	if notes[0].Body != "Note 4" {
-		t.Fatalf("expected newest first, got %q", notes[0].Body)
+		test.Fatalf("expected newest first, got %q", notes[0].Body)
 	}
 	if notes[1].Body != "Note 3" {
-		t.Fatalf("expected second newest, got %q", notes[1].Body)
+		test.Fatalf("expected second newest, got %q", notes[1].Body)
 	}
 }
 
-func TestNoteListSince(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteListSince(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := range 3 {
+	for idx := range 3 {
 		note := &domain.Note{
 			ID:        uuid.New(),
 			ProjectID: domain.DefaultProjectUUID,
 			PlayerID:  "german",
-			Body:      fmt.Sprintf("Note %d", i),
+			Body:      fmt.Sprintf("Note %d", idx),
 			Metadata:  map[string]any{},
-			CreatedAt: base.Add(time.Duration(i) * 24 * time.Hour),
+			CreatedAt: base.Add(time.Duration(idx) * 24 * time.Hour),
 		}
 		if err := repo.Create(ctx, note); err != nil {
-			t.Fatal(err)
+			test.Fatal(err)
 		}
 	}
 
@@ -278,20 +293,22 @@ func TestNoteListSince(t *testing.T) {
 		PlayerID:  "german",
 		Since:     &since,
 	})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(notes) != 2 {
-		t.Fatalf("expected 2 notes since day 2, got %d", len(notes))
+		test.Fatalf("expected 2 notes since day 2, got %d", len(notes))
 	}
 }
 
-func TestNoteListExcludesArchived(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteListExcludesArchived(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	active := &domain.Note{
@@ -310,14 +327,17 @@ func TestNoteListExcludesArchived(t *testing.T) {
 		Metadata:  map[string]any{},
 		CreatedAt: now.Add(-time.Hour),
 	}
+
 	if err := repo.Create(ctx, active); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if err := repo.Create(ctx, archived); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if err := repo.Archive(ctx, archived.ID, now); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	// Default: exclude archived.
@@ -325,11 +345,13 @@ func TestNoteListExcludesArchived(t *testing.T) {
 		ProjectID: domain.DefaultProjectUUID,
 		PlayerID:  "german",
 	})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(notes) != 1 {
-		t.Fatalf("expected 1 active note, got %d", len(notes))
+		test.Fatalf("expected 1 active note, got %d", len(notes))
 	}
 
 	// Include archived.
@@ -338,20 +360,22 @@ func TestNoteListExcludesArchived(t *testing.T) {
 		PlayerID:        "german",
 		IncludeArchived: true,
 	})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(notes) != 2 {
-		t.Fatalf("expected 2 notes with archived, got %d", len(notes))
+		test.Fatalf("expected 2 notes with archived, got %d", len(notes))
 	}
 }
 
-func TestNoteFindByIDPrefixUnique(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteFindByIDPrefixUnique(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	note := &domain.Note{
 		ID:        uuid.New(),
@@ -361,29 +385,32 @@ func TestNoteFindByIDPrefixUnique(t *testing.T) {
 		Metadata:  map[string]any{},
 		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
 	}
+
 	if err := repo.Create(ctx, note); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	prefix := note.ID.String()[:8]
 	got, err := repo.FindByIDPrefix(ctx, prefix)
+
 	if err != nil {
-		t.Fatalf("FindByIDPrefix: %v", err)
+		test.Fatalf("FindByIDPrefix: %v", err)
 	}
+
 	if len(got) != 1 {
-		t.Fatalf("expected 1 match, got %d", len(got))
+		test.Fatalf("expected 1 match, got %d", len(got))
 	}
 	if got[0].ID != note.ID {
-		t.Fatalf("id mismatch: got %s, want %s", got[0].ID, note.ID)
+		test.Fatalf("id mismatch: got %s, want %s", got[0].ID, note.ID)
 	}
 }
 
-func TestNoteFindByIDPrefixFullUUID(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteFindByIDPrefixFullUUID(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	note := &domain.Note{
 		ID:        uuid.New(),
@@ -393,28 +420,31 @@ func TestNoteFindByIDPrefixFullUUID(t *testing.T) {
 		Metadata:  map[string]any{},
 		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
 	}
+
 	if err := repo.Create(ctx, note); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	got, err := repo.FindByIDPrefix(ctx, note.ID.String())
+
 	if err != nil {
-		t.Fatalf("FindByIDPrefix: %v", err)
+		test.Fatalf("FindByIDPrefix: %v", err)
 	}
+
 	if len(got) != 1 {
-		t.Fatalf("expected 1 match, got %d", len(got))
+		test.Fatalf("expected 1 match, got %d", len(got))
 	}
 	if got[0].ID != note.ID {
-		t.Fatalf("id mismatch: got %s, want %s", got[0].ID, note.ID)
+		test.Fatalf("id mismatch: got %s, want %s", got[0].ID, note.ID)
 	}
 }
 
-func TestNoteFindByIDPrefixNoMatch(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteFindByIDPrefixNoMatch(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	note := &domain.Note{
 		ID:        uuid.New(),
@@ -424,33 +454,39 @@ func TestNoteFindByIDPrefixNoMatch(t *testing.T) {
 		Metadata:  map[string]any{},
 		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
 	}
+
 	if err := repo.Create(ctx, note); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	got, err := repo.FindByIDPrefix(ctx, "00000000")
+
 	if err != nil {
-		t.Fatalf("FindByIDPrefix: %v", err)
+		test.Fatalf("FindByIDPrefix: %v", err)
 	}
+
 	if len(got) != 0 {
-		t.Fatalf("expected 0 matches, got %d", len(got))
+		test.Fatalf("expected 0 matches, got %d", len(got))
 	}
 }
 
-func TestNoteFindByIDPrefixAmbiguous(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteFindByIDPrefixAmbiguous(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
-	idA, err := uuid.Parse("abcdef12-0000-4000-8000-000000000001")
-	if err != nil {
-		t.Fatal(err)
+	idA, parseErrA := uuid.Parse("abcdef12-0000-4000-8000-000000000001")
+
+	if parseErrA != nil {
+		test.Fatal(parseErrA)
 	}
-	idB, err := uuid.Parse("abcdef12-0000-4000-8000-000000000002")
-	if err != nil {
-		t.Fatal(err)
+
+	idB, parseErrB := uuid.Parse("abcdef12-0000-4000-8000-000000000002")
+
+	if parseErrB != nil {
+		test.Fatal(parseErrB)
 	}
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -463,30 +499,33 @@ func TestNoteFindByIDPrefixAmbiguous(t *testing.T) {
 			Metadata:  map[string]any{},
 			CreatedAt: now,
 		}
+
 		if err := repo.Create(ctx, note); err != nil {
-			t.Fatal(err)
+			test.Fatal(err)
 		}
 	}
 
 	got, err := repo.FindByIDPrefix(ctx, "abcdef12")
+
 	if err != nil {
-		t.Fatalf("FindByIDPrefix: %v", err)
+		test.Fatalf("FindByIDPrefix: %v", err)
 	}
+
 	if len(got) != 2 {
-		t.Fatalf("expected 2 matches, got %d", len(got))
+		test.Fatalf("expected 2 matches, got %d", len(got))
 	}
 	seen := map[uuid.UUID]bool{got[0].ID: true, got[1].ID: true}
 	if !seen[idA] || !seen[idB] {
-		t.Fatalf("expected both %s and %s in results, got %v", idA, idB, got)
+		test.Fatalf("expected both %s and %s in results, got %v", idA, idB, got)
 	}
 }
 
-func TestNoteFindByIDPrefixCaseSensitive(t *testing.T) {
-	s := testStore(t)
-	repo := NewNoteRepo(s.DB())
+func TestNoteFindByIDPrefixCaseSensitive(test *testing.T) {
+	store := testStore(test)
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 
 	note := &domain.Note{
 		ID:        uuid.New(),
@@ -496,28 +535,31 @@ func TestNoteFindByIDPrefixCaseSensitive(t *testing.T) {
 		Metadata:  map[string]any{},
 		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
 	}
+
 	if err := repo.Create(ctx, note); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	got, err := repo.FindByIDPrefix(ctx, strings.ToUpper(note.ID.String()[:8]))
+
 	if err != nil {
-		t.Fatalf("FindByIDPrefix: %v", err)
+		test.Fatalf("FindByIDPrefix: %v", err)
 	}
+
 	if len(got) != 0 {
-		t.Fatalf("expected 0 matches (case-sensitive), got %d", len(got))
+		test.Fatalf("expected 0 matches (case-sensitive), got %d", len(got))
 	}
 }
 
-func TestNoteListByTask(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewNoteRepo(s.DB())
+func TestNoteListByTask(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewNoteRepo(store.DB())
 	ctx := context.Background()
 
-	mustCreatePlayer(t, s, "german")
+	mustCreatePlayer(test, store, "german")
 	task := newTestTask()
-	mustCreateTask(t, taskRepo, task)
+	mustCreateTask(test, taskRepo, task)
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	taskID := task.ID
@@ -541,11 +583,13 @@ func TestNoteListByTask(t *testing.T) {
 		Metadata:  map[string]any{},
 		CreatedAt: now.Add(-time.Hour),
 	}
+
 	if err := repo.Create(ctx, taskNote); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if err := repo.Create(ctx, projectNote); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	// Filter by task — should return only the task-scoped note.
@@ -554,13 +598,15 @@ func TestNoteListByTask(t *testing.T) {
 		PlayerID:  "german",
 		TaskID:    &taskID,
 	})
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(notes) != 1 {
-		t.Fatalf("expected 1 task-scoped note, got %d", len(notes))
+		test.Fatalf("expected 1 task-scoped note, got %d", len(notes))
 	}
 	if notes[0].Body != "Task-scoped" {
-		t.Fatalf("expected task-scoped note, got %q", notes[0].Body)
+		test.Fatalf("expected task-scoped note, got %q", notes[0].Body)
 	}
 }
