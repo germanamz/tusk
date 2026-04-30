@@ -12,50 +12,50 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestNoteAddArchive(t *testing.T) {
+func TestNoteAddArchive(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "add_with_metadata_then_archive",
 			Steps: []Step{
 				{
 					Args: []string{"note", "add", "first note body", "meta.topic=planning", "--player", "tester"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["action"], "created")
+						assertEqual(test, m["action"], "created")
 						note := m["note"].(map[string]any)
-						assertEqual(t, note["body"], "first note body")
+						assertEqual(test, note["body"], "first note body")
 						meta := note["metadata"].(map[string]any)
-						assertEqual(t, meta["topic"], "planning")
+						assertEqual(test, meta["topic"], "planning")
 						if _, has := note["task_id"]; has {
-							t.Fatalf("expected no task_id, got %v", note["task_id"])
+							test.Fatalf("expected no task_id, got %v", note["task_id"])
 						}
 						if _, has := note["archived_at"]; has {
-							t.Fatalf("expected no archived_at on fresh note, got %v", note["archived_at"])
+							test.Fatalf("expected no archived_at on fresh note, got %v", note["archived_at"])
 						}
 						if note["id"] == "" || note["id"] == nil {
-							t.Fatalf("expected id set, got %v", note["id"])
+							test.Fatalf("expected id set, got %v", note["id"])
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Created note")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Created note")
 					},
 				},
 				{
 					Args: []string{"note", "archive", "$0.note.id", "--player", "tester"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
-						assertEqual(t, m["action"], "archived")
+						assertEqual(test, m["action"], "archived")
 						note := m["note"].(map[string]any)
 						if note["archived_at"] == nil || note["archived_at"] == "" {
-							t.Fatalf("expected archived_at set, got %v", note["archived_at"])
+							test.Fatalf("expected archived_at set, got %v", note["archived_at"])
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Archived note")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Archived note")
 					},
 				},
 			},
@@ -65,19 +65,19 @@ func TestNoteAddArchive(t *testing.T) {
 			Steps: []Step{
 				{
 					Args: []string{"note", "add", "@./body.md", "project=default", "--player", "tester"},
-					Setup: func(t *testing.T, dir string) string {
-						t.Helper()
+					Setup: func(test *testing.T, dir string) string {
+						test.Helper()
 						path := filepath.Join(dir, "body.md")
 						if err := os.WriteFile(path, []byte("# Heading\n\nSome body text."), 0o644); err != nil {
-							t.Fatalf("write body.md: %v", err)
+							test.Fatalf("write body.md: %v", err)
 						}
 						return dir
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
 						note := m["note"].(map[string]any)
-						assertEqual(t, note["body"], "# Heading\n\nSome body text.")
+						assertEqual(test, note["body"], "# Heading\n\nSome body text.")
 					},
 				},
 			},
@@ -88,11 +88,11 @@ func TestNoteAddArchive(t *testing.T) {
 				{
 					Args:  []string{"note", "add", "@-", "project=default", "--player", "tester"},
 					Stdin: "stdin body\n",
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						m := parsed.(map[string]any)
 						note := m["note"].(map[string]any)
-						assertEqual(t, note["body"], "stdin body")
+						assertEqual(test, note["body"], "stdin body")
 					},
 				},
 			},
@@ -103,9 +103,9 @@ func TestNoteAddArchive(t *testing.T) {
 				{
 					Args:    []string{"note", "add", "body", "project=default"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "--player flag is required")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "--player flag is required")
 					},
 				},
 			},
@@ -116,9 +116,9 @@ func TestNoteAddArchive(t *testing.T) {
 				{
 					Args:    []string{"note", "add", "   ", "project=default", "--player", "tester"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "body must not be empty")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "body must not be empty")
 					},
 				},
 			},
@@ -129,10 +129,10 @@ func TestNoteAddArchive(t *testing.T) {
 				{
 					Args:    []string{"note", "add", "body", "bogus=1", "project=default", "--player", "tester"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, `unknown field "bogus"`)
-						assertStderrContains(t, r, "meta.")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, `unknown field "bogus"`)
+						assertStderrContains(test, result, "meta.")
 					},
 				},
 			},
@@ -143,9 +143,9 @@ func TestNoteAddArchive(t *testing.T) {
 				{
 					Args:    []string{"note", "archive", "00000000", "--player", "tester"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "no note matches")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "no note matches")
 					},
 				},
 			},
@@ -159,23 +159,23 @@ func TestNoteAddArchive(t *testing.T) {
 				{
 					Args:    []string{"note", "archive", "$0.note.id", "--player", "intruder"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "archiving note")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "archiving note")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestNoteList(t *testing.T) {
-	assertLen := func(t *testing.T, arr []any, want int) {
-		t.Helper()
+func TestNoteList(test *testing.T) {
+	assertLen := func(test *testing.T, arr []any, want int) {
+		test.Helper()
 		if len(arr) != want {
-			t.Fatalf("JSON length: got %d, want %d: %v", len(arr), want, arr)
+			test.Fatalf("JSON length: got %d, want %d: %v", len(arr), want, arr)
 		}
 	}
 
@@ -188,19 +188,19 @@ func TestNoteList(t *testing.T) {
 				{Args: []string{"note", "add", "bob-one", "--player", "bob"}},
 				{
 					Args: []string{"note", "list", "project=default", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 2)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 2)
 						for _, it := range arr {
 							m := it.(map[string]any)
-							assertEqual(t, m["player_id"], "alice")
+							assertEqual(test, m["player_id"], "alice")
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						if strings.Count(output, "●") != 2 {
-							t.Fatalf("expected 2 bullets, output:\n%s", output)
+							test.Fatalf("expected 2 bullets, output:\n%s", output)
 						}
 					},
 				},
@@ -214,15 +214,15 @@ func TestNoteList(t *testing.T) {
 				{Args: []string{"note", "add", "bob-one", "--player", "bob"}},
 				{
 					Args: []string{"note", "list", "project=default", "--all-players", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 3)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 3)
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						if strings.Count(output, "●") != 3 {
-							t.Fatalf("expected 3 bullets, output:\n%s", output)
+							test.Fatalf("expected 3 bullets, output:\n%s", output)
 						}
 					},
 				},
@@ -235,17 +235,17 @@ func TestNoteList(t *testing.T) {
 				{Args: []string{"note", "add", "bob-one", "--player", "bob"}},
 				{
 					Args: []string{"note", "list", "project=default", "player=bob", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 1)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 1)
 						m := arr[0].(map[string]any)
-						assertEqual(t, m["player_id"], "bob")
+						assertEqual(test, m["player_id"], "bob")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "bob")
-						assertNotContains(t, output, "alice-one")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "bob")
+						assertNotContains(test, output, "alice-one")
 					},
 				},
 			},
@@ -257,12 +257,12 @@ func TestNoteList(t *testing.T) {
 				{Args: []string{"note", "add", "bob-one", "--player", "bob"}},
 				{
 					Args: []string{"note", "list", "project=default", "--filter-player", "bob", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 1)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 1)
 						m := arr[0].(map[string]any)
-						assertEqual(t, m["player_id"], "bob")
+						assertEqual(test, m["player_id"], "bob")
 					},
 				},
 			},
@@ -274,9 +274,9 @@ func TestNoteList(t *testing.T) {
 				{
 					Args:    []string{"note", "list", "project=default", "--all-players", "--filter-player", "bob", "--player", "alice"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "cannot be combined")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "cannot be combined")
 					},
 				},
 			},
@@ -291,14 +291,14 @@ func TestNoteList(t *testing.T) {
 				{Args: []string{"note", "add", "five", "--player", "alice"}},
 				{
 					Args: []string{"note", "list", "project=default", "--window", "2", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 2)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 2)
 						a0 := arr[0].(map[string]any)["created_at"].(string)
 						a1 := arr[1].(map[string]any)["created_at"].(string)
 						if a0 < a1 {
-							t.Fatalf("expected newest-first, got %q then %q", a0, a1)
+							test.Fatalf("expected newest-first, got %q then %q", a0, a1)
 						}
 					},
 				},
@@ -311,30 +311,30 @@ func TestNoteList(t *testing.T) {
 				{Args: []string{"note", "archive", "$0.note.id", "--player", "alice"}},
 				{
 					Args: []string{"note", "list", "project=default", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 0)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 0)
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "No notes.")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "No notes.")
 					},
 				},
 				{
 					Args: []string{"note", "list", "project=default", "--archived", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 1)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 1)
 						m := arr[0].(map[string]any)
 						if m["archived_at"] == nil || m["archived_at"] == "" {
-							t.Fatalf("expected archived_at set, got %v", m["archived_at"])
+							test.Fatalf("expected archived_at set, got %v", m["archived_at"])
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "[archived]")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "[archived]")
 					},
 				},
 			},
@@ -347,14 +347,14 @@ func TestNoteList(t *testing.T) {
 				{Args: []string{"note", "add", "detached", "--player", "alice"}},
 				{
 					Args: []string{"note", "list", "project=default", "--task", "$0.short_id", "--player", "alice"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
-						assertLen(t, arr, 1)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
+						assertLen(test, arr, 1)
 						m := arr[0].(map[string]any)
-						assertEqual(t, m["body"], "attached")
+						assertEqual(test, m["body"], "attached")
 						if m["task_id"] == nil || m["task_id"] == "" {
-							t.Fatalf("expected task_id set, got %v", m["task_id"])
+							test.Fatalf("expected task_id set, got %v", m["task_id"])
 						}
 					},
 				},
@@ -366,9 +366,9 @@ func TestNoteList(t *testing.T) {
 				{
 					Args:    []string{"note", "list", "project=default", "bogus=1", "--player", "alice"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, `unknown field "bogus"`)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, `unknown field "bogus"`)
 					},
 				},
 			},
@@ -379,80 +379,86 @@ func TestNoteList(t *testing.T) {
 				{
 					Args:    []string{"note", "list", "project=default", "--since", "bogus", "--player", "alice"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "parsing --since")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "parsing --since")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestNoteListSince(t *testing.T) {
+func TestNoteListSince(test *testing.T) {
 	combos := combinations(
 		[]string{"flag", "env"},
 		[]string{"text", "json"},
 	)
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
-		t.Run("since_filter/"+dbMode+"/"+format, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run("since_filter/"+dbMode+"/"+format, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
-			if r := env.Run("note", "add", "old", "--player", "alice"); r.Err != nil {
-				t.Fatalf("add old: %v\nstderr: %s", r.Err, r.Stderr)
+			if result := env.Run("note", "add", "old", "--player", "alice"); result.Err != nil {
+				test.Fatalf("add old: %v\nstderr: %s", result.Err, result.Stderr)
 			}
-			if r := env.Run("note", "add", "new", "--player", "alice"); r.Err != nil {
-				t.Fatalf("add new: %v\nstderr: %s", r.Err, r.Stderr)
+			if result := env.Run("note", "add", "new", "--player", "alice"); result.Err != nil {
+				test.Fatalf("add new: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 
-			backdateNoteByBody(t, env.dbPath, "old", time.Now().UTC().Add(-48*time.Hour))
+			backdateNoteByBody(test, env.dbPath, "old", time.Now().UTC().Add(-48*time.Hour))
 
-			r := env.Run("note", "list", "project=default", "--since", "24h", "--player", "alice")
-			if r.Err != nil {
-				t.Fatalf("list: %v\nstderr: %s", r.Err, r.Stderr)
+			result := env.Run("note", "list", "project=default", "--since", "24h", "--player", "alice")
+			if result.Err != nil {
+				test.Fatalf("list: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 			if format == "json" {
 				var arr []any
-				if err := json.Unmarshal([]byte(r.Stdout), &arr); err != nil {
-					t.Fatalf("parse json: %v\nraw: %s", err, r.Stdout)
+				if parseErr := json.Unmarshal([]byte(result.Stdout), &arr); parseErr != nil {
+					test.Fatalf("parse json: %v\nraw: %s", parseErr, result.Stdout)
 				}
 				if len(arr) != 1 {
-					t.Fatalf("expected 1 note, got %d: %s", len(arr), r.Stdout)
+					test.Fatalf("expected 1 note, got %d: %s", len(arr), result.Stdout)
 				}
 				m := arr[0].(map[string]any)
-				assertEqual(t, m["body"], "new")
+				assertEqual(test, m["body"], "new")
 			} else {
-				assertContains(t, r.Stdout, "new")
-				assertNotContains(t, r.Stdout, "old")
+				assertContains(test, result.Stdout, "new")
+				assertNotContains(test, result.Stdout, "old")
 			}
 		})
 	}
 }
 
-func backdateNoteByBody(t *testing.T, dbPath, body string, when time.Time) {
-	t.Helper()
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
+func backdateNoteByBody(test *testing.T, dbPath, body string, when time.Time) {
+	test.Helper()
+	db, openErr := sql.Open("sqlite", dbPath)
+
+	if openErr != nil {
+		test.Fatalf("open db: %v", openErr)
 	}
+
 	defer db.Close()
-	res, err := db.Exec(
+	res, execErr := db.Exec(
 		`UPDATE notes SET created_at = ? WHERE body = ?`,
 		when.UTC().Format("2006-01-02T15:04:05.000Z"),
 		body,
 	)
-	if err != nil {
-		t.Fatalf("update notes: %v", err)
+
+	if execErr != nil {
+		test.Fatalf("update notes: %v", execErr)
 	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		t.Fatalf("rows affected: %v", err)
+
+	rows, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		test.Fatalf("rows affected: %v", rowsErr)
 	}
+
 	if rows == 0 {
-		t.Fatalf("no note with body %q to backdate", body)
+		test.Fatalf("no note with body %q to backdate", body)
 	}
 }

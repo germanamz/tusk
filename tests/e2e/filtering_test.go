@@ -2,7 +2,7 @@ package e2e
 
 import "testing"
 
-func TestFiltering(t *testing.T) {
+func TestFiltering(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "list_status_active_only",
@@ -18,18 +18,18 @@ func TestFiltering(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "status=active"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 active task, got %d", len(arr))
+							test.Fatalf("expected 1 active task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Active task")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Active task")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Active task")
-						assertNotContains(t, output, "Pending task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Active task")
+						assertNotContains(test, output, "Pending task")
 					},
 				},
 			},
@@ -48,17 +48,17 @@ func TestFiltering(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "status=pending,active"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 2 {
-							t.Fatalf("expected 2 tasks, got %d", len(arr))
+							test.Fatalf("expected 2 tasks, got %d", len(arr))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Pending one")
-						assertContains(t, output, "Active one")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Pending one")
+						assertContains(test, output, "Active one")
 					},
 				},
 			},
@@ -74,18 +74,18 @@ func TestFiltering(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "+api"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 tagged task, got %d", len(arr))
+							test.Fatalf("expected 1 tagged task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Tagged task")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Tagged task")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Tagged task")
-						assertNotContains(t, output, "Untagged task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Tagged task")
+						assertNotContains(test, output, "Untagged task")
 					},
 				},
 			},
@@ -102,18 +102,18 @@ func TestFiltering(t *testing.T) {
 				{
 					// "--" is required so cobra does not interpret "-docs" as a shorthand flag.
 					Args: []string{"task", "list", "--", "-docs"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task without docs tag, got %d", len(arr))
+							test.Fatalf("expected 1 task without docs tag, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "No docs tag")
+						assertEqual(test, arr[0].(map[string]any)["title"], "No docs tag")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "No docs tag")
-						assertNotContains(t, output, "Has docs tag")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "No docs tag")
+						assertNotContains(test, output, "Has docs tag")
 					},
 				},
 			},
@@ -129,18 +129,18 @@ func TestFiltering(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "priority=3"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(arr))
+							test.Fatalf("expected 1 task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "High pri")
+						assertEqual(test, arr[0].(map[string]any)["title"], "High pri")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "High pri")
-						assertNotContains(t, output, "Low pri")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "High pri")
+						assertNotContains(test, output, "Low pri")
 					},
 				},
 			},
@@ -162,20 +162,20 @@ func TestFiltering(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "priority=3..4"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 2 {
-							t.Fatalf("expected 2 tasks (high+urgent), got %d", len(arr))
+							test.Fatalf("expected 2 tasks (high+urgent), got %d", len(arr))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertNotContains(t, output, "Low")
-						assertNotContains(t, output, "Medium")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertNotContains(test, output, "Low")
+						assertNotContains(test, output, "Medium")
 						// High and Urgent should be present
-						assertContains(t, output, "H")
-						assertContains(t, output, "U")
+						assertContains(test, output, "H")
+						assertContains(test, output, "U")
 					},
 				},
 			},
@@ -194,17 +194,17 @@ func TestFiltering(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "project=default"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 2 {
-							t.Fatalf("expected 2 tasks in default project, got %d", len(arr))
+							test.Fatalf("expected 2 tasks in default project, got %d", len(arr))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "First task")
-						assertContains(t, output, "Second task")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "First task")
+						assertContains(test, output, "Second task")
 					},
 				},
 			},
@@ -226,19 +226,19 @@ func TestFiltering(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "list", "status=active", "+api", "priority=3"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task matching all filters, got %d", len(arr))
+							test.Fatalf("expected 1 task matching all filters, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Match all")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Match all")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Match all")
-						assertNotContains(t, output, "Wrong priority")
-						assertNotContains(t, output, "Wrong tag")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Match all")
+						assertNotContains(test, output, "Wrong priority")
+						assertNotContains(test, output, "Wrong tag")
 					},
 				},
 			},
@@ -249,17 +249,17 @@ func TestFiltering(t *testing.T) {
 				{
 					// No tasks in the DB — list should return empty
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 0 {
-							t.Fatalf("expected 0 tasks, got %d", len(arr))
+							test.Fatalf("expected 0 tasks, got %d", len(arr))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						if output != "" {
-							t.Fatalf("expected empty output for no tasks, got:\n%s", output)
+							test.Fatalf("expected empty output for no tasks, got:\n%s", output)
 						}
 					},
 				},
@@ -289,19 +289,19 @@ func TestFiltering(t *testing.T) {
 				{
 					// Default list should only show pending/active tasks
 					Args: []string{"task", "list"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 visible task, got %d", len(arr))
+							test.Fatalf("expected 1 visible task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Pending visible")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Pending visible")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Pending visible")
-						assertNotContains(t, output, "Will complete")
-						assertNotContains(t, output, "Will delete")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Pending visible")
+						assertNotContains(test, output, "Will complete")
+						assertNotContains(test, output, "Will delete")
 					},
 				},
 			},
@@ -313,18 +313,18 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"task", "create", "Write unit tests"}},
 				{
 					Args: []string{"task", "list", `title="auth"`, "status=pending"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(arr))
+							test.Fatalf("expected 1 task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Implement auth middleware")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Implement auth middleware")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "auth middleware")
-						assertNotContains(t, output, "unit tests")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "auth middleware")
+						assertNotContains(test, output, "unit tests")
 					},
 				},
 			},
@@ -336,18 +336,18 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"task", "create", "Task B", `description="handles logging"`}},
 				{
 					Args: []string{"task", "list", `description="authentication"`, "status=pending"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(arr))
+							test.Fatalf("expected 1 task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Task A")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Task A")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Task A")
-						assertNotContains(t, output, "Task B")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Task A")
+						assertNotContains(test, output, "Task B")
 					},
 				},
 			},
@@ -363,16 +363,16 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"task", "done", "$3.short_id"}},
 				{
 					Args: []string{"task", "list", "status=active", "OR", "status=completed"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						arr := jsonArray(test, parsed)
 						if len(arr) != 2 {
-							t.Fatalf("expected 2 tasks (active + completed), got %d", len(arr))
+							test.Fatalf("expected 2 tasks (active + completed), got %d", len(arr))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						assertContains(t, output, "Active task")
-						assertContains(t, output, "Done task")
-						assertNotContains(t, output, "Pending task")
+					AssertText: func(test *testing.T, output string) {
+						assertContains(test, output, "Active task")
+						assertContains(test, output, "Done task")
+						assertNotContains(test, output, "Pending task")
 					},
 				},
 			},
@@ -385,16 +385,16 @@ func TestFiltering(t *testing.T) {
 				{Args: []string{"task", "delete", "$1.short_id"}},
 				{
 					Args: []string{"task", "list", "NOT", "status=deleted"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 task, got %d", len(arr))
+							test.Fatalf("expected 1 task, got %d", len(arr))
 						}
-						assertEqual(t, arr[0].(map[string]any)["title"], "Keep this")
+						assertEqual(test, arr[0].(map[string]any)["title"], "Keep this")
 					},
-					AssertText: func(t *testing.T, output string) {
-						assertContains(t, output, "Keep this")
-						assertNotContains(t, output, "Delete this")
+					AssertText: func(test *testing.T, output string) {
+						assertContains(test, output, "Keep this")
+						assertNotContains(test, output, "Delete this")
 					},
 				},
 			},
@@ -410,21 +410,21 @@ func TestFiltering(t *testing.T) {
 				{
 					// Only active tasks with +api tag, or any pending task
 					Args: []string{"task", "list", "(", "status=active", "AND", "+api", ")", "OR", "status=pending"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						arr := jsonArray(test, parsed)
 						if len(arr) != 2 {
-							t.Fatalf("expected 2 tasks, got %d", len(arr))
+							test.Fatalf("expected 2 tasks, got %d", len(arr))
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						assertContains(t, output, "Active tagged")
-						assertContains(t, output, "Pending tagged")
-						assertNotContains(t, output, "Active untagged")
+					AssertText: func(test *testing.T, output string) {
+						assertContains(test, output, "Active tagged")
+						assertContains(test, output, "Pending tagged")
+						assertNotContains(test, output, "Active untagged")
 					},
 				},
 			},
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
