@@ -1907,7 +1907,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6.md
 > Depends on: P2. Parallelizable with P3, P4, P5, P7. Blocks P8.
 
-- [ ] [v0.14 P6-T1] Drop filter/ + domain/ + syntax/ varnamelen exclusions level=task order=1 +naming-convention +phase-6 +v0.14
+- [x] [v0.14 P6-T1] Drop filter/ + domain/ + syntax/ varnamelen exclusions level=task order=1 +naming-convention +phase-6 +v0.14
 > What: Delete the three linters: [varnamelen] rules whose path is ^filter/, ^domain/, and ^syntax/ from .golangci.yml. Other per-package rules stay untouched.
 >
 > Why: Brings rule 1 into scope for all three packages.
@@ -1923,7 +1923,7 @@
 > Blocks: P6-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T1.md
 
-- [ ] [v0.14 P6-T2] Drop filter/ + domain/ + syntax/ pathfilter entries level=task order=2 +naming-convention +phase-6 +v0.14
+- [x] [v0.14 P6-T2] Drop filter/ + domain/ + syntax/ pathfilter entries level=task order=2 +naming-convention +phase-6 +v0.14
 > What: Delete the three regex lines for ^github\.com/germanamz/tusk/filter(/|$), ^github\.com/germanamz/tusk/domain(/|$), and ^github\.com/germanamz/tusk/syntax(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
 >
 > Why: Brings rules 2, 3, 4 into scope for all three packages.
@@ -1939,31 +1939,19 @@
 > Blocks: P6-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T2.md
 
-- [ ] [v0.14 P6-T3] Apply STYLE.md fixes across filter/ + domain/ + syntax/ level=task order=3 +naming-convention +phase-6 +v0.14
-> What: Run make lint to enumerate every violation in filter/, domain/, and syntax/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. Per-file diffs are smaller than service/ or internal/tui/ sweeps; one PR for all three packages should still be reviewable.
->
-> filter/ has 22 files (parser, lexer, validators, resolvers). domain/ has 36 files (entity definitions, validators, urgency overrides helpers, taxonomy validators). syntax/ has 10 files (token, AST, modifier, parse_fields). Expected violation classes: parser state-machine short locals, AST/range-var renames, missing blank lines on parser error paths, t *testing.T parameters.
->
-> Why: Work-bearing task.
->
-> Code references:
-> - filter/ — parser, lexer, validators.
-> - domain/ — entity definitions, urgency overrides, taxonomy validators.
-> - syntax/ast.go:37, 48 — for _, t := range fs.Tags sites.
-> - syntax/errors.go:32 — for i, e := range errs.
-> - syntax/modifier_test.go:17 — for _, b := range []byte{...}.
-> - syntax/*_test.go — extensive t *testing.T usage.
->
-> Acceptance:
-> - Every file in all three packages complies with STYLE.md rules 1–4.
-> - No behavior changes (verified by P6-T4).
->
-> Bridge code: None.
-> Depends on: P6-T1, P6-T2.
-> Blocks: P6-T4, P6-T5.
-> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T3.md
+- [x] [v0.14 P6-T3a] Apply STYLE.md fixes to filter/ tests level=task order=3 +naming-convention +phase-6 +v0.14
+> Apply STYLE.md rules 1-4 to filter/ test files: `parser_test.go`, `parse_expr_test.go`, `resolve_test.go`, `resolve_expr_test.go`, `resolve_uda_test.go`, `dates_test.go`, `integration_test.go`, `token_test.go`, `expr_test.go`, `validators_test.go`, `durations_test.go`. ~162 violations. Part of split P6-T3.
 
-- [ ] [v0.14 P6-T4] Verify filter/ + domain/ + syntax/ tests pass level=task order=4 +naming-convention +phase-6 +v0.14
+- [x] [v0.14 P6-T3b] Apply STYLE.md fixes to filter/ production level=task order=4 +naming-convention +phase-6 +v0.14
+> Apply STYLE.md rules 1-4 to filter/ production files: `parser.go`, `resolve.go`, `validators.go`, `parse_expr.go`, `dates.go`, `durations.go`, `token.go`, `ast.go`, `expr.go`, `errors.go`. ~50 violations. Part of split P6-T3.
+
+- [x] [v0.14 P6-T3c] Apply STYLE.md fixes to domain/ package level=task order=5 +naming-convention +phase-6 +v0.14
+> Apply STYLE.md rules 1-4 to all 33 files in `domain/` (production + tests). ~95 violations. Includes entity definitions, validators, taxonomy, urgency overrides, workflow validation, rollup, etc. Part of split P6-T3.
+
+- [x] [v0.14 P6-T3d] Apply STYLE.md fixes to syntax/ package level=task order=6 +naming-convention +phase-6 +v0.14
+> Apply STYLE.md rules 1-4 to all 10 files in `syntax/` (production + tests): `ast.go`, `ast_test.go`, `errors.go`, `errors_test.go`, `modifier.go`, `modifier_test.go`, `parse_fields.go`, `parse_fields_test.go`, `token.go`, `token_test.go`. ~30 violations. After this lands, all 3 packages comply with STYLE.md. Part of split P6-T3.
+
+- [x] [v0.14 P6-T4] Verify filter/ + domain/ + syntax/ tests pass level=task order=8 +naming-convention +phase-6 +v0.14
 > What: Run make test to verify behavior is preserved. Filter parser tests (boolean operators, tag include/exclude, UDA fields, urgency keys), domain tests (taxonomy validation, urgency overrides math, workflow validation), and syntax/ tests (token, AST, modifier, parse_fields) must all pass.
 >
 > Why: These are the parsing and core-type contracts. Edge-case coverage in the test suite is dense; any accidental change surfaces here.
@@ -1983,7 +1971,7 @@
 > Blocks: P6-T5.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P6-T4.md
 
-- [ ] [v0.14 P6-T5] Verify P6 packages lint clean level=task order=5 +naming-convention +phase-6 +v0.14
+- [x] [v0.14 P6-T5] Verify P6 packages lint clean level=task order=9 +naming-convention +phase-6 +v0.14
 > What: Run make lint to confirm zero violations across filter/, domain/, and syntax/. Closes the phase.
 >
 > Why: Acceptance gate.
