@@ -15,30 +15,30 @@ func blockedReq(args map[string]any) mcp.CallToolRequest {
 }
 
 func TestCheckBlocked_FieldAbsent(test *testing.T) {
-	srv := mustNew(test, config.MCPConfig{
+	server := mustNew(test, config.MCPConfig{
 		BlockedFields: map[string][]string{"tusk_task_modify": {"priority"}},
 	})
-	res := srv.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"short_id": "abc"}))
+	res := server.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"short_id": "abc"}))
 	if res != nil {
 		test.Fatalf("expected nil for absent field, got %#v", res)
 	}
 }
 
 func TestCheckBlocked_FieldNil(test *testing.T) {
-	srv := mustNew(test, config.MCPConfig{
+	server := mustNew(test, config.MCPConfig{
 		BlockedFields: map[string][]string{"tusk_task_modify": {"priority"}},
 	})
-	res := srv.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"priority": nil}))
+	res := server.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"priority": nil}))
 	if res != nil {
 		test.Fatalf("expected nil for nil-valued field, got %#v", res)
 	}
 }
 
 func TestCheckBlocked_FieldSupplied(test *testing.T) {
-	srv := mustNew(test, config.MCPConfig{
+	server := mustNew(test, config.MCPConfig{
 		BlockedFields: map[string][]string{"tusk_task_modify": {"priority"}},
 	})
-	res := srv.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"priority": float64(3)}))
+	res := server.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"priority": float64(3)}))
 	if res == nil {
 		test.Fatal("expected error result, got nil")
 	}
@@ -55,12 +55,12 @@ func TestCheckBlocked_FieldSupplied(test *testing.T) {
 }
 
 func TestCheckBlocked_MultipleFieldsSorted(test *testing.T) {
-	srv := mustNew(test, config.MCPConfig{
+	server := mustNew(test, config.MCPConfig{
 		BlockedFields: map[string][]string{
 			"tusk_task_modify": {"priority", "due", "title"},
 		},
 	})
-	res := srv.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
+	res := server.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
 		"priority": float64(3),
 		"due":      "2026-01-01",
 		"title":    "new",
@@ -76,20 +76,20 @@ func TestCheckBlocked_MultipleFieldsSorted(test *testing.T) {
 }
 
 func TestCheckBlocked_EmptyBlockList(test *testing.T) {
-	srv := mustNew(test, config.MCPConfig{})
-	res := srv.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"priority": float64(3)}))
+	server := mustNew(test, config.MCPConfig{})
+	res := server.checkBlocked("tusk_task_modify", blockedReq(map[string]any{"priority": float64(3)}))
 	if res != nil {
 		test.Fatalf("expected nil with empty block list, got %#v", res)
 	}
 }
 
 func TestBlockedFields_BlocksUrgencyOverrides(test *testing.T) {
-	srv := mustNew(test, config.MCPConfig{
+	server := mustNew(test, config.MCPConfig{
 		BlockedFields: map[string][]string{
 			"tusk_task_modify": {"urgency_overrides", "urgency_overrides_clear"},
 		},
 	})
-	res := srv.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
+	res := server.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
 		"urgency_overrides": map[string]any{"priority_weight": float64(5)},
 	}))
 	if res == nil || !res.IsError {
@@ -103,7 +103,7 @@ func TestBlockedFields_BlocksUrgencyOverrides(test *testing.T) {
 		test.Errorf("message missing tool name: %q", msg)
 	}
 
-	res = srv.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
+	res = server.checkBlocked("tusk_task_modify", blockedReq(map[string]any{
 		"urgency_overrides_clear": true,
 	}))
 	if res == nil || !res.IsError {

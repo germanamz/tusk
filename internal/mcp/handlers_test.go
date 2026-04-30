@@ -81,7 +81,7 @@ func testServer(test *testing.T) *Server {
 	playerSvc := service.NewPlayerService(bundle.Players)
 	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, 0)
 
-	srv, err := New(
+	server, err := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, noteSvc,
 		nil, nil, nil,
 		"test", config.MCPConfig{}, nil,
@@ -91,7 +91,7 @@ func testServer(test *testing.T) *Server {
 		test.Fatalf("creating MCP server: %v", err)
 	}
 
-	return srv
+	return server
 }
 
 // callToolRequest builds a CallToolRequest with the given arguments.
@@ -148,11 +148,11 @@ func getToolErrorText(test *testing.T, result *mcp.CallToolResult) string {
 }
 
 func TestHandleTaskCreate(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
 	test.Run("basic create", func(test *testing.T) {
-		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title":    "Test task",
 			"priority": float64(3),
 		}))
@@ -177,7 +177,7 @@ func TestHandleTaskCreate(test *testing.T) {
 	})
 
 	test.Run("create with tags", func(test *testing.T) {
-		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "Tagged task",
 			"tags":  []any{"alpha", "beta"},
 		}))
@@ -194,7 +194,7 @@ func TestHandleTaskCreate(test *testing.T) {
 	})
 
 	test.Run("missing title returns tool error", func(test *testing.T) {
-		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{}))
+		result, err := server.handleTaskCreate(ctx, callToolRequest(map[string]any{}))
 
 		if err != nil {
 			test.Fatalf("unexpected transport error: %v", err)
@@ -208,11 +208,11 @@ func TestHandleTaskCreate(test *testing.T) {
 }
 
 func TestHandleTaskGet(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
 	// Create a task first
-	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Get me",
 		"tags":  []any{"fetched"},
 	}))
@@ -220,13 +220,13 @@ func TestHandleTaskGet(test *testing.T) {
 	shortID := created["short_id"].(string)
 
 	// Add annotation
-	srv.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
+	server.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"body":     "test annotation",
 	}))
 
 	test.Run("returns full details", func(test *testing.T) {
-		result, err := srv.handleTaskGet(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskGet(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 		}))
 
@@ -249,7 +249,7 @@ func TestHandleTaskGet(test *testing.T) {
 	})
 
 	test.Run("not found returns tool error", func(test *testing.T) {
-		result, _ := srv.handleTaskGet(ctx, callToolRequest(map[string]any{
+		result, _ := server.handleTaskGet(ctx, callToolRequest(map[string]any{
 			"short_id": "nonexistent",
 		}))
 		msg := getToolErrorText(test, result)
@@ -260,14 +260,14 @@ func TestHandleTaskGet(test *testing.T) {
 }
 
 func TestHandleTaskList(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task A"}))
-	srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task B", "priority": float64(4)}))
+	server.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task A"}))
+	server.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task B", "priority": float64(4)}))
 
 	test.Run("list all", func(test *testing.T) {
-		result, err := srv.handleTaskList(ctx, callToolRequest(map[string]any{}))
+		result, err := server.handleTaskList(ctx, callToolRequest(map[string]any{}))
 
 		if err != nil {
 			test.Fatalf("unexpected error: %v", err)
@@ -280,7 +280,7 @@ func TestHandleTaskList(test *testing.T) {
 	})
 
 	test.Run("filter by priority", func(test *testing.T) {
-		result, err := srv.handleTaskList(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskList(ctx, callToolRequest(map[string]any{
 			"priority_min": float64(4),
 		}))
 
@@ -299,10 +299,10 @@ func TestHandleTaskList(test *testing.T) {
 }
 
 func TestHandleTaskTransition_IncludesTags(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Transition tags",
 		"tags":  []any{"keep-me"},
 	}))
@@ -311,7 +311,7 @@ func TestHandleTaskTransition_IncludesTags(test *testing.T) {
 	version := created["version"].(float64)
 
 	// Start
-	startResult, startErr := srv.handleTaskStart(ctx, callToolRequest(map[string]any{
+	startResult, startErr := server.handleTaskStart(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"version":  version,
 	}))
@@ -329,7 +329,7 @@ func TestHandleTaskTransition_IncludesTags(test *testing.T) {
 	version = started["version"].(float64)
 
 	// Done
-	doneResult, doneErr := srv.handleTaskDone(ctx, callToolRequest(map[string]any{
+	doneResult, doneErr := server.handleTaskDone(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"version":  version,
 	}))
@@ -346,10 +346,10 @@ func TestHandleTaskTransition_IncludesTags(test *testing.T) {
 }
 
 func TestHandleTaskModify(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Original",
 	}))
 	created := parseToolResult(test, createResult)
@@ -357,7 +357,7 @@ func TestHandleTaskModify(test *testing.T) {
 	version := created["version"].(float64)
 
 	test.Run("modify title and add tags", func(test *testing.T) {
-		result, err := srv.handleTaskModify(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskModify(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 			"version":  version,
 			"title":    "Modified",
@@ -379,7 +379,7 @@ func TestHandleTaskModify(test *testing.T) {
 	})
 
 	test.Run("version conflict returns tool error", func(test *testing.T) {
-		result, _ := srv.handleTaskModify(ctx, callToolRequest(map[string]any{
+		result, _ := server.handleTaskModify(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 			"version":  float64(999),
 			"title":    "Conflict",
@@ -392,16 +392,16 @@ func TestHandleTaskModify(test *testing.T) {
 }
 
 func TestHandleTaskLink(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	r1, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Source"}))
-	r2, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Target"}))
+	r1, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Source"}))
+	r2, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Target"}))
 	source := parseToolResult(test, r1)["short_id"].(string)
 	target := parseToolResult(test, r2)["short_id"].(string)
 
 	test.Run("add blocks relation", func(test *testing.T) {
-		result, err := srv.handleTaskLink(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": source,
 			"target": target,
 			"type":   "blocks",
@@ -418,7 +418,7 @@ func TestHandleTaskLink(test *testing.T) {
 	})
 
 	test.Run("duplicate returns tool error", func(test *testing.T) {
-		result, _ := srv.handleTaskLink(ctx, callToolRequest(map[string]any{
+		result, _ := server.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": source,
 			"target": target,
 			"type":   "blocks",
@@ -430,7 +430,7 @@ func TestHandleTaskLink(test *testing.T) {
 	})
 
 	test.Run("cycle returns tool error", func(test *testing.T) {
-		result, _ := srv.handleTaskLink(ctx, callToolRequest(map[string]any{
+		result, _ := server.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": target,
 			"target": source,
 			"type":   "blocks",
@@ -443,10 +443,10 @@ func TestHandleTaskLink(test *testing.T) {
 }
 
 func TestHandleProjectList(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	result, err := srv.handleProjectList(ctx, callToolRequest(map[string]any{}))
+	result, err := server.handleProjectList(ctx, callToolRequest(map[string]any{}))
 
 	if err != nil {
 		test.Fatalf("unexpected error: %v", err)
@@ -466,16 +466,16 @@ func TestHandleProjectList(test *testing.T) {
 }
 
 func TestHandleTaskTree(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	parentResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Parent"}))
+	parentResult, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Parent"}))
 	parent := parseToolResult(test, parentResult)
 	parentSID := parent["short_id"].(string)
 
-	srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Child", "parent": parentSID}))
+	server.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Child", "parent": parentSID}))
 
-	result, err := srv.handleTaskTree(ctx, callToolRequest(map[string]any{
+	result, err := server.handleTaskTree(ctx, callToolRequest(map[string]any{
 		"short_id": parentSID,
 	}))
 
@@ -498,13 +498,13 @@ func TestHandleTaskTree(test *testing.T) {
 }
 
 func TestHandleTaskAnnotate(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Annotate me"}))
+	createResult, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Annotate me"}))
 	shortID := parseToolResult(test, createResult)["short_id"].(string)
 
-	result, err := srv.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
+	result, err := server.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"body":     "test note",
 	}))
@@ -520,11 +520,11 @@ func TestHandleTaskAnnotate(test *testing.T) {
 }
 
 func TestHandleTaskCreate_Level(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
 	test.Run("level populates response", func(test *testing.T) {
-		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "With level",
 			"level": "story",
 		}))
@@ -540,7 +540,7 @@ func TestHandleTaskCreate_Level(test *testing.T) {
 	})
 
 	test.Run("empty level rejected", func(test *testing.T) {
-		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "Empty level",
 			"level": "",
 		}))
@@ -556,7 +556,7 @@ func TestHandleTaskCreate_Level(test *testing.T) {
 	})
 
 	test.Run("omitted level yields no level field", func(test *testing.T) {
-		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "No level",
 		}))
 
@@ -572,10 +572,10 @@ func TestHandleTaskCreate_Level(test *testing.T) {
 }
 
 func TestHandleTaskModify_Level(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Original",
 		"level": "story",
 	}))
@@ -584,7 +584,7 @@ func TestHandleTaskModify_Level(test *testing.T) {
 	version := created["version"].(float64)
 
 	test.Run("empty level clears the field", func(test *testing.T) {
-		result, err := srv.handleTaskModify(ctx, callToolRequest(map[string]any{
+		result, err := server.handleTaskModify(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 			"version":  version,
 			"level":    "",
@@ -602,17 +602,17 @@ func TestHandleTaskModify_Level(test *testing.T) {
 }
 
 func TestHandleTaskList_IncludesLevel(test *testing.T) {
-	srv := testServer(test)
+	server := testServer(test)
 	ctx := context.Background()
 
-	if _, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	if _, err := server.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "With level",
 		"level": "story",
 	})); err != nil {
 		test.Fatalf("create: %v", err)
 	}
 
-	result, err := srv.handleTaskList(ctx, callToolRequest(map[string]any{}))
+	result, err := server.handleTaskList(ctx, callToolRequest(map[string]any{}))
 
 	if err != nil {
 		test.Fatalf("list: %v", err)

@@ -16,7 +16,7 @@ import (
 // mustNew calls New and fails the test on error.
 func mustNew(test *testing.T, cfg config.MCPConfig) *Server {
 	test.Helper()
-	srv, err := New(
+	server, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
 		"test", cfg, nil,
@@ -24,15 +24,15 @@ func mustNew(test *testing.T, cfg config.MCPConfig) *Server {
 	if err != nil {
 		test.Fatalf("New() returned unexpected error: %v", err)
 	}
-	return srv
+	return server
 }
 
 func TestNewServer(test *testing.T) {
-	srv := mustNew(test, config.MCPConfig{})
-	if srv == nil {
+	server := mustNew(test, config.MCPConfig{})
+	if server == nil {
 		test.Fatal("New() returned nil")
 	}
-	if srv.server == nil {
+	if server.server == nil {
 		test.Fatal("New() did not initialize internal MCP server")
 	}
 }
@@ -41,11 +41,11 @@ func TestNewServer_WithConfig(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledTools: []string{"tusk_task_delete"},
 	}
-	srv := mustNew(test, cfg)
-	if srv == nil {
+	server := mustNew(test, cfg)
+	if server == nil {
 		test.Fatal("New() returned nil")
 	}
-	if srv.cfg.DisabledTools[0] != "tusk_task_delete" {
+	if server.cfg.DisabledTools[0] != "tusk_task_delete" {
 		test.Fatal("config not stored on server")
 	}
 }
@@ -54,12 +54,12 @@ func TestToolFiltering_DisabledTool(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledTools: []string{"tusk_task_delete"},
 	}
-	srv := mustNew(test, cfg)
+	server := mustNew(test, cfg)
 
-	if srv.isToolEnabled("tusk_task_delete", "task") {
+	if server.isToolEnabled("tusk_task_delete", "task") {
 		test.Error("tusk_task_delete should be disabled")
 	}
-	if !srv.isToolEnabled("tusk_task_create", "task") {
+	if !server.isToolEnabled("tusk_task_create", "task") {
 		test.Error("tusk_task_create should be enabled")
 	}
 }
@@ -68,15 +68,15 @@ func TestToolFiltering_DisabledGroup(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledToolGroups: []string{"task_relations"},
 	}
-	srv := mustNew(test, cfg)
+	server := mustNew(test, cfg)
 
-	if srv.isToolEnabled("tusk_task_link", "task_relations") {
+	if server.isToolEnabled("tusk_task_link", "task_relations") {
 		test.Error("tusk_task_link should be disabled (group 'task_relations' disabled)")
 	}
-	if srv.isToolEnabled("tusk_task_unlink", "task_relations") {
+	if server.isToolEnabled("tusk_task_unlink", "task_relations") {
 		test.Error("tusk_task_unlink should be disabled (group 'task_relations' disabled)")
 	}
-	if !srv.isToolEnabled("tusk_task_create", "task") {
+	if !server.isToolEnabled("tusk_task_create", "task") {
 		test.Error("tusk_task_create should be enabled (group 'task' not disabled)")
 	}
 }
@@ -85,12 +85,12 @@ func TestResourceFiltering_DisabledResource(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledResources: []string{"tusk://projects/{name}/workflow"},
 	}
-	srv := mustNew(test, cfg)
+	server := mustNew(test, cfg)
 
-	if srv.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
+	if server.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
 		test.Error("workflow resource should be disabled")
 	}
-	if !srv.isResourceEnabled("tusk://tasks/{short_id}", "task") {
+	if !server.isResourceEnabled("tusk://tasks/{short_id}", "task") {
 		test.Error("task resource should be enabled")
 	}
 }
@@ -99,12 +99,12 @@ func TestResourceFiltering_DisabledGroup(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledResourceGroups: []string{"workflow"},
 	}
-	srv := mustNew(test, cfg)
+	server := mustNew(test, cfg)
 
-	if srv.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
+	if server.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
 		test.Error("workflow resource should be disabled (group disabled)")
 	}
-	if !srv.isResourceEnabled("tusk://projects/{name}", "project") {
+	if !server.isResourceEnabled("tusk://projects/{name}", "project") {
 		test.Error("project resource should be enabled")
 	}
 }
@@ -296,7 +296,7 @@ func TestServer_ReloadConfig_SmokeTest(test *testing.T) {
 	_, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
-	srv, err := New(
+	server, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		workflowRepo, projectRepo, urgencyEngine,
 		"test", config.MCPConfig{},
@@ -306,7 +306,7 @@ func TestServer_ReloadConfig_SmokeTest(test *testing.T) {
 		test.Fatalf("New: %v", err)
 	}
 
-	if err := srv.ReloadConfigForTest(context.Background()); err != nil {
+	if err := server.ReloadConfigForTest(context.Background()); err != nil {
 		test.Fatalf("reloadConfig: %v", err)
 	}
 
@@ -333,7 +333,7 @@ func TestReloadConfig_BlockedFieldsHotSwap(test *testing.T) {
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
 	loadOpts := []config.Option{config.WithExplicitFile(path)}
-	srv, err := New(
+	server, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		workflowRepo, projectRepo, urgencyEngine,
 		"test", initial.MCP, loadOpts,
@@ -347,7 +347,7 @@ func TestReloadConfig_BlockedFieldsHotSwap(test *testing.T) {
 		"version":  float64(1),
 		"workflow": "kanban",
 	})
-	if res := srv.checkBlocked("tusk_project_modify", req); res != nil {
+	if res := server.checkBlocked("tusk_project_modify", req); res != nil {
 		test.Fatalf("pre-reload: expected no block, got %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
@@ -362,11 +362,11 @@ func TestReloadConfig_BlockedFieldsHotSwap(test *testing.T) {
 		test.Fatalf("rewriting config: %v", err)
 	}
 
-	if err := srv.ReloadConfigForTest(context.Background()); err != nil {
+	if err := server.ReloadConfigForTest(context.Background()); err != nil {
 		test.Fatalf("reloadConfig: %v", err)
 	}
 
-	res := srv.checkBlocked("tusk_project_modify", req)
+	res := server.checkBlocked("tusk_project_modify", req)
 	if res == nil {
 		test.Fatal("post-reload: expected block, got nil")
 	}

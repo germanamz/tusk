@@ -9,50 +9,50 @@ import (
 )
 
 // registerResources registers all MCP resource templates.
-func (srv *Server) registerResources() {
+func (server *Server) registerResources() {
 	// tusk://tasks/{short_id}
-	srv.addResource("task",
+	server.addResource("task",
 		mcp.NewResourceTemplate(
 			"tusk://tasks/{short_id}",
 			"Task Detail",
 			mcp.WithTemplateDescription("Full task details including tags, relations, and annotations"),
 			mcp.WithTemplateMIMEType("application/json"),
 		),
-		srv.handleTaskResource,
+		server.handleTaskResource,
 	)
 
 	// tusk://projects/{name}
-	srv.addResource("project",
+	server.addResource("project",
 		mcp.NewResourceTemplate(
 			"tusk://projects/{name}",
 			"Project Detail",
 			mcp.WithTemplateDescription("Project details including settings"),
 			mcp.WithTemplateMIMEType("application/json"),
 		),
-		srv.handleProjectResource,
+		server.handleProjectResource,
 	)
 
 	// tusk://projects/{name}/workflow
-	srv.addResource("workflow",
+	server.addResource("workflow",
 		mcp.NewResourceTemplate(
 			"tusk://projects/{name}/workflow",
 			"Project Workflow",
 			mcp.WithTemplateDescription("Workflow statuses and allowed transitions for a project"),
 			mcp.WithTemplateMIMEType("application/json"),
 		),
-		srv.handleWorkflowResource,
+		server.handleWorkflowResource,
 	)
 }
 
 // handleTaskResource serves tusk://tasks/{short_id}.
 // Returns the same rich format as tusk_task_get (task + tags + relations + annotations).
-func (srv *Server) handleTaskResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+func (server *Server) handleTaskResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	shortID := extractURIParam(request.Params.URI, "tusk://tasks/")
 	if shortID == "" {
 		return nil, &resourceError{msg: "missing short_id in URI"}
 	}
 
-	resp, buildErr := srv.buildTaskGetResponse(ctx, shortID)
+	resp, buildErr := server.buildTaskGetResponse(ctx, shortID)
 
 	if buildErr != nil {
 		return nil, buildErr
@@ -74,7 +74,7 @@ func (srv *Server) handleTaskResource(ctx context.Context, request mcp.ReadResou
 }
 
 // handleProjectResource serves tusk://projects/{name}.
-func (srv *Server) handleProjectResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+func (server *Server) handleProjectResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	name := extractURIParam(request.Params.URI, "tusk://projects/")
 	if idx := strings.Index(name, "/"); idx >= 0 {
 		name = name[:idx]
@@ -83,19 +83,19 @@ func (srv *Server) handleProjectResource(ctx context.Context, request mcp.ReadRe
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, projectErr := srv.projectSvc.GetByName(ctx, name)
+	project, projectErr := server.projectSvc.GetByName(ctx, name)
 
 	if projectErr != nil {
 		return nil, projectErr
 	}
 
-	workflow, workflowErr := srv.workflowSvc.GetByID(ctx, project.WorkflowID)
+	workflow, workflowErr := server.workflowSvc.GetByID(ctx, project.WorkflowID)
 
 	if workflowErr != nil {
 		return nil, workflowErr
 	}
 
-	jsonBytes, marshalErr := json.MarshalIndent(srv.toProjectResponse(project, workflow.Name), "", "  ")
+	jsonBytes, marshalErr := json.MarshalIndent(server.toProjectResponse(project, workflow.Name), "", "  ")
 
 	if marshalErr != nil {
 		return nil, marshalErr
@@ -124,7 +124,7 @@ type transitionResponse struct {
 }
 
 // handleWorkflowResource serves tusk://projects/{name}/workflow.
-func (srv *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+func (server *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	uri := request.Params.URI
 	name := extractURIParam(uri, "tusk://projects/")
 	if idx := strings.Index(name, "/"); idx >= 0 {
@@ -134,25 +134,25 @@ func (srv *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadR
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, projectErr := srv.projectSvc.GetByName(ctx, name)
+	project, projectErr := server.projectSvc.GetByName(ctx, name)
 
 	if projectErr != nil {
 		return nil, projectErr
 	}
 
-	workflow, workflowErr := srv.workflowSvc.GetByID(ctx, project.WorkflowID)
+	workflow, workflowErr := server.workflowSvc.GetByID(ctx, project.WorkflowID)
 
 	if workflowErr != nil {
 		return nil, workflowErr
 	}
 
-	statuses, statusesErr := srv.workflowSvc.GetStatuses(ctx, workflow.Name)
+	statuses, statusesErr := server.workflowSvc.GetStatuses(ctx, workflow.Name)
 
 	if statusesErr != nil {
 		return nil, statusesErr
 	}
 
-	transitions, transitionsErr := srv.workflowSvc.GetTransitions(ctx, workflow.Name)
+	transitions, transitionsErr := server.workflowSvc.GetTransitions(ctx, workflow.Name)
 
 	if transitionsErr != nil {
 		return nil, transitionsErr
