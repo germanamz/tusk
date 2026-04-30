@@ -9,15 +9,15 @@ import (
 )
 
 // checkBlocked returns a tool-result error when the request supplies any
-// field listed in srv.cfg.BlockedFields[toolName]. Absent or nil values
+// field listed in server.cfg.BlockedFields[toolName]. Absent or nil values
 // pass. Returns nil when nothing is blocked.
 //
 // Field presence is determined from req.GetArguments(): a key present in
 // the arguments map with a non-nil value is considered "supplied".
-func (srv *Server) checkBlocked(toolName string, req mcp.CallToolRequest) *mcp.CallToolResult {
-	srv.cfgMu.RLock()
-	blocked := srv.cfg.BlockedFields[toolName]
-	srv.cfgMu.RUnlock()
+func (server *Server) checkBlocked(toolName string, req mcp.CallToolRequest) *mcp.CallToolResult {
+	server.cfgMu.RLock()
+	blocked := server.cfg.BlockedFields[toolName]
+	server.cfgMu.RUnlock()
 	if len(blocked) == 0 {
 		return nil
 	}
