@@ -1704,7 +1704,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4.md
 > Depends on: P2. Parallelizable with P3, P5, P6, P7. Blocks P8.
 
-- [ ] [v0.14 P4-T1] Drop internal/tui/ varnamelen exclusion level=task order=1 +naming-convention +phase-4 +v0.14
+- [x] [v0.14 P4-T1] Drop internal/tui/ varnamelen exclusion level=task order=1 +naming-convention +phase-4 +v0.14
 > What: Delete the linters: [varnamelen] rule whose path is ^internal/tui/ from .golangci.yml. Other per-package rules stay untouched.
 >
 > Why: Brings rule 1 into scope for internal/tui/.
@@ -1720,7 +1720,7 @@
 > Blocks: P4-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T1.md
 
-- [ ] [v0.14 P4-T2] Drop internal/tui/ pathfilter entry level=task order=2 +naming-convention +phase-4 +v0.14
+- [x] [v0.14 P4-T2] Drop internal/tui/ pathfilter entry level=task order=2 +naming-convention +phase-4 +v0.14
 > What: Delete the regex line for ^github\.com/germanamz/tusk/internal/tui(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
 >
 > Why: Brings rules 2, 3, 4 into scope for internal/tui/.
@@ -1736,30 +1736,31 @@
 > Blocks: P4-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T2.md
 
-- [ ] [v0.14 P4-T3] Apply STYLE.md fixes across internal/tui/ level=task order=3 +naming-convention +phase-4 +v0.14
-> What: Run make lint to enumerate every violation in internal/tui/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. Split per-file if the diff is too large for one PR — commands.go and render.go are the largest candidates.
->
-> The package contains ~50 .go files. Expected violation classes: short receivers in cobra command builders (a *App → app *App), short range vars on tasks/projects/notes, runX handlers with multiple service calls missing blank lines around guards, sequential err := shadows, and t *testing.T parameters.
->
-> Why: Work-bearing task of the phase.
->
-> Code references:
-> - internal/tui/commands.go (1450 LoC) — cobra command construction.
-> - internal/tui/render.go (1231 LoC) — rendering helpers.
-> - internal/tui/tree_markdown_test.go (959 LoC).
-> - internal/tui/config.go (823 LoC).
-> - internal/tui/commands_test.go (1491 LoC).
->
-> Acceptance:
-> - Every file in internal/tui/ complies with STYLE.md rules 1–4.
-> - No behavior changes (verified by P4-T4).
->
-> Bridge code: None.
-> Depends on: P4-T1, P4-T2.
-> Blocks: P4-T4, P4-T5.
-> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T3.md
+- [x] [v0.14 P4-T3a] Apply STYLE.md fixes to commands suite level=task order=3 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to `internal/tui/commands.go` + `internal/tui/commands_test.go`. ~184 violations, largest sub-bucket of P4. Mechanical sweep, no behavior changes. Part of split P4-T3. Shipped via PR #291.
 
-- [ ] [v0.14 P4-T4] Verify internal/tui/ tests pass level=task order=4 +naming-convention +phase-4 +v0.14
+- [x] [v0.14 P4-T3b] Apply STYLE.md fixes to render/tree/styles subsystem level=task order=4 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to: `render.go`, `render_test.go`, `tree.go`, `tree_markdown.go`, `tree_markdown_test.go`, `tree_test.go`, `summary.go`, `summary_test.go`, `level_render_test.go`, `list_sort_test.go`, `styles.go`, `styles_test.go`. ~155 violations. Part of split P4-T3.
+
+- [x] [v0.14 P4-T3c] Apply STYLE.md fixes to project suite level=task order=5 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to: `project.go`, `project_parse.go`, `project_parse_test.go`, `project_show_test.go`. ~115 violations. Part of split P4-T3.
+
+- [x] [v0.14 P4-T3d] Apply STYLE.md fixes to config suite level=task order=6 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to: `config.go`, `config_render.go`, `config_render_test.go`, `config_show_taxonomy_test.go`, `config_view.go`, `taxonomy_config_test.go`. ~95 violations. Part of split P4-T3.
+
+- [x] [v0.14 P4-T3e] Apply STYLE.md fixes to expand pair level=task order=7 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to: `expand.go`, `expand_test.go`. ~84 violations. Part of split P4-T3.
+
+- [x] [v0.14 P4-T3f] Apply STYLE.md fixes to task suite level=task order=8 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to: `task_move.go`, `task_move_test.go`, `task_sort.go`, `task_test.go`, `taxonomy_parse.go`, `taxonomy_parse_test.go`. ~85 violations. Part of split P4-T3.
+
+- [x] [v0.14 P4-T3g] Apply STYLE.md fixes to workflow trio level=task order=9 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to: `workflow.go`, `workflow_parse.go`, `workflow_parse_test.go`. ~55 violations. Part of split P4-T3.
+
+- [x] [v0.14 P4-T3h] Apply STYLE.md fixes to misc remainder level=task order=10 +naming-convention +phase-4 +v0.14
+> Apply STYLE.md rules 1-4 to remaining internal/tui/ files: `note.go`, `tag.go`, `uda.go`, `uda_test.go`, `import.go`, `export.go`, `errors.go`, `errors_test.go`, `completion.go`, `moved.go`, `app.go`, `app_test.go`, `urgency_parse.go`. ~120 violations. After this lands, all internal/tui/ files comply. Part of split P4-T3.
+
+- [x] [v0.14 P4-T4] Verify internal/tui/ tests pass level=task order=12 +naming-convention +phase-4 +v0.14
 > What: Run make test to verify behavior is preserved after the sweep. All internal/tui/ tests, including the e2e tests that exercise CLI command output, must pass. CLI output remains byte-identical to pre-sweep.
 >
 > Why: CLI output is user-facing and verified by snapshot tests; any accidental change would surface here.
@@ -1776,7 +1777,7 @@
 > Blocks: P4-T5.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P4-T4.md
 
-- [ ] [v0.14 P4-T5] Verify internal/tui/ lint clean level=task order=5 +naming-convention +phase-4 +v0.14
+- [x] [v0.14 P4-T5] Verify internal/tui/ lint clean level=task order=13 +naming-convention +phase-4 +v0.14
 > What: Run make lint to confirm zero violations across internal/tui/ with all four rules now active (no exclusions). Closes the phase.
 >
 > Why: Acceptance gate.
