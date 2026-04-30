@@ -11,24 +11,14 @@ func TestExcluded(test *testing.T) {
 		pkgPath  string
 		excluded bool
 	}{
-		// In-scope: exact package matches.
-		{"github.com/germanamz/tusk/repository", true},
-		{"github.com/germanamz/tusk/sqlite", true},
-		{"github.com/germanamz/tusk/cmd", true},
-		{"github.com/germanamz/tusk/tests/e2e", true},
+		// In-scope: only config/ remains until the P-CONFIG follow-up sweep
+		// (tusk task 06fa0f50) clears it.
 		{"github.com/germanamz/tusk/config", true},
-		// In-scope: root package (client.go lives here).
-		{"github.com/germanamz/tusk", true},
-		// In-scope: sub-packages of excluded packages.
 		{"github.com/germanamz/tusk/config/subpkg", true},
+		{"github.com/germanamz/tusk/config_test", true},
 
-		// In-scope: external test packages (Go's `package foo_test`
-		// convention). pkgPath ends with `_test`; trimmed before match.
-		{"github.com/germanamz/tusk/sqlite_test", true},
-		{"github.com/germanamz/tusk/repository_test", true},
-
-		// Out-of-scope: service/, internal/tui/, internal/mcp/, internal/portability/,
-		// filter/, domain/, syntax/ exclusions were removed; lint now covers them.
+		// Out-of-scope: every other v0.14 sweep phase removed its exclusion.
+		// Lint now covers all of these.
 		{"github.com/germanamz/tusk/service", false},
 		{"github.com/germanamz/tusk/service/foo", false},
 		{"github.com/germanamz/tusk/service_test", false},
@@ -46,6 +36,14 @@ func TestExcluded(test *testing.T) {
 		{"github.com/germanamz/tusk/domain_test", false},
 		{"github.com/germanamz/tusk/syntax", false},
 		{"github.com/germanamz/tusk/syntax_test", false},
+		{"github.com/germanamz/tusk/repository", false},
+		{"github.com/germanamz/tusk/repository_test", false},
+		{"github.com/germanamz/tusk/sqlite", false},
+		{"github.com/germanamz/tusk/sqlite_test", false},
+		{"github.com/germanamz/tusk/cmd", false},
+		{"github.com/germanamz/tusk/cmd/tusk", false},
+		{"github.com/germanamz/tusk/tests/e2e", false},
+		{"github.com/germanamz/tusk", false},
 
 		// Out-of-scope: lint packages themselves are not excluded.
 		{"github.com/germanamz/tusk/internal/lint/blankline", false},
