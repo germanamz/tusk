@@ -12,12 +12,6 @@ import (
 )
 
 var excluded = []*regexp.Regexp{
-	// filter/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/filter(/|$)`),
-	// domain/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/domain(/|$)`),
-	// syntax/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/syntax(/|$)`),
 	// repository/ — removed by its corresponding sweep phase.
 	regexp.MustCompile(`^github\.com/germanamz/tusk/repository(/|$)`),
 	// sqlite/ — removed by its corresponding sweep phase.

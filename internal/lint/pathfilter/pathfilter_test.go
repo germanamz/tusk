@@ -12,9 +12,6 @@ func TestExcluded(test *testing.T) {
 		excluded bool
 	}{
 		// In-scope: exact package matches.
-		{"github.com/germanamz/tusk/filter", true},
-		{"github.com/germanamz/tusk/domain", true},
-		{"github.com/germanamz/tusk/syntax", true},
 		{"github.com/germanamz/tusk/repository", true},
 		{"github.com/germanamz/tusk/sqlite", true},
 		{"github.com/germanamz/tusk/cmd", true},
@@ -29,10 +26,9 @@ func TestExcluded(test *testing.T) {
 		// convention). pkgPath ends with `_test`; trimmed before match.
 		{"github.com/germanamz/tusk/sqlite_test", true},
 		{"github.com/germanamz/tusk/repository_test", true},
-		{"github.com/germanamz/tusk/domain_test", true},
 
-		// Out-of-scope: service/, internal/tui/, internal/mcp/, internal/portability/
-		// exclusions were removed; lint now covers them.
+		// Out-of-scope: service/, internal/tui/, internal/mcp/, internal/portability/,
+		// filter/, domain/, syntax/ exclusions were removed; lint now covers them.
 		{"github.com/germanamz/tusk/service", false},
 		{"github.com/germanamz/tusk/service/foo", false},
 		{"github.com/germanamz/tusk/service_test", false},
@@ -43,6 +39,13 @@ func TestExcluded(test *testing.T) {
 		{"github.com/germanamz/tusk/internal/mcp_test", false},
 		{"github.com/germanamz/tusk/internal/portability", false},
 		{"github.com/germanamz/tusk/internal/portability_test", false},
+		{"github.com/germanamz/tusk/filter", false},
+		{"github.com/germanamz/tusk/filter/sub", false},
+		{"github.com/germanamz/tusk/filter_test", false},
+		{"github.com/germanamz/tusk/domain", false},
+		{"github.com/germanamz/tusk/domain_test", false},
+		{"github.com/germanamz/tusk/syntax", false},
+		{"github.com/germanamz/tusk/syntax_test", false},
 
 		// Out-of-scope: lint packages themselves are not excluded.
 		{"github.com/germanamz/tusk/internal/lint/blankline", false},
