@@ -51,10 +51,13 @@ disabled_resource_groups = []
 `
 
 // writeMinimalConfig writes minimalConfigTOML to path.
-func writeMinimalConfig(t *testing.T, path string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(minimalConfigTOML), 0o644); err != nil {
-		t.Fatalf("writing minimal config: %v", err)
+func writeMinimalConfig(test *testing.T, path string) {
+	test.Helper()
+
+	writeErr := os.WriteFile(path, []byte(minimalConfigTOML), 0o644)
+
+	if writeErr != nil {
+		test.Fatalf("writing minimal config: %v", writeErr)
 	}
 }
 
@@ -62,23 +65,28 @@ func writeMinimalConfig(t *testing.T, path string) {
 // from the TOML at configFile. Project and workflow writes go through the
 // real service layer so project/workflow handler tests can exercise the full
 // path without separate fixture scaffolding.
-func newTestServer(t *testing.T, configFile string) *Server {
-	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "tusk.db")
-	store, err := sqlite.New(dbPath, migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
+func newTestServer(test *testing.T, configFile string) *Server {
+	test.Helper()
+
+	dbPath := filepath.Join(test.TempDir(), "tusk.db")
+
+	store, storeErr := sqlite.New(dbPath, migrations.FS)
+
+	if storeErr != nil {
+		test.Fatalf("opening test store: %v", storeErr)
 	}
-	t.Cleanup(func() { _ = store.Close() })
+
+	test.Cleanup(func() { _ = store.Close() })
 
 	db := store.DB()
 	projectRepo := sqlite.NewProjectRepo(db)
 	workflowRepo := sqlite.NewWorkflowRepo(db)
 	taskRepo := sqlite.NewTaskRepo(db)
 
-	loadedCfg, err := config.Load(config.WithExplicitFile(configFile))
-	if err != nil {
-		t.Fatalf("loading test config: %v", err)
+	loadedCfg, loadErr := config.Load(config.WithExplicitFile(configFile))
+
+	if loadErr != nil {
+		test.Fatalf("loading test config: %v", loadErr)
 	}
 
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{
@@ -108,37 +116,41 @@ func newTestServer(t *testing.T, configFile string) *Server {
 		Waiting:     loadedCfg.Urgency.WaitingWeight,
 	}}, loadedCfg)
 
-	srv, err := New(
+	newServer, newErr := New(
 		nil, nil, nil, projectSvc, workflowSvc, nil, nil,
 		workflowRepo, projectRepo, urgencyEngine,
 		"test", config.MCPConfig{},
 		[]config.Option{config.WithExplicitFile(configFile)},
 	)
-	if err != nil {
-		t.Fatalf("mcp.New: %v", err)
+
+	if newErr != nil {
+		test.Fatalf("mcp.New: %v", newErr)
 	}
-	return srv
+
+	return newServer
 }
 
-func TestHandleConfigShow(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleConfigShow(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	server := newTestServer(test, path)
 
-	res, err := srv.HandleConfigShowForTest(context.Background(), mcp.CallToolRequest{})
-	if err != nil {
-		t.Fatalf("HandleConfigShowForTest: %v", err)
+	res, showErr := server.HandleConfigShowForTest(context.Background(), mcp.CallToolRequest{})
+
+	if showErr != nil {
+		test.Fatalf("HandleConfigShowForTest: %v", showErr)
 	}
+
 	if res.IsError {
 		text, _ := res.Content[0].(mcp.TextContent)
-		t.Fatalf("unexpected error result: %s", text.Text)
+		test.Fatalf("unexpected error result: %s", text.Text)
 	}
 
 	text, ok := res.Content[0].(mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", res.Content[0])
+		test.Fatalf("expected TextContent, got %T", res.Content[0])
 	}
 
 	var payload struct {
@@ -149,23 +161,27 @@ func TestHandleConfigShow(t *testing.T) {
 			} `json:"urgency"`
 		} `json:"effective"`
 	}
-	if err := json.Unmarshal([]byte(text.Text), &payload); err != nil {
-		t.Fatalf("parse JSON: %v", err)
+
+	unmarshalErr := json.Unmarshal([]byte(text.Text), &payload)
+
+	if unmarshalErr != nil {
+		test.Fatalf("parse JSON: %v", unmarshalErr)
 	}
+
 	if payload.ActiveFile != path {
-		t.Fatalf("active_file: got %q, want %q", payload.ActiveFile, path)
+		test.Fatalf("active_file: got %q, want %q", payload.ActiveFile, path)
 	}
 	if payload.Effective.Urgency.DueWeight != 42.0 {
-		t.Fatalf("due_weight: got %v, want 42.0", payload.Effective.Urgency.DueWeight)
+		test.Fatalf("due_weight: got %v, want 42.0", payload.Effective.Urgency.DueWeight)
 	}
 }
 
-func TestHandleConfigSet_WritesAndReloads(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleConfigSet_WritesAndReloads(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	server := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -175,30 +191,35 @@ func TestHandleConfigSet_WritesAndReloads(t *testing.T) {
 			},
 		},
 	}
-	res, err := srv.HandleConfigSetForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleConfigSetForTest: %v", err)
-	}
-	if res.IsError {
-		text, _ := res.Content[0].(mcp.TextContent)
-		t.Fatalf("unexpected error result: %s", text.Text)
+
+	res, setErr := server.HandleConfigSetForTest(context.Background(), req)
+
+	if setErr != nil {
+		test.Fatalf("HandleConfigSetForTest: %v", setErr)
 	}
 
-	loaded, err := config.LoadFile(path)
-	if err != nil {
-		t.Fatalf("LoadFile: %v", err)
+	if res.IsError {
+		text, _ := res.Content[0].(mcp.TextContent)
+		test.Fatalf("unexpected error result: %s", text.Text)
 	}
+
+	loaded, loadErr := config.LoadFile(path)
+
+	if loadErr != nil {
+		test.Fatalf("LoadFile: %v", loadErr)
+	}
+
 	if loaded.Urgency.DueWeight != 99.5 {
-		t.Fatalf("due_weight: got %v, want 99.5", loaded.Urgency.DueWeight)
+		test.Fatalf("due_weight: got %v, want 99.5", loaded.Urgency.DueWeight)
 	}
 }
 
-func TestHandleConfigSet_RejectsStorageKeys(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleConfigSet_RejectsStorageKeys(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	server := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -208,33 +229,39 @@ func TestHandleConfigSet_RejectsStorageKeys(t *testing.T) {
 			},
 		},
 	}
-	res, err := srv.HandleConfigSetForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleConfigSetForTest: %v", err)
-	}
-	if !res.IsError {
-		t.Fatalf("expected error result for storage.* key, got success")
-	}
-	text, _ := res.Content[0].(mcp.TextContent)
-	if !strings.Contains(text.Text, "storage.*") {
-		t.Fatalf("expected storage.* guard message, got: %q", text.Text)
+
+	res, setErr := server.HandleConfigSetForTest(context.Background(), req)
+
+	if setErr != nil {
+		test.Fatalf("HandleConfigSetForTest: %v", setErr)
 	}
 
-	loaded, err := config.LoadFile(path)
-	if err != nil {
-		t.Fatalf("LoadFile: %v", err)
+	if !res.IsError {
+		test.Fatalf("expected error result for storage.* key, got success")
 	}
+
+	text, _ := res.Content[0].(mcp.TextContent)
+	if !strings.Contains(text.Text, "storage.*") {
+		test.Fatalf("expected storage.* guard message, got: %q", text.Text)
+	}
+
+	loaded, loadErr := config.LoadFile(path)
+
+	if loadErr != nil {
+		test.Fatalf("LoadFile: %v", loadErr)
+	}
+
 	if loaded.Storage.Path == "/tmp/evil.db" {
-		t.Fatalf("storage.path was mutated despite guard: %q", loaded.Storage.Path)
+		test.Fatalf("storage.path was mutated despite guard: %q", loaded.Storage.Path)
 	}
 }
 
-func TestHandleConfigSet_RejectsProjectsKeys(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleConfigSet_RejectsProjectsKeys(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	server := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -244,26 +271,30 @@ func TestHandleConfigSet_RejectsProjectsKeys(t *testing.T) {
 			},
 		},
 	}
-	res, err := srv.HandleConfigSetForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleConfigSetForTest: %v", err)
+
+	res, setErr := server.HandleConfigSetForTest(context.Background(), req)
+
+	if setErr != nil {
+		test.Fatalf("HandleConfigSetForTest: %v", setErr)
 	}
+
 	if !res.IsError {
-		t.Fatalf("expected error result for projects.* key, got success")
+		test.Fatalf("expected error result for projects.* key, got success")
 	}
+
 	text, _ := res.Content[0].(mcp.TextContent)
 	const want = "projects.* is managed by the database — use `tusk project modify` instead"
 	if text.Text != want {
-		t.Fatalf("unexpected error text:\n got: %q\nwant: %q", text.Text, want)
+		test.Fatalf("unexpected error text:\n got: %q\nwant: %q", text.Text, want)
 	}
 }
 
-func TestHandleConfigSet_RejectsWorkflowsKeys(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleConfigSet_RejectsWorkflowsKeys(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	server := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -273,17 +304,21 @@ func TestHandleConfigSet_RejectsWorkflowsKeys(t *testing.T) {
 			},
 		},
 	}
-	res, err := srv.HandleConfigSetForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleConfigSetForTest: %v", err)
+
+	res, setErr := server.HandleConfigSetForTest(context.Background(), req)
+
+	if setErr != nil {
+		test.Fatalf("HandleConfigSetForTest: %v", setErr)
 	}
+
 	if !res.IsError {
-		t.Fatalf("expected error result for workflows.* key, got success")
+		test.Fatalf("expected error result for workflows.* key, got success")
 	}
+
 	text, _ := res.Content[0].(mcp.TextContent)
 	const want = "workflows.* is managed by the database — use `tusk workflow modify` instead"
 	if text.Text != want {
-		t.Fatalf("unexpected error text:\n got: %q\nwant: %q", text.Text, want)
+		test.Fatalf("unexpected error text:\n got: %q\nwant: %q", text.Text, want)
 	}
 }
 
@@ -292,23 +327,23 @@ func TestHandleConfigSet_RejectsWorkflowsKeys(t *testing.T) {
 // parses cleanly and validates. Without the server-level config mutex, the
 // parallel read-modify-write paths would race and occasionally produce a
 // corrupt file or lose an update in a way that fails Validate().
-func TestHandleConfigSet_ConcurrentWritesAreSerialized(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleConfigSet_ConcurrentWritesAreSerialized(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	server := newTestServer(test, path)
 
 	const goroutines = 50
 	keys := []string{"urgency.due_weight", "urgency.age_weight"}
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		go func(i int) {
+	for goroutineIdx := 0; goroutineIdx < goroutines; goroutineIdx++ {
+		go func(goroutineIdx int) {
 			defer wg.Done()
-			key := keys[i%len(keys)]
-			value := fmt.Sprintf("%d.0", 10+i)
+			key := keys[goroutineIdx%len(keys)]
+			value := fmt.Sprintf("%d.0", 10+goroutineIdx)
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
 					Arguments: map[string]any{
@@ -317,34 +352,41 @@ func TestHandleConfigSet_ConcurrentWritesAreSerialized(t *testing.T) {
 					},
 				},
 			}
-			res, err := srv.HandleConfigSetForTest(context.Background(), req)
-			if err != nil {
-				t.Errorf("HandleConfigSetForTest(%s=%s): %v", key, value, err)
+
+			res, setErr := server.HandleConfigSetForTest(context.Background(), req)
+
+			if setErr != nil {
+				test.Errorf("HandleConfigSetForTest(%s=%s): %v", key, value, setErr)
 				return
 			}
+
 			if res.IsError {
 				text, _ := res.Content[0].(mcp.TextContent)
-				t.Errorf("unexpected error result for %s=%s: %s", key, value, text.Text)
+				test.Errorf("unexpected error result for %s=%s: %s", key, value, text.Text)
 			}
-		}(i)
+		}(goroutineIdx)
 	}
 	wg.Wait()
 
-	loaded, err := config.LoadFile(path)
-	if err != nil {
-		t.Fatalf("LoadFile after concurrent writes: %v", err)
+	loaded, loadErr := config.LoadFile(path)
+
+	if loadErr != nil {
+		test.Fatalf("LoadFile after concurrent writes: %v", loadErr)
 	}
-	if err := loaded.Validate(); err != nil {
-		t.Fatalf("Validate after concurrent writes: %v", err)
+
+	validateErr := loaded.Validate()
+
+	if validateErr != nil {
+		test.Fatalf("Validate after concurrent writes: %v", validateErr)
 	}
 }
 
-func TestHandleConfigSet_RejectsUnknownKey(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleConfigSet_RejectsUnknownKey(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
+	writeMinimalConfig(test, path)
 
-	srv := newTestServer(t, path)
+	server := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -354,15 +396,19 @@ func TestHandleConfigSet_RejectsUnknownKey(t *testing.T) {
 			},
 		},
 	}
-	res, err := srv.HandleConfigSetForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleConfigSetForTest: %v", err)
+
+	res, setErr := server.HandleConfigSetForTest(context.Background(), req)
+
+	if setErr != nil {
+		test.Fatalf("HandleConfigSetForTest: %v", setErr)
 	}
+
 	if !res.IsError {
-		t.Fatalf("expected error result for unknown key, got success")
+		test.Fatalf("expected error result for unknown key, got success")
 	}
+
 	text, _ := res.Content[0].(mcp.TextContent)
 	if !strings.Contains(text.Text, "unknown config key") {
-		t.Fatalf("expected unknown config key message, got: %q", text.Text)
+		test.Fatalf("expected unknown config key message, got: %q", text.Text)
 	}
 }
