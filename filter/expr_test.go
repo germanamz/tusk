@@ -2,7 +2,7 @@ package filter
 
 import "testing"
 
-func TestExpr_Marker(t *testing.T) {
+func TestExpr_Marker(test *testing.T) {
 	// Verify all types satisfy the Expr interface at compile time
 	var _ Expr = AndExpr{}
 	var _ Expr = OrExpr{}
@@ -10,7 +10,7 @@ func TestExpr_Marker(t *testing.T) {
 	var _ Expr = TermExpr{}
 }
 
-func TestAndExpr_Children(t *testing.T) {
+func TestAndExpr_Children(test *testing.T) {
 	expr := AndExpr{
 		Children: []Expr{
 			TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
@@ -18,11 +18,11 @@ func TestAndExpr_Children(t *testing.T) {
 		},
 	}
 	if len(expr.Children) != 2 {
-		t.Fatalf("expected 2 children, got %d", len(expr.Children))
+		test.Fatalf("expected 2 children, got %d", len(expr.Children))
 	}
 }
 
-func TestOrExpr_Children(t *testing.T) {
+func TestOrExpr_Children(test *testing.T) {
 	expr := OrExpr{
 		Children: []Expr{
 			TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}},
@@ -30,39 +30,39 @@ func TestOrExpr_Children(t *testing.T) {
 		},
 	}
 	if len(expr.Children) != 2 {
-		t.Fatalf("expected 2 children, got %d", len(expr.Children))
+		test.Fatalf("expected 2 children, got %d", len(expr.Children))
 	}
 }
 
-func TestNotExpr_Child(t *testing.T) {
+func TestNotExpr_Child(test *testing.T) {
 	expr := NotExpr{
 		Child: TermExpr{Field: &FieldFilter{Key: "status", Value: "deleted"}},
 	}
 	term, ok := expr.Child.(TermExpr)
 	if !ok {
-		t.Fatal("expected TermExpr child")
+		test.Fatal("expected TermExpr child")
 	}
 	if term.Field.Value != "deleted" {
-		t.Fatalf("expected value deleted, got %q", term.Field.Value)
+		test.Fatalf("expected value deleted, got %q", term.Field.Value)
 	}
 }
 
-func TestTermExpr_Variants(t *testing.T) {
+func TestTermExpr_Variants(test *testing.T) {
 	// Field term
-	ft := TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}}
-	if ft.Field == nil {
-		t.Fatal("expected non-nil field")
+	fieldTerm := TermExpr{Field: &FieldFilter{Key: "status", Value: "active"}}
+	if fieldTerm.Field == nil {
+		test.Fatal("expected non-nil field")
 	}
 
 	// Tag term
-	tt := TermExpr{Tag: &TagFilter{Name: "api"}}
-	if tt.Tag == nil {
-		t.Fatal("expected non-nil tag")
+	tagTerm := TermExpr{Tag: &TagFilter{Name: "api"}}
+	if tagTerm.Tag == nil {
+		test.Fatal("expected non-nil tag")
 	}
 
 	// Text term
-	txt := TermExpr{Text: "hello"}
-	if txt.Text != "hello" {
-		t.Fatalf("expected text hello, got %q", txt.Text)
+	textTerm := TermExpr{Text: "hello"}
+	if textTerm.Text != "hello" {
+		test.Fatalf("expected text hello, got %q", textTerm.Text)
 	}
 }

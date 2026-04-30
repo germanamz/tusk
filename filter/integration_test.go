@@ -10,13 +10,16 @@ import (
 	"github.com/google/uuid"
 )
 
-func testSetup(t *testing.T) (*Resolver, *sqlite.TaskRepo) {
-	t.Helper()
-	store, err := sqlite.New(":memory:", migrations.FS)
-	if err != nil {
-		t.Fatalf("opening test store: %v", err)
+func testSetup(test *testing.T) (*Resolver, *sqlite.TaskRepo) {
+	test.Helper()
+
+	store, storeErr := sqlite.New(":memory:", migrations.FS)
+
+	if storeErr != nil {
+		test.Fatalf("opening test store: %v", storeErr)
 	}
-	t.Cleanup(func() { store.Close() })
+
+	test.Cleanup(func() { store.Close() })
 
 	taskRepo := sqlite.NewTaskRepo(store.DB())
 	projects := &fakeProjectLookup{
@@ -27,54 +30,54 @@ func testSetup(t *testing.T) (*Resolver, *sqlite.TaskRepo) {
 	return NewResolver(taskRepo, projects, []string{"pending", "active"}), taskRepo
 }
 
-func TestIntegration_DefaultFilter(t *testing.T) {
-	r, _ := testSetup(t)
+func TestIntegration_DefaultFilter(test *testing.T) {
+	resolver, _ := testSetup(test)
 	fs, parseErrs := Parse("")
 	if len(parseErrs) != 0 {
-		t.Fatalf("parse errors: %v", parseErrs)
+		test.Fatalf("parse errors: %v", parseErrs)
 	}
-	tf, resolveErrs := r.Resolve(context.Background(), fs)
+	tf, resolveErrs := resolver.Resolve(context.Background(), fs)
 	if len(resolveErrs) != 0 {
-		t.Fatalf("resolve errors: %v", resolveErrs)
+		test.Fatalf("resolve errors: %v", resolveErrs)
 	}
 	if len(tf.Statuses) != 2 || tf.Statuses[0] != "pending" || tf.Statuses[1] != "active" {
-		t.Fatalf("expected default statuses [pending active], got %v", tf.Statuses)
+		test.Fatalf("expected default statuses [pending active], got %v", tf.Statuses)
 	}
 }
 
-func TestIntegration_ComplexFilter(t *testing.T) {
-	r, _ := testSetup(t)
+func TestIntegration_ComplexFilter(test *testing.T) {
+	resolver, _ := testSetup(test)
 	fs, parseErrs := Parse("status=completed project=default priority=2..4 +api -docs")
 	if len(parseErrs) != 0 {
-		t.Fatalf("parse errors: %v", parseErrs)
+		test.Fatalf("parse errors: %v", parseErrs)
 	}
-	tf, resolveErrs := r.Resolve(context.Background(), fs)
+	tf, resolveErrs := resolver.Resolve(context.Background(), fs)
 	if len(resolveErrs) != 0 {
-		t.Fatalf("resolve errors: %v", resolveErrs)
+		test.Fatalf("resolve errors: %v", resolveErrs)
 	}
 
 	if len(tf.Statuses) != 1 || tf.Statuses[0] != "completed" {
-		t.Fatalf("expected [completed], got %v", tf.Statuses)
+		test.Fatalf("expected [completed], got %v", tf.Statuses)
 	}
 	if tf.ProjectID == nil {
-		t.Fatal("expected ProjectID to be set")
+		test.Fatal("expected ProjectID to be set")
 	}
 	if tf.PriorityMin == nil || *tf.PriorityMin != 2 {
-		t.Fatalf("expected PriorityMin=2, got %v", tf.PriorityMin)
+		test.Fatalf("expected PriorityMin=2, got %v", tf.PriorityMin)
 	}
 	if tf.PriorityMax == nil || *tf.PriorityMax != 4 {
-		t.Fatalf("expected PriorityMax=4, got %v", tf.PriorityMax)
+		test.Fatalf("expected PriorityMax=4, got %v", tf.PriorityMax)
 	}
 	if len(tf.Tags) != 1 || tf.Tags[0] != "api" {
-		t.Fatalf("expected Tags=[api], got %v", tf.Tags)
+		test.Fatalf("expected Tags=[api], got %v", tf.Tags)
 	}
 	if len(tf.ExcludeTags) != 1 || tf.ExcludeTags[0] != "docs" {
-		t.Fatalf("expected ExcludeTags=[docs], got %v", tf.ExcludeTags)
+		test.Fatalf("expected ExcludeTags=[docs], got %v", tf.ExcludeTags)
 	}
 }
 
-func TestIntegration_ParentFilter(t *testing.T) {
-	r, taskRepo := testSetup(t)
+func TestIntegration_ParentFilter(test *testing.T) {
+	resolver, taskRepo := testSetup(test)
 	ctx := context.Background()
 
 	parent := &domain.Task{
@@ -84,28 +87,29 @@ func TestIntegration_ParentFilter(t *testing.T) {
 		Status:  "pending",
 		Version: 1,
 	}
-	if err := taskRepo.Create(ctx, parent); err != nil {
-		t.Fatalf("creating task: %v", err)
+
+	if createErr := taskRepo.Create(ctx, parent); createErr != nil {
+		test.Fatalf("creating task: %v", createErr)
 	}
 
 	fs, parseErrs := Parse("parent=abcd1234 status=active")
 	if len(parseErrs) != 0 {
-		t.Fatalf("parse errors: %v", parseErrs)
+		test.Fatalf("parse errors: %v", parseErrs)
 	}
-	tf, resolveErrs := r.Resolve(ctx, fs)
+	tf, resolveErrs := resolver.Resolve(ctx, fs)
 	if len(resolveErrs) != 0 {
-		t.Fatalf("resolve errors: %v", resolveErrs)
+		test.Fatalf("resolve errors: %v", resolveErrs)
 	}
 	if tf.ParentID == nil || *tf.ParentID != parent.ID {
-		t.Fatalf("expected ParentID=%v, got %v", parent.ID, tf.ParentID)
+		test.Fatalf("expected ParentID=%v, got %v", parent.ID, tf.ParentID)
 	}
 	if len(tf.Statuses) != 1 || tf.Statuses[0] != "active" {
-		t.Fatalf("expected [active], got %v", tf.Statuses)
+		test.Fatalf("expected [active], got %v", tf.Statuses)
 	}
 }
 
-func TestIntegration_TreeFilter(t *testing.T) {
-	r, taskRepo := testSetup(t)
+func TestIntegration_TreeFilter(test *testing.T) {
+	resolver, taskRepo := testSetup(test)
 	ctx := context.Background()
 
 	root := &domain.Task{
@@ -115,112 +119,116 @@ func TestIntegration_TreeFilter(t *testing.T) {
 		Status:  "pending",
 		Version: 1,
 	}
-	if err := taskRepo.Create(ctx, root); err != nil {
-		t.Fatalf("creating task: %v", err)
+
+	if createErr := taskRepo.Create(ctx, root); createErr != nil {
+		test.Fatalf("creating task: %v", createErr)
 	}
 
 	fs, parseErrs := Parse("tree=deadbeef")
 	if len(parseErrs) != 0 {
-		t.Fatalf("parse errors: %v", parseErrs)
+		test.Fatalf("parse errors: %v", parseErrs)
 	}
-	tf, resolveErrs := r.Resolve(ctx, fs)
+	tf, resolveErrs := resolver.Resolve(ctx, fs)
 	if len(resolveErrs) != 0 {
-		t.Fatalf("resolve errors: %v", resolveErrs)
+		test.Fatalf("resolve errors: %v", resolveErrs)
 	}
 	if tf.RootID == nil || *tf.RootID != root.ID {
-		t.Fatalf("expected RootID=%v, got %v", root.ID, tf.RootID)
+		test.Fatalf("expected RootID=%v, got %v", root.ID, tf.RootID)
 	}
 }
 
-func TestIntegration_OrderFilterMatchesRows(t *testing.T) {
-	r, taskRepo := testSetup(t)
+func TestIntegration_OrderFilterMatchesRows(test *testing.T) {
+	resolver, taskRepo := testSetup(test)
 	ctx := context.Background()
 
-	o1 := 1.0
-	o5 := 5.0
+	orderOne := 1.0
+	orderFive := 5.0
 	lo := &domain.Task{
 		ID: uuid.New(), ShortID: "11111111", Title: "lo", Status: "pending",
-		Version: 1, Order: &o1,
+		Version: 1, Order: &orderOne,
 	}
 	hi := &domain.Task{
 		ID: uuid.New(), ShortID: "22222222", Title: "hi", Status: "pending",
-		Version: 1, Order: &o5,
+		Version: 1, Order: &orderFive,
 	}
 	nul := &domain.Task{
 		ID: uuid.New(), ShortID: "33333333", Title: "null", Status: "pending",
 		Version: 1,
 	}
 	for _, task := range []*domain.Task{lo, hi, nul} {
-		if err := taskRepo.Create(ctx, task); err != nil {
-			t.Fatalf("seed %s: %v", task.ShortID, err)
+		if seedErr := taskRepo.Create(ctx, task); seedErr != nil {
+			test.Fatalf("seed %s: %v", task.ShortID, seedErr)
 		}
 	}
 
-	t.Run("exact match", func(t *testing.T) {
+	test.Run("exact match", func(test *testing.T) {
 		fs, _ := Parse("order=1 status=pending")
-		tf, errs := r.Resolve(ctx, fs)
+		tf, errs := resolver.Resolve(ctx, fs)
 		if len(errs) != 0 {
-			t.Fatalf("resolve: %v", errs)
+			test.Fatalf("resolve: %v", errs)
 		}
-		tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
-		if err != nil {
-			t.Fatalf("list: %v", err)
+		tasks, listErr := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
+
+		if listErr != nil {
+			test.Fatalf("list: %v", listErr)
 		}
 		if len(tasks) != 1 || tasks[0].ShortID != lo.ShortID {
-			t.Fatalf("expected 1 task matching lo, got %d", len(tasks))
+			test.Fatalf("expected 1 task matching lo, got %d", len(tasks))
 		}
 	})
 
-	t.Run("range match", func(t *testing.T) {
+	test.Run("range match", func(test *testing.T) {
 		fs, _ := Parse("order=0..3 status=pending")
-		tf, errs := r.Resolve(ctx, fs)
+		tf, errs := resolver.Resolve(ctx, fs)
 		if len(errs) != 0 {
-			t.Fatalf("resolve: %v", errs)
+			test.Fatalf("resolve: %v", errs)
 		}
-		tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
-		if err != nil {
-			t.Fatalf("list: %v", err)
+		tasks, listErr := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
+
+		if listErr != nil {
+			test.Fatalf("list: %v", listErr)
 		}
 		if len(tasks) != 1 || tasks[0].ShortID != lo.ShortID {
-			t.Fatalf("expected 1 task in (0..3), got %d", len(tasks))
+			test.Fatalf("expected 1 task in (0..3), got %d", len(tasks))
 		}
 	})
 
-	t.Run("empty matches null", func(t *testing.T) {
+	test.Run("empty matches null", func(test *testing.T) {
 		fs, _ := Parse("order= status=pending")
-		tf, errs := r.Resolve(ctx, fs)
+		tf, errs := resolver.Resolve(ctx, fs)
 		if len(errs) != 0 {
-			t.Fatalf("resolve: %v", errs)
+			test.Fatalf("resolve: %v", errs)
 		}
-		tasks, err := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
-		if err != nil {
-			t.Fatalf("list: %v", err)
+		tasks, listErr := taskRepo.List(ctx, &domain.TermFilter{TaskFilter: *tf})
+
+		if listErr != nil {
+			test.Fatalf("list: %v", listErr)
 		}
 		if len(tasks) != 1 || tasks[0].ShortID != nul.ShortID {
-			t.Fatalf("expected 1 task with null order, got %d", len(tasks))
+			test.Fatalf("expected 1 task with null order, got %d", len(tasks))
 		}
 	})
 }
 
-func TestIntegration_ParseAndResolveErrors(t *testing.T) {
-	r, _ := testSetup(t)
+func TestIntegration_ParseAndResolveErrors(test *testing.T) {
+	resolver, _ := testSetup(test)
 	// "foo=bar" triggers a parse error; "parent=ffffffff" triggers a resolve error
 	fs, parseErrs := Parse("foo=bar parent=ffffffff status=active")
 	if len(parseErrs) != 1 {
-		t.Fatalf("expected 1 parse error, got %d: %v", len(parseErrs), parseErrs)
+		test.Fatalf("expected 1 parse error, got %d: %v", len(parseErrs), parseErrs)
 	}
-	_, resolveErrs := r.Resolve(context.Background(), fs)
+	_, resolveErrs := resolver.Resolve(context.Background(), fs)
 	if len(resolveErrs) != 1 {
-		t.Fatalf("expected 1 resolve error, got %d: %v", len(resolveErrs), resolveErrs)
+		test.Fatalf("expected 1 resolve error, got %d: %v", len(resolveErrs), resolveErrs)
 	}
 }
 
-func TestIntegration_TitleExtraction(t *testing.T) {
+func TestIntegration_TitleExtraction(test *testing.T) {
 	fs, parseErrs := Parse("Implement auth middleware project=backend +api priority=3")
 	if len(parseErrs) != 0 {
-		t.Fatalf("parse errors: %v", parseErrs)
+		test.Fatalf("parse errors: %v", parseErrs)
 	}
 	if fs.Title() != "Implement auth middleware" {
-		t.Fatalf("expected title %q, got %q", "Implement auth middleware", fs.Title())
+		test.Fatalf("expected title %q, got %q", "Implement auth middleware", fs.Title())
 	}
 }

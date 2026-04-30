@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestParseRelativeDuration(t *testing.T) {
+func TestParseRelativeDuration(test *testing.T) {
 	cases := []struct {
 		in      string
 		want    time.Duration
@@ -27,23 +27,23 @@ func TestParseRelativeDuration(t *testing.T) {
 		{in: "1.5d", wantErr: `unknown duration unit ".5d"`},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			got, err := ParseRelativeDuration(tc.in)
-			if tc.wantErr != "" {
+	for _, testCase := range cases {
+		test.Run(testCase.in, func(test *testing.T) {
+			got, err := ParseRelativeDuration(testCase.in)
+			if testCase.wantErr != "" {
 				if err == nil {
-					t.Fatalf("expected error containing %q, got nil (result %v)", tc.wantErr, got)
+					test.Fatalf("expected error containing %q, got nil (result %v)", testCase.wantErr, got)
 				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("error %q missing substring %q", err.Error(), tc.wantErr)
+				if !strings.Contains(err.Error(), testCase.wantErr) {
+					test.Fatalf("error %q missing substring %q", err.Error(), testCase.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				test.Fatalf("unexpected error: %v", err)
 			}
-			if got != tc.want {
-				t.Fatalf("got %v, want %v", got, tc.want)
+			if got != testCase.want {
+				test.Fatalf("got %v, want %v", got, testCase.want)
 			}
 		})
 	}

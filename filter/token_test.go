@@ -4,10 +4,10 @@ import (
 	"testing"
 )
 
-func TestTokenType_String(t *testing.T) {
-	tests := []struct {
-		tt   TokenType
-		want string
+func TestTokenType_String(test *testing.T) {
+	cases := []struct {
+		tokenType TokenType
+		want      string
 	}{
 		{TokenField, "Field"},
 		{TokenTagInclude, "TagInclude"},
@@ -19,16 +19,16 @@ func TestTokenType_String(t *testing.T) {
 		{TokenLParen, "LParen"},
 		{TokenRParen, "RParen"},
 	}
-	for _, tc := range tests {
-		got := tc.tt.String()
-		if got != tc.want {
-			t.Fatalf("TokenType(%d).String() = %q, want %q", tc.tt, got, tc.want)
+	for _, testCase := range cases {
+		got := testCase.tokenType.String()
+		if got != testCase.want {
+			test.Fatalf("TokenType(%d).String() = %q, want %q", testCase.tokenType, got, testCase.want)
 		}
 	}
 }
 
-func TestLex(t *testing.T) {
-	tests := []struct {
+func TestLex(test *testing.T) {
+	cases := []struct {
 		name   string
 		input  string
 		want   []Token
@@ -212,36 +212,36 @@ func TestLex(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tokens, errs := Lex(tt.input)
-			if len(errs) != tt.errors {
-				t.Fatalf("Lex(%q) returned %d errors, want %d: %v", tt.input, len(errs), tt.errors, errs)
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			tokens, errs := Lex(testCase.input)
+			if len(errs) != testCase.errors {
+				test.Fatalf("Lex(%q) returned %d errors, want %d: %v", testCase.input, len(errs), testCase.errors, errs)
 			}
-			if len(tokens) != len(tt.want) {
-				t.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
-					tt.input, len(tokens), len(tt.want), tokens, tt.want)
+			if len(tokens) != len(testCase.want) {
+				test.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
+					testCase.input, len(tokens), len(testCase.want), tokens, testCase.want)
 			}
-			for i, tok := range tokens {
-				if tok.Type != tt.want[i].Type {
-					t.Errorf("token[%d].Type = %v, want %v", i, tok.Type, tt.want[i].Type)
+			for index, tok := range tokens {
+				if tok.Type != testCase.want[index].Type {
+					test.Errorf("token[%d].Type = %v, want %v", index, tok.Type, testCase.want[index].Type)
 				}
-				if tok.Value != tt.want[i].Value {
-					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
+				if tok.Value != testCase.want[index].Value {
+					test.Errorf("token[%d].Value = %q, want %q", index, tok.Value, testCase.want[index].Value)
 				}
-				if tok.Modifier != tt.want[i].Modifier {
-					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
+				if tok.Modifier != testCase.want[index].Modifier {
+					test.Errorf("token[%d].Modifier = %q, want %q", index, tok.Modifier, testCase.want[index].Modifier)
 				}
-				if tok.Pos != tt.want[i].Pos {
-					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
+				if tok.Pos != testCase.want[index].Pos {
+					test.Errorf("token[%d].Pos = %d, want %d", index, tok.Pos, testCase.want[index].Pos)
 				}
 			}
 		})
 	}
 }
 
-func TestLex_EdgeCases(t *testing.T) {
-	tests := []struct {
+func TestLex_EdgeCases(test *testing.T) {
+	cases := []struct {
 		name   string
 		input  string
 		want   []Token
@@ -341,28 +341,28 @@ func TestLex_EdgeCases(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tokens, errs := Lex(tt.input)
-			if len(errs) != tt.errors {
-				t.Fatalf("Lex(%q) returned %d errors, want %d: %v", tt.input, len(errs), tt.errors, errs)
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			tokens, errs := Lex(testCase.input)
+			if len(errs) != testCase.errors {
+				test.Fatalf("Lex(%q) returned %d errors, want %d: %v", testCase.input, len(errs), testCase.errors, errs)
 			}
-			if len(tokens) != len(tt.want) {
-				t.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
-					tt.input, len(tokens), len(tt.want), tokens, tt.want)
+			if len(tokens) != len(testCase.want) {
+				test.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
+					testCase.input, len(tokens), len(testCase.want), tokens, testCase.want)
 			}
-			for i, tok := range tokens {
-				if tok.Type != tt.want[i].Type {
-					t.Errorf("token[%d].Type = %v, want %v", i, tok.Type, tt.want[i].Type)
+			for index, tok := range tokens {
+				if tok.Type != testCase.want[index].Type {
+					test.Errorf("token[%d].Type = %v, want %v", index, tok.Type, testCase.want[index].Type)
 				}
-				if tok.Value != tt.want[i].Value {
-					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
+				if tok.Value != testCase.want[index].Value {
+					test.Errorf("token[%d].Value = %q, want %q", index, tok.Value, testCase.want[index].Value)
 				}
-				if tok.Modifier != tt.want[i].Modifier {
-					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
+				if tok.Modifier != testCase.want[index].Modifier {
+					test.Errorf("token[%d].Modifier = %q, want %q", index, tok.Modifier, testCase.want[index].Modifier)
 				}
-				if tok.Pos != tt.want[i].Pos {
-					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
+				if tok.Pos != testCase.want[index].Pos {
+					test.Errorf("token[%d].Pos = %d, want %d", index, tok.Pos, testCase.want[index].Pos)
 				}
 			}
 		})
