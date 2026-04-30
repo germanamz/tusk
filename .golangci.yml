@@ -17,19 +17,6 @@ linters:
         path: _test\.go
       - linters: [errcheck]
         text: 'Error return value of `.*\.Close` is not checked'
-      # varnamelen full-codebase exclusions — each package's rule is removed
-      # by its corresponding sweep phase (3–7); any residual rules are
-      # removed in Phase 8.
-      - linters: [varnamelen]
-        path: ^repository/
-      - linters: [varnamelen]
-        path: ^sqlite/
-      - linters: [varnamelen]
-        path: ^cmd/
-      - linters: [varnamelen]
-        path: ^tests/e2e/
-      - linters: [varnamelen]
-        path: ^client\.go$
       # config/ omitted from the spec's enumeration; tracked as a follow-up
       # sweep (tusk task 06fa0f50) and removed by that task.
       - linters: [varnamelen]
