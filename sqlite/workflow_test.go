@@ -12,13 +12,16 @@ import (
 	"github.com/google/uuid"
 )
 
-func newTestWorkflowRepo(t *testing.T) *sqlite.WorkflowRepo {
-	t.Helper()
-	store, err := sqlite.New(t.TempDir()+"/test.db", migrations.FS)
+func newTestWorkflowRepo(test *testing.T) *sqlite.WorkflowRepo {
+	test.Helper()
+	store, err := sqlite.New(test.TempDir()+"/test.db", migrations.FS)
+
 	if err != nil {
-		t.Fatalf("opening test db: %v", err)
+		test.Fatalf("opening test db: %v", err)
 	}
-	t.Cleanup(func() { store.Close() })
+
+	test.Cleanup(func() { store.Close() })
+
 	return sqlite.NewWorkflowRepo(store.DB())
 }
 
@@ -42,184 +45,223 @@ func sampleWorkflow(name string) *domain.Workflow {
 	}
 }
 
-func TestWorkflowRepo_CreateAndGetByID(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_CreateAndGetByID(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	ctx := context.Background()
 
-	wf := sampleWorkflow("sprint")
-	if err := repo.Create(ctx, wf); err != nil {
-		t.Fatalf("Create: %v", err)
+	workflow := sampleWorkflow("sprint")
+
+	if err := repo.Create(ctx, workflow); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
 
-	got, err := repo.GetByID(ctx, wf.ID)
+	got, err := repo.GetByID(ctx, workflow.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.Name != "sprint" {
-		t.Errorf("got name %q, want %q", got.Name, "sprint")
+		test.Errorf("got name %q, want %q", got.Name, "sprint")
 	}
+
 	if len(got.Statuses) != 3 {
-		t.Errorf("got %d statuses, want 3", len(got.Statuses))
+		test.Errorf("got %d statuses, want 3", len(got.Statuses))
 	}
+
 	if len(got.Transitions) != 2 {
-		t.Errorf("got %d transitions, want 2", len(got.Transitions))
+		test.Errorf("got %d transitions, want 2", len(got.Transitions))
 	}
+
 	if got.Version != 1 {
-		t.Errorf("got version %d, want 1", got.Version)
+		test.Errorf("got version %d, want 1", got.Version)
 	}
 }
 
-func TestWorkflowRepo_GetByID_NotFound(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_GetByID_NotFound(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	_, err := repo.GetByID(context.Background(), uuid.New())
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("GetByID: got %v, want ErrNotFound", err)
+		test.Fatalf("GetByID: got %v, want ErrNotFound", err)
 	}
 }
 
-func TestWorkflowRepo_GetByName_Seed(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_GetByName_Seed(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	got, err := repo.GetByName(context.Background(), "kanban")
+
 	if err != nil {
-		t.Fatalf("GetByName: %v", err)
+		test.Fatalf("GetByName: %v", err)
 	}
+
 	if got.ID != uuid.Nil {
-		t.Errorf("got ID %v, want uuid.Nil", got.ID)
+		test.Errorf("got ID %v, want uuid.Nil", got.ID)
 	}
+
 	if _, ok := got.Statuses["pending"]; !ok {
-		t.Errorf("expected pending status in seed workflow")
+		test.Errorf("expected pending status in seed workflow")
 	}
 }
 
-func TestWorkflowRepo_List_ContainsSeed(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
-	wfs, err := repo.List(context.Background())
+func TestWorkflowRepo_List_ContainsSeed(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
+	workflows, err := repo.List(context.Background())
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
-	if len(wfs) < 1 {
-		t.Fatalf("List: want >=1 workflow, got %d", len(wfs))
+
+	if len(workflows) < 1 {
+		test.Fatalf("List: want >=1 workflow, got %d", len(workflows))
 	}
+
 	found := false
-	for _, w := range wfs {
-		if w.Name == "kanban" {
+
+	for _, workflow := range workflows {
+		if workflow.Name == "kanban" {
 			found = true
 		}
 	}
+
 	if !found {
-		t.Errorf("kanban seed not in list")
+		test.Errorf("kanban seed not in list")
 	}
 }
 
-func TestWorkflowRepo_CreateDuplicate(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_CreateDuplicate(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	ctx := context.Background()
 
-	wf := sampleWorkflow("sprint")
-	if err := repo.Create(ctx, wf); err != nil {
-		t.Fatalf("first Create: %v", err)
+	workflow := sampleWorkflow("sprint")
+
+	if err := repo.Create(ctx, workflow); err != nil {
+		test.Fatalf("first Create: %v", err)
 	}
-	wf2 := sampleWorkflow("sprint")
-	err := repo.Create(ctx, wf2)
+
+	workflow2 := sampleWorkflow("sprint")
+	err := repo.Create(ctx, workflow2)
+
 	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("second Create: got %v, want ErrConflict", err)
+		test.Fatalf("second Create: got %v, want ErrConflict", err)
 	}
 }
 
-func TestWorkflowRepo_Update_IncrementsVersion(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_Update_IncrementsVersion(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	ctx := context.Background()
 
-	wf := sampleWorkflow("sprint")
-	if err := repo.Create(ctx, wf); err != nil {
-		t.Fatalf("Create: %v", err)
+	workflow := sampleWorkflow("sprint")
+
+	if err := repo.Create(ctx, workflow); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
 
-	wf.Statuses["review"] = domain.StatusConfig{Roles: []domain.StatusRole{domain.RoleHighlight}}
-	if err := repo.Update(ctx, wf); err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-	if wf.Version != 2 {
-		t.Errorf("local version after Update: got %d, want 2", wf.Version)
+	workflow.Statuses["review"] = domain.StatusConfig{Roles: []domain.StatusRole{domain.RoleHighlight}}
+
+	if err := repo.Update(ctx, workflow); err != nil {
+		test.Fatalf("Update: %v", err)
 	}
 
-	got, err := repo.GetByID(ctx, wf.ID)
+	if workflow.Version != 2 {
+		test.Errorf("local version after Update: got %d, want 2", workflow.Version)
+	}
+
+	got, err := repo.GetByID(ctx, workflow.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.Version != 2 {
-		t.Errorf("stored version: got %d, want 2", got.Version)
+		test.Errorf("stored version: got %d, want 2", got.Version)
 	}
+
 	if _, ok := got.Statuses["review"]; !ok {
-		t.Errorf("expected review status after update")
+		test.Errorf("expected review status after update")
 	}
 }
 
-func TestWorkflowRepo_Update_StaleVersion(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_Update_StaleVersion(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	ctx := context.Background()
 
-	wf := sampleWorkflow("sprint")
-	if err := repo.Create(ctx, wf); err != nil {
-		t.Fatalf("Create: %v", err)
+	workflow := sampleWorkflow("sprint")
+
+	if err := repo.Create(ctx, workflow); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
-	stale := *wf
-	if err := repo.Update(ctx, wf); err != nil {
-		t.Fatalf("first Update: %v", err)
+
+	stale := *workflow
+
+	if err := repo.Update(ctx, workflow); err != nil {
+		test.Fatalf("first Update: %v", err)
 	}
+
 	err := repo.Update(ctx, &stale)
+
 	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("stale Update: got %v, want ErrConflict", err)
+		test.Fatalf("stale Update: got %v, want ErrConflict", err)
 	}
 }
 
-func TestWorkflowRepo_Update_NotFound(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_Update_NotFound(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	ghost := sampleWorkflow("ghost")
 	err := repo.Update(context.Background(), ghost)
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("Update missing row: got %v, want ErrNotFound", err)
+		test.Fatalf("Update missing row: got %v, want ErrNotFound", err)
 	}
 }
 
-func TestWorkflowRepo_Delete(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_Delete(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	ctx := context.Background()
 
-	wf := sampleWorkflow("sprint")
-	if err := repo.Create(ctx, wf); err != nil {
-		t.Fatalf("Create: %v", err)
+	workflow := sampleWorkflow("sprint")
+
+	if err := repo.Create(ctx, workflow); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
-	if err := repo.Delete(ctx, wf.ID, wf.Version); err != nil {
-		t.Fatalf("Delete: %v", err)
+
+	if err := repo.Delete(ctx, workflow.ID, workflow.Version); err != nil {
+		test.Fatalf("Delete: %v", err)
 	}
-	_, err := repo.GetByID(ctx, wf.ID)
+
+	_, err := repo.GetByID(ctx, workflow.ID)
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("after Delete, GetByID: got %v, want ErrNotFound", err)
+		test.Errorf("after Delete, GetByID: got %v, want ErrNotFound", err)
 	}
 }
 
-func TestWorkflowRepo_Delete_StaleVersion(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_Delete_StaleVersion(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	ctx := context.Background()
 
-	wf := sampleWorkflow("sprint")
-	if err := repo.Create(ctx, wf); err != nil {
-		t.Fatalf("Create: %v", err)
+	workflow := sampleWorkflow("sprint")
+
+	if err := repo.Create(ctx, workflow); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
-	if err := repo.Update(ctx, wf); err != nil {
-		t.Fatalf("Update: %v", err)
+
+	if err := repo.Update(ctx, workflow); err != nil {
+		test.Fatalf("Update: %v", err)
 	}
-	err := repo.Delete(ctx, wf.ID, 1)
+
+	err := repo.Delete(ctx, workflow.ID, 1)
+
 	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("stale Delete: got %v, want ErrConflict", err)
+		test.Fatalf("stale Delete: got %v, want ErrConflict", err)
 	}
 }
 
-func TestWorkflowRepo_Delete_NotFound(t *testing.T) {
-	repo := newTestWorkflowRepo(t)
+func TestWorkflowRepo_Delete_NotFound(test *testing.T) {
+	repo := newTestWorkflowRepo(test)
 	err := repo.Delete(context.Background(), uuid.New(), 1)
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("Delete missing: got %v, want ErrNotFound", err)
+		test.Fatalf("Delete missing: got %v, want ErrNotFound", err)
 	}
 }

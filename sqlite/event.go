@@ -37,145 +37,181 @@ func NewEventRepo(db DBTX, maxEvents, pruneSlack int) *EventRepo {
 
 // Record inserts an event and, if retention is configured, opportunistically
 // prunes the oldest rows once the row count exceeds maxEvents+pruneSlack.
-func (r *EventRepo) Record(ctx context.Context, evt *domain.Event) error {
-	if evt.Payload == nil {
+func (repo *EventRepo) Record(ctx context.Context, event *domain.Event) error {
+	if event.Payload == nil {
 		return fmt.Errorf("event payload is nil")
 	}
-	if evt.Payload.EventKind() != evt.Type {
-		return fmt.Errorf("event type %q does not match payload kind %q", evt.Type, evt.Payload.EventKind())
+
+	if event.Payload.EventKind() != event.Type {
+		return fmt.Errorf("event type %q does not match payload kind %q", event.Type, event.Payload.EventKind())
 	}
-	payload, err := json.Marshal(evt.Payload)
-	if err != nil {
-		return fmt.Errorf("marshaling event payload: %w", err)
+
+	payloadJSON, marshalErr := json.Marshal(event.Payload)
+
+	if marshalErr != nil {
+		return fmt.Errorf("marshaling event payload: %w", marshalErr)
 	}
-	_, err = r.db.ExecContext(ctx,
+
+	_, execErr := repo.db.ExecContext(ctx,
 		`INSERT INTO events (id, event_type, entity_id, entity_kind, player_id, payload, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		evt.ID.String(), string(evt.Type), evt.EntityID, string(evt.EntityKind),
-		nullableString(evt.PlayerID), string(payload),
-		evt.CreatedAt.UTC().Format(timeFormat),
+		event.ID.String(), string(event.Type), event.EntityID, string(event.EntityKind),
+		nullableString(event.PlayerID), string(payloadJSON),
+		event.CreatedAt.UTC().Format(timeFormat),
 	)
-	if err != nil {
-		return fmt.Errorf("inserting event: %w", err)
+
+	if execErr != nil {
+		return fmt.Errorf("inserting event: %w", execErr)
 	}
-	return r.maybePrune(ctx)
+
+	return repo.maybePrune(ctx)
 }
 
 // maybePrune enforces the lazy retention policy. It is a no-op when
 // maxEvents is zero.
-func (r *EventRepo) maybePrune(ctx context.Context) error {
-	if r.maxEvents == 0 {
+func (repo *EventRepo) maybePrune(ctx context.Context) error {
+	if repo.maxEvents == 0 {
 		return nil
 	}
+
 	var count int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
+
+	if err := repo.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
 		return fmt.Errorf("counting events: %w", err)
 	}
-	if count <= r.maxEvents+r.pruneSlack {
+
+	if count <= repo.maxEvents+repo.pruneSlack {
 		return nil
 	}
-	toDelete := count - r.maxEvents
-	_, err := r.db.ExecContext(ctx,
+
+	toDelete := count - repo.maxEvents
+	_, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM events WHERE id IN (
 			SELECT id FROM events ORDER BY created_at ASC, id ASC LIMIT ?
 		)`, toDelete)
-	if err != nil {
-		return fmt.Errorf("pruning events: %w", err)
+
+	if execErr != nil {
+		return fmt.Errorf("pruning events: %w", execErr)
 	}
+
 	return nil
 }
 
 // Count returns the total number of rows in the events table.
-func (r *EventRepo) Count(ctx context.Context) (int64, error) {
-	var n int64
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&n); err != nil {
+func (repo *EventRepo) Count(ctx context.Context) (int64, error) {
+	var count int64
+
+	if err := repo.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
 		return 0, fmt.Errorf("counting events: %w", err)
 	}
-	return n, nil
+
+	return count, nil
 }
 
 // PruneToSize deletes the oldest rows until the table contains at most
 // maxRows rows, returning the number of rows deleted. Pruning the table
 // down to zero is allowed (maxRows=0).
-func (r *EventRepo) PruneToSize(ctx context.Context, maxRows int) (int64, error) {
+func (repo *EventRepo) PruneToSize(ctx context.Context, maxRows int) (int64, error) {
 	if maxRows < 0 {
 		return 0, fmt.Errorf("maxRows must be non-negative, got %d", maxRows)
 	}
+
 	var count int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
+
+	if err := repo.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
 		return 0, fmt.Errorf("counting events: %w", err)
 	}
+
 	if count <= maxRows {
 		return 0, nil
 	}
+
 	toDelete := count - maxRows
-	res, err := r.db.ExecContext(ctx,
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM events WHERE id IN (
 			SELECT id FROM events ORDER BY created_at ASC, id ASC LIMIT ?
 		)`, toDelete)
-	if err != nil {
-		return 0, fmt.Errorf("pruning events: %w", err)
+
+	if execErr != nil {
+		return 0, fmt.Errorf("pruning events: %w", execErr)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
+
+	rowsAffected, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return 0, rowsErr
 	}
-	return n, nil
+
+	return rowsAffected, nil
 }
 
 // List returns events matching the filter, ordered by (created_at ASC, id ASC).
 // Unknown event types decode into domain.UnknownPayload so callers can still
 // round-trip rows whose kind they don't recognize.
-func (r *EventRepo) List(ctx context.Context, f repository.EventFilter) ([]*domain.Event, error) {
+func (repo *EventRepo) List(ctx context.Context, filter repository.EventFilter) ([]*domain.Event, error) {
 	var (
 		conds []string
 		args  []any
 	)
-	if f.EntityKind != nil {
+
+	if filter.EntityKind != nil {
 		conds = append(conds, "entity_kind = ?")
-		args = append(args, string(*f.EntityKind))
+		args = append(args, string(*filter.EntityKind))
 	}
-	if f.EntityID != nil {
+
+	if filter.EntityID != nil {
 		conds = append(conds, "entity_id = ?")
-		args = append(args, *f.EntityID)
+		args = append(args, *filter.EntityID)
 	}
-	if f.Type != nil {
+
+	if filter.Type != nil {
 		conds = append(conds, "event_type = ?")
-		args = append(args, string(*f.Type))
+		args = append(args, string(*filter.Type))
 	}
-	if f.Since != nil {
+
+	if filter.Since != nil {
 		conds = append(conds, "created_at >= ?")
-		args = append(args, f.Since.UTC().Format(timeFormat))
+		args = append(args, filter.Since.UTC().Format(timeFormat))
 	}
-	if f.Until != nil {
+
+	if filter.Until != nil {
 		conds = append(conds, "created_at <= ?")
-		args = append(args, f.Until.UTC().Format(timeFormat))
+		args = append(args, filter.Until.UTC().Format(timeFormat))
 	}
 
 	query := `SELECT ` + eventColumns + ` FROM events`
+
 	if len(conds) > 0 {
 		query += ` WHERE ` + strings.Join(conds, " AND ")
 	}
+
 	query += ` ORDER BY created_at ASC, id ASC`
-	if f.Limit > 0 {
+
+	if filter.Limit > 0 {
 		query += ` LIMIT ?`
-		args = append(args, f.Limit)
+		args = append(args, filter.Limit)
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("querying events: %w", err)
+	rows, queryErr := repo.db.QueryContext(ctx, query, args...)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("querying events: %w", queryErr)
 	}
+
 	defer rows.Close()
 
 	events := make([]*domain.Event, 0)
+
 	for rows.Next() {
-		evt, err := scanEvent(rows)
-		if err != nil {
-			return nil, err
+		event, scanErr := scanEvent(rows)
+
+		if scanErr != nil {
+			return nil, scanErr
 		}
-		events = append(events, evt)
+
+		events = append(events, event)
 	}
+
 	return events, rows.Err()
 }
 
@@ -183,39 +219,50 @@ type eventScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanEvent(s eventScanner) (*domain.Event, error) {
+func scanEvent(scanner eventScanner) (*domain.Event, error) {
 	var (
 		idStr, eventType, entityID, entityKind, payloadJSON, createdAt string
 		playerID                                                       sql.NullString
 	)
-	if err := s.Scan(&idStr, &eventType, &entityID, &entityKind, &playerID, &payloadJSON, &createdAt); err != nil {
+
+	if err := scanner.Scan(&idStr, &eventType, &entityID, &entityKind, &playerID, &payloadJSON, &createdAt); err != nil {
 		return nil, err
 	}
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return nil, fmt.Errorf("parsing event id %q: %w", idStr, err)
+
+	parsedID, parseIDErr := uuid.Parse(idStr)
+
+	if parseIDErr != nil {
+		return nil, fmt.Errorf("parsing event id %q: %w", idStr, parseIDErr)
 	}
-	t, err := time.Parse(timeFormat, createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("parsing event created_at %q: %w", createdAt, err)
+
+	parsedTime, parseTimeErr := time.Parse(timeFormat, createdAt)
+
+	if parseTimeErr != nil {
+		return nil, fmt.Errorf("parsing event created_at %q: %w", createdAt, parseTimeErr)
 	}
-	evt := &domain.Event{
-		ID:         id,
+
+	event := &domain.Event{
+		ID:         parsedID,
 		Type:       domain.EventType(eventType),
 		EntityID:   entityID,
 		EntityKind: domain.EntityKind(entityKind),
-		CreatedAt:  t,
+		CreatedAt:  parsedTime,
 	}
+
 	if playerID.Valid {
 		pid := playerID.String
-		evt.PlayerID = &pid
+		event.PlayerID = &pid
 	}
-	payload, err := decodePayload(evt.Type, []byte(payloadJSON))
-	if err != nil {
-		return nil, err
+
+	payload, decodeErr := decodePayload(event.Type, []byte(payloadJSON))
+
+	if decodeErr != nil {
+		return nil, decodeErr
 	}
-	evt.Payload = payload
-	return evt, nil
+
+	event.Payload = payload
+
+	return event, nil
 }
 
 // decodePayload dispatches JSON unmarshaling by event type. Unrecognized types
@@ -223,88 +270,116 @@ func scanEvent(s eventScanner) (*domain.Event, error) {
 func decodePayload(kind domain.EventType, raw []byte) (domain.EventPayload, error) {
 	switch kind {
 	case domain.EventTaskCreated:
-		var p domain.TaskCreatedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskCreatedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskModified:
-		var p domain.TaskModifiedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskModifiedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventStatusChanged:
-		var p domain.StatusChangedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.StatusChangedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskStarted:
-		var p domain.TaskStartedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskStartedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskClaimed:
-		var p domain.TaskClaimedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskClaimedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskReleased:
-		var p domain.TaskReleasedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskReleasedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskCompleted:
-		var p domain.TaskCompletedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskCompletedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskDeleted:
-		var p domain.TaskDeletedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskDeletedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskPopped:
-		var p domain.TaskPoppedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskPoppedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventTaskMoved:
-		var p domain.TaskMovedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.TaskMovedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventRelationAdded:
-		var p domain.RelationAddedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.RelationAddedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventRelationRemoved:
-		var p domain.RelationRemovedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.RelationRemovedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	case domain.EventWorkspaceImported:
-		var p domain.WorkspaceImportedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
+		var payload domain.WorkspaceImportedPayload
+
+		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("decoding %s payload: %w", kind, err)
 		}
-		return p, nil
+
+		return payload, nil
 	default:
-		m := map[string]any{}
-		if err := json.Unmarshal(raw, &m); err != nil {
+		mapped := map[string]any{}
+
+		if err := json.Unmarshal(raw, &mapped); err != nil {
 			return nil, fmt.Errorf("decoding unknown payload %s: %w", kind, err)
 		}
-		return domain.UnknownPayload{Kind: kind, Raw: m}, nil
+
+		return domain.UnknownPayload{Kind: kind, Raw: mapped}, nil
 	}
 }

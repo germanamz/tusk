@@ -29,63 +29,78 @@ func NewWorkflowRepo(db DBTX) *WorkflowRepo {
 }
 
 // Create inserts a new workflow. Returns domain.ErrConflict on unique-name collision.
-func (r *WorkflowRepo) Create(ctx context.Context, wf *domain.Workflow) error {
-	statusesJSON, err := encodeStatuses(wf.Statuses)
-	if err != nil {
-		return err
+func (repo *WorkflowRepo) Create(ctx context.Context, workflow *domain.Workflow) error {
+	statusesJSON, encodeStatusesErr := encodeStatuses(workflow.Statuses)
+
+	if encodeStatusesErr != nil {
+		return encodeStatusesErr
 	}
-	transitionsJSON, err := encodeTransitions(wf.Transitions)
-	if err != nil {
-		return err
+
+	transitionsJSON, encodeTransitionsErr := encodeTransitions(workflow.Transitions)
+
+	if encodeTransitionsErr != nil {
+		return encodeTransitionsErr
 	}
-	_, err = r.db.ExecContext(ctx, fmt.Sprintf(
+
+	_, execErr := repo.db.ExecContext(ctx, fmt.Sprintf(
 		`INSERT INTO workflows (%s) VALUES (?, ?, ?, ?, ?, ?, ?)`, workflowColumns),
-		wf.ID.String(), wf.Name, statusesJSON, transitionsJSON, wf.Version,
-		wf.CreatedAt.UTC().Format(timeFormat),
-		wf.UpdatedAt.UTC().Format(timeFormat),
+		workflow.ID.String(), workflow.Name, statusesJSON, transitionsJSON, workflow.Version,
+		workflow.CreatedAt.UTC().Format(timeFormat),
+		workflow.UpdatedAt.UTC().Format(timeFormat),
 	)
-	if err != nil {
-		if _, lookupErr := r.GetByName(ctx, wf.Name); lookupErr == nil {
+
+	if execErr != nil {
+		if _, lookupErr := repo.GetByName(ctx, workflow.Name); lookupErr == nil {
 			return domain.ErrConflict
 		}
-		return err
+
+		return execErr
 	}
+
 	return nil
 }
 
 // GetByID retrieves a workflow by UUID. Returns domain.ErrNotFound if missing.
-func (r *WorkflowRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workflow, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *WorkflowRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workflow, error) {
+	row := repo.db.QueryRowContext(ctx,
 		fmt.Sprintf(`SELECT %s FROM workflows WHERE id = ?`, workflowColumns),
 		id.String())
+
 	return scanWorkflow(row)
 }
 
 // GetByName retrieves a workflow by name. Returns domain.ErrNotFound if missing.
-func (r *WorkflowRepo) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *WorkflowRepo) GetByName(ctx context.Context, name string) (*domain.Workflow, error) {
+	row := repo.db.QueryRowContext(ctx,
 		fmt.Sprintf(`SELECT %s FROM workflows WHERE name = ?`, workflowColumns),
 		name)
+
 	return scanWorkflow(row)
 }
 
 // List returns all workflows ordered by name.
-func (r *WorkflowRepo) List(ctx context.Context) ([]*domain.Workflow, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *WorkflowRepo) List(ctx context.Context) ([]*domain.Workflow, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		fmt.Sprintf(`SELECT %s FROM workflows ORDER BY name`, workflowColumns))
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	result := make([]*domain.Workflow, 0)
+
 	for rows.Next() {
-		wf, err := scanWorkflow(rows)
-		if err != nil {
-			return nil, err
+		workflow, scanErr := scanWorkflow(rows)
+
+		if scanErr != nil {
+			return nil, scanErr
 		}
-		result = append(result, wf)
+
+		result = append(result, workflow)
 	}
+
 	return result, rows.Err()
 }
 
@@ -93,161 +108,218 @@ type workflowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanWorkflow(s workflowScanner) (*domain.Workflow, error) {
+func scanWorkflow(scanner workflowScanner) (*domain.Workflow, error) {
 	var (
-		wf              domain.Workflow
+		workflow        domain.Workflow
 		idStr           string
 		statusesJSON    string
 		transitionsJSON string
 		createdAt       string
 		updatedAt       string
 	)
-	err := s.Scan(&idStr, &wf.Name, &statusesJSON, &transitionsJSON, &wf.Version, &createdAt, &updatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+
+	scanErr := scanner.Scan(&idStr, &workflow.Name, &statusesJSON, &transitionsJSON, &workflow.Version, &createdAt, &updatedAt)
+
+	if scanErr != nil {
+		if errors.Is(scanErr, sql.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
-		return nil, err
+
+		return nil, scanErr
 	}
-	wf.ID, err = uuid.Parse(idStr)
-	if err != nil {
-		return nil, fmt.Errorf("parsing workflow id: %w", err)
+
+	parseIDErr := error(nil)
+	workflow.ID, parseIDErr = uuid.Parse(idStr)
+
+	if parseIDErr != nil {
+		return nil, fmt.Errorf("parsing workflow id: %w", parseIDErr)
 	}
-	wf.Statuses, err = decodeStatuses([]byte(statusesJSON))
-	if err != nil {
-		return nil, fmt.Errorf("decoding statuses: %w", err)
+
+	decodeStatusesErr := error(nil)
+	workflow.Statuses, decodeStatusesErr = decodeStatuses([]byte(statusesJSON))
+
+	if decodeStatusesErr != nil {
+		return nil, fmt.Errorf("decoding statuses: %w", decodeStatusesErr)
 	}
-	wf.Transitions, err = decodeTransitions([]byte(transitionsJSON))
-	if err != nil {
-		return nil, fmt.Errorf("decoding transitions: %w", err)
+
+	decodeTransitionsErr := error(nil)
+	workflow.Transitions, decodeTransitionsErr = decodeTransitions([]byte(transitionsJSON))
+
+	if decodeTransitionsErr != nil {
+		return nil, fmt.Errorf("decoding transitions: %w", decodeTransitionsErr)
 	}
-	wf.CreatedAt, err = time.Parse(timeFormat, createdAt)
-	if err != nil {
-		return nil, err
+
+	parseCreatedAtErr := error(nil)
+	workflow.CreatedAt, parseCreatedAtErr = time.Parse(timeFormat, createdAt)
+
+	if parseCreatedAtErr != nil {
+		return nil, parseCreatedAtErr
 	}
-	wf.UpdatedAt, err = time.Parse(timeFormat, updatedAt)
-	if err != nil {
-		return nil, err
+
+	parseUpdatedAtErr := error(nil)
+	workflow.UpdatedAt, parseUpdatedAtErr = time.Parse(timeFormat, updatedAt)
+
+	if parseUpdatedAtErr != nil {
+		return nil, parseUpdatedAtErr
 	}
-	return &wf, nil
+
+	return &workflow, nil
 }
 
 // Update persists changes to a workflow with optimistic locking.
 // Returns domain.ErrConflict if the stored version has advanced,
 // and domain.ErrNotFound if the row does not exist.
-func (r *WorkflowRepo) Update(ctx context.Context, wf *domain.Workflow) error {
-	statusesJSON, err := encodeStatuses(wf.Statuses)
-	if err != nil {
-		return err
+func (repo *WorkflowRepo) Update(ctx context.Context, workflow *domain.Workflow) error {
+	statusesJSON, encodeStatusesErr := encodeStatuses(workflow.Statuses)
+
+	if encodeStatusesErr != nil {
+		return encodeStatusesErr
 	}
-	transitionsJSON, err := encodeTransitions(wf.Transitions)
-	if err != nil {
-		return err
+
+	transitionsJSON, encodeTransitionsErr := encodeTransitions(workflow.Transitions)
+
+	if encodeTransitionsErr != nil {
+		return encodeTransitionsErr
 	}
+
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	nowStr := now.Format(timeFormat)
-	res, err := r.db.ExecContext(ctx, `
+	res, execErr := repo.db.ExecContext(ctx, `
 		UPDATE workflows SET
 			name = ?, statuses = ?, transitions = ?,
 			version = version + 1, updated_at = ?
 		WHERE id = ? AND version = ?`,
-		wf.Name, statusesJSON, transitionsJSON, nowStr,
-		wf.ID.String(), wf.Version,
+		workflow.Name, statusesJSON, transitionsJSON, nowStr,
+		workflow.ID.String(), workflow.Version,
 	)
-	if err != nil {
-		return err
+
+	if execErr != nil {
+		return execErr
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	rowsAffected, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return rowsErr
 	}
-	if n == 0 {
+
+	if rowsAffected == 0 {
 		var exists int
-		err := r.db.QueryRowContext(ctx,
-			`SELECT 1 FROM workflows WHERE id = ?`, wf.ID.String()).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
+
+		existsErr := repo.db.QueryRowContext(ctx,
+			`SELECT 1 FROM workflows WHERE id = ?`, workflow.ID.String()).Scan(&exists)
+
+		if errors.Is(existsErr, sql.ErrNoRows) {
 			return domain.ErrNotFound
 		}
+
 		return domain.ErrConflict
 	}
-	wf.Version++
-	wf.UpdatedAt = now
+
+	workflow.Version++
+	workflow.UpdatedAt = now
+
 	return nil
 }
 
 // Delete removes a workflow with optimistic locking on version.
 // Returns domain.ErrConflict on version mismatch, domain.ErrNotFound if missing.
-func (r *WorkflowRepo) Delete(ctx context.Context, id uuid.UUID, version int) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *WorkflowRepo) Delete(ctx context.Context, id uuid.UUID, version int) error {
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM workflows WHERE id = ? AND version = ?`,
 		id.String(), version)
-	if err != nil {
-		return err
+
+	if execErr != nil {
+		return execErr
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	rowsAffected, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return rowsErr
 	}
-	if n == 0 {
+
+	if rowsAffected == 0 {
 		var exists int
-		err := r.db.QueryRowContext(ctx,
+
+		existsErr := repo.db.QueryRowContext(ctx,
 			`SELECT 1 FROM workflows WHERE id = ?`, id.String()).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
+
+		if errors.Is(existsErr, sql.ErrNoRows) {
 			return domain.ErrNotFound
 		}
+
 		return domain.ErrConflict
 	}
+
 	return nil
 }
 
-func encodeStatuses(m map[string]domain.StatusConfig) (string, error) {
-	out := make(map[string][]domain.StatusRole, len(m))
-	for k, v := range m {
-		roles := v.Roles
+func encodeStatuses(statusMap map[string]domain.StatusConfig) (string, error) {
+	out := make(map[string][]domain.StatusRole, len(statusMap))
+
+	for key, cfg := range statusMap {
+		roles := cfg.Roles
 		if roles == nil {
 			roles = []domain.StatusRole{}
 		}
-		out[k] = roles
+
+		out[key] = roles
 	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return "", err
+
+	raw, marshalErr := json.Marshal(out)
+
+	if marshalErr != nil {
+		return "", marshalErr
 	}
-	return string(b), nil
+
+	return string(raw), nil
 }
 
-func decodeStatuses(b []byte) (map[string]domain.StatusConfig, error) {
+func decodeStatuses(raw []byte) (map[string]domain.StatusConfig, error) {
 	var in map[string][]domain.StatusRole
-	if err := json.Unmarshal(b, &in); err != nil {
+
+	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, err
 	}
+
 	out := make(map[string]domain.StatusConfig, len(in))
-	for k, v := range in {
-		out[k] = domain.StatusConfig{Roles: v}
+
+	for key, roles := range in {
+		out[key] = domain.StatusConfig{Roles: roles}
 	}
+
 	return out, nil
 }
 
-func encodeTransitions(ts []domain.WorkflowTransition) (string, error) {
-	out := make([][2]string, len(ts))
-	for i, t := range ts {
-		out[i] = [2]string{t.FromStatus, t.ToStatus}
+func encodeTransitions(transitions []domain.WorkflowTransition) (string, error) {
+	out := make([][2]string, len(transitions))
+
+	for index, transition := range transitions {
+		out[index] = [2]string{transition.FromStatus, transition.ToStatus}
 	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return "", err
+
+	raw, marshalErr := json.Marshal(out)
+
+	if marshalErr != nil {
+		return "", marshalErr
 	}
-	return string(b), nil
+
+	return string(raw), nil
 }
 
-func decodeTransitions(b []byte) ([]domain.WorkflowTransition, error) {
+func decodeTransitions(raw []byte) ([]domain.WorkflowTransition, error) {
 	var in [][2]string
-	if err := json.Unmarshal(b, &in); err != nil {
+
+	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, err
 	}
+
 	out := make([]domain.WorkflowTransition, len(in))
-	for i, pair := range in {
-		out[i] = domain.WorkflowTransition{FromStatus: pair[0], ToStatus: pair[1]}
+
+	for index, pair := range in {
+		out[index] = domain.WorkflowTransition{FromStatus: pair[0], ToStatus: pair[1]}
 	}
+
 	return out, nil
 }

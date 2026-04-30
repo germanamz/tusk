@@ -37,12 +37,13 @@ func NewAnnotationRepo(db DBTX) *AnnotationRepo {
 //
 // The annotation's task_id must reference an existing task (foreign key constraint).
 // If the task does not exist, SQLite returns a foreign key violation error.
-func (r *AnnotationRepo) Create(ctx context.Context, ann *domain.Annotation) error {
-	_, err := r.db.ExecContext(ctx,
+func (repo *AnnotationRepo) Create(ctx context.Context, annotation *domain.Annotation) error {
+	_, err := repo.db.ExecContext(ctx,
 		`INSERT INTO annotations (id, task_id, body, created_at) VALUES (?, ?, ?, ?)`,
-		ann.ID.String(), ann.TaskID.String(), ann.Body,
-		ann.CreatedAt.UTC().Format(timeFormat),
+		annotation.ID.String(), annotation.TaskID.String(), annotation.Body,
+		annotation.CreatedAt.UTC().Format(timeFormat),
 	)
+
 	return err
 }
 
@@ -51,38 +52,51 @@ func (r *AnnotationRepo) Create(ctx context.Context, ann *domain.Annotation) err
 // Returns an empty slice (not nil and not an error) if the task has no annotations.
 // The ORDER BY created_at ensures annotations appear in chronological order,
 // which is the natural reading order for notes/comments.
-func (r *AnnotationRepo) GetByTask(ctx context.Context, taskID uuid.UUID) ([]*domain.Annotation, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *AnnotationRepo) GetByTask(ctx context.Context, taskID uuid.UUID) ([]*domain.Annotation, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		`SELECT id, task_id, body, created_at FROM annotations WHERE task_id = ? ORDER BY created_at`,
 		taskID.String())
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	result := make([]*domain.Annotation, 0)
+
 	for rows.Next() {
 		var (
-			a                  domain.Annotation
-			id, tid, createdAt string
+			annotation       domain.Annotation
+			idStr, taskIDStr string
+			createdAt        string
 		)
-		if err := rows.Scan(&id, &tid, &a.Body, &createdAt); err != nil {
+
+		if err := rows.Scan(&idStr, &taskIDStr, &annotation.Body, &createdAt); err != nil {
 			return nil, err
 		}
-		a.ID, err = uuid.Parse(id)
+
+		annotation.ID, err = uuid.Parse(idStr)
+
 		if err != nil {
 			return nil, err
 		}
-		a.TaskID, err = uuid.Parse(tid)
+
+		annotation.TaskID, err = uuid.Parse(taskIDStr)
+
 		if err != nil {
 			return nil, err
 		}
-		a.CreatedAt, err = time.Parse(timeFormat, createdAt)
+
+		annotation.CreatedAt, err = time.Parse(timeFormat, createdAt)
+
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, &a)
+
+		result = append(result, &annotation)
 	}
+
 	return result, rows.Err()
 }
 
@@ -93,19 +107,24 @@ func (r *AnnotationRepo) GetByTask(ctx context.Context, taskID uuid.UUID) ([]*do
 //  1. Run the DELETE statement. Even if no rows match, the SQL itself succeeds.
 //  2. Check RowsAffected(). If it is 0, no row was deleted, meaning the ID
 //     did not exist. We return domain.ErrNotFound in that case.
-func (r *AnnotationRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *AnnotationRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	res, execErr := repo.db.ExecContext(ctx,
 		`DELETE FROM annotations WHERE id = ?`, id.String())
-	if err != nil {
-		return err
+
+	if execErr != nil {
+		return execErr
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	rowsAffected, rowsErr := res.RowsAffected()
+
+	if rowsErr != nil {
+		return rowsErr
 	}
-	if n == 0 {
+
+	if rowsAffected == 0 {
 		return domain.ErrNotFound
 	}
+
 	return nil
 }
 
@@ -117,8 +136,9 @@ const annotationBatchSize = 500
 // by task ID. Each task's annotations are ordered ascending by created_at
 // (chronological reading order). Tasks with no annotations are absent from
 // the map. The returned map is always non-nil, even for empty input.
-func (r *AnnotationRepo) GetByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Annotation, error) {
+func (repo *AnnotationRepo) GetByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Annotation, error) {
 	result := make(map[uuid.UUID][]*domain.Annotation, len(taskIDs))
+
 	if len(taskIDs) == 0 {
 		return result, nil
 	}
@@ -128,19 +148,22 @@ func (r *AnnotationRepo) GetByTasks(ctx context.Context, taskIDs []uuid.UUID) (m
 		if end > len(taskIDs) {
 			end = len(taskIDs)
 		}
-		if err := r.fetchAnnotationBatch(ctx, taskIDs[start:end], result); err != nil {
+
+		if err := repo.fetchAnnotationBatch(ctx, taskIDs[start:end], result); err != nil {
 			return nil, err
 		}
 	}
+
 	return result, nil
 }
 
-func (r *AnnotationRepo) fetchAnnotationBatch(ctx context.Context, taskIDs []uuid.UUID, dest map[uuid.UUID][]*domain.Annotation) error {
+func (repo *AnnotationRepo) fetchAnnotationBatch(ctx context.Context, taskIDs []uuid.UUID, dest map[uuid.UUID][]*domain.Annotation) error {
 	placeholders := make([]string, len(taskIDs))
 	args := make([]any, len(taskIDs))
-	for i, id := range taskIDs {
-		placeholders[i] = "?"
-		args[i] = id.String()
+
+	for index, id := range taskIDs {
+		placeholders[index] = "?"
+		args[index] = id.String()
 	}
 
 	query := fmt.Sprintf(
@@ -148,49 +171,62 @@ func (r *AnnotationRepo) fetchAnnotationBatch(ctx context.Context, taskIDs []uui
 		strings.Join(placeholders, ","),
 	)
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := repo.db.QueryContext(ctx, query, args...)
+
 	if err != nil {
 		return err
 	}
+
 	defer rows.Close()
 
 	for rows.Next() {
 		var (
-			a                  domain.Annotation
-			id, tid, createdAt string
+			annotation       domain.Annotation
+			idStr, taskIDStr string
+			createdAt        string
 		)
-		if err := rows.Scan(&id, &tid, &a.Body, &createdAt); err != nil {
+
+		if err := rows.Scan(&idStr, &taskIDStr, &annotation.Body, &createdAt); err != nil {
 			return err
 		}
-		a.ID, err = uuid.Parse(id)
+
+		annotation.ID, err = uuid.Parse(idStr)
+
 		if err != nil {
 			return err
 		}
-		a.TaskID, err = uuid.Parse(tid)
+
+		annotation.TaskID, err = uuid.Parse(taskIDStr)
+
 		if err != nil {
 			return err
 		}
-		a.CreatedAt, err = time.Parse(timeFormat, createdAt)
+
+		annotation.CreatedAt, err = time.Parse(timeFormat, createdAt)
+
 		if err != nil {
 			return err
 		}
-		dest[a.TaskID] = append(dest[a.TaskID], &a)
+
+		dest[annotation.TaskID] = append(dest[annotation.TaskID], &annotation)
 	}
+
 	return rows.Err()
 }
 
 // CountByTasks returns annotation counts for each task ID in a single query.
 // Tasks with zero annotations are not included in the returned map.
-func (r *AnnotationRepo) CountByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+func (repo *AnnotationRepo) CountByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
 	if len(taskIDs) == 0 {
 		return map[uuid.UUID]int{}, nil
 	}
 
 	placeholders := make([]string, len(taskIDs))
 	args := make([]any, len(taskIDs))
-	for i, id := range taskIDs {
-		placeholders[i] = "?"
-		args[i] = id.String()
+
+	for index, id := range taskIDs {
+		placeholders[index] = "?"
+		args[index] = id.String()
 	}
 
 	query := fmt.Sprintf(
@@ -198,24 +234,34 @@ func (r *AnnotationRepo) CountByTasks(ctx context.Context, taskIDs []uuid.UUID) 
 		strings.Join(placeholders, ","),
 	)
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := repo.db.QueryContext(ctx, query, args...)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	counts := make(map[uuid.UUID]int)
+
 	for rows.Next() {
-		var idStr string
-		var count int
+		var (
+			idStr string
+			count int
+		)
+
 		if err := rows.Scan(&idStr, &count); err != nil {
 			return nil, err
 		}
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			return nil, fmt.Errorf("parsing task_id %q: %w", idStr, err)
+
+		taskID, parseErr := uuid.Parse(idStr)
+
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing task_id %q: %w", idStr, parseErr)
 		}
-		counts[id] = count
+
+		counts[taskID] = count
 	}
+
 	return counts, rows.Err()
 }

@@ -42,8 +42,8 @@ func newTestRelationForEvent() *domain.Relation {
 // TestEventRepo_RecordAndListRoundtripAllPayloads verifies every payload
 // constructor produces an event that can be recorded and read back with all
 // fields intact.
-func TestEventRepo_RecordAndListRoundtripAllPayloads(t *testing.T) {
-	t.Parallel()
+func TestEventRepo_RecordAndListRoundtripAllPayloads(test *testing.T) {
+	test.Parallel()
 
 	actor := new("player-1")
 	task := newTestTaskEvent()
@@ -53,6 +53,7 @@ func TestEventRepo_RecordAndListRoundtripAllPayloads(t *testing.T) {
 		name  string
 		event *domain.Event
 	}
+
 	cases := []testCase{
 		{"task_created", domain.NewTaskCreatedEvent(task, actor)},
 		{"task_modified", domain.NewTaskModifiedEvent(task, map[string]domain.FieldChange{
@@ -69,46 +70,57 @@ func TestEventRepo_RecordAndListRoundtripAllPayloads(t *testing.T) {
 		{"relation_removed", domain.NewRelationRemovedEvent(rel, "src-1234", "tgt-5678", actor)},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s := testStore(t)
-			repo := NewEventRepo(s.DB(), 0, 0)
+	for _, caseItem := range cases {
+		test.Run(caseItem.name, func(test *testing.T) {
+			test.Parallel()
+
+			store := testStore(test)
+			repo := NewEventRepo(store.DB(), 0, 0)
 			ctx := context.Background()
 
-			if err := repo.Record(ctx, tc.event); err != nil {
-				t.Fatalf("Record: %v", err)
+			if err := repo.Record(ctx, caseItem.event); err != nil {
+				test.Fatalf("Record: %v", err)
 			}
 
-			typ := tc.event.Type
+			typ := caseItem.event.Type
 			out, err := repo.List(ctx, repository.EventFilter{Type: &typ})
+
 			if err != nil {
-				t.Fatalf("List: %v", err)
+				test.Fatalf("List: %v", err)
 			}
+
 			if len(out) != 1 {
-				t.Fatalf("expected 1 event, got %d", len(out))
+				test.Fatalf("expected 1 event, got %d", len(out))
 			}
+
 			got := out[0]
-			if got.ID != tc.event.ID {
-				t.Errorf("ID mismatch: got %s, want %s", got.ID, tc.event.ID)
+
+			if got.ID != caseItem.event.ID {
+				test.Errorf("ID mismatch: got %s, want %s", got.ID, caseItem.event.ID)
 			}
-			if got.Type != tc.event.Type {
-				t.Errorf("Type mismatch: got %q, want %q", got.Type, tc.event.Type)
+
+			if got.Type != caseItem.event.Type {
+				test.Errorf("Type mismatch: got %q, want %q", got.Type, caseItem.event.Type)
 			}
-			if got.EntityID != tc.event.EntityID {
-				t.Errorf("EntityID mismatch: got %q, want %q", got.EntityID, tc.event.EntityID)
+
+			if got.EntityID != caseItem.event.EntityID {
+				test.Errorf("EntityID mismatch: got %q, want %q", got.EntityID, caseItem.event.EntityID)
 			}
-			if got.EntityKind != tc.event.EntityKind {
-				t.Errorf("EntityKind mismatch: got %q, want %q", got.EntityKind, tc.event.EntityKind)
+
+			if got.EntityKind != caseItem.event.EntityKind {
+				test.Errorf("EntityKind mismatch: got %q, want %q", got.EntityKind, caseItem.event.EntityKind)
 			}
-			if got.PlayerID == nil || *got.PlayerID != *tc.event.PlayerID {
-				t.Errorf("PlayerID mismatch: got %v, want %v", got.PlayerID, tc.event.PlayerID)
+
+			if got.PlayerID == nil || *got.PlayerID != *caseItem.event.PlayerID {
+				test.Errorf("PlayerID mismatch: got %v, want %v", got.PlayerID, caseItem.event.PlayerID)
 			}
-			if !got.CreatedAt.Equal(tc.event.CreatedAt) {
-				t.Errorf("CreatedAt mismatch: got %v, want %v", got.CreatedAt, tc.event.CreatedAt)
+
+			if !got.CreatedAt.Equal(caseItem.event.CreatedAt) {
+				test.Errorf("CreatedAt mismatch: got %v, want %v", got.CreatedAt, caseItem.event.CreatedAt)
 			}
-			if !reflect.DeepEqual(got.Payload, tc.event.Payload) {
-				t.Errorf("Payload mismatch:\n got  %#v\n want %#v", got.Payload, tc.event.Payload)
+
+			if !reflect.DeepEqual(got.Payload, caseItem.event.Payload) {
+				test.Errorf("Payload mismatch:\n got  %#v\n want %#v", got.Payload, caseItem.event.Payload)
 			}
 		})
 	}
@@ -116,10 +128,11 @@ func TestEventRepo_RecordAndListRoundtripAllPayloads(t *testing.T) {
 
 // TestEventRepo_ListFilters exercises every EventFilter field both
 // individually and in combination.
-func TestEventRepo_ListFilters(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	repo := NewEventRepo(s.DB(), 0, 0)
+func TestEventRepo_ListFilters(test *testing.T) {
+	test.Parallel()
+
+	store := testStore(test)
+	repo := NewEventRepo(store.DB(), 0, 0)
 	ctx := context.Background()
 
 	base := time.Now().UTC().Truncate(time.Millisecond)
@@ -135,123 +148,145 @@ func TestEventRepo_ListFilters(t *testing.T) {
 		domain.NewTaskCreatedEvent(taskB, actor),
 		domain.NewRelationAddedEvent(rel, "sa", "tb", actor),
 	}
-	for i, e := range events {
-		e.CreatedAt = base.Add(time.Duration(i) * time.Second)
-		if err := repo.Record(ctx, e); err != nil {
-			t.Fatalf("Record[%d]: %v", i, err)
+
+	for index, event := range events {
+		event.CreatedAt = base.Add(time.Duration(index) * time.Second)
+
+		if err := repo.Record(ctx, event); err != nil {
+			test.Fatalf("Record[%d]: %v", index, err)
 		}
 	}
 
 	taskKind := domain.EntityTask
-	got, err := repo.List(ctx, repository.EventFilter{EntityKind: &taskKind})
-	if err != nil {
-		t.Fatalf("List by EntityKind: %v", err)
+	got, listByKindErr := repo.List(ctx, repository.EventFilter{EntityKind: &taskKind})
+
+	if listByKindErr != nil {
+		test.Fatalf("List by EntityKind: %v", listByKindErr)
 	}
+
 	if len(got) != 3 {
-		t.Fatalf("EntityKind filter: want 3, got %d", len(got))
+		test.Fatalf("EntityKind filter: want 3, got %d", len(got))
 	}
 
 	taskAID := taskA.ID.String()
-	got, err = repo.List(ctx, repository.EventFilter{EntityID: &taskAID})
-	if err != nil {
-		t.Fatalf("List by EntityID: %v", err)
+	got, listByEntityIDErr := repo.List(ctx, repository.EventFilter{EntityID: &taskAID})
+
+	if listByEntityIDErr != nil {
+		test.Fatalf("List by EntityID: %v", listByEntityIDErr)
 	}
+
 	if len(got) != 2 {
-		t.Fatalf("EntityID filter: want 2, got %d", len(got))
+		test.Fatalf("EntityID filter: want 2, got %d", len(got))
 	}
 
 	typ := domain.EventTaskCreated
-	got, err = repo.List(ctx, repository.EventFilter{Type: &typ})
-	if err != nil {
-		t.Fatalf("List by Type: %v", err)
+	got, listByTypeErr := repo.List(ctx, repository.EventFilter{Type: &typ})
+
+	if listByTypeErr != nil {
+		test.Fatalf("List by Type: %v", listByTypeErr)
 	}
+
 	if len(got) != 2 {
-		t.Fatalf("Type filter: want 2, got %d", len(got))
+		test.Fatalf("Type filter: want 2, got %d", len(got))
 	}
 
 	since := base.Add(1 * time.Second)
-	got, err = repo.List(ctx, repository.EventFilter{Since: &since})
-	if err != nil {
-		t.Fatalf("List by Since: %v", err)
+	got, listBySinceErr := repo.List(ctx, repository.EventFilter{Since: &since})
+
+	if listBySinceErr != nil {
+		test.Fatalf("List by Since: %v", listBySinceErr)
 	}
+
 	if len(got) != 3 {
-		t.Fatalf("Since filter: want 3, got %d", len(got))
+		test.Fatalf("Since filter: want 3, got %d", len(got))
 	}
 
 	until := base.Add(1 * time.Second)
-	got, err = repo.List(ctx, repository.EventFilter{Until: &until})
-	if err != nil {
-		t.Fatalf("List by Until: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("Until filter: want 2, got %d", len(got))
+	got, listByUntilErr := repo.List(ctx, repository.EventFilter{Until: &until})
+
+	if listByUntilErr != nil {
+		test.Fatalf("List by Until: %v", listByUntilErr)
 	}
 
-	got, err = repo.List(ctx, repository.EventFilter{Limit: 2})
-	if err != nil {
-		t.Fatalf("List by Limit: %v", err)
-	}
 	if len(got) != 2 {
-		t.Fatalf("Limit filter: want 2, got %d", len(got))
+		test.Fatalf("Until filter: want 2, got %d", len(got))
+	}
+
+	got, listByLimitErr := repo.List(ctx, repository.EventFilter{Limit: 2})
+
+	if listByLimitErr != nil {
+		test.Fatalf("List by Limit: %v", listByLimitErr)
+	}
+
+	if len(got) != 2 {
+		test.Fatalf("Limit filter: want 2, got %d", len(got))
 	}
 
 	// Combined: task kind AND task_created AND within window AND limit.
 	// Only the first event (taskA created at base) matches Type=task_created and Until=base+1s.
-	got, err = repo.List(ctx, repository.EventFilter{
+	got, listCombinedErr := repo.List(ctx, repository.EventFilter{
 		EntityKind: &taskKind,
 		Type:       &typ,
 		Since:      &base,
 		Until:      &until,
 		Limit:      10,
 	})
-	if err != nil {
-		t.Fatalf("List combined: %v", err)
+
+	if listCombinedErr != nil {
+		test.Fatalf("List combined: %v", listCombinedErr)
 	}
+
 	if len(got) != 1 {
-		t.Fatalf("combined filter: want 1, got %d", len(got))
+		test.Fatalf("combined filter: want 1, got %d", len(got))
 	}
 }
 
 // TestEventRepo_ListOrdering verifies the returned slice is ordered by
 // (created_at ASC, id ASC).
-func TestEventRepo_ListOrdering(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	repo := NewEventRepo(s.DB(), 0, 0)
+func TestEventRepo_ListOrdering(test *testing.T) {
+	test.Parallel()
+
+	store := testStore(test)
+	repo := NewEventRepo(store.DB(), 0, 0)
 	ctx := context.Background()
 
 	base := time.Now().UTC().Truncate(time.Millisecond)
 	actor := new("p")
 	task := newTestTaskEvent()
 
-	e1 := domain.NewTaskCreatedEvent(task, actor)
-	e1.CreatedAt = base.Add(2 * time.Second)
-	e2 := domain.NewTaskCreatedEvent(task, actor)
-	e2.CreatedAt = base.Add(1 * time.Second)
-	e3 := domain.NewTaskCreatedEvent(task, actor)
-	e3.CreatedAt = base
+	event1 := domain.NewTaskCreatedEvent(task, actor)
+	event1.CreatedAt = base.Add(2 * time.Second)
+	event2 := domain.NewTaskCreatedEvent(task, actor)
+	event2.CreatedAt = base.Add(1 * time.Second)
+	event3 := domain.NewTaskCreatedEvent(task, actor)
+	event3.CreatedAt = base
 
-	for _, e := range []*domain.Event{e1, e2, e3} {
-		if err := repo.Record(ctx, e); err != nil {
-			t.Fatalf("Record: %v", err)
+	for _, event := range []*domain.Event{event1, event2, event3} {
+		if err := repo.Record(ctx, event); err != nil {
+			test.Fatalf("Record: %v", err)
 		}
 	}
 
 	got, err := repo.List(ctx, repository.EventFilter{})
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
+
 	if len(got) != 3 {
-		t.Fatalf("want 3, got %d", len(got))
+		test.Fatalf("want 3, got %d", len(got))
 	}
-	for i := 1; i < len(got); i++ {
-		prev := got[i-1]
-		cur := got[i]
+
+	for index := 1; index < len(got); index++ {
+		prev := got[index-1]
+		cur := got[index]
+
 		if cur.CreatedAt.Before(prev.CreatedAt) {
-			t.Fatalf("not ordered: index %d before %d (%v before %v)", i, i-1, cur.CreatedAt, prev.CreatedAt)
+			test.Fatalf("not ordered: index %d before %d (%v before %v)", index, index-1, cur.CreatedAt, prev.CreatedAt)
 		}
+
 		if cur.CreatedAt.Equal(prev.CreatedAt) && cur.ID.String() < prev.ID.String() {
-			t.Fatalf("tie-breaker by id broken at index %d", i)
+			test.Fatalf("tie-breaker by id broken at index %d", index)
 		}
 	}
 }
@@ -259,144 +294,168 @@ func TestEventRepo_ListOrdering(t *testing.T) {
 // TestEventRepo_LazyPrune exercises the lazy retention policy.
 // maxEvents=10, pruneSlack=3: threshold=13. Once the 14th row lands, the
 // oldest 4 are deleted and the table stabilizes at 10 rows.
-func TestEventRepo_LazyPrune(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	repo := NewEventRepo(s.DB(), 10, 3)
+func TestEventRepo_LazyPrune(test *testing.T) {
+	test.Parallel()
+
+	store := testStore(test)
+	repo := NewEventRepo(store.DB(), 10, 3)
 	ctx := context.Background()
 
 	base := time.Now().UTC().Truncate(time.Millisecond)
 	task := newTestTaskEvent()
 	actor := new("p")
 
-	record := func(i int) {
-		e := domain.NewTaskCreatedEvent(task, actor)
-		e.CreatedAt = base.Add(time.Duration(i) * time.Second)
-		if err := repo.Record(ctx, e); err != nil {
-			t.Fatalf("Record[%d]: %v", i, err)
+	record := func(index int) {
+		event := domain.NewTaskCreatedEvent(task, actor)
+		event.CreatedAt = base.Add(time.Duration(index) * time.Second)
+
+		if err := repo.Record(ctx, event); err != nil {
+			test.Fatalf("Record[%d]: %v", index, err)
 		}
 	}
 
-	for i := range 12 {
-		record(i)
+	for index := range 12 {
+		record(index)
 	}
-	if n, _ := repo.Count(ctx); n != 12 {
-		t.Fatalf("after 12 inserts: want count=12, got %d", n)
+
+	if count, _ := repo.Count(ctx); count != 12 {
+		test.Fatalf("after 12 inserts: want count=12, got %d", count)
 	}
 
 	record(12) // 13th — count equals threshold, no prune
-	if n, _ := repo.Count(ctx); n != 13 {
-		t.Fatalf("after 13 inserts: want count=13, got %d", n)
+
+	if count, _ := repo.Count(ctx); count != 13 {
+		test.Fatalf("after 13 inserts: want count=13, got %d", count)
 	}
 
 	record(13) // 14th — threshold exceeded, prune fires
-	if n, _ := repo.Count(ctx); n != 10 {
-		t.Fatalf("after 14 inserts: want count=10, got %d", n)
+
+	if count, _ := repo.Count(ctx); count != 10 {
+		test.Fatalf("after 14 inserts: want count=10, got %d", count)
 	}
 
 	got, err := repo.List(ctx, repository.EventFilter{Limit: 1})
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
+
 	if len(got) != 1 {
-		t.Fatalf("want 1, got %d", len(got))
+		test.Fatalf("want 1, got %d", len(got))
 	}
+
 	wantFirst := base.Add(4 * time.Second)
+
 	if !got[0].CreatedAt.Equal(wantFirst) {
-		t.Fatalf("oldest surviving event: want CreatedAt=%v, got %v", wantFirst, got[0].CreatedAt)
+		test.Fatalf("oldest surviving event: want CreatedAt=%v, got %v", wantFirst, got[0].CreatedAt)
 	}
 }
 
 // TestEventRepo_RetentionDisabled verifies maxEvents=0 means "keep everything".
-func TestEventRepo_RetentionDisabled(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	repo := NewEventRepo(s.DB(), 0, 0)
+func TestEventRepo_RetentionDisabled(test *testing.T) {
+	test.Parallel()
+
+	store := testStore(test)
+	repo := NewEventRepo(store.DB(), 0, 0)
 	ctx := context.Background()
 
 	base := time.Now().UTC().Truncate(time.Millisecond)
 	task := newTestTaskEvent()
 	actor := new("p")
 
-	for i := range 100 {
-		e := domain.NewTaskCreatedEvent(task, actor)
-		e.CreatedAt = base.Add(time.Duration(i) * time.Millisecond)
-		if err := repo.Record(ctx, e); err != nil {
-			t.Fatalf("Record[%d]: %v", i, err)
+	for index := range 100 {
+		event := domain.NewTaskCreatedEvent(task, actor)
+		event.CreatedAt = base.Add(time.Duration(index) * time.Millisecond)
+
+		if err := repo.Record(ctx, event); err != nil {
+			test.Fatalf("Record[%d]: %v", index, err)
 		}
 	}
-	if n, _ := repo.Count(ctx); n != 100 {
-		t.Fatalf("want 100, got %d", n)
+
+	if count, _ := repo.Count(ctx); count != 100 {
+		test.Fatalf("want 100, got %d", count)
 	}
 }
 
 // TestEventRepo_PruneToSize verifies explicit pruning keeps the newest rows.
-func TestEventRepo_PruneToSize(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	repo := NewEventRepo(s.DB(), 0, 0)
+func TestEventRepo_PruneToSize(test *testing.T) {
+	test.Parallel()
+
+	store := testStore(test)
+	repo := NewEventRepo(store.DB(), 0, 0)
 	ctx := context.Background()
 
 	base := time.Now().UTC().Truncate(time.Millisecond)
 	task := newTestTaskEvent()
 	actor := new("p")
 
-	for i := range 20 {
-		e := domain.NewTaskCreatedEvent(task, actor)
-		e.CreatedAt = base.Add(time.Duration(i) * time.Second)
-		if err := repo.Record(ctx, e); err != nil {
-			t.Fatalf("Record[%d]: %v", i, err)
+	for index := range 20 {
+		event := domain.NewTaskCreatedEvent(task, actor)
+		event.CreatedAt = base.Add(time.Duration(index) * time.Second)
+
+		if err := repo.Record(ctx, event); err != nil {
+			test.Fatalf("Record[%d]: %v", index, err)
 		}
 	}
 
-	deleted, err := repo.PruneToSize(ctx, 5)
-	if err != nil {
-		t.Fatalf("PruneToSize: %v", err)
-	}
-	if deleted != 15 {
-		t.Fatalf("deleted: want 15, got %d", deleted)
-	}
-	if n, _ := repo.Count(ctx); n != 5 {
-		t.Fatalf("after prune: want 5, got %d", n)
+	deleted, pruneErr := repo.PruneToSize(ctx, 5)
+
+	if pruneErr != nil {
+		test.Fatalf("PruneToSize: %v", pruneErr)
 	}
 
-	got, err := repo.List(ctx, repository.EventFilter{})
-	if err != nil {
-		t.Fatalf("List: %v", err)
+	if deleted != 15 {
+		test.Fatalf("deleted: want 15, got %d", deleted)
 	}
+
+	if count, _ := repo.Count(ctx); count != 5 {
+		test.Fatalf("after prune: want 5, got %d", count)
+	}
+
+	got, listErr := repo.List(ctx, repository.EventFilter{})
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
+	}
+
 	if len(got) != 5 {
-		t.Fatalf("list after prune: want 5, got %d", len(got))
+		test.Fatalf("list after prune: want 5, got %d", len(got))
 	}
-	for i, e := range got {
-		want := base.Add(time.Duration(15+i) * time.Second)
-		if !e.CreatedAt.Equal(want) {
-			t.Fatalf("survivor[%d]: want CreatedAt=%v, got %v", i, want, e.CreatedAt)
+
+	for index, event := range got {
+		want := base.Add(time.Duration(15+index) * time.Second)
+
+		if !event.CreatedAt.Equal(want) {
+			test.Fatalf("survivor[%d]: want CreatedAt=%v, got %v", index, want, event.CreatedAt)
 		}
 	}
 }
 
 // TestEventRepo_RecordRejectsMismatchedPayload verifies Record refuses to
 // insert when Event.Type does not match Payload.EventKind().
-func TestEventRepo_RecordRejectsMismatchedPayload(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	repo := NewEventRepo(s.DB(), 0, 0)
+func TestEventRepo_RecordRejectsMismatchedPayload(test *testing.T) {
+	test.Parallel()
+
+	store := testStore(test)
+	repo := NewEventRepo(store.DB(), 0, 0)
 	ctx := context.Background()
 
 	task := newTestTaskEvent()
-	evt := domain.NewTaskCreatedEvent(task, new("p"))
+	event := domain.NewTaskCreatedEvent(task, new("p"))
 	// Hand-crafted mismatch: Type says "task_modified" but payload kind is "task_created".
-	evt.Type = domain.EventTaskModified
+	event.Type = domain.EventTaskModified
 
-	if err := repo.Record(ctx, evt); err == nil {
-		t.Fatal("expected error, got nil")
+	if err := repo.Record(ctx, event); err == nil {
+		test.Fatal("expected error, got nil")
 	}
 
-	n, err := repo.Count(ctx)
-	if err != nil {
-		t.Fatalf("Count: %v", err)
+	count, countErr := repo.Count(ctx)
+
+	if countErr != nil {
+		test.Fatalf("Count: %v", countErr)
 	}
-	if n != 0 {
-		t.Fatalf("want 0 rows inserted, got %d", n)
+
+	if count != 0 {
+		test.Fatalf("want 0 rows inserted, got %d", count)
 	}
 }
