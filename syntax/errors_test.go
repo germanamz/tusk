@@ -2,7 +2,7 @@ package syntax
 
 import "testing"
 
-func TestParseError_Error(t *testing.T) {
+func TestParseError_Error(test *testing.T) {
 	tests := []struct {
 		name string
 		err  ParseError
@@ -24,17 +24,17 @@ func TestParseError_Error(t *testing.T) {
 			want: "filter error: something went wrong",
 		},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := tc.err.Error()
-			if got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
+	for _, testCase := range tests {
+		test.Run(testCase.name, func(test *testing.T) {
+			got := testCase.err.Error()
+			if got != testCase.want {
+				test.Errorf("got %q, want %q", got, testCase.want)
 			}
 		})
 	}
 }
 
-func TestFormatErrors(t *testing.T) {
+func TestFormatErrors(test *testing.T) {
 	errs := []ParseError{
 		{Pos: 0, Message: "first error"},
 		{Pos: 10, Field: "due", Message: "invalid date"},
@@ -42,6 +42,6 @@ func TestFormatErrors(t *testing.T) {
 	got := FormatErrors(errs)
 	want := "filter error at position 0: first error\nfilter error at position 10: field \"due\": invalid date"
 	if got != want {
-		t.Errorf("FormatErrors:\ngot:  %q\nwant: %q", got, want)
+		test.Errorf("FormatErrors:\ngot:  %q\nwant: %q", got, want)
 	}
 }

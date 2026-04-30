@@ -12,25 +12,25 @@ type ParseError struct {
 	Message string // human-readable description
 }
 
-func (e ParseError) Error() string {
-	var b strings.Builder
-	if e.Pos >= 0 {
-		fmt.Fprintf(&b, "filter error at position %d: ", e.Pos)
+func (parseErr ParseError) Error() string {
+	var builder strings.Builder
+	if parseErr.Pos >= 0 {
+		fmt.Fprintf(&builder, "filter error at position %d: ", parseErr.Pos)
 	} else {
-		b.WriteString("filter error: ")
+		builder.WriteString("filter error: ")
 	}
-	if e.Field != "" {
-		fmt.Fprintf(&b, "field %q: ", e.Field)
+	if parseErr.Field != "" {
+		fmt.Fprintf(&builder, "field %q: ", parseErr.Field)
 	}
-	b.WriteString(e.Message)
-	return b.String()
+	builder.WriteString(parseErr.Message)
+	return builder.String()
 }
 
 // FormatErrors joins multiple ParseErrors into a newline-separated string.
 func FormatErrors(errs []ParseError) string {
 	msgs := make([]string, len(errs))
-	for i, e := range errs {
-		msgs[i] = e.Error()
+	for index, item := range errs {
+		msgs[index] = item.Error()
 	}
 	return strings.Join(msgs, "\n")
 }

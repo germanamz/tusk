@@ -12,8 +12,8 @@ type FilterSet struct {
 
 // HasField returns true if the FilterSet contains a field with the given key.
 func (fs *FilterSet) HasField(key string) bool {
-	for _, f := range fs.Fields {
-		if f.Key == key {
+	for _, field := range fs.Fields {
+		if field.Key == key {
 			return true
 		}
 	}
@@ -23,9 +23,9 @@ func (fs *FilterSet) HasField(key string) bool {
 // GetField returns the first FieldFilter with the given key.
 // The bool is false if no field with that key exists.
 func (fs *FilterSet) GetField(key string) (FieldFilter, bool) {
-	for _, f := range fs.Fields {
-		if f.Key == key {
-			return f, true
+	for _, field := range fs.Fields {
+		if field.Key == key {
+			return field, true
 		}
 	}
 	return FieldFilter{}, false
@@ -34,9 +34,9 @@ func (fs *FilterSet) GetField(key string) (FieldFilter, bool) {
 // IncludeTags returns the names of all non-excluded tags.
 func (fs *FilterSet) IncludeTags() []string {
 	var out []string
-	for _, t := range fs.Tags {
-		if !t.Exclude {
-			out = append(out, t.Name)
+	for _, tag := range fs.Tags {
+		if !tag.Exclude {
+			out = append(out, tag.Name)
 		}
 	}
 	return out
@@ -45,9 +45,9 @@ func (fs *FilterSet) IncludeTags() []string {
 // ExcludeTags returns the names of all excluded tags.
 func (fs *FilterSet) ExcludeTags() []string {
 	var out []string
-	for _, t := range fs.Tags {
-		if t.Exclude {
-			out = append(out, t.Name)
+	for _, tag := range fs.Tags {
+		if tag.Exclude {
+			out = append(out, tag.Name)
 		}
 	}
 	return out
