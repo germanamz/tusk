@@ -192,6 +192,7 @@ func validateOrder(value string) error {
 		if maxErr != nil {
 			return fmt.Errorf("invalid order range max %q: %w", parts[1], maxErr)
 		}
+
 		if lo > hi {
 			return fmt.Errorf("invalid order range: min (%g) must be <= max (%g)", lo, hi)
 		}

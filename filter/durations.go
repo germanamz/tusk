@@ -47,6 +47,7 @@ func ParseRelativeDuration(input string) (time.Duration, error) {
 	if parseErr != nil {
 		return 0, fmt.Errorf("parsing duration %q: %w", input, parseErr)
 	}
+
 	if count == 0 {
 		return 0, fmt.Errorf("duration %q must be positive", input)
 	}

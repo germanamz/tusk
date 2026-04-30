@@ -172,6 +172,7 @@ func TestIntegration_OrderFilterMatchesRows(test *testing.T) {
 		if listErr != nil {
 			test.Fatalf("list: %v", listErr)
 		}
+
 		if len(tasks) != 1 || tasks[0].ShortID != lo.ShortID {
 			test.Fatalf("expected 1 task matching lo, got %d", len(tasks))
 		}
@@ -188,6 +189,7 @@ func TestIntegration_OrderFilterMatchesRows(test *testing.T) {
 		if listErr != nil {
 			test.Fatalf("list: %v", listErr)
 		}
+
 		if len(tasks) != 1 || tasks[0].ShortID != lo.ShortID {
 			test.Fatalf("expected 1 task in (0..3), got %d", len(tasks))
 		}
@@ -204,6 +206,7 @@ func TestIntegration_OrderFilterMatchesRows(test *testing.T) {
 		if listErr != nil {
 			test.Fatalf("list: %v", listErr)
 		}
+
 		if len(tasks) != 1 || tasks[0].ShortID != nul.ShortID {
 			test.Fatalf("expected 1 task with null order, got %d", len(tasks))
 		}
