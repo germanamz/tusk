@@ -70,19 +70,19 @@ func TestEventRepo_RecordAndListRoundtripAllPayloads(test *testing.T) {
 		{"relation_removed", domain.NewRelationRemovedEvent(rel, "src-1234", "tgt-5678", actor)},
 	}
 
-	for _, caseItem := range cases {
-		test.Run(caseItem.name, func(test *testing.T) {
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
 			test.Parallel()
 
 			store := testStore(test)
 			repo := NewEventRepo(store.DB(), 0, 0)
 			ctx := context.Background()
 
-			if err := repo.Record(ctx, caseItem.event); err != nil {
+			if err := repo.Record(ctx, testCase.event); err != nil {
 				test.Fatalf("Record: %v", err)
 			}
 
-			typ := caseItem.event.Type
+			typ := testCase.event.Type
 			out, err := repo.List(ctx, repository.EventFilter{Type: &typ})
 
 			if err != nil {
@@ -95,32 +95,32 @@ func TestEventRepo_RecordAndListRoundtripAllPayloads(test *testing.T) {
 
 			got := out[0]
 
-			if got.ID != caseItem.event.ID {
-				test.Errorf("ID mismatch: got %s, want %s", got.ID, caseItem.event.ID)
+			if got.ID != testCase.event.ID {
+				test.Errorf("ID mismatch: got %s, want %s", got.ID, testCase.event.ID)
 			}
 
-			if got.Type != caseItem.event.Type {
-				test.Errorf("Type mismatch: got %q, want %q", got.Type, caseItem.event.Type)
+			if got.Type != testCase.event.Type {
+				test.Errorf("Type mismatch: got %q, want %q", got.Type, testCase.event.Type)
 			}
 
-			if got.EntityID != caseItem.event.EntityID {
-				test.Errorf("EntityID mismatch: got %q, want %q", got.EntityID, caseItem.event.EntityID)
+			if got.EntityID != testCase.event.EntityID {
+				test.Errorf("EntityID mismatch: got %q, want %q", got.EntityID, testCase.event.EntityID)
 			}
 
-			if got.EntityKind != caseItem.event.EntityKind {
-				test.Errorf("EntityKind mismatch: got %q, want %q", got.EntityKind, caseItem.event.EntityKind)
+			if got.EntityKind != testCase.event.EntityKind {
+				test.Errorf("EntityKind mismatch: got %q, want %q", got.EntityKind, testCase.event.EntityKind)
 			}
 
-			if got.PlayerID == nil || *got.PlayerID != *caseItem.event.PlayerID {
-				test.Errorf("PlayerID mismatch: got %v, want %v", got.PlayerID, caseItem.event.PlayerID)
+			if got.PlayerID == nil || *got.PlayerID != *testCase.event.PlayerID {
+				test.Errorf("PlayerID mismatch: got %v, want %v", got.PlayerID, testCase.event.PlayerID)
 			}
 
-			if !got.CreatedAt.Equal(caseItem.event.CreatedAt) {
-				test.Errorf("CreatedAt mismatch: got %v, want %v", got.CreatedAt, caseItem.event.CreatedAt)
+			if !got.CreatedAt.Equal(testCase.event.CreatedAt) {
+				test.Errorf("CreatedAt mismatch: got %v, want %v", got.CreatedAt, testCase.event.CreatedAt)
 			}
 
-			if !reflect.DeepEqual(got.Payload, caseItem.event.Payload) {
-				test.Errorf("Payload mismatch:\n got  %#v\n want %#v", got.Payload, caseItem.event.Payload)
+			if !reflect.DeepEqual(got.Payload, testCase.event.Payload) {
+				test.Errorf("Payload mismatch:\n got  %#v\n want %#v", got.Payload, testCase.event.Payload)
 			}
 		})
 	}
