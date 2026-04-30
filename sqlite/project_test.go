@@ -14,13 +14,15 @@ import (
 
 var defaultUUID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
 
-func newTestProjectRepo(t *testing.T) *sqlite.ProjectRepo {
-	t.Helper()
-	store, err := sqlite.New(t.TempDir()+"/test.db", migrations.FS)
+func newTestProjectRepo(test *testing.T) *sqlite.ProjectRepo {
+	test.Helper()
+	store, err := sqlite.New(test.TempDir()+"/test.db", migrations.FS)
+
 	if err != nil {
-		t.Fatalf("opening test db: %v", err)
+		test.Fatalf("opening test db: %v", err)
 	}
-	t.Cleanup(func() { store.Close() })
+
+	test.Cleanup(func() { store.Close() })
 	return sqlite.NewProjectRepo(store.DB())
 }
 
@@ -36,252 +38,297 @@ func sampleProject(name string) *domain.Project {
 	}
 }
 
-func TestProjectRepo_CreateAndGetByID(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_CreateAndGetByID(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
 
-	p := sampleProject("backend")
-	p.Description = "backend services and APIs"
-	if err := repo.Create(ctx, p); err != nil {
-		t.Fatalf("Create: %v", err)
+	project := sampleProject("backend")
+	project.Description = "backend services and APIs"
+
+	if err := repo.Create(ctx, project); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
 
-	got, err := repo.GetByID(ctx, p.ID)
+	got, err := repo.GetByID(ctx, project.ID)
+
 	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+		test.Fatalf("GetByID: %v", err)
 	}
+
 	if got.Name != "backend" {
-		t.Errorf("got name %q, want %q", got.Name, "backend")
+		test.Errorf("got name %q, want %q", got.Name, "backend")
 	}
 	if got.WorkflowID != defaultUUID {
-		t.Errorf("got workflow_id %v, want kanban UUID", got.WorkflowID)
+		test.Errorf("got workflow_id %v, want kanban UUID", got.WorkflowID)
 	}
 	if got.Description != "backend services and APIs" {
-		t.Errorf("got description %q, want %q", got.Description, "backend services and APIs")
+		test.Errorf("got description %q, want %q", got.Description, "backend services and APIs")
 	}
 }
 
-func TestProjectRepo_Update_Description(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Update_Description(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
 
-	p := sampleProject("backend")
-	if err := repo.Create(ctx, p); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if p.Description != "" {
-		t.Fatalf("seeded description: got %q, want empty", p.Description)
+	project := sampleProject("backend")
+
+	if err := repo.Create(ctx, project); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
 
-	p.Description = "vision text"
-	if err := repo.Update(ctx, p); err != nil {
-		t.Fatalf("Update: %v", err)
+	if project.Description != "" {
+		test.Fatalf("seeded description: got %q, want empty", project.Description)
+	}
+
+	project.Description = "vision text"
+
+	if err := repo.Update(ctx, project); err != nil {
+		test.Fatalf("Update: %v", err)
 	}
 
 	got, err := repo.GetByName(ctx, "backend")
+
 	if err != nil {
-		t.Fatalf("GetByName: %v", err)
+		test.Fatalf("GetByName: %v", err)
 	}
+
 	if got.Description != "vision text" {
-		t.Errorf("got description %q, want %q", got.Description, "vision text")
+		test.Errorf("got description %q, want %q", got.Description, "vision text")
 	}
 }
 
-func TestProjectRepo_Default_HasEmptyDescription(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Default_HasEmptyDescription(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	got, err := repo.GetByID(context.Background(), defaultUUID)
+
 	if err != nil {
-		t.Fatalf("GetByID _default: %v", err)
+		test.Fatalf("GetByID _default: %v", err)
 	}
+
 	if got.Description != "" {
-		t.Errorf("_default description: got %q, want empty", got.Description)
+		test.Errorf("_default description: got %q, want empty", got.Description)
 	}
 }
 
-func TestProjectRepo_GetByName_Seed(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_GetByName_Seed(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	got, err := repo.GetByName(context.Background(), "default")
+
 	if err != nil {
-		t.Fatalf("GetByName _default: %v", err)
+		test.Fatalf("GetByName _default: %v", err)
 	}
+
 	if got.ID != defaultUUID {
-		t.Errorf("got ID %v, want defaultUUID", got.ID)
+		test.Errorf("got ID %v, want defaultUUID", got.ID)
 	}
 }
 
-func TestProjectRepo_GetByID_NotFound(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_GetByID_NotFound(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	_, err := repo.GetByID(context.Background(), uuid.New())
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("GetByID: got %v, want ErrNotFound", err)
+		test.Fatalf("GetByID: got %v, want ErrNotFound", err)
 	}
 }
 
-func TestProjectRepo_List_ContainsSeed(t *testing.T) {
-	repo := newTestProjectRepo(t)
-	ps, err := repo.List(context.Background())
+func TestProjectRepo_List_ContainsSeed(test *testing.T) {
+	repo := newTestProjectRepo(test)
+	projects, err := repo.List(context.Background())
+
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		test.Fatalf("List: %v", err)
 	}
-	if len(ps) < 1 {
-		t.Fatalf("want >= 1 project, got %d", len(ps))
+
+	if len(projects) < 1 {
+		test.Fatalf("want >= 1 project, got %d", len(projects))
 	}
 	found := false
-	for _, p := range ps {
-		if p.Name == "default" {
+	for _, project := range projects {
+		if project.Name == "default" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("_default seed not in list")
+		test.Errorf("_default seed not in list")
 	}
 }
 
-func TestProjectRepo_Create_DuplicateName(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Create_DuplicateName(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
-	p := sampleProject("backend")
-	if err := repo.Create(ctx, p); err != nil {
-		t.Fatalf("first Create: %v", err)
+	project := sampleProject("backend")
+
+	if err := repo.Create(ctx, project); err != nil {
+		test.Fatalf("first Create: %v", err)
 	}
-	p2 := sampleProject("backend")
-	err := repo.Create(ctx, p2)
+
+	duplicate := sampleProject("backend")
+	err := repo.Create(ctx, duplicate)
+
 	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("dup Create: got %v, want ErrConflict", err)
+		test.Fatalf("dup Create: got %v, want ErrConflict", err)
 	}
 }
 
-func TestProjectRepo_Create_UnknownWorkflow(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Create_UnknownWorkflow(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
-	p := sampleProject("backend")
-	p.WorkflowID = uuid.New()
-	err := repo.Create(ctx, p)
+	project := sampleProject("backend")
+	project.WorkflowID = uuid.New()
+	err := repo.Create(ctx, project)
+
 	if err == nil {
-		t.Fatalf("expected FK violation, got nil")
+		test.Fatalf("expected FK violation, got nil")
 	}
 }
 
-func TestProjectRepo_Update_IncrementsVersion(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Update_IncrementsVersion(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
-	p := sampleProject("backend")
-	if err := repo.Create(ctx, p); err != nil {
-		t.Fatalf("Create: %v", err)
+	project := sampleProject("backend")
+
+	if err := repo.Create(ctx, project); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
 
 	priority := 15.0
-	p.Settings.Urgency = &domain.UrgencyOverrides{BlockingWeight: &priority}
-	if err := repo.Update(ctx, p); err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-	if p.Version != 2 {
-		t.Errorf("local version: got %d, want 2", p.Version)
+	project.Settings.Urgency = &domain.UrgencyOverrides{BlockingWeight: &priority}
+
+	if err := repo.Update(ctx, project); err != nil {
+		test.Fatalf("Update: %v", err)
 	}
 
-	got, err := repo.GetByID(ctx, p.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
+	if project.Version != 2 {
+		test.Errorf("local version: got %d, want 2", project.Version)
 	}
+
+	got, err := repo.GetByID(ctx, project.ID)
+
+	if err != nil {
+		test.Fatalf("GetByID: %v", err)
+	}
+
 	if got.Version != 2 {
-		t.Errorf("stored version: got %d, want 2", got.Version)
+		test.Errorf("stored version: got %d, want 2", got.Version)
 	}
 	if got.Settings.Urgency == nil || got.Settings.Urgency.BlockingWeight == nil {
-		t.Errorf("urgency override lost round-trip")
+		test.Errorf("urgency override lost round-trip")
 	}
 }
 
-func TestProjectRepo_Update_StaleVersion(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Update_StaleVersion(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
-	p := sampleProject("backend")
-	if err := repo.Create(ctx, p); err != nil {
-		t.Fatalf("Create: %v", err)
+	project := sampleProject("backend")
+
+	if err := repo.Create(ctx, project); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
-	stale := *p
-	if err := repo.Update(ctx, p); err != nil {
-		t.Fatalf("first Update: %v", err)
+
+	stale := *project
+
+	if err := repo.Update(ctx, project); err != nil {
+		test.Fatalf("first Update: %v", err)
 	}
+
 	err := repo.Update(ctx, &stale)
+
 	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("stale Update: got %v, want ErrConflict", err)
+		test.Fatalf("stale Update: got %v, want ErrConflict", err)
 	}
 }
 
-func TestProjectRepo_CountProjectsByWorkflow(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_CountProjectsByWorkflow(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
 
-	n, err := repo.CountProjectsByWorkflow(ctx, defaultUUID)
+	count, err := repo.CountProjectsByWorkflow(ctx, defaultUUID)
+
 	if err != nil {
-		t.Fatalf("CountProjectsByWorkflow seed: %v", err)
+		test.Fatalf("CountProjectsByWorkflow seed: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("seed count: got %d, want 1 (the _default project)", n)
+
+	if count != 1 {
+		test.Errorf("seed count: got %d, want 1 (the _default project)", count)
 	}
 
 	for _, name := range []string{"backend", "frontend"} {
-		p := sampleProject(name)
-		if err := repo.Create(ctx, p); err != nil {
-			t.Fatalf("Create %s: %v", name, err)
+		project := sampleProject(name)
+
+		if err := repo.Create(ctx, project); err != nil {
+			test.Fatalf("Create %s: %v", name, err)
 		}
 	}
 
-	n, err = repo.CountProjectsByWorkflow(ctx, defaultUUID)
+	count, err = repo.CountProjectsByWorkflow(ctx, defaultUUID)
+
 	if err != nil {
-		t.Fatalf("CountProjectsByWorkflow after inserts: %v", err)
-	}
-	if n != 3 {
-		t.Errorf("count after inserts: got %d, want 3", n)
+		test.Fatalf("CountProjectsByWorkflow after inserts: %v", err)
 	}
 
-	n, err = repo.CountProjectsByWorkflow(ctx, uuid.New())
-	if err != nil {
-		t.Fatalf("CountProjectsByWorkflow unknown workflow: %v", err)
+	if count != 3 {
+		test.Errorf("count after inserts: got %d, want 3", count)
 	}
-	if n != 0 {
-		t.Errorf("unknown workflow count: got %d, want 0", n)
+
+	count, err = repo.CountProjectsByWorkflow(ctx, uuid.New())
+
+	if err != nil {
+		test.Fatalf("CountProjectsByWorkflow unknown workflow: %v", err)
+	}
+
+	if count != 0 {
+		test.Errorf("unknown workflow count: got %d, want 0", count)
 	}
 }
 
-func TestProjectRepo_Delete(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Delete(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
 
-	p := sampleProject("backend")
-	if err := repo.Create(ctx, p); err != nil {
-		t.Fatalf("Create: %v", err)
+	project := sampleProject("backend")
+
+	if err := repo.Create(ctx, project); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
-	if err := repo.Delete(ctx, p.ID, p.Version); err != nil {
-		t.Fatalf("Delete: %v", err)
+
+	if err := repo.Delete(ctx, project.ID, project.Version); err != nil {
+		test.Fatalf("Delete: %v", err)
 	}
-	_, err := repo.GetByID(ctx, p.ID)
+
+	_, err := repo.GetByID(ctx, project.ID)
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("after Delete, GetByID: got %v, want ErrNotFound", err)
+		test.Errorf("after Delete, GetByID: got %v, want ErrNotFound", err)
 	}
 }
 
-func TestProjectRepo_Delete_StaleVersion(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Delete_StaleVersion(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	ctx := context.Background()
 
-	p := sampleProject("backend")
-	if err := repo.Create(ctx, p); err != nil {
-		t.Fatalf("Create: %v", err)
+	project := sampleProject("backend")
+
+	if err := repo.Create(ctx, project); err != nil {
+		test.Fatalf("Create: %v", err)
 	}
-	if err := repo.Update(ctx, p); err != nil {
-		t.Fatalf("Update: %v", err)
+
+	if err := repo.Update(ctx, project); err != nil {
+		test.Fatalf("Update: %v", err)
 	}
-	err := repo.Delete(ctx, p.ID, 1)
+
+	err := repo.Delete(ctx, project.ID, 1)
+
 	if !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("stale Delete: got %v, want ErrConflict", err)
+		test.Fatalf("stale Delete: got %v, want ErrConflict", err)
 	}
 }
 
-func TestProjectRepo_Delete_NotFound(t *testing.T) {
-	repo := newTestProjectRepo(t)
+func TestProjectRepo_Delete_NotFound(test *testing.T) {
+	repo := newTestProjectRepo(test)
 	err := repo.Delete(context.Background(), uuid.New(), 1)
+
 	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("Delete missing: got %v, want ErrNotFound", err)
+		test.Fatalf("Delete missing: got %v, want ErrNotFound", err)
 	}
 }
