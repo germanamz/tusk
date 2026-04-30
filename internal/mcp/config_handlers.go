@@ -19,32 +19,40 @@ type configShowResponse struct {
 	Effective  json.RawMessage `json:"effective"`
 }
 
-func (s *Server) handleConfigShow(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	cfg, err := config.Load(s.loadOpts...)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("loading config: %v", err)), nil
+func (server *Server) handleConfigShow(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cfg, loadErr := config.Load(server.loadOpts...)
+
+	if loadErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("loading config: %v", loadErr)), nil
 	}
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("marshaling config: %v", err)), nil
+
+	raw, marshalErr := json.Marshal(cfg)
+
+	if marshalErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("marshaling config: %v", marshalErr)), nil
 	}
+
 	return toolResultJSON(configShowResponse{
 		ActiveFile: cfg.Sources.File,
 		Effective:  raw,
 	})
 }
 
-func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_config_set", req); result != nil {
+func (server *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_config_set", req); result != nil {
 		return result, nil
 	}
-	key, err := req.RequireString("key")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("missing key: %v", err)), nil
+
+	key, keyErr := req.RequireString("key")
+
+	if keyErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("missing key: %v", keyErr)), nil
 	}
-	value, err := req.RequireString("value")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("missing value: %v", err)), nil
+
+	value, valueErr := req.RequireString("value")
+
+	if valueErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("missing value: %v", valueErr)), nil
 	}
 
 	if strings.HasPrefix(key, "storage.") {
@@ -60,25 +68,31 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 		return mcp.NewToolResultError(fmt.Sprintf("unknown config key: %q", key)), nil
 	}
 
-	path, err := config.ConfigFilePath(s.loadOpts...)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resolving config file path: %v", err)), nil
+	path, pathErr := config.ConfigFilePath(server.loadOpts...)
+
+	if pathErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("resolving config file path: %v", pathErr)), nil
 	}
 
-	fileCfg, err := config.LoadFile(path)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("loading config file: %v", err)), nil
+	fileCfg, fileCfgErr := config.LoadFile(path)
+
+	if fileCfgErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("loading config file: %v", fileCfgErr)), nil
 	}
 
-	data, err := toml.Marshal(fileCfg)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("marshaling config: %v", err)), nil
+	data, tomlErr := toml.Marshal(fileCfg)
+
+	if tomlErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("marshaling config: %v", tomlErr)), nil
 	}
 
-	v := viper.New()
-	v.SetConfigType("toml")
-	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reading config into viper: %v", err)), nil
+	viperCfg := viper.New()
+	viperCfg.SetConfigType("toml")
+
+	readErr := viperCfg.ReadConfig(bytes.NewReader(data))
+
+	if readErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("reading config into viper: %v", readErr)), nil
 	}
 
 	var parsedValue any
@@ -87,23 +101,32 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 	} else {
 		parsedValue = value
 	}
-	v.Set(key, parsedValue)
+	viperCfg.Set(key, parsedValue)
 
 	var newCfg config.Config
-	if err := v.Unmarshal(&newCfg); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("applying config change: %v", err)), nil
+
+	unmarshalErr := viperCfg.Unmarshal(&newCfg)
+
+	if unmarshalErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("applying config change: %v", unmarshalErr)), nil
 	}
 
-	if err := newCfg.Validate(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid config: %v", err)), nil
+	validateErr := newCfg.Validate()
+
+	if validateErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid config: %v", validateErr)), nil
 	}
 
-	if err := config.WriteConfig(&newCfg, path); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("writing config: %v", err)), nil
+	writeErr := config.WriteConfig(&newCfg, path)
+
+	if writeErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("writing config: %v", writeErr)), nil
 	}
 
-	if err := s.reloadConfig(ctx); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", err)), nil
+	reloadErr := server.reloadConfig(ctx)
+
+	if reloadErr != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("reloading config: %v", reloadErr)), nil
 	}
 
 	return toolResultJSON(map[string]any{
@@ -114,11 +137,11 @@ func (s *Server) handleConfigSet(ctx context.Context, req mcp.CallToolRequest) (
 }
 
 // HandleConfigShowForTest exposes handleConfigShow for internal package tests.
-func (s *Server) HandleConfigShowForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleConfigShow(ctx, req)
+func (server *Server) HandleConfigShowForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return server.handleConfigShow(ctx, req)
 }
 
 // HandleConfigSetForTest exposes handleConfigSet for internal package tests.
-func (s *Server) HandleConfigSetForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return s.handleConfigSet(ctx, req)
+func (server *Server) HandleConfigSetForTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return server.handleConfigSet(ctx, req)
 }

@@ -13,28 +13,34 @@ import (
 // declared JSON schema; this handler enforces the semantic rules that cannot
 // be expressed in schema (target_id / parent_id conditional requirements and
 // the parent_id tristate).
-func (s *Server) handleTaskMove(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_task_move", request); result != nil {
+func (server *Server) handleTaskMove(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_task_move", request); result != nil {
 		return result, nil
 	}
-	ctx = s.updatePlayerLiveness(ctx, request)
+	ctx = server.updatePlayerLiveness(ctx, request)
 
-	taskIDRaw, err := request.RequireString("task_id")
-	if err != nil {
+	taskIDRaw, taskIDErr := request.RequireString("task_id")
+
+	if taskIDErr != nil {
 		return mcp.NewToolResultError("task_id is required"), nil
 	}
-	positionRaw, err := request.RequireString("position")
-	if err != nil {
+
+	positionRaw, positionErr := request.RequireString("position")
+
+	if positionErr != nil {
 		return mcp.NewToolResultError("position is required"), nil
 	}
-	versionF, err := request.RequireFloat("version")
-	if err != nil {
+
+	versionF, versionErr := request.RequireFloat("version")
+
+	if versionErr != nil {
 		return mcp.NewToolResultError("version is required"), nil
 	}
 
-	position, err := parseMovePosition(positionRaw)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	position, positionParseErr := parseMovePosition(positionRaw)
+
+	if positionParseErr != nil {
+		return mcp.NewToolResultError(positionParseErr.Error()), nil
 	}
 
 	args := request.GetArguments()
@@ -53,10 +59,13 @@ func (s *Server) handleTaskMove(ctx context.Context, request mcp.CallToolRequest
 		case service.MovePositionFirst, service.MovePositionLast:
 			return mcp.NewToolResultError("target_id is not valid for position=first|last"), nil
 		}
-		target, err := s.taskSvc.GetByShortID(ctx, targetStr)
-		if err != nil {
-			return toolError(err, "target task "+targetStr), nil
+
+		target, targetErr := server.taskSvc.GetByShortID(ctx, targetStr)
+
+		if targetErr != nil {
+			return toolError(targetErr, "target task "+targetStr), nil
 		}
+
 		tid := target.ID
 		targetID = &tid
 	} else if position == service.MovePositionBefore || position == service.MovePositionAfter {
@@ -81,22 +90,26 @@ func (s *Server) handleTaskMove(ctx context.Context, request mcp.CallToolRequest
 			if parentStr == "" {
 				return mcp.NewToolResultError("parent_id must be a non-empty string (or null to move to root)"), nil
 			}
-			parent, err := s.taskSvc.GetByShortID(ctx, parentStr)
-			if err != nil {
-				return toolError(err, "parent task "+parentStr), nil
+
+			parent, parentErr := server.taskSvc.GetByShortID(ctx, parentStr)
+
+			if parentErr != nil {
+				return toolError(parentErr, "parent task "+parentStr), nil
 			}
+
 			pid := parent.ID
-			pp := &pid
-			parentID = &pp
+			parentPtr := &pid
+			parentID = &parentPtr
 		}
 	}
 
-	subject, err := s.taskSvc.GetByShortID(ctx, taskIDRaw)
-	if err != nil {
-		return toolError(err, "task "+taskIDRaw), nil
+	subject, subjectErr := server.taskSvc.GetByShortID(ctx, taskIDRaw)
+
+	if subjectErr != nil {
+		return toolError(subjectErr, "task "+taskIDRaw), nil
 	}
 
-	req := service.MoveRequest{
+	moveReq := service.MoveRequest{
 		TaskID:   subject.ID,
 		Version:  int(versionF),
 		Position: position,
@@ -104,31 +117,34 @@ func (s *Server) handleTaskMove(ctx context.Context, request mcp.CallToolRequest
 		ParentID: parentID,
 	}
 	if pid := request.GetString("player_id", ""); pid != "" {
-		p := pid
-		req.ActorID = &p
+		pidCopy := pid
+		moveReq.ActorID = &pidCopy
 	}
 
-	moved, err := s.taskSvc.Move(ctx, req)
-	if err != nil {
-		return toolError(err, "task "+taskIDRaw), nil
+	moved, moveErr := server.taskSvc.Move(ctx, moveReq)
+
+	if moveErr != nil {
+		return toolError(moveErr, "task "+taskIDRaw), nil
 	}
 
-	tags, err := s.tagSvc.GetTaskTags(ctx, moved.ID)
-	if err != nil {
-		return nil, err
+	tags, tagsErr := server.tagSvc.GetTaskTags(ctx, moved.ID)
+
+	if tagsErr != nil {
+		return nil, tagsErr
 	}
-	return toolResultJSON(toTaskResponse(moved, tags, s.projectNames(ctx)))
+
+	return toolResultJSON(toTaskResponse(moved, tags, server.projectNames(ctx)))
 }
 
 // handleTaskResequence handles the tusk_task_resequence tool. parent_id is
 // tristate-ish here: JSON null resequences root-level siblings, a non-empty
 // string resequences under that parent. The schema lists parent_id in
 // required[], so the value is always present; it may simply be null.
-func (s *Server) handleTaskResequence(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_task_resequence", request); result != nil {
+func (server *Server) handleTaskResequence(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_task_resequence", request); result != nil {
 		return result, nil
 	}
-	ctx = s.updatePlayerLiveness(ctx, request)
+	ctx = server.updatePlayerLiveness(ctx, request)
 
 	args := request.GetArguments()
 	parentRaw, present := args["parent_id"]
@@ -146,10 +162,13 @@ func (s *Server) handleTaskResequence(ctx context.Context, request mcp.CallToolR
 		if parentStr == "" {
 			return mcp.NewToolResultError("parent_id must be a non-empty string (or null for root)"), nil
 		}
-		parent, err := s.taskSvc.GetByShortID(ctx, parentStr)
-		if err != nil {
-			return toolError(err, "parent task "+parentStr), nil
+
+		parent, parentErr := server.taskSvc.GetByShortID(ctx, parentStr)
+
+		if parentErr != nil {
+			return toolError(parentErr, "parent task "+parentStr), nil
 		}
+
 		pid := parent.ID
 		parentID = &pid
 		parentInput = parentStr
@@ -157,23 +176,24 @@ func (s *Server) handleTaskResequence(ctx context.Context, request mcp.CallToolR
 
 	var actor *string
 	if pid := request.GetString("player_id", ""); pid != "" {
-		p := pid
-		actor = &p
+		pidCopy := pid
+		actor = &pidCopy
 	}
 
-	rewritten, err := s.taskSvc.Resequence(ctx, parentID, actor)
-	if err != nil {
+	rewritten, resequenceErr := server.taskSvc.Resequence(ctx, parentID, actor)
+
+	if resequenceErr != nil {
 		ctxStr := "root"
 		if parentInput != "" {
 			ctxStr = "parent " + parentInput
 		}
-		return toolError(err, ctxStr), nil
+		return toolError(resequenceErr, ctxStr), nil
 	}
 
 	resp := resequenceResponse{Rewritten: rewritten}
 	if parentID != nil {
-		s := parentID.String()
-		resp.ParentID = &s
+		parentUUIDStr := parentID.String()
+		resp.ParentID = &parentUUIDStr
 	}
 	return toolResultJSON(resp)
 }
@@ -186,8 +206,8 @@ type resequenceResponse struct {
 
 // parseMovePosition maps the `position` enum string to its service-layer
 // constant.
-func parseMovePosition(s string) (service.MovePosition, error) {
-	switch s {
+func parseMovePosition(raw string) (service.MovePosition, error) {
+	switch raw {
 	case "before":
 		return service.MovePositionBefore, nil
 	case "after":
@@ -197,5 +217,5 @@ func parseMovePosition(s string) (service.MovePosition, error) {
 	case "last":
 		return service.MovePositionLast, nil
 	}
-	return 0, fmt.Errorf("invalid position %q: expected before|after|first|last", s)
+	return 0, fmt.Errorf("invalid position %q: expected before|after|first|last", raw)
 }
