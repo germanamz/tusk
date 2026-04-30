@@ -53,7 +53,7 @@ func New(
 	cfg config.MCPConfig,
 	loadOpts []config.Option,
 ) (*Server, error) {
-	s := &Server{
+	srv := &Server{
 		taskSvc:        taskSvc,
 		tagSvc:         tagSvc,
 		relationSvc:    relationSvc,
@@ -70,7 +70,7 @@ func New(
 		resourceGroups: make(map[string]string),
 	}
 
-	s.server = server.NewMCPServer(
+	srv.server = server.NewMCPServer(
 		"tusk",
 		version,
 		server.WithToolCapabilities(false),
@@ -79,36 +79,36 @@ func New(
 		server.WithInstructions(serverInstructions),
 	)
 
-	s.registerTools()
-	s.registerResources()
+	srv.registerTools()
+	srv.registerResources()
 
-	if err := s.validateConfig(); err != nil {
+	if err := srv.validateConfig(); err != nil {
 		return nil, err
 	}
 
-	return s, nil
+	return srv, nil
 }
 
 // isToolEnabled returns true if the tool should be registered based on config.
-func (s *Server) isToolEnabled(name, group string) bool {
-	return !containsStr(s.cfg.DisabledTools, name) &&
-		!containsStr(s.cfg.DisabledToolGroups, group)
+func (srv *Server) isToolEnabled(name, group string) bool {
+	return !containsStr(srv.cfg.DisabledTools, name) &&
+		!containsStr(srv.cfg.DisabledToolGroups, group)
 }
 
 // isResourceEnabled returns true if the resource should be registered based on config.
-func (s *Server) isResourceEnabled(uriTemplate, group string) bool {
-	return !containsStr(s.cfg.DisabledResources, uriTemplate) &&
-		!containsStr(s.cfg.DisabledResourceGroups, group)
+func (srv *Server) isResourceEnabled(uriTemplate, group string) bool {
+	return !containsStr(srv.cfg.DisabledResources, uriTemplate) &&
+		!containsStr(srv.cfg.DisabledResourceGroups, group)
 }
 
 // containsStr returns true if slice contains the given string.
-func containsStr(slice []string, s string) bool {
-	return slices.Contains(slice, s)
+func containsStr(slice []string, str string) bool {
+	return slices.Contains(slice, str)
 }
 
 // validateConfig returns an error if any disable list entry does not match
 // a known tool, resource, or group.
-func (s *Server) validateConfig() error {
+func (srv *Server) validateConfig() error {
 	validToolNames := map[string]bool{
 		"tusk_task_create":     true,
 		"tusk_task_get":        true,
@@ -157,28 +157,28 @@ func (s *Server) validateConfig() error {
 	}
 
 	var errs []error
-	for _, name := range s.cfg.DisabledTools {
+	for _, name := range srv.cfg.DisabledTools {
 		if !validToolNames[name] {
 			errs = append(errs, fmt.Errorf("disabled_tools: unknown tool %q", name))
 		}
 	}
-	for _, group := range s.cfg.DisabledToolGroups {
+	for _, group := range srv.cfg.DisabledToolGroups {
 		if !validToolGroups[group] {
 			errs = append(errs, fmt.Errorf("disabled_tool_groups: unknown group %q", group))
 		}
 	}
-	for _, uri := range s.cfg.DisabledResources {
+	for _, uri := range srv.cfg.DisabledResources {
 		if !validResourceURIs[uri] {
 			errs = append(errs, fmt.Errorf("disabled_resources: unknown resource %q", uri))
 		}
 	}
-	for _, group := range s.cfg.DisabledResourceGroups {
+	for _, group := range srv.cfg.DisabledResourceGroups {
 		if !validResourceGroups[group] {
 			errs = append(errs, fmt.Errorf("disabled_resource_groups: unknown group %q", group))
 		}
 	}
 
-	for toolName, fields := range s.cfg.BlockedFields {
+	for toolName, fields := range srv.cfg.BlockedFields {
 		registry, known := toolFields[toolName]
 		if !known {
 			errs = append(errs, fmt.Errorf("blocked_fields: unknown tool %q", toolName))
@@ -203,30 +203,30 @@ func (s *Server) validateConfig() error {
 
 // addTool registers a tool with the MCP server if it's enabled by config.
 // It also records the tool's group in the toolGroups map.
-func (s *Server) addTool(group string, tool mcp.Tool, handler server.ToolHandlerFunc) {
+func (srv *Server) addTool(group string, tool mcp.Tool, handler server.ToolHandlerFunc) {
 	name := tool.Name
-	if !s.isToolEnabled(name, group) {
+	if !srv.isToolEnabled(name, group) {
 		return
 	}
-	s.toolGroups[name] = group
-	s.server.AddTool(tool, handler)
+	srv.toolGroups[name] = group
+	srv.server.AddTool(tool, handler)
 }
 
 // addResource registers a resource template if it's enabled by config.
-func (s *Server) addResource(group string, tmpl mcp.ResourceTemplate, handler server.ResourceTemplateHandlerFunc) {
+func (srv *Server) addResource(group string, tmpl mcp.ResourceTemplate, handler server.ResourceTemplateHandlerFunc) {
 	uri := tmpl.URITemplate.Raw()
-	if !s.isResourceEnabled(uri, group) {
+	if !srv.isResourceEnabled(uri, group) {
 		return
 	}
-	s.resourceGroups[uri] = group
-	s.server.AddResourceTemplate(tmpl, handler)
+	srv.resourceGroups[uri] = group
+	srv.server.AddResourceTemplate(tmpl, handler)
 }
 
 // registerTools registers all MCP tool definitions and their handlers.
-func (s *Server) registerTools() {
+func (srv *Server) registerTools() {
 	// Keep internal/mcp/field_registry.go in sync when adding, renaming, or
 	// removing input parameters on any tool below.
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_create",
 			mcp.WithDescription("Create a new task"),
 			mcp.WithString("title",
@@ -263,10 +263,10 @@ func (s *Server) registerTools() {
 				mcp.AdditionalProperties(map[string]any{"type": "string"}),
 			),
 		),
-		s.handleTaskCreate,
+		srv.handleTaskCreate,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_get",
 			mcp.WithDescription("Get a task with full details including tags, relations, and annotations"),
 			mcp.WithString("short_id",
@@ -277,10 +277,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Player ID — updates last_seen_at if provided (no auto-register)"),
 			),
 		),
-		s.handleTaskGet,
+		srv.handleTaskGet,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_list",
 			mcp.WithDescription("List tasks with optional filters"),
 			mcp.WithString("filter",
@@ -329,10 +329,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Player ID — updates last_seen_at if provided (no auto-register)"),
 			),
 		),
-		s.handleTaskList,
+		srv.handleTaskList,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_modify",
 			mcp.WithDescription("Modify task fields. Requires version for optimistic locking."),
 			mcp.WithString("short_id",
@@ -387,10 +387,10 @@ func (s *Server) registerTools() {
 				mcp.Description("When true, all task-level urgency overrides are cleared before the urgency_overrides patch is applied. Intended as a one-shot reset before re-patching."),
 			),
 		),
-		s.handleTaskModify,
+		srv.handleTaskModify,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_move",
 			mcp.WithDescription("Reposition a task within the sibling-order plane. Use position=before|after with target_id for pairwise placement, or position=first|last (optionally with parent_id) for extreme placement. parent_id is tristate: omit to keep the current parent, pass JSON null to move to root, or pass a short_id/UUID to re-parent."),
 			mcp.WithString("task_id",
@@ -416,10 +416,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Player ID — auto-registers as agent on first use"),
 			),
 		),
-		s.handleTaskMove,
+		srv.handleTaskMove,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_resequence",
 			mcp.WithDescription("Rewrite every sibling under the given parent to dense integer orders (1.0, 2.0, ...), preserving the current sort. Pass parent_id=null to resequence the root sibling group."),
 			mcp.WithString("parent_id",
@@ -429,10 +429,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Player ID — auto-registers as agent on first use"),
 			),
 		),
-		s.handleTaskResequence,
+		srv.handleTaskResequence,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_start",
 			mcp.WithDescription("Transition a task to active status. If player_id is provided, auto-claims the task."),
 			mcp.WithString("short_id",
@@ -447,10 +447,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Player ID — auto-registers as agent, auto-claims the task"),
 			),
 		),
-		s.handleTaskStart,
+		srv.handleTaskStart,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_done",
 			mcp.WithDescription("Transition a task to completed status"),
 			mcp.WithString("short_id",
@@ -462,10 +462,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Current task version (for optimistic locking)"),
 			),
 		),
-		s.handleTaskDone,
+		srv.handleTaskDone,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_delete",
 			mcp.WithDescription("Soft-delete a task (transitions to deleted status)"),
 			mcp.WithString("short_id",
@@ -477,10 +477,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Current task version (for optimistic locking)"),
 			),
 		),
-		s.handleTaskDelete,
+		srv.handleTaskDelete,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_annotate",
 			mcp.WithDescription("Add an annotation (note) to a task"),
 			mcp.WithString("short_id",
@@ -492,10 +492,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Annotation text"),
 			),
 		),
-		s.handleTaskAnnotate,
+		srv.handleTaskAnnotate,
 	)
 
-	s.addTool("task_relations",
+	srv.addTool("task_relations",
 		mcp.NewTool("tusk_task_link",
 			mcp.WithDescription("Create a typed relation between two tasks"),
 			mcp.WithString("source",
@@ -512,10 +512,10 @@ func (s *Server) registerTools() {
 				mcp.Enum("blocks", "relates_to", "duplicates"),
 			),
 		),
-		s.handleTaskLink,
+		srv.handleTaskLink,
 	)
 
-	s.addTool("task_relations",
+	srv.addTool("task_relations",
 		mcp.NewTool("tusk_task_unlink",
 			mcp.WithDescription("Remove a relation between two tasks"),
 			mcp.WithString("source",
@@ -532,17 +532,17 @@ func (s *Server) registerTools() {
 				mcp.Enum("blocks", "relates_to", "duplicates"),
 			),
 		),
-		s.handleTaskUnlink,
+		srv.handleTaskUnlink,
 	)
 
-	s.addTool("project",
+	srv.addTool("project",
 		mcp.NewTool("tusk_project_list",
 			mcp.WithDescription("List all projects"),
 		),
-		s.handleProjectList,
+		srv.handleProjectList,
 	)
 
-	s.addTool("project",
+	srv.addTool("project",
 		mcp.NewTool("tusk_project_create",
 			mcp.WithDescription("Create a new project bound to a workflow."),
 			mcp.WithString("name",
@@ -567,10 +567,10 @@ func (s *Server) registerTools() {
 				mcp.AdditionalProperties(map[string]any{"type": "string"}),
 			),
 		),
-		s.handleProjectCreate,
+		srv.handleProjectCreate,
 	)
 
-	s.addTool("project",
+	srv.addTool("project",
 		mcp.NewTool("tusk_project_modify",
 			mcp.WithDescription("Modify an existing project. Only fields that are present are changed. version is required for optimistic locking."),
 			mcp.WithString("name",
@@ -617,10 +617,10 @@ func (s *Server) registerTools() {
 				}),
 			),
 		),
-		s.handleProjectModify,
+		srv.handleProjectModify,
 	)
 
-	s.addTool("project",
+	srv.addTool("project",
 		mcp.NewTool("tusk_project_delete",
 			mcp.WithDescription("Delete a project. Rejects the built-in 'default' project and any project with task references unless force=true. Under force=true, referencing tasks are reassigned to the built-in 'default' project and then the row is removed in one transaction."),
 			mcp.WithString("name",
@@ -635,10 +635,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Bypass the built-in-default and task-reference guards"),
 			),
 		),
-		s.handleProjectDelete,
+		srv.handleProjectDelete,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_tree",
 			mcp.WithDescription("Get tasks as a nested tree hierarchy"),
 			mcp.WithString("short_id",
@@ -651,10 +651,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Player ID — updates last_seen_at if provided (no auto-register)"),
 			),
 		),
-		s.handleTaskTree,
+		srv.handleTaskTree,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_summary",
 			mcp.WithDescription("Summarize task progress with descendant rollups. "+
 				"Returns one summary block per matching task, with done/total counts, "+
@@ -698,22 +698,22 @@ func (s *Server) registerTools() {
 				mcp.Description("Player ID — updates last_seen_at if provided (no auto-register)"),
 			),
 		),
-		s.handleTaskSummary,
+		srv.handleTaskSummary,
 	)
 
-	s.addTool("task", mcp.NewTool(
+	srv.addTool("task", mcp.NewTool(
 		"tusk_task_next",
 		mcp.WithDescription("Get the highest-urgency actionable task (not waiting, not blocked)"),
-	), s.handleTaskNext)
+	), srv.handleTaskNext)
 
-	s.addTool("workflow",
+	srv.addTool("workflow",
 		mcp.NewTool("tusk_workflow_list",
 			mcp.WithDescription("List all workflows with their statuses, transitions, and referencing projects"),
 		),
-		s.handleWorkflowList,
+		srv.handleWorkflowList,
 	)
 
-	s.addTool("workflow",
+	srv.addTool("workflow",
 		mcp.NewTool("tusk_workflow_create",
 			mcp.WithDescription("Create a new workflow and persist it to the workspace database. Fails if the name already exists."),
 			mcp.WithString("name",
@@ -743,10 +743,10 @@ func (s *Server) registerTools() {
 				}),
 			),
 		),
-		s.handleWorkflowCreate,
+		srv.handleWorkflowCreate,
 	)
 
-	s.addTool("workflow",
+	srv.addTool("workflow",
 		mcp.NewTool("tusk_workflow_modify",
 			mcp.WithDescription("Modify an existing workflow: add, remove, or update statuses and transitions. Requires the current version for optimistic locking."),
 			mcp.WithString("name",
@@ -802,10 +802,10 @@ func (s *Server) registerTools() {
 				}),
 			),
 		),
-		s.handleWorkflowModify,
+		srv.handleWorkflowModify,
 	)
 
-	s.addTool("workflow",
+	srv.addTool("workflow",
 		mcp.NewTool("tusk_workflow_delete",
 			mcp.WithDescription("Delete a workflow from the workspace database. Fails if any project references it. Requires the current version for optimistic locking."),
 			mcp.WithString("name",
@@ -817,10 +817,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Current workflow version (fetch via tusk_workflow_list)"),
 			),
 		),
-		s.handleWorkflowDelete,
+		srv.handleWorkflowDelete,
 	)
 
-	s.addTool("player",
+	srv.addTool("player",
 		mcp.NewTool("tusk_player_register",
 			mcp.WithDescription("Register a new player (agent). Player type is always 'agent' for MCP."),
 			mcp.WithString("player_id",
@@ -828,10 +828,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Unique player identifier"),
 			),
 		),
-		s.handlePlayerRegister,
+		srv.handlePlayerRegister,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_claim",
 			mcp.WithDescription("Claim a task for a player. Returns error if already claimed by another player."),
 			mcp.WithString("short_id",
@@ -847,10 +847,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Current task version (for optimistic locking)"),
 			),
 		),
-		s.handleTaskClaim,
+		srv.handleTaskClaim,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_release",
 			mcp.WithDescription("Release a task claim. Only the current claimant can release."),
 			mcp.WithString("short_id",
@@ -866,10 +866,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Current task version (for optimistic locking)"),
 			),
 		),
-		s.handleTaskRelease,
+		srv.handleTaskRelease,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_available",
 			mcp.WithDescription("List unclaimed, actionable, unblocked tasks sorted by urgency"),
 			mcp.WithString("player_id",
@@ -880,10 +880,10 @@ func (s *Server) registerTools() {
 				mcp.Description("Boolean filter expression (e.g. 'project=backend AND +api')"),
 			),
 		),
-		s.handleTaskAvailable,
+		srv.handleTaskAvailable,
 	)
 
-	s.addTool("task",
+	srv.addTool("task",
 		mcp.NewTool("tusk_task_pop",
 			mcp.WithDescription("Claim and start the highest-urgency available task for the given player"),
 			mcp.WithString("player_id",
@@ -894,17 +894,17 @@ func (s *Server) registerTools() {
 				mcp.Description("Optional boolean filter to narrow candidates (e.g. 'project=backend')"),
 			),
 		),
-		s.handleTaskPop,
+		srv.handleTaskPop,
 	)
 
-	s.addTool("config",
+	srv.addTool("config",
 		mcp.NewTool("tusk_config_show",
 			mcp.WithDescription("Return the effective Tusk configuration and the path of the active config file. Read-only."),
 		),
-		s.handleConfigShow,
+		srv.handleConfigShow,
 	)
 
-	s.addTool("note",
+	srv.addTool("note",
 		mcp.NewTool("tusk_note_add",
 			mcp.WithDescription("Create a note in a project, optionally attached to a task."),
 			mcp.WithString("player_id", mcp.Required(), mcp.Description("Player ID — auto-registers as agent. Note is attributed to this player.")),
@@ -916,10 +916,10 @@ func (s *Server) registerTools() {
 				mcp.AdditionalProperties(map[string]any{"type": "string"}),
 			),
 		),
-		s.handleNoteAdd,
+		srv.handleNoteAdd,
 	)
 
-	s.addTool("note",
+	srv.addTool("note",
 		mcp.NewTool("tusk_note_list",
 			mcp.WithDescription("List notes in a project, newest-first, honoring the trailing window size."),
 			mcp.WithString("player_id", mcp.Required(), mcp.Description("Caller player ID — auto-registers as agent. Defaults the list scope to this player's notes.")),
@@ -931,19 +931,19 @@ func (s *Server) registerTools() {
 			mcp.WithString("since", mcp.Description("Only return notes created at or after this ISO 8601 (RFC3339) timestamp.")),
 			mcp.WithBoolean("include_archived", mcp.Description("Include archived notes in the result.")),
 		),
-		s.handleNoteList,
+		srv.handleNoteList,
 	)
 
-	s.addTool("note",
+	srv.addTool("note",
 		mcp.NewTool("tusk_note_archive",
 			mcp.WithDescription("Archive a note. Only the note's author may archive."),
 			mcp.WithString("player_id", mcp.Required(), mcp.Description("Caller player ID — must match the note's author.")),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Full note UUID. Short prefixes are not accepted over MCP.")),
 		),
-		s.handleNoteArchive,
+		srv.handleNoteArchive,
 	)
 
-	s.addTool("config",
+	srv.addTool("config",
 		mcp.NewTool("tusk_config_set",
 			mcp.WithDescription("Set a scalar config value by dot-path key and hot-reload the server. Rejects storage.* keys. Changes to mcp.disabled_* take effect only after process restart."),
 			mcp.WithString("key",
@@ -955,21 +955,21 @@ func (s *Server) registerTools() {
 				mcp.Description("New value. For slice keys (e.g. mcp.disabled_tools), use a comma-separated list."),
 			),
 		),
-		s.handleConfigSet,
+		srv.handleConfigSet,
 	)
 }
 
 // newResolver builds a filter resolver seeded with the union of non-terminal
 // statuses across all configured workflows. Falls back to ["pending","active"]
 // if listing fails or no statuses are found.
-func (s *Server) newResolver(ctx context.Context) *filter.Resolver {
+func (srv *Server) newResolver(ctx context.Context) *filter.Resolver {
 	defaults := []string{"pending", "active"}
-	workflows, err := s.workflowSvc.List(ctx)
+	workflows, err := srv.workflowSvc.List(ctx)
 	if err == nil {
 		seen := make(map[string]bool)
 		var collected []string
-		for _, wf := range workflows {
-			for _, name := range wf.NonTerminalStatuses() {
+		for _, wfItem := range workflows {
+			for _, name := range wfItem.NonTerminalStatuses() {
 				if !seen[name] {
 					seen[name] = true
 					collected = append(collected, name)
@@ -980,13 +980,13 @@ func (s *Server) newResolver(ctx context.Context) *filter.Resolver {
 			defaults = collected
 		}
 	}
-	return filter.NewResolver(s.taskSvc, s.projectSvc, defaults)
+	return filter.NewResolver(srv.taskSvc, srv.projectSvc, defaults)
 }
 
 // Serve starts the MCP server using stdio transport.
 // This blocks until the transport is closed (e.g., stdin EOF).
-func (s *Server) Serve() error {
-	return server.ServeStdio(s.server)
+func (srv *Server) Serve() error {
+	return server.ServeStdio(srv.server)
 }
 
 // reloadConfig re-reads the active config file via the stored loadOpts and
@@ -994,7 +994,7 @@ func (s *Server) Serve() error {
 // used by checkBlocked. It does NOT rebuild the MCP server, reopen the
 // database, or reconfigure transports — those require a process restart.
 //
-// The s.cfg swap is guarded by s.cfgMu because MCPConfig is a struct with
+// The srv.cfg swap is guarded by srv.cfgMu because MCPConfig is a struct with
 // maps and slices — a plain assignment would race with concurrent
 // checkBlocked readers even though writers never mutate the previous
 // snapshot in place. mcp.blocked_fields therefore hot-reloads, unlike
@@ -1008,12 +1008,14 @@ func (s *Server) Serve() error {
 //
 // Concurrent project and workflow writes are serialized by the SQLite
 // store's optimistic locking, not by a server-level mutex.
-func (s *Server) reloadConfig(ctx context.Context) error {
-	cfg, err := config.Load(s.loadOpts...)
+func (srv *Server) reloadConfig(ctx context.Context) error {
+	cfg, err := config.Load(srv.loadOpts...)
+
 	if err != nil {
 		return fmt.Errorf("reloading config: %w", err)
 	}
-	s.urgencyEngine.Reload(service.UrgencyWeights{
+
+	srv.urgencyEngine.Reload(service.UrgencyWeights{
 		Priority:    cfg.Urgency.PriorityWeight,
 		Due:         cfg.Urgency.DueWeight,
 		Age:         cfg.Urgency.AgeWeight,
@@ -1025,19 +1027,19 @@ func (s *Server) reloadConfig(ctx context.Context) error {
 		Annotations: cfg.Urgency.AnnotationsWeight,
 		Waiting:     cfg.Urgency.WaitingWeight,
 	})
-	s.cfgMu.Lock()
-	s.cfg = cfg.MCP
-	s.cfgMu.Unlock()
+	srv.cfgMu.Lock()
+	srv.cfg = cfg.MCP
+	srv.cfgMu.Unlock()
 	_ = ctx // ctx reserved for future per-call tracing
 	return nil
 }
 
 // ReloadConfigForTest exposes reloadConfig for internal tests.
-func (s *Server) ReloadConfigForTest(ctx context.Context) error {
-	return s.reloadConfig(ctx)
+func (srv *Server) ReloadConfigForTest(ctx context.Context) error {
+	return srv.reloadConfig(ctx)
 }
 
 // WorkflowRepoForTest exposes the workflow repo handle for internal tests.
-func (s *Server) WorkflowRepoForTest() repository.WorkflowRepository { return s.workflowRepo }
+func (srv *Server) WorkflowRepoForTest() repository.WorkflowRepository { return srv.workflowRepo }
 
 const serverInstructions = `Tusk is a task management system. You can create, list, modify, and transition tasks through workflow statuses. Tasks support parent-child hierarchy, typed relations (blocks, relates_to, duplicates), tags, annotations, and projects. All mutation tools require a version parameter for optimistic locking — fetch the task first to get the current version. Summarize task progress with descendant rollups via tusk_task_summary. You can also inspect the active configuration via tusk_config_show and modify scalar config values via tusk_config_set (storage.* keys are read-only over MCP). Workflows can be created, modified, and deleted via tusk_workflow_create, tusk_workflow_modify, and tusk_workflow_delete using structured JSON inputs. Projects can be created, modified, and deleted via tusk_project_create, tusk_project_modify, and tusk_project_delete — deletion honors the built-in-default and referencing-tasks guards (pass force=true to bypass). Notes can be created, listed, and archived via tusk_note_add, tusk_note_list, and tusk_note_archive; notes are player-scoped and append-only (archive, don't edit).`
