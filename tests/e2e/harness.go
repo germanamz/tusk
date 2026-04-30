@@ -1,7 +1,7 @@
 // Package e2e drives the tusk binary as a black-box subprocess.
 //
 // All test commands route through newCmd, which sets cmd.Dir to a
-// per-call t.TempDir(). Tusk's walk-up config resolver therefore
+// per-call test.TempDir(). Tusk's walk-up config resolver therefore
 // never reaches the repo-root tusk.toml. Tests that need to exercise
 // walk-up explicitly call env.InDir(...) to point CWD at a controlled
 // directory. No test should construct exec.Command directly — newCmd
@@ -27,14 +27,14 @@ import (
 )
 
 // newCmd returns an exec.Cmd that runs binPath with args. cmd.Dir is set
-// to a per-call t.TempDir() so tusk's walk-up config resolver never
+// to a per-call test.TempDir() so tusk's walk-up config resolver never
 // reaches an ancestor's tusk.toml. cmd.Env starts as os.Environ() with
 // NO_COLOR=1 appended; callers append further env vars and set Stdin /
 // Stdout / Stderr as needed.
-func newCmd(t *testing.T, binPath string, args ...string) *exec.Cmd {
-	t.Helper()
+func newCmd(test *testing.T, binPath string, args ...string) *exec.Cmd {
+	test.Helper()
 	cmd := exec.Command(binPath, args...)
-	cmd.Dir = t.TempDir()
+	cmd.Dir = test.TempDir()
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 	return cmd
 }
@@ -57,7 +57,7 @@ type Result struct {
 // Env is the test environment for a single scenario run.
 // Each Env gets its own temp SQLite database file.
 type Env struct {
-	t          *testing.T
+	test       *testing.T
 	binPath    string   // path to compiled tusk binary
 	dbPath     string   // path to temp SQLite file
 	configDir  string   // path to temp config directory (optional)
@@ -75,13 +75,13 @@ type Env struct {
 // InDir sets the working directory used for subsequent Run invocations.
 // Used by walk-up scenarios that need the binary to start inside a
 // specific temp directory.
-func (e *Env) InDir(dir string) { e.workDir = dir }
+func (env *Env) InDir(dir string) { env.workDir = dir }
 
 // WithEnv appends a KEY=VALUE environment variable to every subsequent Run
 // invocation. Used by scenarios that need to inject extra env vars (e.g.
 // TUSK_CONFIG) without adding first-class fields to Env.
-func (e *Env) WithEnv(key, value string) {
-	e.extraEnv = append(e.extraEnv, key+"="+value)
+func (env *Env) WithEnv(key, value string) {
+	env.extraEnv = append(env.extraEnv, key+"="+value)
 }
 
 // WithHome overrides HOME (and USERPROFILE on Windows) for every
@@ -90,34 +90,36 @@ func (e *Env) WithEnv(key, value string) {
 // TUSK_CONFIG_DIR is no longer injected — otherwise tusk's resolver
 // (TUSK_CONFIG_DIR > ~/.config/tusk) would shadow the HOME-based
 // lookup the caller is trying to exercise.
-func (e *Env) WithHome(dir string) {
-	e.homeDir = dir
-	e.configDir = ""
+func (env *Env) WithHome(dir string) {
+	env.homeDir = dir
+	env.configDir = ""
 }
 
 // WithoutDBArg suppresses both the --db flag and TUSK_DB env var on
 // every subsequent Run invocation, regardless of dbMode. Used by
 // tests that exercise storage.path resolution from a config file.
-func (e *Env) WithoutDBArg() {
-	e.skipDBArg = true
+func (env *Env) WithoutDBArg() {
+	env.skipDBArg = true
 }
 
 // WithoutFormat suppresses the --format flag on every subsequent Run
 // invocation. Used by tests that assert tusk's default output format.
-func (e *Env) WithoutFormat() {
-	e.skipFormat = true
+func (env *Env) WithoutFormat() {
+	env.skipFormat = true
 }
 
 // newEnv creates a new Env with a fresh temp DB file.
 // binPath is the path to the compiled tusk binary (set in TestMain).
 // dbMode is "flag" (pass --db) or "env" (set TUSK_DB env var).
 // format is "text" or "json" (appended as --format to every command).
-func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
-	t.Helper()
-	tmpFile, err := os.CreateTemp(t.TempDir(), "tusk-e2e-*.db")
+func newEnv(test *testing.T, binPath, dbMode, format string) *Env {
+	test.Helper()
+	tmpFile, err := os.CreateTemp(test.TempDir(), "tusk-e2e-*.db")
+
 	if err != nil {
-		t.Fatalf("creating temp db: %v", err)
+		test.Fatalf("creating temp db: %v", err)
 	}
+
 	_ = tmpFile.Close()
 
 	// Point the binary at an isolated empty config directory by default so
@@ -127,11 +129,11 @@ func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
 	// every e2e scenario fail on contributor machines that haven't yet
 	// cleaned up their global config.
 	return &Env{
-		t:         t,
+		test:      test,
 		binPath:   binPath,
 		dbPath:    tmpFile.Name(),
-		configDir: t.TempDir(),
-		workDir:   t.TempDir(),
+		configDir: test.TempDir(),
+		workDir:   test.TempDir(),
 		dbMode:    dbMode,
 		format:    format,
 	}
@@ -140,57 +142,57 @@ func newEnv(t *testing.T, binPath, dbMode, format string) *Env {
 // Run executes the tusk binary with the given arguments.
 // It automatically injects --db or TUSK_DB and --format based on the Env config.
 // The result is stored in Env.results for inter-step references.
-func (e *Env) Run(args ...string) Result {
-	e.t.Helper()
+func (env *Env) Run(args ...string) Result {
+	env.test.Helper()
 
 	expanded := make([]string, len(args))
-	for i, arg := range args {
-		expanded[i] = e.expandRefs(arg)
+	for index, arg := range args {
+		expanded[index] = env.expandRefs(arg)
 	}
 
 	var fullArgs []string
-	if e.dbMode == "flag" && !e.skipDBArg {
-		fullArgs = append(fullArgs, "--db", e.dbPath)
+	if env.dbMode == "flag" && !env.skipDBArg {
+		fullArgs = append(fullArgs, "--db", env.dbPath)
 	}
-	if !e.skipFormat {
-		fullArgs = append(fullArgs, "--format", e.format)
+	if !env.skipFormat {
+		fullArgs = append(fullArgs, "--format", env.format)
 	}
 	fullArgs = append(fullArgs, expanded...)
 
-	cmd := newCmd(e.t, e.binPath, fullArgs...)
+	cmd := newCmd(env.test, env.binPath, fullArgs...)
 
-	if e.step.cwd != "" {
-		cmd.Dir = e.step.cwd
-	} else if e.workDir != "" {
-		cmd.Dir = e.workDir
+	if env.step.cwd != "" {
+		cmd.Dir = env.step.cwd
+	} else if env.workDir != "" {
+		cmd.Dir = env.workDir
 	}
-	if e.step.stdin != "" {
-		cmd.Stdin = strings.NewReader(e.step.stdin)
+	if env.step.stdin != "" {
+		cmd.Stdin = strings.NewReader(env.step.stdin)
 	}
 
-	if e.homeDir != "" {
-		cmd.Env = append(cmd.Env, "HOME="+e.homeDir, "USERPROFILE="+e.homeDir)
+	if env.homeDir != "" {
+		cmd.Env = append(cmd.Env, "HOME="+env.homeDir, "USERPROFILE="+env.homeDir)
 	}
-	if e.dbMode == "env" && !e.skipDBArg {
-		cmd.Env = append(cmd.Env, "TUSK_DB="+e.dbPath)
+	if env.dbMode == "env" && !env.skipDBArg {
+		cmd.Env = append(cmd.Env, "TUSK_DB="+env.dbPath)
 	}
-	if e.configDir != "" {
-		cmd.Env = append(cmd.Env, "TUSK_CONFIG_DIR="+e.configDir)
+	if env.configDir != "" {
+		cmd.Env = append(cmd.Env, "TUSK_CONFIG_DIR="+env.configDir)
 	}
-	cmd.Env = append(cmd.Env, e.extraEnv...)
+	cmd.Env = append(cmd.Env, env.extraEnv...)
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	r := Result{
+	runErr := cmd.Run()
+	result := Result{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),
-		Err:    err,
+		Err:    runErr,
 	}
-	e.results = append(e.results, r)
-	return r
+	env.results = append(env.results, result)
+	return result
 }
 
 // shortIDPattern matches 8+ hex character short IDs in mutation output lines.
@@ -204,7 +206,7 @@ var shortIDPattern = regexp.MustCompile(`(?:Created|Modified|Started|Completed|D
 // expandRefs replaces $N.field references with values from previous step results.
 // For example, "$0.short_id" is replaced with the short_id from step 0's output.
 // Dotted paths ("$0.note.id") descend into nested JSON objects.
-func (e *Env) expandRefs(arg string) string {
+func (env *Env) expandRefs(arg string) string {
 	if !strings.Contains(arg, "$") {
 		return arg
 	}
@@ -219,29 +221,29 @@ func (e *Env) expandRefs(arg string) string {
 		_, _ = fmt.Sscanf(parts[1], "%d", &idx)
 		field := parts[2]
 
-		if idx >= len(e.results) {
-			e.t.Fatalf("reference $%d.%s: step %d has not run yet (only %d results)", idx, field, idx, len(e.results))
+		if idx >= len(env.results) {
+			env.test.Fatalf("reference $%d.%s: step %d has not run yet (only %d results)", idx, field, idx, len(env.results))
 		}
 
-		prev := e.results[idx]
+		prev := env.results[idx]
 
 		var parsed map[string]any
-		if err := json.Unmarshal([]byte(prev.Stdout), &parsed); err == nil {
+		if parseErr := json.Unmarshal([]byte(prev.Stdout), &parsed); parseErr == nil {
 			segments := strings.Split(field, ".")
 			var cur any = parsed
 			ok := true
 			for _, seg := range segments {
-				m, isMap := cur.(map[string]any)
+				mapped, isMap := cur.(map[string]any)
 				if !isMap {
 					ok = false
 					break
 				}
-				v, exists := m[seg]
+				val, exists := mapped[seg]
 				if !exists {
 					ok = false
 					break
 				}
-				cur = v
+				cur = val
 			}
 			if ok {
 				return fmt.Sprintf("%v", cur)
@@ -249,12 +251,12 @@ func (e *Env) expandRefs(arg string) string {
 		}
 
 		if field == "short_id" || field == "id" || strings.HasSuffix(field, ".id") {
-			if m := shortIDPattern.FindStringSubmatch(prev.Stdout); len(m) == 2 {
-				return m[1]
+			if matched := shortIDPattern.FindStringSubmatch(prev.Stdout); len(matched) == 2 {
+				return matched[1]
 			}
 		}
 
-		e.t.Fatalf("reference $%d.%s: could not resolve from output:\n%s", idx, field, prev.Stdout)
+		env.test.Fatalf("reference $%d.%s: could not resolve from output:\n%s", idx, field, prev.Stdout)
 		return match
 	})
 }
@@ -294,19 +296,19 @@ type Step struct {
 	// Cwd overrides the working directory for this step only.
 	Cwd string
 
-	// Setup runs before the step executes. Receives a t.TempDir() scratch
+	// Setup runs before the step executes. Receives a test.TempDir() scratch
 	// directory for seeding inputs; return a Cwd override (or "") so the
 	// step can run in that directory. Runs before Args are expanded.
-	Setup func(t *testing.T, dir string) (cwd string)
+	Setup func(test *testing.T, dir string) (cwd string)
 
 	// Assert runs for both text and json formats.
-	Assert func(t *testing.T, r Result)
+	Assert func(test *testing.T, result Result)
 
 	// AssertJSON runs only when format is "json". parsed is the unmarshaled stdout.
-	AssertJSON func(t *testing.T, parsed any)
+	AssertJSON func(test *testing.T, parsed any)
 
 	// AssertText runs only when format is "text". output is raw stdout.
-	AssertText func(t *testing.T, output string)
+	AssertText func(test *testing.T, output string)
 }
 
 // Scenario is a named sequence of Steps that tests a specific workflow.
@@ -317,51 +319,52 @@ type Scenario struct {
 
 // runScenarios runs each scenario across all 4 combinations (flag/env x text/json).
 // binPath must be set before calling this (typically in TestMain).
-func runScenarios(t *testing.T, binPath string, scenarios []Scenario) {
+func runScenarios(test *testing.T, binPath string, scenarios []Scenario) {
 	combos := combinations(
 		[]string{"flag", "env"},
 		[]string{"text", "json"},
 	)
-	for _, sc := range scenarios {
+	for _, scenario := range scenarios {
 		for _, combo := range combos {
 			dbMode, format := combo[0], combo[1]
-			name := sc.Name + "/" + dbMode + "/" + format
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				env := newEnv(t, binPath, dbMode, format)
-				for i, step := range sc.Steps {
+			name := scenario.Name + "/" + dbMode + "/" + format
+			test.Run(name, func(test *testing.T) {
+				test.Parallel()
+				env := newEnv(test, binPath, dbMode, format)
+				for stepIndex, step := range scenario.Steps {
 					env.step = currentStep{stdin: step.Stdin, cwd: step.Cwd}
 					if step.Setup != nil {
-						dir := t.TempDir()
-						cwd := step.Setup(t, dir)
+						dir := test.TempDir()
+						cwd := step.Setup(test, dir)
 						if cwd != "" {
 							env.step.cwd = cwd
 						}
 					}
-					r := env.Run(step.Args...)
+					result := env.Run(step.Args...)
 					env.step = currentStep{}
 
-					if step.WantErr && r.Err == nil {
-						t.Fatalf("step %d: expected error, got none. stdout:\n%s", i, r.Stdout)
+					if step.WantErr && result.Err == nil {
+						test.Fatalf("step %d: expected error, got none. stdout:\n%s", stepIndex, result.Stdout)
 					}
-					if !step.WantErr && r.Err != nil {
-						t.Fatalf("step %d: unexpected error: %v\nstderr: %s\nstdout: %s", i, r.Err, r.Stderr, r.Stdout)
+					if !step.WantErr && result.Err != nil {
+						test.Fatalf("step %d: unexpected error: %v\nstderr: %s\nstdout: %s", stepIndex, result.Err, result.Stderr, result.Stdout)
 					}
 
 					if step.Assert != nil {
-						step.Assert(t, r)
+						step.Assert(test, result)
 					}
 
 					if format == "json" && step.AssertJSON != nil {
 						var parsed any
-						if err := json.Unmarshal([]byte(r.Stdout), &parsed); err != nil {
-							t.Fatalf("step %d: failed to parse JSON stdout: %v\nraw:\n%s", i, err, r.Stdout)
+						if parseErr := json.Unmarshal([]byte(result.Stdout), &parsed); parseErr != nil {
+							test.Fatalf("step %d: failed to parse JSON stdout: %v\nraw:\n%s", stepIndex, parseErr, result.Stdout)
 						}
-						step.AssertJSON(t, parsed)
+
+						step.AssertJSON(test, parsed)
 					}
 
 					if format == "text" && step.AssertText != nil {
-						step.AssertText(t, r.Stdout)
+						step.AssertText(test, result.Stdout)
 					}
 				}
 			})
@@ -370,43 +373,43 @@ func runScenarios(t *testing.T, binPath string, scenarios []Scenario) {
 }
 
 // assertEqual fails the test if got != want.
-func assertEqual(t *testing.T, got, want any) {
-	t.Helper()
+func assertEqual(test *testing.T, got, want any) {
+	test.Helper()
 	if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", want) {
-		t.Fatalf("assertEqual: got %v, want %v", got, want)
+		test.Fatalf("assertEqual: got %v, want %v", got, want)
 	}
 }
 
 // assertContains fails if substr is not found in got.
-func assertContains(t *testing.T, got, substr string) {
-	t.Helper()
+func assertContains(test *testing.T, got, substr string) {
+	test.Helper()
 	if !strings.Contains(got, substr) {
-		t.Fatalf("assertContains: %q not found in:\n%s", substr, got)
+		test.Fatalf("assertContains: %q not found in:\n%s", substr, got)
 	}
 }
 
 // assertNotContains fails if substr IS found in got.
-func assertNotContains(t *testing.T, got, substr string) {
-	t.Helper()
+func assertNotContains(test *testing.T, got, substr string) {
+	test.Helper()
 	if strings.Contains(got, substr) {
-		t.Fatalf("assertNotContains: %q unexpectedly found in:\n%s", substr, got)
+		test.Fatalf("assertNotContains: %q unexpectedly found in:\n%s", substr, got)
 	}
 }
 
 // jsonArray asserts the parsed value is a JSON array and returns it.
-func jsonArray(t *testing.T, parsed any) []any {
-	t.Helper()
+func jsonArray(test *testing.T, parsed any) []any {
+	test.Helper()
 	arr, ok := parsed.([]any)
 	if !ok {
-		t.Fatalf("jsonArray: expected []any, got %T", parsed)
+		test.Fatalf("jsonArray: expected []any, got %T", parsed)
 	}
 	return arr
 }
 
 // assertStderrContains fails if substr is not found in r.Stderr.
-func assertStderrContains(t *testing.T, r Result, substr string) {
-	t.Helper()
-	if !strings.Contains(r.Stderr, substr) {
-		t.Fatalf("assertStderrContains: %q not found in stderr:\n%s", substr, r.Stderr)
+func assertStderrContains(test *testing.T, result Result, substr string) {
+	test.Helper()
+	if !strings.Contains(result.Stderr, substr) {
+		test.Fatalf("assertStderrContains: %q not found in stderr:\n%s", substr, result.Stderr)
 	}
 }

@@ -8,7 +8,7 @@ import (
 // TestSummaryCLI exercises `tusk task summary` across single-id, filter,
 // roots, and error scenarios. The harness runs each scenario in 4
 // permutations (DB-config × output-format), so each is written once.
-func TestSummaryCLI(t *testing.T) {
+func TestSummaryCLI(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "single_leaf_zero_rollup",
@@ -16,26 +16,26 @@ func TestSummaryCLI(t *testing.T) {
 				{Args: []string{"task", "create", "Lonely leaf"}},
 				{
 					Args: []string{"task", "summary", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Lonely leaf")
-						assertContains(t, output, "0/0 done, –%")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Lonely leaf")
+						assertContains(test, output, "0/0 done, –%")
 						// Single mode never prints a TOTALS section.
-						assertNotContains(t, output, "TOTALS")
+						assertNotContains(test, output, "TOTALS")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["mode"], "single")
-						blocks := m["blocks"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["mode"], "single")
+						blocks := mapped["blocks"].([]any)
 						if len(blocks) != 1 {
-							t.Fatalf("expected 1 block, got %d", len(blocks))
+							test.Fatalf("expected 1 block, got %d", len(blocks))
 						}
-						if _, ok := m["totals"]; ok {
-							t.Fatalf("single mode must omit totals; got: %v", m["totals"])
+						if _, ok := mapped["totals"]; ok {
+							test.Fatalf("single mode must omit totals; got: %v", mapped["totals"])
 						}
 						roll := blocks[0].(map[string]any)["rollup"].(map[string]any)
-						assertEqual(t, roll["total"], float64(0))
+						assertEqual(test, roll["total"], float64(0))
 					},
 				},
 			},
@@ -51,24 +51,24 @@ func TestSummaryCLI(t *testing.T) {
 				{Args: []string{"task", "done", "$2.short_id"}},
 				{
 					Args: []string{"task", "summary", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Root")
-						assertContains(t, output, "1/2 done, 50%")
-						assertContains(t, output, "completed: 1")
-						assertNotContains(t, output, "TOTALS")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Root")
+						assertContains(test, output, "1/2 done, 50%")
+						assertContains(test, output, "completed: 1")
+						assertNotContains(test, output, "TOTALS")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["mode"], "single")
-						blocks := m["blocks"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["mode"], "single")
+						blocks := mapped["blocks"].([]any)
 						if len(blocks) != 1 {
-							t.Fatalf("expected 1 block, got %d", len(blocks))
+							test.Fatalf("expected 1 block, got %d", len(blocks))
 						}
 						roll := blocks[0].(map[string]any)["rollup"].(map[string]any)
-						assertEqual(t, roll["done"], float64(1))
-						assertEqual(t, roll["total"], float64(2))
+						assertEqual(test, roll["done"], float64(1))
+						assertEqual(test, roll["total"], float64(2))
 					},
 				},
 			},
@@ -87,25 +87,25 @@ func TestSummaryCLI(t *testing.T) {
 				{Args: []string{"task", "create", "B1", "parent=$5.short_id"}},
 				{
 					Args: []string{"task", "summary"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Root A")
-						assertContains(t, output, "Root B")
-						assertContains(t, output, "TOTALS")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Root A")
+						assertContains(test, output, "Root B")
+						assertContains(test, output, "TOTALS")
 						// 1 done out of 3 total descendants: 1/3 = 33%
-						assertContains(t, output, "1/3 done, 33%")
+						assertContains(test, output, "1/3 done, 33%")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["mode"], "roots")
-						blocks := m["blocks"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["mode"], "roots")
+						blocks := mapped["blocks"].([]any)
 						if len(blocks) != 2 {
-							t.Fatalf("expected 2 root blocks, got %d", len(blocks))
+							test.Fatalf("expected 2 root blocks, got %d", len(blocks))
 						}
-						totals := m["totals"].(map[string]any)
-						assertEqual(t, totals["done"], float64(1))
-						assertEqual(t, totals["total"], float64(3))
+						totals := mapped["totals"].(map[string]any)
+						assertEqual(test, totals["done"], float64(1))
+						assertEqual(test, totals["total"], float64(3))
 					},
 				},
 			},
@@ -134,32 +134,32 @@ func TestSummaryCLI(t *testing.T) {
 					// AND descendants are restricted to level=story too. Stories
 					// have no story-level descendants, so each rollup is empty.
 					Args: []string{"task", "summary", "level=story"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Story 1")
-						assertContains(t, output, "Story 2")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Story 1")
+						assertContains(test, output, "Story 2")
 						// Both rollups should be 0/0 because no descendant is a story.
 						count := strings.Count(output, "0/0 done, –%")
 						if count < 2 {
-							t.Fatalf("expected at least 2 zero rollups (one per story block), got %d in:\n%s", count, output)
+							test.Fatalf("expected at least 2 zero rollups (one per story block), got %d in:\n%s", count, output)
 						}
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["mode"], "filter")
-						blocks := m["blocks"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["mode"], "filter")
+						blocks := mapped["blocks"].([]any)
 						if len(blocks) != 2 {
-							t.Fatalf("expected 2 story blocks, got %d", len(blocks))
+							test.Fatalf("expected 2 story blocks, got %d", len(blocks))
 						}
-						for _, b := range blocks {
-							roll := b.(map[string]any)["rollup"].(map[string]any)
+						for _, block := range blocks {
+							roll := block.(map[string]any)["rollup"].(map[string]any)
 							if roll["total"].(float64) != 0 {
-								t.Fatalf("default-mode story rollup must be 0 (filter restricts descendants), got: %v", roll)
+								test.Fatalf("default-mode story rollup must be 0 (filter restricts descendants), got: %v", roll)
 							}
 						}
-						totals := m["totals"].(map[string]any)
-						assertEqual(t, totals["total"], float64(0))
+						totals := mapped["totals"].(map[string]any)
+						assertEqual(test, totals["total"], float64(0))
 					},
 				},
 			},
@@ -178,22 +178,22 @@ func TestSummaryCLI(t *testing.T) {
 				{
 					// --full: filter only selects blocks; full subtree counts.
 					Args: []string{"task", "summary", "--full", "level=story"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Story 1")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Story 1")
 						// Story 1 has 2 task-level descendants, 1 completed.
-						assertContains(t, output, "1/2 done, 50%")
+						assertContains(test, output, "1/2 done, 50%")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						blocks := m["blocks"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						blocks := mapped["blocks"].([]any)
 						if len(blocks) != 1 {
-							t.Fatalf("expected 1 story block, got %d", len(blocks))
+							test.Fatalf("expected 1 story block, got %d", len(blocks))
 						}
 						roll := blocks[0].(map[string]any)["rollup"].(map[string]any)
-						assertEqual(t, roll["done"], float64(1))
-						assertEqual(t, roll["total"], float64(2))
+						assertEqual(test, roll["done"], float64(1))
+						assertEqual(test, roll["total"], float64(2))
 					},
 				},
 			},
@@ -205,9 +205,9 @@ func TestSummaryCLI(t *testing.T) {
 				{
 					Args:    []string{"task", "summary", "--full", "$0.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "single-id mode")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "single-id mode")
 					},
 				},
 			},
@@ -218,9 +218,9 @@ func TestSummaryCLI(t *testing.T) {
 				{
 					Args:    []string{"task", "summary", "--full"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "without a filter")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "without a filter")
 					},
 				},
 			},
@@ -231,39 +231,39 @@ func TestSummaryCLI(t *testing.T) {
 				{Args: []string{"task", "create", "Anything"}},
 				{
 					Args: []string{"task", "summary", "status=nonexistent"},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
 						// Command must succeed; renderer prints to stderr in
 						// text mode and emits an empty envelope in JSON mode.
-						if r.Err != nil {
-							t.Fatalf("expected zero exit, got err=%v stderr=%s", r.Err, r.Stderr)
+						if result.Err != nil {
+							test.Fatalf("expected zero exit, got err=%v stderr=%s", result.Err, result.Stderr)
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						// stdout is empty; "No tasks matched." goes to stderr.
 						if strings.TrimSpace(output) != "" {
-							t.Fatalf("expected empty stdout, got %q", output)
+							test.Fatalf("expected empty stdout, got %q", output)
 						}
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["mode"], "filter")
-						blocks := m["blocks"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["mode"], "filter")
+						blocks := mapped["blocks"].([]any)
 						if len(blocks) != 0 {
-							t.Fatalf("expected empty blocks, got %d", len(blocks))
+							test.Fatalf("expected empty blocks, got %d", len(blocks))
 						}
-						totals := m["totals"].(map[string]any)
-						assertEqual(t, totals["total"], float64(0))
-						sc := totals["status_counts"].([]any)
-						if len(sc) != 0 {
-							t.Fatalf("expected empty status_counts, got %v", sc)
+						totals := mapped["totals"].(map[string]any)
+						assertEqual(test, totals["total"], float64(0))
+						statusCounts := totals["status_counts"].([]any)
+						if len(statusCounts) != 0 {
+							test.Fatalf("expected empty status_counts, got %v", statusCounts)
 						}
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

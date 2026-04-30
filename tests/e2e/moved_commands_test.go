@@ -2,7 +2,7 @@ package e2e
 
 import "testing"
 
-func TestMovedCommandSuggestions(t *testing.T) {
+func TestMovedCommandSuggestions(test *testing.T) {
 	moved := []struct {
 		old     string
 		suggest string
@@ -26,21 +26,21 @@ func TestMovedCommandSuggestions(t *testing.T) {
 	}
 
 	var scenarios []Scenario
-	for _, m := range moved {
-		suggest := m.suggest // capture for closure
+	for _, moved := range moved {
+		suggest := moved.suggest // capture for closure
 		scenarios = append(scenarios, Scenario{
-			Name: "moved_" + m.old,
+			Name: "moved_" + moved.old,
 			Steps: []Step{
 				{
-					Args:    []string{m.old},
+					Args:    []string{moved.old},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						assertStderrContains(t, r, suggest)
+					Assert: func(test *testing.T, result Result) {
+						assertStderrContains(test, result, suggest)
 					},
 				},
 			},
 		})
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

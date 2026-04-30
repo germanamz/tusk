@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestTaskQueue(t *testing.T) {
+func TestTaskQueue(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "available_basic_filtering",
@@ -20,11 +20,11 @@ func TestTaskQueue(t *testing.T) {
 				// Step 4: List available for p2 — should see only B and C (unclaimed)
 				{
 					Args: []string{"task", "available", "--player", "p2"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						items := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						items := jsonArray(test, parsed)
 						if len(items) != 2 {
-							t.Fatalf("expected 2 available tasks, got %d", len(items))
+							test.Fatalf("expected 2 available tasks, got %d", len(items))
 						}
 					},
 				},
@@ -42,14 +42,14 @@ func TestTaskQueue(t *testing.T) {
 				// Step 3: Available should only show the blocker (blocked is excluded)
 				{
 					Args: []string{"task", "available", "--player", "p1"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						items := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						items := jsonArray(test, parsed)
 						if len(items) != 1 {
-							t.Fatalf("expected 1 available task, got %d", len(items))
+							test.Fatalf("expected 1 available task, got %d", len(items))
 						}
-						m := items[0].(map[string]any)
-						assertEqual(t, m["title"], "Blocker")
+						mapped := items[0].(map[string]any)
+						assertEqual(test, mapped["title"], "Blocker")
 					},
 				},
 				// Step 4: Start the blocker
@@ -59,14 +59,14 @@ func TestTaskQueue(t *testing.T) {
 				// Step 6: Available should now show only Blocked (Blocker is completed)
 				{
 					Args: []string{"task", "available", "--player", "p1"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						items := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						items := jsonArray(test, parsed)
 						if len(items) != 1 {
-							t.Fatalf("expected 1 available task, got %d", len(items))
+							test.Fatalf("expected 1 available task, got %d", len(items))
 						}
-						m := items[0].(map[string]any)
-						assertEqual(t, m["title"], "Blocked")
+						mapped := items[0].(map[string]any)
+						assertEqual(test, mapped["title"], "Blocked")
 					},
 				},
 			},
@@ -81,14 +81,14 @@ func TestTaskQueue(t *testing.T) {
 				// Step 2: Available filtered by +api should show only the API task
 				{
 					Args: []string{"task", "available", "+api", "--player", "p1"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						items := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						items := jsonArray(test, parsed)
 						if len(items) != 1 {
-							t.Fatalf("expected 1 available task, got %d", len(items))
+							test.Fatalf("expected 1 available task, got %d", len(items))
 						}
-						m := items[0].(map[string]any)
-						assertEqual(t, m["title"], "API task")
+						mapped := items[0].(map[string]any)
+						assertEqual(test, mapped["title"], "API task")
 					},
 				},
 			},
@@ -103,12 +103,12 @@ func TestTaskQueue(t *testing.T) {
 				// Step 2: Pop should return the highest urgency task
 				{
 					Args: []string{"task", "pop", "--player", "p1"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["title"], "High task")
-						assertEqual(t, m["status"], "active")
-						assertEqual(t, m["claimed_by"], "p1")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["title"], "High task")
+						assertEqual(test, mapped["status"], "active")
+						assertEqual(test, mapped["claimed_by"], "p1")
 					},
 				},
 			},
@@ -128,9 +128,9 @@ func TestTaskQueue(t *testing.T) {
 				{
 					Args:    []string{"task", "pop", "--player", "p1"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertContains(t, r.Stderr, "No available tasks")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertContains(test, result.Stderr, "No available tasks")
 					},
 				},
 			},
@@ -145,14 +145,14 @@ func TestTaskQueue(t *testing.T) {
 				// Step 2: Pop with +backend filter should return backend job
 				{
 					Args: []string{"task", "pop", "+backend", "--player", "p1"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["title"], "Backend job")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["title"], "Backend job")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

@@ -20,7 +20,7 @@ import (
 // before the binary launches. Tests can also seed configDir with a
 // custom config.toml before the first Send.
 type MCPEnv struct {
-	t         *testing.T
+	test      *testing.T
 	binPath   string
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
@@ -34,22 +34,24 @@ type MCPEnv struct {
 }
 
 // NewMCPEnv allocates a fresh temp DB path and config directory under
-// t.TempDir() and returns a not-yet-started MCPEnv. The subprocess is
+// test.TempDir() and returns a not-yet-started MCPEnv. The subprocess is
 // started lazily on the first Send call.
-func NewMCPEnv(t *testing.T, binPath string) *MCPEnv {
-	t.Helper()
-	tmpFile, err := os.CreateTemp(t.TempDir(), "tusk-mcp-e2e-*.db")
-	if err != nil {
-		t.Fatalf("creating temp db: %v", err)
+func NewMCPEnv(test *testing.T, binPath string) *MCPEnv {
+	test.Helper()
+	tmpFile, createErr := os.CreateTemp(test.TempDir(), "tusk-mcp-e2e-*.db")
+
+	if createErr != nil {
+		test.Fatalf("creating temp db: %v", createErr)
 	}
+
 	_ = tmpFile.Close()
 
 	return &MCPEnv{
-		t:         t,
+		test:      test,
 		binPath:   binPath,
 		nextID:    1,
 		dbPath:    tmpFile.Name(),
-		configDir: t.TempDir(),
+		configDir: test.TempDir(),
 	}
 }
 
@@ -58,125 +60,131 @@ func NewMCPEnv(t *testing.T, binPath string) *MCPEnv {
 // skips injecting TUSK_CONFIG_DIR so tusk's config resolver falls
 // through to <homeDir>/.config/tusk — the path tests typically seed
 // with a config.toml under WithHome.
-func (e *MCPEnv) WithHome(dir string) *MCPEnv {
-	if e.started {
-		e.t.Fatalf("MCPEnv.WithHome: subprocess already started")
+func (env *MCPEnv) WithHome(dir string) *MCPEnv {
+	if env.started {
+		env.test.Fatalf("MCPEnv.WithHome: subprocess already started")
 	}
-	e.homeDir = dir
-	return e
+	env.homeDir = dir
+	return env
 }
 
 // WithEnv appends a KEY=VALUE pair to the subprocess environment. Must
 // be called before the first Send.
-func (e *MCPEnv) WithEnv(key, value string) *MCPEnv {
-	if e.started {
-		e.t.Fatalf("MCPEnv.WithEnv: subprocess already started")
+func (env *MCPEnv) WithEnv(key, value string) *MCPEnv {
+	if env.started {
+		env.test.Fatalf("MCPEnv.WithEnv: subprocess already started")
 	}
-	e.extraEnv = append(e.extraEnv, key+"="+value)
-	return e
+	env.extraEnv = append(env.extraEnv, key+"="+value)
+	return env
 }
 
 // WithConfigFile writes content as config.toml inside MCPEnv's
 // configDir. Must be called before the first Send so the seeded file
 // is in place when the subprocess reads its config.
-func (e *MCPEnv) WithConfigFile(content string) *MCPEnv {
-	if e.started {
-		e.t.Fatalf("MCPEnv.WithConfigFile: subprocess already started")
+func (env *MCPEnv) WithConfigFile(content string) *MCPEnv {
+	if env.started {
+		env.test.Fatalf("MCPEnv.WithConfigFile: subprocess already started")
 	}
-	path := filepath.Join(e.configDir, "config.toml")
+	path := filepath.Join(env.configDir, "config.toml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		e.t.Fatalf("writing config.toml: %v", err)
+		env.test.Fatalf("writing config.toml: %v", err)
 	}
-	return e
+	return env
 }
 
 // Send sends a JSON-RPC request and reads the response. The first call
 // lazy-starts the subprocess, registers cleanup, and performs the MCP
 // initialize handshake before forwarding the requested method.
-func (e *MCPEnv) Send(method string, params any) jsonRPCResponse {
-	e.t.Helper()
-	if !e.started {
-		e.start()
+func (env *MCPEnv) Send(method string, params any) jsonRPCResponse {
+	env.test.Helper()
+	if !env.started {
+		env.start()
 	}
-	return e.rawSend(method, params)
+	return env.rawSend(method, params)
 }
 
 // start spawns the `tusk mcp serve` subprocess with the configured
 // flags and env. The subprocess inherits cmd.Dir from newCmd
-// (per-call t.TempDir()) so tusk's walk-up config resolver never
+// (per-call test.TempDir()) so tusk's walk-up config resolver never
 // reaches an ancestor's tusk.toml.
-func (e *MCPEnv) start() {
-	e.t.Helper()
+func (env *MCPEnv) start() {
+	env.test.Helper()
 
-	cmd := newCmd(e.t, e.binPath, "--db", e.dbPath, "mcp", "serve")
-	if e.homeDir != "" {
-		cmd.Env = append(cmd.Env, "HOME="+e.homeDir, "USERPROFILE="+e.homeDir)
+	cmd := newCmd(env.test, env.binPath, "--db", env.dbPath, "mcp", "serve")
+	if env.homeDir != "" {
+		cmd.Env = append(cmd.Env, "HOME="+env.homeDir, "USERPROFILE="+env.homeDir)
 	} else {
 		// Shield from the developer's real ~/.config/tusk by pointing
 		// the subprocess at an isolated empty config dir. When WithHome
 		// is set, the test wants HOME-based resolution, so skip the
 		// override (TUSK_CONFIG_DIR shadows HOME-based lookup).
-		cmd.Env = append(cmd.Env, "TUSK_CONFIG_DIR="+e.configDir)
+		cmd.Env = append(cmd.Env, "TUSK_CONFIG_DIR="+env.configDir)
 	}
-	cmd.Env = append(cmd.Env, e.extraEnv...)
+	cmd.Env = append(cmd.Env, env.extraEnv...)
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		e.t.Fatalf("stdin pipe: %v", err)
+	stdinPipe, stdinErr := cmd.StdinPipe()
+
+	if stdinErr != nil {
+		env.test.Fatalf("stdin pipe: %v", stdinErr)
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		e.t.Fatalf("stdout pipe: %v", err)
+
+	stdoutPipe, stdoutErr := cmd.StdoutPipe()
+
+	if stdoutErr != nil {
+		env.test.Fatalf("stdout pipe: %v", stdoutErr)
 	}
+
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Start(); err != nil {
-		e.t.Fatalf("starting mcp server: %v", err)
+	if startErr := cmd.Start(); startErr != nil {
+		env.test.Fatalf("starting mcp server: %v", startErr)
 	}
 
-	e.cmd = cmd
-	e.stdin = stdin
-	e.stdout = bufio.NewReader(stdout)
-	e.started = true
+	env.cmd = cmd
+	env.stdin = stdinPipe
+	env.stdout = bufio.NewReader(stdoutPipe)
+	env.started = true
 
-	e.t.Cleanup(func() {
-		_ = stdin.Close()
+	env.test.Cleanup(func() {
+		_ = stdinPipe.Close()
 		_ = cmd.Wait()
 	})
 
-	e.initialize()
+	env.initialize()
 }
 
 // rawSend writes a JSON-RPC request and reads one response line. It
 // assumes the subprocess is already running.
-func (e *MCPEnv) rawSend(method string, params any) jsonRPCResponse {
-	e.t.Helper()
+func (env *MCPEnv) rawSend(method string, params any) jsonRPCResponse {
+	env.test.Helper()
 
 	req := jsonRPCRequest{
 		JSONRPC: "2.0",
-		ID:      e.nextID,
+		ID:      env.nextID,
 		Method:  method,
 		Params:  params,
 	}
-	e.nextID++
+	env.nextID++
 
-	b, err := json.Marshal(req)
-	if err != nil {
-		e.t.Fatalf("marshaling request: %v", err)
+	encoded, marshalErr := json.Marshal(req)
+
+	if marshalErr != nil {
+		env.test.Fatalf("marshaling request: %v", marshalErr)
 	}
 
-	if _, err := fmt.Fprintf(e.stdin, "%s\n", b); err != nil {
-		e.t.Fatalf("writing request: %v", err)
+	if _, writeErr := fmt.Fprintf(env.stdin, "%s\n", encoded); writeErr != nil {
+		env.test.Fatalf("writing request: %v", writeErr)
 	}
 
-	line, err := e.stdout.ReadString('\n')
-	if err != nil {
-		e.t.Fatalf("reading response: %v", err)
+	line, readErr := env.stdout.ReadString('\n')
+
+	if readErr != nil {
+		env.test.Fatalf("reading response: %v", readErr)
 	}
 
 	var resp jsonRPCResponse
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		e.t.Fatalf("unmarshaling response: %v\nraw: %s", err, line)
+	if unmarshalErr := json.Unmarshal([]byte(line), &resp); unmarshalErr != nil {
+		env.test.Fatalf("unmarshaling response: %v\nraw: %s", unmarshalErr, line)
 	}
 
 	return resp
@@ -184,9 +192,9 @@ func (e *MCPEnv) rawSend(method string, params any) jsonRPCResponse {
 
 // initialize performs the MCP initialize handshake. Called once during
 // lazy-start; tests do not invoke it directly.
-func (e *MCPEnv) initialize() {
-	e.t.Helper()
-	resp := e.rawSend("initialize", map[string]any{
+func (env *MCPEnv) initialize() {
+	env.test.Helper()
+	resp := env.rawSend("initialize", map[string]any{
 		"protocolVersion": "2025-03-26",
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
@@ -195,29 +203,29 @@ func (e *MCPEnv) initialize() {
 		},
 	})
 	if resp.Error != nil {
-		e.t.Fatalf("initialize failed: %s", resp.Error)
+		env.test.Fatalf("initialize failed: %s", resp.Error)
 	}
 
 	notif := jsonRPCRequest{
 		JSONRPC: "2.0",
 		Method:  "notifications/initialized",
 	}
-	b, _ := json.Marshal(notif)
-	if _, err := fmt.Fprintf(e.stdin, "%s\n", b); err != nil {
-		e.t.Fatalf("writing initialized notification: %v", err)
+	encoded, _ := json.Marshal(notif)
+	if _, err := fmt.Fprintf(env.stdin, "%s\n", encoded); err != nil {
+		env.test.Fatalf("writing initialized notification: %v", err)
 	}
 }
 
 // callTool sends a tools/call request and returns the parsed JSON
 // content as a map. Fails the test on protocol error or isError=true.
-func (e *MCPEnv) callTool(name string, args map[string]any) map[string]any {
-	e.t.Helper()
-	resp := e.Send("tools/call", map[string]any{
+func (env *MCPEnv) callTool(name string, args map[string]any) map[string]any {
+	env.test.Helper()
+	resp := env.Send("tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	})
 	if resp.Error != nil {
-		e.t.Fatalf("tool %s returned error: %s", name, resp.Error)
+		env.test.Fatalf("tool %s returned error: %s", name, resp.Error)
 	}
 
 	var result struct {
@@ -228,29 +236,29 @@ func (e *MCPEnv) callTool(name string, args map[string]any) map[string]any {
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		e.t.Fatalf("parsing tool result: %v", err)
+		env.test.Fatalf("parsing tool result: %v", err)
 	}
 	if result.IsError {
-		e.t.Fatalf("tool %s returned isError=true: %s", name, result.Content[0].Text)
+		env.test.Fatalf("tool %s returned isError=true: %s", name, result.Content[0].Text)
 	}
 
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
-		e.t.Fatalf("parsing tool JSON content: %v\nraw: %s", err, result.Content[0].Text)
+		env.test.Fatalf("parsing tool JSON content: %v\nraw: %s", err, result.Content[0].Text)
 	}
 	return parsed
 }
 
 // callToolRaw sends a tools/call request and returns the raw text
 // content. Fails the test on protocol error.
-func (e *MCPEnv) callToolRaw(name string, args map[string]any) string {
-	e.t.Helper()
-	resp := e.Send("tools/call", map[string]any{
+func (env *MCPEnv) callToolRaw(name string, args map[string]any) string {
+	env.test.Helper()
+	resp := env.Send("tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	})
 	if resp.Error != nil {
-		e.t.Fatalf("tool %s returned error: %s", name, resp.Error)
+		env.test.Fatalf("tool %s returned error: %s", name, resp.Error)
 	}
 
 	var result struct {
@@ -261,21 +269,21 @@ func (e *MCPEnv) callToolRaw(name string, args map[string]any) string {
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		e.t.Fatalf("parsing tool result: %v", err)
+		env.test.Fatalf("parsing tool result: %v", err)
 	}
 	return result.Content[0].Text
 }
 
 // callToolExpectError sends a tools/call request and expects an
 // isError=true result. Returns the error text.
-func (e *MCPEnv) callToolExpectError(name string, args map[string]any) string {
-	e.t.Helper()
-	resp := e.Send("tools/call", map[string]any{
+func (env *MCPEnv) callToolExpectError(name string, args map[string]any) string {
+	env.test.Helper()
+	resp := env.Send("tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	})
 	if resp.Error != nil {
-		e.t.Fatalf("tool %s returned protocol error (expected tool error): %s", name, resp.Error)
+		env.test.Fatalf("tool %s returned protocol error (expected tool error): %s", name, resp.Error)
 	}
 
 	var result struct {
@@ -286,10 +294,10 @@ func (e *MCPEnv) callToolExpectError(name string, args map[string]any) string {
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		e.t.Fatalf("parsing tool result: %v", err)
+		env.test.Fatalf("parsing tool result: %v", err)
 	}
 	if !result.IsError {
-		e.t.Fatalf("expected isError=true, got false. content: %s", result.Content[0].Text)
+		env.test.Fatalf("expected isError=true, got false. content: %s", result.Content[0].Text)
 	}
 	return result.Content[0].Text
 }

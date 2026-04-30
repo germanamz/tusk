@@ -7,7 +7,7 @@ import (
 
 // TestLevelsLevelCheck exercises `tusk task level-check` end-to-end: filtering,
 // JSON output, and exit-code semantics.
-func TestLevelsLevelCheck(t *testing.T) {
+func TestLevelsLevelCheck(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "level_check_clean_workspace",
@@ -28,34 +28,34 @@ func TestLevelsLevelCheck(t *testing.T) {
 				{
 					Args:    []string{"task", "level-check"},
 					WantErr: true,
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
 						if !strings.Contains(output, "missing") {
-							t.Fatalf("expected 'missing' reason in text output, got:\n%s", output)
+							test.Fatalf("expected 'missing' reason in text output, got:\n%s", output)
 						}
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						arr, ok := parsed.([]any)
 						if !ok {
-							t.Fatalf("expected JSON array, got %T: %v", parsed, parsed)
+							test.Fatalf("expected JSON array, got %T: %v", parsed, parsed)
 						}
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 violation, got %d", len(arr))
+							test.Fatalf("expected 1 violation, got %d", len(arr))
 						}
 						entry := arr[0].(map[string]any)
 						if entry["reason"] != "missing" {
-							t.Fatalf("reason: got %v, want missing", entry["reason"])
+							test.Fatalf("reason: got %v, want missing", entry["reason"])
 						}
-						tax, ok := entry["taxonomy"].(map[string]any)
+						taxonomy, ok := entry["taxonomy"].(map[string]any)
 						if !ok {
-							t.Fatalf("expected taxonomy object, got: %v", entry)
+							test.Fatalf("expected taxonomy object, got: %v", entry)
 						}
-						if _, ok := tax["ranks"]; !ok {
-							t.Fatalf("expected taxonomy.ranks, got: %v", tax)
+						if _, ok := taxonomy["ranks"]; !ok {
+							test.Fatalf("expected taxonomy.ranks, got: %v", taxonomy)
 						}
 						if entry["source"] != "workspace_default" {
-							t.Fatalf("source: got %v, want workspace_default", entry["source"])
+							test.Fatalf("source: got %v, want workspace_default", entry["source"])
 						}
 					},
 				},
@@ -77,5 +77,5 @@ func TestLevelsLevelCheck(t *testing.T) {
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

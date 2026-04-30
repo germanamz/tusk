@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestConfigDBHydration(t *testing.T) {
+func TestConfigDBHydration(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "config_set_rejects_db_keys",
@@ -13,22 +13,22 @@ func TestConfigDBHydration(t *testing.T) {
 				{
 					Args:    []string{"config", "set", "projects.foo.workflow", "kanban"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						combined := r.Stderr + r.Stdout
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						combined := result.Stderr + result.Stdout
 						if !strings.Contains(combined, "tusk project modify") {
-							t.Fatalf("expected error to point at `tusk project modify`, got stderr=%q stdout=%q", r.Stderr, r.Stdout)
+							test.Fatalf("expected error to point at `tusk project modify`, got stderr=%q stdout=%q", result.Stderr, result.Stdout)
 						}
 					},
 				},
 				{
 					Args:    []string{"config", "set", "workflows.kanban.statuses.pending.roles", "initial"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						combined := r.Stderr + r.Stdout
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						combined := result.Stderr + result.Stdout
 						if !strings.Contains(combined, "tusk workflow modify") {
-							t.Fatalf("expected error to point at `tusk workflow modify`, got stderr=%q stdout=%q", r.Stderr, r.Stdout)
+							test.Fatalf("expected error to point at `tusk workflow modify`, got stderr=%q stdout=%q", result.Stderr, result.Stdout)
 						}
 					},
 				},
@@ -42,27 +42,27 @@ func TestConfigDBHydration(t *testing.T) {
 				},
 				{
 					Args: []string{"config", "show"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "[projects.scratch]")
-						assertContains(t, output, `workflow = "kanban"`)
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "[projects.scratch]")
+						assertContains(test, output, `workflow = "kanban"`)
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
 						root, ok := parsed.(map[string]any)
 						if !ok {
-							t.Fatalf("expected object, got %T", parsed)
+							test.Fatalf("expected object, got %T", parsed)
 						}
 						projects, ok := root["projects"].(map[string]any)
 						if !ok {
-							t.Fatalf("projects missing or wrong type: %#v", root["projects"])
+							test.Fatalf("projects missing or wrong type: %#v", root["projects"])
 						}
 						scratch, ok := projects["scratch"].(map[string]any)
 						if !ok {
-							t.Fatalf("projects.scratch missing: %#v", projects)
+							test.Fatalf("projects.scratch missing: %#v", projects)
 						}
 						if scratch["workflow"] != "kanban" {
-							t.Fatalf("projects.scratch.workflow = %v, want kanban", scratch["workflow"])
+							test.Fatalf("projects.scratch.workflow = %v, want kanban", scratch["workflow"])
 						}
 					},
 				},
@@ -70,5 +70,5 @@ func TestConfigDBHydration(t *testing.T) {
 		},
 	}
 
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

@@ -9,7 +9,7 @@ import (
 // TestTreeRollup exercises `tusk task tree --rollup` across the basic
 // mixed-status, deletion, custom-workflow, empty-subtree, and JSON-envelope
 // stability cases enumerated in the Phase 2 plan.
-func TestTreeRollup(t *testing.T) {
+func TestTreeRollup(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "rollup_mixed_statuses",
@@ -31,59 +31,59 @@ func TestTreeRollup(t *testing.T) {
 				// Step 7: tree --rollup
 				{
 					Args: []string{"task", "tree", "--rollup"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Rollup root")
-						assertContains(t, output, "[1/3 done, 33%]")
-						assertContains(t, output, "(pending: 1, active: 1, completed: 1)")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Rollup root")
+						assertContains(test, output, "[1/3 done, 33%]")
+						assertContains(test, output, "(pending: 1, active: 1, completed: 1)")
 						// Children render unchanged: still visible, still no
 						// rollup suffix on the leaf lines themselves.
-						assertContains(t, output, "Child A pending")
-						assertContains(t, output, "Child B active")
-						assertContains(t, output, "Child C completed")
+						assertContains(test, output, "Child A pending")
+						assertContains(test, output, "Child B active")
+						assertContains(test, output, "Child C completed")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 root, got %d", len(arr))
+							test.Fatalf("expected 1 root, got %d", len(arr))
 						}
 						root := arr[0].(map[string]any)
-						roll := requireRollup(t, root)
-						assertJSONNumber(t, roll, "done", 1)
-						assertJSONNumber(t, roll, "total", 3)
+						roll := requireRollup(test, root)
+						assertJSONNumber(test, roll, "done", 1)
+						assertJSONNumber(test, roll, "total", 3)
 						pct, ok := roll["percent"].(float64)
 						if !ok {
-							t.Fatalf("expected percent to be float64, got %T", roll["percent"])
+							test.Fatalf("expected percent to be float64, got %T", roll["percent"])
 						}
 						if math.Abs(pct-1.0/3.0) > 1e-6 {
-							t.Fatalf("expected percent ~= 0.3333, got %v", pct)
+							test.Fatalf("expected percent ~= 0.3333, got %v", pct)
 						}
 						counts := roll["status_counts"].([]any)
 						if len(counts) != 3 {
-							t.Fatalf("expected 3 status_counts, got %d (%v)", len(counts), counts)
+							test.Fatalf("expected 3 status_counts, got %d (%v)", len(counts), counts)
 						}
-						assertStatusCount(t, counts, "pending", 1)
-						assertStatusCount(t, counts, "active", 1)
-						assertStatusCount(t, counts, "completed", 1)
+						assertStatusCount(test, counts, "pending", 1)
+						assertStatusCount(test, counts, "active", 1)
+						assertStatusCount(test, counts, "completed", 1)
 
 						// Every child is a leaf with a zero rollup.
 						children := root["children"].([]any)
 						if len(children) != 3 {
-							t.Fatalf("expected 3 children, got %d", len(children))
+							test.Fatalf("expected 3 children, got %d", len(children))
 						}
-						for _, c := range children {
-							childRoll := requireRollup(t, c.(map[string]any))
-							assertJSONNumber(t, childRoll, "done", 0)
-							assertJSONNumber(t, childRoll, "total", 0)
-							assertJSONNumber(t, childRoll, "percent", 0)
+						for _, child := range children {
+							childRoll := requireRollup(test, child.(map[string]any))
+							assertJSONNumber(test, childRoll, "done", 0)
+							assertJSONNumber(test, childRoll, "total", 0)
+							assertJSONNumber(test, childRoll, "percent", 0)
 							sc := childRoll["status_counts"]
 							if sc == nil {
-								t.Fatalf("expected status_counts to be [], got nil")
+								test.Fatalf("expected status_counts to be [], got nil")
 							}
 							scArr, ok := sc.([]any)
 							if !ok || len(scArr) != 0 {
-								t.Fatalf("expected status_counts to be empty array, got %#v", sc)
+								test.Fatalf("expected status_counts to be empty array, got %#v", sc)
 							}
 						}
 					},
@@ -113,33 +113,33 @@ func TestTreeRollup(t *testing.T) {
 				// render in text; rollup excludes it from totals.
 				{
 					Args: []string{"task", "tree", "--rollup"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Del rollup root")
-						assertContains(t, output, "[1/2 done, 50%]")
-						assertContains(t, output, "Child B keep active")
-						assertContains(t, output, "Child C keep done")
-						assertNotContains(t, output, "Child A toDelete")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Del rollup root")
+						assertContains(test, output, "[1/2 done, 50%]")
+						assertContains(test, output, "Child B keep active")
+						assertContains(test, output, "Child C keep done")
+						assertNotContains(test, output, "Child A toDelete")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 root, got %d", len(arr))
+							test.Fatalf("expected 1 root, got %d", len(arr))
 						}
 						root := arr[0].(map[string]any)
-						roll := requireRollup(t, root)
-						assertJSONNumber(t, roll, "done", 1)
-						assertJSONNumber(t, roll, "total", 2)
+						roll := requireRollup(test, root)
+						assertJSONNumber(test, roll, "done", 1)
+						assertJSONNumber(test, roll, "total", 2)
 						// Deleted child filtered out of children too.
 						children := root["children"].([]any)
 						if len(children) != 2 {
-							t.Fatalf("expected 2 visible children (deleted hidden), got %d", len(children))
+							test.Fatalf("expected 2 visible children (deleted hidden), got %d", len(children))
 						}
-						for _, c := range children {
-							title := c.(map[string]any)["title"]
+						for _, child := range children {
+							title := child.(map[string]any)["title"]
 							if title == "Child A toDelete" {
-								t.Fatalf("deleted child rendered without --all")
+								test.Fatalf("deleted child rendered without --all")
 							}
 						}
 					},
@@ -148,23 +148,23 @@ func TestTreeRollup(t *testing.T) {
 				// rollup numbers stay the same (delete-role excluded).
 				{
 					Args: []string{"task", "tree", "--rollup", "--all"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "[1/2 done, 50%]")
-						assertContains(t, output, "Child A toDelete")
-						assertContains(t, output, "Child B keep active")
-						assertContains(t, output, "Child C keep done")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "[1/2 done, 50%]")
+						assertContains(test, output, "Child A toDelete")
+						assertContains(test, output, "Child B keep active")
+						assertContains(test, output, "Child C keep done")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						root := arr[0].(map[string]any)
-						roll := requireRollup(t, root)
-						assertJSONNumber(t, roll, "done", 1)
-						assertJSONNumber(t, roll, "total", 2)
+						roll := requireRollup(test, root)
+						assertJSONNumber(test, roll, "done", 1)
+						assertJSONNumber(test, roll, "total", 2)
 						children := root["children"].([]any)
 						if len(children) != 3 {
-							t.Fatalf("expected 3 children with --all, got %d", len(children))
+							test.Fatalf("expected 3 children with --all, got %d", len(children))
 						}
 					},
 				},
@@ -179,25 +179,25 @@ func TestTreeRollup(t *testing.T) {
 				// JSON leaf still has zero rollup.
 				{
 					Args: []string{"task", "tree", "--rollup", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Lonely leaf")
-						assertNotContains(t, output, "done,")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Lonely leaf")
+						assertNotContains(test, output, "done,")
 					},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 root, got %d", len(arr))
+							test.Fatalf("expected 1 root, got %d", len(arr))
 						}
 						root := arr[0].(map[string]any)
-						roll := requireRollup(t, root)
-						assertJSONNumber(t, roll, "done", 0)
-						assertJSONNumber(t, roll, "total", 0)
-						assertJSONNumber(t, roll, "percent", 0)
+						roll := requireRollup(test, root)
+						assertJSONNumber(test, roll, "done", 0)
+						assertJSONNumber(test, roll, "total", 0)
+						assertJSONNumber(test, roll, "percent", 0)
 						sc, ok := roll["status_counts"].([]any)
 						if !ok || len(sc) != 0 {
-							t.Fatalf("expected empty status_counts array, got %#v", roll["status_counts"])
+							test.Fatalf("expected empty status_counts array, got %#v", roll["status_counts"])
 						}
 					},
 				},
@@ -210,19 +210,19 @@ func TestTreeRollup(t *testing.T) {
 				{Args: []string{"task", "create", "Envelope child", "parent=$0.short_id"}},
 				{
 					Args: []string{"task", "tree"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						arr := jsonArray(t, parsed)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						arr := jsonArray(test, parsed)
 						if len(arr) != 1 {
-							t.Fatalf("expected 1 root, got %d", len(arr))
+							test.Fatalf("expected 1 root, got %d", len(arr))
 						}
-						walkAssertNoRollup(t, arr)
+						walkAssertNoRollup(test, arr)
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
 // TestTreeRollupCustomWorkflow exercises the rollup against a custom workflow
@@ -230,171 +230,171 @@ func TestTreeRollup(t *testing.T) {
 // honors the per-task workflow rather than hardcoding kanban status names.
 // Uses the same setup pattern as TestCustomWorkflowTaskLifecycle: seed a
 // workflow via the CLI, rebind the default project, then create tasks.
-func TestTreeRollupCustomWorkflow(t *testing.T) {
+func TestTreeRollupCustomWorkflow(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
 
 	combos := combinations([]string{"flag", "env"}, []string{"text", "json"})
 	for _, combo := range combos {
 		dbMode, format := combo[0], combo[1]
 		name := "rollup_custom_workflow/" + dbMode + "/" + format
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			env := newEnv(t, binPath, dbMode, format)
+		test.Run(name, func(test *testing.T) {
+			test.Parallel()
+			env := newEnv(test, binPath, dbMode, format)
 
-			r := env.Run("workflow", "create", "scrum",
+			result := env.Run("workflow", "create", "scrum",
 				"status=backlog(initial)",
 				"status=in_progress(start,highlight)",
 				"status=shipped(terminal,done,dim)",
 				"status=wontfix(terminal,delete,dim)",
 				"transition=backlog:in_progress,in_progress:shipped,in_progress:wontfix,backlog:wontfix",
 			)
-			if r.Err != nil {
-				t.Fatalf("workflow create scrum: %v\nstderr: %s", r.Err, r.Stderr)
+			if result.Err != nil {
+				test.Fatalf("workflow create scrum: %v\nstderr: %s", result.Err, result.Stderr)
 			}
-			r = env.Run("project", "modify", "default", "workflow=scrum")
-			if r.Err != nil {
-				t.Fatalf("project modify default: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("project", "modify", "default", "workflow=scrum")
+			if result.Err != nil {
+				test.Fatalf("project modify default: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 
 			// 2: root
-			r = env.Run("task", "create", "Custom rollup root")
-			if r.Err != nil {
-				t.Fatalf("create root: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("task", "create", "Custom rollup root")
+			if result.Err != nil {
+				test.Fatalf("create root: %v\nstderr: %s", result.Err, result.Stderr)
 			}
-			rootShortID := extractShortID(t, r.Stdout)
+			rootShortID := extractShortID(test, result.Stdout)
 
 			// 3: child A
-			r = env.Run("task", "create", "Custom child A", "parent="+rootShortID)
-			if r.Err != nil {
-				t.Fatalf("create A: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("task", "create", "Custom child A", "parent="+rootShortID)
+			if result.Err != nil {
+				test.Fatalf("create A: %v\nstderr: %s", result.Err, result.Stderr)
 			}
-			aShortID := extractShortID(t, r.Stdout)
+			aShortID := extractShortID(test, result.Stdout)
 
 			// 4: child B
-			r = env.Run("task", "create", "Custom child B", "parent="+rootShortID)
-			if r.Err != nil {
-				t.Fatalf("create B: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("task", "create", "Custom child B", "parent="+rootShortID)
+			if result.Err != nil {
+				test.Fatalf("create B: %v\nstderr: %s", result.Err, result.Stderr)
 			}
-			bShortID := extractShortID(t, r.Stdout)
+			bShortID := extractShortID(test, result.Stdout)
 
 			// 5: start A → in_progress
-			r = env.Run("task", "start", aShortID)
-			if r.Err != nil {
-				t.Fatalf("start A: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("task", "start", aShortID)
+			if result.Err != nil {
+				test.Fatalf("start A: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 
 			// 6: start B → in_progress
-			r = env.Run("task", "start", bShortID)
-			if r.Err != nil {
-				t.Fatalf("start B: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("task", "start", bShortID)
+			if result.Err != nil {
+				test.Fatalf("start B: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 
 			// 7: done B → shipped (done role)
-			r = env.Run("task", "done", bShortID)
-			if r.Err != nil {
-				t.Fatalf("done B: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("task", "done", bShortID)
+			if result.Err != nil {
+				test.Fatalf("done B: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 
 			// 8: tree --rollup. Verify rollup honors per-task workflow:
 			// shipped counts as done, breakdown lists scrum statuses in
 			// workflow order (backlog, in_progress, shipped — wontfix
 			// excluded by delete role).
-			r = env.Run("task", "tree", "--rollup")
-			if r.Err != nil {
-				t.Fatalf("tree --rollup: %v\nstderr: %s", r.Err, r.Stderr)
+			result = env.Run("task", "tree", "--rollup")
+			if result.Err != nil {
+				test.Fatalf("tree --rollup: %v\nstderr: %s", result.Err, result.Stderr)
 			}
 			if format == "text" {
-				assertContains(t, r.Stdout, "[1/2 done, 50%]")
-				assertContains(t, r.Stdout, "shipped: 1")
-				assertContains(t, r.Stdout, "in_progress: 1")
-				assertContains(t, r.Stdout, "backlog: 0")
+				assertContains(test, result.Stdout, "[1/2 done, 50%]")
+				assertContains(test, result.Stdout, "shipped: 1")
+				assertContains(test, result.Stdout, "in_progress: 1")
+				assertContains(test, result.Stdout, "backlog: 0")
 			} else {
 				var parsed []any
-				if err := json.Unmarshal([]byte(r.Stdout), &parsed); err != nil {
-					t.Fatalf("parse tree json: %v\nraw:\n%s", err, r.Stdout)
+				if err := json.Unmarshal([]byte(result.Stdout), &parsed); err != nil {
+					test.Fatalf("parse tree json: %v\nraw:\n%s", err, result.Stdout)
 				}
 				if len(parsed) == 0 {
-					t.Fatalf("expected at least 1 root, got empty array")
+					test.Fatalf("expected at least 1 root, got empty array")
 				}
 				root := parsed[0].(map[string]any)
-				roll := requireRollup(t, root)
-				assertJSONNumber(t, roll, "done", 1)
-				assertJSONNumber(t, roll, "total", 2)
+				roll := requireRollup(test, root)
+				assertJSONNumber(test, roll, "done", 1)
+				assertJSONNumber(test, roll, "total", 2)
 				counts := roll["status_counts"].([]any)
-				assertStatusCount(t, counts, "in_progress", 1)
-				assertStatusCount(t, counts, "shipped", 1)
-				assertStatusCount(t, counts, "backlog", 0)
+				assertStatusCount(test, counts, "in_progress", 1)
+				assertStatusCount(test, counts, "shipped", 1)
+				assertStatusCount(test, counts, "backlog", 0)
 			}
 		})
 	}
 }
 
 // requireRollup returns the rollup map from a tree-node JSON object or fails.
-func requireRollup(t *testing.T, node map[string]any) map[string]any {
-	t.Helper()
+func requireRollup(test *testing.T, node map[string]any) map[string]any {
+	test.Helper()
 	v, ok := node["rollup"]
 	if !ok || v == nil {
-		t.Fatalf("expected rollup field on node, got %#v", node)
+		test.Fatalf("expected rollup field on node, got %#v", node)
 	}
-	m, ok := v.(map[string]any)
+	mapped, ok := v.(map[string]any)
 	if !ok {
-		t.Fatalf("expected rollup to be object, got %T", v)
+		test.Fatalf("expected rollup to be object, got %T", v)
 	}
-	return m
+	return mapped
 }
 
 // assertJSONNumber compares a numeric field in a JSON-decoded map, tolerating
 // JSON-decoded floats (encoding/json always returns float64 for numbers).
-func assertJSONNumber(t *testing.T, m map[string]any, key string, want float64) {
-	t.Helper()
+func assertJSONNumber(test *testing.T, m map[string]any, key string, want float64) {
+	test.Helper()
 	v, ok := m[key]
 	if !ok {
-		t.Fatalf("missing key %q in %#v", key, m)
+		test.Fatalf("missing key %q in %#v", key, m)
 	}
 	got, ok := v.(float64)
 	if !ok {
-		t.Fatalf("expected %q to be number, got %T", key, v)
+		test.Fatalf("expected %q to be number, got %T", key, v)
 	}
 	if got != want {
-		t.Fatalf("expected %q == %v, got %v", key, want, got)
+		test.Fatalf("expected %q == %v, got %v", key, want, got)
 	}
 }
 
 // assertStatusCount verifies that status_counts contains an entry with the
 // given name and count. Order is not asserted here — workflow-order is
 // validated implicitly by the seeded breakdown ordering.
-func assertStatusCount(t *testing.T, counts []any, name string, want float64) {
-	t.Helper()
-	for _, c := range counts {
-		m := c.(map[string]any)
-		if m["name"] == name {
-			got, ok := m["count"].(float64)
+func assertStatusCount(test *testing.T, counts []any, name string, want float64) {
+	test.Helper()
+	for _, entry := range counts {
+		mapped := entry.(map[string]any)
+		if mapped["name"] == name {
+			got, ok := mapped["count"].(float64)
 			if !ok {
-				t.Fatalf("status %q: expected count to be number, got %T", name, m["count"])
+				test.Fatalf("status %q: expected count to be number, got %T", name, mapped["count"])
 			}
 			if got != want {
-				t.Fatalf("status %q: expected count %v, got %v", name, want, got)
+				test.Fatalf("status %q: expected count %v, got %v", name, want, got)
 			}
 			return
 		}
 	}
-	t.Fatalf("status %q not found in counts: %#v", name, counts)
+	test.Fatalf("status %q not found in counts: %#v", name, counts)
 }
 
 // walkAssertNoRollup recursively checks that no node carries a `rollup` key.
 // Guards the JSON envelope shape stability promise: `tusk task tree` (no
 // `--rollup`) emits the same JSON it did pre-Phase-2.
-func walkAssertNoRollup(t *testing.T, nodes []any) {
-	t.Helper()
-	for _, n := range nodes {
-		m := n.(map[string]any)
-		if _, present := m["rollup"]; present {
-			t.Fatalf("rollup key leaked into non-rollup tree JSON: %#v", m)
+func walkAssertNoRollup(test *testing.T, nodes []any) {
+	test.Helper()
+	for _, node := range nodes {
+		mapped := node.(map[string]any)
+		if _, present := mapped["rollup"]; present {
+			test.Fatalf("rollup key leaked into non-rollup tree JSON: %#v", mapped)
 		}
-		if children, ok := m["children"].([]any); ok {
-			walkAssertNoRollup(t, children)
+		if children, ok := mapped["children"].([]any); ok {
+			walkAssertNoRollup(test, children)
 		}
 	}
 }
@@ -403,10 +403,10 @@ func walkAssertNoRollup(t *testing.T, nodes []any) {
 // (e.g. "Created task abcdef12") or out of a JSON object's `short_id`
 // field. Used by the custom-workflow scenario which runs outside the
 // $N.short_id reference machinery (it builds env.Run calls directly).
-func extractShortID(t *testing.T, stdout string) string {
-	t.Helper()
-	if m := shortIDPattern.FindStringSubmatch(stdout); len(m) == 2 {
-		return m[1]
+func extractShortID(test *testing.T, stdout string) string {
+	test.Helper()
+	if matched := shortIDPattern.FindStringSubmatch(stdout); len(matched) == 2 {
+		return matched[1]
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(stdout), &parsed); err == nil {
@@ -414,6 +414,6 @@ func extractShortID(t *testing.T, stdout string) string {
 			return v
 		}
 	}
-	t.Fatalf("could not extract short_id from output:\n%s", stdout)
+	test.Fatalf("could not extract short_id from output:\n%s", stdout)
 	return ""
 }

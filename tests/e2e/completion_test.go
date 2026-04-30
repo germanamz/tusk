@@ -5,56 +5,56 @@ import (
 	"testing"
 )
 
-func TestCompletion(t *testing.T) {
+func TestCompletion(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "completion_smoke",
 			Steps: []Step{
 				{
 					Args: []string{"completion", "bash"},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if r.Err != nil {
-							t.Fatalf("completion bash: unexpected error: %v\nstderr: %s", r.Err, r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if result.Err != nil {
+							test.Fatalf("completion bash: unexpected error: %v\nstderr: %s", result.Err, result.Stderr)
 						}
-						if len(r.Stdout) < 100 {
-							t.Fatalf("completion bash: stdout too short (%d bytes):\n%s", len(r.Stdout), r.Stdout)
+						if len(result.Stdout) < 100 {
+							test.Fatalf("completion bash: stdout too short (%d bytes):\n%s", len(result.Stdout), result.Stdout)
 						}
 					},
 				},
 				{
 					Args: []string{"completion", "zsh"},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if r.Err != nil {
-							t.Fatalf("completion zsh: unexpected error: %v\nstderr: %s", r.Err, r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if result.Err != nil {
+							test.Fatalf("completion zsh: unexpected error: %v\nstderr: %s", result.Err, result.Stderr)
 						}
-						if len(r.Stdout) < 100 {
-							t.Fatalf("completion zsh: stdout too short (%d bytes):\n%s", len(r.Stdout), r.Stdout)
+						if len(result.Stdout) < 100 {
+							test.Fatalf("completion zsh: stdout too short (%d bytes):\n%s", len(result.Stdout), result.Stdout)
 						}
 					},
 				},
 				{
 					Args: []string{"completion", "fish"},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if r.Err != nil {
-							t.Fatalf("completion fish: unexpected error: %v\nstderr: %s", r.Err, r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if result.Err != nil {
+							test.Fatalf("completion fish: unexpected error: %v\nstderr: %s", result.Err, result.Stderr)
 						}
-						if len(r.Stdout) < 100 {
-							t.Fatalf("completion fish: stdout too short (%d bytes):\n%s", len(r.Stdout), r.Stdout)
+						if len(result.Stdout) < 100 {
+							test.Fatalf("completion fish: stdout too short (%d bytes):\n%s", len(result.Stdout), result.Stdout)
 						}
 					},
 				},
 				{
 					Args: []string{"completion", "powershell"},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if r.Err != nil {
-							t.Fatalf("completion powershell: unexpected error: %v\nstderr: %s", r.Err, r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if result.Err != nil {
+							test.Fatalf("completion powershell: unexpected error: %v\nstderr: %s", result.Err, result.Stderr)
 						}
-						if len(r.Stdout) < 100 {
-							t.Fatalf("completion powershell: stdout too short (%d bytes):\n%s", len(r.Stdout), r.Stdout)
+						if len(result.Stdout) < 100 {
+							test.Fatalf("completion powershell: stdout too short (%d bytes):\n%s", len(result.Stdout), result.Stdout)
 						}
 					},
 				},
@@ -72,10 +72,10 @@ func TestCompletion(t *testing.T) {
 			Steps: []Step{
 				{
 					Args: []string{"__complete", ""},
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						if r.Err != nil {
-							t.Fatalf("__complete: unexpected error: %v\nstderr: %s", r.Err, r.Stderr)
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						if result.Err != nil {
+							test.Fatalf("__complete: unexpected error: %v\nstderr: %s", result.Err, result.Stderr)
 						}
 						// NOTE: keep this list in sync with the AddCommand calls in
 						// internal/tui/app.go (func New). A missing entry means a
@@ -86,8 +86,8 @@ func TestCompletion(t *testing.T) {
 							// TODO(v0.14): add "undo" here once the undo command is implemented.
 						}
 						for _, name := range rootCmds {
-							if !strings.Contains(r.Stdout, name) {
-								t.Fatalf("__complete output missing root command %q\nstdout:\n%s", name, r.Stdout)
+							if !strings.Contains(result.Stdout, name) {
+								test.Fatalf("__complete output missing root command %q\nstdout:\n%s", name, result.Stdout)
 							}
 						}
 					},
@@ -95,5 +95,5 @@ func TestCompletion(t *testing.T) {
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }

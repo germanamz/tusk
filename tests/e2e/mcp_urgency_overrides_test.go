@@ -8,24 +8,24 @@ import (
 
 // urgencyOverridesMap reads the urgency_overrides object from a tool
 // response, returning nil if the key is missing or null.
-func urgencyOverridesMap(t *testing.T, resp map[string]any) map[string]any {
-	t.Helper()
+func urgencyOverridesMap(test *testing.T, resp map[string]any) map[string]any {
+	test.Helper()
 	raw, ok := resp["urgency_overrides"]
 	if !ok || raw == nil {
 		return nil
 	}
-	m, ok := raw.(map[string]any)
+	mapped, ok := raw.(map[string]any)
 	if !ok {
-		t.Fatalf("urgency_overrides not an object: %T", raw)
+		test.Fatalf("urgency_overrides not an object: %T", raw)
 	}
-	return m
+	return mapped
 }
 
-func TestMCPTaskModify_UrgencyOverrides_SetMultipleKeys(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_SetMultipleKeys(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "set-multi"})
 	shortID := created["short_id"].(string)
@@ -40,26 +40,26 @@ func TestMCPTaskModify_UrgencyOverrides_SetMultipleKeys(t *testing.T) {
 		},
 	})
 
-	got := urgencyOverridesMap(t, modified)
+	got := urgencyOverridesMap(test, modified)
 	if got == nil {
-		t.Fatalf("expected urgency_overrides on response, got nil. raw=%v", modified)
+		test.Fatalf("expected urgency_overrides on response, got nil. raw=%v", modified)
 	}
 	if pw, _ := got["priority_weight"].(float64); pw != 5 {
-		t.Errorf("priority_weight = %v, want 5", got["priority_weight"])
+		test.Errorf("priority_weight = %v, want 5", got["priority_weight"])
 	}
 	if bw, _ := got["blocking_weight"].(float64); bw != 20 {
-		t.Errorf("blocking_weight = %v, want 20", got["blocking_weight"])
+		test.Errorf("blocking_weight = %v, want 20", got["blocking_weight"])
 	}
 	if len(got) != 2 {
-		t.Errorf("expected exactly 2 keys in urgency_overrides, got %d (%v)", len(got), got)
+		test.Errorf("expected exactly 2 keys in urgency_overrides, got %d (%v)", len(got), got)
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_NullClearsSingleKey(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_NullClearsSingleKey(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "null-clear-one"})
 	shortID := created["short_id"].(string)
@@ -84,23 +84,23 @@ func TestMCPTaskModify_UrgencyOverrides_NullClearsSingleKey(t *testing.T) {
 		},
 	})
 
-	got := urgencyOverridesMap(t, second)
+	got := urgencyOverridesMap(test, second)
 	if _, present := got["due_weight"]; present {
-		t.Errorf("due_weight should be cleared, got %v", got["due_weight"])
+		test.Errorf("due_weight should be cleared, got %v", got["due_weight"])
 	}
 	if pw, _ := got["priority_weight"].(float64); pw != 5 {
-		t.Errorf("priority_weight should be intact = 5, got %v", got["priority_weight"])
+		test.Errorf("priority_weight should be intact = 5, got %v", got["priority_weight"])
 	}
 	if bw, _ := got["blocking_weight"].(float64); bw != 20 {
-		t.Errorf("blocking_weight should be intact = 20, got %v", got["blocking_weight"])
+		test.Errorf("blocking_weight should be intact = 20, got %v", got["blocking_weight"])
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_EmptyPatchNoOp(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_EmptyPatchNoOp(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "empty-noop"})
 	shortID := created["short_id"].(string)
@@ -120,20 +120,20 @@ func TestMCPTaskModify_UrgencyOverrides_EmptyPatchNoOp(t *testing.T) {
 		"version":           startVersion,
 		"urgency_overrides": map[string]any{},
 	})
-	got := urgencyOverridesMap(t, second)
+	got := urgencyOverridesMap(test, second)
 	if pw, _ := got["priority_weight"].(float64); pw != 5 {
-		t.Errorf("priority_weight unchanged expected 5, got %v", got["priority_weight"])
+		test.Errorf("priority_weight unchanged expected 5, got %v", got["priority_weight"])
 	}
 	if len(got) != 1 {
-		t.Errorf("expected only priority_weight in urgency_overrides, got %v", got)
+		test.Errorf("expected only priority_weight in urgency_overrides, got %v", got)
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_TopLevelNullRejected(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_TopLevelNullRejected(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "top-null"})
 	shortID := created["short_id"].(string)
@@ -145,15 +145,15 @@ func TestMCPTaskModify_UrgencyOverrides_TopLevelNullRejected(t *testing.T) {
 		"urgency_overrides": nil,
 	})
 	if !strings.Contains(errMsg, "urgency_overrides_clear") {
-		t.Errorf("expected error to mention urgency_overrides_clear, got: %s", errMsg)
+		test.Errorf("expected error to mention urgency_overrides_clear, got: %s", errMsg)
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_ClearAllThenSet(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_ClearAllThenSet(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "clear-then-set"})
 	shortID := created["short_id"].(string)
@@ -178,20 +178,20 @@ func TestMCPTaskModify_UrgencyOverrides_ClearAllThenSet(t *testing.T) {
 			"priority_weight": 7.0,
 		},
 	})
-	got := urgencyOverridesMap(t, second)
+	got := urgencyOverridesMap(test, second)
 	if len(got) != 1 {
-		t.Errorf("expected exactly one key after clear+set, got %d (%v)", len(got), got)
+		test.Errorf("expected exactly one key after clear+set, got %d (%v)", len(got), got)
 	}
 	if pw, _ := got["priority_weight"].(float64); pw != 7 {
-		t.Errorf("priority_weight = %v, want 7", got["priority_weight"])
+		test.Errorf("priority_weight = %v, want 7", got["priority_weight"])
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_UnknownKeyRejected(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_UnknownKeyRejected(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "unknown-key"})
 	shortID := created["short_id"].(string)
@@ -205,7 +205,7 @@ func TestMCPTaskModify_UrgencyOverrides_UnknownKeyRejected(t *testing.T) {
 		},
 	})
 	if !strings.Contains(errMsg, "bogus_key") {
-		t.Errorf("expected error to name bogus_key, got: %s", errMsg)
+		test.Errorf("expected error to name bogus_key, got: %s", errMsg)
 	}
 	for _, valid := range []string{
 		"priority_weight", "due_weight", "age_weight", "active_weight",
@@ -213,16 +213,16 @@ func TestMCPTaskModify_UrgencyOverrides_UnknownKeyRejected(t *testing.T) {
 		"annotations_weight", "waiting_weight",
 	} {
 		if !strings.Contains(errMsg, valid) {
-			t.Errorf("error should list valid key %q, got: %s", valid, errMsg)
+			test.Errorf("error should list valid key %q, got: %s", valid, errMsg)
 		}
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_NonNumericRejected(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_NonNumericRejected(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "non-numeric"})
 	shortID := created["short_id"].(string)
@@ -236,18 +236,18 @@ func TestMCPTaskModify_UrgencyOverrides_NonNumericRejected(t *testing.T) {
 		},
 	})
 	if !strings.Contains(errMsg, "priority_weight") {
-		t.Errorf("expected error to name priority_weight, got: %s", errMsg)
+		test.Errorf("expected error to name priority_weight, got: %s", errMsg)
 	}
 	if !strings.Contains(errMsg, "must be a number or null") {
-		t.Errorf("expected error to mention 'must be a number or null', got: %s", errMsg)
+		test.Errorf("expected error to mention 'must be a number or null', got: %s", errMsg)
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_BlockedFieldsGate(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_BlockedFieldsGate(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath).WithConfigFile(`
+	env := NewMCPEnv(test, binPath).WithConfigFile(`
 [mcp]
 disabled_tools = []
 disabled_tool_groups = []
@@ -270,24 +270,24 @@ tusk_task_modify = ["urgency_overrides"]
 		},
 	})
 	if !strings.Contains(errMsg, "urgency_overrides") {
-		t.Errorf("expected blocked-fields error, got: %s", errMsg)
+		test.Errorf("expected blocked-fields error, got: %s", errMsg)
 	}
 	if !strings.Contains(errMsg, "blocked") {
-		t.Errorf("expected error to mention 'blocked', got: %s", errMsg)
+		test.Errorf("expected error to mention 'blocked', got: %s", errMsg)
 	}
 
 	// Task state should be unchanged.
 	fetched := env.callTool("tusk_task_get", map[string]any{"short_id": shortID})
-	if got := urgencyOverridesMap(t, fetched); got != nil {
-		t.Errorf("expected urgency_overrides to be absent after blocked call, got %v", got)
+	if got := urgencyOverridesMap(test, fetched); got != nil {
+		test.Errorf("expected urgency_overrides to be absent after blocked call, got %v", got)
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_EffectiveWeightsOnRead(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_EffectiveWeightsOnRead(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	created := env.callTool("tusk_task_create", map[string]any{"title": "effective-weights"})
 	shortID := created["short_id"].(string)
@@ -304,11 +304,11 @@ func TestMCPTaskModify_UrgencyOverrides_EffectiveWeightsOnRead(t *testing.T) {
 	fetched := env.callTool("tusk_task_get", map[string]any{"short_id": shortID})
 	rawWeights, ok := fetched["effective_urgency_weights"]
 	if !ok || rawWeights == nil {
-		t.Fatalf("expected effective_urgency_weights on response, got: %v", fetched)
+		test.Fatalf("expected effective_urgency_weights on response, got: %v", fetched)
 	}
 	weights, ok := rawWeights.(map[string]any)
 	if !ok {
-		t.Fatalf("effective_urgency_weights not an object: %T", rawWeights)
+		test.Fatalf("effective_urgency_weights not an object: %T", rawWeights)
 	}
 	for _, key := range []string{
 		"priority_weight", "due_weight", "age_weight", "active_weight",
@@ -316,19 +316,19 @@ func TestMCPTaskModify_UrgencyOverrides_EffectiveWeightsOnRead(t *testing.T) {
 		"annotations_weight", "waiting_weight",
 	} {
 		if _, present := weights[key]; !present {
-			t.Errorf("effective_urgency_weights missing key %q (got: %v)", key, weights)
+			test.Errorf("effective_urgency_weights missing key %q (got: %v)", key, weights)
 		}
 	}
 	if pw, _ := weights["priority_weight"].(float64); pw != 99 {
-		t.Errorf("effective priority_weight = %v, want 99", weights["priority_weight"])
+		test.Errorf("effective priority_weight = %v, want 99", weights["priority_weight"])
 	}
 }
 
-func TestMCPTaskModify_UrgencyOverrides_TaskTreeCarriesFields(t *testing.T) {
+func TestMCPTaskModify_UrgencyOverrides_TaskTreeCarriesFields(test *testing.T) {
 	if binPath == "" {
-		t.Skip("binary not built")
+		test.Skip("binary not built")
 	}
-	env := NewMCPEnv(t, binPath)
+	env := NewMCPEnv(test, binPath)
 
 	parent := env.callTool("tusk_task_create", map[string]any{"title": "tree-parent"})
 	parentSID := parent["short_id"].(string)
@@ -353,10 +353,10 @@ func TestMCPTaskModify_UrgencyOverrides_TaskTreeCarriesFields(t *testing.T) {
 	})
 	var tree []map[string]any
 	if err := json.Unmarshal([]byte(treeRaw), &tree); err != nil {
-		t.Fatalf("parsing tree: %v", err)
+		test.Fatalf("parsing tree: %v", err)
 	}
 	if len(tree) != 1 {
-		t.Fatalf("expected 1 root, got %d", len(tree))
+		test.Fatalf("expected 1 root, got %d", len(tree))
 	}
 
 	// effective_urgency_weights inheritance routes through GetDescendants in
@@ -366,25 +366,25 @@ func TestMCPTaskModify_UrgencyOverrides_TaskTreeCarriesFields(t *testing.T) {
 	// check rather than a strict assertion.
 	rootWeights, _ := tree[0]["effective_urgency_weights"].(map[string]any)
 	if rootWeights == nil {
-		t.Errorf("root node missing effective_urgency_weights — finding for plan: tree subtree path may not stamp weights (hardening backlog)")
+		test.Errorf("root node missing effective_urgency_weights — finding for plan: tree subtree path may not stamp weights (hardening backlog)")
 	} else if pw, _ := rootWeights["priority_weight"].(float64); pw != 50 {
-		t.Errorf("root effective priority_weight = %v, want 50 (subtree weights may need hardening)", rootWeights["priority_weight"])
+		test.Errorf("root effective priority_weight = %v, want 50 (subtree weights may need hardening)", rootWeights["priority_weight"])
 	}
 
 	children, _ := tree[0]["children"].([]any)
 	if len(children) != 1 {
-		t.Fatalf("expected 1 child, got %d", len(children))
+		test.Fatalf("expected 1 child, got %d", len(children))
 	}
-	first, _ := children[0].(map[string]any)
-	if first["short_id"] != childSID {
-		t.Fatalf("child short_id mismatch: got %v want %s", first["short_id"], childSID)
+	firstChild, _ := children[0].(map[string]any)
+	if firstChild["short_id"] != childSID {
+		test.Fatalf("child short_id mismatch: got %v want %s", firstChild["short_id"], childSID)
 	}
-	childWeights, _ := first["effective_urgency_weights"].(map[string]any)
+	childWeights, _ := firstChild["effective_urgency_weights"].(map[string]any)
 	if childWeights == nil {
 		// Documented finding — see comment above.
-		t.Logf("note: child node missing effective_urgency_weights from tree subtree path; flagging for hardening initiative (see phase 5 plan)")
+		test.Logf("note: child node missing effective_urgency_weights from tree subtree path; flagging for hardening initiative (see phase 5 plan)")
 	} else if pw, _ := childWeights["priority_weight"].(float64); pw != 50 {
 		// Inherited from parent override in normal resolution.
-		t.Logf("note: child effective priority_weight = %v (expected 50 via inheritance) — possible hardening gap", childWeights["priority_weight"])
+		test.Logf("note: child effective priority_weight = %v (expected 50 via inheritance) — possible hardening gap", childWeights["priority_weight"])
 	}
 }

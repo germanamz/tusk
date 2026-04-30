@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestRelations(t *testing.T) {
+func TestRelations(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "link_and_info",
@@ -20,59 +20,59 @@ func TestRelations(t *testing.T) {
 				// Step 2: Link A blocks B
 				{
 					Args: []string{"task", "link", "$0.short_id", "blocks", "$1.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						assertEqual(t, m["relation_type"], "blocks")
-						if m["id"] == nil || m["id"] == "" {
-							t.Fatal("expected relation id to be set")
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						assertEqual(test, mapped["relation_type"], "blocks")
+						if mapped["id"] == nil || mapped["id"] == "" {
+							test.Fatal("expected relation id to be set")
 						}
-						if m["source_id"] == nil || m["source_id"] == "" {
-							t.Fatal("expected source_id to be set")
+						if mapped["source_id"] == nil || mapped["source_id"] == "" {
+							test.Fatal("expected source_id to be set")
 						}
-						if m["target_id"] == nil || m["target_id"] == "" {
-							t.Fatal("expected target_id to be set")
+						if mapped["target_id"] == nil || mapped["target_id"] == "" {
+							test.Fatal("expected target_id to be set")
 						}
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Linked")
-						assertContains(t, output, "blocks")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Linked")
+						assertContains(test, output, "blocks")
 					},
 				},
 				// Step 3: Info on task A should show the relation
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertJSON: func(t *testing.T, parsed any) {
-						t.Helper()
-						m := parsed.(map[string]any)
-						relations := m["relations"].([]any)
+					AssertJSON: func(test *testing.T, parsed any) {
+						test.Helper()
+						mapped := parsed.(map[string]any)
+						relations := mapped["relations"].([]any)
 						if len(relations) != 1 {
-							t.Fatalf("expected 1 relation, got %d", len(relations))
+							test.Fatalf("expected 1 relation, got %d", len(relations))
 						}
 						rel := relations[0].(map[string]any)
-						assertEqual(t, rel["relation_type"], "blocks")
+						assertEqual(test, rel["relation_type"], "blocks")
 					},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Relations:")
-						assertContains(t, output, "blocks")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Relations:")
+						assertContains(test, output, "blocks")
 					},
 				},
 				// Step 4: Unlink A blocks B
 				{
 					Args: []string{"task", "unlink", "$0.short_id", "blocks", "$1.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Unlinked")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Unlinked")
 					},
 				},
 				// Step 5: Info on task A should show no relations
 				{
 					Args: []string{"task", "get", "$0.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertNotContains(t, output, "Relations:")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertNotContains(test, output, "Relations:")
 					},
 				},
 			},
@@ -88,10 +88,10 @@ func TestRelations(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "link", "$0.short_id", "relates_to", "$1.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Linked")
-						assertContains(t, output, "relates_to")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Linked")
+						assertContains(test, output, "relates_to")
 					},
 				},
 			},
@@ -107,10 +107,10 @@ func TestRelations(t *testing.T) {
 				},
 				{
 					Args: []string{"task", "link", "$0.short_id", "duplicates", "$1.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "Linked")
-						assertContains(t, output, "duplicates")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "Linked")
+						assertContains(test, output, "duplicates")
 					},
 				},
 			},
@@ -133,18 +133,18 @@ func TestRelations(t *testing.T) {
 				// Step 3: Info on task B (the target) should show "blocked_by"
 				{
 					Args: []string{"task", "get", "$1.short_id"},
-					AssertText: func(t *testing.T, output string) {
-						t.Helper()
-						assertContains(t, output, "blocked_by")
+					AssertText: func(test *testing.T, output string) {
+						test.Helper()
+						assertContains(test, output, "blocked_by")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestRelationsCycleDetection(t *testing.T) {
+func TestRelationsCycleDetection(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "blocks_direct_cycle",
@@ -165,9 +165,9 @@ func TestRelationsCycleDetection(t *testing.T) {
 				{
 					Args:    []string{"task", "link", "$1.short_id", "blocks", "$0.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "cycle")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "cycle")
 					},
 				},
 			},
@@ -199,9 +199,9 @@ func TestRelationsCycleDetection(t *testing.T) {
 				{
 					Args:    []string{"task", "link", "$2.short_id", "blocks", "$0.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "cycle")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "cycle")
 					},
 				},
 			},
@@ -229,10 +229,10 @@ func TestRelationsCycleDetection(t *testing.T) {
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
 
-func TestRelationsErrors(t *testing.T) {
+func TestRelationsErrors(test *testing.T) {
 	scenarios := []Scenario{
 		{
 			Name: "link_task_not_found",
@@ -243,9 +243,9 @@ func TestRelationsErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "link", "$0.short_id", "blocks", "nonexist"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
@@ -267,9 +267,9 @@ func TestRelationsErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "link", "$0.short_id", "blocks", "$1.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "already exists")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "already exists")
 					},
 				},
 			},
@@ -286,9 +286,9 @@ func TestRelationsErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "link", "$0.short_id", "depends_on", "$1.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "invalid relation type")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "invalid relation type")
 					},
 				},
 			},
@@ -305,13 +305,13 @@ func TestRelationsErrors(t *testing.T) {
 				{
 					Args:    []string{"task", "unlink", "$0.short_id", "blocks", "$1.short_id"},
 					WantErr: true,
-					Assert: func(t *testing.T, r Result) {
-						t.Helper()
-						assertStderrContains(t, r, "not found")
+					Assert: func(test *testing.T, result Result) {
+						test.Helper()
+						assertStderrContains(test, result, "not found")
 					},
 				},
 			},
 		},
 	}
-	runScenarios(t, binPath, scenarios)
+	runScenarios(test, binPath, scenarios)
 }
