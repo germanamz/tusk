@@ -12,7 +12,6 @@ func TestExcluded(test *testing.T) {
 		excluded bool
 	}{
 		// In-scope: exact package matches.
-		{"github.com/germanamz/tusk/internal/tui", true},
 		{"github.com/germanamz/tusk/internal/mcp", true},
 		{"github.com/germanamz/tusk/internal/portability", true},
 		{"github.com/germanamz/tusk/filter", true},
@@ -26,7 +25,6 @@ func TestExcluded(test *testing.T) {
 		// In-scope: root package (client.go lives here).
 		{"github.com/germanamz/tusk", true},
 		// In-scope: sub-packages of excluded packages.
-		{"github.com/germanamz/tusk/internal/tui/render", true},
 		{"github.com/germanamz/tusk/config/subpkg", true},
 
 		// In-scope: external test packages (Go's `package foo_test`
@@ -36,10 +34,13 @@ func TestExcluded(test *testing.T) {
 		{"github.com/germanamz/tusk/domain_test", true},
 		{"github.com/germanamz/tusk/internal/portability_test", true},
 
-		// Out-of-scope: service/ exclusion was removed; lint now covers it.
+		// Out-of-scope: service/ and internal/tui/ exclusions were removed; lint now covers them.
 		{"github.com/germanamz/tusk/service", false},
 		{"github.com/germanamz/tusk/service/foo", false},
 		{"github.com/germanamz/tusk/service_test", false},
+		{"github.com/germanamz/tusk/internal/tui", false},
+		{"github.com/germanamz/tusk/internal/tui/render", false},
+		{"github.com/germanamz/tusk/internal/tui_test", false},
 
 		// Out-of-scope: lint packages themselves are not excluded.
 		{"github.com/germanamz/tusk/internal/lint/blankline", false},
