@@ -16,27 +16,32 @@ import (
 
 // seedBackendProject inserts a "backend" project row through the service so
 // subsequent handler tests have something to modify/delete.
-func seedBackendProject(t *testing.T, srv *Server) *domain.Project {
-	t.Helper()
-	wf, err := srv.workflowSvc.GetByName(context.Background(), "kanban")
-	if err != nil {
-		t.Fatalf("resolving kanban workflow: %v", err)
+func seedBackendProject(test *testing.T, srv *Server) *domain.Project {
+	test.Helper()
+
+	workflow, workflowErr := srv.workflowSvc.GetByName(context.Background(), "kanban")
+
+	if workflowErr != nil {
+		test.Fatalf("resolving kanban workflow: %v", workflowErr)
 	}
-	p, err := srv.projectSvc.Create(context.Background(), service.CreateProjectInput{
+
+	project, createErr := srv.projectSvc.Create(context.Background(), service.CreateProjectInput{
 		Name:       "backend",
-		WorkflowID: wf.ID,
+		WorkflowID: workflow.ID,
 	})
-	if err != nil {
-		t.Fatalf("seed backend: %v", err)
+
+	if createErr != nil {
+		test.Fatalf("seed backend: %v", createErr)
 	}
-	return p
+
+	return project
 }
 
-func TestHandleProjectCreate_Success(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectCreate_Success(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
@@ -52,31 +57,36 @@ func TestHandleProjectCreate_Success(t *testing.T) {
 			},
 		}},
 	}
-	res, err := srv.HandleProjectCreateForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleProjectCreateForTest: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	res, createErr := srv.HandleProjectCreateForTest(context.Background(), req)
+
+	if createErr != nil {
+		test.Fatalf("HandleProjectCreateForTest: %v", createErr)
 	}
 
-	p, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("GetByName backend: %v", err)
+	if res.IsError {
+		test.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
-	if p.Settings.Urgency == nil || p.Settings.Urgency.DueWeight == nil || *p.Settings.Urgency.DueWeight != 15.0 {
-		t.Fatalf("due_weight override not persisted: %+v", p.Settings.Urgency)
+
+	project, lookupErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if lookupErr != nil {
+		test.Fatalf("GetByName backend: %v", lookupErr)
 	}
-	if p.Settings.AutoCompleteParent == nil || p.Settings.AutoCompleteParent.TriggerStatus != "completed" {
-		t.Fatalf("auto_complete not persisted: %+v", p.Settings.AutoCompleteParent)
+
+	if project.Settings.Urgency == nil || project.Settings.Urgency.DueWeight == nil || *project.Settings.Urgency.DueWeight != 15.0 {
+		test.Fatalf("due_weight override not persisted: %+v", project.Settings.Urgency)
+	}
+	if project.Settings.AutoCompleteParent == nil || project.Settings.AutoCompleteParent.TriggerStatus != "completed" {
+		test.Fatalf("auto_complete not persisted: %+v", project.Settings.AutoCompleteParent)
 	}
 }
 
-func TestHandleProjectCreate_UnknownWorkflow(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectCreate_UnknownWorkflow(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
@@ -86,15 +96,15 @@ func TestHandleProjectCreate_UnknownWorkflow(t *testing.T) {
 	}
 	res, _ := srv.HandleProjectCreateForTest(context.Background(), req)
 	if !res.IsError {
-		t.Fatalf("expected validation error for unknown workflow")
+		test.Fatalf("expected validation error for unknown workflow")
 	}
 }
 
-func TestHandleProjectCreateModify_Description(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectCreateModify_Description(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 
 	const desc = "the backend project"
 	createReq := mcp.CallToolRequest{
@@ -104,71 +114,85 @@ func TestHandleProjectCreateModify_Description(t *testing.T) {
 			"description": desc,
 		}},
 	}
-	res, err := srv.HandleProjectCreateForTest(context.Background(), createReq)
-	if err != nil {
-		t.Fatalf("HandleProjectCreateForTest: %v", err)
+
+	res, createErr := srv.HandleProjectCreateForTest(context.Background(), createReq)
+
+	if createErr != nil {
+		test.Fatalf("HandleProjectCreateForTest: %v", createErr)
 	}
+
 	if res.IsError {
-		t.Fatalf("create error: %s", res.Content[0].(mcp.TextContent).Text)
+		test.Fatalf("create error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
 	body := res.Content[0].(mcp.TextContent).Text
 	var payload struct {
 		Project projectResponse `json:"project"`
 	}
-	if err := json.Unmarshal([]byte(body), &payload); err != nil {
-		t.Fatalf("decode create response: %v\n%s", err, body)
-	}
-	if payload.Project.Description != desc {
-		t.Fatalf("create response Description = %q, want %q", payload.Project.Description, desc)
-	}
-	if !strings.Contains(body, `"description"`) {
-		t.Fatalf("create response missing description key: %s", body)
+
+	decodeErr := json.Unmarshal([]byte(body), &payload)
+
+	if decodeErr != nil {
+		test.Fatalf("decode create response: %v\n%s", decodeErr, body)
 	}
 
-	p, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("GetByName: %v", err)
+	if payload.Project.Description != desc {
+		test.Fatalf("create response Description = %q, want %q", payload.Project.Description, desc)
 	}
-	if p.Description != desc {
-		t.Fatalf("persisted Description = %q, want %q", p.Description, desc)
+	if !strings.Contains(body, `"description"`) {
+		test.Fatalf("create response missing description key: %s", body)
+	}
+
+	project, lookupErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if lookupErr != nil {
+		test.Fatalf("GetByName: %v", lookupErr)
+	}
+
+	if project.Description != desc {
+		test.Fatalf("persisted Description = %q, want %q", project.Description, desc)
 	}
 
 	clearReq := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":        "backend",
-			"version":     float64(p.Version),
+			"version":     float64(project.Version),
 			"description": "",
 		}},
 	}
-	res, err = srv.HandleProjectModifyForTest(context.Background(), clearReq)
-	if err != nil {
-		t.Fatalf("HandleProjectModifyForTest: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("modify error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), clearReq)
+
+	if modifyErr != nil {
+		test.Fatalf("HandleProjectModifyForTest: %v", modifyErr)
 	}
 
-	cleared, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("GetByName after clear: %v", err)
+	if res.IsError {
+		test.Fatalf("modify error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
+
+	cleared, clearedErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if clearedErr != nil {
+		test.Fatalf("GetByName after clear: %v", clearedErr)
+	}
+
 	if cleared.Description != "" {
-		t.Fatalf("Description after clear = %q, want empty", cleared.Description)
+		test.Fatalf("Description after clear = %q, want empty", cleared.Description)
 	}
 }
 
-func TestHandleProjectModify_SetAndDelta(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_SetAndDelta(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "backend",
-			"version": float64(p.Version),
+			"version": float64(seeded.Version),
 			"urgency_set": map[string]any{
 				"blocking_weight": 25.0,
 			},
@@ -177,179 +201,203 @@ func TestHandleProjectModify_SetAndDelta(t *testing.T) {
 			},
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleProjectModifyForTest: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("HandleProjectModifyForTest: %v", modifyErr)
 	}
 
-	got, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("GetByName backend: %v", err)
+	if res.IsError {
+		test.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
+
+	got, lookupErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if lookupErr != nil {
+		test.Fatalf("GetByName backend: %v", lookupErr)
+	}
+
 	if got.Settings.Urgency == nil || got.Settings.Urgency.BlockingWeight == nil || *got.Settings.Urgency.BlockingWeight != 25.0 {
-		t.Fatalf("blocking_weight set failed: %+v", got.Settings.Urgency)
+		test.Fatalf("blocking_weight set failed: %+v", got.Settings.Urgency)
 	}
 	if got.Settings.Urgency.DueWeight == nil {
-		t.Fatalf("due_weight delta failed: %+v", got.Settings.Urgency)
+		test.Fatalf("due_weight delta failed: %+v", got.Settings.Urgency)
 	}
 }
 
-func TestHandleProjectModify_SetDeltaConflict(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_SetDeltaConflict(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":          "backend",
-			"version":       float64(p.Version),
+			"version":       float64(seeded.Version),
 			"urgency_set":   map[string]any{"due_weight": 10.0},
 			"urgency_delta": map[string]any{"due_weight": 2.0},
 		}},
 	}
 	res, _ := srv.HandleProjectModifyForTest(context.Background(), req)
 	if !res.IsError {
-		t.Fatalf("expected conflict error")
+		test.Fatalf("expected conflict error")
 	}
 }
 
-func TestHandleProjectDelete_Success(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectDelete_Success(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "backend",
-			"version": float64(p.Version),
+			"version": float64(seeded.Version),
 		}},
 	}
-	res, err := srv.HandleProjectDeleteForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleProjectDeleteForTest: %v", err)
+
+	res, deleteErr := srv.HandleProjectDeleteForTest(context.Background(), req)
+
+	if deleteErr != nil {
+		test.Fatalf("HandleProjectDeleteForTest: %v", deleteErr)
 	}
+
 	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+		test.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
-	if _, err := srv.projectSvc.GetByName(context.Background(), "backend"); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("backend still present after delete: err=%v", err)
+	if _, lookupErr := srv.projectSvc.GetByName(context.Background(), "backend"); !errors.Is(lookupErr, domain.ErrNotFound) {
+		test.Fatalf("backend still present after delete: err=%v", lookupErr)
 	}
 }
 
-func TestHandleProjectModify_BlockedFieldRejected(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_BlockedFieldRejected(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 	srv.cfg.BlockedFields = map[string][]string{
 		"tusk_project_modify": {"workflow"},
 	}
-	p := seedBackendProject(t, srv)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":     "backend",
-			"version":  float64(p.Version),
+			"version":  float64(seeded.Version),
 			"workflow": "kanban",
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleProjectModifyForTest: %v", err)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("HandleProjectModifyForTest: %v", modifyErr)
 	}
+
 	if !res.IsError {
-		t.Fatal("expected block error, got success")
+		test.Fatal("expected block error, got success")
 	}
 	msg := res.Content[0].(mcp.TextContent).Text
 	if !strings.Contains(msg, "mcp.blocked_fields.tusk_project_modify") {
-		t.Errorf("error message missing config-key hint: %q", msg)
+		test.Errorf("error message missing config-key hint: %q", msg)
 	}
 
-	got, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("GetByName backend: %v", err)
+	got, lookupErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if lookupErr != nil {
+		test.Fatalf("GetByName backend: %v", lookupErr)
 	}
-	if got.Version != p.Version {
-		t.Errorf("service was called despite block: version %d -> %d", p.Version, got.Version)
+
+	if got.Version != seeded.Version {
+		test.Errorf("service was called despite block: version %d -> %d", seeded.Version, got.Version)
 	}
 }
 
-func TestHandleProjectModify_BlockedFieldOmitted(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_BlockedFieldOmitted(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 	srv.cfg.BlockedFields = map[string][]string{
 		"tusk_project_modify": {"workflow"},
 	}
-	p := seedBackendProject(t, srv)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "backend",
-			"version": float64(p.Version),
+			"version": float64(seeded.Version),
 			"urgency_set": map[string]any{
 				"due_weight": 7.0,
 			},
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("HandleProjectModifyForTest: %v", err)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("HandleProjectModifyForTest: %v", modifyErr)
 	}
+
 	if res.IsError {
-		t.Fatalf("unexpected error when blocked field omitted: %s", res.Content[0].(mcp.TextContent).Text)
+		test.Fatalf("unexpected error when blocked field omitted: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 }
 
 // extractProjectResponse deserializes the "project" field out of the JSON
 // result body produced by handleProjectModify. Keeps the tax-tristate test
 // cases concise by localizing the JSON wrangling.
-func extractProjectResponse(t *testing.T, res *mcp.CallToolResult) projectResponse {
-	t.Helper()
+func extractProjectResponse(test *testing.T, res *mcp.CallToolResult) projectResponse {
+	test.Helper()
 	if res == nil || len(res.Content) == 0 {
-		t.Fatalf("empty tool result")
+		test.Fatalf("empty tool result")
 	}
 	text, ok := res.Content[0].(mcp.TextContent)
 	if !ok {
-		t.Fatalf("unexpected content type %T", res.Content[0])
+		test.Fatalf("unexpected content type %T", res.Content[0])
 	}
 	var body struct {
 		Project projectResponse `json:"project"`
 	}
-	if err := json.Unmarshal([]byte(text.Text), &body); err != nil {
-		t.Fatalf("decoding tool result JSON: %v\npayload: %s", err, text.Text)
+
+	decodeErr := json.Unmarshal([]byte(text.Text), &body)
+
+	if decodeErr != nil {
+		test.Fatalf("decoding tool result JSON: %v\npayload: %s", decodeErr, text.Text)
 	}
+
 	return body.Project
 }
 
-func TestHandleProjectModify_TaxonomyOmittedLeavesExisting(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_TaxonomyOmittedLeavesExisting(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
 	// Seed with a project override first.
 	initial := domain.Taxonomy{{"milestone"}, {"story"}}
-	set := initial
-	if _, err := srv.projectSvc.Modify(context.Background(), service.ModifyProjectInput{
-		Name: "backend", ExpectedVersion: p.Version,
-		Taxonomy: &service.TaxonomyMutation{Value: set},
-	}); err != nil {
-		t.Fatalf("seed taxonomy: %v", err)
+	seedTaxonomy := initial
+
+	_, seedErr := srv.projectSvc.Modify(context.Background(), service.ModifyProjectInput{
+		Name: "backend", ExpectedVersion: seeded.Version,
+		Taxonomy: &service.TaxonomyMutation{Value: seedTaxonomy},
+	})
+
+	if seedErr != nil {
+		test.Fatalf("seed taxonomy: %v", seedErr)
 	}
 
-	got, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("get: %v", err)
+	got, gotErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if gotErr != nil {
+		test.Fatalf("get: %v", gotErr)
 	}
 
 	req := mcp.CallToolRequest{
@@ -361,43 +409,53 @@ func TestHandleProjectModify_TaxonomyOmittedLeavesExisting(t *testing.T) {
 			},
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("modify: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("modify: %v", modifyErr)
 	}
 
-	after, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("get-after: %v", err)
+	if res.IsError {
+		test.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
+
+	after, afterErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if afterErr != nil {
+		test.Fatalf("get-after: %v", afterErr)
+	}
+
 	if after.Settings.Taxonomy == nil {
-		t.Fatalf("taxonomy override was cleared unexpectedly")
+		test.Fatalf("taxonomy override was cleared unexpectedly")
 	}
 	if !reflect.DeepEqual(*after.Settings.Taxonomy, initial) {
-		t.Fatalf("taxonomy override drifted: got %+v, want %+v", *after.Settings.Taxonomy, initial)
+		test.Fatalf("taxonomy override drifted: got %+v, want %+v", *after.Settings.Taxonomy, initial)
 	}
 }
 
-func TestHandleProjectModify_TaxonomyNullClears(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_TaxonomyNullClears(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
-	seed := domain.Taxonomy{{"milestone"}, {"story"}}
-	if _, err := srv.projectSvc.Modify(context.Background(), service.ModifyProjectInput{
-		Name: "backend", ExpectedVersion: p.Version,
-		Taxonomy: &service.TaxonomyMutation{Value: seed},
-	}); err != nil {
-		t.Fatalf("seed: %v", err)
+	seedTaxonomy := domain.Taxonomy{{"milestone"}, {"story"}}
+
+	_, seedErr := srv.projectSvc.Modify(context.Background(), service.ModifyProjectInput{
+		Name: "backend", ExpectedVersion: seeded.Version,
+		Taxonomy: &service.TaxonomyMutation{Value: seedTaxonomy},
+	})
+
+	if seedErr != nil {
+		test.Fatalf("seed: %v", seedErr)
 	}
-	got, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("get: %v", err)
+
+	got, gotErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if gotErr != nil {
+		test.Fatalf("get: %v", gotErr)
 	}
 
 	req := mcp.CallToolRequest{
@@ -407,89 +465,99 @@ func TestHandleProjectModify_TaxonomyNullClears(t *testing.T) {
 			"taxonomy": nil,
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("modify: %v", err)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("modify: %v", modifyErr)
 	}
+
 	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+		test.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
-	after, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("get-after: %v", err)
+	after, afterErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if afterErr != nil {
+		test.Fatalf("get-after: %v", afterErr)
 	}
+
 	if after.Settings.Taxonomy != nil {
-		t.Fatalf("expected taxonomy override to be cleared, got %+v", *after.Settings.Taxonomy)
+		test.Fatalf("expected taxonomy override to be cleared, got %+v", *after.Settings.Taxonomy)
 	}
 
-	resp := extractProjectResponse(t, res)
+	resp := extractProjectResponse(test, res)
 	if resp.Settings.Taxonomy != nil {
-		t.Fatalf("response settings.taxonomy should be omitted after clear, got %+v", resp.Settings.Taxonomy)
+		test.Fatalf("response settings.taxonomy should be omitted after clear, got %+v", resp.Settings.Taxonomy)
 	}
 	if resp.EffectiveTaxonomy.Source != "none" {
-		t.Fatalf("effective_taxonomy.source: got %q, want none", resp.EffectiveTaxonomy.Source)
+		test.Fatalf("effective_taxonomy.source: got %q, want none", resp.EffectiveTaxonomy.Source)
 	}
 }
 
-func TestHandleProjectModify_TaxonomyEmptyOptsOut(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_TaxonomyEmptyOptsOut(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "backend",
-			"version": float64(p.Version),
+			"version": float64(seeded.Version),
 			"taxonomy": map[string]any{
 				"ranks": []any{},
 			},
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("modify: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("modify: %v", modifyErr)
 	}
 
-	after, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("get: %v", err)
+	if res.IsError {
+		test.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
+
+	after, afterErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if afterErr != nil {
+		test.Fatalf("get: %v", afterErr)
+	}
+
 	if after.Settings.Taxonomy == nil {
-		t.Fatalf("expected taxonomy override set to &empty, got nil")
+		test.Fatalf("expected taxonomy override set to &empty, got nil")
 	}
 	if len(*after.Settings.Taxonomy) != 0 {
-		t.Fatalf("expected empty taxonomy override, got %+v", *after.Settings.Taxonomy)
+		test.Fatalf("expected empty taxonomy override, got %+v", *after.Settings.Taxonomy)
 	}
 
-	resp := extractProjectResponse(t, res)
+	resp := extractProjectResponse(test, res)
 	if resp.Settings.Taxonomy == nil {
-		t.Fatalf("response settings.taxonomy should be present for explicit opt-out")
+		test.Fatalf("response settings.taxonomy should be present for explicit opt-out")
 	}
 	if len(resp.Settings.Taxonomy.Ranks) != 0 {
-		t.Fatalf("response settings.taxonomy.ranks should be empty, got %+v", resp.Settings.Taxonomy.Ranks)
+		test.Fatalf("response settings.taxonomy.ranks should be empty, got %+v", resp.Settings.Taxonomy.Ranks)
 	}
 	if resp.EffectiveTaxonomy.Source != "project_override" {
-		t.Fatalf("effective_taxonomy.source: got %q, want project_override", resp.EffectiveTaxonomy.Source)
+		test.Fatalf("effective_taxonomy.source: got %q, want project_override", resp.EffectiveTaxonomy.Source)
 	}
 }
 
-func TestHandleProjectModify_TaxonomyPopulatedReplaces(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_TaxonomyPopulatedReplaces(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "backend",
-			"version": float64(p.Version),
+			"version": float64(seeded.Version),
 			"taxonomy": map[string]any{
 				"ranks": []any{
 					[]any{"milestone"},
@@ -499,52 +567,57 @@ func TestHandleProjectModify_TaxonomyPopulatedReplaces(t *testing.T) {
 			},
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("modify: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("modify: %v", modifyErr)
 	}
 
-	after, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("get: %v", err)
+	if res.IsError {
+		test.Fatalf("unexpected error: %s", res.Content[0].(mcp.TextContent).Text)
 	}
+
+	after, afterErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if afterErr != nil {
+		test.Fatalf("get: %v", afterErr)
+	}
+
 	want := domain.Taxonomy{{"milestone"}, {"story"}, {"task", "spike"}}
 	if after.Settings.Taxonomy == nil {
-		t.Fatalf("expected taxonomy override set, got nil")
+		test.Fatalf("expected taxonomy override set, got nil")
 	}
 	if !reflect.DeepEqual(*after.Settings.Taxonomy, want) {
-		t.Fatalf("taxonomy override: got %+v, want %+v", *after.Settings.Taxonomy, want)
+		test.Fatalf("taxonomy override: got %+v, want %+v", *after.Settings.Taxonomy, want)
 	}
 
-	resp := extractProjectResponse(t, res)
+	resp := extractProjectResponse(test, res)
 	if resp.Settings.Taxonomy == nil {
-		t.Fatalf("response settings.taxonomy should be populated")
+		test.Fatalf("response settings.taxonomy should be populated")
 	}
 	if !reflect.DeepEqual(resp.Settings.Taxonomy.Ranks, [][]string(want)) {
-		t.Fatalf("response settings.taxonomy.ranks: got %+v, want %+v", resp.Settings.Taxonomy.Ranks, want)
+		test.Fatalf("response settings.taxonomy.ranks: got %+v, want %+v", resp.Settings.Taxonomy.Ranks, want)
 	}
 	if !reflect.DeepEqual(resp.EffectiveTaxonomy.Ranks, [][]string(want)) {
-		t.Fatalf("effective_taxonomy.ranks: got %+v, want %+v", resp.EffectiveTaxonomy.Ranks, want)
+		test.Fatalf("effective_taxonomy.ranks: got %+v, want %+v", resp.EffectiveTaxonomy.Ranks, want)
 	}
 	if resp.EffectiveTaxonomy.Source != "project_override" {
-		t.Fatalf("effective_taxonomy.source: got %q, want project_override", resp.EffectiveTaxonomy.Source)
+		test.Fatalf("effective_taxonomy.source: got %q, want project_override", resp.EffectiveTaxonomy.Source)
 	}
 }
 
-func TestHandleProjectModify_TaxonomyRejectsMalformed(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_TaxonomyRejectsMalformed(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
-	p := seedBackendProject(t, srv)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "backend",
-			"version": float64(p.Version),
+			"version": float64(seeded.Version),
 			"taxonomy": map[string]any{
 				"ranks": []any{
 					[]any{"1bad"}, // violates level name pattern
@@ -554,24 +627,24 @@ func TestHandleProjectModify_TaxonomyRejectsMalformed(t *testing.T) {
 	}
 	res, _ := srv.HandleProjectModifyForTest(context.Background(), req)
 	if !res.IsError {
-		t.Fatal("expected validation error for invalid level name")
+		test.Fatal("expected validation error for invalid level name")
 	}
 }
 
-func TestHandleProjectModify_TaxonomyBlocked(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectModify_TaxonomyBlocked(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 	srv.cfg.BlockedFields = map[string][]string{
 		"tusk_project_modify": {"taxonomy"},
 	}
-	p := seedBackendProject(t, srv)
+	seeded := seedBackendProject(test, srv)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
 			"name":    "backend",
-			"version": float64(p.Version),
+			"version": float64(seeded.Version),
 			"taxonomy": map[string]any{
 				"ranks": []any{
 					[]any{"milestone"},
@@ -579,32 +652,37 @@ func TestHandleProjectModify_TaxonomyBlocked(t *testing.T) {
 			},
 		}},
 	}
-	res, err := srv.HandleProjectModifyForTest(context.Background(), req)
-	if err != nil {
-		t.Fatalf("modify: %v", err)
+
+	res, modifyErr := srv.HandleProjectModifyForTest(context.Background(), req)
+
+	if modifyErr != nil {
+		test.Fatalf("modify: %v", modifyErr)
 	}
+
 	if !res.IsError {
-		t.Fatal("expected block error")
+		test.Fatal("expected block error")
 	}
 	msg := res.Content[0].(mcp.TextContent).Text
 	if !strings.Contains(msg, "mcp.blocked_fields.tusk_project_modify") {
-		t.Errorf("error message missing config-key hint: %q", msg)
+		test.Errorf("error message missing config-key hint: %q", msg)
 	}
 
-	after, err := srv.projectSvc.GetByName(context.Background(), "backend")
-	if err != nil {
-		t.Fatalf("get: %v", err)
+	after, afterErr := srv.projectSvc.GetByName(context.Background(), "backend")
+
+	if afterErr != nil {
+		test.Fatalf("get: %v", afterErr)
 	}
+
 	if after.Settings.Taxonomy != nil {
-		t.Fatalf("taxonomy override leaked past block: %+v", *after.Settings.Taxonomy)
+		test.Fatalf("taxonomy override leaked past block: %+v", *after.Settings.Taxonomy)
 	}
 }
 
-func TestHandleProjectDelete_DefaultGuarded(t *testing.T) {
-	dir := t.TempDir()
+func TestHandleProjectDelete_DefaultGuarded(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
-	writeMinimalConfig(t, path)
-	srv := newTestServer(t, path)
+	writeMinimalConfig(test, path)
+	srv := newTestServer(test, path)
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Arguments: map[string]any{
@@ -614,6 +692,6 @@ func TestHandleProjectDelete_DefaultGuarded(t *testing.T) {
 	}
 	res, _ := srv.HandleProjectDeleteForTest(context.Background(), req)
 	if !res.IsError {
-		t.Fatalf("expected guard error for built-in default project")
+		test.Fatalf("expected guard error for built-in default project")
 	}
 }
