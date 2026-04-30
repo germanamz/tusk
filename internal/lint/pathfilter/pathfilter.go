@@ -12,8 +12,6 @@ import (
 )
 
 var excluded = []*regexp.Regexp{
-	// internal/tui/ — removed by its corresponding sweep phase.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/internal/tui(/|$)`),
 	// internal/mcp/ — removed by its corresponding sweep phase.
 	regexp.MustCompile(`^github\.com/germanamz/tusk/internal/mcp(/|$)`),
 	// internal/portability/ — removed by its corresponding sweep phase.
