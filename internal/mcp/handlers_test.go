@@ -21,31 +21,43 @@ type storeWriteTx struct{ store *sqlite.Store }
 
 type storeWriteTxAdapter struct{ tx *sqlite.Tx }
 
-func (w *storeWriteTxAdapter) Tasks() repository.TaskRepository         { return w.tx.Tasks() }
-func (w *storeWriteTxAdapter) Relations() repository.RelationRepository { return w.tx.Relations() }
-func (w *storeWriteTxAdapter) Events() repository.EventRepository       { return w.tx.Events(10000, 1000) }
-
-func (w *storeWriteTxAdapter) Projects() repository.ProjectRepository   { return w.tx.Projects() }
-func (w *storeWriteTxAdapter) Workflows() repository.WorkflowRepository { return w.tx.Workflows() }
-func (w *storeWriteTxAdapter) Players() repository.PlayerRepository     { return w.tx.Players() }
-func (w *storeWriteTxAdapter) Tags() repository.TagRepository           { return w.tx.Tags() }
-func (w *storeWriteTxAdapter) Annotations() repository.AnnotationRepository {
-	return w.tx.Annotations()
+func (adapter *storeWriteTxAdapter) Tasks() repository.TaskRepository { return adapter.tx.Tasks() }
+func (adapter *storeWriteTxAdapter) Relations() repository.RelationRepository {
+	return adapter.tx.Relations()
 }
-func (w *storeWriteTxAdapter) Notes() repository.NoteRepository { return w.tx.Notes() }
+func (adapter *storeWriteTxAdapter) Events() repository.EventRepository {
+	return adapter.tx.Events(10000, 1000)
+}
 
-func (w *storeWriteTxAdapter) TruncateAll(ctx context.Context) error { return w.tx.TruncateAll(ctx) }
+func (adapter *storeWriteTxAdapter) Projects() repository.ProjectRepository {
+	return adapter.tx.Projects()
+}
+func (adapter *storeWriteTxAdapter) Workflows() repository.WorkflowRepository {
+	return adapter.tx.Workflows()
+}
+func (adapter *storeWriteTxAdapter) Players() repository.PlayerRepository {
+	return adapter.tx.Players()
+}
+func (adapter *storeWriteTxAdapter) Tags() repository.TagRepository { return adapter.tx.Tags() }
+func (adapter *storeWriteTxAdapter) Annotations() repository.AnnotationRepository {
+	return adapter.tx.Annotations()
+}
+func (adapter *storeWriteTxAdapter) Notes() repository.NoteRepository { return adapter.tx.Notes() }
 
-func (p *storeWriteTx) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
-	return p.store.WithTx(ctx, func(stx *sqlite.Tx) error {
+func (adapter *storeWriteTxAdapter) TruncateAll(ctx context.Context) error {
+	return adapter.tx.TruncateAll(ctx)
+}
+
+func (wp *storeWriteTx) WithTx(ctx context.Context, fn func(tx service.WriteTx) error) error {
+	return wp.store.WithTx(ctx, func(stx *sqlite.Tx) error {
 		return fn(&storeWriteTxAdapter{tx: stx})
 	})
 }
 
 // testServer creates a fully wired Server with an in-memory SQLite DB.
-func testServer(t *testing.T) *Server {
-	t.Helper()
-	store, projectRepo, workflowRepo := sqlitetest.NewStore(t)
+func testServer(test *testing.T) *Server {
+	test.Helper()
+	store, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 
 	db := store.DB()
 	bundle := &service.RepoBundle{
@@ -69,15 +81,17 @@ func testServer(t *testing.T) *Server {
 	playerSvc := service.NewPlayerService(bundle.Players)
 	noteSvc := service.NewNoteService(bundle.Notes, bundle.Players, projectRepo, bundle.Tasks, 0)
 
-	s, err := New(
+	srv, err := New(
 		taskSvc, tagSvc, relationSvc, projectSvc, workflowSvc, playerSvc, noteSvc,
 		nil, nil, nil,
 		"test", config.MCPConfig{}, nil,
 	)
+
 	if err != nil {
-		t.Fatalf("creating MCP server: %v", err)
+		test.Fatalf("creating MCP server: %v", err)
 	}
-	return s
+
+	return srv
 }
 
 // callToolRequest builds a CallToolRequest with the given arguments.
@@ -90,489 +104,525 @@ func callToolRequest(args map[string]any) mcp.CallToolRequest {
 }
 
 // parseToolResult extracts the JSON content from a tool result into a map.
-func parseToolResult(t *testing.T, result *mcp.CallToolResult) map[string]any {
-	t.Helper()
+func parseToolResult(test *testing.T, result *mcp.CallToolResult) map[string]any {
+	test.Helper()
 	if result.IsError {
-		t.Fatalf("unexpected tool error: %v", result.Content)
+		test.Fatalf("unexpected tool error: %v", result.Content)
 	}
 	text, ok := result.Content[0].(mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		test.Fatalf("expected TextContent, got %T", result.Content[0])
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(text.Text), &parsed); err != nil {
-		t.Fatalf("parsing tool result JSON: %v", err)
+		test.Fatalf("parsing tool result JSON: %v", err)
 	}
 	return parsed
 }
 
 // parseToolResultArray extracts the JSON array content from a tool result.
-func parseToolResultArray(t *testing.T, result *mcp.CallToolResult) []map[string]any {
-	t.Helper()
+func parseToolResultArray(test *testing.T, result *mcp.CallToolResult) []map[string]any {
+	test.Helper()
 	text, ok := result.Content[0].(mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		test.Fatalf("expected TextContent, got %T", result.Content[0])
 	}
 	var parsed []map[string]any
 	if err := json.Unmarshal([]byte(text.Text), &parsed); err != nil {
-		t.Fatalf("parsing tool result JSON array: %v", err)
+		test.Fatalf("parsing tool result JSON array: %v", err)
 	}
 	return parsed
 }
 
 // getToolErrorText extracts the error message from an isError tool result.
-func getToolErrorText(t *testing.T, result *mcp.CallToolResult) string {
-	t.Helper()
+func getToolErrorText(test *testing.T, result *mcp.CallToolResult) string {
+	test.Helper()
 	if !result.IsError {
-		t.Fatal("expected tool error, got success")
+		test.Fatal("expected tool error, got success")
 	}
 	text, ok := result.Content[0].(mcp.TextContent)
 	if !ok {
-		t.Fatalf("expected TextContent, got %T", result.Content[0])
+		test.Fatalf("expected TextContent, got %T", result.Content[0])
 	}
 	return text.Text
 }
 
-func TestHandleTaskCreate(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskCreate(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	t.Run("basic create", func(t *testing.T) {
-		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	test.Run("basic create", func(test *testing.T) {
+		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title":    "Test task",
 			"priority": float64(3),
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		if parsed["title"] != "Test task" {
-			t.Fatalf("expected title 'Test task', got %v", parsed["title"])
+			test.Fatalf("expected title 'Test task', got %v", parsed["title"])
 		}
 		if parsed["priority"].(float64) != 3 {
-			t.Fatalf("expected priority 3, got %v", parsed["priority"])
+			test.Fatalf("expected priority 3, got %v", parsed["priority"])
 		}
 		if parsed["status"] != "pending" {
-			t.Fatalf("expected status 'pending', got %v", parsed["status"])
+			test.Fatalf("expected status 'pending', got %v", parsed["status"])
 		}
 		if parsed["version"].(float64) != 1 {
-			t.Fatalf("expected version 1, got %v", parsed["version"])
+			test.Fatalf("expected version 1, got %v", parsed["version"])
 		}
 	})
 
-	t.Run("create with tags", func(t *testing.T) {
-		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	test.Run("create with tags", func(test *testing.T) {
+		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "Tagged task",
 			"tags":  []any{"alpha", "beta"},
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		tags, _ := parsed["tags"].([]any)
 		if len(tags) != 2 {
-			t.Fatalf("expected 2 tags, got %d", len(tags))
+			test.Fatalf("expected 2 tags, got %d", len(tags))
 		}
 	})
 
-	t.Run("missing title returns tool error", func(t *testing.T) {
-		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{}))
+	test.Run("missing title returns tool error", func(test *testing.T) {
+		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{}))
+
 		if err != nil {
-			t.Fatalf("unexpected transport error: %v", err)
+			test.Fatalf("unexpected transport error: %v", err)
 		}
-		msg := getToolErrorText(t, result)
+
+		msg := getToolErrorText(test, result)
 		if msg != "title is required" {
-			t.Fatalf("expected 'title is required', got %q", msg)
+			test.Fatalf("expected 'title is required', got %q", msg)
 		}
 	})
 }
 
-func TestHandleTaskGet(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskGet(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
 	// Create a task first
-	createResult, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Get me",
 		"tags":  []any{"fetched"},
 	}))
-	created := parseToolResult(t, createResult)
+	created := parseToolResult(test, createResult)
 	shortID := created["short_id"].(string)
 
 	// Add annotation
-	s.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
+	srv.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"body":     "test annotation",
 	}))
 
-	t.Run("returns full details", func(t *testing.T) {
-		result, err := s.handleTaskGet(ctx, callToolRequest(map[string]any{
+	test.Run("returns full details", func(test *testing.T) {
+		result, err := srv.handleTaskGet(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		if parsed["title"] != "Get me" {
-			t.Fatalf("expected title 'Get me', got %v", parsed["title"])
+			test.Fatalf("expected title 'Get me', got %v", parsed["title"])
 		}
 		tags, _ := parsed["tags"].([]any)
 		if len(tags) != 1 || tags[0] != "fetched" {
-			t.Fatalf("expected tags [fetched], got %v", tags)
+			test.Fatalf("expected tags [fetched], got %v", tags)
 		}
 		annotations, _ := parsed["annotations"].([]any)
 		if len(annotations) != 1 {
-			t.Fatalf("expected 1 annotation, got %d", len(annotations))
+			test.Fatalf("expected 1 annotation, got %d", len(annotations))
 		}
 	})
 
-	t.Run("not found returns tool error", func(t *testing.T) {
-		result, _ := s.handleTaskGet(ctx, callToolRequest(map[string]any{
+	test.Run("not found returns tool error", func(test *testing.T) {
+		result, _ := srv.handleTaskGet(ctx, callToolRequest(map[string]any{
 			"short_id": "nonexistent",
 		}))
-		msg := getToolErrorText(t, result)
+		msg := getToolErrorText(test, result)
 		if msg != "not found: task nonexistent" {
-			t.Fatalf("expected not found error, got %q", msg)
+			test.Fatalf("expected not found error, got %q", msg)
 		}
 	})
 }
 
-func TestHandleTaskList(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskList(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	s.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task A"}))
-	s.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task B", "priority": float64(4)}))
+	srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task A"}))
+	srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Task B", "priority": float64(4)}))
 
-	t.Run("list all", func(t *testing.T) {
-		result, err := s.handleTaskList(ctx, callToolRequest(map[string]any{}))
+	test.Run("list all", func(test *testing.T) {
+		result, err := srv.handleTaskList(ctx, callToolRequest(map[string]any{}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		items := parseToolResultArray(t, result)
+
+		items := parseToolResultArray(test, result)
 		if len(items) != 2 {
-			t.Fatalf("expected 2 tasks, got %d", len(items))
+			test.Fatalf("expected 2 tasks, got %d", len(items))
 		}
 	})
 
-	t.Run("filter by priority", func(t *testing.T) {
-		result, err := s.handleTaskList(ctx, callToolRequest(map[string]any{
+	test.Run("filter by priority", func(test *testing.T) {
+		result, err := srv.handleTaskList(ctx, callToolRequest(map[string]any{
 			"priority_min": float64(4),
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		items := parseToolResultArray(t, result)
+
+		items := parseToolResultArray(test, result)
 		if len(items) != 1 {
-			t.Fatalf("expected 1 task with priority >= 4, got %d", len(items))
+			test.Fatalf("expected 1 task with priority >= 4, got %d", len(items))
 		}
 		if items[0]["title"] != "Task B" {
-			t.Fatalf("expected 'Task B', got %v", items[0]["title"])
+			test.Fatalf("expected 'Task B', got %v", items[0]["title"])
 		}
 	})
 }
 
-func TestHandleTaskTransition_IncludesTags(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskTransition_IncludesTags(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Transition tags",
 		"tags":  []any{"keep-me"},
 	}))
-	created := parseToolResult(t, createResult)
+	created := parseToolResult(test, createResult)
 	shortID := created["short_id"].(string)
 	version := created["version"].(float64)
 
 	// Start
-	startResult, err := s.handleTaskStart(ctx, callToolRequest(map[string]any{
+	startResult, startErr := srv.handleTaskStart(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"version":  version,
 	}))
-	if err != nil {
-		t.Fatalf("start error: %v", err)
+
+	if startErr != nil {
+		test.Fatalf("start error: %v", startErr)
 	}
-	started := parseToolResult(t, startResult)
+
+	started := parseToolResult(test, startResult)
 	tags, _ := started["tags"].([]any)
 	if len(tags) != 1 || tags[0] != "keep-me" {
-		t.Fatalf("start: expected tags [keep-me], got %v", tags)
+		test.Fatalf("start: expected tags [keep-me], got %v", tags)
 	}
 
 	version = started["version"].(float64)
 
 	// Done
-	doneResult, err := s.handleTaskDone(ctx, callToolRequest(map[string]any{
+	doneResult, doneErr := srv.handleTaskDone(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"version":  version,
 	}))
-	if err != nil {
-		t.Fatalf("done error: %v", err)
+
+	if doneErr != nil {
+		test.Fatalf("done error: %v", doneErr)
 	}
-	done := parseToolResult(t, doneResult)
+
+	done := parseToolResult(test, doneResult)
 	tags, _ = done["tags"].([]any)
 	if len(tags) != 1 || tags[0] != "keep-me" {
-		t.Fatalf("done: expected tags [keep-me], got %v", tags)
+		test.Fatalf("done: expected tags [keep-me], got %v", tags)
 	}
 }
 
-func TestHandleTaskModify(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskModify(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Original",
 	}))
-	created := parseToolResult(t, createResult)
+	created := parseToolResult(test, createResult)
 	shortID := created["short_id"].(string)
 	version := created["version"].(float64)
 
-	t.Run("modify title and add tags", func(t *testing.T) {
-		result, err := s.handleTaskModify(ctx, callToolRequest(map[string]any{
+	test.Run("modify title and add tags", func(test *testing.T) {
+		result, err := srv.handleTaskModify(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 			"version":  version,
 			"title":    "Modified",
 			"add_tags": []any{"new-tag"},
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		if parsed["title"] != "Modified" {
-			t.Fatalf("expected 'Modified', got %v", parsed["title"])
+			test.Fatalf("expected 'Modified', got %v", parsed["title"])
 		}
 		tags, _ := parsed["tags"].([]any)
 		if len(tags) != 1 || tags[0] != "new-tag" {
-			t.Fatalf("expected tags [new-tag], got %v", tags)
+			test.Fatalf("expected tags [new-tag], got %v", tags)
 		}
 	})
 
-	t.Run("version conflict returns tool error", func(t *testing.T) {
-		result, _ := s.handleTaskModify(ctx, callToolRequest(map[string]any{
+	test.Run("version conflict returns tool error", func(test *testing.T) {
+		result, _ := srv.handleTaskModify(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 			"version":  float64(999),
 			"title":    "Conflict",
 		}))
-		msg := getToolErrorText(t, result)
+		msg := getToolErrorText(test, result)
 		if msg != "version conflict: task was modified, re-fetch and retry" {
-			t.Fatalf("expected version conflict, got %q", msg)
+			test.Fatalf("expected version conflict, got %q", msg)
 		}
 	})
 }
 
-func TestHandleTaskLink(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskLink(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	r1, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Source"}))
-	r2, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Target"}))
-	source := parseToolResult(t, r1)["short_id"].(string)
-	target := parseToolResult(t, r2)["short_id"].(string)
+	r1, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Source"}))
+	r2, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Target"}))
+	source := parseToolResult(test, r1)["short_id"].(string)
+	target := parseToolResult(test, r2)["short_id"].(string)
 
-	t.Run("add blocks relation", func(t *testing.T) {
-		result, err := s.handleTaskLink(ctx, callToolRequest(map[string]any{
+	test.Run("add blocks relation", func(test *testing.T) {
+		result, err := srv.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": source,
 			"target": target,
 			"type":   "blocks",
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		if parsed["relation_type"] != "blocks" {
-			t.Fatalf("expected 'blocks', got %v", parsed["relation_type"])
+			test.Fatalf("expected 'blocks', got %v", parsed["relation_type"])
 		}
 	})
 
-	t.Run("duplicate returns tool error", func(t *testing.T) {
-		result, _ := s.handleTaskLink(ctx, callToolRequest(map[string]any{
+	test.Run("duplicate returns tool error", func(test *testing.T) {
+		result, _ := srv.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": source,
 			"target": target,
 			"type":   "blocks",
 		}))
-		msg := getToolErrorText(t, result)
+		msg := getToolErrorText(test, result)
 		if msg != "relation already exists" {
-			t.Fatalf("expected duplicate error, got %q", msg)
+			test.Fatalf("expected duplicate error, got %q", msg)
 		}
 	})
 
-	t.Run("cycle returns tool error", func(t *testing.T) {
-		result, _ := s.handleTaskLink(ctx, callToolRequest(map[string]any{
+	test.Run("cycle returns tool error", func(test *testing.T) {
+		result, _ := srv.handleTaskLink(ctx, callToolRequest(map[string]any{
 			"source": target,
 			"target": source,
 			"type":   "blocks",
 		}))
-		msg := getToolErrorText(t, result)
+		msg := getToolErrorText(test, result)
 		if msg != "would create a dependency cycle" {
-			t.Fatalf("expected cycle error, got %q", msg)
+			test.Fatalf("expected cycle error, got %q", msg)
 		}
 	})
 }
 
-func TestHandleProjectList(t *testing.T) {
-	s := testServer(t)
+func TestHandleProjectList(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	result, err := s.handleProjectList(ctx, callToolRequest(map[string]any{}))
+	result, err := srv.handleProjectList(ctx, callToolRequest(map[string]any{}))
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
-	items := parseToolResultArray(t, result)
+
+	items := parseToolResultArray(test, result)
 	// Should have at least "default"
 	found := false
-	for _, p := range items {
-		if p["id"] == "default" {
+	for _, proj := range items {
+		if proj["id"] == "default" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("default project not found in list")
+		test.Fatal("default project not found in list")
 	}
 }
 
-func TestHandleTaskTree(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskTree(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	parentResult, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Parent"}))
-	parent := parseToolResult(t, parentResult)
+	parentResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Parent"}))
+	parent := parseToolResult(test, parentResult)
 	parentSID := parent["short_id"].(string)
 
-	s.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Child", "parent": parentSID}))
+	srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Child", "parent": parentSID}))
 
-	result, err := s.handleTaskTree(ctx, callToolRequest(map[string]any{
+	result, err := srv.handleTaskTree(ctx, callToolRequest(map[string]any{
 		"short_id": parentSID,
 	}))
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
+
 	text, _ := result.Content[0].(mcp.TextContent)
 	var tree []map[string]any
 	if err := json.Unmarshal([]byte(text.Text), &tree); err != nil {
-		t.Fatalf("parsing tree JSON: %v", err)
+		test.Fatalf("parsing tree JSON: %v", err)
 	}
 	if len(tree) != 1 {
-		t.Fatalf("expected 1 root, got %d", len(tree))
+		test.Fatalf("expected 1 root, got %d", len(tree))
 	}
 	children, _ := tree[0]["children"].([]any)
 	if len(children) != 1 {
-		t.Fatalf("expected 1 child, got %d", len(children))
+		test.Fatalf("expected 1 child, got %d", len(children))
 	}
 }
 
-func TestHandleTaskAnnotate(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskAnnotate(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Annotate me"}))
-	shortID := parseToolResult(t, createResult)["short_id"].(string)
+	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{"title": "Annotate me"}))
+	shortID := parseToolResult(test, createResult)["short_id"].(string)
 
-	result, err := s.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
+	result, err := srv.handleTaskAnnotate(ctx, callToolRequest(map[string]any{
 		"short_id": shortID,
 		"body":     "test note",
 	}))
+
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		test.Fatalf("unexpected error: %v", err)
 	}
-	parsed := parseToolResult(t, result)
+
+	parsed := parseToolResult(test, result)
 	if parsed["body"] != "test note" {
-		t.Fatalf("expected body 'test note', got %v", parsed["body"])
+		test.Fatalf("expected body 'test note', got %v", parsed["body"])
 	}
 }
 
-func TestHandleTaskCreate_Level(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskCreate_Level(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	t.Run("level populates response", func(t *testing.T) {
-		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	test.Run("level populates response", func(test *testing.T) {
+		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "With level",
 			"level": "story",
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		if parsed["level"] != "story" {
-			t.Fatalf("expected level 'story', got %v", parsed["level"])
+			test.Fatalf("expected level 'story', got %v", parsed["level"])
 		}
 	})
 
-	t.Run("empty level rejected", func(t *testing.T) {
-		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	test.Run("empty level rejected", func(test *testing.T) {
+		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "Empty level",
 			"level": "",
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected transport error: %v", err)
+			test.Fatalf("unexpected transport error: %v", err)
 		}
-		msg := getToolErrorText(t, result)
+
+		msg := getToolErrorText(test, result)
 		if msg == "" {
-			t.Fatal("expected non-empty error message")
+			test.Fatal("expected non-empty error message")
 		}
 	})
 
-	t.Run("omitted level yields no level field", func(t *testing.T) {
-		result, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	test.Run("omitted level yields no level field", func(test *testing.T) {
+		result, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 			"title": "No level",
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		if _, ok := parsed["level"]; ok {
-			t.Fatalf("expected no 'level' key in response, got %v", parsed["level"])
+			test.Fatalf("expected no 'level' key in response, got %v", parsed["level"])
 		}
 	})
 }
 
-func TestHandleTaskModify_Level(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskModify_Level(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	createResult, _ := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	createResult, _ := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "Original",
 		"level": "story",
 	}))
-	created := parseToolResult(t, createResult)
+	created := parseToolResult(test, createResult)
 	shortID := created["short_id"].(string)
 	version := created["version"].(float64)
 
-	t.Run("empty level clears the field", func(t *testing.T) {
-		result, err := s.handleTaskModify(ctx, callToolRequest(map[string]any{
+	test.Run("empty level clears the field", func(test *testing.T) {
+		result, err := srv.handleTaskModify(ctx, callToolRequest(map[string]any{
 			"short_id": shortID,
 			"version":  version,
 			"level":    "",
 		}))
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
-		parsed := parseToolResult(t, result)
+
+		parsed := parseToolResult(test, result)
 		if _, ok := parsed["level"]; ok {
-			t.Fatalf("expected 'level' omitted after clear, got %v", parsed["level"])
+			test.Fatalf("expected 'level' omitted after clear, got %v", parsed["level"])
 		}
 	})
 }
 
-func TestHandleTaskList_IncludesLevel(t *testing.T) {
-	s := testServer(t)
+func TestHandleTaskList_IncludesLevel(test *testing.T) {
+	srv := testServer(test)
 	ctx := context.Background()
 
-	if _, err := s.handleTaskCreate(ctx, callToolRequest(map[string]any{
+	if _, err := srv.handleTaskCreate(ctx, callToolRequest(map[string]any{
 		"title": "With level",
 		"level": "story",
 	})); err != nil {
-		t.Fatalf("create: %v", err)
+		test.Fatalf("create: %v", err)
 	}
 
-	result, err := s.handleTaskList(ctx, callToolRequest(map[string]any{}))
+	result, err := srv.handleTaskList(ctx, callToolRequest(map[string]any{}))
+
 	if err != nil {
-		t.Fatalf("list: %v", err)
+		test.Fatalf("list: %v", err)
 	}
-	items := parseToolResultArray(t, result)
+
+	items := parseToolResultArray(test, result)
 	if len(items) == 0 {
-		t.Fatal("expected at least one task")
+		test.Fatal("expected at least one task")
 	}
 	if items[0]["level"] != "story" {
-		t.Fatalf("expected level 'story', got %v", items[0]["level"])
+		test.Fatalf("expected level 'story', got %v", items[0]["level"])
 	}
 }

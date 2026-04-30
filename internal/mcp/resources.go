@@ -9,70 +9,72 @@ import (
 )
 
 // registerResources registers all MCP resource templates.
-func (s *Server) registerResources() {
+func (srv *Server) registerResources() {
 	// tusk://tasks/{short_id}
-	s.addResource("task",
+	srv.addResource("task",
 		mcp.NewResourceTemplate(
 			"tusk://tasks/{short_id}",
 			"Task Detail",
 			mcp.WithTemplateDescription("Full task details including tags, relations, and annotations"),
 			mcp.WithTemplateMIMEType("application/json"),
 		),
-		s.handleTaskResource,
+		srv.handleTaskResource,
 	)
 
 	// tusk://projects/{name}
-	s.addResource("project",
+	srv.addResource("project",
 		mcp.NewResourceTemplate(
 			"tusk://projects/{name}",
 			"Project Detail",
 			mcp.WithTemplateDescription("Project details including settings"),
 			mcp.WithTemplateMIMEType("application/json"),
 		),
-		s.handleProjectResource,
+		srv.handleProjectResource,
 	)
 
 	// tusk://projects/{name}/workflow
-	s.addResource("workflow",
+	srv.addResource("workflow",
 		mcp.NewResourceTemplate(
 			"tusk://projects/{name}/workflow",
 			"Project Workflow",
 			mcp.WithTemplateDescription("Workflow statuses and allowed transitions for a project"),
 			mcp.WithTemplateMIMEType("application/json"),
 		),
-		s.handleWorkflowResource,
+		srv.handleWorkflowResource,
 	)
 }
 
 // handleTaskResource serves tusk://tasks/{short_id}.
 // Returns the same rich format as tusk_task_get (task + tags + relations + annotations).
-func (s *Server) handleTaskResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+func (srv *Server) handleTaskResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	shortID := extractURIParam(request.Params.URI, "tusk://tasks/")
 	if shortID == "" {
 		return nil, &resourceError{msg: "missing short_id in URI"}
 	}
 
-	resp, err := s.buildTaskGetResponse(ctx, shortID)
-	if err != nil {
-		return nil, err
+	resp, buildErr := srv.buildTaskGetResponse(ctx, shortID)
+
+	if buildErr != nil {
+		return nil, buildErr
 	}
 
-	b, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return nil, err
+	jsonBytes, marshalErr := json.MarshalIndent(resp, "", "  ")
+
+	if marshalErr != nil {
+		return nil, marshalErr
 	}
 
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{
 			URI:      request.Params.URI,
 			MIMEType: "application/json",
-			Text:     string(b),
+			Text:     string(jsonBytes),
 		},
 	}, nil
 }
 
 // handleProjectResource serves tusk://projects/{name}.
-func (s *Server) handleProjectResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+func (srv *Server) handleProjectResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	name := extractURIParam(request.Params.URI, "tusk://projects/")
 	if idx := strings.Index(name, "/"); idx >= 0 {
 		name = name[:idx]
@@ -81,26 +83,29 @@ func (s *Server) handleProjectResource(ctx context.Context, request mcp.ReadReso
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, err := s.projectSvc.GetByName(ctx, name)
-	if err != nil {
-		return nil, err
+	project, projectErr := srv.projectSvc.GetByName(ctx, name)
+
+	if projectErr != nil {
+		return nil, projectErr
 	}
 
-	wf, err := s.workflowSvc.GetByID(ctx, project.WorkflowID)
-	if err != nil {
-		return nil, err
+	workflow, workflowErr := srv.workflowSvc.GetByID(ctx, project.WorkflowID)
+
+	if workflowErr != nil {
+		return nil, workflowErr
 	}
 
-	b, err := json.MarshalIndent(s.toProjectResponse(project, wf.Name), "", "  ")
-	if err != nil {
-		return nil, err
+	jsonBytes, marshalErr := json.MarshalIndent(srv.toProjectResponse(project, workflow.Name), "", "  ")
+
+	if marshalErr != nil {
+		return nil, marshalErr
 	}
 
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{
 			URI:      request.Params.URI,
 			MIMEType: "application/json",
-			Text:     string(b),
+			Text:     string(jsonBytes),
 		},
 	}, nil
 }
@@ -119,7 +124,7 @@ type transitionResponse struct {
 }
 
 // handleWorkflowResource serves tusk://projects/{name}/workflow.
-func (s *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+func (srv *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	uri := request.Params.URI
 	name := extractURIParam(uri, "tusk://projects/")
 	if idx := strings.Index(name, "/"); idx >= 0 {
@@ -129,46 +134,51 @@ func (s *Server) handleWorkflowResource(ctx context.Context, request mcp.ReadRes
 		return nil, &resourceError{msg: "missing project name in URI"}
 	}
 
-	project, err := s.projectSvc.GetByName(ctx, name)
-	if err != nil {
-		return nil, err
+	project, projectErr := srv.projectSvc.GetByName(ctx, name)
+
+	if projectErr != nil {
+		return nil, projectErr
 	}
 
-	wf, err := s.workflowSvc.GetByID(ctx, project.WorkflowID)
-	if err != nil {
-		return nil, err
+	workflow, workflowErr := srv.workflowSvc.GetByID(ctx, project.WorkflowID)
+
+	if workflowErr != nil {
+		return nil, workflowErr
 	}
 
-	statuses, err := s.workflowSvc.GetStatuses(ctx, wf.Name)
-	if err != nil {
-		return nil, err
+	statuses, statusesErr := srv.workflowSvc.GetStatuses(ctx, workflow.Name)
+
+	if statusesErr != nil {
+		return nil, statusesErr
 	}
 
-	transitions, err := s.workflowSvc.GetTransitions(ctx, wf.Name)
-	if err != nil {
-		return nil, err
+	transitions, transitionsErr := srv.workflowSvc.GetTransitions(ctx, workflow.Name)
+
+	if transitionsErr != nil {
+		return nil, transitionsErr
 	}
 
 	resp := workflowResponse{
 		ProjectName: project.Name,
-		Workflow:    wf.Name,
+		Workflow:    workflow.Name,
 		Statuses:    statuses,
 		Transitions: make([]transitionResponse, len(transitions)),
 	}
-	for i, t := range transitions {
-		resp.Transitions[i] = transitionResponse{From: t.FromStatus, To: t.ToStatus}
+	for index, transition := range transitions {
+		resp.Transitions[index] = transitionResponse{From: transition.FromStatus, To: transition.ToStatus}
 	}
 
-	b, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return nil, err
+	jsonBytes, marshalErr := json.MarshalIndent(resp, "", "  ")
+
+	if marshalErr != nil {
+		return nil, marshalErr
 	}
 
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{
 			URI:      request.Params.URI,
 			MIMEType: "application/json",
-			Text:     string(b),
+			Text:     string(jsonBytes),
 		},
 	}, nil
 }
@@ -186,6 +196,6 @@ type resourceError struct {
 	msg string
 }
 
-func (e *resourceError) Error() string {
-	return e.msg
+func (re *resourceError) Error() string {
+	return re.msg
 }

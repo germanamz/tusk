@@ -14,130 +14,130 @@ import (
 )
 
 // mustNew calls New and fails the test on error.
-func mustNew(t *testing.T, cfg config.MCPConfig) *Server {
-	t.Helper()
-	s, err := New(
+func mustNew(test *testing.T, cfg config.MCPConfig) *Server {
+	test.Helper()
+	srv, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
 		"test", cfg, nil,
 	)
 	if err != nil {
-		t.Fatalf("New() returned unexpected error: %v", err)
+		test.Fatalf("New() returned unexpected error: %v", err)
 	}
-	return s
+	return srv
 }
 
-func TestNewServer(t *testing.T) {
-	s := mustNew(t, config.MCPConfig{})
-	if s == nil {
-		t.Fatal("New() returned nil")
+func TestNewServer(test *testing.T) {
+	srv := mustNew(test, config.MCPConfig{})
+	if srv == nil {
+		test.Fatal("New() returned nil")
 	}
-	if s.server == nil {
-		t.Fatal("New() did not initialize internal MCP server")
+	if srv.server == nil {
+		test.Fatal("New() did not initialize internal MCP server")
 	}
 }
 
-func TestNewServer_WithConfig(t *testing.T) {
+func TestNewServer_WithConfig(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledTools: []string{"tusk_task_delete"},
 	}
-	s := mustNew(t, cfg)
-	if s == nil {
-		t.Fatal("New() returned nil")
+	srv := mustNew(test, cfg)
+	if srv == nil {
+		test.Fatal("New() returned nil")
 	}
-	if s.cfg.DisabledTools[0] != "tusk_task_delete" {
-		t.Fatal("config not stored on server")
+	if srv.cfg.DisabledTools[0] != "tusk_task_delete" {
+		test.Fatal("config not stored on server")
 	}
 }
 
-func TestToolFiltering_DisabledTool(t *testing.T) {
+func TestToolFiltering_DisabledTool(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledTools: []string{"tusk_task_delete"},
 	}
-	s := mustNew(t, cfg)
+	srv := mustNew(test, cfg)
 
-	if s.isToolEnabled("tusk_task_delete", "task") {
-		t.Error("tusk_task_delete should be disabled")
+	if srv.isToolEnabled("tusk_task_delete", "task") {
+		test.Error("tusk_task_delete should be disabled")
 	}
-	if !s.isToolEnabled("tusk_task_create", "task") {
-		t.Error("tusk_task_create should be enabled")
+	if !srv.isToolEnabled("tusk_task_create", "task") {
+		test.Error("tusk_task_create should be enabled")
 	}
 }
 
-func TestToolFiltering_DisabledGroup(t *testing.T) {
+func TestToolFiltering_DisabledGroup(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledToolGroups: []string{"task_relations"},
 	}
-	s := mustNew(t, cfg)
+	srv := mustNew(test, cfg)
 
-	if s.isToolEnabled("tusk_task_link", "task_relations") {
-		t.Error("tusk_task_link should be disabled (group 'task_relations' disabled)")
+	if srv.isToolEnabled("tusk_task_link", "task_relations") {
+		test.Error("tusk_task_link should be disabled (group 'task_relations' disabled)")
 	}
-	if s.isToolEnabled("tusk_task_unlink", "task_relations") {
-		t.Error("tusk_task_unlink should be disabled (group 'task_relations' disabled)")
+	if srv.isToolEnabled("tusk_task_unlink", "task_relations") {
+		test.Error("tusk_task_unlink should be disabled (group 'task_relations' disabled)")
 	}
-	if !s.isToolEnabled("tusk_task_create", "task") {
-		t.Error("tusk_task_create should be enabled (group 'task' not disabled)")
+	if !srv.isToolEnabled("tusk_task_create", "task") {
+		test.Error("tusk_task_create should be enabled (group 'task' not disabled)")
 	}
 }
 
-func TestResourceFiltering_DisabledResource(t *testing.T) {
+func TestResourceFiltering_DisabledResource(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledResources: []string{"tusk://projects/{name}/workflow"},
 	}
-	s := mustNew(t, cfg)
+	srv := mustNew(test, cfg)
 
-	if s.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
-		t.Error("workflow resource should be disabled")
+	if srv.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
+		test.Error("workflow resource should be disabled")
 	}
-	if !s.isResourceEnabled("tusk://tasks/{short_id}", "task") {
-		t.Error("task resource should be enabled")
+	if !srv.isResourceEnabled("tusk://tasks/{short_id}", "task") {
+		test.Error("task resource should be enabled")
 	}
 }
 
-func TestResourceFiltering_DisabledGroup(t *testing.T) {
+func TestResourceFiltering_DisabledGroup(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledResourceGroups: []string{"workflow"},
 	}
-	s := mustNew(t, cfg)
+	srv := mustNew(test, cfg)
 
-	if s.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
-		t.Error("workflow resource should be disabled (group disabled)")
+	if srv.isResourceEnabled("tusk://projects/{name}/workflow", "workflow") {
+		test.Error("workflow resource should be disabled (group disabled)")
 	}
-	if !s.isResourceEnabled("tusk://projects/{name}", "project") {
-		t.Error("project resource should be enabled")
+	if !srv.isResourceEnabled("tusk://projects/{name}", "project") {
+		test.Error("project resource should be enabled")
 	}
 }
 
-func TestRegisterTools_FiltersDisabledTools(t *testing.T) {
-	full := mustNew(t, config.MCPConfig{})
-	filtered := mustNew(t, config.MCPConfig{
+func TestRegisterTools_FiltersDisabledTools(test *testing.T) {
+	full := mustNew(test, config.MCPConfig{})
+	filtered := mustNew(test, config.MCPConfig{
 		DisabledToolGroups: []string{"task_relations"},
 	})
 
 	if len(full.toolGroups) != 33 {
-		t.Errorf("full server: expected 33 tools, got %d", len(full.toolGroups))
+		test.Errorf("full server: expected 33 tools, got %d", len(full.toolGroups))
 	}
 	if len(filtered.toolGroups) != 31 {
-		t.Errorf("filtered server: expected 31 tools (task_relations group disabled), got %d", len(filtered.toolGroups))
+		test.Errorf("filtered server: expected 31 tools (task_relations group disabled), got %d", len(filtered.toolGroups))
 	}
 }
 
-func TestRegisterResources_FiltersDisabledResources(t *testing.T) {
-	full := mustNew(t, config.MCPConfig{})
-	filtered := mustNew(t, config.MCPConfig{
+func TestRegisterResources_FiltersDisabledResources(test *testing.T) {
+	full := mustNew(test, config.MCPConfig{})
+	filtered := mustNew(test, config.MCPConfig{
 		DisabledResourceGroups: []string{"workflow"},
 	})
 
 	if len(full.resourceGroups) != 3 {
-		t.Errorf("full server: expected 3 resources, got %d", len(full.resourceGroups))
+		test.Errorf("full server: expected 3 resources, got %d", len(full.resourceGroups))
 	}
 	if len(filtered.resourceGroups) != 2 {
-		t.Errorf("filtered server: expected 2 resources (workflow disabled), got %d", len(filtered.resourceGroups))
+		test.Errorf("filtered server: expected 2 resources (workflow disabled), got %d", len(filtered.resourceGroups))
 	}
 }
 
-func TestValidation_UnknownEntries(t *testing.T) {
+func TestValidation_UnknownEntries(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledTools:          []string{"tusk_nonexistent_tool"},
 		DisabledToolGroups:     []string{"nonexistent_group"},
@@ -151,7 +151,7 @@ func TestValidation_UnknownEntries(t *testing.T) {
 		"test", cfg, nil,
 	)
 	if err == nil {
-		t.Fatal("expected error for unknown config entries, got nil")
+		test.Fatal("expected error for unknown config entries, got nil")
 	}
 
 	msg := err.Error()
@@ -162,12 +162,12 @@ func TestValidation_UnknownEntries(t *testing.T) {
 		"nonexistent_res_group",
 	} {
 		if !strings.Contains(msg, want) {
-			t.Errorf("expected error to mention %q, got: %s", want, msg)
+			test.Errorf("expected error to mention %q, got: %s", want, msg)
 		}
 	}
 }
 
-func TestValidation_NoErrorForValidEntries(t *testing.T) {
+func TestValidation_NoErrorForValidEntries(test *testing.T) {
 	cfg := config.MCPConfig{
 		DisabledToolGroups:     []string{"task_relations"},
 		DisabledResourceGroups: []string{"workflow"},
@@ -179,49 +179,49 @@ func TestValidation_NoErrorForValidEntries(t *testing.T) {
 		"test", cfg, nil,
 	)
 	if err != nil {
-		t.Errorf("expected no error, got: %v", err)
+		test.Errorf("expected no error, got: %v", err)
 	}
 }
 
-func TestValidation_NoteDisable(t *testing.T) {
-	t.Run("disable note tool accepted", func(t *testing.T) {
+func TestValidation_NoteDisable(test *testing.T) {
+	test.Run("disable note tool accepted", func(test *testing.T) {
 		_, err := New(
 			nil, nil, nil, nil, nil, nil, nil,
 			nil, nil, nil,
 			"test", config.MCPConfig{DisabledTools: []string{"tusk_note_add"}}, nil,
 		)
 		if err != nil {
-			t.Errorf("expected no error disabling tusk_note_add, got: %v", err)
+			test.Errorf("expected no error disabling tusk_note_add, got: %v", err)
 		}
 	})
 
-	t.Run("disable note group accepted", func(t *testing.T) {
+	test.Run("disable note group accepted", func(test *testing.T) {
 		_, err := New(
 			nil, nil, nil, nil, nil, nil, nil,
 			nil, nil, nil,
 			"test", config.MCPConfig{DisabledToolGroups: []string{"note"}}, nil,
 		)
 		if err != nil {
-			t.Errorf("expected no error disabling note group, got: %v", err)
+			test.Errorf("expected no error disabling note group, got: %v", err)
 		}
 	})
 
-	t.Run("unknown note_* rejected", func(t *testing.T) {
+	test.Run("unknown note_* rejected", func(test *testing.T) {
 		_, err := New(
 			nil, nil, nil, nil, nil, nil, nil,
 			nil, nil, nil,
 			"test", config.MCPConfig{DisabledTools: []string{"tusk_note_bogus"}}, nil,
 		)
 		if err == nil {
-			t.Fatal("expected error for unknown tusk_note_bogus, got nil")
+			test.Fatal("expected error for unknown tusk_note_bogus, got nil")
 		}
 		if !strings.Contains(err.Error(), "tusk_note_bogus") {
-			t.Errorf("expected error to mention tusk_note_bogus, got: %s", err.Error())
+			test.Errorf("expected error to mention tusk_note_bogus, got: %s", err.Error())
 		}
 	})
 }
 
-func TestValidateConfig_BlockedFields_UnknownTool(t *testing.T) {
+func TestValidateConfig_BlockedFields_UnknownTool(test *testing.T) {
 	_, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
@@ -230,14 +230,14 @@ func TestValidateConfig_BlockedFields_UnknownTool(t *testing.T) {
 		}, nil,
 	)
 	if err == nil {
-		t.Fatal("expected error for unknown tool in blocked_fields, got nil")
+		test.Fatal("expected error for unknown tool in blocked_fields, got nil")
 	}
 	if !strings.Contains(err.Error(), "blocked_fields: unknown tool") {
-		t.Errorf("expected error to mention 'blocked_fields: unknown tool', got: %s", err.Error())
+		test.Errorf("expected error to mention 'blocked_fields: unknown tool', got: %s", err.Error())
 	}
 }
 
-func TestValidateConfig_BlockedFields_UnknownField(t *testing.T) {
+func TestValidateConfig_BlockedFields_UnknownField(test *testing.T) {
 	_, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
@@ -246,14 +246,14 @@ func TestValidateConfig_BlockedFields_UnknownField(t *testing.T) {
 		}, nil,
 	)
 	if err == nil {
-		t.Fatal("expected error for unknown field in blocked_fields, got nil")
+		test.Fatal("expected error for unknown field in blocked_fields, got nil")
 	}
 	if !strings.Contains(err.Error(), `has no field "bogus"`) {
-		t.Errorf(`expected error to mention 'has no field "bogus"', got: %s`, err.Error())
+		test.Errorf(`expected error to mention 'has no field "bogus"', got: %s`, err.Error())
 	}
 }
 
-func TestValidateConfig_BlockedFields_DottedField(t *testing.T) {
+func TestValidateConfig_BlockedFields_DottedField(test *testing.T) {
 	_, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
@@ -262,14 +262,14 @@ func TestValidateConfig_BlockedFields_DottedField(t *testing.T) {
 		}, nil,
 	)
 	if err == nil {
-		t.Fatal("expected error for dotted sub-key in blocked_fields, got nil")
+		test.Fatal("expected error for dotted sub-key in blocked_fields, got nil")
 	}
 	if !strings.Contains(err.Error(), "dotted sub-keys not yet supported") {
-		t.Errorf("expected error to mention 'dotted sub-keys not yet supported', got: %s", err.Error())
+		test.Errorf("expected error to mention 'dotted sub-keys not yet supported', got: %s", err.Error())
 	}
 }
 
-func TestValidateConfig_BlockedFields_Valid(t *testing.T) {
+func TestValidateConfig_BlockedFields_Valid(test *testing.T) {
 	_, err := New(
 		nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil,
@@ -278,22 +278,22 @@ func TestValidateConfig_BlockedFields_Valid(t *testing.T) {
 		}, nil,
 	)
 	if err != nil {
-		t.Errorf("expected no error for valid blocked_fields entry, got: %v", err)
+		test.Errorf("expected no error for valid blocked_fields entry, got: %v", err)
 	}
 }
 
-func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
-	dir := t.TempDir()
+func TestServer_ReloadConfig_SmokeTest(test *testing.T) {
+	dir := test.TempDir()
 	configPath := filepath.Join(dir, "tusk.toml")
 	seed, err := os.ReadFile("../../config/default.toml")
 	if err != nil {
-		t.Fatalf("reading default.toml seed: %v", err)
+		test.Fatalf("reading default.toml seed: %v", err)
 	}
 	if err := os.WriteFile(configPath, seed, 0o644); err != nil {
-		t.Fatalf("writing seed config: %v", err)
+		test.Fatalf("writing seed config: %v", err)
 	}
 
-	_, projectRepo, workflowRepo := sqlitetest.NewStore(t)
+	_, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
 	srv, err := New(
@@ -303,33 +303,33 @@ func TestServer_ReloadConfig_SmokeTest(t *testing.T) {
 		[]config.Option{config.WithExplicitFile(configPath)},
 	)
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		test.Fatalf("New: %v", err)
 	}
 
 	if err := srv.ReloadConfigForTest(context.Background()); err != nil {
-		t.Fatalf("reloadConfig: %v", err)
+		test.Fatalf("reloadConfig: %v", err)
 	}
 
 	wfs, err := workflowRepo.List(context.Background())
 	if err != nil || len(wfs) == 0 {
-		t.Fatalf("post-reload workflows: got %+v err=%v", wfs, err)
+		test.Fatalf("post-reload workflows: got %+v err=%v", wfs, err)
 	}
 }
 
-func TestReloadConfig_BlockedFieldsHotSwap(t *testing.T) {
-	dir := t.TempDir()
+func TestReloadConfig_BlockedFieldsHotSwap(test *testing.T) {
+	dir := test.TempDir()
 	path := filepath.Join(dir, "tusk.toml")
 
 	initial, err := config.LoadFile("../../config/default.toml")
 	if err != nil {
-		t.Fatalf("reading default.toml seed: %v", err)
+		test.Fatalf("reading default.toml seed: %v", err)
 	}
 	initial.MCP.BlockedFields = nil
 	if err := config.WriteConfig(initial, path); err != nil {
-		t.Fatalf("writing initial config: %v", err)
+		test.Fatalf("writing initial config: %v", err)
 	}
 
-	_, projectRepo, workflowRepo := sqlitetest.NewStore(t)
+	_, projectRepo, workflowRepo := sqlitetest.NewStore(test)
 	urgencyEngine := service.NewUrgencyEngine(service.UrgencyWeights{})
 
 	loadOpts := []config.Option{config.WithExplicitFile(path)}
@@ -339,7 +339,7 @@ func TestReloadConfig_BlockedFieldsHotSwap(t *testing.T) {
 		"test", initial.MCP, loadOpts,
 	)
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		test.Fatalf("New: %v", err)
 	}
 
 	req := blockedReq(map[string]any{
@@ -348,30 +348,30 @@ func TestReloadConfig_BlockedFieldsHotSwap(t *testing.T) {
 		"workflow": "kanban",
 	})
 	if res := srv.checkBlocked("tusk_project_modify", req); res != nil {
-		t.Fatalf("pre-reload: expected no block, got %s", res.Content[0].(mcp.TextContent).Text)
+		test.Fatalf("pre-reload: expected no block, got %s", res.Content[0].(mcp.TextContent).Text)
 	}
 
 	updated, err := config.LoadFile(path)
 	if err != nil {
-		t.Fatalf("re-reading config: %v", err)
+		test.Fatalf("re-reading config: %v", err)
 	}
 	updated.MCP.BlockedFields = map[string][]string{
 		"tusk_project_modify": {"workflow"},
 	}
 	if err := config.WriteConfig(updated, path); err != nil {
-		t.Fatalf("rewriting config: %v", err)
+		test.Fatalf("rewriting config: %v", err)
 	}
 
 	if err := srv.ReloadConfigForTest(context.Background()); err != nil {
-		t.Fatalf("reloadConfig: %v", err)
+		test.Fatalf("reloadConfig: %v", err)
 	}
 
 	res := srv.checkBlocked("tusk_project_modify", req)
 	if res == nil {
-		t.Fatal("post-reload: expected block, got nil")
+		test.Fatal("post-reload: expected block, got nil")
 	}
 	msg := res.Content[0].(mcp.TextContent).Text
 	if !strings.Contains(msg, "mcp.blocked_fields.tusk_project_modify") {
-		t.Errorf("block message missing config-key hint: %q", msg)
+		test.Errorf("block message missing config-key hint: %q", msg)
 	}
 }

@@ -7,11 +7,11 @@ import (
 	"github.com/germanamz/tusk/domain"
 )
 
-func TestTaxonomyErrorResult_StructuredPayload(t *testing.T) {
+func TestTaxonomyErrorResult_StructuredPayload(test *testing.T) {
 	cases := []struct {
 		name  string
 		err   *domain.TaxonomyError
-		check func(t *testing.T, payload taxonomyErrorPayload)
+		check func(test *testing.T, payload taxonomyErrorPayload)
 	}{
 		{
 			name: "missing",
@@ -19,15 +19,15 @@ func TestTaxonomyErrorResult_StructuredPayload(t *testing.T) {
 				Reason:   "missing",
 				Taxonomy: domain.Taxonomy{{"milestone"}, {"story"}},
 			},
-			check: func(t *testing.T, p taxonomyErrorPayload) {
-				if p.Code != "taxonomy_violation" {
-					t.Errorf("code: got %q", p.Code)
+			check: func(test *testing.T, payload taxonomyErrorPayload) {
+				if payload.Code != "taxonomy_violation" {
+					test.Errorf("code: got %q", payload.Code)
 				}
-				if p.Reason != "missing" {
-					t.Errorf("reason: got %q", p.Reason)
+				if payload.Reason != "missing" {
+					test.Errorf("reason: got %q", payload.Reason)
 				}
-				if len(p.Taxonomy.Ranks) != 2 || p.Taxonomy.Ranks[0][0] != "milestone" {
-					t.Errorf("taxonomy.ranks: got %+v", p.Taxonomy.Ranks)
+				if len(payload.Taxonomy.Ranks) != 2 || payload.Taxonomy.Ranks[0][0] != "milestone" {
+					test.Errorf("taxonomy.ranks: got %+v", payload.Taxonomy.Ranks)
 				}
 			},
 		},
@@ -38,9 +38,9 @@ func TestTaxonomyErrorResult_StructuredPayload(t *testing.T) {
 				Level:    "bogus",
 				Taxonomy: domain.Taxonomy{{"milestone"}},
 			},
-			check: func(t *testing.T, p taxonomyErrorPayload) {
-				if p.Level != "bogus" {
-					t.Errorf("level: got %q", p.Level)
+			check: func(test *testing.T, payload taxonomyErrorPayload) {
+				if payload.Level != "bogus" {
+					test.Errorf("level: got %q", payload.Level)
 				}
 			},
 		},
@@ -52,32 +52,32 @@ func TestTaxonomyErrorResult_StructuredPayload(t *testing.T) {
 				ParentLevel: "milestone",
 				Taxonomy:    domain.Taxonomy{{"milestone"}, {"story"}},
 			},
-			check: func(t *testing.T, p taxonomyErrorPayload) {
-				if p.ParentLevel != "milestone" {
-					t.Errorf("parent_level: got %q", p.ParentLevel)
+			check: func(test *testing.T, payload taxonomyErrorPayload) {
+				if payload.ParentLevel != "milestone" {
+					test.Errorf("parent_level: got %q", payload.ParentLevel)
 				}
 			},
 		},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			result := taxonomyErrorResult(c.err)
+	for _, caseItem := range cases {
+		test.Run(caseItem.name, func(test *testing.T) {
+			result := taxonomyErrorResult(caseItem.err)
 			if result == nil || !result.IsError {
-				t.Fatalf("expected error result, got %+v", result)
+				test.Fatalf("expected error result, got %+v", result)
 			}
 			if len(result.Content) == 0 {
-				t.Fatalf("expected text content preserved, got none")
+				test.Fatalf("expected text content preserved, got none")
 			}
 			payload, ok := result.StructuredContent.(taxonomyErrorPayload)
 			if !ok {
-				t.Fatalf("StructuredContent type: got %T", result.StructuredContent)
+				test.Fatalf("StructuredContent type: got %T", result.StructuredContent)
 			}
-			c.check(t, payload)
+			caseItem.check(test, payload)
 		})
 	}
 }
 
-func TestMapError(t *testing.T) {
+func TestMapError(test *testing.T) {
 	tests := []struct {
 		name    string
 		err     error
@@ -151,11 +151,11 @@ func TestMapError(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := mapError(tt.err, tt.context)
-			if got != tt.want {
-				t.Errorf("mapError() = %q, want %q", got, tt.want)
+	for _, testCase := range tests {
+		test.Run(testCase.name, func(test *testing.T) {
+			got := mapError(testCase.err, testCase.context)
+			if got != testCase.want {
+				test.Errorf("mapError() = %q, want %q", got, testCase.want)
 			}
 		})
 	}

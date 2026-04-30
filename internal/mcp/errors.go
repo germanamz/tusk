@@ -64,19 +64,19 @@ type taxonomyRanksMsg struct {
 // human-readable message (preserved for agents that ignore structured
 // payloads) and the structured `taxonomy_violation` payload. Callers should
 // check errors.As(err, *domain.TaxonomyError) before invoking this helper.
-func taxonomyErrorResult(te *domain.TaxonomyError) *mcp.CallToolResult {
-	ranks := [][]string(te.Taxonomy)
+func taxonomyErrorResult(taxonomyErr *domain.TaxonomyError) *mcp.CallToolResult {
+	ranks := [][]string(taxonomyErr.Taxonomy)
 	if ranks == nil {
 		ranks = [][]string{}
 	}
 	payload := taxonomyErrorPayload{
 		Code:        "taxonomy_violation",
-		Reason:      te.Reason,
-		Level:       te.Level,
-		ParentLevel: te.ParentLevel,
+		Reason:      taxonomyErr.Reason,
+		Level:       taxonomyErr.Level,
+		ParentLevel: taxonomyErr.ParentLevel,
 		Taxonomy:    taxonomyRanksMsg{Ranks: ranks},
 	}
-	result := mcp.NewToolResultError(te.Error())
+	result := mcp.NewToolResultError(taxonomyErr.Error())
 	result.StructuredContent = payload
 	return result
 }

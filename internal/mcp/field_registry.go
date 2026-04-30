@@ -49,9 +49,9 @@ var toolFields = map[string]map[string]struct{}{
 }
 
 func setOf(keys ...string) map[string]struct{} {
-	s := make(map[string]struct{}, len(keys))
-	for _, k := range keys {
-		s[k] = struct{}{}
+	result := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		result[key] = struct{}{}
 	}
-	return s
+	return result
 }
