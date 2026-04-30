@@ -36,34 +36,37 @@ func newTestRelation(sourceID, targetID uuid.UUID, relType string) *domain.Relat
 //
 // Setup: create two tasks (source and target), then create a "blocks" relation
 // from task1 to task2. Verify that GetByTask(task1.ID) returns the relation.
-func TestRelationCreate(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+func TestRelationCreate(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
 	// Create two tasks. Relations connect two tasks, so we need both to exist.
-	t1 := newTestTask()
-	t2 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
 
-	// Create a "blocks" relation: t1 blocks t2.
-	rel := newTestRelation(t1.ID, t2.ID, "blocks")
+	// Create a "blocks" relation: taskOne blocks taskTwo.
+	rel := newTestRelation(taskOne.ID, taskTwo.ID, "blocks")
+
 	if err := repo.Create(ctx, rel); err != nil {
-		t.Fatalf("Create: %v", err)
+		test.Fatalf("Create: %v", err)
 	}
 
-	// Verify via GetByTask. Since t1 is the source, it should appear.
-	rels, err := repo.GetByTask(ctx, t1.ID)
+	// Verify via GetByTask. Since taskOne is the source, it should appear.
+	rels, err := repo.GetByTask(ctx, taskOne.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(rels) != 1 {
-		t.Fatalf("expected 1, got %d", len(rels))
+		test.Fatalf("expected 1, got %d", len(rels))
 	}
 	if rels[0].RelationType != "blocks" {
-		t.Fatalf("expected blocks, got %s", rels[0].RelationType)
+		test.Fatalf("expected blocks, got %s", rels[0].RelationType)
 	}
 }
 
@@ -72,115 +75,121 @@ func TestRelationCreate(t *testing.T) {
 //
 // This tests the UNIQUE(source_id, target_id, relation_type) constraint and our
 // isUniqueViolation helper that translates the SQLite error into a domain error.
-func TestRelationCreateDuplicate(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+func TestRelationCreateDuplicate(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t2 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
 
 	// First insert: should succeed.
-	if err := repo.Create(ctx, newTestRelation(t1.ID, t2.ID, "blocks")); err != nil {
-		t.Fatal(err)
+	if err := repo.Create(ctx, newTestRelation(taskOne.ID, taskTwo.ID, "blocks")); err != nil {
+		test.Fatal(err)
 	}
 
 	// Second insert with same source, target, and type: should fail.
 	// Note that newTestRelation generates a NEW uuid.UUID for the ID field,
 	// but the UNIQUE constraint is on (source_id, target_id, relation_type),
 	// not on id. So even though the IDs differ, the constraint fires.
-	err := repo.Create(ctx, newTestRelation(t1.ID, t2.ID, "blocks"))
+	err := repo.Create(ctx, newTestRelation(taskOne.ID, taskTwo.ID, "blocks"))
 	if err != domain.ErrDuplicateRelation {
-		t.Fatalf("expected ErrDuplicateRelation, got %v", err)
+		test.Fatalf("expected ErrDuplicateRelation, got %v", err)
 	}
 }
 
 // TestRelationDelete verifies that Delete removes a relation and that
 // GetByTask no longer returns it.
-func TestRelationDelete(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+func TestRelationDelete(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t2 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
 
-	rel := newTestRelation(t1.ID, t2.ID, "relates_to")
+	rel := newTestRelation(taskOne.ID, taskTwo.ID, "relates_to")
+
 	if err := repo.Create(ctx, rel); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
 	// Delete the relation.
 	if err := repo.Delete(ctx, rel.ID); err != nil {
-		t.Fatalf("Delete: %v", err)
+		test.Fatalf("Delete: %v", err)
 	}
 
 	// Verify it is gone.
-	rels, err := repo.GetByTask(ctx, t1.ID)
+	rels, err := repo.GetByTask(ctx, taskOne.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(rels) != 0 {
-		t.Fatalf("expected 0 after delete, got %d", len(rels))
+		test.Fatalf("expected 0 after delete, got %d", len(rels))
 	}
 }
 
 // TestRelationDeleteNotFound verifies that deleting a non-existent relation
 // returns domain.ErrNotFound.
-func TestRelationDeleteNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewRelationRepo(s.DB())
+func TestRelationDeleteNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewRelationRepo(store.DB())
 	err := repo.Delete(context.Background(), uuid.New())
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
 // TestRelationDeleteByFields verifies that DeleteByFields removes a relation
 // matching the exact (source, target, type) triple.
-func TestRelationDeleteByFields(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+func TestRelationDeleteByFields(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t2 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
 
-	rel := newTestRelation(t1.ID, t2.ID, "blocks")
+	rel := newTestRelation(taskOne.ID, taskTwo.ID, "blocks")
+
 	if err := repo.Create(ctx, rel); err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 
-	if err := repo.DeleteByFields(ctx, t1.ID, t2.ID, "blocks"); err != nil {
-		t.Fatalf("DeleteByFields: %v", err)
+	if err := repo.DeleteByFields(ctx, taskOne.ID, taskTwo.ID, "blocks"); err != nil {
+		test.Fatalf("DeleteByFields: %v", err)
 	}
 
-	rels, err := repo.GetByTask(ctx, t1.ID)
+	rels, err := repo.GetByTask(ctx, taskOne.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(rels) != 0 {
-		t.Fatalf("expected 0 after delete, got %d", len(rels))
+		test.Fatalf("expected 0 after delete, got %d", len(rels))
 	}
 }
 
 // TestRelationDeleteByFieldsNotFound verifies that DeleteByFields returns
 // domain.ErrNotFound when no matching relation exists.
-func TestRelationDeleteByFieldsNotFound(t *testing.T) {
-	s := testStore(t)
-	repo := NewRelationRepo(s.DB())
+func TestRelationDeleteByFieldsNotFound(test *testing.T) {
+	store := testStore(test)
+	repo := NewRelationRepo(store.DB())
 	err := repo.DeleteByFields(context.Background(), uuid.New(), uuid.New(), "blocks")
 	if err != domain.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+		test.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
@@ -188,40 +197,43 @@ func TestRelationDeleteByFieldsNotFound(t *testing.T) {
 // task is EITHER the source OR the target.
 //
 // Setup:
-//   - t1 -> t2 (blocks) — t1 is source
-//   - t3 -> t1 (relates_to) — t1 is target
+//   - taskOne -> taskTwo (blocks) — taskOne is source
+//   - taskThree -> taskOne (relates_to) — taskOne is target
 //
-// GetByTask(t1) should return BOTH relations (2 total) because t1 appears
+// GetByTask(taskOne) should return BOTH relations (2 total) because taskOne appears
 // as source in one and target in the other.
-func TestRelationGetByTask(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+func TestRelationGetByTask(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t2 := newTestTask()
-	t3 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
-	mustCreateTask(t, taskRepo, t3)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	taskThree := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
+	mustCreateTask(test, taskRepo, taskThree)
 
-	// t1 is source in this relation.
-	if err := repo.Create(ctx, newTestRelation(t1.ID, t2.ID, "blocks")); err != nil {
-		t.Fatal(err)
-	}
-	// t1 is target in this relation.
-	if err := repo.Create(ctx, newTestRelation(t3.ID, t1.ID, "relates_to")); err != nil {
-		t.Fatal(err)
+	// taskOne is source in this relation.
+	if err := repo.Create(ctx, newTestRelation(taskOne.ID, taskTwo.ID, "blocks")); err != nil {
+		test.Fatal(err)
 	}
 
-	rels, err := repo.GetByTask(ctx, t1.ID)
+	// taskOne is target in this relation.
+	if err := repo.Create(ctx, newTestRelation(taskThree.ID, taskOne.ID, "relates_to")); err != nil {
+		test.Fatal(err)
+	}
+
+	rels, err := repo.GetByTask(ctx, taskOne.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
-	// Both relations involve t1, so both should be returned.
+
+	// Both relations involve taskOne, so both should be returned.
 	if len(rels) != 2 {
-		t.Fatalf("expected 2, got %d", len(rels))
+		test.Fatalf("expected 2, got %d", len(rels))
 	}
 }
 
@@ -229,42 +241,46 @@ func TestRelationGetByTask(t *testing.T) {
 // where the given task is the SOURCE and the type is "blocks".
 //
 // Setup:
-//   - t1 blocks t2 — should be returned (t1 is source, type is "blocks")
-//   - t1 blocks t3 — should be returned (t1 is source, type is "blocks")
-//   - t2 relates_to t3 — should NOT be returned (different type)
+//   - taskOne blocks taskTwo — should be returned (taskOne is source, type is "blocks")
+//   - taskOne blocks taskThree — should be returned (taskOne is source, type is "blocks")
+//   - taskTwo relates_to taskThree — should NOT be returned (different type)
 //
-// GetBlocking(t1) should return 2 relations.
-func TestRelationGetBlocking(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+// GetBlocking(taskOne) should return 2 relations.
+func TestRelationGetBlocking(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t2 := newTestTask()
-	t3 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
-	mustCreateTask(t, taskRepo, t3)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	taskThree := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
+	mustCreateTask(test, taskRepo, taskThree)
 
-	// t1 is the blocker in both of these.
-	if err := repo.Create(ctx, newTestRelation(t1.ID, t2.ID, "blocks")); err != nil {
-		t.Fatal(err)
+	// taskOne is the blocker in both of these.
+	if err := repo.Create(ctx, newTestRelation(taskOne.ID, taskTwo.ID, "blocks")); err != nil {
+		test.Fatal(err)
 	}
-	if err := repo.Create(ctx, newTestRelation(t1.ID, t3.ID, "blocks")); err != nil {
-		t.Fatal(err)
+
+	if err := repo.Create(ctx, newTestRelation(taskOne.ID, taskThree.ID, "blocks")); err != nil {
+		test.Fatal(err)
 	}
+
 	// This is a different type — should not appear in GetBlocking results.
-	if err := repo.Create(ctx, newTestRelation(t2.ID, t3.ID, "relates_to")); err != nil {
-		t.Fatal(err)
+	if err := repo.Create(ctx, newTestRelation(taskTwo.ID, taskThree.ID, "relates_to")); err != nil {
+		test.Fatal(err)
 	}
 
-	blocking, err := repo.GetBlocking(ctx, t1.ID)
+	blocking, err := repo.GetBlocking(ctx, taskOne.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(blocking) != 2 {
-		t.Fatalf("expected 2, got %d", len(blocking))
+		test.Fatalf("expected 2, got %d", len(blocking))
 	}
 }
 
@@ -272,36 +288,38 @@ func TestRelationGetBlocking(t *testing.T) {
 // where the given task is the TARGET and the type is "blocks".
 //
 // Setup:
-//   - t1 blocks t2 — GetBlockedBy(t2) should return this (t2 is the target)
+//   - taskOne blocks taskTwo — GetBlockedBy(taskTwo) should return this (taskTwo is the target)
 //
-// GetBlockedBy(t2) should return 1 relation, and its SourceID should be t1.
-func TestRelationGetBlockedBy(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+// GetBlockedBy(taskTwo) should return 1 relation, and its SourceID should be taskOne.
+func TestRelationGetBlockedBy(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t2 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
 
-	// t1 blocks t2: t1 is the source (blocker), t2 is the target (blocked).
-	if err := repo.Create(ctx, newTestRelation(t1.ID, t2.ID, "blocks")); err != nil {
-		t.Fatal(err)
+	// taskOne blocks taskTwo: taskOne is the source (blocker), taskTwo is the target (blocked).
+	if err := repo.Create(ctx, newTestRelation(taskOne.ID, taskTwo.ID, "blocks")); err != nil {
+		test.Fatal(err)
 	}
 
-	// Ask "what is blocking t2?" — should return the relation with t1 as source.
-	blockedBy, err := repo.GetBlockedBy(ctx, t2.ID)
+	// Ask "what is blocking taskTwo?" — should return the relation with taskOne as source.
+	blockedBy, err := repo.GetBlockedBy(ctx, taskTwo.ID)
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if len(blockedBy) != 1 {
-		t.Fatalf("expected 1, got %d", len(blockedBy))
+		test.Fatalf("expected 1, got %d", len(blockedBy))
 	}
-	// Verify that the source of the blocking relation is t1.
-	if blockedBy[0].SourceID != t1.ID {
-		t.Fatal("expected source to be t1")
+	// Verify that the source of the blocking relation is taskOne.
+	if blockedBy[0].SourceID != taskOne.ID {
+		test.Fatal("expected source to be taskOne")
 	}
 }
 
@@ -313,48 +331,54 @@ func TestRelationGetBlockedBy(t *testing.T) {
 //  2. The reverse direction (swap source and target) — should return false
 //     because relations are directional.
 //  3. Same source and target but different type — should return false.
-func TestRelationExists(t *testing.T) {
-	s := testStore(t)
-	taskRepo := NewTaskRepo(s.DB())
-	repo := NewRelationRepo(s.DB())
+func TestRelationExists(test *testing.T) {
+	store := testStore(test)
+	taskRepo := NewTaskRepo(store.DB())
+	repo := NewRelationRepo(store.DB())
 	ctx := context.Background()
 
-	t1 := newTestTask()
-	t2 := newTestTask()
-	mustCreateTask(t, taskRepo, t1)
-	mustCreateTask(t, taskRepo, t2)
+	taskOne := newTestTask()
+	taskTwo := newTestTask()
+	mustCreateTask(test, taskRepo, taskOne)
+	mustCreateTask(test, taskRepo, taskTwo)
 
-	// Create: t1 blocks t2.
-	if err := repo.Create(ctx, newTestRelation(t1.ID, t2.ID, "blocks")); err != nil {
-		t.Fatal(err)
+	// Create: taskOne blocks taskTwo.
+	if err := repo.Create(ctx, newTestRelation(taskOne.ID, taskTwo.ID, "blocks")); err != nil {
+		test.Fatal(err)
 	}
 
 	// Scenario 1: exact match — should be true.
-	exists, err := repo.Exists(ctx, t1.ID, t2.ID, "blocks")
+	exists, err := repo.Exists(ctx, taskOne.ID, taskTwo.ID, "blocks")
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if !exists {
-		t.Fatal("expected true")
+		test.Fatal("expected true")
 	}
 
 	// Scenario 2: reversed direction — should be false.
-	// t2 does NOT block t1. Relations are directional!
-	exists, err = repo.Exists(ctx, t2.ID, t1.ID, "blocks")
+	// taskTwo does NOT block taskOne. Relations are directional!
+	exists, err = repo.Exists(ctx, taskTwo.ID, taskOne.ID, "blocks")
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if exists {
-		t.Fatal("expected false for reverse")
+		test.Fatal("expected false for reverse")
 	}
 
 	// Scenario 3: different type — should be false.
-	// t1 blocks t2, but t1 does NOT "relates_to" t2.
-	exists, err = repo.Exists(ctx, t1.ID, t2.ID, "relates_to")
+	// taskOne blocks taskTwo, but taskOne does NOT "relates_to" taskTwo.
+	exists, err = repo.Exists(ctx, taskOne.ID, taskTwo.ID, "relates_to")
+
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
+
 	if exists {
-		t.Fatal("expected false for different type")
+		test.Fatal("expected false for different type")
 	}
 }
