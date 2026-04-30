@@ -1809,7 +1809,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5.md
 > Depends on: P2. Parallelizable with P3, P4, P6, P7. Blocks P8.
 
-- [ ] [v0.14 P5-T1] Drop internal/mcp/ + internal/portability/ varnamelen exclusions level=task order=1 +naming-convention +phase-5 +v0.14
+- [x] [v0.14 P5-T1] Drop internal/mcp/ + internal/portability/ varnamelen exclusions level=task order=1 +naming-convention +phase-5 +v0.14
 > What: Delete the two linters: [varnamelen] rules whose path is ^internal/mcp/ and ^internal/portability/ from .golangci.yml. Other per-package rules stay untouched.
 >
 > Why: Brings rule 1 into scope for both packages.
@@ -1825,7 +1825,7 @@
 > Blocks: P5-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T1.md
 
-- [ ] [v0.14 P5-T2] Drop internal/mcp/ + internal/portability/ pathfilter entries level=task order=2 +naming-convention +phase-5 +v0.14
+- [x] [v0.14 P5-T2] Drop internal/mcp/ + internal/portability/ pathfilter entries level=task order=2 +naming-convention +phase-5 +v0.14
 > What: Delete the two regex lines for ^github\.com/germanamz/tusk/internal/mcp(/|$) and ^github\.com/germanamz/tusk/internal/portability(/|$) from the excluded slice in internal/lint/pathfilter/pathfilter.go.
 >
 > Why: Brings rules 2, 3, 4 into scope for both packages.
@@ -1841,34 +1841,25 @@
 > Blocks: P5-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T2.md
 
-- [ ] [v0.14 P5-T3] Apply STYLE.md fixes across internal/mcp/ + internal/portability/ level=task order=3 +naming-convention +phase-5 +v0.14
-> What: Run make lint to enumerate every violation in internal/mcp/ and internal/portability/, then apply mechanical fixes per STYLE.md across all production and test files. No behavior changes. Per-handler PRs are a reasonable split if tools.go produces an oversized diff.
->
-> internal/mcp/ contains ~22 .go files. internal/portability/ contains 5. Expected violation classes: short locals during JSON marshaling (taskResponse, urgencyWeightsJSON, projectNameCache), short receivers (*ImportError), short dec/enc locals around json.NewDecoder/json.NewEncoder, short range vars (for _, b := range blocks), missing blank lines around guards in per-tool handlers, sequential err := shadows, and t *testing.T parameters.
->
-> Why: Work-bearing task. Per-tool handlers each do multiple service calls — a high-density site for rules 2 and 3.
->
-> Code references:
-> - internal/mcp/tools.go:666, 734, 750 — for _, b := range blocks sites.
-> - internal/mcp/tools.go (1729 LoC) — per-tool handlers.
-> - internal/mcp/server.go (1043 LoC).
-> - internal/mcp/project_handlers_test.go (619 LoC).
-> - internal/mcp/handlers_test.go (578 LoC).
-> - internal/portability/decode.go:29 — func (e *ImportError) Error() receiver rename.
-> - internal/portability/decode.go:48 — dec := json.NewDecoder(r) local rename.
-> - internal/portability/encode.go:18 — enc := json.NewEncoder(w) local rename.
-> - internal/portability/*_test.go — t *testing.T parameter renames (~30 sites).
->
-> Acceptance:
-> - Every file in both packages complies with STYLE.md rules 1–4.
-> - No behavior changes (verified by P5-T4).
->
-> Bridge code: None.
-> Depends on: P5-T1, P5-T2.
-> Blocks: P5-T4, P5-T5.
-> Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T3.md
+- [x] [v0.14 P5-T3a] Apply STYLE.md fixes to internal/mcp/tools.go level=task order=3 +naming-convention +phase-5 +v0.14
+> Apply STYLE.md rules 1-4 to `internal/mcp/tools.go` (~1729 LoC). ~190 violations, largest sub-bucket of P5. Mechanical sweep, no behavior changes. Part of split P5-T3. Shipped via PR #304.
 
-- [ ] [v0.14 P5-T4] Verify MCP and portability tests pass level=task order=4 +naming-convention +phase-5 +v0.14
+- [x] [v0.14 P5-T3b] Apply STYLE.md fixes to project handlers level=task order=4 +naming-convention +phase-5 +v0.14
+> Apply STYLE.md rules 1-4 to `internal/mcp/project_handlers.go` + `internal/mcp/project_handlers_test.go`. ~158 violations. Part of split P5-T3.
+
+- [x] [v0.14 P5-T3c] Apply STYLE.md fixes to note + workflow handlers level=task order=5 +naming-convention +phase-5 +v0.14
+> Apply STYLE.md rules 1-4 to `note_handlers.go`, `note_handlers_test.go`, `workflow_handlers.go`, `workflow_handlers_test.go`. ~149 violations. Part of split P5-T3.
+
+- [x] [v0.14 P5-T3d] Apply STYLE.md fixes to server + shared infrastructure level=task order=6 +naming-convention +phase-5 +v0.14
+> Apply STYLE.md rules 1-4 to `handlers_test.go`, `server.go`, `server_test.go`, `resources.go`, `errors.go`, `errors_test.go`, `blocked.go`, `blocked_test.go`, `tools_test.go`, `field_registry.go`. ~132 violations. Part of split P5-T3.
+
+- [x] [v0.14 P5-T3e] Apply STYLE.md fixes to config + task_move suite level=task order=7 +naming-convention +phase-5 +v0.14
+> Apply STYLE.md rules 1-4 to `config_handlers.go`, `config_handlers_test.go`, `task_move.go`, `task_move_test.go`. ~115 violations. Part of split P5-T3.
+
+- [x] [v0.14 P5-T3f] Apply STYLE.md fixes to internal/portability/ package level=task order=8 +naming-convention +phase-5 +v0.14
+> Apply STYLE.md rules 1-4 to `internal/portability/encode.go`, `encode_test.go`, `decode.go`, `decode_test.go`, `portable.go`. ~36 violations. After this lands, all files in both internal/mcp/ and internal/portability/ comply with STYLE.md. Part of split P5-T3.
+
+- [x] [v0.14 P5-T4] Verify MCP and portability tests pass level=task order=10 +naming-convention +phase-5 +v0.14
 > What: Run make test to verify behavior is preserved across both packages. All MCP server tests, tool-handler tests, tool-registry tests, and internal/portability/ encode/decode round-trip tests must pass.
 >
 > Why: MCP tool responses and portability JSON output are user-facing contracts; any accidental change would surface here.
@@ -1887,7 +1878,7 @@
 > Blocks: P5-T5.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P5-T4.md
 
-- [ ] [v0.14 P5-T5] Verify P5 packages lint clean level=task order=5 +naming-convention +phase-5 +v0.14
+- [x] [v0.14 P5-T5] Verify P5 packages lint clean level=task order=11 +naming-convention +phase-5 +v0.14
 > What: Run make lint to confirm zero violations across internal/mcp/ and internal/portability/ with all four rules now active. Closes the phase.
 >
 > Why: Acceptance gate.
