@@ -22,47 +22,52 @@ type noteResponse struct {
 	ArchivedAt  *string        `json:"archived_at,omitempty"`
 }
 
-func toNoteResponse(ctx context.Context, s *Server, n *domain.Note, projectNames *projectNameCache) noteResponse {
-	r := noteResponse{
-		ID:        n.ID.String(),
-		Project:   projectNames.name(n.ProjectID),
-		PlayerID:  n.PlayerID,
-		Body:      n.Body,
-		Metadata:  n.Metadata,
-		CreatedAt: n.CreatedAt.Format(time.RFC3339),
+func toNoteResponse(ctx context.Context, server *Server, note *domain.Note, projectNames *projectNameCache) noteResponse {
+	response := noteResponse{
+		ID:        note.ID.String(),
+		Project:   projectNames.name(note.ProjectID),
+		PlayerID:  note.PlayerID,
+		Body:      note.Body,
+		Metadata:  note.Metadata,
+		CreatedAt: note.CreatedAt.Format(time.RFC3339),
 	}
-	if n.TaskID != nil {
+	if note.TaskID != nil {
 		var label string
-		if task, err := s.taskSvc.GetByID(ctx, *n.TaskID); err == nil {
+		if task, lookupErr := server.taskSvc.GetByID(ctx, *note.TaskID); lookupErr == nil {
 			label = task.ShortID
 		} else {
-			label = n.TaskID.String()
+			label = note.TaskID.String()
 		}
-		r.TaskShortID = &label
+		response.TaskShortID = &label
 	}
-	if n.ArchivedAt != nil {
-		a := n.ArchivedAt.Format(time.RFC3339)
-		r.ArchivedAt = &a
+	if note.ArchivedAt != nil {
+		archivedAt := note.ArchivedAt.Format(time.RFC3339)
+		response.ArchivedAt = &archivedAt
 	}
-	return r
+	return response
 }
 
-func (s *Server) handleNoteAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_note_add", request); result != nil {
+func (server *Server) handleNoteAdd(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_note_add", request); result != nil {
 		return result, nil
 	}
-	playerID, err := request.RequireString("player_id")
-	if err != nil {
+
+	playerID, playerIDErr := request.RequireString("player_id")
+
+	if playerIDErr != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+
 	ctx = service.WithActor(ctx, playerID)
-	body, err := request.RequireString("body")
-	if err != nil {
+
+	body, bodyErr := request.RequireString("body")
+
+	if bodyErr != nil {
 		return mcp.NewToolResultError("body is required"), nil
 	}
 
-	if s.playerSvc != nil {
-		if _, regErr := s.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
+	if server.playerSvc != nil {
+		if _, regErr := server.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
 			if !errors.Is(regErr, domain.ErrConflict) {
 				return toolError(regErr, "auto-registering player"), nil
 			}
@@ -70,30 +75,34 @@ func (s *Server) handleNoteAdd(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	projectName := service.DefaultProjectName
-	if name, err := request.RequireString("project"); err == nil {
+	if name, projectNameErr := request.RequireString("project"); projectNameErr == nil {
 		projectName = name
 	}
-	projectID, err := s.taskSvc.ResolveProjectName(ctx, projectName)
-	if err != nil {
-		return toolError(err, "project "+projectName), nil
+
+	projectID, projectErr := server.taskSvc.ResolveProjectName(ctx, projectName)
+
+	if projectErr != nil {
+		return toolError(projectErr, "project "+projectName), nil
 	}
 
 	var taskID *uuid.UUID
-	if taskShortID, err := request.RequireString("task"); err == nil {
-		task, lookupErr := s.taskSvc.GetByShortID(ctx, taskShortID)
+	if taskShortID, taskShortIDErr := request.RequireString("task"); taskShortIDErr == nil {
+		task, lookupErr := server.taskSvc.GetByShortID(ctx, taskShortID)
+
 		if lookupErr != nil {
 			return toolError(lookupErr, "task "+taskShortID), nil
 		}
+
 		taskID = &task.ID
 	}
 
 	var metadata map[string]any
 	if raw, ok := request.GetArguments()["metadata"]; ok && raw != nil {
-		m, ok := raw.(map[string]any)
+		metaMap, ok := raw.(map[string]any)
 		if !ok {
 			return mcp.NewToolResultError("\"metadata\" must be an object"), nil
 		}
-		metadata = m
+		metadata = metaMap
 	}
 
 	note := &domain.Note{
@@ -103,23 +112,27 @@ func (s *Server) handleNoteAdd(ctx context.Context, request mcp.CallToolRequest)
 		Body:      body,
 		Metadata:  metadata,
 	}
-	if err := s.noteSvc.Create(ctx, note); err != nil {
-		return toolError(err, "create note"), nil
+
+	createErr := server.noteSvc.Create(ctx, note)
+
+	if createErr != nil {
+		return toolError(createErr, "create note"), nil
 	}
 
-	return toolResultJSON(toNoteResponse(ctx, s, note, s.projectNames(ctx)))
+	return toolResultJSON(toNoteResponse(ctx, server, note, server.projectNames(ctx)))
 }
 
-func (s *Server) handleNoteList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ctx = s.updatePlayerLiveness(ctx, request)
+func (server *Server) handleNoteList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx = server.updatePlayerLiveness(ctx, request)
 
-	playerID, err := request.RequireString("player_id")
-	if err != nil {
+	playerID, playerIDErr := request.RequireString("player_id")
+
+	if playerIDErr != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
 
-	if s.playerSvc != nil {
-		if _, regErr := s.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
+	if server.playerSvc != nil {
+		if _, regErr := server.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
 			if !errors.Is(regErr, domain.ErrConflict) {
 				return toolError(regErr, "auto-registering player"), nil
 			}
@@ -127,20 +140,24 @@ func (s *Server) handleNoteList(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	projectName := service.DefaultProjectName
-	if name, err := request.RequireString("project"); err == nil {
+	if name, projectNameErr := request.RequireString("project"); projectNameErr == nil {
 		projectName = name
 	}
-	projectID, err := s.taskSvc.ResolveProjectName(ctx, projectName)
-	if err != nil {
-		return toolError(err, "project "+projectName), nil
+
+	projectID, projectErr := server.taskSvc.ResolveProjectName(ctx, projectName)
+
+	if projectErr != nil {
+		return toolError(projectErr, "project "+projectName), nil
 	}
 
 	var taskID *uuid.UUID
-	if taskShortID, err := request.RequireString("task"); err == nil {
-		task, lookupErr := s.taskSvc.GetByShortID(ctx, taskShortID)
+	if taskShortID, taskShortIDErr := request.RequireString("task"); taskShortIDErr == nil {
+		task, lookupErr := server.taskSvc.GetByShortID(ctx, taskShortID)
+
 		if lookupErr != nil {
 			return toolError(lookupErr, "task "+taskShortID), nil
 		}
+
 		taskID = &task.ID
 	}
 
@@ -160,24 +177,26 @@ func (s *Server) handleNoteList(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	var windowOverride *int
-	if w, err := request.RequireFloat("window"); err == nil {
-		if iw := int(w); iw > 0 {
+	if windowF, windowErr := request.RequireFloat("window"); windowErr == nil {
+		if iw := int(windowF); iw > 0 {
 			windowOverride = &iw
 		}
 	}
 
 	var since *time.Time
-	if sinceStr, err := request.RequireString("since"); err == nil && sinceStr != "" {
-		t, parseErr := time.Parse(time.RFC3339, sinceStr)
+	if sinceStr, sinceErr := request.RequireString("since"); sinceErr == nil && sinceStr != "" {
+		parsed, parseErr := time.Parse(time.RFC3339, sinceStr)
+
 		if parseErr != nil {
 			return mcp.NewToolResultError("invalid since format, expected ISO 8601 (RFC3339)"), nil
 		}
-		since = &t
+
+		since = &parsed
 	}
 
 	includeArchived := request.GetBool("include_archived", false)
 
-	notes, err := s.noteSvc.List(ctx, service.NoteListParams{
+	notes, listErr := server.noteSvc.List(ctx, service.NoteListParams{
 		ProjectID:       projectID,
 		PlayerID:        targetPlayer,
 		CallerPlayerID:  playerID,
@@ -186,53 +205,63 @@ func (s *Server) handleNoteList(ctx context.Context, request mcp.CallToolRequest
 		IncludeArchived: includeArchived,
 		WindowOverride:  windowOverride,
 	})
-	if err != nil {
-		return toolError(err, "list notes"), nil
+
+	if listErr != nil {
+		return toolError(listErr, "list notes"), nil
 	}
 
-	names := s.projectNames(ctx)
+	names := server.projectNames(ctx)
 	results := make([]noteResponse, len(notes))
-	for i, n := range notes {
-		results[i] = toNoteResponse(ctx, s, n, names)
+	for idx, note := range notes {
+		results[idx] = toNoteResponse(ctx, server, note, names)
 	}
 	return toolResultJSON(results)
 }
 
-func (s *Server) handleNoteArchive(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if result := s.checkBlocked("tusk_note_archive", request); result != nil {
+func (server *Server) handleNoteArchive(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if result := server.checkBlocked("tusk_note_archive", request); result != nil {
 		return result, nil
 	}
-	playerID, err := request.RequireString("player_id")
-	if err != nil {
+
+	playerID, playerIDErr := request.RequireString("player_id")
+
+	if playerIDErr != nil {
 		return mcp.NewToolResultError("player_id is required"), nil
 	}
+
 	ctx = service.WithActor(ctx, playerID)
-	idStr, err := request.RequireString("id")
-	if err != nil {
+
+	idStr, idStrErr := request.RequireString("id")
+
+	if idStrErr != nil {
 		return mcp.NewToolResultError("id is required"), nil
 	}
 
-	if s.playerSvc != nil {
-		if _, regErr := s.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
+	if server.playerSvc != nil {
+		if _, regErr := server.playerSvc.Register(ctx, playerID, "agent"); regErr != nil {
 			if !errors.Is(regErr, domain.ErrConflict) {
 				return toolError(regErr, "auto-registering player"), nil
 			}
 		}
 	}
 
-	id, err := uuid.Parse(idStr)
-	if err != nil {
+	id, parseErr := uuid.Parse(idStr)
+
+	if parseErr != nil {
 		return mcp.NewToolResultError("invalid note id, expected full UUID"), nil
 	}
 
-	if err := s.noteSvc.Archive(ctx, id, playerID); err != nil {
-		return toolError(err, "archive note"), nil
+	archiveErr := server.noteSvc.Archive(ctx, id, playerID)
+
+	if archiveErr != nil {
+		return toolError(archiveErr, "archive note"), nil
 	}
 
-	note, err := s.noteSvc.GetByID(ctx, id)
-	if err != nil {
-		return toolError(err, "note "+id.String()), nil
+	note, getErr := server.noteSvc.GetByID(ctx, id)
+
+	if getErr != nil {
+		return toolError(getErr, "note "+id.String()), nil
 	}
 
-	return toolResultJSON(toNoteResponse(ctx, s, note, s.projectNames(ctx)))
+	return toolResultJSON(toNoteResponse(ctx, server, note, server.projectNames(ctx)))
 }
