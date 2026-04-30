@@ -2,13 +2,13 @@ package syntax
 
 import "testing"
 
-func TestParseFieldsCarriesBareAndModifiedFields(t *testing.T) {
+func TestParseFieldsCarriesBareAndModifiedFields(test *testing.T) {
 	fs, errs := ParseFields("status=active +status=review -status=done +urgent -blocked title=\"Hello world\"")
 	if len(errs) > 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(fs.Fields) != 4 {
-		t.Fatalf("expected 4 fields, got %d: %+v", len(fs.Fields), fs.Fields)
+		test.Fatalf("expected 4 fields, got %d: %+v", len(fs.Fields), fs.Fields)
 	}
 
 	want := []struct {
@@ -21,30 +21,30 @@ func TestParseFieldsCarriesBareAndModifiedFields(t *testing.T) {
 		{"status", "done", '-'},
 		{"title", "Hello world", 0},
 	}
-	for i, w := range want {
-		got := fs.Fields[i]
-		if got.Key != w.key || got.Value != w.value || got.Modifier != w.modifier {
-			t.Errorf("field[%d] = %+v, want %+v", i, got, w)
+	for index, wantItem := range want {
+		got := fs.Fields[index]
+		if got.Key != wantItem.key || got.Value != wantItem.value || got.Modifier != wantItem.modifier {
+			test.Errorf("field[%d] = %+v, want %+v", index, got, wantItem)
 		}
 	}
 
 	if len(fs.Tags) != 2 {
-		t.Fatalf("expected 2 tags, got %d", len(fs.Tags))
+		test.Fatalf("expected 2 tags, got %d", len(fs.Tags))
 	}
 	if fs.Tags[0].Name != "urgent" || fs.Tags[0].Exclude {
-		t.Errorf("tag[0] = %+v", fs.Tags[0])
+		test.Errorf("tag[0] = %+v", fs.Tags[0])
 	}
 	if fs.Tags[1].Name != "blocked" || !fs.Tags[1].Exclude {
-		t.Errorf("tag[1] = %+v", fs.Tags[1])
+		test.Errorf("tag[1] = %+v", fs.Tags[1])
 	}
 }
 
-func TestParseFieldsDoesNotValidateDomain(t *testing.T) {
+func TestParseFieldsDoesNotValidateDomain(test *testing.T) {
 	fs, errs := ParseFields("bogus=yes")
 	if len(errs) > 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(fs.Fields) != 1 || fs.Fields[0].Key != "bogus" || fs.Fields[0].Value != "yes" {
-		t.Fatalf("unexpected fields: %+v", fs.Fields)
+		test.Fatalf("unexpected fields: %+v", fs.Fields)
 	}
 }

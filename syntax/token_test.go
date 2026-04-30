@@ -2,7 +2,7 @@ package syntax
 
 import "testing"
 
-func TestTokenType_String(t *testing.T) {
+func TestTokenType_String(test *testing.T) {
 	tests := []struct {
 		tt   TokenType
 		want string
@@ -17,15 +17,15 @@ func TestTokenType_String(t *testing.T) {
 		{TokenLParen, "LParen"},
 		{TokenRParen, "RParen"},
 	}
-	for _, tc := range tests {
-		got := tc.tt.String()
-		if got != tc.want {
-			t.Fatalf("TokenType(%d).String() = %q, want %q", tc.tt, got, tc.want)
+	for _, testCase := range tests {
+		got := testCase.tt.String()
+		if got != testCase.want {
+			test.Fatalf("TokenType(%d).String() = %q, want %q", testCase.tt, got, testCase.want)
 		}
 	}
 }
 
-func TestLex(t *testing.T) {
+func TestLex(test *testing.T) {
 	tests := []struct {
 		name   string
 		input  string
@@ -242,34 +242,34 @@ func TestLex(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		test.Run(tt.name, func(test *testing.T) {
 			tokens, errs := Lex(tt.input)
 			if len(errs) != tt.errors {
-				t.Fatalf("Lex(%q) returned %d errors, want %d: %v", tt.input, len(errs), tt.errors, errs)
+				test.Fatalf("Lex(%q) returned %d errors, want %d: %v", tt.input, len(errs), tt.errors, errs)
 			}
 			if len(tokens) != len(tt.want) {
-				t.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
+				test.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
 					tt.input, len(tokens), len(tt.want), tokens, tt.want)
 			}
-			for i, tok := range tokens {
-				if tok.Type != tt.want[i].Type {
-					t.Errorf("token[%d].Type = %v, want %v", i, tok.Type, tt.want[i].Type)
+			for index, tok := range tokens {
+				if tok.Type != tt.want[index].Type {
+					test.Errorf("token[%d].Type = %v, want %v", index, tok.Type, tt.want[index].Type)
 				}
-				if tok.Value != tt.want[i].Value {
-					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
+				if tok.Value != tt.want[index].Value {
+					test.Errorf("token[%d].Value = %q, want %q", index, tok.Value, tt.want[index].Value)
 				}
-				if tok.Modifier != tt.want[i].Modifier {
-					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
+				if tok.Modifier != tt.want[index].Modifier {
+					test.Errorf("token[%d].Modifier = %q, want %q", index, tok.Modifier, tt.want[index].Modifier)
 				}
-				if tok.Pos != tt.want[i].Pos {
-					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
+				if tok.Pos != tt.want[index].Pos {
+					test.Errorf("token[%d].Pos = %d, want %d", index, tok.Pos, tt.want[index].Pos)
 				}
 			}
 		})
 	}
 }
 
-func TestLex_EdgeCases(t *testing.T) {
+func TestLex_EdgeCases(test *testing.T) {
 	tests := []struct {
 		name   string
 		input  string
@@ -400,108 +400,108 @@ func TestLex_EdgeCases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		test.Run(tt.name, func(test *testing.T) {
 			tokens, errs := Lex(tt.input)
 			if len(errs) != tt.errors {
-				t.Fatalf("Lex(%q) returned %d errors, want %d: %v", tt.input, len(errs), tt.errors, errs)
+				test.Fatalf("Lex(%q) returned %d errors, want %d: %v", tt.input, len(errs), tt.errors, errs)
 			}
 			if len(tokens) != len(tt.want) {
-				t.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
+				test.Fatalf("Lex(%q) returned %d tokens, want %d:\ngot:  %+v\nwant: %+v",
 					tt.input, len(tokens), len(tt.want), tokens, tt.want)
 			}
-			for i, tok := range tokens {
-				if tok.Type != tt.want[i].Type {
-					t.Errorf("token[%d].Type = %v, want %v", i, tok.Type, tt.want[i].Type)
+			for index, tok := range tokens {
+				if tok.Type != tt.want[index].Type {
+					test.Errorf("token[%d].Type = %v, want %v", index, tok.Type, tt.want[index].Type)
 				}
-				if tok.Value != tt.want[i].Value {
-					t.Errorf("token[%d].Value = %q, want %q", i, tok.Value, tt.want[i].Value)
+				if tok.Value != tt.want[index].Value {
+					test.Errorf("token[%d].Value = %q, want %q", index, tok.Value, tt.want[index].Value)
 				}
-				if tok.Modifier != tt.want[i].Modifier {
-					t.Errorf("token[%d].Modifier = %q, want %q", i, tok.Modifier, tt.want[i].Modifier)
+				if tok.Modifier != tt.want[index].Modifier {
+					test.Errorf("token[%d].Modifier = %q, want %q", index, tok.Modifier, tt.want[index].Modifier)
 				}
-				if tok.Pos != tt.want[i].Pos {
-					t.Errorf("token[%d].Pos = %d, want %d", i, tok.Pos, tt.want[i].Pos)
+				if tok.Pos != tt.want[index].Pos {
+					test.Errorf("token[%d].Pos = %d, want %d", index, tok.Pos, tt.want[index].Pos)
 				}
 			}
 		})
 	}
 }
 
-func TestLexWithModifiersDelegatesWithDefaultRegistry(t *testing.T) {
+func TestLexWithModifiersDelegatesWithDefaultRegistry(test *testing.T) {
 	input := "status=active +urgent -blocked title=\"hello\""
 	defaultTokens, _ := Lex(input)
 	withTokens, _ := LexWithModifiers(input, DefaultModifiers())
 
 	if len(defaultTokens) != len(withTokens) {
-		t.Fatalf("token count differs: default=%d, with=%d", len(defaultTokens), len(withTokens))
+		test.Fatalf("token count differs: default=%d, with=%d", len(defaultTokens), len(withTokens))
 	}
-	for i := range defaultTokens {
-		if defaultTokens[i] != withTokens[i] {
-			t.Errorf("tokens[%d] differ: default=%+v, with=%+v", i, defaultTokens[i], withTokens[i])
+	for index := range defaultTokens {
+		if defaultTokens[index] != withTokens[index] {
+			test.Errorf("tokens[%d] differ: default=%+v, with=%+v", index, defaultTokens[index], withTokens[index])
 		}
 	}
 }
 
-func TestLexStripsPlusModifierFromFieldToken(t *testing.T) {
+func TestLexStripsPlusModifierFromFieldToken(test *testing.T) {
 	tokens, errs := Lex("+priority=3")
 	if len(errs) > 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tokens) != 1 {
-		t.Fatalf("expected 1 token, got %d", len(tokens))
+		test.Fatalf("expected 1 token, got %d", len(tokens))
 	}
 	tok := tokens[0]
 	if tok.Type != TokenField {
-		t.Errorf("type = %v, want TokenField", tok.Type)
+		test.Errorf("type = %v, want TokenField", tok.Type)
 	}
 	if tok.Modifier != '+' {
-		t.Errorf("modifier = %q, want '+'", tok.Modifier)
+		test.Errorf("modifier = %q, want '+'", tok.Modifier)
 	}
 	if tok.Value != "priority=3" {
-		t.Errorf("value = %q, want %q", tok.Value, "priority=3")
+		test.Errorf("value = %q, want %q", tok.Value, "priority=3")
 	}
 }
 
-func TestLexStripsMinusModifierFromFieldToken(t *testing.T) {
+func TestLexStripsMinusModifierFromFieldToken(test *testing.T) {
 	tokens, _ := Lex("-priority=3")
 	if len(tokens) != 1 || tokens[0].Modifier != '-' || tokens[0].Value != "priority=3" {
-		t.Fatalf("unexpected tokens: %+v", tokens)
+		test.Fatalf("unexpected tokens: %+v", tokens)
 	}
 }
 
-func TestLexBareFieldHasZeroModifier(t *testing.T) {
+func TestLexBareFieldHasZeroModifier(test *testing.T) {
 	tokens, _ := Lex("status=active")
 	if len(tokens) != 1 || tokens[0].Modifier != 0 || tokens[0].Value != "status=active" {
-		t.Fatalf("unexpected tokens: %+v", tokens)
+		test.Fatalf("unexpected tokens: %+v", tokens)
 	}
 }
 
-func TestLexStripsPlusModifierFromTagToken(t *testing.T) {
+func TestLexStripsPlusModifierFromTagToken(test *testing.T) {
 	tokens, errs := Lex("+urgent")
 	if len(errs) > 0 {
-		t.Fatalf("unexpected errors: %v", errs)
+		test.Fatalf("unexpected errors: %v", errs)
 	}
 	if len(tokens) != 1 {
-		t.Fatalf("expected 1 token, got %d", len(tokens))
+		test.Fatalf("expected 1 token, got %d", len(tokens))
 	}
 	tok := tokens[0]
 	if tok.Type != TokenTagInclude {
-		t.Errorf("type = %v, want TokenTagInclude", tok.Type)
+		test.Errorf("type = %v, want TokenTagInclude", tok.Type)
 	}
 	if tok.Modifier != '+' {
-		t.Errorf("modifier = %q, want '+'", tok.Modifier)
+		test.Errorf("modifier = %q, want '+'", tok.Modifier)
 	}
 	if tok.Value != "urgent" {
-		t.Errorf("value = %q, want %q", tok.Value, "urgent")
+		test.Errorf("value = %q, want %q", tok.Value, "urgent")
 	}
 }
 
-func TestLexStripsMinusModifierFromTagToken(t *testing.T) {
+func TestLexStripsMinusModifierFromTagToken(test *testing.T) {
 	tokens, _ := Lex("-blocked")
 	if len(tokens) != 1 {
-		t.Fatalf("expected 1 token, got %d", len(tokens))
+		test.Fatalf("expected 1 token, got %d", len(tokens))
 	}
 	if tokens[0].Type != TokenTagExclude || tokens[0].Modifier != '-' || tokens[0].Value != "blocked" {
-		t.Fatalf("unexpected token: %+v", tokens[0])
+		test.Fatalf("unexpected token: %+v", tokens[0])
 	}
 }

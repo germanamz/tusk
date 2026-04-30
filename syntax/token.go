@@ -17,8 +17,8 @@ const (
 	TokenRParen                      // )
 )
 
-func (t TokenType) String() string {
-	switch t {
+func (tokenType TokenType) String() string {
+	switch tokenType {
 	case TokenField:
 		return "Field"
 	case TokenTagInclude:
@@ -79,39 +79,41 @@ func LexWithModifiers(input string, modifiers ModifierSet) ([]Token, []ParseErro
 	var tokens []Token
 	var errs []ParseError
 
-	i := 0
-	for i < len(input) {
+	pos := 0
+	for pos < len(input) {
 		// Skip whitespace
-		if input[i] == ' ' || input[i] == '\t' {
-			i++
+		if input[pos] == ' ' || input[pos] == '\t' {
+			pos++
 			continue
 		}
 
-		start := i
+		start := pos
 		var raw string
 
-		if input[i] == '"' {
+		if input[pos] == '"' {
 			// Standalone quoted string: "some text"
-			content, end, err := scanQuoted(input, i)
+			content, end, err := scanQuoted(input, pos)
+
 			if err != nil {
 				errs = append(errs, ParseError{Pos: start, Message: err.Error()})
 				break // unclosed quote — can't continue scanning
 			}
-			i = end
+
+			pos = end
 			raw = content
 			tokens = append(tokens, Token{Type: TokenText, Value: raw, Pos: start})
 			continue
 		}
 
 		// Parentheses preceded by whitespace (or at start of input) are boolean grouping
-		if input[i] == '(' {
-			tokens = append(tokens, Token{Type: TokenLParen, Value: "(", Pos: i})
-			i++
+		if input[pos] == '(' {
+			tokens = append(tokens, Token{Type: TokenLParen, Value: "(", Pos: pos})
+			pos++
 			continue
 		}
-		if input[i] == ')' {
-			tokens = append(tokens, Token{Type: TokenRParen, Value: ")", Pos: i})
-			i++
+		if input[pos] == ')' {
+			tokens = append(tokens, Token{Type: TokenRParen, Value: ")", Pos: pos})
+			pos++
 			continue
 		}
 
@@ -122,35 +124,37 @@ func LexWithModifiers(input string, modifiers ModifierSet) ([]Token, []ParseErro
 		var buf []byte
 		unclosedQuote := false
 		parenDepth := 0
-		for i < len(input) && input[i] != ' ' && input[i] != '\t' {
-			if input[i] == ')' && parenDepth == 0 {
+		for pos < len(input) && input[pos] != ' ' && input[pos] != '\t' {
+			if input[pos] == ')' && parenDepth == 0 {
 				break
 			}
-			if input[i] == '(' {
+			if input[pos] == '(' {
 				parenDepth++
-				buf = append(buf, input[i])
-				i++
+				buf = append(buf, input[pos])
+				pos++
 				continue
 			}
-			if input[i] == ')' && parenDepth > 0 {
+			if input[pos] == ')' && parenDepth > 0 {
 				parenDepth--
-				buf = append(buf, input[i])
-				i++
+				buf = append(buf, input[pos])
+				pos++
 				continue
 			}
-			if input[i] == '"' {
-				content, end, err := scanQuoted(input, i)
+			if input[pos] == '"' {
+				content, end, err := scanQuoted(input, pos)
+
 				if err != nil {
-					errs = append(errs, ParseError{Pos: i, Message: err.Error()})
+					errs = append(errs, ParseError{Pos: pos, Message: err.Error()})
 					unclosedQuote = true
 					break
 				}
+
 				buf = append(buf, content...)
-				i = end
+				pos = end
 				continue
 			}
-			buf = append(buf, input[i])
-			i++
+			buf = append(buf, input[pos])
+			pos++
 		}
 		if unclosedQuote {
 			break
@@ -224,19 +228,19 @@ func LexWithModifiers(input string, modifiers ModifierSet) ([]Token, []ParseErro
 // immediately after the closing quote, and any error (unclosed quote).
 // Supports \" as an escaped literal quote inside the string.
 func scanQuoted(input string, pos int) (string, int, error) {
-	i := pos + 1
+	cursor := pos + 1
 	var buf []byte
-	for i < len(input) {
-		if input[i] == '\\' && i+1 < len(input) && input[i+1] == '"' {
+	for cursor < len(input) {
+		if input[cursor] == '\\' && cursor+1 < len(input) && input[cursor+1] == '"' {
 			buf = append(buf, '"')
-			i += 2
+			cursor += 2
 			continue
 		}
-		if input[i] == '"' {
-			return string(buf), i + 1, nil
+		if input[cursor] == '"' {
+			return string(buf), cursor + 1, nil
 		}
-		buf = append(buf, input[i])
-		i++
+		buf = append(buf, input[cursor])
+		cursor++
 	}
 	return "", pos, fmt.Errorf("unclosed quoted string")
 }
@@ -244,9 +248,9 @@ func scanQuoted(input string, pos int) (string, int, error) {
 // isFieldToken returns true if raw contains = with a non-empty key.
 // Tokens starting with + or - are handled separately by the caller.
 func isFieldToken(raw string) bool {
-	for i := 0; i < len(raw); i++ {
-		if raw[i] == '=' {
-			return i > 0
+	for index := 0; index < len(raw); index++ {
+		if raw[index] == '=' {
+			return index > 0
 		}
 	}
 	return false
