@@ -18,85 +18,99 @@ func NewTagRepo(db DBTX) *TagRepo {
 	return &TagRepo{db: db}
 }
 
-func (r *TagRepo) Create(ctx context.Context, tag *domain.Tag) error {
-	_, err := r.db.ExecContext(ctx,
+func (repo *TagRepo) Create(ctx context.Context, tag *domain.Tag) error {
+	_, err := repo.db.ExecContext(ctx,
 		`INSERT INTO tags (id, name, color) VALUES (?, ?, ?)`,
 		tag.ID.String(), tag.Name, nullableString(tag.Color),
 	)
 	return err
 }
 
-func (r *TagRepo) GetByName(ctx context.Context, name string) (*domain.Tag, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *TagRepo) GetByName(ctx context.Context, name string) (*domain.Tag, error) {
+	row := repo.db.QueryRowContext(ctx,
 		`SELECT id, name, color FROM tags WHERE name = ?`, name)
 	tag, err := scanTag(row)
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
+
 	return tag, err
 }
 
-func (r *TagRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tag, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *TagRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tag, error) {
+	row := repo.db.QueryRowContext(ctx,
 		`SELECT id, name, color FROM tags WHERE id = ?`, id.String())
 	tag, err := scanTag(row)
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
+
 	return tag, err
 }
 
-func (r *TagRepo) Update(ctx context.Context, tag *domain.Tag) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *TagRepo) Update(ctx context.Context, tag *domain.Tag) error {
+	res, err := repo.db.ExecContext(ctx,
 		`UPDATE tags SET name = ?, color = ? WHERE id = ?`,
 		tag.Name, nullableString(tag.Color), tag.ID.String(),
 	)
+
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+
+	rowCount, err := res.RowsAffected()
+
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+
+	if rowCount == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func (r *TagRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *TagRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	res, err := repo.db.ExecContext(ctx,
 		`DELETE FROM tags WHERE id = ?`, id.String())
+
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+
+	rowCount, err := res.RowsAffected()
+
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+
+	if rowCount == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func (r *TagRepo) CountTasksByTagID(ctx context.Context, id uuid.UUID) (int, error) {
+func (repo *TagRepo) CountTasksByTagID(ctx context.Context, id uuid.UUID) (int, error) {
 	var count int
-	err := r.db.QueryRowContext(ctx,
+	err := repo.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM tag_assignments WHERE tag_id = ?`, id.String(),
 	).Scan(&count)
 	return count, err
 }
 
-func (r *TagRepo) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *TagRepo) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		`SELECT t.id, t.name, t.color, COUNT(ta.task_id)
 		 FROM tags t
 		 LEFT JOIN tag_assignments ta ON t.id = ta.tag_id
 		 GROUP BY t.id, t.name, t.color`)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	result := make([]domain.TagWithUsage, 0)
@@ -110,9 +124,11 @@ func (r *TagRepo) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, err
 			return nil, err
 		}
 		parsed, err := uuid.Parse(rawID)
+
 		if err != nil {
 			return nil, err
 		}
+
 		tw.Tag.ID = parsed
 		if color.Valid {
 			tw.Tag.Color = &color.String
@@ -122,62 +138,74 @@ func (r *TagRepo) ListWithUsage(ctx context.Context) ([]domain.TagWithUsage, err
 	return result, rows.Err()
 }
 
-func (r *TagRepo) List(ctx context.Context) ([]*domain.Tag, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, color FROM tags`)
+func (repo *TagRepo) List(ctx context.Context) ([]*domain.Tag, error) {
+	rows, err := repo.db.QueryContext(ctx, `SELECT id, name, color FROM tags`)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	result := make([]*domain.Tag, 0)
 	for rows.Next() {
 		tag, err := scanTag(rows)
+
 		if err != nil {
 			return nil, err
 		}
+
 		result = append(result, tag)
 	}
 	return result, rows.Err()
 }
 
-func (r *TagRepo) AssignToTask(ctx context.Context, taskID, tagID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx,
+func (repo *TagRepo) AssignToTask(ctx context.Context, taskID, tagID uuid.UUID) error {
+	_, err := repo.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO tag_assignments (task_id, tag_id) VALUES (?, ?)`,
 		taskID.String(), tagID.String())
 	return err
 }
 
-func (r *TagRepo) RemoveFromTask(ctx context.Context, taskID, tagID uuid.UUID) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *TagRepo) RemoveFromTask(ctx context.Context, taskID, tagID uuid.UUID) error {
+	res, err := repo.db.ExecContext(ctx,
 		`DELETE FROM tag_assignments WHERE task_id = ? AND tag_id = ?`,
 		taskID.String(), tagID.String())
+
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+
+	rowCount, err := res.RowsAffected()
+
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+
+	if rowCount == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func (r *TagRepo) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *TagRepo) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.Tag, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		`SELECT t.id, t.name, t.color FROM tags t
 		 JOIN tag_assignments ta ON t.id = ta.tag_id
 		 WHERE ta.task_id = ?`, taskID.String())
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	result := make([]*domain.Tag, 0)
 	for rows.Next() {
 		tag, err := scanTag(rows)
+
 		if err != nil {
 			return nil, err
 		}
+
 		result = append(result, tag)
 	}
 	return result, rows.Err()
@@ -187,7 +215,7 @@ func (r *TagRepo) GetTaskTags(ctx context.Context, taskID uuid.UUID) ([]*domain.
 // chosen to stay well under SQLite's default SQLITE_MAX_VARIABLE_NUMBER (999).
 const tagBatchSize = 500
 
-func (r *TagRepo) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) {
+func (repo *TagRepo) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID][]*domain.Tag, error) {
 	result := make(map[uuid.UUID][]*domain.Tag, len(taskIDs))
 	if len(taskIDs) == 0 {
 		return result, nil
@@ -198,29 +226,31 @@ func (r *TagRepo) GetTaskTagsBatch(ctx context.Context, taskIDs []uuid.UUID) (ma
 		if end > len(taskIDs) {
 			end = len(taskIDs)
 		}
-		if err := r.fetchTagBatch(ctx, taskIDs[start:end], result); err != nil {
+		if err := repo.fetchTagBatch(ctx, taskIDs[start:end], result); err != nil {
 			return nil, err
 		}
 	}
 	return result, nil
 }
 
-func (r *TagRepo) fetchTagBatch(ctx context.Context, taskIDs []uuid.UUID, dest map[uuid.UUID][]*domain.Tag) error {
+func (repo *TagRepo) fetchTagBatch(ctx context.Context, taskIDs []uuid.UUID, dest map[uuid.UUID][]*domain.Tag) error {
 	placeholders := make([]string, len(taskIDs))
 	args := make([]any, len(taskIDs))
-	for i, id := range taskIDs {
-		placeholders[i] = "?"
-		args[i] = id.String()
+	for index, id := range taskIDs {
+		placeholders[index] = "?"
+		args[index] = id.String()
 	}
 
 	query := `SELECT ta.task_id, t.id, t.name, t.color FROM tags t
 		JOIN tag_assignments ta ON t.id = ta.tag_id
 		WHERE ta.task_id IN (` + strings.Join(placeholders, ",") + `)`
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := repo.db.QueryContext(ctx, query, args...)
+
 	if err != nil {
 		return err
 	}
+
 	defer rows.Close()
 
 	for rows.Next() {
@@ -231,13 +261,17 @@ func (r *TagRepo) fetchTagBatch(ctx context.Context, taskIDs []uuid.UUID, dest m
 			return err
 		}
 		taskID, err := uuid.Parse(taskIDStr)
+
 		if err != nil {
 			return err
 		}
+
 		tag.ID, err = uuid.Parse(tagIDStr)
+
 		if err != nil {
 			return err
 		}
+
 		if color.Valid {
 			tag.Color = &color.String
 		}
@@ -250,20 +284,22 @@ type tagScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanTag(s tagScanner) (*domain.Tag, error) {
+func scanTag(scanner tagScanner) (*domain.Tag, error) {
 	var (
 		tag   domain.Tag
 		id    string
 		color sql.NullString
 	)
-	if err := s.Scan(&id, &tag.Name, &color); err != nil {
+	if err := scanner.Scan(&id, &tag.Name, &color); err != nil {
 		return nil, err
 	}
 	var err error
 	tag.ID, err = uuid.Parse(id)
+
 	if err != nil {
 		return nil, err
 	}
+
 	if color.Valid {
 		tag.Color = &color.String
 	}

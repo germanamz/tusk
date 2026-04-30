@@ -39,8 +39,8 @@ func NewRelationRepo(db DBTX) *RelationRepo {
 //
 // If a relation with the same (source_id, target_id, relation_type) already exists,
 // the UNIQUE constraint fires and this method returns domain.ErrDuplicateRelation.
-func (r *RelationRepo) Create(ctx context.Context, rel *domain.Relation) error {
-	_, err := r.db.ExecContext(ctx,
+func (repo *RelationRepo) Create(ctx context.Context, rel *domain.Relation) error {
+	_, err := repo.db.ExecContext(ctx,
 		`INSERT INTO relations (id, source_id, target_id, relation_type, created_at) VALUES (?, ?, ?, ?, ?)`,
 		rel.ID.String(), rel.SourceID.String(), rel.TargetID.String(),
 		rel.RelationType, rel.CreatedAt.UTC().Format(timeFormat),
@@ -55,17 +55,21 @@ func (r *RelationRepo) Create(ctx context.Context, rel *domain.Relation) error {
 // Returns domain.ErrNotFound if no relation with that ID exists.
 //
 // Uses the same RowsAffected pattern as AnnotationRepo.Delete.
-func (r *RelationRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *RelationRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	res, err := repo.db.ExecContext(ctx,
 		`DELETE FROM relations WHERE id = ?`, id.String())
+
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+
+	rowCount, err := res.RowsAffected()
+
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+
+	if rowCount == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
@@ -73,18 +77,22 @@ func (r *RelationRepo) Delete(ctx context.Context, id uuid.UUID) error {
 
 // DeleteByFields removes a relation matching the exact (source, target, type) triple.
 // Returns domain.ErrNotFound if no such relation exists.
-func (r *RelationRepo) DeleteByFields(ctx context.Context, sourceID, targetID uuid.UUID, relType string) error {
-	res, err := r.db.ExecContext(ctx,
+func (repo *RelationRepo) DeleteByFields(ctx context.Context, sourceID, targetID uuid.UUID, relType string) error {
+	res, err := repo.db.ExecContext(ctx,
 		`DELETE FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?`,
 		sourceID.String(), targetID.String(), relType)
+
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
+
+	rowCount, err := res.RowsAffected()
+
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+
+	if rowCount == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
@@ -93,17 +101,19 @@ func (r *RelationRepo) DeleteByFields(ctx context.Context, sourceID, targetID uu
 // GetByFields retrieves the relation matching the exact (source, target, type)
 // triple. Returns domain.ErrNotFound if no such relation exists. Used by
 // services that need the relation's UUID before deleting it.
-func (r *RelationRepo) GetByFields(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (*domain.Relation, error) {
-	row := r.db.QueryRowContext(ctx,
+func (repo *RelationRepo) GetByFields(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (*domain.Relation, error) {
+	row := repo.db.QueryRowContext(ctx,
 		`SELECT `+relationColumns+` FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?`,
 		sourceID.String(), targetID.String(), relType)
 	rel, err := scanRelation(row)
+
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
+
 	return rel, nil
 }
 
@@ -111,39 +121,45 @@ func (r *RelationRepo) GetByFields(ctx context.Context, sourceID, targetID uuid.
 // of whether it is the source or the target.
 //
 // The SQL uses OR: WHERE source_id = ? OR target_id = ?
-func (r *RelationRepo) GetByTask(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *RelationRepo) GetByTask(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		`SELECT `+relationColumns+` FROM relations WHERE source_id = ? OR target_id = ?`,
 		taskID.String(), taskID.String())
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	return scanRelations(rows)
 }
 
 // GetBlocking retrieves relations where the given task is the SOURCE and the
 // relation type is "blocks". In other words: "what tasks does this task block?"
-func (r *RelationRepo) GetBlocking(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *RelationRepo) GetBlocking(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		`SELECT `+relationColumns+` FROM relations WHERE source_id = ? AND relation_type = 'blocks'`,
 		taskID.String())
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	return scanRelations(rows)
 }
 
 // GetBlockedBy retrieves relations where the given task is the TARGET and the
 // relation type is "blocks". In other words: "what tasks are blocking this task?"
-func (r *RelationRepo) GetBlockedBy(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error) {
-	rows, err := r.db.QueryContext(ctx,
+func (repo *RelationRepo) GetBlockedBy(ctx context.Context, taskID uuid.UUID) ([]*domain.Relation, error) {
+	rows, err := repo.db.QueryContext(ctx,
 		`SELECT `+relationColumns+` FROM relations WHERE target_id = ? AND relation_type = 'blocks'`,
 		taskID.String())
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 	return scanRelations(rows)
 }
@@ -153,9 +169,9 @@ func (r *RelationRepo) GetBlockedBy(ctx context.Context, taskID uuid.UUID) ([]*d
 //
 // Uses SQL's EXISTS subquery pattern which is more efficient than COUNT(*)
 // because it stops as soon as it finds the first matching row.
-func (r *RelationRepo) Exists(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (bool, error) {
+func (repo *RelationRepo) Exists(ctx context.Context, sourceID, targetID uuid.UUID, relType string) (bool, error) {
 	var exists bool
-	err := r.db.QueryRowContext(ctx,
+	err := repo.db.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?)`,
 		sourceID.String(), targetID.String(), relType).Scan(&exists)
 	return exists, err
@@ -163,29 +179,29 @@ func (r *RelationRepo) Exists(ctx context.Context, sourceID, targetID uuid.UUID,
 
 // CountBlockingByTasks returns, for each task ID, how many other tasks it blocks.
 // Tasks that block nothing are not included in the returned map.
-func (r *RelationRepo) CountBlockingByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
-	return r.countRelationsByTasks(ctx, taskIDs, "source_id")
+func (repo *RelationRepo) CountBlockingByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	return repo.countRelationsByTasks(ctx, taskIDs, "source_id")
 }
 
 // CountBlockedByTasks returns, for each task ID, how many other tasks block it.
 // Tasks that are not blocked are not included in the returned map.
-func (r *RelationRepo) CountBlockedByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
-	return r.countRelationsByTasks(ctx, taskIDs, "target_id")
+func (repo *RelationRepo) CountBlockedByTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	return repo.countRelationsByTasks(ctx, taskIDs, "target_id")
 }
 
 // CountBlockedByIncompleteTasks returns, for each task ID, how many incomplete
 // tasks block it. A blocker is "incomplete" if its status is NOT 'completed' or
 // 'deleted'. Tasks with zero incomplete blockers are absent from the map.
-func (r *RelationRepo) CountBlockedByIncompleteTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+func (repo *RelationRepo) CountBlockedByIncompleteTasks(ctx context.Context, taskIDs []uuid.UUID) (map[uuid.UUID]int, error) {
 	if len(taskIDs) == 0 {
 		return map[uuid.UUID]int{}, nil
 	}
 
 	placeholders := make([]string, len(taskIDs))
 	args := make([]any, len(taskIDs))
-	for i, id := range taskIDs {
-		placeholders[i] = "?"
-		args[i] = id.String()
+	for index, id := range taskIDs {
+		placeholders[index] = "?"
+		args[index] = id.String()
 	}
 
 	query := fmt.Sprintf(
@@ -199,10 +215,12 @@ func (r *RelationRepo) CountBlockedByIncompleteTasks(ctx context.Context, taskID
 		strings.Join(placeholders, ","),
 	)
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := repo.db.QueryContext(ctx, query, args...)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	counts := make(map[uuid.UUID]int)
@@ -213,9 +231,11 @@ func (r *RelationRepo) CountBlockedByIncompleteTasks(ctx context.Context, taskID
 			return nil, err
 		}
 		id, err := uuid.Parse(idStr)
+
 		if err != nil {
 			return nil, fmt.Errorf("parsing id %q: %w", idStr, err)
 		}
+
 		counts[id] = count
 	}
 	return counts, rows.Err()
@@ -223,16 +243,16 @@ func (r *RelationRepo) CountBlockedByIncompleteTasks(ctx context.Context, taskID
 
 // countRelationsByTasks is a shared helper for counting blocking relations.
 // column is either "source_id" (for blocking count) or "target_id" (for blocked-by count).
-func (r *RelationRepo) countRelationsByTasks(ctx context.Context, taskIDs []uuid.UUID, column string) (map[uuid.UUID]int, error) {
+func (repo *RelationRepo) countRelationsByTasks(ctx context.Context, taskIDs []uuid.UUID, column string) (map[uuid.UUID]int, error) {
 	if len(taskIDs) == 0 {
 		return map[uuid.UUID]int{}, nil
 	}
 
 	placeholders := make([]string, len(taskIDs))
 	args := make([]any, len(taskIDs))
-	for i, id := range taskIDs {
-		placeholders[i] = "?"
-		args[i] = id.String()
+	for index, id := range taskIDs {
+		placeholders[index] = "?"
+		args[index] = id.String()
 	}
 
 	query := fmt.Sprintf(
@@ -240,10 +260,12 @@ func (r *RelationRepo) countRelationsByTasks(ctx context.Context, taskIDs []uuid
 		column, column, strings.Join(placeholders, ","), column,
 	)
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := repo.db.QueryContext(ctx, query, args...)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	counts := make(map[uuid.UUID]int)
@@ -254,9 +276,11 @@ func (r *RelationRepo) countRelationsByTasks(ctx context.Context, taskIDs []uuid
 			return nil, err
 		}
 		id, err := uuid.Parse(idStr)
+
 		if err != nil {
 			return nil, fmt.Errorf("parsing id %q: %w", idStr, err)
 		}
+
 		counts[id] = count
 	}
 	return counts, rows.Err()
@@ -266,32 +290,40 @@ type relationScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRelation(s relationScanner) (*domain.Relation, error) {
+func scanRelation(scanner relationScanner) (*domain.Relation, error) {
 	var (
-		r                                 domain.Relation
+		relation                          domain.Relation
 		id, sourceID, targetID, createdAt string
 	)
-	if err := s.Scan(&id, &sourceID, &targetID, &r.RelationType, &createdAt); err != nil {
+	if err := scanner.Scan(&id, &sourceID, &targetID, &relation.RelationType, &createdAt); err != nil {
 		return nil, err
 	}
 	var err error
-	r.ID, err = uuid.Parse(id)
+	relation.ID, err = uuid.Parse(id)
+
 	if err != nil {
 		return nil, err
 	}
-	r.SourceID, err = uuid.Parse(sourceID)
+
+	relation.SourceID, err = uuid.Parse(sourceID)
+
 	if err != nil {
 		return nil, err
 	}
-	r.TargetID, err = uuid.Parse(targetID)
+
+	relation.TargetID, err = uuid.Parse(targetID)
+
 	if err != nil {
 		return nil, err
 	}
-	r.CreatedAt, err = time.Parse(timeFormat, createdAt)
+
+	relation.CreatedAt, err = time.Parse(timeFormat, createdAt)
+
 	if err != nil {
 		return nil, err
 	}
-	return &r, nil
+
+	return &relation, nil
 }
 
 // scanRelations iterates over sql.Rows and assembles a slice of *domain.Relation.
@@ -300,9 +332,11 @@ func scanRelations(rows *sql.Rows) ([]*domain.Relation, error) {
 	result := make([]*domain.Relation, 0)
 	for rows.Next() {
 		rel, err := scanRelation(rows)
+
 		if err != nil {
 			return nil, err
 		}
+
 		result = append(result, rel)
 	}
 	return result, rows.Err()
