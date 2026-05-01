@@ -11,13 +11,14 @@ func TestExcluded(test *testing.T) {
 		pkgPath  string
 		excluded bool
 	}{
-		// In-scope: only config/ remains until the P-CONFIG follow-up sweep
-		// (tusk task 06fa0f50) clears it.
-		{"github.com/germanamz/tusk/config", true},
-		{"github.com/germanamz/tusk/config/subpkg", true},
-		{"github.com/germanamz/tusk/config_test", true},
+		// config/ was the final exclusion; removed by the P-CONFIG sweep
+		// (tusk task 06fa0f50). The excluded slice is now empty — lint covers
+		// config/ in full.
+		{"github.com/germanamz/tusk/config", false},
+		{"github.com/germanamz/tusk/config/subpkg", false},
+		{"github.com/germanamz/tusk/config_test", false},
 
-		// Out-of-scope: every other v0.14 sweep phase removed its exclusion.
+		// Out-of-scope: every v0.14 sweep phase removed its exclusion.
 		// Lint now covers all of these.
 		{"github.com/germanamz/tusk/service", false},
 		{"github.com/germanamz/tusk/service/foo", false},

@@ -17,7 +17,3 @@ linters:
         path: _test\.go
       - linters: [errcheck]
         text: 'Error return value of `.*\.Close` is not checked'
-      # config/ omitted from the spec's enumeration; tracked as a follow-up
-      # sweep (tusk task 06fa0f50) and removed by that task.
-      - linters: [varnamelen]
-        path: ^config/

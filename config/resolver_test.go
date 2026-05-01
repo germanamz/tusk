@@ -7,26 +7,26 @@ import (
 	"testing"
 )
 
-func TestResolveConfigFile(t *testing.T) {
+func TestResolveConfigFile(test *testing.T) {
 	// Build a temp globalDir that contains a real config.toml.
-	populatedGlobal := t.TempDir()
+	populatedGlobal := test.TempDir()
 	if err := os.WriteFile(filepath.Join(populatedGlobal, "config.toml"), []byte("# test\n"), 0o644); err != nil {
-		t.Fatalf("writing global config: %v", err)
+		test.Fatalf("writing global config: %v", err)
 	}
 
 	// Build an empty globalDir with no config.toml.
-	emptyGlobal := t.TempDir()
+	emptyGlobal := test.TempDir()
 
 	// Build an explicit file that exists.
-	existingExplicit := filepath.Join(t.TempDir(), "custom.toml")
+	existingExplicit := filepath.Join(test.TempDir(), "custom.toml")
 	if err := os.WriteFile(existingExplicit, []byte("# custom\n"), 0o644); err != nil {
-		t.Fatalf("writing explicit file: %v", err)
+		test.Fatalf("writing explicit file: %v", err)
 	}
 
 	// A path that definitely does not exist.
-	missingExplicit := filepath.Join(t.TempDir(), "nope.toml")
+	missingExplicit := filepath.Join(test.TempDir(), "nope.toml")
 
-	tests := []struct {
+	cases := []struct {
 		name         string
 		startDir     string
 		explicitFile string
@@ -62,116 +62,126 @@ func TestResolveConfigFile(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := ResolveConfigFile(tc.startDir, tc.explicitFile, tc.globalDir)
-			if tc.wantErrSub != "" {
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			got, err := ResolveConfigFile(testCase.startDir, testCase.explicitFile, testCase.globalDir)
+			if testCase.wantErrSub != "" {
 				if err == nil {
-					t.Fatalf("want error containing %q, got nil (path=%q)", tc.wantErrSub, got)
+					test.Fatalf("want error containing %q, got nil (path=%q)", testCase.wantErrSub, got)
 				}
-				if !strings.Contains(err.Error(), tc.wantErrSub) {
-					t.Fatalf("error %q does not contain %q", err.Error(), tc.wantErrSub)
+				if !strings.Contains(err.Error(), testCase.wantErrSub) {
+					test.Fatalf("error %q does not contain %q", err.Error(), testCase.wantErrSub)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				test.Fatalf("unexpected error: %v", err)
 			}
-			if got != tc.wantPath {
-				t.Fatalf("got %q, want %q", got, tc.wantPath)
+			if got != testCase.wantPath {
+				test.Fatalf("got %q, want %q", got, testCase.wantPath)
 			}
 		})
 	}
 }
 
-func TestResolveConfigFileWalkUp(t *testing.T) {
-	writeTusk := func(t *testing.T, dir string) string {
-		t.Helper()
-		p := filepath.Join(dir, "tusk.toml")
-		if err := os.WriteFile(p, []byte("# local\n"), 0o644); err != nil {
-			t.Fatalf("writing %s: %v", p, err)
+func TestResolveConfigFileWalkUp(test *testing.T) {
+	writeTusk := func(test *testing.T, dir string) string {
+		test.Helper()
+		filePath := filepath.Join(dir, "tusk.toml")
+		if err := os.WriteFile(filePath, []byte("# local\n"), 0o644); err != nil {
+			test.Fatalf("writing %s: %v", filePath, err)
 		}
-		return p
+		return filePath
 	}
-	writeGlobal := func(t *testing.T, dir string) string {
-		t.Helper()
-		p := filepath.Join(dir, "config.toml")
-		if err := os.WriteFile(p, []byte("# global\n"), 0o644); err != nil {
-			t.Fatalf("writing %s: %v", p, err)
+	writeGlobal := func(test *testing.T, dir string) string {
+		test.Helper()
+		filePath := filepath.Join(dir, "config.toml")
+		if err := os.WriteFile(filePath, []byte("# global\n"), 0o644); err != nil {
+			test.Fatalf("writing %s: %v", filePath, err)
 		}
-		return p
+		return filePath
 	}
 
-	t.Run("walkup_cwd_hit", func(t *testing.T) {
-		start := t.TempDir()
-		want := writeTusk(t, start)
+	test.Run("walkup_cwd_hit", func(test *testing.T) {
+		start := test.TempDir()
+		want := writeTusk(test, start)
 		got, err := ResolveConfigFile(start, "", "")
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
+
 		if got != want {
-			t.Fatalf("got %q, want %q", got, want)
+			test.Fatalf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("walkup_ancestor_hit", func(t *testing.T) {
-		root := t.TempDir()
-		want := writeTusk(t, root)
+	test.Run("walkup_ancestor_hit", func(test *testing.T) {
+		root := test.TempDir()
+		want := writeTusk(test, root)
 		start := filepath.Join(root, "a", "b")
 		if err := os.MkdirAll(start, 0o755); err != nil {
-			t.Fatalf("mkdir: %v", err)
+			test.Fatalf("mkdir: %v", err)
 		}
 		got, err := ResolveConfigFile(start, "", "")
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
+
 		if got != want {
-			t.Fatalf("got %q, want %q", got, want)
+			test.Fatalf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("walkup_root_stop", func(t *testing.T) {
-		start := t.TempDir()
+	test.Run("walkup_root_stop", func(test *testing.T) {
+		start := test.TempDir()
 		got, err := ResolveConfigFile(start, "", "")
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
+
 		if got != "" {
-			t.Fatalf("got %q, want empty", got)
+			test.Fatalf("got %q, want empty", got)
 		}
 	})
 
-	t.Run("walkup_walks_over_global", func(t *testing.T) {
-		root := t.TempDir()
-		localWant := writeTusk(t, root)
-		globalDir := t.TempDir()
-		writeGlobal(t, globalDir)
+	test.Run("walkup_walks_over_global", func(test *testing.T) {
+		root := test.TempDir()
+		localWant := writeTusk(test, root)
+		globalDir := test.TempDir()
+		writeGlobal(test, globalDir)
 		start := filepath.Join(root, "child")
 		if err := os.MkdirAll(start, 0o755); err != nil {
-			t.Fatalf("mkdir: %v", err)
+			test.Fatalf("mkdir: %v", err)
 		}
 		got, err := ResolveConfigFile(start, "", globalDir)
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
+
 		if got != localWant {
-			t.Fatalf("got %q, want %q", got, localWant)
+			test.Fatalf("got %q, want %q", got, localWant)
 		}
 	})
 
-	t.Run("walkup_skipped_when_explicit", func(t *testing.T) {
-		start := t.TempDir()
-		writeTusk(t, start)
-		explicit := filepath.Join(t.TempDir(), "custom.toml")
+	test.Run("walkup_skipped_when_explicit", func(test *testing.T) {
+		start := test.TempDir()
+		writeTusk(test, start)
+		explicit := filepath.Join(test.TempDir(), "custom.toml")
 		if err := os.WriteFile(explicit, []byte("# custom\n"), 0o644); err != nil {
-			t.Fatalf("writing explicit: %v", err)
+			test.Fatalf("writing explicit: %v", err)
 		}
 		got, err := ResolveConfigFile(start, explicit, "")
+
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			test.Fatalf("unexpected error: %v", err)
 		}
+
 		if got != explicit {
-			t.Fatalf("got %q, want %q", got, explicit)
+			test.Fatalf("got %q, want %q", got, explicit)
 		}
 	})
 }
