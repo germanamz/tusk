@@ -905,242 +905,7 @@
   - [x] Drop the `export TUSK_DB="$(pwd)/.data/tusk.db"` step from the contributor workflow in `CONTRIBUTING.md`; from inside the repo, `tusk task ...` and `make roadmap` work with no env setup. level=task order=3
   - [x] Resolve the v0.13 retrospective's "Follow-up: e2e harness is not hermetic against walk-up config" section by linking to the merged PR. level=task order=4
   - [x] Verify drift check still passes end-to-end: locally and on CI, `make roadmap && git diff --exit-code ROADMAP.md` succeeds with no `TUSK_DB` set. level=task order=5
-## Hardening Pass level=milestone order=15
-> Post-v0.13/v0.14 hardening backlog. Bug-fix and consistency stories carved out of the Plugin milestone — which was retired because Claude Code plugin work lives in a separate repo, not in tusk. Covers Event Log, Project Note Window Size Wiring, Sibling Ordering, and Subtree Urgency Overrides.
-
-### Initiative: Sibling Ordering Hardening level=initiative order=1
-> Quality follow-ups surfaced during the v0.13 Sibling Ordering post-implementation review. Non-blocking — the feature ships correctly in v0.13 — but worth resolving before Data Portability's import path depends on null-order round-trip and before MCP `tusk_task_tree` grows a sort option.
-
-- [ ] Story: Preserve explicit `order=null` in JSON output level=story order=1
-  - [ ] Drop `,omitempty` from the `Order *float64` field in `taskJSON` (`internal/tui/render.go`) and `treeNodeJSON` (`internal/tui/tree.go`). Spec §3.1 requires `null` to be serialized as `"order": null`, not omitted, because a cleared order is distinct from an inherited default. level=task order=1
-  - [ ] Current state: after `tusk task modify <id> order=` (clear), JSON output omits the key entirely. Any consumer distinguishing "absent" from "null" — including the upcoming Data Portability import path — will mishandle cleared rows. level=task order=2
-  - [ ] Add a regression test in `internal/tui/render_test.go` / `tree_test.go` that a cleared task emits `"order": null`. level=task order=3
-- [ ] Story: `ErrCyclicParent` message alignment level=story order=2
-  - [ ] Cosmetic: `domain/errors.go` reads `"parent would create a cycle in task hierarchy"`; spec §3.2 specifies `"task move would create a parent cycle"`. The sentinel still matches via `errors.Is`, and the E2E substring-on-"cycle" check still passes, so this is spec-fidelity only. level=task order=1
-### Initiative: Subtree Urgency Overrides Hardening level=initiative order=2
-> Verification follow-ups surfaced during the v0.13 Subtree Urgency Overrides design review. Edge-case behaviors that the core spec decides but that need explicit regression coverage so future refactors don't silently change them, plus the MCP-side scoring parity gap that was originally misfiled under Sibling Ordering Hardening.
-
-- [ ] Story: MCP `tusk_task_tree` subtree urgency parity level=story order=1
-  - [ ] `internal/mcp/tools.go` `handleTaskTree` subtree branch still calls `taskSvc.GetDescendants` raw, returning tasks with zero `Urgency`. The CLI equivalent was fixed in commit `d2bae4f` to route subtree through `TaskService.List` with a `RootID` filter so `UrgencyEngine.ScoreAndSort` runs. level=task order=1
-  - [ ] Apply the same fix to the MCP handler so subtree responses carry populated urgency scores. Doubly important once Subtree Urgency Overrides ships: subtree responses must reflect the resolved per-task weights, not zero. level=task order=2
-- [ ] Story: Deleted/terminal ancestor override propagation level=story order=2
-  - [ ] Add an E2E scenario that places `urgency_overrides` on a parent, transitions the parent to a terminal status (e.g., `completed` or `deleted`), and verifies the surviving children still resolve the parent's overrides into their effective weights. level=task order=1
-  - [ ] Locks in the spec decision that ancestor walk does not filter by status — preventing a future "skip terminal ancestors" optimization from silently changing inheritance. level=task order=2
-- [ ] Story: Override re-walk on `task move` level=story order=3
-  - [ ] Add an E2E scenario that creates two subtrees with different ancestor overrides, moves a task between them, and verifies its effective weights flip to match the new chain on the next read with no explicit invalidation step. level=task order=1
-  - [ ] Locks in the spec decision that overrides are stored on the task and re-resolved per read; prevents a future cache that wouldn't invalidate on `move`. level=task order=2
-- [ ] Story: Cross-project ancestry assertion level=story order=4
-  - [ ] Add a unit assertion in `service/task.go::buildEffectiveWeights` (or equivalent) that every visited ancestor shares the input task's `project_id`. If the invariant ever breaks (e.g., a future feature lets subtrees span projects), the resolution chain would silently mix project-level weights from two sources — fail loud instead. level=task order=1
-  - [ ] Pair with an E2E or service-level test that confirms the assertion holds in normal operation and fires if the invariant is bypassed. level=task order=2
-### Initiative: Project Note Window Size Wiring level=initiative order=3
-> v0.12 added `NoteWindowSize` to `domain.ProjectSettings` and `NoteService.List` reads it in the resolution chain, but the field has no CLI or MCP write path — `ModifyProjectInput`, `internal/tui/project_parse.go`, and `internal/mcp/project_handlers.go` all omit it. Projects cannot currently override the note window; the fallback passes straight through to global config. Non-blocking orphan surfaced during v0.13 Task Level Taxonomy design review.
-
-- [ ] Story: Project-level window size write path level=story order=1
-  - [ ] Add `NoteWindowSize` to `ModifyProjectInput` in `service/project.go` and apply it in `ProjectService.Modify` level=task order=1
-  - [ ] Add inline parser case in `internal/tui/project_parse.go` for `note-window-size=<N>` and `note-window-size=` (clear) level=task order=2
-  - [ ] Add the parameter to `tusk_project_modify` in `internal/mcp/project_handlers.go` with version-based optimistic locking level=task order=3
-  - [ ] Render the resolved value in `tusk project info` output level=task order=4
-  - [ ] E2E coverage: set per-project override, list notes, verify the resolution chain picks up the project value over global config level=task order=5
-### Initiative: Event Log Hardening level=initiative order=4
-> Quality follow-ups surfaced during the v0.13 Event Log post-implementation review. Non-blocking — the event log ships correctly in v0.13 — but worth resolving before downstream consumers (Data Portability, Live Dashboard, undo) grow to depend on the current shape.
-
-- [ ] Story: Lifecycle emission coherence level=story order=1
-  - [ ] Normalize idempotent-call behavior across `Start`, `Complete`, `Delete`: either all three emit their action event when called on a task already in the terminal status, or none do. Current state: `Start` always emits; `Complete`/`Delete` silently skip when `oldStatus == targetStatus`. level=task order=1
-  - [ ] Pick the emitting direction (preferred) so downstream consumers can trust "one action call = one event row"; update `service/task.go` and the corresponding event tests. level=task order=2
-- [ ] Story: `TaskCreatedPayload` completeness level=story order=2
-  - [ ] Populate `Order` and `Tags` in `domain.NewTaskCreatedEvent`, or drop the fields from the payload struct. Current state: fields are declared but the constructor never sets them because `domain.Task` carries neither. level=task order=1
-  - [ ] If populating: pull tags via `TagRepo.GetTaskTags` at emit time (inside the same `WriteTx` so the snapshot is consistent) and add `Order` once v0.13 Sibling Ordering lands the field on `Task`. level=task order=2
-  - [ ] Update the Data Portability JSON export to round-trip whichever shape is chosen. level=task order=3
-- [ ] Story: `EventPayload` seal level=story order=3
-  - [ ] Rename `EventPayload.EventKind()` to unexported `eventKind()` per the original design-spec intent, or document the exported form as deliberate so external packages can register new payload kinds without forking `domain/`. level=task order=1
-  - [ ] If tightening the seal: move the `UnknownPayload` fallback path (currently in `sqlite/event.go`'s `decodePayload`) to a registry hook so downstream consumers can still round-trip unknown kinds. level=task order=2
-- [ ] Story: Cleanup level=story order=4
-  - [ ] Remove the dead `_ = bundle` line in `service/task.go` (`Start`). level=task order=1
-  - [ ] Audit other event-log touch points for similar refactor leftovers. level=task order=2
-## v0.15 — Live Dashboard level=milestone order=16
-> Real-time TUI dashboard for monitoring task state and player activity, powered by the event log shipped in v0.13.
-
-### Initiative: TUI Dashboard level=initiative order=1
-> Bubbletea-based live dashboard for orchestrator situational awareness.
-
-- [ ] Story: Task board view level=story order=1
-  - [ ] `tusk dashboard` — long-running TUI command level=task order=1
-  - [ ] Tasks organized by status columns (kanban-style) level=task order=2
-  - [ ] Live updates via event log polling (1-2 second interval) level=task order=3
-  - [ ] Color-coded by priority and claim status (bubbletea owns its own styling, independent of v0.6 TUI Polish) level=task order=4
-- [ ] Story: Player activity feed level=story order=2
-  - [ ] Activity stream panel showing recent events ("agent-1 claimed X", "german completed Y") level=task order=1
-  - [ ] Filter by player or event type level=task order=2
-  - [ ] Highlight stuck/idle players (claimed but no activity for configurable duration) level=task order=3
-- [ ] Story: Dashboard layout level=story order=3
-  - [ ] Split view: task board + activity feed level=task order=1
-  - [ ] Keyboard navigation between panels level=task order=2
-  - [ ] Configurable via `[dashboard]` config section (refresh interval, layout, visible columns) level=task order=3
-- [ ] Story: Live rollup panel level=story order=4
-  - [ ] Extends the static progress rollup from v0.13 into a live dashboard panel driven by event log deltas (no per-tick re-query) level=task order=1
-  - [ ] Per-root-task `%done` and status breakdown, refreshed as events arrive level=task order=2
-## v0.16 — Advanced Features level=milestone order=17
-> Recurrence, additional transports, and undo.
-
-### Initiative: Recurrence level=initiative order=1
-> Automatic task instance generation from RFC 5545 RRULE.
-
-- [ ] Story: RRULE support level=story order=1
-  - [ ] Parse RFC 5545 RRULE strings level=task order=1
-  - [ ] Generate next instance on task completion level=task order=2
-  - [ ] Handle recurrence edge cases (end date, count limit) level=task order=3
-### Initiative: MCP Streamable HTTP Transport level=initiative order=2
-> Network-accessible MCP server for multi-client scenarios. Targets Streamable HTTP (successor to deprecated SSE transport).
-
-- [ ] Story: Streamable HTTP transport level=story order=1
-  - [ ] Streamable HTTP transport implementation level=task order=1
-  - [ ] `tusk mcp serve --transport http --port <port>` level=task order=2
-### Initiative: Undo level=initiative order=3
-> Revert the last mutation using the event log from v0.13.
-
-- [ ] Story: Undo command level=story order=1
-  - [ ] `tusk undo` — revert last mutation by reading event log and applying inverse level=task order=1
-  - [ ] Support undo for task CRUD, status transitions, and claim operations level=task order=2
-### Initiative: PostgreSQL Backend level=initiative order=4
-- [ ] Story: PostgreSQL infrastructure level=story order=1
-  - [ ] Connection pooling, migration support, and test harness level=task order=1
-  - [ ] PostgreSQL migration files mirroring SQLite schema level=task order=2
-- [ ] Story: Core PostgreSQL repositories level=story order=2
-  - [ ] TaskRepository for PostgreSQL level=task order=1
-- [ ] Story: Supporting PostgreSQL repositories level=story order=3
-  - [ ] TagRepository for PostgreSQL level=task order=1
-  - [ ] RelationRepository for PostgreSQL level=task order=2
-  - [ ] AnnotationRepository for PostgreSQL level=task order=3
-### Initiative: Interactive TUI level=initiative order=5
-- [ ] Story: Interactive task management level=story order=1
-  - [ ] Extend dashboard with inline task editing and status transitions level=task order=1
-  - [ ] Task creation and modification without leaving the TUI level=task order=2
-### Initiative: REST API level=initiative order=6
-- [ ] Story: HTTP REST API level=story order=1
-  - [ ] RESTful endpoints mirroring CLI/MCP capabilities level=task order=1
-  - [ ] Authentication and authorization level=task order=2
-### Initiative: Integrations & Extensions level=initiative order=7
-- [ ] Story: Webhook notifications level=story order=1
-  - [ ] Fire webhooks on task state changes (powered by event log from v0.13) level=task order=1
-- [ ] Story: Time tracking level=story order=2
-  - [ ] Start/stop timer on tasks level=task order=1
-  - [ ] Report time spent level=task order=2
-### Initiative: Binary Attachments level=initiative order=8
-- [ ] Story: File attachments level=story order=1
-  - [ ] Attach binary files to tasks (stored on filesystem, referenced in DB) level=task order=1
-  - [ ] `tusk attach <id> <file>` / `tusk_task_attach` MCP tool level=task order=2
-  - [ ] List and retrieve attachments via CLI and MCP level=task order=3
-### Initiative: Bidirectional Sync level=initiative order=9
-- [ ] Story: Sync protocol level=story order=1
-  - [ ] Define sync format and conflict resolution strategy level=task order=1
-  - [ ] `tusk sync export` / `tusk sync import` with merge semantics level=task order=2
-### Initiative: Teams level=initiative order=10
-> Introduce teams as a first-class entity so workflows, milestone assignments, and urgency scoping can vary by team within one workspace. Workflows are per-project by design — a single workspace sharing one workflow and one project-level urgency default cannot express teams with divergent practices. Teams provide that scope without forcing a project-per-team split.
-
-- [ ] Story: Team entity and membership level=story order=1
-  - [ ] Domain type, repository, migration level=task order=1
-  - [ ] Players can belong to one or more teams level=task order=2
-  - [ ] Tasks carry an optional team reference level=task order=3
-- [ ] Story: Team-scoped workflows level=story order=2
-  - [ ] A team can declare its own workflow independent of the project's default level=task order=1
-  - [ ] Task status transitions validate against the team's workflow when a team is set level=task order=2
-- [ ] Story: Team-scoped urgency level=story order=3
-  - [ ] Per-team urgency weight overrides, slotting into the resolution chain between project and task-subtree overrides level=task order=1
-  - [ ] Resolution: global → project → team → ancestor tasks → self level=task order=2
-### Initiative: Cross-Team Alignment level=initiative order=11
-> Coordinate parallel teams against a shared alignment source. Teams each keep their own workspace with independent workflows and urgency (per the Teams initiative), but share a higher-level product doc that defines common milestones and success criteria. This initiative adds tooling to verify conformance and surface cross-team rollups, turning tusk into a source of clarity across teams without coupling their day-to-day workflows.
-
-- [ ] Story: Shared milestone identity level=story order=1
-  - [ ] Stable cross-workspace keys for milestones so multiple teams can reference "the same milestone" independently of UUIDs level=task order=1
-  - [ ] Import/export carries the alignment identity so teams importing the same milestone recognize it as shared level=task order=2
-- [ ] Story: Alignment-doc conformance check level=story order=2
-  - [ ] `tusk align check` compares a team workspace's milestones against a configured alignment source and reports missing, extra, or mismatched entries level=task order=1
-  - [ ] Read-only — never mutates the workspace automatically; surfaces a diff for the user to act on level=task order=2
-  - [ ] MCP tool exposure for agent-driven conformance checks level=task order=3
-- [ ] Story: Cross-team rollup level=story order=3
-  - [ ] Aggregate progress rollup across multiple team workspaces by shared milestone reference level=task order=1
-  - [ ] `tusk align status <milestone>` lists which teams own which portions and their current rollup level=task order=2
-### Initiative: Urgency Profiles level=initiative order=12
-> Named bundles of urgency weight overrides, attachable to any task or team. Follow-up to the subtree urgency overrides shipped in v0.13: once projects start repeating the same override combinations ("ship-critical", "research", "maintenance"), profiles replace the copy-paste. Also covers customizable rollup formulas if that scope follows.
-
-- [ ] Story: Profile entity level=story order=1
-  - [ ] Named profile with a weight map, stored per workspace level=task order=1
-  - [ ] CRUD via `tusk urgency-profile create/modify/delete/list` level=task order=2
-- [ ] Story: Profile attachment level=story order=2
-  - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer level=task order=1
-  - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key level=task order=2
-## Future level=milestone order=18
-> Scale to multi-user, richer interfaces, and deeper integrations.
-
-### Initiative: PostgreSQL Backend level=initiative order=1
-- [ ] Story: PostgreSQL infrastructure level=story order=1
-  - [ ] Connection pooling, migration support, and test harness level=task order=1
-  - [ ] PostgreSQL migration files mirroring SQLite schema level=task order=2
-- [ ] Story: Core PostgreSQL repositories level=story order=2
-  - [ ] TaskRepository for PostgreSQL level=task order=1
-- [ ] Story: Supporting PostgreSQL repositories level=story order=3
-  - [ ] TagRepository for PostgreSQL level=task order=1
-  - [ ] RelationRepository for PostgreSQL level=task order=2
-  - [ ] AnnotationRepository for PostgreSQL level=task order=3
-### Initiative: Interactive TUI level=initiative order=2
-- [ ] Story: Interactive task management level=story order=1
-  - [ ] Extend dashboard with inline task editing and status transitions level=task order=1
-  - [ ] Task creation and modification without leaving the TUI level=task order=2
-### Initiative: REST API level=initiative order=3
-- [ ] Story: HTTP REST API level=story order=1
-  - [ ] RESTful endpoints mirroring CLI/MCP capabilities level=task order=1
-  - [ ] Authentication and authorization level=task order=2
-### Initiative: Integrations & Extensions level=initiative order=4
-- [ ] Story: Webhook notifications level=story order=1
-  - [ ] Fire webhooks on task state changes (powered by event log from v0.13) level=task order=1
-- [ ] Story: Time tracking level=story order=2
-  - [ ] Start/stop timer on tasks level=task order=1
-  - [ ] Report time spent level=task order=2
-### Initiative: Binary Attachments level=initiative order=5
-- [ ] Story: File attachments level=story order=1
-  - [ ] Attach binary files to tasks (stored on filesystem, referenced in DB) level=task order=1
-  - [ ] `tusk attach <id> <file>` / `tusk_task_attach` MCP tool level=task order=2
-  - [ ] List and retrieve attachments via CLI and MCP level=task order=3
-### Initiative: Bidirectional Sync level=initiative order=6
-- [ ] Story: Sync protocol level=story order=1
-  - [ ] Define sync format and conflict resolution strategy level=task order=1
-  - [ ] `tusk sync export` / `tusk sync import` with merge semantics level=task order=2
-### Initiative: Teams level=initiative order=7
-> Introduce teams as a first-class entity so workflows, milestone assignments, and urgency scoping can vary by team within one workspace. Workflows are per-project by design — a single workspace sharing one workflow and one project-level urgency default cannot express teams with divergent practices. Teams provide that scope without forcing a project-per-team split.
-
-- [ ] Story: Team entity and membership level=story order=1
-  - [ ] Domain type, repository, migration level=task order=1
-  - [ ] Players can belong to one or more teams level=task order=2
-  - [ ] Tasks carry an optional team reference level=task order=3
-- [ ] Story: Team-scoped workflows level=story order=2
-  - [ ] A team can declare its own workflow independent of the project's default level=task order=1
-  - [ ] Task status transitions validate against the team's workflow when a team is set level=task order=2
-- [ ] Story: Team-scoped urgency level=story order=3
-  - [ ] Per-team urgency weight overrides, slotting into the resolution chain between project and task-subtree overrides level=task order=1
-  - [ ] Resolution: global → project → team → ancestor tasks → self level=task order=2
-### Initiative: Cross-Team Alignment level=initiative order=8
-> Coordinate parallel teams against a shared alignment source. Teams each keep their own workspace with independent workflows and urgency (per the Teams initiative), but share a higher-level product doc that defines common milestones and success criteria. This initiative adds tooling to verify conformance and surface cross-team rollups, turning tusk into a source of clarity across teams without coupling their day-to-day workflows.
-
-- [ ] Story: Shared milestone identity level=story order=1
-  - [ ] Stable cross-workspace keys for milestones so multiple teams can reference "the same milestone" independently of UUIDs level=task order=1
-  - [ ] Import/export carries the alignment identity so teams importing the same milestone recognize it as shared level=task order=2
-- [ ] Story: Alignment-doc conformance check level=story order=2
-  - [ ] `tusk align check` compares a team workspace's milestones against a configured alignment source and reports missing, extra, or mismatched entries level=task order=1
-  - [ ] Read-only — never mutates the workspace automatically; surfaces a diff for the user to act on level=task order=2
-  - [ ] MCP tool exposure for agent-driven conformance checks level=task order=3
-- [ ] Story: Cross-team rollup level=story order=3
-  - [ ] Aggregate progress rollup across multiple team workspaces by shared milestone reference level=task order=1
-  - [ ] `tusk align status <milestone>` lists which teams own which portions and their current rollup level=task order=2
-### Initiative: Urgency Profiles level=initiative order=9
-> Named bundles of urgency weight overrides, attachable to any task or team. Follow-up to the subtree urgency overrides shipped in v0.13: once projects start repeating the same override combinations ("ship-critical", "research", "maintenance"), profiles replace the copy-paste. Also covers customizable rollup formulas if that scope follows.
-
-- [ ] Story: Profile entity level=story order=1
-  - [ ] Named profile with a weight map, stored per workspace level=task order=1
-  - [ ] CRUD via `tusk urgency-profile create/modify/delete/list` level=task order=2
-- [ ] Story: Profile attachment level=story order=2
-  - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer level=task order=1
-  - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key level=task order=2
-## v0.14 — Naming and Spacing Convention level=milestone order=19 +naming-convention +v0.14
+## v0.14 — Naming and Spacing Convention level=milestone order=14 +naming-convention +v0.14
 > Establish project-wide naming and spacing convention for the Tusk codebase, enforce it mechanically with a linter, and clean every existing package to match. No behavior changes; pure readability and tooling.
 >
 > Eight phases:
@@ -2152,3 +1917,238 @@
 > Depends on: P8-T1, P8-T2, P8-T3, P8-T4.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T5.md
 
+## v0.15 — Live Dashboard level=milestone order=16
+> Real-time TUI dashboard for monitoring task state and player activity, powered by the event log shipped in v0.13.
+
+### Initiative: TUI Dashboard level=initiative order=1
+> Bubbletea-based live dashboard for orchestrator situational awareness.
+
+- [ ] Story: Task board view level=story order=1
+  - [ ] `tusk dashboard` — long-running TUI command level=task order=1
+  - [ ] Tasks organized by status columns (kanban-style) level=task order=2
+  - [ ] Live updates via event log polling (1-2 second interval) level=task order=3
+  - [ ] Color-coded by priority and claim status (bubbletea owns its own styling, independent of v0.6 TUI Polish) level=task order=4
+- [ ] Story: Player activity feed level=story order=2
+  - [ ] Activity stream panel showing recent events ("agent-1 claimed X", "german completed Y") level=task order=1
+  - [ ] Filter by player or event type level=task order=2
+  - [ ] Highlight stuck/idle players (claimed but no activity for configurable duration) level=task order=3
+- [ ] Story: Dashboard layout level=story order=3
+  - [ ] Split view: task board + activity feed level=task order=1
+  - [ ] Keyboard navigation between panels level=task order=2
+  - [ ] Configurable via `[dashboard]` config section (refresh interval, layout, visible columns) level=task order=3
+- [ ] Story: Live rollup panel level=story order=4
+  - [ ] Extends the static progress rollup from v0.13 into a live dashboard panel driven by event log deltas (no per-tick re-query) level=task order=1
+  - [ ] Per-root-task `%done` and status breakdown, refreshed as events arrive level=task order=2
+## v0.16 — Advanced Features level=milestone order=17
+> Recurrence, additional transports, and undo.
+
+### Initiative: Recurrence level=initiative order=1
+> Automatic task instance generation from RFC 5545 RRULE.
+
+- [ ] Story: RRULE support level=story order=1
+  - [ ] Parse RFC 5545 RRULE strings level=task order=1
+  - [ ] Generate next instance on task completion level=task order=2
+  - [ ] Handle recurrence edge cases (end date, count limit) level=task order=3
+### Initiative: MCP Streamable HTTP Transport level=initiative order=2
+> Network-accessible MCP server for multi-client scenarios. Targets Streamable HTTP (successor to deprecated SSE transport).
+
+- [ ] Story: Streamable HTTP transport level=story order=1
+  - [ ] Streamable HTTP transport implementation level=task order=1
+  - [ ] `tusk mcp serve --transport http --port <port>` level=task order=2
+### Initiative: Undo level=initiative order=3
+> Revert the last mutation using the event log from v0.13.
+
+- [ ] Story: Undo command level=story order=1
+  - [ ] `tusk undo` — revert last mutation by reading event log and applying inverse level=task order=1
+  - [ ] Support undo for task CRUD, status transitions, and claim operations level=task order=2
+### Initiative: PostgreSQL Backend level=initiative order=4
+- [ ] Story: PostgreSQL infrastructure level=story order=1
+  - [ ] Connection pooling, migration support, and test harness level=task order=1
+  - [ ] PostgreSQL migration files mirroring SQLite schema level=task order=2
+- [ ] Story: Core PostgreSQL repositories level=story order=2
+  - [ ] TaskRepository for PostgreSQL level=task order=1
+- [ ] Story: Supporting PostgreSQL repositories level=story order=3
+  - [ ] TagRepository for PostgreSQL level=task order=1
+  - [ ] RelationRepository for PostgreSQL level=task order=2
+  - [ ] AnnotationRepository for PostgreSQL level=task order=3
+### Initiative: Interactive TUI level=initiative order=5
+- [ ] Story: Interactive task management level=story order=1
+  - [ ] Extend dashboard with inline task editing and status transitions level=task order=1
+  - [ ] Task creation and modification without leaving the TUI level=task order=2
+### Initiative: REST API level=initiative order=6
+- [ ] Story: HTTP REST API level=story order=1
+  - [ ] RESTful endpoints mirroring CLI/MCP capabilities level=task order=1
+  - [ ] Authentication and authorization level=task order=2
+### Initiative: Integrations & Extensions level=initiative order=7
+- [ ] Story: Webhook notifications level=story order=1
+  - [ ] Fire webhooks on task state changes (powered by event log from v0.13) level=task order=1
+- [ ] Story: Time tracking level=story order=2
+  - [ ] Start/stop timer on tasks level=task order=1
+  - [ ] Report time spent level=task order=2
+### Initiative: Binary Attachments level=initiative order=8
+- [ ] Story: File attachments level=story order=1
+  - [ ] Attach binary files to tasks (stored on filesystem, referenced in DB) level=task order=1
+  - [ ] `tusk attach <id> <file>` / `tusk_task_attach` MCP tool level=task order=2
+  - [ ] List and retrieve attachments via CLI and MCP level=task order=3
+### Initiative: Bidirectional Sync level=initiative order=9
+- [ ] Story: Sync protocol level=story order=1
+  - [ ] Define sync format and conflict resolution strategy level=task order=1
+  - [ ] `tusk sync export` / `tusk sync import` with merge semantics level=task order=2
+### Initiative: Teams level=initiative order=10
+> Introduce teams as a first-class entity so workflows, milestone assignments, and urgency scoping can vary by team within one workspace. Workflows are per-project by design — a single workspace sharing one workflow and one project-level urgency default cannot express teams with divergent practices. Teams provide that scope without forcing a project-per-team split.
+
+- [ ] Story: Team entity and membership level=story order=1
+  - [ ] Domain type, repository, migration level=task order=1
+  - [ ] Players can belong to one or more teams level=task order=2
+  - [ ] Tasks carry an optional team reference level=task order=3
+- [ ] Story: Team-scoped workflows level=story order=2
+  - [ ] A team can declare its own workflow independent of the project's default level=task order=1
+  - [ ] Task status transitions validate against the team's workflow when a team is set level=task order=2
+- [ ] Story: Team-scoped urgency level=story order=3
+  - [ ] Per-team urgency weight overrides, slotting into the resolution chain between project and task-subtree overrides level=task order=1
+  - [ ] Resolution: global → project → team → ancestor tasks → self level=task order=2
+### Initiative: Cross-Team Alignment level=initiative order=11
+> Coordinate parallel teams against a shared alignment source. Teams each keep their own workspace with independent workflows and urgency (per the Teams initiative), but share a higher-level product doc that defines common milestones and success criteria. This initiative adds tooling to verify conformance and surface cross-team rollups, turning tusk into a source of clarity across teams without coupling their day-to-day workflows.
+
+- [ ] Story: Shared milestone identity level=story order=1
+  - [ ] Stable cross-workspace keys for milestones so multiple teams can reference "the same milestone" independently of UUIDs level=task order=1
+  - [ ] Import/export carries the alignment identity so teams importing the same milestone recognize it as shared level=task order=2
+- [ ] Story: Alignment-doc conformance check level=story order=2
+  - [ ] `tusk align check` compares a team workspace's milestones against a configured alignment source and reports missing, extra, or mismatched entries level=task order=1
+  - [ ] Read-only — never mutates the workspace automatically; surfaces a diff for the user to act on level=task order=2
+  - [ ] MCP tool exposure for agent-driven conformance checks level=task order=3
+- [ ] Story: Cross-team rollup level=story order=3
+  - [ ] Aggregate progress rollup across multiple team workspaces by shared milestone reference level=task order=1
+  - [ ] `tusk align status <milestone>` lists which teams own which portions and their current rollup level=task order=2
+### Initiative: Urgency Profiles level=initiative order=12
+> Named bundles of urgency weight overrides, attachable to any task or team. Follow-up to the subtree urgency overrides shipped in v0.13: once projects start repeating the same override combinations ("ship-critical", "research", "maintenance"), profiles replace the copy-paste. Also covers customizable rollup formulas if that scope follows.
+
+- [ ] Story: Profile entity level=story order=1
+  - [ ] Named profile with a weight map, stored per workspace level=task order=1
+  - [ ] CRUD via `tusk urgency-profile create/modify/delete/list` level=task order=2
+- [ ] Story: Profile attachment level=story order=2
+  - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer level=task order=1
+  - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key level=task order=2
+## Hardening Pass level=milestone order=18
+> Post-v0.13/v0.14 hardening backlog. Bug-fix and consistency stories carved out of the Plugin milestone — which was retired because Claude Code plugin work lives in a separate repo, not in tusk. Covers Event Log, Project Note Window Size Wiring, Sibling Ordering, and Subtree Urgency Overrides.
+
+### Initiative: Sibling Ordering Hardening level=initiative order=1
+> Quality follow-ups surfaced during the v0.13 Sibling Ordering post-implementation review. Non-blocking — the feature ships correctly in v0.13 — but worth resolving before Data Portability's import path depends on null-order round-trip and before MCP `tusk_task_tree` grows a sort option.
+
+- [ ] Story: Preserve explicit `order=null` in JSON output level=story order=1
+  - [ ] Drop `,omitempty` from the `Order *float64` field in `taskJSON` (`internal/tui/render.go`) and `treeNodeJSON` (`internal/tui/tree.go`). Spec §3.1 requires `null` to be serialized as `"order": null`, not omitted, because a cleared order is distinct from an inherited default. level=task order=1
+  - [ ] Current state: after `tusk task modify <id> order=` (clear), JSON output omits the key entirely. Any consumer distinguishing "absent" from "null" — including the upcoming Data Portability import path — will mishandle cleared rows. level=task order=2
+  - [ ] Add a regression test in `internal/tui/render_test.go` / `tree_test.go` that a cleared task emits `"order": null`. level=task order=3
+- [ ] Story: `ErrCyclicParent` message alignment level=story order=2
+  - [ ] Cosmetic: `domain/errors.go` reads `"parent would create a cycle in task hierarchy"`; spec §3.2 specifies `"task move would create a parent cycle"`. The sentinel still matches via `errors.Is`, and the E2E substring-on-"cycle" check still passes, so this is spec-fidelity only. level=task order=1
+### Initiative: Subtree Urgency Overrides Hardening level=initiative order=2
+> Verification follow-ups surfaced during the v0.13 Subtree Urgency Overrides design review. Edge-case behaviors that the core spec decides but that need explicit regression coverage so future refactors don't silently change them, plus the MCP-side scoring parity gap that was originally misfiled under Sibling Ordering Hardening.
+
+- [ ] Story: MCP `tusk_task_tree` subtree urgency parity level=story order=1
+  - [ ] `internal/mcp/tools.go` `handleTaskTree` subtree branch still calls `taskSvc.GetDescendants` raw, returning tasks with zero `Urgency`. The CLI equivalent was fixed in commit `d2bae4f` to route subtree through `TaskService.List` with a `RootID` filter so `UrgencyEngine.ScoreAndSort` runs. level=task order=1
+  - [ ] Apply the same fix to the MCP handler so subtree responses carry populated urgency scores. Doubly important once Subtree Urgency Overrides ships: subtree responses must reflect the resolved per-task weights, not zero. level=task order=2
+- [ ] Story: Deleted/terminal ancestor override propagation level=story order=2
+  - [ ] Add an E2E scenario that places `urgency_overrides` on a parent, transitions the parent to a terminal status (e.g., `completed` or `deleted`), and verifies the surviving children still resolve the parent's overrides into their effective weights. level=task order=1
+  - [ ] Locks in the spec decision that ancestor walk does not filter by status — preventing a future "skip terminal ancestors" optimization from silently changing inheritance. level=task order=2
+- [ ] Story: Override re-walk on `task move` level=story order=3
+  - [ ] Add an E2E scenario that creates two subtrees with different ancestor overrides, moves a task between them, and verifies its effective weights flip to match the new chain on the next read with no explicit invalidation step. level=task order=1
+  - [ ] Locks in the spec decision that overrides are stored on the task and re-resolved per read; prevents a future cache that wouldn't invalidate on `move`. level=task order=2
+- [ ] Story: Cross-project ancestry assertion level=story order=4
+  - [ ] Add a unit assertion in `service/task.go::buildEffectiveWeights` (or equivalent) that every visited ancestor shares the input task's `project_id`. If the invariant ever breaks (e.g., a future feature lets subtrees span projects), the resolution chain would silently mix project-level weights from two sources — fail loud instead. level=task order=1
+  - [ ] Pair with an E2E or service-level test that confirms the assertion holds in normal operation and fires if the invariant is bypassed. level=task order=2
+### Initiative: Project Note Window Size Wiring level=initiative order=3
+> v0.12 added `NoteWindowSize` to `domain.ProjectSettings` and `NoteService.List` reads it in the resolution chain, but the field has no CLI or MCP write path — `ModifyProjectInput`, `internal/tui/project_parse.go`, and `internal/mcp/project_handlers.go` all omit it. Projects cannot currently override the note window; the fallback passes straight through to global config. Non-blocking orphan surfaced during v0.13 Task Level Taxonomy design review.
+
+- [ ] Story: Project-level window size write path level=story order=1
+  - [ ] Add `NoteWindowSize` to `ModifyProjectInput` in `service/project.go` and apply it in `ProjectService.Modify` level=task order=1
+  - [ ] Add inline parser case in `internal/tui/project_parse.go` for `note-window-size=<N>` and `note-window-size=` (clear) level=task order=2
+  - [ ] Add the parameter to `tusk_project_modify` in `internal/mcp/project_handlers.go` with version-based optimistic locking level=task order=3
+  - [ ] Render the resolved value in `tusk project info` output level=task order=4
+  - [ ] E2E coverage: set per-project override, list notes, verify the resolution chain picks up the project value over global config level=task order=5
+### Initiative: Event Log Hardening level=initiative order=4
+> Quality follow-ups surfaced during the v0.13 Event Log post-implementation review. Non-blocking — the event log ships correctly in v0.13 — but worth resolving before downstream consumers (Data Portability, Live Dashboard, undo) grow to depend on the current shape.
+
+- [ ] Story: Lifecycle emission coherence level=story order=1
+  - [ ] Normalize idempotent-call behavior across `Start`, `Complete`, `Delete`: either all three emit their action event when called on a task already in the terminal status, or none do. Current state: `Start` always emits; `Complete`/`Delete` silently skip when `oldStatus == targetStatus`. level=task order=1
+  - [ ] Pick the emitting direction (preferred) so downstream consumers can trust "one action call = one event row"; update `service/task.go` and the corresponding event tests. level=task order=2
+- [ ] Story: `TaskCreatedPayload` completeness level=story order=2
+  - [ ] Populate `Order` and `Tags` in `domain.NewTaskCreatedEvent`, or drop the fields from the payload struct. Current state: fields are declared but the constructor never sets them because `domain.Task` carries neither. level=task order=1
+  - [ ] If populating: pull tags via `TagRepo.GetTaskTags` at emit time (inside the same `WriteTx` so the snapshot is consistent) and add `Order` once v0.13 Sibling Ordering lands the field on `Task`. level=task order=2
+  - [ ] Update the Data Portability JSON export to round-trip whichever shape is chosen. level=task order=3
+- [ ] Story: `EventPayload` seal level=story order=3
+  - [ ] Rename `EventPayload.EventKind()` to unexported `eventKind()` per the original design-spec intent, or document the exported form as deliberate so external packages can register new payload kinds without forking `domain/`. level=task order=1
+  - [ ] If tightening the seal: move the `UnknownPayload` fallback path (currently in `sqlite/event.go`'s `decodePayload`) to a registry hook so downstream consumers can still round-trip unknown kinds. level=task order=2
+- [ ] Story: Cleanup level=story order=4
+  - [ ] Remove the dead `_ = bundle` line in `service/task.go` (`Start`). level=task order=1
+  - [ ] Audit other event-log touch points for similar refactor leftovers. level=task order=2
+## Future level=milestone order=19
+> Scale to multi-user, richer interfaces, and deeper integrations.
+
+### Initiative: PostgreSQL Backend level=initiative order=1
+- [ ] Story: PostgreSQL infrastructure level=story order=1
+  - [ ] Connection pooling, migration support, and test harness level=task order=1
+  - [ ] PostgreSQL migration files mirroring SQLite schema level=task order=2
+- [ ] Story: Core PostgreSQL repositories level=story order=2
+  - [ ] TaskRepository for PostgreSQL level=task order=1
+- [ ] Story: Supporting PostgreSQL repositories level=story order=3
+  - [ ] TagRepository for PostgreSQL level=task order=1
+  - [ ] RelationRepository for PostgreSQL level=task order=2
+  - [ ] AnnotationRepository for PostgreSQL level=task order=3
+### Initiative: Interactive TUI level=initiative order=2
+- [ ] Story: Interactive task management level=story order=1
+  - [ ] Extend dashboard with inline task editing and status transitions level=task order=1
+  - [ ] Task creation and modification without leaving the TUI level=task order=2
+### Initiative: REST API level=initiative order=3
+- [ ] Story: HTTP REST API level=story order=1
+  - [ ] RESTful endpoints mirroring CLI/MCP capabilities level=task order=1
+  - [ ] Authentication and authorization level=task order=2
+### Initiative: Integrations & Extensions level=initiative order=4
+- [ ] Story: Webhook notifications level=story order=1
+  - [ ] Fire webhooks on task state changes (powered by event log from v0.13) level=task order=1
+- [ ] Story: Time tracking level=story order=2
+  - [ ] Start/stop timer on tasks level=task order=1
+  - [ ] Report time spent level=task order=2
+### Initiative: Binary Attachments level=initiative order=5
+- [ ] Story: File attachments level=story order=1
+  - [ ] Attach binary files to tasks (stored on filesystem, referenced in DB) level=task order=1
+  - [ ] `tusk attach <id> <file>` / `tusk_task_attach` MCP tool level=task order=2
+  - [ ] List and retrieve attachments via CLI and MCP level=task order=3
+### Initiative: Bidirectional Sync level=initiative order=6
+- [ ] Story: Sync protocol level=story order=1
+  - [ ] Define sync format and conflict resolution strategy level=task order=1
+  - [ ] `tusk sync export` / `tusk sync import` with merge semantics level=task order=2
+### Initiative: Teams level=initiative order=7
+> Introduce teams as a first-class entity so workflows, milestone assignments, and urgency scoping can vary by team within one workspace. Workflows are per-project by design — a single workspace sharing one workflow and one project-level urgency default cannot express teams with divergent practices. Teams provide that scope without forcing a project-per-team split.
+
+- [ ] Story: Team entity and membership level=story order=1
+  - [ ] Domain type, repository, migration level=task order=1
+  - [ ] Players can belong to one or more teams level=task order=2
+  - [ ] Tasks carry an optional team reference level=task order=3
+- [ ] Story: Team-scoped workflows level=story order=2
+  - [ ] A team can declare its own workflow independent of the project's default level=task order=1
+  - [ ] Task status transitions validate against the team's workflow when a team is set level=task order=2
+- [ ] Story: Team-scoped urgency level=story order=3
+  - [ ] Per-team urgency weight overrides, slotting into the resolution chain between project and task-subtree overrides level=task order=1
+  - [ ] Resolution: global → project → team → ancestor tasks → self level=task order=2
+### Initiative: Cross-Team Alignment level=initiative order=8
+> Coordinate parallel teams against a shared alignment source. Teams each keep their own workspace with independent workflows and urgency (per the Teams initiative), but share a higher-level product doc that defines common milestones and success criteria. This initiative adds tooling to verify conformance and surface cross-team rollups, turning tusk into a source of clarity across teams without coupling their day-to-day workflows.
+
+- [ ] Story: Shared milestone identity level=story order=1
+  - [ ] Stable cross-workspace keys for milestones so multiple teams can reference "the same milestone" independently of UUIDs level=task order=1
+  - [ ] Import/export carries the alignment identity so teams importing the same milestone recognize it as shared level=task order=2
+- [ ] Story: Alignment-doc conformance check level=story order=2
+  - [ ] `tusk align check` compares a team workspace's milestones against a configured alignment source and reports missing, extra, or mismatched entries level=task order=1
+  - [ ] Read-only — never mutates the workspace automatically; surfaces a diff for the user to act on level=task order=2
+  - [ ] MCP tool exposure for agent-driven conformance checks level=task order=3
+- [ ] Story: Cross-team rollup level=story order=3
+  - [ ] Aggregate progress rollup across multiple team workspaces by shared milestone reference level=task order=1
+  - [ ] `tusk align status <milestone>` lists which teams own which portions and their current rollup level=task order=2
+### Initiative: Urgency Profiles level=initiative order=9
+> Named bundles of urgency weight overrides, attachable to any task or team. Follow-up to the subtree urgency overrides shipped in v0.13: once projects start repeating the same override combinations ("ship-critical", "research", "maintenance"), profiles replace the copy-paste. Also covers customizable rollup formulas if that scope follows.
+
+- [ ] Story: Profile entity level=story order=1
+  - [ ] Named profile with a weight map, stored per workspace level=task order=1
+  - [ ] CRUD via `tusk urgency-profile create/modify/delete/list` level=task order=2
+- [ ] Story: Profile attachment level=story order=2
+  - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer level=task order=1
+  - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key level=task order=2
