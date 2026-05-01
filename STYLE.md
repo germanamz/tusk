@@ -1,5 +1,7 @@
 # STYLE.md — Tusk Naming and Spacing Convention
 
+**Status:** enforced repository-wide as of v0.14.
+
 This document is the canonical reference for the Tusk codebase naming and
 spacing convention. Rules 1–4 are linter-enforced; the style guide that
 follows is advisory review-time guidance. The enforcement summary at the end
@@ -190,3 +192,8 @@ check package or file names. Those parts of rule 1 are review-enforced.
 
 Run `make lint` to execute both `golangci-lint` (rule 1) and `tusk-lint`
 (rules 2–4) in one step.
+
+**Lock-in (v0.14):** no per-package exclusions in `.golangci.yml`, no
+`// nolint:varnamelen` directives anywhere in the Go source tree; both are
+guarded by `make lint-style-locked`, which runs as a prerequisite of
+`make lint` in CI.
