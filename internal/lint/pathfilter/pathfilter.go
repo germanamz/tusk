@@ -1,9 +1,9 @@
 // Package pathfilter provides a helper for the custom lint analyzers to
 // short-circuit on packages that are excluded from per-package lint rules
-// during the v0.14 naming-convention sweep. Each entry in the excluded slice
-// mirrors a corresponding per-package exclusion in .golangci.yml and will be
-// removed as its sweep phase completes; any residual entries are removed in
-// Phase 8.
+// during the v0.14 naming-convention sweep. All per-package exclusions have
+// now been removed (the final one, config/, was cleared by the P-CONFIG sweep);
+// the slice is intentionally empty and the package is kept so analyzers can
+// still call Excluded without change.
 package pathfilter
 
 import (
@@ -11,11 +11,7 @@ import (
 	"strings"
 )
 
-var excluded = []*regexp.Regexp{
-	// config/ omitted from the v0.14 spec enumeration; tracked as
-	// follow-up sweep (tusk task 06fa0f50) and removed by that task.
-	regexp.MustCompile(`^github\.com/germanamz/tusk/config(/|$)`),
-}
+var excluded = []*regexp.Regexp{}
 
 // Excluded reports whether pkgPath matches any of the per-package exclusion
 // regexes. Analyzers call this at the top of their Run function and

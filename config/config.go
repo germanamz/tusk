@@ -171,20 +171,22 @@ func ensureConfigFile(searchPath string) error {
 // them.
 func checkLegacySections(filePath string) error {
 	data, err := os.ReadFile(filePath)
+
 	if err != nil {
 		return fmt.Errorf("reading config file: %w", err)
 	}
+
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		// Defer to Viper's parse error path for malformed files.
 		return nil
 	}
 	for _, section := range []string{"projects", "workflows"} {
-		v, ok := raw[section]
+		sectionVal, ok := raw[section]
 		if !ok {
 			continue
 		}
-		if _, isMap := v.(map[string]any); !isMap {
+		if _, isMap := sectionVal.(map[string]any); !isMap {
 			continue
 		}
 		return fmt.Errorf(
@@ -212,10 +214,10 @@ func checkLegacySections(filePath string) error {
 // resolved and no search path is provided, Load proceeds with embedded
 // defaults only.
 func Load(opts ...Option) (*Config, error) {
-	v := viper.New()
-	v.SetConfigType("toml")
+	viperCfg := viper.New()
+	viperCfg.SetConfigType("toml")
 
-	if err := v.ReadConfig(bytes.NewReader(defaultConfig)); err != nil {
+	if err := viperCfg.ReadConfig(bytes.NewReader(defaultConfig)); err != nil {
 		return nil, fmt.Errorf("reading embedded defaults: %w", err)
 	}
 
@@ -227,6 +229,7 @@ func Load(opts ...Option) (*Config, error) {
 	globalDir := resolveGlobalDir(lo.searchPath)
 
 	filePath, err := ResolveConfigFile(lo.startDir, lo.explicitFile, globalDir)
+
 	if err != nil {
 		return nil, err
 	}
@@ -245,18 +248,18 @@ func Load(opts ...Option) (*Config, error) {
 		if err := checkLegacySections(filePath); err != nil {
 			return nil, err
 		}
-		v.SetConfigFile(filePath)
-		if err := v.MergeInConfig(); err != nil {
+		viperCfg.SetConfigFile(filePath)
+		if err := viperCfg.MergeInConfig(); err != nil {
 			return nil, fmt.Errorf("reading config file: %w", err)
 		}
 	}
 
-	v.SetEnvPrefix("TUSK")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
+	viperCfg.SetEnvPrefix("TUSK")
+	viperCfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viperCfg.AutomaticEnv()
 
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	if err := viperCfg.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 	cfg.Sources.File = filePath
@@ -280,9 +283,11 @@ func resolveGlobalDir(searchPath string) string {
 		return envDir
 	}
 	home, err := os.UserHomeDir()
+
 	if err != nil {
 		return ""
 	}
+
 	return filepath.Join(home, ".config", "tusk")
 }
 
@@ -291,15 +296,15 @@ func resolveGlobalDir(searchPath string) string {
 // the removed [projects.*] / [workflows.*] schema. Kept in place so
 // callers do not need to change and future globals validation has a
 // natural home.
-func (c *Config) Validate() error {
-	if c.Inline.MaxExpansionSize <= 0 {
-		return fmt.Errorf("inline.max_expansion_size must be > 0, got %d", c.Inline.MaxExpansionSize)
+func (cfg *Config) Validate() error {
+	if cfg.Inline.MaxExpansionSize <= 0 {
+		return fmt.Errorf("inline.max_expansion_size must be > 0, got %d", cfg.Inline.MaxExpansionSize)
 	}
-	if c.Notes.WindowSize <= 0 {
-		return fmt.Errorf("notes.window_size must be > 0, got %d", c.Notes.WindowSize)
+	if cfg.Notes.WindowSize <= 0 {
+		return fmt.Errorf("notes.window_size must be > 0, got %d", cfg.Notes.WindowSize)
 	}
-	if len(c.Taxonomy.Levels) > 0 {
-		if err := domain.Taxonomy(c.Taxonomy.Levels).Validate(); err != nil {
+	if len(cfg.Taxonomy.Levels) > 0 {
+		if err := domain.Taxonomy(cfg.Taxonomy.Levels).Validate(); err != nil {
 			return fmt.Errorf("invalid taxonomy: %w", err)
 		}
 	}
@@ -313,8 +318,10 @@ func ExpandPath(path string) string {
 		return path
 	}
 	home, err := os.UserHomeDir()
+
 	if err != nil {
 		return path
 	}
+
 	return filepath.Join(home, path[1:])
 }

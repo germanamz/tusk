@@ -28,12 +28,14 @@ func ConfigFilePath(opts ...Option) (string, error) {
 	}
 
 	if lo.explicitFile != "" {
-		if _, err := os.Stat(lo.explicitFile); err != nil {
-			if os.IsNotExist(err) {
+		if _, statErr := os.Stat(lo.explicitFile); statErr != nil {
+			if os.IsNotExist(statErr) {
 				return "", fmt.Errorf("config file not found: %s", lo.explicitFile)
 			}
-			return "", fmt.Errorf("stat %s: %w", lo.explicitFile, err)
+
+			return "", fmt.Errorf("stat %s: %w", lo.explicitFile, statErr)
 		}
+
 		return lo.explicitFile, nil
 	}
 
@@ -43,10 +45,12 @@ func ConfigFilePath(opts ...Option) (string, error) {
 
 	globalDir := resolveGlobalDir(lo.searchPath)
 	if globalDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolving home directory: %w", err)
+		home, homeErr := os.UserHomeDir()
+
+		if homeErr != nil {
+			return "", fmt.Errorf("resolving home directory: %w", homeErr)
 		}
+
 		globalDir = filepath.Join(home, ".config", "tusk")
 	}
 	return filepath.Join(globalDir, "config.toml"), nil
@@ -57,13 +61,14 @@ func ConfigFilePath(opts ...Option) (string, error) {
 // Used by config set (load-modify-write) and config validate (file-only validation).
 func LoadFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
+
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
 	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config file: %w", err)
+	if unmarshalErr := toml.Unmarshal(data, &cfg); unmarshalErr != nil {
+		return nil, fmt.Errorf("parsing config file: %w", unmarshalErr)
 	}
 
 	applyFileDefaults(&cfg)
@@ -88,31 +93,35 @@ func applyFileDefaults(cfg *Config) {
 // WriteConfig marshals a Config struct to TOML and writes it to path atomically.
 // Writes to a temporary file first, then renames to avoid partial writes.
 func WriteConfig(cfg *Config, path string) error {
-	data, err := toml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
+	data, marshalErr := toml.Marshal(cfg)
+
+	if marshalErr != nil {
+		return fmt.Errorf("marshaling config: %w", marshalErr)
 	}
 
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "tusk-config-*.toml")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
+	tmp, createErr := os.CreateTemp(dir, "tusk-config-*.toml")
+
+	if createErr != nil {
+		return fmt.Errorf("creating temp file: %w", createErr)
 	}
+
 	tmpPath := tmp.Name()
 
-	if _, err := tmp.Write(data); err != nil {
+	if _, writeErr := tmp.Write(data); writeErr != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("writing temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("closing temp file: %w", err)
+		return fmt.Errorf("writing temp file: %w", writeErr)
 	}
 
-	if err := os.Rename(tmpPath, path); err != nil {
+	if closeErr := tmp.Close(); closeErr != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("renaming temp file: %w", err)
+		return fmt.Errorf("closing temp file: %w", closeErr)
+	}
+
+	if renameErr := os.Rename(tmpPath, path); renameErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("renaming temp file: %w", renameErr)
 	}
 
 	return nil
@@ -127,29 +136,29 @@ func IsSliceKey(key string) bool {
 	return isSliceKeyPath(reflect.TypeOf(Config{}), parts)
 }
 
-func isSliceKeyPath(t reflect.Type, parts []string) bool {
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
+func isSliceKeyPath(reflectType reflect.Type, parts []string) bool {
+	for reflectType.Kind() == reflect.Ptr {
+		reflectType = reflectType.Elem()
 	}
 
 	if len(parts) == 0 {
 		return false
 	}
 
-	switch t.Kind() {
+	switch reflectType.Kind() {
 	case reflect.Struct:
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			tag := f.Tag.Get("mapstructure")
+		for index := 0; index < reflectType.NumField(); index++ {
+			field := reflectType.Field(index)
+			tag := field.Tag.Get("mapstructure")
 			if tag == parts[0] {
 				if len(parts) == 1 {
-					ft := f.Type
-					for ft.Kind() == reflect.Ptr {
-						ft = ft.Elem()
+					fieldType := field.Type
+					for fieldType.Kind() == reflect.Ptr {
+						fieldType = fieldType.Elem()
 					}
-					return ft.Kind() == reflect.Slice
+					return fieldType.Kind() == reflect.Slice
 				}
-				return isSliceKeyPath(f.Type, parts[1:])
+				return isSliceKeyPath(field.Type, parts[1:])
 			}
 		}
 		return false
@@ -158,13 +167,13 @@ func isSliceKeyPath(t reflect.Type, parts []string) bool {
 			return false
 		}
 		if len(parts) == 1 {
-			elem := t.Elem()
+			elem := reflectType.Elem()
 			for elem.Kind() == reflect.Ptr {
 				elem = elem.Elem()
 			}
 			return elem.Kind() == reflect.Slice
 		}
-		return isSliceKeyPath(t.Elem(), parts[1:])
+		return isSliceKeyPath(reflectType.Elem(), parts[1:])
 	default:
 		return false
 	}
@@ -181,32 +190,32 @@ func IsValidKey(key string) bool {
 }
 
 // isValidKeyPath recursively walks the struct type tree to validate a dot-path.
-func isValidKeyPath(t reflect.Type, parts []string) bool {
+func isValidKeyPath(reflectType reflect.Type, parts []string) bool {
 	if len(parts) == 0 {
 		return false
 	}
 
 	// Unwrap pointer types.
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
+	for reflectType.Kind() == reflect.Ptr {
+		reflectType = reflectType.Elem()
 	}
 
-	switch t.Kind() {
+	switch reflectType.Kind() {
 	case reflect.Struct:
 		// Find the field matching the mapstructure tag.
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			tag := f.Tag.Get("mapstructure")
+		for index := 0; index < reflectType.NumField(); index++ {
+			field := reflectType.Field(index)
+			tag := field.Tag.Get("mapstructure")
 			if tag == parts[0] {
 				if len(parts) == 1 {
 					// Valid only if this is a leaf (not a struct or map, or is a slice/basic type).
-					ft := f.Type
-					for ft.Kind() == reflect.Ptr {
-						ft = ft.Elem()
+					fieldType := field.Type
+					for fieldType.Kind() == reflect.Ptr {
+						fieldType = fieldType.Elem()
 					}
-					return ft.Kind() != reflect.Struct && ft.Kind() != reflect.Map
+					return fieldType.Kind() != reflect.Struct && fieldType.Kind() != reflect.Map
 				}
-				return isValidKeyPath(f.Type, parts[1:])
+				return isValidKeyPath(field.Type, parts[1:])
 			}
 		}
 		return false
@@ -218,13 +227,13 @@ func isValidKeyPath(t reflect.Type, parts []string) bool {
 			return false
 		}
 		if len(parts) == 1 {
-			elem := t.Elem()
+			elem := reflectType.Elem()
 			for elem.Kind() == reflect.Ptr {
 				elem = elem.Elem()
 			}
 			return elem.Kind() != reflect.Struct
 		}
-		return isValidKeyPath(t.Elem(), parts[1:])
+		return isValidKeyPath(reflectType.Elem(), parts[1:])
 
 	default:
 		// Leaf type — valid only if no more parts.
