@@ -905,116 +905,43 @@
   - [x] Drop the `export TUSK_DB="$(pwd)/.data/tusk.db"` step from the contributor workflow in `CONTRIBUTING.md`; from inside the repo, `tusk task ...` and `make roadmap` work with no env setup. level=task order=3
   - [x] Resolve the v0.13 retrospective's "Follow-up: e2e harness is not hermetic against walk-up config" section by linking to the merged PR. level=task order=4
   - [x] Verify drift check still passes end-to-end: locally and on CI, `make roadmap && git diff --exit-code ROADMAP.md` succeeds with no `TUSK_DB` set. level=task order=5
-## v0.14 — Tusk Claude Code Plugin level=milestone order=14
-> Ship an official Claude Code plugin that accelerates the human-agent loop for roadmap work and day-to-day task triage on top of tusk. Vanilla `tusk` remains fully supported — the plugin is an optional layer for users who want an agentic loop.
+## Hardening Pass level=milestone order=15
+> Post-v0.13/v0.14 hardening backlog. Bug-fix and consistency stories carved out of the Plugin milestone — which was retired because Claude Code plugin work lives in a separate repo, not in tusk. Covers Event Log, Project Note Window Size Wiring, Sibling Ordering, and Subtree Urgency Overrides.
 
-### Initiative: Plugin Scaffolding level=initiative order=1
-> Repo layout, marketplace manifest, plugin manifest, CI validation.
+### Initiative: Sibling Ordering Hardening level=initiative order=1
+> Quality follow-ups surfaced during the v0.13 Sibling Ordering post-implementation review. Non-blocking — the feature ships correctly in v0.13 — but worth resolving before Data Portability's import path depends on null-order round-trip and before MCP `tusk_task_tree` grows a sort option.
 
-- [ ] Story: Repo layout level=story order=1
-  - [ ] `plugin/` subtree with `plugin/.claude-plugin/plugin.json` manifest (plugin name `tusk`, version mirrors tusk minor) level=task order=1
-  - [ ] Top-level `.claude-plugin/marketplace.json` with a single plugin entry pointing at `./plugin` level=task order=2
-  - [ ] `plugin/.mcp.json` declaring the tusk MCP server; command targets the launcher, no `TUSK_DB` set so tusk's default applies level=task order=3
-- [ ] Story: CI validation level=story order=2
-  - [ ] GitHub Actions job runs `claude plugin validate plugin/` on every PR that touches `plugin/` level=task order=1
-  - [ ] Plugin release tag gated on manifest validity level=task order=2
-### Initiative: Binary Launcher level=initiative order=2
-> Portable launcher that downloads the pinned tusk binary from GitHub Releases on first use, verifies via SHA256, and caches in `${CLAUDE_PLUGIN_DATA}`. No bundled binaries — plugin package stays small.
+- [ ] Story: Preserve explicit `order=null` in JSON output level=story order=1
+  - [ ] Drop `,omitempty` from the `Order *float64` field in `taskJSON` (`internal/tui/render.go`) and `treeNodeJSON` (`internal/tui/tree.go`). Spec §3.1 requires `null` to be serialized as `"order": null`, not omitted, because a cleared order is distinct from an inherited default. level=task order=1
+  - [ ] Current state: after `tusk task modify <id> order=` (clear), JSON output omits the key entirely. Any consumer distinguishing "absent" from "null" — including the upcoming Data Portability import path — will mishandle cleared rows. level=task order=2
+  - [ ] Add a regression test in `internal/tui/render_test.go` / `tree_test.go` that a cleared task emits `"order": null`. level=task order=3
+- [ ] Story: `ErrCyclicParent` message alignment level=story order=2
+  - [ ] Cosmetic: `domain/errors.go` reads `"parent would create a cycle in task hierarchy"`; spec §3.2 specifies `"task move would create a parent cycle"`. The sentinel still matches via `errors.Is`, and the E2E substring-on-"cycle" check still passes, so this is spec-fidelity only. level=task order=1
+### Initiative: Subtree Urgency Overrides Hardening level=initiative order=2
+> Verification follow-ups surfaced during the v0.13 Subtree Urgency Overrides design review. Edge-case behaviors that the core spec decides but that need explicit regression coverage so future refactors don't silently change them, plus the MCP-side scoring parity gap that was originally misfiled under Sibling Ordering Hardening.
 
-- [ ] Story: Platform-aware launcher scripts level=story order=1
-  - [ ] `plugin/bin/tusk-launcher` (POSIX) and `plugin/bin/tusk-launcher.cmd` (Windows) with parallel logic level=task order=1
-  - [ ] Platform detection via `uname` / `%PROCESSOR_ARCHITECTURE%` level=task order=2
-  - [ ] Exec cached binary if present; otherwise download level=task order=3
-- [ ] Story: Download and verification level=story order=2
-  - [ ] Fetch from `https://github.com/<org>/tusk/releases/download/v<version>/tusk-<os>-<arch>` level=task order=1
-  - [ ] SHA256 check against `plugin/bin/checksums.json` (regenerated per release) level=task order=2
-  - [ ] Install to `${CLAUDE_PLUGIN_DATA}/bin/tusk-<version>-<os>-<arch>`, mark executable level=task order=3
-  - [ ] Actionable error messages on network or checksum failure level=task order=4
-- [ ] Story: Escape hatch and version check level=story order=3
-  - [ ] `TUSK_MCP_BINARY` env var skips download and execs the provided path (for dev and corporate mirrors) level=task order=1
-  - [ ] Launcher warns (never blocks) if `tusk version` disagrees with the plugin's pinned version level=task order=2
-- [ ] Story: Launcher tests level=story order=4
-  - [ ] Shell test harness (bats-style) against a local HTTP fixture level=task order=1
-  - [ ] Coverage: platform detection, successful install, checksum rejection, override path level=task order=2
-### Initiative: MCP Wiring and Install Flow level=initiative order=3
-> End-to-end install: plugin loads, MCP server spawns, tasks created through a skill land in the shared tusk DB.
+- [ ] Story: MCP `tusk_task_tree` subtree urgency parity level=story order=1
+  - [ ] `internal/mcp/tools.go` `handleTaskTree` subtree branch still calls `taskSvc.GetDescendants` raw, returning tasks with zero `Urgency`. The CLI equivalent was fixed in commit `d2bae4f` to route subtree through `TaskService.List` with a `RootID` filter so `UrgencyEngine.ScoreAndSort` runs. level=task order=1
+  - [ ] Apply the same fix to the MCP handler so subtree responses carry populated urgency scores. Doubly important once Subtree Urgency Overrides ships: subtree responses must reflect the resolved per-task weights, not zero. level=task order=2
+- [ ] Story: Deleted/terminal ancestor override propagation level=story order=2
+  - [ ] Add an E2E scenario that places `urgency_overrides` on a parent, transitions the parent to a terminal status (e.g., `completed` or `deleted`), and verifies the surviving children still resolve the parent's overrides into their effective weights. level=task order=1
+  - [ ] Locks in the spec decision that ancestor walk does not filter by status — preventing a future "skip terminal ancestors" optimization from silently changing inheritance. level=task order=2
+- [ ] Story: Override re-walk on `task move` level=story order=3
+  - [ ] Add an E2E scenario that creates two subtrees with different ancestor overrides, moves a task between them, and verifies its effective weights flip to match the new chain on the next read with no explicit invalidation step. level=task order=1
+  - [ ] Locks in the spec decision that overrides are stored on the task and re-resolved per read; prevents a future cache that wouldn't invalidate on `move`. level=task order=2
+- [ ] Story: Cross-project ancestry assertion level=story order=4
+  - [ ] Add a unit assertion in `service/task.go::buildEffectiveWeights` (or equivalent) that every visited ancestor shares the input task's `project_id`. If the invariant ever breaks (e.g., a future feature lets subtrees span projects), the resolution chain would silently mix project-level weights from two sources — fail loud instead. level=task order=1
+  - [ ] Pair with an E2E or service-level test that confirms the assertion holds in normal operation and fires if the invariant is bypassed. level=task order=2
+### Initiative: Project Note Window Size Wiring level=initiative order=3
+> v0.12 added `NoteWindowSize` to `domain.ProjectSettings` and `NoteService.List` reads it in the resolution chain, but the field has no CLI or MCP write path — `ModifyProjectInput`, `internal/tui/project_parse.go`, and `internal/mcp/project_handlers.go` all omit it. Projects cannot currently override the note window; the fallback passes straight through to global config. Non-blocking orphan surfaced during v0.13 Task Level Taxonomy design review.
 
-- [ ] Story: Shared-DB default level=story order=1
-  - [ ] Plugin `.mcp.json` leaves `TUSK_DB` unset so tusk falls through to its default `~/.local/share/tusk/tusk.db` level=task order=1
-  - [ ] Project-level `.mcp.json` opt-out pattern documented in the plugin README level=task order=2
-- [ ] Story: Integration smoke test level=story order=2
-  - [ ] Pre-release checklist: `claude --plugin-dir ./plugin` → `tusk:init` → `tusk:plan` → verify tasks land in a fresh DB level=task order=1
-  - [ ] Documented in `RELEASE.md` level=task order=2
-### Initiative: Tier A — Tusk-Native Skills level=initiative order=4
-> One-time setup plus the roadmap/task-shape workflow skills. All skills use only documented v0.13 tusk MCP tools.
-
-- [ ] Story: `tusk:init` level=story order=1
-  - [ ] Detect CLAUDE.md / AGENTS.md / GEMINI.md at repo root; ask which file(s) to update or offer to create CLAUDE.md level=task order=1
-  - [ ] Ask for the alignment doc path; accept paths that don't exist yet level=task order=2
-  - [ ] Write the `## Tusk alignment` block idempotently — update in place if present, never duplicate level=task order=3
-  - [ ] Offer to bootstrap the level taxonomy (milestone/initiative/story/task/spike) on the active tusk project level=task order=4
-- [ ] Story: `tusk:plan` level=story order=2
-  - [ ] Read the alignment doc via the CLAUDE.md convention; prompt for intent if absent level=task order=1
-  - [ ] Guided brainstorm → WBS draft → user review → `tusk import --format json` for atomic bulk creation level=task order=2
-  - [ ] Produces one milestone subtree per invocation level=task order=3
-- [ ] Story: `tusk:decompose` level=story order=3
-  - [ ] Input: task short_id level=task order=1
-  - [ ] Walks the user through splitting the task; creates children with level-correct UDA values respecting v0.13 parent-level pairing level=task order=2
-- [ ] Story: `tusk:pick-next` level=story order=4
-  - [ ] Reads urgency, sibling order, blocker state, rollup health level=task order=1
-  - [ ] Recommends one task with explicit reasoning; user accepts or overrides level=task order=2
-  - [ ] Advisory only — never mutates level=task order=3
-- [ ] Story: `tusk:report` level=story order=5
-  - [ ] Logs progress as a note on the active task level=task order=1
-  - [ ] Transitions status on confirmation; shows the impact on parent rollup level=task order=2
-- [ ] Story: `tusk:review` level=story order=6
-  - [ ] Reads the full roadmap rollup level=task order=1
-  - [ ] Surfaces at-risk subtrees (low velocity, urgency escalation, stale in-progress) level=task order=2
-  - [ ] Suggests reprioritizations; never mutates without confirmation level=task order=3
-### Initiative: Tier B — Engineering Discipline Skills level=initiative order=5
-> Opinionated workflow skills that counter common agentic-coding failure modes — missing clarifications, overcomplicated designs, skipped tests. Artifacts land as tusk notes and child tasks rather than loose markdown files.
-
-- [ ] Story: `tusk:brainstorm` level=story order=1
-  - [ ] Clarifying questions one at a time level=task order=1
-  - [ ] Propose 2-3 approaches with tradeoffs level=task order=2
-  - [ ] Hard gate: refuses to produce a design until questions are answered level=task order=3
-  - [ ] Output: note on the active task level=task order=4
-- [ ] Story: `tusk:design` level=story order=2
-  - [ ] Turn a brainstorm into a design with named components, interfaces, failure modes, testing strategy level=task order=1
-  - [ ] Hard gate: refuses to move to implementation until the user approves level=task order=2
-  - [ ] Output: a second note on the task, cross-referenced with the brainstorm level=task order=3
-- [ ] Story: `tusk:plan-implementation` level=story order=3
-  - [ ] Turn a design into a phased plan as a child-task subtree level=task order=1
-  - [ ] Each phase is a child task with a "definition of done" in its description level=task order=2
-  - [ ] Hard gate: refuses to write code until the subtree is approved level=task order=3
-  - [ ] Rollup tracks plan progress automatically level=task order=4
-- [ ] Story: `tusk:tdd` level=story order=4
-  - [ ] Requires a failing test before implementation level=task order=1
-  - [ ] Runs the suite iteratively, logs each iteration as a note on the active task level=task order=2
-  - [ ] Hard gate: refuses to write implementation without a red test level=task order=3
-### Initiative: Release Pipeline level=initiative order=6
-> Extend tusk's release workflow to produce a matching plugin release with regenerated checksums.
-
-- [ ] Story: Checksum regeneration job level=story order=1
-  - [ ] CI step after tusk binary publish: download release SHA256s, write `plugin/bin/checksums.json` level=task order=1
-  - [ ] Commits and pushes the checksum update level=task order=2
-  - [ ] Plugin version bump handled in the same PR when needed level=task order=3
-- [ ] Story: Version pin and compatibility matrix level=story order=2
-  - [ ] Plugin minor mirrors tusk minor (v0.14.x plugin → v0.14.x tusk) level=task order=1
-  - [ ] Plugin patches can ship independently for skill or launcher fixes level=task order=2
-  - [ ] Compatibility matrix documented in the plugin README (plugin v0.14.x requires tusk ≥ v0.13.0) level=task order=3
-### Initiative: Documentation level=initiative order=7
-> Plugin install guide, skill catalog, troubleshooting.
-
-- [ ] Story: Plugin README level=story order=1
-  - [ ] Install via `/plugin marketplace add <org>/tusk` then `/plugin install tusk@tusk` level=task order=1
-  - [ ] Skill catalog with one-paragraph summaries level=task order=2
-  - [ ] Compatibility matrix level=task order=3
-- [ ] Story: Troubleshooting section level=story order=2
-  - [ ] Offline install via `TUSK_MCP_BINARY` level=task order=1
-  - [ ] Corporate proxy / mirror setup level=task order=2
-  - [ ] DB isolation pattern (project-level `.mcp.json` with `TUSK_DB`) level=task order=3
-### Initiative: Event Log Hardening level=initiative order=8
+- [ ] Story: Project-level window size write path level=story order=1
+  - [ ] Add `NoteWindowSize` to `ModifyProjectInput` in `service/project.go` and apply it in `ProjectService.Modify` level=task order=1
+  - [ ] Add inline parser case in `internal/tui/project_parse.go` for `note-window-size=<N>` and `note-window-size=` (clear) level=task order=2
+  - [ ] Add the parameter to `tusk_project_modify` in `internal/mcp/project_handlers.go` with version-based optimistic locking level=task order=3
+  - [ ] Render the resolved value in `tusk project info` output level=task order=4
+  - [ ] E2E coverage: set per-project override, list notes, verify the resolution chain picks up the project value over global config level=task order=5
+### Initiative: Event Log Hardening level=initiative order=4
 > Quality follow-ups surfaced during the v0.13 Event Log post-implementation review. Non-blocking — the event log ships correctly in v0.13 — but worth resolving before downstream consumers (Data Portability, Live Dashboard, undo) grow to depend on the current shape.
 
 - [ ] Story: Lifecycle emission coherence level=story order=1
@@ -1030,40 +957,7 @@
 - [ ] Story: Cleanup level=story order=4
   - [ ] Remove the dead `_ = bundle` line in `service/task.go` (`Start`). level=task order=1
   - [ ] Audit other event-log touch points for similar refactor leftovers. level=task order=2
-### Initiative: Project Note Window Size Wiring level=initiative order=9
-> v0.12 added `NoteWindowSize` to `domain.ProjectSettings` and `NoteService.List` reads it in the resolution chain, but the field has no CLI or MCP write path — `ModifyProjectInput`, `internal/tui/project_parse.go`, and `internal/mcp/project_handlers.go` all omit it. Projects cannot currently override the note window; the fallback passes straight through to global config. Non-blocking orphan surfaced during v0.13 Task Level Taxonomy design review.
-
-- [ ] Story: Project-level window size write path level=story order=1
-  - [ ] Add `NoteWindowSize` to `ModifyProjectInput` in `service/project.go` and apply it in `ProjectService.Modify` level=task order=1
-  - [ ] Add inline parser case in `internal/tui/project_parse.go` for `note-window-size=<N>` and `note-window-size=` (clear) level=task order=2
-  - [ ] Add the parameter to `tusk_project_modify` in `internal/mcp/project_handlers.go` with version-based optimistic locking level=task order=3
-  - [ ] Render the resolved value in `tusk project info` output level=task order=4
-  - [ ] E2E coverage: set per-project override, list notes, verify the resolution chain picks up the project value over global config level=task order=5
-### Initiative: Sibling Ordering Hardening level=initiative order=10
-> Quality follow-ups surfaced during the v0.13 Sibling Ordering post-implementation review. Non-blocking — the feature ships correctly in v0.13 — but worth resolving before Data Portability's import path depends on null-order round-trip and before MCP `tusk_task_tree` grows a sort option.
-
-- [ ] Story: Preserve explicit `order=null` in JSON output level=story order=1
-  - [ ] Drop `,omitempty` from the `Order *float64` field in `taskJSON` (`internal/tui/render.go`) and `treeNodeJSON` (`internal/tui/tree.go`). Spec §3.1 requires `null` to be serialized as `"order": null`, not omitted, because a cleared order is distinct from an inherited default. level=task order=1
-  - [ ] Current state: after `tusk task modify <id> order=` (clear), JSON output omits the key entirely. Any consumer distinguishing "absent" from "null" — including the upcoming Data Portability import path — will mishandle cleared rows. level=task order=2
-  - [ ] Add a regression test in `internal/tui/render_test.go` / `tree_test.go` that a cleared task emits `"order": null`. level=task order=3
-- [ ] Story: `ErrCyclicParent` message alignment level=story order=2
-  - [ ] Cosmetic: `domain/errors.go` reads `"parent would create a cycle in task hierarchy"`; spec §3.2 specifies `"task move would create a parent cycle"`. The sentinel still matches via `errors.Is`, and the E2E substring-on-"cycle" check still passes, so this is spec-fidelity only. level=task order=1
-### Initiative: Subtree Urgency Overrides Hardening level=initiative order=11
-> Verification follow-ups surfaced during the v0.13 Subtree Urgency Overrides design review. Edge-case behaviors that the core spec decides but that need explicit regression coverage so future refactors don't silently change them, plus the MCP-side scoring parity gap that was originally misfiled under Sibling Ordering Hardening.
-
-- [ ] Story: MCP `tusk_task_tree` subtree urgency parity level=story order=1
-  - [ ] `internal/mcp/tools.go` `handleTaskTree` subtree branch still calls `taskSvc.GetDescendants` raw, returning tasks with zero `Urgency`. The CLI equivalent was fixed in commit `d2bae4f` to route subtree through `TaskService.List` with a `RootID` filter so `UrgencyEngine.ScoreAndSort` runs. level=task order=1
-  - [ ] Apply the same fix to the MCP handler so subtree responses carry populated urgency scores. Doubly important once Subtree Urgency Overrides ships: subtree responses must reflect the resolved per-task weights, not zero. level=task order=2
-- [ ] Story: Deleted/terminal ancestor override propagation level=story order=2
-  - [ ] Add an E2E scenario that places `urgency_overrides` on a parent, transitions the parent to a terminal status (e.g., `completed` or `deleted`), and verifies the surviving children still resolve the parent's overrides into their effective weights. level=task order=1
-  - [ ] Locks in the spec decision that ancestor walk does not filter by status — preventing a future "skip terminal ancestors" optimization from silently changing inheritance. level=task order=2
-- [ ] Story: Override re-walk on `task move` level=story order=3
-  - [ ] Add an E2E scenario that creates two subtrees with different ancestor overrides, moves a task between them, and verifies its effective weights flip to match the new chain on the next read with no explicit invalidation step. level=task order=1
-  - [ ] Locks in the spec decision that overrides are stored on the task and re-resolved per read; prevents a future cache that wouldn't invalidate on `move`. level=task order=2
-- [ ] Story: Cross-project ancestry assertion level=story order=4
-  - [ ] Add a unit assertion in `service/task.go::buildEffectiveWeights` (or equivalent) that every visited ancestor shares the input task's `project_id`. If the invariant ever breaks (e.g., a future feature lets subtrees span projects), the resolution chain would silently mix project-level weights from two sources — fail loud instead. level=task order=1
-  - [ ] Pair with an E2E or service-level test that confirms the assertion holds in normal operation and fires if the invariant is bypassed. level=task order=2
-## v0.15 — Live Dashboard level=milestone order=15
+## v0.15 — Live Dashboard level=milestone order=16
 > Real-time TUI dashboard for monitoring task state and player activity, powered by the event log shipped in v0.13.
 
 ### Initiative: TUI Dashboard level=initiative order=1
@@ -1085,7 +979,7 @@
 - [ ] Story: Live rollup panel level=story order=4
   - [ ] Extends the static progress rollup from v0.13 into a live dashboard panel driven by event log deltas (no per-tick re-query) level=task order=1
   - [ ] Per-root-task `%done` and status breakdown, refreshed as events arrive level=task order=2
-## v0.16 — Advanced Features level=milestone order=16
+## v0.16 — Advanced Features level=milestone order=17
 > Recurrence, additional transports, and undo.
 
 ### Initiative: Recurrence level=initiative order=1
@@ -1175,7 +1069,7 @@
 - [ ] Story: Profile attachment level=story order=2
   - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer level=task order=1
   - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key level=task order=2
-## Future level=milestone order=17
+## Future level=milestone order=18
 > Scale to multi-user, richer interfaces, and deeper integrations.
 
 ### Initiative: PostgreSQL Backend level=initiative order=1
@@ -1246,7 +1140,7 @@
 - [ ] Story: Profile attachment level=story order=2
   - [ ] Tasks reference a profile by name; resolution slots the profile's weights into the existing chain at the task-subtree layer level=task order=1
   - [ ] Inline profile overrides still allowed; profile provides defaults, task-local overrides win per key level=task order=2
-## v0.14 — Naming and Spacing Convention level=milestone order=18 +naming-convention +v0.14
+## v0.14 — Naming and Spacing Convention level=milestone order=19 +naming-convention +v0.14
 > Establish project-wide naming and spacing convention for the Tusk codebase, enforce it mechanically with a linter, and clean every existing package to match. No behavior changes; pure readability and tooling.
 >
 > Eight phases:
