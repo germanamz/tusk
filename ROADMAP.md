@@ -2163,7 +2163,7 @@
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8.md
 > Depends on: P3, P4, P5, P6, P7 — all sweep phases must ship first.
 
-- [ ] [v0.14 P8-T1] Verify all varnamelen exclusions are gone level=task order=1 +naming-convention +phase-8 +v0.14
+- [x] [v0.14 P8-T1] Verify all varnamelen exclusions are gone level=task order=1 +naming-convention +phase-8 +v0.14
 > What: Run grep -A 3 'linters: \[varnamelen\]' .golangci.yml and confirm no output. If any rule remains, halt this phase and identify which sweep phase failed to remove its rule — the missing sweep must complete first.
 >
 > Why: This is a structural reconciliation step: the twelve sweep-phase removals must collectively zero out the per-package exclusion list. If any rule lingers, the lock-in CI guard added in P8-T3 would trigger and block the phase.
@@ -2180,7 +2180,7 @@
 > Blocks: P8-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T1.md
 
-- [ ] [v0.14 P8-T2] Verify pathfilter slice is empty level=task order=2 +naming-convention +phase-8 +v0.14
+- [x] [v0.14 P8-T2] Verify pathfilter slice is empty level=task order=2 +naming-convention +phase-8 +v0.14
 > What: Open internal/lint/pathfilter/pathfilter.go and confirm the excluded slice has zero entries. If entries remain, halt and identify the missing sweep. With an empty slice the helper is a no-op (Excluded always returns false); leave the helper in place — it remains available for future per-package rollouts without re-introducing the bridge code.
 >
 > Why: Symmetric to P8-T1 — verifies that custom-analyzer exclusions are also fully gone. Leaving the helper as no-op infrastructure is a deliberate decision (see plan rationale).
@@ -2197,7 +2197,7 @@
 > Blocks: P8-T3.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T2.md
 
-- [ ] [v0.14 P8-T3] Add lint-style-locked CI guard level=task order=3 +naming-convention +phase-8 +v0.14
+- [x] [v0.14 P8-T3] Add lint-style-locked CI guard level=task order=3 +naming-convention +phase-8 +v0.14
 > What: Add a lint-style-locked Makefile target that fails CI if either of the following holds:
 >
 > 1. A // nolint:varnamelen directive appears anywhere in the Go source tree.
@@ -2222,7 +2222,7 @@
 > Blocks: P8-T5.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T3.md
 
-- [ ] [v0.14 P8-T4] Mark STYLE.md as enforced level=task order=4 +naming-convention +phase-8 +v0.14
+- [x] [v0.14 P8-T4] Mark STYLE.md as enforced level=task order=4 +naming-convention +phase-8 +v0.14
 > What: Update STYLE.md to indicate the convention is fully enforced. Add a one-line status note at the top: "Status: enforced repository-wide as of v0.14." If STYLE.md has an enforcement summary section (per P1-T1), append a note: "no exclusions in .golangci.yml, no // nolint:varnamelen directives anywhere; both guarded by make lint-style-locked in CI."
 >
 > Why: Documents the milestone's done state in the canonical convention doc. Future contributors learn from STYLE.md alone that the rules are structurally enforced.
@@ -2239,7 +2239,7 @@
 > Blocks: P8-T5.
 > Ticket: docs/superpowers/plans/v014-naming-convention/tasks/P8-T4.md
 
-- [ ] [v0.14 P8-T5] Verify Phase 8 CI green level=task order=5 +naming-convention +phase-8 +v0.14
+- [x] [v0.14 P8-T5] Verify Phase 8 CI green level=task order=5 +naming-convention +phase-8 +v0.14
 > What: Run make build, make test, make test-race, and make lint. All must pass. The lint-style-locked target runs as part of make lint and must pass.
 >
 > Why: Closes the v0.14 milestone. After this task ships, the convention is structurally protected and documented as such.
