@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race test-e2e vet lint lint-go lint-tusk run install setup-hooks roadmap devcontainer-up devcontainer-shell devcontainer-shell-ops devcontainer-down devcontainer-nuke
+.PHONY: all build clean test test-race test-e2e vet lint lint-go lint-tusk lint-style-locked run install setup-hooks roadmap devcontainer-up devcontainer-shell devcontainer-shell-ops devcontainer-down devcontainer-nuke
 
 DEVCONTAINER_CID = docker ps --filter "label=devcontainer.local_folder=$(CURDIR)" -q
 DEVCONTAINER_WORKDIR := /workspaces/$(notdir $(CURDIR))
@@ -32,13 +32,35 @@ test-e2e:
 vet:
 	$(GO) vet ./...
 
-lint: lint-go lint-tusk
+lint: lint-style-locked lint-go lint-tusk
 
 lint-go:
 	golangci-lint run ./...
 
 lint-tusk:
 	$(GO) run ./cmd/tusk-lint ./...
+
+# lint-style-locked is the structural regression guard for the v0.14
+# naming-convention milestone. It fails CI if either:
+#   1. a //nolint:varnamelen directive appears in any tracked Go source file, or
+#   2. a `linters: [varnamelen]` exclusion rule appears in .golangci.yml.
+# Both are escape hatches that would let future PRs silently reintroduce
+# violations of STYLE.md rule 1. The fix is always to rename the offending
+# identifier, not to suppress the linter.
+lint-style-locked:
+	@offenders=$$(git ls-files '*.go' | xargs grep -nE '//[[:space:]]*nolint:[a-zA-Z0-9_,-]*varnamelen' 2>/dev/null || true); \
+	if [ -n "$$offenders" ]; then \
+		echo "lint-style-locked: //nolint:varnamelen directives are forbidden — rename the identifier instead:"; \
+		printf '%s\n' "$$offenders"; \
+		exit 1; \
+	fi; \
+	offenders=$$(grep -nE 'linters:[[:space:]]*\[[^]]*varnamelen[^]]*\]' .golangci.yml 2>/dev/null || true); \
+	if [ -n "$$offenders" ]; then \
+		echo "lint-style-locked: per-package varnamelen exclusion rules are forbidden in .golangci.yml — rename the identifiers instead:"; \
+		printf '%s\n' "$$offenders"; \
+		exit 1; \
+	fi; \
+	echo "lint-style-locked: ok"
 
 run: build
 	./$(BUILD_DIR)/$(BINARY_NAME)
