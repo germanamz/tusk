@@ -95,28 +95,6 @@ jobs:
       - name: Run e2e tests
         run: go test -race ./tests/e2e/
 
-  branch-name:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Extract types from conform config
-        id: types
-        run: |
-          types=$(sed -n '/conventional:/,/scopes:/p' .conform.yaml | grep '^ *- ' | sed 's/^ *- //' | paste -sd '|' -)
-          echo "pattern=^($types)/[a-z0-9]+(-[a-z0-9]+)*$" >> "$GITHUB_OUTPUT"
-
-      - name: Validate branch name
-        run: |
-          branch="${{ github.head_ref }}"
-          pattern="${{ steps.types.outputs.pattern }}"
-          if ! echo "$branch" | grep -qE "$pattern"; then
-            echo "::error::Branch name '$branch' does not match required pattern: <type>/<kebab-case-description>"
-            echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
-            echo "Example: feat/add-filters, fix/null-pointer"
-            exit 1
-          fi
-
   pr-title:
     runs-on: ubuntu-latest
     steps:
