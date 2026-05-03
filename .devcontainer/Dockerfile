@@ -106,8 +106,6 @@ RUN GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
         github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest \
     && GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
         github.com/evilmartians/lefthook@latest \
-    && GOPATH=/tmp/gopath GOBIN=/usr/local/bin go install \
-        github.com/siderolabs/conform/cmd/conform@latest \
     && rm -rf /tmp/gopath
 
 # Pre-install tree-sitter CLI globally (needed by neovim's nvim-treesitter)

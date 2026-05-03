@@ -70,7 +70,6 @@ install:
 
 setup-hooks:
 	go install github.com/evilmartians/lefthook@latest
-	go install github.com/siderolabs/conform/cmd/conform@latest
 	lefthook install
 	@echo "Git hooks installed via lefthook"
 

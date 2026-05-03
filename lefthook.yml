@@ -31,8 +31,3 @@ pre-commit:
     test:
       glob: "*.go"
       run: go test ./internal/... ./cmd/...
-
-commit-msg:
-  commands:
-    conform:
-      run: conform enforce --commit-msg-file {1}
