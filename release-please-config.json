@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "include-component-in-tag": false,
+  "separate-pull-requests": false,
+  "bootstrap-sha": "e4c3cba3029f29c07e0afa3646076c9dd859380b",
+  "packages": {
+    ".": {
+      "package-name": "tusk",
+      "changelog-path": "CHANGELOG.md",
+      "pull-request-title-pattern": "chore(release): release ${version}"
+    }
+  }
+}
