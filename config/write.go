@@ -137,7 +137,7 @@ func IsSliceKey(key string) bool {
 }
 
 func isSliceKeyPath(reflectType reflect.Type, parts []string) bool {
-	for reflectType.Kind() == reflect.Ptr {
+	for reflectType.Kind() == reflect.Pointer {
 		reflectType = reflectType.Elem()
 	}
 
@@ -153,7 +153,7 @@ func isSliceKeyPath(reflectType reflect.Type, parts []string) bool {
 			if tag == parts[0] {
 				if len(parts) == 1 {
 					fieldType := field.Type
-					for fieldType.Kind() == reflect.Ptr {
+					for fieldType.Kind() == reflect.Pointer {
 						fieldType = fieldType.Elem()
 					}
 					return fieldType.Kind() == reflect.Slice
@@ -168,7 +168,7 @@ func isSliceKeyPath(reflectType reflect.Type, parts []string) bool {
 		}
 		if len(parts) == 1 {
 			elem := reflectType.Elem()
-			for elem.Kind() == reflect.Ptr {
+			for elem.Kind() == reflect.Pointer {
 				elem = elem.Elem()
 			}
 			return elem.Kind() == reflect.Slice
@@ -196,7 +196,7 @@ func isValidKeyPath(reflectType reflect.Type, parts []string) bool {
 	}
 
 	// Unwrap pointer types.
-	for reflectType.Kind() == reflect.Ptr {
+	for reflectType.Kind() == reflect.Pointer {
 		reflectType = reflectType.Elem()
 	}
 
@@ -210,7 +210,7 @@ func isValidKeyPath(reflectType reflect.Type, parts []string) bool {
 				if len(parts) == 1 {
 					// Valid only if this is a leaf (not a struct or map, or is a slice/basic type).
 					fieldType := field.Type
-					for fieldType.Kind() == reflect.Ptr {
+					for fieldType.Kind() == reflect.Pointer {
 						fieldType = fieldType.Elem()
 					}
 					return fieldType.Kind() != reflect.Struct && fieldType.Kind() != reflect.Map
@@ -228,7 +228,7 @@ func isValidKeyPath(reflectType reflect.Type, parts []string) bool {
 		}
 		if len(parts) == 1 {
 			elem := reflectType.Elem()
-			for elem.Kind() == reflect.Ptr {
+			for elem.Kind() == reflect.Pointer {
 				elem = elem.Elem()
 			}
 			return elem.Kind() != reflect.Struct
