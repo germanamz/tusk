@@ -8,7 +8,7 @@ Thank you for your interest in contributing to Tusk! This document provides guid
 
 - Go 1.26+
 - golangci-lint (for linting)
-- lefthook and conform are installed automatically by `make setup-hooks`
+- lefthook is installed automatically by `make setup-hooks`
 
 ### Setup
 
@@ -68,7 +68,7 @@ make devcontainer-shell-ops    # exec in as dev (unrestricted)
 
 ### What's pre-installed
 
-`gopls`, `dlv`, `golangci-lint`, `lefthook`, `conform`, `claude` (Claude Code CLI), `fd`, `ripgrep`, `git`, `gh`-style tooling. All on `PATH` for both users — `make build`, `make test`, and `make lint` work without further setup.
+`gopls`, `dlv`, `golangci-lint`, `lefthook`, `claude` (Claude Code CLI), `fd`, `ripgrep`, `git`, `gh`-style tooling. All on `PATH` for both users — `make build`, `make test`, and `make lint` work without further setup.
 
 ### Egress allowlist
 
