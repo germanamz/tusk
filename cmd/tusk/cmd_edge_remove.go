@@ -36,51 +36,53 @@ func newEdgeRemoveCmd() *cobra.Command {
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
-			store, openErr := index.Open(ws.IndexPath)
+			return withWorkspaceLock(ws, func() error {
+				store, openErr := index.Open(ws.IndexPath)
 
-			if openErr != nil {
-				return openErr
-			}
-
-			defer store.Close()
-
-			edgeRepo := index.NewEdgeRepo(store)
-
-			rows, listErr := edgeRepo.ListBySource(source)
-
-			if listErr != nil {
-				return listErr
-			}
-
-			cliExisting := filterCLI(rows)
-
-			var kept []index.EdgeRow
-
-			removed := 0
-
-			for _, row := range cliExisting {
-				if row.Type == edgeType && row.TargetID == target {
-					removed++
-
-					continue
+				if openErr != nil {
+					return openErr
 				}
 
-				kept = append(kept, row)
-			}
+				defer store.Close()
 
-			if removed == 0 {
-				return fmt.Errorf("no CLI-added edge matches type=%q source=%q target=%q", edgeType, source, target)
-			}
+				edgeRepo := index.NewEdgeRepo(store)
 
-			renumbered := renumberByType(kept)
+				rows, listErr := edgeRepo.ListBySource(source)
 
-			if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, renumbered); upsertErr != nil {
-				return upsertErr
-			}
+				if listErr != nil {
+					return listErr
+				}
 
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed edge %s: %s → %s\n", edgeType, source, target)
+				cliExisting := filterCLI(rows)
 
-			return nil
+				var kept []index.EdgeRow
+
+				removed := 0
+
+				for _, row := range cliExisting {
+					if row.Type == edgeType && row.TargetID == target {
+						removed++
+
+						continue
+					}
+
+					kept = append(kept, row)
+				}
+
+				if removed == 0 {
+					return fmt.Errorf("no CLI-added edge matches type=%q source=%q target=%q", edgeType, source, target)
+				}
+
+				renumbered := renumberByType(kept)
+
+				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, renumbered); upsertErr != nil {
+					return upsertErr
+				}
+
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed edge %s: %s → %s\n", edgeType, source, target)
+
+				return nil
+			})
 		},
 	}
 

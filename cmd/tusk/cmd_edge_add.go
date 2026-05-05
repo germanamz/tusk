@@ -50,72 +50,74 @@ func newEdgeAddCmd() *cobra.Command {
 				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
 			}
 
-			store, openErr := index.Open(ws.IndexPath)
+			return withWorkspaceLock(ws, func() error {
+				store, openErr := index.Open(ws.IndexPath)
 
-			if openErr != nil {
-				return openErr
-			}
-
-			defer store.Close()
-
-			nodeRepo := index.NewNodeRepo(store)
-
-			sourceRow, sourceErr := nodeRepo.Get(source)
-
-			if sourceErr != nil {
-				return fmt.Errorf("source: %w", sourceErr)
-			}
-
-			if !edgeDef.AllowsSource(sourceRow.Type) {
-				return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
-			}
-
-			if targetRow, getErr := nodeRepo.Get(target); getErr == nil {
-				if !edgeDef.AllowsTarget(targetRow.Type) {
-					return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
+				if openErr != nil {
+					return openErr
 				}
-			}
 
-			edgeRepo := index.NewEdgeRepo(store)
+				defer store.Close()
 
-			if edgeDef.Acyclic {
-				existing, listErr := edgeRepo.ListByType(edgeType)
+				nodeRepo := index.NewNodeRepo(store)
+
+				sourceRow, sourceErr := nodeRepo.Get(source)
+
+				if sourceErr != nil {
+					return fmt.Errorf("source: %w", sourceErr)
+				}
+
+				if !edgeDef.AllowsSource(sourceRow.Type) {
+					return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
+				}
+
+				if targetRow, getErr := nodeRepo.Get(target); getErr == nil {
+					if !edgeDef.AllowsTarget(targetRow.Type) {
+						return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
+					}
+				}
+
+				edgeRepo := index.NewEdgeRepo(store)
+
+				if edgeDef.Acyclic {
+					existing, listErr := edgeRepo.ListByType(edgeType)
+
+					if listErr != nil {
+						return listErr
+					}
+
+					adjacency := buildAdjacency(existing)
+
+					if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: source, Target: target}, adjacency); cycleErr != nil {
+						return cycleErr
+					}
+				}
+
+				existingForSource, listErr := edgeRepo.ListBySource(source)
 
 				if listErr != nil {
 					return listErr
 				}
 
-				adjacency := buildAdjacency(existing)
+				cliExisting := filterCLI(existingForSource)
+				ordinal := nextOrdinalFor(cliExisting, edgeType)
 
-				if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: source, Target: target}, adjacency); cycleErr != nil {
-					return cycleErr
+				cliExisting = append(cliExisting, index.EdgeRow{
+					Type:       edgeType,
+					SourceID:   source,
+					TargetID:   target,
+					Ordinal:    ordinal,
+					SourcePath: cliSourcePath,
+				})
+
+				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, cliExisting); upsertErr != nil {
+					return upsertErr
 				}
-			}
 
-			existingForSource, listErr := edgeRepo.ListBySource(source)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added edge %s: %s → %s\n", edgeType, source, target)
 
-			if listErr != nil {
-				return listErr
-			}
-
-			cliExisting := filterCLI(existingForSource)
-			ordinal := nextOrdinalFor(cliExisting, edgeType)
-
-			cliExisting = append(cliExisting, index.EdgeRow{
-				Type:       edgeType,
-				SourceID:   source,
-				TargetID:   target,
-				Ordinal:    ordinal,
-				SourcePath: cliSourcePath,
+				return nil
 			})
-
-			if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, cliExisting); upsertErr != nil {
-				return upsertErr
-			}
-
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added edge %s: %s → %s\n", edgeType, source, target)
-
-			return nil
 		},
 	}
 
