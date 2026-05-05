@@ -46,10 +46,11 @@ func newReindexCmd() *cobra.Command {
 				edgeRepo := index.NewEdgeRepo(store)
 
 				report, runErr := reindex.Run(reindex.Config{
-					Root:      ws.Root,
-					Repo:      index.NewNodeRepo(store),
-					Edges:     edgeRepo,
-					EdgeTypes: loaded.EdgeTypes,
+					Root:            ws.Root,
+					Repo:            index.NewNodeRepo(store),
+					Edges:           edgeRepo,
+					EdgeTypes:       loaded.EdgeTypes,
+					WorkspaceIgnore: loaded.Workspace.Ignore,
 				})
 
 				if runErr != nil {
