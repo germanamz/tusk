@@ -53,6 +53,28 @@ func TestOpen_IsIdempotent(test *testing.T) {
 	second.Close()
 }
 
+func TestOpen_CreatesEdgesTable(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	tables, queryErr := store.ListTables()
+
+	if queryErr != nil {
+		test.Fatalf("ListTables: %v", queryErr)
+	}
+
+	if !contains(tables, "edges") {
+		test.Errorf("missing edges table in %v", tables)
+	}
+}
+
 func contains(haystack []string, needle string) bool {
 	for _, item := range haystack {
 		if item == needle {

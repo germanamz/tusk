@@ -30,6 +30,21 @@ CREATE TABLE IF NOT EXISTS nodes (
 
 CREATE INDEX IF NOT EXISTS nodes_type_idx ON nodes(type);
 
+CREATE TABLE IF NOT EXISTS edges (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	type        TEXT NOT NULL,
+	source_id   TEXT NOT NULL,
+	target_id   TEXT NOT NULL,
+	ordinal     INTEGER NOT NULL DEFAULT 0,
+	source_path TEXT NOT NULL,
+	UNIQUE(type, source_id, target_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS edges_source_idx      ON edges(source_id);
+CREATE INDEX IF NOT EXISTS edges_target_idx      ON edges(target_id);
+CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges(type);
+CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path);
+
 CREATE TABLE IF NOT EXISTS manifest_snapshot (
 	loaded_at INTEGER NOT NULL,                 -- unix nanoseconds
 	body_json TEXT NOT NULL                     -- JSON-serialized snapshot of the manifest
