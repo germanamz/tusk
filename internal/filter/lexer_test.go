@@ -131,3 +131,85 @@ func TestLexer_MaximalMunch(test *testing.T) {
 		}
 	}
 }
+
+func TestLexer_StringLiterals(test *testing.T) {
+	cases := []struct {
+		input string
+		value string
+	}{
+		{`"hello"`, "hello"},
+		{`'single quoted'`, "single quoted"},
+		{`"with \"escape\""`, `with "escape"`},
+		{`'mix\'d'`, `mix'd`},
+		{`"\\backslash"`, `\backslash`},
+	}
+
+	for _, tc := range cases {
+		lexer := filter.NewLexer(tc.input)
+		token := lexer.Next()
+
+		if token.Kind != filter.TokenString {
+			test.Errorf("input %q: kind = %v, want STRING", tc.input, token.Kind)
+		}
+
+		if token.Value != tc.value {
+			test.Errorf("input %q: value = %q, want %q", tc.input, token.Value, tc.value)
+		}
+	}
+}
+
+func TestLexer_BareValues(test *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"tickets/auth-epic", "tickets/auth-epic"},
+		{"2026-05-15", "2026-05-15"},
+		{"42", "42"},
+		{"3.14", "3.14"},
+	}
+
+	for _, tc := range cases {
+		lexer := filter.NewLexer(tc.input)
+		token := lexer.NextValue()
+
+		if token.Kind != filter.TokenBareValue {
+			test.Errorf("input %q: kind = %v, want BARE_VALUE", tc.input, token.Kind)
+		}
+
+		if token.Value != tc.want {
+			test.Errorf("input %q: value = %q, want %q", tc.input, token.Value, tc.want)
+		}
+	}
+}
+
+func TestLexer_BareValueStopsAtRange(test *testing.T) {
+	lexer := filter.NewLexer("2..4")
+
+	first := lexer.NextValue()
+
+	if first.Kind != filter.TokenBareValue || first.Value != "2" {
+		test.Errorf("first: got kind=%v value=%q, want BARE_VALUE(\"2\")", first.Kind, first.Value)
+	}
+
+	second := lexer.Next()
+
+	if second.Kind != filter.TokenDotDot {
+		test.Errorf("second: got kind=%v, want DOTDOT", second.Kind)
+	}
+
+	third := lexer.NextValue()
+
+	if third.Kind != filter.TokenBareValue || third.Value != "4" {
+		test.Errorf("third: got kind=%v value=%q, want BARE_VALUE(\"4\")", third.Kind, third.Value)
+	}
+}
+
+func TestLexer_StringWithSpaces(test *testing.T) {
+	lexer := filter.NewLexer(`"hello world"`)
+	token := lexer.NextValue()
+
+	if token.Kind != filter.TokenString || token.Value != "hello world" {
+		test.Errorf("got kind=%v value=%q, want STRING(\"hello world\")", token.Kind, token.Value)
+	}
+}
