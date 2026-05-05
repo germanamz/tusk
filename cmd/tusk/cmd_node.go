@@ -18,6 +18,7 @@ func newNodeCmd() *cobra.Command {
 	nodeCmd.AddCommand(newNodeCreateCmd())
 	nodeCmd.AddCommand(newNodeGetCmd())
 	nodeCmd.AddCommand(newNodeListCmd())
+	nodeCmd.AddCommand(newNodeDeleteCmd())
 
 	return nodeCmd
 }
