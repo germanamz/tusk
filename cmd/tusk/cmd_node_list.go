@@ -5,18 +5,24 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
 func newNodeListCmd() *cobra.Command {
-	var typeFilter string
+	var (
+		sortSpec string
+		take     int
+		skip     int
+	)
 
 	listCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List nodes from the index",
+		Use:   "list [filter]",
+		Short: "List nodes from the index, optionally filtering by expression",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 
@@ -30,6 +36,46 @@ func newNodeListCmd() *cobra.Command {
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
+
+			if loadErr != nil {
+				return loadErr
+			}
+
+			filterArg := ""
+
+			if len(args) == 1 {
+				filterArg = args[0]
+			}
+
+			expr, parseErrs := filter.NewParser(filterArg).Parse()
+
+			if len(parseErrs) > 0 {
+				return fmt.Errorf("filter parse: %v", parseErrs[0])
+			}
+
+			validateErrs := filter.Validate(expr, *loaded)
+
+			if len(validateErrs) > 0 {
+				return fmt.Errorf("filter validate: %v", validateErrs[0])
+			}
+
+			sortKeys, sortErr := filter.ParseSort(sortSpec)
+
+			if sortErr != nil {
+				return sortErr
+			}
+
+			sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
+				SortKeys: sortKeys,
+				Take:     take,
+				Skip:     skip,
+			})
+
+			if compileErr != nil {
+				return compileErr
+			}
+
 			store, openErr := index.Open(ws.IndexPath)
 
 			if openErr != nil {
@@ -38,27 +84,44 @@ func newNodeListCmd() *cobra.Command {
 
 			defer store.Close()
 
-			service := node.NewService(ws.Root, index.NewNodeRepo(store))
+			rows, queryErr := store.DB().Query(sqlQuery, params...)
 
-			nodes, listErr := service.List(node.ListFilter{Type: typeFilter})
-
-			if listErr != nil {
-				return listErr
+			if queryErr != nil {
+				return queryErr
 			}
+
+			defer rows.Close()
 
 			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 			_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
 
-			for _, item := range nodes {
-				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", item.ID, item.Type, item.Title, item.Path)
+			for rows.Next() {
+				var (
+					rowID         string
+					rowType       string
+					rowPath       string
+					rowTitle      string
+					propertiesRaw string
+					lastMtime     int64
+					lastSize      int64
+					lastChecksum  string
+				)
+
+				if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
+					return scanErr
+				}
+
+				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", rowID, rowType, rowTitle, rowPath)
 			}
 
 			return tab.Flush()
 		},
 	}
 
-	listCmd.Flags().StringVar(&typeFilter, "type", "", "filter by node type (exact match)")
+	listCmd.Flags().StringVar(&sortSpec, "sort", "", "sort spec, e.g., +priority,-due,+modified")
+	listCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
+	listCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
 
 	return listCmd
 }
