@@ -120,3 +120,122 @@ func TestResolveEdges_LeavesNonEdgeKeysAlone(test *testing.T) {
 		test.Errorf("Edges = %v, want empty", parsed.Edges)
 	}
 }
+
+func TestValidateEdges_RejectsUnknownEdgeType(test *testing.T) {
+	parsed := &node.Node{
+		ID:    "x",
+		Type:  "ticket",
+		Edges: map[string][]string{"unknown": {"y"}},
+	}
+
+	validateErr := node.ValidateEdges(parsed, testEdgeRegistry(), node.EdgeContext{
+		ResolveTargetType: func(targetID string) (string, bool) { return "ticket", true },
+	})
+
+	if validateErr == nil {
+		test.Fatalf("expected error for unknown edge type")
+	}
+}
+
+func TestValidateEdges_RejectsSourceTypeMismatch(test *testing.T) {
+	parsed := &node.Node{
+		ID:    "x",
+		Type:  "note",
+		Edges: map[string][]string{"parent": {"y"}}, // parent only allows ticket source
+	}
+
+	validateErr := node.ValidateEdges(parsed, testEdgeRegistry(), node.EdgeContext{
+		ResolveTargetType: func(targetID string) (string, bool) { return "ticket", true },
+	})
+
+	if validateErr == nil {
+		test.Fatalf("expected error for source type mismatch")
+	}
+}
+
+func TestValidateEdges_RejectsTargetTypeMismatch(test *testing.T) {
+	parsed := &node.Node{
+		ID:    "x",
+		Type:  "ticket",
+		Edges: map[string][]string{"parent": {"unknown-target"}},
+	}
+
+	validateErr := node.ValidateEdges(parsed, testEdgeRegistry(), node.EdgeContext{
+		ResolveTargetType: func(targetID string) (string, bool) { return "note", true }, // not in parent.To
+	})
+
+	if validateErr == nil {
+		test.Fatalf("expected error for target type mismatch")
+	}
+}
+
+func TestValidateEdges_AllowsUnresolvedTargetWhenContextSaysFalse(test *testing.T) {
+	parsed := &node.Node{
+		ID:    "x",
+		Type:  "ticket",
+		Edges: map[string][]string{"references": {"missing/target"}},
+	}
+
+	validateErr := node.ValidateEdges(parsed, testEdgeRegistry(), node.EdgeContext{
+		ResolveTargetType: func(targetID string) (string, bool) { return "", false },
+	})
+
+	if validateErr != nil {
+		test.Errorf("expected nil error for unresolved target on `references`, got %v", validateErr)
+	}
+}
+
+func TestDetectCycle_ReturnsNilOnAcyclicGraph(test *testing.T) {
+	existing := map[string][]string{
+		"a": {"b"},
+		"b": {"c"},
+	}
+
+	candidate := node.CycleProbe{
+		EdgeType: "blocks",
+		Source:   "c",
+		Target:   "d",
+	}
+
+	cycleErr := node.DetectCycle(candidate, existing)
+
+	if cycleErr != nil {
+		test.Errorf("got %v, want nil (no cycle)", cycleErr)
+	}
+}
+
+func TestDetectCycle_ReturnsErrorWhenAddingEdgeCreatesCycle(test *testing.T) {
+	// existing: a -blocks-> b -blocks-> c
+	// adding:   c -blocks-> a  (would create a→b→c→a cycle)
+	existing := map[string][]string{
+		"a": {"b"},
+		"b": {"c"},
+	}
+
+	candidate := node.CycleProbe{
+		EdgeType: "blocks",
+		Source:   "c",
+		Target:   "a",
+	}
+
+	cycleErr := node.DetectCycle(candidate, existing)
+
+	if cycleErr == nil {
+		test.Fatalf("expected cycle error")
+	}
+}
+
+func TestDetectCycle_AllowsSelfLoopOnNonAcyclic(test *testing.T) {
+	existing := map[string][]string{}
+	candidate := node.CycleProbe{
+		EdgeType: "blocks",
+		Source:   "x",
+		Target:   "x",
+	}
+
+	cycleErr := node.DetectCycle(candidate, existing)
+
+	if cycleErr == nil {
+		test.Fatalf("expected cycle error on self-loop")
+	}
+}
