@@ -34,6 +34,72 @@ func (parser *Parser) Parse() (Expr, []ParseError) {
 }
 
 func (parser *Parser) parseExpr() Expr {
+	return parser.parseOr()
+}
+
+func (parser *Parser) parseOr() Expr {
+	left := parser.parseAnd()
+
+	for parser.peek().Kind == TokenOr {
+		opToken := parser.advance()
+		right := parser.parseAnd()
+		left = &OrExpr{Left: left, Right: right, Pos: opToken.Pos}
+	}
+
+	return left
+}
+
+func (parser *Parser) parseAnd() Expr {
+	left := parser.parseNot()
+
+	for {
+		next := parser.peek()
+
+		if next.Kind == TokenAnd {
+			opToken := parser.advance()
+			right := parser.parseNot()
+			left = &AndExpr{Left: left, Right: right, Pos: opToken.Pos}
+
+			continue
+		}
+
+		if next.Kind == TokenIdent || next.Kind == TokenLParen || next.Kind == TokenNot {
+			right := parser.parseNot()
+			left = &AndExpr{Left: left, Right: right, Pos: next.Pos}
+
+			continue
+		}
+
+		break
+	}
+
+	return left
+}
+
+func (parser *Parser) parseNot() Expr {
+	if parser.peek().Kind == TokenNot {
+		notToken := parser.advance()
+
+		return &NotExpr{Inner: parser.parseNot(), Pos: notToken.Pos}
+	}
+
+	return parser.parseAtom()
+}
+
+func (parser *Parser) parseAtom() Expr {
+	if parser.peek().Kind == TokenLParen {
+		parser.advance()
+		inner := parser.parseExpr()
+
+		if parser.peek().Kind != TokenRParen {
+			parser.appendErr(parser.peek().Pos, "expected )")
+		} else {
+			parser.advance()
+		}
+
+		return inner
+	}
+
 	return parser.parsePredicate()
 }
 

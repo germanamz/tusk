@@ -211,3 +211,79 @@ func TestParser_MultiHopExceedsMaxDepth(test *testing.T) {
 		test.Fatalf("expected error for depth > 5")
 	}
 }
+
+func TestParser_ExplicitAnd(test *testing.T) {
+	expr, errs := filter.NewParser("type=ticket AND status=active").Parse()
+
+	if len(errs) > 0 {
+		test.Fatalf("errors: %v", errs)
+	}
+
+	andExpr, ok := expr.(*filter.AndExpr)
+
+	if !ok {
+		test.Fatalf("got %T, want *AndExpr", expr)
+	}
+
+	left := andExpr.Left.(*filter.PropertyPredicate)
+	right := andExpr.Right.(*filter.PropertyPredicate)
+
+	if left.Property != "type" || right.Property != "status" {
+		test.Errorf("got left=%+v right=%+v", left, right)
+	}
+}
+
+func TestParser_ImplicitAnd(test *testing.T) {
+	expr, errs := filter.NewParser("type=ticket status=active priority>=3").Parse()
+
+	if len(errs) > 0 {
+		test.Fatalf("errors: %v", errs)
+	}
+
+	outer := expr.(*filter.AndExpr)
+	inner := outer.Left.(*filter.AndExpr)
+
+	if inner.Left.(*filter.PropertyPredicate).Property != "type" {
+		test.Errorf("inner.left = %+v", inner.Left)
+	}
+
+	if inner.Right.(*filter.PropertyPredicate).Property != "status" {
+		test.Errorf("inner.right = %+v", inner.Right)
+	}
+
+	if outer.Right.(*filter.PropertyPredicate).Property != "priority" {
+		test.Errorf("outer.right = %+v", outer.Right)
+	}
+}
+
+func TestParser_Or(test *testing.T) {
+	expr, _ := filter.NewParser("type=ticket OR type=note").Parse()
+	orExpr := expr.(*filter.OrExpr)
+
+	if orExpr.Left.(*filter.PropertyPredicate).Property != "type" {
+		test.Errorf("left = %+v", orExpr.Left)
+	}
+}
+
+func TestParser_Not(test *testing.T) {
+	expr, _ := filter.NewParser("NOT status=completed").Parse()
+	notExpr := expr.(*filter.NotExpr)
+
+	if notExpr.Inner.(*filter.PropertyPredicate).Property != "status" {
+		test.Errorf("inner = %+v", notExpr.Inner)
+	}
+}
+
+func TestParser_Parens(test *testing.T) {
+	expr, _ := filter.NewParser("(type=ticket OR type=note) AND status=active").Parse()
+
+	andExpr := expr.(*filter.AndExpr)
+	_ = andExpr.Left.(*filter.OrExpr)
+}
+
+func TestParser_Precedence(test *testing.T) {
+	expr, _ := filter.NewParser("type=ticket AND status=active OR type=note").Parse()
+	orExpr := expr.(*filter.OrExpr)
+	_ = orExpr.Left.(*filter.AndExpr)
+	_ = orExpr.Right.(*filter.PropertyPredicate)
+}
