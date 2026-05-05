@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
@@ -27,26 +28,39 @@ func newReindexCmd() *cobra.Command {
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
-			store, openErr := index.Open(ws.IndexPath)
+			return withWorkspaceLock(ws, func() error {
+				store, openErr := index.Open(ws.IndexPath)
 
-			if openErr != nil {
-				return openErr
-			}
+				if openErr != nil {
+					return openErr
+				}
 
-			defer store.Close()
+				defer store.Close()
 
-			report, runErr := reindex.Run(reindex.Config{
-				Root: ws.Root,
-				Repo: index.NewNodeRepo(store),
+				loaded, loadErr := manifest.Load(ws.ManifestPath)
+
+				if loadErr != nil {
+					return fmt.Errorf("manifest: %w", loadErr)
+				}
+
+				edgeRepo := index.NewEdgeRepo(store)
+
+				report, runErr := reindex.Run(reindex.Config{
+					Root:            ws.Root,
+					Repo:            index.NewNodeRepo(store),
+					Edges:           edgeRepo,
+					EdgeTypes:       loaded.EdgeTypes,
+					WorkspaceIgnore: loaded.Workspace.Ignore,
+				})
+
+				if runErr != nil {
+					return runErr
+				}
+
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Reindex done: %d indexed, %d removed, %d skipped\n", report.Indexed, report.Removed, report.Skipped)
+
+				return nil
 			})
-
-			if runErr != nil {
-				return runErr
-			}
-
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Reindex done: %d indexed, %d removed, %d skipped\n", report.Indexed, report.Removed, report.Skipped)
-
-			return nil
 		},
 	}
 

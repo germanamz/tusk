@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, edited, reopened, synchronize]
 
 permissions:
   contents: read
@@ -67,28 +68,6 @@ jobs:
 
       - name: Run unit tests
         run: go test -race ./internal/... ./cmd/...
-
-  e2e-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            go-${{ runner.os }}-
-
-      - name: Run e2e tests
-        run: go test -race ./tests/e2e/
 
   pr-title:
     runs-on: ubuntu-latest

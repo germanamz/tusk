@@ -1,0 +1,72 @@
+package main
+
+import (
+	"bytes"
+	"testing"
+)
+
+func TestEdgeAddCmd_PersistsEdgeInIndex(test *testing.T) {
+	initWorkspaceWithManifest(test, edgeManifestBody())
+
+	createCmd := newRootCmd()
+	createCmd.SetArgs([]string{"node", "create", "--type", "ticket", "--title", "A", "--path", "tickets/a.md"})
+
+	if execErr := createCmd.Execute(); execErr != nil {
+		test.Fatalf("create a: %v", execErr)
+	}
+
+	create2 := newRootCmd()
+	create2.SetArgs([]string{"node", "create", "--type", "ticket", "--title", "B", "--path", "tickets/b.md"})
+
+	if execErr := create2.Execute(); execErr != nil {
+		test.Fatalf("create b: %v", execErr)
+	}
+
+	output := &bytes.Buffer{}
+
+	addCmd := newRootCmd()
+	addCmd.SetOut(output)
+	addCmd.SetErr(output)
+	addCmd.SetArgs([]string{"edge", "add", "--type", "blocks", "--source", "tickets/a", "--target", "tickets/b"})
+
+	if execErr := addCmd.Execute(); execErr != nil {
+		test.Fatalf("edge add: %v\noutput: %s", execErr, output.String())
+	}
+
+	listOutput := &bytes.Buffer{}
+
+	listCmd := newRootCmd()
+	listCmd.SetOut(listOutput)
+	listCmd.SetErr(listOutput)
+	listCmd.SetArgs([]string{"edge", "list", "--from", "tickets/a"})
+
+	if execErr := listCmd.Execute(); execErr != nil {
+		test.Fatalf("edge list: %v\noutput: %s", execErr, listOutput.String())
+	}
+
+	if !bytes.Contains(listOutput.Bytes(), []byte("blocks")) || !bytes.Contains(listOutput.Bytes(), []byte("tickets/b")) {
+		test.Errorf("missing edge in list:\n%s", listOutput.String())
+	}
+}
+
+func edgeManifestBody() string {
+	return `[workspace]
+name = "test"
+
+[edge-types.blocks]
+from = ["ticket"]
+to = ["ticket"]
+cardinality = "many-to-many"
+acyclic = true
+
+[edge-types.parent]
+from = ["ticket"]
+to = ["ticket", "project"]
+cardinality = "many-to-one"
+
+[edge-types.references]
+from = ["*"]
+to = ["*"]
+cardinality = "many-to-many"
+`
+}
