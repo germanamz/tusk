@@ -7,10 +7,9 @@ GOFLAGS := -v
 
 all: build
 
-# v1 build target — populated as cmd/tusk lands in Plan 1b
 build:
 	@mkdir -p $(BUILD_DIR)
-	@echo "v1 build target: cmd/tusk not yet implemented (Plan 1b)"
+	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/tusk
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -1,0 +1,126 @@
+package index_test
+
+import (
+	"testing"
+
+	"github.com/germanamz/tusk/internal/index"
+)
+
+func newTestEdgeRepo(test *testing.T) *index.EdgeRepo {
+	test.Helper()
+
+	store := openTestIndex(test)
+
+	return index.NewEdgeRepo(store)
+}
+
+func TestEdgeRepo_UpsertAllAndListBySource(test *testing.T) {
+	repo := newTestEdgeRepo(test)
+
+	edges := []index.EdgeRow{
+		{Type: "parent", SourceID: "tickets/foo", TargetID: "tickets/epic", Ordinal: 0, SourcePath: "tickets/foo.md"},
+		{Type: "blocks", SourceID: "tickets/foo", TargetID: "tickets/bar", Ordinal: 0, SourcePath: "tickets/foo.md"},
+	}
+
+	if upsertErr := repo.UpsertAll("tickets/foo", "tickets/foo.md", edges); upsertErr != nil {
+		test.Fatalf("UpsertAll: %v", upsertErr)
+	}
+
+	listed, listErr := repo.ListBySource("tickets/foo")
+
+	if listErr != nil {
+		test.Fatalf("ListBySource: %v", listErr)
+	}
+
+	if len(listed) != 2 {
+		test.Errorf("len = %d, want 2", len(listed))
+	}
+}
+
+func TestEdgeRepo_UpsertAllReplacesExistingEdgesForSource(test *testing.T) {
+	repo := newTestEdgeRepo(test)
+
+	first := []index.EdgeRow{
+		{Type: "parent", SourceID: "x", TargetID: "y", Ordinal: 0, SourcePath: "x.md"},
+		{Type: "blocks", SourceID: "x", TargetID: "z", Ordinal: 0, SourcePath: "x.md"},
+	}
+
+	repo.UpsertAll("x", "x.md", first)
+
+	second := []index.EdgeRow{
+		{Type: "parent", SourceID: "x", TargetID: "y2", Ordinal: 0, SourcePath: "x.md"},
+	}
+
+	if upsertErr := repo.UpsertAll("x", "x.md", second); upsertErr != nil {
+		test.Fatalf("second UpsertAll: %v", upsertErr)
+	}
+
+	listed, _ := repo.ListBySource("x")
+
+	if len(listed) != 1 {
+		test.Errorf("len = %d, want 1 after replace", len(listed))
+	}
+
+	if listed[0].TargetID != "y2" {
+		test.Errorf("Target = %q, want y2", listed[0].TargetID)
+	}
+}
+
+func TestEdgeRepo_ListByTarget(test *testing.T) {
+	repo := newTestEdgeRepo(test)
+
+	repo.UpsertAll("a", "a.md", []index.EdgeRow{
+		{Type: "blocks", SourceID: "a", TargetID: "z", Ordinal: 0, SourcePath: "a.md"},
+	})
+
+	repo.UpsertAll("b", "b.md", []index.EdgeRow{
+		{Type: "blocks", SourceID: "b", TargetID: "z", Ordinal: 0, SourcePath: "b.md"},
+	})
+
+	listed, listErr := repo.ListByTarget("z")
+
+	if listErr != nil {
+		test.Fatalf("ListByTarget: %v", listErr)
+	}
+
+	if len(listed) != 2 {
+		test.Errorf("len = %d, want 2", len(listed))
+	}
+}
+
+func TestEdgeRepo_ListByType(test *testing.T) {
+	repo := newTestEdgeRepo(test)
+
+	repo.UpsertAll("a", "a.md", []index.EdgeRow{
+		{Type: "blocks", SourceID: "a", TargetID: "x", Ordinal: 0, SourcePath: "a.md"},
+		{Type: "parent", SourceID: "a", TargetID: "y", Ordinal: 0, SourcePath: "a.md"},
+	})
+
+	listed, listErr := repo.ListByType("blocks")
+
+	if listErr != nil {
+		test.Fatalf("ListByType: %v", listErr)
+	}
+
+	if len(listed) != 1 || listed[0].TargetID != "x" {
+		test.Errorf("listed = %+v", listed)
+	}
+}
+
+func TestEdgeRepo_DeleteBySource(test *testing.T) {
+	repo := newTestEdgeRepo(test)
+
+	repo.UpsertAll("doomed", "doomed.md", []index.EdgeRow{
+		{Type: "parent", SourceID: "doomed", TargetID: "x", Ordinal: 0, SourcePath: "doomed.md"},
+	})
+
+	if deleteErr := repo.DeleteBySource("doomed"); deleteErr != nil {
+		test.Fatalf("DeleteBySource: %v", deleteErr)
+	}
+
+	listed, _ := repo.ListBySource("doomed")
+
+	if len(listed) != 0 {
+		test.Errorf("len = %d, want 0", len(listed))
+	}
+}
