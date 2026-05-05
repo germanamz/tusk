@@ -18,6 +18,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newNodeCmd())
 	rootCmd.AddCommand(newReindexCmd())
 	rootCmd.AddCommand(newEdgeCmd())
+	rootCmd.AddCommand(newWatchCmd())
 
 	return rootCmd
 }
