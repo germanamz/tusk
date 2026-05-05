@@ -13,13 +13,16 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
 
 // Config configures Run.
 type Config struct {
-	Root string          // workspace root
-	Repo *index.NodeRepo // index repository
+	Root      string             // workspace root
+	Repo      *index.NodeRepo    // node index repository
+	Edges     *index.EdgeRepo    // edge index repository (optional; when nil, edges are not written)
+	EdgeTypes manifest.EdgeTypes // declared edge types (optional; when empty, frontmatter edges are not resolved)
 }
 
 // Report summarizes a reindex pass.
@@ -30,10 +33,11 @@ type Report struct {
 }
 
 // Run walks Root, parses every *.md file with valid frontmatter, and upserts
-// or removes index rows so the index matches what is on disk.
+// or removes index rows so the index matches what is on disk. When Edges and
+// EdgeTypes are configured, edges are written and removed alongside nodes.
 func Run(config Config) (*Report, error) {
 	report := &Report{}
-	seen := map[string]struct{}{}
+	seenPaths := map[string]struct{}{}
 
 	walkErr := filepath.WalkDir(config.Root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -58,7 +62,6 @@ func Run(config Config) (*Report, error) {
 			return relErr
 		}
 
-		// Normalize to forward slashes for cross-platform IDs.
 		relPath = filepath.ToSlash(relPath)
 
 		content, readErr := os.ReadFile(path)
@@ -73,6 +76,18 @@ func Run(config Config) (*Report, error) {
 			report.Skipped++
 
 			return nil
+		}
+
+		if resolveErr := node.ResolveEdges(parsed, config.EdgeTypes); resolveErr != nil {
+			report.Skipped++
+
+			return nil
+		}
+
+		if _, hasReferences := config.EdgeTypes["references"]; hasReferences {
+			for _, target := range node.ExtractWikilinks(parsed.Body) {
+				parsed.Edges["references"] = appendUnique(parsed.Edges["references"], target)
+			}
 		}
 
 		stat, statErr := entry.Info()
@@ -102,7 +117,15 @@ func Run(config Config) (*Report, error) {
 			return upsertErr
 		}
 
-		seen[parsed.Path] = struct{}{}
+		if config.Edges != nil {
+			edgeRows := flattenEdges(parsed)
+
+			if upsertErr := config.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
+				return upsertErr
+			}
+		}
+
+		seenPaths[parsed.Path] = struct{}{}
 		report.Indexed++
 
 		return nil
@@ -119,7 +142,7 @@ func Run(config Config) (*Report, error) {
 	}
 
 	for _, row := range existingRows {
-		if _, kept := seen[row.Path]; kept {
+		if _, kept := seenPaths[row.Path]; kept {
 			continue
 		}
 
@@ -127,10 +150,46 @@ func Run(config Config) (*Report, error) {
 			return nil, deleteErr
 		}
 
+		if config.Edges != nil {
+			if deleteErr := config.Edges.DeleteBySource(row.ID); deleteErr != nil {
+				return nil, deleteErr
+			}
+		}
+
 		report.Removed++
 	}
 
 	return report, nil
+}
+
+// appendUnique appends value to slice only if not already present.
+func appendUnique(slice []string, value string) []string {
+	for _, existing := range slice {
+		if existing == value {
+			return slice
+		}
+	}
+
+	return append(slice, value)
+}
+
+// flattenEdges turns parsed.Edges into the EdgeRow shape expected by EdgeRepo.
+func flattenEdges(parsedNode *node.Node) []index.EdgeRow {
+	var rows []index.EdgeRow
+
+	for edgeType, targets := range parsedNode.Edges {
+		for ordinal, target := range targets {
+			rows = append(rows, index.EdgeRow{
+				Type:       edgeType,
+				SourceID:   parsedNode.ID,
+				TargetID:   target,
+				Ordinal:    ordinal,
+				SourcePath: parsedNode.Path,
+			})
+		}
+	}
+
+	return rows
 }
 
 // shouldSkipDir returns true for directories the walker must not descend into.
@@ -145,10 +204,5 @@ func shouldSkipDir(root, dirPath, name string) bool {
 		return true
 	}
 
-	if strings.HasPrefix(name, ".") {
-		// Skip hidden directories by default; users can opt in via inline manifest later.
-		return true
-	}
-
-	return false
+	return strings.HasPrefix(name, ".")
 }

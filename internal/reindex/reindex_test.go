@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
 )
 
@@ -108,6 +109,114 @@ func TestRun_RemovesStaleEntries(test *testing.T) {
 
 	if _, getErr := repo.Get("stale"); getErr != index.ErrNodeNotFound {
 		test.Errorf("err = %v, want ErrNodeNotFound", getErr)
+	}
+}
+
+func TestRun_PersistsFrontmatterEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "tickets/epic.md", "type: ticket\ntitle: Epic\n", "Body.\n")
+	writeNode(test, root, "tickets/child.md", "type: ticket\ntitle: Child\nparent: tickets/epic\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"parent": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket", "project"},
+			Cardinality: manifest.CardinalityManyToOne,
+		},
+	}
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:      root,
+		Repo:      repo,
+		Edges:     edgeRepo,
+		EdgeTypes: edgeTypes,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 2 {
+		test.Errorf("Indexed = %d, want 2", report.Indexed)
+	}
+
+	listed, _ := edgeRepo.ListBySource("tickets/child")
+
+	if len(listed) != 1 || listed[0].Type != "parent" || listed[0].TargetID != "tickets/epic" {
+		test.Errorf("listed = %+v", listed)
+	}
+}
+
+func TestRun_PersistsWikilinksAsReferenceEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/target.md", "type: note\ntitle: Target\n", "")
+	writeNode(test, root, "notes/source.md", "type: note\ntitle: Source\n", "Refer to [[notes/target]].\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+		},
+	}
+
+	if _, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	listed, _ := edgeRepo.ListBySource("notes/source")
+
+	if len(listed) != 1 || listed[0].Type != "references" || listed[0].TargetID != "notes/target" {
+		test.Errorf("listed = %+v", listed)
+	}
+}
+
+func TestRun_RemovedFileAlsoRemovesEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "tickets/a.md", "type: ticket\ntitle: A\nparent: tickets/b\n", "")
+	writeNode(test, root, "tickets/b.md", "type: ticket\ntitle: B\n", "")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"parent": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket"},
+			Cardinality: manifest.CardinalityManyToOne,
+		},
+	}
+
+	cfg := reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if rmErr := os.Remove(filepath.Join(root, "tickets/a.md")); rmErr != nil {
+		test.Fatalf("rm: %v", rmErr)
+	}
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	listed, _ := edgeRepo.ListBySource("tickets/a")
+
+	if len(listed) != 0 {
+		test.Errorf("expected zero edges after node removal, got %+v", listed)
 	}
 }
 
