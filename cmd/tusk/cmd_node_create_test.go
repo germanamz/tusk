@@ -32,6 +32,18 @@ func TestNodeCreateCmd_WritesFile(test *testing.T) {
 	}
 }
 
+func initWorkspaceWithManifest(test *testing.T, manifestBody string) string {
+	test.Helper()
+
+	root := initWorkspace(test)
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	return root
+}
+
 func initWorkspace(test *testing.T) string {
 	test.Helper()
 
