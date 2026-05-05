@@ -3,14 +3,54 @@ package manifest
 
 // Manifest is the parsed representation of tusk.toml at the workspace root.
 type Manifest struct {
-	Workspace WorkspaceSection `toml:"workspace"`
+	Workspace WorkspaceSection    `toml:"workspace"`
+	EdgeTypes map[string]EdgeType `toml:"edge-types"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.
-//
-// Plan 1b ships only Name and Ignore; type packs, embeddings config, behaviors,
-// and the inline node-types/edge-types tables land in later plans.
 type WorkspaceSection struct {
 	Name   string   `toml:"name"`
 	Ignore []string `toml:"ignore"`
+}
+
+// Cardinality enumerates the legal values for EdgeType.Cardinality.
+type Cardinality string
+
+const (
+	CardinalityOneToOne   Cardinality = "one-to-one"
+	CardinalityOneToMany  Cardinality = "one-to-many"
+	CardinalityManyToOne  Cardinality = "many-to-one"
+	CardinalityManyToMany Cardinality = "many-to-many"
+)
+
+// EdgeType is a manifest-declared edge type.
+type EdgeType struct {
+	Description string      `toml:"description"`
+	From        []string    `toml:"from"` // allowed source node-types; ["*"] means any
+	To          []string    `toml:"to"`   // allowed target node-types; ["*"] means any
+	Cardinality Cardinality `toml:"cardinality"`
+	Ordered     bool        `toml:"ordered"`
+	Inverse     string      `toml:"inverse"` // optional; name of the derived inverse edge
+	Acyclic     bool        `toml:"acyclic"`
+}
+
+// AllowsSource returns true if sourceType matches the edge type's `from` list
+// (literal match or `*` wildcard).
+func (edgeType EdgeType) AllowsSource(sourceType string) bool {
+	return matchesTypeList(edgeType.From, sourceType)
+}
+
+// AllowsTarget returns true if targetType matches the edge type's `to` list.
+func (edgeType EdgeType) AllowsTarget(targetType string) bool {
+	return matchesTypeList(edgeType.To, targetType)
+}
+
+func matchesTypeList(allowed []string, candidate string) bool {
+	for _, entry := range allowed {
+		if entry == "*" || entry == candidate {
+			return true
+		}
+	}
+
+	return false
 }
