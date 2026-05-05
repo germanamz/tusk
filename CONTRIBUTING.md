@@ -243,52 +243,6 @@ scenarios := []Scenario{
 }
 ```
 
-## ROADMAP.md is generated
-
-`ROADMAP.md` is regenerated from tusk state — do not hand-edit.
-
-The workspace tusk database lives at `.data/tusk.db` (a committed SQLite
-file). It currently holds the `tusk-roadmap` project, which is rendered
-into `ROADMAP.md` via `make roadmap`; over time it will also accumulate
-workspace-shared notes and any other tusk state worth committing.
-`tusk.toml` at the repo root sets `[storage] path = ".data/tusk.db"`,
-so any `tusk` invocation from inside the checkout — locally or in CI —
-resolves the committed DB via walk-up config discovery (v0.9). No
-env-var setup is required, and the file in the repo — not any
-developer's local DB — is the source of truth for what CI sees.
-
-`.data/tusk.db` is a binary blob, but legibility for code review is
-provided by `ROADMAP.md` itself: every PR that edits the roadmap also
-regenerates `ROADMAP.md`, and the markdown diff is the human-readable
-change log.
-
-Workflow:
-
-1. Edit the roadmap via `tusk task` commands. Examples:
-   ```bash
-   tusk task create "Story: my new story" level=story project=tusk-roadmap parent=<initiative-short-id>
-   tusk task done <short-id>
-   tusk task move <short-id> --before <target>
-   ```
-2. Regenerate the markdown:
-   ```bash
-   make roadmap
-   ```
-3. Commit `.data/tusk.db` and `ROADMAP.md` together with whatever code
-   change motivates the roadmap edit.
-
-The `.data/tusk.db-wal` / `.data/tusk.db-shm` sidecar files that SQLite
-creates during operation are gitignored — never commit them. If your DB
-has pending WAL data, run `tusk task tree --format markdown >/dev/null`
-once against it (any read closes the connection cleanly and checkpoints
-the WAL into the main file) before staging.
-
-CI will fail any PR whose `ROADMAP.md` is out of sync with `.data/tusk.db`
-once the gate is enabled (`TUSK_ROADMAP_CHECK_ENABLED=true` repo variable).
-
-The `tusk-roadmap` project uses the canonical taxonomy:
-`milestone:initiative:story:(task,spike)`.
-
 ## Reporting Issues
 
 When reporting bugs, please include:

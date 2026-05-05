@@ -11,6 +11,8 @@
   <a href="tusk.md"><strong>Design Spec</strong></a>
 </p>
 
+> ⚠️ **v1 rebuild in progress.** This README documents Tusk **v0.x**. The v0 line ended at [`v0.14.0`](https://github.com/germanamz/tusk/releases/tag/v0.14.0). Active development now targets **Tusk v1** — a local-first agent brain. See the [v1 design spec](docs/superpowers/specs/2026-05-05-tusk-v1-rebuild-design.md). v0 sources remain available on the [`v0-archive`](https://github.com/germanamz/tusk/tree/v0-archive) branch.
+
 ---
 
 Tusk combines the speed and CLI ergonomics of TaskWarrior with structured hierarchy and workflow flexibility — without the bloat. It ships as a single binary with SQLite persistence and exposes every capability through both a terminal interface and an MCP (Model Context Protocol) server, so AI agents can manage tasks alongside humans.
@@ -140,7 +142,7 @@ Tusk resolves its config file in this order, first match wins:
 4. Global `~/.config/tusk/config.toml` — auto-created on first run **only** when steps 1–3 all miss, so a project with its own `tusk.toml` never spawns a global file
 5. Embedded defaults
 
-Relative paths inside a `tusk.toml` (most importantly `storage.path`) resolve against the file's directory, so every subdirectory of a project shares the same database. `TUSK_*` environment variables still override individual values from the resolved file. See [docs/configuration.md](docs/configuration.md) for the full reference, including `tusk config init --local` and workspace-scoped `config set`.
+Relative paths inside a `tusk.toml` (most importantly `storage.path`) resolve against the file's directory, so every subdirectory of a project shares the same database. `TUSK_*` environment variables still override individual values from the resolved file.
 
 Custom workflows and projects are created via CLI commands:
 
@@ -190,7 +192,7 @@ client.Tasks.Create(ctx, task)
 
 The `Client` exposes service instances as public fields (`Tasks`, `Tags`, `Relations`, `Projects`, `Workflows`, `Players`), giving programmatic access to every operation available through CLI and MCP. Requires **v0.8.0+**.
 
-See [docs/programmatic-usage.md](docs/programmatic-usage.md) for the full API guide.
+The `Client` exposes service instances as public fields for full programmatic access to every operation available through CLI and MCP.
 
 ## MCP Server
 
@@ -235,11 +237,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and [docs/dev-
 
 ## Roadmap
 
-**Current: v0.11 complete** — foundation through CLI command grouping are shipped. See [ROADMAP.md](ROADMAP.md) for the full roadmap.
+Tusk v0 ended at `v0.14.0`. Active development targets v1 — see the [v1 design spec](docs/superpowers/specs/2026-05-05-tusk-v1-rebuild-design.md) for the planned direction.
 
-See [ROADMAP.md](ROADMAP.md) for the full roadmap with initiatives and stories.
-
-See [tusk.md](tusk.md) for the full design spec.
+See [tusk.md](tusk.md) for the v0 design spec.
 
 ## Acknowledgements
 
