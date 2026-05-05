@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
@@ -35,9 +36,19 @@ func newReindexCmd() *cobra.Command {
 
 			defer store.Close()
 
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
+
+			if loadErr != nil {
+				return fmt.Errorf("manifest: %w", loadErr)
+			}
+
+			edgeRepo := index.NewEdgeRepo(store)
+
 			report, runErr := reindex.Run(reindex.Config{
-				Root: ws.Root,
-				Repo: index.NewNodeRepo(store),
+				Root:      ws.Root,
+				Repo:      index.NewNodeRepo(store),
+				Edges:     edgeRepo,
+				EdgeTypes: loaded.EdgeTypes,
 			})
 
 			if runErr != nil {
