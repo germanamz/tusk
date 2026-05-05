@@ -220,6 +220,59 @@ func TestRun_RemovedFileAlsoRemovesEdges(test *testing.T) {
 	}
 }
 
+func TestRun_RespectsRootGitignore(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("build/\n*.tmp\n"), 0o644); writeErr != nil {
+		test.Fatalf("gitignore: %v", writeErr)
+	}
+
+	writeNode(test, root, "real.md", "type: note\n", "Body.\n")
+	writeNode(test, root, "build/internal.md", "type: note\n", "Body.\n")
+	writeNode(test, root, "scratch.tmp", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 1 {
+		test.Errorf("Indexed = %d, want 1 (only real.md)", report.Indexed)
+	}
+}
+
+func TestRun_RespectsWorkspaceIgnore(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "keep.md", "type: note\n", "")
+	writeNode(test, root, "drafts/private.md", "type: note\n", "")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:            root,
+		Repo:            repo,
+		WorkspaceIgnore: []string{"drafts/"},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 1 {
+		test.Errorf("Indexed = %d, want 1 (drafts/ excluded by workspace ignore)", report.Indexed)
+	}
+}
+
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
 	test.Helper()
 
