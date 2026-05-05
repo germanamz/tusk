@@ -3,9 +3,11 @@ package node_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
 
@@ -113,4 +115,124 @@ func indexOf(haystack, needle string) int {
 	}
 
 	return -1
+}
+
+func newTestServiceWithManifest(test *testing.T, edgeTypes manifest.EdgeTypes) (*node.Service, string) {
+	test.Helper()
+
+	root := test.TempDir()
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	test.Cleanup(func() { store.Close() })
+
+	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), edgeTypes)
+
+	return service, root
+}
+
+func plan2EdgeRegistry() manifest.EdgeTypes {
+	return manifest.EdgeTypes{
+		"parent": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket", "project"},
+			Cardinality: manifest.CardinalityManyToOne,
+		},
+		"blocks": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket"},
+			Cardinality: manifest.CardinalityManyToMany,
+			Acyclic:     true,
+		},
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+		},
+	}
+}
+
+func TestService_CreatePersistsFrontmatterEdges(test *testing.T) {
+	service, _ := newTestServiceWithManifest(test, plan2EdgeRegistry())
+
+	parentInput := node.CreateInput{
+		RelPath: "tickets/epic.md",
+		Type:    "ticket",
+		Title:   "Epic",
+	}
+
+	if _, parentErr := service.Create(parentInput); parentErr != nil {
+		test.Fatalf("Create epic: %v", parentErr)
+	}
+
+	childInput := node.CreateInput{
+		RelPath: "tickets/child.md",
+		Type:    "ticket",
+		Title:   "Child",
+		Properties: map[string]any{
+			"parent": "tickets/epic",
+		},
+	}
+
+	created, createErr := service.Create(childInput)
+
+	if createErr != nil {
+		test.Fatalf("Create child: %v", createErr)
+	}
+
+	if !reflect.DeepEqual(created.Edges["parent"], []string{"tickets/epic"}) {
+		test.Errorf("Edges[parent] = %v", created.Edges["parent"])
+	}
+}
+
+func TestService_CreateRejectsIllegalEdgeSource(test *testing.T) {
+	service, _ := newTestServiceWithManifest(test, plan2EdgeRegistry())
+
+	if _, parentErr := service.Create(node.CreateInput{
+		RelPath: "tickets/epic.md", Type: "ticket", Title: "Epic",
+	}); parentErr != nil {
+		test.Fatalf("Create epic: %v", parentErr)
+	}
+
+	noteInput := node.CreateInput{
+		RelPath: "notes/bad.md",
+		Type:    "note",
+		Properties: map[string]any{
+			"parent": "tickets/epic",
+		},
+	}
+
+	_, createErr := service.Create(noteInput)
+
+	if createErr == nil {
+		test.Fatalf("expected error for source type mismatch")
+	}
+}
+
+func TestService_CreateMaterializesWikilinksAsReferencesEdges(test *testing.T) {
+	service, _ := newTestServiceWithManifest(test, plan2EdgeRegistry())
+
+	if _, targetErr := service.Create(node.CreateInput{
+		RelPath: "notes/target.md", Type: "note", Title: "Target",
+	}); targetErr != nil {
+		test.Fatalf("Create target: %v", targetErr)
+	}
+
+	created, createErr := service.Create(node.CreateInput{
+		RelPath: "notes/source.md",
+		Type:    "note",
+		Title:   "Source",
+		Body:    []byte("See [[notes/target]] for context.\n"),
+	})
+
+	if createErr != nil {
+		test.Fatalf("Create source: %v", createErr)
+	}
+
+	wantTargets := []string{"notes/target"}
+
+	if !reflect.DeepEqual(created.Edges["references"], wantTargets) {
+		test.Errorf("Edges[references] = %v, want %v", created.Edges["references"], wantTargets)
+	}
 }

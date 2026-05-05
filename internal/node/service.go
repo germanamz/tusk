@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 // ErrAlreadyExists is returned by Create when the target file already exists.
@@ -32,16 +33,36 @@ type ListFilter struct {
 
 // Service orchestrates filesystem and index for nodes.
 type Service struct {
-	root string
-	repo *index.NodeRepo
+	root      string
+	repo      *index.NodeRepo
+	edges     *index.EdgeRepo
+	edgeTypes manifest.EdgeTypes
 }
 
-// NewService constructs a Service for workspace at workspaceRoot.
+// NewService constructs a Service for a workspace whose manifest has no edge
+// types declared (Plan 1b behavior). Edge writes via this service are no-ops.
 func NewService(workspaceRoot string, repo *index.NodeRepo) *Service {
-	return &Service{root: workspaceRoot, repo: repo}
+	return &Service{
+		root:      workspaceRoot,
+		repo:      repo,
+		edges:     nil,
+		edgeTypes: manifest.EdgeTypes{},
+	}
+}
+
+// NewServiceWithManifest constructs a Service that writes edges through edges
+// and validates them against edgeTypes.
+func NewServiceWithManifest(workspaceRoot string, repo *index.NodeRepo, edges *index.EdgeRepo, edgeTypes manifest.EdgeTypes) *Service {
+	return &Service{
+		root:      workspaceRoot,
+		repo:      repo,
+		edges:     edges,
+		edgeTypes: edgeTypes,
+	}
 }
 
 // Create writes the node file and upserts the index row in one operation.
+// When the service has an EdgeRepo configured, edges are also persisted.
 func (service *Service) Create(input CreateInput) (*Node, error) {
 	absPath := filepath.Join(service.root, input.RelPath)
 
@@ -85,6 +106,22 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, parseErr
 	}
 
+	if resolveErr := ResolveEdges(parsed, service.edgeTypes); resolveErr != nil {
+		return nil, resolveErr
+	}
+
+	if _, hasReferences := service.edgeTypes["references"]; hasReferences {
+		for _, target := range ExtractWikilinks(parsed.Body) {
+			parsed.Edges["references"] = appendUnique(parsed.Edges["references"], target)
+		}
+	}
+
+	if validateErr := ValidateEdges(parsed, service.edgeTypes, EdgeContext{
+		ResolveTargetType: service.resolveTargetType,
+	}); validateErr != nil {
+		return nil, validateErr
+	}
+
 	checksum := sha256Hex(rendered)
 	propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
 
@@ -105,7 +142,60 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, upsertErr
 	}
 
+	if service.edges != nil {
+		edgeRows := flattenEdges(parsed)
+
+		if upsertErr := service.edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
+			return nil, upsertErr
+		}
+	}
+
 	return parsed, nil
+}
+
+// resolveTargetType looks up a target's node type in the index. Returns
+// ("", false) when the target is not known (which the validator treats as
+// "allowed for now").
+func (service *Service) resolveTargetType(targetID string) (string, bool) {
+	row, getErr := service.repo.Get(targetID)
+
+	if getErr != nil {
+		return "", false
+	}
+
+	return row.Type, true
+}
+
+// flattenEdges turns parsed.Edges (map of edge-type → []targetID) into the
+// EdgeRow shape expected by index.EdgeRepo.UpsertAll. Order is preserved
+// within each edge type via Ordinal.
+func flattenEdges(parsedNode *Node) []index.EdgeRow {
+	var rows []index.EdgeRow
+
+	for edgeType, targets := range parsedNode.Edges {
+		for ordinal, target := range targets {
+			rows = append(rows, index.EdgeRow{
+				Type:       edgeType,
+				SourceID:   parsedNode.ID,
+				TargetID:   target,
+				Ordinal:    ordinal,
+				SourcePath: parsedNode.Path,
+			})
+		}
+	}
+
+	return rows
+}
+
+// appendUnique appends value to slice only if not already present.
+func appendUnique(slice []string, value string) []string {
+	for _, existing := range slice {
+		if existing == value {
+			return slice
+		}
+	}
+
+	return append(slice, value)
 }
 
 // Get loads a node by id, reading the file from disk.
@@ -187,6 +277,18 @@ func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
 			builder.WriteString(key)
 			builder.WriteString(": ")
 			fmt.Fprintf(&builder, "%t\n", typed)
+		case []any:
+			builder.WriteString(key)
+			builder.WriteString(":\n")
+			for _, element := range typed {
+				elementString, isString := element.(string)
+				if !isString {
+					return nil, fmt.Errorf("node: unsupported sequence element type for %s: %T", key, element)
+				}
+				builder.WriteString("  - ")
+				builder.WriteString(elementString)
+				builder.WriteString("\n")
+			}
 		default:
 			return nil, fmt.Errorf("node: unsupported frontmatter type for %s: %T (Plan 1b supports string/int/bool only)", key, value)
 		}
