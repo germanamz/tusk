@@ -236,3 +236,17 @@ func TestService_CreateMaterializesWikilinksAsReferencesEdges(test *testing.T) {
 		test.Errorf("Edges[references] = %v, want %v", created.Edges["references"], wantTargets)
 	}
 }
+
+func TestService_CreateRejectsBlocksCycle(test *testing.T) {
+	service, _ := newTestServiceWithManifest(test, plan2EdgeRegistry())
+
+	_, selfErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/self.md",
+		Type:       "ticket",
+		Properties: map[string]any{"blocks": []any{"tickets/self"}},
+	})
+
+	if selfErr == nil {
+		test.Fatalf("expected cycle error for self-blocks")
+	}
+}

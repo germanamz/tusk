@@ -122,6 +122,10 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, validateErr
 	}
 
+	if cycleErr := service.detectCyclesForAcyclicEdges(parsed); cycleErr != nil {
+		return nil, cycleErr
+	}
+
 	checksum := sha256Hex(rendered)
 	propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
 
@@ -196,6 +200,54 @@ func appendUnique(slice []string, value string) []string {
 	}
 
 	return append(slice, value)
+}
+
+// detectCyclesForAcyclicEdges runs DetectCycle for every edge of an Acyclic
+// type, using the index as the existing-graph oracle.
+func (service *Service) detectCyclesForAcyclicEdges(parsedNode *Node) error {
+	if service.edges == nil {
+		return nil
+	}
+
+	for edgeType, targets := range parsedNode.Edges {
+		definition, declared := service.edgeTypes[edgeType]
+
+		if !declared || !definition.Acyclic {
+			continue
+		}
+
+		existing, loadErr := service.loadAdjacencyForType(edgeType)
+
+		if loadErr != nil {
+			return loadErr
+		}
+
+		for _, target := range targets {
+			if cycleErr := DetectCycle(CycleProbe{EdgeType: edgeType, Source: parsedNode.ID, Target: target}, existing); cycleErr != nil {
+				return cycleErr
+			}
+		}
+	}
+
+	return nil
+}
+
+// loadAdjacencyForType builds the existing-graph adjacency map for a single
+// edge type by walking every row in EdgeRepo of that type.
+func (service *Service) loadAdjacencyForType(edgeType string) (map[string][]string, error) {
+	rows, listErr := service.edges.ListByType(edgeType)
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	adjacency := map[string][]string{}
+
+	for _, row := range rows {
+		adjacency[row.SourceID] = append(adjacency[row.SourceID], row.TargetID)
+	}
+
+	return adjacency, nil
 }
 
 // Get loads a node by id, reading the file from disk.
