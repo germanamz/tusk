@@ -2,6 +2,9 @@ package filter
 
 import "fmt"
 
+// MaxTraversalDepth is the maximum number of hops allowed in a multi-hop chain.
+const MaxTraversalDepth = 5
+
 // Parser produces an Expr AST from an input string.
 type Parser struct {
 	lexer  *Lexer
@@ -53,7 +56,76 @@ func (parser *Parser) parsePredicate() Expr {
 		}
 	}
 
+	next := parser.peekN(1)
+
+	if next.Kind == TokenArrowOut || next.Kind == TokenArrowIn {
+		return parser.parseEdgePredicate(0)
+	}
+
 	return parser.parsePropertyPredicate()
+}
+
+func (parser *Parser) parseEdgePredicate(depth int) Expr {
+	if depth >= MaxTraversalDepth {
+		token := parser.peek()
+		parser.appendErr(token.Pos, fmt.Sprintf("multi-hop chain exceeds max depth %d", MaxTraversalDepth))
+
+		return nil
+	}
+
+	identToken := parser.advance()
+
+	if identToken.Kind != TokenIdent {
+		parser.appendErr(identToken.Pos, "expected edge type identifier")
+
+		return nil
+	}
+
+	arrowToken := parser.advance()
+
+	var direction Direction
+
+	switch arrowToken.Kind {
+	case TokenArrowOut:
+		direction = DirectionOutgoing
+	case TokenArrowIn:
+		direction = DirectionIncoming
+	default:
+		parser.appendErr(arrowToken.Pos, "expected -> or <- after edge type")
+
+		return nil
+	}
+
+	pred := &EdgePredicate{
+		EdgeType:  identToken.Value,
+		Direction: direction,
+		Pos:       identToken.Pos,
+	}
+
+	next := parser.peek()
+
+	switch next.Kind {
+	case TokenEOF, TokenAnd, TokenOr, TokenNot, TokenRParen:
+		return pred
+	}
+
+	if next.Kind == TokenIdent {
+		afterIdent := parser.peekN(1)
+
+		if afterIdent.Kind == TokenArrowOut || afterIdent.Kind == TokenArrowIn {
+			pred.Inner = parser.parseEdgePredicate(depth + 1)
+
+			return pred
+		}
+
+		pred.Inner = parser.parsePropertyPredicate()
+
+		return pred
+	}
+
+	parser.appendErr(next.Pos, "expected inner predicate or end of edge predicate")
+
+	return pred
 }
 
 func (parser *Parser) parsePropertyPredicate() Expr {

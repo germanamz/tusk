@@ -134,3 +134,80 @@ func TestParser_EmptyInputAcceptedAsTrue(test *testing.T) {
 		test.Errorf("expected nil expression for empty input, got %T", expr)
 	}
 }
+
+func TestParser_EdgeProbe(test *testing.T) {
+	expr, errs := filter.NewParser("blocks->").Parse()
+
+	if len(errs) > 0 {
+		test.Fatalf("errors: %v", errs)
+	}
+
+	pred, ok := expr.(*filter.EdgePredicate)
+
+	if !ok {
+		test.Fatalf("got %T, want *EdgePredicate", expr)
+	}
+
+	if pred.EdgeType != "blocks" || pred.Direction != filter.DirectionOutgoing || pred.Inner != nil {
+		test.Errorf("got %+v", pred)
+	}
+}
+
+func TestParser_EdgeIncomingProbe(test *testing.T) {
+	expr, _ := filter.NewParser("blocks<-").Parse()
+	pred := expr.(*filter.EdgePredicate)
+
+	if pred.Direction != filter.DirectionIncoming {
+		test.Errorf("expected incoming")
+	}
+}
+
+func TestParser_EdgePredicate(test *testing.T) {
+	expr, errs := filter.NewParser("blocks->status=active").Parse()
+
+	if len(errs) > 0 {
+		test.Fatalf("errors: %v", errs)
+	}
+
+	outer := expr.(*filter.EdgePredicate)
+
+	if outer.EdgeType != "blocks" || outer.Direction != filter.DirectionOutgoing {
+		test.Errorf("outer = %+v", outer)
+	}
+
+	inner := outer.Inner.(*filter.PropertyPredicate)
+
+	if inner.Property != "status" || inner.Value.(filter.StringValue).V != "active" {
+		test.Errorf("inner = %+v", inner)
+	}
+}
+
+func TestParser_MultiHopChain(test *testing.T) {
+	expr, errs := filter.NewParser(`parent->parent->name="auth"`).Parse()
+
+	if len(errs) > 0 {
+		test.Fatalf("errors: %v", errs)
+	}
+
+	hop1 := expr.(*filter.EdgePredicate)
+	hop2 := hop1.Inner.(*filter.EdgePredicate)
+	leaf := hop2.Inner.(*filter.PropertyPredicate)
+
+	if hop1.EdgeType != "parent" || hop2.EdgeType != "parent" || leaf.Property != "name" {
+		test.Errorf("got hop1=%+v hop2=%+v leaf=%+v", hop1, hop2, leaf)
+	}
+
+	if leaf.Value.(filter.StringValue).V != "auth" {
+		test.Errorf("leaf value = %q", leaf.Value.(filter.StringValue).V)
+	}
+}
+
+func TestParser_MultiHopExceedsMaxDepth(test *testing.T) {
+	input := "parent->parent->parent->parent->parent->parent->name=x"
+
+	_, errs := filter.NewParser(input).Parse()
+
+	if len(errs) == 0 {
+		test.Fatalf("expected error for depth > 5")
+	}
+}

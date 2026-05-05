@@ -31,6 +31,11 @@ func (lex *Lexer) Next() Token {
 		end := lex.pos + 1
 
 		for end < len(lex.input) && isIdentContinue(lex.input[end]) {
+			// Stop before a '-' that is part of an arrow operator (-> or <-).
+			if lex.input[end] == '-' && end+1 < len(lex.input) && lex.input[end+1] == '>' {
+				break
+			}
+
 			end++
 		}
 
