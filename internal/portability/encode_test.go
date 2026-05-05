@@ -184,7 +184,7 @@ func TestEncodeDecode_RoundTrip_HappyPath(test *testing.T) {
 }
 
 func TestEncode_OrderNullEmittedExplicitly(test *testing.T) {
-	// v0.13 follow-up at ROADMAP.md:1305 — cleared task.order must
+	// v0.13 follow-up — cleared task.order must
 	// serialize as JSON null, never omitted, so import can distinguish
 	// "no change" from "clear to default".
 	ws := &PortableWorkspace{

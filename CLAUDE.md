@@ -95,5 +95,4 @@ Conventional commits with scope: `test(e2e):`, `fix:`, `docs:`, `feat:`.
 ## References
 
 - `PRODUCT.md` — product-level description of implemented features
-- `docs/status/v0.1-status.md` — v0.1 implementation recap
 - `config/default.toml` — embedded default configuration (source of truth for all defaults)
