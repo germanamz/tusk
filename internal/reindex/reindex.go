@@ -10,8 +10,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
@@ -19,10 +19,11 @@ import (
 
 // Config configures Run.
 type Config struct {
-	Root      string             // workspace root
-	Repo      *index.NodeRepo    // node index repository
-	Edges     *index.EdgeRepo    // edge index repository (optional; when nil, edges are not written)
-	EdgeTypes manifest.EdgeTypes // declared edge types (optional; when empty, frontmatter edges are not resolved)
+	Root            string             // workspace root
+	Repo            *index.NodeRepo    // node index repository
+	Edges           *index.EdgeRepo    // edge index repository (optional; when nil, edges are not written)
+	EdgeTypes       manifest.EdgeTypes // declared edge types (optional; when empty, frontmatter edges are not resolved)
+	WorkspaceIgnore []string           // patterns from [workspace] ignore in tusk.toml
 }
 
 // Report summarizes a reindex pass.
@@ -39,21 +40,15 @@ func Run(config Config) (*Report, error) {
 	report := &Report{}
 	seenPaths := map[string]struct{}{}
 
+	matcher, matcherErr := ignore.NewMatcher(config.Root, config.WorkspaceIgnore)
+
+	if matcherErr != nil {
+		return nil, fmt.Errorf("reindex: build ignore matcher: %w", matcherErr)
+	}
+
 	walkErr := filepath.WalkDir(config.Root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
-		}
-
-		if entry.IsDir() {
-			if shouldSkipDir(config.Root, path, entry.Name()) {
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
-		if filepath.Ext(path) != ".md" {
-			return nil
 		}
 
 		relPath, relErr := filepath.Rel(config.Root, path)
@@ -63,6 +58,25 @@ func Run(config Config) (*Report, error) {
 		}
 
 		relPath = filepath.ToSlash(relPath)
+
+		// Always allow the walk to start at the root.
+		if relPath != "." {
+			if matcher.Matches(relPath, entry.IsDir()) {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+
+				return nil
+			}
+		}
+
+		if entry.IsDir() {
+			return nil
+		}
+
+		if filepath.Ext(path) != ".md" {
+			return nil
+		}
 
 		content, readErr := os.ReadFile(path)
 
@@ -190,19 +204,4 @@ func flattenEdges(parsedNode *node.Node) []index.EdgeRow {
 	}
 
 	return rows
-}
-
-// shouldSkipDir returns true for directories the walker must not descend into.
-// Plan 1b only skips .tusk and .git; .gitignore parsing arrives in Plan 3.
-func shouldSkipDir(root, dirPath, name string) bool {
-	if dirPath == root {
-		return false
-	}
-
-	switch name {
-	case ".tusk", ".git":
-		return true
-	}
-
-	return strings.HasPrefix(name, ".")
 }

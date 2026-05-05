@@ -42,36 +42,38 @@ func newNodeCreateCmd() *cobra.Command {
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
-			store, openErr := index.Open(ws.IndexPath)
-
-			if openErr != nil {
-				return openErr
-			}
-
-			defer store.Close()
-
-			service := node.NewService(ws.Root, index.NewNodeRepo(store))
-
 			body, readErr := readBodyOrEmpty(cmd.InOrStdin())
 
 			if readErr != nil {
 				return readErr
 			}
 
-			created, createErr := service.Create(node.CreateInput{
-				RelPath: relPath,
-				Type:    nodeType,
-				Title:   title,
-				Body:    body,
+			return withWorkspaceLock(ws, func() error {
+				store, openErr := index.Open(ws.IndexPath)
+
+				if openErr != nil {
+					return openErr
+				}
+
+				defer store.Close()
+
+				service := node.NewService(ws.Root, index.NewNodeRepo(store))
+
+				created, createErr := service.Create(node.CreateInput{
+					RelPath: relPath,
+					Type:    nodeType,
+					Title:   title,
+					Body:    body,
+				})
+
+				if createErr != nil {
+					return createErr
+				}
+
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Created %s (id=%s)\n", created.Path, created.ID)
+
+				return nil
 			})
-
-			if createErr != nil {
-				return createErr
-			}
-
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Created %s (id=%s)\n", created.Path, created.ID)
-
-			return nil
 		},
 	}
 
