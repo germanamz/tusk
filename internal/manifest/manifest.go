@@ -1,10 +1,13 @@
 // Package manifest defines the schema and loader for tusk.toml.
 package manifest
 
+// EdgeTypes is a named map of edge-type declarations keyed by edge-type name.
+type EdgeTypes = map[string]EdgeType
+
 // Manifest is the parsed representation of tusk.toml at the workspace root.
 type Manifest struct {
-	Workspace WorkspaceSection    `toml:"workspace"`
-	EdgeTypes map[string]EdgeType `toml:"edge-types"`
+	Workspace WorkspaceSection `toml:"workspace"`
+	EdgeTypes EdgeTypes        `toml:"edge-types"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.
