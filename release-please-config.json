@@ -3,7 +3,8 @@
   "release-type": "go",
   "include-component-in-tag": false,
   "separate-pull-requests": false,
-  "bootstrap-sha": "e4c3cba3029f29c07e0afa3646076c9dd859380b",
+  "bootstrap-sha": "TASK_19_PLACEHOLDER_v1_INITIAL_SHA",
+  "initial-version": "1.0.0",
   "packages": {
     ".": {
       "package-name": "tusk",

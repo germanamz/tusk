@@ -37,13 +37,18 @@ Thumbs.db
 *.db
 *.db-shm
 *.db-wal
-# .data/tusk.db is the committed workspace database — holds the
-# tusk-roadmap project (regenerated into ROADMAP.md by CI) and any
-# future workspace-shared tusk state (notes, ad-hoc tasks, etc).
-!.data/tusk.db
+
+# v0 dev DB
+.data/
+
+# v1 local index
+.tusk/
 
 # Worktrees
 .worktrees/
+
+# Superpowers brainstorm companion (mockup HTML + session state)
+.superpowers/
 
 # Go build/module cache (devcontainer fallback location)
 .go-cache/
