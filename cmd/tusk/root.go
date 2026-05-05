@@ -15,6 +15,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newNodeCmd())
 
 	return rootCmd
 }
