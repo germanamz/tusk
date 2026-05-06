@@ -36,9 +36,10 @@ func newDoctorCmd() *cobra.Command {
 			defer store.Close()
 
 			report, runErr := doctor.Run(doctor.Config{
-				Nodes:      index.NewNodeRepo(store),
-				Edges:      index.NewEdgeRepo(store),
-				EmbedQueue: index.NewEmbedQueueRepo(store),
+				Nodes:         index.NewNodeRepo(store),
+				Edges:         index.NewEdgeRepo(store),
+				EmbedQueue:    index.NewEmbedQueueRepo(store),
+				WorkflowDrift: index.NewWorkflowDriftRepo(store),
 			})
 
 			if runErr != nil {

@@ -21,3 +21,24 @@ func TestDoctor_PrintsCleanReport(test *testing.T) {
 		test.Errorf("expected 'no issues', got:\n%s", out)
 	}
 }
+
+func TestDoctor_RendersWorkflowViolation(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	// Use mustCreateNode to create a node with off-schema status.
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"status": "blocked"})
+
+	stdout, _, ok := runCLISplit(root, "doctor")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stdout.String(), "workflow-violation") {
+		test.Errorf("stdout = %q, want mention of workflow-violation", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "tickets/foo") {
+		test.Errorf("stdout = %q, want mention of tickets/foo", stdout.String())
+	}
+}
