@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"testing"
 )
@@ -99,6 +100,34 @@ func createNode(test *testing.T, root, relPath, nodeType, title, body string) {
 	if execErr := reindexCmd.Execute(); execErr != nil {
 		test.Fatalf("reindex after createNode: %v", execErr)
 	}
+}
+
+// captureStdout redirects os.Stdout to a pipe, runs fn, and returns the
+// captured output as a string.
+func captureStdout(test *testing.T, fn func()) string {
+	test.Helper()
+
+	reader, writer, pipeErr := os.Pipe()
+
+	if pipeErr != nil {
+		test.Fatalf("captureStdout: pipe: %v", pipeErr)
+	}
+
+	original := os.Stdout
+	os.Stdout = writer
+
+	fn()
+
+	writer.Close()
+	os.Stdout = original
+
+	captured, readErr := io.ReadAll(reader)
+
+	if readErr != nil {
+		test.Fatalf("captureStdout: read: %v", readErr)
+	}
+
+	return string(captured)
 }
 
 // runCLI executes the tusk CLI with the given arguments and returns the combined
