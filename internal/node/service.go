@@ -26,6 +26,14 @@ type CreateInput struct {
 	Body       []byte         // markdown body
 }
 
+// ModifyInput configures Service.Modify.
+type ModifyInput struct {
+	ID        string         // required; node id (path without extension)
+	SetProps  map[string]any // properties to upsert (excluding "type"; modify rejects type changes)
+	UnsetKeys []string       // top-level frontmatter keys to remove
+	Body      *[]byte        // when non-nil, replaces the body; nil leaves body untouched
+}
+
 // ListFilter narrows Service.List. Plan 1b supports type only.
 type ListFilter struct {
 	Type string
@@ -177,6 +185,159 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 	}
 
 	return parsed, nil
+}
+
+// Modify reads a node from disk, applies SetProps/UnsetKeys/Body, validates
+// against the manifest, atomically rewrites the file, and updates index rows.
+// Modify enqueues the node for re-embedding when the service has an EmbedQueue.
+func (service *Service) Modify(input ModifyInput) (*Node, error) {
+	row, getErr := service.repo.Get(input.ID)
+
+	if getErr != nil {
+		return nil, getErr
+	}
+
+	absPath := filepath.Join(service.root, row.Path)
+
+	original, readErr := os.ReadFile(absPath)
+
+	if readErr != nil {
+		return nil, fmt.Errorf("node: read %s: %w", row.Path, readErr)
+	}
+
+	parsed, parseErr := ParseFile(row.Path, original)
+
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	for _, key := range input.UnsetKeys {
+		if key == "type" {
+			return nil, fmt.Errorf("node: cannot unset reserved key %q", key)
+		}
+
+		delete(parsed.Properties, key)
+	}
+
+	for key, value := range input.SetProps {
+		if key == "type" && value != parsed.Type {
+			return nil, fmt.Errorf("node: cannot change type via Modify (current=%q, requested=%v)", parsed.Type, value)
+		}
+
+		parsed.Properties[key] = value
+	}
+
+	body := parsed.Body
+
+	if input.Body != nil {
+		body = *input.Body
+		parsed.Body = body
+	}
+
+	rendered, renderErr := renderMarkdown(parsed.Properties, body)
+
+	if renderErr != nil {
+		return nil, renderErr
+	}
+
+	if writeErr := atomicWrite(absPath, rendered); writeErr != nil {
+		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
+	}
+
+	stat, statErr := os.Stat(absPath)
+
+	if statErr != nil {
+		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
+	}
+
+	reparsed, reparseErr := ParseFile(row.Path, rendered)
+
+	if reparseErr != nil {
+		return nil, reparseErr
+	}
+
+	if resolveErr := ResolveEdges(reparsed, service.edgeTypes); resolveErr != nil {
+		return nil, resolveErr
+	}
+
+	if validateErr := ValidateEdges(reparsed, service.edgeTypes, EdgeContext{
+		ResolveTargetType: service.resolveTargetType,
+	}); validateErr != nil {
+		return nil, validateErr
+	}
+
+	if cycleErr := service.detectCyclesForAcyclicEdges(reparsed); cycleErr != nil {
+		return nil, cycleErr
+	}
+
+	checksum := sha256Hex(rendered)
+	propertiesJSON, marshalErr := json.Marshal(reparsed.Properties)
+
+	if marshalErr != nil {
+		return nil, fmt.Errorf("node: marshal properties: %w", marshalErr)
+	}
+
+	if upsertErr := service.repo.Upsert(index.NodeRow{
+		ID:             reparsed.ID,
+		Type:           reparsed.Type,
+		Path:           reparsed.Path,
+		Title:          reparsed.Title,
+		PropertiesJSON: string(propertiesJSON),
+		LastMtime:      stat.ModTime().UnixNano(),
+		LastSize:       stat.Size(),
+		LastChecksum:   checksum,
+	}); upsertErr != nil {
+		return nil, upsertErr
+	}
+
+	if service.edges != nil {
+		if upsertErr := service.edges.UpsertAll(reparsed.ID, reparsed.Path, flattenEdges(reparsed)); upsertErr != nil {
+			return nil, upsertErr
+		}
+	}
+
+	if service.embedQueue != nil {
+		if enqueueErr := service.embedQueue.Enqueue(reparsed.ID); enqueueErr != nil {
+			return nil, enqueueErr
+		}
+	}
+
+	return reparsed, nil
+}
+
+// atomicWrite writes content to a sibling temp file and renames over absPath.
+func atomicWrite(absPath string, content []byte) error {
+	dir := filepath.Dir(absPath)
+
+	tempFile, createErr := os.CreateTemp(dir, ".tusk-modify-*")
+
+	if createErr != nil {
+		return createErr
+	}
+
+	tempPath := tempFile.Name()
+
+	if _, writeErr := tempFile.Write(content); writeErr != nil {
+		tempFile.Close()
+		_ = os.Remove(tempPath)
+
+		return writeErr
+	}
+
+	if syncErr := tempFile.Sync(); syncErr != nil {
+		tempFile.Close()
+		_ = os.Remove(tempPath)
+
+		return syncErr
+	}
+
+	if closeErr := tempFile.Close(); closeErr != nil {
+		_ = os.Remove(tempPath)
+
+		return closeErr
+	}
+
+	return os.Rename(tempPath, absPath)
 }
 
 // resolveTargetType looks up a target's node type in the index. Returns

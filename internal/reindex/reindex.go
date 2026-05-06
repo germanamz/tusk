@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/ignore"
@@ -34,6 +35,10 @@ type Config struct {
 	EmbeddingRepo *index.EmbeddingRepo
 	Embedder      embed.Embedder
 	Chunker       embed.ChunkingStrategy
+
+	// Meta is optional; when set, Run records `last_reindex_at` (unix nanoseconds
+	// formatted as decimal string) at the end of every successful pass.
+	Meta *index.MetaRepo
 }
 
 // Report summarizes a reindex pass.
@@ -183,17 +188,28 @@ func Run(config Config) (*Report, error) {
 		report.Removed++
 	}
 
-	if config.EmbedQueue != nil && config.EmbeddingRepo != nil && config.Embedder != nil && config.Chunker != nil {
+	if config.Embedder != nil {
 		// Enqueue every indexed node so the drain loop covers them.
 		for path := range seenPaths {
 			id := strings.TrimSuffix(path, ".md")
 			_ = config.EmbedQueue.Enqueue(id)
 		}
 
-		drainErr := drainEmbedQueue(config)
-
-		if drainErr != nil {
+		if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+			Root:       config.Root,
+			Nodes:      config.Repo,
+			Queue:      config.EmbedQueue,
+			Embeddings: config.EmbeddingRepo,
+			Embedder:   config.Embedder,
+			Chunker:    config.Chunker,
+		}); drainErr != nil {
 			return nil, drainErr
+		}
+	}
+
+	if config.Meta != nil {
+		if setErr := config.Meta.Set("last_reindex_at", fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
+			return nil, fmt.Errorf("reindex: record last_reindex_at: %w", setErr)
 		}
 	}
 
@@ -228,75 +244,4 @@ func flattenEdges(parsedNode *node.Node) []index.EdgeRow {
 	}
 
 	return rows
-}
-
-const embedBatchSize = 50
-
-func drainEmbedQueue(config Config) error {
-	for {
-		batch, drainErr := config.EmbedQueue.Drain(embedBatchSize)
-
-		if drainErr != nil {
-			return drainErr
-		}
-
-		if len(batch) == 0 {
-			return nil
-		}
-
-		for _, queued := range batch {
-			row, getErr := config.Repo.Get(queued.NodeID)
-
-			if getErr != nil {
-				continue
-			}
-
-			content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
-
-			if readErr != nil {
-				_ = config.EmbedQueue.Enqueue(queued.NodeID)
-				_ = config.EmbedQueue.MarkFailed(queued.NodeID, readErr.Error())
-
-				continue
-			}
-
-			parsed, parseErr := node.ParseFile(row.Path, content)
-
-			if parseErr != nil {
-				_ = config.EmbedQueue.Enqueue(queued.NodeID)
-				_ = config.EmbedQueue.MarkFailed(queued.NodeID, parseErr.Error())
-
-				continue
-			}
-
-			payload := embed.BuildPayload(parsed)
-			chunks := config.Chunker.Chunk(payload)
-
-			if len(chunks) == 0 {
-				continue
-			}
-
-			vector, embedErr := config.Embedder.Embed(context.Background(), chunks[0])
-
-			if embedErr != nil {
-				_ = config.EmbedQueue.Enqueue(queued.NodeID)
-				_ = config.EmbedQueue.MarkFailed(queued.NodeID, embedErr.Error())
-
-				continue
-			}
-
-			contentHash := sha256.Sum256(payload)
-
-			if upsertErr := config.EmbeddingRepo.Upsert(index.EmbeddingRow{
-				NodeID:      queued.NodeID,
-				ChunkIdx:    0,
-				Model:       config.Embedder.Model(),
-				ContentHash: hex.EncodeToString(contentHash[:]),
-				Vector:      vector,
-				Dim:         config.Embedder.Dim(),
-			}); upsertErr != nil {
-				return upsertErr
-			}
-		}
-	}
 }

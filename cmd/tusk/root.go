@@ -20,6 +20,9 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newEdgeCmd())
 	rootCmd.AddCommand(newWatchCmd())
 	rootCmd.AddCommand(newQueryCmd())
+	rootCmd.AddCommand(newDoctorCmd())
+	rootCmd.AddCommand(newStatusCmd())
+	rootCmd.AddCommand(newMCPCmd())
 
 	return rootCmd
 }

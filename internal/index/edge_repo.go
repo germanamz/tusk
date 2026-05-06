@@ -71,6 +71,35 @@ func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT type, source_id, target_id, ordinal, source_path FROM edges WHERE type = ? ORDER BY source_id, ordinal`, edgeType)
 }
 
+// ListAll returns every edge in the index, ordered by source_id then ordinal.
+func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
+	rows, queryErr := repo.db.Query(`
+		SELECT type, source_id, target_id, ordinal, source_path
+		FROM edges
+		ORDER BY source_id, ordinal
+	`)
+
+	if queryErr != nil {
+		return nil, queryErr
+	}
+
+	defer rows.Close()
+
+	var out []EdgeRow
+
+	for rows.Next() {
+		var row EdgeRow
+
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.Ordinal, &row.SourcePath); scanErr != nil {
+			return nil, scanErr
+		}
+
+		out = append(out, row)
+	}
+
+	return out, rows.Err()
+}
+
 // DeleteBySource removes every edge where source_id = sourceID, regardless of source_path.
 func (repo *EdgeRepo) DeleteBySource(sourceID string) error {
 	_, execErr := repo.db.Exec(`DELETE FROM edges WHERE source_id = ?`, sourceID)
