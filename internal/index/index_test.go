@@ -75,6 +75,30 @@ func TestOpen_CreatesEdgesTable(test *testing.T) {
 	}
 }
 
+func TestOpen_CreatesEmbeddingsAndQueueTables(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	tables, queryErr := store.ListTables()
+
+	if queryErr != nil {
+		test.Fatalf("ListTables: %v", queryErr)
+	}
+
+	for _, required := range []string{"embeddings", "embed_queue"} {
+		if !contains(tables, required) {
+			test.Errorf("missing table %q in %v", required, tables)
+		}
+	}
+}
+
 func contains(haystack []string, needle string) bool {
 	for _, item := range haystack {
 		if item == needle {
