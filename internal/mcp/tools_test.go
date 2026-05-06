@@ -242,3 +242,35 @@ func TestTool_Doctor_CleanReport(test *testing.T) {
 		test.Errorf("expected 0 issues, got %d", len(issues))
 	}
 }
+
+func TestTool_NodeCreate(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_create", map[string]any{
+		"path":  "notes/hello.md",
+		"type":  "note",
+		"title": "Hello",
+		"body":  "World",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_create: %v", callErr)
+	}
+
+	if body["id"] != "notes/hello" {
+		test.Errorf("id = %v", body["id"])
+	}
+
+	row, getErr := rt.Nodes.Get("notes/hello")
+
+	if getErr != nil {
+		test.Fatalf("Get: %v", getErr)
+	}
+
+	if row.Title != "Hello" {
+		test.Errorf("title = %q", row.Title)
+	}
+}

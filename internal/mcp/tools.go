@@ -9,6 +9,7 @@ import (
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/status"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
@@ -20,6 +21,13 @@ func registerTools(srv *Server) {
 	registerEdgeListTool(srv)
 	registerQueryTool(srv)
 	registerDoctorTool(srv)
+	registerNodeCreateTool(srv)
+	registerNodeModifyTool(srv)
+	registerNodeMoveTool(srv)
+	registerNodeDeleteTool(srv)
+	registerEdgeAddTool(srv)
+	registerEdgeRemoveTool(srv)
+	registerReindexTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -448,6 +456,457 @@ func registerDoctorTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
-// Keep helper imports and functions alive until later tasks (Bundle 5) consume them.
-var _ = argMap
-var _ = argStringSlice
+// mcpSourcePath is the synthetic source_path attributed to edges added via MCP
+// tools. Mirrors cmd/tusk's cliSourcePath; both keep MCP/CLI-added edges
+// distinguishable from edges discovered in node frontmatter.
+const mcpSourcePath = "__mcp__"
+
+func registerNodeCreateTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_node_create",
+		mcpgo.WithDescription("Create a new node file and index it. The path must be a workspace-relative path with extension."),
+		mcpgo.WithString("path", mcpgo.Required(), mcpgo.Description("Workspace-relative target path (e.g. notes/hello.md)")),
+		mcpgo.WithString("type", mcpgo.Required(), mcpgo.Description("Node type")),
+		mcpgo.WithString("title", mcpgo.Description("Optional title")),
+		mcpgo.WithString("body", mcpgo.Description("Optional markdown body")),
+		mcpgo.WithObject("properties", mcpgo.Description("Additional frontmatter properties")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		path, parseErr := argString(request, "path")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		nodeType, parseErr := argString(request, "type")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		title := argStringOptional(request, "title")
+		body := argStringOptional(request, "body")
+		properties := argMap(request, "properties")
+
+		var created *node.Node
+
+		lockErr := srv.runtime.WithWriteLock(func() error {
+			out, createErr := srv.runtime.NodeService.Create(node.CreateInput{
+				RelPath:    path,
+				Type:       nodeType,
+				Title:      title,
+				Properties: properties,
+				Body:       []byte(body),
+			})
+
+			if createErr != nil {
+				return createErr
+			}
+
+			created = out
+
+			return nil
+		})
+
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"id":    created.ID,
+			"type":  created.Type,
+			"path":  created.Path,
+			"title": created.Title,
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+func registerNodeModifyTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_node_modify",
+		mcpgo.WithDescription("Modify a node's frontmatter properties. Cannot change type."),
+		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id")),
+		mcpgo.WithObject("set", mcpgo.Description("Properties to upsert (key→value)")),
+		mcpgo.WithArray("unset", mcpgo.Description("Property keys to remove"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("body", mcpgo.Description("Optional new markdown body")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		nodeID, parseErr := argString(request, "id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		setProps := argMap(request, "set")
+		unsetKeys := argStringSlice(request, "unset")
+
+		input := node.ModifyInput{
+			ID:        nodeID,
+			SetProps:  setProps,
+			UnsetKeys: unsetKeys,
+		}
+
+		if rawBody, hasBody := request.GetArguments()["body"].(string); hasBody {
+			body := []byte(rawBody)
+			input.Body = &body
+		}
+
+		var modified *node.Node
+
+		lockErr := srv.runtime.WithWriteLock(func() error {
+			out, modifyErr := srv.runtime.NodeService.Modify(input)
+
+			if modifyErr != nil {
+				return modifyErr
+			}
+
+			modified = out
+
+			return nil
+		})
+
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"id":         modified.ID,
+			"type":       modified.Type,
+			"path":       modified.Path,
+			"title":      modified.Title,
+			"properties": modified.Properties,
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+func registerNodeMoveTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_node_move",
+		mcpgo.WithDescription("Atomically rename a node and rewrite incoming edges."),
+		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Current node id")),
+		mcpgo.WithString("new_path", mcpgo.Required(), mcpgo.Description("New workspace-relative path with extension")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		nodeID, parseErr := argString(request, "id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		newPath, parseErr := argString(request, "new_path")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		var plan *node.RenamePlan
+
+		lockErr := srv.runtime.WithWriteLock(func() error {
+			out, renameErr := node.Rename(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, nodeID, newPath)
+
+			if renameErr != nil {
+				return renameErr
+			}
+
+			plan = out
+
+			return nil
+		})
+
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"old_id":         plan.OldID,
+			"new_id":         plan.NewID,
+			"old_path":       plan.OldPath,
+			"new_path":       plan.NewPath,
+			"affected_files": plan.AffectedFiles,
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+func registerNodeDeleteTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_node_delete",
+		mcpgo.WithDescription("Remove a node file and its outgoing edges; incoming edges become dangling."),
+		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id to delete")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		nodeID, parseErr := argString(request, "id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		lockErr := srv.runtime.WithWriteLock(func() error {
+			return node.Delete(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, nodeID)
+		})
+
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		return toolJSON(map[string]any{"deleted_id": nodeID})
+	}
+
+	srv.register(tool, handler)
+}
+
+func registerEdgeAddTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_edge_add",
+		mcpgo.WithDescription("Add a typed edge from source_id to target_id."),
+		mcpgo.WithString("type", mcpgo.Required()),
+		mcpgo.WithString("source_id", mcpgo.Required()),
+		mcpgo.WithString("target_id", mcpgo.Required()),
+		mcpgo.WithNumber("ordinal", mcpgo.Description("Optional ordinal (default appends)")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		edgeType, parseErr := argString(request, "type")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		sourceID, parseErr := argString(request, "source_id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		targetID, parseErr := argString(request, "target_id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		edgeDef, declared := srv.runtime.Manifest.EdgeTypes[edgeType]
+
+		if !declared {
+			return toolError(fmt.Errorf("edge type %q not declared in manifest", edgeType)), nil
+		}
+
+		lockErr := srv.runtime.WithWriteLock(func() error {
+			sourceRow, sourceErr := srv.runtime.Nodes.Get(sourceID)
+
+			if sourceErr != nil {
+				return fmt.Errorf("source: %w", sourceErr)
+			}
+
+			if !edgeDef.AllowsSource(sourceRow.Type) {
+				return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
+			}
+
+			if targetRow, getErr := srv.runtime.Nodes.Get(targetID); getErr == nil {
+				if !edgeDef.AllowsTarget(targetRow.Type) {
+					return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
+				}
+			}
+
+			if edgeDef.Acyclic {
+				existing, listErr := srv.runtime.Edges.ListByType(edgeType)
+
+				if listErr != nil {
+					return listErr
+				}
+
+				adjacency := map[string][]string{}
+
+				for _, row := range existing {
+					adjacency[row.SourceID] = append(adjacency[row.SourceID], row.TargetID)
+				}
+
+				if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: sourceID, Target: targetID}, adjacency); cycleErr != nil {
+					return cycleErr
+				}
+			}
+
+			existingForSource, listErr := srv.runtime.Edges.ListBySource(sourceID)
+
+			if listErr != nil {
+				return listErr
+			}
+
+			var mcpEdges []index.EdgeRow
+
+			for _, row := range existingForSource {
+				if row.SourcePath == mcpSourcePath {
+					mcpEdges = append(mcpEdges, row)
+				}
+			}
+
+			ordinal := -1
+
+			for _, row := range mcpEdges {
+				if row.Type == edgeType && row.Ordinal > ordinal {
+					ordinal = row.Ordinal
+				}
+			}
+
+			ordinal++
+
+			mcpEdges = append(mcpEdges, index.EdgeRow{
+				Type:       edgeType,
+				SourceID:   sourceID,
+				TargetID:   targetID,
+				Ordinal:    ordinal,
+				SourcePath: mcpSourcePath,
+			})
+
+			return srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, mcpEdges)
+		})
+
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"type":      edgeType,
+			"source_id": sourceID,
+			"target_id": targetID,
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+func registerEdgeRemoveTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_edge_remove",
+		mcpgo.WithDescription("Remove a typed edge from source_id to target_id."),
+		mcpgo.WithString("type", mcpgo.Required()),
+		mcpgo.WithString("source_id", mcpgo.Required()),
+		mcpgo.WithString("target_id", mcpgo.Required()),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		edgeType, parseErr := argString(request, "type")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		sourceID, parseErr := argString(request, "source_id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		targetID, parseErr := argString(request, "target_id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		lockErr := srv.runtime.WithWriteLock(func() error {
+			rows, listErr := srv.runtime.Edges.ListBySource(sourceID)
+
+			if listErr != nil {
+				return listErr
+			}
+
+			var kept []index.EdgeRow
+			removed := 0
+
+			for _, row := range rows {
+				if row.SourcePath != mcpSourcePath {
+					continue
+				}
+
+				if row.Type == edgeType && row.TargetID == targetID {
+					removed++
+
+					continue
+				}
+
+				kept = append(kept, row)
+			}
+
+			if removed == 0 {
+				return fmt.Errorf("no MCP-added edge matches type=%q source=%q target=%q", edgeType, sourceID, targetID)
+			}
+
+			counters := map[string]int{}
+
+			for idx := range kept {
+				kept[idx].Ordinal = counters[kept[idx].Type]
+				counters[kept[idx].Type]++
+			}
+
+			return srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, kept)
+		})
+
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"type":      edgeType,
+			"source_id": sourceID,
+			"target_id": targetID,
+			"removed":   true,
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+func registerReindexTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_reindex",
+		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk."),
+		mcpgo.WithBoolean("no_embed", mcpgo.Description("Skip the embedding pass")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		noEmbed, _ := request.GetArguments()["no_embed"].(bool)
+
+		var report *reindex.Report
+
+		lockErr := srv.runtime.WithWriteLock(func() error {
+			config := reindex.Config{
+				Root:            srv.runtime.Root,
+				Repo:            srv.runtime.Nodes,
+				Edges:           srv.runtime.Edges,
+				EdgeTypes:       srv.runtime.Manifest.EdgeTypes,
+				WorkspaceIgnore: srv.runtime.Manifest.Workspace.Ignore,
+				Meta:            srv.runtime.Meta,
+			}
+
+			if !noEmbed && srv.runtime.Embedder != nil {
+				config.EmbedQueue = srv.runtime.EmbedQueue
+				config.EmbeddingRepo = srv.runtime.Embeddings
+				config.Embedder = srv.runtime.Embedder
+				config.Chunker = srv.runtime.Chunker
+			}
+
+			out, runErr := reindex.Run(config)
+
+			if runErr != nil {
+				return runErr
+			}
+
+			report = out
+
+			return nil
+		})
+
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"indexed": report.Indexed,
+			"removed": report.Removed,
+			"skipped": report.Skipped,
+		})
+	}
+
+	srv.register(tool, handler)
+}
