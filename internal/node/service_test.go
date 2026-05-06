@@ -4,12 +4,25 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
+
+func openTempIndex(test *testing.T, root string) *index.Index {
+	test.Helper()
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	return store
+}
 
 func newTestService(test *testing.T) (*node.Service, string) {
 	test.Helper()
@@ -273,5 +286,128 @@ func TestService_CreateEnqueuesEmbedding(test *testing.T) {
 
 	if depth != 1 {
 		test.Errorf("queue depth = %d, want 1", depth)
+	}
+}
+
+func TestService_Modify_UpdatesProperty(test *testing.T) {
+	root := test.TempDir()
+	store := openTempIndex(test, root)
+	defer store.Close()
+
+	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{})
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "notes/hi.md",
+		Type:    "note",
+		Title:   "Hi",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	modified, modifyErr := service.Modify(node.ModifyInput{
+		ID:        "notes/hi",
+		SetProps:  map[string]any{"priority": 5},
+		UnsetKeys: nil,
+	})
+
+	if modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	if modified.Properties["priority"] != 5 {
+		test.Errorf("priority = %v, want 5", modified.Properties["priority"])
+	}
+
+	contents, _ := os.ReadFile(filepath.Join(root, "notes/hi.md"))
+
+	if !strings.Contains(string(contents), "priority: 5") {
+		test.Errorf("file should contain priority: 5\n%s", contents)
+	}
+}
+
+func TestService_Modify_UnsetRemovesProperty(test *testing.T) {
+	root := test.TempDir()
+	store := openTempIndex(test, root)
+	defer store.Close()
+
+	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{})
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "notes/hi.md",
+		Type:       "note",
+		Properties: map[string]any{"priority": 5},
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	modified, modifyErr := service.Modify(node.ModifyInput{
+		ID:        "notes/hi",
+		UnsetKeys: []string{"priority"},
+	})
+
+	if modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	if _, hasPriority := modified.Properties["priority"]; hasPriority {
+		test.Errorf("priority should be unset")
+	}
+}
+
+func TestService_Modify_RejectsTypeChange(test *testing.T) {
+	root := test.TempDir()
+	store := openTempIndex(test, root)
+	defer store.Close()
+
+	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{})
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "notes/hi.md",
+		Type:    "note",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	_, modifyErr := service.Modify(node.ModifyInput{
+		ID:       "notes/hi",
+		SetProps: map[string]any{"type": "ticket"},
+	})
+
+	if modifyErr == nil {
+		test.Fatalf("expected error rejecting type change")
+	}
+}
+
+func TestService_Modify_EnqueuesEmbed(test *testing.T) {
+	root := test.TempDir()
+	store := openTempIndex(test, root)
+	defer store.Close()
+
+	queueRepo := index.NewEmbedQueueRepo(store)
+	service := node.NewServiceWithEmbedQueue(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		queueRepo,
+	)
+
+	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/hi.md", Type: "note"}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	queueRepo.Drain(100) // clear from Create
+
+	if _, modifyErr := service.Modify(node.ModifyInput{
+		ID:       "notes/hi",
+		SetProps: map[string]any{"priority": 1},
+	}); modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	depth, _ := queueRepo.Depth()
+
+	if depth != 1 {
+		test.Errorf("depth = %d, want 1", depth)
 	}
 }
