@@ -14,6 +14,7 @@ import (
 func registerTools(srv *Server) {
 	registerStatusTool(srv)
 	registerNodeGetTool(srv)
+	registerNodeListTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -172,11 +173,44 @@ func registerNodeGetTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+func registerNodeListTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_node_list",
+		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result."),
+		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		typeFilter := argStringOptional(request, "type")
+
+		nodes, listErr := srv.runtime.NodeService.List(node.ListFilter{Type: typeFilter})
+
+		if listErr != nil {
+			return toolError(listErr), nil
+		}
+
+		results := make([]map[string]any, 0, len(nodes))
+
+		for _, item := range nodes {
+			results = append(results, map[string]any{
+				"id":    item.ID,
+				"type":  item.Type,
+				"path":  item.Path,
+				"title": item.Title,
+			})
+		}
+
+		return toolJSON(map[string]any{
+			"results": results,
+			"count":   len(results),
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
 // Keep helper imports and functions alive until later tasks consume them.
 var _ = index.NewNodeRepo
-var _ = argStringOptional
 var _ = argInt
 var _ = argIntOptional
 var _ = argMap
 var _ = argStringSlice
-var _ = node.ListFilter{}

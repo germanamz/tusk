@@ -147,3 +147,28 @@ func TestTool_NodeGet(test *testing.T) {
 		test.Errorf("title = %v, want 'Hi there'", body["title"])
 	}
 }
+
+func TestTool_NodeList(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	for _, id := range []string{"notes/a", "notes/b"} {
+		rt.Nodes.Upsert(index.NodeRow{ID: id, Type: "note", Path: id + ".md", PropertiesJSON: "{}", LastChecksum: "x"})
+	}
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/x", Type: "ticket", Path: "tickets/x.md", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_list", map[string]any{"type": "note"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 2 {
+		test.Errorf("len(results) = %d, want 2", len(results))
+	}
+}
