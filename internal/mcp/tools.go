@@ -6,12 +6,14 @@ import (
 	"fmt"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/status"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
 func registerTools(srv *Server) {
 	registerStatusTool(srv)
+	registerNodeGetTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -137,11 +139,44 @@ func toolJSON(payload any) (*mcpgo.CallToolResult, error) {
 	return mcpgo.NewToolResultText(string(body)), nil
 }
 
+func registerNodeGetTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_node_get",
+		mcpgo.WithDescription("Read a node by id (workspace-relative path without extension). Returns id, type, path, title, properties, edges, body."),
+		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id (e.g. \"notes/hi\")")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		nodeID, parseErr := argString(request, "id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		loaded, getErr := srv.runtime.NodeService.Get(nodeID)
+
+		if getErr != nil {
+			return toolError(getErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"id":         loaded.ID,
+			"type":       loaded.Type,
+			"path":       loaded.Path,
+			"title":      loaded.Title,
+			"properties": loaded.Properties,
+			"edges":      loaded.Edges,
+			"body":       string(loaded.Body),
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
 // Keep helper imports and functions alive until later tasks consume them.
 var _ = index.NewNodeRepo
-var _ = argString
 var _ = argStringOptional
 var _ = argInt
 var _ = argIntOptional
 var _ = argMap
 var _ = argStringSlice
+var _ = node.ListFilter{}

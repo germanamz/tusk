@@ -9,6 +9,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/mcp"
+	"github.com/germanamz/tusk/internal/node"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -111,5 +112,38 @@ func TestTool_Status(test *testing.T) {
 
 	if counts["ticket"].(float64) != 1 || counts["note"].(float64) != 1 {
 		test.Errorf("counts = %v", counts)
+	}
+}
+
+func TestTool_NodeGet(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/hi.md",
+		Type:    "note",
+		Title:   "Hi there",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_get", map[string]any{"id": "notes/hi"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_get: %v", callErr)
+	}
+
+	if body["id"] != "notes/hi" {
+		test.Errorf("id = %v, want notes/hi", body["id"])
+	}
+
+	if body["type"] != "note" {
+		test.Errorf("type = %v, want note", body["type"])
+	}
+
+	if body["title"] != "Hi there" {
+		test.Errorf("title = %v, want 'Hi there'", body["title"])
 	}
 }
