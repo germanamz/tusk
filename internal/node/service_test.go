@@ -1,12 +1,15 @@
 package node_test
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/behavior"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
@@ -377,6 +380,109 @@ func TestService_Modify_RejectsTypeChange(test *testing.T) {
 		test.Fatalf("expected error rejecting type change")
 	}
 }
+
+func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	// Build a behavior engine with a Validator that always rejects.
+	rejector := &fakeServicePack{
+		name: "rejector",
+		kind: "fake",
+		hooks: behavior.Hooks{
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+				return errors.New("denied")
+			},
+		},
+	}
+
+	engine, _ := behavior.NewEngine([]behavior.Instance{rejector})
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		engine,
+		index.NewWorkflowDriftRepo(store),
+		io.Discard,
+	)
+
+	_, createErr := service.Create(node.CreateInput{
+		RelPath: "tickets/foo.md",
+		Type:    "ticket",
+	})
+
+	if createErr == nil || !strings.Contains(createErr.Error(), "denied") {
+		test.Errorf("Create: expected rejection, got %v", createErr)
+	}
+
+	// File must not exist (rejection happens before write).
+	if _, statErr := os.Stat(filepath.Join(root, "tickets/foo.md")); !os.IsNotExist(statErr) {
+		test.Errorf("file present after rejection; statErr = %v", statErr)
+	}
+}
+
+func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	var afterCalled int
+
+	tracker := &fakeServicePack{
+		name: "tracker",
+		kind: "fake",
+		hooks: behavior.Hooks{
+			OnNodeWriteAfter: func(ctx behavior.HookContext, before, after any) error {
+				afterCalled++
+				return nil
+			},
+		},
+	}
+
+	engine, _ := behavior.NewEngine([]behavior.Instance{tracker})
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		engine,
+		index.NewWorkflowDriftRepo(store),
+		io.Discard,
+	)
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "tickets/foo.md",
+		Type:    "ticket",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	if afterCalled != 1 {
+		test.Errorf("OnNodeWriteAfter: called %d times, want 1", afterCalled)
+	}
+}
+
+// fakeServicePack mirrors the engine-package fake but lives in the
+// node-package tests so we don't import test files across packages.
+type fakeServicePack struct {
+	name     string
+	kind     string
+	hooks    behavior.Hooks
+	reserved []behavior.ReservedKey
+}
+
+func (pack *fakeServicePack) Name() string                         { return pack.name }
+func (pack *fakeServicePack) Kind() string                         { return pack.kind }
+func (pack *fakeServicePack) Hooks() behavior.Hooks                { return pack.hooks }
+func (pack *fakeServicePack) ReservedKeys() []behavior.ReservedKey { return pack.reserved }
 
 func TestService_Modify_EnqueuesEmbed(test *testing.T) {
 	root := test.TempDir()

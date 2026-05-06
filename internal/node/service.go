@@ -145,20 +145,6 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, renderErr
 	}
 
-	if mkErr := os.MkdirAll(filepath.Dir(absPath), 0o755); mkErr != nil {
-		return nil, fmt.Errorf("node: mkdir %s: %w", filepath.Dir(absPath), mkErr)
-	}
-
-	if writeErr := os.WriteFile(absPath, rendered, 0o644); writeErr != nil {
-		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
-	}
-
-	stat, statErr := os.Stat(absPath)
-
-	if statErr != nil {
-		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
-	}
-
 	parsed, parseErr := ParseFile(input.RelPath, rendered)
 
 	if parseErr != nil {
@@ -185,6 +171,33 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, cycleErr
 	}
 
+	// Plan 7: validate-phase hook dispatch (NodeWrite then EdgeAdd per row).
+	if service.behaviors != nil {
+		if rejector, fireErr := service.behaviors.FireNodeWriteValidate(nil, parsed); fireErr != nil {
+			return nil, fmt.Errorf("behavior %s rejected create: %w", rejector, fireErr)
+		}
+
+		for _, edgeRow := range flattenEdges(parsed) {
+			if rejector, fireErr := service.behaviors.FireEdgeAddValidate(edgeRow); fireErr != nil {
+				return nil, fmt.Errorf("behavior %s rejected edge add: %w", rejector, fireErr)
+			}
+		}
+	}
+
+	if mkErr := os.MkdirAll(filepath.Dir(absPath), 0o755); mkErr != nil {
+		return nil, fmt.Errorf("node: mkdir %s: %w", filepath.Dir(absPath), mkErr)
+	}
+
+	if writeErr := os.WriteFile(absPath, rendered, 0o644); writeErr != nil {
+		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
+	}
+
+	stat, statErr := os.Stat(absPath)
+
+	if statErr != nil {
+		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
+	}
+
 	checksum := sha256Hex(rendered)
 	propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
 
@@ -205,9 +218,9 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, upsertErr
 	}
 
-	if service.edges != nil {
-		edgeRows := flattenEdges(parsed)
+	edgeRows := flattenEdges(parsed)
 
+	if service.edges != nil {
 		if upsertErr := service.edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
 			return nil, upsertErr
 		}
@@ -216,6 +229,16 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 	if service.embedQueue != nil {
 		if enqueueErr := service.embedQueue.Enqueue(parsed.ID); enqueueErr != nil {
 			return nil, enqueueErr
+		}
+	}
+
+	// Plan 7: after-phase hook dispatch. Errors aggregated for telemetry;
+	// do not affect control flow.
+	if service.behaviors != nil {
+		_ = service.behaviors.FireNodeWriteAfter(nil, parsed)
+
+		for _, edgeRow := range edgeRows {
+			_ = service.behaviors.FireEdgeAddAfter(edgeRow)
 		}
 	}
 
