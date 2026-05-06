@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/status"
@@ -16,6 +17,7 @@ func registerTools(srv *Server) {
 	registerNodeGetTool(srv)
 	registerNodeListTool(srv)
 	registerEdgeListTool(srv)
+	registerQueryTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -258,8 +260,157 @@ func registerEdgeListTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+func registerQueryTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_query",
+		mcpgo.WithDescription("Run a structural filter against the workspace, optionally ranked by semantic similarity."),
+		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression (e.g. 'type=ticket status=active')")),
+		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
+		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows")),
+		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
+		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		filterText, parseErr := argString(request, "filter")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		sortSpec := argStringOptional(request, "sort")
+		take := argIntOptional(request, "take", 0)
+		skip := argIntOptional(request, "skip", 0)
+		semanticQuery := argStringOptional(request, "semantic")
+
+		expr, parseErrs := filter.NewParser(filterText).Parse()
+
+		if len(parseErrs) > 0 {
+			return toolError(&parseErrs[0]), nil
+		}
+
+		if validateErrs := filter.Validate(expr, *srv.runtime.Manifest); len(validateErrs) > 0 {
+			return toolError(&validateErrs[0]), nil
+		}
+
+		sortKeys, sortErr := filter.ParseSort(sortSpec)
+
+		if sortErr != nil {
+			return toolError(sortErr), nil
+		}
+
+		sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
+			SortKeys: sortKeys,
+			Take:     take,
+			Skip:     skip,
+		})
+
+		if compileErr != nil {
+			return toolError(compileErr), nil
+		}
+
+		rows, queryErr := srv.runtime.Index.DB().Query(sqlQuery, params...)
+
+		if queryErr != nil {
+			return toolError(queryErr), nil
+		}
+
+		defer rows.Close()
+
+		type queryResult struct {
+			ID    string `json:"id"`
+			Type  string `json:"type"`
+			Path  string `json:"path"`
+			Title string `json:"title"`
+		}
+
+		var results []queryResult
+		var ids []string
+
+		for rows.Next() {
+			var (
+				rowID, rowType, rowPath, rowTitle, propertiesRaw, lastChecksum string
+				lastMtime, lastSize                                            int64
+			)
+
+			if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
+				return toolError(scanErr), nil
+			}
+
+			results = append(results, queryResult{ID: rowID, Type: rowType, Path: rowPath, Title: rowTitle})
+			ids = append(ids, rowID)
+		}
+
+		if semanticQuery == "" {
+			return toolJSON(map[string]any{"results": results, "count": len(results)})
+		}
+
+		if srv.runtime.Embedder == nil {
+			return toolError(fmt.Errorf("semantic ranking requires [embeddings] in tusk.toml")), nil
+		}
+
+		queryVector, embedErr := srv.runtime.Embedder.Embed(ctx, []byte(semanticQuery))
+
+		if embedErr != nil {
+			return toolError(embedErr), nil
+		}
+
+		loaded, loadErr := srv.runtime.Embeddings.ListByNodeIDs(ids)
+
+		if loadErr != nil {
+			return toolError(loadErr), nil
+		}
+
+		candidates := make([]filter.SemanticCandidate, 0, len(loaded))
+
+		for _, embeddingRow := range loaded {
+			candidates = append(candidates, filter.SemanticCandidate{NodeID: embeddingRow.NodeID, Vector: embeddingRow.Vector})
+		}
+
+		ranked := filter.SemanticRank(candidates, queryVector)
+
+		if take > 0 {
+			startIdx := skip
+
+			if startIdx > len(ranked) {
+				startIdx = len(ranked)
+			}
+
+			endIdx := startIdx + take
+
+			if endIdx > len(ranked) {
+				endIdx = len(ranked)
+			}
+
+			ranked = ranked[startIdx:endIdx]
+		}
+
+		ranking := make([]map[string]any, 0, len(ranked))
+		byID := map[string]queryResult{}
+
+		for _, item := range results {
+			byID[item.ID] = item
+		}
+
+		for _, scored := range ranked {
+			ranking = append(ranking, map[string]any{
+				"id":    scored.NodeID,
+				"score": scored.Score,
+				"type":  byID[scored.NodeID].Type,
+				"path":  byID[scored.NodeID].Path,
+				"title": byID[scored.NodeID].Title,
+			})
+		}
+
+		return toolJSON(map[string]any{
+			"results": ranking,
+			"count":   len(ranking),
+			"model":   srv.runtime.Embedder.Model(),
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
 // Keep helper imports and functions alive until later tasks consume them.
-var _ = argInt
-var _ = argIntOptional
 var _ = argMap
 var _ = argStringSlice

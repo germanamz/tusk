@@ -201,3 +201,25 @@ func TestTool_EdgeList(test *testing.T) {
 		test.Errorf("first = %v", first)
 	}
 }
+
+func TestTool_Query(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", Title: "Auth bug", PropertiesJSON: "{}", LastChecksum: "x"})
+	rt.Nodes.Upsert(index.NodeRow{ID: "notes/x", Type: "note", Path: "notes/x.md", Title: "X", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{"filter": "type=ticket"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("len(results) = %d, want 1", len(results))
+	}
+}
