@@ -44,7 +44,14 @@ func newReindexCmd() *cobra.Command {
 					return fmt.Errorf("manifest: %w", loadErr)
 				}
 
+				engine, buildErr := newBehaviorEngine(loaded)
+
+				if buildErr != nil {
+					return buildErr
+				}
+
 				edgeRepo := index.NewEdgeRepo(store)
+				driftRepo := index.NewWorkflowDriftRepo(store)
 
 				var embedder embed.Embedder
 				var chunker embed.ChunkingStrategy
@@ -73,13 +80,25 @@ func newReindexCmd() *cobra.Command {
 					Embedder:        embedder,
 					Chunker:         chunker,
 					Meta:            index.NewMetaRepo(store),
+					Behaviors:       engine,
+					DriftLog:        driftRepo,
 				})
 
 				if runErr != nil {
 					return runErr
 				}
 
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Reindex done: %d indexed, %d removed, %d skipped\n", report.Indexed, report.Removed, report.Skipped)
+				out := cmd.OutOrStdout()
+
+				if report.WorkflowViolations > 0 {
+					_, _ = fmt.Fprintf(out,
+						"Reindex done: %d indexed, %d removed, %d skipped, %d workflow-violation%s\nRun `tusk doctor` to inspect violations\n",
+						report.Indexed, report.Removed, report.Skipped,
+						report.WorkflowViolations, plural(report.WorkflowViolations))
+				} else {
+					_, _ = fmt.Fprintf(out, "Reindex done: %d indexed, %d removed, %d skipped\n",
+						report.Indexed, report.Removed, report.Skipped)
+				}
 
 				return nil
 			})
@@ -87,4 +106,12 @@ func newReindexCmd() *cobra.Command {
 	}
 
 	return reindexCmd
+}
+
+func plural(count int) string {
+	if count == 1 {
+		return ""
+	}
+
+	return "s"
 }

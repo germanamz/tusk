@@ -25,15 +25,48 @@ func Load(manifestPath string) (*Manifest, error) {
 
 	loaded := &Manifest{}
 
-	if _, decodeErr := toml.Decode(string(body), loaded); decodeErr != nil {
+	meta, decodeErr := toml.Decode(string(body), loaded)
+
+	if decodeErr != nil {
 		return nil, fmt.Errorf("manifest: decode %s: %w", manifestPath, decodeErr)
 	}
 
-	if validateErr := validate(loaded); validateErr != nil {
+	loaded.Meta = &meta
+
+	if validateErr := Validate(loaded); validateErr != nil {
 		return nil, validateErr
 	}
 
 	return loaded, nil
+}
+
+// Validate is exported so tests can validate hand-constructed manifests.
+// Production code should use Load.
+func Validate(loaded *Manifest) error {
+	if validateErr := validate(loaded); validateErr != nil {
+		return validateErr
+	}
+
+	return validateBehaviors(loaded)
+}
+
+// validateBehaviors enforces the structural rules that apply to every
+// behavior pack regardless of kind: non-empty kind name, non-empty
+// instance name. Kind-specific schema lives in each pack's NewInstance.
+func validateBehaviors(loaded *Manifest) error {
+	for kindName, perInstance := range loaded.Behaviors {
+		if kindName == "" {
+			return fmt.Errorf("manifest: behaviors: empty kind name")
+		}
+
+		for instanceName := range perInstance {
+			if instanceName == "" {
+				return fmt.Errorf("manifest: behaviors.%s: empty instance name", kindName)
+			}
+		}
+	}
+
+	return nil
 }
 
 // validate walks the manifest and surfaces structural problems before they

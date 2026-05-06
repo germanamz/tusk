@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -46,6 +48,10 @@ type Service struct {
 	edges      *index.EdgeRepo
 	edgeTypes  manifest.EdgeTypes
 	embedQueue *index.EmbedQueueRepo
+
+	behaviors Behaviors                // optional; nil = no hook dispatch
+	drift     *index.WorkflowDriftRepo // optional; nil = no drift persistence
+	warnings  io.Writer                // optional; nil = io.Discard
 }
 
 // NewService constructs a Service for a workspace whose manifest has no edge
@@ -85,6 +91,35 @@ func NewServiceWithEmbedQueue(workspaceRoot string, repo *index.NodeRepo, edges 
 	}
 }
 
+// NewServiceWithBehaviors is the Plan 7 production constructor: like
+// NewServiceWithEmbedQueue, but also wires the behavior engine, the
+// drift log, and a warnings writer (defaults to io.Discard when nil).
+func NewServiceWithBehaviors(
+	workspaceRoot string,
+	repo *index.NodeRepo,
+	edges *index.EdgeRepo,
+	edgeTypes manifest.EdgeTypes,
+	embedQueue *index.EmbedQueueRepo,
+	behaviors Behaviors,
+	drift *index.WorkflowDriftRepo,
+	warnings io.Writer,
+) *Service {
+	if warnings == nil {
+		warnings = io.Discard
+	}
+
+	return &Service{
+		root:       workspaceRoot,
+		repo:       repo,
+		edges:      edges,
+		edgeTypes:  edgeTypes,
+		embedQueue: embedQueue,
+		behaviors:  behaviors,
+		drift:      drift,
+		warnings:   warnings,
+	}
+}
+
 // Create writes the node file and upserts the index row in one operation.
 // When the service has an EdgeRepo configured, edges are also persisted.
 func (service *Service) Create(input CreateInput) (*Node, error) {
@@ -108,20 +143,6 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 	if renderErr != nil {
 		return nil, renderErr
-	}
-
-	if mkErr := os.MkdirAll(filepath.Dir(absPath), 0o755); mkErr != nil {
-		return nil, fmt.Errorf("node: mkdir %s: %w", filepath.Dir(absPath), mkErr)
-	}
-
-	if writeErr := os.WriteFile(absPath, rendered, 0o644); writeErr != nil {
-		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
-	}
-
-	stat, statErr := os.Stat(absPath)
-
-	if statErr != nil {
-		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
 	}
 
 	parsed, parseErr := ParseFile(input.RelPath, rendered)
@@ -150,6 +171,33 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, cycleErr
 	}
 
+	// Plan 7: validate-phase hook dispatch (NodeWrite then EdgeAdd per row).
+	if service.behaviors != nil {
+		if rejector, fireErr := service.behaviors.FireNodeWriteValidate(nil, parsed); fireErr != nil {
+			return nil, fmt.Errorf("behavior %s rejected create: %w", rejector, fireErr)
+		}
+
+		for _, edgeRow := range flattenEdges(parsed) {
+			if rejector, fireErr := service.behaviors.FireEdgeAddValidate(edgeRow); fireErr != nil {
+				return nil, fmt.Errorf("behavior %s rejected edge add: %w", rejector, fireErr)
+			}
+		}
+	}
+
+	if mkErr := os.MkdirAll(filepath.Dir(absPath), 0o755); mkErr != nil {
+		return nil, fmt.Errorf("node: mkdir %s: %w", filepath.Dir(absPath), mkErr)
+	}
+
+	if writeErr := os.WriteFile(absPath, rendered, 0o644); writeErr != nil {
+		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
+	}
+
+	stat, statErr := os.Stat(absPath)
+
+	if statErr != nil {
+		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
+	}
+
 	checksum := sha256Hex(rendered)
 	propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
 
@@ -170,9 +218,9 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, upsertErr
 	}
 
-	if service.edges != nil {
-		edgeRows := flattenEdges(parsed)
+	edgeRows := flattenEdges(parsed)
 
+	if service.edges != nil {
 		if upsertErr := service.edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
 			return nil, upsertErr
 		}
@@ -181,6 +229,16 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 	if service.embedQueue != nil {
 		if enqueueErr := service.embedQueue.Enqueue(parsed.ID); enqueueErr != nil {
 			return nil, enqueueErr
+		}
+	}
+
+	// Plan 7: after-phase hook dispatch. Errors aggregated for telemetry;
+	// do not affect control flow.
+	if service.behaviors != nil {
+		_ = service.behaviors.FireNodeWriteAfter(nil, parsed)
+
+		for _, edgeRow := range edgeRows {
+			_ = service.behaviors.FireEdgeAddAfter(edgeRow)
 		}
 	}
 
@@ -205,11 +263,20 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		return nil, fmt.Errorf("node: read %s: %w", row.Path, readErr)
 	}
 
-	parsed, parseErr := ParseFile(row.Path, original)
+	beforeNode, parseBeforeErr := ParseFile(row.Path, original)
 
-	if parseErr != nil {
-		return nil, parseErr
+	if parseBeforeErr != nil {
+		return nil, parseBeforeErr
 	}
+
+	// Resolve edges on the before-node so the diff against the after-node
+	// is well-defined.
+	if resolveErr := ResolveEdges(beforeNode, service.edgeTypes); resolveErr != nil {
+		return nil, resolveErr
+	}
+
+	// Apply Set/Unset/Body to produce after-node.
+	parsed := beforeNode.Clone()
 
 	for _, key := range input.UnsetKeys {
 		if key == "type" {
@@ -240,16 +307,6 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		return nil, renderErr
 	}
 
-	if writeErr := atomicWrite(absPath, rendered); writeErr != nil {
-		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
-	}
-
-	stat, statErr := os.Stat(absPath)
-
-	if statErr != nil {
-		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
-	}
-
 	reparsed, reparseErr := ParseFile(row.Path, rendered)
 
 	if reparseErr != nil {
@@ -268,6 +325,43 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	if cycleErr := service.detectCyclesForAcyclicEdges(reparsed); cycleErr != nil {
 		return nil, cycleErr
+	}
+
+	// Plan 7: recovery-aware validate phase + edge diff hooks.
+	var fireResult FireResult
+
+	if service.behaviors != nil {
+		result, fireErr := service.behaviors.FireNodeWriteValidateWithRecovery(beforeNode, reparsed)
+
+		if fireErr != nil {
+			return nil, fmt.Errorf("behavior %s rejected modify: %w", result.Rejector, fireErr)
+		}
+
+		fireResult = result
+
+		removed, added := diffEdgeSets(beforeNode, reparsed)
+
+		for _, edgeRow := range removed {
+			if rejector, edgeFireErr := service.behaviors.FireEdgeRemoveValidate(edgeRow); edgeFireErr != nil {
+				return nil, fmt.Errorf("behavior %s rejected edge remove: %w", rejector, edgeFireErr)
+			}
+		}
+
+		for _, edgeRow := range added {
+			if rejector, edgeFireErr := service.behaviors.FireEdgeAddValidate(edgeRow); edgeFireErr != nil {
+				return nil, fmt.Errorf("behavior %s rejected edge add: %w", rejector, edgeFireErr)
+			}
+		}
+	}
+
+	if writeErr := atomicWrite(absPath, rendered); writeErr != nil {
+		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
+	}
+
+	stat, statErr := os.Stat(absPath)
+
+	if statErr != nil {
+		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
 	}
 
 	checksum := sha256Hex(rendered)
@@ -299,6 +393,46 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	if service.embedQueue != nil {
 		if enqueueErr := service.embedQueue.Enqueue(reparsed.ID); enqueueErr != nil {
 			return nil, enqueueErr
+		}
+	}
+
+	// Plan 7: after-phase + recovery surface.
+	if service.behaviors != nil {
+		_ = service.behaviors.FireNodeWriteAfter(beforeNode, reparsed)
+
+		removed, added := diffEdgeSets(beforeNode, reparsed)
+
+		for _, edgeRow := range removed {
+			_ = service.behaviors.FireEdgeRemoveAfter(edgeRow)
+		}
+
+		for _, edgeRow := range added {
+			_ = service.behaviors.FireEdgeAddAfter(edgeRow)
+		}
+
+		// Surface recovered events: stderr warning + drift row.
+		now := time.Now().UnixNano()
+
+		for _, recovered := range fireResult.Recovered {
+			_, _ = fmt.Fprintf(service.warnings,
+				"warning: workflow %q recovered from unknown status %q → %q on %s; transition not validated\n",
+				recovered.PackInstance, recovered.From, recovered.To, reparsed.ID)
+
+			if service.drift != nil {
+				_ = service.drift.Append(index.WorkflowDriftRow{
+					NodeID:         reparsed.ID,
+					PackInstance:   recovered.PackInstance,
+					PackKind:       recovered.PackKind,
+					ObservedStatus: recovered.From,
+					Property:       recovered.Property,
+					ObservedAt:     now,
+				})
+			}
+		}
+
+		// Clean pass: no rejection, no recovery — clear any prior drift for this node.
+		if len(fireResult.Recovered) == 0 && service.drift != nil {
+			_ = service.drift.ClearForNode(reparsed.ID)
 		}
 	}
 
@@ -372,6 +506,47 @@ func flattenEdges(parsedNode *Node) []index.EdgeRow {
 	}
 
 	return rows
+}
+
+// diffEdgeSets compares before vs. after edge sets and returns the rows
+// to fire EdgeRemove / EdgeAdd hooks for. A row identifies its edge by
+// (Type, SourceID, TargetID, Ordinal); ordering matches flattenEdges.
+func diffEdgeSets(before, after *Node) (removed, added []index.EdgeRow) {
+	beforeRows := flattenEdges(before)
+	afterRows := flattenEdges(after)
+
+	type key struct {
+		typeName string
+		sourceID string
+		targetID string
+		ordinal  int
+	}
+
+	beforeSet := make(map[key]index.EdgeRow, len(beforeRows))
+
+	for _, row := range beforeRows {
+		beforeSet[key{row.Type, row.SourceID, row.TargetID, row.Ordinal}] = row
+	}
+
+	afterSet := make(map[key]index.EdgeRow, len(afterRows))
+
+	for _, row := range afterRows {
+		afterSet[key{row.Type, row.SourceID, row.TargetID, row.Ordinal}] = row
+	}
+
+	for kk, row := range beforeSet {
+		if _, present := afterSet[kk]; !present {
+			removed = append(removed, row)
+		}
+	}
+
+	for kk, row := range afterSet {
+		if _, present := beforeSet[kk]; !present {
+			added = append(added, row)
+		}
+	}
+
+	return removed, added
 }
 
 // appendUnique appends value to slice only if not already present.

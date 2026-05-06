@@ -48,6 +48,12 @@ func newNodeModifyCmd() *cobra.Command {
 				return setErr
 			}
 
+			engine, buildErr := newBehaviorEngine(loaded)
+
+			if buildErr != nil {
+				return buildErr
+			}
+
 			return withWorkspaceLock(ws, func() error {
 				store, openErr := index.Open(ws.IndexPath)
 
@@ -57,12 +63,15 @@ func newNodeModifyCmd() *cobra.Command {
 
 				defer store.Close()
 
-				service := node.NewServiceWithEmbedQueue(
+				service := node.NewServiceWithBehaviors(
 					ws.Root,
 					index.NewNodeRepo(store),
 					index.NewEdgeRepo(store),
 					loaded.EdgeTypes,
 					index.NewEmbedQueueRepo(store),
+					engine,
+					index.NewWorkflowDriftRepo(store),
+					cmd.ErrOrStderr(),
 				)
 
 				modified, modifyErr := service.Modify(node.ModifyInput{

@@ -82,6 +82,18 @@ CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS workflow_drift (
+	node_id          TEXT NOT NULL,
+	pack_instance    TEXT NOT NULL,
+	pack_kind        TEXT NOT NULL,
+	observed_status  TEXT NOT NULL,
+	property         TEXT NOT NULL,
+	observed_at      INTEGER NOT NULL,
+	PRIMARY KEY (node_id, pack_instance, observed_status)
+);
+
+CREATE INDEX IF NOT EXISTS workflow_drift_node_idx ON workflow_drift(node_id);
 `
 
 // Open opens (and bootstraps if needed) the index at dbPath. The parent

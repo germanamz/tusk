@@ -88,3 +88,29 @@ ignore = ["scratch/"]
 		test.Errorf("keep.md should be listed:\n%s", listOutput.String())
 	}
 }
+
+func TestReindex_OffSchemaStatusReportedInSummary(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	if mkErr := os.MkdirAll(filepath.Join(root, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tickets/foo.md"), []byte(`---
+type: ticket
+status: bogus
+---
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	stdout, _, ok := runCLISplit(root, "reindex")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stdout.String(), "workflow-violation") {
+		test.Errorf("stdout = %q, want mention of workflow-violation", stdout.String())
+	}
+}

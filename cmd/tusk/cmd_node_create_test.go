@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,4 +69,32 @@ func initWorkspace(test *testing.T) string {
 	}
 
 	return tmpDir
+}
+
+func TestNodeCreate_WorkflowNonInitialRejected(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	_, stderr, ok := runCLISplit(root, "node", "create", "--type", "ticket", "--prop", "status=active", "--path", "tickets/foo.md")
+
+	if ok {
+		test.Errorf("exit 0, want non-zero")
+	}
+
+	if !strings.Contains(stderr.String(), "non-initial-on-create") && !strings.Contains(stderr.String(), "initial state") {
+		test.Errorf("stderr = %q, want mention of non-initial-on-create or initial state", stderr.String())
+	}
+}
+
+func TestNodeCreate_WorkflowInitialAccepted(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	stdout, _, ok := runCLISplit(root, "node", "create", "--type", "ticket", "--prop", "status=pending", "--path", "tickets/foo.md")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stdout.String(), "tickets/foo") {
+		test.Errorf("stdout = %q, want path mention", stdout.String())
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
@@ -39,13 +41,22 @@ type Config struct {
 	// Meta is optional; when set, Run records `last_reindex_at` (unix nanoseconds
 	// formatted as decimal string) at the end of every successful pass.
 	Meta *index.MetaRepo
+
+	// Behaviors is optional; when set, Run fires the workflow validator in
+	// warn mode for each indexed node. Violations are persisted to DriftLog.
+	Behaviors node.Behaviors
+
+	// DriftLog is optional; when set alongside Behaviors, Run writes drift rows
+	// for validator rejections and clears rows on clean passes.
+	DriftLog *index.WorkflowDriftRepo
 }
 
 // Report summarizes a reindex pass.
 type Report struct {
-	Indexed int // number of node files freshly indexed or refreshed
-	Removed int // number of stale rows deleted (file no longer on disk)
-	Skipped int // number of files skipped (parse error or off-schema)
+	Indexed            int // number of node files freshly indexed or refreshed
+	Removed            int // number of stale rows deleted (file no longer on disk)
+	Skipped            int // number of files skipped (parse error or off-schema)
+	WorkflowViolations int // number of workflow validation failures (warn mode)
 }
 
 // Run walks Root, parses every *.md file with valid frontmatter, and upserts
@@ -154,6 +165,52 @@ func Run(config Config) (*Report, error) {
 			}
 		}
 
+		// + Plan 7: workflow validation in warn mode. Rejections become
+		// drift rows; recoveries become drift rows; clean passes clear
+		// any prior drift for this node.
+		if config.Behaviors != nil {
+			result, fireErr := config.Behaviors.FireNodeWriteValidateWithRecovery(nil, parsed)
+
+			now := time.Now().UnixNano()
+
+			switch {
+			case fireErr != nil:
+				report.WorkflowViolations++
+
+				if config.DriftLog != nil {
+					_ = config.DriftLog.Append(index.WorkflowDriftRow{
+						NodeID:         parsed.ID,
+						PackInstance:   instanceFromQualifier(result.Rejector),
+						PackKind:       kindFromQualifier(result.Rejector),
+						ObservedStatus: readStatusFromParsed(parsed),
+						Property:       extractPropertyFromError(fireErr),
+						ObservedAt:     now,
+					})
+				}
+
+			case len(result.Recovered) > 0:
+				report.WorkflowViolations += len(result.Recovered)
+
+				if config.DriftLog != nil {
+					for _, recovered := range result.Recovered {
+						_ = config.DriftLog.Append(index.WorkflowDriftRow{
+							NodeID:         parsed.ID,
+							PackInstance:   recovered.PackInstance,
+							PackKind:       recovered.PackKind,
+							ObservedStatus: recovered.From,
+							Property:       recovered.Property,
+							ObservedAt:     now,
+						})
+					}
+				}
+
+			default:
+				if config.DriftLog != nil {
+					_ = config.DriftLog.ClearForNode(parsed.ID)
+				}
+			}
+		}
+
 		seenPaths[parsed.Path] = struct{}{}
 		report.Indexed++
 
@@ -225,6 +282,64 @@ func appendUnique(slice []string, value string) []string {
 	}
 
 	return append(slice, value)
+}
+
+func instanceFromQualifier(qualified string) string {
+	for index := 0; index < len(qualified); index++ {
+		if qualified[index] == '.' {
+			return qualified[index+1:]
+		}
+	}
+
+	return qualified
+}
+
+func kindFromQualifier(qualified string) string {
+	for index := 0; index < len(qualified); index++ {
+		if qualified[index] == '.' {
+			return qualified[:index]
+		}
+	}
+
+	return qualified
+}
+
+// readStatusFromParsed reads the "status" property as a string. The
+// rejection-path drift row uses this since the rejection error doesn't
+// carry the status-property name explicitly. (For v1 with one workflow
+// configuration per workspace, "status" is the default; non-default
+// status-property values surface in the recovery path which carries
+// the property explicitly.)
+func readStatusFromParsed(parsed *node.Node) string {
+	if parsed == nil || parsed.Properties == nil {
+		return ""
+	}
+
+	value, found := parsed.Properties["status"]
+
+	if !found {
+		return ""
+	}
+
+	stringValue, ok := value.(string)
+
+	if !ok {
+		return ""
+	}
+
+	return stringValue
+}
+
+// extractPropertyFromError pulls Property off a *workflow.Error if the
+// rejection came from the workflow pack; otherwise returns "status".
+func extractPropertyFromError(err error) string {
+	var workflowErr *workflow.Error
+
+	if errors.As(err, &workflowErr) {
+		return workflowErr.Property
+	}
+
+	return "status"
 }
 
 // flattenEdges turns parsed.Edges into the EdgeRow shape expected by EdgeRepo.

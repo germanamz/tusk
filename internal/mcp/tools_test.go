@@ -440,3 +440,177 @@ func TestTool_Reindex(test *testing.T) {
 		test.Errorf("expected indexed >= 1, got %v", body["indexed"])
 	}
 }
+
+// callToolRaw runs the registered handler for `name` against `args` and returns
+// the raw CallToolResult without interpreting IsError.
+func callToolRaw(test *testing.T, srv *mcp.Server, name string, args map[string]any) *mcpgo.CallToolResult {
+	test.Helper()
+
+	request := mcpgo.CallToolRequest{
+		Params: mcpgo.CallToolParams{
+			Name:      name,
+			Arguments: args,
+		},
+	}
+
+	result, callErr := srv.HandleToolCall(context.Background(), request)
+
+	if callErr != nil {
+		test.Fatalf("HandleToolCall(%s): %v", name, callErr)
+	}
+
+	return result
+}
+
+// decodeJSONContent unmarshals the first text content item of a CallToolResult.
+func decodeJSONContent(test *testing.T, result *mcpgo.CallToolResult) map[string]any {
+	test.Helper()
+
+	if len(result.Content) == 0 {
+		test.Fatal("result has no content")
+	}
+
+	textContent, ok := result.Content[0].(mcpgo.TextContent)
+
+	if !ok {
+		test.Fatalf("expected TextContent, got %T", result.Content[0])
+	}
+
+	var parsed map[string]any
+
+	if unmarshalErr := json.Unmarshal([]byte(textContent.Text), &parsed); unmarshalErr != nil {
+		test.Fatalf("unmarshal: %v\nbody: %s", unmarshalErr, textContent.Text)
+	}
+
+	return parsed
+}
+
+// newRuntimeWithWorkflow boots a Runtime with a tusk.toml that activates the
+// workflow pack on tickets.
+func newRuntimeWithWorkflow(test *testing.T) (*mcp.Runtime, *mcp.Server) {
+	test.Helper()
+
+	root := test.TempDir()
+
+	manifestBody := []byte(`
+[workspace]
+name = "test"
+
+[behaviors.workflow.tickets]
+applies-to = ["ticket"]
+states = [
+  { name = "pending", initial = true },
+  { name = "active" },
+  { name = "completed", terminal = true, done = true },
+]
+transitions = [
+  { from = "pending", to = "active" },
+  { from = "active", to = "completed" },
+]
+`)
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), manifestBody, 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	return rt, mcp.NewServer(rt)
+}
+
+func TestTools_NodeModify_StructuredWorkflowRejection(test *testing.T) {
+	rt, srv := newRuntimeWithWorkflow(test)
+	defer rt.Close()
+
+	// Seed a node with status=pending (initial state, no behaviors on create).
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath:    "tickets/foo.md",
+		Type:       "ticket",
+		Properties: map[string]any{"status": "pending"},
+	}); createErr != nil {
+		test.Fatalf("seed Create: %v", createErr)
+	}
+
+	// Attempt illegal transition: pending → completed (not in transition table).
+	result := callToolRaw(test, srv, "tusk_node_modify", map[string]any{
+		"id":  "tickets/foo",
+		"set": map[string]any{"status": "completed"},
+	})
+
+	if !result.IsError {
+		test.Errorf("expected IsError=true")
+	}
+
+	body := decodeJSONContent(test, result)
+
+	if body["code"] != "illegal-transition" {
+		test.Errorf("body.code = %v, want illegal-transition", body["code"])
+	}
+
+	if body["pack_instance"] != "tickets" {
+		test.Errorf("body.pack_instance = %v, want tickets", body["pack_instance"])
+	}
+
+	if body["from"] != "pending" || body["to"] != "completed" {
+		test.Errorf("body.from/to = %v/%v", body["from"], body["to"])
+	}
+}
+
+func TestTools_NodeModify_RecoveryWarnsOnSuccess(test *testing.T) {
+	rt, srv := newRuntimeWithWorkflow(test)
+	defer rt.Close()
+
+	// Seed node with off-schema status by writing directly to disk and indexing,
+	// bypassing the behavior engine (which would reject "blocked").
+	if mkErr := os.MkdirAll(filepath.Join(rt.Root, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	nodeBody := []byte("---\ntype: ticket\nstatus: blocked\n---\n\nbody\n")
+
+	if writeErr := os.WriteFile(filepath.Join(rt.Root, "tickets/foo.md"), nodeBody, 0o644); writeErr != nil {
+		test.Fatalf("write node: %v", writeErr)
+	}
+
+	// Index it via reindex so the repo has the row.
+	if _, callErr := callTool(test, srv, "tusk_reindex", map[string]any{"no_embed": true}); callErr != nil {
+		test.Fatalf("reindex: %v", callErr)
+	}
+
+	// Modify to declared state; "blocked" is an orphan, so recovery fires.
+	result := callToolRaw(test, srv, "tusk_node_modify", map[string]any{
+		"id":  "tickets/foo",
+		"set": map[string]any{"status": "active"},
+	})
+
+	if result.IsError {
+		body := decodeJSONContent(test, result)
+		test.Fatalf("expected success result for recovery, got error: %v", body)
+	}
+
+	body := decodeJSONContent(test, result)
+
+	warnings, ok := body["warnings"].([]any)
+
+	if !ok || len(warnings) == 0 {
+		test.Fatalf("warnings absent; body = %v", body)
+	}
+
+	first, ok := warnings[0].(map[string]any)
+
+	if !ok {
+		test.Fatalf("warnings[0] is not an object: %T", warnings[0])
+	}
+
+	if first["kind"] != "workflow-recovered" {
+		test.Errorf("warnings[0].kind = %v, want workflow-recovered", first["kind"])
+	}
+
+	if first["from"] != "blocked" || first["to"] != "active" {
+		test.Errorf("warnings[0] from/to = %v/%v", first["from"], first["to"])
+	}
+}
