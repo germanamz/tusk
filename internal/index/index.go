@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS warnings (
 	message   TEXT NOT NULL,
 	since     INTEGER NOT NULL                  -- unix nanoseconds
 );
+
+CREATE TABLE IF NOT EXISTS meta (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
 `
 
 // Open opens (and bootstraps if needed) the index at dbPath. The parent
