@@ -4,8 +4,11 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/germanamz/tusk/internal/behavior"
+	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/lock"
@@ -28,6 +31,9 @@ type Runtime struct {
 	Embeddings  *index.EmbeddingRepo
 	Meta        *index.MetaRepo
 	NodeService *node.Service
+
+	BehaviorEngine *behavior.Engine
+	WorkflowDrift  *index.WorkflowDriftRepo
 
 	Embedder embed.Embedder
 	Chunker  embed.ChunkingStrategy
@@ -53,17 +59,29 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		return nil, fmt.Errorf("mcp: index: %w", openErr)
 	}
 
+	engine, buildErr := buildBehaviorEngine(loaded)
+
+	if buildErr != nil {
+		store.Close()
+
+		return nil, fmt.Errorf("mcp: behavior engine: %w", buildErr)
+	}
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+
 	rt := &Runtime{
-		Root:         ws.Root,
-		ManifestPath: ws.ManifestPath,
-		IndexPath:    ws.IndexPath,
-		Manifest:     loaded,
-		Index:        store,
-		Nodes:        index.NewNodeRepo(store),
-		Edges:        index.NewEdgeRepo(store),
-		EmbedQueue:   index.NewEmbedQueueRepo(store),
-		Embeddings:   index.NewEmbeddingRepo(store),
-		Meta:         index.NewMetaRepo(store),
+		Root:           ws.Root,
+		ManifestPath:   ws.ManifestPath,
+		IndexPath:      ws.IndexPath,
+		Manifest:       loaded,
+		Index:          store,
+		Nodes:          index.NewNodeRepo(store),
+		Edges:          index.NewEdgeRepo(store),
+		EmbedQueue:     index.NewEmbedQueueRepo(store),
+		Embeddings:     index.NewEmbeddingRepo(store),
+		Meta:           index.NewMetaRepo(store),
+		BehaviorEngine: engine,
+		WorkflowDrift:  driftRepo,
 	}
 
 	if loaded.Embeddings.Provider == "ollama" {
@@ -75,12 +93,15 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		rt.Chunker = embed.WholeDocument{}
 	}
 
-	rt.NodeService = node.NewServiceWithEmbedQueue(
+	rt.NodeService = node.NewServiceWithBehaviors(
 		rt.Root,
 		rt.Nodes,
 		rt.Edges,
 		loaded.EdgeTypes,
 		rt.EmbedQueue,
+		engine,
+		driftRepo,
+		os.Stderr,
 	)
 
 	return rt, nil
@@ -116,8 +137,8 @@ func (rt *Runtime) WithWriteLock(body func() error) error {
 	return body()
 }
 
-// ReloadManifest re-reads the manifest from disk and rebuilds the NodeService.
-// Use after `tusk_reindex` or out-of-band manifest edits.
+// ReloadManifest re-reads the manifest from disk and rebuilds the NodeService
+// and BehaviorEngine. Use after `tusk_reindex` or out-of-band manifest edits.
 func (rt *Runtime) ReloadManifest() error {
 	loaded, loadErr := manifest.Load(rt.ManifestPath)
 
@@ -125,14 +146,36 @@ func (rt *Runtime) ReloadManifest() error {
 		return fmt.Errorf("mcp: reload manifest: %w", loadErr)
 	}
 
+	engine, buildErr := buildBehaviorEngine(loaded)
+
+	if buildErr != nil {
+		return fmt.Errorf("mcp: rebuild behavior engine: %w", buildErr)
+	}
+
 	rt.Manifest = loaded
-	rt.NodeService = node.NewServiceWithEmbedQueue(
+	rt.BehaviorEngine = engine
+	rt.NodeService = node.NewServiceWithBehaviors(
 		rt.Root,
 		rt.Nodes,
 		rt.Edges,
 		loaded.EdgeTypes,
 		rt.EmbedQueue,
+		engine,
+		rt.WorkflowDrift,
+		os.Stderr,
 	)
 
 	return nil
+}
+
+// buildBehaviorEngine constructs a *behavior.Engine from loaded by registering
+// every built-in pack kind. Mirrors cmd/tusk's newBehaviorEngine.
+func buildBehaviorEngine(loaded *manifest.Manifest) (*behavior.Engine, error) {
+	registry := behavior.NewRegistry()
+
+	if registerErr := registry.Register(workflow.Kind{}); registerErr != nil {
+		return nil, fmt.Errorf("mcp: register workflow: %w", registerErr)
+	}
+
+	return registry.BuildEngine(loaded)
 }
