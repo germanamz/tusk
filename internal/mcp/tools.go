@@ -456,6 +456,27 @@ func registerDoctorTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+// normalizeProps coerces float64 values in props to int when they represent
+// whole numbers. MCP clients encode JSON numbers as float64; the node service
+// only accepts string/int/bool for frontmatter properties.
+func normalizeProps(props map[string]any) map[string]any {
+	if props == nil {
+		return nil
+	}
+
+	out := make(map[string]any, len(props))
+
+	for key, value := range props {
+		if floatVal, isFloat := value.(float64); isFloat && floatVal == float64(int(floatVal)) {
+			out[key] = int(floatVal)
+		} else {
+			out[key] = value
+		}
+	}
+
+	return out
+}
+
 // mcpSourcePath is the synthetic source_path attributed to edges added via MCP
 // tools. Mirrors cmd/tusk's cliSourcePath; both keep MCP/CLI-added edges
 // distinguishable from edges discovered in node frontmatter.
@@ -486,7 +507,7 @@ func registerNodeCreateTool(srv *Server) {
 
 		title := argStringOptional(request, "title")
 		body := argStringOptional(request, "body")
-		properties := argMap(request, "properties")
+		properties := normalizeProps(argMap(request, "properties"))
 
 		var created *node.Node
 
@@ -539,7 +560,7 @@ func registerNodeModifyTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		setProps := argMap(request, "set")
+		setProps := normalizeProps(argMap(request, "set"))
 		unsetKeys := argStringSlice(request, "unset")
 
 		input := node.ModifyInput{

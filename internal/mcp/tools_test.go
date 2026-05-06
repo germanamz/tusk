@@ -274,3 +274,30 @@ func TestTool_NodeCreate(test *testing.T) {
 		test.Errorf("title = %q", row.Title)
 	}
 }
+
+func TestTool_NodeModify(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/x.md",
+		Type:    "note",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_modify", map[string]any{
+		"id":  "notes/x",
+		"set": map[string]any{"priority": float64(5)},
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_modify: %v", callErr)
+	}
+
+	if body["id"] != "notes/x" {
+		test.Errorf("id = %v", body["id"])
+	}
+}
