@@ -9,8 +9,9 @@ import (
 
 // Issue kinds.
 const (
-	IssueDanglingEdge = "dangling-edge"
-	IssueEmbedRetry   = "embed-retry"
+	IssueDanglingEdge      = "dangling-edge"
+	IssueEmbedRetry        = "embed-retry"
+	IssueWorkflowViolation = "workflow-violation"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -28,9 +29,10 @@ type Report struct {
 
 // Config configures Run.
 type Config struct {
-	Nodes      *index.NodeRepo
-	Edges      *index.EdgeRepo
-	EmbedQueue *index.EmbedQueueRepo
+	Nodes         *index.NodeRepo
+	Edges         *index.EdgeRepo
+	EmbedQueue    *index.EmbedQueueRepo
+	WorkflowDrift *index.WorkflowDriftRepo // optional; nil = no workflow checks
 }
 
 // Run executes every check and returns the aggregate Report.
@@ -55,6 +57,23 @@ func Run(config Config) (*Report, error) {
 		}
 
 		report.EmbedQueueDepth = depth
+	}
+
+	if config.WorkflowDrift != nil {
+		drift, listErr := config.WorkflowDrift.ListAll()
+
+		if listErr != nil {
+			return nil, listErr
+		}
+
+		for _, row := range drift {
+			report.Issues = append(report.Issues, Issue{
+				Kind:   IssueWorkflowViolation,
+				NodeID: row.NodeID,
+				Message: fmt.Sprintf("workflow %q: status %q is not a declared state for property %q",
+					row.PackInstance, row.ObservedStatus, row.Property),
+			})
+		}
 	}
 
 	return report, nil

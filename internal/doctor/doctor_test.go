@@ -2,6 +2,7 @@ package doctor_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/doctor"
@@ -79,4 +80,55 @@ func TestRun_ReportsQueueDepth(test *testing.T) {
 	if report.EmbedQueueDepth != 2 {
 		test.Errorf("EmbedQueueDepth = %d, want 2", report.EmbedQueueDepth)
 	}
+}
+
+func TestRun_SurfacesWorkflowViolation(test *testing.T) {
+	store, closer := newTempIndex(test)
+	defer closer()
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+
+	if appendErr := driftRepo.Append(index.WorkflowDriftRow{
+		NodeID: "tickets/foo", PackInstance: "tickets", PackKind: "workflow",
+		ObservedStatus: "blocked", Property: "status", ObservedAt: 100,
+	}); appendErr != nil {
+		test.Fatalf("Append: %v", appendErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:         index.NewNodeRepo(store),
+		WorkflowDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	var found bool
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueWorkflowViolation && issue.NodeID == "tickets/foo" {
+			found = true
+
+			if !strings.Contains(issue.Message, "blocked") {
+				test.Errorf("Issue.Message = %q, want mention of 'blocked'", issue.Message)
+			}
+		}
+	}
+
+	if !found {
+		test.Errorf("workflow-violation Issue not found in %+v", report.Issues)
+	}
+}
+
+func newTempIndex(test *testing.T) (*index.Index, func()) {
+	test.Helper()
+
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	return store, func() { store.Close() }
 }
