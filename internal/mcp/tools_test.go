@@ -417,3 +417,26 @@ func TestTool_EdgeAddRemove(test *testing.T) {
 		test.Errorf("expected 0 rows after remove, got %d", len(rows))
 	}
 }
+
+func TestTool_Reindex(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if writeErr := os.WriteFile(filepath.Join(rt.Root, "notes/x.md"),
+		[]byte("---\ntype: note\ntitle: x\n---\n\nbody\n"), 0o644); writeErr != nil {
+		_ = os.MkdirAll(filepath.Join(rt.Root, "notes"), 0o755)
+		os.WriteFile(filepath.Join(rt.Root, "notes/x.md"), []byte("---\ntype: note\ntitle: x\n---\n\nbody\n"), 0o644)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_reindex", map[string]any{})
+
+	if callErr != nil {
+		test.Fatalf("tusk_reindex: %v", callErr)
+	}
+
+	if body["indexed"].(float64) < 1 {
+		test.Errorf("expected indexed >= 1, got %v", body["indexed"])
+	}
+}
