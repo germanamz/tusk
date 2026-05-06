@@ -301,3 +301,30 @@ func TestTool_NodeModify(test *testing.T) {
 		test.Errorf("id = %v", body["id"])
 	}
 }
+
+func TestTool_NodeMove(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/old.md",
+		Type:    "note",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_move", map[string]any{
+		"id":       "notes/old",
+		"new_path": "notes/new.md",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_move: %v", callErr)
+	}
+
+	if body["new_id"] != "notes/new" {
+		test.Errorf("new_id = %v", body["new_id"])
+	}
+}
