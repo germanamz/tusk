@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
+	"github.com/germanamz/tusk/internal/behavior"
+	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -374,6 +378,142 @@ func TestRun_RecordsLastReindexAt(test *testing.T) {
 	if stored == "" {
 		test.Errorf("expected last_reindex_at to be set")
 	}
+}
+
+func TestRun_OffSchemaStatusProducesDriftRow(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	// Write a ticket with off-schema status.
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+status: bogus
+---
+body
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+	engine := buildWorkflowEngineForReindexTest(test)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:      root,
+		Repo:      index.NewNodeRepo(store),
+		Behaviors: engine,
+		DriftLog:  driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.WorkflowViolations != 1 {
+		test.Errorf("WorkflowViolations = %d, want 1", report.WorkflowViolations)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 || rows[0].ObservedStatus != "bogus" {
+		test.Errorf("drift rows = %+v, want one row for 'bogus'", rows)
+	}
+
+	// Indexing still upserted the row.
+	if _, getErr := index.NewNodeRepo(store).Get("ticket"); getErr != nil {
+		test.Errorf("Get: %v (reindex should still upsert despite drift)", getErr)
+	}
+}
+
+func TestRun_CleanPassClearsDrift(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, _ := index.Open(dbPath)
+
+	defer store.Close()
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+
+	// Seed a stale drift row.
+	if appendErr := driftRepo.Append(index.WorkflowDriftRow{
+		NodeID: "ticket", PackInstance: "tickets", PackKind: "workflow",
+		ObservedStatus: "ancient", Property: "status", ObservedAt: 1,
+	}); appendErr != nil {
+		test.Fatalf("seed Append: %v", appendErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+status: pending
+---
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	engine := buildWorkflowEngineForReindexTest(test)
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root:      root,
+		Repo:      index.NewNodeRepo(store),
+		Behaviors: engine,
+		DriftLog:  driftRepo,
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 0 {
+		test.Errorf("drift after clean reindex = %+v, want empty", rows)
+	}
+}
+
+func buildWorkflowEngineForReindexTest(test *testing.T) *behavior.Engine {
+	test.Helper()
+
+	const sample = `
+[behaviors.workflow.tickets]
+applies-to = ["ticket"]
+states = [
+  { name = "pending", initial = true },
+  { name = "active" },
+  { name = "completed", terminal = true, done = true },
+]
+transitions = [
+  { from = "pending", to = "active" },
+  { from = "active", to = "completed" },
+]
+`
+
+	var decoded struct {
+		Behaviors map[string]map[string]toml.Primitive `toml:"behaviors"`
+	}
+
+	meta, decodeErr := toml.Decode(sample, &decoded)
+
+	if decodeErr != nil {
+		test.Fatalf("toml decode: %v", decodeErr)
+	}
+
+	primitive := decoded.Behaviors["workflow"]["tickets"]
+
+	instance, newErr := workflow.Kind{}.NewInstance("tickets", primitive, &meta)
+
+	if newErr != nil {
+		test.Fatalf("workflow.NewInstance: %v", newErr)
+	}
+
+	engine, _ := behavior.NewEngine([]behavior.Instance{instance})
+
+	return engine
 }
 
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
