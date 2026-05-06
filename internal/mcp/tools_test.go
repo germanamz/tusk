@@ -328,3 +328,25 @@ func TestTool_NodeMove(test *testing.T) {
 		test.Errorf("new_id = %v", body["new_id"])
 	}
 }
+
+func TestTool_NodeDelete(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/del.md",
+		Type:    "note",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	if _, callErr := callTool(test, srv, "tusk_node_delete", map[string]any{"id": "notes/del"}); callErr != nil {
+		test.Fatalf("tusk_node_delete: %v", callErr)
+	}
+
+	if _, getErr := rt.Nodes.Get("notes/del"); getErr == nil {
+		test.Errorf("expected Get error after delete")
+	}
+}
