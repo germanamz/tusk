@@ -1,10 +1,14 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
@@ -428,9 +432,10 @@ func registerDoctorTool(srv *Server) {
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		report, runErr := doctor.Run(doctor.Config{
-			Nodes:      srv.runtime.Nodes,
-			Edges:      srv.runtime.Edges,
-			EmbedQueue: srv.runtime.EmbedQueue,
+			Nodes:         srv.runtime.Nodes,
+			Edges:         srv.runtime.Edges,
+			EmbedQueue:    srv.runtime.EmbedQueue,
+			WorkflowDrift: srv.runtime.WorkflowDrift,
 		})
 
 		if runErr != nil {
@@ -530,6 +535,22 @@ func registerNodeCreateTool(srv *Server) {
 		})
 
 		if lockErr != nil {
+			var workflowErr *workflow.Error
+
+			if errors.As(lockErr, &workflowErr) {
+				return toolJSONError(map[string]any{
+					"error":         "workflow-rejection",
+					"code":          string(workflowErr.Code),
+					"message":       workflowErr.Error(),
+					"property":      workflowErr.Property,
+					"from":          workflowErr.From,
+					"to":            workflowErr.To,
+					"valid_targets": stringSliceOrNil(workflowErr.ValidTargets),
+					"known_states":  stringSliceOrNil(workflowErr.KnownStates),
+					"pack_instance": workflowErr.PackInstance,
+				}), nil
+			}
+
 			return toolError(lockErr), nil
 		}
 
@@ -574,10 +595,25 @@ func registerNodeModifyTool(srv *Server) {
 			input.Body = &body
 		}
 
+		// Build a per-call Service so recovery warnings flow into our local
+		// buffer rather than the runtime's shared os.Stderr.
+		var warningsBuf bytes.Buffer
+
+		perCallService := node.NewServiceWithBehaviors(
+			srv.runtime.Root,
+			srv.runtime.Nodes,
+			srv.runtime.Edges,
+			srv.runtime.Manifest.EdgeTypes,
+			srv.runtime.EmbedQueue,
+			srv.runtime.BehaviorEngine,
+			srv.runtime.WorkflowDrift,
+			&warningsBuf,
+		)
+
 		var modified *node.Node
 
 		lockErr := srv.runtime.WithWriteLock(func() error {
-			out, modifyErr := srv.runtime.NodeService.Modify(input)
+			out, modifyErr := perCallService.Modify(input)
 
 			if modifyErr != nil {
 				return modifyErr
@@ -589,16 +625,38 @@ func registerNodeModifyTool(srv *Server) {
 		})
 
 		if lockErr != nil {
+			var workflowErr *workflow.Error
+
+			if errors.As(lockErr, &workflowErr) {
+				return toolJSONError(map[string]any{
+					"error":         "workflow-rejection",
+					"code":          string(workflowErr.Code),
+					"message":       workflowErr.Error(),
+					"property":      workflowErr.Property,
+					"from":          workflowErr.From,
+					"to":            workflowErr.To,
+					"valid_targets": stringSliceOrNil(workflowErr.ValidTargets),
+					"known_states":  stringSliceOrNil(workflowErr.KnownStates),
+					"pack_instance": workflowErr.PackInstance,
+				}), nil
+			}
+
 			return toolError(lockErr), nil
 		}
 
-		return toolJSON(map[string]any{
+		result := map[string]any{
 			"id":         modified.ID,
 			"type":       modified.Type,
 			"path":       modified.Path,
 			"title":      modified.Title,
 			"properties": modified.Properties,
-		})
+		}
+
+		if warningsBuf.Len() > 0 {
+			result["warnings"] = parseRecoveryWarnings(warningsBuf.String(), modified.ID)
+		}
+
+		return toolJSON(result)
 	}
 
 	srv.register(tool, handler)
@@ -930,4 +988,87 @@ func registerReindexTool(srv *Server) {
 	}
 
 	srv.register(tool, handler)
+}
+
+// toolJSONError builds a CallToolResult with IsError=true and a JSON-encoded
+// body. Mirrors toolJSON's success path.
+func toolJSONError(payload map[string]any) *mcpgo.CallToolResult {
+	body, marshalErr := json.Marshal(payload)
+
+	if marshalErr != nil {
+		return mcpgo.NewToolResultError(fmt.Sprintf("toolJSONError: %v", marshalErr))
+	}
+
+	return &mcpgo.CallToolResult{
+		IsError: true,
+		Content: []mcpgo.Content{mcpgo.NewTextContent(string(body))},
+	}
+}
+
+// parseRecoveryWarnings turns the Service's stderr warning lines into a
+// structured slice. Format produced by node.Service:
+//
+//	warning: workflow "tickets" recovered from unknown status "blocked" → "active" on tickets/foo; transition not validated
+func parseRecoveryWarnings(buf, nodeID string) []map[string]any {
+	var warnings []map[string]any
+
+	for _, line := range strings.Split(strings.TrimSpace(buf), "\n") {
+		if !strings.HasPrefix(line, "warning: workflow ") {
+			continue
+		}
+
+		// Extract instance name between the first pair of quotes.
+		instance := extractQuoted(line, 0)
+		from := extractQuoted(line, 1)
+		to := extractQuoted(line, 2)
+
+		warnings = append(warnings, map[string]any{
+			"kind":          "workflow-recovered",
+			"pack_instance": instance,
+			"from":          from,
+			"to":            to,
+			"property":      "status",
+			"message":       line,
+		})
+	}
+
+	return warnings
+}
+
+// extractQuoted extracts the occurrence-th quoted string from line.
+// occurrence=0 means the first quoted string.
+func extractQuoted(line string, occurrence int) string {
+	count := 0
+	start := -1
+
+	for idx, ch := range line {
+		if ch != '"' {
+			continue
+		}
+
+		if start == -1 {
+			start = idx + 1
+
+			continue
+		}
+
+		if count == occurrence {
+			return line[start:idx]
+		}
+
+		count++
+		start = -1
+	}
+
+	return ""
+}
+
+// stringSliceOrNil returns nil for an empty slice and the slice as any otherwise.
+// Used to omit empty arrays from the JSON payload.
+func stringSliceOrNil(values []string) any {
+	if len(values) == 0 {
+		return nil
+	}
+
+	return values
 }
