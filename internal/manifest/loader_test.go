@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
@@ -292,5 +294,84 @@ name = "x"
 
 	if loaded.Embeddings.Provider != "" {
 		test.Errorf("Provider should be empty when [embeddings] absent: %q", loaded.Embeddings.Provider)
+	}
+}
+
+func TestLoad_CapturesBehaviorsTomlMeta(test *testing.T) {
+	dir := test.TempDir()
+	manifestPath := filepath.Join(dir, "tusk.toml")
+
+	content := `
+[workspace]
+name = "test"
+
+[behaviors.workflow.tickets]
+applies-to = ["ticket"]
+states = [
+  { name = "open", initial = true },
+]
+`
+	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if loaded.Meta == nil {
+		test.Errorf("Meta: nil; expected captured TOML meta data")
+	}
+
+	subtable, found := loaded.Behaviors["workflow"]["tickets"]
+
+	if !found {
+		test.Fatalf("Behaviors[workflow][tickets]: missing")
+	}
+
+	// Sanity: PrimitiveDecode the subtable into a partial struct.
+	var partial struct {
+		AppliesTo []string `toml:"applies-to"`
+	}
+
+	if decodeErr := loaded.Meta.PrimitiveDecode(subtable, &partial); decodeErr != nil {
+		test.Fatalf("PrimitiveDecode: %v", decodeErr)
+	}
+
+	if len(partial.AppliesTo) != 1 || partial.AppliesTo[0] != "ticket" {
+		test.Errorf("AppliesTo = %v, want [ticket]", partial.AppliesTo)
+	}
+}
+
+func TestLoad_RejectsBehaviorsWithEmptyInstanceName(test *testing.T) {
+	dir := test.TempDir()
+	manifestPath := filepath.Join(dir, "tusk.toml")
+
+	// Empty TOML key isn't expressible directly; we test the validation by
+	// constructing a Manifest in-memory through the validate function.
+	loaded := &manifest.Manifest{
+		Behaviors: map[string]map[string]toml.Primitive{
+			"workflow": {"": toml.Primitive{}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil {
+		test.Errorf("Validate: expected empty-instance-name rejection")
+	}
+
+	_ = manifestPath
+}
+
+func TestLoad_RejectsBehaviorsWithEmptyKindName(test *testing.T) {
+	loaded := &manifest.Manifest{
+		Behaviors: map[string]map[string]toml.Primitive{
+			"": {"any": toml.Primitive{}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil {
+		test.Errorf("Validate: expected empty-kind-name rejection")
 	}
 }
