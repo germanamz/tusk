@@ -21,6 +21,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newWatchCmd())
 	rootCmd.AddCommand(newQueryCmd())
 	rootCmd.AddCommand(newDoctorCmd())
+	rootCmd.AddCommand(newStatusCmd())
 
 	return rootCmd
 }
