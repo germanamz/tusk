@@ -172,3 +172,32 @@ func TestTool_NodeList(test *testing.T) {
 		test.Errorf("len(results) = %d, want 2", len(results))
 	}
 }
+
+func TestTool_EdgeList(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Edges.UpsertAll("tickets/a", "tickets/a.md", []index.EdgeRow{
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", Ordinal: 0, SourcePath: "tickets/a.md"},
+	})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_edge_list", map[string]any{"from": "tickets/a"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_edge_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("len(results) = %d, want 1", len(results))
+	}
+
+	first := results[0].(map[string]any)
+
+	if first["type"] != "blocks" || first["target_id"] != "tickets/b" {
+		test.Errorf("first = %v", first)
+	}
+}

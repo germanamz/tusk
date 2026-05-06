@@ -15,6 +15,7 @@ func registerTools(srv *Server) {
 	registerStatusTool(srv)
 	registerNodeGetTool(srv)
 	registerNodeListTool(srv)
+	registerEdgeListTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -208,8 +209,56 @@ func registerNodeListTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+func registerEdgeListTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_edge_list",
+		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow."),
+		mcpgo.WithString("from", mcpgo.Description("Source node id")),
+		mcpgo.WithString("to", mcpgo.Description("Target node id")),
+		mcpgo.WithString("type", mcpgo.Description("Edge type")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		from := argStringOptional(request, "from")
+		to := argStringOptional(request, "to")
+		edgeType := argStringOptional(request, "type")
+
+		var rows []index.EdgeRow
+		var listErr error
+
+		switch {
+		case from != "":
+			rows, listErr = srv.runtime.Edges.ListBySource(from)
+		case to != "":
+			rows, listErr = srv.runtime.Edges.ListByTarget(to)
+		case edgeType != "":
+			rows, listErr = srv.runtime.Edges.ListByType(edgeType)
+		default:
+			rows, listErr = srv.runtime.Edges.ListAll()
+		}
+
+		if listErr != nil {
+			return toolError(listErr), nil
+		}
+
+		results := make([]map[string]any, 0, len(rows))
+
+		for _, row := range rows {
+			results = append(results, map[string]any{
+				"type":        row.Type,
+				"source_id":   row.SourceID,
+				"target_id":   row.TargetID,
+				"ordinal":     row.Ordinal,
+				"source_path": row.SourcePath,
+			})
+		}
+
+		return toolJSON(map[string]any{"results": results, "count": len(results)})
+	}
+
+	srv.register(tool, handler)
+}
+
 // Keep helper imports and functions alive until later tasks consume them.
-var _ = index.NewNodeRepo
 var _ = argInt
 var _ = argIntOptional
 var _ = argMap
