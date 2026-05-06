@@ -33,20 +33,22 @@ type ListFilter struct {
 
 // Service orchestrates filesystem and index for nodes.
 type Service struct {
-	root      string
-	repo      *index.NodeRepo
-	edges     *index.EdgeRepo
-	edgeTypes manifest.EdgeTypes
+	root       string
+	repo       *index.NodeRepo
+	edges      *index.EdgeRepo
+	edgeTypes  manifest.EdgeTypes
+	embedQueue *index.EmbedQueueRepo
 }
 
 // NewService constructs a Service for a workspace whose manifest has no edge
 // types declared (Plan 1b behavior). Edge writes via this service are no-ops.
 func NewService(workspaceRoot string, repo *index.NodeRepo) *Service {
 	return &Service{
-		root:      workspaceRoot,
-		repo:      repo,
-		edges:     nil,
-		edgeTypes: manifest.EdgeTypes{},
+		root:       workspaceRoot,
+		repo:       repo,
+		edges:      nil,
+		edgeTypes:  manifest.EdgeTypes{},
+		embedQueue: nil,
 	}
 }
 
@@ -54,10 +56,24 @@ func NewService(workspaceRoot string, repo *index.NodeRepo) *Service {
 // and validates them against edgeTypes.
 func NewServiceWithManifest(workspaceRoot string, repo *index.NodeRepo, edges *index.EdgeRepo, edgeTypes manifest.EdgeTypes) *Service {
 	return &Service{
-		root:      workspaceRoot,
-		repo:      repo,
-		edges:     edges,
-		edgeTypes: edgeTypes,
+		root:       workspaceRoot,
+		repo:       repo,
+		edges:      edges,
+		edgeTypes:  edgeTypes,
+		embedQueue: nil,
+	}
+}
+
+// NewServiceWithEmbedQueue is like NewServiceWithManifest but also enqueues
+// embed jobs on Create. When embedQueue is nil, behavior matches
+// NewServiceWithManifest.
+func NewServiceWithEmbedQueue(workspaceRoot string, repo *index.NodeRepo, edges *index.EdgeRepo, edgeTypes manifest.EdgeTypes, embedQueue *index.EmbedQueueRepo) *Service {
+	return &Service{
+		root:       workspaceRoot,
+		repo:       repo,
+		edges:      edges,
+		edgeTypes:  edgeTypes,
+		embedQueue: embedQueue,
 	}
 }
 
@@ -151,6 +167,12 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 		if upsertErr := service.edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
 			return nil, upsertErr
+		}
+	}
+
+	if service.embedQueue != nil {
+		if enqueueErr := service.embedQueue.Enqueue(parsed.ID); enqueueErr != nil {
+			return nil, enqueueErr
 		}
 	}
 

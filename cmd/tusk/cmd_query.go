@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"text/tabwriter"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -14,10 +16,11 @@ import (
 
 func newQueryCmd() *cobra.Command {
 	var (
-		sortSpec string
-		take     int
-		skip     int
-		emitJSON bool
+		sortSpec      string
+		take          int
+		skip          int
+		emitJSON      bool
+		semanticQuery string
 	)
 
 	queryCmd := &cobra.Command{
@@ -69,6 +72,10 @@ func newQueryCmd() *cobra.Command {
 
 			if compileErr != nil {
 				return compileErr
+			}
+
+			if semanticQuery != "" {
+				return runSemanticQuery(cmd, ws, loaded, sqlQuery, params, take, skip, semanticQuery)
 			}
 
 			store, openErr := index.Open(ws.IndexPath)
@@ -124,6 +131,104 @@ func newQueryCmd() *cobra.Command {
 	queryCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
 	queryCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
 	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON")
+	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
 
 	return queryCmd
+}
+
+func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manifest.Manifest, structuralSQL string, structuralParams []any, take, skip int, semanticQuery string) error {
+	if loaded.Embeddings.Provider == "" {
+		return fmt.Errorf("--semantic requires [embeddings] block in tusk.toml")
+	}
+
+	if loaded.Embeddings.Provider != "ollama" {
+		return fmt.Errorf("--semantic: unsupported provider %q (Plan 5 supports ollama only)", loaded.Embeddings.Provider)
+	}
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+		Endpoint: loaded.Embeddings.Endpoint,
+		Model:    loaded.Embeddings.Model,
+		Dim:      loaded.Embeddings.Dim,
+	})
+
+	queryVector, queryErr := embedder.Embed(context.Background(), []byte(semanticQuery))
+
+	if queryErr != nil {
+		return queryErr
+	}
+
+	store, openErr := index.Open(ws.IndexPath)
+
+	if openErr != nil {
+		return openErr
+	}
+
+	defer store.Close()
+
+	rows, structuralErr := store.DB().Query(structuralSQL, structuralParams...)
+
+	if structuralErr != nil {
+		return structuralErr
+	}
+
+	defer rows.Close()
+
+	var nodeIDs []string
+
+	for rows.Next() {
+		var (
+			rowID, rowType, rowPath, rowTitle, propertiesRaw, lastChecksum string
+			lastMtime, lastSize                                            int64
+		)
+
+		if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
+			return scanErr
+		}
+
+		nodeIDs = append(nodeIDs, rowID)
+	}
+
+	embeddingRepo := index.NewEmbeddingRepo(store)
+	loadedRows, loadErr := embeddingRepo.ListByNodeIDs(nodeIDs)
+
+	if loadErr != nil {
+		return loadErr
+	}
+
+	candidates := make([]filter.SemanticCandidate, 0, len(loadedRows))
+
+	for _, embeddingRow := range loadedRows {
+		candidates = append(candidates, filter.SemanticCandidate{
+			NodeID: embeddingRow.NodeID,
+			Vector: embeddingRow.Vector,
+		})
+	}
+
+	ranked := filter.SemanticRank(candidates, queryVector)
+
+	if take > 0 {
+		startIdx := skip
+
+		if startIdx > len(ranked) {
+			startIdx = len(ranked)
+		}
+
+		endIdx := startIdx + take
+
+		if endIdx > len(ranked) {
+			endIdx = len(ranked)
+		}
+
+		ranked = ranked[startIdx:endIdx]
+	}
+
+	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+
+	_, _ = fmt.Fprintln(tab, "ID\tSCORE")
+
+	for _, scored := range ranked {
+		_, _ = fmt.Fprintf(tab, "%s\t%.4f\n", scored.NodeID, scored.Score)
+	}
+
+	return tab.Flush()
 }

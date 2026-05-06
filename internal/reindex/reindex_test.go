@@ -1,10 +1,12 @@
 package reindex_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -270,6 +272,74 @@ func TestRun_RespectsWorkspaceIgnore(test *testing.T) {
 
 	if report.Indexed != 1 {
 		test.Errorf("Indexed = %d, want 1 (drafts/ excluded by workspace ignore)", report.Indexed)
+	}
+}
+
+type stubEmbedder struct {
+	model string
+	dim   int
+	calls int
+}
+
+func (stub *stubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	stub.calls++
+
+	return make([]float32, stub.dim), nil
+}
+
+func (stub *stubEmbedder) Model() string { return stub.model }
+func (stub *stubEmbedder) Dim() int      { return stub.dim }
+
+func TestRun_DrainsEmbedQueue(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "a.md", "type: note\ntitle: A\n", "Body.\n")
+	writeNode(test, root, "b.md", "type: note\ntitle: B\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+	embedder := &stubEmbedder{model: "test", dim: 3}
+
+	cfg := reindex.Config{
+		Root:          root,
+		Repo:          nodeRepo,
+		Edges:         edgeRepo,
+		EdgeTypes:     manifest.EdgeTypes{},
+		EmbedQueue:    queueRepo,
+		EmbeddingRepo: embeddingRepo,
+		Embedder:      embedder,
+		Chunker:       embed.WholeDocument{},
+	}
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 2 {
+		test.Errorf("Indexed = %d, want 2", report.Indexed)
+	}
+
+	if embedder.calls != 2 {
+		test.Errorf("embedder calls = %d, want 2", embedder.calls)
+	}
+
+	depth, _ := queueRepo.Depth()
+
+	if depth != 0 {
+		test.Errorf("queue depth = %d, want 0 after drain", depth)
+	}
+
+	loaded, _ := embeddingRepo.GetByNodeID("a")
+
+	if len(loaded) != 1 || loaded[0].Dim != 3 {
+		test.Errorf("embedding for a = %+v", loaded)
 	}
 }
 

@@ -6,14 +6,27 @@ type EdgeTypes = map[string]EdgeType
 
 // Manifest is the parsed representation of tusk.toml at the workspace root.
 type Manifest struct {
-	Workspace WorkspaceSection `toml:"workspace"`
-	EdgeTypes EdgeTypes        `toml:"edge-types"`
+	Workspace  WorkspaceSection  `toml:"workspace"`
+	EdgeTypes  EdgeTypes         `toml:"edge-types"`
+	Embeddings EmbeddingsSection `toml:"embeddings"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.
 type WorkspaceSection struct {
 	Name   string   `toml:"name"`
 	Ignore []string `toml:"ignore"`
+}
+
+// EmbeddingsSection configures the active embedding provider.
+//
+// Plan 5 supports provider = "ollama" only; the loader rejects other values.
+// API providers (openai/voyage/anthropic) land in Plan 5.x.
+type EmbeddingsSection struct {
+	Provider string `toml:"provider"`
+	Model    string `toml:"model"`
+	Endpoint string `toml:"endpoint"`
+	Dim      int    `toml:"dim"`
+	APIKey   string `toml:"api-key"`
 }
 
 // Cardinality enumerates the legal values for EdgeType.Cardinality.

@@ -45,6 +45,26 @@ CREATE INDEX IF NOT EXISTS edges_target_idx      ON edges(target_id);
 CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges(type);
 CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path);
 
+CREATE TABLE IF NOT EXISTS embeddings (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	node_id      TEXT NOT NULL,
+	chunk_idx    INTEGER NOT NULL DEFAULT 0,
+	model        TEXT NOT NULL,
+	content_hash TEXT NOT NULL,
+	vector       BLOB NOT NULL,
+	dim          INTEGER NOT NULL,
+	UNIQUE(node_id, chunk_idx)
+);
+
+CREATE INDEX IF NOT EXISTS embeddings_node_idx ON embeddings(node_id);
+
+CREATE TABLE IF NOT EXISTS embed_queue (
+	node_id     TEXT PRIMARY KEY,
+	enqueued_at INTEGER NOT NULL,
+	attempts    INTEGER NOT NULL DEFAULT 0,
+	last_error  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS manifest_snapshot (
 	loaded_at INTEGER NOT NULL,                 -- unix nanoseconds
 	body_json TEXT NOT NULL                     -- JSON-serialized snapshot of the manifest

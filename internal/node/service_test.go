@@ -250,3 +250,28 @@ func TestService_CreateRejectsBlocksCycle(test *testing.T) {
 		test.Fatalf("expected cycle error for self-blocks")
 	}
 }
+
+func TestService_CreateEnqueuesEmbedding(test *testing.T) {
+	root := test.TempDir()
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+
+	service := node.NewServiceWithEmbedQueue(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, queueRepo)
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "n.md", Type: "note", Title: "N",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	depth, _ := queueRepo.Depth()
+
+	if depth != 1 {
+		test.Errorf("queue depth = %d, want 1", depth)
+	}
+}
