@@ -1,6 +1,8 @@
 // Package manifest defines the schema and loader for tusk.toml.
 package manifest
 
+import "github.com/BurntSushi/toml"
+
 // EdgeTypes is a named map of edge-type declarations keyed by edge-type name.
 type EdgeTypes = map[string]EdgeType
 
@@ -9,6 +11,16 @@ type Manifest struct {
 	Workspace  WorkspaceSection  `toml:"workspace"`
 	EdgeTypes  EdgeTypes         `toml:"edge-types"`
 	Embeddings EmbeddingsSection `toml:"embeddings"`
+
+	// Behaviors is a two-level map: kind name → instance name → raw TOML
+	// table. The kind-specific decode happens inside the pack package
+	// (deferred-decode contract).
+	Behaviors map[string]map[string]toml.Primitive `toml:"behaviors"`
+
+	// Meta is the BurntSushi/toml MetaData captured at decode time so pack
+	// Kinds can call PrimitiveDecode against their subtable. Nil for
+	// hand-built manifests (tests that construct a Manifest literal).
+	Meta *toml.MetaData `toml:"-"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.
