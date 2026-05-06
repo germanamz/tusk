@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -45,12 +46,32 @@ func newReindexCmd() *cobra.Command {
 
 				edgeRepo := index.NewEdgeRepo(store)
 
+				var embedder embed.Embedder
+				var chunker embed.ChunkingStrategy
+				var embedQueue *index.EmbedQueueRepo
+				var embeddingRepo *index.EmbeddingRepo
+
+				if loaded.Embeddings.Provider == "ollama" {
+					embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
+						Endpoint: loaded.Embeddings.Endpoint,
+						Model:    loaded.Embeddings.Model,
+						Dim:      loaded.Embeddings.Dim,
+					})
+					chunker = embed.WholeDocument{}
+					embedQueue = index.NewEmbedQueueRepo(store)
+					embeddingRepo = index.NewEmbeddingRepo(store)
+				}
+
 				report, runErr := reindex.Run(reindex.Config{
 					Root:            ws.Root,
 					Repo:            index.NewNodeRepo(store),
 					Edges:           edgeRepo,
 					EdgeTypes:       loaded.EdgeTypes,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
+					EmbedQueue:      embedQueue,
+					EmbeddingRepo:   embeddingRepo,
+					Embedder:        embedder,
+					Chunker:         chunker,
 				})
 
 				if runErr != nil {
