@@ -16,7 +16,7 @@ The v1 rebuild is in progress. Until v1 features ship, the authoritative referen
 ## Commands (during v1 build-out)
 
 ```bash
-make build          # build target — stub until cmd/tusk lands in Plan 1b
+make build          # build ./bin/tusk (Plans 1–6 complete: full CLI + MCP server)
 make test           # run unit tests
 make test-race      # tests with race detector
 make vet            # go vet
