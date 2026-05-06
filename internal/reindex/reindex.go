@@ -3,6 +3,7 @@
 package reindex
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,7 +11,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -24,6 +27,13 @@ type Config struct {
 	Edges           *index.EdgeRepo    // edge index repository (optional; when nil, edges are not written)
 	EdgeTypes       manifest.EdgeTypes // declared edge types (optional; when empty, frontmatter edges are not resolved)
 	WorkspaceIgnore []string           // patterns from [workspace] ignore in tusk.toml
+
+	// Embedding pipeline (optional). When all four are set, Run drains the
+	// embed_queue at the end of the pass by invoking Embedder for each node.
+	EmbedQueue    *index.EmbedQueueRepo
+	EmbeddingRepo *index.EmbeddingRepo
+	Embedder      embed.Embedder
+	Chunker       embed.ChunkingStrategy
 }
 
 // Report summarizes a reindex pass.
@@ -173,6 +183,20 @@ func Run(config Config) (*Report, error) {
 		report.Removed++
 	}
 
+	if config.EmbedQueue != nil && config.EmbeddingRepo != nil && config.Embedder != nil && config.Chunker != nil {
+		// Enqueue every indexed node so the drain loop covers them.
+		for path := range seenPaths {
+			id := strings.TrimSuffix(path, ".md")
+			_ = config.EmbedQueue.Enqueue(id)
+		}
+
+		drainErr := drainEmbedQueue(config)
+
+		if drainErr != nil {
+			return nil, drainErr
+		}
+	}
+
 	return report, nil
 }
 
@@ -204,4 +228,75 @@ func flattenEdges(parsedNode *node.Node) []index.EdgeRow {
 	}
 
 	return rows
+}
+
+const embedBatchSize = 50
+
+func drainEmbedQueue(config Config) error {
+	for {
+		batch, drainErr := config.EmbedQueue.Drain(embedBatchSize)
+
+		if drainErr != nil {
+			return drainErr
+		}
+
+		if len(batch) == 0 {
+			return nil
+		}
+
+		for _, queued := range batch {
+			row, getErr := config.Repo.Get(queued.NodeID)
+
+			if getErr != nil {
+				continue
+			}
+
+			content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
+
+			if readErr != nil {
+				_ = config.EmbedQueue.Enqueue(queued.NodeID)
+				_ = config.EmbedQueue.MarkFailed(queued.NodeID, readErr.Error())
+
+				continue
+			}
+
+			parsed, parseErr := node.ParseFile(row.Path, content)
+
+			if parseErr != nil {
+				_ = config.EmbedQueue.Enqueue(queued.NodeID)
+				_ = config.EmbedQueue.MarkFailed(queued.NodeID, parseErr.Error())
+
+				continue
+			}
+
+			payload := embed.BuildPayload(parsed)
+			chunks := config.Chunker.Chunk(payload)
+
+			if len(chunks) == 0 {
+				continue
+			}
+
+			vector, embedErr := config.Embedder.Embed(context.Background(), chunks[0])
+
+			if embedErr != nil {
+				_ = config.EmbedQueue.Enqueue(queued.NodeID)
+				_ = config.EmbedQueue.MarkFailed(queued.NodeID, embedErr.Error())
+
+				continue
+			}
+
+			contentHash := sha256.Sum256(payload)
+
+			if upsertErr := config.EmbeddingRepo.Upsert(index.EmbeddingRow{
+				NodeID:      queued.NodeID,
+				ChunkIdx:    0,
+				Model:       config.Embedder.Model(),
+				ContentHash: hex.EncodeToString(contentHash[:]),
+				Vector:      vector,
+				Dim:         config.Embedder.Dim(),
+			}); upsertErr != nil {
+				return upsertErr
+			}
+		}
+	}
 }
