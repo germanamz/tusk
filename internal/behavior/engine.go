@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/node"
 )
 
 // Engine owns eight dispatch chains, one per (primitive, phase) slot.
@@ -148,7 +147,7 @@ func detectCollisions(instances []Instance) error {
 // circuiting on the first non-nil error. Returns ("", nil) on accept;
 // (qualified-name, err) on reject. The recovery-aware variant lives in
 // FireNodeWriteValidateWithRecovery.
-func (engine *Engine) FireNodeWriteValidate(before, after *node.Node) (string, error) {
+func (engine *Engine) FireNodeWriteValidate(before, after any) (string, error) {
 	for _, entry := range engine.nodeWriteValidate {
 		if fireErr := entry.fn(entry.ctx, before, after); fireErr != nil {
 			return entry.ctx.PackKind + "." + entry.ctx.PackInstance, fireErr
@@ -168,7 +167,7 @@ type FireResult struct {
 // Errors implementing Recoverable are converted to RecoveredEvent entries
 // and the chain continues. Any other non-nil error short-circuits and is
 // returned as the rejection.
-func (engine *Engine) FireNodeWriteValidateWithRecovery(before, after *node.Node) (FireResult, error) {
+func (engine *Engine) FireNodeWriteValidateWithRecovery(before, after any) (FireResult, error) {
 	var result FireResult
 
 	for _, entry := range engine.nodeWriteValidate {
@@ -196,7 +195,7 @@ func (engine *Engine) FireNodeWriteValidateWithRecovery(before, after *node.Node
 
 // FireNodeWriteAfter runs every reactor; aggregates non-nil errors into
 // a multi-error. Control flow is unaffected.
-func (engine *Engine) FireNodeWriteAfter(before, after *node.Node) error {
+func (engine *Engine) FireNodeWriteAfter(before, after any) error {
 	var aggregated []error
 
 	for _, entry := range engine.nodeWriteAfter {
@@ -272,7 +271,7 @@ func (engine *Engine) FireEdgeRemoveAfter(edge index.EdgeRow) error {
 // for API parity with the other primitives but not invoked from the
 // production write path. Implementations exist so future v1.x consumers
 // can register handlers without changing the engine.
-func (engine *Engine) FireNodeReadValidate(snapshot *node.Node) (string, error) {
+func (engine *Engine) FireNodeReadValidate(snapshot any) (string, error) {
 	for _, entry := range engine.nodeReadValidate {
 		if fireErr := entry.fn(entry.ctx, snapshot); fireErr != nil {
 			return entry.ctx.PackKind + "." + entry.ctx.PackInstance, fireErr
@@ -282,7 +281,7 @@ func (engine *Engine) FireNodeReadValidate(snapshot *node.Node) (string, error) 
 	return "", nil
 }
 
-func (engine *Engine) FireNodeReadAfter(snapshot *node.Node) error {
+func (engine *Engine) FireNodeReadAfter(snapshot any) error {
 	var aggregated []error
 
 	for _, entry := range engine.nodeReadAfter {

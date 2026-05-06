@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/germanamz/tusk/internal/behavior"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -46,6 +48,10 @@ type Service struct {
 	edges      *index.EdgeRepo
 	edgeTypes  manifest.EdgeTypes
 	embedQueue *index.EmbedQueueRepo
+
+	behaviors *behavior.Engine         // optional; nil = no hook dispatch
+	drift     *index.WorkflowDriftRepo // optional; nil = no drift persistence
+	warnings  io.Writer                // optional; nil = io.Discard
 }
 
 // NewService constructs a Service for a workspace whose manifest has no edge
@@ -82,6 +88,35 @@ func NewServiceWithEmbedQueue(workspaceRoot string, repo *index.NodeRepo, edges 
 		edges:      edges,
 		edgeTypes:  edgeTypes,
 		embedQueue: embedQueue,
+	}
+}
+
+// NewServiceWithBehaviors is the Plan 7 production constructor: like
+// NewServiceWithEmbedQueue, but also wires the behavior engine, the
+// drift log, and a warnings writer (defaults to io.Discard when nil).
+func NewServiceWithBehaviors(
+	workspaceRoot string,
+	repo *index.NodeRepo,
+	edges *index.EdgeRepo,
+	edgeTypes manifest.EdgeTypes,
+	embedQueue *index.EmbedQueueRepo,
+	behaviors *behavior.Engine,
+	drift *index.WorkflowDriftRepo,
+	warnings io.Writer,
+) *Service {
+	if warnings == nil {
+		warnings = io.Discard
+	}
+
+	return &Service{
+		root:       workspaceRoot,
+		repo:       repo,
+		edges:      edges,
+		edgeTypes:  edgeTypes,
+		embedQueue: embedQueue,
+		behaviors:  behaviors,
+		drift:      drift,
+		warnings:   warnings,
 	}
 }
 
