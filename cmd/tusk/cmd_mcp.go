@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/germanamz/tusk/internal/mcp"
 	"github.com/spf13/cobra"
@@ -41,18 +44,37 @@ edits.`,
 
 			defer runtime.Close()
 
-			srv := mcp.NewServer(runtime)
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
+			serverInstance := mcp.NewServer(runtime)
+
+			bgDone := make(chan error, 1)
+
+			go func() {
+				bgDone <- serverInstance.RunBackground(ctx)
+			}()
+
+			var transportErr error
 
 			switch transport {
 			case "stdio", "":
-				return srv.ServeStdio()
+				transportErr = serverInstance.ServeStdio()
 			case "sse":
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "tusk mcp: SSE listening on %s\n", addr)
+				transportErr = serverInstance.ServeSSE(addr)
+			default:
+				cancel()
+				<-bgDone
 
-				return srv.ServeSSE(addr)
+				return fmt.Errorf("--transport: unknown value %q (want stdio|sse)", transport)
 			}
 
-			return fmt.Errorf("--transport: unknown value %q (want stdio|sse)", transport)
+			cancel()
+
+			<-bgDone
+
+			return transportErr
 		},
 	}
 

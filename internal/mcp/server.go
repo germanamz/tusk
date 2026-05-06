@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -67,6 +68,46 @@ func (srv *Server) ServeSSE(addr string) error {
 	sse := server.NewSSEServer(srv.mcp)
 
 	return sse.Start(addr)
+}
+
+// RunBackground starts the embed-queue drainer and the file watcher. It blocks
+// until ctx cancels, then returns the first non-nil error from either worker.
+func (srv *Server) RunBackground(ctx context.Context) error {
+	var (
+		mu    sync.Mutex
+		first error
+	)
+
+	record := func(err error) {
+		if err == nil {
+			return
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		if first == nil {
+			first = err
+		}
+	}
+
+	var waitGroup sync.WaitGroup
+
+	waitGroup.Add(2)
+
+	go func() {
+		defer waitGroup.Done()
+		record(RunDrainer(ctx, DrainerConfig{Runtime: srv.runtime}))
+	}()
+
+	go func() {
+		defer waitGroup.Done()
+		record(RunWatcher(ctx, WatchConfig{Runtime: srv.runtime}))
+	}()
+
+	waitGroup.Wait()
+
+	return first
 }
 
 // MCP exposes the underlying mcp-go server (for advanced wiring/tests).
