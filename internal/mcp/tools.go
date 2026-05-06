@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
@@ -18,6 +19,7 @@ func registerTools(srv *Server) {
 	registerNodeListTool(srv)
 	registerEdgeListTool(srv)
 	registerQueryTool(srv)
+	registerDoctorTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -411,6 +413,41 @@ func registerQueryTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
-// Keep helper imports and functions alive until later tasks consume them.
+func registerDoctorTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_doctor",
+		mcpgo.WithDescription("Surface validation warnings and index health issues (dangling edges, embed-queue retries)."),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		report, runErr := doctor.Run(doctor.Config{
+			Nodes:      srv.runtime.Nodes,
+			Edges:      srv.runtime.Edges,
+			EmbedQueue: srv.runtime.EmbedQueue,
+		})
+
+		if runErr != nil {
+			return toolError(runErr), nil
+		}
+
+		issues := make([]map[string]any, 0, len(report.Issues))
+
+		for _, issue := range report.Issues {
+			issues = append(issues, map[string]any{
+				"kind":    issue.Kind,
+				"node_id": issue.NodeID,
+				"message": issue.Message,
+			})
+		}
+
+		return toolJSON(map[string]any{
+			"issues":            issues,
+			"embed_queue_depth": report.EmbedQueueDepth,
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+// Keep helper imports and functions alive until later tasks (Bundle 5) consume them.
 var _ = argMap
 var _ = argStringSlice

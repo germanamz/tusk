@@ -223,3 +223,22 @@ func TestTool_Query(test *testing.T) {
 		test.Fatalf("len(results) = %d, want 1", len(results))
 	}
 }
+
+func TestTool_Doctor_CleanReport(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_doctor", map[string]any{})
+
+	if callErr != nil {
+		test.Fatalf("tusk_doctor: %v", callErr)
+	}
+
+	issues, _ := body["issues"].([]any)
+
+	if len(issues) != 0 {
+		test.Errorf("expected 0 issues, got %d", len(issues))
+	}
+}
