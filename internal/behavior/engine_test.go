@@ -15,7 +15,7 @@ func TestNewEngine_SimpleNodeWriteValidate_ChainOrder(test *testing.T) {
 		name: "first",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "first")
 				return nil
 			},
@@ -26,7 +26,7 @@ func TestNewEngine_SimpleNodeWriteValidate_ChainOrder(test *testing.T) {
 		name: "second",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "second")
 				return nil
 			},
@@ -62,7 +62,7 @@ func TestNewEngine_NodeWriteValidate_ShortCircuitsOnFirstRejection(test *testing
 		name: "first",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "first")
 				return rejection
 			},
@@ -73,7 +73,7 @@ func TestNewEngine_NodeWriteValidate_ShortCircuitsOnFirstRejection(test *testing
 		name: "second",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "second")
 				return nil
 			},
@@ -104,7 +104,7 @@ func TestNewEngine_NodeWriteAfter_FansOutUnconditionally(test *testing.T) {
 		name: "first",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteAfter: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteAfter: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "first")
 				return errors.New("first error")
 			},
@@ -115,7 +115,7 @@ func TestNewEngine_NodeWriteAfter_FansOutUnconditionally(test *testing.T) {
 		name: "second",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteAfter: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteAfter: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "second")
 				return nil
 			},
@@ -133,7 +133,7 @@ func TestNewEngine_NodeWriteAfter_FansOutUnconditionally(test *testing.T) {
 	}
 }
 
-// recoverableErr is a test-only Recoverable used to exercise the
+// recoverableErr is a test-only node.Recoverable used to exercise the
 // recovery-aware Fire variant.
 type recoverableErr struct {
 	property string
@@ -144,8 +144,8 @@ type recoverableErr struct {
 
 func (err *recoverableErr) Error() string { return err.message }
 
-func (err *recoverableErr) AsRecoveredEvent(packKind, packInstance string) behavior.RecoveredEvent {
-	return behavior.RecoveredEvent{
+func (err *recoverableErr) AsRecoveredEvent(packKind, packInstance string) node.RecoveredEvent {
+	return node.RecoveredEvent{
 		PackKind:     packKind,
 		PackInstance: packInstance,
 		Property:     err.property,
@@ -162,7 +162,7 @@ func TestFireNodeWriteValidateWithRecovery_RecoverableContinuesChain(test *testi
 		name: "first",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "first")
 				return &recoverableErr{property: "status", from: "blocked", to: "active", message: "recovered"}
 			},
@@ -173,7 +173,7 @@ func TestFireNodeWriteValidateWithRecovery_RecoverableContinuesChain(test *testi
 		name: "second",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "second")
 				return nil
 			},
@@ -219,7 +219,7 @@ func TestFireNodeWriteValidateWithRecovery_NonRecoverableShortCircuits(test *tes
 		name: "first",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "first")
 				return rejection
 			},
@@ -230,7 +230,7 @@ func TestFireNodeWriteValidateWithRecovery_NonRecoverableShortCircuits(test *tes
 		name: "second",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				calls = append(calls, "second")
 				return nil
 			},

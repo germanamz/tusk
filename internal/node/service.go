@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/germanamz/tusk/internal/behavior"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -50,7 +49,7 @@ type Service struct {
 	edgeTypes  manifest.EdgeTypes
 	embedQueue *index.EmbedQueueRepo
 
-	behaviors *behavior.Engine         // optional; nil = no hook dispatch
+	behaviors Behaviors                // optional; nil = no hook dispatch
 	drift     *index.WorkflowDriftRepo // optional; nil = no drift persistence
 	warnings  io.Writer                // optional; nil = io.Discard
 }
@@ -101,7 +100,7 @@ func NewServiceWithBehaviors(
 	edges *index.EdgeRepo,
 	edgeTypes manifest.EdgeTypes,
 	embedQueue *index.EmbedQueueRepo,
-	behaviors *behavior.Engine,
+	behaviors Behaviors,
 	drift *index.WorkflowDriftRepo,
 	warnings io.Writer,
 ) *Service {
@@ -329,7 +328,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	}
 
 	// Plan 7: recovery-aware validate phase + edge diff hooks.
-	var fireResult behavior.FireResult
+	var fireResult FireResult
 
 	if service.behaviors != nil {
 		result, fireErr := service.behaviors.FireNodeWriteValidateWithRecovery(beforeNode, reparsed)

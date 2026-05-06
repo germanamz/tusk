@@ -7,6 +7,7 @@ package behavior
 
 import (
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/node"
 )
 
 // HookContext carries per-call identity. Passed by value; future fields
@@ -32,14 +33,12 @@ const (
 )
 
 // Handler types, one per (primitive, phase) slot.
-// Node parameters are passed as any to avoid an import cycle between
-// internal/behavior and internal/node; concrete packs assert to *node.Node.
 
-type NodeWriteValidator func(ctx HookContext, before, after any) error
-type NodeWriteReactor func(ctx HookContext, before, after any) error
+type NodeWriteValidator func(ctx HookContext, before, after *node.Node) error
+type NodeWriteReactor func(ctx HookContext, before, after *node.Node) error
 
-type NodeReadValidator func(ctx HookContext, snapshot any) error
-type NodeReadReactor func(ctx HookContext, snapshot any) error
+type NodeReadValidator func(ctx HookContext, snapshot *node.Node) error
+type NodeReadReactor func(ctx HookContext, snapshot *node.Node) error
 
 type EdgeAddValidator func(ctx HookContext, edge index.EdgeRow) error
 type EdgeAddReactor func(ctx HookContext, edge index.EdgeRow) error

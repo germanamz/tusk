@@ -396,7 +396,7 @@ func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
 		name: "rejector",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				return errors.New("denied")
 			},
 		},
@@ -442,7 +442,7 @@ func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
 		name: "tracker",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteAfter: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteAfter: func(ctx behavior.HookContext, before, after *node.Node) error {
 				afterCalled++
 				return nil
 			},
@@ -517,7 +517,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		name: "rejector",
 		kind: "fake",
 		hooks: behavior.Hooks{
-			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after any) error {
+			OnNodeWriteValidate: func(ctx behavior.HookContext, before, after *node.Node) error {
 				return errors.New("denied")
 			},
 		},

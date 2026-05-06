@@ -37,24 +37,3 @@ type Kind interface {
 	Name() string
 	NewInstance(instanceName string, raw toml.Primitive, meta *toml.MetaData) (Instance, error)
 }
-
-// RecoveredEvent describes a non-fatal recovery event observed during
-// Validate-phase dispatch. Constructed by the engine from a Recoverable
-// error returned by a handler.
-type RecoveredEvent struct {
-	PackKind     string
-	PackInstance string
-	Property     string
-	From         string
-	To           string
-	Message      string
-}
-
-// Recoverable is the contract a Validate-phase handler error implements
-// when it represents a non-fatal recovery rather than a rejection. The
-// recovery-aware Fire variant uses errors.As against this interface to
-// distinguish "carry information through the chain" from "abort".
-type Recoverable interface {
-	error
-	AsRecoveredEvent(packKind, packInstance string) RecoveredEvent
-}

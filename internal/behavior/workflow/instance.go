@@ -87,19 +87,8 @@ func (inst *instance) ReservedKeys() []behavior.ReservedKey {
 }
 
 // validate is the OnNodeWriteValidate handler. Implements the algorithm
-// in spec §5.2. before and after are passed as any (to avoid an import
-// cycle between behavior and node) and asserted to *node.Node internally.
-func (inst *instance) validate(ctx behavior.HookContext, beforeAny, afterAny any) error {
-	var before, after *node.Node
-
-	if beforeAny != nil {
-		before = beforeAny.(*node.Node)
-	}
-
-	if afterAny != nil {
-		after = afterAny.(*node.Node)
-	}
-
+// in spec §5.2.
+func (inst *instance) validate(ctx behavior.HookContext, before, after *node.Node) error {
 	if after == nil {
 		return nil
 	}

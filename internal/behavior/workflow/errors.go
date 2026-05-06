@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/germanamz/tusk/internal/behavior"
+	"github.com/germanamz/tusk/internal/node"
 )
 
 // ErrorCode enumerates the rejection codes the workflow pack returns.
@@ -57,7 +57,7 @@ func (err *Error) Error() string {
 
 // RecoveredError is orphan-state recovery: returned when the validator
 // allows a transition out of a status the manifest no longer declares.
-// It implements behavior.Recoverable.
+// It implements node.Recoverable.
 type RecoveredError struct {
 	Property     string
 	From         string
@@ -70,11 +70,11 @@ func (err *RecoveredError) Error() string {
 		err.PackInstance, err.From, err.To)
 }
 
-// AsRecoveredEvent satisfies behavior.Recoverable. The engine populates
+// AsRecoveredEvent satisfies node.Recoverable. The engine populates
 // PackKind from the HookContext at fire time; PackInstance carried on
 // the error is reaffirmed for symmetry.
-func (err *RecoveredError) AsRecoveredEvent(packKind, packInstance string) behavior.RecoveredEvent {
-	return behavior.RecoveredEvent{
+func (err *RecoveredError) AsRecoveredEvent(packKind, packInstance string) node.RecoveredEvent {
+	return node.RecoveredEvent{
 		PackKind:     packKind,
 		PackInstance: packInstance,
 		Property:     err.Property,
