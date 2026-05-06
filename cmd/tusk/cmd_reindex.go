@@ -72,6 +72,7 @@ func newReindexCmd() *cobra.Command {
 					EmbeddingRepo:   embeddingRepo,
 					Embedder:        embedder,
 					Chunker:         chunker,
+					Meta:            index.NewMetaRepo(store),
 				})
 
 				if runErr != nil {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/ignore"
@@ -34,6 +35,10 @@ type Config struct {
 	EmbeddingRepo *index.EmbeddingRepo
 	Embedder      embed.Embedder
 	Chunker       embed.ChunkingStrategy
+
+	// Meta is optional; when set, Run records `last_reindex_at` (unix nanoseconds
+	// formatted as decimal string) at the end of every successful pass.
+	Meta *index.MetaRepo
 }
 
 // Report summarizes a reindex pass.
@@ -194,6 +199,12 @@ func Run(config Config) (*Report, error) {
 
 		if drainErr != nil {
 			return nil, drainErr
+		}
+	}
+
+	if config.Meta != nil {
+		if setErr := config.Meta.Set("last_reindex_at", fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
+			return nil, fmt.Errorf("reindex: record last_reindex_at: %w", setErr)
 		}
 	}
 

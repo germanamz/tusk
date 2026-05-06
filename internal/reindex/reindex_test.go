@@ -343,6 +343,39 @@ func TestRun_DrainsEmbedQueue(test *testing.T) {
 	}
 }
 
+func TestRun_RecordsLastReindexAt(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	metaRepo := index.NewMetaRepo(store)
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root: root,
+		Repo: index.NewNodeRepo(store),
+		Meta: metaRepo,
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	stored, getErr := metaRepo.Get("last_reindex_at")
+
+	if getErr != nil {
+		test.Fatalf("meta Get: %v", getErr)
+	}
+
+	if stored == "" {
+		test.Errorf("expected last_reindex_at to be set")
+	}
+}
+
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
 	test.Helper()
 
