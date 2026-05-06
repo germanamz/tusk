@@ -350,3 +350,70 @@ func TestTool_NodeDelete(test *testing.T) {
 		test.Errorf("expected Get error after delete")
 	}
 }
+
+func bootRuntimeWithEdgeTypes(test *testing.T) *mcp.Runtime {
+	test.Helper()
+
+	root := test.TempDir()
+
+	manifest := `[workspace]
+name = "x"
+
+[edge-types.blocks]
+description = "blocks another ticket"
+from = ["*"]
+to   = ["*"]
+cardinality = "many-to-many"
+acyclic = true
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifest), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	return rt
+}
+
+func TestTool_EdgeAddRemove(test *testing.T) {
+	rt := bootRuntimeWithEdgeTypes(test)
+	defer rt.Close()
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", PropertiesJSON: "{}", LastChecksum: "x"})
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/b", Type: "ticket", Path: "tickets/b.md", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	srv := mcp.NewServer(rt)
+
+	if _, callErr := callTool(test, srv, "tusk_edge_add", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/a",
+		"target_id": "tickets/b",
+	}); callErr != nil {
+		test.Fatalf("tusk_edge_add: %v", callErr)
+	}
+
+	rows, _ := rt.Edges.ListBySource("tickets/a")
+
+	if len(rows) != 1 {
+		test.Fatalf("len(rows) = %d after add, want 1", len(rows))
+	}
+
+	if _, callErr := callTool(test, srv, "tusk_edge_remove", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/a",
+		"target_id": "tickets/b",
+	}); callErr != nil {
+		test.Fatalf("tusk_edge_remove: %v", callErr)
+	}
+
+	rows, _ = rt.Edges.ListBySource("tickets/a")
+
+	if len(rows) != 0 {
+		test.Errorf("expected 0 rows after remove, got %d", len(rows))
+	}
+}
