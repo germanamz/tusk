@@ -53,5 +53,19 @@ func validate(loaded *Manifest) error {
 		}
 	}
 
+	if loaded.Embeddings.Provider != "" {
+		if loaded.Embeddings.Provider != "ollama" {
+			return fmt.Errorf("manifest: embeddings.provider = %q is not supported (Plan 5 supports \"ollama\" only; OpenAI/Voyage/Anthropic land in Plan 5.x)", loaded.Embeddings.Provider)
+		}
+
+		if loaded.Embeddings.Dim <= 0 {
+			return fmt.Errorf("manifest: embeddings.dim must be > 0")
+		}
+
+		if loaded.Embeddings.Model == "" {
+			return fmt.Errorf("manifest: embeddings.model must be set when embeddings.provider is configured")
+		}
+	}
+
 	return nil
 }

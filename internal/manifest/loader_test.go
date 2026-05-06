@@ -190,3 +190,107 @@ cardinality = "many-to-many"
 		test.Fatalf("expected error for empty from list")
 	}
 }
+
+func TestLoad_ParsesEmbeddings(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "my-brain"
+
+[embeddings]
+provider = "ollama"
+model = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+dim = 768
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if loaded.Embeddings.Provider != "ollama" {
+		test.Errorf("Provider = %q", loaded.Embeddings.Provider)
+	}
+
+	if loaded.Embeddings.Dim != 768 {
+		test.Errorf("Dim = %d", loaded.Embeddings.Dim)
+	}
+}
+
+func TestLoad_RejectsUnknownEmbeddingsProvider(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "bogus"
+model = "x"
+dim = 768
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+
+	if loadErr == nil {
+		test.Fatalf("expected error for unknown provider")
+	}
+}
+
+func TestLoad_RejectsZeroDim(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model = "x"
+dim = 0
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+
+	if loadErr == nil {
+		test.Fatalf("expected error for dim = 0")
+	}
+}
+
+func TestLoad_AcceptsAbsentEmbeddings(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if loaded.Embeddings.Provider != "" {
+		test.Errorf("Provider should be empty when [embeddings] absent: %q", loaded.Embeddings.Provider)
+	}
+}
