@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/behavior"
 	"github.com/germanamz/tusk/internal/index"
@@ -263,11 +264,20 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		return nil, fmt.Errorf("node: read %s: %w", row.Path, readErr)
 	}
 
-	parsed, parseErr := ParseFile(row.Path, original)
+	beforeNode, parseBeforeErr := ParseFile(row.Path, original)
 
-	if parseErr != nil {
-		return nil, parseErr
+	if parseBeforeErr != nil {
+		return nil, parseBeforeErr
 	}
+
+	// Resolve edges on the before-node so the diff against the after-node
+	// is well-defined.
+	if resolveErr := ResolveEdges(beforeNode, service.edgeTypes); resolveErr != nil {
+		return nil, resolveErr
+	}
+
+	// Apply Set/Unset/Body to produce after-node.
+	parsed := beforeNode.Clone()
 
 	for _, key := range input.UnsetKeys {
 		if key == "type" {
@@ -298,16 +308,6 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		return nil, renderErr
 	}
 
-	if writeErr := atomicWrite(absPath, rendered); writeErr != nil {
-		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
-	}
-
-	stat, statErr := os.Stat(absPath)
-
-	if statErr != nil {
-		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
-	}
-
 	reparsed, reparseErr := ParseFile(row.Path, rendered)
 
 	if reparseErr != nil {
@@ -326,6 +326,43 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	if cycleErr := service.detectCyclesForAcyclicEdges(reparsed); cycleErr != nil {
 		return nil, cycleErr
+	}
+
+	// Plan 7: recovery-aware validate phase + edge diff hooks.
+	var fireResult behavior.FireResult
+
+	if service.behaviors != nil {
+		result, fireErr := service.behaviors.FireNodeWriteValidateWithRecovery(beforeNode, reparsed)
+
+		if fireErr != nil {
+			return nil, fmt.Errorf("behavior %s rejected modify: %w", result.Rejector, fireErr)
+		}
+
+		fireResult = result
+
+		removed, added := diffEdgeSets(beforeNode, reparsed)
+
+		for _, edgeRow := range removed {
+			if rejector, edgeFireErr := service.behaviors.FireEdgeRemoveValidate(edgeRow); edgeFireErr != nil {
+				return nil, fmt.Errorf("behavior %s rejected edge remove: %w", rejector, edgeFireErr)
+			}
+		}
+
+		for _, edgeRow := range added {
+			if rejector, edgeFireErr := service.behaviors.FireEdgeAddValidate(edgeRow); edgeFireErr != nil {
+				return nil, fmt.Errorf("behavior %s rejected edge add: %w", rejector, edgeFireErr)
+			}
+		}
+	}
+
+	if writeErr := atomicWrite(absPath, rendered); writeErr != nil {
+		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
+	}
+
+	stat, statErr := os.Stat(absPath)
+
+	if statErr != nil {
+		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
 	}
 
 	checksum := sha256Hex(rendered)
@@ -357,6 +394,46 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	if service.embedQueue != nil {
 		if enqueueErr := service.embedQueue.Enqueue(reparsed.ID); enqueueErr != nil {
 			return nil, enqueueErr
+		}
+	}
+
+	// Plan 7: after-phase + recovery surface.
+	if service.behaviors != nil {
+		_ = service.behaviors.FireNodeWriteAfter(beforeNode, reparsed)
+
+		removed, added := diffEdgeSets(beforeNode, reparsed)
+
+		for _, edgeRow := range removed {
+			_ = service.behaviors.FireEdgeRemoveAfter(edgeRow)
+		}
+
+		for _, edgeRow := range added {
+			_ = service.behaviors.FireEdgeAddAfter(edgeRow)
+		}
+
+		// Surface recovered events: stderr warning + drift row.
+		now := time.Now().UnixNano()
+
+		for _, recovered := range fireResult.Recovered {
+			_, _ = fmt.Fprintf(service.warnings,
+				"warning: workflow %q recovered from unknown status %q → %q on %s; transition not validated\n",
+				recovered.PackInstance, recovered.From, recovered.To, reparsed.ID)
+
+			if service.drift != nil {
+				_ = service.drift.Append(index.WorkflowDriftRow{
+					NodeID:         reparsed.ID,
+					PackInstance:   recovered.PackInstance,
+					PackKind:       recovered.PackKind,
+					ObservedStatus: recovered.From,
+					Property:       recovered.Property,
+					ObservedAt:     now,
+				})
+			}
+		}
+
+		// Clean pass: no rejection, no recovery — clear any prior drift for this node.
+		if len(fireResult.Recovered) == 0 && service.drift != nil {
+			_ = service.drift.ClearForNode(reparsed.ID)
 		}
 	}
 
@@ -430,6 +507,47 @@ func flattenEdges(parsedNode *Node) []index.EdgeRow {
 	}
 
 	return rows
+}
+
+// diffEdgeSets compares before vs. after edge sets and returns the rows
+// to fire EdgeRemove / EdgeAdd hooks for. A row identifies its edge by
+// (Type, SourceID, TargetID, Ordinal); ordering matches flattenEdges.
+func diffEdgeSets(before, after *Node) (removed, added []index.EdgeRow) {
+	beforeRows := flattenEdges(before)
+	afterRows := flattenEdges(after)
+
+	type key struct {
+		typeName string
+		sourceID string
+		targetID string
+		ordinal  int
+	}
+
+	beforeSet := make(map[key]index.EdgeRow, len(beforeRows))
+
+	for _, row := range beforeRows {
+		beforeSet[key{row.Type, row.SourceID, row.TargetID, row.Ordinal}] = row
+	}
+
+	afterSet := make(map[key]index.EdgeRow, len(afterRows))
+
+	for _, row := range afterRows {
+		afterSet[key{row.Type, row.SourceID, row.TargetID, row.Ordinal}] = row
+	}
+
+	for kk, row := range beforeSet {
+		if _, present := afterSet[kk]; !present {
+			removed = append(removed, row)
+		}
+	}
+
+	for kk, row := range afterSet {
+		if _, present := beforeSet[kk]; !present {
+			added = append(added, row)
+		}
+	}
+
+	return removed, added
 }
 
 // appendUnique appends value to slice only if not already present.
