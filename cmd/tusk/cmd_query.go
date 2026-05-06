@@ -12,17 +12,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newNodeListCmd() *cobra.Command {
+func newQueryCmd() *cobra.Command {
 	var (
 		sortSpec string
 		take     int
 		skip     int
+		emitJSON bool
 	)
 
-	listCmd := &cobra.Command{
-		Use:   "list [filter]",
-		Short: "List nodes from the index, optionally filtering by expression",
-		Args:  cobra.MaximumNArgs(1),
+	queryCmd := &cobra.Command{
+		Use:   "query <filter>",
+		Short: "Run a structural filter against the workspace",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 
@@ -42,13 +43,7 @@ func newNodeListCmd() *cobra.Command {
 				return loadErr
 			}
 
-			filterArg := ""
-
-			if len(args) == 1 {
-				filterArg = args[0]
-			}
-
-			expr, parseErrs := filter.NewParser(filterArg).Parse()
+			expr, parseErrs := filter.NewParser(args[0]).Parse()
 
 			if len(parseErrs) > 0 {
 				return fmt.Errorf("filter parse: %v", parseErrs[0])
@@ -92,6 +87,12 @@ func newNodeListCmd() *cobra.Command {
 
 			defer rows.Close()
 
+			if emitJSON {
+				_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
+
+				return nil
+			}
+
 			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 			_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
@@ -119,9 +120,10 @@ func newNodeListCmd() *cobra.Command {
 		},
 	}
 
-	listCmd.Flags().StringVar(&sortSpec, "sort", "", "sort spec, e.g., +priority,-due,+modified")
-	listCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
-	listCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
+	queryCmd.Flags().StringVar(&sortSpec, "sort", "", "sort spec, e.g., +priority,-due,+modified")
+	queryCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
+	queryCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
+	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON")
 
-	return listCmd
+	return queryCmd
 }

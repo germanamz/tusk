@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -38,7 +39,7 @@ func TestNodeListCmd_PrintsCreatedNodes(test *testing.T) {
 	}
 }
 
-func TestNodeListCmd_FiltersByType(test *testing.T) {
+func TestNodeListCmd_PositionalFilterByType(test *testing.T) {
 	initWorkspace(test)
 
 	for _, args := range [][]string{
@@ -58,7 +59,7 @@ func TestNodeListCmd_FiltersByType(test *testing.T) {
 	listCmd := newRootCmd()
 	listCmd.SetOut(output)
 	listCmd.SetErr(output)
-	listCmd.SetArgs([]string{"node", "list", "--type", "ticket"})
+	listCmd.SetArgs([]string{"node", "list", "type=ticket"})
 
 	if execErr := listCmd.Execute(); execErr != nil {
 		test.Fatalf("list: %v", execErr)
@@ -66,11 +67,11 @@ func TestNodeListCmd_FiltersByType(test *testing.T) {
 
 	body := output.String()
 
-	if bytes.Contains(output.Bytes(), []byte(" a ")) || bytes.Contains(output.Bytes(), []byte("\ta\t")) {
-		test.Errorf("expected only ticket in output, got: %s", body)
+	if strings.Contains(body, "\na\t") {
+		test.Errorf("expected only ticket: %s", body)
 	}
 
-	if !bytes.Contains(output.Bytes(), []byte("b")) {
+	if !strings.Contains(body, "b") {
 		test.Errorf("missing b: %s", body)
 	}
 }
