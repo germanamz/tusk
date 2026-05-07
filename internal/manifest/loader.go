@@ -26,6 +26,7 @@ var supportedPropertyTypes = map[string]struct{}{
 	"enum":     {},
 	"markdown": {},
 	"list-of":  {},
+	"ref":      {},
 }
 
 // reservedPropertyNames are the names that cannot appear in any property declaration.

@@ -39,6 +39,13 @@ type PropertyDecl struct {
 	Values      []string `toml:"values"`
 	Required    bool     `toml:"required"`
 	Description string   `toml:"description"`
+
+	// ref-only fields: meaningful only when Type == "ref" or
+	// (Type == "list-of" && ItemType == "ref").
+	To      string `toml:"to"`
+	Inverse string `toml:"inverse"`
+	Acyclic bool   `toml:"acyclic"`
+	Ordered bool   `toml:"ordered"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.

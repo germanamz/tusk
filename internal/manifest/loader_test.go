@@ -649,3 +649,65 @@ func TestValidate_AcceptsListOfEnum(test *testing.T) {
 		test.Errorf("Validate: %v", validateErr)
 	}
 }
+
+func TestLoad_DecodesRefPropertyFields(test *testing.T) {
+	dir := test.TempDir()
+	manifestPath := filepath.Join(dir, "tusk.toml")
+
+	content := `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+    { name = "watchers", type = "list-of", item-type = "ref", to = "person", inverse = "watching" },
+    { name = "parent",   type = "ref", to = "ticket", acyclic = true },
+    { name = "ordered_list", type = "list-of", item-type = "ref", to = "person", ordered = true },
+]
+`
+	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	ticket := loaded.NodeTypes["ticket"]
+
+	if len(ticket.Properties) != 4 {
+		test.Fatalf("ticket.Properties count = %d, want 4", len(ticket.Properties))
+	}
+
+	assignee := ticket.Properties[0]
+
+	if assignee.Type != "ref" || assignee.To != "person" {
+		test.Errorf("assignee = %+v", assignee)
+	}
+
+	watchers := ticket.Properties[1]
+
+	if watchers.Type != "list-of" || watchers.ItemType != "ref" || watchers.To != "person" || watchers.Inverse != "watching" {
+		test.Errorf("watchers = %+v", watchers)
+	}
+
+	parent := ticket.Properties[2]
+
+	if parent.Type != "ref" || parent.To != "ticket" || !parent.Acyclic {
+		test.Errorf("parent = %+v", parent)
+	}
+
+	ordered := ticket.Properties[3]
+
+	if ordered.Type != "list-of" || ordered.ItemType != "ref" || !ordered.Ordered {
+		test.Errorf("ordered_list = %+v", ordered)
+	}
+}
