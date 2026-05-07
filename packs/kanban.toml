@@ -1,0 +1,64 @@
+# Tusk built-in pack: kanban
+#
+# Adds a `ticket` node type with workflow-validated status, priority,
+# and due-date properties; a WBS `parent` edge for hierarchy; and a
+# `blocks` edge for dependency.
+#
+# A "project" in this pack is just a higher-level ticket — the WBS
+# parent edge captures the hierarchy. There is no separate `project`
+# node type; if you need one, declare `[node-types.project]` in your
+# workspace manifest.
+#
+# Tagging is intentionally out of scope here. To tag tickets, run
+# `tusk pack add tags` (composes cleanly), then either `[[tag/x]]`
+# wikilinks in the body or a per-ticket ref opt-in:
+#   properties = [{ name = "tags", type = "list-of",
+#                   item-type = "ref", to = "tag" }]
+#
+# Customizing workflow states: edit BOTH the ticket `status` enum
+# values AND the [behaviors.workflow.kanban].states list — they must
+# stay aligned, since the property validator and the workflow
+# validator each enforce their own slice of the contract.
+
+[node-types.ticket]
+description = "A unit of work tracked through a workflow"
+properties = [
+    { name = "status",   type = "enum", values = ["pending", "active", "completed"], required = true },
+    { name = "priority", type = "enum", values = ["low", "medium", "high"] },
+    { name = "due",      type = "date" },
+]
+
+[edge-types.parent]
+description = "WBS parent — this ticket is a child of another ticket"
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-one"
+ordered     = true
+acyclic     = true
+inverse     = "children"
+
+[edge-types.blocks]
+description = "This ticket blocks another from progressing"
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = true
+inverse     = "blocked-by"
+
+[behaviors.workflow.kanban]
+applies-to      = ["ticket"]
+status-property = "status"
+
+states = [
+    { name = "pending",   initial = true },
+    { name = "active",    start = true },
+    { name = "completed", terminal = true, done = true },
+]
+
+transitions = [
+    { from = "pending",   to = "active" },
+    { from = "active",    to = "completed" },
+    { from = "active",    to = "pending" },
+    { from = "completed", to = "pending" },
+]
