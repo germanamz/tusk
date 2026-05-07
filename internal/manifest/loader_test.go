@@ -711,3 +711,96 @@ properties = [
 		test.Errorf("ordered_list = %+v", ordered)
 	}
 }
+
+func TestValidate_RejectsRefWithoutTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "ref property requires `to`") {
+		test.Errorf("Validate: expected ref-without-to error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsListOfRefWithoutTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "watchers", Type: "list-of", ItemType: "ref"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "ref property requires `to`") {
+		test.Errorf("Validate: expected list-of(ref)-without-to error, got %v", validateErr)
+	}
+}
+
+func TestValidate_AcceptsRefWithToWildcard(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "linked", Type: "ref", To: "*"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Errorf("Validate: ref with to=* unexpectedly rejected: %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsRefToUndeclaredType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "person") {
+		test.Errorf("Validate: expected ref-to-undeclared error, got %v", validateErr)
+	}
+}
+
+func TestValidate_AcceptsRefToDeclaredType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Errorf("Validate: ref to declared type unexpectedly rejected: %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsRefWithValues(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "ref", To: "person", Values: []string{"a", "b"}},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "values") {
+		test.Errorf("Validate: expected ref-with-values error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsRefWithItemType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "ref", To: "person", ItemType: "string"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "item-type") {
+		test.Errorf("Validate: expected ref-with-item-type error, got %v", validateErr)
+	}
+}

@@ -71,6 +71,10 @@ func Validate(loaded *Manifest) error {
 		return validateErr
 	}
 
+	if validateErr := validateRefTargets(loaded); validateErr != nil {
+		return validateErr
+	}
+
 	return validateBehaviors(loaded)
 }
 
@@ -111,13 +115,26 @@ func validateNodeTypes(loaded *Manifest) error {
 	return nil
 }
 
-// validatePropertyTypeConstraints enforces per-type rules for enum, list-of, and
+// validatePropertyTypeConstraints enforces per-type rules for enum, list-of, ref, and
 // misplaced constraint keys.
 func validatePropertyTypeConstraints(typeName string, prop PropertyDecl) error {
 	switch prop.Type {
 	case "enum":
 		if enumErr := validateEnumValues(typeName, prop.Name, prop.Values); enumErr != nil {
 			return enumErr
+		}
+
+	case "ref":
+		if prop.To == "" {
+			return fmt.Errorf("manifest: node-types.%s.%s: ref property requires `to`", typeName, prop.Name)
+		}
+
+		if len(prop.Values) > 0 {
+			return fmt.Errorf("manifest: node-types.%s.%s: ref property cannot declare values", typeName, prop.Name)
+		}
+
+		if prop.ItemType != "" {
+			return fmt.Errorf("manifest: node-types.%s.%s: ref property cannot declare item-type", typeName, prop.Name)
 		}
 
 	case "list-of":
@@ -135,6 +152,10 @@ func validatePropertyTypeConstraints(typeName string, prop PropertyDecl) error {
 			}
 		}
 
+		if prop.ItemType == "ref" && prop.To == "" {
+			return fmt.Errorf("manifest: node-types.%s.%s: ref property requires `to`", typeName, prop.Name)
+		}
+
 	default:
 		// Misplaced constraint: values on a non-enum type.
 		if len(prop.Values) > 0 {
@@ -144,6 +165,32 @@ func validatePropertyTypeConstraints(typeName string, prop PropertyDecl) error {
 		// Misplaced constraint: item-type on a non-list-of type.
 		if prop.ItemType != "" {
 			return fmt.Errorf("manifest: node-types.%s.%s: item-type is only valid for list-of, not %q", typeName, prop.Name, prop.Type)
+		}
+	}
+
+	return nil
+}
+
+// validateRefTargets checks that every ref property's To target is either "*"
+// or the name of a declared node-type. This pass runs after validateNodeTypes
+// so the full NodeTypes map is available.
+func validateRefTargets(loaded *Manifest) error {
+	for typeName, nodeType := range loaded.NodeTypes {
+		for _, prop := range nodeType.Properties {
+			isRef := prop.Type == "ref"
+			isListOfRef := prop.Type == "list-of" && prop.ItemType == "ref"
+
+			if !isRef && !isListOfRef {
+				continue
+			}
+
+			if prop.To == "" || prop.To == "*" {
+				continue
+			}
+
+			if _, exists := loaded.NodeTypes[prop.To]; !exists {
+				return fmt.Errorf("manifest: node-types.%s.%s: ref to unknown node-type %q", typeName, prop.Name, prop.To)
+			}
 		}
 	}
 
