@@ -605,6 +605,8 @@ func registerNodeModifyTool(srv *Server) {
 			srv.runtime.Edges,
 			srv.runtime.Manifest.EdgeTypes,
 			srv.runtime.EmbedQueue,
+			nil,
+			nil,
 			srv.runtime.BehaviorEngine,
 			srv.runtime.WorkflowDrift,
 			&warningsBuf,

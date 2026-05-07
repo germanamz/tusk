@@ -49,6 +49,9 @@ type Service struct {
 	edgeTypes  manifest.EdgeTypes
 	embedQueue *index.EmbedQueueRepo
 
+	nodeTypes     map[string]manifest.NodeType // optional; nil = untyped pass-through
+	propertyDrift *index.PropertyDriftRepo     // optional; nil = no property drift persistence
+
 	behaviors Behaviors                // optional; nil = no hook dispatch
 	drift     *index.WorkflowDriftRepo // optional; nil = no drift persistence
 	warnings  io.Writer                // optional; nil = io.Discard
@@ -94,12 +97,16 @@ func NewServiceWithEmbedQueue(workspaceRoot string, repo *index.NodeRepo, edges 
 // NewServiceWithBehaviors is the Plan 7 production constructor: like
 // NewServiceWithEmbedQueue, but also wires the behavior engine, the
 // drift log, and a warnings writer (defaults to io.Discard when nil).
+// Plan 7.b adds nodeTypes and propertyDrift; pass nil for both until
+// Tasks 14–17 wire the real values through.
 func NewServiceWithBehaviors(
 	workspaceRoot string,
 	repo *index.NodeRepo,
 	edges *index.EdgeRepo,
 	edgeTypes manifest.EdgeTypes,
 	embedQueue *index.EmbedQueueRepo,
+	nodeTypes map[string]manifest.NodeType,
+	propertyDrift *index.PropertyDriftRepo,
 	behaviors Behaviors,
 	drift *index.WorkflowDriftRepo,
 	warnings io.Writer,
@@ -109,14 +116,16 @@ func NewServiceWithBehaviors(
 	}
 
 	return &Service{
-		root:       workspaceRoot,
-		repo:       repo,
-		edges:      edges,
-		edgeTypes:  edgeTypes,
-		embedQueue: embedQueue,
-		behaviors:  behaviors,
-		drift:      drift,
-		warnings:   warnings,
+		root:          workspaceRoot,
+		repo:          repo,
+		edges:         edges,
+		edgeTypes:     edgeTypes,
+		embedQueue:    embedQueue,
+		nodeTypes:     nodeTypes,
+		propertyDrift: propertyDrift,
+		behaviors:     behaviors,
+		drift:         drift,
+		warnings:      warnings,
 	}
 }
 

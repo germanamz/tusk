@@ -410,6 +410,8 @@ func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
@@ -457,6 +459,8 @@ func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
@@ -501,7 +505,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -531,6 +535,8 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
@@ -558,7 +564,7 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -583,6 +589,8 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		driftRepo,
 		&warnings,
@@ -625,7 +633,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 	seed := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -642,7 +650,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		engine, driftRepo, io.Discard,
+		nil, nil, engine, driftRepo, io.Discard,
 	)
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
