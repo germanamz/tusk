@@ -8,6 +8,33 @@ import (
 	"testing"
 )
 
+func TestReindex_OffSchemaPropertyReportedInSummary(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	if mkErr := os.MkdirAll(filepath.Join(root, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tickets/bar.md"), []byte(`---
+type: ticket
+summary: hi
+priority: high
+---
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	stdout, _, ok := runCLISplit(root, "reindex")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stdout.String(), "property-violation") {
+		test.Errorf("stdout = %q, want mention of property-violation", stdout.String())
+	}
+}
+
 func TestReindexCmd_PicksUpExternalFile(test *testing.T) {
 	tmpDir := initWorkspace(test)
 

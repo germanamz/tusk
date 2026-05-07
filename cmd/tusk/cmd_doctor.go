@@ -40,6 +40,7 @@ func newDoctorCmd() *cobra.Command {
 				Edges:         index.NewEdgeRepo(store),
 				EmbedQueue:    index.NewEmbedQueueRepo(store),
 				WorkflowDrift: index.NewWorkflowDriftRepo(store),
+				PropertyDrift: index.NewPropertyDriftRepo(store),
 			})
 
 			if runErr != nil {
