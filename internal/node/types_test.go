@@ -234,3 +234,107 @@ func TestValidateProperties_UndeclaredPropertyAppearsInDrift(test *testing.T) {
 		test.Errorf("expected one Drift entry for assignee; got %+v", got.Drift)
 	}
 }
+
+func TestValidateProperties_ListOfStringAccepts(test *testing.T) {
+	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"labels": []any{"auth", "security"}}}
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "labels", Type: "list-of", ItemType: "string"}}},
+	}
+
+	if got := node.ValidateProperties(parsed, decls); len(got.HardErrors) != 0 {
+		test.Errorf("expected pass; got %+v", got)
+	}
+}
+
+func TestValidateProperties_ListOfStringRejectsMixedElement(test *testing.T) {
+	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"labels": []any{"auth", 42}}}
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "labels", Type: "list-of", ItemType: "string"}}},
+	}
+
+	got := node.ValidateProperties(parsed, decls)
+
+	if len(got.HardErrors) != 1 {
+		test.Errorf("expected one HardError for the int element; got %+v", got)
+	}
+}
+
+func TestValidateProperties_ListOfEnumAccepts(test *testing.T) {
+	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"stages": []any{"draft", "review"}}}
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{
+			Name: "stages", Type: "list-of", ItemType: "enum", Values: []string{"draft", "review", "shipped"},
+		}}},
+	}
+
+	if got := node.ValidateProperties(parsed, decls); len(got.HardErrors) != 0 {
+		test.Errorf("expected pass; got %+v", got)
+	}
+}
+
+func TestValidateProperties_ListOfEnumRejectsOutOfValues(test *testing.T) {
+	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"stages": []any{"draft", "shipping"}}}
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{
+			Name: "stages", Type: "list-of", ItemType: "enum", Values: []string{"draft", "review", "shipped"},
+		}}},
+	}
+
+	got := node.ValidateProperties(parsed, decls)
+
+	if len(got.HardErrors) != 1 || got.HardErrors[0].Kind != node.ErrEnumViolation {
+		test.Errorf("expected one ErrEnumViolation; got %+v", got)
+	}
+}
+
+func TestValidateProperties_ListOfRejectsNonList(test *testing.T) {
+	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"labels": "auth"}}
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "labels", Type: "list-of", ItemType: "string"}}},
+	}
+
+	if got := node.ValidateProperties(parsed, decls); len(got.HardErrors) != 1 || got.HardErrors[0].Kind != node.ErrTypeMismatch {
+		test.Errorf("expected ErrTypeMismatch; got %+v", got)
+	}
+}
+
+func TestWhichRequiredWereUnset_NotRequired(test *testing.T) {
+	before := &node.Node{Type: "ticket", Properties: map[string]any{"x": "v"}}
+	after := &node.Node{Type: "ticket", Properties: map[string]any{}}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "x", Type: "string"}}},
+	}
+
+	if got := node.WhichRequiredWereUnset(before, after, decls); len(got) != 0 {
+		test.Errorf("expected empty; got %v", got)
+	}
+}
+
+func TestWhichRequiredWereUnset_RequiredUnsetReturnsName(test *testing.T) {
+	before := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "v"}}
+	after := &node.Node{Type: "ticket", Properties: map[string]any{}}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
+	}
+
+	got := node.WhichRequiredWereUnset(before, after, decls)
+
+	if len(got) != 1 || got[0] != "summary" {
+		test.Errorf("expected [summary]; got %v", got)
+	}
+}
+
+func TestWhichRequiredWereUnset_RequiredStillPresentReturnsEmpty(test *testing.T) {
+	before := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "v"}}
+	after := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "v2"}}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
+	}
+
+	if got := node.WhichRequiredWereUnset(before, after, decls); len(got) != 0 {
+		test.Errorf("expected empty; got %v", got)
+	}
+}
