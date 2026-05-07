@@ -159,7 +159,7 @@ name = "test"
 [node-types.ticket]
 description = "A unit of trackable work"
 properties = [
-    { name = "title",    type = "string", required = true },
+    { name = "summary",    type = "string", required = true },
     { name = "priority", type = "int" },
     { name = "due",      type = "date" },
     { name = "labels",   type = "list-of", item-type = "string" },
@@ -169,7 +169,7 @@ properties = [
 [node-types.note]
 description = "Free-form note"
 properties = [
-    { name = "title", type = "string", required = true },
+    { name = "summary", type = "string", required = true },
 ]
 `
 	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
@@ -202,7 +202,7 @@ properties = [
 
 	titleProp := ticket.Properties[0]
 
-	if titleProp.Name != "title" || titleProp.Type != "string" || !titleProp.Required {
+	if titleProp.Name != "summary" || titleProp.Type != "string" || !titleProp.Required {
 		test.Errorf("ticket.Properties[0] = %+v", titleProp)
 	}
 
@@ -286,7 +286,7 @@ Add the following tests to `internal/manifest/loader_test.go`. Each test asserts
 func TestValidate_RejectsNodeTypeWithEmptyName(test *testing.T) {
 	loaded := &manifest.Manifest{
 		NodeTypes: map[string]manifest.NodeType{
-			"": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string"}}},
+			"": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string"}}},
 		},
 	}
 
@@ -356,7 +356,7 @@ func TestValidate_AcceptsHappyPath(test *testing.T) {
 	loaded := &manifest.Manifest{
 		NodeTypes: map[string]manifest.NodeType{
 			"ticket": {Properties: []manifest.PropertyDecl{
-				{Name: "title", Type: "string", Required: true},
+				{Name: "summary", Type: "string", Required: true},
 				{Name: "n",     Type: "int"},
 				{Name: "f",     Type: "float"},
 				{Name: "b",     Type: "bool"},
@@ -605,10 +605,10 @@ func TestValidateProperties_UntypedNodePassThrough(test *testing.T) {
 }
 
 func TestValidateProperties_RequiredPresent(test *testing.T) {
-	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"title": "ok"}}
+	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "ok"}}
 
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
 	}
 
 	result := node.ValidateProperties(parsed, decls)
@@ -623,7 +623,7 @@ func TestValidateProperties_RequiredMissing(test *testing.T) {
 
 	decls := map[string]manifest.NodeType{
 		"ticket": {Properties: []manifest.PropertyDecl{
-			{Name: "title", Type: "string", Required: true},
+			{Name: "summary", Type: "string", Required: true},
 			{Name: "due",   Type: "date",   Required: true},
 		}},
 	}
@@ -634,7 +634,7 @@ func TestValidateProperties_RequiredMissing(test *testing.T) {
 		test.Fatalf("HardErrors count = %d, want 2; got %+v", len(result.HardErrors), result.HardErrors)
 	}
 
-	if result.HardErrors[0].Kind != node.ErrRequiredMissing || result.HardErrors[0].Property != "title" {
+	if result.HardErrors[0].Kind != node.ErrRequiredMissing || result.HardErrors[0].Property != "summary" {
 		test.Errorf("HardErrors[0] = %+v", result.HardErrors[0])
 	}
 
@@ -688,7 +688,7 @@ type PropertyDrift struct {
 `ValidateProperties` algorithm in this task:
 
 1. If `decls[parsed.Type]` is absent, return an empty result (untyped pass-through).
-2. For each `PropertyDecl` with `Required = true` whose `Name` is absent from `parsed.Properties`, append `PropertyError{Kind: ErrRequiredMissing, Property: decl.Name, Type: <render of decl.Type>, Reason: "property \"<name>\" is required (declared in [node-types.<t>])"}`. Order: declaration order (Task 4's third test pins "title before due" because the declaration order is title, due).
+2. For each `PropertyDecl` with `Required = true` whose `Name` is absent from `parsed.Properties`, append `PropertyError{Kind: ErrRequiredMissing, Property: decl.Name, Type: <render of decl.Type>, Reason: "property \"<name>\" is required (declared in [node-types.<t>])"}`. Order: declaration order (Task 4's third test pins "summary before due" because the declaration order is summary, due).
 3. Per-property loop is empty in this task — Task 5 fills it.
 4. Return.
 
@@ -885,7 +885,7 @@ func TestValidateProperties_MarkdownAcceptsString(test *testing.T) {
 func TestValidateProperties_UndeclaredPropertyAppearsInDrift(test *testing.T) {
 	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"assignee": "bob"}}
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string"}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string"}}},
 	}
 
 	got := node.ValidateProperties(parsed, decls)
@@ -1033,26 +1033,26 @@ func TestWhichRequiredWereUnset_NotRequired(test *testing.T) {
 }
 
 func TestWhichRequiredWereUnset_RequiredUnsetReturnsName(test *testing.T) {
-	before := &node.Node{Type: "ticket", Properties: map[string]any{"title": "v"}}
+	before := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "v"}}
 	after := &node.Node{Type: "ticket", Properties: map[string]any{}}
 
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
 	}
 
 	got := node.WhichRequiredWereUnset(before, after, decls)
 
-	if len(got) != 1 || got[0] != "title" {
-		test.Errorf("expected [title]; got %v", got)
+	if len(got) != 1 || got[0] != "summary" {
+		test.Errorf("expected [summary]; got %v", got)
 	}
 }
 
 func TestWhichRequiredWereUnset_RequiredStillPresentReturnsEmpty(test *testing.T) {
-	before := &node.Node{Type: "ticket", Properties: map[string]any{"title": "v"}}
-	after := &node.Node{Type: "ticket", Properties: map[string]any{"title": "v2"}}
+	before := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "v"}}
+	after := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "v2"}}
 
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
 	}
 
 	if got := node.WhichRequiredWereUnset(before, after, decls); len(got) != 0 {
@@ -1457,7 +1457,7 @@ func TestCreate_PropertyRequiredMissingRejects(test *testing.T) {
 	defer store.Close()
 
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
 	}
 
 	service := node.NewServiceWithBehaviors(
@@ -1476,7 +1476,7 @@ func TestCreate_PropertyRequiredMissingRejects(test *testing.T) {
 		Type:    "ticket",
 	})
 
-	if createErr == nil || !strings.Contains(createErr.Error(), "title") {
+	if createErr == nil || !strings.Contains(createErr.Error(), "summary") {
 		test.Errorf("Create: expected required-missing error, got %v", createErr)
 	}
 
@@ -1525,7 +1525,7 @@ func TestCreate_PropertyUndeclaredWritesAndDrifts(test *testing.T) {
 	defer store.Close()
 
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string"}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string"}}},
 	}
 
 	driftRepo := index.NewPropertyDriftRepo(store)
@@ -1546,7 +1546,7 @@ func TestCreate_PropertyUndeclaredWritesAndDrifts(test *testing.T) {
 	if _, createErr := service.Create(node.CreateInput{
 		RelPath:    "tickets/foo.md",
 		Type:       "ticket",
-		Properties: map[string]any{"title": "hi", "assignee": "bob"},
+		Properties: map[string]any{"summary": "hi", "assignee": "bob"},
 	}); createErr != nil {
 		test.Fatalf("Create: %v", createErr)
 	}
@@ -1593,7 +1593,7 @@ func (err *PropertyValidationError) Error() string  // returns the joined human 
 
 ```
 node-types: rejected create: ticket "tickets/foo" has 1 error:
-  - property "title" is required (declared in [node-types.ticket])
+  - property "summary" is required (declared in [node-types.ticket])
 ```
 
 The header line names the op, node-type, and node-id; each error is rendered as `- property "<name>" <reason>` on an indented line.
@@ -1609,7 +1609,7 @@ The joined hard-error message format (used by both Create and Modify): a header 
 
 ```
 node-types: rejected create: ticket "tickets/foo" has 1 error:
-  - property "title" is required (declared in [node-types.ticket])
+  - property "summary" is required (declared in [node-types.ticket])
 ```
 
 The implementer formats the bullet text from each `PropertyError.Reason` field, prefixed with `- property "<name>" `.
@@ -1702,7 +1702,7 @@ func TestModify_UnsetRequiredRejects(test *testing.T) {
 	}
 
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
 	}
 
 	service := node.NewServiceWithBehaviors(
@@ -1714,7 +1714,7 @@ func TestModify_UnsetRequiredRejects(test *testing.T) {
 
 	_, modifyErr := service.Modify(node.ModifyInput{
 		ID:        "tickets/foo",
-		UnsetKeys: []string{"title"},
+		UnsetKeys: []string{"summary"},
 	})
 
 	if modifyErr == nil || !strings.Contains(modifyErr.Error(), "cannot unset required") {
@@ -1743,7 +1743,7 @@ func TestModify_UndeclaredPropertyDriftsAndClearsOnCleanPass(test *testing.T) {
 	}
 
 	decls := map[string]manifest.NodeType{
-		"ticket": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
 	}
 
 	driftRepo := index.NewPropertyDriftRepo(store)
@@ -2009,7 +2009,7 @@ func TestRun_SurfacesPropertyDrift(test *testing.T) {
 	rows := []index.PropertyDriftRow{
 		{NodeID: "tickets/foo", NodeType: "ticket", Kind: "undeclared-property", Property: "assignee", Details: "not declared on type \"ticket\"", ObservedAt: 100},
 		{NodeID: "tickets/bar", NodeType: "ticket", Kind: "type-mismatch",       Property: "priority", Details: "value \"high\" is not an integer", ObservedAt: 200},
-		{NodeID: "tickets/baz", NodeType: "ticket", Kind: "required-missing",    Property: "title",    Details: "required",                            ObservedAt: 300},
+		{NodeID: "tickets/baz", NodeType: "ticket", Kind: "required-missing",    Property: "summary",    Details: "required",                            ObservedAt: 300},
 		{NodeID: "tickets/qux", NodeType: "ticket", Kind: "enum-violation",      Property: "stage",    Details: "value \"shipping\" not in [pending, active, completed]", ObservedAt: 400},
 	}
 
@@ -2345,8 +2345,8 @@ func TestNodeCreate_PropertyRequiredMissingRejected(test *testing.T) {
 		test.Errorf("exit = 0, want non-zero")
 	}
 
-	if !strings.Contains(stderr.String(), "title") {
-		test.Errorf("stderr = %q, want mention of title", stderr.String())
+	if !strings.Contains(stderr.String(), "summary") {
+		test.Errorf("stderr = %q, want mention of summary", stderr.String())
 	}
 }
 
@@ -2381,7 +2381,7 @@ name = "test"
 
 [node-types.ticket]
 properties = [
-    { name = "title",    type = "string", required = true },
+    { name = "summary",    type = "string", required = true },
     { name = "priority", type = "int" },
 ]
 `
@@ -2400,7 +2400,7 @@ properties = [
 func TestNodeModify_PropertyUndeclaredDriftsAndDoctorSurfaces(test *testing.T) {
 	root := newWorkspaceWithNodeTypes(test)
 
-	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"title": "hi"})
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"summary": "hi"})
 
 	stdout, stderr, exit := runCLISplit(test, root, "node", "modify", "tickets/foo", "--prop", "assignee=bob")
 
@@ -2430,9 +2430,9 @@ func TestNodeModify_PropertyUndeclaredDriftsAndDoctorSurfaces(test *testing.T) {
 func TestNodeModify_UnsetRequiredRejected(test *testing.T) {
 	root := newWorkspaceWithNodeTypes(test)
 
-	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"title": "hi"})
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"summary": "hi"})
 
-	_, stderr, exit := runCLISplit(test, root, "node", "modify", "tickets/foo", "--unset", "title")
+	_, stderr, exit := runCLISplit(test, root, "node", "modify", "tickets/foo", "--unset", "summary")
 
 	if exit == 0 {
 		test.Errorf("exit = 0, want non-zero")
@@ -2499,7 +2499,7 @@ func TestReindex_OffSchemaPropertyReportedInSummary(test *testing.T) {
 
 	if writeErr := os.WriteFile(filepath.Join(root, "tickets/bar.md"), []byte(`---
 type: ticket
-title: hi
+summary: hi
 priority: high
 ---
 `), 0o644); writeErr != nil {
@@ -2530,7 +2530,7 @@ func TestDoctor_RendersPropertyTypeMismatch(test *testing.T) {
 
 	if writeErr := os.WriteFile(filepath.Join(root, "tickets/bar.md"), []byte(`---
 type: ticket
-title: hi
+summary: hi
 priority: high
 ---
 `), 0o644); writeErr != nil {
@@ -2638,7 +2638,7 @@ name = "test"
 
 [node-types.ticket]
 properties = [
-    { name = "title", type = "string", required = true },
+    { name = "summary", type = "string", required = true },
 ]
 `)
 
@@ -2695,7 +2695,7 @@ func TestTools_NodeModify_PropertyTypeMismatchStructuredRejection(test *testing.
 	rt, harness := newRuntimeWithNodeTypes(test)
 	defer harness.Close()
 
-	mustCreateNodeViaRuntime(test, rt, "tickets/foo", "ticket", map[string]any{"title": "hi"})
+	mustCreateNodeViaRuntime(test, rt, "tickets/foo", "ticket", map[string]any{"summary": "hi"})
 
 	result := callTool(test, harness, "tusk_node_modify", map[string]any{
 		"id":  "tickets/foo",
@@ -2729,7 +2729,7 @@ func TestTools_NodeModify_UndeclaredPropertyWarnsOnSuccess(test *testing.T) {
 	rt, harness := newRuntimeWithNodeTypes(test)
 	defer harness.Close()
 
-	mustCreateNodeViaRuntime(test, rt, "tickets/foo", "ticket", map[string]any{"title": "hi"})
+	mustCreateNodeViaRuntime(test, rt, "tickets/foo", "ticket", map[string]any{"summary": "hi"})
 
 	result := callTool(test, harness, "tusk_node_modify", map[string]any{
 		"id":  "tickets/foo",
@@ -2880,7 +2880,7 @@ name = "smoke"
 [node-types.ticket]
 description = "Trackable work item"
 properties = [
-    { name = "title",    type = "string", required = true },
+    { name = "summary",    type = "string", required = true },
     { name = "priority", type = "int" },
     { name = "stage",    type = "enum", values = ["pending", "active", "completed"] },
     { name = "labels",   type = "list-of", item-type = "string" },
@@ -2890,21 +2890,21 @@ EOF
 # Initial: required missing
 /workspaces/tusk/bin/tusk node create --type ticket --prop priority=3 --prop stage=pending tickets/incomplete && echo UNEXPECTED-SUCCESS
 # Initial: type mismatch
-/workspaces/tusk/bin/tusk node create --type ticket --prop title=hi --prop priority=high --prop stage=pending tickets/badtype && echo UNEXPECTED-SUCCESS
+/workspaces/tusk/bin/tusk node create --type ticket --prop summary=hi --prop priority=high --prop stage=pending tickets/badtype && echo UNEXPECTED-SUCCESS
 # Initial: enum violation
-/workspaces/tusk/bin/tusk node create --type ticket --prop title=hi --prop stage=shipping tickets/badenum && echo UNEXPECTED-SUCCESS
+/workspaces/tusk/bin/tusk node create --type ticket --prop summary=hi --prop stage=shipping tickets/badenum && echo UNEXPECTED-SUCCESS
 # Happy path
-/workspaces/tusk/bin/tusk node create --type ticket --prop title="Fix bug" --prop priority=3 --prop stage=pending tickets/foo
+/workspaces/tusk/bin/tusk node create --type ticket --prop summary="Fix bug" --prop priority=3 --prop stage=pending tickets/foo
 # Undeclared property (drift)
 /workspaces/tusk/bin/tusk node modify tickets/foo --prop assignee=bob
 /workspaces/tusk/bin/tusk doctor
 # Required unset
-/workspaces/tusk/bin/tusk node modify tickets/foo --unset title && echo UNEXPECTED-SUCCESS
+/workspaces/tusk/bin/tusk node modify tickets/foo --unset summary && echo UNEXPECTED-SUCCESS
 # Off-schema reindex
 cat > tickets/badreindex.md <<'EOF'
 ---
 type: ticket
-title: bad
+summary: bad
 priority: high
 ---
 EOF
@@ -2917,7 +2917,7 @@ Expected:
 - The first three `node create` commands fail with stderr messages naming `title`, `priority`, and `shipping` respectively; no `UNEXPECTED-SUCCESS` printed; no files created.
 - The happy-path `node create` succeeds.
 - The `node modify --prop assignee=bob` succeeds, prints a stderr warning mentioning `assignee`, and a follow-up `doctor` shows `undeclared-property` for `tickets/foo`.
-- `node modify --unset title` fails with stderr `cannot unset required`.
+- `node modify --unset summary` fails with stderr `cannot unset required`.
 - The reindex of `tickets/badreindex.md` succeeds (exit 0); summary line includes `property-violation`; doctor shows `type-mismatch` for `tickets/badreindex`.
 
 - [ ] **Step 5: Commit the plan doc**
