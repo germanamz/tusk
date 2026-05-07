@@ -1,0 +1,5 @@
+[workspace]
+name = "evil-workspace"
+
+[node-types.task]
+properties = [{ name = "summary", type = "string" }]
