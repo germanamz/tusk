@@ -58,8 +58,9 @@ type RefResolutionResult struct {
 var refWikilinkPattern = regexp.MustCompile(`^\[\[(.+?)\]\]$`)
 
 // ResolveRefs walks every ref-shaped property declared on parsed.Type,
-// reads the corresponding value(s) from parsed.Properties, and resolves
-// each into a RefEdge or a RefError. Pure relative to lookup.
+// reads the corresponding value(s) from parsed.Properties (or parsed.Edges
+// when ResolveEdges has already moved the value there), and resolves each
+// into a RefEdge or a RefError. Pure relative to lookup.
 func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLookup) RefResolutionResult {
 	nodeType, declared := decls[parsed.Type]
 	if !declared {
@@ -74,6 +75,30 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 		}
 
 		rawValue, present := parsed.Properties[prop.Name]
+
+		// ResolveEdges may have moved the ref property from Properties to Edges
+		// before ResolveRefs is called (e.g. in the reindex path). Fall back to
+		// reading the raw string(s) from parsed.Edges so that ref validation and
+		// resolution can still run. Edges populated this way carry raw frontmatter
+		// values, not resolved node IDs yet.
+		if (!present || rawValue == nil) && len(parsed.Edges[prop.Name]) > 0 {
+			edgeValues := parsed.Edges[prop.Name]
+
+			if prop.Type == "ref" {
+				rawValue = edgeValues[0]
+				present = true
+			} else {
+				anySlice := make([]any, len(edgeValues))
+
+				for idx, edgeVal := range edgeValues {
+					anySlice[idx] = edgeVal
+				}
+
+				rawValue = anySlice
+				present = true
+			}
+		}
+
 		if !present || rawValue == nil {
 			continue
 		}

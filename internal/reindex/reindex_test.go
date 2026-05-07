@@ -10,6 +10,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/behavior"
 	"github.com/germanamz/tusk/internal/behavior/workflow"
+	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -611,6 +612,184 @@ priority: 3
 
 	if len(rows) != 0 {
 		test.Errorf("drift after clean reindex = %+v, want empty", rows)
+	}
+}
+
+func TestReindex_RefDanglingProducesDrift(test *testing.T) {
+	dir := test.TempDir()
+
+	manifestContent := `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tusk.toml"), []byte(manifestContent), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tickets/auth.md"), []byte(
+		"---\ntype: ticket\ntitle: Auth\nassignee: missing\n---\n\nbody\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write ticket: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	idx, idxErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if idxErr != nil {
+		test.Fatalf("open index: %v", idxErr)
+	}
+
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+	loaded, loadErr := manifest.Load(filepath.Join(dir, "tusk.toml"))
+
+	if loadErr != nil {
+		test.Fatalf("Load manifest: %v", loadErr)
+	}
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:          dir,
+		Repo:          index.NewNodeRepo(idx),
+		Edges:         index.NewEdgeRepo(idx),
+		EdgeTypes:     loaded.EdgeTypes,
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.RefDangling < 1 {
+		test.Errorf("RefDangling = %d, want >= 1", report.RefDangling)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	var found bool
+
+	for _, row := range rows {
+		if row.Kind == doctor.IssueRefDangling && row.Property == "assignee" {
+			found = true
+		}
+	}
+
+	if !found {
+		test.Errorf("expected ref_dangling row for assignee, got %+v", rows)
+	}
+}
+
+func TestReindex_RefCleanPassClearsDrift(test *testing.T) {
+	dir := test.TempDir()
+
+	manifestContent := `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tusk.toml"), []byte(manifestContent), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir tickets: %v", mkErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "people"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir people: %v", mkErr)
+	}
+
+	// Write a person node (alice) and a ticket referencing her.
+	if writeErr := os.WriteFile(filepath.Join(dir, "people/alice.md"), []byte(
+		"---\ntype: person\ntitle: alice\nname: Alice\n---\n\nbio\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write person: %v", writeErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tickets/auth.md"), []byte(
+		"---\ntype: ticket\ntitle: Auth\nassignee: alice\n---\n\nbody\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write ticket: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	idx, idxErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if idxErr != nil {
+		test.Fatalf("open index: %v", idxErr)
+	}
+
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+	loaded, loadErr := manifest.Load(filepath.Join(dir, "tusk.toml"))
+
+	if loadErr != nil {
+		test.Fatalf("Load manifest: %v", loadErr)
+	}
+
+	// Pre-seed a stale ref_dangling row for tickets/auth.
+	if appendErr := driftRepo.Append(index.PropertyDriftRow{
+		NodeID:   "tickets/auth",
+		NodeType: "ticket",
+		Kind:     doctor.IssueRefDangling,
+		Property: "assignee",
+		Details:  `{"value":"old-missing","to":"person"}`,
+	}); appendErr != nil {
+		test.Fatalf("append stale row: %v", appendErr)
+	}
+
+	_, runErr := reindex.Run(reindex.Config{
+		Root:          dir,
+		Repo:          index.NewNodeRepo(idx),
+		Edges:         index.NewEdgeRepo(idx),
+		EdgeTypes:     loaded.EdgeTypes,
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	for _, row := range rows {
+		if row.NodeID == "tickets/auth" {
+			test.Errorf("stale drift row not cleared: %+v", row)
+		}
 	}
 }
 

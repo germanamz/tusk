@@ -66,6 +66,10 @@ type Report struct {
 	Skipped            int // number of files skipped (parse error or off-schema)
 	WorkflowViolations int // number of workflow validation failures (warn mode)
 	PropertyViolations int // number of property validation failures (warn mode)
+	RefDangling        int // number of ref_dangling issues surfaced
+	RefAmbiguous       int // number of ref_ambiguous issues surfaced
+	RefTypeMismatch    int // number of ref_type_mismatch issues surfaced
+	RefCycle           int // number of ref_cycle issues surfaced
 }
 
 // Run walks Root, parses every *.md file with valid frontmatter, and upserts
@@ -166,14 +170,6 @@ func Run(config Config) (*Report, error) {
 			return upsertErr
 		}
 
-		if config.Edges != nil {
-			edgeRows := flattenEdges(parsed)
-
-			if upsertErr := config.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
-				return upsertErr
-			}
-		}
-
 		// + Plan 7: workflow validation in warn mode. Rejections become
 		// drift rows; recoveries become drift rows; clean passes clear
 		// any prior drift for this node.
@@ -266,6 +262,75 @@ func Run(config Config) (*Report, error) {
 						_ = config.PropertyDrift.ClearForNode(parsed.ID)
 					}
 				}
+
+				// + Plan 7.c.1: ref resolution in warn mode. Ref errors become
+				// drift rows; clean pass relies on the ClearForNode above (single
+				// point per node). Resolved edges are merged into parsed.Edges so
+				// the existing edge-write path persists them. Unresolved ref edges
+				// are cleared from parsed.Edges so bad values are never stored.
+				if config.PropertyDrift != nil {
+					refLookup := node.NewIndexRefLookup(config.Repo)
+					refResult := node.ResolveRefs(parsed, config.NodeTypes, refLookup)
+					refNow := time.Now().UnixNano()
+
+					// Track which ref properties had errors so their edges can be cleared.
+					refErrorProps := map[string]struct{}{}
+
+					for _, refErr := range refResult.HardErrors {
+						details, _ := json.Marshal(map[string]any{
+							"value":       refErr.Value,
+							"to":          refErr.To,
+							"candidates":  refErr.Candidates,
+							"actual_type": refErr.ActualType,
+						})
+
+						_ = config.PropertyDrift.Append(index.PropertyDriftRow{
+							NodeID:     parsed.ID,
+							NodeType:   parsed.Type,
+							Kind:       string(refErr.Kind),
+							Property:   refErr.Property,
+							Details:    string(details),
+							ObservedAt: refNow,
+						})
+
+						switch refErr.Kind {
+						case node.RefErrDangling:
+							report.RefDangling++
+						case node.RefErrAmbiguous:
+							report.RefAmbiguous++
+						case node.RefErrTypeMismatch:
+							report.RefTypeMismatch++
+						case node.RefErrCycle:
+							report.RefCycle++
+						}
+
+						refErrorProps[refErr.Property] = struct{}{}
+					}
+
+					// Clear unresolved ref edges so raw unresolved values are not stored.
+					for propName := range refErrorProps {
+						delete(parsed.Edges, propName)
+					}
+
+					// Merge resolved ref edges: replace raw values with resolved node IDs.
+					resolvedByProp := map[string][]string{}
+
+					for _, edge := range refResult.Edges {
+						resolvedByProp[edge.EdgeType] = appendUnique(resolvedByProp[edge.EdgeType], edge.TargetID)
+					}
+
+					for propName, targets := range resolvedByProp {
+						parsed.Edges[propName] = targets
+					}
+				}
+			}
+		}
+
+		if config.Edges != nil {
+			edgeRows := flattenEdges(parsed)
+
+			if upsertErr := config.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
+				return upsertErr
 			}
 		}
 
