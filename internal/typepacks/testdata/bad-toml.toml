@@ -1,0 +1,3 @@
+[node-types.task]
+properties = [
+    { name = "summary"

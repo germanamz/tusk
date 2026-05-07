@@ -2,7 +2,9 @@
 package doctor
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
 )
@@ -17,6 +19,11 @@ const (
 	IssueTypeMismatch       = "type-mismatch"
 	IssueRequiredMissing    = "required-missing"
 	IssueEnumViolation      = "enum-violation"
+
+	IssueRefDangling     = "ref_dangling"
+	IssueRefAmbiguous    = "ref_ambiguous"
+	IssueRefTypeMismatch = "ref_type_mismatch"
+	IssueRefCycle        = "ref_cycle"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -113,9 +120,65 @@ func renderPropertyDriftMessage(row index.PropertyDriftRow) string {
 		return fmt.Sprintf("node-types: required property %q missing on type %q", row.Property, row.NodeType)
 	case IssueEnumViolation:
 		return fmt.Sprintf("node-types: property %q — %s", row.Property, row.Details)
+	case IssueRefDangling:
+		return formatRefDangling(row)
+	case IssueRefAmbiguous:
+		return formatRefAmbiguous(row)
+	case IssueRefTypeMismatch:
+		return formatRefTypeMismatch(row)
+	case IssueRefCycle:
+		return formatRefCycle(row)
 	default:
 		return fmt.Sprintf("node-types: %s on property %q", row.Kind, row.Property)
 	}
+}
+
+func formatRefDangling(row index.PropertyDriftRow) string {
+	var details struct {
+		Value string `json:"value"`
+		To    string `json:"to"`
+	}
+
+	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
+
+	return fmt.Sprintf("node-types: ref property %q value %q did not resolve to any %q", row.Property, details.Value, details.To)
+}
+
+func formatRefAmbiguous(row index.PropertyDriftRow) string {
+	var details struct {
+		Value      string   `json:"value"`
+		To         string   `json:"to"`
+		Candidates []string `json:"candidates"`
+	}
+
+	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
+
+	return fmt.Sprintf("node-types: ref property %q value %q matches multiple %q candidates: %s",
+		row.Property, details.Value, details.To, strings.Join(details.Candidates, ", "))
+}
+
+func formatRefTypeMismatch(row index.PropertyDriftRow) string {
+	var details struct {
+		Value      string `json:"value"`
+		To         string `json:"to"`
+		ActualType string `json:"actual_type"`
+	}
+
+	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
+
+	return fmt.Sprintf("node-types: ref property %q value %q target type %q does not match required %q",
+		row.Property, details.Value, details.ActualType, details.To)
+}
+
+func formatRefCycle(row index.PropertyDriftRow) string {
+	var details struct {
+		Path []string `json:"path"`
+	}
+
+	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
+
+	return fmt.Sprintf("node-types: ref property %q forms a cycle: %s",
+		row.Property, strings.Join(details.Path, " → "))
 }
 
 // findDanglingEdges scans every edge and flags those whose target_id has no

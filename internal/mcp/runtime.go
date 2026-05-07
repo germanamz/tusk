@@ -107,6 +107,7 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		engine,
 		driftRepo,
 		os.Stderr,
+		node.NewIndexRefLookup(rt.Nodes),
 	)
 
 	return rt, nil
@@ -170,6 +171,7 @@ func (rt *Runtime) ReloadManifest() error {
 		engine,
 		rt.WorkflowDrift,
 		os.Stderr,
+		node.NewIndexRefLookup(rt.Nodes),
 	)
 
 	return nil

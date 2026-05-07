@@ -63,9 +63,11 @@ func newNodeModifyCmd() *cobra.Command {
 
 				defer store.Close()
 
+				nodes := index.NewNodeRepo(store)
+
 				service := node.NewServiceWithBehaviors(
 					ws.Root,
-					index.NewNodeRepo(store),
+					nodes,
 					index.NewEdgeRepo(store),
 					loaded.EdgeTypes,
 					index.NewEmbedQueueRepo(store),
@@ -74,6 +76,7 @@ func newNodeModifyCmd() *cobra.Command {
 					engine,
 					index.NewWorkflowDriftRepo(store),
 					cmd.ErrOrStderr(),
+					node.NewIndexRefLookup(nodes),
 				)
 
 				modified, modifyErr := service.Modify(node.ModifyInput{

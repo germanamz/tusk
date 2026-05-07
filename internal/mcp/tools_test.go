@@ -723,3 +723,74 @@ func TestTools_NodeModify_RecoveryWarnsOnSuccess(test *testing.T) {
 		test.Errorf("warnings[0] from/to = %v/%v", first["from"], first["to"])
 	}
 }
+
+// newRuntimeWithRefTypes boots a Runtime with a tusk.toml that declares
+// person and ticket node-types where ticket.assignee is a ref to person.
+func newRuntimeWithRefTypes(test *testing.T) (*mcp.Runtime, *mcp.Server) {
+	test.Helper()
+
+	root := test.TempDir()
+
+	manifestBody := []byte(`
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [{ name = "name", type = "string", required = true }]
+
+[node-types.ticket]
+properties = [{ name = "assignee", type = "ref", to = "person" }]
+`)
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), manifestBody, 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	return rt, mcp.NewServer(rt)
+}
+
+func TestTools_NodeCreate_RefDanglingReturnsStructuredKind(test *testing.T) {
+	rt, srv := newRuntimeWithRefTypes(test)
+	defer rt.Close()
+
+	result := callToolRaw(test, srv, "tusk_node_create", map[string]any{
+		"path":  "tickets/auth.md",
+		"type":  "ticket",
+		"title": "Auth",
+		"properties": map[string]any{
+			"assignee": "missing",
+		},
+	})
+
+	if !result.IsError {
+		test.Errorf("expected IsError=true")
+	}
+
+	body := decodeJSONContent(test, result)
+
+	if body["ok"] != false {
+		test.Errorf("ok = %v, want false", body["ok"])
+	}
+
+	errorsRaw, ok := body["errors"].([]any)
+
+	if !ok || len(errorsRaw) != 1 {
+		test.Fatalf("errors = %v, want one element", body["errors"])
+	}
+
+	first, _ := errorsRaw[0].(map[string]any)
+
+	if first["kind"] != "ref_dangling" {
+		test.Errorf("kind = %v, want ref_dangling", first["kind"])
+	}
+
+	if first["property"] != "assignee" {
+		test.Errorf("property = %v, want assignee", first["property"])
+	}
+}

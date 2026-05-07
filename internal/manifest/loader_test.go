@@ -649,3 +649,362 @@ func TestValidate_AcceptsListOfEnum(test *testing.T) {
 		test.Errorf("Validate: %v", validateErr)
 	}
 }
+
+func TestLoad_DecodesRefPropertyFields(test *testing.T) {
+	dir := test.TempDir()
+	manifestPath := filepath.Join(dir, "tusk.toml")
+
+	content := `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+    { name = "watchers", type = "list-of", item-type = "ref", to = "person", inverse = "watching" },
+    { name = "parent",   type = "ref", to = "ticket", acyclic = true },
+    { name = "ordered_list", type = "list-of", item-type = "ref", to = "person", ordered = true },
+]
+`
+	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	ticket := loaded.NodeTypes["ticket"]
+
+	if len(ticket.Properties) != 4 {
+		test.Fatalf("ticket.Properties count = %d, want 4", len(ticket.Properties))
+	}
+
+	assignee := ticket.Properties[0]
+
+	if assignee.Type != "ref" || assignee.To != "person" {
+		test.Errorf("assignee = %+v", assignee)
+	}
+
+	watchers := ticket.Properties[1]
+
+	if watchers.Type != "list-of" || watchers.ItemType != "ref" || watchers.To != "person" || watchers.Inverse != "watching" {
+		test.Errorf("watchers = %+v", watchers)
+	}
+
+	parent := ticket.Properties[2]
+
+	if parent.Type != "ref" || parent.To != "ticket" || !parent.Acyclic {
+		test.Errorf("parent = %+v", parent)
+	}
+
+	ordered := ticket.Properties[3]
+
+	if ordered.Type != "list-of" || ordered.ItemType != "ref" || !ordered.Ordered {
+		test.Errorf("ordered_list = %+v", ordered)
+	}
+}
+
+func TestValidate_RejectsRefWithoutTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "ref property requires `to`") {
+		test.Errorf("Validate: expected ref-without-to error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsListOfRefWithoutTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "watchers", Type: "list-of", ItemType: "ref"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "ref property requires `to`") {
+		test.Errorf("Validate: expected list-of(ref)-without-to error, got %v", validateErr)
+	}
+}
+
+func TestValidate_AcceptsRefWithToWildcard(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "linked", Type: "ref", To: "*"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Errorf("Validate: ref with to=* unexpectedly rejected: %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsRefToUndeclaredType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "person") {
+		test.Errorf("Validate: expected ref-to-undeclared error, got %v", validateErr)
+	}
+}
+
+func TestValidate_AcceptsRefToDeclaredType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Errorf("Validate: ref to declared type unexpectedly rejected: %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsRefWithValues(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "ref", To: "person", Values: []string{"a", "b"}},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "values") {
+		test.Errorf("Validate: expected ref-with-values error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsRefWithItemType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "ref", To: "person", ItemType: "string"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "item-type") {
+		test.Errorf("Validate: expected ref-with-item-type error, got %v", validateErr)
+	}
+}
+
+func TestSynthesize_PlainRefProducesManyToOneEdge(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "ref", To: "person"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge, ok := loaded.EdgeTypes["assignee"]
+
+	if !ok {
+		test.Fatalf("expected synthesized edge-type assignee")
+	}
+
+	if len(edge.From) != 1 || edge.From[0] != "ticket" {
+		test.Errorf("From = %v, want [ticket]", edge.From)
+	}
+
+	if len(edge.To) != 1 || edge.To[0] != "person" {
+		test.Errorf("To = %v, want [person]", edge.To)
+	}
+
+	if edge.Cardinality != manifest.CardinalityManyToOne {
+		test.Errorf("Cardinality = %q, want many-to-one", edge.Cardinality)
+	}
+
+	if edge.Ordered {
+		test.Errorf("Ordered = true, want false for plain ref")
+	}
+}
+
+func TestSynthesize_ListOfRefProducesManyToManyOrdered(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "watchers", Type: "list-of", ItemType: "ref", To: "person", Ordered: true},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["watchers"]
+
+	if edge.Cardinality != manifest.CardinalityManyToMany {
+		test.Errorf("Cardinality = %q, want many-to-many", edge.Cardinality)
+	}
+
+	if !edge.Ordered {
+		test.Errorf("Ordered = false, want true for list-of(ref) with Ordered=true")
+	}
+}
+
+func TestSynthesize_RefWithInverseAndAcyclic(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "parent", Type: "ref", To: "ticket", Acyclic: true, Inverse: "children"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["parent"]
+
+	if edge.Inverse != "children" {
+		test.Errorf("Inverse = %q, want children", edge.Inverse)
+	}
+
+	if !edge.Acyclic {
+		test.Errorf("Acyclic = false, want true")
+	}
+}
+
+func TestSynthesize_RefWithWildcardTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "linked", Type: "ref", To: "*"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["linked"]
+
+	if len(edge.To) != 1 || edge.To[0] != "*" {
+		test.Errorf("To = %v, want [*]", edge.To)
+	}
+}
+
+func TestSynthesize_SamePropertyAcrossTypesExtendsFrom(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["assignee"]
+
+	// From is alpha-sorted because synthesizeRefEdgeTypes iterates sorted node-type keys.
+	if len(edge.From) != 2 || edge.From[0] != "story" || edge.From[1] != "ticket" {
+		test.Errorf("From = %v, want [story ticket]", edge.From)
+	}
+
+	if edge.Cardinality != manifest.CardinalityManyToOne {
+		test.Errorf("Cardinality = %q, want many-to-one", edge.Cardinality)
+	}
+}
+
+func TestSynthesize_RejectsConflictingCardinality(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "list-of", ItemType: "ref", To: "person"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "cardinality") {
+		test.Errorf("Validate: expected conflicting-cardinality error, got %v", validateErr)
+	}
+}
+
+func TestSynthesize_RejectsConflictingTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"team":   {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "team"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "assignee") {
+		test.Errorf("Validate: expected conflicting-to error, got %v", validateErr)
+	}
+}
+
+func TestSynthesize_RejectsConflictingInverse(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person", Inverse: "stories"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person", Inverse: "tickets"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "assignee") {
+		test.Errorf("Validate: expected conflicting-inverse error, got %v", validateErr)
+	}
+}
+
+func TestSynthesize_RejectsCollisionWithExplicitEdgeType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{
+			"assignee": {
+				From:        []string{"ticket"},
+				To:          []string{"person"},
+				Cardinality: manifest.CardinalityManyToOne,
+			},
+		},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "auto-generated by ref property") {
+		test.Errorf("Validate: expected auto-generated-collision error, got %v", validateErr)
+	}
+}

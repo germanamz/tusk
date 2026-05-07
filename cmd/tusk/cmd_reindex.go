@@ -105,6 +105,26 @@ func newReindexCmd() *cobra.Command {
 						fmt.Sprintf("%d property-violation%s", report.PropertyViolations, plural(report.PropertyViolations)))
 				}
 
+				if report.RefDangling > 0 {
+					violationParts = append(violationParts,
+						fmt.Sprintf("%d ref-dangling", report.RefDangling))
+				}
+
+				if report.RefAmbiguous > 0 {
+					violationParts = append(violationParts,
+						fmt.Sprintf("%d ref-ambiguous", report.RefAmbiguous))
+				}
+
+				if report.RefTypeMismatch > 0 {
+					violationParts = append(violationParts,
+						fmt.Sprintf("%d ref-type-mismatch", report.RefTypeMismatch))
+				}
+
+				if report.RefCycle > 0 {
+					violationParts = append(violationParts,
+						fmt.Sprintf("%d ref-cycle", report.RefCycle))
+				}
+
 				if len(violationParts) > 0 {
 					_, _ = fmt.Fprintf(out,
 						"Reindex done: %d indexed, %d removed, %d skipped (%s)\nRun `tusk doctor` to inspect violations\n",

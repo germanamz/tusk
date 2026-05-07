@@ -115,6 +115,48 @@ func (repo *NodeRepo) List(filter ListFilter) ([]NodeRow, error) {
 	return results, rows.Err()
 }
 
+// FindByTitle returns the IDs of all nodes whose title matches title.
+// When targetType is "*", the type filter is skipped and all matching titles
+// are returned. Results are ordered by id ASC for stable doctor candidate lists.
+func (repo *NodeRepo) FindByTitle(targetType, title string) ([]string, error) {
+	var (
+		rows     *sql.Rows
+		queryErr error
+	)
+
+	if targetType == "*" {
+		rows, queryErr = repo.db.Query(
+			`SELECT id FROM nodes WHERE title = ? ORDER BY id ASC`,
+			title,
+		)
+	} else {
+		rows, queryErr = repo.db.Query(
+			`SELECT id FROM nodes WHERE type = ? AND title = ? ORDER BY id ASC`,
+			targetType, title,
+		)
+	}
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("nodeRepo: findByTitle: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var ids []string
+
+	for rows.Next() {
+		var id string
+
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("nodeRepo: findByTitle scan: %w", scanErr)
+		}
+
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}
+
 // DeleteByPath removes the node row whose path equals filePath.
 func (repo *NodeRepo) DeleteByPath(filePath string) error {
 	_, execErr := repo.db.Exec(`DELETE FROM nodes WHERE path = ?`, filePath)
