@@ -557,6 +557,12 @@ func registerNodeCreateTool(srv *Server) {
 				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
 			}
 
+			var refErr *node.RefValidationError
+
+			if errors.As(lockErr, &refErr) {
+				return toolJSONError(buildRefRejectionPayload(refErr)), nil
+			}
+
 			return toolError(lockErr), nil
 		}
 
@@ -654,6 +660,12 @@ func registerNodeModifyTool(srv *Server) {
 
 			if errors.As(lockErr, &propErr) {
 				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
+			}
+
+			var refErr *node.RefValidationError
+
+			if errors.As(lockErr, &refErr) {
+				return toolJSONError(buildRefRejectionPayload(refErr)), nil
 			}
 
 			return toolError(lockErr), nil
@@ -1165,4 +1177,36 @@ func stringSliceOrNil(values []string) any {
 	}
 
 	return values
+}
+
+// buildRefRejectionPayload constructs the structured ref-rejection envelope from
+// a RefValidationError. Returns ok:false with a per-error list carrying kind,
+// property, value, to, and optional candidates/actual_type/reason fields.
+func buildRefRejectionPayload(refErr *node.RefValidationError) map[string]any {
+	rendered := make([]map[string]any, 0, len(refErr.Errors))
+
+	for _, refError := range refErr.Errors {
+		item := map[string]any{
+			"kind":     string(refError.Kind),
+			"property": refError.Property,
+			"value":    refError.Value,
+			"to":       refError.To,
+			"reason":   refError.Reason,
+		}
+
+		if len(refError.Candidates) > 0 {
+			item["candidates"] = refError.Candidates
+		}
+
+		if refError.ActualType != "" {
+			item["actual_type"] = refError.ActualType
+		}
+
+		rendered = append(rendered, item)
+	}
+
+	return map[string]any{
+		"ok":     false,
+		"errors": rendered,
+	}
 }
