@@ -373,6 +373,53 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		return nil, cycleErr
 	}
 
+	// Plan 7.b: property validation + required-unset check — runs before hook validate-phase.
+	modPropResult := ValidateProperties(reparsed, service.nodeTypes)
+
+	// In the Modify path, ErrRequiredMissing from the validator is suppressed:
+	// properties that were never set on a pre-existing node are not blocked by
+	// Modify (the node predates the declaration). ErrCannotUnsetRequired (below)
+	// handles the case where a required property is explicitly removed.
+	var modHardErrors []PropertyError
+
+	for _, pe := range modPropResult.HardErrors {
+		if pe.Kind != ErrRequiredMissing {
+			modHardErrors = append(modHardErrors, pe)
+		}
+	}
+
+	modPropResult.HardErrors = modHardErrors
+
+	// Detect explicit unset of required properties. We check input.UnsetKeys
+	// directly (not WhichRequiredWereUnset) so that unsetting a required key
+	// that was never present is also caught.
+	if nt, declared := service.nodeTypes[reparsed.Type]; declared {
+		declByNameForUnset := make(map[string]manifest.PropertyDecl, len(nt.Properties))
+
+		for _, decl := range nt.Properties {
+			declByNameForUnset[decl.Name] = decl
+		}
+
+		for _, unsetKey := range input.UnsetKeys {
+			if decl, found := declByNameForUnset[unsetKey]; found && decl.Required {
+				modPropResult.HardErrors = append(modPropResult.HardErrors, PropertyError{
+					Kind:     ErrCannotUnsetRequired,
+					Property: unsetKey,
+					Reason:   fmt.Sprintf("cannot unset required property %q on type %q", unsetKey, reparsed.Type),
+				})
+			}
+		}
+	}
+
+	if len(modPropResult.HardErrors) > 0 {
+		return nil, &PropertyValidationError{
+			Op:       "modify",
+			NodeID:   reparsed.ID,
+			NodeType: reparsed.Type,
+			Errors:   modPropResult.HardErrors,
+		}
+	}
+
 	// Plan 7: recovery-aware validate phase + edge diff hooks.
 	var fireResult FireResult
 
@@ -480,6 +527,31 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		if len(fireResult.Recovered) == 0 && service.drift != nil {
 			_ = service.drift.ClearForNode(reparsed.ID)
 		}
+	}
+
+	// Plan 7.b: property drift surface — fires after index commits.
+	if len(modPropResult.Drift) > 0 {
+		now := time.Now().UnixNano()
+
+		for _, drift := range modPropResult.Drift {
+			_, _ = fmt.Fprintf(service.warnings,
+				"warning: node-types: property %q is not declared on type %q; surfaces as a property-drift in tusk doctor\n",
+				drift.Property, reparsed.Type)
+
+			if service.propertyDrift != nil {
+				_ = service.propertyDrift.Append(index.PropertyDriftRow{
+					Kind:       "undeclared-property",
+					NodeID:     reparsed.ID,
+					NodeType:   reparsed.Type,
+					Property:   drift.Property,
+					Details:    drift.Reason,
+					ObservedAt: now,
+				})
+			}
+		}
+	} else if service.propertyDrift != nil {
+		// Clean pass: no drift — clear any prior property drift for this node.
+		_ = service.propertyDrift.ClearForNode(reparsed.ID)
 	}
 
 	return reparsed, nil
