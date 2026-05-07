@@ -240,6 +240,157 @@ func TestPackAdd_TagsPackEndToEnd(test *testing.T) {
 	}
 }
 
+func TestPackAdd_KanbanPackEndToEnd(test *testing.T) {
+	dir := test.TempDir()
+
+	// Resolve the repo-local pack file BEFORE chdir-ing.
+	packPath := filepath.Join(testSourceDir(test), "..", "..", "packs", "kanban.toml")
+
+	if _, statErr := os.Stat(packPath); statErr != nil {
+		test.Fatalf("packs/kanban.toml not found at %s: %v", packPath, statErr)
+	}
+
+	chdir(test, dir)
+
+	// 1. tusk init.
+	rootCmd := newRootCmd()
+	rootCmd.SetArgs([]string{"init", "--name", "kanban-smoke"})
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("init: %v", execErr)
+	}
+
+	// 2. tusk pack add file://<packs/kanban.toml>.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"pack", "add", "file://" + packPath})
+
+	var addStdout, addStderr bytes.Buffer
+
+	rootCmd.SetOut(&addStdout)
+	rootCmd.SetErr(&addStderr)
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("pack add: %v\nstderr: %s", execErr, addStderr.String())
+	}
+
+	manifestBody, readErr := os.ReadFile(filepath.Join(dir, "tusk.toml"))
+
+	if readErr != nil {
+		test.Fatalf("read tusk.toml: %v", readErr)
+	}
+
+	for _, want := range []string{
+		"[node-types.ticket]",
+		"[edge-types.parent]",
+		"[edge-types.blocks]",
+		"[behaviors.workflow.kanban]",
+	} {
+		if !strings.Contains(string(manifestBody), want) {
+			test.Errorf("tusk.toml missing %s: %q", want, manifestBody)
+		}
+	}
+
+	// 3. Create a parent ticket in the "pending" state.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{
+		"node", "create",
+		"--type", "ticket",
+		"--title", "Parent ticket",
+		"--path", "tickets/parent.md",
+		"--prop", "status=pending",
+		"--prop", "priority=high",
+	})
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("create tickets/parent: %v", execErr)
+	}
+
+	// 4. Create a child ticket.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{
+		"node", "create",
+		"--type", "ticket",
+		"--title", "Child ticket",
+		"--path", "tickets/child.md",
+		"--prop", "status=pending",
+	})
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("create tickets/child: %v", execErr)
+	}
+
+	// 5. Add a parent edge child -> parent.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{
+		"edge", "add",
+		"--type", "parent",
+		"--source", "tickets/child",
+		"--target", "tickets/parent",
+	})
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("edge add parent: %v", execErr)
+	}
+
+	// 6. Verify the parent edge is indexed via `edge list --from tickets/child`.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"edge", "list", "--from", "tickets/child"})
+
+	var listStdout bytes.Buffer
+
+	rootCmd.SetOut(&listStdout)
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("edge list: %v", execErr)
+	}
+
+	if !strings.Contains(listStdout.String(), "parent") || !strings.Contains(listStdout.String(), "tickets/parent") {
+		test.Errorf("edge list output missing expected parent edge: %q", listStdout.String())
+	}
+
+	// 7. Workflow transition pending -> active on the parent ticket. Legal.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"node", "modify", "tickets/parent", "--prop", "status=active"})
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("modify pending->active: %v", execErr)
+	}
+
+	// 8. Workflow transition active -> completed. Legal.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"node", "modify", "tickets/parent", "--prop", "status=completed"})
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("modify active->completed: %v", execErr)
+	}
+
+	// 9. Negative — workflow rejects pending -> completed (skip-state).
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"node", "modify", "tickets/child", "--prop", "status=completed"})
+
+	var negStdout, negStderr bytes.Buffer
+
+	rootCmd.SetOut(&negStdout)
+	rootCmd.SetErr(&negStderr)
+
+	negErr := rootCmd.Execute()
+
+	if negErr == nil {
+		test.Fatalf("expected pending->completed to fail; stdout=%q stderr=%q", negStdout.String(), negStderr.String())
+	}
+}
+
 // testSourceDir returns the absolute directory of this test source file.
 // runtime.Caller(0) returns the caller's file path; calling it from a helper
 // in cmd/tusk/cmd_pack_add_test.go yields <repo>/cmd/tusk, which is what we

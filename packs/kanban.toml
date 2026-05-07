@@ -15,15 +15,14 @@
 #   properties = [{ name = "tags", type = "list-of",
 #                   item-type = "ref", to = "tag" }]
 #
-# Customizing workflow states: edit BOTH the ticket `status` enum
-# values AND the [behaviors.workflow.kanban].states list — they must
-# stay aligned, since the property validator and the workflow
-# validator each enforce their own slice of the contract.
+# Customizing workflow states: edit [behaviors.workflow.kanban].states
+# and transitions — the workflow validator is the single source of truth
+# for status. Do not redeclare `status` in [node-types.ticket].properties;
+# the behavior engine reserves it and rejects duplicate declarations.
 
 [node-types.ticket]
 description = "A unit of work tracked through a workflow"
 properties = [
-    { name = "status",   type = "enum", values = ["pending", "active", "completed"], required = true },
     { name = "priority", type = "enum", values = ["low", "medium", "high"] },
     { name = "due",      type = "date" },
 ]
