@@ -107,7 +107,7 @@ func ValidateProperties(parsed *Node, decls map[string]manifest.NodeType) Proper
 				Kind:     ErrRequiredMissing,
 				Property: decl.Name,
 				Type:     renderDeclType(decl),
-				Reason:   fmt.Sprintf("property %q is required (declared in [node-types.%s])", decl.Name, parsed.Type),
+				Reason:   fmt.Sprintf("is required (declared in [node-types.%s])", parsed.Type),
 			})
 		}
 	}
