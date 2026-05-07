@@ -804,3 +804,113 @@ func TestValidate_RejectsRefWithItemType(test *testing.T) {
 		test.Errorf("Validate: expected ref-with-item-type error, got %v", validateErr)
 	}
 }
+
+func TestSynthesize_PlainRefProducesManyToOneEdge(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "ref", To: "person"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge, ok := loaded.EdgeTypes["assignee"]
+
+	if !ok {
+		test.Fatalf("expected synthesized edge-type assignee")
+	}
+
+	if len(edge.From) != 1 || edge.From[0] != "ticket" {
+		test.Errorf("From = %v, want [ticket]", edge.From)
+	}
+
+	if len(edge.To) != 1 || edge.To[0] != "person" {
+		test.Errorf("To = %v, want [person]", edge.To)
+	}
+
+	if edge.Cardinality != manifest.CardinalityManyToOne {
+		test.Errorf("Cardinality = %q, want many-to-one", edge.Cardinality)
+	}
+
+	if edge.Ordered {
+		test.Errorf("Ordered = true, want false for plain ref")
+	}
+}
+
+func TestSynthesize_ListOfRefProducesManyToManyOrdered(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "watchers", Type: "list-of", ItemType: "ref", To: "person", Ordered: true},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["watchers"]
+
+	if edge.Cardinality != manifest.CardinalityManyToMany {
+		test.Errorf("Cardinality = %q, want many-to-many", edge.Cardinality)
+	}
+
+	if !edge.Ordered {
+		test.Errorf("Ordered = false, want true for list-of(ref) with Ordered=true")
+	}
+}
+
+func TestSynthesize_RefWithInverseAndAcyclic(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "parent", Type: "ref", To: "ticket", Acyclic: true, Inverse: "children"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["parent"]
+
+	if edge.Inverse != "children" {
+		test.Errorf("Inverse = %q, want children", edge.Inverse)
+	}
+
+	if !edge.Acyclic {
+		test.Errorf("Acyclic = false, want true")
+	}
+}
+
+func TestSynthesize_RefWithWildcardTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "linked", Type: "ref", To: "*"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["linked"]
+
+	if len(edge.To) != 1 || edge.To[0] != "*" {
+		test.Errorf("To = %v, want [*]", edge.To)
+	}
+}
