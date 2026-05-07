@@ -62,12 +62,13 @@ type edgeRemoveReactorEntry struct {
 	fn  EdgeRemoveReactor
 }
 
-// NewEngine constructs an Engine from a slice of Instances. The chains
-// are built in the slice's order. Reservation collision detection runs
-// here: two instances reserving the same (NodeType, Property) pair is a
-// hard error.
-func NewEngine(instances []Instance) (*Engine, error) {
-	if collisionErr := detectCollisions(instances); collisionErr != nil {
+// NewEngine constructs an Engine from a slice of Instances and an optional
+// slice of DeclaredKeys (from [node-types]). The chains are built in the
+// slice's order. Reservation collision detection runs here: two instances
+// reserving the same (NodeType, Property) pair is a hard error, as is a
+// behavior reservation colliding with a declared key.
+func NewEngine(instances []Instance, declaredKeys []DeclaredKey) (*Engine, error) {
+	if collisionErr := detectCollisions(instances, declaredKeys); collisionErr != nil {
 		return nil, collisionErr
 	}
 
@@ -121,10 +122,17 @@ func NewEngine(instances []Instance) (*Engine, error) {
 	return engine, nil
 }
 
-func detectCollisions(instances []Instance) error {
+func detectCollisions(instances []Instance, declaredKeys []DeclaredKey) error {
 	type key struct{ nodeType, property string }
 
 	owners := map[key]string{}
+
+	// Pre-populate the owner map with declared keys so behavior reservations
+	// colliding with node-type declarations are caught.
+	for _, dk := range declaredKeys {
+		id := key{nodeType: dk.NodeType, property: dk.Property}
+		owners[id] = dk.Source
+	}
 
 	for _, instance := range instances {
 		qualified := instance.Kind() + "." + instance.Name()
@@ -133,8 +141,9 @@ func detectCollisions(instances []Instance) error {
 			id := key{nodeType: reserved.NodeType, property: reserved.Property}
 
 			if existing, taken := owners[id]; taken {
-				return fmt.Errorf("behavior: %s and %s both reserve property %q on type %q",
-					existing, qualified, reserved.Property, reserved.NodeType)
+				return fmt.Errorf(
+					"behavior: behaviors.%s.%s reserves property %q on type %q\nbut it is also declared in %s",
+					instance.Kind(), instance.Name(), reserved.Property, reserved.NodeType, existing)
 			}
 
 			owners[id] = qualified

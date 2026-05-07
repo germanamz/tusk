@@ -402,7 +402,7 @@ func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{rejector})
+	engine, _ := behavior.NewEngine([]behavior.Instance{rejector}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root,
@@ -451,7 +451,7 @@ func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{tracker})
+	engine, _ := behavior.NewEngine([]behavior.Instance{tracker}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root,
@@ -527,7 +527,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{rejector})
+	engine, _ := behavior.NewEngine([]behavior.Instance{rejector}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root,
@@ -579,7 +579,7 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 	cfg := workflowConfigForTest(test)
 
 	driftRepo := index.NewWorkflowDriftRepo(store)
-	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance})
+	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance}, nil)
 
 	var warnings bytes.Buffer
 
@@ -645,7 +645,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 	}
 
 	cfg := workflowConfigForTest(test)
-	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance})
+	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),

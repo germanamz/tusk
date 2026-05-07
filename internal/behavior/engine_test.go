@@ -33,7 +33,7 @@ func TestNewEngine_SimpleNodeWriteValidate_ChainOrder(test *testing.T) {
 		},
 	}
 
-	engine, newErr := behavior.NewEngine([]behavior.Instance{first, second})
+	engine, newErr := behavior.NewEngine([]behavior.Instance{first, second}, nil)
 
 	if newErr != nil {
 		test.Fatalf("NewEngine: %v", newErr)
@@ -80,7 +80,7 @@ func TestNewEngine_NodeWriteValidate_ShortCircuitsOnFirstRejection(test *testing
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{first, second})
+	engine, _ := behavior.NewEngine([]behavior.Instance{first, second}, nil)
 
 	rejector, fireErr := engine.FireNodeWriteValidate(nil, &node.Node{Type: "ticket"})
 
@@ -122,7 +122,7 @@ func TestNewEngine_NodeWriteAfter_FansOutUnconditionally(test *testing.T) {
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{first, second})
+	engine, _ := behavior.NewEngine([]behavior.Instance{first, second}, nil)
 
 	if fireErr := engine.FireNodeWriteAfter(nil, &node.Node{Type: "ticket"}); fireErr == nil {
 		test.Fatalf("FireNodeWriteAfter: expected aggregated error")
@@ -180,7 +180,7 @@ func TestFireNodeWriteValidateWithRecovery_RecoverableContinuesChain(test *testi
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{first, second})
+	engine, _ := behavior.NewEngine([]behavior.Instance{first, second}, nil)
 
 	result, fireErr := engine.FireNodeWriteValidateWithRecovery(nil, &node.Node{Type: "ticket"})
 
@@ -237,7 +237,7 @@ func TestFireNodeWriteValidateWithRecovery_NonRecoverableShortCircuits(test *tes
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{first, second})
+	engine, _ := behavior.NewEngine([]behavior.Instance{first, second}, nil)
 
 	result, fireErr := engine.FireNodeWriteValidateWithRecovery(nil, &node.Node{Type: "ticket"})
 

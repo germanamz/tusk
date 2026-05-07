@@ -511,7 +511,7 @@ transitions = [
 		test.Fatalf("workflow.NewInstance: %v", newErr)
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{instance})
+	engine, _ := behavior.NewEngine([]behavior.Instance{instance}, nil)
 
 	return engine
 }
