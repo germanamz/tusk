@@ -49,6 +49,14 @@ type Config struct {
 	// DriftLog is optional; when set alongside Behaviors, Run writes drift rows
 	// for validator rejections and clears rows on clean passes.
 	DriftLog *index.WorkflowDriftRepo
+
+	// NodeTypes is optional; when set, Run validates each indexed node's
+	// properties against the declared node types in warn mode.
+	NodeTypes map[string]manifest.NodeType
+
+	// PropertyDrift is optional; when set alongside NodeTypes, Run writes
+	// property drift rows and clears rows on clean passes.
+	PropertyDrift *index.PropertyDriftRepo
 }
 
 // Report summarizes a reindex pass.
@@ -57,6 +65,7 @@ type Report struct {
 	Removed            int // number of stale rows deleted (file no longer on disk)
 	Skipped            int // number of files skipped (parse error or off-schema)
 	WorkflowViolations int // number of workflow validation failures (warn mode)
+	PropertyViolations int // number of property validation failures (warn mode)
 }
 
 // Run walks Root, parses every *.md file with valid frontmatter, and upserts
@@ -211,6 +220,55 @@ func Run(config Config) (*Report, error) {
 			}
 		}
 
+		// + Plan 7.b: property validation in warn mode. Hard errors and
+		// drift entries both become drift rows; indexing never aborts.
+		if config.NodeTypes != nil {
+			if _, typed := config.NodeTypes[parsed.Type]; typed {
+				propResult := node.ValidateProperties(parsed, config.NodeTypes)
+				now := time.Now().UnixNano()
+
+				for _, hardErr := range propResult.HardErrors {
+					report.PropertyViolations++
+
+					if config.PropertyDrift != nil {
+						kind := propertyErrorKindString(hardErr.Kind)
+
+						if kind != "" {
+							_ = config.PropertyDrift.Append(index.PropertyDriftRow{
+								NodeID:     parsed.ID,
+								NodeType:   parsed.Type,
+								Kind:       kind,
+								Property:   hardErr.Property,
+								Details:    hardErr.Reason,
+								ObservedAt: now,
+							})
+						}
+					}
+				}
+
+				for _, drift := range propResult.Drift {
+					report.PropertyViolations++
+
+					if config.PropertyDrift != nil {
+						_ = config.PropertyDrift.Append(index.PropertyDriftRow{
+							NodeID:     parsed.ID,
+							NodeType:   parsed.Type,
+							Kind:       "undeclared-property",
+							Property:   drift.Property,
+							Details:    drift.Reason,
+							ObservedAt: now,
+						})
+					}
+				}
+
+				if len(propResult.HardErrors) == 0 && len(propResult.Drift) == 0 {
+					if config.PropertyDrift != nil {
+						_ = config.PropertyDrift.ClearForNode(parsed.ID)
+					}
+				}
+			}
+		}
+
 		seenPaths[parsed.Path] = struct{}{}
 		report.Indexed++
 
@@ -340,6 +398,22 @@ func extractPropertyFromError(err error) string {
 	}
 
 	return "status"
+}
+
+// propertyErrorKindString maps a node.PropertyErrorKind to the string used
+// in property_drift rows. Returns "" for kinds that cannot arise from reindex.
+func propertyErrorKindString(kind node.PropertyErrorKind) string {
+	switch kind {
+	case node.ErrTypeMismatch:
+		return "type-mismatch"
+	case node.ErrRequiredMissing:
+		return "required-missing"
+	case node.ErrEnumViolation:
+		return "enum-violation"
+	default:
+		// ErrCannotUnsetRequired cannot fire from reindex (no before state).
+		return ""
+	}
 }
 
 // flattenEdges turns parsed.Edges into the EdgeRow shape expected by EdgeRepo.

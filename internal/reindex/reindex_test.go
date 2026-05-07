@@ -516,6 +516,104 @@ transitions = [
 	return engine
 }
 
+func TestRun_OffSchemaPropertyProducesDriftRow(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+priority: high
+---
+body
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
+	}
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:          root,
+		Repo:          index.NewNodeRepo(store),
+		NodeTypes:     decls,
+		PropertyDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.PropertyViolations != 1 {
+		test.Errorf("PropertyViolations = %d, want 1", report.PropertyViolations)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 || rows[0].Kind != "type-mismatch" {
+		test.Errorf("drift rows = %+v", rows)
+	}
+
+	// Indexing still upserted the row.
+	if _, getErr := index.NewNodeRepo(store).Get("ticket"); getErr != nil {
+		test.Errorf("Get: %v (reindex should still upsert despite drift)", getErr)
+	}
+}
+
+func TestRun_CleanPassClearsPropertyDrift(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, _ := index.Open(dbPath)
+
+	defer store.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	if appendErr := driftRepo.Append(index.PropertyDriftRow{
+		NodeID: "ticket", NodeType: "ticket", Kind: "type-mismatch", Property: "priority", ObservedAt: 1,
+	}); appendErr != nil {
+		test.Fatalf("seed Append: %v", appendErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+priority: 3
+---
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
+	}
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root:          root,
+		Repo:          index.NewNodeRepo(store),
+		NodeTypes:     decls,
+		PropertyDrift: driftRepo,
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 0 {
+		test.Errorf("drift after clean reindex = %+v, want empty", rows)
+	}
+}
+
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
 	test.Helper()
 
