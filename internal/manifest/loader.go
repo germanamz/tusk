@@ -83,10 +83,16 @@ func Validate(loaded *Manifest) error {
 	return validateBehaviors(loaded)
 }
 
-// isRefProperty returns true when the property declaration is a ref-shaped type:
+// IsRefProperty returns true when the property declaration is a ref-shaped type:
 // either Type == "ref" or (Type == "list-of" && ItemType == "ref").
-func isRefProperty(prop PropertyDecl) bool {
+// Exported so packages like node can use it without duplicating the predicate.
+func IsRefProperty(prop PropertyDecl) bool {
 	return prop.Type == "ref" || (prop.Type == "list-of" && prop.ItemType == "ref")
+}
+
+// isRefProperty is the package-internal alias for IsRefProperty.
+func isRefProperty(prop PropertyDecl) bool {
+	return IsRefProperty(prop)
 }
 
 // buildEdgeTypeFromRef constructs an EdgeType from the owning node-type name
