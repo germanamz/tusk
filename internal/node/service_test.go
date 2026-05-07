@@ -744,3 +744,115 @@ func TestService_Modify_EnqueuesEmbed(test *testing.T) {
 		test.Errorf("depth = %d, want 1", depth)
 	}
 }
+
+func TestCreate_PropertyRequiredMissingRejects(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		decls,
+		index.NewPropertyDriftRepo(store),
+		nil, nil, io.Discard,
+	)
+
+	_, createErr := service.Create(node.CreateInput{
+		RelPath: "tickets/foo.md",
+		Type:    "ticket",
+	})
+
+	if createErr == nil || !strings.Contains(createErr.Error(), "summary") {
+		test.Errorf("Create: expected required-missing error, got %v", createErr)
+	}
+
+	// File must NOT exist (hard error aborts before write).
+	if _, statErr := os.Stat(filepath.Join(root, "tickets/foo.md")); !os.IsNotExist(statErr) {
+		test.Errorf("file present after rejection; statErr = %v", statErr)
+	}
+}
+
+func TestCreate_PropertyTypeMismatchRejects(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		decls,
+		index.NewPropertyDriftRepo(store),
+		nil, nil, io.Discard,
+	)
+
+	_, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/foo.md",
+		Type:       "ticket",
+		Properties: map[string]any{"priority": "high"},
+	})
+
+	if createErr == nil || !strings.Contains(createErr.Error(), "priority") {
+		test.Errorf("Create: expected type-mismatch error, got %v", createErr)
+	}
+}
+
+func TestCreate_PropertyUndeclaredWritesAndDrifts(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string"}}},
+	}
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	var warnings bytes.Buffer
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		decls,
+		driftRepo,
+		nil, nil, &warnings,
+	)
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/foo.md",
+		Type:       "ticket",
+		Properties: map[string]any{"summary": "hi", "assignee": "bob"},
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	if !strings.Contains(warnings.String(), "assignee") {
+		test.Errorf("warnings = %q, want mention of assignee", warnings.String())
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 || rows[0].Property != "assignee" || rows[0].Kind != "undeclared-property" {
+		test.Errorf("drift rows = %+v", rows)
+	}
+}

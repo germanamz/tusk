@@ -180,6 +180,18 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, cycleErr
 	}
 
+	// Plan 7.b: property validation — runs before hook validate-phase.
+	propResult := ValidateProperties(parsed, service.nodeTypes)
+
+	if len(propResult.HardErrors) > 0 {
+		return nil, &PropertyValidationError{
+			Op:       "create",
+			NodeID:   parsed.ID,
+			NodeType: parsed.Type,
+			Errors:   propResult.HardErrors,
+		}
+	}
+
 	// Plan 7: validate-phase hook dispatch (NodeWrite then EdgeAdd per row).
 	if service.behaviors != nil {
 		if rejector, fireErr := service.behaviors.FireNodeWriteValidate(nil, parsed); fireErr != nil {
@@ -249,6 +261,31 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		for _, edgeRow := range edgeRows {
 			_ = service.behaviors.FireEdgeAddAfter(edgeRow)
 		}
+	}
+
+	// Plan 7.b: property drift surface — fires after index commits.
+	if len(propResult.Drift) > 0 {
+		now := time.Now().UnixNano()
+
+		for _, drift := range propResult.Drift {
+			_, _ = fmt.Fprintf(service.warnings,
+				"warning: node-types: property %q is not declared on type %q; surfaces as a property-drift in tusk doctor\n",
+				drift.Property, parsed.Type)
+
+			if service.propertyDrift != nil {
+				_ = service.propertyDrift.Append(index.PropertyDriftRow{
+					Kind:       "undeclared-property",
+					NodeID:     parsed.ID,
+					NodeType:   parsed.Type,
+					Property:   drift.Property,
+					Details:    drift.Reason,
+					ObservedAt: now,
+				})
+			}
+		}
+	} else if service.propertyDrift != nil {
+		// Clean pass: no hard errors, no drift — clear any prior drift for this node.
+		_ = service.propertyDrift.ClearForNode(parsed.ID)
 	}
 
 	return parsed, nil

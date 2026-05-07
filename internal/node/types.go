@@ -45,6 +45,41 @@ type PropertyValidationResult struct {
 	Drift      []PropertyDrift
 }
 
+// PropertyValidationError wraps the validator's HardErrors slice so callers
+// (CLI, MCP) can either pass the human message through (CLI) or type-assert
+// to access the structured slice (MCP).
+type PropertyValidationError struct {
+	Op       string // "create" | "modify"
+	NodeID   string
+	NodeType string
+	Errors   []PropertyError
+}
+
+// Error returns the joined human-readable message for all HardErrors.
+// Format:
+//
+//	node-types: rejected <op>: <type> "<id>" has N error(s):
+//	  - property "<name>" <reason>
+func (err *PropertyValidationError) Error() string {
+	count := len(err.Errors)
+
+	noun := "error"
+	if count != 1 {
+		noun = "errors"
+	}
+
+	var sb strings.Builder
+
+	fmt.Fprintf(&sb, "node-types: rejected %s: %s %q has %d %s:\n",
+		err.Op, err.NodeType, err.NodeID, count, noun)
+
+	for _, pe := range err.Errors {
+		fmt.Fprintf(&sb, "  - property %q %s\n", pe.Property, pe.Reason)
+	}
+
+	return strings.TrimRight(sb.String(), "\n")
+}
+
 // ValidateProperties validates the properties of parsed against the declared
 // node types in decls. It is pure — no I/O, no graph reads.
 //
@@ -84,7 +119,12 @@ func ValidateProperties(parsed *Node, decls map[string]manifest.NodeType) Proper
 	}
 
 	// Step 3: per-property loop.
+	// Skip reserved top-level keys — they are never declared in [node-types].
 	for name, value := range parsed.Properties {
+		if name == "type" || name == "title" {
+			continue
+		}
+
 		decl, found := declByName[name]
 
 		if !found {
