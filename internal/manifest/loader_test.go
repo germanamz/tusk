@@ -914,3 +914,77 @@ func TestSynthesize_RefWithWildcardTo(test *testing.T) {
 		test.Errorf("To = %v, want [*]", edge.To)
 	}
 }
+
+func TestSynthesize_SamePropertyAcrossTypesExtendsFrom(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Fatalf("Validate: %v", validateErr)
+	}
+
+	edge := loaded.EdgeTypes["assignee"]
+
+	// From is alpha-sorted because synthesizeRefEdgeTypes iterates sorted node-type keys.
+	if len(edge.From) != 2 || edge.From[0] != "story" || edge.From[1] != "ticket" {
+		test.Errorf("From = %v, want [story ticket]", edge.From)
+	}
+
+	if edge.Cardinality != manifest.CardinalityManyToOne {
+		test.Errorf("Cardinality = %q, want many-to-one", edge.Cardinality)
+	}
+}
+
+func TestSynthesize_RejectsConflictingCardinality(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "list-of", ItemType: "ref", To: "person"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "cardinality") {
+		test.Errorf("Validate: expected conflicting-cardinality error, got %v", validateErr)
+	}
+}
+
+func TestSynthesize_RejectsConflictingTo(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"team":   {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "team"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "assignee") {
+		test.Errorf("Validate: expected conflicting-to error, got %v", validateErr)
+	}
+}
+
+func TestSynthesize_RejectsConflictingInverse(test *testing.T) {
+	loaded := &manifest.Manifest{
+		EdgeTypes: manifest.EdgeTypes{},
+		NodeTypes: map[string]manifest.NodeType{
+			"person": {},
+			"story":  {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person", Inverse: "stories"}}},
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person", Inverse: "tickets"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "assignee") {
+		test.Errorf("Validate: expected conflicting-inverse error, got %v", validateErr)
+	}
+}
