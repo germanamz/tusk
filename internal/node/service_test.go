@@ -415,6 +415,7 @@ func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
+		nil,
 	)
 
 	_, createErr := service.Create(node.CreateInput{
@@ -464,6 +465,7 @@ func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
+		nil,
 	)
 
 	if _, createErr := service.Create(node.CreateInput{
@@ -505,7 +507,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
-		nil, nil, nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard, nil,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -540,6 +542,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
+		nil,
 	)
 
 	_, modifyErr := service.Modify(node.ModifyInput{
@@ -564,7 +567,7 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
-		nil, nil, nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard, nil,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -594,6 +597,7 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		engine,
 		driftRepo,
 		&warnings,
+		nil,
 	)
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
@@ -633,7 +637,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 	seed := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		nil, nil, nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard, nil,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -650,7 +654,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		nil, nil, engine, driftRepo, io.Discard,
+		nil, nil, engine, driftRepo, io.Discard, nil,
 	)
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
@@ -763,7 +767,7 @@ func TestCreate_PropertyRequiredMissingRejects(test *testing.T) {
 		index.NewEmbedQueueRepo(store),
 		decls,
 		index.NewPropertyDriftRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, io.Discard, nil,
 	)
 
 	_, createErr := service.Create(node.CreateInput{
@@ -799,7 +803,7 @@ func TestCreate_PropertyTypeMismatchRejects(test *testing.T) {
 		index.NewEmbedQueueRepo(store),
 		decls,
 		index.NewPropertyDriftRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, io.Discard, nil,
 	)
 
 	_, createErr := service.Create(node.CreateInput{
@@ -835,7 +839,7 @@ func TestCreate_PropertyUndeclaredWritesAndDrifts(test *testing.T) {
 		index.NewEmbedQueueRepo(store),
 		decls,
 		driftRepo,
-		nil, nil, &warnings,
+		nil, nil, &warnings, nil,
 	)
 
 	if _, createErr := service.Create(node.CreateInput{
@@ -867,7 +871,7 @@ func TestModify_PropertyTypeMismatchRejects(test *testing.T) {
 	seed := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		nil, nil, nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard, nil,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -885,7 +889,7 @@ func TestModify_PropertyTypeMismatchRejects(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		decls, index.NewPropertyDriftRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, io.Discard, nil,
 	)
 
 	_, modifyErr := service.Modify(node.ModifyInput{
@@ -907,7 +911,7 @@ func TestModify_UnsetRequiredRejects(test *testing.T) {
 	seed := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		nil, nil, nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard, nil,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -926,7 +930,7 @@ func TestModify_UnsetRequiredRejects(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		decls, index.NewPropertyDriftRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, io.Discard, nil,
 	)
 
 	_, modifyErr := service.Modify(node.ModifyInput{
@@ -948,7 +952,7 @@ func TestModify_UndeclaredPropertyDriftsAndClearsOnCleanPass(test *testing.T) {
 	seed := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		nil, nil, nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard, nil,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -971,7 +975,7 @@ func TestModify_UndeclaredPropertyDriftsAndClearsOnCleanPass(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		decls, driftRepo,
-		nil, nil, &warnings,
+		nil, nil, &warnings, nil,
 	)
 
 	// First Modify: add an undeclared property → drift.
@@ -1004,5 +1008,233 @@ func TestModify_UndeclaredPropertyDriftsAndClearsOnCleanPass(test *testing.T) {
 
 	if len(rows) != 0 {
 		test.Errorf("drift after clean Modify = %+v, want empty", rows)
+	}
+}
+
+func TestServiceCreate_RefResolutionDangling(test *testing.T) {
+	dir := test.TempDir()
+	idx, _ := index.Open(filepath.Join(dir, "idx.db"))
+	defer idx.Close()
+
+	repo := index.NewNodeRepo(idx)
+	edges := index.NewEdgeRepo(idx)
+
+	nodeTypes := map[string]manifest.NodeType{
+		"person": {Properties: []manifest.PropertyDecl{{Name: "name", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+	}
+	edgeTypes := manifest.EdgeTypes{
+		"assignee": {From: []string{"ticket"}, To: []string{"person"}, Cardinality: manifest.CardinalityManyToOne},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		dir, repo, edges, edgeTypes, nil,
+		nodeTypes, nil, nil, nil, nil,
+		node.NewIndexRefLookup(repo), // helper from this task
+	)
+
+	_, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/auth.md",
+		Type:       "ticket",
+		Title:      "Auth cleanup",
+		Properties: map[string]any{"assignee": "missing"},
+	})
+
+	if createErr == nil {
+		test.Fatal("expected ref-dangling rejection")
+	}
+
+	var refErr *node.RefValidationError
+
+	if !errors.As(createErr, &refErr) {
+		test.Fatalf("error is not RefValidationError: %T %v", createErr, createErr)
+	}
+
+	if len(refErr.Errors) != 1 || refErr.Errors[0].Kind != node.RefErrDangling {
+		test.Errorf("RefValidationError = %+v", refErr)
+	}
+
+	// File must not exist (write rejected).
+	if _, statErr := os.Stat(filepath.Join(dir, "tickets/auth.md")); !os.IsNotExist(statErr) {
+		test.Errorf("file unexpectedly created: stat err = %v", statErr)
+	}
+}
+
+func TestServiceCreate_RefResolutionHappy(test *testing.T) {
+	dir := test.TempDir()
+	idx, _ := index.Open(filepath.Join(dir, "idx.db"))
+	defer idx.Close()
+
+	repo := index.NewNodeRepo(idx)
+	edges := index.NewEdgeRepo(idx)
+
+	nodeTypes := map[string]manifest.NodeType{
+		"person": {Properties: []manifest.PropertyDecl{{Name: "name", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+	}
+	edgeTypes := manifest.EdgeTypes{
+		"assignee": {From: []string{"ticket"}, To: []string{"person"}, Cardinality: manifest.CardinalityManyToOne},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		dir, repo, edges, edgeTypes, nil,
+		nodeTypes, nil, nil, nil, nil,
+		node.NewIndexRefLookup(repo),
+	)
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "people/alice.md",
+		Type:       "person",
+		Title:      "alice",
+		Properties: map[string]any{"name": "Alice"},
+	}); createErr != nil {
+		test.Fatalf("create person: %v", createErr)
+	}
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/auth.md",
+		Type:       "ticket",
+		Title:      "Auth",
+		Properties: map[string]any{"assignee": "alice"},
+	}); createErr != nil {
+		test.Fatalf("create ticket: %v", createErr)
+	}
+
+	// Edge must exist.
+	rows, _ := edges.ListBySource("tickets/auth")
+
+	if len(rows) != 1 || rows[0].Type != "assignee" || rows[0].TargetID != "people/alice" {
+		test.Errorf("edges = %+v", rows)
+	}
+}
+
+func TestServiceModify_RefRemovedDeletesEdge(test *testing.T) {
+	dir := test.TempDir()
+	idx, _ := index.Open(filepath.Join(dir, "idx.db"))
+	defer idx.Close()
+
+	repo := index.NewNodeRepo(idx)
+	edgeRepo := index.NewEdgeRepo(idx)
+
+	nodeTypes := map[string]manifest.NodeType{
+		"person": {Properties: []manifest.PropertyDecl{{Name: "name", Type: "string", Required: true}}},
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+	}
+	edgeTypes := manifest.EdgeTypes{
+		"assignee": {From: []string{"ticket"}, To: []string{"person"}, Cardinality: manifest.CardinalityManyToOne},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		dir, repo, edgeRepo, edgeTypes, nil,
+		nodeTypes, nil, nil, nil, nil,
+		node.NewIndexRefLookup(repo),
+	)
+
+	// Create alice.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "people/alice.md",
+		Type:       "person",
+		Title:      "alice",
+		Properties: map[string]any{"name": "Alice"},
+	}); createErr != nil {
+		test.Fatalf("create person: %v", createErr)
+	}
+
+	// Create ticket with assignee=alice.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/auth.md",
+		Type:       "ticket",
+		Title:      "Auth",
+		Properties: map[string]any{"assignee": "alice"},
+	}); createErr != nil {
+		test.Fatalf("create ticket: %v", createErr)
+	}
+
+	// Verify the edge exists before modify.
+	rowsBefore, _ := edgeRepo.ListBySource("tickets/auth")
+	if len(rowsBefore) != 1 {
+		test.Fatalf("expected 1 edge before unset, got %+v", rowsBefore)
+	}
+
+	// Modify: unset assignee.
+	if _, modifyErr := service.Modify(node.ModifyInput{
+		ID:        "tickets/auth",
+		UnsetKeys: []string{"assignee"},
+	}); modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	rows, _ := edgeRepo.ListBySource("tickets/auth")
+	if len(rows) != 0 {
+		test.Errorf("expected 0 edges after unset assignee, got %+v", rows)
+	}
+}
+
+func TestServiceCreate_RefAcyclicCycleRejected(test *testing.T) {
+	dir := test.TempDir()
+	idx, _ := index.Open(filepath.Join(dir, "idx.db"))
+	defer idx.Close()
+
+	repo := index.NewNodeRepo(idx)
+	edgeRepo := index.NewEdgeRepo(idx)
+
+	// ticket.parent: ref to ticket, acyclic = true.
+	nodeTypes := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{
+			{Name: "parent", Type: "ref", To: "ticket", Acyclic: true},
+		}},
+	}
+	edgeTypes := manifest.EdgeTypes{
+		"parent": {
+			From:        []string{"ticket"},
+			To:          []string{"ticket"},
+			Cardinality: manifest.CardinalityManyToOne,
+			Acyclic:     true,
+		},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		dir, repo, edgeRepo, edgeTypes, nil,
+		nodeTypes, nil, nil, nil, nil,
+		node.NewIndexRefLookup(repo),
+	)
+
+	// Create ticket-a.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "tickets/a.md",
+		Type:    "ticket",
+		Title:   "A",
+	}); createErr != nil {
+		test.Fatalf("create a: %v", createErr)
+	}
+
+	// Create ticket-b with parent=a.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/b.md",
+		Type:       "ticket",
+		Title:      "B",
+		Properties: map[string]any{"parent": "[[tickets/a]]"},
+	}); createErr != nil {
+		test.Fatalf("create b: %v", createErr)
+	}
+
+	// Create ticket-c with parent=b.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/c.md",
+		Type:       "ticket",
+		Title:      "C",
+		Properties: map[string]any{"parent": "[[tickets/b]]"},
+	}); createErr != nil {
+		test.Fatalf("create c: %v", createErr)
+	}
+
+	// Attempt ticket-a with parent=c → should create cycle a→b→c→a.
+	_, cycleErr := service.Modify(node.ModifyInput{
+		ID:       "tickets/a",
+		SetProps: map[string]any{"parent": "[[tickets/c]]"},
+	})
+
+	if cycleErr == nil {
+		test.Error("expected cycle rejection, got nil")
 	}
 }

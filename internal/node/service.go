@@ -55,6 +55,8 @@ type Service struct {
 	behaviors Behaviors                // optional; nil = no hook dispatch
 	drift     *index.WorkflowDriftRepo // optional; nil = no drift persistence
 	warnings  io.Writer                // optional; nil = io.Discard
+
+	refs RefLookup // optional; nil = ref resolution disabled
 }
 
 // NewService constructs a Service for a workspace whose manifest has no edge
@@ -97,8 +99,9 @@ func NewServiceWithEmbedQueue(workspaceRoot string, repo *index.NodeRepo, edges 
 // NewServiceWithBehaviors is the Plan 7 production constructor: like
 // NewServiceWithEmbedQueue, but also wires the behavior engine, the
 // drift log, and a warnings writer (defaults to io.Discard when nil).
-// Plan 7.b adds nodeTypes and propertyDrift; pass nil for both until
-// Tasks 14–17 wire the real values through.
+// Plan 7.b adds nodeTypes and propertyDrift; Plan 7.c.1 adds refs for
+// ref-property resolution. Pass nil for unused fields; nil refs disables
+// ref resolution (nil-tolerant for forward compatibility).
 func NewServiceWithBehaviors(
 	workspaceRoot string,
 	repo *index.NodeRepo,
@@ -110,6 +113,7 @@ func NewServiceWithBehaviors(
 	behaviors Behaviors,
 	drift *index.WorkflowDriftRepo,
 	warnings io.Writer,
+	refs RefLookup,
 ) *Service {
 	if warnings == nil {
 		warnings = io.Discard
@@ -126,6 +130,7 @@ func NewServiceWithBehaviors(
 		behaviors:     behaviors,
 		drift:         drift,
 		warnings:      warnings,
+		refs:          refs,
 	}
 }
 
@@ -158,6 +163,37 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 	if parseErr != nil {
 		return nil, parseErr
+	}
+
+	// Initialize Edges map (ParseFile does not; ResolveEdges also does this,
+	// but ResolveRefs must run first for ref-typed properties).
+	if parsed.Edges == nil {
+		parsed.Edges = map[string][]string{}
+	}
+
+	// Plan 7.c.1: ref resolution — runs before ResolveEdges so that ref
+	// property values (bare titles / wikilinks) are resolved before the
+	// raw-ID edge pass consumes them. On hard error, reject before any write.
+	// On success, remove the resolved properties from parsed.Properties so
+	// ResolveEdges does not treat them as raw-ID edges.
+	if service.refs != nil {
+		refResult := ResolveRefs(parsed, service.nodeTypes, service.refs)
+
+		if len(refResult.HardErrors) > 0 {
+			return nil, &RefValidationError{
+				Op:       "create",
+				NodeID:   parsed.ID,
+				NodeType: parsed.Type,
+				Errors:   refResult.HardErrors,
+			}
+		}
+
+		for _, edge := range refResult.Edges {
+			parsed.Edges[edge.EdgeType] = appendUnique(parsed.Edges[edge.EdgeType], edge.TargetID)
+		}
+
+		// Remove resolved ref properties so ResolveEdges skips them.
+		removeRefProperties(parsed, service.nodeTypes)
 	}
 
 	if resolveErr := ResolveEdges(parsed, service.edgeTypes); resolveErr != nil {
@@ -357,6 +393,33 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	if reparseErr != nil {
 		return nil, reparseErr
+	}
+
+	// Initialize Edges map (ParseFile does not; ResolveEdges also does this,
+	// but ResolveRefs must run first for ref-typed properties).
+	if reparsed.Edges == nil {
+		reparsed.Edges = map[string][]string{}
+	}
+
+	// Plan 7.c.1: ref resolution — runs before ResolveEdges (same reason as Create).
+	if service.refs != nil {
+		refResult := ResolveRefs(reparsed, service.nodeTypes, service.refs)
+
+		if len(refResult.HardErrors) > 0 {
+			return nil, &RefValidationError{
+				Op:       "modify",
+				NodeID:   reparsed.ID,
+				NodeType: reparsed.Type,
+				Errors:   refResult.HardErrors,
+			}
+		}
+
+		for _, edge := range refResult.Edges {
+			reparsed.Edges[edge.EdgeType] = appendUnique(reparsed.Edges[edge.EdgeType], edge.TargetID)
+		}
+
+		// Remove resolved ref properties so ResolveEdges skips them.
+		removeRefProperties(reparsed, service.nodeTypes)
 	}
 
 	if resolveErr := ResolveEdges(reparsed, service.edgeTypes); resolveErr != nil {
@@ -667,6 +730,27 @@ func diffEdgeSets(before, after *Node) (removed, added []index.EdgeRow) {
 	return removed, added
 }
 
+// removeRefProperties deletes from parsed.Properties any key that is a
+// ref-shaped PropertyDecl on the node's type. This is called after ref
+// resolution so that ResolveEdges does not re-process resolved ref values
+// as raw-ID edges.
+func removeRefProperties(parsedNode *Node, decls map[string]manifest.NodeType) {
+	if decls == nil {
+		return
+	}
+
+	nodeType, declared := decls[parsedNode.Type]
+	if !declared {
+		return
+	}
+
+	for _, prop := range nodeType.Properties {
+		if manifest.IsRefProperty(prop) {
+			delete(parsedNode.Properties, prop.Name)
+		}
+	}
+}
+
 // appendUnique appends value to slice only if not already present.
 func appendUnique(slice []string, value string) []string {
 	for _, existing := range slice {
@@ -795,7 +879,7 @@ func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
 		case string:
 			builder.WriteString(key)
 			builder.WriteString(": ")
-			builder.WriteString(typed)
+			builder.WriteString(yamlQuoteString(typed))
 			builder.WriteString("\n")
 		case int:
 			builder.WriteString(key)
@@ -814,7 +898,7 @@ func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
 					return nil, fmt.Errorf("node: unsupported sequence element type for %s: %T", key, element)
 				}
 				builder.WriteString("  - ")
-				builder.WriteString(elementString)
+				builder.WriteString(yamlQuoteString(elementString))
 				builder.WriteString("\n")
 			}
 		default:
@@ -836,4 +920,28 @@ func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 
 	return hex.EncodeToString(sum[:])
+}
+
+// yamlQuoteString returns the string quoted with double-quotes when it contains
+// characters that YAML would misinterpret as structure (e.g., `[[`, `]]`, `:`,
+// `{`, `}`). Plain ASCII identifiers and simple strings are returned as-is.
+func yamlQuoteString(str string) string {
+	needsQuoting := false
+
+	for _, ch := range str {
+		switch ch {
+		case '[', ']', '{', '}', ':', '#', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`':
+			needsQuoting = true
+		}
+	}
+
+	if !needsQuoting {
+		return str
+	}
+
+	// Escape backslashes and double-quotes in the string content, then wrap.
+	escaped := strings.ReplaceAll(str, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+
+	return `"` + escaped + `"`
 }

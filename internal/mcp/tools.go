@@ -616,6 +616,7 @@ func registerNodeModifyTool(srv *Server) {
 			srv.runtime.BehaviorEngine,
 			srv.runtime.WorkflowDrift,
 			&warningsBuf,
+			node.NewIndexRefLookup(srv.runtime.Nodes),
 		)
 
 		var modified *node.Node
