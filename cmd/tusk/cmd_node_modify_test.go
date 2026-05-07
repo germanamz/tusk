@@ -85,6 +85,52 @@ func runCLISplit(root string, args ...string) (stdout, stderr *bytes.Buffer, ok 
 	return stdout, stderr, execErr == nil
 }
 
+func TestNodeModify_PropertyUndeclaredDriftsAndDoctorSurfaces(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"summary": "hi"})
+
+	stdout, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--prop", "assignee=bob")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stderr.String(), "assignee") {
+		test.Errorf("stderr = %q, want drift warning", stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Modified tickets/foo") {
+		test.Errorf("stdout = %q, want success line", stdout.String())
+	}
+
+	doctorStdout, _, doctorOk := runCLISplit(root, "doctor")
+
+	if !doctorOk {
+		test.Errorf("doctor exit non-zero, want 0")
+	}
+
+	if !strings.Contains(doctorStdout.String(), "undeclared-property") {
+		test.Errorf("doctor stdout = %q", doctorStdout.String())
+	}
+}
+
+func TestNodeModify_UnsetRequiredRejected(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"summary": "hi"})
+
+	_, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--unset", "summary")
+
+	if ok {
+		test.Errorf("exit 0, want non-zero")
+	}
+
+	if !strings.Contains(stderr.String(), "cannot unset required") {
+		test.Errorf("stderr = %q, want mention of cannot-unset-required", stderr.String())
+	}
+}
+
 func TestNodeModify_WorkflowLegalTransition(test *testing.T) {
 	root := newWorkspaceWithWorkflow(test)
 

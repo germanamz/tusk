@@ -8,6 +8,63 @@ import (
 	"testing"
 )
 
+func TestNodeCreate_PropertyRequiredMissingRejected(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	_, stderr, ok := runCLISplit(root, "node", "create", "--type", "ticket", "--", "tickets/foo")
+
+	if ok {
+		test.Errorf("exit 0, want non-zero")
+	}
+
+	if !strings.Contains(stderr.String(), "summary") {
+		test.Errorf("stderr = %q, want mention of summary", stderr.String())
+	}
+}
+
+func TestNodeCreate_PropertyTypeMismatchRejected(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	_, stderr, ok := runCLISplit(root, "node", "create",
+		"--type", "ticket",
+		"--prop", "summary=hi",
+		"--prop", "priority=high",
+		"--", "tickets/foo")
+
+	if ok {
+		test.Errorf("exit 0, want non-zero")
+	}
+
+	if !strings.Contains(stderr.String(), "priority") {
+		test.Errorf("stderr = %q, want mention of priority", stderr.String())
+	}
+}
+
+// newWorkspaceWithNodeTypes seeds a workspace with a tusk.toml that declares
+// node-types.ticket. Returns the workspace root.
+func newWorkspaceWithNodeTypes(test *testing.T) string {
+	test.Helper()
+
+	root := test.TempDir()
+
+	manifestBody := `
+[workspace]
+name = "test"
+
+[node-types.ticket]
+properties = [
+    { name = "summary",  type = "string", required = true },
+    { name = "priority", type = "int" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	return root
+}
+
 func TestNodeCreateCmd_WritesFile(test *testing.T) {
 	tmpDir := initWorkspace(test)
 

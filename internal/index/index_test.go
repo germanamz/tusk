@@ -143,6 +143,28 @@ func TestOpen_CreatesWorkflowDriftTable(test *testing.T) {
 	}
 }
 
+func TestOpen_CreatesPropertyDriftTable(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	tables, listErr := store.ListTables()
+
+	if listErr != nil {
+		test.Fatalf("ListTables: %v", listErr)
+	}
+
+	if !contains(tables, "property_drift") {
+		test.Errorf("missing table %q in %v", "property_drift", tables)
+	}
+}
+
 func contains(haystack []string, needle string) bool {
 	for _, item := range haystack {
 		if item == needle {

@@ -88,6 +88,8 @@ func newNodeCreateCmd() *cobra.Command {
 					index.NewEdgeRepo(store),
 					loaded.EdgeTypes,
 					index.NewEmbedQueueRepo(store),
+					loaded.NodeTypes,
+					index.NewPropertyDriftRepo(store),
 					engine,
 					index.NewWorkflowDriftRepo(store),
 					cmd.ErrOrStderr(),

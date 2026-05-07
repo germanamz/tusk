@@ -551,6 +551,12 @@ func registerNodeCreateTool(srv *Server) {
 				}), nil
 			}
 
+			var propErr *node.PropertyValidationError
+
+			if errors.As(lockErr, &propErr) {
+				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
+			}
+
 			return toolError(lockErr), nil
 		}
 
@@ -605,6 +611,8 @@ func registerNodeModifyTool(srv *Server) {
 			srv.runtime.Edges,
 			srv.runtime.Manifest.EdgeTypes,
 			srv.runtime.EmbedQueue,
+			srv.runtime.Manifest.NodeTypes,
+			srv.runtime.PropertyDrift,
 			srv.runtime.BehaviorEngine,
 			srv.runtime.WorkflowDrift,
 			&warningsBuf,
@@ -641,6 +649,12 @@ func registerNodeModifyTool(srv *Server) {
 				}), nil
 			}
 
+			var propErr *node.PropertyValidationError
+
+			if errors.As(lockErr, &propErr) {
+				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
+			}
+
 			return toolError(lockErr), nil
 		}
 
@@ -653,7 +667,12 @@ func registerNodeModifyTool(srv *Server) {
 		}
 
 		if warningsBuf.Len() > 0 {
-			result["warnings"] = parseRecoveryWarnings(warningsBuf.String(), modified.ID)
+			allWarnings := parseRecoveryWarnings(warningsBuf.String(), modified.ID)
+			allWarnings = append(allWarnings, parsePropertyDriftWarnings(warningsBuf.String())...)
+
+			if len(allWarnings) > 0 {
+				result["warnings"] = allWarnings
+			}
 		}
 
 		return toolJSON(result)
@@ -1003,6 +1022,80 @@ func toolJSONError(payload map[string]any) *mcpgo.CallToolResult {
 		IsError: true,
 		Content: []mcpgo.Content{mcpgo.NewTextContent(string(body))},
 	}
+}
+
+// buildPropertyRejectionPayload constructs the structured node-types-rejection
+// envelope from a PropertyValidationError. Per spec §7.2.
+func buildPropertyRejectionPayload(propErr *node.PropertyValidationError) map[string]any {
+	errItems := make([]map[string]any, 0, len(propErr.Errors))
+
+	for _, pe := range propErr.Errors {
+		item := map[string]any{
+			"kind":     propertyErrorKindString(pe.Kind),
+			"property": pe.Property,
+			"type":     pe.Type,
+			"reason":   pe.Reason,
+		}
+
+		if pe.Value != nil {
+			item["value"] = pe.Value
+		}
+
+		errItems = append(errItems, item)
+	}
+
+	return map[string]any{
+		"error":     "node-types-rejection",
+		"node_id":   propErr.NodeID,
+		"node_type": propErr.NodeType,
+		"op":        propErr.Op,
+		"errors":    errItems,
+	}
+}
+
+// propertyErrorKindString maps a PropertyErrorKind to its JSON string.
+func propertyErrorKindString(kind node.PropertyErrorKind) string {
+	switch kind {
+	case node.ErrTypeMismatch:
+		return "type-mismatch"
+	case node.ErrRequiredMissing:
+		return "required-missing"
+	case node.ErrEnumViolation:
+		return "enum-violation"
+	case node.ErrCannotUnsetRequired:
+		return "cannot-unset-required"
+	default:
+		return "unknown"
+	}
+}
+
+// parsePropertyDriftWarnings extracts property-drift warning entries from the
+// Service's stderr output. Format:
+//
+//	warning: node-types: property "<P>" is not declared on type "<T>"; ...
+func parsePropertyDriftWarnings(buf string) []map[string]any {
+	var warnings []map[string]any
+
+	for _, line := range strings.Split(strings.TrimSpace(buf), "\n") {
+		if !strings.HasPrefix(line, "warning: node-types: property ") {
+			continue
+		}
+
+		// Extract the property name (first quoted string after "property ").
+		prop := extractQuoted(line, 0)
+
+		if prop == "" {
+			continue
+		}
+
+		warnings = append(warnings, map[string]any{
+			"kind":     "property-drift",
+			"property": prop,
+			"message":  line,
+		})
+	}
+
+	return warnings
 }
 
 // parseRecoveryWarnings turns the Service's stderr warning lines into a

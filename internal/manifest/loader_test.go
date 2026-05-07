@@ -3,6 +3,7 @@ package manifest_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -373,5 +374,278 @@ func TestLoad_RejectsBehaviorsWithEmptyKindName(test *testing.T) {
 
 	if validateErr := manifest.Validate(loaded); validateErr == nil {
 		test.Errorf("Validate: expected empty-kind-name rejection")
+	}
+}
+
+func TestLoad_DecodesNodeTypesSection(test *testing.T) {
+	dir := test.TempDir()
+	manifestPath := filepath.Join(dir, "tusk.toml")
+
+	content := `
+[workspace]
+name = "test"
+
+[node-types.ticket]
+description = "A unit of trackable work"
+properties = [
+    { name = "summary",  type = "string", required = true },
+    { name = "priority", type = "int" },
+    { name = "due",      type = "date" },
+    { name = "labels",   type = "list-of", item-type = "string" },
+    { name = "stage",    type = "enum", values = ["pending", "active", "completed"] },
+]
+
+[node-types.note]
+description = "Free-form note"
+properties = [
+    { name = "summary", type = "string", required = true },
+]
+`
+	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if len(loaded.NodeTypes) != 2 {
+		test.Fatalf("NodeTypes count = %d, want 2", len(loaded.NodeTypes))
+	}
+
+	ticket, ok := loaded.NodeTypes["ticket"]
+
+	if !ok {
+		test.Fatalf("ticket type not decoded")
+	}
+
+	if ticket.Description != "A unit of trackable work" {
+		test.Errorf("ticket.Description = %q", ticket.Description)
+	}
+
+	if len(ticket.Properties) != 5 {
+		test.Fatalf("ticket.Properties count = %d, want 5", len(ticket.Properties))
+	}
+
+	summaryProp := ticket.Properties[0]
+
+	if summaryProp.Name != "summary" || summaryProp.Type != "string" || !summaryProp.Required {
+		test.Errorf("ticket.Properties[0] = %+v", summaryProp)
+	}
+
+	labelsProp := ticket.Properties[3]
+
+	if labelsProp.Name != "labels" || labelsProp.Type != "list-of" || labelsProp.ItemType != "string" {
+		test.Errorf("ticket.Properties[3] = %+v", labelsProp)
+	}
+
+	stageProp := ticket.Properties[4]
+
+	if stageProp.Type != "enum" || len(stageProp.Values) != 3 {
+		test.Errorf("ticket.Properties[4] = %+v", stageProp)
+	}
+}
+
+func TestValidate_RejectsNodeTypeWithEmptyName(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "empty type name") {
+		test.Errorf("Validate: expected empty-type-name error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsPropertyWithEmptyName(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "", Type: "string"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "empty property name") {
+		test.Errorf("Validate: expected empty-property-name error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsReservedPropertyName(test *testing.T) {
+	cases := []string{"type", "title"}
+
+	for _, reserved := range cases {
+		loaded := &manifest.Manifest{
+			NodeTypes: map[string]manifest.NodeType{
+				"ticket": {Properties: []manifest.PropertyDecl{{Name: reserved, Type: "string"}}},
+			},
+		}
+
+		validateErr := manifest.Validate(loaded)
+
+		if validateErr == nil || !strings.Contains(validateErr.Error(), reserved) {
+			test.Errorf("Validate: reserved %q expected error, got %v", reserved, validateErr)
+		}
+	}
+}
+
+func TestValidate_RejectsDuplicatePropertyName(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "x", Type: "string"},
+				{Name: "x", Type: "int"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "duplicate") {
+		test.Errorf("Validate: expected duplicate-property-name error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsUnknownPropertyType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "x", Type: "blob"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "blob") {
+		test.Errorf("Validate: expected unknown-type error, got %v", validateErr)
+	}
+}
+
+func TestValidate_AcceptsHappyPath(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "summary", Type: "string", Required: true},
+				{Name: "n", Type: "int"},
+				{Name: "f", Type: "float"},
+				{Name: "b", Type: "bool"},
+				{Name: "d", Type: "date"},
+				{Name: "dt", Type: "datetime"},
+				{Name: "md", Type: "markdown"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Errorf("Validate: %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsEnumWithoutValues(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "stage", Type: "enum"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "values") {
+		test.Errorf("Validate: expected enum-without-values error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsEnumWithEmptyValueElement(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "stage", Type: "enum", Values: []string{"a", ""}}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "empty") {
+		test.Errorf("Validate: expected empty-enum-value error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsEnumWithDuplicateValues(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "stage", Type: "enum", Values: []string{"a", "a"}}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "duplicate") {
+		test.Errorf("Validate: expected duplicate-enum-value error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsListOfWithoutItemType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "labels", Type: "list-of"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "item-type") {
+		test.Errorf("Validate: expected list-of-without-item-type error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsListOfWithNestedListItemType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "labels", Type: "list-of", ItemType: "list-of"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "nest") {
+		test.Errorf("Validate: expected nesting error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsListOfEnumWithoutValues(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "stages", Type: "list-of", ItemType: "enum"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "values") {
+		test.Errorf("Validate: expected list-of-enum-without-values error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsValuesOnNonEnumScalar(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "x", Type: "string", Values: []string{"a"}}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "values") {
+		test.Errorf("Validate: expected misplaced-values error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsItemTypeOnNonListScalar(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "x", Type: "string", ItemType: "int"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "item-type") {
+		test.Errorf("Validate: expected misplaced-item-type error, got %v", validateErr)
+	}
+}
+
+func TestValidate_AcceptsListOfEnum(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{
+				Name:     "stages",
+				Type:     "list-of",
+				ItemType: "enum",
+				Values:   []string{"draft", "review"},
+			}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Errorf("Validate: %v", validateErr)
 	}
 }

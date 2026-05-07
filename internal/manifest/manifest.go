@@ -8,9 +8,10 @@ type EdgeTypes = map[string]EdgeType
 
 // Manifest is the parsed representation of tusk.toml at the workspace root.
 type Manifest struct {
-	Workspace  WorkspaceSection  `toml:"workspace"`
-	EdgeTypes  EdgeTypes         `toml:"edge-types"`
-	Embeddings EmbeddingsSection `toml:"embeddings"`
+	Workspace  WorkspaceSection    `toml:"workspace"`
+	EdgeTypes  EdgeTypes           `toml:"edge-types"`
+	Embeddings EmbeddingsSection   `toml:"embeddings"`
+	NodeTypes  map[string]NodeType `toml:"node-types"`
 
 	// Behaviors is a two-level map: kind name → instance name → raw TOML
 	// table. The kind-specific decode happens inside the pack package
@@ -21,6 +22,23 @@ type Manifest struct {
 	// Kinds can call PrimitiveDecode against their subtable. Nil for
 	// hand-built manifests (tests that construct a Manifest literal).
 	Meta *toml.MetaData `toml:"-"`
+}
+
+// NodeType is a manifest-declared node type with an optional description and
+// a list of property declarations.
+type NodeType struct {
+	Description string         `toml:"description"`
+	Properties  []PropertyDecl `toml:"properties"`
+}
+
+// PropertyDecl declares a single typed property on a node type.
+type PropertyDecl struct {
+	Name        string   `toml:"name"`
+	Type        string   `toml:"type"`
+	ItemType    string   `toml:"item-type"`
+	Values      []string `toml:"values"`
+	Required    bool     `toml:"required"`
+	Description string   `toml:"description"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.

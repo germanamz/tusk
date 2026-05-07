@@ -87,6 +87,115 @@ func TestRegistry_BuildEngine_PropagatesNewInstanceError(test *testing.T) {
 	}
 }
 
+func TestBuildEngineWithDeclaredKeys_CollidesWithBehaviorReservation(test *testing.T) {
+	reg := behavior.NewRegistry()
+
+	// Workflow-style pack reserving status on ticket.
+	colliding := func(instanceName string) *fakePack {
+		return &fakePack{
+			name: instanceName,
+			kind: "workflow",
+			reserved: []behavior.ReservedKey{
+				{NodeType: "ticket", Property: "status"},
+			},
+		}
+	}
+
+	if registerErr := reg.Register(&fakeKind{name: "workflow", produced: colliding}); registerErr != nil {
+		test.Fatalf("Register: %v", registerErr)
+	}
+
+	loaded := &manifest.Manifest{
+		Behaviors: map[string]map[string]toml.Primitive{
+			"workflow": {"tickets": toml.Primitive{}},
+		},
+	}
+
+	declared := []behavior.DeclaredKey{
+		{NodeType: "ticket", Property: "status", Source: "node-types.ticket.properties[status]"},
+	}
+
+	_, buildErr := reg.BuildEngineWithDeclaredKeys(loaded, declared)
+
+	if buildErr == nil {
+		test.Fatalf("BuildEngineWithDeclaredKeys: expected collision error")
+	}
+
+	if !strings.Contains(buildErr.Error(), "ticket") || !strings.Contains(buildErr.Error(), "status") {
+		test.Errorf("error missing ticket/status: %v", buildErr)
+	}
+
+	if !strings.Contains(buildErr.Error(), "node-types") {
+		test.Errorf("error missing node-types source mention: %v", buildErr)
+	}
+}
+
+func TestBuildEngineWithDeclaredKeys_SamePropertyDifferentTypePasses(test *testing.T) {
+	reg := behavior.NewRegistry()
+
+	colliding := func(instanceName string) *fakePack {
+		return &fakePack{
+			name: instanceName,
+			kind: "workflow",
+			reserved: []behavior.ReservedKey{
+				{NodeType: "ticket", Property: "status"},
+			},
+		}
+	}
+
+	if registerErr := reg.Register(&fakeKind{name: "workflow", produced: colliding}); registerErr != nil {
+		test.Fatalf("Register: %v", registerErr)
+	}
+
+	loaded := &manifest.Manifest{
+		Behaviors: map[string]map[string]toml.Primitive{
+			"workflow": {"tickets": toml.Primitive{}},
+		},
+	}
+
+	declared := []behavior.DeclaredKey{
+		// Same property name but on a different node-type — no collision.
+		{NodeType: "decision", Property: "status", Source: "node-types.decision.properties[status]"},
+	}
+
+	if _, buildErr := reg.BuildEngineWithDeclaredKeys(loaded, declared); buildErr != nil {
+		test.Errorf("BuildEngineWithDeclaredKeys: %v", buildErr)
+	}
+}
+
+func TestBuildEngineWithDeclaredKeys_DifferentPropertySameTypePasses(test *testing.T) {
+	reg := behavior.NewRegistry()
+
+	colliding := func(instanceName string) *fakePack {
+		return &fakePack{
+			name: instanceName,
+			kind: "workflow",
+			reserved: []behavior.ReservedKey{
+				{NodeType: "ticket", Property: "status"},
+			},
+		}
+	}
+
+	if registerErr := reg.Register(&fakeKind{name: "workflow", produced: colliding}); registerErr != nil {
+		test.Fatalf("Register: %v", registerErr)
+	}
+
+	loaded := &manifest.Manifest{
+		Behaviors: map[string]map[string]toml.Primitive{
+			"workflow": {"tickets": toml.Primitive{}},
+		},
+	}
+
+	declared := []behavior.DeclaredKey{
+		// Same type but different property — no collision.
+		{NodeType: "ticket", Property: "priority", Source: "node-types.ticket.properties[priority]"},
+	}
+
+	if _, buildErr := reg.BuildEngineWithDeclaredKeys(loaded, declared); buildErr != nil {
+		test.Errorf("BuildEngineWithDeclaredKeys: %v", buildErr)
+	}
+}
+
 func TestRegistry_BuildEngine_CollisionDetected(test *testing.T) {
 	reg := behavior.NewRegistry()
 

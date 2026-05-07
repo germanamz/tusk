@@ -41,8 +41,15 @@ func (registry *Registry) Lookup(name string) (Kind, bool) {
 // Kind.NewInstance, then constructs and returns an *Engine. Reservation
 // collisions surface here via NewEngine.
 func (registry *Registry) BuildEngine(loaded *manifest.Manifest) (*Engine, error) {
+	return registry.BuildEngineWithDeclaredKeys(loaded, nil)
+}
+
+// BuildEngineWithDeclaredKeys is the production path: it resolves
+// loaded.Behaviors into Instances and passes declaredKeys through to
+// NewEngine so the collision detector covers node-type declarations.
+func (registry *Registry) BuildEngineWithDeclaredKeys(loaded *manifest.Manifest, declaredKeys []DeclaredKey) (*Engine, error) {
 	if loaded == nil {
-		return NewEngine(nil)
+		return NewEngine(nil, declaredKeys)
 	}
 
 	var instances []Instance
@@ -65,7 +72,7 @@ func (registry *Registry) BuildEngine(loaded *manifest.Manifest) (*Engine, error
 		}
 	}
 
-	return NewEngine(instances)
+	return NewEngine(instances, declaredKeys)
 }
 
 func (registry *Registry) knownKinds() []string {

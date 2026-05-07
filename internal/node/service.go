@@ -49,6 +49,9 @@ type Service struct {
 	edgeTypes  manifest.EdgeTypes
 	embedQueue *index.EmbedQueueRepo
 
+	nodeTypes     map[string]manifest.NodeType // optional; nil = untyped pass-through
+	propertyDrift *index.PropertyDriftRepo     // optional; nil = no property drift persistence
+
 	behaviors Behaviors                // optional; nil = no hook dispatch
 	drift     *index.WorkflowDriftRepo // optional; nil = no drift persistence
 	warnings  io.Writer                // optional; nil = io.Discard
@@ -94,12 +97,16 @@ func NewServiceWithEmbedQueue(workspaceRoot string, repo *index.NodeRepo, edges 
 // NewServiceWithBehaviors is the Plan 7 production constructor: like
 // NewServiceWithEmbedQueue, but also wires the behavior engine, the
 // drift log, and a warnings writer (defaults to io.Discard when nil).
+// Plan 7.b adds nodeTypes and propertyDrift; pass nil for both until
+// Tasks 14–17 wire the real values through.
 func NewServiceWithBehaviors(
 	workspaceRoot string,
 	repo *index.NodeRepo,
 	edges *index.EdgeRepo,
 	edgeTypes manifest.EdgeTypes,
 	embedQueue *index.EmbedQueueRepo,
+	nodeTypes map[string]manifest.NodeType,
+	propertyDrift *index.PropertyDriftRepo,
 	behaviors Behaviors,
 	drift *index.WorkflowDriftRepo,
 	warnings io.Writer,
@@ -109,14 +116,16 @@ func NewServiceWithBehaviors(
 	}
 
 	return &Service{
-		root:       workspaceRoot,
-		repo:       repo,
-		edges:      edges,
-		edgeTypes:  edgeTypes,
-		embedQueue: embedQueue,
-		behaviors:  behaviors,
-		drift:      drift,
-		warnings:   warnings,
+		root:          workspaceRoot,
+		repo:          repo,
+		edges:         edges,
+		edgeTypes:     edgeTypes,
+		embedQueue:    embedQueue,
+		nodeTypes:     nodeTypes,
+		propertyDrift: propertyDrift,
+		behaviors:     behaviors,
+		drift:         drift,
+		warnings:      warnings,
 	}
 }
 
@@ -169,6 +178,18 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 	if cycleErr := service.detectCyclesForAcyclicEdges(parsed); cycleErr != nil {
 		return nil, cycleErr
+	}
+
+	// Plan 7.b: property validation — runs before hook validate-phase.
+	propResult := ValidateProperties(parsed, service.nodeTypes)
+
+	if len(propResult.HardErrors) > 0 {
+		return nil, &PropertyValidationError{
+			Op:       "create",
+			NodeID:   parsed.ID,
+			NodeType: parsed.Type,
+			Errors:   propResult.HardErrors,
+		}
 	}
 
 	// Plan 7: validate-phase hook dispatch (NodeWrite then EdgeAdd per row).
@@ -240,6 +261,31 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		for _, edgeRow := range edgeRows {
 			_ = service.behaviors.FireEdgeAddAfter(edgeRow)
 		}
+	}
+
+	// Plan 7.b: property drift surface — fires after index commits.
+	if len(propResult.Drift) > 0 {
+		now := time.Now().UnixNano()
+
+		for _, drift := range propResult.Drift {
+			_, _ = fmt.Fprintf(service.warnings,
+				"warning: node-types: property %q is not declared on type %q; surfaces as a property-drift in tusk doctor\n",
+				drift.Property, parsed.Type)
+
+			if service.propertyDrift != nil {
+				_ = service.propertyDrift.Append(index.PropertyDriftRow{
+					Kind:       "undeclared-property",
+					NodeID:     parsed.ID,
+					NodeType:   parsed.Type,
+					Property:   drift.Property,
+					Details:    drift.Reason,
+					ObservedAt: now,
+				})
+			}
+		}
+	} else if service.propertyDrift != nil {
+		// Clean pass: no hard errors, no drift — clear any prior drift for this node.
+		_ = service.propertyDrift.ClearForNode(parsed.ID)
 	}
 
 	return parsed, nil
@@ -325,6 +371,53 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	if cycleErr := service.detectCyclesForAcyclicEdges(reparsed); cycleErr != nil {
 		return nil, cycleErr
+	}
+
+	// Plan 7.b: property validation + required-unset check — runs before hook validate-phase.
+	modPropResult := ValidateProperties(reparsed, service.nodeTypes)
+
+	// In the Modify path, ErrRequiredMissing from the validator is suppressed:
+	// properties that were never set on a pre-existing node are not blocked by
+	// Modify (the node predates the declaration). ErrCannotUnsetRequired (below)
+	// handles the case where a required property is explicitly removed.
+	var modHardErrors []PropertyError
+
+	for _, pe := range modPropResult.HardErrors {
+		if pe.Kind != ErrRequiredMissing {
+			modHardErrors = append(modHardErrors, pe)
+		}
+	}
+
+	modPropResult.HardErrors = modHardErrors
+
+	// Detect explicit unset of required properties. We check input.UnsetKeys
+	// directly (not WhichRequiredWereUnset) so that unsetting a required key
+	// that was never present is also caught.
+	if nt, declared := service.nodeTypes[reparsed.Type]; declared {
+		declByNameForUnset := make(map[string]manifest.PropertyDecl, len(nt.Properties))
+
+		for _, decl := range nt.Properties {
+			declByNameForUnset[decl.Name] = decl
+		}
+
+		for _, unsetKey := range input.UnsetKeys {
+			if decl, found := declByNameForUnset[unsetKey]; found && decl.Required {
+				modPropResult.HardErrors = append(modPropResult.HardErrors, PropertyError{
+					Kind:     ErrCannotUnsetRequired,
+					Property: unsetKey,
+					Reason:   fmt.Sprintf("cannot unset required property %q on type %q", unsetKey, reparsed.Type),
+				})
+			}
+		}
+	}
+
+	if len(modPropResult.HardErrors) > 0 {
+		return nil, &PropertyValidationError{
+			Op:       "modify",
+			NodeID:   reparsed.ID,
+			NodeType: reparsed.Type,
+			Errors:   modPropResult.HardErrors,
+		}
 	}
 
 	// Plan 7: recovery-aware validate phase + edge diff hooks.
@@ -434,6 +527,31 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		if len(fireResult.Recovered) == 0 && service.drift != nil {
 			_ = service.drift.ClearForNode(reparsed.ID)
 		}
+	}
+
+	// Plan 7.b: property drift surface — fires after index commits.
+	if len(modPropResult.Drift) > 0 {
+		now := time.Now().UnixNano()
+
+		for _, drift := range modPropResult.Drift {
+			_, _ = fmt.Fprintf(service.warnings,
+				"warning: node-types: property %q is not declared on type %q; surfaces as a property-drift in tusk doctor\n",
+				drift.Property, reparsed.Type)
+
+			if service.propertyDrift != nil {
+				_ = service.propertyDrift.Append(index.PropertyDriftRow{
+					Kind:       "undeclared-property",
+					NodeID:     reparsed.ID,
+					NodeType:   reparsed.Type,
+					Property:   drift.Property,
+					Details:    drift.Reason,
+					ObservedAt: now,
+				})
+			}
+		}
+	} else if service.propertyDrift != nil {
+		// Clean pass: no drift — clear any prior property drift for this node.
+		_ = service.propertyDrift.ClearForNode(reparsed.ID)
 	}
 
 	return reparsed, nil

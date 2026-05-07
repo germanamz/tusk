@@ -402,7 +402,7 @@ func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{rejector})
+	engine, _ := behavior.NewEngine([]behavior.Instance{rejector}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root,
@@ -410,6 +410,8 @@ func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
@@ -449,7 +451,7 @@ func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{tracker})
+	engine, _ := behavior.NewEngine([]behavior.Instance{tracker}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root,
@@ -457,6 +459,8 @@ func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
@@ -501,7 +505,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -523,7 +527,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		},
 	}
 
-	engine, _ := behavior.NewEngine([]behavior.Instance{rejector})
+	engine, _ := behavior.NewEngine([]behavior.Instance{rejector}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root,
@@ -531,6 +535,8 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
@@ -558,7 +564,7 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -573,7 +579,7 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 	cfg := workflowConfigForTest(test)
 
 	driftRepo := index.NewWorkflowDriftRepo(store)
-	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance})
+	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance}, nil)
 
 	var warnings bytes.Buffer
 
@@ -583,6 +589,8 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
+		nil,
+		nil,
 		engine,
 		driftRepo,
 		&warnings,
@@ -625,7 +633,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 	seed := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		nil, nil, io.Discard,
+		nil, nil, nil, nil, io.Discard,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -637,12 +645,12 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 	}
 
 	cfg := workflowConfigForTest(test)
-	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance})
+	engine, _ := behavior.NewEngine([]behavior.Instance{cfg.Instance}, nil)
 
 	service := node.NewServiceWithBehaviors(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
-		engine, driftRepo, io.Discard,
+		nil, nil, engine, driftRepo, io.Discard,
 	)
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
@@ -734,5 +742,267 @@ func TestService_Modify_EnqueuesEmbed(test *testing.T) {
 
 	if depth != 1 {
 		test.Errorf("depth = %d, want 1", depth)
+	}
+}
+
+func TestCreate_PropertyRequiredMissingRejects(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		decls,
+		index.NewPropertyDriftRepo(store),
+		nil, nil, io.Discard,
+	)
+
+	_, createErr := service.Create(node.CreateInput{
+		RelPath: "tickets/foo.md",
+		Type:    "ticket",
+	})
+
+	if createErr == nil || !strings.Contains(createErr.Error(), "summary") {
+		test.Errorf("Create: expected required-missing error, got %v", createErr)
+	}
+
+	// File must NOT exist (hard error aborts before write).
+	if _, statErr := os.Stat(filepath.Join(root, "tickets/foo.md")); !os.IsNotExist(statErr) {
+		test.Errorf("file present after rejection; statErr = %v", statErr)
+	}
+}
+
+func TestCreate_PropertyTypeMismatchRejects(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		decls,
+		index.NewPropertyDriftRepo(store),
+		nil, nil, io.Discard,
+	)
+
+	_, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/foo.md",
+		Type:       "ticket",
+		Properties: map[string]any{"priority": "high"},
+	})
+
+	if createErr == nil || !strings.Contains(createErr.Error(), "priority") {
+		test.Errorf("Create: expected type-mismatch error, got %v", createErr)
+	}
+}
+
+func TestCreate_PropertyUndeclaredWritesAndDrifts(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string"}}},
+	}
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	var warnings bytes.Buffer
+
+	service := node.NewServiceWithBehaviors(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		manifest.EdgeTypes{},
+		index.NewEmbedQueueRepo(store),
+		decls,
+		driftRepo,
+		nil, nil, &warnings,
+	)
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/foo.md",
+		Type:       "ticket",
+		Properties: map[string]any{"summary": "hi", "assignee": "bob"},
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	if !strings.Contains(warnings.String(), "assignee") {
+		test.Errorf("warnings = %q, want mention of assignee", warnings.String())
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 || rows[0].Property != "assignee" || rows[0].Kind != "undeclared-property" {
+		test.Errorf("drift rows = %+v", rows)
+	}
+}
+
+func TestModify_PropertyTypeMismatchRejects(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	// Seed without validation.
+	seed := node.NewServiceWithBehaviors(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
+		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
+		nil, nil, nil, nil, io.Discard,
+	)
+
+	if _, createErr := seed.Create(node.CreateInput{
+		RelPath: "tickets/foo.md",
+		Type:    "ticket",
+	}); createErr != nil {
+		test.Fatalf("seed Create: %v", createErr)
+	}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
+		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
+		decls, index.NewPropertyDriftRepo(store),
+		nil, nil, io.Discard,
+	)
+
+	_, modifyErr := service.Modify(node.ModifyInput{
+		ID:       "tickets/foo",
+		SetProps: map[string]any{"priority": "high"},
+	})
+
+	if modifyErr == nil || !strings.Contains(modifyErr.Error(), "priority") {
+		test.Errorf("Modify: expected type-mismatch error, got %v", modifyErr)
+	}
+}
+
+func TestModify_UnsetRequiredRejects(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	seed := node.NewServiceWithBehaviors(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
+		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
+		nil, nil, nil, nil, io.Discard,
+	)
+
+	if _, createErr := seed.Create(node.CreateInput{
+		RelPath: "tickets/foo.md",
+		Type:    "ticket",
+		Title:   "hello",
+	}); createErr != nil {
+		test.Fatalf("seed Create: %v", createErr)
+	}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
+		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
+		decls, index.NewPropertyDriftRepo(store),
+		nil, nil, io.Discard,
+	)
+
+	_, modifyErr := service.Modify(node.ModifyInput{
+		ID:        "tickets/foo",
+		UnsetKeys: []string{"summary"},
+	})
+
+	if modifyErr == nil || !strings.Contains(modifyErr.Error(), "cannot unset required") {
+		test.Errorf("Modify: expected required-unset error, got %v", modifyErr)
+	}
+}
+
+func TestModify_UndeclaredPropertyDriftsAndClearsOnCleanPass(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	seed := node.NewServiceWithBehaviors(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
+		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
+		nil, nil, nil, nil, io.Discard,
+	)
+
+	if _, createErr := seed.Create(node.CreateInput{
+		RelPath: "tickets/foo.md",
+		Type:    "ticket",
+		Title:   "hello",
+	}); createErr != nil {
+		test.Fatalf("seed Create: %v", createErr)
+	}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string", Required: true}}},
+	}
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	var warnings bytes.Buffer
+
+	service := node.NewServiceWithBehaviors(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
+		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
+		decls, driftRepo,
+		nil, nil, &warnings,
+	)
+
+	// First Modify: add an undeclared property → drift.
+	if _, modifyErr := service.Modify(node.ModifyInput{
+		ID:       "tickets/foo",
+		SetProps: map[string]any{"assignee": "bob"},
+	}); modifyErr != nil {
+		test.Fatalf("Modify (drift): %v", modifyErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 {
+		test.Fatalf("drift after first Modify = %+v, want 1 row", rows)
+	}
+
+	if !strings.Contains(warnings.String(), "assignee") {
+		test.Errorf("warnings = %q", warnings.String())
+	}
+
+	// Second Modify: remove the undeclared property → clean pass clears drift.
+	if _, modifyErr := service.Modify(node.ModifyInput{
+		ID:        "tickets/foo",
+		UnsetKeys: []string{"assignee"},
+	}); modifyErr != nil {
+		test.Fatalf("Modify (clean): %v", modifyErr)
+	}
+
+	rows, _ = driftRepo.ListAll()
+
+	if len(rows) != 0 {
+		test.Errorf("drift after clean Modify = %+v, want empty", rows)
 	}
 }

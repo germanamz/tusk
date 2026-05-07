@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
@@ -82,6 +83,8 @@ func newReindexCmd() *cobra.Command {
 					Meta:            index.NewMetaRepo(store),
 					Behaviors:       engine,
 					DriftLog:        driftRepo,
+					NodeTypes:       loaded.NodeTypes,
+					PropertyDrift:   index.NewPropertyDriftRepo(store),
 				})
 
 				if runErr != nil {
@@ -90,11 +93,23 @@ func newReindexCmd() *cobra.Command {
 
 				out := cmd.OutOrStdout()
 
+				var violationParts []string
+
 				if report.WorkflowViolations > 0 {
+					violationParts = append(violationParts,
+						fmt.Sprintf("%d workflow-violation%s", report.WorkflowViolations, plural(report.WorkflowViolations)))
+				}
+
+				if report.PropertyViolations > 0 {
+					violationParts = append(violationParts,
+						fmt.Sprintf("%d property-violation%s", report.PropertyViolations, plural(report.PropertyViolations)))
+				}
+
+				if len(violationParts) > 0 {
 					_, _ = fmt.Fprintf(out,
-						"Reindex done: %d indexed, %d removed, %d skipped, %d workflow-violation%s\nRun `tusk doctor` to inspect violations\n",
+						"Reindex done: %d indexed, %d removed, %d skipped (%s)\nRun `tusk doctor` to inspect violations\n",
 						report.Indexed, report.Removed, report.Skipped,
-						report.WorkflowViolations, plural(report.WorkflowViolations))
+						strings.Join(violationParts, ", "))
 				} else {
 					_, _ = fmt.Fprintf(out, "Reindex done: %d indexed, %d removed, %d skipped\n",
 						report.Indexed, report.Removed, report.Skipped)

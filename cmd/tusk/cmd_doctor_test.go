@@ -1,9 +1,46 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestDoctor_RendersPropertyTypeMismatch(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	if mkErr := os.MkdirAll(filepath.Join(root, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tickets/bar.md"), []byte(`---
+type: ticket
+summary: hi
+priority: high
+---
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	if _, _, reindexOk := runCLISplit(root, "reindex"); !reindexOk {
+		test.Fatalf("reindex failed")
+	}
+
+	stdout, _, ok := runCLISplit(root, "doctor")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stdout.String(), "type-mismatch") {
+		test.Errorf("stdout = %q, want mention of type-mismatch", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "tickets/bar") {
+		test.Errorf("stdout = %q, want mention of tickets/bar", stdout.String())
+	}
+}
 
 func TestDoctor_PrintsCleanReport(test *testing.T) {
 	root := setupTempWorkspace(test)

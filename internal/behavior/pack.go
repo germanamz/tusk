@@ -23,6 +23,15 @@ type ReservedKey struct {
 	Property string
 }
 
+// DeclaredKey is a (node-type, property) pair declared in [node-types].
+// The Source field identifies the declaration site for error messages,
+// e.g. "node-types.ticket.properties[priority]".
+type DeclaredKey struct {
+	NodeType string
+	Property string
+	Source   string
+}
+
 // Instance is one configured pack — produced by a Kind.NewInstance call.
 type Instance interface {
 	Name() string                // instance name from manifest, e.g. "tickets"
