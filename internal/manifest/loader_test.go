@@ -375,3 +375,74 @@ func TestLoad_RejectsBehaviorsWithEmptyKindName(test *testing.T) {
 		test.Errorf("Validate: expected empty-kind-name rejection")
 	}
 }
+
+func TestLoad_DecodesNodeTypesSection(test *testing.T) {
+	dir := test.TempDir()
+	manifestPath := filepath.Join(dir, "tusk.toml")
+
+	content := `
+[workspace]
+name = "test"
+
+[node-types.ticket]
+description = "A unit of trackable work"
+properties = [
+    { name = "title",    type = "string", required = true },
+    { name = "priority", type = "int" },
+    { name = "due",      type = "date" },
+    { name = "labels",   type = "list-of", item-type = "string" },
+    { name = "stage",    type = "enum", values = ["pending", "active", "completed"] },
+]
+
+[node-types.note]
+description = "Free-form note"
+properties = [
+    { name = "title", type = "string", required = true },
+]
+`
+	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if len(loaded.NodeTypes) != 2 {
+		test.Fatalf("NodeTypes count = %d, want 2", len(loaded.NodeTypes))
+	}
+
+	ticket, ok := loaded.NodeTypes["ticket"]
+
+	if !ok {
+		test.Fatalf("ticket type not decoded")
+	}
+
+	if ticket.Description != "A unit of trackable work" {
+		test.Errorf("ticket.Description = %q", ticket.Description)
+	}
+
+	if len(ticket.Properties) != 5 {
+		test.Fatalf("ticket.Properties count = %d, want 5", len(ticket.Properties))
+	}
+
+	titleProp := ticket.Properties[0]
+
+	if titleProp.Name != "title" || titleProp.Type != "string" || !titleProp.Required {
+		test.Errorf("ticket.Properties[0] = %+v", titleProp)
+	}
+
+	labelsProp := ticket.Properties[3]
+
+	if labelsProp.Name != "labels" || labelsProp.Type != "list-of" || labelsProp.ItemType != "string" {
+		test.Errorf("ticket.Properties[3] = %+v", labelsProp)
+	}
+
+	stageProp := ticket.Properties[4]
+
+	if stageProp.Type != "enum" || len(stageProp.Values) != 3 {
+		test.Errorf("ticket.Properties[4] = %+v", stageProp)
+	}
+}
