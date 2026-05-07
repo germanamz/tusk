@@ -15,6 +15,25 @@ var validCardinalities = map[Cardinality]struct{}{
 	CardinalityManyToMany: {},
 }
 
+// supportedPropertyTypes is the set of valid property type strings.
+var supportedPropertyTypes = map[string]struct{}{
+	"string":   {},
+	"int":      {},
+	"float":    {},
+	"bool":     {},
+	"date":     {},
+	"datetime": {},
+	"enum":     {},
+	"markdown": {},
+	"list-of":  {},
+}
+
+// reservedPropertyNames are the names that cannot appear in any property declaration.
+var reservedPropertyNames = map[string]struct{}{
+	"type":  {},
+	"title": {},
+}
+
 // Load reads and decodes a tusk.toml at manifestPath, validating its shape.
 func Load(manifestPath string) (*Manifest, error) {
 	body, readErr := os.ReadFile(manifestPath)
@@ -47,7 +66,44 @@ func Validate(loaded *Manifest) error {
 		return validateErr
 	}
 
+	if validateErr := validateNodeTypes(loaded); validateErr != nil {
+		return validateErr
+	}
+
 	return validateBehaviors(loaded)
+}
+
+// validateNodeTypes enforces the structural rules for the [node-types] section.
+func validateNodeTypes(loaded *Manifest) error {
+	for typeName, nodeType := range loaded.NodeTypes {
+		if typeName == "" {
+			return fmt.Errorf("manifest: node-types: empty type name")
+		}
+
+		seen := make(map[string]struct{}, len(nodeType.Properties))
+
+		for _, prop := range nodeType.Properties {
+			if prop.Name == "" {
+				return fmt.Errorf("manifest: node-types.%s: empty property name", typeName)
+			}
+
+			if _, reserved := reservedPropertyNames[prop.Name]; reserved {
+				return fmt.Errorf("manifest: node-types.%s: property name %q is reserved", typeName, prop.Name)
+			}
+
+			if _, exists := seen[prop.Name]; exists {
+				return fmt.Errorf("manifest: node-types.%s: duplicate property name %q", typeName, prop.Name)
+			}
+
+			seen[prop.Name] = struct{}{}
+
+			if _, valid := supportedPropertyTypes[prop.Type]; !valid {
+				return fmt.Errorf("manifest: node-types.%s.%s: unknown property type %q", typeName, prop.Name, prop.Type)
+			}
+		}
+	}
+
+	return nil
 }
 
 // validateBehaviors enforces the structural rules that apply to every

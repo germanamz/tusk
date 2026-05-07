@@ -3,6 +3,7 @@ package manifest_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -387,7 +388,7 @@ name = "test"
 [node-types.ticket]
 description = "A unit of trackable work"
 properties = [
-    { name = "title",    type = "string", required = true },
+    { name = "summary",  type = "string", required = true },
     { name = "priority", type = "int" },
     { name = "due",      type = "date" },
     { name = "labels",   type = "list-of", item-type = "string" },
@@ -397,7 +398,7 @@ properties = [
 [node-types.note]
 description = "Free-form note"
 properties = [
-    { name = "title", type = "string", required = true },
+    { name = "summary", type = "string", required = true },
 ]
 `
 	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
@@ -428,10 +429,10 @@ properties = [
 		test.Fatalf("ticket.Properties count = %d, want 5", len(ticket.Properties))
 	}
 
-	titleProp := ticket.Properties[0]
+	summaryProp := ticket.Properties[0]
 
-	if titleProp.Name != "title" || titleProp.Type != "string" || !titleProp.Required {
-		test.Errorf("ticket.Properties[0] = %+v", titleProp)
+	if summaryProp.Name != "summary" || summaryProp.Type != "string" || !summaryProp.Required {
+		test.Errorf("ticket.Properties[0] = %+v", summaryProp)
 	}
 
 	labelsProp := ticket.Properties[3]
@@ -444,5 +445,94 @@ properties = [
 
 	if stageProp.Type != "enum" || len(stageProp.Values) != 3 {
 		test.Errorf("ticket.Properties[4] = %+v", stageProp)
+	}
+}
+
+func TestValidate_RejectsNodeTypeWithEmptyName(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"": {Properties: []manifest.PropertyDecl{{Name: "title", Type: "string"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "empty type name") {
+		test.Errorf("Validate: expected empty-type-name error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsPropertyWithEmptyName(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "", Type: "string"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "empty property name") {
+		test.Errorf("Validate: expected empty-property-name error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsReservedPropertyName(test *testing.T) {
+	cases := []string{"type", "title"}
+
+	for _, reserved := range cases {
+		loaded := &manifest.Manifest{
+			NodeTypes: map[string]manifest.NodeType{
+				"ticket": {Properties: []manifest.PropertyDecl{{Name: reserved, Type: "string"}}},
+			},
+		}
+
+		validateErr := manifest.Validate(loaded)
+
+		if validateErr == nil || !strings.Contains(validateErr.Error(), reserved) {
+			test.Errorf("Validate: reserved %q expected error, got %v", reserved, validateErr)
+		}
+	}
+}
+
+func TestValidate_RejectsDuplicatePropertyName(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "x", Type: "string"},
+				{Name: "x", Type: "int"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "duplicate") {
+		test.Errorf("Validate: expected duplicate-property-name error, got %v", validateErr)
+	}
+}
+
+func TestValidate_RejectsUnknownPropertyType(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{{Name: "x", Type: "blob"}}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr == nil || !strings.Contains(validateErr.Error(), "blob") {
+		test.Errorf("Validate: expected unknown-type error, got %v", validateErr)
+	}
+}
+
+func TestValidate_AcceptsHappyPath(test *testing.T) {
+	loaded := &manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "summary", Type: "string", Required: true},
+				{Name: "n", Type: "int"},
+				{Name: "f", Type: "float"},
+				{Name: "b", Type: "bool"},
+				{Name: "d", Type: "date"},
+				{Name: "dt", Type: "datetime"},
+				{Name: "md", Type: "markdown"},
+			}},
+		},
+	}
+
+	if validateErr := manifest.Validate(loaded); validateErr != nil {
+		test.Errorf("Validate: %v", validateErr)
 	}
 }
