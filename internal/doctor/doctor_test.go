@@ -175,6 +175,102 @@ func TestRun_SurfacesPropertyDrift(test *testing.T) {
 	}
 }
 
+func TestRun_SurfacesRefDangling(test *testing.T) {
+	idx, _ := index.Open(filepath.Join(test.TempDir(), "idx.db"))
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+
+	if appendErr := driftRepo.Append(index.PropertyDriftRow{
+		NodeID:   "tickets/auth",
+		NodeType: "ticket",
+		Kind:     doctor.IssueRefDangling,
+		Property: "assignee",
+		Details:  `{"value":"alice","to":"person"}`,
+	}); appendErr != nil {
+		test.Fatalf("append: %v", appendErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{PropertyDrift: driftRepo})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if len(report.Issues) != 1 || report.Issues[0].Kind != doctor.IssueRefDangling {
+		test.Fatalf("Issues = %+v", report.Issues)
+	}
+
+	if !strings.Contains(report.Issues[0].Message, "alice") || !strings.Contains(report.Issues[0].Message, "person") {
+		test.Errorf("Message = %q", report.Issues[0].Message)
+	}
+}
+
+func TestRun_SurfacesRefAmbiguous(test *testing.T) {
+	idx, _ := index.Open(filepath.Join(test.TempDir(), "idx.db"))
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+
+	if appendErr := driftRepo.Append(index.PropertyDriftRow{
+		NodeID:   "tickets/auth",
+		NodeType: "ticket",
+		Kind:     doctor.IssueRefAmbiguous,
+		Property: "assignee",
+		Details:  `{"value":"alice","to":"person","candidates":["people/alice-1","people/alice-2"]}`,
+	}); appendErr != nil {
+		test.Fatalf("append: %v", appendErr)
+	}
+
+	report, _ := doctor.Run(doctor.Config{PropertyDrift: driftRepo})
+
+	if !strings.Contains(report.Issues[0].Message, "people/alice-1") {
+		test.Errorf("Message = %q", report.Issues[0].Message)
+	}
+}
+
+func TestRun_SurfacesRefTypeMismatch(test *testing.T) {
+	idx, _ := index.Open(filepath.Join(test.TempDir(), "idx.db"))
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+
+	driftRepo.Append(index.PropertyDriftRow{
+		NodeID:   "tickets/auth",
+		NodeType: "ticket",
+		Kind:     doctor.IssueRefTypeMismatch,
+		Property: "assignee",
+		Details:  `{"value":"[[people/bob]]","to":"person","actual_type":"user"}`,
+	})
+
+	report, _ := doctor.Run(doctor.Config{PropertyDrift: driftRepo})
+
+	if !strings.Contains(report.Issues[0].Message, "user") || !strings.Contains(report.Issues[0].Message, "person") {
+		test.Errorf("Message = %q", report.Issues[0].Message)
+	}
+}
+
+func TestRun_SurfacesRefCycle(test *testing.T) {
+	idx, _ := index.Open(filepath.Join(test.TempDir(), "idx.db"))
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+
+	driftRepo.Append(index.PropertyDriftRow{
+		NodeID:   "tickets/c",
+		NodeType: "ticket",
+		Kind:     doctor.IssueRefCycle,
+		Property: "parent",
+		Details:  `{"path":["tickets/a","tickets/b","tickets/c","tickets/a"]}`,
+	})
+
+	report, _ := doctor.Run(doctor.Config{PropertyDrift: driftRepo})
+
+	if !strings.Contains(report.Issues[0].Message, "cycle") {
+		test.Errorf("Message = %q", report.Issues[0].Message)
+	}
+}
+
 func newTempIndex(test *testing.T) (*index.Index, func()) {
 	test.Helper()
 
