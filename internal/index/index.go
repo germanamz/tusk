@@ -94,6 +94,18 @@ CREATE TABLE IF NOT EXISTS workflow_drift (
 );
 
 CREATE INDEX IF NOT EXISTS workflow_drift_node_idx ON workflow_drift(node_id);
+
+CREATE TABLE IF NOT EXISTS property_drift (
+	node_id      TEXT NOT NULL,
+	node_type    TEXT NOT NULL,
+	kind         TEXT NOT NULL,
+	property     TEXT NOT NULL,
+	details      TEXT,
+	observed_at  INTEGER NOT NULL,
+	PRIMARY KEY (node_id, kind, property)
+);
+
+CREATE INDEX IF NOT EXISTS property_drift_node_idx ON property_drift(node_id);
 `
 
 // Open opens (and bootstraps if needed) the index at dbPath. The parent
