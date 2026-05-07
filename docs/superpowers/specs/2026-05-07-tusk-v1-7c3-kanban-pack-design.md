@@ -57,15 +57,14 @@ Workspaces with no `ticket` node type and no `parent` / `blocks` / workflow-on-t
 #   properties = [{ name = "tags", type = "list-of",
 #                   item-type = "ref", to = "tag" }]
 #
-# Customizing workflow states: edit BOTH the ticket `status` enum
-# values AND the [behaviors.workflow.kanban].states list — they must
-# stay aligned, since the property validator and the workflow
-# validator each enforce their own slice of the contract.
+# Customizing workflow states: edit [behaviors.workflow.kanban].states
+# and transitions — the workflow validator is the single source of truth
+# for status. Do not redeclare `status` in [node-types.ticket].properties;
+# the behavior engine reserves it and rejects duplicate declarations.
 
 [node-types.ticket]
 description = "A unit of work tracked through a workflow"
 properties = [
-    { name = "status",   type = "enum", values = ["pending", "active", "completed"], required = true },
     { name = "priority", type = "enum", values = ["low", "medium", "high"] },
     { name = "due",      type = "date" },
 ]
@@ -110,7 +109,7 @@ About sixty lines including the comment block.
 
 **Notes on the schema choices:**
 
-- `status` is `type = "enum"` with values matching the workflow state names. The property validator rejects unknown values *before* the workflow validator runs, giving an earlier and slightly nicer rejection path for "not even a known state name" cases. The cost is two sources of truth (the enum `values` and the workflow `states[].name`); a user customizing one must remember to update the other. The leading comment calls this out.
+- `status` is **not** declared in `[node-types.ticket].properties`. The workflow behavior pack reserves the configured `status-property` exclusively (see Plan 7 — `behavior.Engine.detectCollisions` rejects any node-type property that's also reserved by an installed behavior). The workflow `states[]` are the single source of truth for allowed status values; the workflow validator (behavior-packs spec §5.2) handles unknown-state rejection, transition legality, and orphan-state recovery — error quality is unaffected by the absence of a property-layer enum since the validator's structured errors already include `KnownStates` / `ValidTargets` per behavior-packs spec §5.3. The pack file's leading comment block documents this constraint so future pack authors don't try to re-declare `status` and hit a manifest-load error.
 - `priority` is an enum without `required = true` — most tickets have a meaningful priority, but the engine doesn't force one. Users can drop the property from their manifest if they don't want it.
 - `due` is a plain `date` (no time component) and is optional.
 - `parent.ordered = true` so the WBS preserves sibling ordering ("first task, second task" framing). Standard for WBS-style hierarchies.
@@ -274,7 +273,7 @@ One end-to-end smoke test, added to `cmd/tusk/` as a new test file `cmd_pack_kan
      ValidTargets including "active"
 ```
 
-This is dual-duty validation: it validates the pack platform end-to-end against a real fixture, validates the kanban pack content decodes and merges cleanly under the manifest validator, and exercises both the property validator (via `priority` enum and `status` enum) and the workflow validator (via the `status` transitions, including a negative case).
+This is dual-duty validation: it validates the pack platform end-to-end against a real fixture, validates the kanban pack content decodes and merges cleanly under the manifest validator, and exercises both the property validator (via the `priority` enum) and the workflow validator (via the `status` transitions, including a negative case for an illegal transition).
 
 No new unit tests beyond this. Like the tags pack, the kanban pack file has no logic to unit-test; it's data + workflow config. The existing `internal/typepacks` and workflow behavior-pack test suites cover the underlying mechanism against synthetic fixtures.
 
@@ -284,7 +283,7 @@ No new unit tests beyond this. Like the tags pack, the kanban pack file has no l
 
 ## 7. Open Questions / Residuals
 
-1. **Workflow ↔ enum drift cost.** The `status` property is `type = "enum"` with values mirroring `[behaviors.workflow.kanban].states[].name`. Customizing the workflow states means editing both sections — they must stay aligned. The pack's leading comment block calls this out. If real usage shows pain, a future plan can introduce a "string status with workflow-driven validation" mode (drop the property-layer enum) or a manifest-level "use workflow states for this enum" reference (single source of truth). Acceptable for v1.c.
+1. **Brainstorm-time false premise on `status` validation layering.** During the 7.c.3 brainstorm, the author proposed declaring `status` as a property-layer enum to add an "early rejection" tier in front of the workflow validator. This was structurally impossible — the behavior engine's `detectCollisions` (Plan 7) reserves the workflow's `status-property` exclusively, so a `[node-types.ticket].properties` entry for `status` causes a manifest-load error. The shipped pack omits `status` from properties; the workflow validator is the single source of truth. Future brainstorms involving behavior-pack-reserved properties should cross-check `ReservedKeys()` semantics before framing tradeoffs around two-layer validation. Captured here so a future reader doesn't reintroduce the enum and re-discover the constraint.
 
 2. **No `[node-types.project]` divergence with master spec §7.2.** The v1 design spec listed `project` as a kanban node type. v1.c drops it in favor of WBS-positional projects. The master spec is not edited by this plan; readers cross-reference via §4.1 above and the ledger entry in §8 below. If the divergence proves confusing, a future `docs(spec): supersede v1 §7.2 project paragraph` commit can land separately — same handling as the §6 tags-shorthand divergence from 7.c.2.
 
