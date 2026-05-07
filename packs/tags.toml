@@ -1,0 +1,24 @@
+# Tusk built-in pack: tags
+#
+# Adds a universal `tag` node type and a `tagged` edge type.
+# Tags are simple nodes; nodes can carry multiple tags via the
+# many-to-many `tagged` edge.
+#
+# Usage patterns:
+#   - Wikilinks in body: `[[tag/auth]]` materializes a `tagged` edge.
+#   - Wikilinks in frontmatter: `tagged: ["[[tag/auth]]"]`.
+#   - Ref property opt-in (per node type):
+#       properties = [{ name = "tags", type = "list-of", item-type = "ref", to = "tag" }]
+#     Then write: `tags: [auth, security]` in frontmatter.
+#   - Direct edge: `tusk edge add tagged <node-id> tag/<tag-name>`.
+
+[node-types.tag]
+description = "A label that can be applied to any node"
+properties = []
+
+[edge-types.tagged]
+description = "Marks a node as tagged with a tag"
+from = ["*"]
+to = ["tag"]
+cardinality = "many-to-many"
+ordered = false
