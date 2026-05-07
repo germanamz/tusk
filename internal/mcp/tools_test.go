@@ -560,6 +560,115 @@ func TestTools_NodeModify_StructuredWorkflowRejection(test *testing.T) {
 	}
 }
 
+// newRuntimeWithNodeTypes seeds an mcp.Runtime backed by a workspace with a
+// node-types declaration on `ticket`. Mirror of Plan 7's newRuntimeWithWorkflow
+// helper.
+func newRuntimeWithNodeTypes(test *testing.T) (*mcp.Runtime, *mcp.Server) {
+	test.Helper()
+
+	root := test.TempDir()
+
+	manifestBody := []byte(`
+[workspace]
+name = "test"
+
+[node-types.ticket]
+properties = [
+    { name = "summary",  type = "string", required = true },
+    { name = "priority", type = "int" },
+]
+`)
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), manifestBody, 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	return rt, mcp.NewServer(rt)
+}
+
+// mustCreateNodeViaRuntime creates a node via the runtime's NodeService.
+func mustCreateNodeViaRuntime(test *testing.T, rt *mcp.Runtime, relPath, nodeType string, props map[string]any) {
+	test.Helper()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath:    relPath + ".md",
+		Type:       nodeType,
+		Properties: props,
+	}); createErr != nil {
+		test.Fatalf("mustCreateNodeViaRuntime %s: %v", relPath, createErr)
+	}
+}
+
+func TestTools_NodeModify_PropertyTypeMismatchStructuredRejection(test *testing.T) {
+	rt, harness := newRuntimeWithNodeTypes(test)
+	defer rt.Close()
+
+	mustCreateNodeViaRuntime(test, rt, "tickets/foo", "ticket", map[string]any{"summary": "hi"})
+
+	result := callToolRaw(test, harness, "tusk_node_modify", map[string]any{
+		"id":  "tickets/foo",
+		"set": map[string]any{"priority": "high"},
+	})
+
+	if !result.IsError {
+		test.Fatalf("expected IsError=true")
+	}
+
+	body := decodeJSONContent(test, result)
+
+	if body["error"] != "node-types-rejection" {
+		test.Errorf("body.error = %v, want node-types-rejection", body["error"])
+	}
+
+	errors, ok := body["errors"].([]any)
+
+	if !ok || len(errors) == 0 {
+		test.Fatalf("body.errors absent; body = %v", body)
+	}
+
+	first, _ := errors[0].(map[string]any)
+
+	if first["kind"] != "type-mismatch" || first["property"] != "priority" {
+		test.Errorf("errors[0] = %v", first)
+	}
+}
+
+func TestTools_NodeModify_UndeclaredPropertyWarnsOnSuccess(test *testing.T) {
+	rt, harness := newRuntimeWithNodeTypes(test)
+	defer rt.Close()
+
+	mustCreateNodeViaRuntime(test, rt, "tickets/foo", "ticket", map[string]any{"summary": "hi"})
+
+	result := callToolRaw(test, harness, "tusk_node_modify", map[string]any{
+		"id":  "tickets/foo",
+		"set": map[string]any{"assignee": "bob"},
+	})
+
+	if result.IsError {
+		test.Errorf("expected success result, got error: %v", result)
+	}
+
+	body := decodeJSONContent(test, result)
+
+	warnings, ok := body["warnings"].([]any)
+
+	if !ok || len(warnings) == 0 {
+		test.Fatalf("warnings absent; body = %v", body)
+	}
+
+	first, _ := warnings[0].(map[string]any)
+
+	if first["kind"] != "property-drift" || first["property"] != "assignee" {
+		test.Errorf("warnings[0] = %v", first)
+	}
+}
+
 func TestTools_NodeModify_RecoveryWarnsOnSuccess(test *testing.T) {
 	rt, srv := newRuntimeWithWorkflow(test)
 	defer rt.Close()

@@ -8,6 +8,40 @@ import (
 	"github.com/germanamz/tusk/internal/mcp"
 )
 
+func TestRuntime_OpenWithNodeTypesWiresPropertyDrift(test *testing.T) {
+	root := test.TempDir()
+
+	manifestBody := []byte(`
+[workspace]
+name = "test"
+
+[node-types.ticket]
+properties = [
+    { name = "summary", type = "string", required = true },
+]
+`)
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), manifestBody, 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	if rt.PropertyDrift == nil {
+		test.Errorf("PropertyDrift is nil after Open")
+	}
+
+	if _, ok := rt.Manifest.NodeTypes["ticket"]; !ok {
+		test.Errorf("Manifest.NodeTypes lacks ticket")
+	}
+}
+
 func TestOpen_LoadsWorkspace(test *testing.T) {
 	root := test.TempDir()
 

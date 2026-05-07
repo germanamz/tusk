@@ -34,6 +34,7 @@ type Runtime struct {
 
 	BehaviorEngine *behavior.Engine
 	WorkflowDrift  *index.WorkflowDriftRepo
+	PropertyDrift  *index.PropertyDriftRepo
 
 	Embedder embed.Embedder
 	Chunker  embed.ChunkingStrategy
@@ -68,6 +69,7 @@ func Open(workspaceRoot string) (*Runtime, error) {
 	}
 
 	driftRepo := index.NewWorkflowDriftRepo(store)
+	propertyDriftRepo := index.NewPropertyDriftRepo(store)
 
 	rt := &Runtime{
 		Root:           ws.Root,
@@ -82,6 +84,7 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		Meta:           index.NewMetaRepo(store),
 		BehaviorEngine: engine,
 		WorkflowDrift:  driftRepo,
+		PropertyDrift:  propertyDriftRepo,
 	}
 
 	if loaded.Embeddings.Provider == "ollama" {
@@ -99,8 +102,8 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		rt.Edges,
 		loaded.EdgeTypes,
 		rt.EmbedQueue,
-		nil,
-		nil,
+		loaded.NodeTypes,
+		propertyDriftRepo,
 		engine,
 		driftRepo,
 		os.Stderr,
@@ -162,8 +165,8 @@ func (rt *Runtime) ReloadManifest() error {
 		rt.Edges,
 		loaded.EdgeTypes,
 		rt.EmbedQueue,
-		nil,
-		nil,
+		loaded.NodeTypes,
+		rt.PropertyDrift,
 		engine,
 		rt.WorkflowDrift,
 		os.Stderr,
@@ -181,5 +184,25 @@ func buildBehaviorEngine(loaded *manifest.Manifest) (*behavior.Engine, error) {
 		return nil, fmt.Errorf("mcp: register workflow: %w", registerErr)
 	}
 
-	return registry.BuildEngine(loaded)
+	declaredKeys := declaredKeysFromManifest(loaded)
+
+	return registry.BuildEngineWithDeclaredKeys(loaded, declaredKeys)
+}
+
+// declaredKeysFromManifest converts the manifest's NodeTypes map into a slice
+// of behavior.DeclaredKey. Mirrors cmd/tusk's declaredKeysFrom helper.
+func declaredKeysFromManifest(loaded *manifest.Manifest) []behavior.DeclaredKey {
+	var keys []behavior.DeclaredKey
+
+	for typeName, nt := range loaded.NodeTypes {
+		for _, prop := range nt.Properties {
+			keys = append(keys, behavior.DeclaredKey{
+				NodeType: typeName,
+				Property: prop.Name,
+				Source:   fmt.Sprintf("node-types.%s.properties[%s]", typeName, prop.Name),
+			})
+		}
+	}
+
+	return keys
 }
