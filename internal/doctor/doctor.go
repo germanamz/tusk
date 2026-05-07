@@ -12,6 +12,11 @@ const (
 	IssueDanglingEdge      = "dangling-edge"
 	IssueEmbedRetry        = "embed-retry"
 	IssueWorkflowViolation = "workflow-violation"
+
+	IssueUndeclaredProperty = "undeclared-property"
+	IssueTypeMismatch       = "type-mismatch"
+	IssueRequiredMissing    = "required-missing"
+	IssueEnumViolation      = "enum-violation"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -33,6 +38,7 @@ type Config struct {
 	Edges         *index.EdgeRepo
 	EmbedQueue    *index.EmbedQueueRepo
 	WorkflowDrift *index.WorkflowDriftRepo // optional; nil = no workflow checks
+	PropertyDrift *index.PropertyDriftRepo // optional; nil = no property checks
 }
 
 // Run executes every check and returns the aggregate Report.
@@ -76,7 +82,40 @@ func Run(config Config) (*Report, error) {
 		}
 	}
 
+	if config.PropertyDrift != nil {
+		propDrift, listErr := config.PropertyDrift.ListAll()
+
+		if listErr != nil {
+			return nil, listErr
+		}
+
+		for _, row := range propDrift {
+			report.Issues = append(report.Issues, Issue{
+				Kind:    row.Kind,
+				NodeID:  row.NodeID,
+				Message: renderPropertyDriftMessage(row),
+			})
+		}
+	}
+
 	return report, nil
+}
+
+// renderPropertyDriftMessage formats the Issue message for a property drift
+// row per spec §7.3.
+func renderPropertyDriftMessage(row index.PropertyDriftRow) string {
+	switch row.Kind {
+	case IssueUndeclaredProperty:
+		return fmt.Sprintf("node-types: property %q not declared on type %q", row.Property, row.NodeType)
+	case IssueTypeMismatch:
+		return fmt.Sprintf("node-types: property %q — %s", row.Property, row.Details)
+	case IssueRequiredMissing:
+		return fmt.Sprintf("node-types: required property %q missing on type %q", row.Property, row.NodeType)
+	case IssueEnumViolation:
+		return fmt.Sprintf("node-types: property %q — %s", row.Property, row.Details)
+	default:
+		return fmt.Sprintf("node-types: %s on property %q", row.Kind, row.Property)
+	}
 }
 
 // findDanglingEdges scans every edge and flags those whose target_id has no

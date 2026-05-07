@@ -121,6 +121,60 @@ func TestRun_SurfacesWorkflowViolation(test *testing.T) {
 	}
 }
 
+func TestRun_SurfacesPropertyDrift(test *testing.T) {
+	store, closer := newTempIndex(test)
+	defer closer()
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	rows := []index.PropertyDriftRow{
+		{NodeID: "tickets/foo", NodeType: "ticket", Kind: "undeclared-property", Property: "assignee", Details: "not declared on type \"ticket\"", ObservedAt: 100},
+		{NodeID: "tickets/bar", NodeType: "ticket", Kind: "type-mismatch", Property: "priority", Details: "value \"high\" is not an integer", ObservedAt: 200},
+		{NodeID: "tickets/baz", NodeType: "ticket", Kind: "required-missing", Property: "summary", Details: "required", ObservedAt: 300},
+		{NodeID: "tickets/qux", NodeType: "ticket", Kind: "enum-violation", Property: "stage", Details: "value \"shipping\" not in [pending, active, completed]", ObservedAt: 400},
+	}
+
+	for _, row := range rows {
+		if appendErr := driftRepo.Append(row); appendErr != nil {
+			test.Fatalf("Append: %v", appendErr)
+		}
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:         index.NewNodeRepo(store),
+		PropertyDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	wantKinds := []string{
+		doctor.IssueUndeclaredProperty,
+		doctor.IssueTypeMismatch,
+		doctor.IssueRequiredMissing,
+		doctor.IssueEnumViolation,
+	}
+
+	for _, want := range wantKinds {
+		var found bool
+
+		for _, issue := range report.Issues {
+			if issue.Kind == want {
+				found = true
+
+				if !strings.Contains(issue.Message, "node-types") {
+					test.Errorf("Issue %s: message %q missing 'node-types' prefix", want, issue.Message)
+				}
+			}
+		}
+
+		if !found {
+			test.Errorf("kind %q not surfaced", want)
+		}
+	}
+}
+
 func newTempIndex(test *testing.T) (*index.Index, func()) {
 	test.Helper()
 
