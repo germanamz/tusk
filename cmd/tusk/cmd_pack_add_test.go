@@ -391,6 +391,148 @@ func TestPackAdd_KanbanPackEndToEnd(test *testing.T) {
 	}
 }
 
+func TestPackAdd_VaultPackEndToEnd(test *testing.T) {
+	dir := test.TempDir()
+
+	// Resolve the repo-local pack file BEFORE chdir-ing.
+	packPath := filepath.Join(testSourceDir(test), "..", "..", "packs", "vault.toml")
+
+	if _, statErr := os.Stat(packPath); statErr != nil {
+		test.Fatalf("packs/vault.toml not found at %s: %v", packPath, statErr)
+	}
+
+	chdir(test, dir)
+
+	// 1. tusk init.
+	rootCmd := newRootCmd()
+	rootCmd.SetArgs([]string{"init", "--name", "vault-smoke"})
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("init: %v", execErr)
+	}
+
+	// 2. tusk pack add file://<packs/vault.toml>.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"pack", "add", "file://" + packPath})
+
+	var addStdout, addStderr bytes.Buffer
+
+	rootCmd.SetOut(&addStdout)
+	rootCmd.SetErr(&addStderr)
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("pack add: %v\nstderr: %s", execErr, addStderr.String())
+	}
+
+	manifestBody, readErr := os.ReadFile(filepath.Join(dir, "tusk.toml"))
+
+	if readErr != nil {
+		test.Fatalf("read tusk.toml: %v", readErr)
+	}
+
+	for _, want := range []string{
+		"[node-types.note]",
+		"[node-types.meeting]",
+		"[node-types.decision]",
+		"[edge-types.references]",
+		"[edge-types.relates-to]",
+	} {
+		if !strings.Contains(string(manifestBody), want) {
+			test.Errorf("tusk.toml missing %s: %q", want, manifestBody)
+		}
+	}
+
+	// 3. Create one of each node type.
+	for _, args := range [][]string{
+		{"node", "create", "--type", "note", "--title", "Auth RFC", "--path", "notes/auth-rfc.md"},
+		{"node", "create", "--type", "meeting", "--title", "Standup", "--path", "meetings/standup.md"},
+		{"node", "create", "--type", "decision", "--title", "Use JWT", "--path", "decisions/jwt.md"},
+	} {
+		rootCmd = newRootCmd()
+		rootCmd.SetArgs(args)
+		rootCmd.SetOut(new(bytes.Buffer))
+		rootCmd.SetErr(new(bytes.Buffer))
+
+		if execErr := rootCmd.Execute(); execErr != nil {
+			test.Fatalf("create %v: %v", args, execErr)
+		}
+	}
+
+	// 4. Externally write a second note containing a body wikilink.
+	external := filepath.Join(dir, "notes/refback.md")
+
+	body := []byte(`---
+type: note
+title: Backreference
+---
+
+This references [[notes/auth-rfc]] in the body.
+`)
+
+	if writeErr := os.WriteFile(external, body, 0o644); writeErr != nil {
+		test.Fatalf("write external: %v", writeErr)
+	}
+
+	// 5. tusk reindex — picks up the wikilink and materializes a `references` edge.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"reindex"})
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("reindex: %v", execErr)
+	}
+
+	// 6. Verify the references edge is present.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"edge", "list", "--from", "notes/refback"})
+
+	var refbackStdout bytes.Buffer
+
+	rootCmd.SetOut(&refbackStdout)
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("edge list refback: %v", execErr)
+	}
+
+	if !strings.Contains(refbackStdout.String(), "references") || !strings.Contains(refbackStdout.String(), "notes/auth-rfc") {
+		test.Errorf("edge list output missing references→notes/auth-rfc: %q", refbackStdout.String())
+	}
+
+	// 7. Add a relates-to edge between the decision and the note.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{
+		"edge", "add",
+		"--type", "relates-to",
+		"--source", "decisions/jwt",
+		"--target", "notes/auth-rfc",
+	})
+	rootCmd.SetOut(new(bytes.Buffer))
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("edge add relates-to: %v", execErr)
+	}
+
+	// 8. Verify the relates-to edge is present.
+	rootCmd = newRootCmd()
+	rootCmd.SetArgs([]string{"edge", "list", "--from", "decisions/jwt"})
+
+	var jwtStdout bytes.Buffer
+
+	rootCmd.SetOut(&jwtStdout)
+	rootCmd.SetErr(new(bytes.Buffer))
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("edge list decisions/jwt: %v", execErr)
+	}
+
+	if !strings.Contains(jwtStdout.String(), "relates-to") || !strings.Contains(jwtStdout.String(), "notes/auth-rfc") {
+		test.Errorf("edge list output missing relates-to→notes/auth-rfc: %q", jwtStdout.String())
+	}
+}
+
 // testSourceDir returns the absolute directory of this test source file.
 // runtime.Caller(0) returns the caller's file path; calling it from a helper
 // in cmd/tusk/cmd_pack_add_test.go yields <repo>/cmd/tusk, which is what we

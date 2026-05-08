@@ -1,0 +1,48 @@
+# Tusk built-in pack: vault
+#
+# Adds three categorical node types — `note`, `meeting`, `decision` —
+# and two edge types — `references` (auto-materialized from body
+# wikilinks) and `relates-to` (user-declared "see also").
+#
+# Pack is purely categorical: no declared properties on any node type.
+# The implicit `title` is always available; the markdown body is the
+# natural place for content (meeting agendas, decision rationale,
+# note prose). Users wanting structured fields on a node type can
+# declare them inline in their workspace manifest.
+#
+# Note: declaring [edge-types.references] is what activates body
+# wikilink → edge materialization in the engine. A workspace with
+# this pack added gets `[[some/node]]` → references-edge behavior;
+# a workspace without it gets wikilinks as plain text only.
+#
+# `relates-to` has no declared inverse — the relation is symmetric
+# in meaning, so the <- operator handles backward traversal.
+
+[node-types.note]
+description = "A free-form markdown note"
+properties = []
+
+[node-types.meeting]
+description = "A meeting record (agenda, attendees, discussion in body)"
+properties = []
+
+[node-types.decision]
+description = "A captured decision (rationale, status, date in body)"
+properties = []
+
+[edge-types.references]
+description = "Implicit edge materialized from body wikilinks"
+from        = ["*"]
+to          = ["*"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = false
+inverse     = "referenced-by"
+
+[edge-types.relates-to]
+description = "User-declared 'see also' relationship between nodes"
+from        = ["*"]
+to          = ["*"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = false
