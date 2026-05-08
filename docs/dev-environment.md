@@ -1,3 +1,8 @@
+---
+type: note
+title: Dev Environment
+---
+
 # Dev Environment
 
 Tusk ships a dev container (`.devcontainer/`) that builds a reproducible sandbox with Go, Node, Neovim, Claude Code, GitHub CLI, `gopls`, `dlv`, `golangci-lint`, `lefthook`, and **Zellij** pre-installed. This doc covers the recommended host-side setup and day-to-day usage.

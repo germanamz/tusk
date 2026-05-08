@@ -1,3 +1,8 @@
+---
+type: spec
+title: Plan 7.c.4 — Vault Pack Spec
+---
+
 # Tusk v1 — Vault Pack Design (Plan 7.c.4 sub-spec)
 
 - **Status:** Draft

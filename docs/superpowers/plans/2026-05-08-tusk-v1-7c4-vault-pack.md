@@ -1,3 +1,14 @@
+---
+type: plan
+title: Plan 7.c.4
+status: shipped
+pr: 363
+shipped-at: "2026-05-08"
+implements:
+  - Plan 7.c.4 — Vault Pack Spec
+  - Tusk v1 Rebuild
+---
+
 # Plan 7.c.4 — Vault Pack Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

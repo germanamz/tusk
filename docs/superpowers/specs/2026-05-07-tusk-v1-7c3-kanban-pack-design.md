@@ -1,3 +1,8 @@
+---
+type: spec
+title: Plan 7.c.3 — Kanban Pack Spec
+---
+
 # Tusk v1 — Kanban Pack Design (Plan 7.c.3 sub-spec)
 
 - **Status:** Draft

@@ -1,3 +1,8 @@
+---
+type: spec
+title: Plan 7.c.1 — Pack Platform Spec
+---
+
 # Tusk v1 — Pack Platform and `ref` Property Type Design (Plan 7.c.1 sub-spec)
 
 - **Status:** Draft

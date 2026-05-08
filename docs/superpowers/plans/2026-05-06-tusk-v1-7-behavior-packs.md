@@ -1,3 +1,14 @@
+---
+type: plan
+title: Plan 7
+status: shipped
+pr: 358
+shipped-at: "2026-05-06"
+implements:
+  - Plan 7 — Behavior Packs Spec
+  - Tusk v1 Rebuild
+---
+
 # Tusk v1 — Plan 7: Behavior Packs
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

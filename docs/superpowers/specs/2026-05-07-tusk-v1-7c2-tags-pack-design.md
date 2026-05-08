@@ -1,3 +1,8 @@
+---
+type: spec
+title: Plan 7.c.2 — Tags Pack Spec
+---
+
 # Tusk v1 — Tags Pack Design (Plan 7.c.2 sub-spec)
 
 - **Status:** Draft

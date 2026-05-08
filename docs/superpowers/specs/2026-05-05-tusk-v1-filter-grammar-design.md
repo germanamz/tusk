@@ -1,3 +1,8 @@
+---
+type: spec
+title: Plan 4 — Filter Grammar Spec
+---
+
 # Tusk v1 — Filter Grammar Design (Plan 4 sub-spec)
 
 - **Status:** Draft
