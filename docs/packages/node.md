@@ -22,3 +22,5 @@ Heart of the data layer. Parses markdown frontmatter, validates properties again
 ## Notes
 
 `ResolveRefs` falls back from `Properties` to `Edges` because `reindex.go` reorders the pipeline (`ResolveEdges` runs first there). `Service.Create` runs `ResolveRefs` before `ResolveEdges` to avoid the fallback. Two code paths with different value-source assumptions — handoff §residual to clean up by re-ordering reindex's pipeline.
+
+The wikilink scanner only skips triple-backtick fenced code blocks; inline single-backtick spans are NOT skipped, so wikilink-shaped tokens in prose (even inside backticks) materialize as `references` edges. A worse edge case: prose that mentions a literal triple-backtick token inside inline code (e.g., describing the fence detector itself) is parsed as an unterminated fence, which silently drops the remainder of the body from wikilink extraction. Discovered while writing the migration handoffs — workaround is to spell it out in words.
