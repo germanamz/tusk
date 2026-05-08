@@ -1,0 +1,52 @@
+# Tusk dogfooding pack: dev
+#
+# Adds dev-process node types — `spec`, `plan`, `handoff`, `package` — for
+# tracking the development of tusk itself (and any similarly-shaped project).
+# Composes with vault (note/decision + references edge), tags (tag taxonomy),
+# and kanban (ticket workflow).
+#
+# Ref properties auto-generate edge types of the same name (per 7.c.1):
+#   plan.implements      → [edge-types.implements]      plan -> spec
+#   package.last-touched-by → [edge-types.last-touched-by] package -> plan
+#
+# `[edge-types.depends-on]` is declared explicitly to enforce `acyclic = true`
+# on the package import DAG.
+#
+# Status is a plain enum on `plan` and `package`; no workflow yet (the engine
+# reserves `status` once a workflow attaches, per the 7.c.3 lesson).
+
+[node-types.spec]
+description = "A design specification for a subsystem or feature"
+properties = []
+
+[node-types.plan]
+description = "An implementation plan that turns a spec into shipped work"
+properties = [
+    { name = "status",     type = "enum", values = ["draft", "in-progress", "shipped", "abandoned"] },
+    { name = "pr",         type = "int" },
+    { name = "shipped-at", type = "date" },
+    { name = "implements", type = "list-of", item-type = "ref", to = "spec" },
+]
+
+[node-types.handoff]
+description = "A session-continuity document bridging work between sessions"
+properties = [
+    { name = "session-date", type = "date" },
+]
+
+[node-types.package]
+description = "A status summary for a Go package in the codebase"
+properties = [
+    { name = "import-path",     type = "string" },
+    { name = "status",          type = "enum", values = ["stable", "in-flux", "experimental"] },
+    { name = "last-touched-by", type = "ref", to = "plan" },
+]
+
+[edge-types.depends-on]
+description = "Package-to-package import dependency"
+from        = ["package"]
+to          = ["package"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = true
+inverse     = "dependency-of"
