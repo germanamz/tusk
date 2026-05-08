@@ -1,0 +1,13 @@
+[node-types.task]
+description = "A unit of work"
+properties = [
+    { name = "summary", type = "string", required = true },
+    { name = "priority", type = "int" },
+]
+
+[edge-types.parent]
+description = "Hierarchical parent"
+from = ["task"]
+to = ["task"]
+cardinality = "many-to-one"
+acyclic = true

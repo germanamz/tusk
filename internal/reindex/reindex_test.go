@@ -1,0 +1,814 @@
+package reindex_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/BurntSushi/toml"
+
+	"github.com/germanamz/tusk/internal/behavior"
+	"github.com/germanamz/tusk/internal/behavior/workflow"
+	"github.com/germanamz/tusk/internal/doctor"
+	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/reindex"
+)
+
+func TestRun_IndexesAllMarkdownNodes(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/auth.md", "type: note\ntitle: Auth\n", "Body.\n")
+	writeNode(test, root, "tickets/fix.md", "type: ticket\ntitle: Fix\n", "Body.\n")
+	writeNode(test, root, "ignored.txt", "", "not markdown")
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 2 {
+		test.Errorf("Indexed = %d, want 2", report.Indexed)
+	}
+
+	loaded, listErr := repo.List(index.ListFilter{})
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
+	}
+
+	if len(loaded) != 2 {
+		test.Errorf("len = %d, want 2", len(loaded))
+	}
+}
+
+func TestRun_SkipsTuskInternalDir(test *testing.T) {
+	root := test.TempDir()
+
+	if mkErr := os.MkdirAll(filepath.Join(root, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, ".tusk", "fake.md"), []byte("---\ntype: note\n---\n"), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	writeNode(test, root, "real.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	_, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	loaded, _ := repo.List(index.ListFilter{})
+
+	if len(loaded) != 1 || loaded[0].ID != "real" {
+		test.Errorf("unexpected: %+v", loaded)
+	}
+}
+
+func TestRun_RemovesStaleEntries(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "stale.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	if _, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo}); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if rmErr := os.Remove(filepath.Join(root, "stale.md")); rmErr != nil {
+		test.Fatalf("rm: %v", rmErr)
+	}
+
+	report, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+
+	if runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	if report.Removed != 1 {
+		test.Errorf("Removed = %d, want 1", report.Removed)
+	}
+
+	if _, getErr := repo.Get("stale"); getErr != index.ErrNodeNotFound {
+		test.Errorf("err = %v, want ErrNodeNotFound", getErr)
+	}
+}
+
+func TestRun_PersistsFrontmatterEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "tickets/epic.md", "type: ticket\ntitle: Epic\n", "Body.\n")
+	writeNode(test, root, "tickets/child.md", "type: ticket\ntitle: Child\nparent: tickets/epic\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"parent": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket", "project"},
+			Cardinality: manifest.CardinalityManyToOne,
+		},
+	}
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:      root,
+		Repo:      repo,
+		Edges:     edgeRepo,
+		EdgeTypes: edgeTypes,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 2 {
+		test.Errorf("Indexed = %d, want 2", report.Indexed)
+	}
+
+	listed, _ := edgeRepo.ListBySource("tickets/child")
+
+	if len(listed) != 1 || listed[0].Type != "parent" || listed[0].TargetID != "tickets/epic" {
+		test.Errorf("listed = %+v", listed)
+	}
+}
+
+func TestRun_PersistsWikilinksAsReferenceEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/target.md", "type: note\ntitle: Target\n", "")
+	writeNode(test, root, "notes/source.md", "type: note\ntitle: Source\n", "Refer to [[notes/target]].\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+		},
+	}
+
+	if _, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	listed, _ := edgeRepo.ListBySource("notes/source")
+
+	if len(listed) != 1 || listed[0].Type != "references" || listed[0].TargetID != "notes/target" {
+		test.Errorf("listed = %+v", listed)
+	}
+}
+
+func TestRun_RemovedFileAlsoRemovesEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "tickets/a.md", "type: ticket\ntitle: A\nparent: tickets/b\n", "")
+	writeNode(test, root, "tickets/b.md", "type: ticket\ntitle: B\n", "")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"parent": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket"},
+			Cardinality: manifest.CardinalityManyToOne,
+		},
+	}
+
+	cfg := reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if rmErr := os.Remove(filepath.Join(root, "tickets/a.md")); rmErr != nil {
+		test.Fatalf("rm: %v", rmErr)
+	}
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	listed, _ := edgeRepo.ListBySource("tickets/a")
+
+	if len(listed) != 0 {
+		test.Errorf("expected zero edges after node removal, got %+v", listed)
+	}
+}
+
+func TestRun_RespectsRootGitignore(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("build/\n*.tmp\n"), 0o644); writeErr != nil {
+		test.Fatalf("gitignore: %v", writeErr)
+	}
+
+	writeNode(test, root, "real.md", "type: note\n", "Body.\n")
+	writeNode(test, root, "build/internal.md", "type: note\n", "Body.\n")
+	writeNode(test, root, "scratch.tmp", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 1 {
+		test.Errorf("Indexed = %d, want 1 (only real.md)", report.Indexed)
+	}
+}
+
+func TestRun_RespectsWorkspaceIgnore(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "keep.md", "type: note\n", "")
+	writeNode(test, root, "drafts/private.md", "type: note\n", "")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:            root,
+		Repo:            repo,
+		WorkspaceIgnore: []string{"drafts/"},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 1 {
+		test.Errorf("Indexed = %d, want 1 (drafts/ excluded by workspace ignore)", report.Indexed)
+	}
+}
+
+type stubEmbedder struct {
+	model string
+	dim   int
+	calls int
+}
+
+func (stub *stubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	stub.calls++
+
+	return make([]float32, stub.dim), nil
+}
+
+func (stub *stubEmbedder) Model() string { return stub.model }
+func (stub *stubEmbedder) Dim() int      { return stub.dim }
+
+func TestRun_DrainsEmbedQueue(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "a.md", "type: note\ntitle: A\n", "Body.\n")
+	writeNode(test, root, "b.md", "type: note\ntitle: B\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+	embedder := &stubEmbedder{model: "test", dim: 3}
+
+	cfg := reindex.Config{
+		Root:          root,
+		Repo:          nodeRepo,
+		Edges:         edgeRepo,
+		EdgeTypes:     manifest.EdgeTypes{},
+		EmbedQueue:    queueRepo,
+		EmbeddingRepo: embeddingRepo,
+		Embedder:      embedder,
+		Chunker:       embed.WholeDocument{},
+	}
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 2 {
+		test.Errorf("Indexed = %d, want 2", report.Indexed)
+	}
+
+	if embedder.calls != 2 {
+		test.Errorf("embedder calls = %d, want 2", embedder.calls)
+	}
+
+	depth, _ := queueRepo.Depth()
+
+	if depth != 0 {
+		test.Errorf("queue depth = %d, want 0 after drain", depth)
+	}
+
+	loaded, _ := embeddingRepo.GetByNodeID("a")
+
+	if len(loaded) != 1 || loaded[0].Dim != 3 {
+		test.Errorf("embedding for a = %+v", loaded)
+	}
+}
+
+func TestRun_RecordsLastReindexAt(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	metaRepo := index.NewMetaRepo(store)
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root: root,
+		Repo: index.NewNodeRepo(store),
+		Meta: metaRepo,
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	stored, getErr := metaRepo.Get("last_reindex_at")
+
+	if getErr != nil {
+		test.Fatalf("meta Get: %v", getErr)
+	}
+
+	if stored == "" {
+		test.Errorf("expected last_reindex_at to be set")
+	}
+}
+
+func TestRun_OffSchemaStatusProducesDriftRow(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	// Write a ticket with off-schema status.
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+status: bogus
+---
+body
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+	engine := buildWorkflowEngineForReindexTest(test)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:      root,
+		Repo:      index.NewNodeRepo(store),
+		Behaviors: engine,
+		DriftLog:  driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.WorkflowViolations != 1 {
+		test.Errorf("WorkflowViolations = %d, want 1", report.WorkflowViolations)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 || rows[0].ObservedStatus != "bogus" {
+		test.Errorf("drift rows = %+v, want one row for 'bogus'", rows)
+	}
+
+	// Indexing still upserted the row.
+	if _, getErr := index.NewNodeRepo(store).Get("ticket"); getErr != nil {
+		test.Errorf("Get: %v (reindex should still upsert despite drift)", getErr)
+	}
+}
+
+func TestRun_CleanPassClearsDrift(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, _ := index.Open(dbPath)
+
+	defer store.Close()
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+
+	// Seed a stale drift row.
+	if appendErr := driftRepo.Append(index.WorkflowDriftRow{
+		NodeID: "ticket", PackInstance: "tickets", PackKind: "workflow",
+		ObservedStatus: "ancient", Property: "status", ObservedAt: 1,
+	}); appendErr != nil {
+		test.Fatalf("seed Append: %v", appendErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+status: pending
+---
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	engine := buildWorkflowEngineForReindexTest(test)
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root:      root,
+		Repo:      index.NewNodeRepo(store),
+		Behaviors: engine,
+		DriftLog:  driftRepo,
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 0 {
+		test.Errorf("drift after clean reindex = %+v, want empty", rows)
+	}
+}
+
+func buildWorkflowEngineForReindexTest(test *testing.T) *behavior.Engine {
+	test.Helper()
+
+	const sample = `
+[behaviors.workflow.tickets]
+applies-to = ["ticket"]
+states = [
+  { name = "pending", initial = true },
+  { name = "active" },
+  { name = "completed", terminal = true, done = true },
+]
+transitions = [
+  { from = "pending", to = "active" },
+  { from = "active", to = "completed" },
+]
+`
+
+	var decoded struct {
+		Behaviors map[string]map[string]toml.Primitive `toml:"behaviors"`
+	}
+
+	meta, decodeErr := toml.Decode(sample, &decoded)
+
+	if decodeErr != nil {
+		test.Fatalf("toml decode: %v", decodeErr)
+	}
+
+	primitive := decoded.Behaviors["workflow"]["tickets"]
+
+	instance, newErr := workflow.Kind{}.NewInstance("tickets", primitive, &meta)
+
+	if newErr != nil {
+		test.Fatalf("workflow.NewInstance: %v", newErr)
+	}
+
+	engine, _ := behavior.NewEngine([]behavior.Instance{instance}, nil)
+
+	return engine
+}
+
+func TestRun_OffSchemaPropertyProducesDriftRow(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+priority: high
+---
+body
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
+	}
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:          root,
+		Repo:          index.NewNodeRepo(store),
+		NodeTypes:     decls,
+		PropertyDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.PropertyViolations != 1 {
+		test.Errorf("PropertyViolations = %d, want 1", report.PropertyViolations)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 || rows[0].Kind != "type-mismatch" {
+		test.Errorf("drift rows = %+v", rows)
+	}
+
+	// Indexing still upserted the row.
+	if _, getErr := index.NewNodeRepo(store).Get("ticket"); getErr != nil {
+		test.Errorf("Get: %v (reindex should still upsert despite drift)", getErr)
+	}
+}
+
+func TestRun_CleanPassClearsPropertyDrift(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, _ := index.Open(dbPath)
+
+	defer store.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	if appendErr := driftRepo.Append(index.PropertyDriftRow{
+		NodeID: "ticket", NodeType: "ticket", Kind: "type-mismatch", Property: "priority", ObservedAt: 1,
+	}); appendErr != nil {
+		test.Fatalf("seed Append: %v", appendErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+priority: 3
+---
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
+	}
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root:          root,
+		Repo:          index.NewNodeRepo(store),
+		NodeTypes:     decls,
+		PropertyDrift: driftRepo,
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 0 {
+		test.Errorf("drift after clean reindex = %+v, want empty", rows)
+	}
+}
+
+func TestReindex_RefDanglingProducesDrift(test *testing.T) {
+	dir := test.TempDir()
+
+	manifestContent := `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tusk.toml"), []byte(manifestContent), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tickets/auth.md"), []byte(
+		"---\ntype: ticket\ntitle: Auth\nassignee: missing\n---\n\nbody\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write ticket: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	idx, idxErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if idxErr != nil {
+		test.Fatalf("open index: %v", idxErr)
+	}
+
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+	loaded, loadErr := manifest.Load(filepath.Join(dir, "tusk.toml"))
+
+	if loadErr != nil {
+		test.Fatalf("Load manifest: %v", loadErr)
+	}
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:          dir,
+		Repo:          index.NewNodeRepo(idx),
+		Edges:         index.NewEdgeRepo(idx),
+		EdgeTypes:     loaded.EdgeTypes,
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.RefDangling < 1 {
+		test.Errorf("RefDangling = %d, want >= 1", report.RefDangling)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	var found bool
+
+	for _, row := range rows {
+		if row.Kind == doctor.IssueRefDangling && row.Property == "assignee" {
+			found = true
+		}
+	}
+
+	if !found {
+		test.Errorf("expected ref_dangling row for assignee, got %+v", rows)
+	}
+}
+
+func TestReindex_RefCleanPassClearsDrift(test *testing.T) {
+	dir := test.TempDir()
+
+	manifestContent := `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tusk.toml"), []byte(manifestContent), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir tickets: %v", mkErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "people"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir people: %v", mkErr)
+	}
+
+	// Write a person node (alice) and a ticket referencing her.
+	if writeErr := os.WriteFile(filepath.Join(dir, "people/alice.md"), []byte(
+		"---\ntype: person\ntitle: alice\nname: Alice\n---\n\nbio\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write person: %v", writeErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tickets/auth.md"), []byte(
+		"---\ntype: ticket\ntitle: Auth\nassignee: alice\n---\n\nbody\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write ticket: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	idx, idxErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if idxErr != nil {
+		test.Fatalf("open index: %v", idxErr)
+	}
+
+	defer idx.Close()
+
+	driftRepo := index.NewPropertyDriftRepo(idx)
+	loaded, loadErr := manifest.Load(filepath.Join(dir, "tusk.toml"))
+
+	if loadErr != nil {
+		test.Fatalf("Load manifest: %v", loadErr)
+	}
+
+	// Pre-seed a stale ref_dangling row for tickets/auth.
+	if appendErr := driftRepo.Append(index.PropertyDriftRow{
+		NodeID:   "tickets/auth",
+		NodeType: "ticket",
+		Kind:     doctor.IssueRefDangling,
+		Property: "assignee",
+		Details:  `{"value":"old-missing","to":"person"}`,
+	}); appendErr != nil {
+		test.Fatalf("append stale row: %v", appendErr)
+	}
+
+	_, runErr := reindex.Run(reindex.Config{
+		Root:          dir,
+		Repo:          index.NewNodeRepo(idx),
+		Edges:         index.NewEdgeRepo(idx),
+		EdgeTypes:     loaded.EdgeTypes,
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	for _, row := range rows {
+		if row.NodeID == "tickets/auth" {
+			test.Errorf("stale drift row not cleared: %+v", row)
+		}
+	}
+}
+
+func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
+	test.Helper()
+
+	abs := filepath.Join(root, relPath)
+
+	if mkErr := os.MkdirAll(filepath.Dir(abs), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	content := "---\n" + frontmatter + "---\n\n" + body
+
+	if filepath.Ext(relPath) != ".md" {
+		content = body
+	}
+
+	if writeErr := os.WriteFile(abs, []byte(content), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+}

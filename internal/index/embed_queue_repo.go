@@ -1,0 +1,117 @@
+package index
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+)
+
+// QueueRow represents a row in embed_queue.
+type QueueRow struct {
+	NodeID     string
+	EnqueuedAt int64
+	Attempts   int
+	LastError  string
+}
+
+// EmbedQueueRepo persists pending embed jobs.
+type EmbedQueueRepo struct {
+	db *sql.DB
+}
+
+// NewEmbedQueueRepo constructs an EmbedQueueRepo backed by idx.
+func NewEmbedQueueRepo(idx *Index) *EmbedQueueRepo {
+	return &EmbedQueueRepo{db: idx.DB()}
+}
+
+// Enqueue inserts a row for nodeID. Idempotent — if the row exists, no-op.
+func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
+	_, execErr := repo.db.Exec(`
+		INSERT INTO embed_queue (node_id, enqueued_at, attempts)
+		VALUES (?, ?, 0)
+		ON CONFLICT(node_id) DO NOTHING
+	`, nodeID, time.Now().UnixNano())
+
+	if execErr != nil {
+		return fmt.Errorf("embedQueueRepo: enqueue %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
+// Drain returns up to limit rows oldest-first AND removes them from the queue
+// in one transaction.
+func (repo *EmbedQueueRepo) Drain(limit int) ([]QueueRow, error) {
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return nil, fmt.Errorf("embedQueueRepo: begin: %w", beginErr)
+	}
+
+	rows, queryErr := tx.Query(`
+		SELECT node_id, enqueued_at, attempts, COALESCE(last_error, '')
+		FROM embed_queue
+		ORDER BY enqueued_at ASC
+		LIMIT ?
+	`, limit)
+
+	if queryErr != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("embedQueueRepo: drain query: %w", queryErr)
+	}
+
+	var drained []QueueRow
+
+	for rows.Next() {
+		var row QueueRow
+
+		if scanErr := rows.Scan(&row.NodeID, &row.EnqueuedAt, &row.Attempts, &row.LastError); scanErr != nil {
+			rows.Close()
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("embedQueueRepo: drain scan: %w", scanErr)
+		}
+
+		drained = append(drained, row)
+	}
+
+	rows.Close()
+
+	for _, row := range drained {
+		if _, deleteErr := tx.Exec(`DELETE FROM embed_queue WHERE node_id = ?`, row.NodeID); deleteErr != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("embedQueueRepo: drain delete %s: %w", row.NodeID, deleteErr)
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return nil, fmt.Errorf("embedQueueRepo: drain commit: %w", commitErr)
+	}
+
+	return drained, nil
+}
+
+// MarkFailed records a failure on the queue row, leaves it queued for retry.
+func (repo *EmbedQueueRepo) MarkFailed(nodeID, errorMessage string) error {
+	_, execErr := repo.db.Exec(`
+		UPDATE embed_queue
+		SET attempts = attempts + 1, last_error = ?
+		WHERE node_id = ?
+	`, errorMessage, nodeID)
+
+	if execErr != nil {
+		return fmt.Errorf("embedQueueRepo: mark failed %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
+// Depth returns the number of pending rows.
+func (repo *EmbedQueueRepo) Depth() (int, error) {
+	var depth int
+
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM embed_queue`).Scan(&depth); scanErr != nil {
+		return 0, fmt.Errorf("embedQueueRepo: depth: %w", scanErr)
+	}
+
+	return depth, nil
+}

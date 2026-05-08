@@ -1,0 +1,138 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+
+	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/reindex"
+	"github.com/germanamz/tusk/internal/watcher"
+	"github.com/germanamz/tusk/internal/workspace"
+	"github.com/spf13/cobra"
+)
+
+func newWatchCmd() *cobra.Command {
+	watchCmd := &cobra.Command{
+		Use:   "watch",
+		Short: "Watch the workspace for external edits and keep the index in sync",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cwd, cwdErr := os.Getwd()
+
+			if cwdErr != nil {
+				return cwdErr
+			}
+
+			ws, findErr := workspace.Find(cwd)
+
+			if findErr != nil {
+				return fmt.Errorf("workspace: %w", findErr)
+			}
+
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
+
+			if loadErr != nil {
+				return loadErr
+			}
+
+			store, openErr := index.Open(ws.IndexPath)
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			nodeRepo := index.NewNodeRepo(store)
+			edgeRepo := index.NewEdgeRepo(store)
+
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
+
+			if _, runErr := reindex.Run(reindex.Config{
+				Root:            ws.Root,
+				Repo:            nodeRepo,
+				Edges:           edgeRepo,
+				EdgeTypes:       loaded.EdgeTypes,
+				WorkspaceIgnore: loaded.Workspace.Ignore,
+			}); runErr != nil {
+				return runErr
+			}
+
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Watching for changes (Ctrl-C to stop)…")
+
+			watcherInstance, newErr := watcher.New(ws.Root)
+
+			if newErr != nil {
+				return newErr
+			}
+
+			defer watcherInstance.Close()
+
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
+			handler := func(event watcher.WatchEvent) error {
+				if event.Path == "" || event.Path == "." {
+					return nil
+				}
+
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s\n", kindLabel(event.Kind), event.Path)
+
+				if event.Kind == watcher.EventDelete {
+					if delErr := nodeRepo.DeleteByPath(event.Path); delErr != nil {
+						return delErr
+					}
+
+					return nil
+				}
+
+				absPath := filepath.Join(ws.Root, event.Path)
+
+				stat, statErr := os.Stat(absPath)
+
+				if statErr != nil {
+					return nil // file already gone or unreadable
+				}
+
+				if stat.IsDir() {
+					return nil
+				}
+
+				// Plan 3 ships full-tree reindex on each event for simplicity.
+				// Plan 8 polish: replace with single-file partial reindex.
+				_, runErr := reindex.Run(reindex.Config{
+					Root:            ws.Root,
+					Repo:            nodeRepo,
+					Edges:           edgeRepo,
+					EdgeTypes:       loaded.EdgeTypes,
+					WorkspaceIgnore: loaded.Workspace.Ignore,
+				})
+
+				return runErr
+			}
+
+			return watcherInstance.Run(ctx, handler)
+		},
+	}
+
+	return watchCmd
+}
+
+func kindLabel(kind watcher.EventKind) string {
+	switch kind {
+	case watcher.EventCreate:
+		return "CREATE"
+	case watcher.EventModify:
+		return "MODIFY"
+	case watcher.EventRename:
+		return "RENAME"
+	case watcher.EventDelete:
+		return "DELETE"
+	}
+
+	return "?"
+}

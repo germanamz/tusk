@@ -1,5 +1,0 @@
-DROP TABLE IF EXISTS tag_assignments;
-DROP TABLE IF EXISTS tags;
-DROP TABLE IF EXISTS relations;
-DROP TABLE IF EXISTS annotations;
-DROP TABLE IF EXISTS tasks;

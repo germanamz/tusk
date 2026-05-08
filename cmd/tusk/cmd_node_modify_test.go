@@ -1,0 +1,272 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestNodeModify_SetProperty(test *testing.T) {
+	root := setupTempWorkspace(test)
+
+	createNode(test, root, "notes/x.md", "note", "X", "")
+
+	chdir(test, root)
+	defer chdir(test, "")
+
+	out, runErr := runCLI("node", "modify", "notes/x", "--prop", "priority=5")
+
+	if runErr != nil {
+		test.Fatalf("CLI: %v\n%s", runErr, out)
+	}
+
+	body, _ := os.ReadFile(filepath.Join(root, "notes/x.md"))
+
+	if !strings.Contains(string(body), "priority: 5") {
+		test.Errorf("file missing priority: 5\n%s", body)
+	}
+}
+
+func TestNodeModify_UnsetProperty(test *testing.T) {
+	root := setupTempWorkspace(test)
+
+	createNode(test, root, "notes/x.md", "note", "X", "")
+
+	chdir(test, root)
+	defer chdir(test, "")
+
+	if _, runErr := runCLI("node", "modify", "notes/x", "--prop", "priority=5"); runErr != nil {
+		test.Fatalf("set: %v", runErr)
+	}
+
+	if _, runErr := runCLI("node", "modify", "notes/x", "--unset", "priority"); runErr != nil {
+		test.Fatalf("unset: %v", runErr)
+	}
+
+	body, _ := os.ReadFile(filepath.Join(root, "notes/x.md"))
+
+	if strings.Contains(string(body), "priority:") {
+		test.Errorf("priority should be removed:\n%s", body)
+	}
+}
+
+// runCLI is defined in cmd_test_helpers_test.go; setupTempWorkspace, createNode, chdir
+// are existing helpers used by other cmd_*_test.go files.
+var _ = bytes.Buffer{} // keep import alive when only one helper uses it
+
+// runCLISplit executes the CLI and returns separate stdout and stderr buffers
+// plus a boolean indicating whether the command succeeded (exit 0).
+// When the command fails, the error message is written to stderr.
+func runCLISplit(root string, args ...string) (stdout, stderr *bytes.Buffer, ok bool) {
+	stdout = &bytes.Buffer{}
+	stderr = &bytes.Buffer{}
+
+	originalCwd, getCwdErr := os.Getwd()
+	if getCwdErr == nil {
+		defer func() { _ = os.Chdir(originalCwd) }()
+	}
+
+	_ = os.Chdir(root)
+
+	rootCmd := newRootCmd()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs(args)
+
+	execErr := rootCmd.Execute()
+
+	if execErr != nil {
+		fmt.Fprintln(stderr, execErr.Error())
+	}
+
+	return stdout, stderr, execErr == nil
+}
+
+func TestNodeModify_PropertyUndeclaredDriftsAndDoctorSurfaces(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"summary": "hi"})
+
+	stdout, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--prop", "assignee=bob")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stderr.String(), "assignee") {
+		test.Errorf("stderr = %q, want drift warning", stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Modified tickets/foo") {
+		test.Errorf("stdout = %q, want success line", stdout.String())
+	}
+
+	doctorStdout, _, doctorOk := runCLISplit(root, "doctor")
+
+	if !doctorOk {
+		test.Errorf("doctor exit non-zero, want 0")
+	}
+
+	if !strings.Contains(doctorStdout.String(), "undeclared-property") {
+		test.Errorf("doctor stdout = %q", doctorStdout.String())
+	}
+}
+
+func TestNodeModify_UnsetRequiredRejected(test *testing.T) {
+	root := newWorkspaceWithNodeTypes(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"summary": "hi"})
+
+	_, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--unset", "summary")
+
+	if ok {
+		test.Errorf("exit 0, want non-zero")
+	}
+
+	if !strings.Contains(stderr.String(), "cannot unset required") {
+		test.Errorf("stderr = %q, want mention of cannot-unset-required", stderr.String())
+	}
+}
+
+func TestNodeModify_WorkflowLegalTransition(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"status": "pending"})
+
+	stdout, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--prop", "status=active")
+
+	if !ok {
+		test.Errorf("exit non-zero; stderr = %s", stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Modified tickets/foo") {
+		test.Errorf("stdout = %q, want 'Modified tickets/foo'", stdout.String())
+	}
+}
+
+func TestNodeModify_WorkflowIllegalTransitionRejected(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"status": "pending"})
+
+	_, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--prop", "status=completed")
+
+	if ok {
+		test.Errorf("exit 0, want non-zero")
+	}
+
+	if !strings.Contains(stderr.String(), "cannot transition") && !strings.Contains(stderr.String(), "illegal-transition") {
+		test.Errorf("stderr = %q, want mention of illegal transition", stderr.String())
+	}
+}
+
+func TestNodeModify_WorkflowRecoveryWarnsAndPersistsDrift(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"status": "blocked"}) // off-schema
+
+	stdout, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--prop", "status=active")
+
+	if !ok {
+		test.Errorf("exit non-zero, want 0")
+	}
+
+	if !strings.Contains(stderr.String(), "recovered from unknown status") {
+		test.Errorf("stderr = %q, want recovery warning", stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Modified tickets/foo") {
+		test.Errorf("stdout = %q, want success line", stdout.String())
+	}
+
+	// Drift should now be visible to `tusk doctor`.
+	doctorOut, _, doctorOk := runCLISplit(root, "doctor")
+
+	if !doctorOk {
+		test.Errorf("doctor exit non-zero, want 0")
+	}
+
+	if !strings.Contains(doctorOut.String(), "workflow-violation") {
+		test.Errorf("doctor stdout = %q, want workflow-violation", doctorOut.String())
+	}
+}
+
+func TestNodeModify_WorkflowUnsetRejected(test *testing.T) {
+	root := newWorkspaceWithWorkflow(test)
+
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{"status": "active"})
+
+	_, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--unset", "status")
+
+	if ok {
+		test.Errorf("exit 0, want non-zero")
+	}
+
+	if !strings.Contains(stderr.String(), "cannot unset") && !strings.Contains(stderr.String(), "cannot-unset-status") {
+		test.Errorf("stderr = %q, want mention of unset rejection", stderr.String())
+	}
+}
+
+// newWorkspaceWithWorkflow seeds a workspace under test.TempDir() with a
+// tusk.toml that activates the workflow pack on tickets. Returns the
+// workspace root.
+func newWorkspaceWithWorkflow(test *testing.T) string {
+	test.Helper()
+
+	root := test.TempDir()
+
+	manifestBody := `
+[workspace]
+name = "test"
+
+[behaviors.workflow.tickets]
+applies-to = ["ticket"]
+states = [
+  { name = "pending", initial = true },
+  { name = "active" },
+  { name = "completed", terminal = true, done = true },
+]
+transitions = [
+  { from = "pending", to = "active" },
+  { from = "active", to = "completed" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	return root
+}
+
+// mustCreateNode writes a node file directly to disk under root with the
+// given frontmatter properties, then runs `tusk reindex` to populate the
+// index.
+func mustCreateNode(test *testing.T, root, id, typ string, props map[string]string) {
+	test.Helper()
+
+	relPath := filepath.Join(root, id+".md")
+
+	if mkErr := os.MkdirAll(filepath.Dir(relPath), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	fmt.Fprintf(&sb, "type: %s\n", typ)
+
+	for key, value := range props {
+		fmt.Fprintf(&sb, "%s: %s\n", key, value)
+	}
+
+	sb.WriteString("---\n\nbody\n")
+
+	if writeErr := os.WriteFile(relPath, []byte(sb.String()), 0o644); writeErr != nil {
+		test.Fatalf("write node: %v", writeErr)
+	}
+
+	_, _, _ = runCLISplit(root, "reindex")
+}
