@@ -4,7 +4,7 @@ GO := go
 GOFLAGS := -v
 
 .PHONY: all build clean test test-race vet lint fmt help \
-        devcontainer-up devcontainer-stop devcontainer-down devcontainer-nuke
+        devcontainer-up devcontainer-rebuild devcontainer-stop devcontainer-down devcontainer-nuke
 
 DEVCONTAINER_CID := docker ps -a --filter "label=devcontainer.local_folder=$(CURDIR)" -q
 DEVCONTAINER_VOLUMES := \
@@ -51,12 +51,16 @@ help:
 	@echo "  lint              — run golangci-lint"
 	@echo "  fmt               — run gofmt across the tree"
 	@echo "  clean             — remove build artifacts"
-	@echo "  devcontainer-up   — build and start the dev container"
-	@echo "  devcontainer-stop — stop the dev container (preserves state)"
-	@echo "  devcontainer-down — stop and remove the dev container"
-	@echo "  devcontainer-nuke — remove container, named volumes, and image"
+	@echo "  devcontainer-up      — build and start the dev container (uses BuildKit cache)"
+	@echo "  devcontainer-rebuild — build and start the dev container from scratch (no cache)"
+	@echo "  devcontainer-stop    — stop the dev container (preserves state)"
+	@echo "  devcontainer-down    — stop and remove the dev container"
+	@echo "  devcontainer-nuke    — remove container, named volumes, and image"
 
 devcontainer-up:
+	devcontainer up --workspace-folder $(CURDIR)
+
+devcontainer-rebuild:
 	devcontainer up --workspace-folder $(CURDIR) --build-no-cache
 
 devcontainer-stop:

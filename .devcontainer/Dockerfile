@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
         gnupg \
         unzip \
         zsh \
+        zstd \
         libtree-sitter-dev \
     && ln -sf "$(command -v fdfind)" /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
@@ -68,15 +69,16 @@ RUN ARCH=$(dpkg --print-architecture) \
 # layer (cmd/tusk/cmd_reindex.go gates on Embeddings.Provider == "ollama").
 # Fetched from the GitHub release tarball so it routes through the existing
 # proxy allowlist; pulling models additionally needs registry.ollama.ai on the
-# tinyproxy filter.
+# tinyproxy filter. Upstream switched the release asset from .tgz to .tar.zst.
 RUN ARCH=$(dpkg --print-architecture) \
     && case "$ARCH" in \
          amd64) OLLAMA_ARCH=amd64 ;; \
          arm64) OLLAMA_ARCH=arm64 ;; \
          *) echo "unsupported arch for ollama: $ARCH" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-${OLLAMA_ARCH}.tgz" \
-        | tar -C /usr/local -xz \
+    && curl -fsSL "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-${OLLAMA_ARCH}.tar.zst" \
+        | zstd -d \
+        | tar -C /usr/local -xf - \
     && chmod 0755 /usr/local/bin/ollama
 
 # Go SDK (multi-arch)
