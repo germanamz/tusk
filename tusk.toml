@@ -28,6 +28,14 @@ ignore = [
     "CODE_OF_CONDUCT.md",
 ]
 
+# Local Ollama instance, started by .devcontainer/start-ollama.sh at container
+# boot. Reindex enqueues + drains embeddings only when provider == "ollama".
+[embeddings]
+provider = "ollama"
+endpoint = "http://localhost:11434"
+model    = "nomic-embed-text"
+dim      = 768
+
 # Added by `tusk pack add file:///workspaces/tusk/packs/dev.toml` on 2026-05-08
 # Tusk dogfooding pack: dev
 #

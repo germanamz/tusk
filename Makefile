@@ -13,7 +13,8 @@ DEVCONTAINER_VOLUMES := \
 	tusk-devcontainer-gh-config \
 	tusk-devcontainer-nvim-data \
 	tusk-devcontainer-nvim-state \
-	tusk-devcontainer-nvim-cache
+	tusk-devcontainer-nvim-cache \
+	tusk-devcontainer-ollama
 
 all: build
 
