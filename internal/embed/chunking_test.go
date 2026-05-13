@@ -162,8 +162,10 @@ func TestMarkdownRecursive_LargeDocStaysUnderMax(test *testing.T) {
 	// run that forces the splitter to produce a piece near MaxBytes so the
 	// overlap-overgrowth invariant gets exercised.
 	body := bytes.Repeat([]byte("Some prose with paragraphs.\n\n## Heading\n\nMore prose here.\n\n"), 4000)
-	// Splice in a 6000-byte unbroken run to force a near-MaxBytes piece.
-	body = append(body, bytes.Repeat([]byte("Y"), 6000)...)
+	// Splice in a 7100-byte unbroken run so the splitter emits a piece
+	// larger than MaxBytes-OverlapBytes — the threshold where the pre-fix
+	// packPieces would have grown the next chunk past MaxBytes.
+	body = append(body, bytes.Repeat([]byte("Y"), 7100)...)
 
 	strategy := embed.MarkdownRecursive{
 		TargetBytes:  1600,
