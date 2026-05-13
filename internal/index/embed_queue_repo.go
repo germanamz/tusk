@@ -39,6 +39,29 @@ func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
 	return nil
 }
 
+// ReEnqueue reinserts a row for nodeID with the explicit attempts count and
+// last_error, bumping enqueued_at to time.Now() so FIFO ordering reflects the
+// most-recent attempt (anti-starvation). If a row already exists for nodeID
+// (rare — Drain deletes before the embed loop runs — but possible if a caller
+// re-enqueues out of band), its attempts, last_error, and enqueued_at are
+// overwritten.
+func (repo *EmbedQueueRepo) ReEnqueue(nodeID string, attempts int, lastError string) error {
+	_, execErr := repo.db.Exec(`
+		INSERT INTO embed_queue (node_id, enqueued_at, attempts, last_error)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(node_id) DO UPDATE SET
+			enqueued_at = excluded.enqueued_at,
+			attempts = excluded.attempts,
+			last_error = excluded.last_error
+	`, nodeID, time.Now().UnixNano(), attempts, lastError)
+
+	if execErr != nil {
+		return fmt.Errorf("embedQueueRepo: re-enqueue %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
 // Drain returns up to limit rows oldest-first AND removes them from the queue
 // in one transaction.
 func (repo *EmbedQueueRepo) Drain(limit int) ([]QueueRow, error) {
