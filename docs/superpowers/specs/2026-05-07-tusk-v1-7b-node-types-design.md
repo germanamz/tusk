@@ -1,3 +1,8 @@
+---
+type: spec
+title: Plan 7.b — Node-Types Spec
+---
+
 # Tusk v1 — Node-Types Design (Plan 7.b sub-spec)
 
 - **Status:** Draft

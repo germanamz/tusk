@@ -1,0 +1,232 @@
+[workspace]
+name = "tusk"
+
+# Gitignore-style patterns. Tusk only indexes markdown anyway — these prune
+# the watcher tree and exclude harness/human-targeted top-level docs.
+ignore = [
+    # Build artifacts and module/test caches
+    "bin/",
+    "dist/",
+    ".data/",
+    ".go-cache/",
+    "node_modules/",
+    "vendor/",
+    "*.test",
+    "tusk",
+    # Tooling and external integrations
+    ".devcontainer/",
+    ".github/",
+    ".claude/",
+    ".superpowers/",
+    ".worktrees/",
+    # Harness/human-targeted top-level docs (not the assistant's surface)
+    "CLAUDE.md",
+    "STYLE.md",
+    "PRODUCT.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+]
+
+# Local Ollama instance, started by .devcontainer/start-ollama.sh at container
+# boot. Reindex enqueues + drains embeddings only when provider == "ollama".
+[embeddings]
+provider = "ollama"
+endpoint = "http://localhost:11434"
+model    = "nomic-embed-text"
+dim      = 768
+
+# Added by `tusk pack add file:///workspaces/tusk/packs/dev.toml` on 2026-05-08
+# Tusk dogfooding pack: dev
+#
+# Adds dev-process node types — `spec`, `plan`, `handoff`, `package` — for
+# tracking the development of tusk itself (and any similarly-shaped project).
+# Composes with vault (note/decision + references edge), tags (tag taxonomy),
+# and kanban (ticket workflow).
+#
+# Ref properties auto-generate edge types of the same name (per 7.c.1):
+#   plan.implements      → [edge-types.implements]      plan -> spec
+#   package.last-touched-by → [edge-types.last-touched-by] package -> plan
+#
+# `[edge-types.depends-on]` is declared explicitly to enforce `acyclic = true`
+# on the package import DAG.
+#
+# Status is a plain enum on `plan` and `package`; no workflow yet (the engine
+# reserves `status` once a workflow attaches, per the 7.c.3 lesson).
+
+[node-types.spec]
+description = "A design specification for a subsystem or feature"
+properties = []
+
+[node-types.plan]
+description = "An implementation plan that turns a spec into shipped work"
+properties = [
+    { name = "status",     type = "enum", values = ["draft", "in-progress", "shipped", "abandoned"] },
+    { name = "pr",         type = "int" },
+    { name = "shipped-at", type = "date" },
+    { name = "implements", type = "list-of", item-type = "ref", to = "spec" },
+]
+
+[node-types.handoff]
+description = "A session-continuity document bridging work between sessions"
+properties = [
+    { name = "session-date", type = "date" },
+]
+
+[node-types.package]
+description = "A status summary for a Go package in the codebase"
+properties = [
+    { name = "import-path",     type = "string" },
+    { name = "status",          type = "enum", values = ["stable", "in-flux", "experimental"] },
+    { name = "last-touched-by", type = "ref", to = "plan" },
+]
+
+[edge-types.depends-on]
+description = "Package-to-package import dependency"
+from        = ["package"]
+to          = ["package"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = true
+inverse     = "dependency-of"
+
+# Added by `tusk pack add vault` on 2026-05-08
+# Tusk built-in pack: vault
+#
+# Adds three categorical node types — `note`, `meeting`, `decision` —
+# and two edge types — `references` (auto-materialized from body
+# wikilinks) and `relates-to` (user-declared "see also").
+#
+# Pack is purely categorical: no declared properties on any node type.
+# The implicit `title` is always available; the markdown body is the
+# natural place for content (meeting agendas, decision rationale,
+# note prose). Users wanting structured fields on a node type can
+# declare them inline in their workspace manifest.
+#
+# Note: declaring [edge-types.references] is what activates body
+# wikilink → edge materialization in the engine. A workspace with
+# this pack added gets `[[some/node]]` → references-edge behavior;
+# a workspace without it gets wikilinks as plain text only.
+#
+# `relates-to` has no declared inverse — the relation is symmetric
+# in meaning, so the <- operator handles backward traversal.
+
+[node-types.note]
+description = "A free-form markdown note"
+properties = []
+
+[node-types.meeting]
+description = "A meeting record (agenda, attendees, discussion in body)"
+properties = []
+
+[node-types.decision]
+description = "A captured decision (rationale, status, date in body)"
+properties = []
+
+[edge-types.references]
+description = "Implicit edge materialized from body wikilinks"
+from        = ["*"]
+to          = ["*"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = false
+inverse     = "referenced-by"
+
+[edge-types.relates-to]
+description = "User-declared 'see also' relationship between nodes"
+from        = ["*"]
+to          = ["*"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = false
+
+# Added by `tusk pack add tags` on 2026-05-08
+# Tusk built-in pack: tags
+#
+# Adds a universal `tag` node type and a `tagged` edge type.
+# Tags are simple nodes; nodes can carry multiple tags via the
+# many-to-many `tagged` edge.
+#
+# Usage patterns:
+#   - Wikilinks in body: `[[tag/auth]]` materializes a `tagged` edge.
+#   - Wikilinks in frontmatter: `tagged: ["[[tag/auth]]"]`.
+#   - Ref property opt-in (per node type):
+#       properties = [{ name = "tags", type = "list-of", item-type = "ref", to = "tag" }]
+#     Then write: `tags: [auth, security]` in frontmatter.
+#   - Direct edge: `tusk edge add tagged <node-id> tag/<tag-name>`.
+
+[node-types.tag]
+description = "A label that can be applied to any node"
+properties = []
+
+[edge-types.tagged]
+description = "Marks a node as tagged with a tag"
+from = ["*"]
+to = ["tag"]
+cardinality = "many-to-many"
+ordered = false
+
+# Added by `tusk pack add kanban` on 2026-05-08
+# Tusk built-in pack: kanban
+#
+# Adds a `ticket` node type with workflow-validated status, priority,
+# and due-date properties; a WBS `parent` edge for hierarchy; and a
+# `blocks` edge for dependency.
+#
+# A "project" in this pack is just a higher-level ticket — the WBS
+# parent edge captures the hierarchy. There is no separate `project`
+# node type; if you need one, declare `[node-types.project]` in your
+# workspace manifest.
+#
+# Tagging is intentionally out of scope here. To tag tickets, run
+# `tusk pack add tags` (composes cleanly), then either `[[tag/x]]`
+# wikilinks in the body or a per-ticket ref opt-in:
+#   properties = [{ name = "tags", type = "list-of",
+#                   item-type = "ref", to = "tag" }]
+#
+# Customizing workflow states: edit [behaviors.workflow.kanban].states
+# and transitions — the workflow validator is the single source of truth
+# for status. Do not redeclare `status` in [node-types.ticket].properties;
+# the behavior engine reserves it and rejects duplicate declarations.
+
+[node-types.ticket]
+description = "A unit of work tracked through a workflow"
+properties = [
+    { name = "priority", type = "enum", values = ["low", "medium", "high"] },
+    { name = "due",      type = "date" },
+]
+
+[edge-types.parent]
+description = "WBS parent — this ticket is a child of another ticket"
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-one"
+ordered     = true
+acyclic     = true
+inverse     = "children"
+
+[edge-types.blocks]
+description = "This ticket blocks another from progressing"
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-many"
+ordered     = false
+acyclic     = true
+inverse     = "blocked-by"
+
+[behaviors.workflow.kanban]
+applies-to      = ["ticket"]
+status-property = "status"
+
+states = [
+    { name = "pending",   initial = true },
+    { name = "active",    start = true },
+    { name = "completed", terminal = true, done = true },
+]
+
+transitions = [
+    { from = "pending",   to = "active" },
+    { from = "active",    to = "completed" },
+    { from = "active",    to = "pending" },
+    { from = "completed", to = "pending" },
+]

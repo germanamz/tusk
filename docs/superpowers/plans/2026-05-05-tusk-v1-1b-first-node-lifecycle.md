@@ -1,3 +1,13 @@
+---
+type: plan
+title: Plan 1b
+status: shipped
+pr: 352
+shipped-at: "2026-05-05"
+implements:
+  - Tusk v1 Rebuild
+---
+
 # Tusk v1 — Plan 1b: First Node Lifecycle
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

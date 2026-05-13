@@ -1,3 +1,13 @@
+---
+type: plan
+title: Plan 2
+status: shipped
+pr: 353
+shipped-at: "2026-05-05"
+implements:
+  - Tusk v1 Rebuild
+---
+
 # Tusk v1 — Plan 2: Edges + Relationships
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

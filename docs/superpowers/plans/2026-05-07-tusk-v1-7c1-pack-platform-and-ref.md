@@ -1,3 +1,14 @@
+---
+type: plan
+title: Plan 7.c.1
+status: shipped
+pr: 360
+shipped-at: "2026-05-07"
+implements:
+  - Plan 7.c.1 — Pack Platform Spec
+  - Tusk v1 Rebuild
+---
+
 # Tusk v1 — Plan 7.c.1: Pack Platform and `ref` Property Type
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

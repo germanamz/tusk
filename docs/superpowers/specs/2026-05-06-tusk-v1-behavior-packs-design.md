@@ -1,3 +1,8 @@
+---
+type: spec
+title: Plan 7 — Behavior Packs Spec
+---
+
 # Tusk v1 — Behavior Packs Design (Plan 7 sub-spec)
 
 - **Status:** Draft

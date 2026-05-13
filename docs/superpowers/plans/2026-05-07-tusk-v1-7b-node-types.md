@@ -1,3 +1,14 @@
+---
+type: plan
+title: Plan 7.b
+status: shipped
+pr: 359
+shipped-at: "2026-05-07"
+implements:
+  - Plan 7.b — Node-Types Spec
+  - Tusk v1 Rebuild
+---
+
 # Tusk v1 — Plan 7.b: Node-Types
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

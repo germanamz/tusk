@@ -1,3 +1,8 @@
+---
+type: spec
+title: Tusk v1 Rebuild
+---
+
 # Tusk v1 — Agent Brain Rebuild
 
 - **Status:** Draft

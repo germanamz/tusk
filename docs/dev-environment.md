@@ -1,6 +1,11 @@
+---
+type: note
+title: Dev Environment
+---
+
 # Dev Environment
 
-Tusk ships a dev container (`.devcontainer/`) that builds a reproducible sandbox with Go, Node, Neovim, Claude Code, GitHub CLI, `gopls`, `dlv`, `golangci-lint`, `lefthook`, and **Zellij** pre-installed. This doc covers the recommended host-side setup and day-to-day usage.
+Tusk ships a dev container (`.devcontainer/`) that builds a reproducible sandbox with Go, Node, Neovim, Claude Code, GitHub CLI, `gopls`, `dlv`, `golangci-lint`, `lefthook`, **Zellij**, and a local **Ollama** instance pre-installed. This doc covers the recommended host-side setup and day-to-day usage.
 
 ## Recommended stack
 
@@ -49,6 +54,24 @@ The `tusk` layout opens:
 - **Editor** (left, 70%) — `nvim`
 - **Tusk shell** (right top) — interactive `bash` for `tusk task tree`, `tusk task create`, etc.
 - **Claude** (right bottom) — `claude --dangerously-skip-permissions` (Claude Code CLI with prompt-level permissions bypassed — the dev container's firewall + no-sudo `vscode` user is the real sandbox, so prompt gates add friction without safety)
+
+## Ollama (semantic indexing)
+
+`ollama serve` is started in the background each time the container boots by `.devcontainer/start-ollama.sh` (wired in via `postStartCommand`). On first boot the script also pulls the embedding model named in `tusk.toml`'s `[embeddings]` block (default `nomic-embed-text`, 768-dim).
+
+- Endpoint: `http://127.0.0.1:11434`
+- Model cache: `/home/vscode/.ollama` (named volume `tusk-devcontainer-ollama`, survives `make devcontainer-down` but not `make devcontainer-nuke`)
+- Logs: `/home/vscode/.ollama/serve.log`
+
+Quick checks:
+
+```bash
+curl -s http://localhost:11434/api/tags | jq '.models | length'    # >= 1 once pull completes
+curl -s http://localhost:11434/api/embeddings \
+    -d '{"model":"nomic-embed-text","prompt":"hello"}' | jq '.embedding | length'   # 768
+```
+
+If `ollama pull` fails with a proxy/CONNECT error, the model registry's CDN host is probably missing from `.devcontainer/tinyproxy-filter`. The allowlist already includes `registry.ollama.ai` and `*.ollama.com`; tail `/var/log/tinyproxy/tinyproxy.log` (as `dev`) to see which host got refused and add the matching pattern.
 
 ## Ghostty host setup
 

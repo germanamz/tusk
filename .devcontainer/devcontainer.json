@@ -14,7 +14,8 @@
     "source=tusk-devcontainer-gh-config,target=/home/vscode/.config/gh,type=volume",
     "source=tusk-devcontainer-nvim-data,target=/home/vscode/.local/share/nvim,type=volume",
     "source=tusk-devcontainer-nvim-state,target=/home/vscode/.local/state/nvim,type=volume",
-    "source=tusk-devcontainer-nvim-cache,target=/home/vscode/.cache/nvim,type=volume"
+    "source=tusk-devcontainer-nvim-cache,target=/home/vscode/.cache/nvim,type=volume",
+    "source=tusk-devcontainer-ollama,target=/home/vscode/.ollama,type=volume"
   ],
 
   "runArgs": [
@@ -41,5 +42,7 @@
     "vscode": {
       "extensions": []
     }
-  }
+  },
+
+  "postStartCommand": "/usr/local/bin/start-ollama.sh"
 }

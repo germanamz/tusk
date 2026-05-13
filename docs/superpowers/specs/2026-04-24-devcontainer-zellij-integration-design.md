@@ -1,3 +1,8 @@
+---
+type: spec
+title: Devcontainer Zellij Integration
+---
+
 # Dev Container — Zellij Integration
 
 **Branch:** `chore/devcontainer-improvements`

@@ -64,6 +64,21 @@ RUN ARCH=$(dpkg --print-architecture) \
         | tar -C /usr/local/bin -xz zellij \
     && chmod 0755 /usr/local/bin/zellij
 
+# Ollama — local embedding/inference runtime. Powers tusk's semantic-retrieval
+# layer (cmd/tusk/cmd_reindex.go gates on Embeddings.Provider == "ollama").
+# Fetched from the GitHub release tarball so it routes through the existing
+# proxy allowlist; pulling models additionally needs registry.ollama.ai on the
+# tinyproxy filter.
+RUN ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+         amd64) OLLAMA_ARCH=amd64 ;; \
+         arm64) OLLAMA_ARCH=arm64 ;; \
+         *) echo "unsupported arch for ollama: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-${OLLAMA_ARCH}.tgz" \
+        | tar -C /usr/local -xz \
+    && chmod 0755 /usr/local/bin/ollama
+
 # Go SDK (multi-arch)
 RUN ARCH=$(dpkg --print-architecture) \
     && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
@@ -123,7 +138,11 @@ COPY tinyproxy.conf /etc/tinyproxy/tinyproxy.conf
 COPY tinyproxy-filter /etc/tinyproxy/filter
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
 COPY entrypoint.sh /usr/local/bin/devcontainer-entrypoint.sh
-RUN chmod 0755 /usr/local/bin/init-firewall.sh /usr/local/bin/devcontainer-entrypoint.sh
+COPY start-ollama.sh /usr/local/bin/start-ollama.sh
+RUN chmod 0755 \
+        /usr/local/bin/init-firewall.sh \
+        /usr/local/bin/devcontainer-entrypoint.sh \
+        /usr/local/bin/start-ollama.sh
 
 # Shared Zellij config + layouts (ZELLIJ_CONFIG_DIR is set above).
 COPY zellij-config.kdl /etc/zellij/config.kdl
@@ -153,12 +172,14 @@ RUN mkdir -p \
         /home/vscode/.local/share/nvim \
         /home/vscode/.local/state/nvim \
         /home/vscode/.cache/nvim \
+        /home/vscode/.ollama \
     && chown -R vscode:vscode \
         /home/vscode/.claude \
         /home/vscode/.gocache \
         /home/vscode/.config/gh \
         /home/vscode/.local \
-        /home/vscode/.cache
+        /home/vscode/.cache \
+        /home/vscode/.ollama
 
 # Install Claude Code via the official native installer. Self-contained
 # binary at ~/.local/bin/claude, no node runtime dependency, and the
