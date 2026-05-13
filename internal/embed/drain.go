@@ -148,16 +148,6 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
-			if config.Logger != nil {
-				config.Logger.Debug("embed attempt success",
-					"node_id", queued.NodeID,
-					"vector_dim", len(vector),
-					"latency_ms", embedLatency.Milliseconds(),
-				)
-			}
-
-			batchSucceeded++
-
 			contentHash := sha256.Sum256(payload)
 
 			if upsertErr := config.Embeddings.Upsert(index.EmbeddingRow{
@@ -172,6 +162,16 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			}
 
 			drained++
+
+			if config.Logger != nil {
+				config.Logger.Debug("embed attempt success",
+					"node_id", queued.NodeID,
+					"vector_dim", len(vector),
+					"latency_ms", embedLatency.Milliseconds(),
+				)
+			}
+
+			batchSucceeded++
 		}
 
 		if config.Logger != nil {
