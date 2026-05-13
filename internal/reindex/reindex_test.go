@@ -1,9 +1,12 @@
 package reindex_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -790,6 +793,49 @@ properties = [
 		if row.NodeID == "tickets/auth" {
 			test.Errorf("stale drift row not cleared: %+v", row)
 		}
+	}
+}
+
+func TestRun_LogsWalkStartAndComplete(test *testing.T) {
+	tempDir := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(tempDir, "a.md"), []byte("---\nid: a\ntype: note\n---\nbody"), 0o644); writeErr != nil {
+		test.Fatalf("write a: %v", writeErr)
+	}
+
+	store, openErr := index.Open(filepath.Join(tempDir, "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	_, runErr := reindex.Run(reindex.Config{
+		Root:   tempDir,
+		Repo:   index.NewNodeRepo(store),
+		Logger: logger,
+	})
+
+	if runErr != nil {
+		test.Fatalf("run: %v", runErr)
+	}
+
+	out := buf.String()
+
+	if !strings.Contains(out, `msg="reindex walk start"`) {
+		test.Errorf("expected walk-start log; got %q", out)
+	}
+
+	if !strings.Contains(out, `msg="reindex walk complete"`) {
+		test.Errorf("expected walk-complete log; got %q", out)
+	}
+
+	if !strings.Contains(out, "indexed=1") {
+		test.Errorf("expected indexed=1; got %q", out)
 	}
 }
 
