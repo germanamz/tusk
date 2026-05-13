@@ -4,6 +4,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -38,10 +39,23 @@ type Runtime struct {
 
 	Embedder embed.Embedder
 	Chunker  embed.ChunkingStrategy
+
+	Logger *slog.Logger // optional; nil silences output
+}
+
+// Option mutates a Runtime during Open.
+type Option func(*Runtime)
+
+// WithLogger sets the slog.Logger that Open stores on the Runtime. Forwarded
+// into DrainerConfig.Logger and WatchConfig.Logger by Server.RunBackground.
+func WithLogger(logger *slog.Logger) Option {
+	return func(rt *Runtime) {
+		rt.Logger = logger
+	}
 }
 
 // Open builds a Runtime rooted at workspaceRoot.
-func Open(workspaceRoot string) (*Runtime, error) {
+func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	ws, findErr := workspace.Find(workspaceRoot)
 
 	if findErr != nil {
@@ -109,6 +123,10 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		os.Stderr,
 		node.NewIndexRefLookup(rt.Nodes),
 	)
+
+	for _, opt := range opts {
+		opt(rt)
+	}
 
 	return rt, nil
 }
