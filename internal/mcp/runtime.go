@@ -101,15 +101,6 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		PropertyDrift:  propertyDriftRepo,
 	}
 
-	if loaded.Embeddings.Provider == "ollama" {
-		rt.Embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
-			Endpoint: loaded.Embeddings.Endpoint,
-			Model:    loaded.Embeddings.Model,
-			Dim:      loaded.Embeddings.Dim,
-		})
-		rt.Chunker = embed.WholeDocument{}
-	}
-
 	rt.NodeService = node.NewServiceWithBehaviors(
 		rt.Root,
 		rt.Nodes,
@@ -126,6 +117,16 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 
 	for _, opt := range opts {
 		opt(rt)
+	}
+
+	if loaded.Embeddings.Provider == "ollama" {
+		rt.Embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
+			Endpoint: loaded.Embeddings.Endpoint,
+			Model:    loaded.Embeddings.Model,
+			Dim:      loaded.Embeddings.Dim,
+			Logger:   rt.Logger,
+		})
+		rt.Chunker = embed.WholeDocument{}
 	}
 
 	return rt, nil
