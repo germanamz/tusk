@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,6 +58,10 @@ type Config struct {
 	// PropertyDrift is optional; when set alongside NodeTypes, Run writes
 	// property drift rows and clears rows on clean passes.
 	PropertyDrift *index.PropertyDriftRepo
+
+	// Logger is optional; when set, Run emits structured logs to it.
+	// Forwarded into embed.DrainConfig.Logger when the embedding pipeline runs.
+	Logger *slog.Logger
 }
 
 // Report summarizes a reindex pass.
@@ -78,6 +83,15 @@ type Report struct {
 func Run(config Config) (*Report, error) {
 	report := &Report{}
 	seenPaths := map[string]struct{}{}
+
+	start := time.Now()
+
+	if config.Logger != nil {
+		config.Logger.Info("reindex walk start",
+			"root", config.Root,
+			"ignore_patterns_count", len(config.WorkspaceIgnore),
+		)
+	}
 
 	matcher, matcherErr := ignore.NewMatcher(config.Root, config.WorkspaceIgnore)
 
@@ -382,6 +396,7 @@ func Run(config Config) (*Report, error) {
 			Embeddings: config.EmbeddingRepo,
 			Embedder:   config.Embedder,
 			Chunker:    config.Chunker,
+			Logger:     config.Logger,
 		}); drainErr != nil {
 			return nil, drainErr
 		}
@@ -391,6 +406,22 @@ func Run(config Config) (*Report, error) {
 		if setErr := config.Meta.Set("last_reindex_at", fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
 			return nil, fmt.Errorf("reindex: record last_reindex_at: %w", setErr)
 		}
+	}
+
+	if config.Logger != nil {
+		config.Logger.Info("reindex walk complete",
+			"root", config.Root,
+			"indexed", report.Indexed,
+			"removed", report.Removed,
+			"skipped", report.Skipped,
+			"workflow_violations", report.WorkflowViolations,
+			"property_violations", report.PropertyViolations,
+			"ref_dangling", report.RefDangling,
+			"ref_ambiguous", report.RefAmbiguous,
+			"ref_type_mismatch", report.RefTypeMismatch,
+			"ref_cycle", report.RefCycle,
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
 	}
 
 	return report, nil

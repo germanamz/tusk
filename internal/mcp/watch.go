@@ -44,6 +44,7 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 				Embedder:        config.Runtime.Embedder,
 				Chunker:         config.Runtime.Chunker,
 				Meta:            config.Runtime.Meta,
+				Logger:          config.Logger,
 			})
 
 			return runErr

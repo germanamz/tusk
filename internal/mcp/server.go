@@ -97,12 +97,12 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 
 	go func() {
 		defer waitGroup.Done()
-		record(RunDrainer(ctx, DrainerConfig{Runtime: srv.runtime}))
+		record(RunDrainer(ctx, DrainerConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
 	}()
 
 	go func() {
 		defer waitGroup.Done()
-		record(RunWatcher(ctx, WatchConfig{Runtime: srv.runtime}))
+		record(RunWatcher(ctx, WatchConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
 	}()
 
 	waitGroup.Wait()

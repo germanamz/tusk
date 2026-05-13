@@ -4,6 +4,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -38,10 +39,23 @@ type Runtime struct {
 
 	Embedder embed.Embedder
 	Chunker  embed.ChunkingStrategy
+
+	Logger *slog.Logger // optional; nil silences output
+}
+
+// Option mutates a Runtime during Open.
+type Option func(*Runtime)
+
+// WithLogger sets the slog.Logger that Open stores on the Runtime. Forwarded
+// into DrainerConfig.Logger and WatchConfig.Logger by Server.RunBackground.
+func WithLogger(logger *slog.Logger) Option {
+	return func(rt *Runtime) {
+		rt.Logger = logger
+	}
 }
 
 // Open builds a Runtime rooted at workspaceRoot.
-func Open(workspaceRoot string) (*Runtime, error) {
+func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	ws, findErr := workspace.Find(workspaceRoot)
 
 	if findErr != nil {
@@ -87,15 +101,6 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		PropertyDrift:  propertyDriftRepo,
 	}
 
-	if loaded.Embeddings.Provider == "ollama" {
-		rt.Embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
-			Endpoint: loaded.Embeddings.Endpoint,
-			Model:    loaded.Embeddings.Model,
-			Dim:      loaded.Embeddings.Dim,
-		})
-		rt.Chunker = embed.WholeDocument{}
-	}
-
 	rt.NodeService = node.NewServiceWithBehaviors(
 		rt.Root,
 		rt.Nodes,
@@ -109,6 +114,20 @@ func Open(workspaceRoot string) (*Runtime, error) {
 		os.Stderr,
 		node.NewIndexRefLookup(rt.Nodes),
 	)
+
+	for _, opt := range opts {
+		opt(rt)
+	}
+
+	if loaded.Embeddings.Provider == "ollama" {
+		rt.Embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
+			Endpoint: loaded.Embeddings.Endpoint,
+			Model:    loaded.Embeddings.Model,
+			Dim:      loaded.Embeddings.Dim,
+			Logger:   rt.Logger,
+		})
+		rt.Chunker = embed.WholeDocument{}
+	}
 
 	return rt, nil
 }

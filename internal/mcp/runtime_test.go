@@ -1,6 +1,8 @@
 package mcp_test
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,6 +106,33 @@ name = "x"
 
 	if calls != 1 {
 		test.Errorf("body should run once, got %d", calls)
+	}
+}
+
+func TestOpen_WithLogger_PopulatesRuntimeLogger(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte("[workspace]\nname = \"test\"\n"), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(root, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	rt, openErr := mcp.Open(root, mcp.WithLogger(logger))
+
+	if openErr != nil {
+		test.Fatalf("open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	if rt.Logger != logger {
+		test.Errorf("Runtime.Logger should be the passed logger")
 	}
 }
 

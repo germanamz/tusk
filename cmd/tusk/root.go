@@ -14,6 +14,8 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "emit debug-level logs to stderr")
+
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newNodeCmd())
 	rootCmd.AddCommand(newReindexCmd())

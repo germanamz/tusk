@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,18 @@ import (
 	"github.com/germanamz/tusk/internal/mcp"
 	"github.com/spf13/cobra"
 )
+
+// mcpLoggerFromFlags returns a verbose logger when --verbose is set, else nil.
+// Returning nil keeps Runtime.Logger nil so existing nil-checks short-circuit.
+func mcpLoggerFromFlags(cmd *cobra.Command) *slog.Logger {
+	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	if !verbose {
+		return nil
+	}
+
+	return newLogger(cmd.ErrOrStderr(), true)
+}
 
 func newMCPCmd() *cobra.Command {
 	var (
@@ -36,7 +49,13 @@ edits.`,
 				return cwdErr
 			}
 
-			runtime, openErr := mcp.Open(cwd)
+			var opts []mcp.Option
+
+			if logger := mcpLoggerFromFlags(cmd); logger != nil {
+				opts = append(opts, mcp.WithLogger(logger))
+			}
+
+			runtime, openErr := mcp.Open(cwd, opts...)
 
 			if openErr != nil {
 				return openErr
