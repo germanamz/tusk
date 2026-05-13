@@ -8,18 +8,11 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
-// BuildPayload renders a node into the canonical embed input.
-//
-// Format (per spec §10.4):
-//
-//	[type] {type}
-//	[title] {title}
-//	{remaining frontmatter properties as key=value, sorted by key}
-//	---
-//	{body}
-//
-// Order is stable so the resulting content_hash is reproducible.
-func BuildPayload(parsedNode *node.Node) []byte {
+// BuildHeader renders a node's frontmatter (type, title, sorted remaining
+// properties) followed by a `---\n` separator. The header is prepended to
+// every chunk's body before embedding, so each chunk carries doc-level
+// context.
+func BuildHeader(parsedNode *node.Node) []byte {
 	var builder strings.Builder
 
 	fmt.Fprintf(&builder, "[type] %s\n", parsedNode.Type)
@@ -45,7 +38,25 @@ func BuildPayload(parsedNode *node.Node) []byte {
 	}
 
 	builder.WriteString("---\n")
-	builder.Write(parsedNode.Body)
 
 	return []byte(builder.String())
+}
+
+// BuildBody returns the node's raw body bytes. Chunkers split this slice.
+func BuildBody(parsedNode *node.Node) []byte {
+	return parsedNode.Body
+}
+
+// BuildPayload renders a node into the canonical embed input by
+// concatenating BuildHeader and BuildBody. Retained for callers that want
+// the unchunked payload (e.g. tests, WholeDocument strategy).
+func BuildPayload(parsedNode *node.Node) []byte {
+	header := BuildHeader(parsedNode)
+	body := BuildBody(parsedNode)
+
+	out := make([]byte, 0, len(header)+len(body))
+	out = append(out, header...)
+	out = append(out, body...)
+
+	return out
 }
