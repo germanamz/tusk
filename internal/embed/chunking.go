@@ -81,7 +81,7 @@ func (strategy MarkdownRecursive) Chunk(payload []byte) [][]byte {
 	}
 
 	pieces := splitRecursive(payload, markdownSeparators, strategy.maxSize())
-	chunks := packPieces(pieces, strategy.target(), strategy.overlap())
+	chunks := packPieces(pieces, strategy.target(), strategy.overlap(), strategy.maxSize())
 
 	if len(chunks) == 0 {
 		return [][]byte{nil}
@@ -173,22 +173,36 @@ func hardSplit(text []byte, maxBytes int) [][]byte {
 
 // packPieces greedily concatenates pieces up to target bytes, then emits a
 // chunk and seeds the next chunk with the previous chunk's tail (OverlapBytes).
-// A single piece larger than target becomes its own chunk.
-func packPieces(pieces [][]byte, target, overlap int) [][]byte {
+// A single piece larger than target becomes its own chunk. maxBytes is a hard
+// cap: pieces will force an emit if accumulating would exceed it, and the
+// seeded tail is shrunk so tail+piece never exceeds maxBytes.
+func packPieces(pieces [][]byte, target, overlap, maxBytes int) [][]byte {
 	var (
 		chunks [][]byte
 		cur    []byte
 	)
 
 	for _, piece := range pieces {
-		if len(cur) > 0 && len(cur)+len(piece) > target {
+		overTarget := len(cur) > 0 && len(cur)+len(piece) > target
+		overMax := len(cur) > 0 && len(cur)+len(piece) > maxBytes
+
+		if overTarget || overMax {
 			chunks = append(chunks, cur)
 
 			if overlap > 0 && len(cur) > overlap {
 				tail := cur[len(cur)-overlap:]
-				next := make([]byte, 0, len(tail)+len(piece))
-				next = append(next, tail...)
-				cur = next
+
+				room := maxBytes - len(piece)
+				if room < 0 {
+					room = 0
+				}
+
+				if len(tail) > room {
+					tail = tail[len(tail)-room:]
+				}
+
+				cur = make([]byte, 0, len(tail)+len(piece))
+				cur = append(cur, tail...)
 			} else {
 				cur = nil
 			}

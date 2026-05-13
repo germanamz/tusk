@@ -157,11 +157,14 @@ func TestMarkdownRecursive_OverlapAppearsAtStartOfNextChunk(test *testing.T) {
 }
 
 func TestMarkdownRecursive_LargeDocStaysUnderMax(test *testing.T) {
-	// Reproducer for the 2026-05-13 incident: a 225 KB synthetic doc should
-	// chunk to many pieces, all under MaxBytes.
+	// Reproducer for the 2026-05-13 incident: a large synthetic doc should
+	// chunk to many pieces, all under MaxBytes. Includes a long unbroken
+	// run that forces the splitter to produce a piece near MaxBytes so the
+	// overlap-overgrowth invariant gets exercised.
 	body := bytes.Repeat([]byte("Some prose with paragraphs.\n\n## Heading\n\nMore prose here.\n\n"), 4000)
+	// Splice in a 6000-byte unbroken run to force a near-MaxBytes piece.
+	body = append(body, bytes.Repeat([]byte("Y"), 6000)...)
 
-	// Explicitly set MaxBytes to the default to make assertion work correctly
 	strategy := embed.MarkdownRecursive{
 		TargetBytes:  1600,
 		MaxBytes:     7200,
@@ -171,13 +174,36 @@ func TestMarkdownRecursive_LargeDocStaysUnderMax(test *testing.T) {
 	chunks := strategy.Chunk(body)
 
 	if len(chunks) < 30 {
-		test.Errorf("expected many chunks for a 225KB doc, got %d", len(chunks))
+		test.Errorf("expected many chunks for a large doc, got %d", len(chunks))
 	}
 
 	for idx, chunk := range chunks {
 		if len(chunk) > strategy.MaxBytes {
-			// MaxBytes defaults to 7200 — anything larger blows nomic's 2048-tok window.
 			test.Errorf("chunk %d has len=%d, exceeds MaxBytes %d", idx, len(chunk), strategy.MaxBytes)
+		}
+	}
+}
+
+func TestMarkdownRecursive_OverlapPlusLargePieceStaysUnderMax(test *testing.T) {
+	// Regression: with overlap > 0 and a piece near MaxBytes, the previous
+	// chunk's tail used to push the new chunk over MaxBytes (chunk grew to
+	// MaxBytes + OverlapBytes). MaxBytes must remain a true hard cap.
+	strategy := embed.MarkdownRecursive{
+		TargetBytes:  50,
+		MaxBytes:     100,
+		OverlapBytes: 30,
+	}
+
+	// 50 'A's, a space, then 100 'X's — the 100 X's are one word/piece
+	// near MaxBytes that follows a chunk eligible for overlap seeding.
+	payload := append(bytes.Repeat([]byte("A"), 50), ' ')
+	payload = append(payload, bytes.Repeat([]byte("X"), 100)...)
+
+	chunks := strategy.Chunk(payload)
+
+	for idx, chunk := range chunks {
+		if len(chunk) > strategy.MaxBytes {
+			test.Errorf("chunk %d has len=%d, exceeds MaxBytes=%d (overlap-overgrowth bug)", idx, len(chunk), strategy.MaxBytes)
 		}
 	}
 }
