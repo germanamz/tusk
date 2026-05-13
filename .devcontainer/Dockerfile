@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
 ARG GO_VERSION=1.26.1
+ARG OLLAMA_VERSION=v0.23.3
 
 RUN apt-get update && apt-get install -y \
         curl \
@@ -67,18 +68,24 @@ RUN ARCH=$(dpkg --print-architecture) \
 
 # Ollama — local embedding/inference runtime. Powers tusk's semantic-retrieval
 # layer (cmd/tusk/cmd_reindex.go gates on Embeddings.Provider == "ollama").
-# Fetched from the GitHub release tarball so it routes through the existing
-# proxy allowlist; pulling models additionally needs registry.ollama.ai on the
-# tinyproxy filter. Upstream switched the release asset from .tgz to .tar.zst.
-RUN ARCH=$(dpkg --print-architecture) \
+# Tarball is ~1.3GB (bundles GPU runtimes we don't use), so we cache it via a
+# BuildKit cache mount keyed by version + arch — rebuilds that invalidate this
+# layer reuse the local copy instead of re-downloading. Pulling models at
+# runtime additionally needs registry.ollama.ai + R2 on the tinyproxy filter.
+RUN --mount=type=cache,target=/var/cache/ollama,sharing=locked \
+    ARCH=$(dpkg --print-architecture) \
     && case "$ARCH" in \
          amd64) OLLAMA_ARCH=amd64 ;; \
          arm64) OLLAMA_ARCH=arm64 ;; \
          *) echo "unsupported arch for ollama: $ARCH" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-${OLLAMA_ARCH}.tar.zst" \
-        | zstd -d \
-        | tar -C /usr/local -xf - \
+    && TARBALL="/var/cache/ollama/ollama-${OLLAMA_VERSION}-linux-${OLLAMA_ARCH}.tar.zst" \
+    && if [ ! -s "$TARBALL" ]; then \
+         curl -fsSL "https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-${OLLAMA_ARCH}.tar.zst" \
+             -o "${TARBALL}.tmp" \
+         && mv "${TARBALL}.tmp" "$TARBALL"; \
+       fi \
+    && zstd -d <"$TARBALL" | tar -C /usr/local -xf - \
     && chmod 0755 /usr/local/bin/ollama
 
 # Go SDK (multi-arch)

@@ -4,7 +4,8 @@ GO := go
 GOFLAGS := -v
 
 .PHONY: all build clean test test-race vet lint fmt help \
-        devcontainer-up devcontainer-rebuild devcontainer-stop devcontainer-down devcontainer-nuke
+        devcontainer-up devcontainer-rebuild devcontainer-shell \
+        devcontainer-stop devcontainer-down devcontainer-nuke
 
 DEVCONTAINER_CID := docker ps -a --filter "label=devcontainer.local_folder=$(CURDIR)" -q
 DEVCONTAINER_VOLUMES := \
@@ -53,6 +54,7 @@ help:
 	@echo "  clean             — remove build artifacts"
 	@echo "  devcontainer-up      — build and start the dev container (uses BuildKit cache)"
 	@echo "  devcontainer-rebuild — build and start the dev container from scratch (no cache)"
+	@echo "  devcontainer-shell   — open an interactive zsh inside the running dev container"
 	@echo "  devcontainer-stop    — stop the dev container (preserves state)"
 	@echo "  devcontainer-down    — stop and remove the dev container"
 	@echo "  devcontainer-nuke    — remove container, named volumes, and image"
@@ -62,6 +64,11 @@ devcontainer-up:
 
 devcontainer-rebuild:
 	devcontainer up --workspace-folder $(CURDIR) --build-no-cache
+
+devcontainer-shell:
+	@cid=$$($(DEVCONTAINER_CID)); \
+	if [ -z "$$cid" ]; then echo "no dev container; run 'make devcontainer-up' first" >&2; exit 1; fi; \
+	docker exec -it -u vscode -w /workspaces/tusk $$cid /bin/zsh
 
 devcontainer-stop:
 	@cid=$$($(DEVCONTAINER_CID)); \
