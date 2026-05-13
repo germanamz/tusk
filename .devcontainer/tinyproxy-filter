@@ -14,3 +14,4 @@
 ^.+\.npmjs\.org$
 ^registry\.ollama\.ai$
 ^.+\.ollama\.com$
+^.+\.r2\.cloudflarestorage\.com$
