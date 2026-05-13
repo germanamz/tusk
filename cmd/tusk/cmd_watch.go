@@ -33,6 +33,9 @@ func newWatchCmd() *cobra.Command {
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			logger := newLogger(cmd.ErrOrStderr(), verbose)
+
 			loaded, loadErr := manifest.Load(ws.ManifestPath)
 
 			if loadErr != nil {
@@ -58,9 +61,12 @@ func newWatchCmd() *cobra.Command {
 				Edges:           edgeRepo,
 				EdgeTypes:       loaded.EdgeTypes,
 				WorkspaceIgnore: loaded.Workspace.Ignore,
+				Logger:          logger,
 			}); runErr != nil {
 				return runErr
 			}
+
+			logger.Info("watch started", "root", ws.Root)
 
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Watching for changes (Ctrl-C to stop)…")
 
@@ -72,7 +78,13 @@ func newWatchCmd() *cobra.Command {
 
 			defer watcherInstance.Close()
 
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			parent := cmd.Context()
+
+			if parent == nil {
+				parent = context.Background()
+			}
+
+			ctx, cancel := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 
 			handler := func(event watcher.WatchEvent) error {
@@ -81,6 +93,8 @@ func newWatchCmd() *cobra.Command {
 				}
 
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s\n", kindLabel(event.Kind), event.Path)
+
+				logger.Debug("watch fs event", "kind", kindLabel(event.Kind), "path", event.Path)
 
 				if event.Kind == watcher.EventDelete {
 					if delErr := nodeRepo.DeleteByPath(event.Path); delErr != nil {
@@ -110,9 +124,16 @@ func newWatchCmd() *cobra.Command {
 					Edges:           edgeRepo,
 					EdgeTypes:       loaded.EdgeTypes,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
+					Logger:          logger,
 				})
 
-				return runErr
+				if runErr != nil {
+					logger.Warn("watch handler reindex failed", "path", event.Path, "err", runErr.Error())
+
+					return runErr
+				}
+
+				return nil
 			}
 
 			return watcherInstance.Run(ctx, handler)
