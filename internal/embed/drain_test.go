@@ -1,9 +1,13 @@
 package embed_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/embed"
@@ -11,14 +15,19 @@ import (
 )
 
 type drainStubEmbedder struct {
-	calls   int
-	dim     int
-	model   string
-	failure error
+	calls     int
+	dim       int
+	model     string
+	failure   error
+	afterCall func()
 }
 
 func (stub *drainStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
 	stub.calls++
+
+	if stub.afterCall != nil {
+		defer stub.afterCall()
+	}
 
 	if stub.failure != nil {
 		return nil, stub.failure
@@ -120,5 +129,70 @@ func createNodeFile(test *testing.T, root, relPath, body string) {
 
 	if writeErr := os.WriteFile(abs, []byte(frontmatter), 0o644); writeErr != nil {
 		test.Fatalf("write: %v", writeErr)
+	}
+}
+
+func TestDrainQueue_LogsWarnOnEmbedError(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "doc.md", "body")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "doc", Type: "note", Path: "doc.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("doc"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// Cancel after the first failing call to escape the re-enqueue retry loop.
+	// (DrainQueue currently retries failed nodes forever; see task plan §1.2.)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	failing := &drainStubEmbedder{
+		dim:       3,
+		model:     "fake",
+		failure:   fmt.Errorf("input length exceeds the context length"),
+		afterCall: cancel,
+	}
+
+	_, drainErr := embed.DrainQueue(ctx, embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   failing,
+		Chunker:    embed.WholeDocument{},
+		Logger:     logger,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("drain: %v", drainErr)
+	}
+
+	out := buf.String()
+
+	for _, want := range []string{`msg="embed call failed"`, "node_id=doc", "payload_bytes=", "input length exceeds the context length"} {
+		if !strings.Contains(out, want) {
+			test.Errorf("expected log to contain %q; got %q", want, out)
+		}
+	}
+
+	if !strings.Contains(out, `msg="embed re-enqueued"`) {
+		test.Errorf("expected re-enqueue log; got %q", out)
+	}
+
+	if !strings.Contains(out, `msg="drain batch complete"`) {
+		test.Errorf("expected batch summary log; got %q", out)
 	}
 }

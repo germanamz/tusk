@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
@@ -21,6 +23,7 @@ type DrainConfig struct {
 	Embedder   Embedder              // when nil, DrainQueue is a no-op
 	Chunker    ChunkingStrategy      // required when Embedder is set
 	BatchSize  int                   // optional; defaults to 50
+	Logger     *slog.Logger          // optional; nil silences output
 }
 
 // DrainQueue pops every pending row from embed_queue and embeds it. Returns the
@@ -72,6 +75,11 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			return drained, nil
 		}
 
+		var (
+			batchSucceeded int
+			batchFailed    int
+		)
+
 		for _, queued := range batch {
 			row, getErr := config.Nodes.Get(queued.NodeID)
 
@@ -104,14 +112,51 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
+			if config.Logger != nil {
+				config.Logger.Debug("embed attempt",
+					"node_id", queued.NodeID,
+					"payload_bytes", len(payload),
+					"chunks", len(chunks),
+				)
+			}
+
+			embedStart := time.Now()
+
 			vector, embedErr := config.Embedder.Embed(ctx, chunks[0])
 
+			embedLatency := time.Since(embedStart)
+
 			if embedErr != nil {
+				if config.Logger != nil {
+					config.Logger.Warn("embed call failed",
+						"node_id", queued.NodeID,
+						"payload_bytes", len(payload),
+						"model", config.Embedder.Model(),
+						"err", embedErr.Error(),
+					)
+				}
+
 				_ = config.Queue.Enqueue(queued.NodeID)
 				_ = config.Queue.MarkFailed(queued.NodeID, embedErr.Error())
 
+				if config.Logger != nil {
+					config.Logger.Warn("embed re-enqueued", "node_id", queued.NodeID)
+				}
+
+				batchFailed++
+
 				continue
 			}
+
+			if config.Logger != nil {
+				config.Logger.Debug("embed attempt success",
+					"node_id", queued.NodeID,
+					"vector_dim", len(vector),
+					"latency_ms", embedLatency.Milliseconds(),
+				)
+			}
+
+			batchSucceeded++
 
 			contentHash := sha256.Sum256(payload)
 
@@ -127,6 +172,14 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			}
 
 			drained++
+		}
+
+		if config.Logger != nil {
+			config.Logger.Info("drain batch complete",
+				"attempted", batchSucceeded+batchFailed,
+				"succeeded", batchSucceeded,
+				"failed", batchFailed,
+			)
 		}
 	}
 }
