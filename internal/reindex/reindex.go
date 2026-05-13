@@ -410,9 +410,16 @@ func Run(config Config) (*Report, error) {
 
 	if config.Logger != nil {
 		config.Logger.Info("reindex walk complete",
+			"root", config.Root,
 			"indexed", report.Indexed,
 			"removed", report.Removed,
 			"skipped", report.Skipped,
+			"workflow_violations", report.WorkflowViolations,
+			"property_violations", report.PropertyViolations,
+			"ref_dangling", report.RefDangling,
+			"ref_ambiguous", report.RefAmbiguous,
+			"ref_type_mismatch", report.RefTypeMismatch,
+			"ref_cycle", report.RefCycle,
 			"duration_ms", time.Since(start).Milliseconds(),
 		)
 	}
