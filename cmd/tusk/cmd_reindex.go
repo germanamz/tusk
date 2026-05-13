@@ -31,6 +31,9 @@ func newReindexCmd() *cobra.Command {
 			}
 
 			return withWorkspaceLock(ws, func() error {
+				verbose, _ := cmd.Flags().GetBool("verbose")
+				logger := newLogger(cmd.ErrOrStderr(), verbose)
+
 				store, openErr := index.Open(ws.IndexPath)
 
 				if openErr != nil {
@@ -64,6 +67,7 @@ func newReindexCmd() *cobra.Command {
 						Endpoint: loaded.Embeddings.Endpoint,
 						Model:    loaded.Embeddings.Model,
 						Dim:      loaded.Embeddings.Dim,
+						Logger:   logger,
 					})
 					chunker = embed.WholeDocument{}
 					embedQueue = index.NewEmbedQueueRepo(store)
@@ -85,6 +89,7 @@ func newReindexCmd() *cobra.Command {
 					DriftLog:        driftRepo,
 					NodeTypes:       loaded.NodeTypes,
 					PropertyDrift:   index.NewPropertyDriftRepo(store),
+					Logger:          logger,
 				})
 
 				if runErr != nil {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,5 +140,43 @@ status: bogus
 
 	if !strings.Contains(stdout.String(), "workflow-violation") {
 		test.Errorf("stdout = %q, want mention of workflow-violation", stdout.String())
+	}
+}
+
+func TestReindexCmd_VerboseEmitsWalkLogs(test *testing.T) {
+	wsDir := setupTempWorkspace(test)
+	chdir(test, wsDir)
+
+	stderr := &bytes.Buffer{}
+	rootCmd := newRootCmd()
+	rootCmd.SetOut(io.Discard)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"reindex", "--verbose"})
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("reindex: %v", execErr)
+	}
+
+	if !strings.Contains(stderr.String(), `msg="reindex walk complete"`) {
+		test.Errorf("expected walk-complete log on stderr; got %q", stderr.String())
+	}
+}
+
+func TestReindexCmd_DefaultSilentOnWalkLogs(test *testing.T) {
+	wsDir := setupTempWorkspace(test)
+	chdir(test, wsDir)
+
+	stderr := &bytes.Buffer{}
+	rootCmd := newRootCmd()
+	rootCmd.SetOut(io.Discard)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"reindex"})
+
+	if execErr := rootCmd.Execute(); execErr != nil {
+		test.Fatalf("reindex: %v", execErr)
+	}
+
+	if strings.Contains(stderr.String(), `msg="reindex walk complete"`) {
+		test.Errorf("default reindex should not emit Info logs; got %q", stderr.String())
 	}
 }
