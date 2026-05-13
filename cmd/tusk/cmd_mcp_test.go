@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/germanamz/tusk/internal/mcp"
 )
 
 func TestMCP_ParsesTransportFlag(test *testing.T) {
@@ -99,6 +101,47 @@ func TestMCP_SSEStartsListener(test *testing.T) {
 	}
 
 	test.Fatalf("SSE server never accepted on %s", addr)
+}
+
+func TestMCPCmd_VerboseSetsRuntimeLogger(test *testing.T) {
+	wsDir := setupTempWorkspace(test)
+	chdir(test, wsDir)
+
+	rootCmd := newRootCmd()
+
+	if parseErr := rootCmd.ParseFlags([]string{"--verbose"}); parseErr != nil {
+		test.Fatalf("parse flags: %v", parseErr)
+	}
+
+	logger := mcpLoggerFromFlags(rootCmd)
+
+	if logger == nil {
+		test.Fatal("--verbose should produce a non-nil logger")
+	}
+
+	runtime, openErr := mcp.Open(wsDir, mcp.WithLogger(logger))
+
+	if openErr != nil {
+		test.Fatalf("mcp.Open: %v", openErr)
+	}
+
+	defer runtime.Close()
+
+	if runtime.Logger != logger {
+		test.Errorf("Runtime.Logger should be the verbose logger")
+	}
+}
+
+func TestMCPCmd_DefaultSetsNoLogger(test *testing.T) {
+	rootCmd := newRootCmd()
+
+	if parseErr := rootCmd.ParseFlags(nil); parseErr != nil {
+		test.Fatalf("parse: %v", parseErr)
+	}
+
+	if logger := mcpLoggerFromFlags(rootCmd); logger != nil {
+		test.Errorf("default cmd_mcp should produce a nil logger; got %v", logger)
+	}
 }
 
 // repoRoot walks up from the cwd to find the tusk repo root (containing go.mod).
