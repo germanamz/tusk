@@ -113,6 +113,10 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 		return nil, fmt.Errorf("ollama: decode: %w", decodeErr)
 	}
 
+	if len(decoded.Embedding) != embedder.config.Dim {
+		return nil, fmt.Errorf("ollama: returned %d dims, expected %d (model %q)", len(decoded.Embedding), embedder.config.Dim, embedder.config.Model)
+	}
+
 	if embedder.config.Logger != nil {
 		embedder.config.Logger.Debug("ollama success",
 			"endpoint", embedder.config.Endpoint,
@@ -121,10 +125,6 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 			"latency_ms", latency.Milliseconds(),
 			"vector_dim", len(decoded.Embedding),
 		)
-	}
-
-	if len(decoded.Embedding) != embedder.config.Dim {
-		return nil, fmt.Errorf("ollama: returned %d dims, expected %d (model %q)", len(decoded.Embedding), embedder.config.Dim, embedder.config.Model)
 	}
 
 	vector := make([]float32, len(decoded.Embedding))
