@@ -14,6 +14,13 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
+// MaxEmbedAttempts caps how many times DrainQueue retries a failing node
+// within a single drain pass. After the cap is hit the node is dropped from
+// the queue (Drain already deleted it; we just don't re-enqueue) and a
+// Warn `embed gave up` line is emitted. Fresh reindex runs re-enqueue every
+// indexed node with attempts=0, so the cap is per-drain, not per-node-lifetime.
+const MaxEmbedAttempts = 3
+
 // DrainConfig configures DrainQueue.
 type DrainConfig struct {
 	Root       string                // workspace root (required when Embedder is set)
@@ -27,8 +34,10 @@ type DrainConfig struct {
 }
 
 // DrainQueue pops every pending row from embed_queue and embeds it. Returns the
-// number of nodes successfully embedded. Failed rows are re-enqueued via
-// MarkFailed. When DrainConfig.Embedder is nil, DrainQueue is a no-op.
+// number of nodes successfully embedded. Failed rows are re-enqueued (with an
+// incremented attempts counter) until MaxEmbedAttempts is reached, at which
+// point the row is dropped from the queue. When DrainConfig.Embedder is nil,
+// DrainQueue is a no-op.
 //
 // ctx cancellation aborts before the next batch; in-flight batches finish.
 func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
@@ -90,8 +99,11 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
 
 			if readErr != nil {
-				_ = config.Queue.Enqueue(queued.NodeID)
-				_ = config.Queue.MarkFailed(queued.NodeID, readErr.Error())
+				nextAttempts := queued.Attempts + 1
+
+				if nextAttempts < MaxEmbedAttempts {
+					_ = config.Queue.ReEnqueue(queued.NodeID, nextAttempts, readErr.Error())
+				}
 
 				continue
 			}
@@ -99,8 +111,11 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			parsed, parseErr := node.ParseFile(row.Path, content)
 
 			if parseErr != nil {
-				_ = config.Queue.Enqueue(queued.NodeID)
-				_ = config.Queue.MarkFailed(queued.NodeID, parseErr.Error())
+				nextAttempts := queued.Attempts + 1
+
+				if nextAttempts < MaxEmbedAttempts {
+					_ = config.Queue.ReEnqueue(queued.NodeID, nextAttempts, parseErr.Error())
+				}
 
 				continue
 			}
@@ -136,11 +151,30 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 					)
 				}
 
-				_ = config.Queue.Enqueue(queued.NodeID)
-				_ = config.Queue.MarkFailed(queued.NodeID, embedErr.Error())
+				nextAttempts := queued.Attempts + 1
 
-				if config.Logger != nil {
-					config.Logger.Warn("embed re-enqueued", "node_id", queued.NodeID)
+				if nextAttempts >= MaxEmbedAttempts {
+					if config.Logger != nil {
+						config.Logger.Warn("embed gave up",
+							"node_id", queued.NodeID,
+							"attempts", nextAttempts,
+							"err", embedErr.Error(),
+						)
+					}
+				} else {
+					if reEnqErr := config.Queue.ReEnqueue(queued.NodeID, nextAttempts, embedErr.Error()); reEnqErr != nil {
+						if config.Logger != nil {
+							config.Logger.Warn("embed re-enqueue failed",
+								"node_id", queued.NodeID,
+								"err", reEnqErr.Error(),
+							)
+						}
+					} else if config.Logger != nil {
+						config.Logger.Warn("embed re-enqueued",
+							"node_id", queued.NodeID,
+							"attempts", nextAttempts,
+						)
+					}
 				}
 
 				batchFailed++
