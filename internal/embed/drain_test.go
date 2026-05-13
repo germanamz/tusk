@@ -15,19 +15,14 @@ import (
 )
 
 type drainStubEmbedder struct {
-	calls     int
-	dim       int
-	model     string
-	failure   error
-	afterCall func()
+	calls   int
+	dim     int
+	model   string
+	failure error
 }
 
 func (stub *drainStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
 	stub.calls++
-
-	if stub.afterCall != nil {
-		defer stub.afterCall()
-	}
 
 	if stub.failure != nil {
 		return nil, stub.failure
@@ -154,19 +149,13 @@ func TestDrainQueue_LogsWarnOnEmbedError(test *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	// Cancel after the first failing call to escape the re-enqueue retry loop.
-	// (DrainQueue currently retries failed nodes forever; see task plan §1.2.)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	failing := &drainStubEmbedder{
-		dim:       3,
-		model:     "fake",
-		failure:   fmt.Errorf("input length exceeds the context length"),
-		afterCall: cancel,
+		dim:     3,
+		model:   "fake",
+		failure: fmt.Errorf("input length exceeds the context length"),
 	}
 
-	_, drainErr := embed.DrainQueue(ctx, embed.DrainConfig{
+	_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
 		Root:       root,
 		Nodes:      nodeRepo,
 		Queue:      queueRepo,
@@ -194,5 +183,90 @@ func TestDrainQueue_LogsWarnOnEmbedError(test *testing.T) {
 
 	if !strings.Contains(out, `msg="drain batch complete"`) {
 		test.Errorf("expected batch summary log; got %q", out)
+	}
+}
+
+func TestDrainQueue_GivesUpAfterMaxAttempts(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "doomed.md", "body")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "doomed", Type: "note", Path: "doomed.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("doomed"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	failing := &drainStubEmbedder{
+		dim:     3,
+		model:   "fake",
+		failure: fmt.Errorf("forced failure"),
+	}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   failing,
+		Chunker:    embed.WholeDocument{},
+		Logger:     logger,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != 0 {
+		test.Errorf("drained = %d, want 0 (all attempts failed)", drained)
+	}
+
+	if failing.calls != embed.MaxEmbedAttempts {
+		test.Errorf("embedder.calls = %d, want %d", failing.calls, embed.MaxEmbedAttempts)
+	}
+
+	out := buf.String()
+
+	embedFailures := strings.Count(out, `msg="embed call failed"`)
+
+	if embedFailures != embed.MaxEmbedAttempts {
+		test.Errorf("`embed call failed` count = %d, want %d", embedFailures, embed.MaxEmbedAttempts)
+	}
+
+	reEnqueues := strings.Count(out, `msg="embed re-enqueued"`)
+
+	if reEnqueues != embed.MaxEmbedAttempts-1 {
+		test.Errorf("`embed re-enqueued` count = %d, want %d", reEnqueues, embed.MaxEmbedAttempts-1)
+	}
+
+	gaveUps := strings.Count(out, `msg="embed gave up"`)
+
+	if gaveUps != 1 {
+		test.Errorf("`embed gave up` count = %d, want 1", gaveUps)
+	}
+
+	if !strings.Contains(out, fmt.Sprintf("attempts=%d", embed.MaxEmbedAttempts)) {
+		test.Errorf("expected `embed gave up` log to include attempts=%d; got %q", embed.MaxEmbedAttempts, out)
+	}
+
+	depth, depthErr := queueRepo.Depth()
+
+	if depthErr != nil {
+		test.Fatalf("Depth: %v", depthErr)
+	}
+
+	if depth != 0 {
+		test.Errorf("queue depth after give-up = %d, want 0", depth)
 	}
 }

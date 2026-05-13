@@ -94,18 +94,66 @@ func TestEmbedQueueRepo_DrainHonorsLimit(test *testing.T) {
 	}
 }
 
-func TestEmbedQueueRepo_MarkFailedKeepsInQueue(test *testing.T) {
+func TestEmbedQueueRepo_ReEnqueuePreservesAttempts(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 
-	repo.Enqueue("flaky")
-
-	if markErr := repo.MarkFailed("flaky", "ollama unreachable"); markErr != nil {
-		test.Fatalf("MarkFailed: %v", markErr)
+	if enqErr := repo.Enqueue("n1"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	depth, _ := repo.Depth()
+	firstDrain, firstDrainErr := repo.Drain(10)
 
-	if depth != 1 {
-		test.Errorf("Depth after MarkFailed = %d, want 1 (still queued)", depth)
+	if firstDrainErr != nil {
+		test.Fatalf("first Drain: %v", firstDrainErr)
+	}
+
+	if len(firstDrain) != 1 || firstDrain[0].Attempts != 0 {
+		test.Fatalf("first drain = %+v, want one row with Attempts=0", firstDrain)
+	}
+
+	if reErr := repo.ReEnqueue("n1", 1, "first failure"); reErr != nil {
+		test.Fatalf("ReEnqueue 1: %v", reErr)
+	}
+
+	secondDrain, secondDrainErr := repo.Drain(10)
+
+	if secondDrainErr != nil {
+		test.Fatalf("second Drain: %v", secondDrainErr)
+	}
+
+	if len(secondDrain) != 1 {
+		test.Fatalf("second drain len = %d, want 1", len(secondDrain))
+	}
+
+	if secondDrain[0].Attempts != 1 {
+		test.Errorf("Attempts after first ReEnqueue = %d, want 1", secondDrain[0].Attempts)
+	}
+
+	if secondDrain[0].LastError != "first failure" {
+		test.Errorf("LastError after first ReEnqueue = %q, want %q", secondDrain[0].LastError, "first failure")
+	}
+
+	if reErr := repo.ReEnqueue("n1", 2, "second failure"); reErr != nil {
+		test.Fatalf("ReEnqueue 2: %v", reErr)
+	}
+
+	thirdDrain, thirdDrainErr := repo.Drain(10)
+
+	if thirdDrainErr != nil {
+		test.Fatalf("third Drain: %v", thirdDrainErr)
+	}
+
+	if len(thirdDrain) != 1 {
+		test.Fatalf("third drain len = %d, want 1", len(thirdDrain))
+	}
+
+	if thirdDrain[0].Attempts != 2 {
+		test.Errorf("Attempts after second ReEnqueue = %d, want 2", thirdDrain[0].Attempts)
+	}
+
+	if thirdDrain[0].LastError != "second failure" {
+		test.Errorf("LastError after second ReEnqueue = %q, want %q", thirdDrain[0].LastError, "second failure")
 	}
 }
+
+// TODO(retry-cap): assert enqueued_at-bump prevents starvation (skipped — flaky on coarse clocks).
