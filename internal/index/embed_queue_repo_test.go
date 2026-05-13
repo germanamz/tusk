@@ -94,22 +94,6 @@ func TestEmbedQueueRepo_DrainHonorsLimit(test *testing.T) {
 	}
 }
 
-func TestEmbedQueueRepo_MarkFailedKeepsInQueue(test *testing.T) {
-	repo := newTestEmbedQueueRepo(test)
-
-	repo.Enqueue("flaky")
-
-	if markErr := repo.MarkFailed("flaky", "ollama unreachable"); markErr != nil {
-		test.Fatalf("MarkFailed: %v", markErr)
-	}
-
-	depth, _ := repo.Depth()
-
-	if depth != 1 {
-		test.Errorf("Depth after MarkFailed = %d, want 1 (still queued)", depth)
-	}
-}
-
 func TestEmbedQueueRepo_ReEnqueuePreservesAttempts(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 

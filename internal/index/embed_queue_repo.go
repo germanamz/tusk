@@ -113,21 +113,6 @@ func (repo *EmbedQueueRepo) Drain(limit int) ([]QueueRow, error) {
 	return drained, nil
 }
 
-// MarkFailed records a failure on the queue row, leaves it queued for retry.
-func (repo *EmbedQueueRepo) MarkFailed(nodeID, errorMessage string) error {
-	_, execErr := repo.db.Exec(`
-		UPDATE embed_queue
-		SET attempts = attempts + 1, last_error = ?
-		WHERE node_id = ?
-	`, errorMessage, nodeID)
-
-	if execErr != nil {
-		return fmt.Errorf("embedQueueRepo: mark failed %s: %w", nodeID, execErr)
-	}
-
-	return nil
-}
-
 // Depth returns the number of pending rows.
 func (repo *EmbedQueueRepo) Depth() (int, error) {
 	var depth int
