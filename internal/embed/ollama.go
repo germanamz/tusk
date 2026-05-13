@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -15,6 +16,7 @@ type OllamaConfig struct {
 	Endpoint string
 	Model    string
 	Dim      int
+	Logger   *slog.Logger // optional; nil silences output
 }
 
 // OllamaEmbedder calls Ollama's POST /api/embeddings to embed payloads.
@@ -30,6 +32,8 @@ func NewOllamaEmbedder(config OllamaConfig) *OllamaEmbedder {
 		client: &http.Client{Timeout: 30 * time.Second},
 	}
 }
+
+const ollamaBodyLogLimit = 512
 
 // Embed implements Embedder.
 func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
@@ -47,6 +51,14 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 		return nil, fmt.Errorf("ollama: marshal: %w", marshalErr)
 	}
 
+	if embedder.config.Logger != nil {
+		embedder.config.Logger.Debug("ollama request",
+			"endpoint", embedder.config.Endpoint,
+			"model", embedder.config.Model,
+			"bytes_sent", len(encoded),
+		)
+	}
+
 	request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, embedder.config.Endpoint+"/api/embeddings", bytes.NewReader(encoded))
 
 	if requestErr != nil {
@@ -54,6 +66,8 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 	}
 
 	request.Header.Set("Content-Type", "application/json")
+
+	start := time.Now()
 
 	response, doErr := embedder.client.Do(request)
 
@@ -63,8 +77,31 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 
 	defer response.Body.Close()
 
+	responseBody, readErr := io.ReadAll(response.Body)
+
+	if readErr != nil {
+		return nil, fmt.Errorf("ollama: read body: %w", readErr)
+	}
+
+	latency := time.Since(start)
+
 	if response.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(response.Body)
+		if embedder.config.Logger != nil {
+			truncated := responseBody
+
+			if len(truncated) > ollamaBodyLogLimit {
+				truncated = truncated[:ollamaBodyLogLimit]
+			}
+
+			embedder.config.Logger.Warn("ollama non-2xx",
+				"endpoint", embedder.config.Endpoint,
+				"model", embedder.config.Model,
+				"status", response.StatusCode,
+				"latency_ms", latency.Milliseconds(),
+				"body", string(truncated),
+			)
+		}
+
 		return nil, fmt.Errorf("ollama: HTTP %d: %s", response.StatusCode, string(responseBody))
 	}
 
@@ -72,8 +109,18 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 		Embedding []float64 `json:"embedding"`
 	}
 
-	if decodeErr := json.NewDecoder(response.Body).Decode(&decoded); decodeErr != nil {
+	if decodeErr := json.Unmarshal(responseBody, &decoded); decodeErr != nil {
 		return nil, fmt.Errorf("ollama: decode: %w", decodeErr)
+	}
+
+	if embedder.config.Logger != nil {
+		embedder.config.Logger.Debug("ollama success",
+			"endpoint", embedder.config.Endpoint,
+			"model", embedder.config.Model,
+			"status", response.StatusCode,
+			"latency_ms", latency.Milliseconds(),
+			"vector_dim", len(decoded.Embedding),
+		)
 	}
 
 	if len(decoded.Embedding) != embedder.config.Dim {
