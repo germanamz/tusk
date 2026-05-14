@@ -120,61 +120,29 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
-			payload := BuildPayload(parsed)
-			chunks := config.Chunker.Chunk(payload)
+			header := BuildHeader(parsed)
+			body := BuildBody(parsed)
+			bodyChunks := config.Chunker.Chunk(body)
 
-			if len(chunks) == 0 {
+			if len(bodyChunks) == 0 {
 				continue
 			}
 
 			if config.Logger != nil {
 				config.Logger.Debug("embed attempt",
 					"node_id", queued.NodeID,
-					"payload_bytes", len(payload),
-					"chunks", len(chunks),
+					"header_bytes", len(header),
+					"body_bytes", len(body),
+					"chunks", len(bodyChunks),
 				)
 			}
 
-			embedStart := time.Now()
-
-			vector, embedErr := config.Embedder.Embed(ctx, chunks[0])
-
-			embedLatency := time.Since(embedStart)
-
-			if embedErr != nil {
+			if delErr := config.Embeddings.DeleteByNodeID(queued.NodeID); delErr != nil {
 				if config.Logger != nil {
-					config.Logger.Warn("embed call failed",
+					config.Logger.Warn("embed delete-before-insert failed",
 						"node_id", queued.NodeID,
-						"payload_bytes", len(payload),
-						"model", config.Embedder.Model(),
-						"err", embedErr.Error(),
+						"err", delErr.Error(),
 					)
-				}
-
-				nextAttempts := queued.Attempts + 1
-
-				if nextAttempts >= MaxEmbedAttempts {
-					if config.Logger != nil {
-						config.Logger.Warn("embed gave up",
-							"node_id", queued.NodeID,
-							"attempts", nextAttempts,
-							"err", embedErr.Error(),
-						)
-					}
-				} else {
-					if reEnqErr := config.Queue.ReEnqueue(queued.NodeID, nextAttempts, embedErr.Error()); reEnqErr != nil {
-						if config.Logger != nil {
-							config.Logger.Warn("embed re-enqueue failed",
-								"node_id", queued.NodeID,
-								"err", reEnqErr.Error(),
-							)
-						}
-					} else if config.Logger != nil {
-						config.Logger.Warn("embed re-enqueued",
-							"node_id", queued.NodeID,
-							"attempts", nextAttempts,
-						)
-					}
 				}
 
 				batchFailed++
@@ -182,30 +150,91 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
-			contentHash := sha256.Sum256(payload)
+			nodeFailed := false
 
-			if upsertErr := config.Embeddings.Upsert(index.EmbeddingRow{
-				NodeID:      queued.NodeID,
-				ChunkIdx:    0,
-				Model:       config.Embedder.Model(),
-				ContentHash: hex.EncodeToString(contentHash[:]),
-				Vector:      vector,
-				Dim:         config.Embedder.Dim(),
-			}); upsertErr != nil {
-				return drained, upsertErr
+			for chunkIdx, bodyChunk := range bodyChunks {
+				payload := make([]byte, 0, len(header)+len(bodyChunk))
+				payload = append(payload, header...)
+				payload = append(payload, bodyChunk...)
+
+				embedStart := time.Now()
+
+				vector, embedErr := config.Embedder.Embed(ctx, payload)
+
+				embedLatency := time.Since(embedStart)
+
+				if embedErr != nil {
+					if config.Logger != nil {
+						config.Logger.Warn("embed call failed",
+							"node_id", queued.NodeID,
+							"chunk_idx", chunkIdx,
+							"chunks_total", len(bodyChunks),
+							"payload_bytes", len(payload),
+							"model", config.Embedder.Model(),
+							"err", embedErr.Error(),
+						)
+					}
+
+					nextAttempts := queued.Attempts + 1
+
+					if nextAttempts >= MaxEmbedAttempts {
+						if config.Logger != nil {
+							config.Logger.Warn("embed gave up",
+								"node_id", queued.NodeID,
+								"attempts", nextAttempts,
+								"err", embedErr.Error(),
+							)
+						}
+					} else {
+						if reEnqErr := config.Queue.ReEnqueue(queued.NodeID, nextAttempts, embedErr.Error()); reEnqErr != nil {
+							if config.Logger != nil {
+								config.Logger.Warn("embed re-enqueue failed",
+									"node_id", queued.NodeID,
+									"err", reEnqErr.Error(),
+								)
+							}
+						} else if config.Logger != nil {
+							config.Logger.Warn("embed re-enqueued",
+								"node_id", queued.NodeID,
+								"attempts", nextAttempts,
+							)
+						}
+					}
+
+					batchFailed++
+					nodeFailed = true
+
+					break
+				}
+
+				contentHash := sha256.Sum256(payload)
+
+				if upsertErr := config.Embeddings.Upsert(index.EmbeddingRow{
+					NodeID:      queued.NodeID,
+					ChunkIdx:    chunkIdx,
+					Model:       config.Embedder.Model(),
+					ContentHash: hex.EncodeToString(contentHash[:]),
+					Vector:      vector,
+					Dim:         config.Embedder.Dim(),
+				}); upsertErr != nil {
+					return drained, upsertErr
+				}
+
+				if config.Logger != nil {
+					config.Logger.Debug("embed attempt success",
+						"node_id", queued.NodeID,
+						"chunk_idx", chunkIdx,
+						"chunks_total", len(bodyChunks),
+						"vector_dim", len(vector),
+						"latency_ms", embedLatency.Milliseconds(),
+					)
+				}
 			}
 
-			drained++
-
-			if config.Logger != nil {
-				config.Logger.Debug("embed attempt success",
-					"node_id", queued.NodeID,
-					"vector_dim", len(vector),
-					"latency_ms", embedLatency.Milliseconds(),
-				)
+			if !nodeFailed {
+				drained++
+				batchSucceeded++
 			}
-
-			batchSucceeded++
 		}
 
 		if config.Logger != nil {

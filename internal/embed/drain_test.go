@@ -270,3 +270,206 @@ func TestDrainQueue_GivesUpAfterMaxAttempts(test *testing.T) {
 		test.Errorf("queue depth after give-up = %d, want 0", depth)
 	}
 }
+
+func TestDrainQueue_EmbedsEveryChunkOfMultiChunkNode(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	// Body with three H2 sections, large enough that the splitter emits 3 chunks.
+	body := strings.Repeat("alpha ", 200) +
+		"\n## Section B\n" + strings.Repeat("bravo ", 200) +
+		"\n## Section C\n" + strings.Repeat("charlie ", 200)
+
+	createNodeFile(test, root, "multi.md", body)
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "multi", Type: "note", Path: "multi.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("multi"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	stub := &drainStubEmbedder{dim: 3, model: "stub"}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		Chunker:    embed.MarkdownRecursive{TargetBytes: 400, MaxBytes: 2000, OverlapBytes: 0},
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != 1 {
+		test.Errorf("drained = %d, want 1", drained)
+	}
+
+	if stub.calls < 2 {
+		test.Errorf("embedder.calls = %d, want >= 2 (one per chunk)", stub.calls)
+	}
+
+	rows, getErr := embeddingRepo.GetByNodeID("multi")
+
+	if getErr != nil {
+		test.Fatalf("GetByNodeID: %v", getErr)
+	}
+
+	if len(rows) != stub.calls {
+		test.Errorf("persisted rows = %d, want %d (one per embed call)", len(rows), stub.calls)
+	}
+
+	for idx, row := range rows {
+		if row.ChunkIdx != idx {
+			test.Errorf("rows[%d].ChunkIdx = %d, want %d (sequential)", idx, row.ChunkIdx, idx)
+		}
+	}
+}
+
+func TestDrainQueue_DeletesStaleChunksBeforeReembedding(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	// Pre-seed 5 stale chunks for a node, then drain — the new chunk count
+	// should be < 5 (we use WholeDocument for a tiny body), and all old
+	// rows (chunk_idx 1..4) must be gone.
+	createNodeFile(test, root, "shrinking.md", "tiny body")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "shrinking", Type: "note", Path: "shrinking.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert node: %v", upsertErr)
+	}
+
+	for idx := 0; idx < 5; idx++ {
+		if upErr := embeddingRepo.Upsert(index.EmbeddingRow{
+			NodeID:      "shrinking",
+			ChunkIdx:    idx,
+			Model:       "stub",
+			ContentHash: "old",
+			Vector:      []float32{0.1, 0.1, 0.1},
+			Dim:         3,
+		}); upErr != nil {
+			test.Fatalf("seed chunk %d: %v", idx, upErr)
+		}
+	}
+
+	if enqErr := queueRepo.Enqueue("shrinking"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   &drainStubEmbedder{dim: 3, model: "stub"},
+		Chunker:    embed.WholeDocument{},
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	rows, _ := embeddingRepo.GetByNodeID("shrinking")
+
+	if len(rows) != 1 {
+		test.Errorf("expected exactly 1 chunk after re-embed; got %d", len(rows))
+	}
+
+	for _, row := range rows {
+		if row.ContentHash == "old" {
+			test.Errorf("stale chunk survived: %+v", row)
+		}
+	}
+}
+
+func TestDrainQueue_NodeFailureReenqueuesAndCleansOnRetry(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	body := strings.Repeat("alpha ", 200) + "\n## Section B\n" + strings.Repeat("bravo ", 200)
+	createNodeFile(test, root, "flaky.md", body)
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "flaky", Type: "note", Path: "flaky.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("flaky"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	// Embedder that fails on the second call, succeeds otherwise.
+	failingMidStream := &midStreamFailEmbedder{dim: 3, model: "stub", failAt: 2}
+
+	_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   failingMidStream,
+		Chunker:    embed.MarkdownRecursive{TargetBytes: 400, MaxBytes: 2000, OverlapBytes: 0},
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	// After the retry cap is hit, the node is dropped. Partial state from
+	// any successful retry's DeleteByNodeID + Upsert sequence must not
+	// leave duplicated chunks.
+	rows, _ := embeddingRepo.GetByNodeID("flaky")
+
+	chunkIdxs := make(map[int]struct{}, len(rows))
+
+	for _, row := range rows {
+		if _, dup := chunkIdxs[row.ChunkIdx]; dup {
+			test.Errorf("duplicate ChunkIdx %d after retries: %+v", row.ChunkIdx, rows)
+		}
+
+		chunkIdxs[row.ChunkIdx] = struct{}{}
+	}
+}
+
+type midStreamFailEmbedder struct {
+	calls  int
+	dim    int
+	model  string
+	failAt int // 1-indexed: fail when calls reaches failAt
+}
+
+func (stub *midStreamFailEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	stub.calls++
+
+	if stub.calls == stub.failAt {
+		return nil, fmt.Errorf("simulated chunk failure")
+	}
+
+	out := make([]float32, stub.dim)
+
+	for idx := range out {
+		out[idx] = 0.1
+	}
+
+	return out, nil
+}
+
+func (stub *midStreamFailEmbedder) Model() string { return stub.model }
+func (stub *midStreamFailEmbedder) Dim() int      { return stub.dim }
