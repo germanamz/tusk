@@ -114,6 +114,32 @@ func (repo *EmbeddingRepo) DeleteByNodeID(nodeID string) error {
 	return nil
 }
 
+// ListNodeIDs returns every distinct node_id present in the embeddings
+// table, sorted ascending.
+func (repo *EmbeddingRepo) ListNodeIDs() ([]string, error) {
+	rows, queryErr := repo.db.Query(`SELECT DISTINCT node_id FROM embeddings ORDER BY node_id`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("embeddingRepo: list node ids: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var ids []string
+
+	for rows.Next() {
+		var id string
+
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("embeddingRepo: list node ids scan: %w", scanErr)
+		}
+
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}
+
 func scanEmbeddings(rows *sql.Rows) ([]EmbeddingRow, error) {
 	var results []EmbeddingRow
 

@@ -154,3 +154,46 @@ func TestEmbeddingRepo_BodyRoundTrip(test *testing.T) {
 		test.Errorf("Body = %q, want %q", loaded[0].Body, row.Body)
 	}
 }
+
+func TestEmbeddingRepo_ListNodeIDs(test *testing.T) {
+	repo := newTestEmbeddingRepo(test)
+
+	rows := []index.EmbeddingRow{
+		{NodeID: "b/two", ChunkIdx: 0, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
+		{NodeID: "a/one", ChunkIdx: 0, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
+		{NodeID: "a/one", ChunkIdx: 1, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
+		{NodeID: "c/three", ChunkIdx: 0, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
+	}
+
+	for _, row := range rows {
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("Upsert %s/%d: %v", row.NodeID, row.ChunkIdx, upsertErr)
+		}
+	}
+
+	ids, listErr := repo.ListNodeIDs()
+
+	if listErr != nil {
+		test.Fatalf("ListNodeIDs: %v", listErr)
+	}
+
+	want := []string{"a/one", "b/two", "c/three"}
+
+	if !reflect.DeepEqual(ids, want) {
+		test.Errorf("ListNodeIDs = %v, want %v", ids, want)
+	}
+}
+
+func TestEmbeddingRepo_ListNodeIDs_Empty(test *testing.T) {
+	repo := newTestEmbeddingRepo(test)
+
+	ids, listErr := repo.ListNodeIDs()
+
+	if listErr != nil {
+		test.Fatalf("ListNodeIDs: %v", listErr)
+	}
+
+	if len(ids) != 0 {
+		test.Errorf("ListNodeIDs = %v, want empty", ids)
+	}
+}
