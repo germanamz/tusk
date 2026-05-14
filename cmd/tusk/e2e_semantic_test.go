@@ -153,6 +153,18 @@ dim = 3
 	} else if !strings.Contains(snippet, "Apples") && !strings.Contains(snippet, "varieties") {
 		test.Errorf("result[0] snippet content unexpected: %q", snippet)
 	}
+
+	if nodeType, typeOK := results[0]["type"].(string); !typeOK || nodeType == "" {
+		test.Errorf("result[0] missing or empty type: %v", results[0]["type"])
+	}
+
+	if nodePath, pathOK := results[0]["path"].(string); !pathOK || nodePath == "" {
+		test.Errorf("result[0] missing or empty path: %v", results[0]["path"])
+	}
+
+	if nodeTitle, titleOK := results[0]["title"].(string); !titleOK || nodeTitle == "" {
+		test.Errorf("result[0] missing or empty title: %v", results[0]["title"])
+	}
 }
 
 func firstNonHeaderLine(body string) string {

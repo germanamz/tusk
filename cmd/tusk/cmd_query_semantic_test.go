@@ -107,6 +107,24 @@ dim = 3
 	if !strings.Contains(snippet, "JSON snippet body") {
 		test.Errorf("snippet content unexpected: %q", snippet)
 	}
+
+	for _, key := range []string{"id", "score", "type", "path", "title"} {
+		if _, exists := results[0][key]; !exists {
+			test.Errorf("result[0] missing key %q: %v", key, results[0])
+		}
+	}
+
+	if results[0]["type"] != "note" {
+		test.Errorf("result[0].type = %v, want note", results[0]["type"])
+	}
+
+	if results[0]["title"] != "Snippet" {
+		test.Errorf("result[0].title = %v, want Snippet", results[0]["title"])
+	}
+
+	if results[0]["path"] != "notes/snippet.md" {
+		test.Errorf("result[0].path = %v, want notes/snippet.md", results[0]["path"])
+	}
 }
 
 func TestQueryCmd_SemanticRendersSnippetColumn(test *testing.T) {

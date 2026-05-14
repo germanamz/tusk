@@ -174,7 +174,15 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 
 	defer rows.Close()
 
+	type queryMeta struct {
+		Type  string
+		Path  string
+		Title string
+	}
+
 	var nodeIDs []string
+
+	byID := map[string]queryMeta{}
 
 	for rows.Next() {
 		var (
@@ -187,6 +195,7 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 		}
 
 		nodeIDs = append(nodeIDs, rowID)
+		byID[rowID] = queryMeta{Type: rowType, Path: rowPath, Title: rowTitle}
 	}
 
 	embeddingRepo := index.NewEmbeddingRepo(store)
@@ -229,9 +238,13 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 		out := make([]map[string]any, 0, len(ranked))
 
 		for _, scored := range ranked {
+			meta := byID[scored.NodeID]
 			out = append(out, map[string]any{
 				"id":      scored.NodeID,
 				"score":   scored.Score,
+				"type":    meta.Type,
+				"path":    meta.Path,
+				"title":   meta.Title,
 				"snippet": filter.RenderSnippet(scored.BestChunkBody, 200),
 			})
 		}
