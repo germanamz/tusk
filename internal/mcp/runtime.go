@@ -126,7 +126,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 			Dim:      loaded.Embeddings.Dim,
 			Logger:   rt.Logger,
 		})
-		rt.Chunker = embed.WholeDocument{}
+		rt.Chunker = embed.MarkdownRecursive{}
 	}
 
 	return rt, nil
