@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -75,7 +76,7 @@ func newQueryCmd() *cobra.Command {
 			}
 
 			if semanticQuery != "" {
-				return runSemanticQuery(cmd, ws, loaded, sqlQuery, params, take, skip, semanticQuery)
+				return runSemanticQuery(cmd, ws, loaded, sqlQuery, params, take, skip, semanticQuery, emitJSON)
 			}
 
 			store, openErr := index.Open(ws.IndexPath)
@@ -136,7 +137,7 @@ func newQueryCmd() *cobra.Command {
 	return queryCmd
 }
 
-func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manifest.Manifest, structuralSQL string, structuralParams []any, take, skip int, semanticQuery string) error {
+func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manifest.Manifest, structuralSQL string, structuralParams []any, take, skip int, semanticQuery string, emitJSON bool) error {
 	if loaded.Embeddings.Provider == "" {
 		return fmt.Errorf("--semantic requires [embeddings] block in tusk.toml")
 	}
@@ -173,7 +174,15 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 
 	defer rows.Close()
 
+	type queryMeta struct {
+		Type  string
+		Path  string
+		Title string
+	}
+
 	var nodeIDs []string
+
+	byID := map[string]queryMeta{}
 
 	for rows.Next() {
 		var (
@@ -186,6 +195,7 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 		}
 
 		nodeIDs = append(nodeIDs, rowID)
+		byID[rowID] = queryMeta{Type: rowType, Path: rowPath, Title: rowTitle}
 	}
 
 	embeddingRepo := index.NewEmbeddingRepo(store)
@@ -202,6 +212,7 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 			NodeID:   embeddingRow.NodeID,
 			ChunkIdx: embeddingRow.ChunkIdx,
 			Vector:   embeddingRow.Vector,
+			Body:     embeddingRow.Body,
 		})
 	}
 
@@ -223,12 +234,36 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 		ranked = ranked[startIdx:endIdx]
 	}
 
+	if emitJSON {
+		out := make([]map[string]any, 0, len(ranked))
+
+		for _, scored := range ranked {
+			meta := byID[scored.NodeID]
+			out = append(out, map[string]any{
+				"id":      scored.NodeID,
+				"score":   scored.Score,
+				"type":    meta.Type,
+				"path":    meta.Path,
+				"title":   meta.Title,
+				"snippet": filter.RenderSnippet(scored.BestChunkBody, 200),
+			})
+		}
+
+		encoder := json.NewEncoder(cmd.OutOrStdout())
+
+		return encoder.Encode(out)
+	}
+
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
-	_, _ = fmt.Fprintln(tab, "ID\tSCORE")
+	_, _ = fmt.Fprintln(tab, "ID\tSCORE\tSNIPPET")
 
 	for _, scored := range ranked {
-		_, _ = fmt.Fprintf(tab, "%s\t%.4f\n", scored.NodeID, scored.Score)
+		_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%s\n",
+			scored.NodeID,
+			scored.Score,
+			filter.RenderSnippet(scored.BestChunkBody, 200),
+		)
 	}
 
 	return tab.Flush()

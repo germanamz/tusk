@@ -6,6 +6,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +28,12 @@ func newDoctorCmd() *cobra.Command {
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
+
+			if loadErr != nil {
+				return loadErr
+			}
+
 			store, openErr := index.Open(ws.IndexPath)
 
 			if openErr != nil {
@@ -41,6 +48,8 @@ func newDoctorCmd() *cobra.Command {
 				EmbedQueue:    index.NewEmbedQueueRepo(store),
 				WorkflowDrift: index.NewWorkflowDriftRepo(store),
 				PropertyDrift: index.NewPropertyDriftRepo(store),
+				Embeddings:    index.NewEmbeddingRepo(store),
+				Manifest:      loaded,
 			})
 
 			if runErr != nil {
@@ -58,6 +67,21 @@ func newDoctorCmd() *cobra.Command {
 			}
 
 			_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", report.EmbedQueueDepth)
+
+			if report.EmbedStats != nil {
+				stats := report.EmbedStats
+
+				_, _ = fmt.Fprintf(out, "embed stats: %d nodes, %d chunks (mean %.1f, median %d, max %d)\n",
+					stats.TotalNodes, stats.TotalChunks, stats.MeanChunks, stats.MedianChunks, stats.MaxChunks)
+
+				if len(stats.TopByChunks) > 0 {
+					_, _ = fmt.Fprintln(out, "top by chunks:")
+
+					for _, entry := range stats.TopByChunks {
+						_, _ = fmt.Fprintf(out, "  %s\t%d\n", entry.NodeID, entry.Chunks)
+					}
+				}
+			}
 
 			return nil
 		},

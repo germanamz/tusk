@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"sort"
 )
 
 // EmbeddingRow is the index representation of one node's embedding (one chunk).
@@ -15,6 +16,7 @@ type EmbeddingRow struct {
 	ContentHash string
 	Vector      []float32
 	Dim         int
+	Body        string
 }
 
 // EmbeddingRepo persists EmbeddingRow values in the SQLite index.
@@ -36,14 +38,15 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 	}
 
 	_, execErr := repo.db.Exec(`
-		INSERT INTO embeddings (node_id, chunk_idx, model, content_hash, vector, dim)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO embeddings (node_id, chunk_idx, model, content_hash, vector, dim, body)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(node_id, chunk_idx) DO UPDATE SET
 			model        = excluded.model,
 			content_hash = excluded.content_hash,
 			vector       = excluded.vector,
-			dim          = excluded.dim
-	`, row.NodeID, row.ChunkIdx, row.Model, row.ContentHash, encoded, row.Dim)
+			dim          = excluded.dim,
+			body         = excluded.body
+	`, row.NodeID, row.ChunkIdx, row.Model, row.ContentHash, encoded, row.Dim, row.Body)
 
 	if execErr != nil {
 		return fmt.Errorf("embeddingRepo: upsert %s: %w", row.NodeID, execErr)
@@ -55,7 +58,7 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 // GetByNodeID returns all embeddings (chunks) for nodeID, ordered by chunk_idx.
 func (repo *EmbeddingRepo) GetByNodeID(nodeID string) ([]EmbeddingRow, error) {
 	rows, queryErr := repo.db.Query(`
-		SELECT node_id, chunk_idx, model, content_hash, vector, dim
+		SELECT node_id, chunk_idx, model, content_hash, vector, dim, body
 		FROM embeddings
 		WHERE node_id = ?
 		ORDER BY chunk_idx
@@ -88,7 +91,7 @@ func (repo *EmbeddingRepo) ListByNodeIDs(nodeIDs []string) ([]EmbeddingRow, erro
 		args = append(args, nodeID)
 	}
 
-	query := fmt.Sprintf(`SELECT node_id, chunk_idx, model, content_hash, vector, dim FROM embeddings WHERE node_id IN (%s) ORDER BY node_id, chunk_idx`, string(placeholders))
+	query := fmt.Sprintf(`SELECT node_id, chunk_idx, model, content_hash, vector, dim, body FROM embeddings WHERE node_id IN (%s) ORDER BY node_id, chunk_idx`, string(placeholders))
 
 	rows, queryErr := repo.db.Query(query, args...)
 
@@ -112,6 +115,167 @@ func (repo *EmbeddingRepo) DeleteByNodeID(nodeID string) error {
 	return nil
 }
 
+// ListNodeIDs returns every distinct node_id present in the embeddings
+// table, sorted ascending.
+func (repo *EmbeddingRepo) ListNodeIDs() ([]string, error) {
+	rows, queryErr := repo.db.Query(`SELECT DISTINCT node_id FROM embeddings ORDER BY node_id`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("embeddingRepo: list node ids: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var ids []string
+
+	for rows.Next() {
+		var id string
+
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("embeddingRepo: list node ids scan: %w", scanErr)
+		}
+
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}
+
+// EmbeddingStats aggregates the embeddings table for tusk doctor.
+type EmbeddingStats struct {
+	TotalNodes   int
+	TotalChunks  int
+	MeanChunks   float64
+	MedianChunks int
+	MaxChunks    int
+	TopByChunks  []NodeChunkCount
+	LargeChunks  []NodeChunkInfo
+}
+
+// NodeChunkCount pairs a node id with its chunk count.
+type NodeChunkCount struct {
+	NodeID string
+	Chunks int
+}
+
+// NodeChunkInfo identifies one chunk and its body length.
+type NodeChunkInfo struct {
+	NodeID   string
+	ChunkIdx int
+	BodyLen  int
+}
+
+// Stats returns aggregate statistics over the embeddings table.
+// largeChunkThreshold is the inclusive byte length at or above which a chunk
+// is reported in LargeChunks.
+func (repo *EmbeddingRepo) Stats(largeChunkThreshold int) (EmbeddingStats, error) {
+	var stats EmbeddingStats
+
+	// Per-node counts.
+	rows, queryErr := repo.db.Query(`
+		SELECT node_id, COUNT(*) AS chunk_count
+		FROM embeddings
+		GROUP BY node_id
+		ORDER BY chunk_count DESC, node_id ASC
+	`)
+
+	if queryErr != nil {
+		return stats, fmt.Errorf("embeddingRepo: stats counts: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var perNode []NodeChunkCount
+
+	for rows.Next() {
+		var entry NodeChunkCount
+
+		if scanErr := rows.Scan(&entry.NodeID, &entry.Chunks); scanErr != nil {
+			return stats, fmt.Errorf("embeddingRepo: stats scan: %w", scanErr)
+		}
+
+		perNode = append(perNode, entry)
+	}
+
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return stats, rowsErr
+	}
+
+	stats.TotalNodes = len(perNode)
+
+	for _, entry := range perNode {
+		stats.TotalChunks += entry.Chunks
+
+		if entry.Chunks > stats.MaxChunks {
+			stats.MaxChunks = entry.Chunks
+		}
+	}
+
+	if stats.TotalNodes > 0 {
+		stats.MeanChunks = float64(stats.TotalChunks) / float64(stats.TotalNodes)
+	}
+
+	stats.MedianChunks = medianChunkCount(perNode)
+
+	topN := 5
+
+	if len(perNode) < topN {
+		topN = len(perNode)
+	}
+
+	stats.TopByChunks = append(stats.TopByChunks, perNode[:topN]...)
+
+	// Large chunks (length(body) >= threshold).
+	largeRows, largeErr := repo.db.Query(`
+		SELECT node_id, chunk_idx, length(body) AS body_len
+		FROM embeddings
+		WHERE length(body) >= ?
+		ORDER BY node_id, chunk_idx
+	`, largeChunkThreshold)
+
+	if largeErr != nil {
+		return stats, fmt.Errorf("embeddingRepo: stats large: %w", largeErr)
+	}
+
+	defer largeRows.Close()
+
+	for largeRows.Next() {
+		var info NodeChunkInfo
+
+		if scanErr := largeRows.Scan(&info.NodeID, &info.ChunkIdx, &info.BodyLen); scanErr != nil {
+			return stats, fmt.Errorf("embeddingRepo: stats large scan: %w", scanErr)
+		}
+
+		stats.LargeChunks = append(stats.LargeChunks, info)
+	}
+
+	return stats, largeRows.Err()
+}
+
+// medianChunkCount returns the integer median chunk count from a slice already
+// sorted by chunk count DESC, node_id ASC. An empty input returns 0.
+func medianChunkCount(perNode []NodeChunkCount) int {
+	if len(perNode) == 0 {
+		return 0
+	}
+
+	counts := make([]int, len(perNode))
+
+	for idx, entry := range perNode {
+		counts[idx] = entry.Chunks
+	}
+
+	sort.Ints(counts)
+
+	mid := len(counts) / 2
+
+	if len(counts)%2 == 1 {
+		return counts[mid]
+	}
+
+	return (counts[mid-1] + counts[mid]) / 2
+}
+
 func scanEmbeddings(rows *sql.Rows) ([]EmbeddingRow, error) {
 	var results []EmbeddingRow
 
@@ -121,7 +285,7 @@ func scanEmbeddings(rows *sql.Rows) ([]EmbeddingRow, error) {
 			encoded []byte
 		)
 
-		if scanErr := rows.Scan(&row.NodeID, &row.ChunkIdx, &row.Model, &row.ContentHash, &encoded, &row.Dim); scanErr != nil {
+		if scanErr := rows.Scan(&row.NodeID, &row.ChunkIdx, &row.Model, &row.ContentHash, &encoded, &row.Dim, &row.Body); scanErr != nil {
 			return nil, fmt.Errorf("embeddingRepo: scan: %w", scanErr)
 		}
 

@@ -37,8 +37,11 @@ type MarkdownRecursive struct {
 }
 
 const (
-	defaultTargetBytes  = 1600
-	defaultMaxBytes     = 4000
+	defaultTargetBytes = 1600
+	// DefaultMaxBytes is the chunker's hard upper bound for a single chunk's
+	// byte length. Doctor diagnostics use this to flag chunks that approach
+	// the cap.
+	DefaultMaxBytes     = 4000
 	defaultOverlapBytes = 200
 )
 
@@ -65,7 +68,7 @@ func (strategy MarkdownRecursive) maxSize() int {
 		return strategy.MaxBytes
 	}
 
-	return defaultMaxBytes
+	return DefaultMaxBytes
 }
 
 func (strategy MarkdownRecursive) overlap() int {

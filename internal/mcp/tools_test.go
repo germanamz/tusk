@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -792,5 +793,117 @@ func TestTools_NodeCreate_RefDanglingReturnsStructuredKind(test *testing.T) {
 
 	if first["property"] != "assignee" {
 		test.Errorf("property = %v, want assignee", first["property"])
+	}
+}
+
+// snippetStubEmbedder is a deterministic embedder for MCP semantic tests:
+// every payload maps to the same unit vector, so any seeded chunk vector
+// that equals it scores 1.0.
+type snippetStubEmbedder struct{}
+
+func (snippetStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	return []float32{1, 0, 0}, nil
+}
+
+func (snippetStubEmbedder) Model() string { return "stub" }
+func (snippetStubEmbedder) Dim() int      { return 3 }
+
+func TestTool_Query_SemanticIncludesSnippet(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	rt.Nodes.Upsert(index.NodeRow{
+		ID:             "notes/snippet",
+		Type:           "note",
+		Path:           "notes/snippet.md",
+		Title:          "Snippet target",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+	})
+
+	if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+		NodeID:      "notes/snippet",
+		ChunkIdx:    0,
+		Model:       "stub",
+		ContentHash: "h1",
+		Vector:      []float32{1, 0, 0},
+		Dim:         3,
+		Body:        "This is the MCP snippet body content.",
+	}); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":   "type=note",
+		"semantic": "anything",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) == 0 {
+		test.Fatalf("results empty: %v", body)
+	}
+
+	first := results[0].(map[string]any)
+
+	snippet, ok := first["snippet"].(string)
+
+	if !ok {
+		test.Fatalf("first missing snippet key: %v", first)
+	}
+
+	if snippet == "" {
+		test.Errorf("snippet empty")
+	}
+
+	if !contains(snippet, "MCP snippet body") {
+		test.Errorf("snippet content unexpected: %q", snippet)
+	}
+}
+
+func contains(haystack, needle string) bool {
+	return strings.Contains(haystack, needle)
+}
+
+func TestTool_Doctor_WithEmbedStats(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	// Mark workspace as having embeddings configured so doctor runs the stats path.
+	rt.Manifest.Embeddings.Provider = "ollama"
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "notes/a", ChunkIdx: 0, Model: "stub", ContentHash: "h",
+		Vector: []float32{0.1}, Dim: 1, Body: "short body",
+	}); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_doctor", map[string]any{})
+
+	if callErr != nil {
+		test.Fatalf("tusk_doctor: %v", callErr)
+	}
+
+	stats, ok := body["embed_stats"].(map[string]any)
+
+	if !ok {
+		test.Fatalf("embed_stats missing or wrong type: %v", body)
+	}
+
+	if stats["total_nodes"].(float64) != 1 || stats["total_chunks"].(float64) != 1 {
+		test.Errorf("stats = %+v", stats)
 	}
 }

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
 	content_hash TEXT NOT NULL,
 	vector       BLOB NOT NULL,
 	dim          INTEGER NOT NULL,
+	body         TEXT NOT NULL DEFAULT '',
 	UNIQUE(node_id, chunk_idx)
 );
 

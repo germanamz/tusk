@@ -1,6 +1,7 @@
 package index_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -157,3 +158,41 @@ func TestEmbedQueueRepo_ReEnqueuePreservesAttempts(test *testing.T) {
 }
 
 // TODO(retry-cap): assert enqueued_at-bump prevents starvation (skipped — flaky on coarse clocks).
+
+func TestEmbedQueueRepo_ListNodeIDs(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewEmbedQueueRepo(store)
+
+	for _, nodeID := range []string{"b/two", "a/one", "c/three"} {
+		if enqErr := repo.Enqueue(nodeID); enqErr != nil {
+			test.Fatalf("Enqueue %s: %v", nodeID, enqErr)
+		}
+	}
+
+	ids, listErr := repo.ListNodeIDs()
+
+	if listErr != nil {
+		test.Fatalf("ListNodeIDs: %v", listErr)
+	}
+
+	want := []string{"a/one", "b/two", "c/three"}
+
+	if !reflect.DeepEqual(ids, want) {
+		test.Errorf("ListNodeIDs = %v, want %v", ids, want)
+	}
+}
+
+func TestEmbedQueueRepo_ListNodeIDs_Empty(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewEmbedQueueRepo(store)
+
+	ids, listErr := repo.ListNodeIDs()
+
+	if listErr != nil {
+		test.Fatalf("ListNodeIDs: %v", listErr)
+	}
+
+	if len(ids) != 0 {
+		test.Errorf("ListNodeIDs = %v, want empty", ids)
+	}
+}

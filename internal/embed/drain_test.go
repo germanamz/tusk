@@ -473,3 +473,60 @@ func (stub *midStreamFailEmbedder) Embed(ctx context.Context, payload []byte) ([
 
 func (stub *midStreamFailEmbedder) Model() string { return stub.model }
 func (stub *midStreamFailEmbedder) Dim() int      { return stub.dim }
+
+func TestDrainQueue_StoresChunkBody(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	bodyText := "This is the body of the chunk we want to verify."
+	createNodeFile(test, root, "notes/snippet-target.md", bodyText)
+
+	nodeRepo.Upsert(index.NodeRow{
+		ID:             "notes/snippet-target",
+		Type:           "note",
+		Path:           "notes/snippet-target.md",
+		Title:          "Snippet Target",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+	})
+
+	if enqErr := queueRepo.Enqueue("notes/snippet-target"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   &drainStubEmbedder{dim: 3, model: "stub"},
+		Chunker:    embed.WholeDocument{},
+	})
+
+	if drainErr != nil {
+		test.Fatalf("drain: %v", drainErr)
+	}
+
+	if drained != 1 {
+		test.Fatalf("drained = %d, want 1", drained)
+	}
+
+	rows, getErr := embeddingRepo.GetByNodeID("notes/snippet-target")
+
+	if getErr != nil {
+		test.Fatalf("get: %v", getErr)
+	}
+
+	if len(rows) == 0 {
+		test.Fatal("no embedding rows persisted")
+	}
+
+	if !strings.Contains(rows[0].Body, "body of the chunk") {
+		test.Errorf("first chunk body = %q, want substring 'body of the chunk'", rows[0].Body)
+	}
+}

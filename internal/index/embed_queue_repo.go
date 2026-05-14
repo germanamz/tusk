@@ -123,3 +123,28 @@ func (repo *EmbedQueueRepo) Depth() (int, error) {
 
 	return depth, nil
 }
+
+// ListNodeIDs returns every pending node_id, sorted ascending.
+func (repo *EmbedQueueRepo) ListNodeIDs() ([]string, error) {
+	rows, queryErr := repo.db.Query(`SELECT node_id FROM embed_queue ORDER BY node_id`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("embedQueueRepo: list node ids: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var ids []string
+
+	for rows.Next() {
+		var id string
+
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("embedQueueRepo: list node ids scan: %w", scanErr)
+		}
+
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}

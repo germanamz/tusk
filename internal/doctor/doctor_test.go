@@ -7,6 +7,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 func TestRun_NoIssuesOnFreshIndex(test *testing.T) {
@@ -281,4 +282,118 @@ func newTempIndex(test *testing.T) (*index.Index, func()) {
 	}
 
 	return store, func() { store.Close() }
+}
+
+func TestRun_EmbedStatsAndIssues(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	edges := index.NewEdgeRepo(store)
+	embedQueue := index.NewEmbedQueueRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	// nodeA: 1 chunk @ small body
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "a", Type: "note", Title: "A", Path: "a.md", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert a: %v", upsertErr)
+	}
+
+	if upsertErr := embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "a", ChunkIdx: 0, Model: "m", ContentHash: "h",
+		Vector: []float32{0.1}, Dim: 1, Body: "short body",
+	}); upsertErr != nil {
+		test.Fatalf("upsert embed a: %v", upsertErr)
+	}
+
+	// nodeB: 1 chunk @ near-MaxBytes body
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "b", Type: "note", Title: "B", Path: "b.md", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert b: %v", upsertErr)
+	}
+
+	if upsertErr := embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "b", ChunkIdx: 0, Model: "m", ContentHash: "h",
+		Vector: []float32{0.1}, Dim: 1, Body: strings.Repeat("x", 3800),
+	}); upsertErr != nil {
+		test.Fatalf("upsert embed b: %v", upsertErr)
+	}
+
+	// nodeC: indexed, no embeddings, NOT pending → should flag.
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "c", Type: "note", Title: "C", Path: "c.md", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert c: %v", upsertErr)
+	}
+
+	// nodeD: indexed, no embeddings, IS pending → should NOT flag.
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "d", Type: "note", Title: "D", Path: "d.md", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert d: %v", upsertErr)
+	}
+
+	if enqErr := embedQueue.Enqueue("d"); enqErr != nil {
+		test.Fatalf("enqueue d: %v", enqErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      nodes,
+		Edges:      edges,
+		EmbedQueue: embedQueue,
+		Embeddings: embeddings,
+		Manifest:   &manifest.Manifest{Embeddings: manifest.EmbeddingsSection{Provider: "ollama"}},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.EmbedStats == nil {
+		test.Fatal("EmbedStats is nil")
+	}
+
+	if report.EmbedStats.TotalNodes != 2 || report.EmbedStats.TotalChunks != 2 {
+		test.Errorf("EmbedStats counts: %+v", report.EmbedStats)
+	}
+
+	var sawLarge, sawNoChunks bool
+
+	for _, issue := range report.Issues {
+		switch issue.Kind {
+		case doctor.IssueEmbedLargeChunk:
+			if issue.NodeID == "b" {
+				sawLarge = true
+			}
+		case doctor.IssueEmbedNoChunks:
+			if issue.NodeID == "c" {
+				sawNoChunks = true
+			}
+
+			if issue.NodeID == "d" {
+				test.Errorf("pending node d reported as no-chunks")
+			}
+		}
+	}
+
+	if !sawLarge {
+		test.Errorf("missing embed-large-chunk for node b: %+v", report.Issues)
+	}
+
+	if !sawNoChunks {
+		test.Errorf("missing embed-no-chunks for node c: %+v", report.Issues)
+	}
+}
+
+func TestRun_EmbedStatsNilWithoutEmbeddingsConfig(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.EmbedStats != nil {
+		test.Errorf("EmbedStats = %+v, want nil", report.EmbedStats)
+	}
 }

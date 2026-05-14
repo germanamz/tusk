@@ -216,6 +216,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 					ContentHash: hex.EncodeToString(contentHash[:]),
 					Vector:      vector,
 					Dim:         config.Embedder.Dim(),
+					Body:        string(bodyChunk),
 				}); upsertErr != nil {
 					return drained, upsertErr
 				}
