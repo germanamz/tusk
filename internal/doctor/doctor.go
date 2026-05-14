@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 // Issue kinds.
@@ -24,6 +26,9 @@ const (
 	IssueRefAmbiguous    = "ref_ambiguous"
 	IssueRefTypeMismatch = "ref_type_mismatch"
 	IssueRefCycle        = "ref_cycle"
+
+	IssueEmbedLargeChunk = "embed-large-chunk"
+	IssueEmbedNoChunks   = "embed-no-chunks"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -37,6 +42,17 @@ type Issue struct {
 type Report struct {
 	Issues          []Issue
 	EmbedQueueDepth int
+	EmbedStats      *EmbedStatsReport
+}
+
+// EmbedStatsReport summarizes chunking aggregates for tusk doctor.
+type EmbedStatsReport struct {
+	TotalNodes   int
+	TotalChunks  int
+	MeanChunks   float64
+	MedianChunks int
+	MaxChunks    int
+	TopByChunks  []index.NodeChunkCount
 }
 
 // Config configures Run.
@@ -46,6 +62,8 @@ type Config struct {
 	EmbedQueue    *index.EmbedQueueRepo
 	WorkflowDrift *index.WorkflowDriftRepo // optional; nil = no workflow checks
 	PropertyDrift *index.PropertyDriftRepo // optional; nil = no property checks
+	Embeddings    *index.EmbeddingRepo
+	Manifest      *manifest.Manifest
 }
 
 // Run executes every check and returns the aggregate Report.
@@ -102,6 +120,43 @@ func Run(config Config) (*Report, error) {
 				NodeID:  row.NodeID,
 				Message: renderPropertyDriftMessage(row),
 			})
+		}
+	}
+
+	if config.Embeddings != nil && config.Manifest != nil && config.Manifest.Embeddings.Provider != "" {
+		threshold := int(0.9 * float64(embed.DefaultMaxBytes))
+
+		stats, statsErr := config.Embeddings.Stats(threshold)
+
+		if statsErr != nil {
+			return nil, statsErr
+		}
+
+		report.EmbedStats = &EmbedStatsReport{
+			TotalNodes:   stats.TotalNodes,
+			TotalChunks:  stats.TotalChunks,
+			MeanChunks:   stats.MeanChunks,
+			MedianChunks: stats.MedianChunks,
+			MaxChunks:    stats.MaxChunks,
+			TopByChunks:  stats.TopByChunks,
+		}
+
+		for _, info := range stats.LargeChunks {
+			report.Issues = append(report.Issues, Issue{
+				Kind:    IssueEmbedLargeChunk,
+				NodeID:  info.NodeID,
+				Message: fmt.Sprintf("chunk %d body is %d bytes (>= %d threshold, chunker MaxBytes %d)", info.ChunkIdx, info.BodyLen, threshold, embed.DefaultMaxBytes),
+			})
+		}
+
+		if config.Nodes != nil {
+			noChunks, noChunksErr := findNoChunkNodes(config.Nodes, config.Embeddings, config.EmbedQueue)
+
+			if noChunksErr != nil {
+				return nil, noChunksErr
+			}
+
+			report.Issues = append(report.Issues, noChunks...)
 		}
 	}
 
@@ -179,6 +234,62 @@ func formatRefCycle(row index.PropertyDriftRow) string {
 
 	return fmt.Sprintf("node-types: ref property %q forms a cycle: %s",
 		row.Property, strings.Join(details.Path, " → "))
+}
+
+// findNoChunkNodes returns an Issue for every indexed node that has no
+// embedding rows and is not pending in the embed queue.
+func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, queue *index.EmbedQueueRepo) ([]Issue, error) {
+	indexed, listErr := nodes.List(index.ListFilter{})
+
+	if listErr != nil {
+		return nil, fmt.Errorf("doctor: list nodes: %w", listErr)
+	}
+
+	embeddedIDs, embeddedErr := embeddings.ListNodeIDs()
+
+	if embeddedErr != nil {
+		return nil, fmt.Errorf("doctor: list embedded nodes: %w", embeddedErr)
+	}
+
+	embeddedSet := make(map[string]struct{}, len(embeddedIDs))
+
+	for _, id := range embeddedIDs {
+		embeddedSet[id] = struct{}{}
+	}
+
+	pendingSet := map[string]struct{}{}
+
+	if queue != nil {
+		pendingIDs, pendingErr := queue.ListNodeIDs()
+
+		if pendingErr != nil {
+			return nil, fmt.Errorf("doctor: list pending: %w", pendingErr)
+		}
+
+		for _, id := range pendingIDs {
+			pendingSet[id] = struct{}{}
+		}
+	}
+
+	var issues []Issue
+
+	for _, row := range indexed {
+		if _, embedded := embeddedSet[row.ID]; embedded {
+			continue
+		}
+
+		if _, pending := pendingSet[row.ID]; pending {
+			continue
+		}
+
+		issues = append(issues, Issue{
+			Kind:    IssueEmbedNoChunks,
+			NodeID:  row.ID,
+			Message: "node has no embedding rows",
+		})
+	}
+
+	return issues, nil
 }
 
 // findDanglingEdges scans every edge and flags those whose target_id has no
