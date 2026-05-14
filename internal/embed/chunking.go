@@ -26,8 +26,10 @@ func (strategy WholeDocument) Chunk(payload []byte) [][]byte {
 // model's context window.
 //
 // Zero-value defaults target ~400 tokens with ~50-token overlap for
-// nomic-embed-text (2048-token window): TargetBytes=1600, MaxBytes=7200,
-// OverlapBytes=200, on the ~4-bytes-per-token heuristic.
+// nomic-embed-text (2048-token window): TargetBytes=1600, MaxBytes=4000,
+// OverlapBytes=200. MaxBytes is sized for ~2 bytes/token (code-dense
+// markdown) so chunks stay under 2048 tokens worst case; prose chunks
+// rarely approach the cap because TargetBytes triggers emit first.
 type MarkdownRecursive struct {
 	TargetBytes  int
 	MaxBytes     int
@@ -36,7 +38,7 @@ type MarkdownRecursive struct {
 
 const (
 	defaultTargetBytes  = 1600
-	defaultMaxBytes     = 7200
+	defaultMaxBytes     = 4000
 	defaultOverlapBytes = 200
 )
 
