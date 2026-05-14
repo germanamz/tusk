@@ -152,15 +152,19 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 }
 
 // Close releases the index handle and the workspace lock acquired by Open.
+// Idempotent: subsequent calls are no-ops because Index and lockHandle are
+// niled after the first release.
 func (rt *Runtime) Close() error {
 	if rt.Index == nil {
 		return nil
 	}
 
 	closeErr := rt.Index.Close()
+	rt.Index = nil
 
 	if rt.lockHandle != nil {
 		_ = rt.lockHandle.Release()
+		rt.lockHandle = nil
 	}
 
 	return closeErr

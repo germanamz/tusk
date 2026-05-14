@@ -107,6 +107,8 @@ name = "x"
 		test.Fatalf("Open: %v", openErr)
 	}
 
+	defer rt.Close()
+
 	extLock, newErr := lock.NewWorkspaceLock(root)
 
 	if newErr != nil {
