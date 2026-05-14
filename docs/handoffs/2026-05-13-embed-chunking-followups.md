@@ -121,8 +121,52 @@ The shipping design lands `MarkdownRecursive` as the new default chunker, per-ch
 
 ---
 
+## 9. Parallel embed workers in the drain loop
+
+**Status:** drain.go embeds chunks strictly sequentially (`embedder.Embed(ctx, payload)` one call at a time). Empirically observed: 907 chunks against local CPU-only Ollama took ~11 minutes, ~99% of which was Ollama inference latency. Embedding is the bottleneck and is trivially parallelizable.
+
+**What to do:**
+- Bound a worker pool (e.g. `runtime.NumCPU()` or a config knob, default 4-8) inside `embed.DrainQueue`. Each worker pulls (chunkIdx, bodyChunk) tasks from a channel, calls `embedder.Embed`, and emits an `EmbeddingRow` result on another channel.
+- The producer loop runs `Chunker.Chunk(body)` for a node, fans the chunks out to workers, collects results, then `DeleteByNodeID` + sequential `Upsert` to keep DB writes serialized (SQLite WAL handles concurrent reads well but write contention isn't worth the complexity for this layer).
+- Retry-cap semantics from PR #369 stay node-level: if *any* worker reports a failure for a node's chunks, cancel the remaining workers for that node, re-enqueue, and don't upsert.
+
+**Watch out for:**
+- Ollama's HTTP server has its own concurrency limits; oversubscribing (>16 workers) makes Ollama queue requests internally. Empirical tuning needed.
+- Ordering: writers must apply chunk_idx in any order (since Upsert keys on `(node_id, chunk_idx)`) — verify that's true with the existing `EmbeddingRepo` (it is — see PR #373).
+- Per-chunk failure attribution: log lines need to keep `chunk_idx` so operators can tell which chunk failed.
+
+**Expected speedup:** wall-clock ~Nx where N is min(workers, Ollama's effective concurrency). On CPU-only Ollama, ~4-8x is realistic; on GPU, more.
+
+**Estimated effort:** ~1 day. Pure local change to `internal/embed/drain.go` and tests; no API changes.
+
+---
+
+## 10. Batched Ollama embedding requests
+
+**Status:** `internal/embed/ollama.go` posts one chunk per HTTP request to `/api/embeddings`. Ollama's API accepts a `prompts: []string` field (rather than `prompt: string`) for batching. Each batched call returns a `[]embeddings` array in the same order. HTTP overhead per request adds up — ~50-100ms TLS+HTTP round-trip even for fast inference.
+
+**What to do:**
+- Extend `Embedder` interface with `EmbedBatch(ctx, payloads [][]byte) ([][]float32, error)` (or change the existing `Embed` to take a slice and adapt callers). Default implementation can fall back to N sequential `Embed` calls.
+- Implement `OllamaEmbedder.EmbedBatch` using the `prompts` field. Verify Ollama version compatibility (the batch shape is in newer versions).
+- Drain loop accumulates `BatchSize` (default 8?) chunks before flushing to `EmbedBatch`, then upserts the results.
+
+**Interaction with parallel workers (#9):** these compose — N parallel workers, each making batched calls of M chunks. Total throughput multiplier is N×M with diminishing returns at the limits of either Ollama's concurrency or single-batch latency.
+
+**Watch out for:**
+- Partial batch failures — Ollama may return success for some prompts and fail for others. Current code assumes all-or-nothing. Either retry the failed indices individually, or fall back to sequential for that batch.
+- Memory: a batch of 8 chunks × ~4 KB each is small, but at high batch sizes (~32+) it could matter.
+- Ollama version pinning — batch endpoint may behave differently across versions. Validate empirically and document the minimum supported Ollama release.
+
+**Expected speedup:** moderate (~2-4x). The bigger win is parallel workers; batching adds on top of that.
+
+**Estimated effort:** ~2-3 days including the interface refactor and tests.
+
+**Trigger:** worth doing after #9 when sequential HTTP overhead is the next visible bottleneck. May be skipped entirely if GPU access materializes (then the entire problem shrinks below human-noticeable).
+
+---
+
 ## Where this fits
 
-None of these are urgent. Snippet generation (#1) is probably the most user-visible and the cheapest; doctor diagnostics (#2) help operators trust the new chunker. The rest are quality / scale optimizations to revisit as the workspace grows or providers expand.
+None of these are urgent. Snippet generation (#1) is probably the most user-visible and the cheapest; doctor diagnostics (#2) help operators trust the new chunker. Performance items #9–#10 matter most when the workspace grows beyond ~50 nodes against CPU-only Ollama; with GPU access they may not be worth the engineering cost. The rest are quality / scale optimizations to revisit as the workspace grows or providers expand.
 
-When picking one up: start a fresh branch off `main`, link back to this doc and the original chunking spec for context. Each follow-up is independent — no ordering constraints between them.
+When picking one up: start a fresh branch off `main`, link back to this doc and the original chunking spec for context. Each follow-up is independent — no ordering constraints between them, with one exception: #10 (batching) composes naturally on top of #9 (parallel workers) and reads cleaner if done in that order.
