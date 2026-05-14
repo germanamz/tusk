@@ -41,6 +41,8 @@ type Runtime struct {
 	Chunker  embed.ChunkingStrategy
 
 	Logger *slog.Logger // optional; nil silences output
+
+	lockHandle *lock.WorkspaceLock // workspace file-lock held for the Runtime's lifetime
 }
 
 // Option mutates a Runtime during Open.
@@ -68,9 +70,24 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		return nil, fmt.Errorf("mcp: manifest: %w", loadErr)
 	}
 
+	lockHandle, lockNewErr := lock.NewWorkspaceLock(ws.Root)
+
+	if lockNewErr != nil {
+		return nil, fmt.Errorf("mcp: lock: %w", lockNewErr)
+	}
+
+	acquireCtx, acquireCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer acquireCancel()
+
+	if acquireErr := lockHandle.Acquire(acquireCtx); acquireErr != nil {
+		return nil, fmt.Errorf("mcp: lock: %w", acquireErr)
+	}
+
 	store, openErr := index.Open(ws.IndexPath)
 
 	if openErr != nil {
+		_ = lockHandle.Release()
+
 		return nil, fmt.Errorf("mcp: index: %w", openErr)
 	}
 
@@ -78,6 +95,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 
 	if buildErr != nil {
 		store.Close()
+		_ = lockHandle.Release()
 
 		return nil, fmt.Errorf("mcp: behavior engine: %w", buildErr)
 	}
@@ -99,6 +117,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		BehaviorEngine: engine,
 		WorkflowDrift:  driftRepo,
 		PropertyDrift:  propertyDriftRepo,
+		lockHandle:     lockHandle,
 	}
 
 	rt.NodeService = node.NewServiceWithBehaviors(
@@ -132,34 +151,19 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	return rt, nil
 }
 
-// Close releases the index handle.
+// Close releases the index handle and the workspace lock acquired by Open.
 func (rt *Runtime) Close() error {
 	if rt.Index == nil {
 		return nil
 	}
 
-	return rt.Index.Close()
-}
+	closeErr := rt.Index.Close()
 
-// WithWriteLock acquires the per-write workspace lock, runs body, and always
-// releases. 5-second acquisition timeout.
-func (rt *Runtime) WithWriteLock(body func() error) error {
-	handle, newErr := lock.NewWorkspaceLock(rt.Root)
-
-	if newErr != nil {
-		return newErr
+	if rt.lockHandle != nil {
+		_ = rt.lockHandle.Release()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if acquireErr := handle.Acquire(ctx); acquireErr != nil {
-		return acquireErr
-	}
-
-	defer func() { _ = handle.Release() }()
-
-	return body()
+	return closeErr
 }
 
 // ReloadManifest re-reads the manifest from disk and rebuilds the NodeService
