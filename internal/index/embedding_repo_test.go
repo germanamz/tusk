@@ -122,3 +122,35 @@ func TestEmbeddingRepo_DeleteByNodeID(test *testing.T) {
 		test.Errorf("len = %d, want 0", len(loaded))
 	}
 }
+
+func TestEmbeddingRepo_BodyRoundTrip(test *testing.T) {
+	repo := newTestEmbeddingRepo(test)
+
+	row := index.EmbeddingRow{
+		NodeID:      "tickets/foo",
+		ChunkIdx:    0,
+		Model:       "nomic-embed-text",
+		ContentHash: "h1",
+		Vector:      []float32{0.1},
+		Dim:         1,
+		Body:        "# Heading\n\nFirst paragraph of the chunk.",
+	}
+
+	if upsertErr := repo.Upsert(row); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	loaded, getErr := repo.GetByNodeID("tickets/foo")
+
+	if getErr != nil {
+		test.Fatalf("GetByNodeID: %v", getErr)
+	}
+
+	if len(loaded) != 1 {
+		test.Fatalf("len = %d, want 1", len(loaded))
+	}
+
+	if loaded[0].Body != row.Body {
+		test.Errorf("Body = %q, want %q", loaded[0].Body, row.Body)
+	}
+}

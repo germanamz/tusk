@@ -15,6 +15,7 @@ type EmbeddingRow struct {
 	ContentHash string
 	Vector      []float32
 	Dim         int
+	Body        string
 }
 
 // EmbeddingRepo persists EmbeddingRow values in the SQLite index.
@@ -36,14 +37,15 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 	}
 
 	_, execErr := repo.db.Exec(`
-		INSERT INTO embeddings (node_id, chunk_idx, model, content_hash, vector, dim)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO embeddings (node_id, chunk_idx, model, content_hash, vector, dim, body)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(node_id, chunk_idx) DO UPDATE SET
 			model        = excluded.model,
 			content_hash = excluded.content_hash,
 			vector       = excluded.vector,
-			dim          = excluded.dim
-	`, row.NodeID, row.ChunkIdx, row.Model, row.ContentHash, encoded, row.Dim)
+			dim          = excluded.dim,
+			body         = excluded.body
+	`, row.NodeID, row.ChunkIdx, row.Model, row.ContentHash, encoded, row.Dim, row.Body)
 
 	if execErr != nil {
 		return fmt.Errorf("embeddingRepo: upsert %s: %w", row.NodeID, execErr)
@@ -55,7 +57,7 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 // GetByNodeID returns all embeddings (chunks) for nodeID, ordered by chunk_idx.
 func (repo *EmbeddingRepo) GetByNodeID(nodeID string) ([]EmbeddingRow, error) {
 	rows, queryErr := repo.db.Query(`
-		SELECT node_id, chunk_idx, model, content_hash, vector, dim
+		SELECT node_id, chunk_idx, model, content_hash, vector, dim, body
 		FROM embeddings
 		WHERE node_id = ?
 		ORDER BY chunk_idx
@@ -88,7 +90,7 @@ func (repo *EmbeddingRepo) ListByNodeIDs(nodeIDs []string) ([]EmbeddingRow, erro
 		args = append(args, nodeID)
 	}
 
-	query := fmt.Sprintf(`SELECT node_id, chunk_idx, model, content_hash, vector, dim FROM embeddings WHERE node_id IN (%s) ORDER BY node_id, chunk_idx`, string(placeholders))
+	query := fmt.Sprintf(`SELECT node_id, chunk_idx, model, content_hash, vector, dim, body FROM embeddings WHERE node_id IN (%s) ORDER BY node_id, chunk_idx`, string(placeholders))
 
 	rows, queryErr := repo.db.Query(query, args...)
 
@@ -121,7 +123,7 @@ func scanEmbeddings(rows *sql.Rows) ([]EmbeddingRow, error) {
 			encoded []byte
 		)
 
-		if scanErr := rows.Scan(&row.NodeID, &row.ChunkIdx, &row.Model, &row.ContentHash, &encoded, &row.Dim); scanErr != nil {
+		if scanErr := rows.Scan(&row.NodeID, &row.ChunkIdx, &row.Model, &row.ContentHash, &encoded, &row.Dim, &row.Body); scanErr != nil {
 			return nil, fmt.Errorf("embeddingRepo: scan: %w", scanErr)
 		}
 
