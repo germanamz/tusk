@@ -872,3 +872,38 @@ func TestTool_Query_SemanticIncludesSnippet(test *testing.T) {
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
 }
+
+func TestTool_Doctor_WithEmbedStats(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	// Mark workspace as having embeddings configured so doctor runs the stats path.
+	rt.Manifest.Embeddings.Provider = "ollama"
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "notes/a", ChunkIdx: 0, Model: "stub", ContentHash: "h",
+		Vector: []float32{0.1}, Dim: 1, Body: "short body",
+	}); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_doctor", map[string]any{})
+
+	if callErr != nil {
+		test.Fatalf("tusk_doctor: %v", callErr)
+	}
+
+	stats, ok := body["embed_stats"].(map[string]any)
+
+	if !ok {
+		test.Fatalf("embed_stats missing or wrong type: %v", body)
+	}
+
+	if stats["total_nodes"].(float64) != 1 || stats["total_chunks"].(float64) != 1 {
+		test.Errorf("stats = %+v", stats)
+	}
+}

@@ -442,6 +442,8 @@ func registerDoctorTool(srv *Server) {
 			Edges:         srv.runtime.Edges,
 			EmbedQueue:    srv.runtime.EmbedQueue,
 			WorkflowDrift: srv.runtime.WorkflowDrift,
+			Embeddings:    srv.runtime.Embeddings,
+			Manifest:      srv.runtime.Manifest,
 		})
 
 		if runErr != nil {
@@ -458,10 +460,33 @@ func registerDoctorTool(srv *Server) {
 			})
 		}
 
-		return toolJSON(map[string]any{
+		response := map[string]any{
 			"issues":            issues,
 			"embed_queue_depth": report.EmbedQueueDepth,
-		})
+		}
+
+		if report.EmbedStats != nil {
+			stats := report.EmbedStats
+			topByChunks := make([]map[string]any, 0, len(stats.TopByChunks))
+
+			for _, entry := range stats.TopByChunks {
+				topByChunks = append(topByChunks, map[string]any{
+					"node_id": entry.NodeID,
+					"chunks":  entry.Chunks,
+				})
+			}
+
+			response["embed_stats"] = map[string]any{
+				"total_nodes":   stats.TotalNodes,
+				"total_chunks":  stats.TotalChunks,
+				"mean_chunks":   stats.MeanChunks,
+				"median_chunks": stats.MedianChunks,
+				"max_chunks":    stats.MaxChunks,
+				"top_by_chunks": topByChunks,
+			}
+		}
+
+		return toolJSON(response)
 	}
 
 	srv.register(tool, handler)
