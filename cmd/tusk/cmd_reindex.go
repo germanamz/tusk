@@ -69,7 +69,7 @@ func newReindexCmd() *cobra.Command {
 						Dim:      loaded.Embeddings.Dim,
 						Logger:   logger,
 					})
-					chunker = embed.WholeDocument{}
+					chunker = embed.MarkdownRecursive{}
 					embedQueue = index.NewEmbedQueueRepo(store)
 					embeddingRepo = index.NewEmbeddingRepo(store)
 				}
