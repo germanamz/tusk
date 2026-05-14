@@ -202,6 +202,7 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 			NodeID:   embeddingRow.NodeID,
 			ChunkIdx: embeddingRow.ChunkIdx,
 			Vector:   embeddingRow.Vector,
+			Body:     embeddingRow.Body,
 		})
 	}
 
@@ -225,10 +226,14 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
-	_, _ = fmt.Fprintln(tab, "ID\tSCORE")
+	_, _ = fmt.Fprintln(tab, "ID\tSCORE\tSNIPPET")
 
 	for _, scored := range ranked {
-		_, _ = fmt.Fprintf(tab, "%s\t%.4f\n", scored.NodeID, scored.Score)
+		_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%s\n",
+			scored.NodeID,
+			scored.Score,
+			filter.RenderSnippet(scored.BestChunkBody, 200),
+		)
 	}
 
 	return tab.Flush()
