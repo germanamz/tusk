@@ -225,6 +225,36 @@ in the same order.
 
 ---
 
+## Real-world chunk distribution (tusk dogfood workspace, 2026-05-14)
+
+Captured with the new `tusk doctor` stats block after reindexing the
+tusk repo itself (51 nodes, 921 chunks) against warm CPU Ollama:
+
+```
+embed stats: 51 nodes, 921 chunks (mean 18.1, median 8, max 109)
+top by chunks:
+  docs/superpowers/plans/2026-05-06-tusk-v1-7-behavior-packs              109
+  docs/superpowers/plans/2026-05-07-tusk-v1-7c1-pack-platform-and-ref    83
+  docs/superpowers/plans/2026-05-06-tusk-v1-6-mcp-server                  78
+  docs/superpowers/plans/2026-05-07-tusk-v1-7b-node-types                 77
+  docs/superpowers/plans/2026-05-05-tusk-v1-2-edges-and-relationships    68
+```
+
+- Median 8 / mean 18.1 is heavy long-tail. Workers ≥ 8 saturate the
+  median node fully; the top 5 nodes (67–109 chunks each) are where
+  parallelism pays the most.
+- Sequential wall-clock for this run was 670s at ~1.3s/chunk warm.
+  Per-node workers @ 8 × 921 chunks ≈ ~150s → **~4.5× speedup** at
+  the simplest design point.
+- Cross-node workers don't add much: 5 nodes have ≥68 chunks and
+  saturate an 8-worker pool on their own. Per-node parallelism is
+  almost certainly the right starting shape.
+- 30 `embed-large-chunk` flags surfaced (3622–3998 bytes, cap 4000).
+  Most plan/spec docs are hitting the chunker cap. Worth threading
+  this signal into the **#5 parent/child retrieval** decision —
+  shrinking MaxBytes further is likely worse than letting chunks
+  stay at the cap and adding a parent-aware retrieval path.
+
 ## Open questions for the brainstorm
 
 1. **Hardcoded 30s timeout.** Should Spec B raise this, make it
