@@ -2,11 +2,15 @@ package mcp_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/mcp"
 )
 
@@ -84,29 +88,52 @@ func TestOpen_FailsWhenNoWorkspace(test *testing.T) {
 	}
 }
 
-func TestRuntime_WithWriteLockSerializes(test *testing.T) {
+func TestRuntime_OpenAcquiresWorkspaceLock(test *testing.T) {
 	root := test.TempDir()
 
-	os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
 name = "x"
-`), 0o644)
+`), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
 
-	rt, _ := mcp.Open(root)
+	if mkErr := os.MkdirAll(filepath.Join(root, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
 	defer rt.Close()
 
-	calls := 0
+	extLock, newErr := lock.NewWorkspaceLock(root)
 
-	if lockErr := rt.WithWriteLock(func() error {
-		calls++
-
-		return nil
-	}); lockErr != nil {
-		test.Fatalf("WithWriteLock: %v", lockErr)
+	if newErr != nil {
+		test.Fatalf("NewWorkspaceLock: %v", newErr)
 	}
 
-	if calls != 1 {
-		test.Errorf("body should run once, got %d", calls)
+	busyCtx, busyCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer busyCancel()
+
+	if acqErr := extLock.Acquire(busyCtx); !errors.Is(acqErr, lock.ErrBusy) {
+		test.Errorf("expected ErrBusy while runtime holds lock; got %v", acqErr)
 	}
+
+	if closeErr := rt.Close(); closeErr != nil {
+		test.Fatalf("Close: %v", closeErr)
+	}
+
+	freeCtx, freeCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer freeCancel()
+
+	if acqErr := extLock.Acquire(freeCtx); acqErr != nil {
+		test.Errorf("expected lock to be free after Close; got %v", acqErr)
+	}
+
+	_ = extLock.Release()
 }
 
 func TestOpen_WithLogger_PopulatesRuntimeLogger(test *testing.T) {

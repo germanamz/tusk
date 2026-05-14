@@ -518,30 +518,18 @@ func registerNodeCreateTool(srv *Server) {
 		body := argStringOptional(request, "body")
 		properties := normalizeProps(argMap(request, "properties"))
 
-		var created *node.Node
-
-		lockErr := srv.runtime.WithWriteLock(func() error {
-			out, createErr := srv.runtime.NodeService.Create(node.CreateInput{
-				RelPath:    path,
-				Type:       nodeType,
-				Title:      title,
-				Properties: properties,
-				Body:       []byte(body),
-			})
-
-			if createErr != nil {
-				return createErr
-			}
-
-			created = out
-
-			return nil
+		created, createErr := srv.runtime.NodeService.Create(node.CreateInput{
+			RelPath:    path,
+			Type:       nodeType,
+			Title:      title,
+			Properties: properties,
+			Body:       []byte(body),
 		})
 
-		if lockErr != nil {
+		if createErr != nil {
 			var workflowErr *workflow.Error
 
-			if errors.As(lockErr, &workflowErr) {
+			if errors.As(createErr, &workflowErr) {
 				return toolJSONError(map[string]any{
 					"error":         "workflow-rejection",
 					"code":          string(workflowErr.Code),
@@ -557,17 +545,17 @@ func registerNodeCreateTool(srv *Server) {
 
 			var propErr *node.PropertyValidationError
 
-			if errors.As(lockErr, &propErr) {
+			if errors.As(createErr, &propErr) {
 				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
 			}
 
 			var refErr *node.RefValidationError
 
-			if errors.As(lockErr, &refErr) {
+			if errors.As(createErr, &refErr) {
 				return toolJSONError(buildRefRejectionPayload(refErr)), nil
 			}
 
-			return toolError(lockErr), nil
+			return toolError(createErr), nil
 		}
 
 		return toolJSON(map[string]any{
@@ -629,24 +617,12 @@ func registerNodeModifyTool(srv *Server) {
 			node.NewIndexRefLookup(srv.runtime.Nodes),
 		)
 
-		var modified *node.Node
+		modified, modifyErr := perCallService.Modify(input)
 
-		lockErr := srv.runtime.WithWriteLock(func() error {
-			out, modifyErr := perCallService.Modify(input)
-
-			if modifyErr != nil {
-				return modifyErr
-			}
-
-			modified = out
-
-			return nil
-		})
-
-		if lockErr != nil {
+		if modifyErr != nil {
 			var workflowErr *workflow.Error
 
-			if errors.As(lockErr, &workflowErr) {
+			if errors.As(modifyErr, &workflowErr) {
 				return toolJSONError(map[string]any{
 					"error":         "workflow-rejection",
 					"code":          string(workflowErr.Code),
@@ -662,17 +638,17 @@ func registerNodeModifyTool(srv *Server) {
 
 			var propErr *node.PropertyValidationError
 
-			if errors.As(lockErr, &propErr) {
+			if errors.As(modifyErr, &propErr) {
 				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
 			}
 
 			var refErr *node.RefValidationError
 
-			if errors.As(lockErr, &refErr) {
+			if errors.As(modifyErr, &refErr) {
 				return toolJSONError(buildRefRejectionPayload(refErr)), nil
 			}
 
-			return toolError(lockErr), nil
+			return toolError(modifyErr), nil
 		}
 
 		result := map[string]any{
@@ -718,22 +694,10 @@ func registerNodeMoveTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		var plan *node.RenamePlan
+		plan, renameErr := node.Rename(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, nodeID, newPath)
 
-		lockErr := srv.runtime.WithWriteLock(func() error {
-			out, renameErr := node.Rename(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, nodeID, newPath)
-
-			if renameErr != nil {
-				return renameErr
-			}
-
-			plan = out
-
-			return nil
-		})
-
-		if lockErr != nil {
-			return toolError(lockErr), nil
+		if renameErr != nil {
+			return toolError(renameErr), nil
 		}
 
 		return toolJSON(map[string]any{
@@ -761,12 +725,8 @@ func registerNodeDeleteTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		lockErr := srv.runtime.WithWriteLock(func() error {
-			return node.Delete(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, nodeID)
-		})
-
-		if lockErr != nil {
-			return toolError(lockErr), nil
+		if deleteErr := node.Delete(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, nodeID); deleteErr != nil {
+			return toolError(deleteErr), nil
 		}
 
 		return toolJSON(map[string]any{"deleted_id": nodeID})
@@ -809,78 +769,74 @@ func registerEdgeAddTool(srv *Server) {
 			return toolError(fmt.Errorf("edge type %q not declared in manifest", edgeType)), nil
 		}
 
-		lockErr := srv.runtime.WithWriteLock(func() error {
-			sourceRow, sourceErr := srv.runtime.Nodes.Get(sourceID)
+		sourceRow, sourceErr := srv.runtime.Nodes.Get(sourceID)
 
-			if sourceErr != nil {
-				return fmt.Errorf("source: %w", sourceErr)
+		if sourceErr != nil {
+			return toolError(fmt.Errorf("source: %w", sourceErr)), nil
+		}
+
+		if !edgeDef.AllowsSource(sourceRow.Type) {
+			return toolError(fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)), nil
+		}
+
+		if targetRow, getErr := srv.runtime.Nodes.Get(targetID); getErr == nil {
+			if !edgeDef.AllowsTarget(targetRow.Type) {
+				return toolError(fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)), nil
 			}
+		}
 
-			if !edgeDef.AllowsSource(sourceRow.Type) {
-				return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
-			}
-
-			if targetRow, getErr := srv.runtime.Nodes.Get(targetID); getErr == nil {
-				if !edgeDef.AllowsTarget(targetRow.Type) {
-					return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
-				}
-			}
-
-			if edgeDef.Acyclic {
-				existing, listErr := srv.runtime.Edges.ListByType(edgeType)
-
-				if listErr != nil {
-					return listErr
-				}
-
-				adjacency := map[string][]string{}
-
-				for _, row := range existing {
-					adjacency[row.SourceID] = append(adjacency[row.SourceID], row.TargetID)
-				}
-
-				if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: sourceID, Target: targetID}, adjacency); cycleErr != nil {
-					return cycleErr
-				}
-			}
-
-			existingForSource, listErr := srv.runtime.Edges.ListBySource(sourceID)
+		if edgeDef.Acyclic {
+			existing, listErr := srv.runtime.Edges.ListByType(edgeType)
 
 			if listErr != nil {
-				return listErr
+				return toolError(listErr), nil
 			}
 
-			var mcpEdges []index.EdgeRow
+			adjacency := map[string][]string{}
 
-			for _, row := range existingForSource {
-				if row.SourcePath == mcpSourcePath {
-					mcpEdges = append(mcpEdges, row)
-				}
+			for _, row := range existing {
+				adjacency[row.SourceID] = append(adjacency[row.SourceID], row.TargetID)
 			}
 
-			ordinal := -1
-
-			for _, row := range mcpEdges {
-				if row.Type == edgeType && row.Ordinal > ordinal {
-					ordinal = row.Ordinal
-				}
+			if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: sourceID, Target: targetID}, adjacency); cycleErr != nil {
+				return toolError(cycleErr), nil
 			}
+		}
 
-			ordinal++
+		existingForSource, listErr := srv.runtime.Edges.ListBySource(sourceID)
 
-			mcpEdges = append(mcpEdges, index.EdgeRow{
-				Type:       edgeType,
-				SourceID:   sourceID,
-				TargetID:   targetID,
-				Ordinal:    ordinal,
-				SourcePath: mcpSourcePath,
-			})
+		if listErr != nil {
+			return toolError(listErr), nil
+		}
 
-			return srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, mcpEdges)
+		var mcpEdges []index.EdgeRow
+
+		for _, row := range existingForSource {
+			if row.SourcePath == mcpSourcePath {
+				mcpEdges = append(mcpEdges, row)
+			}
+		}
+
+		ordinal := -1
+
+		for _, row := range mcpEdges {
+			if row.Type == edgeType && row.Ordinal > ordinal {
+				ordinal = row.Ordinal
+			}
+		}
+
+		ordinal++
+
+		mcpEdges = append(mcpEdges, index.EdgeRow{
+			Type:       edgeType,
+			SourceID:   sourceID,
+			TargetID:   targetID,
+			Ordinal:    ordinal,
+			SourcePath: mcpSourcePath,
 		})
 
-		if lockErr != nil {
-			return toolError(lockErr), nil
+		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, mcpEdges); upsertErr != nil {
+			return toolError(upsertErr), nil
 		}
 
 		return toolJSON(map[string]any{
@@ -920,46 +876,42 @@ func registerEdgeRemoveTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		lockErr := srv.runtime.WithWriteLock(func() error {
-			rows, listErr := srv.runtime.Edges.ListBySource(sourceID)
+		rows, listErr := srv.runtime.Edges.ListBySource(sourceID)
 
-			if listErr != nil {
-				return listErr
+		if listErr != nil {
+			return toolError(listErr), nil
+		}
+
+		var kept []index.EdgeRow
+		removed := 0
+
+		for _, row := range rows {
+			if row.SourcePath != mcpSourcePath {
+				continue
 			}
 
-			var kept []index.EdgeRow
-			removed := 0
+			if row.Type == edgeType && row.TargetID == targetID {
+				removed++
 
-			for _, row := range rows {
-				if row.SourcePath != mcpSourcePath {
-					continue
-				}
-
-				if row.Type == edgeType && row.TargetID == targetID {
-					removed++
-
-					continue
-				}
-
-				kept = append(kept, row)
+				continue
 			}
 
-			if removed == 0 {
-				return fmt.Errorf("no MCP-added edge matches type=%q source=%q target=%q", edgeType, sourceID, targetID)
-			}
+			kept = append(kept, row)
+		}
 
-			counters := map[string]int{}
+		if removed == 0 {
+			return toolError(fmt.Errorf("no MCP-added edge matches type=%q source=%q target=%q", edgeType, sourceID, targetID)), nil
+		}
 
-			for idx := range kept {
-				kept[idx].Ordinal = counters[kept[idx].Type]
-				counters[kept[idx].Type]++
-			}
+		counters := map[string]int{}
 
-			return srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, kept)
-		})
+		for idx := range kept {
+			kept[idx].Ordinal = counters[kept[idx].Type]
+			counters[kept[idx].Type]++
+		}
 
-		if lockErr != nil {
-			return toolError(lockErr), nil
+		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, kept); upsertErr != nil {
+			return toolError(upsertErr), nil
 		}
 
 		return toolJSON(map[string]any{
@@ -982,38 +934,26 @@ func registerReindexTool(srv *Server) {
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		noEmbed, _ := request.GetArguments()["no_embed"].(bool)
 
-		var report *reindex.Report
+		config := reindex.Config{
+			Root:            srv.runtime.Root,
+			Repo:            srv.runtime.Nodes,
+			Edges:           srv.runtime.Edges,
+			EdgeTypes:       srv.runtime.Manifest.EdgeTypes,
+			WorkspaceIgnore: srv.runtime.Manifest.Workspace.Ignore,
+			Meta:            srv.runtime.Meta,
+		}
 
-		lockErr := srv.runtime.WithWriteLock(func() error {
-			config := reindex.Config{
-				Root:            srv.runtime.Root,
-				Repo:            srv.runtime.Nodes,
-				Edges:           srv.runtime.Edges,
-				EdgeTypes:       srv.runtime.Manifest.EdgeTypes,
-				WorkspaceIgnore: srv.runtime.Manifest.Workspace.Ignore,
-				Meta:            srv.runtime.Meta,
-			}
+		if !noEmbed && srv.runtime.Embedder != nil {
+			config.EmbedQueue = srv.runtime.EmbedQueue
+			config.EmbeddingRepo = srv.runtime.Embeddings
+			config.Embedder = srv.runtime.Embedder
+			config.Chunker = srv.runtime.Chunker
+		}
 
-			if !noEmbed && srv.runtime.Embedder != nil {
-				config.EmbedQueue = srv.runtime.EmbedQueue
-				config.EmbeddingRepo = srv.runtime.Embeddings
-				config.Embedder = srv.runtime.Embedder
-				config.Chunker = srv.runtime.Chunker
-			}
+		report, runErr := reindex.Run(config)
 
-			out, runErr := reindex.Run(config)
-
-			if runErr != nil {
-				return runErr
-			}
-
-			report = out
-
-			return nil
-		})
-
-		if lockErr != nil {
-			return toolError(lockErr), nil
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
 		return toolJSON(map[string]any{

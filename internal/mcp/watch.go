@@ -32,26 +32,22 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 			return nil
 		}
 
-		lockErr := config.Runtime.WithWriteLock(func() error {
-			_, runErr := reindex.Run(reindex.Config{
-				Root:            config.Runtime.Root,
-				Repo:            config.Runtime.Nodes,
-				Edges:           config.Runtime.Edges,
-				EdgeTypes:       config.Runtime.Manifest.EdgeTypes,
-				WorkspaceIgnore: config.Runtime.Manifest.Workspace.Ignore,
-				EmbedQueue:      config.Runtime.EmbedQueue,
-				EmbeddingRepo:   config.Runtime.Embeddings,
-				Embedder:        config.Runtime.Embedder,
-				Chunker:         config.Runtime.Chunker,
-				Meta:            config.Runtime.Meta,
-				Logger:          config.Logger,
-			})
-
-			return runErr
+		_, runErr := reindex.Run(reindex.Config{
+			Root:            config.Runtime.Root,
+			Repo:            config.Runtime.Nodes,
+			Edges:           config.Runtime.Edges,
+			EdgeTypes:       config.Runtime.Manifest.EdgeTypes,
+			WorkspaceIgnore: config.Runtime.Manifest.Workspace.Ignore,
+			EmbedQueue:      config.Runtime.EmbedQueue,
+			EmbeddingRepo:   config.Runtime.Embeddings,
+			Embedder:        config.Runtime.Embedder,
+			Chunker:         config.Runtime.Chunker,
+			Meta:            config.Runtime.Meta,
+			Logger:          config.Logger,
 		})
 
-		if lockErr != nil && config.Logger != nil {
-			config.Logger.Warn("watcher reindex error", "err", lockErr, "path", event.Path)
+		if runErr != nil && config.Logger != nil {
+			config.Logger.Warn("watcher reindex error", "err", runErr, "path", event.Path)
 		}
 
 		return nil
