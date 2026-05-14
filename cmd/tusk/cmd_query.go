@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -75,7 +76,7 @@ func newQueryCmd() *cobra.Command {
 			}
 
 			if semanticQuery != "" {
-				return runSemanticQuery(cmd, ws, loaded, sqlQuery, params, take, skip, semanticQuery)
+				return runSemanticQuery(cmd, ws, loaded, sqlQuery, params, take, skip, semanticQuery, emitJSON)
 			}
 
 			store, openErr := index.Open(ws.IndexPath)
@@ -136,7 +137,7 @@ func newQueryCmd() *cobra.Command {
 	return queryCmd
 }
 
-func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manifest.Manifest, structuralSQL string, structuralParams []any, take, skip int, semanticQuery string) error {
+func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manifest.Manifest, structuralSQL string, structuralParams []any, take, skip int, semanticQuery string, emitJSON bool) error {
 	if loaded.Embeddings.Provider == "" {
 		return fmt.Errorf("--semantic requires [embeddings] block in tusk.toml")
 	}
@@ -222,6 +223,22 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 		}
 
 		ranked = ranked[startIdx:endIdx]
+	}
+
+	if emitJSON {
+		out := make([]map[string]any, 0, len(ranked))
+
+		for _, scored := range ranked {
+			out = append(out, map[string]any{
+				"id":      scored.NodeID,
+				"score":   scored.Score,
+				"snippet": filter.RenderSnippet(scored.BestChunkBody, 200),
+			})
+		}
+
+		encoder := json.NewEncoder(cmd.OutOrStdout())
+
+		return encoder.Encode(out)
 	}
 
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
