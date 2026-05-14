@@ -381,6 +381,7 @@ func registerQueryTool(srv *Server) {
 				NodeID:   embeddingRow.NodeID,
 				ChunkIdx: embeddingRow.ChunkIdx,
 				Vector:   embeddingRow.Vector,
+				Body:     embeddingRow.Body,
 			})
 		}
 
@@ -411,11 +412,12 @@ func registerQueryTool(srv *Server) {
 
 		for _, scored := range ranked {
 			ranking = append(ranking, map[string]any{
-				"id":    scored.NodeID,
-				"score": scored.Score,
-				"type":  byID[scored.NodeID].Type,
-				"path":  byID[scored.NodeID].Path,
-				"title": byID[scored.NodeID].Title,
+				"id":      scored.NodeID,
+				"score":   scored.Score,
+				"type":    byID[scored.NodeID].Type,
+				"path":    byID[scored.NodeID].Path,
+				"title":   byID[scored.NodeID].Title,
+				"snippet": filter.RenderSnippet(scored.BestChunkBody, 200),
 			})
 		}
 
