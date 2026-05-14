@@ -80,6 +80,36 @@ func TestSemanticRank_MaxPerNodeAcrossChunks(test *testing.T) {
 	}
 }
 
+func TestSemanticRank_TracksBestChunkBody(test *testing.T) {
+	query := []float32{1, 0}
+
+	candidates := []filter.SemanticCandidate{
+		{NodeID: "n1", ChunkIdx: 0, Vector: []float32{0.1, 1}, Body: "low score body"},
+		{NodeID: "n1", ChunkIdx: 1, Vector: []float32{1, 0}, Body: "high score body"},
+		{NodeID: "n2", ChunkIdx: 0, Vector: []float32{0, 1}, Body: "n2 only chunk"},
+	}
+
+	ranked := filter.SemanticRank(candidates, query)
+
+	if len(ranked) != 2 {
+		test.Fatalf("len = %d, want 2", len(ranked))
+	}
+
+	first := ranked[0]
+
+	if first.NodeID != "n1" {
+		test.Errorf("first.NodeID = %q, want n1", first.NodeID)
+	}
+
+	if first.BestChunkIdx != 1 {
+		test.Errorf("BestChunkIdx = %d, want 1", first.BestChunkIdx)
+	}
+
+	if first.BestChunkBody != "high score body" {
+		test.Errorf("BestChunkBody = %q", first.BestChunkBody)
+	}
+}
+
 func TestSemanticRank_DeterministicTieBreakByNodeID(test *testing.T) {
 	candidates := []filter.SemanticCandidate{
 		{NodeID: "zebra", ChunkIdx: 0, Vector: []float32{1, 0, 0}},
