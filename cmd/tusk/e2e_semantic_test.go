@@ -70,6 +70,28 @@ dim = 3
 		}
 	}
 
+	// Each fixture's body is overwritten with quotable content so the snippet
+	// assertion downstream has substance to verify.
+	nodeBodies := map[string]string{
+		"a.md": "Apples come in many varieties such as Fuji and Gala.",
+		"b.md": "Bananas ripen quickly when stored at room temperature.",
+		"c.md": "Cherries are stone fruits with a short summer season.",
+	}
+
+	for filename, bodyText := range nodeBodies {
+		fullPath := filepath.Join(tmpDir, filename)
+
+		existing, readErr := os.ReadFile(fullPath)
+
+		if readErr != nil {
+			test.Fatalf("read %s: %v", filename, readErr)
+		}
+
+		if writeErr := os.WriteFile(fullPath, []byte(string(existing)+"\n"+bodyText+"\n"), 0o644); writeErr != nil {
+			test.Fatalf("write body %s: %v", filename, writeErr)
+		}
+	}
+
 	reindexCmd := newRootCmd()
 	reindexCmd.SetArgs([]string{"reindex"})
 
@@ -94,6 +116,42 @@ dim = 3
 
 	if !strings.HasPrefix(firstResult, "a") {
 		test.Errorf("expected 'a' to rank first, got body:\n%s", body)
+	}
+
+	if !strings.Contains(body, "SNIPPET") {
+		test.Errorf("tabwriter missing SNIPPET column:\n%s", body)
+	}
+
+	// Re-run with --json and assert snippet key is present and non-empty.
+	jsonOut := &bytes.Buffer{}
+
+	jsonCmd := newRootCmd()
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonOut)
+	jsonCmd.SetArgs([]string{"query", "type=note", "--semantic", "apple varieties", "--json"})
+
+	if execErr := jsonCmd.Execute(); execErr != nil {
+		test.Fatalf("json query: %v\n%s", execErr, jsonOut.String())
+	}
+
+	var results []map[string]any
+
+	if jsonErr := json.Unmarshal(jsonOut.Bytes(), &results); jsonErr != nil {
+		test.Fatalf("json unmarshal: %v\n%s", jsonErr, jsonOut.String())
+	}
+
+	if len(results) == 0 {
+		test.Fatalf("empty json results:\n%s", jsonOut.String())
+	}
+
+	snippet, ok := results[0]["snippet"].(string)
+
+	if !ok {
+		test.Errorf("result[0] missing snippet key: %v", results[0])
+	} else if snippet == "" {
+		test.Errorf("result[0] snippet is empty; ensure fixture node bodies are non-empty")
+	} else if !strings.Contains(snippet, "Apples") && !strings.Contains(snippet, "varieties") {
+		test.Errorf("result[0] snippet content unexpected: %q", snippet)
 	}
 }
 
