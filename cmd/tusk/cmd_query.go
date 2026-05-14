@@ -199,8 +199,9 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 
 	for _, embeddingRow := range loadedRows {
 		candidates = append(candidates, filter.SemanticCandidate{
-			NodeID: embeddingRow.NodeID,
-			Vector: embeddingRow.Vector,
+			NodeID:   embeddingRow.NodeID,
+			ChunkIdx: embeddingRow.ChunkIdx,
+			Vector:   embeddingRow.Vector,
 		})
 	}
 

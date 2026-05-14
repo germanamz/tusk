@@ -377,7 +377,11 @@ func registerQueryTool(srv *Server) {
 		candidates := make([]filter.SemanticCandidate, 0, len(loaded))
 
 		for _, embeddingRow := range loaded {
-			candidates = append(candidates, filter.SemanticCandidate{NodeID: embeddingRow.NodeID, Vector: embeddingRow.Vector})
+			candidates = append(candidates, filter.SemanticCandidate{
+				NodeID:   embeddingRow.NodeID,
+				ChunkIdx: embeddingRow.ChunkIdx,
+				Vector:   embeddingRow.Vector,
+			})
 		}
 
 		ranked := filter.SemanticRank(candidates, queryVector)
