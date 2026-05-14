@@ -80,3 +80,67 @@ func SemanticRank(candidates []SemanticCandidate, queryVector []float32) []Score
 
 	return scored
 }
+
+// RenderSnippet returns the leading maxRunes runes of body with internal
+// whitespace runs collapsed to single spaces, trailing whitespace stripped,
+// and an ellipsis (U+2026) appended when truncation occurred. Returns the
+// empty string for empty input or when only whitespace remains.
+func RenderSnippet(body string, maxRunes int) string {
+	if maxRunes <= 0 || len(body) == 0 {
+		return ""
+	}
+
+	var (
+		builder       []rune
+		previousSpace bool
+		truncated     bool
+	)
+
+	for _, ch := range body {
+		if ch == '\n' || ch == '\r' || ch == '\t' || ch == ' ' {
+			if len(builder) == 0 {
+				// Skip leading whitespace.
+				continue
+			}
+
+			if previousSpace {
+				continue
+			}
+
+			if len(builder) >= maxRunes {
+				truncated = true
+				break
+			}
+
+			builder = append(builder, ' ')
+			previousSpace = true
+
+			continue
+		}
+
+		if len(builder) >= maxRunes {
+			truncated = true
+			break
+		}
+
+		builder = append(builder, ch)
+		previousSpace = false
+	}
+
+	// Strip trailing space (only one possible because we collapsed).
+	for len(builder) > 0 && builder[len(builder)-1] == ' ' {
+		builder = builder[:len(builder)-1]
+	}
+
+	if len(builder) == 0 {
+		return ""
+	}
+
+	result := string(builder)
+
+	if truncated {
+		result += "…"
+	}
+
+	return result
+}

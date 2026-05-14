@@ -127,3 +127,29 @@ func TestSemanticRank_DeterministicTieBreakByNodeID(test *testing.T) {
 		test.Errorf("equal scores should sort by NodeID ascending; got %+v", ranked)
 	}
 }
+
+func TestRenderSnippet(test *testing.T) {
+	cases := []struct {
+		name     string
+		body     string
+		maxRunes int
+		want     string
+	}{
+		{"empty", "", 200, ""},
+		{"short, no newlines", "hello world", 200, "hello world"},
+		{"newlines collapsed", "hello\nworld\n\nfoo", 200, "hello world foo"},
+		{"truncated with ellipsis", "abcdefghij", 5, "abcde…"},
+		{"rune boundary preserved", "héllo世界", 6, "héllo世…"},
+		{"trailing whitespace trimmed", "abc   \n  ", 200, "abc"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(inner *testing.T) {
+			got := filter.RenderSnippet(testCase.body, testCase.maxRunes)
+
+			if got != testCase.want {
+				inner.Errorf("RenderSnippet(%q, %d) = %q, want %q", testCase.body, testCase.maxRunes, got, testCase.want)
+			}
+		})
+	}
+}
