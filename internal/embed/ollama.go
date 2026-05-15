@@ -16,7 +16,8 @@ type OllamaConfig struct {
 	Endpoint string
 	Model    string
 	Dim      int
-	Logger   *slog.Logger // optional; nil silences output
+	Logger   *slog.Logger  // optional; nil silences output
+	Timeout  time.Duration // optional; zero falls back to 30s
 }
 
 // OllamaEmbedder calls Ollama's POST /api/embeddings to embed payloads.
@@ -25,11 +26,22 @@ type OllamaEmbedder struct {
 	client *http.Client
 }
 
+// defaultOllamaTimeout is the fallback HTTP client timeout when
+// OllamaConfig.Timeout is unset. Production callers pass a larger value
+// from manifest.Embeddings.TimeoutSeconds (default 120s); this constant
+// preserves prior behavior for callers that don't set the field.
+const defaultOllamaTimeout = 30 * time.Second
+
 // NewOllamaEmbedder constructs an OllamaEmbedder with sensible HTTP defaults.
 func NewOllamaEmbedder(config OllamaConfig) *OllamaEmbedder {
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = defaultOllamaTimeout
+	}
+
 	return &OllamaEmbedder{
 		config: config,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{Timeout: timeout},
 	}
 }
 
