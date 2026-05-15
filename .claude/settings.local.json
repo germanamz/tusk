@@ -51,7 +51,15 @@
       "Bash(gh run *)",
       "Read(//home/vscode/.claude/**)",
       "Bash(git checkout *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "mcp__tusk__tusk_query",
+      "Skill(superpowers:test-driven-development)",
+      "mcp__tusk__tusk_status",
+      "Bash(time ./bin/tusk reindex)",
+      "Bash(./bin/tusk status *)",
+      "Bash(./bin/tusk doctor *)",
+      "Bash(./bin/tusk reindex *)",
+      "Bash(./bin/tusk query *)"
     ]
   },
   "enableAllProjectMcpServers": true,
