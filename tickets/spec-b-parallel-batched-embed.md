@@ -14,14 +14,13 @@ Expected impact, grounded by the doctor stats block on this workspace (51 nodes,
 ## Pointers
 
 - Design spec: [[docs/superpowers/specs/2026-05-14-parallel-batched-embed-design]]
+- Implementation plan: [[docs/superpowers/plans/2026-05-15-parallel-batched-embed]]
 - Handoff: [[docs/handoffs/2026-05-14-spec-b-parallel-batched-embed]]
 - Predecessor handoff (full context for #1–#10): [[docs/handoffs/2026-05-13-embed-chunking-followups]]
 - Predecessor PR (snippet + doctor): #380
 - Sequential drain code to replace: `internal/embed/drain.go`
 - Embedder interface to extend: `internal/embed/embedder.go`, `internal/embed/ollama.go`
 - Retry semantics that must be preserved: PR #369 (`MaxEmbedAttempts = 3`, per-node atomicity)
-
-The plan note (when written) will be added via a `references` edge from this ticket.
 
 ## Out of scope
 
@@ -31,5 +30,5 @@ The plan note (when written) will be added via a `references` edge from this tic
 
 ## Phasing
 
-- **Phase 1 — #9 parallel workers (+ timeout knob).** Biggest wall-clock win, narrowest blast radius. Ships as its own PR.
-- **Phase 2 — #10 batched Ollama requests.** Composes on top of Phase 1. Adds `BatchEmbedder` optional interface; drain prefers batch when available. Ships as its own PR.
+- **Phase 1 — #9 parallel workers (+ timeout knob).** Biggest wall-clock win, narrowest blast radius. Ships as its own PR. See plan tasks 1–5.
+- **Phase 2 — #10 batched Ollama requests.** Composes on top of Phase 1. Adds `BatchEmbedder` optional interface; drain prefers batch when available. Ships as its own PR. See plan tasks 6–10.
