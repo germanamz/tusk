@@ -1,6 +1,7 @@
 package filter_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/embed"
@@ -125,6 +126,68 @@ func TestSemanticRank_DeterministicTieBreakByNodeID(test *testing.T) {
 
 	if ranked[0].NodeID != "apple" || ranked[1].NodeID != "mango" || ranked[2].NodeID != "zebra" {
 		test.Errorf("equal scores should sort by NodeID ascending; got %+v", ranked)
+	}
+}
+
+func TestRenderSnippetForQuery_WindowsAroundMatch(test *testing.T) {
+	prefix := strings.Repeat("alpha beta gamma ", 20)
+	suffix := strings.Repeat("delta epsilon ", 20)
+	body := prefix + "tusk is a graph-aware vault " + suffix
+
+	got := filter.RenderSnippetForQuery(body, "tusk", 80)
+
+	if !strings.Contains(strings.ToLower(got), "tusk") {
+		test.Errorf("snippet should contain match; got %q", got)
+	}
+
+	if !strings.HasPrefix(got, "…") {
+		test.Errorf("snippet should start with ellipsis when match is not near body start; got %q", got)
+	}
+
+	// Bound the result to roughly maxRunes (allow a few runes of slack for
+	// word-boundary expansion and ellipses).
+	runeCount := len([]rune(got))
+	if runeCount > 90 {
+		test.Errorf("snippet runeCount = %d, want <= 90", runeCount)
+	}
+}
+
+func TestRenderSnippetForQuery_FallsBackWhenNoMatch(test *testing.T) {
+	body := "this body has no relevant tokens whatsoever"
+
+	got := filter.RenderSnippetForQuery(body, "xyzzy", 200)
+	want := filter.RenderSnippet(body, 200)
+
+	if got != want {
+		test.Errorf("fallback mismatch:\n got = %q\nwant = %q", got, want)
+	}
+}
+
+func TestRenderSnippetForQuery_StopwordsIgnored(test *testing.T) {
+	filler := strings.Repeat("lorem ipsum dolor sit amet ", 10)
+	body := "The quick brown fox " + filler + "tusk appears here " + filler
+
+	got := filter.RenderSnippetForQuery(body, "what is the tusk", 80)
+
+	if !strings.Contains(strings.ToLower(got), "tusk") {
+		test.Errorf("snippet should window around 'tusk'; got %q", got)
+	}
+
+	// If the stopword "the" at position 0 had won, the snippet would start
+	// with "The quick" and lack a leading ellipsis.
+	if strings.HasPrefix(got, "The quick") {
+		test.Errorf("stopword 'the' should not have driven the window; got %q", got)
+	}
+}
+
+func TestRenderSnippetForQuery_EmptyQueryMatchesLegacy(test *testing.T) {
+	body := "hello\nworld\n\nfoo bar baz"
+
+	got := filter.RenderSnippetForQuery(body, "", 200)
+	want := filter.RenderSnippet(body, 200)
+
+	if got != want {
+		test.Errorf("empty query should behave like RenderSnippet:\n got = %q\nwant = %q", got, want)
 	}
 }
 
