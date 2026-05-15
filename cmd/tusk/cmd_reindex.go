@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
@@ -63,11 +64,14 @@ func newReindexCmd() *cobra.Command {
 				var embeddingRepo *index.EmbeddingRepo
 
 				if loaded.Embeddings.Provider == "ollama" {
+					timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
+
 					embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
 						Endpoint: loaded.Embeddings.Endpoint,
 						Model:    loaded.Embeddings.Model,
 						Dim:      loaded.Embeddings.Dim,
 						Logger:   logger,
+						Timeout:  timeout,
 					})
 					chunker = embed.MarkdownRecursive{}
 					embedQueue = index.NewEmbedQueueRepo(store)
@@ -90,6 +94,7 @@ func newReindexCmd() *cobra.Command {
 					NodeTypes:       loaded.NodeTypes,
 					PropertyDrift:   index.NewPropertyDriftRepo(store),
 					Logger:          logger,
+					Workers:         embed.ResolveWorkers(loaded.Embeddings.Workers),
 				})
 
 				if runErr != nil {

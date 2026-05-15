@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/filter"
@@ -146,10 +147,13 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 		return fmt.Errorf("--semantic: unsupported provider %q (Plan 5 supports ollama only)", loaded.Embeddings.Provider)
 	}
 
+	timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
+
 	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
 		Endpoint: loaded.Embeddings.Endpoint,
 		Model:    loaded.Embeddings.Model,
 		Dim:      loaded.Embeddings.Dim,
+		Timeout:  timeout,
 	})
 
 	queryVector, queryErr := embedder.Embed(context.Background(), []byte(semanticQuery))

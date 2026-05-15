@@ -39,6 +39,7 @@ type Runtime struct {
 
 	Embedder embed.Embedder
 	Chunker  embed.ChunkingStrategy
+	Workers  int
 
 	Logger *slog.Logger // optional; nil silences output
 
@@ -139,13 +140,17 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	}
 
 	if loaded.Embeddings.Provider == "ollama" {
+		timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
+
 		rt.Embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
 			Endpoint: loaded.Embeddings.Endpoint,
 			Model:    loaded.Embeddings.Model,
 			Dim:      loaded.Embeddings.Dim,
 			Logger:   rt.Logger,
+			Timeout:  timeout,
 		})
 		rt.Chunker = embed.MarkdownRecursive{}
+		rt.Workers = embed.ResolveWorkers(loaded.Embeddings.Workers)
 	}
 
 	return rt, nil

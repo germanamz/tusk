@@ -44,6 +44,7 @@ func RunDrainer(ctx context.Context, config DrainerConfig) error {
 				Embeddings: config.Runtime.Embeddings,
 				Embedder:   config.Runtime.Embedder,
 				Chunker:    config.Runtime.Chunker,
+				Workers:    config.Runtime.Workers,
 			})
 
 			if drainErr != nil && config.Logger != nil {
