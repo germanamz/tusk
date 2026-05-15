@@ -113,6 +113,26 @@ func argIntOptional(request mcpgo.CallToolRequest, key string, defaultValue int)
 	return defaultValue
 }
 
+// argFloatOptional extracts an optional numeric argument from the request as a
+// float64. Returns defaultValue when the key is absent or not numeric.
+func argFloatOptional(request mcpgo.CallToolRequest, key string, defaultValue float64) float64 {
+	args := request.GetArguments()
+
+	raw, ok := args[key]
+	if !ok {
+		return defaultValue
+	}
+
+	switch typed := raw.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	}
+
+	return defaultValue
+}
+
 // argMap extracts an optional map argument from the request.
 func argMap(request mcpgo.CallToolRequest, key string) map[string]any {
 	args := request.GetArguments()
@@ -282,6 +302,7 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
+		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum cosine similarity to include in semantic results (default 0.5). Lower this when an initial query misses.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -295,6 +316,7 @@ func registerQueryTool(srv *Server) {
 		take := argIntOptional(request, "take", 0)
 		skip := argIntOptional(request, "skip", 0)
 		semanticQuery := argStringOptional(request, "semantic")
+		minScore := argFloatOptional(request, "min_score", 0.5)
 
 		expr, parseErrs := filter.NewParser(filterText).Parse()
 
@@ -387,21 +409,42 @@ func registerQueryTool(srv *Server) {
 
 		ranked := filter.SemanticRank(candidates, queryVector)
 
-		if take > 0 {
-			startIdx := skip
+		filteredBelowMinScore := 0
 
-			if startIdx > len(ranked) {
-				startIdx = len(ranked)
+		if minScore > 0 {
+			kept := ranked[:0]
+
+			for _, scored := range ranked {
+				if scored.Score >= minScore {
+					kept = append(kept, scored)
+
+					continue
+				}
+
+				filteredBelowMinScore++
 			}
 
-			endIdx := startIdx + take
-
-			if endIdx > len(ranked) {
-				endIdx = len(ranked)
-			}
-
-			ranked = ranked[startIdx:endIdx]
+			ranked = kept
 		}
+
+		effectiveTake := take
+		if effectiveTake <= 0 {
+			effectiveTake = 10
+		}
+
+		startIdx := skip
+
+		if startIdx > len(ranked) {
+			startIdx = len(ranked)
+		}
+
+		endIdx := startIdx + effectiveTake
+
+		if endIdx > len(ranked) {
+			endIdx = len(ranked)
+		}
+
+		ranked = ranked[startIdx:endIdx]
 
 		ranking := make([]map[string]any, 0, len(ranked))
 		byID := map[string]queryResult{}
@@ -417,15 +460,21 @@ func registerQueryTool(srv *Server) {
 				"type":    byID[scored.NodeID].Type,
 				"path":    byID[scored.NodeID].Path,
 				"title":   byID[scored.NodeID].Title,
-				"snippet": filter.RenderSnippet(scored.BestChunkBody, 200),
+				"snippet": filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
 			})
 		}
 
-		return toolJSON(map[string]any{
+		response := map[string]any{
 			"results": ranking,
 			"count":   len(ranking),
 			"model":   srv.runtime.Embedder.Model(),
-		})
+		}
+
+		if len(ranking) == 0 && filteredBelowMinScore > 0 {
+			response["filtered_below_min_score"] = filteredBelowMinScore
+		}
+
+		return toolJSON(response)
 	}
 
 	srv.register(tool, handler)
