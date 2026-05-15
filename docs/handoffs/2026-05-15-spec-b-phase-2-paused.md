@@ -12,6 +12,16 @@ The pause is not a regression on the work; it's the implementer flagging a spec-
 
 ---
 
+## Prerequisite — run the host-Ollama probe first
+
+Before acting on anything below, read [[docs/handoffs/2026-05-15-spec-b-host-ollama-probe]]. It dispatches a Claude session **on the Mac host** to install Metal-accelerated Ollama natively and measure per-call embed latency. Docker Desktop on macOS can't pass Metal through to the Linux container, so the in-container Ollama referenced throughout this file is CPU-bound by hardware, not by configuration.
+
+If the host probe shows Metal Ollama delivers ≤100ms per chunk-sized embed call (expected on Apple Silicon), **most of this handoff becomes obsolete**: Phase 2's batching has no meaningful headroom against a sub-100ms baseline, and Spec B should be closed as "obsoleted by GPU embedding" rather than re-spec'd. The empirical probes below were designed for the CPU regime; on Metal the relevant measurement is full-reindex wall-clock against the 704s CPU baseline, not the batch-vs-singular microbenchmark.
+
+Only fall through to "What to do FIRST in the next session" and the spec/plan edits below if the host probe comes back negative (Intel Mac, Metal not active, or single-call latency still > 500ms).
+
+---
+
 ## Branch state
 
 ```
