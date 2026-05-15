@@ -5,6 +5,10 @@ title: Parallel Embed Workers + Batched Ollama Requests — Design
 
 # Parallel Embed Workers + Batched Ollama Requests
 
+> **Status: superseded by host-Metal Ollama (2026-05-15).** Phase 1 (parallel workers + timeout knob) shipped in PR #381 and is still useful as a manifest-tunable safety knob. Phase 2 (batched `/api/embed`) was obsoleted before implementation: the host-Ollama Metal probe ([[docs/probes/2026-05-15-host-ollama-metal]]) brought per-call latency to ~71 ms, dropping the full reindex from 704 s to 41 s. Batching had only a 22% per-item win at that point — below the 30% threshold this spec set as the bar to justify the wire-format rework. See [[tickets/spec-b-parallel-batched-embed]] for the closeout summary.
+>
+> The text below is preserved as the original design context.
+
 ## Why
 
 Embedding throughput on CPU Ollama is unusably slow for medium workspaces, and the hardcoded 30-second HTTP timeout in `internal/embed/ollama.go:32` silently caps how long a single embedding call can take — right at the latency a warm CPU `nomic-embed-text` call actually needs. PR #380's smoke test ran into this directly: reindexing this workspace's 51 nodes / 921 chunks took ~670 seconds, and small workspaces routinely hit `embed gave up` retries before completing.

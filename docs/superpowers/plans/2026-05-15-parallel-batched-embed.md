@@ -1,12 +1,20 @@
 ---
 type: plan
 title: Parallel Embed Workers + Batched Ollama — Implementation Plan
-status: draft
+status: shipped
+pr: 381
+shipped-at: "2026-05-15"
 implements:
   - Parallel Embed Workers + Batched Ollama Requests — Design
 ---
 
 # Parallel Embed Workers + Batched Ollama Implementation Plan
+
+> **Phase status (2026-05-15):**
+> - **Phase 1 (workers + timeout knob): shipped** in PR #381. Manifest still accepts `embeddings.workers` and `embeddings.timeout-seconds` as documented below.
+> - **Phase 2 (batched `/api/embed`): cancelled — obsoleted by host-Metal Ollama.** Per-call latency dropped to ~71 ms when Ollama runs natively on the Mac host (see [[docs/probes/2026-05-15-host-ollama-metal]]), making the wire-format work for batching not worth its cost. The Phase 2 sections below are preserved as historical design context; do not implement them.
+>
+> See [[tickets/spec-b-parallel-batched-embed]] for the closeout summary and full measurements.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

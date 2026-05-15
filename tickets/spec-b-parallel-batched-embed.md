@@ -1,11 +1,26 @@
 ---
 type: ticket
 title: Spec B — parallel embed workers + batched Ollama requests
-status: active
+status: completed
 priority: high
 ---
 
-## Outcome
+## Resolution — closed as obsoleted (2026-05-15)
+
+Phase 1 shipped (PR #381, `workers` knob + 30s→120s timeout default). Phase 2 (batched `/api/embed`) is **obsoleted by Metal-accelerated host Ollama**, not by additional code.
+
+Measurement (Apple M1 Max, Ollama 0.23.4, `nomic-embed-text`, full reindex of this workspace):
+
+| | CPU (in-container) | Metal (host) | Speedup |
+|---|---|---|---|
+| Per-call embed latency | ~1.5–2 s | **71 ms** | ~25× |
+| Full reindex wall-clock | **704 s** | **41 s** | **17×** |
+
+Embedding is now ~6% of reindex wall-clock; the rest is filesystem walk + DB writes. `/api/embed` batch-of-8 was measured at only 22% faster per item than singular calls — below the 30% threshold the spec set to justify the wire-format work, and irrelevant given the absolute numbers. See [[docs/probes/2026-05-15-host-ollama-metal]] for the full probe log and the decision matrix that closed this out. The supporting handoffs are [[docs/handoffs/2026-05-15-spec-b-phase-2-paused]] (the in-container pause that triggered the probe) and [[docs/handoffs/2026-05-15-spec-b-host-ollama-probe]] (the host-session briefing).
+
+Operational note: keep host Ollama on `127.0.0.1:11434`. Exposing it to the devcontainer would also expose it to the LAN on this network shape; the devcontainer can fall back to its in-container CPU Ollama or run a `socat`-on-demand bridge when the user opts in.
+
+## Outcome (original)
 
 Embed throughput on CPU Ollama is unusably slow for medium workspaces: ~30s per chunk, sequential, with a hardcoded 30s timeout that the embedder itself routinely brushes against. Spec B fixes this with two composable changes — parallel worker pool inside `embed.DrainQueue` (#9), and batched Ollama `/api/embeddings` requests (#10) — landing as two PRs.
 
