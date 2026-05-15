@@ -227,6 +227,122 @@ dim = 768
 	}
 }
 
+func TestLoad_ParsesEmbeddingsWorkers(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model    = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+dim      = 768
+workers  = 6
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if loaded.Embeddings.Workers != 6 {
+		test.Errorf("Workers = %d, want 6", loaded.Embeddings.Workers)
+	}
+}
+
+func TestLoad_ParsesEmbeddingsTimeoutSeconds(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider        = "ollama"
+model           = "nomic-embed-text"
+endpoint        = "http://localhost:11434"
+dim             = 768
+timeout-seconds = 240
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if loaded.Embeddings.TimeoutSeconds != 240 {
+		test.Errorf("TimeoutSeconds = %d, want 240", loaded.Embeddings.TimeoutSeconds)
+	}
+}
+
+func TestLoad_RejectsNegativeWorkers(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	// Use -1 (not 0) because go-toml decodes both absent and explicit-zero
+	// as int(0); the validator can't distinguish those, so "absent" wins.
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model    = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+dim      = 768
+workers  = -1
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+	if loadErr == nil {
+		test.Fatalf("Load: expected error for workers=-1")
+	}
+	if !strings.Contains(loadErr.Error(), "workers") {
+		test.Errorf("Load error = %q, want it to mention 'workers'", loadErr.Error())
+	}
+}
+
+func TestLoad_RejectsNegativeTimeoutSeconds(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider        = "ollama"
+model           = "nomic-embed-text"
+endpoint        = "http://localhost:11434"
+dim             = 768
+timeout-seconds = -5
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+	if loadErr == nil {
+		test.Fatalf("Load: expected error for timeout-seconds=-5")
+	}
+	if !strings.Contains(loadErr.Error(), "timeout-seconds") {
+		test.Errorf("Load error = %q, want it to mention 'timeout-seconds'", loadErr.Error())
+	}
+}
+
 func TestLoad_RejectsUnknownEmbeddingsProvider(test *testing.T) {
 	tmpDir := test.TempDir()
 	manifestPath := filepath.Join(tmpDir, "tusk.toml")
