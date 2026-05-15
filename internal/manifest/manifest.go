@@ -58,12 +58,19 @@ type WorkspaceSection struct {
 //
 // Plan 5 supports provider = "ollama" only; the loader rejects other values.
 // API providers (openai/voyage/anthropic) land in Plan 5.x.
+//
+// Workers, BatchSize, and TimeoutSeconds tune the embedding pipeline:
+// Workers caps concurrency per node, BatchSize caps prompts per HTTP call
+// (Phase 2 of Spec B), TimeoutSeconds sets the HTTP client timeout for
+// the embedder. All optional; sensible defaults apply when omitted.
 type EmbeddingsSection struct {
-	Provider string `toml:"provider"`
-	Model    string `toml:"model"`
-	Endpoint string `toml:"endpoint"`
-	Dim      int    `toml:"dim"`
-	APIKey   string `toml:"api-key"`
+	Provider       string `toml:"provider"`
+	Model          string `toml:"model"`
+	Endpoint       string `toml:"endpoint"`
+	Dim            int    `toml:"dim"`
+	APIKey         string `toml:"api-key"`
+	Workers        int    `toml:"workers"`
+	TimeoutSeconds int    `toml:"timeout-seconds"`
 }
 
 // Cardinality enumerates the legal values for EdgeType.Cardinality.

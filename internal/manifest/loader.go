@@ -437,6 +437,14 @@ func validate(loaded *Manifest) error {
 		if loaded.Embeddings.Model == "" {
 			return fmt.Errorf("manifest: embeddings.model must be set when embeddings.provider is configured")
 		}
+
+		if loaded.Embeddings.Workers < 0 {
+			return fmt.Errorf("manifest: embeddings.workers must be >= 0 (got %d); zero or absent uses the default", loaded.Embeddings.Workers)
+		}
+
+		if loaded.Embeddings.TimeoutSeconds < 0 {
+			return fmt.Errorf("manifest: embeddings.timeout-seconds must be >= 0 (got %d); zero or absent uses the default", loaded.Embeddings.TimeoutSeconds)
+		}
 	}
 
 	return nil

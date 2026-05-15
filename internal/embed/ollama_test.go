@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 )
@@ -194,5 +195,34 @@ func TestOllamaEmbedder_LogsDebugOnRequest(test *testing.T) {
 		if !strings.Contains(output, want) {
 			test.Errorf("expected log to contain %q; got %q", want, output)
 		}
+	}
+}
+
+func TestOllamaEmbedder_RespectsConfiguredTimeout(test *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// Sleep longer than the configured timeout to force a client-side abort.
+		time.Sleep(200 * time.Millisecond)
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`{"embedding":[0.1,0.2,0.3]}`))
+	}))
+
+	defer server.Close()
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+		Endpoint: server.URL,
+		Model:    "stub",
+		Dim:      3,
+		Timeout:  50 * time.Millisecond,
+	})
+
+	_, err := embedder.Embed(context.Background(), []byte("hello"))
+
+	if err == nil {
+		test.Fatalf("Embed: expected timeout error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "context deadline exceeded") &&
+		!strings.Contains(err.Error(), "Client.Timeout") {
+		test.Errorf("Embed error = %q, want a timeout-related error", err.Error())
 	}
 }

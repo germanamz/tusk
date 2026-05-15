@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
@@ -528,5 +530,187 @@ func TestDrainQueue_StoresChunkBody(test *testing.T) {
 
 	if !strings.Contains(rows[0].Body, "body of the chunk") {
 		test.Errorf("first chunk body = %q, want substring 'body of the chunk'", rows[0].Body)
+	}
+}
+
+type sleepStubEmbedder struct {
+	dim   int
+	model string
+	sleep time.Duration
+	mu    sync.Mutex
+	calls int
+}
+
+func (stub *sleepStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	stub.mu.Lock()
+	stub.calls++
+	stub.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(stub.sleep):
+	}
+
+	out := make([]float32, stub.dim)
+	for idx := range out {
+		out[idx] = 0.1
+	}
+
+	return out, nil
+}
+
+func (stub *sleepStubEmbedder) Model() string { return stub.model }
+func (stub *sleepStubEmbedder) Dim() int      { return stub.dim }
+
+func TestDrainQueue_WorkersConcurrencySpeedup(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	// 20 chunks via a body large enough to cross the chunker's MaxBytes.
+	body := strings.Repeat("paragraph paragraph paragraph paragraph.\n\n", 600)
+	createNodeFile(test, root, "notes/big.md", body)
+	nodeRepo.Upsert(index.NodeRow{ID: "notes/big", Type: "note", Path: "notes/big.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	stub := &sleepStubEmbedder{dim: 3, model: "stub", sleep: 50 * time.Millisecond}
+
+	queueRepo.Enqueue("notes/big")
+	t1 := time.Now()
+	_, err := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root: root, Nodes: nodeRepo, Queue: queueRepo, Embeddings: embeddingRepo,
+		Embedder: stub, Chunker: embed.MarkdownRecursive{}, Workers: 1,
+	})
+
+	serial := time.Since(t1)
+
+	if err != nil {
+		test.Fatalf("serial drain: %v", err)
+	}
+
+	embeddingRepo.DeleteByNodeID("notes/big")
+	stub.calls = 0
+	queueRepo.Enqueue("notes/big")
+	t2 := time.Now()
+	_, err = embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root: root, Nodes: nodeRepo, Queue: queueRepo, Embeddings: embeddingRepo,
+		Embedder: stub, Chunker: embed.MarkdownRecursive{}, Workers: 4,
+	})
+
+	parallel := time.Since(t2)
+
+	if err != nil {
+		test.Fatalf("parallel drain: %v", err)
+	}
+
+	if parallel*2 > serial {
+		test.Errorf("parallel (%v) was not measurably faster than serial (%v)", parallel, serial)
+	}
+}
+
+func TestDrainQueue_WorkerErrorAtomicity(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	body := strings.Repeat("paragraph paragraph paragraph paragraph.\n\n", 200)
+	createNodeFile(test, root, "notes/big.md", body)
+	nodeRepo.Upsert(index.NodeRow{ID: "notes/big", Type: "note", Path: "notes/big.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"})
+	queueRepo.Enqueue("notes/big")
+
+	// Permanent failure: every embed call errors. Across MaxEmbedAttempts
+	// retries, no chunk should ever be persisted (per-node atomicity), and
+	// the queue eventually drops the node after the give-up.
+	stub := &alwaysFailingSleepStubEmbedder{dim: 3, model: "stub", sleep: 1 * time.Millisecond}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	_, err := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root: root, Nodes: nodeRepo, Queue: queueRepo, Embeddings: embeddingRepo,
+		Embedder: stub, Chunker: embed.MarkdownRecursive{}, Workers: 4,
+		Logger: logger,
+	})
+
+	if err != nil {
+		test.Fatalf("DrainQueue: %v", err)
+	}
+
+	// Per-node atomicity: at no point are partial chunks persisted. Because
+	// every attempt fails, the final state is zero rows.
+	rows, _ := embeddingRepo.GetByNodeID("notes/big")
+	if len(rows) != 0 {
+		test.Errorf("rows after error = %d, want 0 (per-node atomicity)", len(rows))
+	}
+
+	// Re-enqueue happened on the first failure (attempts=1) — visible in
+	// logs even though the queue eventually empties via give-up.
+	out := buf.String()
+	if !strings.Contains(out, `msg="embed re-enqueued"`) || !strings.Contains(out, "attempts=1") {
+		test.Errorf("expected first failure to log re-enqueue with attempts=1; got %q", out)
+	}
+}
+
+type alwaysFailingSleepStubEmbedder struct {
+	dim   int
+	model string
+	sleep time.Duration
+	mu    sync.Mutex
+	calls int
+}
+
+func (stub *alwaysFailingSleepStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	stub.mu.Lock()
+	stub.calls++
+	stub.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(stub.sleep):
+	}
+
+	return nil, fmt.Errorf("stub: forced failure")
+}
+
+func (stub *alwaysFailingSleepStubEmbedder) Model() string { return stub.model }
+func (stub *alwaysFailingSleepStubEmbedder) Dim() int      { return stub.dim }
+
+func TestDrainQueue_WorkersDefaultParityWithSerial(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "notes/a.md", "hi")
+	nodeRepo.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"})
+	queueRepo.Enqueue("notes/a")
+
+	// Workers field NOT set → must default to 1 and produce identical
+	// behavior to the pre-Spec-B code path.
+	_, err := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root: root, Nodes: nodeRepo, Queue: queueRepo, Embeddings: embeddingRepo,
+		Embedder: &drainStubEmbedder{dim: 3, model: "stub"},
+		Chunker:  embed.WholeDocument{}, BatchSize: 50,
+	})
+
+	if err != nil {
+		test.Fatalf("DrainQueue: %v", err)
+	}
+
+	rows, _ := embeddingRepo.GetByNodeID("notes/a")
+	if len(rows) != 1 {
+		test.Errorf("rows = %d, want 1", len(rows))
 	}
 }

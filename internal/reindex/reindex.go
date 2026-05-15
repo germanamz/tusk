@@ -62,6 +62,10 @@ type Config struct {
 	// Logger is optional; when set, Run emits structured logs to it.
 	// Forwarded into embed.DrainConfig.Logger when the embedding pipeline runs.
 	Logger *slog.Logger
+
+	// Workers caps concurrent embed calls per node when the embedding pipeline
+	// runs. Forwarded to embed.DrainConfig.Workers. Zero means "serial".
+	Workers int
 }
 
 // Report summarizes a reindex pass.
@@ -396,6 +400,7 @@ func Run(config Config) (*Report, error) {
 			Embeddings: config.EmbeddingRepo,
 			Embedder:   config.Embedder,
 			Chunker:    config.Chunker,
+			Workers:    config.Workers,
 			Logger:     config.Logger,
 		}); drainErr != nil {
 			return nil, drainErr

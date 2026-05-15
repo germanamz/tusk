@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -29,7 +31,8 @@ type DrainConfig struct {
 	Embeddings *index.EmbeddingRepo  // embeddings repo (required when Embedder is set)
 	Embedder   Embedder              // when nil, DrainQueue is a no-op
 	Chunker    ChunkingStrategy      // required when Embedder is set
-	BatchSize  int                   // optional; defaults to 50
+	BatchSize  int                   // queue rows pulled per drain iteration; defaults to 50
+	Workers    int                   // concurrent embed calls per node; defaults to 1 (serial)
 	Logger     *slog.Logger          // optional; nil silences output
 }
 
@@ -150,73 +153,163 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
-			nodeFailed := false
+			workers := config.Workers
+
+			if workers < 1 {
+				workers = 1
+			}
+
+			workers = min(workers, len(bodyChunks))
+
+			type embedJob struct {
+				chunkIdx int
+				payload  []byte
+			}
+
+			type embedResult struct {
+				chunkIdx     int
+				vector       []float32
+				body         []byte
+				payloadBytes int
+				latency      time.Duration
+				err          error
+			}
+
+			nodeCtx, cancel := context.WithCancel(ctx)
+
+			jobs := make(chan embedJob, len(bodyChunks))
+			results := make(chan embedResult, len(bodyChunks))
+
+			var wg sync.WaitGroup
+
+			for w := 0; w < workers; w++ {
+				wg.Add(1)
+
+				go func() {
+					defer wg.Done()
+
+					for job := range jobs {
+						if nodeCtx.Err() != nil {
+							results <- embedResult{chunkIdx: job.chunkIdx, payloadBytes: len(job.payload), err: nodeCtx.Err()}
+
+							continue
+						}
+
+						embedStart := time.Now()
+						vec, err := config.Embedder.Embed(nodeCtx, job.payload)
+						latency := time.Since(embedStart)
+						results <- embedResult{
+							chunkIdx:     job.chunkIdx,
+							vector:       vec,
+							body:         job.payload[len(header):], // body is payload minus header
+							payloadBytes: len(job.payload),
+							latency:      latency,
+							err:          err,
+						}
+					}
+				}()
+			}
 
 			for chunkIdx, bodyChunk := range bodyChunks {
 				payload := make([]byte, 0, len(header)+len(bodyChunk))
 				payload = append(payload, header...)
 				payload = append(payload, bodyChunk...)
+				jobs <- embedJob{chunkIdx: chunkIdx, payload: payload}
+			}
 
-				embedStart := time.Now()
+			close(jobs)
 
-				vector, embedErr := config.Embedder.Embed(ctx, payload)
+			go func() {
+				wg.Wait()
+				close(results)
+			}()
 
-				embedLatency := time.Since(embedStart)
+			collected := make([]embedResult, 0, len(bodyChunks))
 
-				if embedErr != nil {
-					if config.Logger != nil {
-						config.Logger.Warn("embed call failed",
-							"node_id", queued.NodeID,
-							"chunk_idx", chunkIdx,
-							"chunks_total", len(bodyChunks),
-							"payload_bytes", len(payload),
-							"model", config.Embedder.Model(),
-							"err", embedErr.Error(),
-						)
-					}
+			// "first" here means first by completion order, not by submission order —
+			// multiple chunks may be in-flight; we report one example failing chunk,
+			// not necessarily the lowest chunk_idx.
+			var (
+				firstErr          error
+				firstErrChunkIdx  int
+				firstErrPayloadSz int
+			)
 
-					nextAttempts := queued.Attempts + 1
+			for res := range results {
+				if res.err != nil && firstErr == nil {
+					firstErr = res.err
+					firstErrChunkIdx = res.chunkIdx
+					firstErrPayloadSz = res.payloadBytes
 
-					if nextAttempts >= MaxEmbedAttempts {
-						if config.Logger != nil {
-							config.Logger.Warn("embed gave up",
-								"node_id", queued.NodeID,
-								"attempts", nextAttempts,
-								"err", embedErr.Error(),
-							)
-						}
-					} else {
-						if reEnqErr := config.Queue.ReEnqueue(queued.NodeID, nextAttempts, embedErr.Error()); reEnqErr != nil {
-							if config.Logger != nil {
-								config.Logger.Warn("embed re-enqueue failed",
-									"node_id", queued.NodeID,
-									"err", reEnqErr.Error(),
-								)
-							}
-						} else if config.Logger != nil {
-							config.Logger.Warn("embed re-enqueued",
-								"node_id", queued.NodeID,
-								"attempts", nextAttempts,
-							)
-						}
-					}
-
-					batchFailed++
-					nodeFailed = true
-
-					break
+					cancel()
 				}
 
+				collected = append(collected, res)
+			}
+
+			cancel()
+
+			if firstErr != nil {
+				if config.Logger != nil {
+					config.Logger.Warn("embed call failed",
+						"node_id", queued.NodeID,
+						"chunk_idx", firstErrChunkIdx,
+						"chunks_total", len(bodyChunks),
+						"payload_bytes", firstErrPayloadSz,
+						"model", config.Embedder.Model(),
+						"err", firstErr.Error(),
+					)
+				}
+
+				nextAttempts := queued.Attempts + 1
+
+				if nextAttempts >= MaxEmbedAttempts {
+					if config.Logger != nil {
+						config.Logger.Warn("embed gave up",
+							"node_id", queued.NodeID,
+							"attempts", nextAttempts,
+							"err", firstErr.Error(),
+						)
+					}
+				} else {
+					if reEnqErr := config.Queue.ReEnqueue(queued.NodeID, nextAttempts, firstErr.Error()); reEnqErr != nil {
+						if config.Logger != nil {
+							config.Logger.Warn("embed re-enqueue failed",
+								"node_id", queued.NodeID,
+								"err", reEnqErr.Error(),
+							)
+						}
+					} else if config.Logger != nil {
+						config.Logger.Warn("embed re-enqueued",
+							"node_id", queued.NodeID,
+							"attempts", nextAttempts,
+						)
+					}
+				}
+
+				batchFailed++
+
+				continue
+			}
+
+			sort.Slice(collected, func(i, j int) bool {
+				return collected[i].chunkIdx < collected[j].chunkIdx
+			})
+
+			for _, res := range collected {
+				payload := make([]byte, 0, len(header)+len(res.body))
+				payload = append(payload, header...)
+				payload = append(payload, res.body...)
 				contentHash := sha256.Sum256(payload)
 
 				if upsertErr := config.Embeddings.Upsert(index.EmbeddingRow{
 					NodeID:      queued.NodeID,
-					ChunkIdx:    chunkIdx,
+					ChunkIdx:    res.chunkIdx,
 					Model:       config.Embedder.Model(),
 					ContentHash: hex.EncodeToString(contentHash[:]),
-					Vector:      vector,
+					Vector:      res.vector,
 					Dim:         config.Embedder.Dim(),
-					Body:        string(bodyChunk),
+					Body:        string(res.body),
 				}); upsertErr != nil {
 					return drained, upsertErr
 				}
@@ -224,18 +317,17 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				if config.Logger != nil {
 					config.Logger.Debug("embed attempt success",
 						"node_id", queued.NodeID,
-						"chunk_idx", chunkIdx,
+						"chunk_idx", res.chunkIdx,
 						"chunks_total", len(bodyChunks),
-						"vector_dim", len(vector),
-						"latency_ms", embedLatency.Milliseconds(),
+						"vector_dim", len(res.vector),
+						"latency_ms", res.latency.Milliseconds(),
+						"payload_bytes", res.payloadBytes,
 					)
 				}
 			}
 
-			if !nodeFailed {
-				drained++
-				batchSucceeded++
-			}
+			drained++
+			batchSucceeded++
 		}
 
 		if config.Logger != nil {
