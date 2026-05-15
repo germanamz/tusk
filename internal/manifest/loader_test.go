@@ -247,6 +247,7 @@ workers  = 6
 	}
 
 	loaded, loadErr := manifest.Load(manifestPath)
+
 	if loadErr != nil {
 		test.Fatalf("Load: %v", loadErr)
 	}
@@ -276,6 +277,7 @@ timeout-seconds = 240
 	}
 
 	loaded, loadErr := manifest.Load(manifestPath)
+
 	if loadErr != nil {
 		test.Fatalf("Load: %v", loadErr)
 	}
@@ -307,9 +309,11 @@ workers  = -1
 	}
 
 	_, loadErr := manifest.Load(manifestPath)
+
 	if loadErr == nil {
 		test.Fatalf("Load: expected error for workers=-1")
 	}
+
 	if !strings.Contains(loadErr.Error(), "workers") {
 		test.Errorf("Load error = %q, want it to mention 'workers'", loadErr.Error())
 	}
@@ -335,9 +339,11 @@ timeout-seconds = -5
 	}
 
 	_, loadErr := manifest.Load(manifestPath)
+
 	if loadErr == nil {
 		test.Fatalf("Load: expected error for timeout-seconds=-5")
 	}
+
 	if !strings.Contains(loadErr.Error(), "timeout-seconds") {
 		test.Errorf("Load error = %q, want it to mention 'timeout-seconds'", loadErr.Error())
 	}
