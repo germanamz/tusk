@@ -1,7 +1,7 @@
 ---
 type: ticket
 title: Spec B — parallel embed workers + batched Ollama requests
-status: pending
+status: active
 priority: high
 ---
 
@@ -30,5 +30,5 @@ Expected impact, grounded by the doctor stats block on this workspace (51 nodes,
 
 ## Phasing
 
-- **Phase 1 — #9 parallel workers (+ timeout knob).** Biggest wall-clock win, narrowest blast radius. Ships as its own PR. See plan tasks 1–5.
+- **Phase 1 — #9 parallel workers (+ timeout knob). Shipped 2026-05-15 in PR #381 (squash-merge `66f2e53`).** Throughput measurement on the dogfood workspace (55 nodes, 921 chunks, warm CPU Ollama, `nomic-embed-text`): `workers=1` → 704s; `workers=4` (new default) → 714s. No observable speedup — the Ollama runner held ~9.4 cores on every call, so concurrent workers contend rather than scale on CPU. Validates the `OLLAMA_NUM_PARALLEL` interaction risk the spec flagged. Implication: Phase 2 batching is the load-bearing optimization on this hardware, not an incremental win on top of Phase 1's ~4-5×. See plan tasks 1–5 and [[docs/handoffs/2026-05-15-spec-b-phase-2-handoff]] for full context.
 - **Phase 2 — #10 batched Ollama requests.** Composes on top of Phase 1. Adds `BatchEmbedder` optional interface; drain prefers batch when available. Ships as its own PR. See plan tasks 6–10.
