@@ -249,7 +249,7 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 				"type":    meta.Type,
 				"path":    meta.Path,
 				"title":   meta.Title,
-				"snippet": filter.RenderSnippet(scored.BestChunkBody, 200),
+				"snippet": filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
 			})
 		}
 
@@ -266,7 +266,7 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 		_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%s\n",
 			scored.NodeID,
 			scored.Score,
-			filter.RenderSnippet(scored.BestChunkBody, 200),
+			filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
 		)
 	}
 

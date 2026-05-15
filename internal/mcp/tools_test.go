@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -871,6 +872,270 @@ func TestTool_Query_SemanticIncludesSnippet(test *testing.T) {
 
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
+}
+
+// seedSemanticVault upserts n note nodes and one chunk per node with the
+// given per-index vector and body. Vectors must be dim 3.
+func seedSemanticVault(test *testing.T, rt *mcp.Runtime, n int, vectorFor func(i int) []float32) {
+	test.Helper()
+
+	for offset := 0; offset < n; offset++ {
+		id := fmt.Sprintf("notes/n%02d", offset)
+
+		rt.Nodes.Upsert(index.NodeRow{
+			ID:             id,
+			Type:           "note",
+			Path:           id + ".md",
+			Title:          fmt.Sprintf("Note %02d", offset),
+			PropertiesJSON: "{}",
+			LastChecksum:   "x",
+		})
+
+		if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+			NodeID:      id,
+			ChunkIdx:    0,
+			Model:       "stub",
+			ContentHash: fmt.Sprintf("h%d", offset),
+			Vector:      vectorFor(offset),
+			Dim:         3,
+			Body:        fmt.Sprintf("body %02d", offset),
+		}); upsertErr != nil {
+			test.Fatalf("Upsert n%02d: %v", offset, upsertErr)
+		}
+	}
+}
+
+func TestTool_Query_SemanticDefaultTakeIs10(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	seedSemanticVault(test, rt, 15, func(offset int) []float32 {
+		return []float32{1, 0, 0}
+	})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":   "type=note",
+		"semantic": "anything",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 10 {
+		test.Errorf("len(results) = %d, want 10 (default take)", len(results))
+	}
+}
+
+func TestTool_Query_SemanticHonorsExplicitTake(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	seedSemanticVault(test, rt, 15, func(offset int) []float32 {
+		return []float32{1, 0, 0}
+	})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":   "type=note",
+		"semantic": "anything",
+		"take":     3,
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 3 {
+		test.Errorf("len(results) = %d, want 3", len(results))
+	}
+}
+
+func TestTool_Query_SemanticAppliesMinScoreDefault(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	// Mix of scores against query vector [1, 0, 0]:
+	//   i%4==0 → [1, 0, 0]   score 1.000
+	//   i%4==1 → [3, 4, 0]   score 0.600
+	//   i%4==2 → [1, 2, 0]   score ~0.447 (below 0.5)
+	//   i%4==3 → [1, 9, 0]   score ~0.110 (below 0.5)
+	vectors := [][]float32{
+		{1, 0, 0},
+		{3, 4, 0},
+		{1, 2, 0},
+		{1, 9, 0},
+	}
+
+	seedSemanticVault(test, rt, 8, func(offset int) []float32 {
+		return vectors[offset%4]
+	})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":   "type=note",
+		"semantic": "anything",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 4 {
+		test.Fatalf("len(results) = %d, want 4 (only scores >= 0.5)", len(results))
+	}
+
+	for _, raw := range results {
+		row, _ := raw.(map[string]any)
+		score, _ := row["score"].(float64)
+
+		if score < 0.5 {
+			test.Errorf("row score %v below default min_score 0.5: %v", score, row)
+		}
+	}
+}
+
+func TestTool_Query_SemanticHonorsExplicitMinScore(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	vectors := [][]float32{
+		{1, 0, 0},
+		{3, 4, 0},
+		{1, 2, 0},
+		{1, 9, 0},
+	}
+
+	seedSemanticVault(test, rt, 8, func(offset int) []float32 {
+		return vectors[offset%4]
+	})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":    "type=note",
+		"semantic":  "anything",
+		"min_score": 0.1,
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 8 {
+		test.Errorf("len(results) = %d, want 8 (min_score=0.1 includes all)", len(results))
+	}
+}
+
+func TestTool_Query_SemanticIncludesTitle(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	rt.Nodes.Upsert(index.NodeRow{
+		ID:             "notes/titled",
+		Type:           "note",
+		Path:           "notes/titled.md",
+		Title:          "A Titled Note",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+	})
+
+	if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+		NodeID:      "notes/titled",
+		ChunkIdx:    0,
+		Model:       "stub",
+		ContentHash: "h1",
+		Vector:      []float32{1, 0, 0},
+		Dim:         3,
+		Body:        "chunk body",
+	}); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":   "type=note",
+		"semantic": "anything",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) == 0 {
+		test.Fatalf("results empty")
+	}
+
+	first, _ := results[0].(map[string]any)
+	title, _ := first["title"].(string)
+
+	if title != "A Titled Note" {
+		test.Errorf("first.title = %q, want %q", title, "A Titled Note")
+	}
+}
+
+func TestTool_Query_SemanticReportsFilteredBelowMinScoreWhenEmpty(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	// All vectors score below 0.5.
+	seedSemanticVault(test, rt, 3, func(offset int) []float32 {
+		return []float32{1, 9, 0}
+	})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":   "type=note",
+		"semantic": "anything",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 0 {
+		test.Errorf("len(results) = %d, want 0 (all pruned)", len(results))
+	}
+
+	pruned, ok := body["filtered_below_min_score"].(float64)
+
+	if !ok {
+		test.Fatalf("missing filtered_below_min_score in body: %v", body)
+	}
+
+	if int(pruned) != 3 {
+		test.Errorf("filtered_below_min_score = %v, want 3", pruned)
+	}
 }
 
 func TestTool_Doctor_WithEmbedStats(test *testing.T) {
