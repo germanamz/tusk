@@ -534,28 +534,22 @@ func TestDrainQueue_StoresChunkBody(test *testing.T) {
 }
 
 type sleepStubEmbedder struct {
-	dim       int
-	model     string
-	sleep     time.Duration
-	failChunk int // 0 means never fail; otherwise fail when calls hits this number
-	mu        sync.Mutex
-	calls     int
+	dim   int
+	model string
+	sleep time.Duration
+	mu    sync.Mutex
+	calls int
 }
 
 func (stub *sleepStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
 	stub.mu.Lock()
 	stub.calls++
-	current := stub.calls
 	stub.mu.Unlock()
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(stub.sleep):
-	}
-
-	if stub.failChunk != 0 && current == stub.failChunk {
-		return nil, fmt.Errorf("stub: forced failure on call %d", current)
 	}
 
 	out := make([]float32, stub.dim)
@@ -591,6 +585,7 @@ func TestDrainQueue_WorkersConcurrencySpeedup(test *testing.T) {
 		Root: root, Nodes: nodeRepo, Queue: queueRepo, Embeddings: embeddingRepo,
 		Embedder: stub, Chunker: embed.MarkdownRecursive{}, Workers: 1,
 	})
+
 	serial := time.Since(t1)
 
 	if err != nil {
@@ -605,6 +600,7 @@ func TestDrainQueue_WorkersConcurrencySpeedup(test *testing.T) {
 		Root: root, Nodes: nodeRepo, Queue: queueRepo, Embeddings: embeddingRepo,
 		Embedder: stub, Chunker: embed.MarkdownRecursive{}, Workers: 4,
 	})
+
 	parallel := time.Since(t2)
 
 	if err != nil {
@@ -643,6 +639,7 @@ func TestDrainQueue_WorkerErrorAtomicity(test *testing.T) {
 		Embedder: stub, Chunker: embed.MarkdownRecursive{}, Workers: 4,
 		Logger: logger,
 	})
+
 	if err != nil {
 		test.Fatalf("DrainQueue: %v", err)
 	}
@@ -707,6 +704,7 @@ func TestDrainQueue_WorkersDefaultParityWithSerial(test *testing.T) {
 		Embedder: &drainStubEmbedder{dim: 3, model: "stub"},
 		Chunker:  embed.WholeDocument{}, BatchSize: 50,
 	})
+
 	if err != nil {
 		test.Fatalf("DrainQueue: %v", err)
 	}

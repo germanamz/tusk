@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
@@ -158,9 +159,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				workers = 1
 			}
 
-			if workers > len(bodyChunks) {
-				workers = len(bodyChunks)
-			}
+			workers = min(workers, len(bodyChunks))
 
 			type embedJob struct {
 				chunkIdx int
@@ -172,6 +171,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				vector       []float32
 				body         []byte
 				payloadBytes int
+				latency      time.Duration
 				err          error
 			}
 
@@ -195,12 +195,15 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 							continue
 						}
 
+						embedStart := time.Now()
 						vec, err := config.Embedder.Embed(nodeCtx, job.payload)
+						latency := time.Since(embedStart)
 						results <- embedResult{
 							chunkIdx:     job.chunkIdx,
 							vector:       vec,
 							body:         job.payload[len(header):], // body is payload minus header
 							payloadBytes: len(job.payload),
+							latency:      latency,
 							err:          err,
 						}
 					}
@@ -223,6 +226,9 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 
 			collected := make([]embedResult, 0, len(bodyChunks))
 
+			// "first" here means first by completion order, not by submission order —
+			// multiple chunks may be in-flight; we report one example failing chunk,
+			// not necessarily the lowest chunk_idx.
 			var (
 				firstErr          error
 				firstErrChunkIdx  int
@@ -314,6 +320,8 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 						"chunk_idx", res.chunkIdx,
 						"chunks_total", len(bodyChunks),
 						"vector_dim", len(res.vector),
+						"latency_ms", res.latency.Milliseconds(),
+						"payload_bytes", res.payloadBytes,
 					)
 				}
 			}
