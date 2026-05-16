@@ -11,7 +11,7 @@ func newRootCmd() *cobra.Command {
 		Use:           "tusk",
 		Short:         "Tusk — local-first agent brain",
 		Long:          "Tusk indexes a markdown vault into a graph and serves structural and semantic queries.",
-		Version:       version.String,
+		Version:       version.Current,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

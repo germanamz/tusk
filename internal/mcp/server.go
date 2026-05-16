@@ -23,7 +23,7 @@ type Server struct {
 func NewServer(runtime *Runtime) *Server {
 	core := server.NewMCPServer(
 		"tusk",
-		version.String,
+		version.Current,
 		server.WithToolCapabilities(true),
 	)
 

@@ -11,7 +11,7 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X github.com/germanamz/tusk/internal/version.String=v{{.Version}}
+      - -X github.com/germanamz/tusk/internal/version.Current=v{{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
     goos:
