@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/germanamz/tusk/compare/v1.0.1...v1.0.2) (2026-05-16)
+
+
+### Bug Fixes
+
+* **release:** inject version into binary via ldflags ([#391](https://github.com/germanamz/tusk/issues/391)) ([992e7e4](https://github.com/germanamz/tusk/commit/992e7e48b4ae361cea7bfa8057a9b415ee328513))
+
 ## [1.0.1](https://github.com/germanamz/tusk/compare/v1.0.0...v1.0.1) (2026-05-16)
 
 
