@@ -7,9 +7,7 @@
   "initial-version": "1.0.0",
   "packages": {
     ".": {
-      "package-name": "tusk",
-      "changelog-path": "CHANGELOG.md",
-      "pull-request-title-pattern": "chore(release): release ${version}"
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
