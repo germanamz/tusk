@@ -3,7 +3,6 @@ type: package
 title: internal/embed — semantic indexing
 import-path: github.com/germanamz/tusk/internal/embed
 status: stable
-last-touched-by: Plan 6
 ---
 
 # internal/embed

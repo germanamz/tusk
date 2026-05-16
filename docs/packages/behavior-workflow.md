@@ -3,7 +3,6 @@ type: package
 title: internal/behavior/workflow — workflow Kind
 import-path: github.com/germanamz/tusk/internal/behavior/workflow
 status: stable
-last-touched-by: Plan 7
 ---
 
 # internal/behavior/workflow

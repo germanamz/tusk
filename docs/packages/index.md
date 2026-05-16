@@ -3,7 +3,6 @@ type: package
 title: internal/index — SQLite store
 import-path: github.com/germanamz/tusk/internal/index
 status: stable
-last-touched-by: Plan 7.c.1
 ---
 
 # internal/index

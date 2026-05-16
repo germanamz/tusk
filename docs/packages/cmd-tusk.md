@@ -3,7 +3,6 @@ type: package
 title: cmd/tusk — CLI entry point
 import-path: github.com/germanamz/tusk/cmd/tusk
 status: stable
-last-touched-by: Plan 7.c.4
 ---
 
 # cmd/tusk

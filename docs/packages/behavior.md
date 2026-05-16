@@ -3,7 +3,6 @@ type: package
 title: internal/behavior — pack engine
 import-path: github.com/germanamz/tusk/internal/behavior
 status: stable
-last-touched-by: Plan 7.b
 ---
 
 # internal/behavior

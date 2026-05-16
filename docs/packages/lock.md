@@ -3,7 +3,6 @@ type: package
 title: internal/lock — workspace lock
 import-path: github.com/germanamz/tusk/internal/lock
 status: stable
-last-touched-by: Plan 3
 ---
 
 # internal/lock

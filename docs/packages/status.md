@@ -3,7 +3,6 @@ type: package
 title: internal/status — workspace snapshot
 import-path: github.com/germanamz/tusk/internal/status
 status: stable
-last-touched-by: Plan 6
 ---
 
 # internal/status

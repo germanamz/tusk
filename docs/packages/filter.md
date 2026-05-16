@@ -3,7 +3,6 @@ type: package
 title: internal/filter — filter grammar
 import-path: github.com/germanamz/tusk/internal/filter
 status: stable
-last-touched-by: Plan 5
 ---
 
 # internal/filter

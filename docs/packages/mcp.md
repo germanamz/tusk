@@ -3,7 +3,6 @@ type: package
 title: internal/mcp — MCP server
 import-path: github.com/germanamz/tusk/internal/mcp
 status: stable
-last-touched-by: Plan 7.c.1
 ---
 
 # internal/mcp

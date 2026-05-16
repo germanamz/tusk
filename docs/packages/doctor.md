@@ -3,7 +3,6 @@ type: package
 title: internal/doctor — drift surface
 import-path: github.com/germanamz/tusk/internal/doctor
 status: stable
-last-touched-by: Plan 7.c.1
 ---
 
 # internal/doctor

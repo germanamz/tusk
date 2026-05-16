@@ -3,7 +3,6 @@ type: package
 title: internal/watcher — fsnotify integration
 import-path: github.com/germanamz/tusk/internal/watcher
 status: stable
-last-touched-by: Plan 3
 ---
 
 # internal/watcher

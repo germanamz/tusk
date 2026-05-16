@@ -3,7 +3,6 @@ type: package
 title: internal/ignore — gitignore matcher
 import-path: github.com/germanamz/tusk/internal/ignore
 status: stable
-last-touched-by: Plan 3
 ---
 
 # internal/ignore
