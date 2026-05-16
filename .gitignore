@@ -52,3 +52,6 @@ Thumbs.db
 
 # Go build/module cache (devcontainer fallback location)
 .go-cache/
+
+# Claude Code local settings (per-machine permissions, not for sharing)
+.claude/settings.local.json
