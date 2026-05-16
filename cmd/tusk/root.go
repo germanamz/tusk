@@ -47,6 +47,7 @@ tusk_node_create, …) so agents can use the same surface without a shell.`,
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newMCPCmd())
 	rootCmd.AddCommand(newPackCmd())
+	rootCmd.AddCommand(newDocgenCmd())
 
 	return rootCmd
 }
