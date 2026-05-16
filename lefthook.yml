@@ -40,3 +40,18 @@ pre-commit:
         pkgs=$(go list ./... 2>/dev/null)
         [ -z "$pkgs" ] && exit 0
         go test $pkgs
+
+pre-push:
+  parallel: false
+  commands:
+    docs-drift:
+      # Regenerate CLI docs and fail if anything changed. The man and
+      # markdown trees are checked in, so any edit to Cobra help strings
+      # must be accompanied by their regenerated artifacts.
+      run: |
+        go run ./cmd/tusk docgen man docs/cli
+        if ! git diff --quiet -- man docs/cli; then
+          echo "tusk docgen produced changes. Run 'make docs' and commit the result."
+          git --no-pager diff --stat -- man docs/cli
+          exit 1
+        fi
