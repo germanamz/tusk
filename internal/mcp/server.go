@@ -9,8 +9,9 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// Version reported by the MCP server in its initialize response.
-const Version = "v1.0.0-dev"
+// Version reported by the MCP server in its initialize response. Overridden
+// at release-build time via -ldflags "-X .../internal/mcp.Version=...".
+var Version = "v1.0.0-dev"
 
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
