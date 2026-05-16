@@ -36,6 +36,31 @@ type DrainConfig struct {
 	Logger     *slog.Logger          // optional; nil silences output
 }
 
+// embeddingsMatch reports whether the persisted rows already cover every new
+// chunk: same count, same chunk_idx coverage, same content_hash, same model.
+// Used by DrainQueue to skip re-embedding when content is unchanged.
+func embeddingsMatch(existing []index.EmbeddingRow, newHashes []string, model string) bool {
+	if len(existing) != len(newHashes) {
+		return false
+	}
+
+	byIdx := make(map[int]index.EmbeddingRow, len(existing))
+
+	for _, row := range existing {
+		byIdx[row.ChunkIdx] = row
+	}
+
+	for chunkIdx, hash := range newHashes {
+		row, ok := byIdx[chunkIdx]
+
+		if !ok || row.ContentHash != hash || row.Model != model {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DrainQueue pops every pending row from embed_queue and embeds it. Returns the
 // number of nodes successfully embedded. Failed rows are re-enqueued (with an
 // incremented attempts counter) until MaxEmbedAttempts is reached, at which
@@ -140,6 +165,38 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				)
 			}
 
+			// Short-circuit when every chunk's payload hash already matches an
+			// existing row for this node under the same model. Reindex enqueues
+			// every seen node every pass, so this skip keeps unchanged content
+			// from re-embedding on every watcher tick.
+			chunkPayloads := make([][]byte, len(bodyChunks))
+			chunkHashes := make([]string, len(bodyChunks))
+
+			for chunkIdx, bodyChunk := range bodyChunks {
+				payload := make([]byte, 0, len(header)+len(bodyChunk))
+				payload = append(payload, header...)
+				payload = append(payload, bodyChunk...)
+				hash := sha256.Sum256(payload)
+				chunkPayloads[chunkIdx] = payload
+				chunkHashes[chunkIdx] = hex.EncodeToString(hash[:])
+			}
+
+			existingRows, existingErr := config.Embeddings.GetByNodeID(queued.NodeID)
+
+			if existingErr == nil && embeddingsMatch(existingRows, chunkHashes, config.Embedder.Model()) {
+				if config.Logger != nil {
+					config.Logger.Debug("embed skip unchanged",
+						"node_id", queued.NodeID,
+						"chunks", len(bodyChunks),
+					)
+				}
+
+				drained++
+				batchSucceeded++
+
+				continue
+			}
+
 			if delErr := config.Embeddings.DeleteByNodeID(queued.NodeID); delErr != nil {
 				if config.Logger != nil {
 					config.Logger.Warn("embed delete-before-insert failed",
@@ -210,10 +267,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				}()
 			}
 
-			for chunkIdx, bodyChunk := range bodyChunks {
-				payload := make([]byte, 0, len(header)+len(bodyChunk))
-				payload = append(payload, header...)
-				payload = append(payload, bodyChunk...)
+			for chunkIdx, payload := range chunkPayloads {
 				jobs <- embedJob{chunkIdx: chunkIdx, payload: payload}
 			}
 
@@ -297,16 +351,11 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			})
 
 			for _, res := range collected {
-				payload := make([]byte, 0, len(header)+len(res.body))
-				payload = append(payload, header...)
-				payload = append(payload, res.body...)
-				contentHash := sha256.Sum256(payload)
-
 				if upsertErr := config.Embeddings.Upsert(index.EmbeddingRow{
 					NodeID:      queued.NodeID,
 					ChunkIdx:    res.chunkIdx,
 					Model:       config.Embedder.Model(),
-					ContentHash: hex.EncodeToString(contentHash[:]),
+					ContentHash: chunkHashes[res.chunkIdx],
 					Vector:      res.vector,
 					Dim:         config.Embedder.Dim(),
 					Body:        string(res.body),
