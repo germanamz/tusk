@@ -7,10 +7,9 @@ import (
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-)
 
-// Version reported by the MCP server in its initialize response.
-const Version = "v1.0.0-dev"
+	"github.com/germanamz/tusk/internal/version"
+)
 
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
@@ -24,7 +23,7 @@ type Server struct {
 func NewServer(runtime *Runtime) *Server {
 	core := server.NewMCPServer(
 		"tusk",
-		Version,
+		version.Current,
 		server.WithToolCapabilities(true),
 	)
 

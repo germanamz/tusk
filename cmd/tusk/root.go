@@ -1,15 +1,17 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
 
-const versionString = "v1.0.0-dev"
+	"github.com/germanamz/tusk/internal/version"
+)
 
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "tusk",
 		Short:         "Tusk — local-first agent brain",
 		Long:          "Tusk indexes a markdown vault into a graph and serves structural and semantic queries.",
-		Version:       versionString,
+		Version:       version.Current,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
