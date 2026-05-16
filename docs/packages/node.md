@@ -3,7 +3,6 @@ type: package
 title: internal/node — node parsing and CRUD
 import-path: github.com/germanamz/tusk/internal/node
 status: stable
-last-touched-by: Plan 7.c.1
 ---
 
 # internal/node

@@ -3,7 +3,6 @@ type: package
 title: internal/manifest — tusk.toml loader
 import-path: github.com/germanamz/tusk/internal/manifest
 status: stable
-last-touched-by: Plan 7.c.1
 ---
 
 # internal/manifest

@@ -3,7 +3,6 @@ type: package
 title: internal/workspace — workspace open/close
 import-path: github.com/germanamz/tusk/internal/workspace
 status: stable
-last-touched-by: Plan 3
 ---
 
 # internal/workspace

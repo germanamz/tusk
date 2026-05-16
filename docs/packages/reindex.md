@@ -3,7 +3,6 @@ type: package
 title: internal/reindex — full reindex pipeline
 import-path: github.com/germanamz/tusk/internal/reindex
 status: stable
-last-touched-by: Plan 7.c.1
 ---
 
 # internal/reindex

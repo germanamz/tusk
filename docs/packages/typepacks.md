@@ -3,7 +3,6 @@ type: package
 title: internal/typepacks — pack platform
 import-path: github.com/germanamz/tusk/internal/typepacks
 status: stable
-last-touched-by: Plan 7.c.1
 ---
 
 # internal/typepacks

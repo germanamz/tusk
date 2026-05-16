@@ -6,17 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Tusk v1 is a local-first agent brain: a markdown vault with a smart, schema-validated, semantically-indexed graph layered on top. Files (markdown + manifest TOML) are the source of truth; git is the history; tusk is the indexer + retrieval engine.
 
-The v1 rebuild is in progress. Until v1 features ship, the authoritative reference for architecture and behavior is the design spec.
+The v1 rebuild has shipped the full CLI and MCP server. The authoritative reference for architecture and behavior is the design spec; per-package detail lives under `docs/packages/`.
 
 ## Spec
 
 - **Design spec:** `docs/superpowers/specs/2026-05-05-tusk-v1-rebuild-design.md` — read this first.
-- **Plans:** `docs/superpowers/plans/2026-05-05-tusk-v1-*.md` — sequenced implementation plans, one per subsystem.
+- **Package docs:** `docs/packages/*.md` — one file per `internal/*` package, describing public surface and intent.
 
-## Commands (during v1 build-out)
+## Commands
 
 ```bash
-make build          # build ./bin/tusk (Plans 1–6 complete: full CLI + MCP server)
+make build          # build ./bin/tusk
 make test           # run unit tests
 make test-race      # tests with race detector
 make vet            # go vet

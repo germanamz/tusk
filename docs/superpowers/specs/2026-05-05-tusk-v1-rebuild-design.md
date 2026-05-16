@@ -152,7 +152,7 @@ Folder structure is **user-defined, not schema-defined**. The engine walks the e
 
 - **Canonical id = workspace-relative path without extension.** `notes/auth-rfc.md` has id `notes/auth-rfc`. Stored as-is in the index, used in edges, used everywhere internally.
 - **No `id:` frontmatter field.** The path *is* the identity. One less reserved key, one less concept.
-- **Wikilinks and CLI references use full ids** (workspace-relative paths without extension). `[[notes/auth-rfc]]` is a valid wikilink; identifiers are unambiguous and trivially validated.
+- **Wikilinks and CLI references use full ids** (workspace-relative paths without extension). A wikilink such as `notes/auth-rfc` wrapped in double square brackets resolves against the canonical id set; identifiers are unambiguous and trivially validated.
 - **Renames rewrite all referring edges atomically.** `tusk node move <old> <new>` is an index-driven operation: query all edges where target = old-id, rewrite the source files' frontmatter. The watcher catches external renames and runs the same operation. Rename is therefore a heavy operation in large vaults — acceptable for v1, can be optimized later (batched writes, parallelism).
 - **Git renames** (during pull/merge) are *not* auto-handled in v1; doctor surfaces orphaned references and the user runs `tusk reindex --force` (or `tusk node move` if the rename is known) to bring things current.
 
@@ -208,7 +208,7 @@ When a `tags:` reference resolves to a path with no corresponding node, the engi
 
 ### 6.4 Wikilinks
 
-Body wikilinks take the form `[[workspace-relative-path]]` — the target is a canonical node id (workspace-relative path without extension). At index time, each resolved wikilink materializes an implicit `references` edge from the containing node to the target.
+Body wikilinks wrap a workspace-relative path (without extension) in double square brackets — the target is a canonical node id. At index time, each resolved wikilink materializes an implicit `references` edge from the containing node to the target.
 
 A wikilink whose target has no corresponding node surfaces in `tusk doctor` as a dangling reference; the wikilink still renders as text in the body but no edge is materialized.
 
