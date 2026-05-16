@@ -18,6 +18,21 @@ func newReindexCmd() *cobra.Command {
 	reindexCmd := &cobra.Command{
 		Use:   "reindex",
 		Short: "Walk the workspace and bring the index up to date with disk",
+		Long: `Walk the workspace and bring the SQLite index up to date with disk.
+
+Reindex compares each file's mtime, size, and checksum against the index
+and re-parses only changed files. Embedding refreshes for changed nodes
+happen lazily — run "tusk watch" alongside, or in the background, to
+drain the embedding queue.
+
+Run reindex after editing files outside Tusk (vim, Obsidian, scripts) or
+after changing node/edge declarations in tusk.toml.`,
+		Example: `  # Catch the index up with disk
+  tusk reindex
+
+  # Pair with watch for continuous indexing while you author
+  tusk watch &
+  tusk reindex`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 
