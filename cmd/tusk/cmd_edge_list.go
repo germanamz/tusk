@@ -19,7 +19,17 @@ func newEdgeListCmd() *cobra.Command {
 
 	listCmd := &cobra.Command{
 		Use:   "list",
-		Short: "List edges from the index",
+		Short: "List edges, optionally filtered by source, target, or kind",
+		Long: `List edges in the index.
+
+Filter with any combination of --from, --to, and --kind. Output is a
+tab-aligned table of source, kind, target, attributed source-path.`,
+		Example: `  # All edges that touch a node (either direction)
+  tusk edge list --from tickets/T-001
+  tusk edge list --to   tickets/T-001
+
+  # Every "blocks" edge in the workspace
+  tusk edge list --kind blocks`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

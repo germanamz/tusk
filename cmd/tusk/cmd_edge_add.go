@@ -20,7 +20,18 @@ func newEdgeAddCmd() *cobra.Command {
 
 	addCmd := &cobra.Command{
 		Use:   "add",
-		Short: "Add an edge to the index",
+		Short: "Add a typed edge from one node to another",
+		Long: `Add a typed edge from one node to another.
+
+The edge kind must be declared in tusk.toml. CLI-added edges are
+attributed to a synthetic "__cli__" source path so the next reindex of
+either involved file does not clobber them.`,
+		Example: `  # Mark T-001 as blocking T-002
+  tusk edge add tickets/T-001 blocks tickets/T-002
+
+  # Add multiple edges as part of a script
+  tusk edge add tickets/T-003 mentions notes/2026-05-16
+  tusk edge add tickets/T-003 owned-by people/alice`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if edgeType == "" || source == "" || target == "" {
 				return fmt.Errorf("--type, --source, and --target are required")
