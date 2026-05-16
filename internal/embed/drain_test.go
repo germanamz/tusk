@@ -684,6 +684,90 @@ func (stub *alwaysFailingSleepStubEmbedder) Embed(ctx context.Context, payload [
 func (stub *alwaysFailingSleepStubEmbedder) Model() string { return stub.model }
 func (stub *alwaysFailingSleepStubEmbedder) Dim() int      { return stub.dim }
 
+func TestDrainQueue_SkipsEmbedWhenContentUnchanged(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "notes/stable.md", "unchanged body")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "notes/stable", Type: "note", Path: "notes/stable.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	stub := &drainStubEmbedder{dim: 3, model: "stub"}
+
+	if enqErr := queueRepo.Enqueue("notes/stable"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		Chunker:    embed.WholeDocument{},
+	}); drainErr != nil {
+		test.Fatalf("first drain: %v", drainErr)
+	}
+
+	firstPassCalls := stub.calls
+
+	if firstPassCalls == 0 {
+		test.Fatalf("first drain made no embed calls; setup is broken")
+	}
+
+	rowsBefore, _ := embeddingRepo.GetByNodeID("notes/stable")
+
+	if len(rowsBefore) == 0 {
+		test.Fatalf("first drain persisted no rows; setup is broken")
+	}
+
+	// Re-enqueue the same node without changing the file. This mirrors the
+	// reindex-loop pattern that enqueues every seen node every pass.
+	if enqErr := queueRepo.Enqueue("notes/stable"); enqErr != nil {
+		test.Fatalf("re-enqueue: %v", enqErr)
+	}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		Chunker:    embed.WholeDocument{},
+	})
+
+	if drainErr != nil {
+		test.Fatalf("second drain: %v", drainErr)
+	}
+
+	if drained != 1 {
+		test.Errorf("drained = %d, want 1 (node was still processed, just not re-embedded)", drained)
+	}
+
+	if stub.calls != firstPassCalls {
+		test.Errorf("embedder.calls = %d after second drain, want %d (no re-embedding for unchanged content)", stub.calls, firstPassCalls)
+	}
+
+	rowsAfter, _ := embeddingRepo.GetByNodeID("notes/stable")
+
+	if len(rowsAfter) != len(rowsBefore) {
+		test.Errorf("row count after second drain = %d, want %d (existing embeddings preserved)", len(rowsAfter), len(rowsBefore))
+	}
+
+	for i := range rowsAfter {
+		if rowsAfter[i].ContentHash != rowsBefore[i].ContentHash {
+			test.Errorf("rows[%d].ContentHash changed: was %q, now %q", i, rowsBefore[i].ContentHash, rowsAfter[i].ContentHash)
+		}
+	}
+}
+
 func TestDrainQueue_WorkersDefaultParityWithSerial(test *testing.T) {
 	root := test.TempDir()
 	store := openIndex(test, root)
