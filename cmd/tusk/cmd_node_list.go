@@ -22,7 +22,25 @@ func newNodeListCmd() *cobra.Command {
 	listCmd := &cobra.Command{
 		Use:   "list [filter]",
 		Short: "List nodes from the index, optionally filtering by expression",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `List nodes from the index, optionally filtering by expression.
+
+The optional filter argument uses Tusk's TaskWarrior-flavored grammar:
+key:value for exact match, key.contains:foo for substring, +tag/-tag for
+presence, and boolean combinations with AND/OR/NOT. Output is a tab-aligned
+table of id, type, title, path.
+
+Use --sort to order by one or more keys (prefix +/-), --take N to limit,
+and --skip M to paginate. For structural-and-semantic ranking, use
+"tusk query" with --semantic.`,
+		Example: `  # All open tickets, highest priority first
+  tusk node list 'type:ticket AND status:open' --sort '-priority'
+
+  # Page 2 of 20 most-recently-modified notes
+  tusk node list type:note --sort '-modified' --take 20 --skip 20
+
+  # Pipe a single id into "node get"
+  tusk node list 'type:ticket AND priority:1' --take 1 | awk 'NR==2 {print $1}' | xargs tusk node get`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

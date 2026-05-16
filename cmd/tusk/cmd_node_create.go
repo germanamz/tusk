@@ -23,6 +23,26 @@ func newNodeCreateCmd() *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new node file and index it",
+		Long: `Create a new node file and index it.
+
+Writes a markdown file with TOML frontmatter at the given workspace-relative
+path, validates the declared type against tusk.toml, and inserts the node
+into the index in a single locked transaction. Body content can be piped on
+stdin; if stdin is a terminal, the body is empty.
+
+Property values from --prop are parsed as int, then bool, then string. Use
+--prop key=value to set multiple values (repeatable).`,
+		Example: `  # Create a ticket node with two properties
+  tusk node create --type ticket --path tickets/T-001.md \
+      --prop priority=1 --prop status=open
+
+  # Pipe body content from another tool
+  echo "Investigation notes" | tusk node create \
+      --type note --path notes/2026-05-16.md
+
+  # Create, then attach an edge to another node
+  tusk node create --type ticket --path tickets/T-002.md
+  tusk edge add tickets/T-002 blocks tickets/T-001`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Accept path as either --path flag or positional argument.
 			if relPath == "" && len(args) > 0 {

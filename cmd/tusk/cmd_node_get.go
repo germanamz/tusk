@@ -15,7 +15,17 @@ func newNodeGetCmd() *cobra.Command {
 	getCmd := &cobra.Command{
 		Use:   "get <node-id>",
 		Short: "Print the markdown file for a node by id",
-		Args:  cobra.ExactArgs(1),
+		Long: `Print the full markdown file (frontmatter + body) for a node by id.
+
+The node id is the workspace-relative path without extension (e.g. a node
+file at notes/hello.md has id "notes/hello"). Output goes to stdout
+verbatim — useful for piping into editors, less, or another tusk command.`,
+		Example: `  # Print a node
+  tusk node get notes/hello
+
+  # Open in $EDITOR (round-trip through a temp file)
+  tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

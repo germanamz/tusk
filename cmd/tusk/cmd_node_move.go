@@ -15,7 +15,17 @@ func newNodeMoveCmd() *cobra.Command {
 	moveCmd := &cobra.Command{
 		Use:   "move <old-id> <new-rel-path>",
 		Short: "Atomically rename a node and rewrite all referring edges",
-		Args:  cobra.ExactArgs(2),
+		Long: `Atomically rename a node file and rewrite every edge that points at it.
+
+The new path is workspace-relative and must include a markdown extension.
+All other node files that reference the old id are rewritten in the same
+transaction, so the index never observes a broken state.`,
+		Example: `  # Move a note into a subdirectory
+  tusk node move notes/hello notes/intros/hello.md
+
+  # After move, confirm references were rewritten
+  tusk edge list --to notes/intros/hello`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

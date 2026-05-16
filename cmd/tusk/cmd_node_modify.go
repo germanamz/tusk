@@ -22,7 +22,20 @@ func newNodeModifyCmd() *cobra.Command {
 	modifyCmd := &cobra.Command{
 		Use:   "modify <id>",
 		Short: "Modify a node's frontmatter properties",
-		Args:  cobra.ExactArgs(1),
+		Long: `Modify a node's frontmatter properties without touching its body.
+
+Use --prop key=value (repeatable) to set values and --unset key
+(repeatable) to remove them. Values are typed the same way as in
+"node create": int, then bool, then string.
+
+The operation runs under the workspace lock so concurrent watcher reindex
+cannot interleave.`,
+		Example: `  # Change a ticket's status and priority
+  tusk node modify tickets/T-001 --prop status=in-progress --prop priority=2
+
+  # Remove a property entirely
+  tusk node modify tickets/T-001 --unset blocked-by`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

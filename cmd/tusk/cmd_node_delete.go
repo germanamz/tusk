@@ -14,7 +14,17 @@ func newNodeDeleteCmd() *cobra.Command {
 	deleteCmd := &cobra.Command{
 		Use:   "delete <node-id>",
 		Short: "Delete a node file and remove it from the index",
-		Args:  cobra.ExactArgs(1),
+		Long: `Delete a node file from disk and remove it from the index.
+
+Edges pointing at the deleted node remain in the index as dangling
+references; "tusk doctor" will surface them. Use "tusk node move" if you
+want to rename rather than remove.`,
+		Example: `  # Delete a stale note
+  tusk node delete notes/2024-old
+
+  # See which edges are now dangling
+  tusk doctor`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 
