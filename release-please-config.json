@@ -5,6 +5,7 @@
   "separate-pull-requests": false,
   "bootstrap-sha": "3d3d94c83bf39bcea195689e5e5e401108d56c0f",
   "initial-version": "1.0.0",
+  "pull-request-title-pattern": "chore(release): release v${version}",
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md"
