@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/germanamz/tusk/compare/v1.0.0...v1.0.1) (2026-05-16)
+
+
+### Bug Fixes
+
+* **ci:** drop package-name and set explicit release-please PR title pattern ([#389](https://github.com/germanamz/tusk/issues/389)) ([c3824ce](https://github.com/germanamz/tusk/commit/c3824cee97aec18b85714f55e74c5e15776ede31))
+
 ## [1.0.0](https://github.com/germanamz/tusk/compare/v0.14.0...v1.0.0) (2026-05-16)
 
 
