@@ -19,7 +19,8 @@ Run "tusk init" to create a workspace, "tusk node create" to add content,
 "tusk node list" to retrieve, and "tusk mcp" to expose the same surface to
 an MCP-compatible agent.
 
-Every CLI verb has a 1:1 MCP tool of the same shape.`,
+Most read/write verbs are also exposed as MCP tools (tusk_query,
+tusk_node_create, …) so agents can use the same surface without a shell.`,
 		Example: `  # Bootstrap a fresh vault and verify it
   tusk init --name my-brain
   tusk doctor
