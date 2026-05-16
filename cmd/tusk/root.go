@@ -1,16 +1,17 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
 
-// version is overridden at release-build time via -ldflags "-X main.version=...".
-var version = "v1.0.0-dev"
+	"github.com/germanamz/tusk/internal/version"
+)
 
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "tusk",
 		Short:         "Tusk — local-first agent brain",
 		Long:          "Tusk indexes a markdown vault into a graph and serves structural and semantic queries.",
-		Version:       version,
+		Version:       version.String,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
