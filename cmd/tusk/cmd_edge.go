@@ -13,7 +13,7 @@ source node, and a target node. They can be declared inline in a node's
 frontmatter (the file owns them) or added via "tusk edge add" (attributed
 to a synthetic CLI source so they survive reindex of the involved files).
 
-Use "tusk edge list" with --from/--to/--kind to filter.`,
+Use "tusk edge list" with --from/--to/--type to filter.`,
 	}
 
 	edgeCmd.AddCommand(newEdgeAddCmd())
