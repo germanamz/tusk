@@ -1,0 +1,48 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-pack-add - Copy a built-in type pack's declarations into tusk.toml
+
+
+.SH SYNOPSIS
+\fBtusk pack add  [flags]\fP
+
+
+.SH DESCRIPTION
+Copy a built-in type pack's node and edge type declarations into
+tusk.toml.
+
+.PP
+Idempotent for a given pack: re-running with the same pack is a no-op
+unless --force is set, in which case any colliding sections in tusk.toml
+are removed before the pack is appended.
+
+
+.SH OPTIONS
+\fB--force\fP[=false]
+	remove colliding sections from tusk.toml before appending the pack
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for add
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Add the gtd pack and verify the manifest is still valid
+  tusk pack add gtd
+  tusk doctor
+
+  # Re-add a pack that already exists, replacing collisions
+  tusk pack add gtd --force
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-pack(1)\fP

@@ -1,0 +1,42 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-node-get - Print the markdown file for a node by id
+
+
+.SH SYNOPSIS
+\fBtusk node get  [flags]\fP
+
+
+.SH DESCRIPTION
+Print the full markdown file (frontmatter + body) for a node by id.
+
+.PP
+The node id is the workspace-relative path without extension (e.g. a node
+file at notes/hello.md has id "notes/hello"). Output goes to stdout
+verbatim — useful for piping into editors, less, or another tusk command.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for get
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Print a node
+  tusk node get notes/hello
+
+  # Open in $EDITOR (round-trip through a temp file)
+  tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-node(1)\fP

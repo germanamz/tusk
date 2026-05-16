@@ -1,0 +1,52 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk - Local-first agent brain: index a markdown vault into a graph
+
+
+.SH SYNOPSIS
+\fBtusk [flags]\fP
+
+
+.SH DESCRIPTION
+Tusk turns a directory of markdown files into a schema-validated,
+semantically-indexed graph. Files (markdown + tusk.toml) are the source of
+truth; git is the history; tusk is the indexer and retrieval engine.
+
+.PP
+Run "tusk init" to create a workspace, "tusk node create" to add content,
+"tusk reindex" or "tusk watch" to keep the index live, "tusk query" /
+"tusk node list" to retrieve, and "tusk mcp" to expose the same surface to
+an MCP-compatible agent.
+
+.PP
+Most read/write verbs are also exposed as MCP tools (tusk_query,
+tusk_node_create, …) so agents can use the same surface without a shell.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for tusk
+
+.PP
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Bootstrap a fresh vault and verify it
+  tusk init --name my-brain
+  tusk doctor
+
+  # Index existing markdown files on disk
+  tusk reindex
+
+  # Run the MCP server for Claude Code / Cursor
+  tusk mcp
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-doctor(1)\fP, \fBtusk-edge(1)\fP, \fBtusk-init(1)\fP, \fBtusk-mcp(1)\fP, \fBtusk-node(1)\fP, \fBtusk-pack(1)\fP, \fBtusk-query(1)\fP, \fBtusk-reindex(1)\fP, \fBtusk-status(1)\fP, \fBtusk-watch(1)\fP

@@ -1,0 +1,36 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-edge - Manage edges between nodes (add, remove, list)
+
+
+.SH SYNOPSIS
+\fBtusk edge [flags]\fP
+
+
+.SH DESCRIPTION
+Manage edges between nodes.
+
+.PP
+Edges have a typed kind (declared in tusk.toml's [edge_types] table), a
+source node, and a target node. They can be declared inline in a node's
+frontmatter (the file owns them) or added via "tusk edge add" (attributed
+to a synthetic CLI source so they survive reindex of the involved files).
+
+.PP
+Use "tusk edge list" with --from/--to/--type to filter.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for edge
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP, \fBtusk-edge-add(1)\fP, \fBtusk-edge-list(1)\fP, \fBtusk-edge-remove(1)\fP

@@ -1,0 +1,54 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-node-modify - Modify a node's frontmatter properties
+
+
+.SH SYNOPSIS
+\fBtusk node modify  [flags]\fP
+
+
+.SH DESCRIPTION
+Modify a node's frontmatter properties without touching its body.
+
+.PP
+Use --prop key=value (repeatable) to set values and --unset key
+(repeatable) to remove them. Values are typed the same way as in
+"node create": int, then bool, then string.
+
+.PP
+The operation runs under the workspace lock so concurrent watcher reindex
+cannot interleave.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for modify
+
+.PP
+\fB--prop\fP=[]
+	set property: --prop key=value (repeatable)
+
+.PP
+\fB--unset\fP=[]
+	unset property: --unset key (repeatable)
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Change a ticket's status and priority
+  tusk node modify tickets/T-001 --prop status=in-progress --prop priority=2
+
+  # Remove a property entirely
+  tusk node modify tickets/T-001 --unset blocked-by
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-node(1)\fP

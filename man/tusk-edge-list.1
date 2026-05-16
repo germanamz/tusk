@@ -1,0 +1,54 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-edge-list - List edges, optionally filtered by source, target, or kind
+
+
+.SH SYNOPSIS
+\fBtusk edge list [flags]\fP
+
+
+.SH DESCRIPTION
+List edges in the index.
+
+.PP
+Filter with any combination of --from, --to, and --type. Output is a
+tab-aligned table of source, type, target, attributed source-path.
+
+
+.SH OPTIONS
+\fB--from\fP=""
+	filter to edges originating from this source id
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for list
+
+.PP
+\fB--to\fP=""
+	filter to edges targeting this id
+
+.PP
+\fB--type\fP=""
+	filter by edge type
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # All edges that touch a node (either direction)
+  tusk edge list --from tickets/T-001
+  tusk edge list --to   tickets/T-001
+
+  # Every "blocks" edge in the workspace
+  tusk edge list --type blocks
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-edge(1)\fP

@@ -1,0 +1,69 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-node-create - Create a new node file and index it
+
+
+.SH SYNOPSIS
+\fBtusk node create [flags]\fP
+
+
+.SH DESCRIPTION
+Create a new node file and index it.
+
+.PP
+Writes a markdown file with TOML frontmatter at the given workspace-relative
+path, validates the declared type against tusk.toml, and inserts the node
+into the index in a single locked transaction. Body content can be piped on
+stdin; if stdin is a terminal, the body is empty.
+
+.PP
+Property values from --prop are parsed as int, then bool, then string. Use
+--prop key=value to set multiple values (repeatable).
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for create
+
+.PP
+\fB--path\fP=""
+	workspace-relative path with extension (e.g. notes/hello.md)
+
+.PP
+\fB--prop\fP=[]
+	set property: --prop key=value (repeatable)
+
+.PP
+\fB--title\fP=""
+	optional node title
+
+.PP
+\fB--type\fP=""
+	node type (e.g. ticket, note)
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Create a ticket node with two properties
+  tusk node create --type ticket --path tickets/T-001.md \\
+      --prop priority=1 --prop status=open
+
+  # Pipe body content from another tool
+  echo "Investigation notes" | tusk node create \\
+      --type note --path notes/2026-05-16.md
+
+  # Create, then attach an edge to another node
+  tusk node create --type ticket --path tickets/T-002.md
+  tusk edge add tickets/T-002 blocks tickets/T-001
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-node(1)\fP

@@ -1,0 +1,55 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-edge-add - Add a typed edge from one node to another
+
+
+.SH SYNOPSIS
+\fBtusk edge add [flags]\fP
+
+
+.SH DESCRIPTION
+Add a typed edge from one node to another.
+
+.PP
+The edge kind must be declared in tusk.toml. CLI-added edges are
+attributed to a synthetic "\fBcli\fP" source path so the next reindex of
+either involved file does not clobber them.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for add
+
+.PP
+\fB--source\fP=""
+	source node id (workspace-relative path without extension)
+
+.PP
+\fB--target\fP=""
+	target node id
+
+.PP
+\fB--type\fP=""
+	edge type (must be declared in tusk.toml)
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Mark T-001 as blocking T-002
+  tusk edge add --type blocks --source tickets/T-001 --target tickets/T-002
+
+  # Add multiple edges as part of a script
+  tusk edge add --type mentions --source tickets/T-003 --target notes/2026-05-16
+  tusk edge add --type owned-by --source tickets/T-003 --target people/alice
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-edge(1)\fP

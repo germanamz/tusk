@@ -1,0 +1,33 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-pack - Install and manage built-in type packs
+
+
+.SH SYNOPSIS
+\fBtusk pack [flags]\fP
+
+
+.SH DESCRIPTION
+Manage type packs.
+
+.PP
+A type pack is a bundle of node-type and edge-type declarations that
+"tusk pack add" copies into the workspace manifest. Use packs to seed a
+new workspace with sensible defaults (e.g. a "gtd" pack with task and
+project types) instead of writing the schema by hand.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for pack
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP, \fBtusk-pack-add(1)\fP
