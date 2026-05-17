@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -872,13 +873,13 @@ func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
 	// pass is added if/when ordering becomes meaningful for diffs.
 	if typeValue, hasType := properties["type"].(string); hasType {
 		builder.WriteString("type: ")
-		builder.WriteString(typeValue)
+		builder.WriteString(yamlQuoteString(typeValue))
 		builder.WriteString("\n")
 	}
 
 	if titleValue, hasTitle := properties["title"].(string); hasTitle && titleValue != "" {
 		builder.WriteString("title: ")
-		builder.WriteString(titleValue)
+		builder.WriteString(yamlQuoteString(titleValue))
 		builder.WriteString("\n")
 	}
 
@@ -934,20 +935,14 @@ func sha256Hex(content []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// yamlQuoteString returns the string quoted with double-quotes when it contains
-// characters that YAML would misinterpret as structure (e.g., `[[`, `]]`, `:`,
-// `{`, `}`). Plain ASCII identifiers and simple strings are returned as-is.
+// yamlQuoteString returns the string quoted with double-quotes when emitting
+// it as a YAML scalar would change its meaning. Plain ASCII identifiers and
+// simple strings are returned as-is. Conservative — a few values get quoted
+// that don't strictly need it (e.g. all uses of `:`), but never the reverse:
+// every output round-trips through a YAML 1.2 parser back to the original
+// Go string.
 func yamlQuoteString(str string) string {
-	needsQuoting := false
-
-	for _, ch := range str {
-		switch ch {
-		case '[', ']', '{', '}', ':', '#', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`':
-			needsQuoting = true
-		}
-	}
-
-	if !needsQuoting {
+	if !yamlNeedsQuoting(str) {
 		return str
 	}
 
@@ -956,4 +951,44 @@ func yamlQuoteString(str string) string {
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 
 	return `"` + escaped + `"`
+}
+
+func yamlNeedsQuoting(str string) bool {
+	if str == "" {
+		return true
+	}
+
+	// Leading-character indicators that change YAML's interpretation.
+	switch str[0] {
+	case '-', '?', '[', ']', '{', '}', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`', '#', ',', ' ', '\t':
+		return true
+	}
+
+	// Trailing whitespace would be stripped on a plain scalar; quote to
+	// preserve it.
+	switch str[len(str)-1] {
+	case ' ', '\t':
+		return true
+	}
+
+	for _, ch := range str {
+		switch ch {
+		case ':', '#', '\n', '\r', '"', '\'', '\\':
+			return true
+		}
+	}
+
+	// Reserved literals that YAML 1.1 / 1.2 parsers decode as bool or null.
+	switch strings.ToLower(str) {
+	case "true", "false", "yes", "no", "on", "off", "null", "~":
+		return true
+	}
+
+	// Anything a YAML parser would decode as a number must be quoted to keep
+	// it a string.
+	if _, parseErr := strconv.ParseFloat(str, 64); parseErr == nil {
+		return true
+	}
+
+	return false
 }
