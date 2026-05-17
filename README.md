@@ -34,9 +34,7 @@ markdown vault  ──▶  tusk indexer  ──▶  SQLite graph + embeddings
 curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
 ```
 
-Detects your OS/arch, downloads the latest GitHub release, and drops the `tusk` binary into `~/.local/bin` (override with `INSTALL_DIR=/usr/local/bin`). Pin a specific release with `TUSK_VERSION=v1.0.0`.
-
-> Prebuilt v1 binaries land with the first v1 release. Until then, use the source builds below.
+Detects your OS/arch, downloads the latest GitHub release, and drops the `tusk` binary into `~/.local/bin` (override with `INSTALL_DIR=/usr/local/bin`). Pin a specific release with `TUSK_VERSION=v1.1.0`. Prebuilt archives ship for darwin/linux/windows on amd64 + arm64.
 
 ### From source
 
@@ -68,7 +66,7 @@ tusk --version
 
 > For per-command reference (flags, examples), see
 > [docs/cli/](docs/cli/README.md). For multi-command recipes, see
-> [docs/cli/workflows.md](docs/cli/workflows.md).
+> [docs/cli/workflows.md](docs/cli/workflows.md). Man pages are in [`man/`](man/) — `man -M man tusk` after cloning.
 
 ```bash
 # 1. Initialize a workspace in the current directory
