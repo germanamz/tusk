@@ -42,7 +42,7 @@ Property values from --prop are parsed as int, then bool, then string. Use
 
   # Create, then attach an edge to another node
   tusk node create --type ticket --path tickets/T-002.md
-  tusk edge add tickets/T-002 blocks tickets/T-001`,
+  tusk edge add --type blocks --source tickets/T-002 --target tickets/T-001`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Accept path as either --path flag or positional argument.
 			if relPath == "" && len(args) > 0 {

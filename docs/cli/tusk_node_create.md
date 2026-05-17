@@ -35,7 +35,7 @@ tusk node create [flags]
 
   # Create, then attach an edge to another node
   tusk node create --type ticket --path tickets/T-002.md
-  tusk edge add tickets/T-002 blocks tickets/T-001
+  tusk edge add --type blocks --source tickets/T-002 --target tickets/T-001
 ```
 
 ### Options
