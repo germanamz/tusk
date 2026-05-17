@@ -20,6 +20,11 @@ type Engine struct {
 	edgeAddAfter       []edgeAddReactorEntry
 	edgeRemoveValidate []edgeRemoveValidatorEntry
 	edgeRemoveAfter    []edgeRemoveReactorEntry
+
+	// reservedKeys captures every Instance.ReservedKeys() pair so
+	// downstream validators (e.g. property-drift in node.Service) can
+	// recognize behavior-owned properties as declared. nodeType -> property -> {}.
+	reservedKeys map[string]map[string]struct{}
 }
 
 type nodeWriteValidatorEntry struct {
@@ -72,11 +77,24 @@ func NewEngine(instances []Instance, declaredKeys []DeclaredKey) (*Engine, error
 		return nil, collisionErr
 	}
 
-	engine := &Engine{}
+	engine := &Engine{
+		reservedKeys: map[string]map[string]struct{}{},
+	}
 
 	for _, instance := range instances {
 		ctx := HookContext{PackKind: instance.Kind(), PackInstance: instance.Name()}
 		hooks := instance.Hooks()
+
+		for _, reserved := range instance.ReservedKeys() {
+			byProperty, exists := engine.reservedKeys[reserved.NodeType]
+
+			if !exists {
+				byProperty = map[string]struct{}{}
+				engine.reservedKeys[reserved.NodeType] = byProperty
+			}
+
+			byProperty[reserved.Property] = struct{}{}
+		}
 
 		if hooks.OnNodeWriteValidate != nil {
 			engine.nodeWriteValidate = append(engine.nodeWriteValidate,
@@ -151,6 +169,15 @@ func detectCollisions(instances []Instance, declaredKeys []DeclaredKey) error {
 	}
 
 	return nil
+}
+
+// ReservedProperties returns the (node-type, property) pairs reserved by
+// behavior instances, as a nodeType -> property -> {} map. Property-drift
+// validators consult this so behavior-owned properties (e.g. workflow's
+// `status`) are not flagged as undeclared. The returned map shares storage
+// with the engine; callers must treat it as read-only.
+func (engine *Engine) ReservedProperties() map[string]map[string]struct{} {
+	return engine.reservedKeys
 }
 
 // FireNodeWriteValidate runs the chain in registration order, short-

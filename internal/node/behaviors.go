@@ -40,4 +40,9 @@ type Behaviors interface {
 	FireEdgeAddAfter(edge index.EdgeRow) error
 	FireEdgeRemoveValidate(edge index.EdgeRow) (rejector string, err error)
 	FireEdgeRemoveAfter(edge index.EdgeRow) error
+
+	// ReservedProperties returns the (nodeType, property) pairs reserved
+	// by behavior instances. Returned as nodeType -> property -> {}.
+	// Empty or nil when no behavior reserves a property.
+	ReservedProperties() map[string]map[string]struct{}
 }

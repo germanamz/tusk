@@ -143,6 +143,35 @@ func ValidateProperties(parsed *Node, decls map[string]manifest.NodeType) Proper
 	return result
 }
 
+// FilterReservedDrift removes drift entries whose property is reserved by a
+// behavior instance for the given node type. Used by callers that hold a
+// behavior engine (Service, reindex) so workflow-owned properties like
+// `status` don't surface as undeclared-property warnings. Returns drift
+// unchanged when reserved is empty or no entry matches.
+func FilterReservedDrift(drift []PropertyDrift, nodeType string, reserved map[string]map[string]struct{}) []PropertyDrift {
+	if len(drift) == 0 || len(reserved) == 0 {
+		return drift
+	}
+
+	byProperty, hasType := reserved[nodeType]
+
+	if !hasType || len(byProperty) == 0 {
+		return drift
+	}
+
+	filtered := drift[:0:len(drift)]
+
+	for _, entry := range drift {
+		if _, isReserved := byProperty[entry.Property]; isReserved {
+			continue
+		}
+
+		filtered = append(filtered, entry)
+	}
+
+	return filtered
+}
+
 // WhichRequiredWereUnset returns the names of properties that were required,
 // present on before, and absent from after. Used by Service.Modify to detect
 // ErrCannotUnsetRequired violations.
