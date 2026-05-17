@@ -60,6 +60,26 @@ Verify:
 tusk --version
 ```
 
+### Updating
+
+Tusk has no self-update command — re-run whichever install method you used and the binary gets overwritten in place. Your workspace and `.tusk/` index are untouched.
+
+```bash
+# Prebuilt binary — same one-liner; defaults to the latest release
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+
+# Pin a specific version
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | TUSK_VERSION=v1.2.0 sh
+
+# From source
+cd tusk && git pull && make build && install bin/tusk /usr/local/bin/tusk
+
+# go install
+go install github.com/germanamz/tusk/cmd/tusk@latest
+```
+
+After a major upgrade, run `tusk reindex` to pick up any indexer changes, then `tusk doctor` to confirm the workspace is healthy.
+
 ---
 
 ## Quickstart
