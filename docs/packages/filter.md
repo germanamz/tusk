@@ -7,7 +7,7 @@ status: stable
 
 # internal/filter
 
-TaskWarrior-flavored filter grammar. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates, edge traversal (`-> edge`, `<- edge`), boolean composition, and multi-hop paths.
+Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`), edge traversal (`edge-type->`, `edge-type<-`), traversal shortcuts (`tree=id`, `parent=id`, `root=id`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
 
 ## Public surface
 

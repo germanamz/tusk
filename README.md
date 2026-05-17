@@ -16,7 +16,7 @@ markdown vault  ──▶  tusk indexer  ──▶  SQLite graph + embeddings
 
 - **Local first.** No service to log in to. The index lives in `.tusk/` next to your files.
 - **Schema-validated.** Node and edge types are declared in `tusk.toml`. Off-schema content is warned, never rejected.
-- **Structural + semantic.** TaskWarrior-flavored filter grammar for the graph, Ollama-backed embeddings for similarity, and a hybrid mode that filters then ranks.
+- **Structural + semantic.** A compact filter grammar for the graph (`key=value` / `key:value`, ranges, edge traversal, boolean composition), Ollama-backed embeddings for similarity, and a hybrid mode that filters then ranks.
 - **External edits are first-class.** Vim, Obsidian, an LLM piping markdown — they all work; the watcher keeps the index live.
 - **One engine, two surfaces.** Every CLI verb has a 1:1 MCP tool.
 
@@ -248,12 +248,14 @@ Off-schema content is **warned, not rejected** — a file with an unknown `type:
 
 ### Structural filter
 
-A TaskWarrior-flavored grammar that compiles to parameterized SQL:
+A compact filter grammar that compiles to parameterized SQL. Property
+comparisons accept `=` or `:` interchangeably; the rest of the grammar uses
+the operators below.
 
 ```bash
-# Property predicates
+# Property predicates (`=` and `:` are equivalent)
 tusk query 'type=ticket status=active priority=high'
-tusk query 'type=note created>=2026-04-01'
+tusk query 'type:note created>=2026-04-01'
 
 # Edge traversal: -> outgoing, <- incoming
 tusk query 'type=ticket blocks->type=ticket'        # tickets that block other tickets

@@ -12,13 +12,17 @@ Run a query against the index.
 
 Three modes, all driven by the same command:
 
-  * Structural (default): the filter argument uses Tusk's
-    TaskWarrior-flavored grammar — key:value for exact match,
-    key.contains:foo for substring, +tag/-tag for presence, and
-    boolean combinations with AND/OR/NOT.
+  * Structural (default): the filter argument is a property and
+    edge-traversal expression. Property predicates use comparison
+    operators (key=value, key:value, key!=value, key<value, key<=value,
+    key>value, key>=value); ranges use key=lo..hi. Edge traversal uses
+    edge-type-> or edge-type<- and may chain multi-hop. Traversal
+    shortcuts: tree=id, parent=id, root=id. Combine with AND, OR, NOT,
+    and parens. (Both : and = bind property comparisons; pick whichever
+    reads better.)
   * Semantic (--semantic STRING): nearest-neighbor search over
     Ollama embeddings. The positional filter still applies as a
-    pre-filter; pass a permissive filter like 'type:note' to search
+    pre-filter; pass a permissive filter like 'type=note' to search
     a whole type, or '' to search everything.
   * Hybrid: structural filter narrows the candidate set, then
     --semantic ranks it by cosine similarity.
@@ -34,16 +38,16 @@ tusk query <filter> [flags]
 
 ```
   # Structural: all priority-1 tickets touched this week
-  tusk query 'type:ticket AND priority:1 AND modified.gt:2026-05-09'
+  tusk query 'type=ticket AND priority=1 AND modified>=2026-05-09'
 
   # Pure semantic over all notes
-  tusk query 'type:note' --semantic 'cache invalidation strategies'
+  tusk query 'type=note' --semantic 'cache invalidation strategies'
 
   # Hybrid: filter to design notes, then rank by similarity
-  tusk query 'type:note AND +design' --semantic 'sqlite write contention'
+  tusk query 'type=note AND kind=design' --semantic 'sqlite write contention'
 
   # Pipe top match into "node get"
-  tusk query 'type:note' --semantic 'auth flow' --json --take 1 \
+  tusk query 'type=note' --semantic 'auth flow' --json --take 1 \
     | jq -r '.[0].id' \
     | xargs tusk node get
 ```

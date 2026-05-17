@@ -7,24 +7,68 @@ import (
 )
 
 func TestParser_PropertyEquality(test *testing.T) {
-	expr, errs := filter.NewParser("type=ticket").Parse()
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"equals", "type=ticket"},
+		{"colon", "type:ticket"},
+	}
+
+	for _, tc := range cases {
+		test.Run(tc.name, func(test *testing.T) {
+			expr, errs := filter.NewParser(tc.input).Parse()
+
+			if len(errs) > 0 {
+				test.Fatalf("errors: %v", errs)
+			}
+
+			pred, ok := expr.(*filter.PropertyPredicate)
+
+			if !ok {
+				test.Fatalf("got %T, want *PropertyPredicate", expr)
+			}
+
+			if pred.Property != "type" || pred.Op != filter.OpEQ {
+				test.Errorf("got property=%q op=%v, want type=", pred.Property, pred.Op)
+			}
+
+			if str, isString := pred.Value.(filter.StringValue); !isString || str.V != "ticket" {
+				test.Errorf("got value=%v, want StringValue{ticket}", pred.Value)
+			}
+		})
+	}
+}
+
+func TestParser_ColonValueWithEmbeddedColon(test *testing.T) {
+	expr, errs := filter.NewParser("id:notes/foo:bar").Parse()
 
 	if len(errs) > 0 {
 		test.Fatalf("errors: %v", errs)
 	}
 
-	pred, ok := expr.(*filter.PropertyPredicate)
+	pred := expr.(*filter.PropertyPredicate)
+
+	if str := pred.Value.(filter.StringValue).V; str != "notes/foo:bar" {
+		test.Errorf("value=%q, want %q", str, "notes/foo:bar")
+	}
+}
+
+func TestParser_ColonTraversalShortcut(test *testing.T) {
+	expr, errs := filter.NewParser("tree:wbs/proj").Parse()
+
+	if len(errs) > 0 {
+		test.Fatalf("errors: %v", errs)
+	}
+
+	shortcut, ok := expr.(*filter.TraversalShortcut)
 
 	if !ok {
-		test.Fatalf("got %T, want *PropertyPredicate", expr)
+		test.Fatalf("got %T, want *TraversalShortcut", expr)
 	}
 
-	if pred.Property != "type" || pred.Op != filter.OpEQ {
-		test.Errorf("got property=%q op=%v, want type=", pred.Property, pred.Op)
-	}
-
-	if str, isString := pred.Value.(filter.StringValue); !isString || str.V != "ticket" {
-		test.Errorf("got value=%v, want StringValue{ticket}", pred.Value)
+	if shortcut.NodeID != "wbs/proj" {
+		test.Errorf("NodeID=%q, want %q", shortcut.NodeID, "wbs/proj")
 	}
 }
 
