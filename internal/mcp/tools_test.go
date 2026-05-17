@@ -420,6 +420,59 @@ func TestTool_EdgeAddRemove(test *testing.T) {
 	}
 }
 
+func TestTool_EdgeAdd_HonorsExplicitOrdinal(test *testing.T) {
+	rt := bootRuntimeWithEdgeTypes(test)
+	defer rt.Close()
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", PropertiesJSON: "{}", LastChecksum: "x"})
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/b", Type: "ticket", Path: "tickets/b.md", PropertiesJSON: "{}", LastChecksum: "x"})
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/c", Type: "ticket", Path: "tickets/c.md", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	srv := mcp.NewServer(rt)
+
+	if _, callErr := callTool(test, srv, "tusk_edge_add", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/a",
+		"target_id": "tickets/b",
+		"ordinal":   float64(7),
+	}); callErr != nil {
+		test.Fatalf("tusk_edge_add: %v", callErr)
+	}
+
+	if _, callErr := callTool(test, srv, "tusk_edge_add", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/a",
+		"target_id": "tickets/c",
+	}); callErr != nil {
+		test.Fatalf("tusk_edge_add (auto): %v", callErr)
+	}
+
+	rows, _ := rt.Edges.ListBySource("tickets/a")
+
+	if len(rows) != 2 {
+		test.Fatalf("len(rows) = %d, want 2", len(rows))
+	}
+
+	var explicit, auto int
+
+	for _, row := range rows {
+		switch row.TargetID {
+		case "tickets/b":
+			explicit = row.Ordinal
+		case "tickets/c":
+			auto = row.Ordinal
+		}
+	}
+
+	if explicit != 7 {
+		test.Errorf("explicit ordinal = %d, want 7", explicit)
+	}
+
+	if auto != 8 {
+		test.Errorf("auto ordinal = %d, want 8 (next after 7)", auto)
+	}
+}
+
 func TestTool_Reindex(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

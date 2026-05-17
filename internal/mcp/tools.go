@@ -817,7 +817,7 @@ func registerEdgeAddTool(srv *Server) {
 		mcpgo.WithString("type", mcpgo.Required()),
 		mcpgo.WithString("source_id", mcpgo.Required()),
 		mcpgo.WithString("target_id", mcpgo.Required()),
-		mcpgo.WithNumber("ordinal", mcpgo.Description("Optional ordinal (default appends)")),
+		mcpgo.WithNumber("ordinal", mcpgo.Description("Edge ordinal (>= 0). Omit (or pass a negative value) to auto-assign the next free value for this (source, type) group.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -893,15 +893,19 @@ func registerEdgeAddTool(srv *Server) {
 			}
 		}
 
-		ordinal := -1
+		ordinal := argIntOptional(request, "ordinal", -1)
 
-		for _, row := range mcpEdges {
-			if row.Type == edgeType && row.Ordinal > ordinal {
-				ordinal = row.Ordinal
+		if ordinal < 0 {
+			ordinal = -1
+
+			for _, row := range mcpEdges {
+				if row.Type == edgeType && row.Ordinal > ordinal {
+					ordinal = row.Ordinal
+				}
 			}
-		}
 
-		ordinal++
+			ordinal++
+		}
 
 		mcpEdges = append(mcpEdges, index.EdgeRow{
 			Type:       edgeType,

@@ -13,9 +13,10 @@ import (
 
 func newEdgeAddCmd() *cobra.Command {
 	var (
-		edgeType string
-		source   string
-		target   string
+		edgeType   string
+		source     string
+		target     string
+		ordinalArg int
 	)
 
 	addCmd := &cobra.Command{
@@ -25,16 +26,30 @@ func newEdgeAddCmd() *cobra.Command {
 
 The edge kind must be declared in tusk.toml. CLI-added edges are
 attributed to a synthetic "__cli__" source path so the next reindex of
-either involved file does not clobber them.`,
+either involved file does not clobber them.
+
+When --ordinal is unset (-1), the next free ordinal is auto-assigned
+across the same (source, type) group of CLI-added edges. Pass --ordinal
+to control placement explicitly — useful for ordered edges where the
+intended ordering key is the target (e.g. WBS child ordering under a
+shared parent).`,
 		Example: `  # Mark T-001 as blocking T-002
   tusk edge add --type blocks --source tickets/T-001 --target tickets/T-002
 
   # Add multiple edges as part of a script
   tusk edge add --type mentions --source tickets/T-003 --target notes/2026-05-16
-  tusk edge add --type owned-by --source tickets/T-003 --target people/alice`,
+  tusk edge add --type owned-by --source tickets/T-003 --target people/alice
+
+  # Order children explicitly under a shared parent
+  tusk edge add --type wbs-parent --source wbs/proj/s1 --target wbs/proj --ordinal 0
+  tusk edge add --type wbs-parent --source wbs/proj/s2 --target wbs/proj --ordinal 1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if edgeType == "" || source == "" || target == "" {
 				return fmt.Errorf("--type, --source, and --target are required")
+			}
+
+			if ordinalArg < -1 {
+				return fmt.Errorf("--ordinal must be >= 0 (use -1 or omit for auto-assign)")
 			}
 
 			cwd, cwdErr := os.Getwd()
@@ -111,7 +126,12 @@ either involved file does not clobber them.`,
 				}
 
 				cliExisting := filterCLI(existingForSource)
-				ordinal := nextOrdinalFor(cliExisting, edgeType)
+
+				ordinal := ordinalArg
+
+				if ordinal < 0 {
+					ordinal = nextOrdinalFor(cliExisting, edgeType)
+				}
 
 				cliExisting = append(cliExisting, index.EdgeRow{
 					Type:       edgeType,
@@ -135,6 +155,7 @@ either involved file does not clobber them.`,
 	addCmd.Flags().StringVar(&edgeType, "type", "", "edge type (must be declared in tusk.toml)")
 	addCmd.Flags().StringVar(&source, "source", "", "source node id (workspace-relative path without extension)")
 	addCmd.Flags().StringVar(&target, "target", "", "target node id")
+	addCmd.Flags().IntVar(&ordinalArg, "ordinal", -1, "edge ordinal (>= 0); -1 (default) auto-assigns the next free value for this (source, type) group")
 
 	return addCmd
 }
