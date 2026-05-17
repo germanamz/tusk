@@ -1,0 +1,42 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-node-move - Atomically rename a node and rewrite all referring edges
+
+
+.SH SYNOPSIS
+\fBtusk node move   [flags]\fP
+
+
+.SH DESCRIPTION
+Atomically rename a node file and rewrite every edge that points at it.
+
+.PP
+The new path is workspace-relative and must include a markdown extension.
+All other node files that reference the old id are rewritten in the same
+transaction, so the index never observes a broken state.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for move
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Move a note into a subdirectory
+  tusk node move notes/hello notes/intros/hello.md
+
+  # After move, confirm references were rewritten
+  tusk edge list --to notes/intros/hello
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-node(1)\fP

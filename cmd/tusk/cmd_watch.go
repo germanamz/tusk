@@ -20,6 +20,22 @@ func newWatchCmd() *cobra.Command {
 	watchCmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Watch the workspace for external edits and keep the index in sync",
+		Long: `Watch the workspace for filesystem changes and update the index in
+real time.
+
+The watcher debounces rapid edits, follows file moves via fsnotify, and
+drains the embedding queue in the background. It uses the same internal
+service as "tusk node create" / "modify", so files edited in vim, Obsidian,
+or piped from an LLM produce identical index state.
+
+Runs until interrupted (Ctrl-C). Pair with "tusk status" or "tusk doctor"
+in another shell to observe progress.`,
+		Example: `  # Foreground: keep the index live while you author in any editor
+  tusk watch
+
+  # Background with a status pulse every 5 seconds
+  tusk watch &
+  watch -n 5 tusk status`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

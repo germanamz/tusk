@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race vet lint fmt help \
+.PHONY: all build clean test test-race vet lint fmt help docs \
         devcontainer-up devcontainer-rebuild devcontainer-shell \
         devcontainer-stop devcontainer-down devcontainer-nuke
 
@@ -43,6 +43,9 @@ lint:
 fmt:
 	@pkgs=$$($(GO) list ./... 2>/dev/null); [ -z "$$pkgs" ] && echo "no packages to fmt" || $(GO) fmt $$pkgs
 
+docs: build
+	$(BUILD_DIR)/$(BINARY_NAME) docgen man docs/cli
+
 help:
 	@echo "v1 Make targets:"
 	@echo "  build             — compile the tusk binary (stub until Plan 1b)"
@@ -51,6 +54,7 @@ help:
 	@echo "  vet               — run go vet"
 	@echo "  lint              — run golangci-lint"
 	@echo "  fmt               — run gofmt across the tree"
+	@echo "  docs              — regenerate man pages and markdown CLI reference"
 	@echo "  clean             — remove build artifacts"
 	@echo "  devcontainer-up      — build and start the dev container (uses BuildKit cache)"
 	@echo "  devcontainer-rebuild — build and start the dev container from scratch (no cache)"

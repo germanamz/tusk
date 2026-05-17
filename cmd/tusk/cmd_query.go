@@ -27,8 +27,38 @@ func newQueryCmd() *cobra.Command {
 
 	queryCmd := &cobra.Command{
 		Use:   "query <filter>",
-		Short: "Run a structural filter against the workspace",
-		Args:  cobra.ExactArgs(1),
+		Short: "Run a structural, semantic, or hybrid query against the index",
+		Long: `Run a query against the index.
+
+Three modes, all driven by the same command:
+
+  * Structural (default): the filter argument uses Tusk's
+    TaskWarrior-flavored grammar — key:value for exact match,
+    key.contains:foo for substring, +tag/-tag for presence, and
+    boolean combinations with AND/OR/NOT.
+  * Semantic (--semantic STRING): nearest-neighbor search over
+    Ollama embeddings. The positional filter still applies as a
+    pre-filter; pass a permissive filter like 'type:note' to search
+    a whole type, or '' to search everything.
+  * Hybrid: structural filter narrows the candidate set, then
+    --semantic ranks it by cosine similarity.
+
+Use --sort to order by one or more keys (prefix +/-), --take N to limit
+results, --skip M to paginate, and --json for machine-readable output.`,
+		Example: `  # Structural: all priority-1 tickets touched this week
+  tusk query 'type:ticket AND priority:1 AND modified.gt:2026-05-09'
+
+  # Pure semantic over all notes
+  tusk query 'type:note' --semantic 'cache invalidation strategies'
+
+  # Hybrid: filter to design notes, then rank by similarity
+  tusk query 'type:note AND +design' --semantic 'sqlite write contention'
+
+  # Pipe top match into "node get"
+  tusk query 'type:note' --semantic 'auth flow' --json --take 1 \
+    | jq -r '.[0].id' \
+    | xargs tusk node get`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

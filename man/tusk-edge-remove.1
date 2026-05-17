@@ -1,0 +1,51 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-edge-remove - Remove a specific edge by source, kind, and target
+
+
+.SH SYNOPSIS
+\fBtusk edge remove [flags]\fP
+
+
+.SH DESCRIPTION
+Remove a specific edge identified by its source, kind, and target.
+
+.PP
+Only edges attributed to the CLI ("\fBcli\fP" source path) can be removed
+this way. Edges declared in a node's frontmatter must be removed by
+editing the node and reindexing.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for remove
+
+.PP
+\fB--source\fP=""
+	source node id
+
+.PP
+\fB--target\fP=""
+	target node id
+
+.PP
+\fB--type\fP=""
+	edge type
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Remove a blocks edge added via "edge add"
+  tusk edge remove --type blocks --source tickets/T-001 --target tickets/T-002
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-edge(1)\fP

@@ -18,7 +18,14 @@ func newEdgeRemoveCmd() *cobra.Command {
 
 	removeCmd := &cobra.Command{
 		Use:   "remove",
-		Short: "Remove an edge from the index",
+		Short: "Remove a specific edge by source, kind, and target",
+		Long: `Remove a specific edge identified by its source, kind, and target.
+
+Only edges attributed to the CLI ("__cli__" source path) can be removed
+this way. Edges declared in a node's frontmatter must be removed by
+editing the node and reindexing.`,
+		Example: `  # Remove a blocks edge added via "edge add"
+  tusk edge remove --type blocks --source tickets/T-001 --target tickets/T-002`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if edgeType == "" || source == "" || target == "" {
 				return fmt.Errorf("--type, --source, and --target are required")

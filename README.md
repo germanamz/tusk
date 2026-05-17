@@ -66,6 +66,10 @@ tusk --version
 
 ## Quickstart
 
+> For per-command reference (flags, examples), see
+> [docs/cli/](docs/cli/README.md). For multi-command recipes, see
+> [docs/cli/workflows.md](docs/cli/workflows.md).
+
 ```bash
 # 1. Initialize a workspace in the current directory
 mkdir my-brain && cd my-brain

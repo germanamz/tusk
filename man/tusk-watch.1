@@ -1,0 +1,49 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-watch - Watch the workspace for external edits and keep the index in sync
+
+
+.SH SYNOPSIS
+\fBtusk watch [flags]\fP
+
+
+.SH DESCRIPTION
+Watch the workspace for filesystem changes and update the index in
+real time.
+
+.PP
+The watcher debounces rapid edits, follows file moves via fsnotify, and
+drains the embedding queue in the background. It uses the same internal
+service as "tusk node create" / "modify", so files edited in vim, Obsidian,
+or piped from an LLM produce identical index state.
+
+.PP
+Runs until interrupted (Ctrl-C). Pair with "tusk status" or "tusk doctor"
+in another shell to observe progress.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for watch
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Foreground: keep the index live while you author in any editor
+  tusk watch
+
+  # Background with a status pulse every 5 seconds
+  tusk watch &
+  watch -n 5 tusk status
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP

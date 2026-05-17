@@ -69,6 +69,36 @@ jobs:
       - name: Run unit tests
         run: go test -race ./internal/... ./cmd/...
 
+  docs-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Regenerate CLI docs
+        run: go run ./cmd/tusk docgen man docs/cli
+
+      - name: Fail on drift
+        run: |
+          if ! git diff --quiet -- man docs/cli; then
+            echo "::error::CLI docs are stale. Run 'make docs' and commit the result."
+            git --no-pager diff -- man docs/cli
+            exit 1
+          fi
+
   pr-title:
     runs-on: ubuntu-latest
     steps:

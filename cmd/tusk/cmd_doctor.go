@@ -14,7 +14,24 @@ import (
 func newDoctorCmd() *cobra.Command {
 	doctorCmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Surface validation warnings and index health issues",
+		Short: "Surface validation warnings, dangling edges, and index health issues",
+		Long: `Run read-only health checks against the workspace and index.
+
+Doctor reports:
+  * Off-schema nodes (type not declared in tusk.toml).
+  * Property drift (frontmatter values whose type does not match the
+    manifest declaration).
+  * Dangling edges (edges whose target node no longer exists).
+  * Embedding queue depth and last-reindex timestamp.
+
+Doctor never modifies state, so it is safe to run while "tusk watch"
+is active.`,
+		Example: `  # Health snapshot after a manifest change
+  tusk pack add gtd
+  tusk doctor
+
+  # Quick check before starting an MCP session
+  tusk doctor && tusk mcp`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

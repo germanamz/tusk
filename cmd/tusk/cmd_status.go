@@ -15,7 +15,17 @@ import (
 func newStatusCmd() *cobra.Command {
 	statusCmd := &cobra.Command{
 		Use:   "status",
-		Short: "Quick workspace summary: node counts, edge count, queue depth, last reindex",
+		Short: "Print a one-screen workspace summary",
+		Long: `Print a one-screen summary of workspace state: node counts by
+type, total edges, embedding-queue depth, and time of last reindex.
+
+Use status as a fast pulse check; use "tusk doctor" for validation
+warnings and drift detail.`,
+		Example: `  # Fast pulse check
+  tusk status
+
+  # Watch status in a loop while "tusk watch" is running
+  watch -n 5 tusk status`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

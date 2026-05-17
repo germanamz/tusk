@@ -42,6 +42,14 @@ Transports:
 The server holds the workspace open for the lifetime of the session, drains
 the embed queue in the background, and watches the workspace for external
 edits.`,
+		Example: `  # Default: stdio transport (Claude Code, Cursor, Zed)
+  tusk mcp
+
+  # SSE transport bound to loopback for browser-based clients
+  tusk mcp --transport sse --addr 127.0.0.1:8765
+
+  # Verify the workspace is healthy first
+  tusk doctor && tusk mcp`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 

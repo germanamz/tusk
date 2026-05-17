@@ -1,0 +1,42 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-status - Print a one-screen workspace summary
+
+
+.SH SYNOPSIS
+\fBtusk status [flags]\fP
+
+
+.SH DESCRIPTION
+Print a one-screen summary of workspace state: node counts by
+type, total edges, embedding-queue depth, and time of last reindex.
+
+.PP
+Use status as a fast pulse check; use "tusk doctor" for validation
+warnings and drift detail.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for status
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Fast pulse check
+  tusk status
+
+  # Watch status in a loop while "tusk watch" is running
+  watch -n 5 tusk status
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP

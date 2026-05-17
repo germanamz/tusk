@@ -1,0 +1,50 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-doctor - Surface validation warnings, dangling edges, and index health issues
+
+
+.SH SYNOPSIS
+\fBtusk doctor [flags]\fP
+
+
+.SH DESCRIPTION
+Run read-only health checks against the workspace and index.
+
+.PP
+Doctor reports:
+  * Off-schema nodes (type not declared in tusk.toml).
+  * Property drift (frontmatter values whose type does not match the
+    manifest declaration).
+  * Dangling edges (edges whose target node no longer exists).
+  * Embedding queue depth and last-reindex timestamp.
+
+.PP
+Doctor never modifies state, so it is safe to run while "tusk watch"
+is active.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for doctor
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Health snapshot after a manifest change
+  tusk pack add gtd
+  tusk doctor
+
+  # Quick check before starting an MCP session
+  tusk doctor && tusk mcp
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP
