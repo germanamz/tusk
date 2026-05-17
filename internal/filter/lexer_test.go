@@ -13,6 +13,7 @@ func TestLexer_Operators(test *testing.T) {
 		kinds []filter.TokenKind
 	}{
 		{"=", []filter.TokenKind{filter.TokenEQ, filter.TokenEOF}},
+		{":", []filter.TokenKind{filter.TokenEQ, filter.TokenEOF}},
 		{"!=", []filter.TokenKind{filter.TokenNE, filter.TokenEOF}},
 		{"< <= > >=", []filter.TokenKind{filter.TokenLT, filter.TokenLE, filter.TokenGT, filter.TokenGE, filter.TokenEOF}},
 		{"-> <-", []filter.TokenKind{filter.TokenArrowOut, filter.TokenArrowIn, filter.TokenEOF}},

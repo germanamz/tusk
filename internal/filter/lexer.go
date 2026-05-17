@@ -119,6 +119,7 @@ var operators = []operatorMatch{
 	{"<-", TokenArrowIn},
 	{"..", TokenDotDot},
 	{"=", TokenEQ},
+	{":", TokenEQ},
 	{"<", TokenLT},
 	{">", TokenGT},
 	{"(", TokenLParen},
