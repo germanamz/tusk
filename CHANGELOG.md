@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0](https://github.com/germanamz/tusk/compare/v1.1.0...v1.2.0) (2026-05-17)
+
+
+### Features
+
+* **edge:** explicit --ordinal flag on `tusk edge add` (bug [#4](https://github.com/germanamz/tusk/issues/4)) ([#400](https://github.com/germanamz/tusk/issues/400)) ([0203d74](https://github.com/germanamz/tusk/commit/0203d74c3db1fb4bd71b702f0ab2196583293821))
+
+
+### Bug Fixes
+
+* **doctor:** treat behavior-reserved properties as declared ([#399](https://github.com/germanamz/tusk/issues/399)) ([650876c](https://github.com/germanamz/tusk/commit/650876c760765261aee6d39e694039a6acaa73fd))
+* **filter:** accept `:` as alias for `=` and align help text with reality ([#397](https://github.com/germanamz/tusk/issues/397)) ([4eaea39](https://github.com/germanamz/tusk/commit/4eaea392c865732abe1d5339829bbea5ca41d8de))
+* **node:** inherit source extension when `tusk node move` target has none ([#401](https://github.com/germanamz/tusk/issues/401)) ([32433ff](https://github.com/germanamz/tusk/commit/32433ff5a160825a8b40e133734f324e976df45e))
+* **node:** YAML-quote frontmatter `type` and `title` and ambiguous literals ([#402](https://github.com/germanamz/tusk/issues/402)) ([8e849d3](https://github.com/germanamz/tusk/commit/8e849d318a64ce5b064292d63c2e570de32449ba))
+
 ## [1.1.0](https://github.com/germanamz/tusk/compare/v1.0.2...v1.1.0) (2026-05-17)
 
 
