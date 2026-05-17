@@ -50,13 +50,21 @@ type RenamePlan struct {
 // Rename atomically renames the node file and rewrites every referring edge in
 // frontmatter on disk. Index is updated transactionally.
 //
-// newRelPath is workspace-relative WITH the .md extension. The new id is
-// derived by stripping the extension.
+// newRelPath is workspace-relative. When the source has a file extension
+// (e.g. ".md") but newRelPath does not, the source's extension is inherited so
+// the renamed file keeps its on-disk extension and the new node id matches the
+// "path without extension" convention used elsewhere.
 func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edgeTypes manifest.EdgeTypes, oldID, newRelPath string) (*RenamePlan, error) {
 	row, getErr := nodeRepo.Get(oldID)
 
 	if getErr != nil {
 		return nil, getErr
+	}
+
+	if filepath.Ext(newRelPath) == "" {
+		if sourceExt := filepath.Ext(row.Path); sourceExt != "" {
+			newRelPath += sourceExt
+		}
 	}
 
 	newID := strings.TrimSuffix(newRelPath, filepath.Ext(newRelPath))

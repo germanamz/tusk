@@ -149,6 +149,70 @@ func TestRename_MovesFileAndRewritesReferringEdgesInFrontmatter(test *testing.T)
 	}
 }
 
+func TestRename_InheritsSourceExtensionWhenTargetHasNone(test *testing.T) {
+	root := test.TempDir()
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	service := node.NewServiceWithManifest(root, nodeRepo, edgeRepo, manifest.EdgeTypes{})
+
+	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/foo.md", Type: "note"}); createErr != nil {
+		test.Fatalf("create foo: %v", createErr)
+	}
+
+	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, "notes/foo", "notes/bar")
+
+	if renameErr != nil {
+		test.Fatalf("Rename: %v", renameErr)
+	}
+
+	if plan.NewPath != "notes/bar.md" {
+		test.Errorf("NewPath = %q, want notes/bar.md", plan.NewPath)
+	}
+
+	if plan.NewID != "notes/bar" {
+		test.Errorf("NewID = %q, want notes/bar", plan.NewID)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "notes/bar.md")); statErr != nil {
+		test.Errorf("expected notes/bar.md on disk, stat err = %v", statErr)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "notes/bar")); !os.IsNotExist(statErr) {
+		test.Errorf("expected extensionless notes/bar to NOT exist, stat err = %v", statErr)
+	}
+}
+
+func TestRename_HonorsExplicitTargetExtension(test *testing.T) {
+	root := test.TempDir()
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	service := node.NewServiceWithManifest(root, nodeRepo, edgeRepo, manifest.EdgeTypes{})
+
+	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/foo.md", Type: "note"}); createErr != nil {
+		test.Fatalf("create foo: %v", createErr)
+	}
+
+	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, "notes/foo", "notes/bar.md")
+
+	if renameErr != nil {
+		test.Fatalf("Rename: %v", renameErr)
+	}
+
+	if plan.NewPath != "notes/bar.md" || plan.NewID != "notes/bar" {
+		test.Errorf("plan = %+v, want NewPath=notes/bar.md NewID=notes/bar", plan)
+	}
+}
+
 func TestRename_ReturnsErrorWhenTargetExists(test *testing.T) {
 	root := test.TempDir()
 
