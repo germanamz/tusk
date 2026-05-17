@@ -134,6 +134,16 @@ func NewServiceWithBehaviors(
 	}
 }
 
+// reservedProperties is a nil-safe accessor for Behaviors.ReservedProperties.
+// Returns nil when the service has no behavior engine wired.
+func (service *Service) reservedProperties() map[string]map[string]struct{} {
+	if service.behaviors == nil {
+		return nil
+	}
+
+	return service.behaviors.ReservedProperties()
+}
+
 // Create writes the node file and upserts the index row in one operation.
 // When the service has an EdgeRepo configured, edges are also persisted.
 func (service *Service) Create(input CreateInput) (*Node, error) {
@@ -218,6 +228,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 	// Plan 7.b: property validation — runs before hook validate-phase.
 	propResult := ValidateProperties(parsed, service.nodeTypes)
+	propResult.Drift = FilterReservedDrift(propResult.Drift, parsed.Type, service.reservedProperties())
 
 	if len(propResult.HardErrors) > 0 {
 		return nil, &PropertyValidationError{
@@ -438,6 +449,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	// Plan 7.b: property validation + required-unset check — runs before hook validate-phase.
 	modPropResult := ValidateProperties(reparsed, service.nodeTypes)
+	modPropResult.Drift = FilterReservedDrift(modPropResult.Drift, reparsed.Type, service.reservedProperties())
 
 	// In the Modify path, ErrRequiredMissing from the validator is suppressed:
 	// properties that were never set on a pre-existing node are not blocked by

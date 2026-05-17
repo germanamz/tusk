@@ -239,6 +239,11 @@ func Run(config Config) (*Report, error) {
 		if config.NodeTypes != nil {
 			if _, typed := config.NodeTypes[parsed.Type]; typed {
 				propResult := node.ValidateProperties(parsed, config.NodeTypes)
+
+				if config.Behaviors != nil {
+					propResult.Drift = node.FilterReservedDrift(propResult.Drift, parsed.Type, config.Behaviors.ReservedProperties())
+				}
+
 				now := time.Now().UnixNano()
 
 				for _, hardErr := range propResult.HardErrors {

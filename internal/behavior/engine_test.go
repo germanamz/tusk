@@ -8,6 +8,37 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
+func TestNewEngine_ReservedPropertiesIndexedByNodeType(test *testing.T) {
+	workflowPack := &fakePack{
+		name: "kanban",
+		kind: "workflow",
+		reserved: []behavior.ReservedKey{
+			{NodeType: "ticket", Property: "status"},
+			{NodeType: "epic", Property: "status"},
+		},
+	}
+
+	engine, newErr := behavior.NewEngine([]behavior.Instance{workflowPack}, nil)
+
+	if newErr != nil {
+		test.Fatalf("NewEngine: %v", newErr)
+	}
+
+	reserved := engine.ReservedProperties()
+
+	if _, ok := reserved["ticket"]["status"]; !ok {
+		test.Errorf("expected ticket.status reserved, got %+v", reserved)
+	}
+
+	if _, ok := reserved["epic"]["status"]; !ok {
+		test.Errorf("expected epic.status reserved, got %+v", reserved)
+	}
+
+	if _, ok := reserved["ticket"]["assignee"]; ok {
+		test.Errorf("did not expect ticket.assignee reserved, got %+v", reserved)
+	}
+}
+
 func TestNewEngine_SimpleNodeWriteValidate_ChainOrder(test *testing.T) {
 	var calls []string
 

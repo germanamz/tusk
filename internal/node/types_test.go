@@ -7,6 +7,47 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
+func TestFilterReservedDrift_RemovesReserved(test *testing.T) {
+	drift := []node.PropertyDrift{
+		{Property: "status", Reason: "not declared on type \"ticket\""},
+		{Property: "assignee", Reason: "not declared on type \"ticket\""},
+	}
+
+	reserved := map[string]map[string]struct{}{
+		"ticket": {"status": {}},
+	}
+
+	got := node.FilterReservedDrift(drift, "ticket", reserved)
+
+	if len(got) != 1 || got[0].Property != "assignee" {
+		test.Errorf("got %+v, want only assignee", got)
+	}
+}
+
+func TestFilterReservedDrift_NilReservedReturnsInput(test *testing.T) {
+	drift := []node.PropertyDrift{{Property: "status"}}
+
+	got := node.FilterReservedDrift(drift, "ticket", nil)
+
+	if len(got) != 1 || got[0].Property != "status" {
+		test.Errorf("got %+v, want input unchanged", got)
+	}
+}
+
+func TestFilterReservedDrift_OtherTypeIgnored(test *testing.T) {
+	drift := []node.PropertyDrift{{Property: "status"}}
+
+	reserved := map[string]map[string]struct{}{
+		"meeting": {"status": {}},
+	}
+
+	got := node.FilterReservedDrift(drift, "ticket", reserved)
+
+	if len(got) != 1 {
+		test.Errorf("got %+v, want drift preserved for type without reservations", got)
+	}
+}
+
 func TestValidateProperties_UntypedNodePassThrough(test *testing.T) {
 	parsed := &node.Node{Type: "unknown", Properties: map[string]any{"any-key": "any-value"}}
 
