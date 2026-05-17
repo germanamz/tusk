@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/germanamz/tusk/compare/v1.0.2...v1.1.0) (2026-05-17)
+
+
+### Features
+
+* **cli:** add man pages and markdown reference, generated from cobra help ([#393](https://github.com/germanamz/tusk/issues/393)) ([4b73f2a](https://github.com/germanamz/tusk/commit/4b73f2a5d0a96bdcee141b82f9617b12cfcfc633))
+
 ## [1.0.2](https://github.com/germanamz/tusk/compare/v1.0.1...v1.0.2) (2026-05-16)
 
 
