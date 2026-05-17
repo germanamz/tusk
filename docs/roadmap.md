@@ -11,42 +11,27 @@ designs: each graduates into its own
 brainstorm and plan it.
 
 - **Last updated:** 2026-05-17
-- **Latest release:** v1.1.0
+- **Latest release:** v1.2.0
 - **Closed specs/plans:**
   - `specs/2026-05-05-tusk-v1-rebuild-design.md` — v1 ground-up rewrite (shipped through 1.0/1.1)
-  - `specs/2026-05-16-tusk-cli-docs-design.md` + matching plan — `man/` and `docs/cli/` shipped in #393
-
-## Top priority — v1.1 bug backlog
-
-Five bugs surfaced while bootstrapping the Superhuman workspace against
-v1.1.0. Full repros, expected behavior, suggested fixes, and severity in
-`docs/bugs.md`. These ship before any of the forward-looking explorations
-below.
-
-Filing / fix order (lowest-coupling first, per `docs/bugs.md`):
-
-1. **Filter docs say `key:value`, parser requires `key=value`** — docs drift, or parser accepts both. (Low severity, trivial.)
-2. **Workflow-owned `status` triggers permanent `undeclared-property` warning** — affects the built-in `kanban` pack too. (Low / validator fix.)
-3. **`ordered=true` edges all get ordinal 0 via `tusk edge add`** — no `--ordinal` flag; auto-assign or accept one. (Low / design clarity.)
-4. **`tusk node move` drops the file extension when the target has none** — desyncs index from disk until manually repaired. (Medium.)
-5. **`:` in a string property silently breaks the file on write** — frontmatter writer needs YAML-safe string emission. (High — silent corruption; deferred behind the easier ones to let a pattern emerge.)
-
-Two ergonomic asks ride along, not bugs but felt during the same bootstrap:
-composite `tusk_node_attach` and depth-N descendants in a single query.
+  - CLI docs (`man/` + `docs/cli/`) — shipped in #393
+  - v1.1 bug backlog (5 bugs surfaced bootstrapping the Superhuman workspace) — shipped in v1.2.0 via #397, #399, #400, #401, #402
 
 ## Forward-looking explorations
 
-Suggested priority for new feature work *after* the bug backlog clears. Each is
-independent in execution; the order reflects dependencies and risk-adjusted
-payoff.
+Each is independent in execution; the order reflects dependencies and
+risk-adjusted payoff. Items #6 and #7 are smaller ergonomic asks promoted from
+the Superhuman bootstrap session.
 
 1. [Native-Go embedding models](#1-native-go-embedding-models)
 2. [Indexed checkbox todos in nodes](#2-indexed-checkbox-todos-in-nodes)
 3. [CI-distributed prebuilt indexes](#3-ci-distributed-prebuilt-indexes)
 4. [Paragraph indexing with local summarization](#4-paragraph-indexing-with-local-summarization)
 5. [Distributed indexing](#5-distributed-indexing)
+6. [Composite `tusk_node_attach`](#6-composite-tusk_node_attach)
+7. [Depth-N descendants in one query](#7-depth-n-descendants-in-one-query)
 
-Below the five focus items, the [v1 deferred backlog](#v1-deferred-backlog) lists
+Below the focus items, the [v1 deferred backlog](#v1-deferred-backlog) lists
 work parked in the v1 spec (§3.2 / §8.2) that's still on the table but
 unscheduled.
 
@@ -206,6 +191,58 @@ concrete user need lands.
 
 **Dependencies.** None blocking, but worth seeing #1, #3, and #4 land first
 since they sharpen what a "shard" carries.
+
+## 6. Composite `tusk_node_attach`
+
+**Problem.** A common agent pattern is "create a node and immediately attach
+it to an existing one" (Story → phase plan, ticket → epic, WBS child →
+parent). Today this is two MCP calls — `tusk_node_create` then
+`tusk_edge_add`. Either can fail in the middle, leaving an orphan node or a
+missing edge, and the agent has to write the recovery logic.
+
+**Why now.** Surfaced as the most-felt ergonomic gap during the Superhuman
+workspace bootstrap. Pure additive surface — no behavior change to existing
+calls. Small scope, clear payoff.
+
+**Sketch.** New `tusk_node_attach` MCP tool and matching `tusk node attach`
+CLI that wrap node create + edge add in a single transaction. Args mirror
+`node create` plus an edge spec (`--edge-type`, `--parent` or symmetric
+`--source/--target`).
+
+**Open questions.**
+- Single edge or multiple edges per call? (Common case is one; multiple
+  complicates the failure-recovery story.)
+- Atomicity semantics on partial failure — roll back the node, or commit and
+  surface the partial-success error?
+- Naming. `attach` vs. `link` vs. `node create --attach-to`.
+
+**Dependencies.** None.
+
+## 7. Depth-N descendants in one query
+
+**Problem.** Traversing a parent/child tree from the public surface requires
+N round trips, one per level. The binary already carries `descendants_%d`
+query strings internally — the SQL is parameterized by depth — but only
+single-hop edge filters are exposed through `tusk_query` and the filter
+grammar.
+
+**Why now.** Felt during the Superhuman WBS workspace, where a Story has 2–4
+levels of descendants below it. Agents that want "the whole subtree" pay N×
+latency today for what's effectively one prepared statement.
+
+**Sketch.** Promote the internal depth-parameterized traversal to the public
+query surface. Filter grammar gains a descendants traversal (shape TBD —
+e.g. `descendants(<edge-type>, depth=N)`), and `tusk_query` accepts the same
+depth knob. Reuse the existing SQL machinery.
+
+**Open questions.**
+- Filter-grammar shape — function-call style, or a new operator?
+- Default depth cap to prevent runaway traversals.
+- Direction (parent → child, child → parent, both) — separate verbs or one
+  with a direction arg?
+- Result shape: flat list, or grouped by depth?
+
+**Dependencies.** None — backing query strings already exist.
 
 ---
 
