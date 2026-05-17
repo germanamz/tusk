@@ -88,6 +88,89 @@ func TestService_CreateWritesFileAndIndexes(test *testing.T) {
 	}
 }
 
+func TestService_CreateQuotesYAMLDangerousTitle(test *testing.T) {
+	service, root := newTestService(test)
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "tickets/colon.md",
+		Type:    "ticket",
+		Title:   "Spec: Example",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	// A second modify must succeed — the bug was that the colon in the title
+	// produced a frontmatter line YAML refused to decode on the next read.
+	if _, modErr := service.Modify(node.ModifyInput{
+		ID:       "tickets/colon",
+		SetProps: map[string]any{"archived": "false"},
+	}); modErr != nil {
+		test.Fatalf("Modify after colon-in-title: %v", modErr)
+	}
+
+	loaded, getErr := service.Get("tickets/colon")
+
+	if getErr != nil {
+		test.Fatalf("Get: %v", getErr)
+	}
+
+	if loaded.Title != "Spec: Example" {
+		test.Errorf("Title round-trip = %q, want %q", loaded.Title, "Spec: Example")
+	}
+
+	onDisk, _ := os.ReadFile(filepath.Join(root, "tickets/colon.md"))
+
+	if !contains(string(onDisk), `title: "Spec: Example"`) {
+		test.Errorf("expected quoted title on disk, got:\n%s", string(onDisk))
+	}
+}
+
+func TestService_CreateQuotesYAMLAmbiguousLiterals(test *testing.T) {
+	service, _ := newTestService(test)
+
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"true", "true"},
+		{"yes", "yes"},
+		{"null", "null"},
+		{"number-looking", "3.14"},
+		{"leading-dash", "-foo"},
+		{"empty", ""},
+		{"hash", "#foo"},
+		{"trailing-space", "trailing "},
+	}
+
+	for _, tc := range cases {
+		test.Run(tc.name, func(test *testing.T) {
+			relPath := "notes/" + tc.name + ".md"
+			nodeID := "notes/" + tc.name
+
+			if _, createErr := service.Create(node.CreateInput{
+				RelPath:    relPath,
+				Type:       "note",
+				Title:      "x",
+				Properties: map[string]any{"raw": tc.value},
+			}); createErr != nil {
+				test.Fatalf("Create %s: %v", tc.name, createErr)
+			}
+
+			loaded, getErr := service.Get(nodeID)
+
+			if getErr != nil {
+				test.Fatalf("Get %s: %v", tc.name, getErr)
+			}
+
+			got, _ := loaded.Properties["raw"].(string)
+
+			if got != tc.value {
+				test.Errorf("raw round-trip = %q, want %q", got, tc.value)
+			}
+		})
+	}
+}
+
 func TestService_CreateRejectsExistingFile(test *testing.T) {
 	service, _ := newTestService(test)
 
