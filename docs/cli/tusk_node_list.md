@@ -14,7 +14,9 @@ The filter is a property and edge-traversal expression. Property
 predicates use comparison operators (key=value, key:value, key!=value,
 key<value, key<=value, key>value, key>=value); ranges use key=lo..hi.
 Edge traversal uses edge-type-> or edge-type<- and may chain multi-hop.
-Traversal shortcuts: tree=id, parent=id, root=id. Combine with AND, OR,
+Traversal shortcuts: tree=id, parent=id, root=id (qualified: tree:<alias>=id,
+parent:<alias>=id, root:<alias>=id, where <alias> is set via hierarchy on an
+edge type in tusk.toml). Combine with AND, OR,
 NOT, and parens. (Both : and = bind property comparisons; pick whichever
 reads better.) Output is a tab-aligned table of id, type, title, path.
 
