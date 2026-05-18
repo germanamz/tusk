@@ -80,6 +80,8 @@ func Validate(loaded *Manifest) error {
 		return synthesizeErr
 	}
 
+	synthesizeHierarchyBackCompat(loaded)
+
 	if validateErr := validateHierarchies(loaded); validateErr != nil {
 		return validateErr
 	}
@@ -97,6 +99,45 @@ func IsRefProperty(prop PropertyDecl) bool {
 // isRefProperty is the package-internal alias for IsRefProperty.
 func isRefProperty(prop PropertyDecl) bool {
 	return IsRefProperty(prop)
+}
+
+// synthesizeHierarchyBackCompat preserves pre-#405 behavior: a workspace that
+// declares a literal edge type named "parent" without setting a hierarchy
+// alias gets the alias "parent" applied automatically, and becomes the
+// default hierarchy if no other edge has claimed default. Run after parse
+// and before validate so downstream validation sees the synthesized values.
+func synthesizeHierarchyBackCompat(loaded *Manifest) {
+	edge, exists := loaded.EdgeTypes["parent"]
+
+	if !exists {
+		return
+	}
+
+	if edge.Hierarchy != "" {
+		return
+	}
+
+	edge.Hierarchy = "parent"
+
+	otherDefaultExists := false
+
+	for otherName, other := range loaded.EdgeTypes {
+		if otherName == "parent" {
+			continue
+		}
+
+		if other.HierarchyDefault {
+			otherDefaultExists = true
+
+			break
+		}
+	}
+
+	if !otherDefaultExists {
+		edge.HierarchyDefault = true
+	}
+
+	loaded.EdgeTypes["parent"] = edge
 }
 
 // buildEdgeTypeFromRef constructs an EdgeType from the owning node-type name
@@ -414,7 +455,9 @@ func validateHierarchies(loaded *Manifest) error {
 			continue
 		}
 
-		if shortcutKeywords[edge.Hierarchy] {
+		// Special case: allow bare "parent" edge to use "parent" hierarchy for back-compat.
+		// This is the one exception to the keyword-collision rule.
+		if shortcutKeywords[edge.Hierarchy] && (edgeName != "parent" || edge.Hierarchy != "parent") {
 			return fmt.Errorf("edge %q: hierarchy alias %q collides with shortcut keyword", edgeName, edge.Hierarchy)
 		}
 

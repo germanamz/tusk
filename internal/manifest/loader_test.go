@@ -1312,3 +1312,118 @@ hierarchy-default = true
 		test.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestLoad_SynthesizesHierarchyForBareParentEdge(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.parent]
+description = "Parent edge"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+acyclic     = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	edge := loaded.EdgeTypes["parent"]
+
+	if edge.Hierarchy != "parent" {
+		test.Errorf("Hierarchy = %q, want %q", edge.Hierarchy, "parent")
+	}
+
+	if !edge.HierarchyDefault {
+		test.Errorf("HierarchyDefault = false, want true (back-compat)")
+	}
+}
+
+func TestLoad_BareParentDoesNotOverrideExplicitHierarchy(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.parent]
+description = "Parent edge"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "kanban"
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	if loaded.EdgeTypes["parent"].Hierarchy != "kanban" {
+		test.Errorf("explicit hierarchy %q was overwritten", "kanban")
+	}
+}
+
+func TestLoad_BareParentDoesNotClaimDefaultWhenOtherDefaultExists(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.parent]
+description = "Bare parent edge (back-compat)"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+
+[edge-types.wbs-parent]
+description = "WBS hierarchy"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "wbs"
+hierarchy-default = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	bareParent := loaded.EdgeTypes["parent"]
+
+	if bareParent.Hierarchy != "parent" {
+		test.Errorf("bare parent Hierarchy = %q, want %q", bareParent.Hierarchy, "parent")
+	}
+
+	if bareParent.HierarchyDefault {
+		test.Errorf("bare parent should not claim default when another edge already does")
+	}
+}
