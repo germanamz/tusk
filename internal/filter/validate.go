@@ -2,6 +2,8 @@ package filter
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -63,14 +65,120 @@ func (collector *validationCollector) walk(expr Expr) {
 			collector.walk(typed.Inner)
 		}
 	case *TraversalShortcut:
-		if _, declared := collector.manifest.EdgeTypes["parent"]; !declared {
-			collector.errors = append(collector.errors, ValidationError{
-				Pos:     typed.Pos,
-				Message: "traversal shortcut requires the workspace to declare a `parent` edge type",
-				Hint:    "add [edge-types.parent] to tusk.toml or use explicit `<edge>->` form",
-			})
+		collector.resolveShortcut(typed)
+	}
+}
+
+func (collector *validationCollector) resolveShortcut(shortcut *TraversalShortcut) {
+	aliasToEdge := map[string]string{}
+
+	var defaultEdge string
+
+	hierarchyCount := 0
+
+	for edgeName, edge := range collector.manifest.EdgeTypes {
+		if edge.Hierarchy == "" {
+			continue
+		}
+
+		aliasToEdge[edge.Hierarchy] = edgeName
+		hierarchyCount++
+
+		if edge.HierarchyDefault {
+			defaultEdge = edgeName
 		}
 	}
+
+	if shortcut.Alias != "" {
+		edgeName, found := aliasToEdge[shortcut.Alias]
+
+		if !found {
+			collector.errors = append(collector.errors, ValidationError{
+				Pos:     shortcut.Pos,
+				Message: fmt.Sprintf("unknown hierarchy alias %q", shortcut.Alias),
+				Hint:    formatAliasList(aliasToEdge),
+			})
+
+			return
+		}
+
+		shortcut.EdgeType = edgeName
+
+		return
+	}
+
+	if defaultEdge != "" {
+		shortcut.EdgeType = defaultEdge
+
+		return
+	}
+
+	if hierarchyCount == 1 {
+		for _, only := range aliasToEdge {
+			shortcut.EdgeType = only
+		}
+
+		return
+	}
+
+	if hierarchyCount == 0 {
+		hint := "add hierarchy = \"<alias>\" to an edge in tusk.toml, or use explicit <edge>->*=<id>"
+
+		if candidate := suggestHierarchyCandidate(collector.manifest.EdgeTypes); candidate != "" {
+			hint = fmt.Sprintf("e.g. %s->*=<id>; or add hierarchy = \"<alias>\" to that edge in tusk.toml", candidate)
+		}
+
+		collector.errors = append(collector.errors, ValidationError{
+			Pos:     shortcut.Pos,
+			Message: "no hierarchy edges declared in this workspace",
+			Hint:    hint,
+		})
+
+		return
+	}
+
+	collector.errors = append(collector.errors, ValidationError{
+		Pos:     shortcut.Pos,
+		Message: "no default hierarchy and multiple are declared",
+		Hint:    fmt.Sprintf("use tree:<alias>=<id> or set hierarchy-default = true on one of: %s", formatAliasList(aliasToEdge)),
+	})
+}
+
+func formatAliasList(aliasToEdge map[string]string) string {
+	if len(aliasToEdge) == 0 {
+		return ""
+	}
+
+	aliases := make([]string, 0, len(aliasToEdge))
+
+	for alias := range aliasToEdge {
+		aliases = append(aliases, fmt.Sprintf("%q", alias))
+	}
+
+	sort.Strings(aliases)
+
+	return "declared aliases: " + strings.Join(aliases, ", ")
+}
+
+// suggestHierarchyCandidate picks an edge that looks hierarchy-shaped
+// (many-to-one and acyclic) to surface in error messages. Returns the
+// edge's name, or "" when nothing matches.
+func suggestHierarchyCandidate(edges map[string]manifest.EdgeType) string {
+	candidates := make([]string, 0)
+
+	for name, edge := range edges {
+		if edge.Cardinality == manifest.CardinalityManyToOne && edge.Acyclic {
+			candidates = append(candidates, name)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	sort.Strings(candidates)
+
+	return candidates[0]
 }
 
 func suggestEdgeType(unknown string, available map[string]manifest.EdgeType) string {

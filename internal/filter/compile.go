@@ -302,34 +302,45 @@ func compilePropertyOnAlias(predicate *PropertyPredicate, alias string) (string,
 // compileTraversalShortcut returns a WHERE-clause fragment, a slice of CTE
 // definition strings, and params. The caller stitches the CTE definitions
 // into a single WITH RECURSIVE clause prepended to the SELECT.
+//
+// The edge type is supplied by shortcut.EdgeType, populated by the
+// validator from the manifest. If empty, the validator did not run or the
+// AST was hand-constructed without resolution — return an error rather
+// than emit ambiguous SQL.
 func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string, []string, []any, error) {
+	if shortcut.EdgeType == "" {
+		return "", nil, nil, fmt.Errorf("compile: traversal shortcut has unresolved edge type (validator must run before compile)")
+	}
+
+	edge := shortcut.EdgeType
+
 	switch shortcut.Kind {
 	case ShortcutParentOf:
-		whereClause := "EXISTS (SELECT 1 FROM edges WHERE source_id = nodes.id AND type = 'parent' AND target_id = ?)"
+		whereClause := "EXISTS (SELECT 1 FROM edges WHERE source_id = nodes.id AND type = ? AND target_id = ?)"
 
-		return whereClause, nil, []any{shortcut.NodeID}, nil
+		return whereClause, nil, []any{edge, shortcut.NodeID}, nil
 	case ShortcutTree:
 		cteName := fmt.Sprintf("descendants_%d", counter)
 		cteBody := fmt.Sprintf(`%s AS (
-    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = 'parent'
+    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = ?
     UNION ALL
     SELECT edges.target_id, %s.depth + 1 FROM %s
         JOIN edges ON edges.source_id = %s.target_id
-        WHERE edges.type = 'parent' AND %s.depth < 5
+        WHERE edges.type = ? AND %s.depth < 5
 )`, cteName, cteName, cteName, cteName, cteName)
 
 		whereClause := fmt.Sprintf("nodes.id IN (SELECT target_id FROM %s)", cteName)
 
-		return whereClause, []string{cteBody}, []any{shortcut.NodeID}, nil
+		return whereClause, []string{cteBody}, []any{shortcut.NodeID, edge, edge}, nil
 	case ShortcutRoot:
 		ascendantsName := fmt.Sprintf("ascendants_%d", counter)
 		descendantsName := fmt.Sprintf("from_root_%d", counter)
 		ascendantsBody := fmt.Sprintf(`%s AS (
-    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = 'parent'
+    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = ?
     UNION ALL
     SELECT edges.target_id, %s.depth + 1 FROM %s
         JOIN edges ON edges.source_id = %s.target_id
-        WHERE edges.type = 'parent' AND %s.depth < 5
+        WHERE edges.type = ? AND %s.depth < 5
 )`, ascendantsName, ascendantsName, ascendantsName, ascendantsName, ascendantsName)
 
 		descendantsBody := fmt.Sprintf(`%s AS (
@@ -339,12 +350,12 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string,
     UNION ALL
     SELECT edges.target_id, %s.depth + 1 FROM %s
         JOIN edges ON edges.source_id = %s.target_id
-        WHERE edges.type = 'parent' AND %s.depth < 5
+        WHERE edges.type = ? AND %s.depth < 5
 )`, descendantsName, ascendantsName, descendantsName, descendantsName, descendantsName, descendantsName)
 
 		whereClause := fmt.Sprintf("nodes.id IN (SELECT target_id FROM %s)", descendantsName)
 
-		return whereClause, []string{ascendantsBody, descendantsBody}, []any{shortcut.NodeID, shortcut.NodeID}, nil
+		return whereClause, []string{ascendantsBody, descendantsBody}, []any{shortcut.NodeID, edge, edge, shortcut.NodeID, edge}, nil
 	}
 
 	return "", nil, nil, fmt.Errorf("compile: unknown traversal shortcut kind %v", shortcut.Kind)

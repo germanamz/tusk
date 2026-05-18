@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 func TestCompile_CorePropertyEquality(test *testing.T) {
@@ -184,21 +185,21 @@ func TestCompile_MultiHopChain(test *testing.T) {
 }
 
 func TestCompile_TraversalShortcutParent(test *testing.T) {
-	expr, _ := filter.NewParser("parent=tickets/foo").Parse()
+	expr := &filter.TraversalShortcut{Kind: filter.ShortcutParentOf, NodeID: "tickets/foo", EdgeType: "parent"}
 
 	sql, params, _ := filter.Compile(expr, filter.CompileOptions{})
 
-	if !strings.Contains(sql, "EXISTS") || !strings.Contains(sql, "type = 'parent'") {
-		test.Errorf("sql for parent= shortcut missing EXISTS or 'parent' type: %s", sql)
+	if !strings.Contains(sql, "EXISTS") || !strings.Contains(sql, "type = ?") {
+		test.Errorf("sql for parent= shortcut missing EXISTS or parameterized type: %s", sql)
 	}
 
-	if !reflect.DeepEqual(params, []any{"tickets/foo"}) {
-		test.Errorf("params = %v, want [tickets/foo]", params)
+	if !reflect.DeepEqual(params, []any{"parent", "tickets/foo"}) {
+		test.Errorf("params = %v, want [parent tickets/foo]", params)
 	}
 }
 
 func TestCompile_TraversalShortcutTreeUsesRecursiveCTE(test *testing.T) {
-	expr, _ := filter.NewParser("tree=tickets/foo").Parse()
+	expr := &filter.TraversalShortcut{Kind: filter.ShortcutTree, NodeID: "tickets/foo", EdgeType: "parent"}
 
 	sql, params, _ := filter.Compile(expr, filter.CompileOptions{})
 
@@ -210,17 +211,188 @@ func TestCompile_TraversalShortcutTreeUsesRecursiveCTE(test *testing.T) {
 		test.Errorf("expected depth bound of 5: %s", sql)
 	}
 
-	if !reflect.DeepEqual(params, []any{"tickets/foo"}) {
-		test.Errorf("params = %v, want [tickets/foo]", params)
+	if !reflect.DeepEqual(params, []any{"tickets/foo", "parent", "parent"}) {
+		test.Errorf("params = %v, want [tickets/foo parent parent]", params)
 	}
 }
 
 func TestCompile_TraversalShortcutRoot(test *testing.T) {
-	expr, _ := filter.NewParser("root=tickets/foo").Parse()
+	expr := &filter.TraversalShortcut{Kind: filter.ShortcutRoot, NodeID: "tickets/foo", EdgeType: "parent"}
 
 	sql, _, _ := filter.Compile(expr, filter.CompileOptions{})
 
 	if strings.Count(sql, "WITH RECURSIVE") == 0 && strings.Count(sql, "ascendants") == 0 {
 		test.Errorf("expected recursive CTE structure for root=: %s", sql)
+	}
+}
+
+func TestCompile_TreeShortcutUsesResolvedEdgeType(test *testing.T) {
+	expr := &filter.TraversalShortcut{
+		Kind:     filter.ShortcutTree,
+		NodeID:   "wbs/root",
+		EdgeType: "wbs-parent",
+	}
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	if strings.Contains(sql, "type = 'parent'") {
+		test.Errorf("SQL still hardcodes 'parent': %s", sql)
+	}
+
+	if !strings.Contains(sql, "type = ?") {
+		test.Errorf("SQL missing parameterized edge type: %s", sql)
+	}
+
+	foundEdgeParam := false
+
+	for _, param := range params {
+		if str, ok := param.(string); ok && str == "wbs-parent" {
+			foundEdgeParam = true
+
+			break
+		}
+	}
+
+	if !foundEdgeParam {
+		test.Errorf("params %v missing edge type 'wbs-parent'", params)
+	}
+}
+
+func TestCompile_ShortcutWithEmptyEdgeTypeErrors(test *testing.T) {
+	expr := &filter.TraversalShortcut{
+		Kind:   filter.ShortcutTree,
+		NodeID: "x",
+		// EdgeType deliberately empty
+	}
+
+	_, _, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err == nil {
+		test.Fatalf("expected error for shortcut without resolved edge type")
+	}
+
+	if !strings.Contains(err.Error(), "unresolved") {
+		test.Errorf("error = %q, want substring %q", err.Error(), "unresolved")
+	}
+}
+
+func TestPipeline_TwoHierarchiesProduceDistinctSQL(test *testing.T) {
+	manifestObj := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"parent": {
+				Cardinality:      manifest.CardinalityManyToOne,
+				Acyclic:          true,
+				Hierarchy:        "kanban",
+				HierarchyDefault: true,
+			},
+			"wbs-parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Acyclic:     true,
+				Hierarchy:   "wbs",
+			},
+		},
+	}
+
+	cases := []struct {
+		name            string
+		query           string
+		wantEdgeInParam string
+		notEdgeInParam  string
+	}{
+		{"qualified_kanban", "tree:kanban=epic", "parent", "wbs-parent"},
+		{"qualified_wbs", "tree:wbs=initiative", "wbs-parent", "parent"},
+		{"unqualified_uses_default", "tree=epic", "parent", "wbs-parent"},
+		{"parent_qualified_wbs", "parent:wbs=initiative", "wbs-parent", "parent"},
+		{"root_qualified_kanban", "root:kanban=story", "parent", "wbs-parent"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			parser := filter.NewParser(testCase.query)
+			expr, parseErrs := parser.Parse()
+
+			if len(parseErrs) != 0 {
+				test.Fatalf("parse %q: %+v", testCase.query, parseErrs)
+			}
+
+			validateErrs := filter.Validate(expr, manifestObj)
+
+			if len(validateErrs) != 0 {
+				test.Fatalf("validate %q: %+v", testCase.query, validateErrs)
+			}
+
+			sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+			if err != nil {
+				test.Fatalf("compile %q: %v", testCase.query, err)
+			}
+
+			if strings.Contains(sql, "type = 'parent'") {
+				test.Errorf("query %q: SQL still hardcodes 'parent': %s", testCase.query, sql)
+			}
+
+			foundWanted := false
+			foundUnwanted := false
+
+			for _, param := range params {
+				str, isStr := param.(string)
+
+				if !isStr {
+					continue
+				}
+
+				if str == testCase.wantEdgeInParam {
+					foundWanted = true
+				}
+
+				if str == testCase.notEdgeInParam {
+					foundUnwanted = true
+				}
+			}
+
+			if !foundWanted {
+				test.Errorf("query %q: expected %q in params, got %v", testCase.query, testCase.wantEdgeInParam, params)
+			}
+
+			if foundUnwanted {
+				test.Errorf("query %q: did not expect %q in params, got %v", testCase.query, testCase.notEdgeInParam, params)
+			}
+		})
+	}
+}
+
+func TestPipeline_AmbiguousUnqualifiedFailsValidation(test *testing.T) {
+	manifestObj := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Hierarchy:   "kanban",
+			},
+			"wbs-parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Hierarchy:   "wbs",
+			},
+		},
+	}
+
+	parser := filter.NewParser("tree=epic")
+	expr, parseErrs := parser.Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("unexpected parse errors: %+v", parseErrs)
+	}
+
+	validateErrs := filter.Validate(expr, manifestObj)
+
+	if len(validateErrs) == 0 {
+		test.Fatalf("expected validation error for ambiguous unqualified shortcut")
+	}
+
+	if !strings.Contains(validateErrs[0].Message, "no default hierarchy") {
+		test.Errorf("unexpected message: %q", validateErrs[0].Message)
 	}
 }

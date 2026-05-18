@@ -19,7 +19,9 @@ Structural (default): the filter argument is a property and
 edge-traversal expression. Property predicates use comparison
 operators (key=value, key:value, key!=value, keyvalue, key>=value); ranges use key=lo..hi. Edge traversal uses
 edge-type-> or edge-type<- and may chain multi-hop. Traversal
-shortcuts: tree=id, parent=id, root=id. Combine with AND, OR, NOT,
+shortcuts: tree=id, parent=id, root=id (qualified: tree:=id,
+parent:=id, root:=id, where  is set via
+hierarchy on an edge type in tusk.toml). Combine with AND, OR, NOT,
 and parens. (Both : and = bind property comparisons; pick whichever
 reads better.)
 .IP \(bu 2

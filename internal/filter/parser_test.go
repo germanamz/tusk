@@ -331,3 +331,127 @@ func TestParser_Precedence(test *testing.T) {
 	_ = orExpr.Left.(*filter.AndExpr)
 	_ = orExpr.Right.(*filter.PropertyPredicate)
 }
+
+func TestParser_QualifiedTreeShortcut(test *testing.T) {
+	parser := filter.NewParser("tree:wbs=wbs/root")
+
+	expr, errs := parser.Parse()
+
+	if len(errs) != 0 {
+		test.Fatalf("unexpected parse errors: %+v", errs)
+	}
+
+	shortcut, ok := expr.(*filter.TraversalShortcut)
+
+	if !ok {
+		test.Fatalf("expr = %T, want *TraversalShortcut", expr)
+	}
+
+	if shortcut.Kind != filter.ShortcutTree {
+		test.Errorf("Kind = %v, want ShortcutTree", shortcut.Kind)
+	}
+
+	if shortcut.Alias != "wbs" {
+		test.Errorf("Alias = %q, want %q", shortcut.Alias, "wbs")
+	}
+
+	if shortcut.NodeID != "wbs/root" {
+		test.Errorf("NodeID = %q, want %q", shortcut.NodeID, "wbs/root")
+	}
+}
+
+func TestParser_QualifiedParentAndRootShortcuts(test *testing.T) {
+	cases := []struct {
+		input string
+		kind  filter.ShortcutKind
+		alias string
+		id    string
+	}{
+		{"parent:kanban=task/123", filter.ShortcutParentOf, "kanban", "task/123"},
+		{"root:wbs=wbs/leaf", filter.ShortcutRoot, "wbs", "wbs/leaf"},
+	}
+
+	for _, testCase := range cases {
+		parser := filter.NewParser(testCase.input)
+		expr, errs := parser.Parse()
+
+		if len(errs) != 0 {
+			test.Fatalf("input %q: unexpected errors %+v", testCase.input, errs)
+		}
+
+		shortcut, ok := expr.(*filter.TraversalShortcut)
+
+		if !ok {
+			test.Fatalf("input %q: expr = %T, want *TraversalShortcut", testCase.input, expr)
+		}
+
+		if shortcut.Kind != testCase.kind {
+			test.Errorf("input %q: Kind = %v, want %v", testCase.input, shortcut.Kind, testCase.kind)
+		}
+
+		if shortcut.Alias != testCase.alias {
+			test.Errorf("input %q: Alias = %q, want %q", testCase.input, shortcut.Alias, testCase.alias)
+		}
+
+		if shortcut.NodeID != testCase.id {
+			test.Errorf("input %q: NodeID = %q, want %q", testCase.input, shortcut.NodeID, testCase.id)
+		}
+	}
+}
+
+func TestParser_UnqualifiedShortcutStillParses(test *testing.T) {
+	parser := filter.NewParser("tree=root/node")
+	expr, errs := parser.Parse()
+
+	if len(errs) != 0 {
+		test.Fatalf("unexpected errors: %+v", errs)
+	}
+
+	shortcut := expr.(*filter.TraversalShortcut)
+
+	if shortcut.Alias != "" {
+		test.Errorf("Alias = %q, want empty", shortcut.Alias)
+	}
+
+	if shortcut.NodeID != "root/node" {
+		test.Errorf("NodeID = %q, want %q", shortcut.NodeID, "root/node")
+	}
+}
+
+func TestParser_MalformedQualifiedShortcut(test *testing.T) {
+	cases := []string{
+		"tree:=foo",      // empty alias / missing value
+		"tree:wbs:x=foo", // colon-after-alias not allowed
+	}
+
+	for _, input := range cases {
+		parser := filter.NewParser(input)
+		_, errs := parser.Parse()
+
+		if len(errs) == 0 {
+			test.Errorf("input %q: expected parse errors, got none", input)
+		}
+	}
+}
+
+func TestParser_ColonShorthandStillWorks(test *testing.T) {
+	// Pre-existing behavior: `tree:foo` is the colon-as-equals shorthand,
+	// meaning `tree=foo`. Should parse with Alias = "" and NodeID = "foo".
+	parser := filter.NewParser("tree:foo/bar")
+
+	expr, errs := parser.Parse()
+
+	if len(errs) != 0 {
+		test.Fatalf("unexpected errors: %+v", errs)
+	}
+
+	shortcut := expr.(*filter.TraversalShortcut)
+
+	if shortcut.Alias != "" {
+		test.Errorf("Alias = %q, want empty (colon-shorthand)", shortcut.Alias)
+	}
+
+	if shortcut.NodeID != "foo/bar" {
+		test.Errorf("NodeID = %q, want %q", shortcut.NodeID, "foo/bar")
+	}
+}

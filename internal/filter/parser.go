@@ -117,7 +117,7 @@ func (parser *Parser) parsePredicate() Expr {
 	case "tree", "parent", "root":
 		next := parser.peekN(1)
 
-		if next.Kind == TokenEQ {
+		if next.Kind == TokenEQ || next.Kind == TokenColon {
 			return parser.parseTraversalShortcut()
 		}
 	}
@@ -264,12 +264,31 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 		return nil
 	}
 
-	eqToken := parser.advance()
+	separator := parser.advance()
 
-	if eqToken.Kind != TokenEQ {
-		parser.appendErr(eqToken.Pos, "expected = after traversal-shortcut keyword")
+	if separator.Kind != TokenEQ && separator.Kind != TokenColon {
+		parser.appendErr(separator.Pos, "expected = or : after traversal-shortcut keyword")
 
 		return nil
+	}
+
+	var alias string
+
+	// Qualified form is only possible after `:`. Probe without consuming
+	// the input by snapshotting and restoring the lexer position; the
+	// parser's buffer is empty here (parsePredicate populated it with
+	// the keyword + separator, both already advance()d above).
+	if separator.Kind == TokenColon {
+		savedPos := parser.lexer.pos
+
+		aliasCandidate := parser.lexer.Next()
+		eqCandidate := parser.lexer.Next()
+
+		if aliasCandidate.Kind == TokenIdent && eqCandidate.Kind == TokenEQ {
+			alias = aliasCandidate.Value
+		} else {
+			parser.lexer.pos = savedPos
+		}
 	}
 
 	valueToken := parser.lexer.NextValue()
@@ -280,12 +299,17 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 		return nil
 	}
 
-	return &TraversalShortcut{Kind: kind, NodeID: valueToken.Value, Pos: identToken.Pos}
+	return &TraversalShortcut{
+		Kind:   kind,
+		Alias:  alias,
+		NodeID: valueToken.Value,
+		Pos:    identToken.Pos,
+	}
 }
 
 func opTokenToOp(kind TokenKind) (Op, bool) {
 	switch kind {
-	case TokenEQ:
+	case TokenEQ, TokenColon:
 		return OpEQ, true
 	case TokenNE:
 		return OpNE, true

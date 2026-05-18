@@ -1130,3 +1130,300 @@ func TestSynthesize_RejectsCollisionWithExplicitEdgeType(test *testing.T) {
 		test.Errorf("Validate: expected auto-generated-collision error, got %v", validateErr)
 	}
 }
+
+func TestLoad_ParsesHierarchyFields(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.wbs-parent]
+description = "WBS parent"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+acyclic     = true
+hierarchy   = "wbs"
+hierarchy-default = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	edge, ok := loaded.EdgeTypes["wbs-parent"]
+
+	if !ok {
+		test.Fatalf("expected wbs-parent edge")
+	}
+
+	if edge.Hierarchy != "wbs" {
+		test.Errorf("Hierarchy = %q, want %q", edge.Hierarchy, "wbs")
+	}
+
+	if !edge.HierarchyDefault {
+		test.Errorf("HierarchyDefault = false, want true")
+	}
+}
+
+func TestLoad_RejectsHierarchyAliasCollidingWithKeyword(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.wbs-parent]
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "tree"
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	_, err := manifest.Load(manifestPath)
+
+	if err == nil {
+		test.Fatalf("expected error for keyword-aliased hierarchy")
+	}
+
+	if !strings.Contains(err.Error(), "collides with shortcut keyword") {
+		test.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_RejectsDuplicateHierarchyAliases(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.a-parent]
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "wbs"
+
+[edge-types.b-parent]
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "wbs"
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	_, err := manifest.Load(manifestPath)
+
+	if err == nil {
+		test.Fatalf("expected error for duplicate hierarchy alias")
+	}
+
+	if !strings.Contains(err.Error(), "duplicate hierarchy alias") {
+		test.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_RejectsMultipleHierarchyDefaults(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.a-parent]
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "a"
+hierarchy-default = true
+
+[edge-types.b-parent]
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "b"
+hierarchy-default = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	_, err := manifest.Load(manifestPath)
+
+	if err == nil {
+		test.Fatalf("expected error for two hierarchy defaults")
+	}
+
+	if !strings.Contains(err.Error(), "multiple edges declare hierarchy-default") {
+		test.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_RejectsHierarchyDefaultWithoutAlias(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.wbs-parent]
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy-default = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	_, err := manifest.Load(manifestPath)
+
+	if err == nil {
+		test.Fatalf("expected error for hierarchy-default without hierarchy alias")
+	}
+
+	if !strings.Contains(err.Error(), "hierarchy-default requires hierarchy") {
+		test.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_SynthesizesHierarchyForBareParentEdge(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.parent]
+description = "Parent edge"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+acyclic     = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	edge := loaded.EdgeTypes["parent"]
+
+	if edge.Hierarchy != "parent" {
+		test.Errorf("Hierarchy = %q, want %q", edge.Hierarchy, "parent")
+	}
+
+	if !edge.HierarchyDefault {
+		test.Errorf("HierarchyDefault = false, want true (back-compat)")
+	}
+}
+
+func TestLoad_BareParentDoesNotOverrideExplicitHierarchy(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.parent]
+description = "Parent edge"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "kanban"
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	if loaded.EdgeTypes["parent"].Hierarchy != "kanban" {
+		test.Errorf("explicit hierarchy %q was overwritten", "kanban")
+	}
+}
+
+func TestLoad_BareParentDoesNotClaimDefaultWhenOtherDefaultExists(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.parent]
+description = "Bare parent edge (back-compat)"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+
+[edge-types.wbs-parent]
+description = "WBS hierarchy"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+hierarchy   = "wbs"
+hierarchy-default = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	bareParent := loaded.EdgeTypes["parent"]
+
+	if bareParent.Hierarchy != "parent" {
+		test.Errorf("bare parent Hierarchy = %q, want %q", bareParent.Hierarchy, "parent")
+	}
+
+	if bareParent.HierarchyDefault {
+		test.Errorf("bare parent should not claim default when another edge already does")
+	}
+}

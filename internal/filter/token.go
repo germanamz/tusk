@@ -12,6 +12,7 @@ const (
 	TokenString
 	TokenBareValue
 	TokenEQ
+	TokenColon
 	TokenNE
 	TokenLT
 	TokenLE

@@ -92,6 +92,15 @@ type EdgeType struct {
 	Ordered     bool        `toml:"ordered"`
 	Inverse     string      `toml:"inverse"` // optional; name of the derived inverse edge
 	Acyclic     bool        `toml:"acyclic"`
+
+	// Hierarchy, when non-empty, opts this edge into the traversal-shortcut
+	// family (tree= / parent= / root=) under the given alias. Multiple edge
+	// types may each declare a distinct alias.
+	Hierarchy string `toml:"hierarchy"`
+
+	// HierarchyDefault marks this edge as the target of unqualified
+	// shortcuts. At most one edge per workspace may set this true.
+	HierarchyDefault bool `toml:"hierarchy-default"`
 }
 
 // AllowsSource returns true if sourceType matches the edge type's `from` list
