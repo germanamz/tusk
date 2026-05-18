@@ -109,10 +109,16 @@ func (pred *EdgePredicate) exprNode()     {}
 func (pred *EdgePredicate) Position() int { return pred.Pos }
 
 // TraversalShortcut represents a graph-traversal shortcut keyword.
+//
+// Alias is the optional qualifier from a `keyword:alias=value` form. Empty
+// when the shortcut is unqualified. The validator resolves Alias to a
+// concrete edge type, stamping the result into EdgeType for the compiler.
 type TraversalShortcut struct {
-	Kind   ShortcutKind
-	NodeID string
-	Pos    int
+	Kind     ShortcutKind
+	Alias    string
+	NodeID   string
+	EdgeType string // resolved by Validate; the compiler refuses an empty value
+	Pos      int
 }
 
 func (shortcut *TraversalShortcut) exprNode()     {}
