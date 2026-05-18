@@ -19,3 +19,14 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 ## Notes
 
 Reserved property names (`type`, `title`) cannot be re-declared in `[node-types.X].properties`. The `id` field in frontmatter is NOT a property — node IDs are auto-derived from the workspace-relative path (see `internal/node/parse.go`).
+
+### Hierarchy edges
+
+An `[edge-types.X]` declaration may opt into the `tree=` / `parent=` / `root=` traversal-shortcut family by setting:
+
+- `hierarchy = "<alias>"` — names this edge as a hierarchy. The alias is used in qualified shortcuts (`tree:<alias>=<id>`). Must be kebab-case; cannot equal the reserved keywords `tree`, `parent`, or `root`. Aliases are unique within a workspace.
+- `hierarchy-default = true` — marks this edge as the target of unqualified shortcuts (`tree=<id>`). At most one edge per workspace may set this.
+
+Multiple edges can each declare a distinct alias; this lets composed packs (e.g. kanban + superhuman-wbs) coexist without colliding on a single hierarchy edge.
+
+**Back-compat:** A workspace that declares `[edge-types.parent]` without setting `hierarchy` is automatically treated as if it had `hierarchy = "parent"`. If no other edge has claimed `hierarchy-default = true`, the bare `parent` edge is also marked as default. This preserves pre-v1.3 behavior for existing workspaces.
