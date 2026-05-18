@@ -184,21 +184,21 @@ func TestCompile_MultiHopChain(test *testing.T) {
 }
 
 func TestCompile_TraversalShortcutParent(test *testing.T) {
-	expr, _ := filter.NewParser("parent=tickets/foo").Parse()
+	expr := &filter.TraversalShortcut{Kind: filter.ShortcutParentOf, NodeID: "tickets/foo", EdgeType: "parent"}
 
 	sql, params, _ := filter.Compile(expr, filter.CompileOptions{})
 
-	if !strings.Contains(sql, "EXISTS") || !strings.Contains(sql, "type = 'parent'") {
-		test.Errorf("sql for parent= shortcut missing EXISTS or 'parent' type: %s", sql)
+	if !strings.Contains(sql, "EXISTS") || !strings.Contains(sql, "type = ?") {
+		test.Errorf("sql for parent= shortcut missing EXISTS or parameterized type: %s", sql)
 	}
 
-	if !reflect.DeepEqual(params, []any{"tickets/foo"}) {
-		test.Errorf("params = %v, want [tickets/foo]", params)
+	if !reflect.DeepEqual(params, []any{"parent", "tickets/foo"}) {
+		test.Errorf("params = %v, want [parent tickets/foo]", params)
 	}
 }
 
 func TestCompile_TraversalShortcutTreeUsesRecursiveCTE(test *testing.T) {
-	expr, _ := filter.NewParser("tree=tickets/foo").Parse()
+	expr := &filter.TraversalShortcut{Kind: filter.ShortcutTree, NodeID: "tickets/foo", EdgeType: "parent"}
 
 	sql, params, _ := filter.Compile(expr, filter.CompileOptions{})
 
@@ -210,17 +210,71 @@ func TestCompile_TraversalShortcutTreeUsesRecursiveCTE(test *testing.T) {
 		test.Errorf("expected depth bound of 5: %s", sql)
 	}
 
-	if !reflect.DeepEqual(params, []any{"tickets/foo"}) {
-		test.Errorf("params = %v, want [tickets/foo]", params)
+	if !reflect.DeepEqual(params, []any{"tickets/foo", "parent", "parent"}) {
+		test.Errorf("params = %v, want [tickets/foo parent parent]", params)
 	}
 }
 
 func TestCompile_TraversalShortcutRoot(test *testing.T) {
-	expr, _ := filter.NewParser("root=tickets/foo").Parse()
+	expr := &filter.TraversalShortcut{Kind: filter.ShortcutRoot, NodeID: "tickets/foo", EdgeType: "parent"}
 
 	sql, _, _ := filter.Compile(expr, filter.CompileOptions{})
 
 	if strings.Count(sql, "WITH RECURSIVE") == 0 && strings.Count(sql, "ascendants") == 0 {
 		test.Errorf("expected recursive CTE structure for root=: %s", sql)
+	}
+}
+
+func TestCompile_TreeShortcutUsesResolvedEdgeType(test *testing.T) {
+	expr := &filter.TraversalShortcut{
+		Kind:     filter.ShortcutTree,
+		NodeID:   "wbs/root",
+		EdgeType: "wbs-parent",
+	}
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	if strings.Contains(sql, "type = 'parent'") {
+		test.Errorf("SQL still hardcodes 'parent': %s", sql)
+	}
+
+	if !strings.Contains(sql, "type = ?") {
+		test.Errorf("SQL missing parameterized edge type: %s", sql)
+	}
+
+	foundEdgeParam := false
+
+	for _, param := range params {
+		if str, ok := param.(string); ok && str == "wbs-parent" {
+			foundEdgeParam = true
+
+			break
+		}
+	}
+
+	if !foundEdgeParam {
+		test.Errorf("params %v missing edge type 'wbs-parent'", params)
+	}
+}
+
+func TestCompile_ShortcutWithEmptyEdgeTypeErrors(test *testing.T) {
+	expr := &filter.TraversalShortcut{
+		Kind:   filter.ShortcutTree,
+		NodeID: "x",
+		// EdgeType deliberately empty
+	}
+
+	_, _, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err == nil {
+		test.Fatalf("expected error for shortcut without resolved edge type")
+	}
+
+	if !strings.Contains(err.Error(), "unresolved") {
+		test.Errorf("error = %q, want substring %q", err.Error(), "unresolved")
 	}
 }
