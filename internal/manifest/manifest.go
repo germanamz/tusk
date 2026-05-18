@@ -85,13 +85,13 @@ const (
 
 // EdgeType is a manifest-declared edge type.
 type EdgeType struct {
-	Description string      `toml:"description"`
-	From        []string    `toml:"from"` // allowed source node-types; ["*"] means any
-	To          []string    `toml:"to"`   // allowed target node-types; ["*"] means any
-	Cardinality Cardinality `toml:"cardinality"`
-	Ordered     bool        `toml:"ordered"`
-	Inverse     string      `toml:"inverse"` // optional; name of the derived inverse edge
-	Acyclic     bool        `toml:"acyclic"`
+	Description string         `toml:"description"`
+	From        []string       `toml:"from"` // allowed source node-types; ["*"] means any
+	To          []string       `toml:"to"`   // allowed target node-types; ["*"] means any
+	Cardinality Cardinality    `toml:"cardinality"`
+	OrderedRaw  toml.Primitive `toml:"ordered"` // decoded by Validate into Ordered + OrderedBy
+	Inverse     string         `toml:"inverse"` // optional; name of the derived inverse edge
+	Acyclic     bool           `toml:"acyclic"`
 
 	// Hierarchy, when non-empty, opts this edge into the traversal-shortcut
 	// family (tree= / parent= / root=) under the given alias. Multiple edge
@@ -101,6 +101,14 @@ type EdgeType struct {
 	// HierarchyDefault marks this edge as the target of unqualified
 	// shortcuts. At most one edge per workspace may set this true.
 	HierarchyDefault bool `toml:"hierarchy-default"`
+
+	// Resolved by manifest.Validate after parsing OrderedRaw.
+	// Ordered is true when the source declares any ordering (bool true OR string non-empty).
+	// OrderedBy is the source-node property name carrying the order key.
+	// When Ordered is true but OrderedBy is empty (i.e., bool `ordered = true`),
+	// OrderedBy defaults to "order".
+	Ordered   bool   `toml:"-"`
+	OrderedBy string `toml:"-"`
 }
 
 // AllowsSource returns true if sourceType matches the edge type's `from` list

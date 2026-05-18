@@ -150,9 +150,11 @@ func buildEdgeTypeFromRef(owningType string, prop PropertyDecl) EdgeType {
 	}
 
 	ordered := false
+	orderedBy := ""
 
-	if prop.Type == "list-of" && prop.ItemType == "ref" {
-		ordered = prop.Ordered
+	if prop.Type == "list-of" && prop.ItemType == "ref" && prop.Ordered {
+		ordered = true
+		orderedBy = "order"
 	}
 
 	return EdgeType{
@@ -161,6 +163,7 @@ func buildEdgeTypeFromRef(owningType string, prop PropertyDecl) EdgeType {
 		To:          []string{prop.To},
 		Cardinality: cardinality,
 		Ordered:     ordered,
+		OrderedBy:   orderedBy,
 		Inverse:     prop.Inverse,
 		Acyclic:     prop.Acyclic,
 	}
@@ -256,10 +259,10 @@ func assertCompatibleSynthesis(existing, candidate EdgeType, propName, firstOwne
 		)
 	}
 
-	if existing.Ordered != candidate.Ordered {
+	if existing.OrderedBy != candidate.OrderedBy {
 		return fmt.Errorf(
-			"manifest: ref property %q is declared on both %q and %q with conflicting attributes (ordered: %v vs %v); align the declarations or use distinct property names",
-			propName, firstOwner, newOwner, existing.Ordered, candidate.Ordered,
+			"manifest: ref property %q is declared on both %q and %q with conflicting attributes (ordered-by: %q vs %q); align the declarations or use distinct property names",
+			propName, firstOwner, newOwner, existing.OrderedBy, candidate.OrderedBy,
 		)
 	}
 
