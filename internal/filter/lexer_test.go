@@ -13,7 +13,7 @@ func TestLexer_Operators(test *testing.T) {
 		kinds []filter.TokenKind
 	}{
 		{"=", []filter.TokenKind{filter.TokenEQ, filter.TokenEOF}},
-		{":", []filter.TokenKind{filter.TokenEQ, filter.TokenEOF}},
+		{":", []filter.TokenKind{filter.TokenColon, filter.TokenEOF}},
 		{"!=", []filter.TokenKind{filter.TokenNE, filter.TokenEOF}},
 		{"< <= > >=", []filter.TokenKind{filter.TokenLT, filter.TokenLE, filter.TokenGT, filter.TokenGE, filter.TokenEOF}},
 		{"-> <-", []filter.TokenKind{filter.TokenArrowOut, filter.TokenArrowIn, filter.TokenEOF}},
@@ -212,5 +212,20 @@ func TestLexer_StringWithSpaces(test *testing.T) {
 
 	if token.Kind != filter.TokenString || token.Value != "hello world" {
 		test.Errorf("got kind=%v value=%q, want STRING(\"hello world\")", token.Kind, token.Value)
+	}
+}
+
+func TestLexer_ColonProducesTokenColon(test *testing.T) {
+	lex := filter.NewLexer("status:open")
+
+	first := lex.Next()
+	second := lex.Next()
+
+	if first.Kind != filter.TokenIdent || first.Value != "status" {
+		test.Fatalf("first token = %+v, want ident 'status'", first)
+	}
+
+	if second.Kind != filter.TokenColon {
+		test.Errorf("second token kind = %v, want TokenColon", second.Kind)
 	}
 }

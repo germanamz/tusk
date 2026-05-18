@@ -117,7 +117,7 @@ func (parser *Parser) parsePredicate() Expr {
 	case "tree", "parent", "root":
 		next := parser.peekN(1)
 
-		if next.Kind == TokenEQ {
+		if next.Kind == TokenEQ || next.Kind == TokenColon {
 			return parser.parseTraversalShortcut()
 		}
 	}
@@ -264,10 +264,10 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 		return nil
 	}
 
-	eqToken := parser.advance()
+	separator := parser.advance()
 
-	if eqToken.Kind != TokenEQ {
-		parser.appendErr(eqToken.Pos, "expected = after traversal-shortcut keyword")
+	if separator.Kind != TokenEQ && separator.Kind != TokenColon {
+		parser.appendErr(separator.Pos, "expected = or : after traversal-shortcut keyword")
 
 		return nil
 	}
@@ -285,7 +285,7 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 
 func opTokenToOp(kind TokenKind) (Op, bool) {
 	switch kind {
-	case TokenEQ:
+	case TokenEQ, TokenColon:
 		return OpEQ, true
 	case TokenNE:
 		return OpNE, true
