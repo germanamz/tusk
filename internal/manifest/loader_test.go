@@ -989,6 +989,10 @@ func TestSynthesize_ListOfRefProducesManyToManyOrdered(test *testing.T) {
 	if !edge.Ordered {
 		test.Errorf("Ordered = false, want true for list-of(ref) with Ordered=true")
 	}
+
+	if edge.OrderedBy != "order" {
+		test.Errorf("OrderedBy = %q, want \"order\" for list-of(ref) with Ordered=true", edge.OrderedBy)
+	}
 }
 
 func TestSynthesize_RefWithInverseAndAcyclic(test *testing.T) {
