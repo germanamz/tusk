@@ -1130,3 +1130,47 @@ func TestSynthesize_RejectsCollisionWithExplicitEdgeType(test *testing.T) {
 		test.Errorf("Validate: expected auto-generated-collision error, got %v", validateErr)
 	}
 }
+
+func TestLoad_ParsesHierarchyFields(test *testing.T) {
+	tempDir := test.TempDir()
+	manifestPath := filepath.Join(tempDir, "tusk.toml")
+	content := `[workspace]
+name = "demo"
+
+[node-types.task]
+description = "A task"
+
+[edge-types.wbs-parent]
+description = "WBS parent"
+from        = ["task"]
+to          = ["task"]
+cardinality = "many-to-one"
+acyclic     = true
+hierarchy   = "wbs"
+hierarchy-default = true
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	edge, ok := loaded.EdgeTypes["wbs-parent"]
+
+	if !ok {
+		test.Fatalf("expected wbs-parent edge")
+	}
+
+	if edge.Hierarchy != "wbs" {
+		test.Errorf("Hierarchy = %q, want %q", edge.Hierarchy, "wbs")
+	}
+
+	if !edge.HierarchyDefault {
+		test.Errorf("HierarchyDefault = false, want true")
+	}
+}
