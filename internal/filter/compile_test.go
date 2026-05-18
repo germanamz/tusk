@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 func TestCompile_CorePropertyEquality(test *testing.T) {
@@ -276,5 +277,122 @@ func TestCompile_ShortcutWithEmptyEdgeTypeErrors(test *testing.T) {
 
 	if !strings.Contains(err.Error(), "unresolved") {
 		test.Errorf("error = %q, want substring %q", err.Error(), "unresolved")
+	}
+}
+
+func TestPipeline_TwoHierarchiesProduceDistinctSQL(test *testing.T) {
+	manifestObj := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"parent": {
+				Cardinality:      manifest.CardinalityManyToOne,
+				Acyclic:          true,
+				Hierarchy:        "kanban",
+				HierarchyDefault: true,
+			},
+			"wbs-parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Acyclic:     true,
+				Hierarchy:   "wbs",
+			},
+		},
+	}
+
+	cases := []struct {
+		name            string
+		query           string
+		wantEdgeInParam string
+		notEdgeInParam  string
+	}{
+		{"qualified_kanban", "tree:kanban=epic", "parent", "wbs-parent"},
+		{"qualified_wbs", "tree:wbs=initiative", "wbs-parent", "parent"},
+		{"unqualified_uses_default", "tree=epic", "parent", "wbs-parent"},
+		{"parent_qualified_wbs", "parent:wbs=initiative", "wbs-parent", "parent"},
+		{"root_qualified_kanban", "root:kanban=story", "parent", "wbs-parent"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			parser := filter.NewParser(testCase.query)
+			expr, parseErrs := parser.Parse()
+
+			if len(parseErrs) != 0 {
+				test.Fatalf("parse %q: %+v", testCase.query, parseErrs)
+			}
+
+			validateErrs := filter.Validate(expr, manifestObj)
+
+			if len(validateErrs) != 0 {
+				test.Fatalf("validate %q: %+v", testCase.query, validateErrs)
+			}
+
+			sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+			if err != nil {
+				test.Fatalf("compile %q: %v", testCase.query, err)
+			}
+
+			if strings.Contains(sql, "type = 'parent'") {
+				test.Errorf("query %q: SQL still hardcodes 'parent': %s", testCase.query, sql)
+			}
+
+			foundWanted := false
+			foundUnwanted := false
+
+			for _, param := range params {
+				str, isStr := param.(string)
+
+				if !isStr {
+					continue
+				}
+
+				if str == testCase.wantEdgeInParam {
+					foundWanted = true
+				}
+
+				if str == testCase.notEdgeInParam {
+					foundUnwanted = true
+				}
+			}
+
+			if !foundWanted {
+				test.Errorf("query %q: expected %q in params, got %v", testCase.query, testCase.wantEdgeInParam, params)
+			}
+
+			if foundUnwanted {
+				test.Errorf("query %q: did not expect %q in params, got %v", testCase.query, testCase.notEdgeInParam, params)
+			}
+		})
+	}
+}
+
+func TestPipeline_AmbiguousUnqualifiedFailsValidation(test *testing.T) {
+	manifestObj := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Hierarchy:   "kanban",
+			},
+			"wbs-parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Hierarchy:   "wbs",
+			},
+		},
+	}
+
+	parser := filter.NewParser("tree=epic")
+	expr, parseErrs := parser.Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("unexpected parse errors: %+v", parseErrs)
+	}
+
+	validateErrs := filter.Validate(expr, manifestObj)
+
+	if len(validateErrs) == 0 {
+		test.Fatalf("expected validation error for ambiguous unqualified shortcut")
+	}
+
+	if !strings.Contains(validateErrs[0].Message, "no default hierarchy") {
+		test.Errorf("unexpected message: %q", validateErrs[0].Message)
 	}
 }
