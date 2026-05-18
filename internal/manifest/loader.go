@@ -80,6 +80,10 @@ func Validate(loaded *Manifest) error {
 		return synthesizeErr
 	}
 
+	if validateErr := validateHierarchies(loaded); validateErr != nil {
+		return validateErr
+	}
+
 	return validateBehaviors(loaded)
 }
 
@@ -384,6 +388,49 @@ func validateEnumValues(typeName, propName string, values []string) error {
 		}
 
 		seen[val] = struct{}{}
+	}
+
+	return nil
+}
+
+// shortcutKeywords are reserved query-shortcut identifiers; hierarchy aliases
+// must not collide with them, since the parser keys off these names.
+var shortcutKeywords = map[string]bool{"tree": true, "parent": true, "root": true}
+
+// validateHierarchies enforces the structural rules for hierarchy aliases and
+// defaults: no collision with keywords, no duplicate aliases, at most one
+// default, and default-only when hierarchy is set.
+func validateHierarchies(loaded *Manifest) error {
+	aliasToEdge := map[string]string{}
+
+	var defaultEdge string
+
+	for edgeName, edge := range loaded.EdgeTypes {
+		if edge.Hierarchy == "" {
+			if edge.HierarchyDefault {
+				return fmt.Errorf("edge %q: hierarchy-default requires hierarchy alias", edgeName)
+			}
+
+			continue
+		}
+
+		if shortcutKeywords[edge.Hierarchy] {
+			return fmt.Errorf("edge %q: hierarchy alias %q collides with shortcut keyword", edgeName, edge.Hierarchy)
+		}
+
+		if previous, exists := aliasToEdge[edge.Hierarchy]; exists {
+			return fmt.Errorf("duplicate hierarchy alias %q on edges %q and %q", edge.Hierarchy, previous, edgeName)
+		}
+
+		aliasToEdge[edge.Hierarchy] = edgeName
+
+		if edge.HierarchyDefault {
+			if defaultEdge != "" {
+				return fmt.Errorf("multiple edges declare hierarchy-default = true: %q, %q", defaultEdge, edgeName)
+			}
+
+			defaultEdge = edgeName
+		}
 	}
 
 	return nil
