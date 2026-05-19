@@ -1431,3 +1431,183 @@ hierarchy-default = true
 		test.Errorf("bare parent should not claim default when another edge already does")
 	}
 }
+
+// loadTOMLString writes body to a temp tusk.toml and returns the result of
+// manifest.Load. Used by the polymorphic `ordered` decoding tests.
+func loadTOMLString(test *testing.T, body string) (*manifest.Manifest, error) {
+	test.Helper()
+
+	dir := test.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+
+	if writeErr := os.WriteFile(path, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	return manifest.Load(path)
+}
+
+// loadTOMLFromString is the panicking variant for happy-path tests that
+// expect the manifest to load cleanly.
+func loadTOMLFromString(test *testing.T, body string) *manifest.Manifest {
+	test.Helper()
+
+	loaded, err := loadTOMLString(test, body)
+
+	if err != nil {
+		test.Fatalf("loadTOMLString: %v", err)
+	}
+
+	return loaded
+}
+
+func TestLoad_OrderedFalseDefault(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = []
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if edge.Ordered {
+		test.Errorf("Ordered should be false; got true")
+	}
+
+	if edge.OrderedBy != "" {
+		test.Errorf("OrderedBy should be empty; got %q", edge.OrderedBy)
+	}
+}
+
+func TestLoad_OrderedTrueAliasesToOrderProperty(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = [
+  { name = "order", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = true
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if !edge.Ordered {
+		test.Errorf("Ordered should be true")
+	}
+
+	if edge.OrderedBy != "order" {
+		test.Errorf("OrderedBy should default to %q; got %q", "order", edge.OrderedBy)
+	}
+}
+
+func TestLoad_OrderedByExplicitProperty(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if !edge.Ordered {
+		test.Errorf("Ordered should be true")
+	}
+
+	if edge.OrderedBy != "rank" {
+		test.Errorf("OrderedBy should be %q; got %q", "rank", edge.OrderedBy)
+	}
+}
+
+func TestLoad_OrderedByUnknownPropertyRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "title-only", type = "string" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered references unknown property")
+	}
+}
+
+func TestLoad_OrderedByMissingOnOneOfFromRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing-a]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[node-types.thing-b]
+properties = []
+
+[edge-types.relates-to]
+from        = ["thing-a", "thing-b"]
+to          = ["thing-a"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered property missing on thing-b")
+	}
+}
+
+func TestLoad_OrderedByOnWildcardFromRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["*"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered=<prop> not allowed with from=[*]")
+	}
+}
+
+func TestLoad_OrderedByNonSortablePropertyRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "tags", type = "list-of", item-type = "string" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "tags"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered property must be sortable")
+	}
+}
