@@ -35,9 +35,8 @@ CREATE TABLE IF NOT EXISTS edges (
 	type        TEXT NOT NULL,
 	source_id   TEXT NOT NULL,
 	target_id   TEXT NOT NULL,
-	ordinal     INTEGER NOT NULL DEFAULT 0,
 	source_path TEXT NOT NULL,
-	UNIQUE(type, source_id, target_id, ordinal)
+	UNIQUE(type, source_id, target_id, source_path)
 );
 
 CREATE INDEX IF NOT EXISTS edges_source_idx      ON edges(source_id);
@@ -127,7 +126,85 @@ func Open(dbPath string) (*Index, error) {
 		return nil, fmt.Errorf("index: bootstrap schema: %w", execErr)
 	}
 
+	if migrateErr := migrateDropOrdinalColumn(db); migrateErr != nil {
+		db.Close()
+		return nil, migrateErr
+	}
+
 	return &Index{db: db, path: dbPath}, nil
+}
+
+// migrateDropOrdinalColumn drops the `ordinal` column from the `edges` table
+// on databases created before the column was removed. Idempotent: if the
+// column is absent the function returns nil.
+func migrateDropOrdinalColumn(db *sql.DB) error {
+	rows, queryErr := db.Query(`PRAGMA table_info(edges)`)
+
+	if queryErr != nil {
+		return fmt.Errorf("index: inspect edges schema: %w", queryErr)
+	}
+
+	hasOrdinal := false
+
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var dfltValue sql.NullString
+
+		if scanErr := rows.Scan(&cid, &name, &columnType, &notNull, &dfltValue, &pk); scanErr != nil {
+			rows.Close()
+			return fmt.Errorf("index: scan column info: %w", scanErr)
+		}
+
+		if name == "ordinal" {
+			hasOrdinal = true
+		}
+	}
+
+	rows.Close()
+
+	if !hasOrdinal {
+		return nil
+	}
+
+	statements := []string{
+		`CREATE TABLE edges_new (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			type        TEXT NOT NULL,
+			source_id   TEXT NOT NULL,
+			target_id   TEXT NOT NULL,
+			source_path TEXT NOT NULL,
+			UNIQUE(type, source_id, target_id, source_path)
+		)`,
+		`INSERT OR IGNORE INTO edges_new (type, source_id, target_id, source_path)
+			SELECT type, source_id, target_id, source_path FROM edges`,
+		`DROP TABLE edges`,
+		`ALTER TABLE edges_new RENAME TO edges`,
+		`CREATE INDEX IF NOT EXISTS edges_source_idx      ON edges(source_id)`,
+		`CREATE INDEX IF NOT EXISTS edges_target_idx      ON edges(target_id)`,
+		`CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges(type)`,
+		`CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path)`,
+	}
+
+	tx, beginErr := db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("index: begin migration: %w", beginErr)
+	}
+
+	for _, statement := range statements {
+		if _, execErr := tx.Exec(statement); execErr != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("index: migrate edges (statement %q): %w", statement, execErr)
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("index: commit migration: %w", commitErr)
+	}
+
+	return nil
 }
 
 // Close releases the underlying database handle.

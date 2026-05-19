@@ -1,10 +1,12 @@
 package index_test
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
+	_ "modernc.org/sqlite"
 )
 
 func TestOpen_CreatesSchemaOnFirstOpen(test *testing.T) {
@@ -162,6 +164,79 @@ func TestOpen_CreatesPropertyDriftTable(test *testing.T) {
 
 	if !contains(tables, "property_drift") {
 		test.Errorf("missing table %q in %v", "property_drift", tables)
+	}
+}
+
+func TestOpen_DropsLegacyOrdinalColumn(test *testing.T) {
+	dir := test.TempDir()
+	path := filepath.Join(dir, "tusk.db")
+
+	rawDB, openErr := sql.Open("sqlite", path)
+
+	if openErr != nil {
+		test.Fatalf("seed open: %v", openErr)
+	}
+
+	legacySchema := `
+CREATE TABLE edges (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	type        TEXT NOT NULL,
+	source_id   TEXT NOT NULL,
+	target_id   TEXT NOT NULL,
+	ordinal     INTEGER NOT NULL DEFAULT 0,
+	source_path TEXT NOT NULL,
+	UNIQUE(type, source_id, target_id, ordinal)
+);
+INSERT INTO edges (type, source_id, target_id, ordinal, source_path)
+VALUES ('blocks', 'a', 'b', 0, 'a.md'),
+       ('blocks', 'a', 'b', 1, 'a.md');
+`
+
+	if _, execErr := rawDB.Exec(legacySchema); execErr != nil {
+		test.Fatalf("seed schema: %v", execErr)
+	}
+
+	rawDB.Close()
+
+	idx, reopenErr := index.Open(path)
+
+	if reopenErr != nil {
+		test.Fatalf("open: %v", reopenErr)
+	}
+
+	defer idx.Close()
+
+	var count int
+
+	if scanErr := idx.DB().QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&count); scanErr != nil {
+		test.Fatalf("count: %v", scanErr)
+	}
+
+	if count != 1 {
+		test.Errorf("expected 1 deduped row after migration, got %d", count)
+	}
+
+	cols, colsErr := idx.DB().Query(`PRAGMA table_info(edges)`)
+
+	if colsErr != nil {
+		test.Fatalf("table_info: %v", colsErr)
+	}
+
+	defer cols.Close()
+
+	for cols.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var dfltValue sql.NullString
+
+		if scanErr := cols.Scan(&cid, &name, &columnType, &notNull, &dfltValue, &pk); scanErr != nil {
+			test.Fatalf("scan column: %v", scanErr)
+		}
+
+		if name == "ordinal" {
+			test.Errorf("ordinal column should have been dropped")
+		}
 	}
 }
 
