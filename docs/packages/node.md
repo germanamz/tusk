@@ -17,6 +17,9 @@ Heart of the data layer. Parses markdown frontmatter, validates properties again
 - `ResolveEdges(*Node, EdgeTypes) error` — frontmatter edge values → typed edges.
 - `ResolveRefs(*Node, NodeTypes, RefLookup) RefResolutionResult` — refs + wikilinks → resolved edges.
 - `ExtractWikilinks(body) []string` — fenced-code-aware body scanner.
+- `AddEdgeToFrontmatter(root, sourceID, edgeType, targetID, edgeTypes) error` — inserts an edge target under the edge-type key in the source's frontmatter, respecting cardinality (scalar for one-to-one / many-to-one; list for one-to-many / many-to-many). Atomic read-mutate-write; callers must hold the workspace lock.
+- `RemoveEdgeFromFrontmatter(root, sourceID, edgeType, targetID, edgeTypes) error` — idempotent inverse; drops the key when the last target is removed.
+- `ReindexSource(root, edgeRepo, edgeTypes, sourceID) error` — re-parses the source file and upserts its resolved edges into the index under the source's real path. Used by `tusk edge add` / `tusk edge remove` to refresh the index after a frontmatter rewrite without waiting for the watcher.
 
 ## Notes
 

@@ -18,3 +18,5 @@ SQLite-backed index. Owns the schema (nodes, edges, embeddings, embed_queue, wor
 ## Notes
 
 WAL + busy_timeout means the watcher can write while a long-running `tusk_query` reads — but reindex's own ordering is what gates correctness, not the DB. See `internal/reindex` for the cross-pass resolution issue.
+
+`Open` runs a one-shot schema migration that drops the legacy `ordinal` column from `edges` on pre-frontmatter workspaces. Ordering is now derived from the source node's `OrderedBy` property at query time (see `internal/manifest`), so the column became dead state once edges materialized from frontmatter. The migration is idempotent — opening an already-migrated DB is a no-op.
