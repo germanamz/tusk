@@ -40,6 +40,9 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 	if len(opts.SortKeys) > 0 {
 		builder.WriteString(" ORDER BY ")
 		builder.WriteString(compileOrderBy(opts.SortKeys))
+	} else if state.defaultOrderBy != "" {
+		builder.WriteString(" ORDER BY ")
+		builder.WriteString(state.defaultOrderBy)
 	}
 
 	if opts.Take > 0 {
@@ -54,8 +57,9 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 }
 
 type compileState struct {
-	ctes       []string
-	cteCounter int
+	ctes           []string
+	cteCounter     int
+	defaultOrderBy string // populated when a TraversalShortcut with OrderedBy is compiled
 }
 
 func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
@@ -113,6 +117,13 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 		}
 
 		state.ctes = append(state.ctes, ctes...)
+
+		if typed.OrderedBy != "" && state.defaultOrderBy == "" {
+			state.defaultOrderBy = fmt.Sprintf(
+				`COALESCE(json_extract(nodes.properties_json, '$."%s"'), 0), nodes.id`,
+				typed.OrderedBy,
+			)
+		}
 
 		return whereClause, traversalParams, nil
 	}

@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -73,6 +75,116 @@ func TestQueryCmd_TakeAndSkip(test *testing.T) {
 
 	if dataLines != 2 {
 		test.Errorf("expected 2 data rows (got %d):\n%s", dataLines, body)
+	}
+}
+
+func TestQueryCmd_TraversalSortsByOrderedByProperty(test *testing.T) {
+	manifestBody := `
+[workspace]
+name = "test"
+
+[node-types.wbs-node]
+properties = [
+    { name = "order", type = "int" },
+]
+
+[edge-types.wbs-parent]
+from        = ["wbs-node"]
+to          = ["wbs-node"]
+cardinality = "many-to-one"
+ordered     = "order"
+hierarchy   = "wbs"
+`
+
+	tmpDir := initWorkspaceWithManifest(test, manifestBody)
+
+	// Parent node.
+	writeNodeFile(test, tmpDir, "wbs/proj.md", `---
+type: wbs-node
+title: Project
+---
+
+Root of the project.
+`)
+
+	// Three children, with order 3, 1, 2 (intentionally not in creation order).
+	writeNodeFile(test, tmpDir, "wbs/c-three.md", `---
+type: wbs-node
+title: Three
+wbs-parent: wbs/proj
+order: 3
+---
+
+Third child.
+`)
+
+	writeNodeFile(test, tmpDir, "wbs/c-one.md", `---
+type: wbs-node
+title: One
+wbs-parent: wbs/proj
+order: 1
+---
+
+First child.
+`)
+
+	writeNodeFile(test, tmpDir, "wbs/c-two.md", `---
+type: wbs-node
+title: Two
+wbs-parent: wbs/proj
+order: 2
+---
+
+Second child.
+`)
+
+	// Reindex so frontmatter edges and properties are visible to the query.
+	{
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"reindex"})
+
+		if execErr := cmd.Execute(); execErr != nil {
+			test.Fatalf("reindex: %v", execErr)
+		}
+	}
+
+	out := &bytes.Buffer{}
+
+	queryCmd := newRootCmd()
+	queryCmd.SetOut(out)
+	queryCmd.SetErr(out)
+	queryCmd.SetArgs([]string{"query", "parent=wbs/proj"})
+
+	if execErr := queryCmd.Execute(); execErr != nil {
+		test.Fatalf("query: %v\n%s", execErr, out.String())
+	}
+
+	body := out.String()
+
+	indexOne := strings.Index(body, "wbs/c-one")
+	indexTwo := strings.Index(body, "wbs/c-two")
+	indexThree := strings.Index(body, "wbs/c-three")
+
+	if indexOne < 0 || indexTwo < 0 || indexThree < 0 {
+		test.Fatalf("missing one of the children in output:\n%s", body)
+	}
+
+	if indexOne >= indexTwo || indexTwo >= indexThree {
+		test.Errorf("expected children in order c-one, c-two, c-three; got:\n%s", body)
+	}
+}
+
+func writeNodeFile(test *testing.T, root, relPath, body string) {
+	test.Helper()
+
+	absPath := filepath.Join(root, relPath)
+
+	if mkErr := os.MkdirAll(filepath.Dir(absPath), 0o755); mkErr != nil {
+		test.Fatalf("mkdir %s: %v", filepath.Dir(absPath), mkErr)
+	}
+
+	if writeErr := os.WriteFile(absPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write %s: %v", absPath, writeErr)
 	}
 }
 

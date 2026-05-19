@@ -365,6 +365,138 @@ func TestPipeline_TwoHierarchiesProduceDistinctSQL(test *testing.T) {
 	}
 }
 
+func TestCompile_TraversalSortsByOrderedByProperty(test *testing.T) {
+	manifestObj := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"wbs-parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Acyclic:     true,
+				Hierarchy:   "wbs",
+				Ordered:     true,
+				OrderedBy:   "order",
+			},
+		},
+	}
+
+	ast := &filter.TraversalShortcut{
+		Kind:   filter.ShortcutParentOf,
+		Alias:  "wbs",
+		NodeID: "wbs/proj",
+	}
+
+	validateErrs := filter.Validate(ast, manifestObj)
+
+	if len(validateErrs) != 0 {
+		test.Fatalf("validate: %+v", validateErrs)
+	}
+
+	if ast.EdgeType != "wbs-parent" {
+		test.Fatalf("expected EdgeType=wbs-parent, got %q", ast.EdgeType)
+	}
+
+	if ast.OrderedBy != "order" {
+		test.Fatalf("expected OrderedBy=order, got %q", ast.OrderedBy)
+	}
+
+	sql, _, compileErr := filter.Compile(ast, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if !strings.Contains(sql, "ORDER BY") {
+		test.Errorf("expected ORDER BY clause, got: %s", sql)
+	}
+
+	if !strings.Contains(sql, `COALESCE(json_extract(nodes.properties_json, '$."order"'), 0)`) {
+		test.Errorf("expected COALESCE json_extract sort on order property, got: %s", sql)
+	}
+
+	if !strings.Contains(sql, "nodes.id") {
+		test.Errorf("expected tiebreak on nodes.id, got: %s", sql)
+	}
+}
+
+func TestCompile_TraversalDefaultSortLosesToExplicitSortKeys(test *testing.T) {
+	manifestObj := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"wbs-parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Acyclic:     true,
+				Hierarchy:   "wbs",
+				Ordered:     true,
+				OrderedBy:   "order",
+			},
+		},
+	}
+
+	ast := &filter.TraversalShortcut{
+		Kind:   filter.ShortcutParentOf,
+		Alias:  "wbs",
+		NodeID: "wbs/proj",
+	}
+
+	validateErrs := filter.Validate(ast, manifestObj)
+
+	if len(validateErrs) != 0 {
+		test.Fatalf("validate: %+v", validateErrs)
+	}
+
+	sql, _, compileErr := filter.Compile(ast, filter.CompileOptions{
+		SortKeys: []filter.SortKey{{Property: "title"}},
+	})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if strings.Contains(sql, "COALESCE") {
+		test.Errorf("explicit --sort should suppress traversal default ORDER BY, got: %s", sql)
+	}
+
+	if !strings.Contains(sql, "ORDER BY title ASC") {
+		test.Errorf("expected explicit ORDER BY title ASC, got: %s", sql)
+	}
+}
+
+func TestCompile_TraversalWithoutOrderedByHasNoDefaultSort(test *testing.T) {
+	manifestObj := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"wbs-parent": {
+				Cardinality: manifest.CardinalityManyToOne,
+				Acyclic:     true,
+				Hierarchy:   "wbs",
+			},
+		},
+	}
+
+	ast := &filter.TraversalShortcut{
+		Kind:   filter.ShortcutParentOf,
+		Alias:  "wbs",
+		NodeID: "wbs/proj",
+	}
+
+	validateErrs := filter.Validate(ast, manifestObj)
+
+	if len(validateErrs) != 0 {
+		test.Fatalf("validate: %+v", validateErrs)
+	}
+
+	if ast.OrderedBy != "" {
+		test.Errorf("expected empty OrderedBy, got %q", ast.OrderedBy)
+	}
+
+	sql, _, compileErr := filter.Compile(ast, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if strings.Contains(sql, "ORDER BY") {
+		test.Errorf("expected no ORDER BY when OrderedBy is empty and no --sort, got: %s", sql)
+	}
+}
+
 func TestPipeline_AmbiguousUnqualifiedFailsValidation(test *testing.T) {
 	manifestObj := manifest.Manifest{
 		EdgeTypes: map[string]manifest.EdgeType{

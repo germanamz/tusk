@@ -102,20 +102,20 @@ func (collector *validationCollector) resolveShortcut(shortcut *TraversalShortcu
 			return
 		}
 
-		shortcut.EdgeType = edgeName
+		collector.assignEdge(shortcut, edgeName)
 
 		return
 	}
 
 	if defaultEdge != "" {
-		shortcut.EdgeType = defaultEdge
+		collector.assignEdge(shortcut, defaultEdge)
 
 		return
 	}
 
 	if hierarchyCount == 1 {
 		for _, only := range aliasToEdge {
-			shortcut.EdgeType = only
+			collector.assignEdge(shortcut, only)
 		}
 
 		return
@@ -142,6 +142,17 @@ func (collector *validationCollector) resolveShortcut(shortcut *TraversalShortcu
 		Message: "no default hierarchy and multiple are declared",
 		Hint:    fmt.Sprintf("use tree:<alias>=<id> or set hierarchy-default = true on one of: %s", formatAliasList(aliasToEdge)),
 	})
+}
+
+// assignEdge stamps the resolved edge name onto the shortcut and, when the
+// edge type declares an ordering property, also copies OrderedBy so the
+// compiler can emit a default ORDER BY clause.
+func (collector *validationCollector) assignEdge(shortcut *TraversalShortcut, edgeName string) {
+	shortcut.EdgeType = edgeName
+
+	if edgeDef, ok := collector.manifest.EdgeTypes[edgeName]; ok {
+		shortcut.OrderedBy = edgeDef.OrderedBy
+	}
 }
 
 func formatAliasList(aliasToEdge map[string]string) string {
