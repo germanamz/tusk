@@ -23,9 +23,8 @@ func newEdgeAddCmd() *cobra.Command {
 		Short: "Add a typed edge from one node to another",
 		Long: `Add a typed edge from one node to another.
 
-The edge kind must be declared in tusk.toml. CLI-added edges are
-attributed to a synthetic "__cli__" source path so the next reindex of
-either involved file does not clobber them.`,
+The edge kind must be declared in tusk.toml. The edge is written into the
+source node's frontmatter and the index is refreshed for that file.`,
 		Example: `  # Mark T-001 as blocking T-002
   tusk edge add --type blocks --source tickets/T-001 --target tickets/T-002
 
@@ -88,9 +87,8 @@ either involved file does not clobber them.`,
 					}
 				}
 
-				edgeRepo := index.NewEdgeRepo(store)
-
 				if edgeDef.Acyclic {
+					edgeRepo := index.NewEdgeRepo(store)
 					existing, listErr := edgeRepo.ListByType(edgeType)
 
 					if listErr != nil {
@@ -104,23 +102,12 @@ either involved file does not clobber them.`,
 					}
 				}
 
-				existingForSource, listErr := edgeRepo.ListBySource(source)
-
-				if listErr != nil {
-					return listErr
+				if writeErr := node.AddEdgeToFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
+					return writeErr
 				}
 
-				cliExisting := filterCLI(existingForSource)
-
-				cliExisting = append(cliExisting, index.EdgeRow{
-					Type:       edgeType,
-					SourceID:   source,
-					TargetID:   target,
-					SourcePath: cliSourcePath,
-				})
-
-				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, cliExisting); upsertErr != nil {
-					return upsertErr
+				if reindexErr := reindexSingle(ws, store, loaded, source); reindexErr != nil {
+					return reindexErr
 				}
 
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added edge %s: %s → %s\n", edgeType, source, target)

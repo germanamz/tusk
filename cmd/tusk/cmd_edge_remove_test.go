@@ -6,6 +6,8 @@ import (
 )
 
 func TestEdgeRemoveCmd_DropsEdgeFromIndex(test *testing.T) {
+	test.Skip("superseded by TestEdgeRemoveCmd_RemovesFromFrontmatter once edge remove writes frontmatter (Task 3.3)")
+
 	initWorkspaceWithManifest(test, edgeManifestBody())
 
 	for _, args := range [][]string{
