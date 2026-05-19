@@ -872,29 +872,12 @@ func registerEdgeAddTool(srv *Server) {
 			}
 		}
 
-		existingForSource, listErr := srv.runtime.Edges.ListBySource(sourceID)
-
-		if listErr != nil {
-			return toolError(listErr), nil
+		if writeErr := node.AddEdgeToFrontmatter(srv.runtime.Root, sourceID, edgeType, targetID, srv.runtime.Manifest.EdgeTypes); writeErr != nil {
+			return toolError(writeErr), nil
 		}
 
-		var mcpEdges []index.EdgeRow
-
-		for _, row := range existingForSource {
-			if row.SourcePath == index.MCPSourcePath {
-				mcpEdges = append(mcpEdges, row)
-			}
-		}
-
-		mcpEdges = append(mcpEdges, index.EdgeRow{
-			Type:       edgeType,
-			SourceID:   sourceID,
-			TargetID:   targetID,
-			SourcePath: index.MCPSourcePath,
-		})
-
-		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.MCPSourcePath, mcpEdges); upsertErr != nil {
-			return toolError(upsertErr), nil
+		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, sourceID); reindexErr != nil {
+			return toolError(reindexErr), nil
 		}
 
 		return toolJSON(map[string]any{

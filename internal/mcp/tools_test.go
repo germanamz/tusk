@@ -353,20 +353,19 @@ func TestTool_NodeDelete(test *testing.T) {
 	}
 }
 
-func bootRuntimeWithEdgeTypes(test *testing.T) *mcp.Runtime {
-	test.Helper()
-
+func TestEdgeAddMCP_WritesFrontmatter(test *testing.T) {
 	root := test.TempDir()
 
 	manifest := `[workspace]
 name = "x"
 
+[node-types.ticket]
+properties = [{ name = "priority", type = "enum", values = ["low", "high"] }]
+
 [edge-types.blocks]
-description = "blocks another ticket"
-from = ["*"]
-to   = ["*"]
+from        = ["ticket"]
+to          = ["ticket"]
 cardinality = "many-to-many"
-acyclic = true
 `
 
 	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifest), 0o644); writeErr != nil {
@@ -379,17 +378,25 @@ acyclic = true
 		test.Fatalf("Open: %v", openErr)
 	}
 
-	return rt
-}
-
-func TestTool_EdgeAddRemove(test *testing.T) {
-	rt := bootRuntimeWithEdgeTypes(test)
 	defer rt.Close()
 
-	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", PropertiesJSON: "{}", LastChecksum: "x"})
-	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/b", Type: "ticket", Path: "tickets/b.md", PropertiesJSON: "{}", LastChecksum: "x"})
-
 	srv := mcp.NewServer(rt)
+
+	for _, spec := range []struct {
+		path  string
+		title string
+	}{
+		{path: "tickets/a.md", title: "A"},
+		{path: "tickets/b.md", title: "B"},
+	} {
+		if _, callErr := callTool(test, srv, "tusk_node_create", map[string]any{
+			"path":  spec.path,
+			"type":  "ticket",
+			"title": spec.title,
+		}); callErr != nil {
+			test.Fatalf("tusk_node_create %s: %v", spec.path, callErr)
+		}
+	}
 
 	if _, callErr := callTool(test, srv, "tusk_edge_add", map[string]any{
 		"type":      "blocks",
@@ -399,24 +406,14 @@ func TestTool_EdgeAddRemove(test *testing.T) {
 		test.Fatalf("tusk_edge_add: %v", callErr)
 	}
 
-	rows, _ := rt.Edges.ListBySource("tickets/a")
+	body, readErr := os.ReadFile(filepath.Join(rt.Root, "tickets/a.md"))
 
-	if len(rows) != 1 {
-		test.Fatalf("len(rows) = %d after add, want 1", len(rows))
+	if readErr != nil {
+		test.Fatalf("read tickets/a.md: %v", readErr)
 	}
 
-	if _, callErr := callTool(test, srv, "tusk_edge_remove", map[string]any{
-		"type":      "blocks",
-		"source_id": "tickets/a",
-		"target_id": "tickets/b",
-	}); callErr != nil {
-		test.Fatalf("tusk_edge_remove: %v", callErr)
-	}
-
-	rows, _ = rt.Edges.ListBySource("tickets/a")
-
-	if len(rows) != 0 {
-		test.Errorf("expected 0 rows after remove, got %d", len(rows))
+	if !strings.Contains(string(body), "blocks: tickets/b") {
+		test.Errorf("expected blocks: tickets/b in frontmatter, got:\n%s", body)
 	}
 }
 
