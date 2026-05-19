@@ -501,6 +501,81 @@ cardinality = "many-to-many"
 	}
 }
 
+func TestEdgeRemoveMCP_SweepsLegacyMCPRow(test *testing.T) {
+	root := test.TempDir()
+
+	manifest := `[workspace]
+name = "x"
+
+[node-types.ticket]
+properties = [{ name = "priority", type = "enum", values = ["low", "high"] }]
+
+[edge-types.blocks]
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-many"
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifest), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	for _, spec := range []struct {
+		path  string
+		title string
+	}{
+		{path: "tickets/a.md", title: "A"},
+		{path: "tickets/b.md", title: "B"},
+	} {
+		if _, callErr := callTool(test, srv, "tusk_node_create", map[string]any{
+			"path":  spec.path,
+			"type":  "ticket",
+			"title": spec.title,
+		}); callErr != nil {
+			test.Fatalf("tusk_node_create %s: %v", spec.path, callErr)
+		}
+	}
+
+	// Seed a legacy __mcp__ row directly (bypassing the MCP tool). This simulates
+	// a row left over from a pre-frontmatter "tusk_edge_add" call.
+	if upsertErr := rt.Edges.UpsertAll("tickets/a", index.MCPSourcePath, []index.EdgeRow{
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.MCPSourcePath},
+	}); upsertErr != nil {
+		test.Fatalf("seed __mcp__: %v", upsertErr)
+	}
+
+	// Remove via the MCP tool. The sweep should clear the legacy row.
+	if _, callErr := callTool(test, srv, "tusk_edge_remove", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/a",
+		"target_id": "tickets/b",
+	}); callErr != nil {
+		test.Fatalf("tusk_edge_remove: %v", callErr)
+	}
+
+	rows, listErr := rt.Edges.ListBySource("tickets/a")
+
+	if listErr != nil {
+		test.Fatalf("list: %v", listErr)
+	}
+
+	for _, row := range rows {
+		if row.SourcePath == index.MCPSourcePath {
+			test.Errorf("legacy __mcp__ row should have been swept; still present: %+v", row)
+		}
+	}
+}
+
 func TestTool_Reindex(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
