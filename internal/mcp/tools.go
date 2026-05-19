@@ -892,7 +892,7 @@ func registerEdgeAddTool(srv *Server) {
 
 func registerEdgeRemoveTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_edge_remove",
-		mcpgo.WithDescription("Remove a typed edge from source_id to target_id."),
+		mcpgo.WithDescription("Remove an edge from the source node's frontmatter; the index is updated to match."),
 		mcpgo.WithString("type", mcpgo.Required()),
 		mcpgo.WithString("source_id", mcpgo.Required()),
 		mcpgo.WithString("target_id", mcpgo.Required()),
@@ -917,34 +917,47 @@ func registerEdgeRemoveTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		rows, listErr := srv.runtime.Edges.ListBySource(sourceID)
+		if _, declared := srv.runtime.Manifest.EdgeTypes[edgeType]; !declared {
+			return toolError(fmt.Errorf("edge type %q not declared in manifest", edgeType)), nil
+		}
+
+		if writeErr := node.RemoveEdgeFromFrontmatter(srv.runtime.Root, sourceID, edgeType, targetID, srv.runtime.Manifest.EdgeTypes); writeErr != nil {
+			return toolError(writeErr), nil
+		}
+
+		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, sourceID); reindexErr != nil {
+			return toolError(reindexErr), nil
+		}
+
+		// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
+		legacy, listErr := srv.runtime.Edges.ListBySource(sourceID)
 
 		if listErr != nil {
-			return toolError(listErr), nil
+			return toolError(fmt.Errorf("edge remove: list legacy rows: %w", listErr)), nil
 		}
 
-		var kept []index.EdgeRow
-		removed := 0
+		var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
 
-		for _, row := range rows {
-			if row.SourcePath != index.MCPSourcePath {
-				continue
+		for _, row := range legacy {
+			matchesTriple := row.Type == edgeType && row.TargetID == targetID
+
+			switch row.SourcePath {
+			case index.CLISourcePath:
+				if !matchesTriple {
+					keptLegacyCLI = append(keptLegacyCLI, row)
+				}
+			case index.MCPSourcePath:
+				if !matchesTriple {
+					keptLegacyMCP = append(keptLegacyMCP, row)
+				}
 			}
-
-			if row.Type == edgeType && row.TargetID == targetID {
-				removed++
-
-				continue
-			}
-
-			kept = append(kept, row)
 		}
 
-		if removed == 0 {
-			return toolError(fmt.Errorf("no MCP-added edge matches type=%q source=%q target=%q", edgeType, sourceID, targetID)), nil
+		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
+			return toolError(upsertErr), nil
 		}
 
-		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.MCPSourcePath, kept); upsertErr != nil {
+		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.MCPSourcePath, keptLegacyMCP); upsertErr != nil {
 			return toolError(upsertErr), nil
 		}
 
@@ -952,7 +965,6 @@ func registerEdgeRemoveTool(srv *Server) {
 			"type":      edgeType,
 			"source_id": sourceID,
 			"target_id": targetID,
-			"removed":   true,
 		})
 	}
 

@@ -417,6 +417,90 @@ cardinality = "many-to-many"
 	}
 }
 
+func TestEdgeRemoveMCP_RemovesFromFrontmatter(test *testing.T) {
+	root := test.TempDir()
+
+	manifest := `[workspace]
+name = "x"
+
+[node-types.ticket]
+properties = [{ name = "priority", type = "enum", values = ["low", "high"] }]
+
+[edge-types.blocks]
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-many"
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifest), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	for _, spec := range []struct {
+		path  string
+		title string
+	}{
+		{path: "tickets/a.md", title: "A"},
+		{path: "tickets/b.md", title: "B"},
+	} {
+		if _, callErr := callTool(test, srv, "tusk_node_create", map[string]any{
+			"path":  spec.path,
+			"type":  "ticket",
+			"title": spec.title,
+		}); callErr != nil {
+			test.Fatalf("tusk_node_create %s: %v", spec.path, callErr)
+		}
+	}
+
+	if _, callErr := callTool(test, srv, "tusk_edge_add", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/a",
+		"target_id": "tickets/b",
+	}); callErr != nil {
+		test.Fatalf("seed tusk_edge_add: %v", callErr)
+	}
+
+	if _, callErr := callTool(test, srv, "tusk_edge_remove", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/a",
+		"target_id": "tickets/b",
+	}); callErr != nil {
+		test.Fatalf("tusk_edge_remove: %v", callErr)
+	}
+
+	body, readErr := os.ReadFile(filepath.Join(rt.Root, "tickets/a.md"))
+
+	if readErr != nil {
+		test.Fatalf("read tickets/a.md: %v", readErr)
+	}
+
+	if strings.Contains(string(body), "blocks") {
+		test.Errorf("blocks key should have been removed from frontmatter, got:\n%s", body)
+	}
+
+	rows, listErr := rt.Edges.ListBySource("tickets/a")
+
+	if listErr != nil {
+		test.Fatalf("ListBySource: %v", listErr)
+	}
+
+	for _, row := range rows {
+		if row.Type == "blocks" && row.TargetID == "tickets/b" {
+			test.Errorf("expected blocks edge gone from index; found: %+v", row)
+		}
+	}
+}
+
 func TestTool_Reindex(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
