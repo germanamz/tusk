@@ -682,18 +682,16 @@ func (service *Service) resolveTargetType(targetID string) (string, bool) {
 }
 
 // flattenEdges turns parsed.Edges (map of edge-type → []targetID) into the
-// EdgeRow shape expected by index.EdgeRepo.UpsertAll. Order is preserved
-// within each edge type via Ordinal.
+// EdgeRow shape expected by index.EdgeRepo.UpsertAll.
 func flattenEdges(parsedNode *Node) []index.EdgeRow {
 	var rows []index.EdgeRow
 
 	for edgeType, targets := range parsedNode.Edges {
-		for ordinal, target := range targets {
+		for _, target := range targets {
 			rows = append(rows, index.EdgeRow{
 				Type:       edgeType,
 				SourceID:   parsedNode.ID,
 				TargetID:   target,
-				Ordinal:    ordinal,
 				SourcePath: parsedNode.Path,
 			})
 		}
@@ -704,7 +702,7 @@ func flattenEdges(parsedNode *Node) []index.EdgeRow {
 
 // diffEdgeSets compares before vs. after edge sets and returns the rows
 // to fire EdgeRemove / EdgeAdd hooks for. A row identifies its edge by
-// (Type, SourceID, TargetID, Ordinal); ordering matches flattenEdges.
+// (Type, SourceID, TargetID); ordering matches flattenEdges.
 func diffEdgeSets(before, after *Node) (removed, added []index.EdgeRow) {
 	beforeRows := flattenEdges(before)
 	afterRows := flattenEdges(after)
@@ -713,19 +711,18 @@ func diffEdgeSets(before, after *Node) (removed, added []index.EdgeRow) {
 		typeName string
 		sourceID string
 		targetID string
-		ordinal  int
 	}
 
 	beforeSet := make(map[key]index.EdgeRow, len(beforeRows))
 
 	for _, row := range beforeRows {
-		beforeSet[key{row.Type, row.SourceID, row.TargetID, row.Ordinal}] = row
+		beforeSet[key{row.Type, row.SourceID, row.TargetID}] = row
 	}
 
 	afterSet := make(map[key]index.EdgeRow, len(afterRows))
 
 	for _, row := range afterRows {
-		afterSet[key{row.Type, row.SourceID, row.TargetID, row.Ordinal}] = row
+		afterSet[key{row.Type, row.SourceID, row.TargetID}] = row
 	}
 
 	for kk, row := range beforeSet {

@@ -80,9 +80,7 @@ editing the node and reindexing.`,
 					return fmt.Errorf("no CLI-added edge matches type=%q source=%q target=%q", edgeType, source, target)
 				}
 
-				renumbered := renumberByType(kept)
-
-				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, renumbered); upsertErr != nil {
+				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, kept); upsertErr != nil {
 					return upsertErr
 				}
 
@@ -98,17 +96,4 @@ editing the node and reindexing.`,
 	removeCmd.Flags().StringVar(&target, "target", "", "target node id")
 
 	return removeCmd
-}
-
-func renumberByType(rows []index.EdgeRow) []index.EdgeRow {
-	counters := map[string]int{}
-	out := make([]index.EdgeRow, len(rows))
-
-	for idx, row := range rows {
-		out[idx] = row
-		out[idx].Ordinal = counters[row.Type]
-		counters[row.Type]++
-	}
-
-	return out
 }

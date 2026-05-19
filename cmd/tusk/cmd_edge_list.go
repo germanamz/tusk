@@ -61,10 +61,10 @@ tab-aligned table of source, type, target, attributed source-path.`,
 
 			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
-			_, _ = fmt.Fprintln(tab, "TYPE\tSOURCE\tTARGET\tORDINAL\tSOURCE_PATH")
+			_, _ = fmt.Fprintln(tab, "TYPE\tSOURCE\tTARGET\tSOURCE_PATH")
 
 			for _, row := range rows {
-				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%d\t%s\n", row.Type, row.SourceID, row.TargetID, row.Ordinal, row.SourcePath)
+				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", row.Type, row.SourceID, row.TargetID, row.SourcePath)
 			}
 
 			return tab.Flush()

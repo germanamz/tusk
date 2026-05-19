@@ -283,7 +283,6 @@ func registerEdgeListTool(srv *Server) {
 				"type":        row.Type,
 				"source_id":   row.SourceID,
 				"target_id":   row.TargetID,
-				"ordinal":     row.Ordinal,
 				"source_path": row.SourcePath,
 			})
 		}
@@ -817,7 +816,6 @@ func registerEdgeAddTool(srv *Server) {
 		mcpgo.WithString("type", mcpgo.Required()),
 		mcpgo.WithString("source_id", mcpgo.Required()),
 		mcpgo.WithString("target_id", mcpgo.Required()),
-		mcpgo.WithNumber("ordinal", mcpgo.Description("Edge ordinal (>= 0). Omit (or pass a negative value) to auto-assign the next free value for this (source, type) group.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -893,25 +891,10 @@ func registerEdgeAddTool(srv *Server) {
 			}
 		}
 
-		ordinal := argIntOptional(request, "ordinal", -1)
-
-		if ordinal < 0 {
-			ordinal = -1
-
-			for _, row := range mcpEdges {
-				if row.Type == edgeType && row.Ordinal > ordinal {
-					ordinal = row.Ordinal
-				}
-			}
-
-			ordinal++
-		}
-
 		mcpEdges = append(mcpEdges, index.EdgeRow{
 			Type:       edgeType,
 			SourceID:   sourceID,
 			TargetID:   targetID,
-			Ordinal:    ordinal,
 			SourcePath: mcpSourcePath,
 		})
 
@@ -981,13 +964,6 @@ func registerEdgeRemoveTool(srv *Server) {
 
 		if removed == 0 {
 			return toolError(fmt.Errorf("no MCP-added edge matches type=%q source=%q target=%q", edgeType, sourceID, targetID)), nil
-		}
-
-		counters := map[string]int{}
-
-		for idx := range kept {
-			kept[idx].Ordinal = counters[kept[idx].Type]
-			counters[kept[idx].Type]++
 		}
 
 		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, kept); upsertErr != nil {

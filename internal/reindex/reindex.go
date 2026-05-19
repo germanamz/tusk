@@ -527,12 +527,11 @@ func flattenEdges(parsedNode *node.Node) []index.EdgeRow {
 	var rows []index.EdgeRow
 
 	for edgeType, targets := range parsedNode.Edges {
-		for ordinal, target := range targets {
+		for _, target := range targets {
 			rows = append(rows, index.EdgeRow{
 				Type:       edgeType,
 				SourceID:   parsedNode.ID,
 				TargetID:   target,
-				Ordinal:    ordinal,
 				SourcePath: parsedNode.Path,
 			})
 		}
