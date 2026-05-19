@@ -338,37 +338,25 @@ func Migrate(config Config) (*MigrationReport, error) {
 		return nil, fmt.Errorf("doctor: list edges: %w", listErr)
 	}
 
-	// Group legacy rows by source ID so we can decide per-source whether the
-	// markdown file exists, and so the per-source UpsertAll(source, sentinel, nil)
-	// happens once even if multiple rows share the source.
-	type legacyKey struct {
-		sourceID   string
-		sourcePath string
-	}
-
-	type legacyGroup struct {
-		sourceID   string
-		sourcePath string
-		rows       []index.EdgeRow
-	}
-
-	groups := map[legacyKey]*legacyGroup{}
+	// Group legacy rows by source ID only. A single source may carry rows
+	// under both sentinels (some edges from `tusk edge add`, others from the
+	// MCP `tusk_edge_add` tool); we want to write the markdown and reindex
+	// once per source, then clear each sentinel path that actually had rows.
+	groups := map[string][]index.EdgeRow{}
+	sourcePaths := map[string]map[string]struct{}{}
 
 	for _, row := range all {
 		if row.SourcePath != index.CLISourcePath && row.SourcePath != index.MCPSourcePath {
 			continue
 		}
 
-		key := legacyKey{sourceID: row.SourceID, sourcePath: row.SourcePath}
+		groups[row.SourceID] = append(groups[row.SourceID], row)
 
-		group, exists := groups[key]
-
-		if !exists {
-			group = &legacyGroup{sourceID: row.SourceID, sourcePath: row.SourcePath}
-			groups[key] = group
+		if sourcePaths[row.SourceID] == nil {
+			sourcePaths[row.SourceID] = map[string]struct{}{}
 		}
 
-		group.rows = append(group.rows, row)
+		sourcePaths[row.SourceID][row.SourcePath] = struct{}{}
 	}
 
 	if len(groups) == 0 {
@@ -376,30 +364,24 @@ func Migrate(config Config) (*MigrationReport, error) {
 	}
 
 	// Stable ordering so the report is deterministic across runs.
-	orderedKeys := make([]legacyKey, 0, len(groups))
+	orderedSourceIDs := make([]string, 0, len(groups))
 
-	for key := range groups {
-		orderedKeys = append(orderedKeys, key)
+	for sourceID := range groups {
+		orderedSourceIDs = append(orderedSourceIDs, sourceID)
 	}
 
-	sort.Slice(orderedKeys, func(i, j int) bool {
-		if orderedKeys[i].sourceID != orderedKeys[j].sourceID {
-			return orderedKeys[i].sourceID < orderedKeys[j].sourceID
-		}
+	sort.Strings(orderedSourceIDs)
 
-		return orderedKeys[i].sourcePath < orderedKeys[j].sourcePath
-	})
-
-	for _, key := range orderedKeys {
-		group := groups[key]
-		sourcePath := filepath.Join(config.Root, group.sourceID+".md")
+	for _, sourceID := range orderedSourceIDs {
+		rows := groups[sourceID]
+		sourcePath := filepath.Join(config.Root, sourceID+".md")
 
 		if _, statErr := os.Stat(sourcePath); statErr != nil {
 			if errors.Is(statErr, fs.ErrNotExist) {
-				for _, row := range group.rows {
+				for _, row := range rows {
 					report.Skipped = append(report.Skipped,
-						fmt.Sprintf("%s: %s → %s (source file %s.md not found)",
-							row.Type, row.SourceID, row.TargetID, row.SourceID))
+						fmt.Sprintf("%s [%s]: %s → %s (source file %s.md not found)",
+							row.Type, row.SourcePath, row.SourceID, row.TargetID, row.SourceID))
 				}
 
 				continue
@@ -408,29 +390,45 @@ func Migrate(config Config) (*MigrationReport, error) {
 			return nil, fmt.Errorf("doctor: stat %s: %w", sourcePath, statErr)
 		}
 
-		sort.Slice(group.rows, func(i, j int) bool {
-			if group.rows[i].Type != group.rows[j].Type {
-				return group.rows[i].Type < group.rows[j].Type
+		sort.Slice(rows, func(left, right int) bool {
+			if rows[left].Type != rows[right].Type {
+				return rows[left].Type < rows[right].Type
 			}
 
-			return group.rows[i].TargetID < group.rows[j].TargetID
+			if rows[left].TargetID != rows[right].TargetID {
+				return rows[left].TargetID < rows[right].TargetID
+			}
+
+			return rows[left].SourcePath < rows[right].SourcePath
 		})
 
-		for _, row := range group.rows {
+		for _, row := range rows {
 			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, row.Type, row.TargetID, config.Manifest.EdgeTypes); writeErr != nil {
 				return nil, fmt.Errorf("doctor: migrate %s %s→%s: %w", row.Type, row.SourceID, row.TargetID, writeErr)
 			}
 
 			report.Migrated = append(report.Migrated,
-				fmt.Sprintf("%s: %s → %s", row.Type, row.SourceID, row.TargetID))
+				fmt.Sprintf("%s [%s]: %s → %s", row.Type, row.SourcePath, row.SourceID, row.TargetID))
 		}
 
-		if reindexErr := node.ReindexSource(config.Root, config.Edges, config.Manifest.EdgeTypes, group.sourceID); reindexErr != nil {
-			return nil, fmt.Errorf("doctor: reindex %s: %w", group.sourceID, reindexErr)
+		if reindexErr := node.ReindexSource(config.Root, config.Edges, config.Manifest.EdgeTypes, sourceID); reindexErr != nil {
+			return nil, fmt.Errorf("doctor: reindex %s: %w", sourceID, reindexErr)
 		}
 
-		if clearErr := config.Edges.UpsertAll(group.sourceID, group.sourcePath, nil); clearErr != nil {
-			return nil, fmt.Errorf("doctor: clear legacy %s rows for %s: %w", group.sourcePath, group.sourceID, clearErr)
+		// Clear each sentinel path that actually had rows for this source.
+		// Sort for deterministic output ordering on errors.
+		seenPaths := make([]string, 0, len(sourcePaths[sourceID]))
+
+		for path := range sourcePaths[sourceID] {
+			seenPaths = append(seenPaths, path)
+		}
+
+		sort.Strings(seenPaths)
+
+		for _, path := range seenPaths {
+			if clearErr := config.Edges.UpsertAll(sourceID, path, nil); clearErr != nil {
+				return nil, fmt.Errorf("doctor: clear legacy %s rows for %s: %w", path, sourceID, clearErr)
+			}
 		}
 	}
 

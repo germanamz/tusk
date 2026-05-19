@@ -258,6 +258,81 @@ func TestDoctor_AutoMigratesLegacyMCPRows(test *testing.T) {
 	}
 }
 
+func TestDoctor_AutoMigratesMixedCLIAndMCPRows(test *testing.T) {
+	dir := initWorkspaceWithManifest(test, edgeManifestBody())
+
+	createNode(test, dir, "tickets/a.md", "ticket", "A", "")
+	createNode(test, dir, "tickets/b.md", "ticket", "B", "")
+	createNode(test, dir, "tickets/c.md", "ticket", "C", "")
+
+	store, openErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open: %v", openErr)
+	}
+
+	edgeRepo := index.NewEdgeRepo(store)
+
+	// Seed a legacy __cli__ row (blocks: a → b) and a legacy __mcp__ row
+	// (parent: a → c) for the same source node.
+	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+	}); upsertErr != nil {
+		test.Fatalf("seed __cli__: %v", upsertErr)
+	}
+
+	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.MCPSourcePath, []index.EdgeRow{
+		{Type: "parent", SourceID: "tickets/a", TargetID: "tickets/c", SourcePath: index.MCPSourcePath},
+	}); upsertErr != nil {
+		test.Fatalf("seed __mcp__: %v", upsertErr)
+	}
+
+	store.Close()
+
+	chdir(test, dir)
+
+	cmd := newRootCmd()
+	output := &bytes.Buffer{}
+	cmd.SetOut(output)
+	cmd.SetErr(output)
+	cmd.SetArgs([]string{"doctor"})
+
+	if execErr := cmd.Execute(); execErr != nil {
+		test.Fatalf("doctor: %v", execErr)
+	}
+
+	body, _ := os.ReadFile(filepath.Join(dir, "tickets/a.md"))
+
+	if !strings.Contains(string(body), "blocks: tickets/b") {
+		test.Errorf("doctor should have migrated the legacy CLI edge into frontmatter, got:\n%s", body)
+	}
+
+	if !strings.Contains(string(body), "parent: tickets/c") {
+		test.Errorf("doctor should have migrated the legacy MCP edge into frontmatter, got:\n%s", body)
+	}
+
+	// Both legacy rows should have been deleted.
+	store2, _ := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+	defer store2.Close()
+
+	rows, _ := index.NewEdgeRepo(store2).ListBySource("tickets/a")
+
+	for _, row := range rows {
+		if row.SourcePath == index.CLISourcePath || row.SourcePath == index.MCPSourcePath {
+			test.Errorf("expected legacy sentinel rows to be removed; still have: %+v", row)
+		}
+	}
+
+	// Report should mention both sentinels so the user can tell origin.
+	if !strings.Contains(output.String(), "[__cli__]") {
+		test.Errorf("doctor output should mention [__cli__] sentinel; got: %s", output.String())
+	}
+
+	if !strings.Contains(output.String(), "[__mcp__]") {
+		test.Errorf("doctor output should mention [__mcp__] sentinel; got: %s", output.String())
+	}
+}
+
 func TestDoctor_NoMigrateFlagSkipsMutation(test *testing.T) {
 	dir := initWorkspaceWithManifest(test, edgeManifestBody())
 
