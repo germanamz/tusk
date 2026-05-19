@@ -25,6 +25,7 @@ description = "A unit of work tracked through a workflow"
 properties = [
     { name = "priority", type = "enum", values = ["low", "medium", "high"] },
     { name = "due",      type = "date" },
+    { name = "order",    type = "int" },
 ]
 
 [edge-types.parent]
