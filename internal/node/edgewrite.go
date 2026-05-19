@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
@@ -182,6 +183,59 @@ func RemoveEdgeFromFrontmatter(
 
 	if writeErr := atomicWrite(sourcePath, rendered); writeErr != nil {
 		return fmt.Errorf("edgewrite: write %s: %w", sourcePath, writeErr)
+	}
+
+	return nil
+}
+
+// ReindexSource re-reads sourceID's markdown file under workspaceRoot,
+// parses + resolves edges, and upserts the resulting edge rows into the
+// index under the source's real path. Designed for callers that just
+// rewrote the source file via AddEdgeToFrontmatter / RemoveEdgeFromFrontmatter
+// and need the index to reflect the new edges before the call returns.
+//
+// Callers MUST hold the workspace lock; this performs I/O and an index
+// write that overlap with the lock contract of the calling command.
+func ReindexSource(
+	workspaceRoot string,
+	edges *index.EdgeRepo,
+	edgeTypes manifest.EdgeTypes,
+	sourceID string,
+) error {
+	relPath := sourceID + ".md"
+	absPath := filepath.Join(workspaceRoot, relPath)
+
+	content, readErr := os.ReadFile(absPath)
+
+	if readErr != nil {
+		return fmt.Errorf("edgewrite: read %s: %w", relPath, readErr)
+	}
+
+	parsed, parseErr := ParseFile(relPath, content)
+
+	if parseErr != nil {
+		return fmt.Errorf("edgewrite: parse %s: %w", relPath, parseErr)
+	}
+
+	if resolveErr := ResolveEdges(parsed, edgeTypes); resolveErr != nil {
+		return fmt.Errorf("edgewrite: resolve %s: %w", relPath, resolveErr)
+	}
+
+	var edgeRows []index.EdgeRow
+
+	for edgeType, targets := range parsed.Edges {
+		for _, target := range targets {
+			edgeRows = append(edgeRows, index.EdgeRow{
+				Type:       edgeType,
+				SourceID:   parsed.ID,
+				TargetID:   target,
+				SourcePath: parsed.Path,
+			})
+		}
+	}
+
+	if upsertErr := edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
+		return fmt.Errorf("edgewrite: upsert %s: %w", relPath, upsertErr)
 	}
 
 	return nil

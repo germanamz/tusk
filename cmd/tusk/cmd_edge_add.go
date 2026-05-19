@@ -106,7 +106,7 @@ source node's frontmatter and the index is refreshed for that file.`,
 					return writeErr
 				}
 
-				if reindexErr := reindexSingle(ws, store, loaded, source); reindexErr != nil {
+				if reindexErr := node.ReindexSource(ws.Root, index.NewEdgeRepo(store), loaded.EdgeTypes, source); reindexErr != nil {
 					return reindexErr
 				}
 

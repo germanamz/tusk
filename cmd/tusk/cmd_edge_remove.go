@@ -21,9 +21,11 @@ func newEdgeRemoveCmd() *cobra.Command {
 		Short: "Remove a specific edge by source, kind, and target",
 		Long: `Remove a specific edge identified by its source, kind, and target.
 
-Only edges attributed to the CLI ("__cli__" source path) can be removed
-this way. Edges declared in a node's frontmatter must be removed by
-editing the node and reindexing.`,
+NOTE (transitional): "tusk edge add" now writes the edge into the source's
+markdown frontmatter, but this command still removes only edges attributed
+to the legacy "__cli__" source path. Frontmatter-written edges must be
+removed by editing the source file. Frontmatter-aware removal arrives in
+a subsequent release.`,
 		Example: `  # Remove a blocks edge added via "edge add"
   tusk edge remove --type blocks --source tickets/T-001 --target tickets/T-002`,
 		RunE: func(cmd *cobra.Command, args []string) error {
