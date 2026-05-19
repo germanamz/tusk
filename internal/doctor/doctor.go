@@ -1,14 +1,21 @@
-// Package doctor runs read-only health checks against the index.
+// Package doctor runs read-only health checks against the index and
+// optionally migrates legacy edge rows back into source frontmatter.
 package doctor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/node"
 )
 
 // Issue kinds.
@@ -29,6 +36,9 @@ const (
 
 	IssueEmbedLargeChunk = "embed-large-chunk"
 	IssueEmbedNoChunks   = "embed-no-chunks"
+
+	IssueLegacyCLIEdge = "legacy-cli-edge"
+	IssueLegacyMCPEdge = "legacy-mcp-edge"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -64,6 +74,13 @@ type Config struct {
 	PropertyDrift *index.PropertyDriftRepo // optional; nil = no property checks
 	Embeddings    *index.EmbeddingRepo
 	Manifest      *manifest.Manifest
+	Root          string // workspace root; required for Migrate
+}
+
+// MigrationReport summarizes a Migrate call.
+type MigrationReport struct {
+	Migrated []string // human-readable lines, one per migrated edge row
+	Skipped  []string // human-readable lines, one per skipped legacy row
 }
 
 // Run executes every check and returns the aggregate Report.
@@ -286,6 +303,203 @@ func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, qu
 			Kind:    IssueEmbedNoChunks,
 			NodeID:  row.ID,
 			Message: "node has no embedding rows",
+		})
+	}
+
+	return issues, nil
+}
+
+// Migrate walks every edge row whose source_path is the legacy CLI or MCP
+// sentinel (index.CLISourcePath / index.MCPSourcePath), rewrites it into the
+// source node's markdown frontmatter, and clears the legacy row from the
+// index. Rows whose source markdown file is missing on disk are reported as
+// skipped — the row stays in place so the caller does not lose data.
+//
+// Migrate is idempotent: once the rows have been migrated, subsequent calls
+// observe no legacy rows and return an empty report.
+//
+// Callers MUST hold the workspace lock: Migrate mutates source files and the
+// edges table.
+func Migrate(config Config) (*MigrationReport, error) {
+	report := &MigrationReport{}
+
+	if config.Edges == nil {
+		return report, nil
+	}
+
+	if config.Root == "" {
+		return nil, fmt.Errorf("doctor: Migrate requires Config.Root")
+	}
+
+	if config.Manifest == nil {
+		return nil, fmt.Errorf("doctor: Migrate requires Config.Manifest")
+	}
+
+	all, listErr := config.Edges.ListAll()
+
+	if listErr != nil {
+		return nil, fmt.Errorf("doctor: list edges: %w", listErr)
+	}
+
+	// Group legacy rows by source ID only. A single source may carry rows
+	// under both sentinels (some edges from `tusk edge add`, others from the
+	// MCP `tusk_edge_add` tool); we want to write the markdown and reindex
+	// once per source, then clear each sentinel path that actually had rows.
+	groups := map[string][]index.EdgeRow{}
+	sourcePaths := map[string]map[string]struct{}{}
+
+	for _, row := range all {
+		if row.SourcePath != index.CLISourcePath && row.SourcePath != index.MCPSourcePath {
+			continue
+		}
+
+		groups[row.SourceID] = append(groups[row.SourceID], row)
+
+		if sourcePaths[row.SourceID] == nil {
+			sourcePaths[row.SourceID] = map[string]struct{}{}
+		}
+
+		sourcePaths[row.SourceID][row.SourcePath] = struct{}{}
+	}
+
+	if len(groups) == 0 {
+		return report, nil
+	}
+
+	// Stable ordering so the report is deterministic across runs.
+	orderedSourceIDs := make([]string, 0, len(groups))
+
+	for sourceID := range groups {
+		orderedSourceIDs = append(orderedSourceIDs, sourceID)
+	}
+
+	sort.Strings(orderedSourceIDs)
+
+	for _, sourceID := range orderedSourceIDs {
+		rows := groups[sourceID]
+		sourcePath := filepath.Join(config.Root, sourceID+".md")
+
+		if _, statErr := os.Stat(sourcePath); statErr != nil {
+			if errors.Is(statErr, fs.ErrNotExist) {
+				for _, row := range rows {
+					report.Skipped = append(report.Skipped,
+						fmt.Sprintf("%s [%s]: %s → %s (source file %s.md not found)",
+							row.Type, row.SourcePath, row.SourceID, row.TargetID, row.SourceID))
+				}
+
+				continue
+			}
+
+			return nil, fmt.Errorf("doctor: stat %s: %w", sourcePath, statErr)
+		}
+
+		sort.Slice(rows, func(left, right int) bool {
+			if rows[left].Type != rows[right].Type {
+				return rows[left].Type < rows[right].Type
+			}
+
+			if rows[left].TargetID != rows[right].TargetID {
+				return rows[left].TargetID < rows[right].TargetID
+			}
+
+			return rows[left].SourcePath < rows[right].SourcePath
+		})
+
+		for _, row := range rows {
+			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, row.Type, row.TargetID, config.Manifest.EdgeTypes); writeErr != nil {
+				return nil, fmt.Errorf("doctor: migrate %s %s→%s: %w", row.Type, row.SourceID, row.TargetID, writeErr)
+			}
+
+			report.Migrated = append(report.Migrated,
+				fmt.Sprintf("%s [%s]: %s → %s", row.Type, row.SourcePath, row.SourceID, row.TargetID))
+		}
+
+		if reindexErr := node.ReindexSource(config.Root, config.Edges, config.Manifest.EdgeTypes, sourceID); reindexErr != nil {
+			return nil, fmt.Errorf("doctor: reindex %s: %w", sourceID, reindexErr)
+		}
+
+		// Clear each sentinel path that actually had rows for this source.
+		// Sort for deterministic output ordering on errors.
+		seenPaths := make([]string, 0, len(sourcePaths[sourceID]))
+
+		for path := range sourcePaths[sourceID] {
+			seenPaths = append(seenPaths, path)
+		}
+
+		sort.Strings(seenPaths)
+
+		for _, path := range seenPaths {
+			if clearErr := config.Edges.UpsertAll(sourceID, path, nil); clearErr != nil {
+				return nil, fmt.Errorf("doctor: clear legacy %s rows for %s: %w", path, sourceID, clearErr)
+			}
+		}
+	}
+
+	return report, nil
+}
+
+// LegacyDrift returns one Issue per legacy CLI/MCP edge row currently in the
+// index. Designed to be called instead of Migrate when --no-migrate is in
+// effect, so users still get an actionable signal about pending migrations.
+//
+// Rows are emitted in a deterministic order (source ID, then type, then target)
+// so test assertions stay stable across runs.
+func LegacyDrift(config Config) ([]Issue, error) {
+	if config.Edges == nil {
+		return nil, nil
+	}
+
+	all, listErr := config.Edges.ListAll()
+
+	if listErr != nil {
+		return nil, fmt.Errorf("doctor: list edges: %w", listErr)
+	}
+
+	legacy := make([]index.EdgeRow, 0)
+
+	for _, row := range all {
+		if row.SourcePath != index.CLISourcePath && row.SourcePath != index.MCPSourcePath {
+			continue
+		}
+
+		legacy = append(legacy, row)
+	}
+
+	sort.Slice(legacy, func(left, right int) bool {
+		if legacy[left].SourceID != legacy[right].SourceID {
+			return legacy[left].SourceID < legacy[right].SourceID
+		}
+
+		if legacy[left].Type != legacy[right].Type {
+			return legacy[left].Type < legacy[right].Type
+		}
+
+		if legacy[left].TargetID != legacy[right].TargetID {
+			return legacy[left].TargetID < legacy[right].TargetID
+		}
+
+		return legacy[left].SourcePath < legacy[right].SourcePath
+	})
+
+	issues := make([]Issue, 0, len(legacy))
+
+	for _, row := range legacy {
+		var kind string
+
+		switch row.SourcePath {
+		case index.CLISourcePath:
+			kind = IssueLegacyCLIEdge
+		case index.MCPSourcePath:
+			kind = IssueLegacyMCPEdge
+		default:
+			continue
+		}
+
+		issues = append(issues, Issue{
+			Kind:   kind,
+			NodeID: row.SourceID,
+			Message: fmt.Sprintf("%s: %s → %s (run `tusk doctor` without --no-migrate to migrate into source frontmatter)",
+				row.Type, row.SourceID, row.TargetID),
 		})
 	}
 

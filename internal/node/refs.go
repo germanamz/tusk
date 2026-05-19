@@ -39,11 +39,10 @@ type RefError struct {
 	Reason     string   // human-readable; built from the structured fields
 }
 
-// RefEdge is one resolved (edgeType, targetID, ordinal) tuple.
+// RefEdge is one resolved (edgeType, targetID) tuple.
 type RefEdge struct {
 	EdgeType string
 	TargetID string
-	Ordinal  int
 }
 
 // RefResolutionResult is the resolver's verdict.
@@ -118,7 +117,7 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 				continue
 			}
 
-			edge, refErr := resolveOneValue(prop.Name, strValue, 0, prop.To, lookup)
+			edge, refErr := resolveOneValue(prop.Name, strValue, prop.To, lookup)
 
 			if refErr != nil {
 				result.HardErrors = append(result.HardErrors, *refErr)
@@ -154,7 +153,7 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 					continue
 				}
 
-				edge, refErr := resolveOneValue(prop.Name, elemStr, idx, prop.To, lookup)
+				edge, refErr := resolveOneValue(prop.Name, elemStr, prop.To, lookup)
 
 				if refErr != nil {
 					result.HardErrors = append(result.HardErrors, *refErr)
@@ -171,7 +170,7 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 // resolveOneValue resolves a single string value for a ref property.
 // Returns a RefEdge on success, a RefError on failure, or (nil, nil) when the
 // value is empty (skip).
-func resolveOneValue(propName, value string, ordinal int, targetType string, lookup RefLookup) (*RefEdge, *RefError) {
+func resolveOneValue(propName, value, targetType string, lookup RefLookup) (*RefEdge, *RefError) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil, nil
@@ -204,7 +203,7 @@ func resolveOneValue(propName, value string, ordinal int, targetType string, loo
 			}
 		}
 
-		return &RefEdge{EdgeType: propName, TargetID: nodeID, Ordinal: ordinal}, nil
+		return &RefEdge{EdgeType: propName, TargetID: nodeID}, nil
 	}
 
 	// Title lookup branch.
@@ -230,7 +229,7 @@ func resolveOneValue(propName, value string, ordinal int, targetType string, loo
 			Reason:   fmt.Sprintf("ref property %q — value %q did not match any node of type %q", propName, value, targetType),
 		}
 	case 1:
-		return &RefEdge{EdgeType: propName, TargetID: candidates[0], Ordinal: ordinal}, nil
+		return &RefEdge{EdgeType: propName, TargetID: candidates[0]}, nil
 	default:
 		return nil, &RefError{
 			Kind:       RefErrAmbiguous,

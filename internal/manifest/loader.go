@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -76,6 +77,10 @@ func Validate(loaded *Manifest) error {
 		return validateErr
 	}
 
+	if validateErr := resolveOrdered(loaded); validateErr != nil {
+		return validateErr
+	}
+
 	if synthesizeErr := synthesizeRefEdgeTypes(loaded); synthesizeErr != nil {
 		return synthesizeErr
 	}
@@ -87,6 +92,121 @@ func Validate(loaded *Manifest) error {
 	}
 
 	return validateBehaviors(loaded)
+}
+
+// resolveOrdered decodes the polymorphic OrderedRaw into Ordered + OrderedBy
+// for every explicit edge type. Runs after node-type validation so it can
+// confirm the named property exists and is sortable on every `from` type.
+func resolveOrdered(loaded *Manifest) error {
+	if loaded.Meta == nil {
+		// Hand-constructed manifest: caller is expected to set Ordered/OrderedBy directly.
+		return nil
+	}
+
+	for edgeName, edge := range loaded.EdgeTypes {
+		// Default values when `ordered` key is absent.
+		ordered := false
+		orderedBy := ""
+
+		if loaded.Meta.IsDefined("edge-types", edgeName, "ordered") {
+			var asBool bool
+			boolErr := loaded.Meta.PrimitiveDecode(edge.OrderedRaw, &asBool)
+
+			if boolErr == nil {
+				if asBool {
+					ordered = true
+					orderedBy = "order"
+				}
+			} else {
+				var asString string
+
+				if stringErr := loaded.Meta.PrimitiveDecode(edge.OrderedRaw, &asString); stringErr != nil {
+					return fmt.Errorf("manifest: edge-types.%s: ordered must be bool or string (got error: %v)", edgeName, stringErr)
+				}
+
+				if asString == "" {
+					return fmt.Errorf("manifest: edge-types.%s: ordered cannot be the empty string", edgeName)
+				}
+
+				ordered = true
+				orderedBy = asString
+			}
+		}
+
+		edge.Ordered = ordered
+		edge.OrderedBy = orderedBy
+
+		if orderedBy != "" {
+			if validateErr := validateOrderedByProperty(loaded, edgeName, edge); validateErr != nil {
+				return validateErr
+			}
+		}
+
+		loaded.EdgeTypes[edgeName] = edge
+	}
+
+	return nil
+}
+
+// sortablePropertyTypes are the property types valid as an ordered-by key.
+var sortablePropertyTypes = map[string]struct{}{
+	"string":   {},
+	"int":      {},
+	"float":    {},
+	"date":     {},
+	"datetime": {},
+}
+
+func validateOrderedByProperty(loaded *Manifest, edgeName string, edge EdgeType) error {
+	for _, fromType := range edge.From {
+		if fromType == "*" {
+			return fmt.Errorf(
+				"manifest: edge-types.%s: ordered = %q is not allowed when from contains the wildcard %q; set ordered = false or list explicit node types in from",
+				edgeName, edge.OrderedBy, "*",
+			)
+		}
+
+		if strings.ContainsRune(edge.OrderedBy, '\'') {
+			return fmt.Errorf(
+				"manifest: edge-types.%s: ordered property name %q must not contain a single-quote",
+				edgeName, edge.OrderedBy,
+			)
+		}
+
+		nodeType, declared := loaded.NodeTypes[fromType]
+
+		if !declared {
+			return fmt.Errorf(
+				"manifest: edge-types.%s: ordered = %q references node-type %q which is not declared",
+				edgeName, edge.OrderedBy, fromType,
+			)
+		}
+
+		var found *PropertyDecl
+
+		for index := range nodeType.Properties {
+			if nodeType.Properties[index].Name == edge.OrderedBy {
+				found = &nodeType.Properties[index]
+				break
+			}
+		}
+
+		if found == nil {
+			return fmt.Errorf(
+				"manifest: edge-types.%s: ordered = %q references property %q which is not declared on node-type %q",
+				edgeName, edge.OrderedBy, edge.OrderedBy, fromType,
+			)
+		}
+
+		if _, sortable := sortablePropertyTypes[found.Type]; !sortable {
+			return fmt.Errorf(
+				"manifest: edge-types.%s: ordered = %q references property %q on %q whose type %q is not sortable (allowed: string, int, float, date, datetime)",
+				edgeName, edge.OrderedBy, edge.OrderedBy, fromType, found.Type,
+			)
+		}
+	}
+
+	return nil
 }
 
 // IsRefProperty returns true when the property declaration is a ref-shaped type:
@@ -149,18 +269,14 @@ func buildEdgeTypeFromRef(owningType string, prop PropertyDecl) EdgeType {
 		cardinality = CardinalityManyToMany
 	}
 
-	ordered := false
-
-	if prop.Type == "list-of" && prop.ItemType == "ref" {
-		ordered = prop.Ordered
-	}
-
+	// Ref-property syntax cannot express ordering; only explicit
+	// [edge-types.X] with ordered = "<prop>" (or true) can. Synthesized
+	// edge types are therefore always unordered.
 	return EdgeType{
 		Description: fmt.Sprintf("auto-generated from %s.%s", owningType, prop.Name),
 		From:        []string{owningType},
 		To:          []string{prop.To},
 		Cardinality: cardinality,
-		Ordered:     ordered,
 		Inverse:     prop.Inverse,
 		Acyclic:     prop.Acyclic,
 	}
@@ -256,10 +372,10 @@ func assertCompatibleSynthesis(existing, candidate EdgeType, propName, firstOwne
 		)
 	}
 
-	if existing.Ordered != candidate.Ordered {
+	if existing.OrderedBy != candidate.OrderedBy {
 		return fmt.Errorf(
-			"manifest: ref property %q is declared on both %q and %q with conflicting attributes (ordered: %v vs %v); align the declarations or use distinct property names",
-			propName, firstOwner, newOwner, existing.Ordered, candidate.Ordered,
+			"manifest: ref property %q is declared on both %q and %q with conflicting attributes (ordered-by: %q vs %q); align the declarations or use distinct property names",
+			propName, firstOwner, newOwner, existing.OrderedBy, candidate.OrderedBy,
 		)
 	}
 

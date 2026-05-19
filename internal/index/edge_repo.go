@@ -10,7 +10,6 @@ type EdgeRow struct {
 	Type       string
 	SourceID   string
 	TargetID   string
-	Ordinal    int
 	SourcePath string
 }
 
@@ -41,9 +40,9 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 
 	for _, edge := range edges {
 		if _, insertErr := tx.Exec(`
-			INSERT INTO edges (type, source_id, target_id, ordinal, source_path)
-			VALUES (?, ?, ?, ?, ?)
-		`, edge.Type, edge.SourceID, edge.TargetID, edge.Ordinal, edge.SourcePath); insertErr != nil {
+			INSERT INTO edges (type, source_id, target_id, source_path)
+			VALUES (?, ?, ?, ?)
+		`, edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath); insertErr != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("edgeRepo: insert %s→%s: %w", edge.SourceID, edge.TargetID, insertErr)
 		}
@@ -56,27 +55,27 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 	return nil
 }
 
-// ListBySource returns all edges where source_id = sourceID, ordered by type, ordinal.
+// ListBySource returns all edges where source_id = sourceID, ordered by type then target_id.
 func (repo *EdgeRepo) ListBySource(sourceID string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT type, source_id, target_id, ordinal, source_path FROM edges WHERE source_id = ? ORDER BY type, ordinal`, sourceID)
+	return repo.queryEdges(`SELECT type, source_id, target_id, source_path FROM edges WHERE source_id = ? ORDER BY type, target_id`, sourceID)
 }
 
-// ListByTarget returns all edges where target_id = targetID, ordered by type.
+// ListByTarget returns all edges where target_id = targetID, ordered by type then source_id.
 func (repo *EdgeRepo) ListByTarget(targetID string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT type, source_id, target_id, ordinal, source_path FROM edges WHERE target_id = ? ORDER BY type, source_id`, targetID)
+	return repo.queryEdges(`SELECT type, source_id, target_id, source_path FROM edges WHERE target_id = ? ORDER BY type, source_id`, targetID)
 }
 
-// ListByType returns all edges where type = edgeType, ordered by source_id, ordinal.
+// ListByType returns all edges where type = edgeType, ordered by source_id then target_id.
 func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT type, source_id, target_id, ordinal, source_path FROM edges WHERE type = ? ORDER BY source_id, ordinal`, edgeType)
+	return repo.queryEdges(`SELECT type, source_id, target_id, source_path FROM edges WHERE type = ? ORDER BY source_id, target_id`, edgeType)
 }
 
-// ListAll returns every edge in the index, ordered by source_id then ordinal.
+// ListAll returns every edge in the index, ordered by source_id, type, target_id.
 func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
 	rows, queryErr := repo.db.Query(`
-		SELECT type, source_id, target_id, ordinal, source_path
+		SELECT type, source_id, target_id, source_path
 		FROM edges
-		ORDER BY source_id, ordinal
+		ORDER BY source_id, type, target_id
 	`)
 
 	if queryErr != nil {
@@ -90,7 +89,7 @@ func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
 	for rows.Next() {
 		var row EdgeRow
 
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.Ordinal, &row.SourcePath); scanErr != nil {
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath); scanErr != nil {
 			return nil, scanErr
 		}
 
@@ -125,7 +124,7 @@ func (repo *EdgeRepo) queryEdges(query, arg string) ([]EdgeRow, error) {
 	for rows.Next() {
 		row := EdgeRow{}
 
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.Ordinal, &row.SourcePath); scanErr != nil {
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath); scanErr != nil {
 			return nil, fmt.Errorf("edgeRepo: scan: %w", scanErr)
 		}
 

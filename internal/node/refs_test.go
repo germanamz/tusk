@@ -65,7 +65,7 @@ func TestResolveRefs_BareTitleResolves(test *testing.T) {
 
 	edge := result.Edges[0]
 
-	if edge.EdgeType != "assignee" || edge.TargetID != "people/alice" || edge.Ordinal != 0 {
+	if edge.EdgeType != "assignee" || edge.TargetID != "people/alice" {
 		test.Errorf("Edge = %+v", edge)
 	}
 }
@@ -159,7 +159,7 @@ func TestResolveRefs_TypeMismatchOnWikilink(test *testing.T) {
 	}
 }
 
-func TestResolveRefs_ListOfRefPreservesOrdinals(test *testing.T) {
+func TestResolveRefs_ListOfRefPreservesOrder(test *testing.T) {
 	parsed := newParsedNode("tickets/auth", "ticket", map[string]any{
 		"watchers": []any{"alice", "[[people/bob]]"},
 	})
@@ -185,12 +185,12 @@ func TestResolveRefs_ListOfRefPreservesOrdinals(test *testing.T) {
 		test.Fatalf("Edges = %+v, want 2", result.Edges)
 	}
 
-	if result.Edges[0].TargetID != "people/alice" || result.Edges[0].Ordinal != 0 {
-		test.Errorf("Edges[0] = %+v", result.Edges[0])
+	if result.Edges[0].TargetID != "people/alice" {
+		test.Errorf("Edges[0] = %+v, want target people/alice", result.Edges[0])
 	}
 
-	if result.Edges[1].TargetID != "people/bob" || result.Edges[1].Ordinal != 1 {
-		test.Errorf("Edges[1] = %+v", result.Edges[1])
+	if result.Edges[1].TargetID != "people/bob" {
+		test.Errorf("Edges[1] = %+v, want target people/bob", result.Edges[1])
 	}
 }
 

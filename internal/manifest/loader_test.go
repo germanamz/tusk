@@ -790,7 +790,6 @@ properties = [
     { name = "assignee", type = "ref", to = "person" },
     { name = "watchers", type = "list-of", item-type = "ref", to = "person", inverse = "watching" },
     { name = "parent",   type = "ref", to = "ticket", acyclic = true },
-    { name = "ordered_list", type = "list-of", item-type = "ref", to = "person", ordered = true },
 ]
 `
 	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
@@ -805,8 +804,8 @@ properties = [
 
 	ticket := loaded.NodeTypes["ticket"]
 
-	if len(ticket.Properties) != 4 {
-		test.Fatalf("ticket.Properties count = %d, want 4", len(ticket.Properties))
+	if len(ticket.Properties) != 3 {
+		test.Fatalf("ticket.Properties count = %d, want 3", len(ticket.Properties))
 	}
 
 	assignee := ticket.Properties[0]
@@ -825,12 +824,6 @@ properties = [
 
 	if parent.Type != "ref" || parent.To != "ticket" || !parent.Acyclic {
 		test.Errorf("parent = %+v", parent)
-	}
-
-	ordered := ticket.Properties[3]
-
-	if ordered.Type != "list-of" || ordered.ItemType != "ref" || !ordered.Ordered {
-		test.Errorf("ordered_list = %+v", ordered)
 	}
 }
 
@@ -965,13 +958,13 @@ func TestSynthesize_PlainRefProducesManyToOneEdge(test *testing.T) {
 	}
 }
 
-func TestSynthesize_ListOfRefProducesManyToManyOrdered(test *testing.T) {
+func TestSynthesize_ListOfRefProducesManyToManyUnordered(test *testing.T) {
 	loaded := &manifest.Manifest{
 		EdgeTypes: manifest.EdgeTypes{},
 		NodeTypes: map[string]manifest.NodeType{
 			"person": {},
 			"ticket": {Properties: []manifest.PropertyDecl{
-				{Name: "watchers", Type: "list-of", ItemType: "ref", To: "person", Ordered: true},
+				{Name: "watchers", Type: "list-of", ItemType: "ref", To: "person"},
 			}},
 		},
 	}
@@ -986,8 +979,15 @@ func TestSynthesize_ListOfRefProducesManyToManyOrdered(test *testing.T) {
 		test.Errorf("Cardinality = %q, want many-to-many", edge.Cardinality)
 	}
 
-	if !edge.Ordered {
-		test.Errorf("Ordered = false, want true for list-of(ref) with Ordered=true")
+	// Ref-property syntax cannot express ordering; synthesized edges
+	// are always unordered. Pack authors who need ordering must declare
+	// an explicit [edge-types.X] with ordered = "<prop>".
+	if edge.Ordered {
+		test.Errorf("Ordered = true, want false for synthesized list-of(ref)")
+	}
+
+	if edge.OrderedBy != "" {
+		test.Errorf("OrderedBy = %q, want empty for synthesized list-of(ref)", edge.OrderedBy)
 	}
 }
 
@@ -1425,5 +1425,229 @@ hierarchy-default = true
 
 	if bareParent.HierarchyDefault {
 		test.Errorf("bare parent should not claim default when another edge already does")
+	}
+}
+
+// loadTOMLString writes body to a temp tusk.toml and returns the result of
+// manifest.Load. Used by the polymorphic `ordered` decoding tests.
+func loadTOMLString(test *testing.T, body string) (*manifest.Manifest, error) {
+	test.Helper()
+
+	dir := test.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+
+	if writeErr := os.WriteFile(path, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	return manifest.Load(path)
+}
+
+// loadTOMLFromString is the panicking variant for happy-path tests that
+// expect the manifest to load cleanly.
+func loadTOMLFromString(test *testing.T, body string) *manifest.Manifest {
+	test.Helper()
+
+	loaded, err := loadTOMLString(test, body)
+
+	if err != nil {
+		test.Fatalf("loadTOMLString: %v", err)
+	}
+
+	return loaded
+}
+
+func TestLoad_OrderedFalseDefault(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = []
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if edge.Ordered {
+		test.Errorf("Ordered should be false; got true")
+	}
+
+	if edge.OrderedBy != "" {
+		test.Errorf("OrderedBy should be empty; got %q", edge.OrderedBy)
+	}
+}
+
+func TestLoad_OrderedExplicitFalse(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = [
+  { name = "order", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = false
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if edge.Ordered {
+		test.Errorf("Ordered should be false for explicit ordered = false; got true")
+	}
+
+	if edge.OrderedBy != "" {
+		test.Errorf("OrderedBy should be empty for explicit ordered = false; got %q", edge.OrderedBy)
+	}
+}
+
+func TestLoad_OrderedTrueAliasesToOrderProperty(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = [
+  { name = "order", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = true
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if !edge.Ordered {
+		test.Errorf("Ordered should be true")
+	}
+
+	if edge.OrderedBy != "order" {
+		test.Errorf("OrderedBy should default to %q; got %q", "order", edge.OrderedBy)
+	}
+}
+
+func TestLoad_OrderedByExplicitProperty(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if !edge.Ordered {
+		test.Errorf("Ordered should be true")
+	}
+
+	if edge.OrderedBy != "rank" {
+		test.Errorf("OrderedBy should be %q; got %q", "rank", edge.OrderedBy)
+	}
+}
+
+func TestLoad_OrderedByUnknownPropertyRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "title-only", type = "string" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered references unknown property")
+	}
+}
+
+func TestLoad_OrderedByMissingOnOneOfFromRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing-a]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[node-types.thing-b]
+properties = []
+
+[edge-types.relates-to]
+from        = ["thing-a", "thing-b"]
+to          = ["thing-a"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered property missing on thing-b")
+	}
+}
+
+func TestLoad_OrderedByOnWildcardFromRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["*"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "rank"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered=<prop> not allowed with from=[*]")
+	}
+}
+
+func TestLoad_OrderedByNonSortablePropertyRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "tags", type = "list-of", item-type = "string" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "tags"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered property must be sortable")
+	}
+}
+
+func TestLoad_OrderedByWithSingleQuoteRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "it's-bad"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered property name with single-quote should reject")
 	}
 }

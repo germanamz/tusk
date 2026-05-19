@@ -10,28 +10,44 @@ tusk-edge-add - Add a typed edge from one node to another
 
 
 .SH DESCRIPTION
-Add a typed edge from one node to another.
+Add a typed edge from one node to another by writing the edge into the
+source node's frontmatter.
 
 .PP
-The edge kind must be declared in tusk.toml. CLI-added edges are
-attributed to a synthetic "\fBcli\fP" source path so the next reindex of
-either involved file does not clobber them.
+The edge kind must be declared in tusk.toml's [edge-types.]. The
+source's node type must be in the edge's "from" list, and the target's
+node type must be in the edge's "to" list.
 
 .PP
-When --ordinal is unset (-1), the next free ordinal is auto-assigned
-across the same (source, type) group of CLI-added edges. Pass --ordinal
-to control placement explicitly — useful for ordered edges where the
-intended ordering key is the target (e.g. WBS child ordering under a
-shared parent).
+What this command actually does:
+.IP "  1." 5
+Reads the source file's current frontmatter.
+.IP "  2." 5
+Adds the target under the edge-name key, respecting cardinality:
+.RS
+.IP \(bu 2
+one-to-one / many-to-one: scalar string; rejects on conflict.
+.IP \(bu 2
+one-to-many / many-to-many: list; appends if absent (dedup).
+.RE
+.IP "  3." 5
+Atomically rewrites the file with the new frontmatter.
+.IP "  4." 5
+Reindexes the source file so the new edge is queryable immediately.
+
+.PP
+Idempotent: adding an edge that already exists is a no-op. To replace a
+single-target edge, run "tusk edge remove" first.
+
+.PP
+The change is durable: the edge lives in git-tracked markdown, not in the
+index database. Running "rm .tusk/index.db && tusk reindex" recovers the
+same graph state.
 
 
 .SH OPTIONS
 \fB-h\fP, \fB--help\fP[=false]
 	help for add
-
-.PP
-\fB--ordinal\fP=-1
-	edge ordinal (>= 0); -1 (default) auto-assigns the next free value for this (source, type) group
 
 .PP
 \fB--source\fP=""
@@ -59,10 +75,6 @@ shared parent).
   # Add multiple edges as part of a script
   tusk edge add --type mentions --source tickets/T-003 --target notes/2026-05-16
   tusk edge add --type owned-by --source tickets/T-003 --target people/alice
-
-  # Order children explicitly under a shared parent
-  tusk edge add --type wbs-parent --source wbs/proj/s1 --target wbs/proj --ordinal 0
-  tusk edge add --type wbs-parent --source wbs/proj/s2 --target wbs/proj --ordinal 1
 .EE
 
 

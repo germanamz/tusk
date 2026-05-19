@@ -114,11 +114,12 @@ func (pred *EdgePredicate) Position() int { return pred.Pos }
 // when the shortcut is unqualified. The validator resolves Alias to a
 // concrete edge type, stamping the result into EdgeType for the compiler.
 type TraversalShortcut struct {
-	Kind     ShortcutKind
-	Alias    string
-	NodeID   string
-	EdgeType string // resolved by Validate; the compiler refuses an empty value
-	Pos      int
+	Kind      ShortcutKind
+	Alias     string
+	NodeID    string
+	EdgeType  string // resolved by Validate; the compiler refuses an empty value
+	OrderedBy string // resolved by Validate from the edge type's OrderedBy; empty when the edge is not ordered
+	Pos       int
 }
 
 func (shortcut *TraversalShortcut) exprNode()     {}

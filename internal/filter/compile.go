@@ -40,6 +40,9 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 	if len(opts.SortKeys) > 0 {
 		builder.WriteString(" ORDER BY ")
 		builder.WriteString(compileOrderBy(opts.SortKeys))
+	} else if state.defaultOrderBy != "" {
+		builder.WriteString(" ORDER BY ")
+		builder.WriteString(state.defaultOrderBy)
 	}
 
 	if opts.Take > 0 {
@@ -56,6 +59,13 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 type compileState struct {
 	ctes       []string
 	cteCounter int
+	// defaultOrderBy captures the first non-empty OrderedBy seen during
+	// compileWhere's recursive descent. When two or more traversal shortcuts
+	// appear in the same expression (e.g., `tree=X AND parent=Y`), the
+	// leftmost one's OrderedBy wins. This is deterministic given a fixed
+	// AST traversal order, but is undefined if the AST is reshaped.
+	// Callers that want explicit ordering should pass --sort to override.
+	defaultOrderBy string
 }
 
 func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
@@ -113,6 +123,13 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 		}
 
 		state.ctes = append(state.ctes, ctes...)
+
+		if typed.OrderedBy != "" && state.defaultOrderBy == "" {
+			state.defaultOrderBy = fmt.Sprintf(
+				`COALESCE(json_extract(nodes.properties_json, '$."%s"'), 0), nodes.id`,
+				typed.OrderedBy,
+			)
+		}
 
 		return whereClause, traversalParams, nil
 	}

@@ -8,17 +8,28 @@ Add a typed edge from one node to another
 
 ### Synopsis
 
-Add a typed edge from one node to another.
+Add a typed edge from one node to another by writing the edge into the
+source node's frontmatter.
 
-The edge kind must be declared in tusk.toml. CLI-added edges are
-attributed to a synthetic "__cli__" source path so the next reindex of
-either involved file does not clobber them.
+The edge kind must be declared in tusk.toml's [edge-types.<name>]. The
+source's node type must be in the edge's "from" list, and the target's
+node type must be in the edge's "to" list.
 
-When --ordinal is unset (-1), the next free ordinal is auto-assigned
-across the same (source, type) group of CLI-added edges. Pass --ordinal
-to control placement explicitly — useful for ordered edges where the
-intended ordering key is the target (e.g. WBS child ordering under a
-shared parent).
+What this command actually does:
+
+  1. Reads the source file's current frontmatter.
+  2. Adds the target under the edge-name key, respecting cardinality:
+       * one-to-one / many-to-one: scalar string; rejects on conflict.
+       * one-to-many / many-to-many: list; appends if absent (dedup).
+  3. Atomically rewrites the file with the new frontmatter.
+  4. Reindexes the source file so the new edge is queryable immediately.
+
+Idempotent: adding an edge that already exists is a no-op. To replace a
+single-target edge, run "tusk edge remove" first.
+
+The change is durable: the edge lives in git-tracked markdown, not in the
+index database. Running "rm .tusk/index.db && tusk reindex" recovers the
+same graph state.
 
 ```
 tusk edge add [flags]
@@ -33,17 +44,12 @@ tusk edge add [flags]
   # Add multiple edges as part of a script
   tusk edge add --type mentions --source tickets/T-003 --target notes/2026-05-16
   tusk edge add --type owned-by --source tickets/T-003 --target people/alice
-
-  # Order children explicitly under a shared parent
-  tusk edge add --type wbs-parent --source wbs/proj/s1 --target wbs/proj --ordinal 0
-  tusk edge add --type wbs-parent --source wbs/proj/s2 --target wbs/proj --ordinal 1
 ```
 
 ### Options
 
 ```
   -h, --help            help for add
-      --ordinal int     edge ordinal (>= 0); -1 (default) auto-assigns the next free value for this (source, type) group (default -1)
       --source string   source node id (workspace-relative path without extension)
       --target string   target node id
       --type string     edge type (must be declared in tusk.toml)

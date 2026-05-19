@@ -12,10 +12,12 @@ import (
 )
 
 func newDoctorCmd() *cobra.Command {
+	var noMigrate bool
+
 	doctorCmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Surface validation warnings, dangling edges, and index health issues",
-		Long: `Run read-only health checks against the workspace and index.
+		Long: `Run health checks against the workspace and index.
 
 Doctor reports:
   * Off-schema nodes (type not declared in tusk.toml).
@@ -24,14 +26,18 @@ Doctor reports:
   * Dangling edges (edges whose target node no longer exists).
   * Embedding queue depth and last-reindex timestamp.
 
-Doctor never modifies state, so it is safe to run while "tusk watch"
-is active.`,
+Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
+index back into the source node's markdown frontmatter — pass --no-migrate
+for a diagnostic-only run.`,
 		Example: `  # Health snapshot after a manifest change
   tusk pack add gtd
   tusk doctor
 
   # Quick check before starting an MCP session
-  tusk doctor && tusk mcp`,
+  tusk doctor && tusk mcp
+
+  # Diagnostic-only run; do not migrate legacy edge rows
+  tusk doctor --no-migrate`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, cwdErr := os.Getwd()
 
@@ -51,58 +57,99 @@ is active.`,
 				return loadErr
 			}
 
-			store, openErr := index.Open(ws.IndexPath)
-
-			if openErr != nil {
-				return openErr
-			}
-
-			defer store.Close()
-
-			report, runErr := doctor.Run(doctor.Config{
-				Nodes:         index.NewNodeRepo(store),
-				Edges:         index.NewEdgeRepo(store),
-				EmbedQueue:    index.NewEmbedQueueRepo(store),
-				WorkflowDrift: index.NewWorkflowDriftRepo(store),
-				PropertyDrift: index.NewPropertyDriftRepo(store),
-				Embeddings:    index.NewEmbeddingRepo(store),
-				Manifest:      loaded,
-			})
-
-			if runErr != nil {
-				return runErr
-			}
-
 			out := cmd.OutOrStdout()
 
-			if len(report.Issues) == 0 {
-				_, _ = fmt.Fprintln(out, "doctor: no issues")
-			}
+			return withWorkspaceLock(ws, func() error {
+				store, openErr := index.Open(ws.IndexPath)
 
-			for _, issue := range report.Issues {
-				_, _ = fmt.Fprintf(out, "  [%s] %s: %s\n", issue.Kind, issue.NodeID, issue.Message)
-			}
+				if openErr != nil {
+					return openErr
+				}
 
-			_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", report.EmbedQueueDepth)
+				defer store.Close()
 
-			if report.EmbedStats != nil {
-				stats := report.EmbedStats
+				cfg := doctor.Config{
+					Nodes:         index.NewNodeRepo(store),
+					Edges:         index.NewEdgeRepo(store),
+					EmbedQueue:    index.NewEmbedQueueRepo(store),
+					WorkflowDrift: index.NewWorkflowDriftRepo(store),
+					PropertyDrift: index.NewPropertyDriftRepo(store),
+					Embeddings:    index.NewEmbeddingRepo(store),
+					Manifest:      loaded,
+					Root:          ws.Root,
+				}
 
-				_, _ = fmt.Fprintf(out, "embed stats: %d nodes, %d chunks (mean %.1f, median %d, max %d)\n",
-					stats.TotalNodes, stats.TotalChunks, stats.MeanChunks, stats.MedianChunks, stats.MaxChunks)
+				if !noMigrate {
+					migrationReport, migrateErr := doctor.Migrate(cfg)
 
-				if len(stats.TopByChunks) > 0 {
-					_, _ = fmt.Fprintln(out, "top by chunks:")
+					if migrateErr != nil {
+						return migrateErr
+					}
 
-					for _, entry := range stats.TopByChunks {
-						_, _ = fmt.Fprintf(out, "  %s\t%d\n", entry.NodeID, entry.Chunks)
+					if len(migrationReport.Migrated) > 0 {
+						_, _ = fmt.Fprintf(out, "migrated %d legacy CLI/MCP edges into source frontmatter:\n", len(migrationReport.Migrated))
+
+						for _, line := range migrationReport.Migrated {
+							_, _ = fmt.Fprintf(out, "  %s\n", line)
+						}
+					}
+
+					if len(migrationReport.Skipped) > 0 {
+						_, _ = fmt.Fprintf(out, "skipped %d legacy CLI/MCP edges:\n", len(migrationReport.Skipped))
+
+						for _, line := range migrationReport.Skipped {
+							_, _ = fmt.Fprintf(out, "  %s\n", line)
+						}
 					}
 				}
-			}
 
-			return nil
+				report, runErr := doctor.Run(cfg)
+
+				if runErr != nil {
+					return runErr
+				}
+
+				if noMigrate {
+					legacyIssues, legacyErr := doctor.LegacyDrift(cfg)
+
+					if legacyErr != nil {
+						return legacyErr
+					}
+
+					report.Issues = append(report.Issues, legacyIssues...)
+				}
+
+				if len(report.Issues) == 0 {
+					_, _ = fmt.Fprintln(out, "doctor: no issues")
+				}
+
+				for _, issue := range report.Issues {
+					_, _ = fmt.Fprintf(out, "  [%s] %s: %s\n", issue.Kind, issue.NodeID, issue.Message)
+				}
+
+				_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", report.EmbedQueueDepth)
+
+				if report.EmbedStats != nil {
+					stats := report.EmbedStats
+
+					_, _ = fmt.Fprintf(out, "embed stats: %d nodes, %d chunks (mean %.1f, median %d, max %d)\n",
+						stats.TotalNodes, stats.TotalChunks, stats.MeanChunks, stats.MedianChunks, stats.MaxChunks)
+
+					if len(stats.TopByChunks) > 0 {
+						_, _ = fmt.Fprintln(out, "top by chunks:")
+
+						for _, entry := range stats.TopByChunks {
+							_, _ = fmt.Fprintf(out, "  %s\t%d\n", entry.NodeID, entry.Chunks)
+						}
+					}
+				}
+
+				return nil
+			})
 		},
 	}
+
+	doctorCmd.Flags().BoolVar(&noMigrate, "no-migrate", false, "skip auto-migration of legacy __cli__/__mcp__ edge rows (diagnostic-only run)")
 
 	return doctorCmd
 }

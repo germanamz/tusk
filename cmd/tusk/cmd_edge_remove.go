@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -21,9 +23,19 @@ func newEdgeRemoveCmd() *cobra.Command {
 		Short: "Remove a specific edge by source, kind, and target",
 		Long: `Remove a specific edge identified by its source, kind, and target.
 
-Only edges attributed to the CLI ("__cli__" source path) can be removed
-this way. Edges declared in a node's frontmatter must be removed by
-editing the node and reindexing.`,
+The edge is removed from the source node's markdown frontmatter and the
+index is updated to match. Removal is idempotent — removing an edge that
+isn't there succeeds with no-op.
+
+For multi-target edges (many-to-many, one-to-many) only the named target
+is removed; sibling targets in the same list are preserved. When the
+last target is removed, the edge-name key is dropped from frontmatter
+entirely.
+
+Legacy "__cli__" and "__mcp__" sentinel rows from pre-frontmatter
+versions of "tusk edge add" / "tusk_edge_add" MCP calls are also swept
+for the same (type, source, target) triple. "tusk doctor" auto-migrates
+any remaining sentinel rows on its next run.`,
 		Example: `  # Remove a blocks edge added via "edge add"
   tusk edge remove --type blocks --source tickets/T-001 --target tickets/T-002`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -43,6 +55,16 @@ editing the node and reindexing.`,
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
+
+			if loadErr != nil {
+				return loadErr
+			}
+
+			if _, declared := loaded.EdgeTypes[edgeType]; !declared {
+				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
+			}
+
 			return withWorkspaceLock(ws, func() error {
 				store, openErr := index.Open(ws.IndexPath)
 
@@ -52,37 +74,45 @@ editing the node and reindexing.`,
 
 				defer store.Close()
 
+				if writeErr := node.RemoveEdgeFromFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
+					return writeErr
+				}
+
 				edgeRepo := index.NewEdgeRepo(store)
 
-				rows, listErr := edgeRepo.ListBySource(source)
+				if reindexErr := node.ReindexSource(ws.Root, edgeRepo, loaded.EdgeTypes, source); reindexErr != nil {
+					return reindexErr
+				}
+
+				// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
+				legacy, listErr := edgeRepo.ListBySource(source)
 
 				if listErr != nil {
-					return listErr
+					return fmt.Errorf("edge remove: list legacy rows: %w", listErr)
 				}
 
-				cliExisting := filterCLI(rows)
+				var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
 
-				var kept []index.EdgeRow
+				for _, row := range legacy {
+					matchesTriple := row.Type == edgeType && row.TargetID == target
 
-				removed := 0
-
-				for _, row := range cliExisting {
-					if row.Type == edgeType && row.TargetID == target {
-						removed++
-
-						continue
+					switch row.SourcePath {
+					case index.CLISourcePath:
+						if !matchesTriple {
+							keptLegacyCLI = append(keptLegacyCLI, row)
+						}
+					case index.MCPSourcePath:
+						if !matchesTriple {
+							keptLegacyMCP = append(keptLegacyMCP, row)
+						}
 					}
-
-					kept = append(kept, row)
 				}
 
-				if removed == 0 {
-					return fmt.Errorf("no CLI-added edge matches type=%q source=%q target=%q", edgeType, source, target)
+				if upsertErr := edgeRepo.UpsertAll(source, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
+					return upsertErr
 				}
 
-				renumbered := renumberByType(kept)
-
-				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, renumbered); upsertErr != nil {
+				if upsertErr := edgeRepo.UpsertAll(source, index.MCPSourcePath, keptLegacyMCP); upsertErr != nil {
 					return upsertErr
 				}
 
@@ -98,17 +128,4 @@ editing the node and reindexing.`,
 	removeCmd.Flags().StringVar(&target, "target", "", "target node id")
 
 	return removeCmd
-}
-
-func renumberByType(rows []index.EdgeRow) []index.EdgeRow {
-	counters := map[string]int{}
-	out := make([]index.EdgeRow, len(rows))
-
-	for idx, row := range rows {
-		out[idx] = row
-		out[idx].Ordinal = counters[row.Type]
-		counters[row.Type]++
-	}
-
-	return out
 }

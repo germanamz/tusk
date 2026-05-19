@@ -132,7 +132,6 @@ func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edg
 			Type:       edge.Type,
 			SourceID:   newID,
 			TargetID:   edge.TargetID,
-			Ordinal:    edge.Ordinal,
 			SourcePath: newRelPath,
 		})
 	}
@@ -167,10 +166,10 @@ func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edg
 		var rewritten []index.EdgeRow
 
 		for edgeType, targets := range parsed.Edges {
-			for ordinal, target := range targets {
+			for _, target := range targets {
 				rewritten = append(rewritten, index.EdgeRow{
 					Type: edgeType, SourceID: parsed.ID, TargetID: target,
-					Ordinal: ordinal, SourcePath: parsed.Path,
+					SourcePath: parsed.Path,
 				})
 			}
 		}

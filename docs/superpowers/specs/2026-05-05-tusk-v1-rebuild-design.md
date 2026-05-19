@@ -202,6 +202,8 @@ Behavior packs declare their reserved keys; the engine refuses (rejects on tusk-
 
 A top-level frontmatter key is either a *property* (declared in the node type's `properties:` list) or an *edge* (declared in the manifest's `edge-types`). The same key cannot be both. The engine validates this when loading the manifest.
 
+Any edge type declared with `[edge-types.X]` in `tusk.toml` may appear as a top-level frontmatter key on any node of an allowed `from` type, with a value that is either a scalar string (single target id) or a list of strings (multiple target ids). This is the canonical mechanism for declaring non-`ref` edges in frontmatter. The 2026-05-18 edges-from-frontmatter design made this the only durable path; `tusk edge add` / `tusk_edge_add` MCP now mutate frontmatter directly and the index is rebuilt from it.
+
 `tags: [...]` is a special-case shorthand declared by type packs: each entry is a tag *name* (e.g., `auth`) which is resolved to the tag node at the path declared by the active tag pack — by default `tags/<name>` (so `tags: [auth]` materializes a `tagged` edge to `tags/auth`). The pack's tag-path-template is configurable in the manifest.
 
 When a `tags:` reference resolves to a path with no corresponding node, the engine auto-creates the tag node with an empty body. Empty tag bodies surface in `tusk doctor` as "consider adding context here" — tag bodies become part of the embedded payload and improve semantic retrieval. Auto-creation is gated by a manifest flag for workspaces that prefer strict resolution.
@@ -612,7 +614,7 @@ tusk node move <id> <new-path>           # atomic rename + edge rewrite (see §9
 tusk node delete <id>                    # rm the file + remove the node and its outgoing edges from the index; incoming edges become dangling and surface in doctor
 
 # Edges
-tusk edge add <type> <source-id> <target-id> [--ordinal N]
+tusk edge add <type> <source-id> <target-id>
 tusk edge remove <type> <source-id> <target-id>
 tusk edge list [--from <id>] [--to <id>] [--type <t>]
 

@@ -30,3 +30,12 @@ An `[edge-types.X]` declaration may opt into the `tree=` / `parent=` / `root=` t
 Multiple edges can each declare a distinct alias; this lets composed packs (e.g. kanban + superhuman-wbs) coexist without colliding on a single hierarchy edge.
 
 **Back-compat:** A workspace that declares `[edge-types.parent]` without setting `hierarchy` is automatically treated as if it had `hierarchy = "parent"`. If no other edge has claimed `hierarchy-default = true`, the bare `parent` edge is also marked as default. This preserves pre-v1.3 behavior for existing workspaces.
+
+#### Polymorphic `ordered`
+
+Hierarchy edges (and any edge type that should expose stable child order) may declare `ordered` in `tusk.toml` as either a bool or a string:
+
+- `ordered = true` — children are ordered by the source node's `order` property (the default key).
+- `ordered = "<prop>"` — children are ordered by the named source-node property (e.g. `ordered = "rank"`).
+
+After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ordered = true`, `OrderedBy` is set to `"order"`. See the 2026-05-18 edges-from-frontmatter design (`docs/superpowers/specs/2026-05-18-edges-from-frontmatter-design.md`) for the wire format and rationale.

@@ -18,8 +18,8 @@ func TestEdgeRepo_UpsertAllAndListBySource(test *testing.T) {
 	repo := newTestEdgeRepo(test)
 
 	edges := []index.EdgeRow{
-		{Type: "parent", SourceID: "tickets/foo", TargetID: "tickets/epic", Ordinal: 0, SourcePath: "tickets/foo.md"},
-		{Type: "blocks", SourceID: "tickets/foo", TargetID: "tickets/bar", Ordinal: 0, SourcePath: "tickets/foo.md"},
+		{Type: "parent", SourceID: "tickets/foo", TargetID: "tickets/epic", SourcePath: "tickets/foo.md"},
+		{Type: "blocks", SourceID: "tickets/foo", TargetID: "tickets/bar", SourcePath: "tickets/foo.md"},
 	}
 
 	if upsertErr := repo.UpsertAll("tickets/foo", "tickets/foo.md", edges); upsertErr != nil {
@@ -35,20 +35,30 @@ func TestEdgeRepo_UpsertAllAndListBySource(test *testing.T) {
 	if len(listed) != 2 {
 		test.Errorf("len = %d, want 2", len(listed))
 	}
+
+	triples := map[string]bool{}
+
+	for _, row := range listed {
+		triples[row.Type+"|"+row.SourceID+"|"+row.TargetID] = true
+	}
+
+	if !triples["parent|tickets/foo|tickets/epic"] || !triples["blocks|tickets/foo|tickets/bar"] {
+		test.Errorf("missing expected triples in listed = %+v", listed)
+	}
 }
 
 func TestEdgeRepo_UpsertAllReplacesExistingEdgesForSource(test *testing.T) {
 	repo := newTestEdgeRepo(test)
 
 	first := []index.EdgeRow{
-		{Type: "parent", SourceID: "x", TargetID: "y", Ordinal: 0, SourcePath: "x.md"},
-		{Type: "blocks", SourceID: "x", TargetID: "z", Ordinal: 0, SourcePath: "x.md"},
+		{Type: "parent", SourceID: "x", TargetID: "y", SourcePath: "x.md"},
+		{Type: "blocks", SourceID: "x", TargetID: "z", SourcePath: "x.md"},
 	}
 
 	repo.UpsertAll("x", "x.md", first)
 
 	second := []index.EdgeRow{
-		{Type: "parent", SourceID: "x", TargetID: "y2", Ordinal: 0, SourcePath: "x.md"},
+		{Type: "parent", SourceID: "x", TargetID: "y2", SourcePath: "x.md"},
 	}
 
 	if upsertErr := repo.UpsertAll("x", "x.md", second); upsertErr != nil {
@@ -70,11 +80,11 @@ func TestEdgeRepo_ListByTarget(test *testing.T) {
 	repo := newTestEdgeRepo(test)
 
 	repo.UpsertAll("a", "a.md", []index.EdgeRow{
-		{Type: "blocks", SourceID: "a", TargetID: "z", Ordinal: 0, SourcePath: "a.md"},
+		{Type: "blocks", SourceID: "a", TargetID: "z", SourcePath: "a.md"},
 	})
 
 	repo.UpsertAll("b", "b.md", []index.EdgeRow{
-		{Type: "blocks", SourceID: "b", TargetID: "z", Ordinal: 0, SourcePath: "b.md"},
+		{Type: "blocks", SourceID: "b", TargetID: "z", SourcePath: "b.md"},
 	})
 
 	listed, listErr := repo.ListByTarget("z")
@@ -92,8 +102,8 @@ func TestEdgeRepo_ListByType(test *testing.T) {
 	repo := newTestEdgeRepo(test)
 
 	repo.UpsertAll("a", "a.md", []index.EdgeRow{
-		{Type: "blocks", SourceID: "a", TargetID: "x", Ordinal: 0, SourcePath: "a.md"},
-		{Type: "parent", SourceID: "a", TargetID: "y", Ordinal: 0, SourcePath: "a.md"},
+		{Type: "blocks", SourceID: "a", TargetID: "x", SourcePath: "a.md"},
+		{Type: "parent", SourceID: "a", TargetID: "y", SourcePath: "a.md"},
 	})
 
 	listed, listErr := repo.ListByType("blocks")
@@ -111,7 +121,7 @@ func TestEdgeRepo_DeleteBySource(test *testing.T) {
 	repo := newTestEdgeRepo(test)
 
 	repo.UpsertAll("doomed", "doomed.md", []index.EdgeRow{
-		{Type: "parent", SourceID: "doomed", TargetID: "x", Ordinal: 0, SourcePath: "doomed.md"},
+		{Type: "parent", SourceID: "doomed", TargetID: "x", SourcePath: "doomed.md"},
 	})
 
 	if deleteErr := repo.DeleteBySource("doomed"); deleteErr != nil {

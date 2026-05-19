@@ -13,43 +13,45 @@ import (
 
 func newEdgeAddCmd() *cobra.Command {
 	var (
-		edgeType   string
-		source     string
-		target     string
-		ordinalArg int
+		edgeType string
+		source   string
+		target   string
 	)
 
 	addCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a typed edge from one node to another",
-		Long: `Add a typed edge from one node to another.
+		Long: `Add a typed edge from one node to another by writing the edge into the
+source node's frontmatter.
 
-The edge kind must be declared in tusk.toml. CLI-added edges are
-attributed to a synthetic "__cli__" source path so the next reindex of
-either involved file does not clobber them.
+The edge kind must be declared in tusk.toml's [edge-types.<name>]. The
+source's node type must be in the edge's "from" list, and the target's
+node type must be in the edge's "to" list.
 
-When --ordinal is unset (-1), the next free ordinal is auto-assigned
-across the same (source, type) group of CLI-added edges. Pass --ordinal
-to control placement explicitly — useful for ordered edges where the
-intended ordering key is the target (e.g. WBS child ordering under a
-shared parent).`,
+What this command actually does:
+
+  1. Reads the source file's current frontmatter.
+  2. Adds the target under the edge-name key, respecting cardinality:
+       * one-to-one / many-to-one: scalar string; rejects on conflict.
+       * one-to-many / many-to-many: list; appends if absent (dedup).
+  3. Atomically rewrites the file with the new frontmatter.
+  4. Reindexes the source file so the new edge is queryable immediately.
+
+Idempotent: adding an edge that already exists is a no-op. To replace a
+single-target edge, run "tusk edge remove" first.
+
+The change is durable: the edge lives in git-tracked markdown, not in the
+index database. Running "rm .tusk/index.db && tusk reindex" recovers the
+same graph state.`,
 		Example: `  # Mark T-001 as blocking T-002
   tusk edge add --type blocks --source tickets/T-001 --target tickets/T-002
 
   # Add multiple edges as part of a script
   tusk edge add --type mentions --source tickets/T-003 --target notes/2026-05-16
-  tusk edge add --type owned-by --source tickets/T-003 --target people/alice
-
-  # Order children explicitly under a shared parent
-  tusk edge add --type wbs-parent --source wbs/proj/s1 --target wbs/proj --ordinal 0
-  tusk edge add --type wbs-parent --source wbs/proj/s2 --target wbs/proj --ordinal 1`,
+  tusk edge add --type owned-by --source tickets/T-003 --target people/alice`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if edgeType == "" || source == "" || target == "" {
 				return fmt.Errorf("--type, --source, and --target are required")
-			}
-
-			if ordinalArg < -1 {
-				return fmt.Errorf("--ordinal must be >= 0 (use -1 or omit for auto-assign)")
 			}
 
 			cwd, cwdErr := os.Getwd()
@@ -103,9 +105,8 @@ shared parent).`,
 					}
 				}
 
-				edgeRepo := index.NewEdgeRepo(store)
-
 				if edgeDef.Acyclic {
+					edgeRepo := index.NewEdgeRepo(store)
 					existing, listErr := edgeRepo.ListByType(edgeType)
 
 					if listErr != nil {
@@ -119,30 +120,12 @@ shared parent).`,
 					}
 				}
 
-				existingForSource, listErr := edgeRepo.ListBySource(source)
-
-				if listErr != nil {
-					return listErr
+				if writeErr := node.AddEdgeToFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
+					return writeErr
 				}
 
-				cliExisting := filterCLI(existingForSource)
-
-				ordinal := ordinalArg
-
-				if ordinal < 0 {
-					ordinal = nextOrdinalFor(cliExisting, edgeType)
-				}
-
-				cliExisting = append(cliExisting, index.EdgeRow{
-					Type:       edgeType,
-					SourceID:   source,
-					TargetID:   target,
-					Ordinal:    ordinal,
-					SourcePath: cliSourcePath,
-				})
-
-				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, cliExisting); upsertErr != nil {
-					return upsertErr
+				if reindexErr := node.ReindexSource(ws.Root, index.NewEdgeRepo(store), loaded.EdgeTypes, source); reindexErr != nil {
+					return reindexErr
 				}
 
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added edge %s: %s → %s\n", edgeType, source, target)
@@ -155,7 +138,6 @@ shared parent).`,
 	addCmd.Flags().StringVar(&edgeType, "type", "", "edge type (must be declared in tusk.toml)")
 	addCmd.Flags().StringVar(&source, "source", "", "source node id (workspace-relative path without extension)")
 	addCmd.Flags().StringVar(&target, "target", "", "target node id")
-	addCmd.Flags().IntVar(&ordinalArg, "ordinal", -1, "edge ordinal (>= 0); -1 (default) auto-assigns the next free value for this (source, type) group")
 
 	return addCmd
 }
@@ -168,32 +150,4 @@ func buildAdjacency(rows []index.EdgeRow) map[string][]string {
 	}
 
 	return adjacency
-}
-
-func filterCLI(rows []index.EdgeRow) []index.EdgeRow {
-	var filtered []index.EdgeRow
-
-	for _, row := range rows {
-		if row.SourcePath == cliSourcePath {
-			filtered = append(filtered, row)
-		}
-	}
-
-	return filtered
-}
-
-func nextOrdinalFor(rows []index.EdgeRow, edgeType string) int {
-	maxOrdinal := -1
-
-	for _, row := range rows {
-		if row.Type != edgeType {
-			continue
-		}
-
-		if row.Ordinal > maxOrdinal {
-			maxOrdinal = row.Ordinal
-		}
-	}
-
-	return maxOrdinal + 1
 }
