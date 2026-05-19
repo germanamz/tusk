@@ -1483,6 +1483,31 @@ cardinality = "many-to-many"
 	}
 }
 
+func TestLoad_OrderedExplicitFalse(test *testing.T) {
+	manifest := loadTOMLFromString(test, `
+[node-types.thing]
+properties = [
+  { name = "order", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = false
+`)
+
+	edge := manifest.EdgeTypes["relates-to"]
+
+	if edge.Ordered {
+		test.Errorf("Ordered should be false for explicit ordered = false; got true")
+	}
+
+	if edge.OrderedBy != "" {
+		test.Errorf("OrderedBy should be empty for explicit ordered = false; got %q", edge.OrderedBy)
+	}
+}
+
 func TestLoad_OrderedTrueAliasesToOrderProperty(test *testing.T) {
 	manifest := loadTOMLFromString(test, `
 [node-types.thing]
