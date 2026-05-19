@@ -24,8 +24,3 @@ Use "tusk edge list" with --from/--to/--type to filter.`,
 
 	return edgeCmd
 }
-
-// cliSourcePath is the legacy synthetic source_path attributed to edges added
-// via earlier versions of `tusk edge add`. Retained for the migration path
-// that sweeps legacy rows; new writes always use the real source file path.
-const cliSourcePath = "__cli__"

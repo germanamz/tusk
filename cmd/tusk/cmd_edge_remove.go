@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -21,11 +23,12 @@ func newEdgeRemoveCmd() *cobra.Command {
 		Short: "Remove a specific edge by source, kind, and target",
 		Long: `Remove a specific edge identified by its source, kind, and target.
 
-NOTE (transitional): "tusk edge add" now writes the edge into the source's
-markdown frontmatter, but this command still removes only edges attributed
-to the legacy "__cli__" source path. Frontmatter-written edges must be
-removed by editing the source file. Frontmatter-aware removal arrives in
-a subsequent release.`,
+The edge is removed from the source node's markdown frontmatter and the
+index is updated to match. Any legacy "__cli__" or "__mcp__" rows for the
+same (type, source, target) triple are also cleared from the index as a
+back-compatibility sweep — those rows are remnants of pre-frontmatter
+"tusk edge add" / "tusk_edge_add" MCP calls and "tusk doctor" auto-migrates
+them on its next run.`,
 		Example: `  # Remove a blocks edge added via "edge add"
   tusk edge remove --type blocks --source tickets/T-001 --target tickets/T-002`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -45,6 +48,16 @@ a subsequent release.`,
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
+
+			if loadErr != nil {
+				return loadErr
+			}
+
+			if _, declared := loaded.EdgeTypes[edgeType]; !declared {
+				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
+			}
+
 			return withWorkspaceLock(ws, func() error {
 				store, openErr := index.Open(ws.IndexPath)
 
@@ -54,35 +67,41 @@ a subsequent release.`,
 
 				defer store.Close()
 
+				if writeErr := node.RemoveEdgeFromFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
+					return writeErr
+				}
+
 				edgeRepo := index.NewEdgeRepo(store)
 
-				rows, listErr := edgeRepo.ListBySource(source)
-
-				if listErr != nil {
-					return listErr
+				if reindexErr := node.ReindexSource(ws.Root, edgeRepo, loaded.EdgeTypes, source); reindexErr != nil {
+					return reindexErr
 				}
 
-				cliExisting := filterCLI(rows)
+				// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
+				legacy, _ := edgeRepo.ListBySource(source)
 
-				var kept []index.EdgeRow
+				var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
 
-				removed := 0
+				for _, row := range legacy {
+					matchesTriple := row.Type == edgeType && row.TargetID == target
 
-				for _, row := range cliExisting {
-					if row.Type == edgeType && row.TargetID == target {
-						removed++
-
-						continue
+					switch row.SourcePath {
+					case index.CLISourcePath:
+						if !matchesTriple {
+							keptLegacyCLI = append(keptLegacyCLI, row)
+						}
+					case index.MCPSourcePath:
+						if !matchesTriple {
+							keptLegacyMCP = append(keptLegacyMCP, row)
+						}
 					}
-
-					kept = append(kept, row)
 				}
 
-				if removed == 0 {
-					return fmt.Errorf("no CLI-added edge matches type=%q source=%q target=%q", edgeType, source, target)
+				if upsertErr := edgeRepo.UpsertAll(source, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
+					return upsertErr
 				}
 
-				if upsertErr := edgeRepo.UpsertAll(source, cliSourcePath, kept); upsertErr != nil {
+				if upsertErr := edgeRepo.UpsertAll(source, index.MCPSourcePath, keptLegacyMCP); upsertErr != nil {
 					return upsertErr
 				}
 

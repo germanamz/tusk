@@ -561,11 +561,6 @@ func normalizeProps(props map[string]any) map[string]any {
 	return out
 }
 
-// mcpSourcePath is the synthetic source_path attributed to edges added via MCP
-// tools. Mirrors cmd/tusk's cliSourcePath; both keep MCP/CLI-added edges
-// distinguishable from edges discovered in node frontmatter.
-const mcpSourcePath = "__mcp__"
-
 func registerNodeCreateTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_create",
 		mcpgo.WithDescription("Create a new node file and index it. The path must be a workspace-relative path with extension."),
@@ -886,7 +881,7 @@ func registerEdgeAddTool(srv *Server) {
 		var mcpEdges []index.EdgeRow
 
 		for _, row := range existingForSource {
-			if row.SourcePath == mcpSourcePath {
+			if row.SourcePath == index.MCPSourcePath {
 				mcpEdges = append(mcpEdges, row)
 			}
 		}
@@ -895,10 +890,10 @@ func registerEdgeAddTool(srv *Server) {
 			Type:       edgeType,
 			SourceID:   sourceID,
 			TargetID:   targetID,
-			SourcePath: mcpSourcePath,
+			SourcePath: index.MCPSourcePath,
 		})
 
-		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, mcpEdges); upsertErr != nil {
+		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.MCPSourcePath, mcpEdges); upsertErr != nil {
 			return toolError(upsertErr), nil
 		}
 
@@ -949,7 +944,7 @@ func registerEdgeRemoveTool(srv *Server) {
 		removed := 0
 
 		for _, row := range rows {
-			if row.SourcePath != mcpSourcePath {
+			if row.SourcePath != index.MCPSourcePath {
 				continue
 			}
 
@@ -966,7 +961,7 @@ func registerEdgeRemoveTool(srv *Server) {
 			return toolError(fmt.Errorf("no MCP-added edge matches type=%q source=%q target=%q", edgeType, sourceID, targetID)), nil
 		}
 
-		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, mcpSourcePath, kept); upsertErr != nil {
+		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.MCPSourcePath, kept); upsertErr != nil {
 			return toolError(upsertErr), nil
 		}
 

@@ -8,8 +8,6 @@ import (
 )
 
 func TestE2E_EdgesLifecycle(test *testing.T) {
-	test.Skip("re-enabled by Task 3.3 once edge remove writes frontmatter; current edge add writes frontmatter while edge remove still expects legacy __cli__ rows")
-
 	tmpDir := initWorkspaceWithManifest(test, edgeManifestBody())
 
 	// 1) Create a small graph.

@@ -133,15 +133,3 @@ func buildAdjacency(rows []index.EdgeRow) map[string][]string {
 
 	return adjacency
 }
-
-func filterCLI(rows []index.EdgeRow) []index.EdgeRow {
-	var filtered []index.EdgeRow
-
-	for _, row := range rows {
-		if row.SourcePath == cliSourcePath {
-			filtered = append(filtered, row)
-		}
-	}
-
-	return filtered
-}
