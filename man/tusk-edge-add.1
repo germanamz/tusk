@@ -10,11 +10,39 @@ tusk-edge-add - Add a typed edge from one node to another
 
 
 .SH DESCRIPTION
-Add a typed edge from one node to another.
+Add a typed edge from one node to another by writing the edge into the
+source node's frontmatter.
 
 .PP
-The edge kind must be declared in tusk.toml. The edge is written into the
-source node's frontmatter and the index is refreshed for that file.
+The edge kind must be declared in tusk.toml's [edge-types.]. The
+source's node type must be in the edge's "from" list, and the target's
+node type must be in the edge's "to" list.
+
+.PP
+What this command actually does:
+.IP "  1." 5
+Reads the source file's current frontmatter.
+.IP "  2." 5
+Adds the target under the edge-name key, respecting cardinality:
+.RS
+.IP \(bu 2
+one-to-one / many-to-one: scalar string; rejects on conflict.
+.IP \(bu 2
+one-to-many / many-to-many: list; appends if absent (dedup).
+.RE
+.IP "  3." 5
+Atomically rewrites the file with the new frontmatter.
+.IP "  4." 5
+Reindexes the source file so the new edge is queryable immediately.
+
+.PP
+Idempotent: adding an edge that already exists is a no-op. To replace a
+single-target edge, run "tusk edge remove" first.
+
+.PP
+The change is durable: the edge lives in git-tracked markdown, not in the
+index database. Running "rm .tusk/index.db && tusk reindex" recovers the
+same graph state.
 
 
 .SH OPTIONS

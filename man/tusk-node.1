@@ -13,10 +13,51 @@ tusk-node - Manage individual nodes (create, get, list, modify, move, delete)
 Manage individual nodes in the workspace.
 
 .PP
-A node is one markdown file with TOML frontmatter declaring its type and
-properties. The node subcommands are thin wrappers over the same internal
-service the watcher and reindex use, so creating a node by CLI and creating
-one by saving a file in your editor produce identical index state.
+A node is one markdown file with YAML frontmatter declaring its type and
+properties. Example:
+
+.ti 0
+\l'\n(.lu'
+
+.PP
+type: ticket
+  title: Fix login bug
+  priority: high
+  blocks:
+    - tickets/T-002
+
+.ti 0
+\l'\n(.lu'
+
+.PP
+# Fix login bug
+
+.PP
+\&...body...
+
+.PP
+Top-level frontmatter keys split into two namespaces, enforced by the
+manifest at load time:
+.IP \(bu 2
+Property keys (e.g. priority, title) — declared in
+[node-types.].properties in tusk.toml.
+.IP \(bu 2
+Edge keys (e.g. blocks) — names that match an [edge-types.]
+declaration in tusk.toml. The value is a target node id (scalar) or
+list of target ids; reindex turns each into an indexed edge.
+
+.PP
+A few keys are reserved: "type" (required, picks the node-type schema),
+"title", and any "status-property" declared by an active behavior pack.
+
+.PP
+Body wikilinks ([[path/to/target]]) materialize as implicit "references"
+edges when the manifest declares that edge type.
+
+.PP
+The node subcommands are thin wrappers over the same internal service the
+watcher and reindex use, so creating a node by CLI and saving a file in
+your editor produce identical index state.
 
 .PP
 Use "tusk node create" to author a new file, "tusk node modify" to change
