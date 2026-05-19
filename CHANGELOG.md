@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/germanamz/tusk/compare/v1.2.0...v1.3.0) (2026-05-19)
+
+
+### Features
+
+* **edge:** materialize all edges from frontmatter ([#409](https://github.com/germanamz/tusk/issues/409)) ([e2775b2](https://github.com/germanamz/tusk/commit/e2775b285609e210e8aa7d83ba76559b8d1c6d9e))
+* **filter:** traversal shortcuts respect per-edge hierarchy alias ([#407](https://github.com/germanamz/tusk/issues/407)) ([a4505ef](https://github.com/germanamz/tusk/commit/a4505ef72bec40bf2c24cadbf1a629c3fad07d2f))
+
 ## [1.2.0](https://github.com/germanamz/tusk/compare/v1.1.0...v1.2.0) (2026-05-17)
 
 
