@@ -10,10 +10,39 @@ Manage individual nodes (create, get, list, modify, move, delete)
 
 Manage individual nodes in the workspace.
 
-A node is one markdown file with TOML frontmatter declaring its type and
-properties. The node subcommands are thin wrappers over the same internal
-service the watcher and reindex use, so creating a node by CLI and creating
-one by saving a file in your editor produce identical index state.
+A node is one markdown file with YAML frontmatter declaring its type and
+properties. Example:
+
+  ---
+  type: ticket
+  title: Fix login bug
+  priority: high
+  blocks:
+    - tickets/T-002
+  ---
+
+  # Fix login bug
+
+  ...body...
+
+Top-level frontmatter keys split into two namespaces, enforced by the
+manifest at load time:
+
+  * Property keys (e.g. priority, title) — declared in
+    [node-types.<type>].properties in tusk.toml.
+  * Edge keys (e.g. blocks) — names that match an [edge-types.<name>]
+    declaration in tusk.toml. The value is a target node id (scalar) or
+    list of target ids; reindex turns each into an indexed edge.
+
+A few keys are reserved: "type" (required, picks the node-type schema),
+"title", and any "status-property" declared by an active behavior pack.
+
+Body wikilinks ([[path/to/target]]) materialize as implicit "references"
+edges when the manifest declares that edge type.
+
+The node subcommands are thin wrappers over the same internal service the
+watcher and reindex use, so creating a node by CLI and saving a file in
+your editor produce identical index state.
 
 Use "tusk node create" to author a new file, "tusk node modify" to change
 frontmatter properties, "tusk node move" to atomically rename a node and

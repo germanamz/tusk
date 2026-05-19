@@ -10,13 +10,17 @@ Create a new node file and index it
 
 Create a new node file and index it.
 
-Writes a markdown file with TOML frontmatter at the given workspace-relative
+Writes a markdown file with YAML frontmatter at the given workspace-relative
 path, validates the declared type against tusk.toml, and inserts the node
 into the index in a single locked transaction. Body content can be piped on
 stdin; if stdin is a terminal, the body is empty.
 
 Property values from --prop are parsed as int, then bool, then string. Use
 --prop key=value to set multiple values (repeatable).
+
+Edges are set the same way as properties: pass --prop <edge-name>=<target-id>
+or write the key directly in the frontmatter of the file you supply. The
+reindex pass will materialize the edge from the markdown frontmatter.
 
 ```
 tusk node create [flags]
