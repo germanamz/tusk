@@ -164,6 +164,10 @@ func migrateDropOrdinalColumn(db *sql.DB) error {
 
 	rows.Close()
 
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return fmt.Errorf("index: iterate column info: %w", rowsErr)
+	}
+
 	if !hasOrdinal {
 		return nil
 	}

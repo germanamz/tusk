@@ -238,6 +238,41 @@ VALUES ('blocks', 'a', 'b', 0, 'a.md'),
 			test.Errorf("ordinal column should have been dropped")
 		}
 	}
+
+	indexRows, indexQueryErr := idx.DB().Query(
+		`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='edges'`,
+	)
+
+	if indexQueryErr != nil {
+		test.Fatalf("query indexes: %v", indexQueryErr)
+	}
+
+	defer indexRows.Close()
+
+	var indexNames []string
+
+	for indexRows.Next() {
+		var indexName string
+
+		if scanErr := indexRows.Scan(&indexName); scanErr != nil {
+			test.Fatalf("scan index name: %v", scanErr)
+		}
+
+		indexNames = append(indexNames, indexName)
+	}
+
+	if iterErr := indexRows.Err(); iterErr != nil {
+		test.Fatalf("indexes iteration: %v", iterErr)
+	}
+
+	for _, required := range []string{
+		"edges_source_idx", "edges_target_idx",
+		"edges_type_idx", "edges_source_path_idx",
+	} {
+		if !contains(indexNames, required) {
+			test.Errorf("missing index %q after migration; found %v", required, indexNames)
+		}
+	}
 }
 
 func contains(haystack []string, needle string) bool {
