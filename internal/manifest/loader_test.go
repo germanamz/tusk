@@ -790,7 +790,6 @@ properties = [
     { name = "assignee", type = "ref", to = "person" },
     { name = "watchers", type = "list-of", item-type = "ref", to = "person", inverse = "watching" },
     { name = "parent",   type = "ref", to = "ticket", acyclic = true },
-    { name = "ordered_list", type = "list-of", item-type = "ref", to = "person", ordered = true },
 ]
 `
 	if writeErr := os.WriteFile(manifestPath, []byte(content), 0o644); writeErr != nil {
@@ -805,8 +804,8 @@ properties = [
 
 	ticket := loaded.NodeTypes["ticket"]
 
-	if len(ticket.Properties) != 4 {
-		test.Fatalf("ticket.Properties count = %d, want 4", len(ticket.Properties))
+	if len(ticket.Properties) != 3 {
+		test.Fatalf("ticket.Properties count = %d, want 3", len(ticket.Properties))
 	}
 
 	assignee := ticket.Properties[0]
@@ -825,12 +824,6 @@ properties = [
 
 	if parent.Type != "ref" || parent.To != "ticket" || !parent.Acyclic {
 		test.Errorf("parent = %+v", parent)
-	}
-
-	ordered := ticket.Properties[3]
-
-	if ordered.Type != "list-of" || ordered.ItemType != "ref" || !ordered.Ordered {
-		test.Errorf("ordered_list = %+v", ordered)
 	}
 }
 
@@ -965,13 +958,13 @@ func TestSynthesize_PlainRefProducesManyToOneEdge(test *testing.T) {
 	}
 }
 
-func TestSynthesize_ListOfRefProducesManyToManyOrdered(test *testing.T) {
+func TestSynthesize_ListOfRefProducesManyToManyUnordered(test *testing.T) {
 	loaded := &manifest.Manifest{
 		EdgeTypes: manifest.EdgeTypes{},
 		NodeTypes: map[string]manifest.NodeType{
 			"person": {},
 			"ticket": {Properties: []manifest.PropertyDecl{
-				{Name: "watchers", Type: "list-of", ItemType: "ref", To: "person", Ordered: true},
+				{Name: "watchers", Type: "list-of", ItemType: "ref", To: "person"},
 			}},
 		},
 	}
@@ -986,12 +979,15 @@ func TestSynthesize_ListOfRefProducesManyToManyOrdered(test *testing.T) {
 		test.Errorf("Cardinality = %q, want many-to-many", edge.Cardinality)
 	}
 
-	if !edge.Ordered {
-		test.Errorf("Ordered = false, want true for list-of(ref) with Ordered=true")
+	// Ref-property syntax cannot express ordering; synthesized edges
+	// are always unordered. Pack authors who need ordering must declare
+	// an explicit [edge-types.X] with ordered = "<prop>".
+	if edge.Ordered {
+		test.Errorf("Ordered = true, want false for synthesized list-of(ref)")
 	}
 
-	if edge.OrderedBy != "order" {
-		test.Errorf("OrderedBy = %q, want \"order\" for list-of(ref) with Ordered=true", edge.OrderedBy)
+	if edge.OrderedBy != "" {
+		test.Errorf("OrderedBy = %q, want empty for synthesized list-of(ref)", edge.OrderedBy)
 	}
 }
 

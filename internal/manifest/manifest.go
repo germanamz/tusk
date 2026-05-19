@@ -45,7 +45,6 @@ type PropertyDecl struct {
 	To      string `toml:"to"`
 	Inverse string `toml:"inverse"`
 	Acyclic bool   `toml:"acyclic"`
-	Ordered bool   `toml:"ordered"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.

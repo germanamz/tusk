@@ -269,21 +269,14 @@ func buildEdgeTypeFromRef(owningType string, prop PropertyDecl) EdgeType {
 		cardinality = CardinalityManyToMany
 	}
 
-	ordered := false
-	orderedBy := ""
-
-	if prop.Type == "list-of" && prop.ItemType == "ref" && prop.Ordered {
-		ordered = true
-		orderedBy = "order"
-	}
-
+	// Ref-property syntax cannot express ordering; only explicit
+	// [edge-types.X] with ordered = "<prop>" (or true) can. Synthesized
+	// edge types are therefore always unordered.
 	return EdgeType{
 		Description: fmt.Sprintf("auto-generated from %s.%s", owningType, prop.Name),
 		From:        []string{owningType},
 		To:          []string{prop.To},
 		Cardinality: cardinality,
-		Ordered:     ordered,
-		OrderedBy:   orderedBy,
 		Inverse:     prop.Inverse,
 		Acyclic:     prop.Acyclic,
 	}
