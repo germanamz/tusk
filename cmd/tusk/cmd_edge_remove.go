@@ -27,8 +27,8 @@ The edge is removed from the source node's markdown frontmatter and the
 index is updated to match. Any legacy "__cli__" or "__mcp__" rows for the
 same (type, source, target) triple are also cleared from the index as a
 back-compatibility sweep — those rows are remnants of pre-frontmatter
-"tusk edge add" / "tusk_edge_add" MCP calls and "tusk doctor" auto-migrates
-them on its next run.`,
+"tusk edge add" / "tusk_edge_add" MCP calls. A future version of "tusk doctor"
+will auto-migrate them into source frontmatter.`,
 		Example: `  # Remove a blocks edge added via "edge add"
   tusk edge remove --type blocks --source tickets/T-001 --target tickets/T-002`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -78,7 +78,11 @@ them on its next run.`,
 				}
 
 				// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
-				legacy, _ := edgeRepo.ListBySource(source)
+				legacy, listErr := edgeRepo.ListBySource(source)
+
+				if listErr != nil {
+					return fmt.Errorf("edge remove: list legacy rows: %w", listErr)
+				}
 
 				var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
 
