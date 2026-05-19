@@ -1636,3 +1636,22 @@ ordered     = "tags"
 		test.Fatalf("expected error: ordered property must be sortable")
 	}
 }
+
+func TestLoad_OrderedByWithSingleQuoteRejects(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.thing]
+properties = [
+  { name = "rank", type = "int" },
+]
+
+[edge-types.relates-to]
+from        = ["thing"]
+to          = ["thing"]
+cardinality = "many-to-many"
+ordered     = "it's-bad"
+`)
+
+	if loadErr == nil {
+		test.Fatalf("expected error: ordered property name with single-quote should reject")
+	}
+}

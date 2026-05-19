@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -162,6 +163,13 @@ func validateOrderedByProperty(loaded *Manifest, edgeName string, edge EdgeType)
 			return fmt.Errorf(
 				"manifest: edge-types.%s: ordered = %q is not allowed when from contains the wildcard %q; set ordered = false or list explicit node types in from",
 				edgeName, edge.OrderedBy, "*",
+			)
+		}
+
+		if strings.ContainsRune(edge.OrderedBy, '\'') {
+			return fmt.Errorf(
+				"manifest: edge-types.%s: ordered property name %q must not contain a single-quote",
+				edgeName, edge.OrderedBy,
 			)
 		}
 
