@@ -10,9 +10,13 @@ Remove a specific edge by source, kind, and target
 
 Remove a specific edge identified by its source, kind, and target.
 
-Only edges attributed to the CLI ("__cli__" source path) can be removed
-this way. Edges declared in a node's frontmatter must be removed by
-editing the node and reindexing.
+The edge is removed from the source node's markdown frontmatter and the
+index is updated to match. Any legacy "__cli__" or "__mcp__" rows for the
+same (type, source, target) triple are also cleared from the index as a
+back-compatibility sweep — those rows are remnants of pre-frontmatter
+"tusk edge add" / "tusk_edge_add" MCP calls. "tusk doctor" auto-migrates
+any remaining legacy rows back into source frontmatter (pass --no-migrate
+to opt out).
 
 ```
 tusk edge remove [flags]

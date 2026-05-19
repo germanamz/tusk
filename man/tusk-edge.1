@@ -14,9 +14,9 @@ Manage edges between nodes.
 
 .PP
 Edges have a typed kind (declared in tusk.toml's [edge_types] table), a
-source node, and a target node. They can be declared inline in a node's
-frontmatter (the file owns them) or added via "tusk edge add" (attributed
-to a synthetic CLI source so they survive reindex of the involved files).
+source node, and a target node. They are declared inline in a node's
+frontmatter (the file owns them); "tusk edge add" mutates that frontmatter
+and refreshes the index for the affected source file.
 
 .PP
 Use "tusk edge list" with --from/--to/--type to filter.

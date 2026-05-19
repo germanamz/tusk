@@ -8,7 +8,7 @@ Surface validation warnings, dangling edges, and index health issues
 
 ### Synopsis
 
-Run read-only health checks against the workspace and index.
+Run health checks against the workspace and index.
 
 Doctor reports:
   * Off-schema nodes (type not declared in tusk.toml).
@@ -17,8 +17,9 @@ Doctor reports:
   * Dangling edges (edges whose target node no longer exists).
   * Embedding queue depth and last-reindex timestamp.
 
-Doctor never modifies state, so it is safe to run while "tusk watch"
-is active.
+Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
+index back into the source node's markdown frontmatter — pass --no-migrate
+for a diagnostic-only run.
 
 ```
 tusk doctor [flags]
@@ -33,12 +34,16 @@ tusk doctor [flags]
 
   # Quick check before starting an MCP session
   tusk doctor && tusk mcp
+
+  # Diagnostic-only run; do not migrate legacy edge rows
+  tusk doctor --no-migrate
 ```
 
 ### Options
 
 ```
-  -h, --help   help for doctor
+  -h, --help         help for doctor
+      --no-migrate   skip auto-migration of legacy __cli__/__mcp__ edge rows (diagnostic-only run)
 ```
 
 ### Options inherited from parent commands

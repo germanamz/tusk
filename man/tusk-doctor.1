@@ -10,7 +10,7 @@ tusk-doctor - Surface validation warnings, dangling edges, and index health issu
 
 
 .SH DESCRIPTION
-Run read-only health checks against the workspace and index.
+Run health checks against the workspace and index.
 
 .PP
 Doctor reports:
@@ -21,13 +21,18 @@ Doctor reports:
   * Embedding queue depth and last-reindex timestamp.
 
 .PP
-Doctor never modifies state, so it is safe to run while "tusk watch"
-is active.
+Doctor also auto-migrates any legacy "\fBcli\fP" / "\fBmcp\fP" edge rows in the
+index back into the source node's markdown frontmatter — pass --no-migrate
+for a diagnostic-only run.
 
 
 .SH OPTIONS
 \fB-h\fP, \fB--help\fP[=false]
 	help for doctor
+
+.PP
+\fB--no-migrate\fP[=false]
+	skip auto-migration of legacy \fBcli\fP/\fBmcp\fP edge rows (diagnostic-only run)
 
 
 .SH OPTIONS INHERITED FROM PARENT COMMANDS
@@ -43,6 +48,9 @@ is active.
 
   # Quick check before starting an MCP session
   tusk doctor && tusk mcp
+
+  # Diagnostic-only run; do not migrate legacy edge rows
+  tusk doctor --no-migrate
 .EE
 
 

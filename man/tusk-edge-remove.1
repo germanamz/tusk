@@ -13,9 +13,13 @@ tusk-edge-remove - Remove a specific edge by source, kind, and target
 Remove a specific edge identified by its source, kind, and target.
 
 .PP
-Only edges attributed to the CLI ("\fBcli\fP" source path) can be removed
-this way. Edges declared in a node's frontmatter must be removed by
-editing the node and reindexing.
+The edge is removed from the source node's markdown frontmatter and the
+index is updated to match. Any legacy "\fBcli\fP" or "\fBmcp\fP" rows for the
+same (type, source, target) triple are also cleared from the index as a
+back-compatibility sweep — those rows are remnants of pre-frontmatter
+"tusk edge add" / "tusk_edge_add" MCP calls. "tusk doctor" auto-migrates
+any remaining legacy rows back into source frontmatter (pass --no-migrate
+to opt out).
 
 
 .SH OPTIONS
