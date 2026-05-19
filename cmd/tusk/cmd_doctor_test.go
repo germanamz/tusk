@@ -395,6 +395,14 @@ func TestDoctor_NoMigrateFlagSkipsMutation(test *testing.T) {
 	if strings.Contains(output.String(), "migrated") {
 		test.Errorf("doctor --no-migrate should not announce migrations; got: %s", output.String())
 	}
+
+	if !strings.Contains(output.String(), "legacy-cli-edge") {
+		test.Errorf("doctor --no-migrate should surface legacy __cli__ rows as drift; got:\n%s", output.String())
+	}
+
+	if !strings.Contains(output.String(), "tickets/a") {
+		test.Errorf("doctor --no-migrate drift line should mention the source node; got:\n%s", output.String())
+	}
 }
 
 func TestDoctor_AutoMigrateSkipsRowsWithMissingSourceFile(test *testing.T) {

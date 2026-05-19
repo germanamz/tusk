@@ -109,6 +109,16 @@ for a diagnostic-only run.`,
 					return runErr
 				}
 
+				if noMigrate {
+					legacyIssues, legacyErr := doctor.LegacyDrift(cfg)
+
+					if legacyErr != nil {
+						return legacyErr
+					}
+
+					report.Issues = append(report.Issues, legacyIssues...)
+				}
+
 				if len(report.Issues) == 0 {
 					_, _ = fmt.Fprintln(out, "doctor: no issues")
 				}

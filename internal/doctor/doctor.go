@@ -36,6 +36,9 @@ const (
 
 	IssueEmbedLargeChunk = "embed-large-chunk"
 	IssueEmbedNoChunks   = "embed-no-chunks"
+
+	IssueLegacyCLIEdge = "legacy-cli-edge"
+	IssueLegacyMCPEdge = "legacy-mcp-edge"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -433,6 +436,74 @@ func Migrate(config Config) (*MigrationReport, error) {
 	}
 
 	return report, nil
+}
+
+// LegacyDrift returns one Issue per legacy CLI/MCP edge row currently in the
+// index. Designed to be called instead of Migrate when --no-migrate is in
+// effect, so users still get an actionable signal about pending migrations.
+//
+// Rows are emitted in a deterministic order (source ID, then type, then target)
+// so test assertions stay stable across runs.
+func LegacyDrift(config Config) ([]Issue, error) {
+	if config.Edges == nil {
+		return nil, nil
+	}
+
+	all, listErr := config.Edges.ListAll()
+
+	if listErr != nil {
+		return nil, fmt.Errorf("doctor: list edges: %w", listErr)
+	}
+
+	legacy := make([]index.EdgeRow, 0)
+
+	for _, row := range all {
+		if row.SourcePath != index.CLISourcePath && row.SourcePath != index.MCPSourcePath {
+			continue
+		}
+
+		legacy = append(legacy, row)
+	}
+
+	sort.Slice(legacy, func(left, right int) bool {
+		if legacy[left].SourceID != legacy[right].SourceID {
+			return legacy[left].SourceID < legacy[right].SourceID
+		}
+
+		if legacy[left].Type != legacy[right].Type {
+			return legacy[left].Type < legacy[right].Type
+		}
+
+		if legacy[left].TargetID != legacy[right].TargetID {
+			return legacy[left].TargetID < legacy[right].TargetID
+		}
+
+		return legacy[left].SourcePath < legacy[right].SourcePath
+	})
+
+	issues := make([]Issue, 0, len(legacy))
+
+	for _, row := range legacy {
+		var kind string
+
+		switch row.SourcePath {
+		case index.CLISourcePath:
+			kind = IssueLegacyCLIEdge
+		case index.MCPSourcePath:
+			kind = IssueLegacyMCPEdge
+		default:
+			continue
+		}
+
+		issues = append(issues, Issue{
+			Kind:   kind,
+			NodeID: row.SourceID,
+			Message: fmt.Sprintf("%s: %s → %s (run `tusk doctor` without --no-migrate to migrate into source frontmatter)",
+				row.Type, row.SourceID, row.TargetID),
+		})
+	}
+
+	return issues, nil
 }
 
 // findDanglingEdges scans every edge and flags those whose target_id has no

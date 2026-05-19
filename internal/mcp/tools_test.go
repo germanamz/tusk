@@ -576,6 +576,210 @@ cardinality = "many-to-many"
 	}
 }
 
+func TestDoctorMCP_AutoMigratesLegacyRows(test *testing.T) {
+	root := test.TempDir()
+
+	manifest := `[workspace]
+name = "x"
+
+[node-types.ticket]
+properties = [{ name = "priority", type = "enum", values = ["low", "high"] }]
+
+[edge-types.blocks]
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-many"
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifest), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	for _, spec := range []struct {
+		path  string
+		title string
+	}{
+		{path: "tickets/a.md", title: "A"},
+		{path: "tickets/b.md", title: "B"},
+	} {
+		if _, callErr := callTool(test, srv, "tusk_node_create", map[string]any{
+			"path":  spec.path,
+			"type":  "ticket",
+			"title": spec.title,
+		}); callErr != nil {
+			test.Fatalf("tusk_node_create %s: %v", spec.path, callErr)
+		}
+	}
+
+	// Seed a legacy __cli__ row directly (bypassing the MCP tool) to simulate
+	// a row left over from a pre-frontmatter `tusk edge add` invocation.
+	if upsertErr := rt.Edges.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+	}); upsertErr != nil {
+		test.Fatalf("seed __cli__: %v", upsertErr)
+	}
+
+	body, callErr := callTool(test, srv, "tusk_doctor", map[string]any{})
+
+	if callErr != nil {
+		test.Fatalf("tusk_doctor: %v", callErr)
+	}
+
+	migratedCount, _ := body["migrated_count"].(float64)
+
+	if migratedCount < 1 {
+		test.Errorf("expected migrated_count >= 1, got %v (body=%v)", body["migrated_count"], body)
+	}
+
+	fileBody, readErr := os.ReadFile(filepath.Join(rt.Root, "tickets/a.md"))
+
+	if readErr != nil {
+		test.Fatalf("read tickets/a.md: %v", readErr)
+	}
+
+	if !strings.Contains(string(fileBody), "blocks: tickets/b") {
+		test.Errorf("doctor (MCP) should have migrated the legacy CLI edge into frontmatter, got:\n%s", fileBody)
+	}
+
+	rows, listErr := rt.Edges.ListBySource("tickets/a")
+
+	if listErr != nil {
+		test.Fatalf("list: %v", listErr)
+	}
+
+	for _, row := range rows {
+		if row.SourcePath == index.CLISourcePath {
+			test.Errorf("expected legacy __cli__ row to be removed; still present: %+v", row)
+		}
+	}
+}
+
+func TestDoctorMCP_NoMigrateReportsLegacyRowsAsDrift(test *testing.T) {
+	root := test.TempDir()
+
+	manifest := `[workspace]
+name = "x"
+
+[node-types.ticket]
+properties = [{ name = "priority", type = "enum", values = ["low", "high"] }]
+
+[edge-types.blocks]
+from        = ["ticket"]
+to          = ["ticket"]
+cardinality = "many-to-many"
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifest), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	for _, spec := range []struct {
+		path  string
+		title string
+	}{
+		{path: "tickets/a.md", title: "A"},
+		{path: "tickets/b.md", title: "B"},
+	} {
+		if _, callErr := callTool(test, srv, "tusk_node_create", map[string]any{
+			"path":  spec.path,
+			"type":  "ticket",
+			"title": spec.title,
+		}); callErr != nil {
+			test.Fatalf("tusk_node_create %s: %v", spec.path, callErr)
+		}
+	}
+
+	if upsertErr := rt.Edges.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+	}); upsertErr != nil {
+		test.Fatalf("seed __cli__: %v", upsertErr)
+	}
+
+	originalBody, readErr := os.ReadFile(filepath.Join(rt.Root, "tickets/a.md"))
+
+	if readErr != nil {
+		test.Fatalf("read tickets/a.md: %v", readErr)
+	}
+
+	body, callErr := callTool(test, srv, "tusk_doctor", map[string]any{"no_migrate": true})
+
+	if callErr != nil {
+		test.Fatalf("tusk_doctor: %v", callErr)
+	}
+
+	// File must be unchanged under --no-migrate.
+	afterBody, _ := os.ReadFile(filepath.Join(rt.Root, "tickets/a.md"))
+
+	if string(afterBody) != string(originalBody) {
+		test.Errorf("tusk_doctor no_migrate=true should leave frontmatter unchanged; before:\n%s\nafter:\n%s", originalBody, afterBody)
+	}
+
+	// Response must NOT include a migration report.
+	if _, present := body["migrated_count"]; present {
+		test.Errorf("tusk_doctor no_migrate=true should omit migrated_count from response; got: %v", body)
+	}
+
+	// Legacy row must still be present in the index.
+	rows, listErr := rt.Edges.ListBySource("tickets/a")
+
+	if listErr != nil {
+		test.Fatalf("list: %v", listErr)
+	}
+
+	var sawLegacy bool
+
+	for _, row := range rows {
+		if row.SourcePath == index.CLISourcePath {
+			sawLegacy = true
+		}
+	}
+
+	if !sawLegacy {
+		test.Errorf("tusk_doctor no_migrate=true should leave the legacy __cli__ row in place; rows: %+v", rows)
+	}
+
+	// Response must include a legacy-cli-edge drift issue.
+	issues, _ := body["issues"].([]any)
+
+	var sawDrift bool
+
+	for _, raw := range issues {
+		entry, ok := raw.(map[string]any)
+
+		if !ok {
+			continue
+		}
+
+		if entry["kind"] == "legacy-cli-edge" && entry["node_id"] == "tickets/a" {
+			sawDrift = true
+		}
+	}
+
+	if !sawDrift {
+		test.Errorf("tusk_doctor no_migrate=true should surface a legacy-cli-edge issue for tickets/a; issues: %v", issues)
+	}
+}
+
 func TestTool_Reindex(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

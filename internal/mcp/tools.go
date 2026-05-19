@@ -113,6 +113,19 @@ func argIntOptional(request mcpgo.CallToolRequest, key string, defaultValue int)
 	return defaultValue
 }
 
+// argBoolOptional extracts an optional boolean argument from the request.
+// Returns defaultValue when the key is absent or not a bool.
+func argBoolOptional(request mcpgo.CallToolRequest, key string, defaultValue bool) bool {
+	args := request.GetArguments()
+	value, ok := args[key].(bool)
+
+	if !ok {
+		return defaultValue
+	}
+
+	return value
+}
+
 // argFloatOptional extracts an optional numeric argument from the request as a
 // float64. Returns defaultValue when the key is absent or not numeric.
 func argFloatOptional(request mcpgo.CallToolRequest, key string, defaultValue float64) float64 {
@@ -481,21 +494,50 @@ func registerQueryTool(srv *Server) {
 
 func registerDoctorTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_doctor",
-		mcpgo.WithDescription("Surface validation warnings and index health issues (dangling edges, embed-queue retries)."),
+		mcpgo.WithDescription("Surface validation warnings and index health issues (dangling edges, embed-queue retries). Auto-migrates legacy __cli__/__mcp__ edge rows back into source frontmatter unless no_migrate is true."),
+		mcpgo.WithBoolean("no_migrate", mcpgo.Description("If true, skip the legacy CLI/MCP row migration pass (diagnostic-only run); legacy rows are surfaced as drift issues instead.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		report, runErr := doctor.Run(doctor.Config{
+		noMigrate := argBoolOptional(request, "no_migrate", false)
+
+		cfg := doctor.Config{
 			Nodes:         srv.runtime.Nodes,
 			Edges:         srv.runtime.Edges,
 			EmbedQueue:    srv.runtime.EmbedQueue,
 			WorkflowDrift: srv.runtime.WorkflowDrift,
+			PropertyDrift: srv.runtime.PropertyDrift,
 			Embeddings:    srv.runtime.Embeddings,
 			Manifest:      srv.runtime.Manifest,
-		})
+			Root:          srv.runtime.Root,
+		}
+
+		var migrationReport *doctor.MigrationReport
+
+		if !noMigrate {
+			migrated, migrateErr := doctor.Migrate(cfg)
+
+			if migrateErr != nil {
+				return toolError(migrateErr), nil
+			}
+
+			migrationReport = migrated
+		}
+
+		report, runErr := doctor.Run(cfg)
 
 		if runErr != nil {
 			return toolError(runErr), nil
+		}
+
+		if noMigrate {
+			legacyIssues, legacyErr := doctor.LegacyDrift(cfg)
+
+			if legacyErr != nil {
+				return toolError(legacyErr), nil
+			}
+
+			report.Issues = append(report.Issues, legacyIssues...)
 		}
 
 		issues := make([]map[string]any, 0, len(report.Issues))
@@ -511,6 +553,13 @@ func registerDoctorTool(srv *Server) {
 		response := map[string]any{
 			"issues":            issues,
 			"embed_queue_depth": report.EmbedQueueDepth,
+		}
+
+		if migrationReport != nil {
+			response["migrated"] = migrationReport.Migrated
+			response["skipped"] = migrationReport.Skipped
+			response["migrated_count"] = len(migrationReport.Migrated)
+			response["skipped_count"] = len(migrationReport.Skipped)
 		}
 
 		if report.EmbedStats != nil {
