@@ -20,6 +20,10 @@ import (
 //     already present; preserve insertion order; coalesce scalar->list as
 //     needed.
 //
+// Callers MUST serialize concurrent calls on the same source file (e.g.,
+// hold the workspace lock). The function performs an unguarded read-mutate-
+// write cycle; concurrent callers would produce a lost-update.
+//
 // The function does not touch the index — the caller is expected to
 // reparse the source file and run an upsert (or rely on the watcher).
 func AddEdgeToFrontmatter(
@@ -106,6 +110,10 @@ func AddEdgeToFrontmatter(
 // RemoveEdgeFromFrontmatter removes targetID from the edge-name key on
 // sourceID's frontmatter. Idempotent: succeeds with no-op if the edge is
 // not present. Removes the key entirely when the last target is removed.
+//
+// Callers MUST serialize concurrent calls on the same source file (e.g.,
+// hold the workspace lock). The function performs an unguarded read-mutate-
+// write cycle; concurrent callers would produce a lost-update.
 func RemoveEdgeFromFrontmatter(
 	workspaceRoot, sourceID, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
