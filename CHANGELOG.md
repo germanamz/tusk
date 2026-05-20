@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/germanamz/tusk/compare/v1.3.0...v1.4.0) (2026-05-20)
+
+
+### Features
+
+* configurable wikilink-materialization edge via wikilinks flag ([#410](https://github.com/germanamz/tusk/issues/410)) ([f9f0da9](https://github.com/germanamz/tusk/commit/f9f0da9929d9534a6cfc936d668d5537d1fe84b7))
+
 ## [1.3.0](https://github.com/germanamz/tusk/compare/v1.2.0...v1.3.0) (2026-05-19)
 
 
