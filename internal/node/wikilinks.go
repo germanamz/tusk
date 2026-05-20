@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"regexp"
 	"strings"
+
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 // wikilinkPattern matches `[[target]]` where target is one or more characters
@@ -35,6 +37,21 @@ func ExtractWikilinks(body []byte) []string {
 	}
 
 	return ordered
+}
+
+// MaterializeWikilinks appends body [[wikilink]] targets to every edge type
+// flagged with `wikilinks = true`. Idempotent per edge via appendUnique, so
+// repeated calls and duplicate links do not create duplicate edges.
+func MaterializeWikilinks(parsed *Node, edgeTypes manifest.EdgeTypes) {
+	for name, edgeType := range edgeTypes {
+		if !edgeType.Wikilinks {
+			continue
+		}
+
+		for _, target := range ExtractWikilinks(parsed.Body) {
+			parsed.Edges[name] = appendUnique(parsed.Edges[name], target)
+		}
+	}
 }
 
 // stripFencedCodeBlocks returns body with content inside triple-backtick fences
