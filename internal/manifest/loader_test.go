@@ -1651,3 +1651,46 @@ ordered     = "it's-bad"
 		test.Fatalf("expected error: ordered property name with single-quote should reject")
 	}
 }
+
+func TestLoad_ParsesWikilinksFlag(test *testing.T) {
+	manifestPath := filepath.Join(test.TempDir(), "tusk.toml")
+
+	content := `
+[workspace]
+name = "demo"
+
+[node-types.note]
+description = "A note"
+
+[edge-types.wbs-references]
+description = "Materializes wikilinks"
+from        = ["*"]
+to          = ["*"]
+cardinality = "many-to-many"
+wikilinks   = true
+
+[edge-types.relates-to]
+description = "No materialization"
+from        = ["*"]
+to          = ["*"]
+cardinality = "many-to-many"
+`
+
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		test.Fatalf("write manifest: %v", err)
+	}
+
+	loaded, err := manifest.Load(manifestPath)
+
+	if err != nil {
+		test.Fatalf("Load: %v", err)
+	}
+
+	if !loaded.EdgeTypes["wbs-references"].Wikilinks {
+		test.Errorf("wbs-references Wikilinks = false, want true")
+	}
+
+	if loaded.EdgeTypes["relates-to"].Wikilinks {
+		test.Errorf("relates-to Wikilinks = true, want false")
+	}
+}

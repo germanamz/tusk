@@ -114,5 +114,6 @@ cardinality = "many-to-one"
 from = ["*"]
 to = ["*"]
 cardinality = "many-to-many"
+wikilinks = true
 `
 }

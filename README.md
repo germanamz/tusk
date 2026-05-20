@@ -157,7 +157,7 @@ See [[notes/auth-rfc]] for context.
 
 - `type` is the only universally reserved key.
 - Other frontmatter keys are either **properties** (string / int / date / enum / ref / list-of) or **edges** (declared in `tusk.toml`).
-- `[[notes/auth-rfc]]` body wikilinks materialize as implicit `references` edges to that node id.
+- `[[notes/auth-rfc]]` body wikilinks materialize as edges to that node id for any edge type declared with `wikilinks = true` (e.g. the `vault` pack's `references` edge).
 
 ### Edges connect nodes
 

@@ -155,11 +155,7 @@ func Run(config Config) (*Report, error) {
 			return nil
 		}
 
-		if _, hasReferences := config.EdgeTypes["references"]; hasReferences {
-			for _, target := range node.ExtractWikilinks(parsed.Body) {
-				parsed.Edges["references"] = appendUnique(parsed.Edges["references"], target)
-			}
-		}
+		node.MaterializeWikilinks(parsed, config.EdgeTypes)
 
 		stat, statErr := entry.Info()
 

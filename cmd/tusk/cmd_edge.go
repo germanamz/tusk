@@ -50,9 +50,9 @@ by the named property on each source node. Example:
 
   # children sorted by their own "order: int" property under their parent.
 
-Body wikilinks ([[path/to/target]]) become implicit "references" edges
-when the manifest declares an [edge-types.references] type — a navigational
-shorthand useful for prose, distinct from typed frontmatter edges.
+Body wikilinks ([[path/to/target]]) materialize as edges of any edge type
+the manifest declares with "wikilinks = true" — a navigational shorthand
+useful for prose, distinct from typed frontmatter edges.
 
 Use "tusk edge list" with --from/--to/--type to filter.`,
 	}
