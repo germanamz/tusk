@@ -26,6 +26,11 @@ ignore = [
     "README.md",
     "CONTRIBUTING.md",
     "CODE_OF_CONDUCT.md",
+    "CHANGELOG.md",
+    # Generated CLI reference (title-only frontmatter, not nodes) and
+    # process artifacts (implementation plans are not the assistant's surface)
+    "docs/cli/",
+    "docs/superpowers/plans/",
 ]
 
 # Local Ollama instance, started by .devcontainer/start-ollama.sh at container
@@ -131,6 +136,7 @@ cardinality = "many-to-many"
 ordered     = false
 acyclic     = false
 inverse     = "referenced-by"
+wikilinks   = true
 
 [edge-types.relates-to]
 description = "User-declared 'see also' relationship between nodes"
