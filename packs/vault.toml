@@ -38,6 +38,7 @@ cardinality = "many-to-many"
 ordered     = false
 acyclic     = false
 inverse     = "referenced-by"
+wikilinks   = true
 
 [edge-types.relates-to]
 description = "User-declared 'see also' relationship between nodes"

@@ -177,6 +177,7 @@ func TestRun_PersistsWikilinksAsReferenceEdges(test *testing.T) {
 		"references": manifest.EdgeType{
 			From: []string{"*"}, To: []string{"*"},
 			Cardinality: manifest.CardinalityManyToMany,
+			Wikilinks:   true,
 		},
 	}
 
@@ -836,6 +837,40 @@ func TestRun_LogsWalkStartAndComplete(test *testing.T) {
 
 	if !strings.Contains(out, "indexed=1") {
 		test.Errorf("expected indexed=1; got %q", out)
+	}
+}
+
+func TestRun_UnflaggedReferencesEdgeDoesNotMaterialize(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/target.md", "type: note\ntitle: Target\n", "")
+	writeNode(test, root, "notes/source.md", "type: note\ntitle: Source\n", "Refer to [[notes/target]].\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+			// no Wikilinks flag
+		},
+	}
+
+	if _, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	listed, listErr := edgeRepo.ListBySource("notes/source")
+
+	if listErr != nil {
+		test.Fatalf("ListBySource: %v", listErr)
+	}
+
+	if len(listed) != 0 {
+		test.Errorf("listed = %+v, want no edges (references unflagged)", listed)
 	}
 }
 
