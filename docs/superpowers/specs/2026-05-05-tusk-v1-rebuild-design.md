@@ -210,7 +210,7 @@ When a `tags:` reference resolves to a path with no corresponding node, the engi
 
 ### 6.4 Wikilinks
 
-Body wikilinks wrap a workspace-relative path (without extension) in double square brackets — the target is a canonical node id. At index time, each resolved wikilink materializes an implicit `references` edge from the containing node to the target.
+Body wikilinks wrap a workspace-relative path (without extension) in double square brackets — the target is a canonical node id. At index time, each resolved wikilink materializes an edge from the containing node to the target for every edge type the manifest declares with `wikilinks = true` (the built-in `vault` and `wbs` packs flag their `references` edge).
 
 A wikilink whose target has no corresponding node surfaces in `tusk doctor` as a dangling reference; the wikilink still renders as text in the body but no edge is materialized.
 
