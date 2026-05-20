@@ -101,6 +101,11 @@ type EdgeType struct {
 	// shortcuts. At most one edge per workspace may set this true.
 	HierarchyDefault bool `toml:"hierarchy-default"`
 
+	// Wikilinks, when true, makes the indexer materialize body [[wikilinks]]
+	// into edges of this type. Replaces the hardcoded "references" special
+	// case. Zero, one, or many edge types may set it.
+	Wikilinks bool `toml:"wikilinks"`
+
 	// Resolved by manifest.Validate after parsing OrderedRaw.
 	// Ordered is true when the source declares any ordering (bool true OR string non-empty).
 	// OrderedBy is the source-node property name carrying the order key.
