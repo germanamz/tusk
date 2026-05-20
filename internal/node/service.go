@@ -211,11 +211,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, resolveErr
 	}
 
-	if _, hasReferences := service.edgeTypes["references"]; hasReferences {
-		for _, target := range ExtractWikilinks(parsed.Body) {
-			parsed.Edges["references"] = appendUnique(parsed.Edges["references"], target)
-		}
-	}
+	MaterializeWikilinks(parsed, service.edgeTypes)
 
 	if validateErr := ValidateEdges(parsed, service.edgeTypes, EdgeContext{
 		ResolveTargetType: service.resolveTargetType,

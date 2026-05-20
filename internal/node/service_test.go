@@ -252,6 +252,7 @@ func plan2EdgeRegistry() manifest.EdgeTypes {
 		"references": manifest.EdgeType{
 			From: []string{"*"}, To: []string{"*"},
 			Cardinality: manifest.CardinalityManyToMany,
+			Wikilinks:   true,
 		},
 	}
 }
