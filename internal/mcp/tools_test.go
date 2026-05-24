@@ -1722,6 +1722,63 @@ func TestTool_NodeList_FormatCompact(test *testing.T) {
 	}
 }
 
+// TestTool_NodeGet_CompactRespectsInclude verifies the MCP tusk_node_get
+// compact path filters Body / Edges / Properties per the include set rather
+// than always handing the full node to the renderer.
+func TestTool_NodeGet_CompactRespectsInclude(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath:    "notes/hi.md",
+		Type:       "note",
+		Title:      "Hi",
+		Body:       []byte("hello world\n"),
+		Properties: map[string]any{"priority": 1},
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	request := mcpgo.CallToolRequest{
+		Params: mcpgo.CallToolParams{
+			Name: "tusk_node_get",
+			Arguments: map[string]any{
+				"id":      "notes/hi",
+				"include": []any{"body"},
+				"format":  "compact",
+			},
+		},
+	}
+
+	result, callErr := srv.HandleToolCall(context.Background(), request)
+
+	if callErr != nil {
+		test.Fatalf("call: %v", callErr)
+	}
+
+	if result.IsError {
+		test.Fatalf("result is error: %v", fmtError(result))
+	}
+
+	textContent, ok := result.Content[0].(mcpgo.TextContent)
+
+	if !ok {
+		test.Fatalf("expected TextContent, got %T", result.Content[0])
+	}
+
+	text := textContent.Text
+
+	if !strings.Contains(text, "hello world") {
+		test.Errorf("expected body to be rendered:\n%s", text)
+	}
+
+	if strings.Contains(text, "priority=1") {
+		test.Errorf("expected properties to be filtered out:\n%s", text)
+	}
+}
+
 // TestTool_EdgeList_FormatCompact mirrors the node_list compact test for
 // tusk_edge_list.
 func TestTool_EdgeList_FormatCompact(test *testing.T) {

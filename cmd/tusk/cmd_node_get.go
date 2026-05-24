@@ -98,7 +98,7 @@ structured output instead (compact for TTY, JSON otherwise).`,
 				return formatErr
 			}
 
-			payload := buildNodeGetPayload(result, ws.Root, fieldsFlag)
+			payload := buildNodeGetPayload(result)
 
 			if format == formatJSON {
 				return writeJSON(cmd.OutOrStdout(), payload)
@@ -165,10 +165,10 @@ func (payload nodeGetPayload) MarshalJSON() ([]byte, error) {
 
 // buildNodeGetPayload converts node.GetResult to nodeGetPayload, honoring the
 // IncludeBody / IncludeEdges / IncludeProperties flags computed by GetRun.
-func buildNodeGetPayload(result *node.GetResult, workspaceRoot string, fields []string) nodeGetPayload {
+func buildNodeGetPayload(result *node.GetResult) nodeGetPayload {
 	loaded := result.Node
 
-	payload := nodeGetPayload{
+	return nodeGetPayload{
 		ID:                loaded.ID,
 		Type:              loaded.Type,
 		Path:              loaded.Path,
@@ -180,37 +180,45 @@ func buildNodeGetPayload(result *node.GetResult, workspaceRoot string, fields []
 		includeEdges:      result.IncludeEdges,
 		includeProperties: result.IncludeProperties,
 	}
-
-	_ = workspaceRoot
-	_ = fields
-
-	return payload
 }
 
 // renderNodeGetCompact emits a compact single-row view of a node-get result.
 // Reuses the shared compact renderer; edges are flattened to []EdgeRef with
 // direction="out" so the §4.4 form (`  → <type> <target>`) renders.
+// Body / Properties / Edges are dropped from the rendered row when the
+// caller's Include filter excluded them — keeps `--include body` from
+// silently bringing back edges and properties.
 func renderNodeGetCompact(out io.Writer, payload nodeGetPayload, fields []string) error {
 	var edgeRefs []query.EdgeRef
 
-	for edgeType, targets := range payload.Edges {
-		for _, target := range targets {
-			edgeRefs = append(edgeRefs, query.EdgeRef{
-				Type:      edgeType,
-				Direction: "out",
-				TargetID:  target,
-			})
+	if payload.includeEdges {
+		for edgeType, targets := range payload.Edges {
+			for _, target := range targets {
+				edgeRefs = append(edgeRefs, query.EdgeRef{
+					Type:      edgeType,
+					Direction: "out",
+					TargetID:  target,
+				})
+			}
 		}
 	}
 
-	rows := []render.CompactRow{{
-		ID:         payload.ID,
-		Type:       payload.Type,
-		Title:      payload.Title,
-		Body:       payload.Body,
-		Properties: payload.Properties,
-		Edges:      edgeRefs,
-	}}
+	row := render.CompactRow{
+		ID:    payload.ID,
+		Type:  payload.Type,
+		Title: payload.Title,
+		Edges: edgeRefs,
+	}
+
+	if payload.includeBody {
+		row.Body = payload.Body
+	}
+
+	if payload.includeProperties {
+		row.Properties = payload.Properties
+	}
+
+	rows := []render.CompactRow{row}
 
 	return render.CompactNodeRows(out, rows, render.CompactOpts{Fields: fields})
 }

@@ -26,27 +26,27 @@ func TestParseInclude(test *testing.T) {
 	}
 
 	for _, tc := range cases {
-		test.Run(tc.name, func(t *testing.T) {
+		test.Run(tc.name, func(test *testing.T) {
 			got, err := ParseInclude(tc.input)
 
 			if tc.wantErr {
 				if err == nil {
-					t.Fatalf("expected error, got %+v", got)
+					test.Fatalf("expected error, got %+v", got)
 				}
 
 				if !strings.Contains(err.Error(), "valid: body, edges, properties") {
-					t.Errorf("expected suggestion list in error, got %v", err)
+					test.Errorf("expected suggestion list in error, got %v", err)
 				}
 
 				return
 			}
 
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				test.Fatalf("unexpected error: %v", err)
 			}
 
 			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("got %+v want %+v", got, tc.want)
+				test.Errorf("got %+v want %+v", got, tc.want)
 			}
 		})
 	}

@@ -244,24 +244,34 @@ func registerNodeGetTool(srv *Server) {
 		if format == "compact" {
 			var edgeRefs []query.EdgeRef
 
-			for edgeType, targets := range loaded.Edges {
-				for _, target := range targets {
-					edgeRefs = append(edgeRefs, query.EdgeRef{
-						Type:      edgeType,
-						Direction: "out",
-						TargetID:  target,
-					})
+			if result.IncludeEdges {
+				for edgeType, targets := range loaded.Edges {
+					for _, target := range targets {
+						edgeRefs = append(edgeRefs, query.EdgeRef{
+							Type:      edgeType,
+							Direction: "out",
+							TargetID:  target,
+						})
+					}
 				}
 			}
 
-			rows := []render.CompactRow{{
-				ID:         loaded.ID,
-				Type:       loaded.Type,
-				Title:      loaded.Title,
-				Body:       string(loaded.Body),
-				Properties: loaded.Properties,
-				Edges:      edgeRefs,
-			}}
+			row := render.CompactRow{
+				ID:    loaded.ID,
+				Type:  loaded.Type,
+				Title: loaded.Title,
+				Edges: edgeRefs,
+			}
+
+			if result.IncludeBody {
+				row.Body = string(loaded.Body)
+			}
+
+			if result.IncludeProperties {
+				row.Properties = loaded.Properties
+			}
+
+			rows := []render.CompactRow{row}
 
 			var buf bytes.Buffer
 

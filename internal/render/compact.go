@@ -233,8 +233,8 @@ func writeEdges(builder *strings.Builder, row CompactRow, fieldSet map[string]st
 	}
 }
 
-// padRight pads s with spaces on the right to width characters. Strings that
-// already meet or exceed the width are returned unchanged.
+// padRight pads value with spaces on the right to width characters. Strings
+// that already meet or exceed the width are returned unchanged.
 func padRight(value string, width int) string {
 	if len(value) >= width {
 		return value

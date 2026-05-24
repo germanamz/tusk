@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -80,5 +81,67 @@ func TestNodeGetCmd_StructuredJSON(test *testing.T) {
 
 	if _, hasProps := payload["properties"]; hasProps {
 		test.Errorf("expected properties to be omitted (not requested): %v", payload["properties"])
+	}
+}
+
+// TestNodeGetCmd_CompactRespectsInclude asserts that the compact renderer
+// drops edges and properties when only --include body was requested. A
+// previous version always handed Body / Properties / Edges to the renderer
+// regardless of the include filter, causing the compact path to leak data
+// the JSON path correctly filtered out.
+func TestNodeGetCmd_CompactRespectsInclude(test *testing.T) {
+	initWorkspaceWithManifest(test, edgeManifestBody())
+
+	// Source ticket carries an outgoing edge plus a custom property.
+	source := newRootCmd()
+	source.SetArgs([]string{
+		"node", "create",
+		"--type", "ticket",
+		"--title", "Source",
+		"--path", "tickets/src.md",
+		"--prop", "priority=1",
+	})
+
+	if execErr := source.Execute(); execErr != nil {
+		test.Fatalf("create source: %v", execErr)
+	}
+
+	target := newRootCmd()
+	target.SetArgs([]string{"node", "create", "--type", "ticket", "--title", "Target", "--path", "tickets/tgt.md"})
+
+	if execErr := target.Execute(); execErr != nil {
+		test.Fatalf("create target: %v", execErr)
+	}
+
+	addEdge := newRootCmd()
+	addEdge.SetArgs([]string{"edge", "add", "--type", "blocks", "--source", "tickets/src", "--target", "tickets/tgt"})
+
+	if execErr := addEdge.Execute(); execErr != nil {
+		test.Fatalf("edge add: %v", execErr)
+	}
+
+	output := &bytes.Buffer{}
+
+	getCmd := newRootCmd()
+	getCmd.SetOut(output)
+	getCmd.SetErr(output)
+	getCmd.SetArgs([]string{"node", "get", "tickets/src", "--include", "body", "--format", "compact"})
+
+	if execErr := getCmd.Execute(); execErr != nil {
+		test.Fatalf("get: %v\noutput: %s", execErr, output.String())
+	}
+
+	body := output.String()
+
+	if !strings.Contains(body, "tickets/src") {
+		test.Errorf("expected id in compact output:\n%s", body)
+	}
+
+	if strings.Contains(body, "→") || strings.Contains(body, "blocks") {
+		test.Errorf("expected no edges rendered when only --include body was requested:\n%s", body)
+	}
+
+	if strings.Contains(body, "priority=1") {
+		test.Errorf("expected no properties rendered when only --include body was requested:\n%s", body)
 	}
 }
