@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -583,5 +584,129 @@ func TestPipeline_AmbiguousUnqualifiedFailsValidation(test *testing.T) {
 
 	if !strings.Contains(validateErrs[0].Message, "no default hierarchy") {
 		test.Errorf("unexpected message: %q", validateErrs[0].Message)
+	}
+}
+
+func TestCompile_ModifiedSinceDurationEmitsLastMtimeBound(test *testing.T) {
+	expr, parseErrs := filter.NewParser("modified-since:7d").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	validateErrs := filter.Validate(expr, manifest.Manifest{})
+
+	if len(validateErrs) != 0 {
+		test.Fatalf("validate: %+v", validateErrs)
+	}
+
+	before := time.Now().Add(-7 * 24 * time.Hour).UnixNano()
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	after := time.Now().Add(-7 * 24 * time.Hour).UnixNano()
+
+	if err != nil {
+		test.Fatalf("compile: %v", err)
+	}
+
+	if !strings.Contains(sql, "last_mtime >= ?") {
+		test.Errorf("sql missing last_mtime >= ?: %s", sql)
+	}
+
+	if len(params) != 1 {
+		test.Fatalf("params = %v, want exactly one element", params)
+	}
+
+	got, ok := params[0].(int64)
+
+	if !ok {
+		test.Fatalf("param[0] = %T %v, want int64", params[0], params[0])
+	}
+
+	if got < before || got > after {
+		test.Errorf("param[0] = %d, want within [%d, %d]", got, before, after)
+	}
+}
+
+func TestCompile_ModifiedSinceAbsoluteDateExactNanos(test *testing.T) {
+	expr, parseErrs := filter.NewParser("modified-since:2026-05-23T12:00:00Z").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	if validateErrs := filter.Validate(expr, manifest.Manifest{}); len(validateErrs) != 0 {
+		test.Fatalf("validate: %+v", validateErrs)
+	}
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("compile: %v", err)
+	}
+
+	if !strings.Contains(sql, "last_mtime >= ?") {
+		test.Errorf("sql missing last_mtime >= ?: %s", sql)
+	}
+
+	want := time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC).UnixNano()
+
+	if len(params) != 1 || params[0] != want {
+		test.Errorf("params = %v, want [%d]", params, want)
+	}
+}
+
+func TestCompile_ModifiedSinceUnresolvedErrors(test *testing.T) {
+	// Hand-construct an AST with neither Duration nor Since set, mirroring
+	// the TraversalShortcut.EdgeType empty-value guard.
+	expr := &filter.ModifiedSincePredicate{Raw: "7d"}
+
+	_, _, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err == nil {
+		test.Fatalf("expected error for unresolved modified-since")
+	}
+
+	if !strings.Contains(err.Error(), "unresolved") {
+		test.Errorf("error = %q, want substring %q", err.Error(), "unresolved")
+	}
+}
+
+func TestCompile_ModifiedSinceComposesWithOtherPredicates(test *testing.T) {
+	expr, parseErrs := filter.NewParser("type=ticket AND modified-since:7d").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	if validateErrs := filter.Validate(expr, manifest.Manifest{}); len(validateErrs) != 0 {
+		test.Fatalf("validate: %+v", validateErrs)
+	}
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("compile: %v", err)
+	}
+
+	if !strings.Contains(sql, "type = ?") || !strings.Contains(sql, "last_mtime >= ?") {
+		test.Errorf("sql missing both predicates: %s", sql)
+	}
+
+	if !strings.Contains(sql, " AND ") {
+		test.Errorf("sql missing AND join: %s", sql)
+	}
+
+	if len(params) != 2 {
+		test.Fatalf("params = %v, want 2 entries", params)
+	}
+
+	if params[0] != "ticket" {
+		test.Errorf("params[0] = %v, want \"ticket\"", params[0])
+	}
+
+	if _, ok := params[1].(int64); !ok {
+		test.Errorf("params[1] = %T, want int64", params[1])
 	}
 }

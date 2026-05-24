@@ -215,6 +215,28 @@ func TestLexer_StringWithSpaces(test *testing.T) {
 	}
 }
 
+func TestLexer_ModifiedSinceTokenizesAsIdentColonValue(test *testing.T) {
+	// modified-since must lex as a single identifier despite the embedded
+	// hyphen, then the colon and bare value. This guards the assumption
+	// that the parser dispatch can match on first.Value == "modified-since".
+	lex := filter.NewLexer("modified-since:7d")
+
+	first := lex.Next()
+	if first.Kind != filter.TokenIdent || first.Value != "modified-since" {
+		test.Fatalf("first token = %+v, want IDENT 'modified-since'", first)
+	}
+
+	second := lex.Next()
+	if second.Kind != filter.TokenColon {
+		test.Fatalf("second token kind = %v, want TokenColon", second.Kind)
+	}
+
+	value := lex.NextValue()
+	if value.Kind != filter.TokenBareValue || value.Value != "7d" {
+		test.Fatalf("value token = %+v, want BARE_VALUE '7d'", value)
+	}
+}
+
 func TestLexer_ColonProducesTokenColon(test *testing.T) {
 	lex := filter.NewLexer("status:open")
 

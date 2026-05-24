@@ -16,7 +16,8 @@ key<value, key<=value, key>value, key>=value); ranges use key=lo..hi.
 Edge traversal uses edge-type-> or edge-type<- and may chain multi-hop.
 Traversal shortcuts: tree=id, parent=id, root=id (qualified: tree:<alias>=id,
 parent:<alias>=id, root:<alias>=id, where <alias> is set via hierarchy on an
-edge type in tusk.toml). Combine with AND, OR,
+edge type in tusk.toml). Recency shortcut: modified-since:<duration|ISO-date>
+(e.g. modified-since:7d, modified-since:2026-05-23). Combine with AND, OR,
 NOT, and parens. (Both : and = bind property comparisons; pick whichever
 reads better.) Output is a tab-aligned table of id, type, title, path.
 
@@ -36,6 +37,9 @@ tusk node list [filter] [flags]
 
   # Page 2 of 20 most-recently-modified notes
   tusk node list type=note --sort '-modified' --take 20 --skip 20
+
+  # Notes touched in the last 48 hours
+  tusk node list 'type=note AND modified-since:48h'
 
   # Pipe a single id into "node get"
   tusk node list 'type=ticket AND priority=1' --take 1 | awk 'NR==2 {print $1}' | xargs tusk node get

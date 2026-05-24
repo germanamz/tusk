@@ -40,9 +40,11 @@ Three modes, all driven by the same command:
     edge-type-> or edge-type<- and may chain multi-hop. Traversal
     shortcuts: tree=id, parent=id, root=id (qualified: tree:<alias>=id,
     parent:<alias>=id, root:<alias>=id, where <alias> is set via
-    hierarchy on an edge type in tusk.toml). Combine with AND, OR, NOT,
-    and parens. (Both : and = bind property comparisons; pick whichever
-    reads better.)
+    hierarchy on an edge type in tusk.toml). Recency shortcut:
+    modified-since:<duration|ISO-date> (e.g. modified-since:7d,
+    modified-since:2026-05-23). Combine with AND, OR, NOT, and parens.
+    (Both : and = bind property comparisons; pick whichever reads
+    better.)
   * Semantic (--semantic STRING): nearest-neighbor search over
     Ollama embeddings. The positional filter still applies as a
     pre-filter; pass a permissive filter like 'type=note' to search
@@ -52,8 +54,8 @@ Three modes, all driven by the same command:
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate, and --json for machine-readable output.`,
-		Example: `  # Structural: all priority-1 tickets touched this week
-  tusk query 'type=ticket AND priority=1 AND modified>=2026-05-09'
+		Example: `  # Structural: all priority-1 tickets touched in the last week
+  tusk query 'type=ticket AND priority=1 AND modified-since:7d'
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'

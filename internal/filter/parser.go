@@ -120,6 +120,12 @@ func (parser *Parser) parsePredicate() Expr {
 		if next.Kind == TokenEQ || next.Kind == TokenColon {
 			return parser.parseTraversalShortcut()
 		}
+	case "modified-since":
+		next := parser.peekN(1)
+
+		if next.Kind == TokenEQ || next.Kind == TokenColon {
+			return parser.parseModifiedSincePredicate()
+		}
 	}
 
 	next := parser.peekN(1)
@@ -304,6 +310,31 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 		Alias:  alias,
 		NodeID: valueToken.Value,
 		Pos:    identToken.Pos,
+	}
+}
+
+func (parser *Parser) parseModifiedSincePredicate() Expr {
+	identToken := parser.advance()
+
+	separator := parser.advance()
+
+	if separator.Kind != TokenEQ && separator.Kind != TokenColon {
+		parser.appendErr(separator.Pos, "expected = or : after modified-since")
+
+		return nil
+	}
+
+	valueToken := parser.lexer.NextValue()
+
+	if valueToken.Kind == TokenEOF {
+		parser.appendErr(valueToken.Pos, "expected value after modified-since:")
+
+		return nil
+	}
+
+	return &ModifiedSincePredicate{
+		Raw: valueToken.Value,
+		Pos: identToken.Pos,
 	}
 }
 
