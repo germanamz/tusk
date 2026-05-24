@@ -65,6 +65,10 @@ JSON otherwise); --json is sugar for --format json.
 	emit structured JSON (sugar for --format json)
 
 .PP
+\fB--min-score\fP=0
+	drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)
+
+.PP
 \fB--semantic\fP=""
 	rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)
 

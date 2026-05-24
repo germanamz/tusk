@@ -71,6 +71,7 @@ tusk query <filter> [flags]
   -h, --help              help for query
       --include strings   expand rows: body|edges|properties (comma-separated)
       --json              emit structured JSON (sugar for --format json)
+      --min-score float   drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)
       --semantic string   rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)
       --skip int          skip the first M rows (requires --take)
       --sort string       sort spec, e.g., +priority,-due,+modified
