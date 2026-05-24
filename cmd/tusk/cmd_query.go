@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
+	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +26,9 @@ func newQueryCmd() *cobra.Command {
 		skip          int
 		emitJSON      bool
 		semanticQuery string
+		includeFlag   []string
+		fieldsFlag    []string
+		formatFlag    string
 	)
 
 	queryCmd := &cobra.Command{
@@ -53,9 +58,16 @@ Three modes, all driven by the same command:
     --semantic ranks it by cosine similarity.
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
-results, --skip M to paginate, and --json for machine-readable output.`,
+results, --skip M to paginate. Use --include to expand each row with
+body, edges, or properties (comma-separated; for semantic results body
+is the best-matching chunk). Use --fields to project the rendered shape.
+Use --format to pick compact or JSON output (default: compact for TTY,
+JSON otherwise); --json is sugar for --format json.`,
 		Example: `  # Structural: all priority-1 tickets touched in the last week
   tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Expand bodies and edges in one round-trip
+  tusk query 'type=ticket' --include body,edges
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'
@@ -125,25 +137,38 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 				// row when --take is unset; MCP applies a default page size
 				// of 10 to keep tool responses bounded.
 				SemanticDefaultTake: 0,
+				Include:             includeFlag,
+				Fields:              fieldsFlag,
+				WorkspaceRoot:       ws.Root,
 			})
 
 			if runErr != nil {
 				return runErr
 			}
 
-			if result.Semantic != nil {
-				return renderQuerySemantic(cmd, result.Semantic, emitJSON)
+			hasShapeFlags := len(includeFlag) > 0 || len(fieldsFlag) > 0
+			format, formatErr := resolveFormat(emitJSON, formatFlag, hasShapeFlags)
+
+			if formatErr != nil {
+				return formatErr
 			}
 
-			return renderQueryStructural(cmd, result.Rows, emitJSON)
+			if result.Semantic != nil {
+				return renderQuerySemantic(cmd, result.Semantic, format, fieldsFlag)
+			}
+
+			return renderQueryStructural(cmd, result.Rows, format, fieldsFlag)
 		},
 	}
 
 	queryCmd.Flags().StringVar(&sortSpec, "sort", "", "sort spec, e.g., +priority,-due,+modified")
 	queryCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
 	queryCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
-	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON")
+	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
+	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties (comma-separated)")
+	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
+	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
 
 	return queryCmd
 }
@@ -201,16 +226,29 @@ func buildCLIEmbedder(loaded *manifest.Manifest, semanticQuery string) (embed.Em
 }
 
 // renderQueryStructural emits the structural-result rendering. The JSON
-// branch preserves the legacy behavior of emitting an empty array sentinel
-// regardless of result content (no caller depends on the structured body;
-// --json is documented as "use --semantic for rich output").
-func renderQueryStructural(cmd *cobra.Command, rows []query.Row, emitJSON bool) error {
-	if emitJSON {
-		_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
+// branch emits the rows as a JSON array; the compact branch falls back to
+// the legacy tab-aligned table when no include / fields are set so existing
+// scripts keep working.
+func renderQueryStructural(cmd *cobra.Command, rows []query.Row, format outputFormat, fields []string) error {
+	switch format {
+	case formatJSON:
+		// Preserve the legacy contract: emit `[]\n` when no rows carry
+		// expansion data and no fields projection is set. The structural
+		// JSON branch used to always emit `[]\n` regardless of content;
+		// we tighten that only when the caller asked for expansions so
+		// scripts depending on the sentinel still work.
+		if len(fields) == 0 && !rowsHaveExpansions(rows) {
+			_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
 
-		return nil
+			return nil
+		}
+
+		return writeJSON(cmd.OutOrStdout(), rows)
+	case formatCompact:
+		return renderStructuralCompact(cmd.OutOrStdout(), rows, fields)
 	}
 
+	// formatLegacy: tab-aligned table.
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 	_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
@@ -222,29 +260,65 @@ func renderQueryStructural(cmd *cobra.Command, rows []query.Row, emitJSON bool) 
 	return tab.Flush()
 }
 
+// rowsHaveExpansions returns true when any row carries body / properties /
+// edges populated.
+func rowsHaveExpansions(rows []query.Row) bool {
+	for _, row := range rows {
+		if row.Body != "" || len(row.Properties) > 0 || len(row.Edges) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) error {
+	compactRows := make([]render.CompactRow, 0, len(rows))
+
+	for _, row := range rows {
+		compactRows = append(compactRows, render.CompactRow{
+			ID:         row.ID,
+			Type:       row.Type,
+			Title:      row.Title,
+			Body:       row.Body,
+			Properties: row.Properties,
+			Edges:      row.Edges,
+		})
+	}
+
+	return render.CompactNodeRows(out, compactRows, render.CompactOpts{Fields: fields})
+}
+
 // renderQuerySemantic emits the ranked-result rendering for --semantic
-// queries. JSON output is a flat array of {id,score,type,path,title,snippet};
-// the table view shows id/score/snippet only.
-func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, emitJSON bool) error {
-	if emitJSON {
-		out := make([]map[string]any, 0, len(semantic.Ranked))
+// queries. JSON output is a flat array of {id,score,type,path,title,snippet,
+// body?,properties?,edges?}; the table view shows id/score/snippet; the
+// compact view shows the full §4.4 form including expanded body/edges.
+func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string) error {
+	switch format {
+	case formatJSON:
+		encoder := json.NewEncoder(cmd.OutOrStdout())
+
+		return encoder.Encode(semantic.Ranked)
+	case formatCompact:
+		compactRows := make([]render.CompactRow, 0, len(semantic.Ranked))
 
 		for _, scored := range semantic.Ranked {
-			out = append(out, map[string]any{
-				"id":      scored.ID,
-				"score":   scored.Score,
-				"type":    scored.Type,
-				"path":    scored.Path,
-				"title":   scored.Title,
-				"snippet": scored.Snippet,
+			compactRows = append(compactRows, render.CompactRow{
+				ID:         scored.ID,
+				Type:       scored.Type,
+				Title:      scored.Title,
+				Body:       scored.Body,
+				Properties: scored.Properties,
+				Edges:      scored.Edges,
+				Score:      scored.Score,
+				HasScore:   true,
 			})
 		}
 
-		encoder := json.NewEncoder(cmd.OutOrStdout())
-
-		return encoder.Encode(out)
+		return render.CompactNodeRows(cmd.OutOrStdout(), compactRows, render.CompactOpts{Fields: fields})
 	}
 
+	// formatLegacy: tab-aligned id/score/snippet table.
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 	_, _ = fmt.Fprintln(tab, "ID\tSCORE\tSNIPPET")

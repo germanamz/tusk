@@ -37,16 +37,32 @@ Hybrid: structural filter narrows the candidate set, then
 
 .PP
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
-results, --skip M to paginate, and --json for machine-readable output.
+results, --skip M to paginate. Use --include to expand each row with
+body, edges, or properties (comma-separated; for semantic results body
+is the best-matching chunk). Use --fields to project the rendered shape.
+Use --format to pick compact or JSON output (default: compact for TTY,
+JSON otherwise); --json is sugar for --format json.
 
 
 .SH OPTIONS
+\fB--fields\fP=[]
+	project rendered rows to these fields (comma-separated)
+
+.PP
+\fB--format\fP=""
+	output format: compact|json (default: compact for TTY, json otherwise)
+
+.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for query
 
 .PP
+\fB--include\fP=[]
+	expand rows: body|edges|properties (comma-separated)
+
+.PP
 \fB--json\fP[=false]
-	emit structured JSON
+	emit structured JSON (sugar for --format json)
 
 .PP
 \fB--semantic\fP=""
@@ -74,6 +90,9 @@ results, --skip M to paginate, and --json for machine-readable output.
 .EX
   # Structural: all priority-1 tickets touched in the last week
   tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Expand bodies and edges in one round-trip
+  tusk query 'type=ticket' --include body,edges
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'

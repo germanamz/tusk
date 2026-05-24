@@ -32,7 +32,11 @@ Three modes, all driven by the same command:
     --semantic ranks it by cosine similarity.
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
-results, --skip M to paginate, and --json for machine-readable output.
+results, --skip M to paginate. Use --include to expand each row with
+body, edges, or properties (comma-separated; for semantic results body
+is the best-matching chunk). Use --fields to project the rendered shape.
+Use --format to pick compact or JSON output (default: compact for TTY,
+JSON otherwise); --json is sugar for --format json.
 
 ```
 tusk query <filter> [flags]
@@ -43,6 +47,9 @@ tusk query <filter> [flags]
 ```
   # Structural: all priority-1 tickets touched in the last week
   tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Expand bodies and edges in one round-trip
+  tusk query 'type=ticket' --include body,edges
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'
@@ -59,8 +66,11 @@ tusk query <filter> [flags]
 ### Options
 
 ```
+      --fields strings    project rendered rows to these fields (comma-separated)
+      --format string     output format: compact|json (default: compact for TTY, json otherwise)
   -h, --help              help for query
-      --json              emit structured JSON
+      --include strings   expand rows: body|edges|properties (comma-separated)
+      --json              emit structured JSON (sugar for --format json)
       --semantic string   rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)
       --skip int          skip the first M rows (requires --take)
       --sort string       sort spec, e.g., +priority,-due,+modified

@@ -14,16 +14,26 @@ List edges in the index.
 
 .PP
 Filter with any combination of --from, --to, and --type. Output is a
-tab-aligned table of source, type, target, attributed source-path.
+tab-aligned table of source, type, target, attributed source-path. Use
+--format compact|json (or --json) to opt into structured output; the
+default mirrors prior CLI behavior (tab-aligned table for TTY).
 
 
 .SH OPTIONS
+\fB--format\fP=""
+	output format: compact|json (default: legacy table)
+
+.PP
 \fB--from\fP=""
 	filter to edges originating from this source id
 
 .PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for list
+
+.PP
+\fB--json\fP[=false]
+	emit structured JSON (sugar for --format json)
 
 .PP
 \fB--to\fP=""
@@ -47,6 +57,9 @@ tab-aligned table of source, type, target, attributed source-path.
 
   # Every "blocks" edge in the workspace
   tusk edge list --type blocks
+
+  # JSON for piping into jq
+  tusk edge list --from tickets/T-001 --json
 .EE
 
 

@@ -14,6 +14,7 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/reindex"
+	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/status"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
@@ -192,8 +193,11 @@ func toolJSON(payload any) (*mcpgo.CallToolResult, error) {
 
 func registerNodeGetTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_get",
-		mcpgo.WithDescription("Read a node by id (workspace-relative path without extension). Returns id, type, path, title, properties, edges, body."),
+		mcpgo.WithDescription("Read a node by id (workspace-relative path without extension). Returns id, type, path, title, plus body / edges / properties when requested via include or fields."),
 		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id (e.g. \"notes/hi\")")),
+		mcpgo.WithArray("include", mcpgo.Description("Expand returned shape: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("fields", mcpgo.Description("Project returned shape to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -203,23 +207,72 @@ func registerNodeGetTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		result, runErr := node.GetRun(srv.runtime.NodeService, node.GetRequest{ID: nodeID})
+		includeRaw := argStringSlice(request, "include")
+		fields := argStringSlice(request, "fields")
+		format := argStringOptional(request, "format")
+
+		result, runErr := node.GetRun(srv.runtime.NodeService, node.GetRequest{
+			ID:      nodeID,
+			Include: includeRaw,
+			Fields:  fields,
+		})
 
 		if runErr != nil {
 			return toolError(runErr), nil
 		}
 
 		loaded := result.Node
+		payload := map[string]any{
+			"id":    loaded.ID,
+			"type":  loaded.Type,
+			"path":  loaded.Path,
+			"title": loaded.Title,
+		}
 
-		return toolJSON(map[string]any{
-			"id":         loaded.ID,
-			"type":       loaded.Type,
-			"path":       loaded.Path,
-			"title":      loaded.Title,
-			"properties": loaded.Properties,
-			"edges":      loaded.Edges,
-			"body":       string(loaded.Body),
-		})
+		if result.IncludeProperties {
+			payload["properties"] = loaded.Properties
+		}
+
+		if result.IncludeEdges {
+			payload["edges"] = loaded.Edges
+		}
+
+		if result.IncludeBody {
+			payload["body"] = string(loaded.Body)
+		}
+
+		if format == "compact" {
+			var edgeRefs []query.EdgeRef
+
+			for edgeType, targets := range loaded.Edges {
+				for _, target := range targets {
+					edgeRefs = append(edgeRefs, query.EdgeRef{
+						Type:      edgeType,
+						Direction: "out",
+						TargetID:  target,
+					})
+				}
+			}
+
+			rows := []render.CompactRow{{
+				ID:         loaded.ID,
+				Type:       loaded.Type,
+				Title:      loaded.Title,
+				Body:       string(loaded.Body),
+				Properties: loaded.Properties,
+				Edges:      edgeRefs,
+			}}
+
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactNodeRows(&buf, rows, render.CompactOpts{Fields: fields}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
+		}
+
+		return toolJSON(payload)
 	}
 
 	srv.register(tool, handler)
@@ -227,12 +280,18 @@ func registerNodeGetTool(srv *Server) {
 
 func registerNodeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_list",
-		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result. Results are sorted by id ascending by default."),
+		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result. Use include / fields to expand rows with body / edges / properties in one round-trip. Results are sorted by id ascending by default."),
 		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		typeFilter := argStringOptional(request, "type")
+		includeRaw := argStringSlice(request, "include")
+		fields := argStringSlice(request, "fields")
+		format := argStringOptional(request, "format")
 
 		// Build a filter expression equivalent to ListFilter{Type:X} so the
 		// CLI and MCP share node.ListRun. An empty type yields an empty
@@ -248,23 +307,63 @@ func registerNodeListTool(srv *Server) {
 		// this default — its `tusk node list` retains "no implicit order"
 		// behavior unless the user passes --sort.
 		result, runErr := query.ListRun(srv.runtime.Index.DB(), srv.runtime.Manifest, query.ListRequest{
-			Filter: filterExpr,
-			Sort:   "+id",
+			Filter:        filterExpr,
+			Sort:          "+id",
+			Include:       includeRaw,
+			Fields:        fields,
+			WorkspaceRoot: srv.runtime.Root,
 		})
 
 		if runErr != nil {
 			return toolError(runErr), nil
 		}
 
+		if format == "compact" {
+			compactRows := make([]render.CompactRow, 0, len(result.Rows))
+
+			for _, row := range result.Rows {
+				compactRows = append(compactRows, render.CompactRow{
+					ID:         row.ID,
+					Type:       row.Type,
+					Title:      row.Title,
+					Body:       row.Body,
+					Properties: row.Properties,
+					Edges:      row.Edges,
+				})
+			}
+
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{Fields: fields}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
+		}
+
 		results := make([]map[string]any, 0, len(result.Rows))
 
 		for _, row := range result.Rows {
-			results = append(results, map[string]any{
+			entry := map[string]any{
 				"id":    row.ID,
 				"type":  row.Type,
 				"path":  row.Path,
 				"title": row.Title,
-			})
+			}
+
+			if row.Body != "" {
+				entry["body"] = row.Body
+			}
+
+			if row.Properties != nil {
+				entry["properties"] = row.Properties
+			}
+
+			if row.Edges != nil {
+				entry["edges"] = row.Edges
+			}
+
+			results = append(results, entry)
 		}
 
 		return toolJSON(map[string]any{
@@ -278,13 +377,16 @@ func registerNodeListTool(srv *Server) {
 
 func registerEdgeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_edge_list",
-		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow."),
+		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow. Use format=compact for tab-aligned text output."),
 		mcpgo.WithString("from", mcpgo.Description("Source node id")),
 		mcpgo.WithString("to", mcpgo.Description("Target node id")),
 		mcpgo.WithString("type", mcpgo.Description("Edge type")),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		format := argStringOptional(request, "format")
+
 		result, runErr := index.EdgeListRun(srv.runtime.Edges, index.EdgeListRequest{
 			From: argStringOptional(request, "from"),
 			To:   argStringOptional(request, "to"),
@@ -293,6 +395,27 @@ func registerEdgeListTool(srv *Server) {
 
 		if runErr != nil {
 			return toolError(runErr), nil
+		}
+
+		if format == "compact" {
+			entries := make([]render.EdgeListEntry, 0, len(result.Rows))
+
+			for _, row := range result.Rows {
+				entries = append(entries, render.EdgeListEntry{
+					Type:       row.Type,
+					SourceID:   row.SourceID,
+					TargetID:   row.TargetID,
+					SourcePath: row.SourcePath,
+				})
+			}
+
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactEdgeRows(&buf, entries); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
 		}
 
 		results := make([]map[string]any, 0, len(result.Rows))
@@ -314,13 +437,16 @@ func registerEdgeListTool(srv *Server) {
 
 func registerQueryTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription("Run a structural filter against the workspace, optionally ranked by semantic similarity."),
+		mcpgo.WithDescription("Run a structural filter against the workspace, optionally ranked by semantic similarity. Use include / fields to expand rows with body / edges / properties in one round-trip."),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression (e.g. 'type=ticket status=active')")),
 		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
 		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum cosine similarity to include in semantic results (default 0.5). Lower this when an initial query misses.")),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties (semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -329,6 +455,10 @@ func registerQueryTool(srv *Server) {
 		if parseErr != nil {
 			return toolError(parseErr), nil
 		}
+
+		includeRaw := argStringSlice(request, "include")
+		fields := argStringSlice(request, "fields")
+		format := argStringOptional(request, "format")
 
 		result, runErr := query.Run(ctx, query.Deps{
 			Database:   srv.runtime.Index.DB(),
@@ -345,22 +475,81 @@ func registerQueryTool(srv *Server) {
 			// MCP keeps tool responses bounded by defaulting semantic page
 			// size to 10 when take is unset (CLI returns all ranked rows).
 			SemanticDefaultTake: 10,
+			Include:             includeRaw,
+			Fields:              fields,
+			WorkspaceRoot:       srv.runtime.Root,
 		})
 
 		if runErr != nil {
 			return toolError(runErr), nil
 		}
 
+		if format == "compact" {
+			var compactRows []render.CompactRow
+
+			if result.Semantic == nil {
+				compactRows = make([]render.CompactRow, 0, len(result.Rows))
+
+				for _, row := range result.Rows {
+					compactRows = append(compactRows, render.CompactRow{
+						ID:         row.ID,
+						Type:       row.Type,
+						Title:      row.Title,
+						Body:       row.Body,
+						Properties: row.Properties,
+						Edges:      row.Edges,
+					})
+				}
+			} else {
+				compactRows = make([]render.CompactRow, 0, len(result.Semantic.Ranked))
+
+				for _, scored := range result.Semantic.Ranked {
+					compactRows = append(compactRows, render.CompactRow{
+						ID:         scored.ID,
+						Type:       scored.Type,
+						Title:      scored.Title,
+						Body:       scored.Body,
+						Properties: scored.Properties,
+						Edges:      scored.Edges,
+						Score:      scored.Score,
+						HasScore:   true,
+					})
+				}
+			}
+
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{Fields: fields}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
+		}
+
 		if result.Semantic == nil {
 			results := make([]map[string]any, 0, len(result.Rows))
 
 			for _, row := range result.Rows {
-				results = append(results, map[string]any{
+				entry := map[string]any{
 					"id":    row.ID,
 					"type":  row.Type,
 					"path":  row.Path,
 					"title": row.Title,
-				})
+				}
+
+				if row.Body != "" {
+					entry["body"] = row.Body
+				}
+
+				if row.Properties != nil {
+					entry["properties"] = row.Properties
+				}
+
+				if row.Edges != nil {
+					entry["edges"] = row.Edges
+				}
+
+				results = append(results, entry)
 			}
 
 			return toolJSON(map[string]any{"results": results, "count": len(results)})
@@ -370,14 +559,28 @@ func registerQueryTool(srv *Server) {
 		ranking := make([]map[string]any, 0, len(semantic.Ranked))
 
 		for _, scored := range semantic.Ranked {
-			ranking = append(ranking, map[string]any{
+			entry := map[string]any{
 				"id":      scored.ID,
 				"score":   scored.Score,
 				"type":    scored.Type,
 				"path":    scored.Path,
 				"title":   scored.Title,
 				"snippet": scored.Snippet,
-			})
+			}
+
+			if scored.Body != "" {
+				entry["body"] = scored.Body
+			}
+
+			if scored.Properties != nil {
+				entry["properties"] = scored.Properties
+			}
+
+			if scored.Edges != nil {
+				entry["edges"] = scored.Edges
+			}
+
+			ranking = append(ranking, entry)
 		}
 
 		response := map[string]any{

@@ -11,13 +11,21 @@ import (
 // ListRequest configures ListRun. Filter is the filter-expression string
 // (empty string matches all rows). Sort, Take, and Skip mirror the CLI flags.
 //
-// Phase 1 Task 3 will add Include, Fields, Format here; field set is stable
-// so callers do not have to be rewired again.
+// Include selects per-row expansions: any of "body", "edges", "properties".
+// Fields, when set, names the columns the renderer should project; expandable
+// field names (body, edges, properties) also imply their include flag so a
+// caller can pass `fields=[id,title,body]` without separately requesting
+// `include=body`. WorkspaceRoot is the absolute path used to resolve a row's
+// Path when Include contains "body"; the caller is responsible for providing
+// it (the service has no workspace abstraction).
 type ListRequest struct {
-	Filter string
-	Sort   string
-	Take   int
-	Skip   int
+	Filter        string
+	Sort          string
+	Take          int
+	Skip          int
+	Include       []string
+	Fields        []string
+	WorkspaceRoot string
 }
 
 // ListResult is the typed payload returned by ListRun.
@@ -30,14 +38,19 @@ type ListResult struct {
 // handler ignores them) so the result struct is a strict superset of both
 // callers' needs.
 type ListRow struct {
-	ID            string
-	Type          string
-	Path          string
-	Title         string
-	PropertiesRaw string
-	LastMtime     int64
-	LastSize      int64
-	LastChecksum  string
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	Path          string `json:"path"`
+	Title         string `json:"title"`
+	PropertiesRaw string `json:"-"`
+	LastMtime     int64  `json:"-"`
+	LastSize      int64  `json:"-"`
+	LastChecksum  string `json:"-"`
+
+	// Populated only when Include / Fields requested the matching expansion.
+	Body       string         `json:"body,omitempty"`
+	Properties map[string]any `json:"properties,omitempty"`
+	Edges      []EdgeRef      `json:"edges,omitempty"`
 }
 
 // ListRun is the canonical entry point for the `node list` / `tusk_node_list`
@@ -98,6 +111,18 @@ func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListReques
 
 	if rowsErr := rows.Err(); rowsErr != nil {
 		return nil, rowsErr
+	}
+
+	includeSet, parseIncludeErr := ParseInclude(req.Include)
+
+	if parseIncludeErr != nil {
+		return nil, parseIncludeErr
+	}
+
+	includeSet = MergeInclude(includeSet, IncludeFromFields(req.Fields))
+
+	if expandErr := ExpandListRows(result.Rows, includeSet, req.WorkspaceRoot, database); expandErr != nil {
+		return nil, expandErr
 	}
 
 	return result, nil

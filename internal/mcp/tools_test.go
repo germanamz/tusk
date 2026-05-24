@@ -1571,3 +1571,193 @@ func TestTool_Doctor_WithEmbedStats(test *testing.T) {
 		test.Errorf("stats = %+v", stats)
 	}
 }
+
+// TestTool_NodeGet_IncludeFilter covers the new `include` argument on
+// tusk_node_get: only requested fields appear in the JSON envelope.
+func TestTool_NodeGet_IncludeFilter(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/hi.md",
+		Type:    "note",
+		Title:   "Hi",
+		Body:    []byte("hello world\n"),
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_get", map[string]any{
+		"id":      "notes/hi",
+		"include": []any{"body"},
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_get: %v", callErr)
+	}
+
+	if body["body"] == nil || !strings.Contains(body["body"].(string), "hello world") {
+		test.Errorf("expected body to include 'hello world', got %v", body["body"])
+	}
+
+	if _, present := body["edges"]; present {
+		test.Errorf("expected edges to be omitted, got %v", body["edges"])
+	}
+
+	if _, present := body["properties"]; present {
+		test.Errorf("expected properties to be omitted, got %v", body["properties"])
+	}
+}
+
+// TestTool_NodeList_IncludeBody asserts the new MCP `include` arg expands
+// each row with body content read from disk.
+func TestTool_NodeList_IncludeBody(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/a.md",
+		Type:    "note",
+		Title:   "A",
+		Body:    []byte("alpha body\n"),
+	}); createErr != nil {
+		test.Fatalf("Create A: %v", createErr)
+	}
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/b.md",
+		Type:    "note",
+		Title:   "B",
+		Body:    []byte("beta body\n"),
+	}); createErr != nil {
+		test.Fatalf("Create B: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_list", map[string]any{
+		"type":    "note",
+		"include": []any{"body"},
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 2 {
+		test.Fatalf("len(results) = %d, want 2", len(results))
+	}
+
+	for _, item := range results {
+		entry := item.(map[string]any)
+
+		if entry["body"] == nil {
+			test.Errorf("row %s missing body: %+v", entry["id"], entry)
+		}
+	}
+}
+
+// TestTool_NodeList_FormatCompact asserts format=compact returns the
+// rendered text inside a single text content block (not JSON).
+func TestTool_NodeList_FormatCompact(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/a.md",
+		Type:    "note",
+		Title:   "Alpha",
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	request := mcpgo.CallToolRequest{
+		Params: mcpgo.CallToolParams{
+			Name:      "tusk_node_list",
+			Arguments: map[string]any{"format": "compact"},
+		},
+	}
+
+	result, callErr := srv.HandleToolCall(context.Background(), request)
+
+	if callErr != nil {
+		test.Fatalf("call: %v", callErr)
+	}
+
+	if result.IsError {
+		test.Fatalf("result is error: %v", fmtError(result))
+	}
+
+	if len(result.Content) != 1 {
+		test.Fatalf("expected single content block, got %d", len(result.Content))
+	}
+
+	textContent, ok := result.Content[0].(mcpgo.TextContent)
+
+	if !ok {
+		test.Fatalf("expected TextContent, got %T", result.Content[0])
+	}
+
+	if !strings.Contains(textContent.Text, "notes/a") || !strings.Contains(textContent.Text, "Alpha") {
+		test.Errorf("compact text missing expected fields:\n%s", textContent.Text)
+	}
+
+	// The compact body must NOT be valid JSON — that would mean we're
+	// double-encoding. Sanity-check by trying to parse and asserting the
+	// result is the raw text, not an object.
+	var parsed any
+
+	if jsonErr := json.Unmarshal([]byte(textContent.Text), &parsed); jsonErr == nil {
+		// If it happened to be valid JSON, it should at least not be a map
+		// (the JSON branch returns {"results":[...]}).
+		if _, isMap := parsed.(map[string]any); isMap {
+			test.Errorf("compact branch returned a JSON object, expected raw text:\n%s", textContent.Text)
+		}
+	}
+}
+
+// TestTool_EdgeList_FormatCompact mirrors the node_list compact test for
+// tusk_edge_list.
+func TestTool_EdgeList_FormatCompact(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Edges.UpsertAll("a", "a.md", []index.EdgeRow{
+		{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md"},
+	})
+
+	srv := mcp.NewServer(rt)
+
+	request := mcpgo.CallToolRequest{
+		Params: mcpgo.CallToolParams{
+			Name:      "tusk_edge_list",
+			Arguments: map[string]any{"format": "compact"},
+		},
+	}
+
+	result, callErr := srv.HandleToolCall(context.Background(), request)
+
+	if callErr != nil {
+		test.Fatalf("call: %v", callErr)
+	}
+
+	if result.IsError {
+		test.Fatalf("result is error: %v", fmtError(result))
+	}
+
+	textContent, ok := result.Content[0].(mcpgo.TextContent)
+
+	if !ok {
+		test.Fatalf("expected TextContent, got %T", result.Content[0])
+	}
+
+	if !strings.Contains(textContent.Text, "links") || !strings.Contains(textContent.Text, "a") {
+		test.Errorf("compact edge text missing fields:\n%s", textContent.Text)
+	}
+}

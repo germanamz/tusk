@@ -75,3 +75,68 @@ func TestNodeListCmd_PositionalFilterByType(test *testing.T) {
 		test.Errorf("missing b: %s", body)
 	}
 }
+
+func TestNodeListCmd_IncludeBodyJSON(test *testing.T) {
+	initWorkspace(test)
+
+	create := newRootCmd()
+	create.SetArgs([]string{"node", "create", "--type", "note", "--path", "a.md", "--title", "Alpha"})
+
+	if execErr := create.Execute(); execErr != nil {
+		test.Fatalf("create: %v", execErr)
+	}
+
+	out := &bytes.Buffer{}
+
+	cmd := newRootCmd()
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"node", "list", "--include", "body", "--json"})
+
+	if execErr := cmd.Execute(); execErr != nil {
+		test.Fatalf("list: %v", execErr)
+	}
+
+	body := out.String()
+
+	if !strings.Contains(body, `"body"`) {
+		test.Errorf("expected body key in JSON output:\n%s", body)
+	}
+
+	if !strings.Contains(body, "Alpha") {
+		test.Errorf("expected Alpha in body:\n%s", body)
+	}
+}
+
+func TestNodeListCmd_FormatCompact(test *testing.T) {
+	initWorkspace(test)
+
+	create := newRootCmd()
+	create.SetArgs([]string{"node", "create", "--type", "note", "--path", "a.md", "--title", "Alpha"})
+
+	if execErr := create.Execute(); execErr != nil {
+		test.Fatalf("create: %v", execErr)
+	}
+
+	out := &bytes.Buffer{}
+
+	cmd := newRootCmd()
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"node", "list", "--format", "compact"})
+
+	if execErr := cmd.Execute(); execErr != nil {
+		test.Fatalf("list: %v", execErr)
+	}
+
+	body := out.String()
+
+	if !strings.Contains(body, "a") || !strings.Contains(body, "Alpha") {
+		test.Errorf("expected compact form to include a and Alpha:\n%s", body)
+	}
+
+	// Compact form must not include the legacy header row.
+	if strings.Contains(body, "TYPE") {
+		test.Errorf("compact form should not include uppercase header row:\n%s", body)
+	}
+}

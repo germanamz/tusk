@@ -5,6 +5,7 @@ package query
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/germanamz/tusk/internal/embed"
@@ -18,6 +19,11 @@ import (
 // required argument). Semantic, when non-empty, switches to hybrid mode and
 // ranks the structural result by cosine similarity to the embedded Semantic
 // string.
+//
+// Include / Fields / WorkspaceRoot mirror ListRequest. For structural rows
+// Include populates Body/Edges/Properties via the shared expansion helper.
+// For semantic rows Include=body preserves the ranker-chosen Snippet as the
+// body (spec §4.1) and never reads the full file from disk.
 type Request struct {
 	Filter   string
 	Sort     string
@@ -30,24 +36,41 @@ type Request struct {
 	// when --take is unset); the MCP handler sets it to 10 to keep tool
 	// responses bounded. Ignored when Take > 0.
 	SemanticDefaultTake int
+
+	Include       []string
+	Fields        []string
+	WorkspaceRoot string
 }
 
 // Row is a single structural result.
 type Row struct {
-	ID    string
-	Type  string
-	Path  string
-	Title string
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	Path          string `json:"path"`
+	Title         string `json:"title"`
+	PropertiesRaw string `json:"-"`
+
+	// Populated only when the request's Include / Fields asked for the
+	// matching expansion. Same shape as query.ListRow.
+	Body       string         `json:"body,omitempty"`
+	Properties map[string]any `json:"properties,omitempty"`
+	Edges      []EdgeRef      `json:"edges,omitempty"`
 }
 
 // ScoredRow is a single semantic-ranked result.
 type ScoredRow struct {
-	ID      string
-	Type    string
-	Path    string
-	Title   string
-	Score   float64
-	Snippet string
+	ID      string  `json:"id"`
+	Type    string  `json:"type"`
+	Path    string  `json:"path"`
+	Title   string  `json:"title"`
+	Score   float64 `json:"score"`
+	Snippet string  `json:"snippet"`
+
+	// Body, when set, is the best-matching chunk body for the query (spec
+	// §4.1 — semantic include=body prefers the snippet over the full file).
+	Body       string         `json:"body,omitempty"`
+	Properties map[string]any `json:"properties,omitempty"`
+	Edges      []EdgeRef      `json:"edges,omitempty"`
 }
 
 // Result is the typed payload returned by Run.
@@ -139,7 +162,7 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 			return nil, scanErr
 		}
 
-		row := Row{ID: rowID, Type: rowType, Path: rowPath, Title: rowTitle}
+		row := Row{ID: rowID, Type: rowType, Path: rowPath, Title: rowTitle, PropertiesRaw: propertiesRaw}
 		structural = append(structural, row)
 		nodeIDs = append(nodeIDs, rowID)
 		byID[rowID] = row
@@ -149,9 +172,21 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		return nil, rowsErr
 	}
 
+	includeSet, parseIncludeErr := ParseInclude(req.Include)
+
+	if parseIncludeErr != nil {
+		return nil, parseIncludeErr
+	}
+
+	includeSet = MergeInclude(includeSet, IncludeFromFields(req.Fields))
+
 	result := &Result{Rows: structural}
 
 	if req.Semantic == "" {
+		if expandErr := ExpandRows(result.Rows, includeSet, req.WorkspaceRoot, deps.Database); expandErr != nil {
+			return nil, expandErr
+		}
+
 		return result, nil
 	}
 
@@ -228,14 +263,41 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	for _, scoredCandidate := range ranked {
 		meta := byID[scoredCandidate.NodeID]
-		scored = append(scored, ScoredRow{
+		snippet := filter.RenderSnippetForQuery(scoredCandidate.BestChunkBody, req.Semantic, 200)
+
+		row := ScoredRow{
 			ID:      scoredCandidate.NodeID,
 			Type:    meta.Type,
 			Path:    meta.Path,
 			Title:   meta.Title,
 			Score:   scoredCandidate.Score,
-			Snippet: filter.RenderSnippetForQuery(scoredCandidate.BestChunkBody, req.Semantic, 200),
-		})
+			Snippet: snippet,
+		}
+
+		// Spec §4.1: semantic include=body prefers the best-matching chunk
+		// body over the full file body. We use the unrendered chunk body
+		// (not the snippet ellipsis) so callers get the full unit.
+		if includeSet.Body {
+			row.Body = scoredCandidate.BestChunkBody
+		}
+
+		if includeSet.Properties && meta.PropertiesRaw != "" {
+			var properties map[string]any
+
+			if unmarshalErr := json.Unmarshal([]byte(meta.PropertiesRaw), &properties); unmarshalErr != nil {
+				return nil, fmt.Errorf("expand: parse properties for %s: %w", meta.ID, unmarshalErr)
+			}
+
+			row.Properties = properties
+		}
+
+		scored = append(scored, row)
+	}
+
+	if includeSet.Edges {
+		if expandErr := expandScoredEdges(scored, deps.Database); expandErr != nil {
+			return nil, expandErr
+		}
 	}
 
 	result.Semantic = &SemanticResult{
@@ -246,3 +308,32 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	return result, nil
 }
+
+// expandScoredEdges decorates a slice of ScoredRow with edges in a single
+// batched SQL round-trip — mirrors loadEdgesForRows for the Row/ListRow shape.
+func expandScoredEdges(rows []ScoredRow, db *sql.DB) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	likes := make([]rowLike, len(rows))
+
+	for index := range rows {
+		likes[index] = &scoredRowLike{row: &rows[index]}
+	}
+
+	return loadEdgesForRows(likes, db)
+}
+
+// scoredRowLike adapts ScoredRow to rowLike. Only the methods loadEdgesForRows
+// actually calls are exercised; body/properties setters are no-ops.
+type scoredRowLike struct {
+	row *ScoredRow
+}
+
+func (adapter *scoredRowLike) rowID() string                { return adapter.row.ID }
+func (adapter *scoredRowLike) rowPath() string              { return adapter.row.Path }
+func (adapter *scoredRowLike) rowPropertiesRaw() string     { return "" }
+func (adapter *scoredRowLike) setBody(string)               {}
+func (adapter *scoredRowLike) setProperties(map[string]any) {}
+func (adapter *scoredRowLike) setEdges(value []EdgeRef)     { adapter.row.Edges = value }

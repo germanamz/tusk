@@ -8,11 +8,15 @@ Print the markdown file for a node by id
 
 ### Synopsis
 
-Print the full markdown file (frontmatter + body) for a node by id.
+Print the markdown file (frontmatter + body) for a node by id.
 
 The node id is the workspace-relative path without extension (e.g. a node
-file at notes/hello.md has id "notes/hello"). Output goes to stdout
+file at notes/hello.md has id "notes/hello").
+
+By default (no flags) the command prints the raw markdown file to stdout
 verbatim — useful for piping into editors, less, or another tusk command.
+When --include, --fields, --format, or --json is passed the command emits
+structured output instead (compact for TTY, JSON otherwise).
 
 ```
 tusk node get <node-id> [flags]
@@ -21,8 +25,11 @@ tusk node get <node-id> [flags]
 ### Examples
 
 ```
-  # Print a node
+  # Print the raw file
   tusk node get notes/hello
+
+  # Structured JSON envelope with only the body
+  tusk node get notes/hello --include body --format json
 
   # Open in $EDITOR (round-trip through a temp file)
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md
@@ -31,7 +38,11 @@ tusk node get <node-id> [flags]
 ### Options
 
 ```
-  -h, --help   help for get
+      --fields strings    project returned shape to these fields (comma-separated)
+      --format string     output format: compact|json (default: compact for TTY, json otherwise)
+  -h, --help              help for get
+      --include strings   expand returned shape: body|edges|properties (comma-separated)
+      --json              emit structured JSON (sugar for --format json)
 ```
 
 ### Options inherited from parent commands
