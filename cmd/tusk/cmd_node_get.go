@@ -49,13 +49,13 @@ verbatim — useful for piping into editors, less, or another tusk command.`,
 
 			service := node.NewService(ws.Root, index.NewNodeRepo(store))
 
-			loaded, getErr := service.Get(args[0])
+			result, runErr := node.GetRun(service, node.GetRequest{ID: args[0]})
 
-			if getErr != nil {
-				return getErr
+			if runErr != nil {
+				return runErr
 			}
 
-			rendered, renderErr := os.ReadFile(filepath.Join(ws.Root, loaded.Path))
+			rendered, renderErr := os.ReadFile(filepath.Join(ws.Root, result.Node.Path))
 
 			if renderErr != nil {
 				return renderErr

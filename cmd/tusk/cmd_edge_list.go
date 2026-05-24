@@ -53,17 +53,22 @@ tab-aligned table of source, type, target, attributed source-path.`,
 
 			edgeRepo := index.NewEdgeRepo(store)
 
-			rows, queryErr := selectEdges(edgeRepo, fromFilter, toFilter, typeFilter)
+			result, runErr := index.EdgeListRun(edgeRepo, index.EdgeListRequest{
+				From:          fromFilter,
+				To:            toFilter,
+				Type:          typeFilter,
+				RequireFilter: true,
+			})
 
-			if queryErr != nil {
-				return queryErr
+			if runErr != nil {
+				return runErr
 			}
 
 			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 			_, _ = fmt.Fprintln(tab, "TYPE\tSOURCE\tTARGET\tSOURCE_PATH")
 
-			for _, row := range rows {
+			for _, row := range result.Rows {
 				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", row.Type, row.SourceID, row.TargetID, row.SourcePath)
 			}
 
@@ -76,47 +81,4 @@ tab-aligned table of source, type, target, attributed source-path.`,
 	listCmd.Flags().StringVar(&typeFilter, "type", "", "filter by edge type")
 
 	return listCmd
-}
-
-func selectEdges(repo *index.EdgeRepo, fromID, toID, edgeType string) ([]index.EdgeRow, error) {
-	switch {
-	case fromID != "":
-		rows, listErr := repo.ListBySource(fromID)
-
-		if listErr != nil {
-			return nil, listErr
-		}
-
-		return narrow(rows, toID, edgeType), nil
-	case toID != "":
-		rows, listErr := repo.ListByTarget(toID)
-
-		if listErr != nil {
-			return nil, listErr
-		}
-
-		return narrow(rows, "", edgeType), nil
-	case edgeType != "":
-		return repo.ListByType(edgeType)
-	}
-
-	return nil, fmt.Errorf("specify at least one of --from, --to, --type")
-}
-
-func narrow(rows []index.EdgeRow, toID, edgeType string) []index.EdgeRow {
-	var out []index.EdgeRow
-
-	for _, row := range rows {
-		if toID != "" && row.TargetID != toID {
-			continue
-		}
-
-		if edgeType != "" && row.Type != edgeType {
-			continue
-		}
-
-		out = append(out, row)
-	}
-
-	return out
 }

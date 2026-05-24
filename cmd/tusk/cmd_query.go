@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
-	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -84,36 +84,10 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 				return loadErr
 			}
 
-			expr, parseErrs := filter.NewParser(args[0]).Parse()
+			embedder, embedErr := buildCLIEmbedder(loaded, semanticQuery)
 
-			if len(parseErrs) > 0 {
-				return fmt.Errorf("filter parse: %v", parseErrs[0])
-			}
-
-			validateErrs := filter.Validate(expr, *loaded)
-
-			if len(validateErrs) > 0 {
-				return fmt.Errorf("filter validate: %v", validateErrs[0])
-			}
-
-			sortKeys, sortErr := filter.ParseSort(sortSpec)
-
-			if sortErr != nil {
-				return sortErr
-			}
-
-			sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
-				SortKeys: sortKeys,
-				Take:     take,
-				Skip:     skip,
-			})
-
-			if compileErr != nil {
-				return compileErr
-			}
-
-			if semanticQuery != "" {
-				return runSemanticQuery(cmd, ws, loaded, sqlQuery, params, take, skip, semanticQuery, emitJSON)
+			if embedErr != nil {
+				return embedErr
 			}
 
 			store, openErr := index.Open(ws.IndexPath)
@@ -124,44 +98,34 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 
 			defer store.Close()
 
-			rows, queryErr := store.DB().Query(sqlQuery, params...)
-
-			if queryErr != nil {
-				return queryErr
+			deps := query.Deps{
+				Database:   store.DB(),
+				Manifest:   loaded,
+				Embedder:   embedder,
+				Embeddings: index.NewEmbeddingRepo(store),
 			}
 
-			defer rows.Close()
+			result, runErr := query.Run(context.Background(), deps, query.Request{
+				Filter:   args[0],
+				Sort:     sortSpec,
+				Take:     take,
+				Skip:     skip,
+				Semantic: semanticQuery,
+				// CLI preserves the legacy behavior of returning every ranked
+				// row when --take is unset; MCP applies a default page size
+				// of 10 to keep tool responses bounded.
+				SemanticDefaultTake: 0,
+			})
 
-			if emitJSON {
-				_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
-
-				return nil
+			if runErr != nil {
+				return runErr
 			}
 
-			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-
-			_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
-
-			for rows.Next() {
-				var (
-					rowID         string
-					rowType       string
-					rowPath       string
-					rowTitle      string
-					propertiesRaw string
-					lastMtime     int64
-					lastSize      int64
-					lastChecksum  string
-				)
-
-				if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
-					return scanErr
-				}
-
-				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", rowID, rowType, rowTitle, rowPath)
+			if result.Semantic != nil {
+				return renderQuerySemantic(cmd, result.Semantic, emitJSON)
 			}
 
-			return tab.Flush()
+			return renderQueryStructural(cmd, result.Rows, emitJSON)
 		},
 	}
 
@@ -174,118 +138,69 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 	return queryCmd
 }
 
-func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manifest.Manifest, structuralSQL string, structuralParams []any, take, skip int, semanticQuery string, emitJSON bool) error {
+// buildCLIEmbedder constructs an embed.Embedder from the manifest's
+// [embeddings] block when the CLI is invoked with --semantic. Returns nil
+// (and nil error) when semanticQuery is empty.
+func buildCLIEmbedder(loaded *manifest.Manifest, semanticQuery string) (embed.Embedder, error) {
+	if semanticQuery == "" {
+		return nil, nil
+	}
+
 	if loaded.Embeddings.Provider == "" {
-		return fmt.Errorf("--semantic requires [embeddings] block in tusk.toml")
+		return nil, fmt.Errorf("--semantic requires [embeddings] block in tusk.toml")
 	}
 
 	if loaded.Embeddings.Provider != "ollama" {
-		return fmt.Errorf("--semantic: unsupported provider %q (Plan 5 supports ollama only)", loaded.Embeddings.Provider)
+		return nil, fmt.Errorf("--semantic: unsupported provider %q (Plan 5 supports ollama only)", loaded.Embeddings.Provider)
 	}
 
 	timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
 
-	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+	return embed.NewOllamaEmbedder(embed.OllamaConfig{
 		Endpoint: loaded.Embeddings.Endpoint,
 		Model:    loaded.Embeddings.Model,
 		Dim:      loaded.Embeddings.Dim,
 		Timeout:  timeout,
-	})
+	}), nil
+}
 
-	queryVector, queryErr := embedder.Embed(context.Background(), []byte(semanticQuery))
-
-	if queryErr != nil {
-		return queryErr
-	}
-
-	store, openErr := index.Open(ws.IndexPath)
-
-	if openErr != nil {
-		return openErr
-	}
-
-	defer store.Close()
-
-	rows, structuralErr := store.DB().Query(structuralSQL, structuralParams...)
-
-	if structuralErr != nil {
-		return structuralErr
-	}
-
-	defer rows.Close()
-
-	type queryMeta struct {
-		Type  string
-		Path  string
-		Title string
-	}
-
-	var nodeIDs []string
-
-	byID := map[string]queryMeta{}
-
-	for rows.Next() {
-		var (
-			rowID, rowType, rowPath, rowTitle, propertiesRaw, lastChecksum string
-			lastMtime, lastSize                                            int64
-		)
-
-		if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
-			return scanErr
-		}
-
-		nodeIDs = append(nodeIDs, rowID)
-		byID[rowID] = queryMeta{Type: rowType, Path: rowPath, Title: rowTitle}
-	}
-
-	embeddingRepo := index.NewEmbeddingRepo(store)
-	loadedRows, loadErr := embeddingRepo.ListByNodeIDs(nodeIDs)
-
-	if loadErr != nil {
-		return loadErr
-	}
-
-	candidates := make([]filter.SemanticCandidate, 0, len(loadedRows))
-
-	for _, embeddingRow := range loadedRows {
-		candidates = append(candidates, filter.SemanticCandidate{
-			NodeID:   embeddingRow.NodeID,
-			ChunkIdx: embeddingRow.ChunkIdx,
-			Vector:   embeddingRow.Vector,
-			Body:     embeddingRow.Body,
-		})
-	}
-
-	ranked := filter.SemanticRank(candidates, queryVector)
-
-	if take > 0 {
-		startIdx := skip
-
-		if startIdx > len(ranked) {
-			startIdx = len(ranked)
-		}
-
-		endIdx := startIdx + take
-
-		if endIdx > len(ranked) {
-			endIdx = len(ranked)
-		}
-
-		ranked = ranked[startIdx:endIdx]
-	}
-
+// renderQueryStructural emits the structural-result rendering. The JSON
+// branch preserves the legacy behavior of emitting an empty array sentinel
+// regardless of result content (no caller depends on the structured body;
+// --json is documented as "use --semantic for rich output").
+func renderQueryStructural(cmd *cobra.Command, rows []query.Row, emitJSON bool) error {
 	if emitJSON {
-		out := make([]map[string]any, 0, len(ranked))
+		_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
 
-		for _, scored := range ranked {
-			meta := byID[scored.NodeID]
+		return nil
+	}
+
+	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+
+	_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
+
+	for _, row := range rows {
+		_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", row.ID, row.Type, row.Title, row.Path)
+	}
+
+	return tab.Flush()
+}
+
+// renderQuerySemantic emits the ranked-result rendering for --semantic
+// queries. JSON output is a flat array of {id,score,type,path,title,snippet};
+// the table view shows id/score/snippet only.
+func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, emitJSON bool) error {
+	if emitJSON {
+		out := make([]map[string]any, 0, len(semantic.Ranked))
+
+		for _, scored := range semantic.Ranked {
 			out = append(out, map[string]any{
-				"id":      scored.NodeID,
+				"id":      scored.ID,
 				"score":   scored.Score,
-				"type":    meta.Type,
-				"path":    meta.Path,
-				"title":   meta.Title,
-				"snippet": filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
+				"type":    scored.Type,
+				"path":    scored.Path,
+				"title":   scored.Title,
+				"snippet": scored.Snippet,
 			})
 		}
 
@@ -298,12 +213,8 @@ func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manif
 
 	_, _ = fmt.Fprintln(tab, "ID\tSCORE\tSNIPPET")
 
-	for _, scored := range ranked {
-		_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%s\n",
-			scored.NodeID,
-			scored.Score,
-			filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
-		)
+	for _, scored := range semantic.Ranked {
+		_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%s\n", scored.ID, scored.Score, scored.Snippet)
 	}
 
 	return tab.Flush()

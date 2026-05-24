@@ -10,9 +10,9 @@ import (
 
 	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/doctor"
-	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/status"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
@@ -40,22 +40,22 @@ func registerStatusTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		snap, snapErr := status.Snapshot(status.Config{
+		result, runErr := status.Run(status.Request{
 			Nodes:      srv.runtime.Nodes,
 			Edges:      srv.runtime.Edges,
 			EmbedQueue: srv.runtime.EmbedQueue,
 			Meta:       srv.runtime.Meta,
 		})
 
-		if snapErr != nil {
-			return toolError(snapErr), nil
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
 		return toolJSON(map[string]any{
-			"nodes_by_type":     snap.NodesByType,
-			"edge_count":        snap.EdgeCount,
-			"embed_queue_depth": snap.EmbedQueueDepth,
-			"last_reindex_at":   snap.LastReindexAt,
+			"nodes_by_type":     result.NodesByType,
+			"edge_count":        result.EdgeCount,
+			"embed_queue_depth": result.EmbedQueueDepth,
+			"last_reindex_at":   result.LastReindexAt,
 		})
 	}
 
@@ -203,11 +203,13 @@ func registerNodeGetTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		loaded, getErr := srv.runtime.NodeService.Get(nodeID)
+		result, runErr := node.GetRun(srv.runtime.NodeService, node.GetRequest{ID: nodeID})
 
-		if getErr != nil {
-			return toolError(getErr), nil
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
+
+		loaded := result.Node
 
 		return toolJSON(map[string]any{
 			"id":         loaded.ID,
@@ -232,20 +234,29 @@ func registerNodeListTool(srv *Server) {
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		typeFilter := argStringOptional(request, "type")
 
-		nodes, listErr := srv.runtime.NodeService.List(node.ListFilter{Type: typeFilter})
+		// Build a filter expression equivalent to ListFilter{Type:X} so the
+		// CLI and MCP share node.ListRun. An empty type yields an empty
+		// filter string, which filter.Parse treats as match-all.
+		var filterExpr string
 
-		if listErr != nil {
-			return toolError(listErr), nil
+		if typeFilter != "" {
+			filterExpr = fmt.Sprintf("type=%s", typeFilter)
 		}
 
-		results := make([]map[string]any, 0, len(nodes))
+		result, runErr := query.ListRun(srv.runtime.Index.DB(), srv.runtime.Manifest, query.ListRequest{Filter: filterExpr})
 
-		for _, item := range nodes {
+		if runErr != nil {
+			return toolError(runErr), nil
+		}
+
+		results := make([]map[string]any, 0, len(result.Rows))
+
+		for _, row := range result.Rows {
 			results = append(results, map[string]any{
-				"id":    item.ID,
-				"type":  item.Type,
-				"path":  item.Path,
-				"title": item.Title,
+				"id":    row.ID,
+				"type":  row.Type,
+				"path":  row.Path,
+				"title": row.Title,
 			})
 		}
 
@@ -267,31 +278,19 @@ func registerEdgeListTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		from := argStringOptional(request, "from")
-		to := argStringOptional(request, "to")
-		edgeType := argStringOptional(request, "type")
+		result, runErr := index.EdgeListRun(srv.runtime.Edges, index.EdgeListRequest{
+			From: argStringOptional(request, "from"),
+			To:   argStringOptional(request, "to"),
+			Type: argStringOptional(request, "type"),
+		})
 
-		var rows []index.EdgeRow
-		var listErr error
-
-		switch {
-		case from != "":
-			rows, listErr = srv.runtime.Edges.ListBySource(from)
-		case to != "":
-			rows, listErr = srv.runtime.Edges.ListByTarget(to)
-		case edgeType != "":
-			rows, listErr = srv.runtime.Edges.ListByType(edgeType)
-		default:
-			rows, listErr = srv.runtime.Edges.ListAll()
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
-		if listErr != nil {
-			return toolError(listErr), nil
-		}
+		results := make([]map[string]any, 0, len(result.Rows))
 
-		results := make([]map[string]any, 0, len(rows))
-
-		for _, row := range rows {
+		for _, row := range result.Rows {
 			results = append(results, map[string]any{
 				"type":        row.Type,
 				"source_id":   row.SourceID,
@@ -324,166 +323,64 @@ func registerQueryTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		sortSpec := argStringOptional(request, "sort")
-		take := argIntOptional(request, "take", 0)
-		skip := argIntOptional(request, "skip", 0)
-		semanticQuery := argStringOptional(request, "semantic")
-		minScore := argFloatOptional(request, "min_score", 0.5)
-
-		expr, parseErrs := filter.NewParser(filterText).Parse()
-
-		if len(parseErrs) > 0 {
-			return toolError(&parseErrs[0]), nil
-		}
-
-		if validateErrs := filter.Validate(expr, *srv.runtime.Manifest); len(validateErrs) > 0 {
-			return toolError(&validateErrs[0]), nil
-		}
-
-		sortKeys, sortErr := filter.ParseSort(sortSpec)
-
-		if sortErr != nil {
-			return toolError(sortErr), nil
-		}
-
-		sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
-			SortKeys: sortKeys,
-			Take:     take,
-			Skip:     skip,
+		result, runErr := query.Run(ctx, query.Deps{
+			Database:   srv.runtime.Index.DB(),
+			Manifest:   srv.runtime.Manifest,
+			Embedder:   srv.runtime.Embedder,
+			Embeddings: srv.runtime.Embeddings,
+		}, query.Request{
+			Filter:   filterText,
+			Sort:     argStringOptional(request, "sort"),
+			Take:     argIntOptional(request, "take", 0),
+			Skip:     argIntOptional(request, "skip", 0),
+			Semantic: argStringOptional(request, "semantic"),
+			MinScore: argFloatOptional(request, "min_score", 0.5),
+			// MCP keeps tool responses bounded by defaulting semantic page
+			// size to 10 when take is unset (CLI returns all ranked rows).
+			SemanticDefaultTake: 10,
 		})
 
-		if compileErr != nil {
-			return toolError(compileErr), nil
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
-		rows, queryErr := srv.runtime.Index.DB().Query(sqlQuery, params...)
+		if result.Semantic == nil {
+			results := make([]map[string]any, 0, len(result.Rows))
 
-		if queryErr != nil {
-			return toolError(queryErr), nil
-		}
-
-		defer rows.Close()
-
-		type queryResult struct {
-			ID    string `json:"id"`
-			Type  string `json:"type"`
-			Path  string `json:"path"`
-			Title string `json:"title"`
-		}
-
-		var results []queryResult
-		var ids []string
-
-		for rows.Next() {
-			var (
-				rowID, rowType, rowPath, rowTitle, propertiesRaw, lastChecksum string
-				lastMtime, lastSize                                            int64
-			)
-
-			if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
-				return toolError(scanErr), nil
+			for _, row := range result.Rows {
+				results = append(results, map[string]any{
+					"id":    row.ID,
+					"type":  row.Type,
+					"path":  row.Path,
+					"title": row.Title,
+				})
 			}
 
-			results = append(results, queryResult{ID: rowID, Type: rowType, Path: rowPath, Title: rowTitle})
-			ids = append(ids, rowID)
-		}
-
-		if semanticQuery == "" {
 			return toolJSON(map[string]any{"results": results, "count": len(results)})
 		}
 
-		if srv.runtime.Embedder == nil {
-			return toolError(fmt.Errorf("semantic ranking requires [embeddings] in tusk.toml")), nil
-		}
+		semantic := result.Semantic
+		ranking := make([]map[string]any, 0, len(semantic.Ranked))
 
-		queryVector, embedErr := srv.runtime.Embedder.Embed(ctx, []byte(semanticQuery))
-
-		if embedErr != nil {
-			return toolError(embedErr), nil
-		}
-
-		loaded, loadErr := srv.runtime.Embeddings.ListByNodeIDs(ids)
-
-		if loadErr != nil {
-			return toolError(loadErr), nil
-		}
-
-		candidates := make([]filter.SemanticCandidate, 0, len(loaded))
-
-		for _, embeddingRow := range loaded {
-			candidates = append(candidates, filter.SemanticCandidate{
-				NodeID:   embeddingRow.NodeID,
-				ChunkIdx: embeddingRow.ChunkIdx,
-				Vector:   embeddingRow.Vector,
-				Body:     embeddingRow.Body,
-			})
-		}
-
-		ranked := filter.SemanticRank(candidates, queryVector)
-
-		filteredBelowMinScore := 0
-
-		if minScore > 0 {
-			kept := ranked[:0]
-
-			for _, scored := range ranked {
-				if scored.Score >= minScore {
-					kept = append(kept, scored)
-
-					continue
-				}
-
-				filteredBelowMinScore++
-			}
-
-			ranked = kept
-		}
-
-		effectiveTake := take
-		if effectiveTake <= 0 {
-			effectiveTake = 10
-		}
-
-		startIdx := skip
-
-		if startIdx > len(ranked) {
-			startIdx = len(ranked)
-		}
-
-		endIdx := startIdx + effectiveTake
-
-		if endIdx > len(ranked) {
-			endIdx = len(ranked)
-		}
-
-		ranked = ranked[startIdx:endIdx]
-
-		ranking := make([]map[string]any, 0, len(ranked))
-		byID := map[string]queryResult{}
-
-		for _, item := range results {
-			byID[item.ID] = item
-		}
-
-		for _, scored := range ranked {
+		for _, scored := range semantic.Ranked {
 			ranking = append(ranking, map[string]any{
-				"id":      scored.NodeID,
+				"id":      scored.ID,
 				"score":   scored.Score,
-				"type":    byID[scored.NodeID].Type,
-				"path":    byID[scored.NodeID].Path,
-				"title":   byID[scored.NodeID].Title,
-				"snippet": filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
+				"type":    scored.Type,
+				"path":    scored.Path,
+				"title":   scored.Title,
+				"snippet": scored.Snippet,
 			})
 		}
 
 		response := map[string]any{
 			"results": ranking,
 			"count":   len(ranking),
-			"model":   srv.runtime.Embedder.Model(),
+			"model":   semantic.Model,
 		}
 
-		if len(ranking) == 0 && filteredBelowMinScore > 0 {
-			response["filtered_below_min_score"] = filteredBelowMinScore
+		if len(ranking) == 0 && semantic.FilteredBelowMinScore > 0 {
+			response["filtered_below_min_score"] = semantic.FilteredBelowMinScore
 		}
 
 		return toolJSON(response)
@@ -512,33 +409,14 @@ func registerDoctorTool(srv *Server) {
 			Root:          srv.runtime.Root,
 		}
 
-		var migrationReport *doctor.MigrationReport
-
-		if !noMigrate {
-			migrated, migrateErr := doctor.Migrate(cfg)
-
-			if migrateErr != nil {
-				return toolError(migrateErr), nil
-			}
-
-			migrationReport = migrated
-		}
-
-		report, runErr := doctor.Run(cfg)
+		runResult, runErr := doctor.RunWithMigration(doctor.Request{Cfg: cfg, NoMigrate: noMigrate})
 
 		if runErr != nil {
 			return toolError(runErr), nil
 		}
 
-		if noMigrate {
-			legacyIssues, legacyErr := doctor.LegacyDrift(cfg)
-
-			if legacyErr != nil {
-				return toolError(legacyErr), nil
-			}
-
-			report.Issues = append(report.Issues, legacyIssues...)
-		}
+		report := runResult.Report
+		migrationReport := runResult.Migration
 
 		issues := make([]map[string]any, 0, len(report.Issues))
 

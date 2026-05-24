@@ -5,9 +5,9 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -71,34 +71,6 @@ and --skip M to paginate. For structural-and-semantic ranking, use
 				filterArg = args[0]
 			}
 
-			expr, parseErrs := filter.NewParser(filterArg).Parse()
-
-			if len(parseErrs) > 0 {
-				return fmt.Errorf("filter parse: %v", parseErrs[0])
-			}
-
-			validateErrs := filter.Validate(expr, *loaded)
-
-			if len(validateErrs) > 0 {
-				return fmt.Errorf("filter validate: %v", validateErrs[0])
-			}
-
-			sortKeys, sortErr := filter.ParseSort(sortSpec)
-
-			if sortErr != nil {
-				return sortErr
-			}
-
-			sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
-				SortKeys: sortKeys,
-				Take:     take,
-				Skip:     skip,
-			})
-
-			if compileErr != nil {
-				return compileErr
-			}
-
 			store, openErr := index.Open(ws.IndexPath)
 
 			if openErr != nil {
@@ -107,35 +79,23 @@ and --skip M to paginate. For structural-and-semantic ranking, use
 
 			defer store.Close()
 
-			rows, queryErr := store.DB().Query(sqlQuery, params...)
+			result, runErr := query.ListRun(store.DB(), loaded, query.ListRequest{
+				Filter: filterArg,
+				Sort:   sortSpec,
+				Take:   take,
+				Skip:   skip,
+			})
 
-			if queryErr != nil {
-				return queryErr
+			if runErr != nil {
+				return runErr
 			}
-
-			defer rows.Close()
 
 			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 			_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
 
-			for rows.Next() {
-				var (
-					rowID         string
-					rowType       string
-					rowPath       string
-					rowTitle      string
-					propertiesRaw string
-					lastMtime     int64
-					lastSize      int64
-					lastChecksum  string
-				)
-
-				if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
-					return scanErr
-				}
-
-				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", rowID, rowType, rowTitle, rowPath)
+			for _, row := range result.Rows {
+				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", row.ID, row.Type, row.Title, row.Path)
 			}
 
 			return tab.Flush()
