@@ -119,10 +119,8 @@ the output format (default: compact at TTY, JSON when piped).`,
 				composeDeps := contextcompose.Deps{
 					Manifest:      loaded,
 					Dispatcher:    dispatcher,
-					NodeService:   aliasDeps.NodeService,
 					WorkspaceRoot: ws.Root,
 					Database:      store.DB(),
-					Edges:         aliasDeps.Edges,
 				}
 
 				result, composeErr := contextcompose.Compose(cmd.Context(), composeDeps, contextcompose.Request{

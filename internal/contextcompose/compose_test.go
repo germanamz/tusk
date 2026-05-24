@@ -83,10 +83,8 @@ Beta body.
 	composeDeps := contextcompose.Deps{
 		Manifest:      loaded,
 		Dispatcher:    dispatcher,
-		NodeService:   aliasDeps.NodeService,
 		WorkspaceRoot: root,
 		Database:      store.DB(),
-		Edges:         edges,
 	}
 
 	return composeDeps, loaded
@@ -307,5 +305,89 @@ func TestCompose_IncludeOverridesPinnedExpansion(test *testing.T) {
 
 	if result.Pinned[0].Body != "" {
 		test.Errorf("Pinned[0].Body = %q, want empty when only edges requested", result.Pinned[0].Body)
+	}
+}
+
+// TestCompose_RecentDefaultIncludeInjected confirms that an alias declared
+// WITHOUT args.include picks up the digest-level default ([body, edges] when
+// Request.Include is empty) so the recent rows arrive with body populated.
+// Documents the contract called out in Request.Include's doc comment.
+func TestCompose_RecentDefaultIncludeInjected(test *testing.T) {
+	deps, loaded := setupComposeWorkspace(test)
+
+	loaded.Aliases = map[string]manifest.Alias{
+		"recent-notes": {
+			Name:    "recent-notes",
+			Command: "node list",
+			Args:    map[string]any{"filter": "type=note"},
+		},
+	}
+
+	recent := loaded.Aliases["recent-notes"]
+
+	loaded.Context = &manifest.Context{
+		Recent: &recent,
+	}
+
+	result, err := contextcompose.Compose(context.Background(), deps, contextcompose.Request{})
+
+	if err != nil {
+		test.Fatalf("Compose: %v", err)
+	}
+
+	if len(result.Recent) == 0 {
+		test.Fatalf("Recent empty; want default-include injection to produce rows")
+	}
+
+	var bodiesPopulated int
+
+	for _, row := range result.Recent {
+		if row.Body != "" {
+			bodiesPopulated++
+		}
+	}
+
+	if bodiesPopulated == 0 {
+		test.Errorf("expected recent rows to carry body via injected default include; got %+v", result.Recent)
+	}
+}
+
+// TestCompose_RecentAliasIncludeWinsOverDefault confirms that an alias
+// declaring its own args.include is NOT overwritten by the digest-level
+// default. The author's explicit choice (here: edges only) survives.
+func TestCompose_RecentAliasIncludeWinsOverDefault(test *testing.T) {
+	deps, loaded := setupComposeWorkspace(test)
+
+	loaded.Aliases = map[string]manifest.Alias{
+		"recent-edges-only": {
+			Name:    "recent-edges-only",
+			Command: "node list",
+			Args: map[string]any{
+				"filter":  "type=note",
+				"include": []any{"edges"},
+			},
+		},
+	}
+
+	recent := loaded.Aliases["recent-edges-only"]
+
+	loaded.Context = &manifest.Context{
+		Recent: &recent,
+	}
+
+	result, err := contextcompose.Compose(context.Background(), deps, contextcompose.Request{})
+
+	if err != nil {
+		test.Fatalf("Compose: %v", err)
+	}
+
+	if len(result.Recent) == 0 {
+		test.Fatalf("Recent empty; want alias-declared include to produce rows")
+	}
+
+	for _, row := range result.Recent {
+		if row.Body != "" {
+			test.Errorf("row %q has body %q; alias declared include=[edges] only, default must not override", row.ID, row.Body)
+		}
 	}
 }

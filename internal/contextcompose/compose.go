@@ -27,9 +27,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
-	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
 )
 
@@ -44,16 +42,14 @@ type Result struct {
 	MissingPinned []string                                 `json:"missing_pinned,omitempty"`
 }
 
-// Deps bundles every primitive the composer touches. Mirrors
-// aliasdispatch.Deps so callers can construct a single struct and pass
-// matching subsets to both packages.
+// Deps bundles every primitive the composer touches. Pinned rows are
+// loaded directly via query.ListRun (hence Database + WorkspaceRoot);
+// recent and include sections go through the alias Dispatcher.
 type Deps struct {
 	Manifest      *manifest.Manifest
 	Dispatcher    *aliasdispatch.Dispatcher
-	NodeService   *node.Service
 	WorkspaceRoot string
 	Database      *sql.DB
-	Edges         *index.EdgeRepo
 }
 
 // Request narrows the per-call shape of the composer.
@@ -117,7 +113,7 @@ func Compose(ctx context.Context, deps Deps, req Request) (*Result, error) {
 	}
 
 	if cfg.Recent != nil {
-		recentRows, recentErr := loadRecent(ctx, deps, cfg.Recent)
+		recentRows, recentErr := loadRecent(ctx, deps, cfg.Recent, include)
 
 		if recentErr != nil {
 			return nil, recentErr
@@ -210,8 +206,16 @@ func loadPinned(deps Deps, ids []string, include []string) ([]query.ListRow, []s
 // Recent aliases targeting verbs other than `node list` fall back to an
 // empty slice — the spec calls them "unlikely but allowed" and the
 // renderer treats an empty Recent as "no recent activity".
-func loadRecent(ctx context.Context, deps Deps, alias *manifest.Alias) ([]query.ListRow, error) {
-	dispatched, runErr := deps.Dispatcher.Run(ctx, *alias)
+//
+// The defaultInclude argument carries the effective per-node expansion set
+// (Request.Include, or [body, edges] when the caller did not override).
+// It is injected into the alias's args ONLY when the alias did not declare
+// its own args.include — explicit alias config wins over the digest-level
+// default so authors can still trim or expand recent independently.
+func loadRecent(ctx context.Context, deps Deps, alias *manifest.Alias, defaultInclude []string) ([]query.ListRow, error) {
+	effective := withIncludeFallback(*alias, defaultInclude)
+
+	dispatched, runErr := deps.Dispatcher.Run(ctx, effective)
 
 	if runErr != nil {
 		return nil, fmt.Errorf("contextcompose: recent: %w", runErr)
@@ -307,6 +311,41 @@ func dispatchIncludes(ctx context.Context, deps Deps, names []string) (map[strin
 	}
 
 	return out, nil
+}
+
+// withIncludeFallback returns a copy of alias with args["include"] set to
+// fallback when the alias does not declare an include key. When the alias
+// already carries args.include, the copy is returned unchanged so the
+// author's explicit choice wins. fallback==nil is also a no-op.
+//
+// The injected slice uses []any (not []string) so the dispatcher's
+// optionalStringSlice helper accepts it; that helper coerces []any
+// elements back to []string before the underlying ListRequest is built.
+func withIncludeFallback(alias manifest.Alias, fallback []string) manifest.Alias {
+	if len(fallback) == 0 {
+		return alias
+	}
+
+	if _, hasInclude := alias.Args["include"]; hasInclude {
+		return alias
+	}
+
+	args := make(map[string]any, len(alias.Args)+1)
+
+	for key, value := range alias.Args {
+		args[key] = value
+	}
+
+	asAny := make([]any, len(fallback))
+
+	for index, token := range fallback {
+		asAny[index] = token
+	}
+
+	args["include"] = asAny
+	alias.Args = args
+
+	return alias
 }
 
 // SortedIncludeNames returns the alias names from result.Aliases in

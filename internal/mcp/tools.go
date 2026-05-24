@@ -1297,10 +1297,8 @@ func registerContextTool(srv *Server) {
 		composeDeps := contextcompose.Deps{
 			Manifest:      srv.runtime.Manifest,
 			Dispatcher:    dispatcher,
-			NodeService:   srv.runtime.NodeService,
 			WorkspaceRoot: srv.runtime.Root,
 			Database:      srv.runtime.Index.DB(),
-			Edges:         srv.runtime.Edges,
 		}
 
 		composed, composeErr := contextcompose.Compose(ctx, composeDeps, contextcompose.Request{
