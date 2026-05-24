@@ -57,7 +57,9 @@ for a diagnostic-only run.`,
 				return loadErr
 			}
 
-			manifest.ValidateAliases(loaded, buildVerbIntrospector(cmd.Root()))
+			introspect := buildVerbIntrospector(cmd.Root())
+			manifest.ValidateAliases(loaded, introspect)
+			manifest.ValidateContext(loaded, introspect)
 
 			out := cmd.OutOrStdout()
 
@@ -112,6 +114,18 @@ for a diagnostic-only run.`,
 
 					for _, aliasErr := range report.AliasErrors {
 						_, _ = fmt.Fprintf(out, "  %s: %s\n", aliasErr.Name, aliasErr.Message)
+					}
+				}
+
+				if len(report.ContextErrors) > 0 || len(report.MissingPinnedIDs) > 0 {
+					_, _ = fmt.Fprintln(out, "context:")
+
+					for _, contextErr := range report.ContextErrors {
+						_, _ = fmt.Fprintf(out, "  %s\n", contextErr.Message)
+					}
+
+					for _, missingID := range report.MissingPinnedIDs {
+						_, _ = fmt.Fprintf(out, "  missing pinned: %s\n", missingID)
 					}
 				}
 

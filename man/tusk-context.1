@@ -1,0 +1,69 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-context - Compose a warm-context digest from the manifest [context] block
+
+
+.SH SYNOPSIS
+\fBtusk context [flags]\fP
+
+
+.SH DESCRIPTION
+Print the composed warm-context digest for this workspace.
+
+.PP
+The digest is the single entry point an agent calls at session start instead
+of issuing three to five exploratory list/get/query calls. It returns:
+.IP \(bu 2
+Pinned nodes ([context.pinned]) with body + edges expanded by default.
+.IP \(bu 2
+Recent activity ([context.recent] or recent = ""): one alias
+result, typically a node list filtered with modified-since:d.
+.IP \(bu 2
+Aliases ([context.include]): a fan-out over named, manifest-declared
+aliases; each result is folded under its alias name.
+
+.PP
+Use --include to override the per-node expansion set for the pinned and
+recent sections (default: body,edges). Use --format / --json to override
+the output format (default: compact at TTY, JSON when piped).
+
+
+.SH OPTIONS
+\fB--format\fP=""
+	output format: compact|json (default: compact at TTY, JSON when piped)
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for context
+
+.PP
+\fB--include\fP=[]
+	per-node include set for pinned + recent (default body,edges)
+
+.PP
+\fB--json\fP[=false]
+	emit structured JSON (sugar for --format json)
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Pull the digest at session start
+  tusk context
+
+  # Trim per-node payload to edges only
+  tusk context --include edges
+
+  # Pipe the digest into another tool
+  tusk context --json
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP

@@ -43,6 +43,7 @@ tusk_node_create, …) so agents can use the same surface without a shell.
 
 ### SEE ALSO
 
+* [tusk context](tusk_context.md)	 - Compose a warm-context digest from the manifest [context] block
 * [tusk doctor](tusk_doctor.md)	 - Surface validation warnings, dangling edges, and index health issues
 * [tusk edge](tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
 * [tusk init](tusk_init.md)	 - Initialize a Tusk workspace in the current directory

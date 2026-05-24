@@ -10,6 +10,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/behavior/workflow"
+	"github.com/germanamz/tusk/internal/contextcompose"
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
@@ -35,6 +36,7 @@ func registerTools(srv *Server) {
 	registerEdgeRemoveTool(srv)
 	registerReindexTool(srv)
 	registerRunTool(srv)
+	registerContextTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -668,6 +670,22 @@ func registerDoctorTool(srv *Server) {
 			response["alias_errors"] = aliasErrors
 		}
 
+		if len(report.ContextErrors) > 0 {
+			contextErrors := make([]map[string]any, 0, len(report.ContextErrors))
+
+			for _, contextErr := range report.ContextErrors {
+				contextErrors = append(contextErrors, map[string]any{
+					"message": contextErr.Message,
+				})
+			}
+
+			response["context_errors"] = contextErrors
+		}
+
+		if len(report.MissingPinnedIDs) > 0 {
+			response["missing_pinned_ids"] = report.MissingPinnedIDs
+		}
+
 		if migrationReport != nil {
 			response["migrated"] = migrationReport.Migrated
 			response["skipped"] = migrationReport.Skipped
@@ -1242,6 +1260,188 @@ func registerRunTool(srv *Server) {
 	}
 
 	srv.register(tool, handler)
+}
+
+// registerContextTool exposes the manifest-declared [context] block as a
+// composable MCP tool. The handler builds a contextcompose.Compose call
+// off the runtime, returning the {pinned, recent, aliases} envelope.
+func registerContextTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_context",
+		mcpgo.WithDescription("Composed warm-context digest: pinned nodes, recent activity, and named aliases per [context] in tusk.toml."),
+		mcpgo.WithArray("include", mcpgo.Description("Override the per-node include set (default [body, edges])."), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact.")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		includeOverride := argStringSlice(request, "include")
+		format := argStringOptional(request, "format")
+
+		aliasDeps := aliasdispatch.Deps{
+			Database:            srv.runtime.Index.DB(),
+			Manifest:            srv.runtime.Manifest,
+			WorkspaceRoot:       srv.runtime.Root,
+			NodeService:         srv.runtime.NodeService,
+			Nodes:               srv.runtime.Nodes,
+			Edges:               srv.runtime.Edges,
+			EmbedQueue:          srv.runtime.EmbedQueue,
+			WorkflowDrift:       srv.runtime.WorkflowDrift,
+			PropertyDrift:       srv.runtime.PropertyDrift,
+			Embeddings:          srv.runtime.Embeddings,
+			Meta:                srv.runtime.Meta,
+			Embedder:            srv.runtime.Embedder,
+			SemanticDefaultTake: 10,
+		}
+
+		dispatcher := aliasdispatch.NewDispatcher(aliasDeps)
+
+		composeDeps := contextcompose.Deps{
+			Manifest:      srv.runtime.Manifest,
+			Dispatcher:    dispatcher,
+			NodeService:   srv.runtime.NodeService,
+			WorkspaceRoot: srv.runtime.Root,
+			Database:      srv.runtime.Index.DB(),
+			Edges:         srv.runtime.Edges,
+		}
+
+		composed, composeErr := contextcompose.Compose(ctx, composeDeps, contextcompose.Request{
+			Include: includeOverride,
+		})
+
+		if composeErr != nil {
+			return toolError(composeErr), nil
+		}
+
+		if format == "compact" {
+			return contextCompactResult(composed)
+		}
+
+		return toolJSON(contextJSONPayload(composed))
+	}
+
+	srv.register(tool, handler)
+}
+
+// contextJSONPayload builds the JSON envelope tusk_context returns. Mirrors
+// cmd/tusk's buildContextJSONPayload.
+func contextJSONPayload(result *contextcompose.Result) map[string]any {
+	envelope := map[string]any{}
+
+	if len(result.Pinned) > 0 {
+		envelope["pinned"] = result.Pinned
+	}
+
+	if len(result.Recent) > 0 {
+		envelope["recent"] = result.Recent
+	}
+
+	if len(result.Aliases) > 0 {
+		aliasEnv := make(map[string]any, len(result.Aliases))
+
+		for _, name := range contextcompose.SortedIncludeNames(result) {
+			dispatched := result.Aliases[name]
+
+			aliasEnv[name] = map[string]any{
+				"kind":   dispatched.Kind,
+				"result": aliasResultJSON(dispatched),
+			}
+		}
+
+		envelope["aliases"] = aliasEnv
+	}
+
+	if len(result.MissingPinned) > 0 {
+		envelope["missing_pinned"] = result.MissingPinned
+	}
+
+	return envelope
+}
+
+// contextCompactResult renders the digest as compact text wrapped in a
+// CallToolResult. Sections are headed with Markdown-style `# Name` lines so
+// agents can locate them with simple regexes.
+func contextCompactResult(result *contextcompose.Result) (*mcpgo.CallToolResult, error) {
+	var buf bytes.Buffer
+
+	if len(result.Pinned) > 0 {
+		buf.WriteString("# Pinned\n")
+
+		if renderErr := writeNodeRowsCompact(&buf, result.Pinned); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+	}
+
+	if len(result.Recent) > 0 {
+		if buf.Len() > 0 {
+			buf.WriteString("\n")
+		}
+
+		buf.WriteString("# Recent\n")
+
+		if renderErr := writeNodeRowsCompact(&buf, result.Recent); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+	}
+
+	for _, name := range contextcompose.SortedIncludeNames(result) {
+		if buf.Len() > 0 {
+			buf.WriteString("\n")
+		}
+
+		fmt.Fprintf(&buf, "# Aliases / %s\n", name)
+
+		aliasBuf, renderErr := aliasCompactResult(result.Aliases[name])
+
+		if renderErr != nil {
+			return toolError(renderErr), nil
+		}
+
+		for _, content := range aliasBuf.Content {
+			if text, ok := content.(mcpgo.TextContent); ok {
+				buf.WriteString(text.Text)
+
+				if !strings.HasSuffix(text.Text, "\n") {
+					buf.WriteString("\n")
+				}
+			}
+		}
+	}
+
+	if len(result.MissingPinned) > 0 {
+		if buf.Len() > 0 {
+			buf.WriteString("\n")
+		}
+
+		buf.WriteString("# Missing pinned\n")
+
+		for _, id := range result.MissingPinned {
+			fmt.Fprintf(&buf, "  %s\n", id)
+		}
+	}
+
+	if buf.Len() == 0 {
+		buf.WriteString("tusk context: no [context] block declared in tusk.toml\n")
+	}
+
+	return mcpgo.NewToolResultText(buf.String()), nil
+}
+
+// writeNodeRowsCompact is the contextcompose-specific helper that re-uses
+// render.CompactNodeRows but accepts the contextcompose row shape directly.
+func writeNodeRowsCompact(out *bytes.Buffer, rows []query.ListRow) error {
+	compactRows := make([]render.CompactRow, 0, len(rows))
+
+	for _, row := range rows {
+		compactRows = append(compactRows, render.CompactRow{
+			ID:         row.ID,
+			Type:       row.Type,
+			Title:      row.Title,
+			Body:       row.Body,
+			Properties: row.Properties,
+			Edges:      row.Edges,
+		})
+	}
+
+	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
 }
 
 // aliasResultJSON converts a DispatchResult into the JSON-friendly payload

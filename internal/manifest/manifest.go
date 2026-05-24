@@ -34,6 +34,31 @@ type Manifest struct {
 	// manifest package; consumers read through Aliases instead.
 	rawAliases map[string]aliasTOML `toml:"-"`
 
+	// Context is the parsed [context] block, nil when the manifest does
+	// not declare one. Populated by Load (decode-only) and finalised by
+	// ValidateContext (resolves the recent alias, validates include).
+	Context *Context `toml:"-"`
+
+	// ContextErrors captures per-context validation failures (unknown
+	// alias reference, both recent forms set, malformed inline alias).
+	// Surfaced through doctor; never raised as a load error.
+	ContextErrors []ContextError `toml:"-"`
+
+	// contextRecentPrimitive holds the toml.Primitive captured for the
+	// `recent` key inside [context] so ValidateContext can discriminate
+	// between the string-reference form and the inline [context.recent]
+	// sub-table form. Cleared after ValidateContext runs.
+	contextRecentPrimitive toml.Primitive `toml:"-"`
+
+	// contextRecentDefined is true when [context.recent] (or recent = ...)
+	// was present at decode time. Cleared after ValidateContext runs.
+	contextRecentDefined bool `toml:"-"`
+
+	// contextRecentMeta carries the toml.MetaData produced by the context
+	// decoder so ValidateContext can PrimitiveDecode against it. Cleared
+	// after ValidateContext runs.
+	contextRecentMeta *toml.MetaData `toml:"-"`
+
 	// Meta is the BurntSushi/toml MetaData captured at decode time so pack
 	// Kinds can call PrimitiveDecode against their subtable. Nil for
 	// hand-built manifests (tests that construct a Manifest literal).

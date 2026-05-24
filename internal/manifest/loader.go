@@ -44,7 +44,7 @@ var reservedPropertyNames = map[string]struct{}{
 // ValidateAliases with a flag introspector to populate Verb and surface bad
 // aliases via Manifest.AliasErrors.
 func Load(manifestPath string) (*Manifest, error) {
-	body, readErr := os.ReadFile(manifestPath)
+	rawBody, readErr := os.ReadFile(manifestPath)
 
 	if readErr != nil {
 		return nil, fmt.Errorf("manifest: read %s: %w", manifestPath, readErr)
@@ -52,7 +52,21 @@ func Load(manifestPath string) (*Manifest, error) {
 
 	loaded := &Manifest{}
 
-	meta, decodeErr := toml.Decode(string(body), loaded)
+	body := string(rawBody)
+
+	// The [context] block accepts two mutually exclusive `recent` forms
+	// (string reference vs inline sub-table). BurntSushi/toml rejects the
+	// collision at the parser level, which would otherwise fail Load. To
+	// keep the engine starting in that case (per spec — surface via
+	// ContextErrors instead), strip the inline [context.recent] block
+	// before the primary decode and stage a ContextError for doctor.
+	bothContextRecentForms := bodyDeclaresContextReferenceRecent(body) && bodyDeclaresContextInlineRecent(body)
+
+	if bothContextRecentForms {
+		body = stripContextRecentBlock(body)
+	}
+
+	meta, decodeErr := toml.Decode(body, loaded)
 
 	if decodeErr != nil {
 		return nil, fmt.Errorf("manifest: decode %s: %w", manifestPath, decodeErr)
@@ -60,8 +74,19 @@ func Load(manifestPath string) (*Manifest, error) {
 
 	loaded.Meta = &meta
 
-	if aliasErr := decodeAliases(string(body), loaded); aliasErr != nil {
+	if aliasErr := decodeAliases(body, loaded); aliasErr != nil {
 		return nil, fmt.Errorf("manifest: decode aliases in %s: %w", manifestPath, aliasErr)
+	}
+
+	if contextErr := decodeContext(body, loaded); contextErr != nil {
+		return nil, fmt.Errorf("manifest: decode context in %s: %w", manifestPath, contextErr)
+	}
+
+	if bothContextRecentForms {
+		loaded.ContextErrors = append(loaded.ContextErrors, ContextError{
+			Message: "context: both recent = \"...\" and [context.recent] are set; recent is treated as unset",
+		})
+		loaded.contextRecentDefined = false
 	}
 
 	if validateErr := Validate(loaded); validateErr != nil {

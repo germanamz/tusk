@@ -40,6 +40,9 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		// `run` is the dispatcher entry point itself; it invokes other
 		// verbs by name rather than being one.
 		"run": {},
+		// `context` is the warm-context composer entry point; it fans
+		// out over other aliased verbs rather than being one.
+		"context": {},
 	}
 
 	leaves := collectLeafVerbs(rootCmd, "")

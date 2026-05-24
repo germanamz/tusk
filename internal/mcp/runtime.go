@@ -159,6 +159,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 
 	if rt.aliasIntrospector != nil {
 		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
+		manifest.ValidateContext(loaded, rt.aliasIntrospector)
 	}
 
 	if loaded.Embeddings.Provider == "ollama" {
@@ -214,6 +215,7 @@ func (rt *Runtime) ReloadManifest() error {
 
 	if rt.aliasIntrospector != nil {
 		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
+		manifest.ValidateContext(loaded, rt.aliasIntrospector)
 	}
 
 	rt.Manifest = loaded

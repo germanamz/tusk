@@ -45,6 +45,17 @@ const (
 	// pre-validated list; Run copies them into Report.AliasErrors and
 	// also emits one Issue per error so legacy renderers keep working.
 	IssueAliasInvalid = "alias-invalid"
+
+	// IssueContextInvalid surfaces manifest [context] block problems
+	// (unknown alias names, both recent forms set, write-verb inline
+	// recent). One Issue per ContextError so the legacy line-oriented
+	// renderer keeps working alongside the typed Report.ContextErrors.
+	IssueContextInvalid = "context-invalid"
+
+	// IssueContextPinnedMissing surfaces manifest [context.pinned] IDs
+	// that do not resolve in the current index. Computed at doctor-run
+	// time (the IDs depend on runtime state, not manifest shape).
+	IssueContextPinnedMissing = "context-pinned-missing"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -62,6 +73,12 @@ type Report struct {
 	// AliasErrors mirrors Manifest.AliasErrors for callers that want the
 	// typed list (CLI, MCP) instead of parsing them back out of Issues.
 	AliasErrors []manifest.AliasError
+	// ContextErrors mirrors Manifest.ContextErrors so CLI and MCP can
+	// surface invalid [context] declarations without re-parsing Issues.
+	ContextErrors []manifest.ContextError
+	// MissingPinnedIDs lists [context.pinned] entries that do not
+	// resolve to a node in the current index. Computed at Run time.
+	MissingPinnedIDs []string
 }
 
 // EmbedStatsReport summarizes chunking aggregates for tusk doctor.
@@ -105,6 +122,33 @@ func Run(config Config) (*Report, error) {
 				NodeID:  aliasErr.Name,
 				Message: aliasErr.Message,
 			})
+		}
+	}
+
+	if config.Manifest != nil && len(config.Manifest.ContextErrors) > 0 {
+		report.ContextErrors = append(report.ContextErrors, config.Manifest.ContextErrors...)
+
+		for _, contextErr := range config.Manifest.ContextErrors {
+			report.Issues = append(report.Issues, Issue{
+				Kind:    IssueContextInvalid,
+				Message: contextErr.Message,
+			})
+		}
+	}
+
+	if config.Manifest != nil && config.Nodes != nil && config.Manifest.Context != nil {
+		missing := CheckPinnedNodes(config.Manifest, config.Nodes)
+
+		if len(missing) > 0 {
+			report.MissingPinnedIDs = missing
+
+			for _, id := range missing {
+				report.Issues = append(report.Issues, Issue{
+					Kind:    IssueContextPinnedMissing,
+					NodeID:  id,
+					Message: fmt.Sprintf("context: pinned node %q does not resolve in the index", id),
+				})
+			}
 		}
 	}
 
@@ -199,6 +243,34 @@ func Run(config Config) (*Report, error) {
 	}
 
 	return report, nil
+}
+
+// CheckPinnedNodes returns the IDs declared under [context.pinned] that
+// do not resolve to a node in the index. Returns nil for nil inputs or
+// when the manifest declares no Context block. Used by Run to populate
+// Report.MissingPinnedIDs and surface one Issue per missing ID.
+//
+// Pinned IDs are validated at doctor-run time rather than manifest-load
+// time because they depend on the live index (a node may have been
+// renamed or deleted after the manifest was last edited).
+func CheckPinnedNodes(loaded *manifest.Manifest, nodes *index.NodeRepo) []string {
+	if loaded == nil || loaded.Context == nil || nodes == nil {
+		return nil
+	}
+
+	if len(loaded.Context.Pinned) == 0 {
+		return nil
+	}
+
+	var missing []string
+
+	for _, id := range loaded.Context.Pinned {
+		if _, getErr := nodes.Get(id); getErr != nil {
+			missing = append(missing, id)
+		}
+	}
+
+	return missing
 }
 
 // renderPropertyDriftMessage formats the Issue message for a property drift
