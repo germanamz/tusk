@@ -76,6 +76,7 @@ the output format (default: compact at TTY, JSON when piped).`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			introspect := buildVerbIntrospector(cmd.Root())
 			manifest.ValidateAliases(loaded, introspect)
 			manifest.ValidateContext(loaded, introspect)

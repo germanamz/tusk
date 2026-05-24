@@ -79,6 +79,7 @@ reindex pass will materialize the edge from the markdown frontmatter.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			engine, buildErr := newBehaviorEngine(loaded)
 
 			if buildErr != nil {

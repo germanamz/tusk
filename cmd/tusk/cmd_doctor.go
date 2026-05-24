@@ -57,6 +57,7 @@ for a diagnostic-only run.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			introspect := buildVerbIntrospector(cmd.Root())
 			manifest.ValidateAliases(loaded, introspect)
 			manifest.ValidateContext(loaded, introspect)

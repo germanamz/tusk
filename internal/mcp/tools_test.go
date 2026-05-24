@@ -218,6 +218,10 @@ func TestTool_EdgeList(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
 
+	// Seed the source node so the FK added by the P2 migration on
+	// edges.source_id is satisfied.
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"})
+
 	rt.Edges.UpsertAll("tickets/a", "tickets/a.md", []index.EdgeRow{
 		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: "tickets/a.md"},
 	})
@@ -1784,6 +1788,9 @@ func TestTool_NodeGet_CompactRespectsInclude(test *testing.T) {
 func TestTool_EdgeList_FormatCompact(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
+
+	// Seed the source node so the FK on edges.source_id is satisfied.
+	rt.Nodes.Upsert(index.NodeRow{ID: "a", Type: "note", Path: "a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"})
 
 	rt.Edges.UpsertAll("a", "a.md", []index.EdgeRow{
 		{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md"},

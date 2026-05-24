@@ -326,14 +326,15 @@ func TestDrainQueue_EmbedsEveryChunkOfMultiChunkNode(test *testing.T) {
 		test.Fatalf("GetByNodeID: %v", getErr)
 	}
 
-	if len(rows) != stub.calls {
-		test.Errorf("persisted rows = %d, want %d (one per embed call)", len(rows), stub.calls)
-	}
-
-	for idx, row := range rows {
-		if row.ChunkIdx != idx {
-			test.Errorf("rows[%d].ChunkIdx = %d, want %d (sequential)", idx, row.ChunkIdx, idx)
-		}
+	// P2 migration: the embeddings table is now UNIQUE(node_id), so
+	// multiple chunks per node collapse to a single row (the last upsert
+	// wins). The drainer still embeds every chunk (verified above by
+	// stub.calls >= 2); only the storage shape changed. Task 4 swaps
+	// MarkdownRecursive for AST chunking so each leaf unit gets its own
+	// node row + its own embedding — restoring the "one row per
+	// semantic chunk" property at the unit granularity.
+	if len(rows) != 1 {
+		test.Errorf("persisted rows = %d, want 1 (UNIQUE(node_id) collapses multi-chunk to one row)", len(rows))
 	}
 }
 

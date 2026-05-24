@@ -397,3 +397,63 @@ func TestRun_EmbedStatsNilWithoutEmbeddingsConfig(test *testing.T) {
 		test.Errorf("EmbedStats = %+v, want nil", report.EmbedStats)
 	}
 }
+
+// TestRun_SurfacesSubUnitConflicts confirms that reserved-name
+// conflicts captured by manifest.MergeBuiltinPacks flow through doctor
+// into both the typed Report.SubUnitConflicts list and the legacy
+// per-issue rendering (IssueSubUnitReserved).
+func TestRun_SurfacesSubUnitConflicts(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := &manifest.Manifest{
+		SubUnitConflicts: []manifest.SubUnitConflict{
+			{Kind: "node-type", Name: "section", Message: "node-types.section: reserved"},
+			{Kind: "edge-type", Name: "contains", Message: "edge-types.contains: reserved"},
+			{Kind: "property", OwnerType: "section", Name: "heading-level",
+				Message: "node-types.section.heading-level: reserved"},
+		},
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if len(report.SubUnitConflicts) != 3 {
+		test.Errorf("SubUnitConflicts len = %d, want 3", len(report.SubUnitConflicts))
+	}
+
+	reservedIssues := 0
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueSubUnitReserved {
+			reservedIssues++
+		}
+	}
+
+	if reservedIssues != 3 {
+		test.Errorf("IssueSubUnitReserved count = %d, want 3", reservedIssues)
+	}
+
+	// Property conflicts encode their owner in NodeID for the legacy
+	// issue stream so callers can tell `section.heading-level` apart
+	// from a top-level `heading-level` property collision.
+	sawPropertyOwner := false
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueSubUnitReserved && strings.Contains(issue.NodeID, "section.heading-level") {
+			sawPropertyOwner = true
+		}
+	}
+
+	if !sawPropertyOwner {
+		test.Errorf("expected property conflict to carry owner.property in NodeID; got %+v", report.Issues)
+	}
+}

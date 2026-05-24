@@ -8,16 +8,24 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 )
 
-func newTestEmbeddingRepo(test *testing.T) *index.EmbeddingRepo {
+// newTestEmbeddingRepo opens a fresh index, seeds the provided node ids
+// (required since the P2 migration added a foreign key from
+// embeddings.node_id to nodes.id), and returns an EmbeddingRepo against
+// it.
+func newTestEmbeddingRepo(test *testing.T, nodeIDs ...string) *index.EmbeddingRepo {
 	test.Helper()
 
 	store := openTestIndex(test)
+
+	if len(nodeIDs) > 0 {
+		seedNodes(test, store, nodeIDs...)
+	}
 
 	return index.NewEmbeddingRepo(store)
 }
 
 func TestEmbeddingRepo_UpsertAndGet(test *testing.T) {
-	repo := newTestEmbeddingRepo(test)
+	repo := newTestEmbeddingRepo(test, "tickets/foo")
 
 	row := index.EmbeddingRow{
 		NodeID:      "tickets/foo",
@@ -52,7 +60,7 @@ func TestEmbeddingRepo_UpsertAndGet(test *testing.T) {
 }
 
 func TestEmbeddingRepo_UpsertReplacesByContentHash(test *testing.T) {
-	repo := newTestEmbeddingRepo(test)
+	repo := newTestEmbeddingRepo(test, "x")
 
 	first := index.EmbeddingRow{
 		NodeID: "x", ChunkIdx: 0, Model: "m", ContentHash: "h1",
@@ -84,7 +92,7 @@ func TestEmbeddingRepo_UpsertReplacesByContentHash(test *testing.T) {
 }
 
 func TestEmbeddingRepo_ListByNodeIDs(test *testing.T) {
-	repo := newTestEmbeddingRepo(test)
+	repo := newTestEmbeddingRepo(test, "a", "b", "c")
 
 	for _, row := range []index.EmbeddingRow{
 		{NodeID: "a", ChunkIdx: 0, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
@@ -106,7 +114,7 @@ func TestEmbeddingRepo_ListByNodeIDs(test *testing.T) {
 }
 
 func TestEmbeddingRepo_DeleteByNodeID(test *testing.T) {
-	repo := newTestEmbeddingRepo(test)
+	repo := newTestEmbeddingRepo(test, "doomed")
 
 	repo.Upsert(index.EmbeddingRow{
 		NodeID: "doomed", ChunkIdx: 0, Model: "m", ContentHash: "h",
@@ -125,7 +133,7 @@ func TestEmbeddingRepo_DeleteByNodeID(test *testing.T) {
 }
 
 func TestEmbeddingRepo_BodyRoundTrip(test *testing.T) {
-	repo := newTestEmbeddingRepo(test)
+	repo := newTestEmbeddingRepo(test, "tickets/foo")
 
 	row := index.EmbeddingRow{
 		NodeID:      "tickets/foo",
@@ -157,12 +165,14 @@ func TestEmbeddingRepo_BodyRoundTrip(test *testing.T) {
 }
 
 func TestEmbeddingRepo_ListNodeIDs(test *testing.T) {
-	repo := newTestEmbeddingRepo(test)
+	repo := newTestEmbeddingRepo(test, "a/one", "b/two", "c/three")
 
+	// P2 schema makes embeddings unique by node_id; re-upserting the
+	// same id replaces in place, so a single upsert per id is enough to
+	// cover the listing path.
 	rows := []index.EmbeddingRow{
 		{NodeID: "b/two", ChunkIdx: 0, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
 		{NodeID: "a/one", ChunkIdx: 0, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
-		{NodeID: "a/one", ChunkIdx: 1, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
 		{NodeID: "c/three", ChunkIdx: 0, Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1},
 	}
 
@@ -222,35 +232,37 @@ func TestEmbeddingRepo_Stats_Empty(test *testing.T) {
 }
 
 func TestEmbeddingRepo_Stats_Aggregates(test *testing.T) {
-	repo := newTestEmbeddingRepo(test)
+	// P2 made embeddings UNIQUE(node_id), so the "N chunks per node"
+	// fixtures that pre-dated the migration now collapse to one row per
+	// node. The aggregate stats still exercise the same code paths —
+	// per-node count, median, max, large-chunk detection — just with the
+	// new "always one chunk per node" reality. Task 4 may later restore
+	// "many chunks per file" semantics by inserting one node per
+	// sub-unit; this test then exercises that path automatically.
+	nodeIDs := []string{"a", "b", "c", "d"}
+	repo := newTestEmbeddingRepo(test, nodeIDs...)
 
-	insert := func(nodeID string, count int, bodyLen int) {
+	insert := func(nodeID string, bodyLen int) {
 		body := strings.Repeat("x", bodyLen)
-		for chunkIdx := 0; chunkIdx < count; chunkIdx++ {
-			row := index.EmbeddingRow{
-				NodeID:      nodeID,
-				ChunkIdx:    chunkIdx,
-				Model:       "m",
-				ContentHash: "h",
-				Vector:      []float32{0.1},
-				Dim:         1,
-				Body:        body,
-			}
+		row := index.EmbeddingRow{
+			NodeID:      nodeID,
+			ChunkIdx:    0,
+			Model:       "m",
+			ContentHash: "h",
+			Vector:      []float32{0.1},
+			Dim:         1,
+			Body:        body,
+		}
 
-			if upsertErr := repo.Upsert(row); upsertErr != nil {
-				test.Fatalf("Upsert %s/%d: %v", nodeID, chunkIdx, upsertErr)
-			}
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("Upsert %s: %v", nodeID, upsertErr)
 		}
 	}
 
-	// node a: 1 chunk @ 500 bytes
-	// node b: 3 chunks @ 100 bytes
-	// node c: 5 chunks @ 3700 bytes (large)
-	// node d: 2 chunks @ 100 bytes
-	insert("a", 1, 500)
-	insert("b", 3, 100)
-	insert("c", 5, 3700)
-	insert("d", 2, 100)
+	insert("a", 500)
+	insert("b", 100)
+	insert("c", 3700)
+	insert("d", 100)
 
 	stats, statsErr := repo.Stats(3600)
 
@@ -262,31 +274,29 @@ func TestEmbeddingRepo_Stats_Aggregates(test *testing.T) {
 		test.Errorf("TotalNodes = %d, want 4", stats.TotalNodes)
 	}
 
-	if stats.TotalChunks != 11 {
-		test.Errorf("TotalChunks = %d, want 11", stats.TotalChunks)
+	if stats.TotalChunks != 4 {
+		test.Errorf("TotalChunks = %d, want 4 (one per node under UNIQUE(node_id))", stats.TotalChunks)
 	}
 
-	if stats.MaxChunks != 5 {
-		test.Errorf("MaxChunks = %d, want 5", stats.MaxChunks)
+	if stats.MaxChunks != 1 {
+		test.Errorf("MaxChunks = %d, want 1", stats.MaxChunks)
 	}
 
-	// per-node chunk counts: [1, 3, 5, 2] → sorted [1, 2, 3, 5] → median = (2+3)/2 = 2 (integer floor)
-	if stats.MedianChunks != 2 {
-		test.Errorf("MedianChunks = %d, want 2", stats.MedianChunks)
+	if stats.MedianChunks != 1 {
+		test.Errorf("MedianChunks = %d, want 1", stats.MedianChunks)
 	}
 
-	wantMean := 11.0 / 4.0
-	if stats.MeanChunks != wantMean {
-		test.Errorf("MeanChunks = %v, want %v", stats.MeanChunks, wantMean)
+	if stats.MeanChunks != 1.0 {
+		test.Errorf("MeanChunks = %v, want 1.0", stats.MeanChunks)
 	}
 
-	if len(stats.TopByChunks) != 4 || stats.TopByChunks[0].NodeID != "c" || stats.TopByChunks[0].Chunks != 5 {
+	if len(stats.TopByChunks) != 4 {
 		test.Errorf("TopByChunks = %+v", stats.TopByChunks)
 	}
 
-	// 5 large chunks expected (all of c, body=3700 >= 3600)
-	if len(stats.LargeChunks) != 5 {
-		test.Errorf("LargeChunks count = %d, want 5", len(stats.LargeChunks))
+	// 1 large chunk expected (c, body=3700 >= 3600)
+	if len(stats.LargeChunks) != 1 {
+		test.Errorf("LargeChunks count = %d, want 1", len(stats.LargeChunks))
 	}
 
 	for _, large := range stats.LargeChunks {

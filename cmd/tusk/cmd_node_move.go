@@ -50,6 +50,7 @@ state.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			return withWorkspaceLock(ws, func() error {
 				store, openErr := index.Open(ws.IndexPath)
 

@@ -6,16 +6,23 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 )
 
-func newTestEdgeRepo(test *testing.T) *index.EdgeRepo {
+// newTestEdgeRepo opens a fresh index, seeds the provided node ids
+// (required since the P2 migration added a foreign key from
+// edges.source_id to nodes.id), and returns an EdgeRepo against it.
+func newTestEdgeRepo(test *testing.T, nodeIDs ...string) *index.EdgeRepo {
 	test.Helper()
 
 	store := openTestIndex(test)
+
+	if len(nodeIDs) > 0 {
+		seedNodes(test, store, nodeIDs...)
+	}
 
 	return index.NewEdgeRepo(store)
 }
 
 func TestEdgeRepo_UpsertAllAndListBySource(test *testing.T) {
-	repo := newTestEdgeRepo(test)
+	repo := newTestEdgeRepo(test, "tickets/foo")
 
 	edges := []index.EdgeRow{
 		{Type: "parent", SourceID: "tickets/foo", TargetID: "tickets/epic", SourcePath: "tickets/foo.md"},
@@ -48,7 +55,7 @@ func TestEdgeRepo_UpsertAllAndListBySource(test *testing.T) {
 }
 
 func TestEdgeRepo_UpsertAllReplacesExistingEdgesForSource(test *testing.T) {
-	repo := newTestEdgeRepo(test)
+	repo := newTestEdgeRepo(test, "x")
 
 	first := []index.EdgeRow{
 		{Type: "parent", SourceID: "x", TargetID: "y", SourcePath: "x.md"},
@@ -77,7 +84,7 @@ func TestEdgeRepo_UpsertAllReplacesExistingEdgesForSource(test *testing.T) {
 }
 
 func TestEdgeRepo_ListByTarget(test *testing.T) {
-	repo := newTestEdgeRepo(test)
+	repo := newTestEdgeRepo(test, "a", "b")
 
 	repo.UpsertAll("a", "a.md", []index.EdgeRow{
 		{Type: "blocks", SourceID: "a", TargetID: "z", SourcePath: "a.md"},
@@ -99,7 +106,7 @@ func TestEdgeRepo_ListByTarget(test *testing.T) {
 }
 
 func TestEdgeRepo_ListByType(test *testing.T) {
-	repo := newTestEdgeRepo(test)
+	repo := newTestEdgeRepo(test, "a")
 
 	repo.UpsertAll("a", "a.md", []index.EdgeRow{
 		{Type: "blocks", SourceID: "a", TargetID: "x", SourcePath: "a.md"},
@@ -118,7 +125,7 @@ func TestEdgeRepo_ListByType(test *testing.T) {
 }
 
 func TestEdgeRepo_DeleteBySource(test *testing.T) {
-	repo := newTestEdgeRepo(test)
+	repo := newTestEdgeRepo(test, "doomed")
 
 	repo.UpsertAll("doomed", "doomed.md", []index.EdgeRow{
 		{Type: "parent", SourceID: "doomed", TargetID: "x", SourcePath: "doomed.md"},

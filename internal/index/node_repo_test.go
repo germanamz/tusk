@@ -21,6 +21,32 @@ func openTestIndex(test *testing.T) *index.Index {
 	return store
 }
 
+// seedNodes inserts a minimal placeholder node row for each id so that
+// downstream tests inserting edges or embeddings satisfy the foreign
+// keys added in the P2 migration. The placeholder shape is the smallest
+// row NodeRepo.Upsert accepts; tests that need richer fields should
+// upsert again with the desired values (Upsert is replace-by-id).
+func seedNodes(test *testing.T, store *index.Index, ids ...string) {
+	test.Helper()
+
+	repo := index.NewNodeRepo(store)
+
+	for _, id := range ids {
+		row := index.NodeRow{
+			ID:             id,
+			Type:           "note",
+			Path:           id + ".md",
+			Title:          id,
+			PropertiesJSON: "{}",
+			LastChecksum:   "x",
+		}
+
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("seedNodes: upsert %s: %v", id, upsertErr)
+		}
+	}
+}
+
 func TestNodeRepo_UpsertAndGet(test *testing.T) {
 	store := openTestIndex(test)
 	repo := index.NewNodeRepo(store)

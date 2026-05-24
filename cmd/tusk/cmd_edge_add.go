@@ -72,6 +72,7 @@ same graph state.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			edgeDef, declared := loaded.EdgeTypes[edgeType]
 
 			if !declared {

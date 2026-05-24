@@ -56,6 +56,13 @@ const (
 	// that do not resolve in the current index. Computed at doctor-run
 	// time (the IDs depend on runtime state, not manifest shape).
 	IssueContextPinnedMissing = "context-pinned-missing"
+
+	// IssueSubUnitReserved surfaces reserved-name conflicts between the
+	// built-in sub-document pack and user-declared node types, edge
+	// types, or properties. The engine prefers the built-in declaration
+	// and ignores the user's override; doctor surfaces the override so
+	// users notice the shadowing.
+	IssueSubUnitReserved = "sub-unit-reserved"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -79,6 +86,10 @@ type Report struct {
 	// MissingPinnedIDs lists [context.pinned] entries that do not
 	// resolve to a node in the current index. Computed at Run time.
 	MissingPinnedIDs []string
+	// SubUnitConflicts mirrors Manifest.SubUnitConflicts so CLI and MCP
+	// can surface sub-document reserved-name overrides without
+	// re-parsing Issues.
+	SubUnitConflicts []manifest.SubUnitConflict
 }
 
 // EmbedStatsReport summarizes chunking aggregates for tusk doctor.
@@ -132,6 +143,24 @@ func Run(config Config) (*Report, error) {
 			report.Issues = append(report.Issues, Issue{
 				Kind:    IssueContextInvalid,
 				Message: contextErr.Message,
+			})
+		}
+	}
+
+	if config.Manifest != nil && len(config.Manifest.SubUnitConflicts) > 0 {
+		report.SubUnitConflicts = append(report.SubUnitConflicts, config.Manifest.SubUnitConflicts...)
+
+		for _, conflict := range config.Manifest.SubUnitConflicts {
+			nodeID := conflict.Name
+
+			if conflict.OwnerType != "" {
+				nodeID = conflict.OwnerType + "." + conflict.Name
+			}
+
+			report.Issues = append(report.Issues, Issue{
+				Kind:    IssueSubUnitReserved,
+				NodeID:  nodeID,
+				Message: conflict.Message,
 			})
 		}
 	}

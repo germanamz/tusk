@@ -100,6 +100,7 @@ JSON otherwise); --json is sugar for --format json.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			// Validate the filter expression before touching the embedder so a
 			// malformed filter surfaces before "--semantic requires
 			// [embeddings]" — preserves the legacy error-message ordering.

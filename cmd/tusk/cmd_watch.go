@@ -59,6 +59,7 @@ in another shell to observe progress.`,
 					return loadErr
 				}
 
+				manifest.MergeBuiltinPacks(loaded)
 				store, openErr := index.Open(ws.IndexPath)
 
 				if openErr != nil {

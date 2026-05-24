@@ -96,6 +96,24 @@ func Load(manifestPath string) (*Manifest, error) {
 	return loaded, nil
 }
 
+// MergeBuiltinPacks applies built-in type packs (currently just the
+// sub-document pack when [workspace] sub-units = true) onto the loaded
+// manifest. Callers must invoke this explicitly after Load — Load itself
+// returns the manifest unmodified so manifest tests can assert on the
+// raw on-disk shape without pack contamination.
+//
+// MergeBuiltinPacks is a no-op on nil; it is idempotent on a loaded
+// manifest (the built-in declarations always win and conflict records
+// accumulate without duplication because user-shadowed entries are
+// removed on the first merge).
+func MergeBuiltinPacks(loaded *Manifest) {
+	if loaded == nil {
+		return
+	}
+
+	mergeSubdocumentPack(loaded)
+}
+
 // decodeAliases performs a secondary decode of the [alias] table into
 // loaded.rawAliases and stages an unvalidated Manifest.Aliases map for
 // ValidateAliases to refine. Returns an error only when the table cannot

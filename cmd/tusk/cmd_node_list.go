@@ -81,6 +81,7 @@ ranking, use "tusk query" with --semantic.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			filterArg := ""
 
 			if len(args) == 1 {

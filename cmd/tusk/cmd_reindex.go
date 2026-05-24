@@ -64,6 +64,7 @@ after changing node/edge declarations in tusk.toml.`,
 					return fmt.Errorf("manifest: %w", loadErr)
 				}
 
+				manifest.MergeBuiltinPacks(loaded)
 				engine, buildErr := newBehaviorEngine(loaded)
 
 				if buildErr != nil {

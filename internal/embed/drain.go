@@ -346,8 +346,8 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
-			sort.Slice(collected, func(i, j int) bool {
-				return collected[i].chunkIdx < collected[j].chunkIdx
+			sort.Slice(collected, func(left, right int) bool {
+				return collected[left].chunkIdx < collected[right].chunkIdx
 			})
 
 			for _, res := range collected {
