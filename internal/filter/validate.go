@@ -199,6 +199,10 @@ func rewriteDays(raw string) (string, bool) {
 
 // parseAbsoluteTime tries a small set of ISO-8601 formats in decreasing
 // specificity.
+//
+// Bare dates ("2006-01-02") and naive datetimes (no Z/offset) are treated
+// as UTC midnight. Users near a day boundary should use the explicit Z form
+// or an RFC3339 timestamp with an explicit offset.
 func parseAbsoluteTime(raw string) (time.Time, bool) {
 	layouts := []string{
 		time.RFC3339Nano,

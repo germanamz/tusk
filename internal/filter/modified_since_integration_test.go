@@ -130,6 +130,14 @@ func TestModifiedSince_EndToEndAgainstIndex(test *testing.T) {
 				gotIDs = append(gotIDs, id)
 			}
 
+			// rows.Err must be checked before the deferred rows.Close so
+			// an iteration-time driver error is not silently swallowed
+			// (a truncated result set would otherwise pass with the
+			// wrong count).
+			if rowsErr := rows.Err(); rowsErr != nil {
+				test.Fatalf("rows iteration: %v", rowsErr)
+			}
+
 			sort.Strings(gotIDs)
 			sort.Strings(testCase.wantIDs)
 
