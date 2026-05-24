@@ -3,6 +3,7 @@ package filter
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // CompileOptions configures Compile.
@@ -112,6 +113,8 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 		return "NOT (" + inner + ")", innerParams, nil
 	case *PropertyPredicate:
 		return compileProperty(typed)
+	case *ModifiedSincePredicate:
+		return compileModifiedSince(typed)
 	case *EdgePredicate:
 		return compileEdgePredicate(typed, 0)
 	case *TraversalShortcut:
@@ -142,6 +145,27 @@ var coreColumns = map[string]struct{}{
 	"type":  {},
 	"path":  {},
 	"title": {},
+}
+
+// compileModifiedSince emits a `last_mtime >= ?` comparison against the
+// nodes table. last_mtime is stored as unix nanoseconds (see
+// internal/index/index.go schema), so the threshold is converted with
+// UnixNano(). Either Duration or Since must be set by the validator;
+// emitting SQL without a resolved threshold mirrors the
+// TraversalShortcut.EdgeType check.
+func compileModifiedSince(predicate *ModifiedSincePredicate) (string, []any, error) {
+	var thresholdNs int64
+
+	switch {
+	case predicate.Duration > 0:
+		thresholdNs = time.Now().Add(-predicate.Duration).UnixNano()
+	case !predicate.Since.IsZero():
+		thresholdNs = predicate.Since.UnixNano()
+	default:
+		return "", nil, fmt.Errorf("compile: modified-since has unresolved value (validator must run before compile)")
+	}
+
+	return "last_mtime >= ?", []any{thresholdNs}, nil
 }
 
 func compileProperty(predicate *PropertyPredicate) (string, []any, error) {

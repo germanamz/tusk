@@ -57,7 +57,9 @@ edits.`,
 				return cwdErr
 			}
 
-			var opts []mcp.Option
+			opts := []mcp.Option{
+				mcp.WithAliasIntrospector(buildVerbIntrospector(cmd.Root())),
+			}
 
 			if logger := mcpLoggerFromFlags(cmd); logger != nil {
 				opts = append(opts, mcp.WithLogger(logger))

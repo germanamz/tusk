@@ -1,5 +1,7 @@
 package filter
 
+import "time"
+
 // Op is a comparison operator.
 type Op int
 
@@ -124,6 +126,24 @@ type TraversalShortcut struct {
 
 func (shortcut *TraversalShortcut) exprNode()     {}
 func (shortcut *TraversalShortcut) Position() int { return shortcut.Pos }
+
+// ModifiedSincePredicate matches nodes whose last_mtime is at or after a
+// threshold expressed as either a relative duration (e.g. "7d", "48h") or
+// an absolute ISO date/datetime (e.g. "2026-05-23", "2026-05-23T12:00:00Z").
+//
+// The parser populates only Raw and Pos. The validator parses Raw and
+// stamps one of Duration or Since (mirroring how TraversalShortcut.EdgeType
+// is left empty by the parser and resolved by the validator). The compiler
+// refuses to emit SQL when both Duration and Since are unset.
+type ModifiedSincePredicate struct {
+	Raw      string        // the value as parsed (e.g. "7d", "2026-05-01")
+	Duration time.Duration // set by validator iff Raw parses as a duration
+	Since    time.Time     // set by validator iff Raw parses as an absolute date/datetime
+	Pos      int
+}
+
+func (pred *ModifiedSincePredicate) exprNode()     {}
+func (pred *ModifiedSincePredicate) Position() int { return pred.Pos }
 
 // Value is a value AST.
 type Value interface {

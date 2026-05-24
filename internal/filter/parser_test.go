@@ -434,6 +434,57 @@ func TestParser_MalformedQualifiedShortcut(test *testing.T) {
 	}
 }
 
+func TestParser_ModifiedSincePredicate(test *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		raw   string
+	}{
+		{"duration_colon", "modified-since:7d", "7d"},
+		{"duration_equals", "modified-since=48h", "48h"},
+		{"date_colon", "modified-since:2026-05-23", "2026-05-23"},
+		{"date_equals", "modified-since=2026-05-23T12:00:00Z", "2026-05-23T12:00:00Z"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, errs := filter.NewParser(testCase.input).Parse()
+
+			if len(errs) != 0 {
+				test.Fatalf("unexpected parse errors: %+v", errs)
+			}
+
+			pred, ok := expr.(*filter.ModifiedSincePredicate)
+
+			if !ok {
+				test.Fatalf("expr = %T, want *ModifiedSincePredicate", expr)
+			}
+
+			if pred.Raw != testCase.raw {
+				test.Errorf("Raw = %q, want %q", pred.Raw, testCase.raw)
+			}
+
+			// The parser must not interpret the value — that's the
+			// validator's job.
+			if pred.Duration != 0 {
+				test.Errorf("Duration = %v, want 0 (validator hasn't run)", pred.Duration)
+			}
+
+			if !pred.Since.IsZero() {
+				test.Errorf("Since = %v, want zero (validator hasn't run)", pred.Since)
+			}
+		})
+	}
+}
+
+func TestParser_ModifiedSinceMissingValue(test *testing.T) {
+	_, errs := filter.NewParser("modified-since:").Parse()
+
+	if len(errs) == 0 {
+		test.Fatalf("expected parse error for missing value")
+	}
+}
+
 func TestParser_ColonShorthandStillWorks(test *testing.T) {
 	// Pre-existing behavior: `tree:foo` is the colon-as-equals shorthand,
 	// meaning `tree=foo`. Should parse with Alias = "" and NodeID = "foo".

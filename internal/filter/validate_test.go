@@ -3,6 +3,7 @@ package filter_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -245,5 +246,115 @@ func TestValidate_UnqualifiedNoHierarchiesAtAll(test *testing.T) {
 
 	if !strings.Contains(errs[0].Message, "no hierarchy edges declared") {
 		test.Errorf("Message = %q, want substring %q", errs[0].Message, "no hierarchy edges declared")
+	}
+}
+
+func TestValidate_ModifiedSinceDurations(test *testing.T) {
+	cases := []struct {
+		raw  string
+		want time.Duration
+	}{
+		{"7d", 7 * 24 * time.Hour},
+		{"48h", 48 * time.Hour},
+		{"30m", 30 * time.Minute},
+		{"45s", 45 * time.Second},
+		{"1d12h", 36 * time.Hour},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.raw, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser("modified-since:" + testCase.raw).Parse()
+
+			if len(parseErrs) != 0 {
+				test.Fatalf("parse: %+v", parseErrs)
+			}
+
+			errs := filter.Validate(expr, manifest.Manifest{})
+
+			if len(errs) != 0 {
+				test.Fatalf("validate: %+v", errs)
+			}
+
+			pred := expr.(*filter.ModifiedSincePredicate)
+
+			if pred.Duration != testCase.want {
+				test.Errorf("Duration = %v, want %v", pred.Duration, testCase.want)
+			}
+
+			if !pred.Since.IsZero() {
+				test.Errorf("Since = %v, want zero for duration form", pred.Since)
+			}
+		})
+	}
+}
+
+func TestValidate_ModifiedSinceAbsoluteDates(test *testing.T) {
+	cases := []struct {
+		raw    string
+		want   time.Time
+		layout string
+	}{
+		{"2026-05-23", time.Date(2026, 5, 23, 0, 0, 0, 0, time.UTC), "2006-01-02"},
+		{"2026-05-23T12:00:00Z", time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC), time.RFC3339},
+		{"2026-05-23T12:00:00", time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC), "2006-01-02T15:04:05"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.raw, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser("modified-since:" + testCase.raw).Parse()
+
+			if len(parseErrs) != 0 {
+				test.Fatalf("parse: %+v", parseErrs)
+			}
+
+			errs := filter.Validate(expr, manifest.Manifest{})
+
+			if len(errs) != 0 {
+				test.Fatalf("validate: %+v", errs)
+			}
+
+			pred := expr.(*filter.ModifiedSincePredicate)
+
+			if !pred.Since.Equal(testCase.want) {
+				test.Errorf("Since = %v, want %v", pred.Since, testCase.want)
+			}
+
+			if pred.Duration != 0 {
+				test.Errorf("Duration = %v, want zero for absolute form", pred.Duration)
+			}
+		})
+	}
+}
+
+func TestValidate_ModifiedSinceMalformed(test *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"unparseable_token", "1xy"},
+		{"alpha_only", "yesterday"},
+		{"negative_duration", "-7d"},
+		{"zero_duration", "0d"},
+		{"bad_date", "2026-13-45"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser("modified-since:" + testCase.raw).Parse()
+
+			if len(parseErrs) != 0 {
+				test.Fatalf("parse: %+v", parseErrs)
+			}
+
+			errs := filter.Validate(expr, manifest.Manifest{})
+
+			if len(errs) == 0 {
+				test.Fatalf("expected validation error for %q", testCase.raw)
+			}
+
+			if !strings.Contains(errs[0].Message, "modified-since") {
+				test.Errorf("Message = %q, want to mention modified-since", errs[0].Message)
+			}
+		})
 	}
 }

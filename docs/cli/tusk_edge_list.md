@@ -11,7 +11,9 @@ List edges, optionally filtered by source, target, or kind
 List edges in the index.
 
 Filter with any combination of --from, --to, and --type. Output is a
-tab-aligned table of source, type, target, attributed source-path.
+tab-aligned table of source, type, target, attributed source-path. Use
+--format compact|json (or --json) to opt into structured output; the
+default mirrors prior CLI behavior (tab-aligned table for TTY).
 
 ```
 tusk edge list [flags]
@@ -26,15 +28,20 @@ tusk edge list [flags]
 
   # Every "blocks" edge in the workspace
   tusk edge list --type blocks
+
+  # JSON for piping into jq
+  tusk edge list --from tickets/T-001 --json
 ```
 
 ### Options
 
 ```
-      --from string   filter to edges originating from this source id
-  -h, --help          help for list
-      --to string     filter to edges targeting this id
-      --type string   filter by edge type
+      --format string   output format: compact|json (default: legacy table)
+      --from string     filter to edges originating from this source id
+  -h, --help            help for list
+      --json            emit structured JSON (sugar for --format json)
+      --to string       filter to edges targeting this id
+      --type string     filter by edge type
 ```
 
 ### Options inherited from parent commands

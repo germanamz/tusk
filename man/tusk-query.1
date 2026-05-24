@@ -21,9 +21,11 @@ operators (key=value, key:value, key!=value, keyvalue, key>=value); ranges use k
 edge-type-> or edge-type<- and may chain multi-hop. Traversal
 shortcuts: tree=id, parent=id, root=id (qualified: tree:=id,
 parent:=id, root:=id, where  is set via
-hierarchy on an edge type in tusk.toml). Combine with AND, OR, NOT,
-and parens. (Both : and = bind property comparisons; pick whichever
-reads better.)
+hierarchy on an edge type in tusk.toml). Recency shortcut:
+modified-since: (e.g. modified-since:7d,
+modified-since:2026-05-23). Combine with AND, OR, NOT, and parens.
+(Both : and = bind property comparisons; pick whichever reads
+better.)
 .IP \(bu 2
 Semantic (--semantic STRING): nearest-neighbor search over
 Ollama embeddings. The positional filter still applies as a
@@ -35,16 +37,36 @@ Hybrid: structural filter narrows the candidate set, then
 
 .PP
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
-results, --skip M to paginate, and --json for machine-readable output.
+results, --skip M to paginate. Use --include to expand each row with
+body, edges, or properties (comma-separated; for semantic results body
+is the best-matching chunk). Use --fields to project the rendered shape.
+Use --format to pick compact or JSON output (default: compact for TTY,
+JSON otherwise); --json is sugar for --format json.
 
 
 .SH OPTIONS
+\fB--fields\fP=[]
+	project rendered rows to these fields (comma-separated)
+
+.PP
+\fB--format\fP=""
+	output format: compact|json (default: compact for TTY, json otherwise)
+
+.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for query
 
 .PP
+\fB--include\fP=[]
+	expand rows: body|edges|properties (comma-separated)
+
+.PP
 \fB--json\fP[=false]
-	emit structured JSON
+	emit structured JSON (sugar for --format json)
+
+.PP
+\fB--min-score\fP=0
+	drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)
 
 .PP
 \fB--semantic\fP=""
@@ -70,8 +92,11 @@ results, --skip M to paginate, and --json for machine-readable output.
 
 .SH EXAMPLE
 .EX
-  # Structural: all priority-1 tickets touched this week
-  tusk query 'type=ticket AND priority=1 AND modified>=2026-05-09'
+  # Structural: all priority-1 tickets touched in the last week
+  tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Expand bodies and edges in one round-trip
+  tusk query 'type=ticket' --include body,edges
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'

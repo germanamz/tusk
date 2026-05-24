@@ -43,6 +43,7 @@ tusk_node_create, …) so agents can use the same surface without a shell.
 
 ### SEE ALSO
 
+* [tusk context](tusk_context.md)	 - Compose a warm-context digest from the manifest [context] block
 * [tusk doctor](tusk_doctor.md)	 - Surface validation warnings, dangling edges, and index health issues
 * [tusk edge](tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
 * [tusk init](tusk_init.md)	 - Initialize a Tusk workspace in the current directory
@@ -51,6 +52,7 @@ tusk_node_create, …) so agents can use the same surface without a shell.
 * [tusk pack](tusk_pack.md)	 - Install and manage built-in type packs
 * [tusk query](tusk_query.md)	 - Run a structural, semantic, or hybrid query against the index
 * [tusk reindex](tusk_reindex.md)	 - Walk the workspace and bring the index up to date with disk
+* [tusk run](tusk_run.md)	 - Run a manifest-declared alias by name
 * [tusk status](tusk_status.md)	 - Print a one-screen workspace summary
 * [tusk watch](tusk_watch.md)	 - Watch the workspace for external edits and keep the index in sync
 

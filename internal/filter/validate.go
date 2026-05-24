@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -66,7 +68,156 @@ func (collector *validationCollector) walk(expr Expr) {
 		}
 	case *TraversalShortcut:
 		collector.resolveShortcut(typed)
+	case *ModifiedSincePredicate:
+		collector.resolveModifiedSince(typed)
 	}
+}
+
+// resolveModifiedSince parses pred.Raw into either a duration or an
+// absolute date and stamps the result back onto pred. The heuristic: a
+// raw value containing "-<digit>" (e.g. "2026-05-23") is tried as a date
+// first; anything else is tried as a duration first.
+func (collector *validationCollector) resolveModifiedSince(pred *ModifiedSincePredicate) {
+	if pred.Raw == "" {
+		collector.errors = append(collector.errors, ValidationError{
+			Pos:     pred.Pos,
+			Message: "modified-since: empty value",
+			Hint:    `expected duration like "7d" or ISO date like "2026-05-23"`,
+		})
+
+		return
+	}
+
+	preferDate := looksLikeDate(pred.Raw)
+
+	if preferDate {
+		if parsedTime, ok := parseAbsoluteTime(pred.Raw); ok {
+			pred.Since = parsedTime
+
+			return
+		}
+
+		if parsedDuration, ok := parseFilterDuration(pred.Raw); ok {
+			pred.Duration = parsedDuration
+
+			return
+		}
+	} else {
+		if parsedDuration, ok := parseFilterDuration(pred.Raw); ok {
+			pred.Duration = parsedDuration
+
+			return
+		}
+
+		if parsedTime, ok := parseAbsoluteTime(pred.Raw); ok {
+			pred.Since = parsedTime
+
+			return
+		}
+	}
+
+	collector.errors = append(collector.errors, ValidationError{
+		Pos:     pred.Pos,
+		Message: fmt.Sprintf("modified-since: unparseable value %q", pred.Raw),
+		Hint:    `expected duration like "7d" or ISO date like "2026-05-23"`,
+	})
+}
+
+// looksLikeDate returns true when raw contains a '-' immediately followed
+// by a digit, which distinguishes "2026-05-23" from durations like "7d".
+func looksLikeDate(raw string) bool {
+	for index := 0; index < len(raw)-1; index++ {
+		if raw[index] == '-' && raw[index+1] >= '0' && raw[index+1] <= '9' {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseFilterDuration accepts the standard time.ParseDuration suffixes
+// (h, m, s, ms, us, ns) plus a single "Nd" or compound "NdMh" prefix for
+// days. Negative durations and zero-length input are rejected.
+func parseFilterDuration(raw string) (time.Duration, bool) {
+	if raw == "" {
+		return 0, false
+	}
+
+	if strings.HasPrefix(raw, "-") {
+		return 0, false
+	}
+
+	rewritten, ok := rewriteDays(raw)
+
+	if !ok {
+		return 0, false
+	}
+
+	parsed, err := time.ParseDuration(rewritten)
+
+	if err != nil {
+		return 0, false
+	}
+
+	if parsed <= 0 {
+		return 0, false
+	}
+
+	return parsed, true
+}
+
+// rewriteDays scans raw for a leading run of digits followed by 'd' and
+// replaces that segment with the equivalent number of hours so that
+// time.ParseDuration (which has no day unit) accepts the rest of the
+// string. Returns ok=false on overflow or malformed digit/d sequences.
+func rewriteDays(raw string) (string, bool) {
+	digitsEnd := 0
+
+	for digitsEnd < len(raw) && unicode.IsDigit(rune(raw[digitsEnd])) {
+		digitsEnd++
+	}
+
+	if digitsEnd == 0 || digitsEnd >= len(raw) || raw[digitsEnd] != 'd' {
+		return raw, true
+	}
+
+	days := 0
+
+	for index := 0; index < digitsEnd; index++ {
+		days = days*10 + int(raw[index]-'0')
+
+		if days > 1_000_000 {
+			return "", false
+		}
+	}
+
+	hours := days * 24
+	tail := raw[digitsEnd+1:]
+
+	return fmt.Sprintf("%dh%s", hours, tail), true
+}
+
+// parseAbsoluteTime tries a small set of ISO-8601 formats in decreasing
+// specificity.
+//
+// Bare dates ("2006-01-02") and naive datetimes (no Z/offset) are treated
+// as UTC midnight. Users near a day boundary should use the explicit Z form
+// or an RFC3339 timestamp with an explicit offset.
+func parseAbsoluteTime(raw string) (time.Time, bool) {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+	}
+
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed, true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 func (collector *validationCollector) resolveShortcut(shortcut *TraversalShortcut) {

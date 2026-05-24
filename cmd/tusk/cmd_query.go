@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/query"
+	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +26,10 @@ func newQueryCmd() *cobra.Command {
 		skip          int
 		emitJSON      bool
 		semanticQuery string
+		minScore      float64
+		includeFlag   []string
+		fieldsFlag    []string
+		formatFlag    string
 	)
 
 	queryCmd := &cobra.Command{
@@ -39,9 +46,11 @@ Three modes, all driven by the same command:
     edge-type-> or edge-type<- and may chain multi-hop. Traversal
     shortcuts: tree=id, parent=id, root=id (qualified: tree:<alias>=id,
     parent:<alias>=id, root:<alias>=id, where <alias> is set via
-    hierarchy on an edge type in tusk.toml). Combine with AND, OR, NOT,
-    and parens. (Both : and = bind property comparisons; pick whichever
-    reads better.)
+    hierarchy on an edge type in tusk.toml). Recency shortcut:
+    modified-since:<duration|ISO-date> (e.g. modified-since:7d,
+    modified-since:2026-05-23). Combine with AND, OR, NOT, and parens.
+    (Both : and = bind property comparisons; pick whichever reads
+    better.)
   * Semantic (--semantic STRING): nearest-neighbor search over
     Ollama embeddings. The positional filter still applies as a
     pre-filter; pass a permissive filter like 'type=note' to search
@@ -50,9 +59,16 @@ Three modes, all driven by the same command:
     --semantic ranks it by cosine similarity.
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
-results, --skip M to paginate, and --json for machine-readable output.`,
-		Example: `  # Structural: all priority-1 tickets touched this week
-  tusk query 'type=ticket AND priority=1 AND modified>=2026-05-09'
+results, --skip M to paginate. Use --include to expand each row with
+body, edges, or properties (comma-separated; for semantic results body
+is the best-matching chunk). Use --fields to project the rendered shape.
+Use --format to pick compact or JSON output (default: compact for TTY,
+JSON otherwise); --json is sugar for --format json.`,
+		Example: `  # Structural: all priority-1 tickets touched in the last week
+  tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Expand bodies and edges in one round-trip
+  tusk query 'type=ticket' --include body,edges
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'
@@ -84,36 +100,17 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 				return loadErr
 			}
 
-			expr, parseErrs := filter.NewParser(args[0]).Parse()
-
-			if len(parseErrs) > 0 {
-				return fmt.Errorf("filter parse: %v", parseErrs[0])
+			// Validate the filter expression before touching the embedder so a
+			// malformed filter surfaces before "--semantic requires
+			// [embeddings]" — preserves the legacy error-message ordering.
+			if validateErr := validateQueryFilter(args[0], loaded); validateErr != nil {
+				return validateErr
 			}
 
-			validateErrs := filter.Validate(expr, *loaded)
+			embedder, embedErr := buildCLIEmbedder(loaded, semanticQuery)
 
-			if len(validateErrs) > 0 {
-				return fmt.Errorf("filter validate: %v", validateErrs[0])
-			}
-
-			sortKeys, sortErr := filter.ParseSort(sortSpec)
-
-			if sortErr != nil {
-				return sortErr
-			}
-
-			sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
-				SortKeys: sortKeys,
-				Take:     take,
-				Skip:     skip,
-			})
-
-			if compileErr != nil {
-				return compileErr
-			}
-
-			if semanticQuery != "" {
-				return runSemanticQuery(cmd, ws, loaded, sqlQuery, params, take, skip, semanticQuery, emitJSON)
+			if embedErr != nil {
+				return embedErr
 			}
 
 			store, openErr := index.Open(ws.IndexPath)
@@ -124,186 +121,213 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 
 			defer store.Close()
 
-			rows, queryErr := store.DB().Query(sqlQuery, params...)
-
-			if queryErr != nil {
-				return queryErr
+			deps := query.Deps{
+				Database:   store.DB(),
+				Manifest:   loaded,
+				Embedder:   embedder,
+				Embeddings: index.NewEmbeddingRepo(store),
 			}
 
-			defer rows.Close()
+			result, runErr := query.Run(context.Background(), deps, query.Request{
+				Filter:   args[0],
+				Sort:     sortSpec,
+				Take:     take,
+				Skip:     skip,
+				Semantic: semanticQuery,
+				MinScore: minScore,
+				// CLI preserves the legacy behavior of returning every ranked
+				// row when --take is unset; MCP applies a default page size
+				// of 10 to keep tool responses bounded.
+				SemanticDefaultTake: 0,
+				Include:             includeFlag,
+				Fields:              fieldsFlag,
+				WorkspaceRoot:       ws.Root,
+			})
 
-			if emitJSON {
-				_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
-
-				return nil
+			if runErr != nil {
+				return runErr
 			}
 
-			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			hasShapeFlags := len(includeFlag) > 0 || len(fieldsFlag) > 0
+			format, formatErr := resolveFormat(emitJSON, formatFlag, hasShapeFlags)
 
-			_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
-
-			for rows.Next() {
-				var (
-					rowID         string
-					rowType       string
-					rowPath       string
-					rowTitle      string
-					propertiesRaw string
-					lastMtime     int64
-					lastSize      int64
-					lastChecksum  string
-				)
-
-				if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
-					return scanErr
-				}
-
-				_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", rowID, rowType, rowTitle, rowPath)
+			if formatErr != nil {
+				return formatErr
 			}
 
-			return tab.Flush()
+			if result.Semantic != nil {
+				return renderQuerySemantic(cmd, result.Semantic, format, fieldsFlag)
+			}
+
+			return renderQueryStructural(cmd, result.Rows, format, fieldsFlag)
 		},
 	}
 
 	queryCmd.Flags().StringVar(&sortSpec, "sort", "", "sort spec, e.g., +priority,-due,+modified")
 	queryCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
 	queryCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
-	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON")
+	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
+	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)")
+	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties (comma-separated)")
+	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
+	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
 
 	return queryCmd
 }
 
-func runSemanticQuery(cmd *cobra.Command, ws *workspace.Workspace, loaded *manifest.Manifest, structuralSQL string, structuralParams []any, take, skip int, semanticQuery string, emitJSON bool) error {
+// validateQueryFilter runs the same parse + validate the service does, so the
+// CLI can surface filter errors before constructing the embedder. Keeping the
+// pre-flight check in cmd/tusk preserves the legacy error-message ordering
+// (filter problems beat embeddings problems) without coupling the service to
+// CLI presentation concerns.
+//
+// NOTE: query.Run parses the filter again internally — this pre-flight exists
+// solely to surface filter errors before the embedder is constructed,
+// preserving pre-refactor CLI error ordering. Do not remove without changing
+// query.Run's argument shape (e.g. accepting a pre-parsed Expr instead of a
+// raw filter string), otherwise the CLI will start reporting "embeddings
+// missing" before "filter parse" again.
+func validateQueryFilter(input string, loaded *manifest.Manifest) error {
+	expr, parseErrs := filter.NewParser(input).Parse()
+
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("filter parse: %v", parseErrs[0])
+	}
+
+	if validateErrs := filter.Validate(expr, *loaded); len(validateErrs) > 0 {
+		return fmt.Errorf("filter validate: %v", validateErrs[0])
+	}
+
+	return nil
+}
+
+// buildCLIEmbedder constructs an embed.Embedder from the manifest's
+// [embeddings] block when the CLI is invoked with --semantic. Returns nil
+// (and nil error) when semanticQuery is empty.
+func buildCLIEmbedder(loaded *manifest.Manifest, semanticQuery string) (embed.Embedder, error) {
+	if semanticQuery == "" {
+		return nil, nil
+	}
+
 	if loaded.Embeddings.Provider == "" {
-		return fmt.Errorf("--semantic requires [embeddings] block in tusk.toml")
+		return nil, fmt.Errorf("--semantic requires [embeddings] block in tusk.toml")
 	}
 
 	if loaded.Embeddings.Provider != "ollama" {
-		return fmt.Errorf("--semantic: unsupported provider %q (Plan 5 supports ollama only)", loaded.Embeddings.Provider)
+		return nil, fmt.Errorf("--semantic: unsupported provider %q (Plan 5 supports ollama only)", loaded.Embeddings.Provider)
 	}
 
 	timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
 
-	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+	return embed.NewOllamaEmbedder(embed.OllamaConfig{
 		Endpoint: loaded.Embeddings.Endpoint,
 		Model:    loaded.Embeddings.Model,
 		Dim:      loaded.Embeddings.Dim,
 		Timeout:  timeout,
-	})
+	}), nil
+}
 
-	queryVector, queryErr := embedder.Embed(context.Background(), []byte(semanticQuery))
+// renderQueryStructural emits the structural-result rendering. The JSON
+// branch emits the rows as a JSON array; the compact branch falls back to
+// the legacy tab-aligned table when no include / fields are set so existing
+// scripts keep working.
+func renderQueryStructural(cmd *cobra.Command, rows []query.Row, format outputFormat, fields []string) error {
+	switch format {
+	case formatJSON:
+		// Preserve the legacy contract: emit `[]\n` when no rows carry
+		// expansion data and no fields projection is set. The structural
+		// JSON branch used to always emit `[]\n` regardless of content;
+		// we tighten that only when the caller asked for expansions so
+		// scripts depending on the sentinel still work.
+		if len(fields) == 0 && !rowsHaveExpansions(rows) {
+			_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
 
-	if queryErr != nil {
-		return queryErr
-	}
-
-	store, openErr := index.Open(ws.IndexPath)
-
-	if openErr != nil {
-		return openErr
-	}
-
-	defer store.Close()
-
-	rows, structuralErr := store.DB().Query(structuralSQL, structuralParams...)
-
-	if structuralErr != nil {
-		return structuralErr
-	}
-
-	defer rows.Close()
-
-	type queryMeta struct {
-		Type  string
-		Path  string
-		Title string
-	}
-
-	var nodeIDs []string
-
-	byID := map[string]queryMeta{}
-
-	for rows.Next() {
-		var (
-			rowID, rowType, rowPath, rowTitle, propertiesRaw, lastChecksum string
-			lastMtime, lastSize                                            int64
-		)
-
-		if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
-			return scanErr
+			return nil
 		}
 
-		nodeIDs = append(nodeIDs, rowID)
-		byID[rowID] = queryMeta{Type: rowType, Path: rowPath, Title: rowTitle}
+		return writeJSON(cmd.OutOrStdout(), rows)
+	case formatCompact:
+		return renderStructuralCompact(cmd.OutOrStdout(), rows, fields)
 	}
 
-	embeddingRepo := index.NewEmbeddingRepo(store)
-	loadedRows, loadErr := embeddingRepo.ListByNodeIDs(nodeIDs)
+	// formatLegacy: tab-aligned table.
+	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
-	if loadErr != nil {
-		return loadErr
+	_, _ = fmt.Fprintln(tab, "ID\tTYPE\tTITLE\tPATH")
+
+	for _, row := range rows {
+		_, _ = fmt.Fprintf(tab, "%s\t%s\t%s\t%s\n", row.ID, row.Type, row.Title, row.Path)
 	}
 
-	candidates := make([]filter.SemanticCandidate, 0, len(loadedRows))
+	return tab.Flush()
+}
 
-	for _, embeddingRow := range loadedRows {
-		candidates = append(candidates, filter.SemanticCandidate{
-			NodeID:   embeddingRow.NodeID,
-			ChunkIdx: embeddingRow.ChunkIdx,
-			Vector:   embeddingRow.Vector,
-			Body:     embeddingRow.Body,
+// rowsHaveExpansions returns true when any row carries body / properties /
+// edges populated.
+func rowsHaveExpansions(rows []query.Row) bool {
+	for _, row := range rows {
+		if row.Body != "" || len(row.Properties) > 0 || len(row.Edges) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) error {
+	compactRows := make([]render.CompactRow, 0, len(rows))
+
+	for _, row := range rows {
+		compactRows = append(compactRows, render.CompactRow{
+			ID:         row.ID,
+			Type:       row.Type,
+			Title:      row.Title,
+			Body:       row.Body,
+			Properties: row.Properties,
+			Edges:      row.Edges,
 		})
 	}
 
-	ranked := filter.SemanticRank(candidates, queryVector)
+	return render.CompactNodeRows(out, compactRows, render.CompactOpts{Fields: fields})
+}
 
-	if take > 0 {
-		startIdx := skip
+// renderQuerySemantic emits the ranked-result rendering for --semantic
+// queries. JSON output is a flat array of {id,score,type,path,title,snippet,
+// body?,properties?,edges?}; the table view shows id/score/snippet; the
+// compact view shows the full §4.4 form including expanded body/edges.
+func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string) error {
+	switch format {
+	case formatJSON:
+		encoder := json.NewEncoder(cmd.OutOrStdout())
 
-		if startIdx > len(ranked) {
-			startIdx = len(ranked)
-		}
+		return encoder.Encode(semantic.Ranked)
+	case formatCompact:
+		compactRows := make([]render.CompactRow, 0, len(semantic.Ranked))
 
-		endIdx := startIdx + take
-
-		if endIdx > len(ranked) {
-			endIdx = len(ranked)
-		}
-
-		ranked = ranked[startIdx:endIdx]
-	}
-
-	if emitJSON {
-		out := make([]map[string]any, 0, len(ranked))
-
-		for _, scored := range ranked {
-			meta := byID[scored.NodeID]
-			out = append(out, map[string]any{
-				"id":      scored.NodeID,
-				"score":   scored.Score,
-				"type":    meta.Type,
-				"path":    meta.Path,
-				"title":   meta.Title,
-				"snippet": filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
+		for _, scored := range semantic.Ranked {
+			compactRows = append(compactRows, render.CompactRow{
+				ID:         scored.ID,
+				Type:       scored.Type,
+				Title:      scored.Title,
+				Body:       scored.Body,
+				Properties: scored.Properties,
+				Edges:      scored.Edges,
+				Score:      scored.Score,
+				HasScore:   true,
 			})
 		}
 
-		encoder := json.NewEncoder(cmd.OutOrStdout())
-
-		return encoder.Encode(out)
+		return render.CompactNodeRows(cmd.OutOrStdout(), compactRows, render.CompactOpts{Fields: fields})
 	}
 
+	// formatLegacy: tab-aligned id/score/snippet table.
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 	_, _ = fmt.Fprintln(tab, "ID\tSCORE\tSNIPPET")
 
-	for _, scored := range ranked {
-		_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%s\n",
-			scored.NodeID,
-			scored.Score,
-			filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
-		)
+	for _, scored := range semantic.Ranked {
+		_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%s\n", scored.ID, scored.Score, scored.Snippet)
 	}
 
 	return tab.Flush()

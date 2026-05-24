@@ -10,17 +10,38 @@ tusk-node-get - Print the markdown file for a node by id
 
 
 .SH DESCRIPTION
-Print the full markdown file (frontmatter + body) for a node by id.
+Print the markdown file (frontmatter + body) for a node by id.
 
 .PP
 The node id is the workspace-relative path without extension (e.g. a node
-file at notes/hello.md has id "notes/hello"). Output goes to stdout
+file at notes/hello.md has id "notes/hello").
+
+.PP
+By default (no flags) the command prints the raw markdown file to stdout
 verbatim — useful for piping into editors, less, or another tusk command.
+When --include, --fields, --format, or --json is passed the command emits
+structured output instead (compact for TTY, JSON otherwise).
 
 
 .SH OPTIONS
+\fB--fields\fP=[]
+	project returned shape to these fields (comma-separated)
+
+.PP
+\fB--format\fP=""
+	output format: compact|json (default: compact for TTY, json otherwise)
+
+.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for get
+
+.PP
+\fB--include\fP=[]
+	expand returned shape: body|edges|properties (comma-separated)
+
+.PP
+\fB--json\fP[=false]
+	emit structured JSON (sugar for --format json)
 
 
 .SH OPTIONS INHERITED FROM PARENT COMMANDS
@@ -30,8 +51,11 @@ verbatim — useful for piping into editors, less, or another tusk command.
 
 .SH EXAMPLE
 .EX
-  # Print a node
+  # Print the raw file
   tusk node get notes/hello
+
+  # Structured JSON envelope with only the body
+  tusk node get notes/hello --include body --format json
 
   # Open in $EDITOR (round-trip through a temp file)
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md

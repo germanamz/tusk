@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/behavior/workflow"
+	"github.com/germanamz/tusk/internal/contextcompose"
 	"github.com/germanamz/tusk/internal/doctor"
-	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/reindex"
+	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/status"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
@@ -32,6 +35,8 @@ func registerTools(srv *Server) {
 	registerEdgeAddTool(srv)
 	registerEdgeRemoveTool(srv)
 	registerReindexTool(srv)
+	registerRunTool(srv)
+	registerContextTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -40,22 +45,22 @@ func registerStatusTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		snap, snapErr := status.Snapshot(status.Config{
+		result, runErr := status.Run(status.Request{
 			Nodes:      srv.runtime.Nodes,
 			Edges:      srv.runtime.Edges,
 			EmbedQueue: srv.runtime.EmbedQueue,
 			Meta:       srv.runtime.Meta,
 		})
 
-		if snapErr != nil {
-			return toolError(snapErr), nil
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
 		return toolJSON(map[string]any{
-			"nodes_by_type":     snap.NodesByType,
-			"edge_count":        snap.EdgeCount,
-			"embed_queue_depth": snap.EmbedQueueDepth,
-			"last_reindex_at":   snap.LastReindexAt,
+			"nodes_by_type":     result.NodesByType,
+			"edge_count":        result.EdgeCount,
+			"embed_queue_depth": result.EmbedQueueDepth,
+			"last_reindex_at":   result.LastReindexAt,
 		})
 	}
 
@@ -192,8 +197,11 @@ func toolJSON(payload any) (*mcpgo.CallToolResult, error) {
 
 func registerNodeGetTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_get",
-		mcpgo.WithDescription("Read a node by id (workspace-relative path without extension). Returns id, type, path, title, properties, edges, body."),
+		mcpgo.WithDescription("Read a node by id (workspace-relative path without extension). Returns id, type, path, title, plus body / edges / properties when requested via include or fields."),
 		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id (e.g. \"notes/hi\")")),
+		mcpgo.WithArray("include", mcpgo.Description("Expand returned shape: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("fields", mcpgo.Description("Project returned shape to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -203,21 +211,82 @@ func registerNodeGetTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		loaded, getErr := srv.runtime.NodeService.Get(nodeID)
+		includeRaw := argStringSlice(request, "include")
+		fields := argStringSlice(request, "fields")
+		format := argStringOptional(request, "format")
 
-		if getErr != nil {
-			return toolError(getErr), nil
+		result, runErr := node.GetRun(srv.runtime.NodeService, node.GetRequest{
+			ID:      nodeID,
+			Include: includeRaw,
+			Fields:  fields,
+		})
+
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
-		return toolJSON(map[string]any{
-			"id":         loaded.ID,
-			"type":       loaded.Type,
-			"path":       loaded.Path,
-			"title":      loaded.Title,
-			"properties": loaded.Properties,
-			"edges":      loaded.Edges,
-			"body":       string(loaded.Body),
-		})
+		loaded := result.Node
+		payload := map[string]any{
+			"id":    loaded.ID,
+			"type":  loaded.Type,
+			"path":  loaded.Path,
+			"title": loaded.Title,
+		}
+
+		if result.IncludeProperties {
+			payload["properties"] = loaded.Properties
+		}
+
+		if result.IncludeEdges {
+			payload["edges"] = loaded.Edges
+		}
+
+		if result.IncludeBody {
+			payload["body"] = string(loaded.Body)
+		}
+
+		if format == "compact" {
+			var edgeRefs []query.EdgeRef
+
+			if result.IncludeEdges {
+				for edgeType, targets := range loaded.Edges {
+					for _, target := range targets {
+						edgeRefs = append(edgeRefs, query.EdgeRef{
+							Type:      edgeType,
+							Direction: "out",
+							TargetID:  target,
+						})
+					}
+				}
+			}
+
+			row := render.CompactRow{
+				ID:    loaded.ID,
+				Type:  loaded.Type,
+				Title: loaded.Title,
+				Edges: edgeRefs,
+			}
+
+			if result.IncludeBody {
+				row.Body = string(loaded.Body)
+			}
+
+			if result.IncludeProperties {
+				row.Properties = loaded.Properties
+			}
+
+			rows := []render.CompactRow{row}
+
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactNodeRows(&buf, rows, render.CompactOpts{Fields: fields}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
+		}
+
+		return toolJSON(payload)
 	}
 
 	srv.register(tool, handler)
@@ -225,28 +294,90 @@ func registerNodeGetTool(srv *Server) {
 
 func registerNodeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_list",
-		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result."),
+		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result. Use include / fields to expand rows with body / edges / properties in one round-trip. Results are sorted by id ascending by default."),
 		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		typeFilter := argStringOptional(request, "type")
+		includeRaw := argStringSlice(request, "include")
+		fields := argStringSlice(request, "fields")
+		format := argStringOptional(request, "format")
 
-		nodes, listErr := srv.runtime.NodeService.List(node.ListFilter{Type: typeFilter})
+		// Build a filter expression equivalent to ListFilter{Type:X} so the
+		// CLI and MCP share node.ListRun. An empty type yields an empty
+		// filter string, which filter.Parse treats as match-all.
+		var filterExpr string
 
-		if listErr != nil {
-			return toolError(listErr), nil
+		if typeFilter != "" {
+			filterExpr = fmt.Sprintf("type=%s", typeFilter)
 		}
 
-		results := make([]map[string]any, 0, len(nodes))
+		// Default to "+id" so the API contract preserves the historical
+		// NodeRepo.List "ORDER BY id ASC" ordering. The CLI does NOT inherit
+		// this default — its `tusk node list` retains "no implicit order"
+		// behavior unless the user passes --sort.
+		result, runErr := query.ListRun(srv.runtime.Index.DB(), srv.runtime.Manifest, query.ListRequest{
+			Filter:        filterExpr,
+			Sort:          "+id",
+			Include:       includeRaw,
+			Fields:        fields,
+			WorkspaceRoot: srv.runtime.Root,
+		})
 
-		for _, item := range nodes {
-			results = append(results, map[string]any{
-				"id":    item.ID,
-				"type":  item.Type,
-				"path":  item.Path,
-				"title": item.Title,
-			})
+		if runErr != nil {
+			return toolError(runErr), nil
+		}
+
+		if format == "compact" {
+			compactRows := make([]render.CompactRow, 0, len(result.Rows))
+
+			for _, row := range result.Rows {
+				compactRows = append(compactRows, render.CompactRow{
+					ID:         row.ID,
+					Type:       row.Type,
+					Title:      row.Title,
+					Body:       row.Body,
+					Properties: row.Properties,
+					Edges:      row.Edges,
+				})
+			}
+
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{Fields: fields}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
+		}
+
+		results := make([]map[string]any, 0, len(result.Rows))
+
+		for _, row := range result.Rows {
+			entry := map[string]any{
+				"id":    row.ID,
+				"type":  row.Type,
+				"path":  row.Path,
+				"title": row.Title,
+			}
+
+			if row.Body != "" {
+				entry["body"] = row.Body
+			}
+
+			if row.Properties != nil {
+				entry["properties"] = row.Properties
+			}
+
+			if row.Edges != nil {
+				entry["edges"] = row.Edges
+			}
+
+			results = append(results, entry)
 		}
 
 		return toolJSON(map[string]any{
@@ -260,38 +391,50 @@ func registerNodeListTool(srv *Server) {
 
 func registerEdgeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_edge_list",
-		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow."),
+		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow. Use format=compact for tab-aligned text output."),
 		mcpgo.WithString("from", mcpgo.Description("Source node id")),
 		mcpgo.WithString("to", mcpgo.Description("Target node id")),
 		mcpgo.WithString("type", mcpgo.Description("Edge type")),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		from := argStringOptional(request, "from")
-		to := argStringOptional(request, "to")
-		edgeType := argStringOptional(request, "type")
+		format := argStringOptional(request, "format")
 
-		var rows []index.EdgeRow
-		var listErr error
+		result, runErr := index.EdgeListRun(srv.runtime.Edges, index.EdgeListRequest{
+			From: argStringOptional(request, "from"),
+			To:   argStringOptional(request, "to"),
+			Type: argStringOptional(request, "type"),
+		})
 
-		switch {
-		case from != "":
-			rows, listErr = srv.runtime.Edges.ListBySource(from)
-		case to != "":
-			rows, listErr = srv.runtime.Edges.ListByTarget(to)
-		case edgeType != "":
-			rows, listErr = srv.runtime.Edges.ListByType(edgeType)
-		default:
-			rows, listErr = srv.runtime.Edges.ListAll()
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
-		if listErr != nil {
-			return toolError(listErr), nil
+		if format == "compact" {
+			entries := make([]render.EdgeListEntry, 0, len(result.Rows))
+
+			for _, row := range result.Rows {
+				entries = append(entries, render.EdgeListEntry{
+					Type:       row.Type,
+					SourceID:   row.SourceID,
+					TargetID:   row.TargetID,
+					SourcePath: row.SourcePath,
+				})
+			}
+
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactEdgeRows(&buf, entries); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
 		}
 
-		results := make([]map[string]any, 0, len(rows))
+		results := make([]map[string]any, 0, len(result.Rows))
 
-		for _, row := range rows {
+		for _, row := range result.Rows {
 			results = append(results, map[string]any{
 				"type":        row.Type,
 				"source_id":   row.SourceID,
@@ -308,13 +451,16 @@ func registerEdgeListTool(srv *Server) {
 
 func registerQueryTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription("Run a structural filter against the workspace, optionally ranked by semantic similarity."),
+		mcpgo.WithDescription("Run a structural filter against the workspace, optionally ranked by semantic similarity. Use include / fields to expand rows with body / edges / properties in one round-trip."),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression (e.g. 'type=ticket status=active')")),
 		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
 		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum cosine similarity to include in semantic results (default 0.5). Lower this when an initial query misses.")),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties (semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -324,166 +470,141 @@ func registerQueryTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		sortSpec := argStringOptional(request, "sort")
-		take := argIntOptional(request, "take", 0)
-		skip := argIntOptional(request, "skip", 0)
-		semanticQuery := argStringOptional(request, "semantic")
-		minScore := argFloatOptional(request, "min_score", 0.5)
+		includeRaw := argStringSlice(request, "include")
+		fields := argStringSlice(request, "fields")
+		format := argStringOptional(request, "format")
 
-		expr, parseErrs := filter.NewParser(filterText).Parse()
-
-		if len(parseErrs) > 0 {
-			return toolError(&parseErrs[0]), nil
-		}
-
-		if validateErrs := filter.Validate(expr, *srv.runtime.Manifest); len(validateErrs) > 0 {
-			return toolError(&validateErrs[0]), nil
-		}
-
-		sortKeys, sortErr := filter.ParseSort(sortSpec)
-
-		if sortErr != nil {
-			return toolError(sortErr), nil
-		}
-
-		sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
-			SortKeys: sortKeys,
-			Take:     take,
-			Skip:     skip,
+		result, runErr := query.Run(ctx, query.Deps{
+			Database:   srv.runtime.Index.DB(),
+			Manifest:   srv.runtime.Manifest,
+			Embedder:   srv.runtime.Embedder,
+			Embeddings: srv.runtime.Embeddings,
+		}, query.Request{
+			Filter:   filterText,
+			Sort:     argStringOptional(request, "sort"),
+			Take:     argIntOptional(request, "take", 0),
+			Skip:     argIntOptional(request, "skip", 0),
+			Semantic: argStringOptional(request, "semantic"),
+			MinScore: argFloatOptional(request, "min_score", 0.5),
+			// MCP keeps tool responses bounded by defaulting semantic page
+			// size to 10 when take is unset (CLI returns all ranked rows).
+			SemanticDefaultTake: 10,
+			Include:             includeRaw,
+			Fields:              fields,
+			WorkspaceRoot:       srv.runtime.Root,
 		})
 
-		if compileErr != nil {
-			return toolError(compileErr), nil
+		if runErr != nil {
+			return toolError(runErr), nil
 		}
 
-		rows, queryErr := srv.runtime.Index.DB().Query(sqlQuery, params...)
+		if format == "compact" {
+			var compactRows []render.CompactRow
 
-		if queryErr != nil {
-			return toolError(queryErr), nil
-		}
+			if result.Semantic == nil {
+				compactRows = make([]render.CompactRow, 0, len(result.Rows))
 
-		defer rows.Close()
+				for _, row := range result.Rows {
+					compactRows = append(compactRows, render.CompactRow{
+						ID:         row.ID,
+						Type:       row.Type,
+						Title:      row.Title,
+						Body:       row.Body,
+						Properties: row.Properties,
+						Edges:      row.Edges,
+					})
+				}
+			} else {
+				compactRows = make([]render.CompactRow, 0, len(result.Semantic.Ranked))
 
-		type queryResult struct {
-			ID    string `json:"id"`
-			Type  string `json:"type"`
-			Path  string `json:"path"`
-			Title string `json:"title"`
-		}
-
-		var results []queryResult
-		var ids []string
-
-		for rows.Next() {
-			var (
-				rowID, rowType, rowPath, rowTitle, propertiesRaw, lastChecksum string
-				lastMtime, lastSize                                            int64
-			)
-
-			if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
-				return toolError(scanErr), nil
+				for _, scored := range result.Semantic.Ranked {
+					compactRows = append(compactRows, render.CompactRow{
+						ID:         scored.ID,
+						Type:       scored.Type,
+						Title:      scored.Title,
+						Body:       scored.Body,
+						Properties: scored.Properties,
+						Edges:      scored.Edges,
+						Score:      scored.Score,
+						HasScore:   true,
+					})
+				}
 			}
 
-			results = append(results, queryResult{ID: rowID, Type: rowType, Path: rowPath, Title: rowTitle})
-			ids = append(ids, rowID)
+			var buf bytes.Buffer
+
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{Fields: fields}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			return mcpgo.NewToolResultText(buf.String()), nil
 		}
 
-		if semanticQuery == "" {
+		if result.Semantic == nil {
+			results := make([]map[string]any, 0, len(result.Rows))
+
+			for _, row := range result.Rows {
+				entry := map[string]any{
+					"id":    row.ID,
+					"type":  row.Type,
+					"path":  row.Path,
+					"title": row.Title,
+				}
+
+				if row.Body != "" {
+					entry["body"] = row.Body
+				}
+
+				if row.Properties != nil {
+					entry["properties"] = row.Properties
+				}
+
+				if row.Edges != nil {
+					entry["edges"] = row.Edges
+				}
+
+				results = append(results, entry)
+			}
+
 			return toolJSON(map[string]any{"results": results, "count": len(results)})
 		}
 
-		if srv.runtime.Embedder == nil {
-			return toolError(fmt.Errorf("semantic ranking requires [embeddings] in tusk.toml")), nil
-		}
+		semantic := result.Semantic
+		ranking := make([]map[string]any, 0, len(semantic.Ranked))
 
-		queryVector, embedErr := srv.runtime.Embedder.Embed(ctx, []byte(semanticQuery))
-
-		if embedErr != nil {
-			return toolError(embedErr), nil
-		}
-
-		loaded, loadErr := srv.runtime.Embeddings.ListByNodeIDs(ids)
-
-		if loadErr != nil {
-			return toolError(loadErr), nil
-		}
-
-		candidates := make([]filter.SemanticCandidate, 0, len(loaded))
-
-		for _, embeddingRow := range loaded {
-			candidates = append(candidates, filter.SemanticCandidate{
-				NodeID:   embeddingRow.NodeID,
-				ChunkIdx: embeddingRow.ChunkIdx,
-				Vector:   embeddingRow.Vector,
-				Body:     embeddingRow.Body,
-			})
-		}
-
-		ranked := filter.SemanticRank(candidates, queryVector)
-
-		filteredBelowMinScore := 0
-
-		if minScore > 0 {
-			kept := ranked[:0]
-
-			for _, scored := range ranked {
-				if scored.Score >= minScore {
-					kept = append(kept, scored)
-
-					continue
-				}
-
-				filteredBelowMinScore++
+		for _, scored := range semantic.Ranked {
+			entry := map[string]any{
+				"id":      scored.ID,
+				"score":   scored.Score,
+				"type":    scored.Type,
+				"path":    scored.Path,
+				"title":   scored.Title,
+				"snippet": scored.Snippet,
 			}
 
-			ranked = kept
-		}
+			if scored.Body != "" {
+				entry["body"] = scored.Body
+			}
 
-		effectiveTake := take
-		if effectiveTake <= 0 {
-			effectiveTake = 10
-		}
+			if scored.Properties != nil {
+				entry["properties"] = scored.Properties
+			}
 
-		startIdx := skip
+			if scored.Edges != nil {
+				entry["edges"] = scored.Edges
+			}
 
-		if startIdx > len(ranked) {
-			startIdx = len(ranked)
-		}
-
-		endIdx := startIdx + effectiveTake
-
-		if endIdx > len(ranked) {
-			endIdx = len(ranked)
-		}
-
-		ranked = ranked[startIdx:endIdx]
-
-		ranking := make([]map[string]any, 0, len(ranked))
-		byID := map[string]queryResult{}
-
-		for _, item := range results {
-			byID[item.ID] = item
-		}
-
-		for _, scored := range ranked {
-			ranking = append(ranking, map[string]any{
-				"id":      scored.NodeID,
-				"score":   scored.Score,
-				"type":    byID[scored.NodeID].Type,
-				"path":    byID[scored.NodeID].Path,
-				"title":   byID[scored.NodeID].Title,
-				"snippet": filter.RenderSnippetForQuery(scored.BestChunkBody, semanticQuery, 200),
-			})
+			ranking = append(ranking, entry)
 		}
 
 		response := map[string]any{
 			"results": ranking,
 			"count":   len(ranking),
-			"model":   srv.runtime.Embedder.Model(),
+			"model":   semantic.Model,
 		}
 
-		if len(ranking) == 0 && filteredBelowMinScore > 0 {
-			response["filtered_below_min_score"] = filteredBelowMinScore
+		if len(ranking) == 0 && semantic.FilteredBelowMinScore > 0 {
+			response["filtered_below_min_score"] = semantic.FilteredBelowMinScore
 		}
 
 		return toolJSON(response)
@@ -512,33 +633,14 @@ func registerDoctorTool(srv *Server) {
 			Root:          srv.runtime.Root,
 		}
 
-		var migrationReport *doctor.MigrationReport
-
-		if !noMigrate {
-			migrated, migrateErr := doctor.Migrate(cfg)
-
-			if migrateErr != nil {
-				return toolError(migrateErr), nil
-			}
-
-			migrationReport = migrated
-		}
-
-		report, runErr := doctor.Run(cfg)
+		runResult, runErr := doctor.RunWithMigration(doctor.Request{Cfg: cfg, NoMigrate: noMigrate})
 
 		if runErr != nil {
 			return toolError(runErr), nil
 		}
 
-		if noMigrate {
-			legacyIssues, legacyErr := doctor.LegacyDrift(cfg)
-
-			if legacyErr != nil {
-				return toolError(legacyErr), nil
-			}
-
-			report.Issues = append(report.Issues, legacyIssues...)
-		}
+		report := runResult.Report
+		migrationReport := runResult.Migration
 
 		issues := make([]map[string]any, 0, len(report.Issues))
 
@@ -553,6 +655,35 @@ func registerDoctorTool(srv *Server) {
 		response := map[string]any{
 			"issues":            issues,
 			"embed_queue_depth": report.EmbedQueueDepth,
+		}
+
+		if len(report.AliasErrors) > 0 {
+			aliasErrors := make([]map[string]any, 0, len(report.AliasErrors))
+
+			for _, aliasErr := range report.AliasErrors {
+				aliasErrors = append(aliasErrors, map[string]any{
+					"name":    aliasErr.Name,
+					"message": aliasErr.Message,
+				})
+			}
+
+			response["alias_errors"] = aliasErrors
+		}
+
+		if len(report.ContextErrors) > 0 {
+			contextErrors := make([]map[string]any, 0, len(report.ContextErrors))
+
+			for _, contextErr := range report.ContextErrors {
+				contextErrors = append(contextErrors, map[string]any{
+					"message": contextErr.Message,
+				})
+			}
+
+			response["context_errors"] = contextErrors
+		}
+
+		if len(report.MissingPinnedIDs) > 0 {
+			response["missing_pinned_ids"] = report.MissingPinnedIDs
 		}
 
 		if migrationReport != nil {
@@ -1059,6 +1190,442 @@ func registerReindexTool(srv *Server) {
 	}
 
 	srv.register(tool, handler)
+}
+
+// registerRunTool exposes the manifest-declared alias mechanism over MCP.
+// The handler builds an aliasdispatch.Dispatcher off the runtime, runs the
+// requested alias by name, and returns a {alias, command, kind, result}
+// envelope. format=compact uses the underlying verb's compact renderer.
+func registerRunTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_run",
+		mcpgo.WithDescription("Invoke a manifest-declared alias by name. Aliases must be declared under [alias.<name>] in tusk.toml and target one of the read-only verbs (node list, node get, query, edge list, doctor, status)."),
+		mcpgo.WithString("alias", mcpgo.Required(), mcpgo.Description("Alias name as declared in tusk.toml [alias.<name>]")),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		aliasName, parseErr := argString(request, "alias")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		format := argStringOptional(request, "format")
+
+		alias, ok := srv.runtime.Manifest.Aliases[aliasName]
+
+		if !ok {
+			for _, aliasErr := range srv.runtime.Manifest.AliasErrors {
+				if aliasErr.Name == aliasName {
+					return toolError(fmt.Errorf("alias %q is invalid: %s", aliasName, aliasErr.Message)), nil
+				}
+			}
+
+			return toolError(fmt.Errorf("alias %q not declared in tusk.toml", aliasName)), nil
+		}
+
+		deps := aliasdispatch.Deps{
+			Database:            srv.runtime.Index.DB(),
+			Manifest:            srv.runtime.Manifest,
+			WorkspaceRoot:       srv.runtime.Root,
+			NodeService:         srv.runtime.NodeService,
+			Nodes:               srv.runtime.Nodes,
+			Edges:               srv.runtime.Edges,
+			EmbedQueue:          srv.runtime.EmbedQueue,
+			WorkflowDrift:       srv.runtime.WorkflowDrift,
+			PropertyDrift:       srv.runtime.PropertyDrift,
+			Embeddings:          srv.runtime.Embeddings,
+			Meta:                srv.runtime.Meta,
+			Embedder:            srv.runtime.Embedder,
+			SemanticDefaultTake: 10,
+		}
+
+		dispatcher := aliasdispatch.NewDispatcher(deps)
+		result, dispatchErr := dispatcher.Run(ctx, alias)
+
+		if dispatchErr != nil {
+			return toolError(dispatchErr), nil
+		}
+
+		if format == "compact" {
+			return aliasCompactResult(result)
+		}
+
+		return toolJSON(map[string]any{
+			"alias":   result.Alias,
+			"command": result.Command,
+			"kind":    result.Kind,
+			"result":  aliasResultJSON(result),
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+// registerContextTool exposes the manifest-declared [context] block as a
+// composable MCP tool. The handler builds a contextcompose.Compose call
+// off the runtime, returning the {pinned, recent, aliases} envelope.
+func registerContextTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_context",
+		mcpgo.WithDescription("Composed warm-context digest: pinned nodes, recent activity, and named aliases per [context] in tusk.toml."),
+		mcpgo.WithArray("include", mcpgo.Description("Override the per-node include set (default [body, edges])."), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact.")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		includeOverride := argStringSlice(request, "include")
+		format := argStringOptional(request, "format")
+
+		aliasDeps := aliasdispatch.Deps{
+			Database:            srv.runtime.Index.DB(),
+			Manifest:            srv.runtime.Manifest,
+			WorkspaceRoot:       srv.runtime.Root,
+			NodeService:         srv.runtime.NodeService,
+			Nodes:               srv.runtime.Nodes,
+			Edges:               srv.runtime.Edges,
+			EmbedQueue:          srv.runtime.EmbedQueue,
+			WorkflowDrift:       srv.runtime.WorkflowDrift,
+			PropertyDrift:       srv.runtime.PropertyDrift,
+			Embeddings:          srv.runtime.Embeddings,
+			Meta:                srv.runtime.Meta,
+			Embedder:            srv.runtime.Embedder,
+			SemanticDefaultTake: 10,
+		}
+
+		dispatcher := aliasdispatch.NewDispatcher(aliasDeps)
+
+		composeDeps := contextcompose.Deps{
+			Manifest:      srv.runtime.Manifest,
+			Dispatcher:    dispatcher,
+			WorkspaceRoot: srv.runtime.Root,
+			Database:      srv.runtime.Index.DB(),
+		}
+
+		composed, composeErr := contextcompose.Compose(ctx, composeDeps, contextcompose.Request{
+			Include: includeOverride,
+		})
+
+		if composeErr != nil {
+			return toolError(composeErr), nil
+		}
+
+		if format == "compact" {
+			return contextCompactResult(composed)
+		}
+
+		return toolJSON(contextJSONPayload(composed))
+	}
+
+	srv.register(tool, handler)
+}
+
+// contextJSONPayload builds the JSON envelope tusk_context returns. Mirrors
+// cmd/tusk's buildContextJSONPayload.
+func contextJSONPayload(result *contextcompose.Result) map[string]any {
+	envelope := map[string]any{}
+
+	if len(result.Pinned) > 0 {
+		envelope["pinned"] = result.Pinned
+	}
+
+	if len(result.Recent) > 0 {
+		envelope["recent"] = result.Recent
+	}
+
+	if len(result.Aliases) > 0 {
+		aliasEnv := make(map[string]any, len(result.Aliases))
+
+		for _, name := range contextcompose.SortedIncludeNames(result) {
+			dispatched := result.Aliases[name]
+
+			aliasEnv[name] = map[string]any{
+				"kind":   dispatched.Kind,
+				"result": aliasResultJSON(dispatched),
+			}
+		}
+
+		envelope["aliases"] = aliasEnv
+	}
+
+	if len(result.MissingPinned) > 0 {
+		envelope["missing_pinned"] = result.MissingPinned
+	}
+
+	return envelope
+}
+
+// contextCompactResult renders the digest as compact text wrapped in a
+// CallToolResult. Sections are headed with Markdown-style `# Name` lines so
+// agents can locate them with simple regexes.
+func contextCompactResult(result *contextcompose.Result) (*mcpgo.CallToolResult, error) {
+	var buf bytes.Buffer
+
+	if len(result.Pinned) > 0 {
+		buf.WriteString("# Pinned\n")
+
+		if renderErr := writeNodeRowsCompact(&buf, result.Pinned); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+	}
+
+	if len(result.Recent) > 0 {
+		if buf.Len() > 0 {
+			buf.WriteString("\n")
+		}
+
+		buf.WriteString("# Recent\n")
+
+		if renderErr := writeNodeRowsCompact(&buf, result.Recent); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+	}
+
+	for _, name := range contextcompose.SortedIncludeNames(result) {
+		if buf.Len() > 0 {
+			buf.WriteString("\n")
+		}
+
+		fmt.Fprintf(&buf, "# Aliases / %s\n", name)
+
+		aliasBuf, renderErr := aliasCompactResult(result.Aliases[name])
+
+		if renderErr != nil {
+			return toolError(renderErr), nil
+		}
+
+		for _, content := range aliasBuf.Content {
+			if text, ok := content.(mcpgo.TextContent); ok {
+				buf.WriteString(text.Text)
+
+				if !strings.HasSuffix(text.Text, "\n") {
+					buf.WriteString("\n")
+				}
+			}
+		}
+	}
+
+	if len(result.MissingPinned) > 0 {
+		if buf.Len() > 0 {
+			buf.WriteString("\n")
+		}
+
+		buf.WriteString("# Missing pinned\n")
+
+		for _, id := range result.MissingPinned {
+			fmt.Fprintf(&buf, "  %s\n", id)
+		}
+	}
+
+	if buf.Len() == 0 {
+		buf.WriteString("tusk context: no [context] block declared in tusk.toml\n")
+	}
+
+	return mcpgo.NewToolResultText(buf.String()), nil
+}
+
+// writeNodeRowsCompact is the contextcompose-specific helper that re-uses
+// render.CompactNodeRows but accepts the contextcompose row shape directly.
+func writeNodeRowsCompact(out *bytes.Buffer, rows []query.ListRow) error {
+	compactRows := make([]render.CompactRow, 0, len(rows))
+
+	for _, row := range rows {
+		compactRows = append(compactRows, render.CompactRow{
+			ID:         row.ID,
+			Type:       row.Type,
+			Title:      row.Title,
+			Body:       row.Body,
+			Properties: row.Properties,
+			Edges:      row.Edges,
+		})
+	}
+
+	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
+}
+
+// aliasResultJSON converts a DispatchResult into the JSON-friendly payload
+// embedded under "result" in the envelope. Mirrors cmd/tusk's
+// aliasResultPayload but lives here to keep the MCP package free of a
+// dependency on cmd/tusk.
+func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
+	switch typed := result.Result.(type) {
+	case *query.ListResult:
+		return map[string]any{
+			"rows":  typed.Rows,
+			"count": len(typed.Rows),
+		}
+
+	case *query.Result:
+		if typed.Semantic != nil {
+			return map[string]any{
+				"results": typed.Semantic.Ranked,
+				"count":   len(typed.Semantic.Ranked),
+				"model":   typed.Semantic.Model,
+			}
+		}
+
+		return map[string]any{
+			"rows":  typed.Rows,
+			"count": len(typed.Rows),
+		}
+
+	case *node.GetResult:
+		envelope := map[string]any{
+			"id":    typed.Node.ID,
+			"type":  typed.Node.Type,
+			"path":  typed.Node.Path,
+			"title": typed.Node.Title,
+		}
+
+		if typed.IncludeProperties {
+			envelope["properties"] = typed.Node.Properties
+		}
+
+		if typed.IncludeEdges {
+			envelope["edges"] = typed.Node.Edges
+		}
+
+		if typed.IncludeBody {
+			envelope["body"] = string(typed.Node.Body)
+		}
+
+		return envelope
+
+	case *index.EdgeListResult:
+		return map[string]any{
+			"rows":  typed.Rows,
+			"count": len(typed.Rows),
+		}
+
+	case *doctor.Result:
+		envelope := map[string]any{
+			"issues":            typed.Report.Issues,
+			"embed_queue_depth": typed.Report.EmbedQueueDepth,
+		}
+
+		if len(typed.Report.AliasErrors) > 0 {
+			aliasErrors := make([]map[string]any, 0, len(typed.Report.AliasErrors))
+
+			for _, aliasErr := range typed.Report.AliasErrors {
+				aliasErrors = append(aliasErrors, map[string]any{
+					"name":    aliasErr.Name,
+					"message": aliasErr.Message,
+				})
+			}
+
+			envelope["alias_errors"] = aliasErrors
+		}
+
+		if typed.Migration != nil {
+			envelope["migrated"] = typed.Migration.Migrated
+			envelope["skipped"] = typed.Migration.Skipped
+		}
+
+		return envelope
+
+	case *status.Result:
+		return map[string]any{
+			"nodes_by_type":     typed.NodesByType,
+			"edge_count":        typed.EdgeCount,
+			"embed_queue_depth": typed.EmbedQueueDepth,
+			"last_reindex_at":   typed.LastReindexAt,
+		}
+	}
+
+	return result.Result
+}
+
+// aliasCompactResult emits the alias result through the matching compact
+// renderer. Used by tusk_run when the caller passes format=compact.
+func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolResult, error) {
+	var buf bytes.Buffer
+
+	switch typed := result.Result.(type) {
+	case *query.ListResult:
+		compactRows := make([]render.CompactRow, 0, len(typed.Rows))
+
+		for _, row := range typed.Rows {
+			compactRows = append(compactRows, render.CompactRow{
+				ID:         row.ID,
+				Type:       row.Type,
+				Title:      row.Title,
+				Body:       row.Body,
+				Properties: row.Properties,
+				Edges:      row.Edges,
+			})
+		}
+
+		if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+
+	case *query.Result:
+		if typed.Semantic != nil {
+			compactRows := make([]render.CompactRow, 0, len(typed.Semantic.Ranked))
+
+			for _, scored := range typed.Semantic.Ranked {
+				compactRows = append(compactRows, render.CompactRow{
+					ID:         scored.ID,
+					Type:       scored.Type,
+					Title:      scored.Title,
+					Body:       scored.Body,
+					Properties: scored.Properties,
+					Edges:      scored.Edges,
+					Score:      scored.Score,
+					HasScore:   true,
+				})
+			}
+
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+		} else {
+			compactRows := make([]render.CompactRow, 0, len(typed.Rows))
+
+			for _, row := range typed.Rows {
+				compactRows = append(compactRows, render.CompactRow{
+					ID:         row.ID,
+					Type:       row.Type,
+					Title:      row.Title,
+					Body:       row.Body,
+					Properties: row.Properties,
+					Edges:      row.Edges,
+				})
+			}
+
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+		}
+
+	case *index.EdgeListResult:
+		entries := make([]render.EdgeListEntry, 0, len(typed.Rows))
+
+		for _, row := range typed.Rows {
+			entries = append(entries, render.EdgeListEntry{
+				Type:       row.Type,
+				SourceID:   row.SourceID,
+				TargetID:   row.TargetID,
+				SourcePath: row.SourcePath,
+			})
+		}
+
+		if renderErr := render.CompactEdgeRows(&buf, entries); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+
+	default:
+		// For node get / doctor / status, fall back to JSON inside the
+		// compact envelope so the caller still gets a useful payload.
+		body, marshalErr := json.Marshal(aliasResultJSON(result))
+
+		if marshalErr != nil {
+			return toolError(marshalErr), nil
+		}
+
+		buf.Write(body)
+	}
+
+	return mcpgo.NewToolResultText(buf.String()), nil
 }
 
 // toolJSONError builds a CallToolResult with IsError=true and a JSON-encoded

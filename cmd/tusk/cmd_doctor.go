@@ -57,6 +57,10 @@ for a diagnostic-only run.`,
 				return loadErr
 			}
 
+			introspect := buildVerbIntrospector(cmd.Root())
+			manifest.ValidateAliases(loaded, introspect)
+			manifest.ValidateContext(loaded, introspect)
+
 			out := cmd.OutOrStdout()
 
 			return withWorkspaceLock(ws, func() error {
@@ -79,44 +83,50 @@ for a diagnostic-only run.`,
 					Root:          ws.Root,
 				}
 
-				if !noMigrate {
-					migrationReport, migrateErr := doctor.Migrate(cfg)
-
-					if migrateErr != nil {
-						return migrateErr
-					}
-
-					if len(migrationReport.Migrated) > 0 {
-						_, _ = fmt.Fprintf(out, "migrated %d legacy CLI/MCP edges into source frontmatter:\n", len(migrationReport.Migrated))
-
-						for _, line := range migrationReport.Migrated {
-							_, _ = fmt.Fprintf(out, "  %s\n", line)
-						}
-					}
-
-					if len(migrationReport.Skipped) > 0 {
-						_, _ = fmt.Fprintf(out, "skipped %d legacy CLI/MCP edges:\n", len(migrationReport.Skipped))
-
-						for _, line := range migrationReport.Skipped {
-							_, _ = fmt.Fprintf(out, "  %s\n", line)
-						}
-					}
-				}
-
-				report, runErr := doctor.Run(cfg)
+				result, runErr := doctor.RunWithMigration(doctor.Request{Cfg: cfg, NoMigrate: noMigrate})
 
 				if runErr != nil {
 					return runErr
 				}
 
-				if noMigrate {
-					legacyIssues, legacyErr := doctor.LegacyDrift(cfg)
+				if result.Migration != nil {
+					if len(result.Migration.Migrated) > 0 {
+						_, _ = fmt.Fprintf(out, "migrated %d legacy CLI/MCP edges into source frontmatter:\n", len(result.Migration.Migrated))
 
-					if legacyErr != nil {
-						return legacyErr
+						for _, line := range result.Migration.Migrated {
+							_, _ = fmt.Fprintf(out, "  %s\n", line)
+						}
 					}
 
-					report.Issues = append(report.Issues, legacyIssues...)
+					if len(result.Migration.Skipped) > 0 {
+						_, _ = fmt.Fprintf(out, "skipped %d legacy CLI/MCP edges:\n", len(result.Migration.Skipped))
+
+						for _, line := range result.Migration.Skipped {
+							_, _ = fmt.Fprintf(out, "  %s\n", line)
+						}
+					}
+				}
+
+				report := result.Report
+
+				if len(report.AliasErrors) > 0 {
+					_, _ = fmt.Fprintln(out, "aliases:")
+
+					for _, aliasErr := range report.AliasErrors {
+						_, _ = fmt.Fprintf(out, "  %s: %s\n", aliasErr.Name, aliasErr.Message)
+					}
+				}
+
+				if len(report.ContextErrors) > 0 || len(report.MissingPinnedIDs) > 0 {
+					_, _ = fmt.Fprintln(out, "context:")
+
+					for _, contextErr := range report.ContextErrors {
+						_, _ = fmt.Fprintf(out, "  %s\n", contextErr.Message)
+					}
+
+					for _, missingID := range report.MissingPinnedIDs {
+						_, _ = fmt.Fprintf(out, "  missing pinned: %s\n", missingID)
+					}
 				}
 
 				if len(report.Issues) == 0 {

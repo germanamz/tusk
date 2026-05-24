@@ -47,37 +47,37 @@ warnings and drift detail.`,
 
 			defer store.Close()
 
-			snap, snapErr := status.Snapshot(status.Config{
+			result, runErr := status.Run(status.Request{
 				Nodes:      index.NewNodeRepo(store),
 				Edges:      index.NewEdgeRepo(store),
 				EmbedQueue: index.NewEmbedQueueRepo(store),
 				Meta:       index.NewMetaRepo(store),
 			})
 
-			if snapErr != nil {
-				return snapErr
+			if runErr != nil {
+				return runErr
 			}
 
 			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
 			_, _ = fmt.Fprintln(tab, "TYPE\tCOUNT")
 
-			types := make([]string, 0, len(snap.NodesByType))
+			types := make([]string, 0, len(result.NodesByType))
 
-			for typeName := range snap.NodesByType {
+			for typeName := range result.NodesByType {
 				types = append(types, typeName)
 			}
 
 			sort.Strings(types)
 
 			for _, typeName := range types {
-				_, _ = fmt.Fprintf(tab, "%s\t%d\n", typeName, snap.NodesByType[typeName])
+				_, _ = fmt.Fprintf(tab, "%s\t%d\n", typeName, result.NodesByType[typeName])
 			}
 
 			_ = tab.Flush()
 
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edges: %d\nembed queue depth: %d\nlast reindex (unix ns): %s\n",
-				snap.EdgeCount, snap.EmbedQueueDepth, snap.LastReindexAt)
+				result.EdgeCount, result.EmbedQueueDepth, result.LastReindexAt)
 
 			return nil
 		},
