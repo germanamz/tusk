@@ -1,0 +1,3 @@
+- [x] Done thing
+- [ ] Pending thing
+- Plain bullet without checkbox
