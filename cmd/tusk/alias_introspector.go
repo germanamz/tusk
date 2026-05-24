@@ -89,6 +89,8 @@ func pflagKind(flag *pflag.Flag) string {
 		return "int"
 	case "bool":
 		return "bool"
+	case "float32", "float64":
+		return "float"
 	case "stringSlice", "stringArray":
 		return "stringSlice"
 	}

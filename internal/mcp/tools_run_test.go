@@ -125,3 +125,49 @@ command = "no-such-verb"
 		test.Errorf("alias_errors[0].name = %v, want bad", first["name"])
 	}
 }
+
+// TestTool_Run_DoctorAlias_IncludesAliasErrors asserts that dispatching a
+// doctor alias via tusk_run surfaces alias_errors inside the envelope's
+// result block — parity with the direct tusk_doctor tool response.
+func TestTool_Run_DoctorAlias_IncludesAliasErrors(test *testing.T) {
+	rt := bootRuntimeWithAlias(test, `[alias.health]
+command = "doctor"
+
+[alias.bad]
+command = "no-such-verb"
+`)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+	body, callErr := callTool(test, srv, "tusk_run", map[string]any{"alias": "health"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_run health: %v", callErr)
+	}
+
+	if body["kind"] != "doctor" {
+		test.Fatalf("kind = %v, want doctor", body["kind"])
+	}
+
+	result, ok := body["result"].(map[string]any)
+
+	if !ok {
+		test.Fatalf("result type = %T, want map[string]any", body["result"])
+	}
+
+	aliasErrors, hasField := result["alias_errors"].([]any)
+
+	if !hasField {
+		test.Fatalf("result missing alias_errors: %v", result)
+	}
+
+	if len(aliasErrors) != 1 {
+		test.Fatalf("alias_errors len = %d, want 1: %v", len(aliasErrors), aliasErrors)
+	}
+
+	first, _ := aliasErrors[0].(map[string]any)
+
+	if first["name"] != "bad" {
+		test.Errorf("alias_errors[0].name = %v, want bad", first["name"])
+	}
+}

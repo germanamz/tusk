@@ -26,6 +26,7 @@ func newQueryCmd() *cobra.Command {
 		skip          int
 		emitJSON      bool
 		semanticQuery string
+		minScore      float64
 		includeFlag   []string
 		fieldsFlag    []string
 		formatFlag    string
@@ -133,6 +134,7 @@ JSON otherwise); --json is sugar for --format json.`,
 				Take:     take,
 				Skip:     skip,
 				Semantic: semanticQuery,
+				MinScore: minScore,
 				// CLI preserves the legacy behavior of returning every ranked
 				// row when --take is unset; MCP applies a default page size
 				// of 10 to keep tool responses bounded.
@@ -166,6 +168,7 @@ JSON otherwise); --json is sugar for --format json.`,
 	queryCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
 	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
+	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)")
 	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties (comma-separated)")
 	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
 	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")

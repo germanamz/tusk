@@ -229,6 +229,7 @@ func validateAliasArgs(alias Alias, verb cliregistry.VerbSpec, introspect VerbIn
 //
 // TOML decoding rules followed:
 //   - int64 → matches "int"; float64 with an exact-integer value also matches
+//   - float64 / int64 / int → matches "float"
 //   - string → matches "string"
 //   - bool → matches "bool"
 //   - []any with all-string elements → matches "stringSlice"
@@ -250,6 +251,14 @@ func aliasValueMatchesKind(value any, kind string) (bool, string) {
 		}
 
 		return false, "int"
+
+	case "float":
+		switch value.(type) {
+		case float64, float32, int, int64:
+			return true, "float"
+		}
+
+		return false, "float"
 
 	case "bool":
 		_, ok := value.(bool)

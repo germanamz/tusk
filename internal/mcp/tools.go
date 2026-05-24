@@ -1304,6 +1304,19 @@ func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
 			"embed_queue_depth": typed.Report.EmbedQueueDepth,
 		}
 
+		if len(typed.Report.AliasErrors) > 0 {
+			aliasErrors := make([]map[string]any, 0, len(typed.Report.AliasErrors))
+
+			for _, aliasErr := range typed.Report.AliasErrors {
+				aliasErrors = append(aliasErrors, map[string]any{
+					"name":    aliasErr.Name,
+					"message": aliasErr.Message,
+				})
+			}
+
+			envelope["alias_errors"] = aliasErrors
+		}
+
 		if typed.Migration != nil {
 			envelope["migrated"] = typed.Migration.Migrated
 			envelope["skipped"] = typed.Migration.Skipped
@@ -1367,25 +1380,23 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
 				return toolError(renderErr), nil
 			}
+		} else {
+			compactRows := make([]render.CompactRow, 0, len(typed.Rows))
 
-			break
-		}
+			for _, row := range typed.Rows {
+				compactRows = append(compactRows, render.CompactRow{
+					ID:         row.ID,
+					Type:       row.Type,
+					Title:      row.Title,
+					Body:       row.Body,
+					Properties: row.Properties,
+					Edges:      row.Edges,
+				})
+			}
 
-		compactRows := make([]render.CompactRow, 0, len(typed.Rows))
-
-		for _, row := range typed.Rows {
-			compactRows = append(compactRows, render.CompactRow{
-				ID:         row.ID,
-				Type:       row.Type,
-				Title:      row.Title,
-				Body:       row.Body,
-				Properties: row.Properties,
-				Edges:      row.Edges,
-			})
-		}
-
-		if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
-			return toolError(renderErr), nil
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
 		}
 
 	case *index.EdgeListResult:

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -102,40 +103,48 @@ JSON when piped).`,
 				return formatErr
 			}
 
-			store, openErr := index.Open(ws.IndexPath)
+			// Hold the workspace lock for the dispatch: a `doctor` alias
+			// with the default (no-migrate=false) mutates source files
+			// via doctor.Migrate. Other read-only aliases don't strictly
+			// need the lock, but the wrapper is cheap and keeps the
+			// dispatch path uniform — matches cmd/tusk/cmd_doctor.go's
+			// behavior.
+			return withWorkspaceLock(ws, func() error {
+				store, openErr := index.Open(ws.IndexPath)
 
-			if openErr != nil {
-				return openErr
-			}
+				if openErr != nil {
+					return openErr
+				}
 
-			defer store.Close()
+				defer store.Close()
 
-			deps := aliasdispatch.Deps{
-				Database:      store.DB(),
-				Manifest:      loaded,
-				WorkspaceRoot: ws.Root,
-				NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
-				Nodes:         index.NewNodeRepo(store),
-				Edges:         index.NewEdgeRepo(store),
-				EmbedQueue:    index.NewEmbedQueueRepo(store),
-				WorkflowDrift: index.NewWorkflowDriftRepo(store),
-				PropertyDrift: index.NewPropertyDriftRepo(store),
-				Embeddings:    index.NewEmbeddingRepo(store),
-				Meta:          index.NewMetaRepo(store),
-				Embedder:      buildAliasEmbedder(loaded),
-				// CLI keeps the historical "no semantic page cap unless
-				// the caller asks" behavior; MCP applies a default of 10.
-				SemanticDefaultTake: 0,
-			}
+				deps := aliasdispatch.Deps{
+					Database:      store.DB(),
+					Manifest:      loaded,
+					WorkspaceRoot: ws.Root,
+					NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
+					Nodes:         index.NewNodeRepo(store),
+					Edges:         index.NewEdgeRepo(store),
+					EmbedQueue:    index.NewEmbedQueueRepo(store),
+					WorkflowDrift: index.NewWorkflowDriftRepo(store),
+					PropertyDrift: index.NewPropertyDriftRepo(store),
+					Embeddings:    index.NewEmbeddingRepo(store),
+					Meta:          index.NewMetaRepo(store),
+					Embedder:      buildAliasEmbedder(loaded),
+					// CLI keeps the historical "no semantic page cap unless
+					// the caller asks" behavior; MCP applies a default of 10.
+					SemanticDefaultTake: 0,
+				}
 
-			dispatcher := aliasdispatch.NewDispatcher(deps)
-			result, dispatchErr := dispatcher.Run(context.Background(), alias)
+				dispatcher := aliasdispatch.NewDispatcher(deps)
+				result, dispatchErr := dispatcher.Run(context.Background(), alias)
 
-			if dispatchErr != nil {
-				return dispatchErr
-			}
+				if dispatchErr != nil {
+					return dispatchErr
+				}
 
-			return renderAliasResult(cmd.OutOrStdout(), result, format)
+				return renderAliasResult(cmd.OutOrStdout(), result, format)
+			})
 		},
 	}
 
@@ -178,7 +187,9 @@ func findAliasError(loaded *manifest.Manifest, name string) (manifest.AliasError
 
 // printAliasList writes a compact "name → command args" table for every
 // alias in loaded.Aliases. Errors from AliasErrors are appended afterward
-// so the user can see why an alias name is missing.
+// so the user can see why an alias name is missing. The name/description
+// row is rendered through a tabwriter so a vault with many aliases gets
+// uniformly-aligned columns.
 func printAliasList(out io.Writer, loaded *manifest.Manifest) error {
 	names := make([]string, 0, len(loaded.Aliases))
 
@@ -194,10 +205,12 @@ func printAliasList(out io.Writer, loaded *manifest.Manifest) error {
 		return nil
 	}
 
+	tab := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+
 	for _, name := range names {
 		alias := loaded.Aliases[name]
-		_, _ = fmt.Fprintf(out, "%s\t%s\n", name, alias.Description)
-		_, _ = fmt.Fprintf(out, "  → %s", alias.Command)
+		_, _ = fmt.Fprintf(tab, "%s\t%s\n", name, alias.Description)
+		_, _ = fmt.Fprintf(tab, "  → %s", alias.Command)
 
 		argKeys := make([]string, 0, len(alias.Args))
 
@@ -208,10 +221,14 @@ func printAliasList(out io.Writer, loaded *manifest.Manifest) error {
 		sort.Strings(argKeys)
 
 		for _, key := range argKeys {
-			_, _ = fmt.Fprintf(out, " %s=%v", key, alias.Args[key])
+			_, _ = fmt.Fprintf(tab, " %s=%v", key, alias.Args[key])
 		}
 
-		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(tab)
+	}
+
+	if flushErr := tab.Flush(); flushErr != nil {
+		return flushErr
 	}
 
 	if len(loaded.AliasErrors) > 0 {

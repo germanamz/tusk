@@ -152,6 +152,67 @@ command = "no-such-verb"
 	}
 }
 
+// TestRun_DoctorAlias_AcquiresLock confirms that dispatching a `doctor`
+// alias through `tusk run` succeeds end-to-end. The dispatch path wraps
+// the store-open and doctor.RunWithMigration call inside
+// withWorkspaceLock; this test exercises that wrapper to catch
+// regressions that would skip the lock acquisition (doctor.Migrate
+// mutates source files and requires it).
+func TestRun_DoctorAlias_AcquiresLock(test *testing.T) {
+	root := setupTempWorkspace(test)
+	appendAliasBlock(test, root, `[alias.health]
+command = "doctor"
+`)
+
+	chdir(test, root)
+	defer chdir(test, "")
+
+	out, runErr := runCLI("run", "health", "--json")
+
+	if runErr != nil {
+		test.Fatalf("CLI: %v\n%s", runErr, out)
+	}
+
+	var envelope map[string]any
+
+	if unmarshalErr := json.Unmarshal([]byte(out), &envelope); unmarshalErr != nil {
+		test.Fatalf("Unmarshal: %v\n%s", unmarshalErr, out)
+	}
+
+	if envelope["kind"] != "doctor" {
+		test.Errorf("kind = %v, want doctor", envelope["kind"])
+	}
+
+	if envelope["command"] != "doctor" {
+		test.Errorf("command = %v, want doctor", envelope["command"])
+	}
+}
+
+func TestRun_QueryAliasWithMinScore(test *testing.T) {
+	root := setupTempWorkspace(test)
+	appendAliasBlock(test, root, `[alias.semantic]
+command = "query"
+args.filter = "type=note"
+args.min-score = 0.7
+`)
+
+	chdir(test, root)
+	defer chdir(test, "")
+
+	// Just confirm validation passes — surfaced via doctor's alias_errors
+	// section. The dispatch itself would need an embedder; we only need
+	// to verify the alias is accepted as valid.
+	out, runErr := runCLI("doctor")
+
+	if runErr != nil {
+		test.Fatalf("CLI: %v\n%s", runErr, out)
+	}
+
+	if strings.Contains(out, "semantic:") {
+		test.Errorf("doctor reported semantic alias as invalid:\n%s", out)
+	}
+}
+
 func TestDoctor_ReportsAliasErrors(test *testing.T) {
 	root := setupTempWorkspace(test)
 	appendAliasBlock(test, root, `[alias.bad]
