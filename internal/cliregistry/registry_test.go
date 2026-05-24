@@ -46,6 +46,10 @@ func TestReadOnlyTools(test *testing.T) {
 // TestReadOnlyPositionals asserts each entry's Positionals slice matches the
 // Cobra signature for that verb. Updating one without the other will desync
 // the alias dispatcher's argument decoder.
+//
+// The loop iterates cliregistry.ReadOnly (not cases) so that adding a new
+// entry without a matching test case fails loudly rather than passing
+// silently.
 func TestReadOnlyPositionals(test *testing.T) {
 	cases := map[string][]string{
 		"node list": {"filter"},
@@ -56,8 +60,14 @@ func TestReadOnlyPositionals(test *testing.T) {
 		"status":    nil,
 	}
 
-	for verb, wantPositionals := range cases {
-		spec := cliregistry.ReadOnly[verb]
+	for verb, spec := range cliregistry.ReadOnly {
+		wantPositionals, hasCase := cases[verb]
+
+		if !hasCase {
+			test.Errorf("no positionals test case for ReadOnly[%q] — add one to TestReadOnlyPositionals.cases", verb)
+
+			continue
+		}
 
 		if len(spec.Positionals) != len(wantPositionals) {
 			test.Errorf("ReadOnly[%q].Positionals len = %d, want %d", verb, len(spec.Positionals), len(wantPositionals))

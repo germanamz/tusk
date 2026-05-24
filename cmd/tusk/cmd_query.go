@@ -151,6 +151,13 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 // pre-flight check in cmd/tusk preserves the legacy error-message ordering
 // (filter problems beat embeddings problems) without coupling the service to
 // CLI presentation concerns.
+//
+// NOTE: query.Run parses the filter again internally — this pre-flight exists
+// solely to surface filter errors before the embedder is constructed,
+// preserving pre-refactor CLI error ordering. Do not remove without changing
+// query.Run's argument shape (e.g. accepting a pre-parsed Expr instead of a
+// raw filter string), otherwise the CLI will start reporting "embeddings
+// missing" before "filter parse" again.
 func validateQueryFilter(input string, loaded *manifest.Manifest) error {
 	expr, parseErrs := filter.NewParser(input).Parse()
 

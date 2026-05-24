@@ -227,7 +227,7 @@ func registerNodeGetTool(srv *Server) {
 
 func registerNodeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_list",
-		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result."),
+		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result. Results are sorted by id ascending by default."),
 		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
 	)
 
