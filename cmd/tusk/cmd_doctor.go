@@ -57,6 +57,8 @@ for a diagnostic-only run.`,
 				return loadErr
 			}
 
+			manifest.ValidateAliases(loaded, buildVerbIntrospector(cmd.Root()))
+
 			out := cmd.OutOrStdout()
 
 			return withWorkspaceLock(ws, func() error {
@@ -104,6 +106,14 @@ for a diagnostic-only run.`,
 				}
 
 				report := result.Report
+
+				if len(report.AliasErrors) > 0 {
+					_, _ = fmt.Fprintln(out, "aliases:")
+
+					for _, aliasErr := range report.AliasErrors {
+						_, _ = fmt.Fprintf(out, "  %s: %s\n", aliasErr.Name, aliasErr.Message)
+					}
+				}
 
 				if len(report.Issues) == 0 {
 					_, _ = fmt.Fprintln(out, "doctor: no issues")

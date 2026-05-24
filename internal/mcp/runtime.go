@@ -41,6 +41,13 @@ type Runtime struct {
 	Chunker  embed.ChunkingStrategy
 	Workers  int
 
+	// AliasIntrospector is the manifest.VerbIntrospector used to validate
+	// manifest-declared aliases at Open time. Callers that construct a
+	// Runtime via Open get the introspector wired from the Cobra root
+	// (via SetAliasIntrospector); tests may leave it nil to skip alias
+	// validation entirely.
+	aliasIntrospector manifest.VerbIntrospector
+
 	Logger *slog.Logger // optional; nil silences output
 
 	lockHandle *lock.WorkspaceLock // workspace file-lock held for the Runtime's lifetime
@@ -54,6 +61,17 @@ type Option func(*Runtime)
 func WithLogger(logger *slog.Logger) Option {
 	return func(rt *Runtime) {
 		rt.Logger = logger
+	}
+}
+
+// WithAliasIntrospector wires a manifest.VerbIntrospector that Open (and
+// ReloadManifest) consult to validate manifest-declared aliases. Callers
+// that have a Cobra root build the introspector with
+// cmd/tusk.buildVerbIntrospector; callers without (tests) can pass a
+// hand-built map.
+func WithAliasIntrospector(introspect manifest.VerbIntrospector) Option {
+	return func(rt *Runtime) {
+		rt.aliasIntrospector = introspect
 	}
 }
 
@@ -139,6 +157,10 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		opt(rt)
 	}
 
+	if rt.aliasIntrospector != nil {
+		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
+	}
+
 	if loaded.Embeddings.Provider == "ollama" {
 		timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
 
@@ -188,6 +210,10 @@ func (rt *Runtime) ReloadManifest() error {
 
 	if buildErr != nil {
 		return fmt.Errorf("mcp: rebuild behavior engine: %w", buildErr)
+	}
+
+	if rt.aliasIntrospector != nil {
+		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
 	}
 
 	rt.Manifest = loaded

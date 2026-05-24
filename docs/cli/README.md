@@ -27,5 +27,6 @@ Edit the help strings, then run `make docs`.
     - [`tusk pack add`](tusk_pack_add.md) — Copy a built-in type pack's declarations into tusk.toml
   - [`tusk query`](tusk_query.md) — Run a structural, semantic, or hybrid query against the index
   - [`tusk reindex`](tusk_reindex.md) — Walk the workspace and bring the index up to date with disk
+  - [`tusk run`](tusk_run.md) — Run a manifest-declared alias by name
   - [`tusk status`](tusk_status.md) — Print a one-screen workspace summary
   - [`tusk watch`](tusk_watch.md) — Watch the workspace for external edits and keep the index in sync

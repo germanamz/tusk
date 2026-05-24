@@ -18,6 +18,22 @@ type Manifest struct {
 	// (deferred-decode contract).
 	Behaviors map[string]map[string]toml.Primitive `toml:"behaviors"`
 
+	// Aliases holds the manifest-declared aliases keyed by alias name.
+	// Populated by Load (raw decode) and validated/filtered by
+	// ValidateAliases. Invalid aliases are removed from this map and
+	// reported via AliasErrors so engine startup never fails on a bad
+	// alias.
+	Aliases map[string]Alias `toml:"-"`
+
+	// AliasErrors captures per-alias validation failures. Surfaced through
+	// doctor; never raised as a load error.
+	AliasErrors []AliasError `toml:"-"`
+
+	// rawAliases holds the on-disk [alias.<name>] blocks captured during
+	// Load so ValidateAliases can introspect them. Internal to the
+	// manifest package; consumers read through Aliases instead.
+	rawAliases map[string]aliasTOML `toml:"-"`
+
 	// Meta is the BurntSushi/toml MetaData captured at decode time so pack
 	// Kinds can call PrimitiveDecode against their subtable. Nil for
 	// hand-built manifests (tests that construct a Manifest literal).

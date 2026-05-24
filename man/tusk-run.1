@@ -1,0 +1,64 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-run - Run a manifest-declared alias by name
+
+
+.SH SYNOPSIS
+\fBtusk run [alias] [flags]\fP
+
+
+.SH DESCRIPTION
+Invoke an alias declared under [alias.] in tusk.toml.
+
+.PP
+Aliases are reusable, read-only verb invocations. They bind a command (one
+of node list, node get, query, edge list, doctor, status) to a fixed set of
+arguments so an agent or operator can dispatch a frequent query by name
+rather than retyping the filter / sort / take flags.
+
+.PP
+Use --list to enumerate the aliases the loaded manifest declares. Use
+--format / --json to override the output format (defaults match the
+underlying verb: tab-aligned table for the legacy view, compact at TTY,
+JSON when piped).
+
+
+.SH OPTIONS
+\fB--format\fP=""
+	output format: compact|json (default: matches the verb's TTY behavior)
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for run
+
+.PP
+\fB--json\fP[=false]
+	emit structured JSON (sugar for --format json)
+
+.PP
+\fB--list\fP[=false]
+	list every alias declared in tusk.toml
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Run a pre-declared alias
+  tusk run open-tickets
+
+  # Enumerate every alias the manifest declares
+  tusk run --list
+
+  # Force JSON regardless of the alias's default
+  tusk run open-tickets --json
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP

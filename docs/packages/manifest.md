@@ -15,6 +15,8 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `Validate(*Manifest) error` — exposed for test harnesses constructing manifests in-memory.
 - `Manifest`, `NodeType`, `EdgeType`, `PropertyDecl` — typed shapes.
 - `IsRefProperty(PropertyDecl) bool` — used by `internal/node/refs.go` to drive ref resolution.
+- `Alias`, `AliasError`, `FlagSpec`, `VerbIntrospector` — types covering manifest-declared aliases.
+- `ValidateAliases(*Manifest, VerbIntrospector)` — secondary pass that resolves each alias's verb against `internal/cliregistry` and stamps invalid aliases into `Manifest.AliasErrors`. Never returns an error; failures are surfaced through `internal/doctor`.
 
 ## Notes
 

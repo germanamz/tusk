@@ -37,6 +37,9 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		"mcp":      {},
 		"pack add": {},
 		"docgen":   {},
+		// `run` is the dispatcher entry point itself; it invokes other
+		// verbs by name rather than being one.
+		"run": {},
 	}
 
 	leaves := collectLeafVerbs(rootCmd, "")

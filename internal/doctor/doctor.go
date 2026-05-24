@@ -39,6 +39,12 @@ const (
 
 	IssueLegacyCLIEdge = "legacy-cli-edge"
 	IssueLegacyMCPEdge = "legacy-mcp-edge"
+
+	// IssueAliasInvalid surfaces manifest aliases that failed validation
+	// at load time. The Manifest field on doctor.Config carries the
+	// pre-validated list; Run copies them into Report.AliasErrors and
+	// also emits one Issue per error so legacy renderers keep working.
+	IssueAliasInvalid = "alias-invalid"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -53,6 +59,9 @@ type Report struct {
 	Issues          []Issue
 	EmbedQueueDepth int
 	EmbedStats      *EmbedStatsReport
+	// AliasErrors mirrors Manifest.AliasErrors for callers that want the
+	// typed list (CLI, MCP) instead of parsing them back out of Issues.
+	AliasErrors []manifest.AliasError
 }
 
 // EmbedStatsReport summarizes chunking aggregates for tusk doctor.
@@ -86,6 +95,18 @@ type MigrationReport struct {
 // Run executes every check and returns the aggregate Report.
 func Run(config Config) (*Report, error) {
 	report := &Report{}
+
+	if config.Manifest != nil && len(config.Manifest.AliasErrors) > 0 {
+		report.AliasErrors = append(report.AliasErrors, config.Manifest.AliasErrors...)
+
+		for _, aliasErr := range config.Manifest.AliasErrors {
+			report.Issues = append(report.Issues, Issue{
+				Kind:    IssueAliasInvalid,
+				NodeID:  aliasErr.Name,
+				Message: aliasErr.Message,
+			})
+		}
+	}
 
 	if config.Edges != nil && config.Nodes != nil {
 		dangling, danglingErr := findDanglingEdges(config.Nodes, config.Edges)

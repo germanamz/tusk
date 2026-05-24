@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
@@ -33,6 +34,7 @@ func registerTools(srv *Server) {
 	registerEdgeAddTool(srv)
 	registerEdgeRemoveTool(srv)
 	registerReindexTool(srv)
+	registerRunTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -653,6 +655,19 @@ func registerDoctorTool(srv *Server) {
 			"embed_queue_depth": report.EmbedQueueDepth,
 		}
 
+		if len(report.AliasErrors) > 0 {
+			aliasErrors := make([]map[string]any, 0, len(report.AliasErrors))
+
+			for _, aliasErr := range report.AliasErrors {
+				aliasErrors = append(aliasErrors, map[string]any{
+					"name":    aliasErr.Name,
+					"message": aliasErr.Message,
+				})
+			}
+
+			response["alias_errors"] = aliasErrors
+		}
+
 		if migrationReport != nil {
 			response["migrated"] = migrationReport.Migrated
 			response["skipped"] = migrationReport.Skipped
@@ -1157,6 +1172,251 @@ func registerReindexTool(srv *Server) {
 	}
 
 	srv.register(tool, handler)
+}
+
+// registerRunTool exposes the manifest-declared alias mechanism over MCP.
+// The handler builds an aliasdispatch.Dispatcher off the runtime, runs the
+// requested alias by name, and returns a {alias, command, kind, result}
+// envelope. format=compact uses the underlying verb's compact renderer.
+func registerRunTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_run",
+		mcpgo.WithDescription("Invoke a manifest-declared alias by name. Aliases must be declared under [alias.<name>] in tusk.toml and target one of the read-only verbs (node list, node get, query, edge list, doctor, status)."),
+		mcpgo.WithString("alias", mcpgo.Required(), mcpgo.Description("Alias name as declared in tusk.toml [alias.<name>]")),
+		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		aliasName, parseErr := argString(request, "alias")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		format := argStringOptional(request, "format")
+
+		alias, ok := srv.runtime.Manifest.Aliases[aliasName]
+
+		if !ok {
+			for _, aliasErr := range srv.runtime.Manifest.AliasErrors {
+				if aliasErr.Name == aliasName {
+					return toolError(fmt.Errorf("alias %q is invalid: %s", aliasName, aliasErr.Message)), nil
+				}
+			}
+
+			return toolError(fmt.Errorf("alias %q not declared in tusk.toml", aliasName)), nil
+		}
+
+		deps := aliasdispatch.Deps{
+			Database:            srv.runtime.Index.DB(),
+			Manifest:            srv.runtime.Manifest,
+			WorkspaceRoot:       srv.runtime.Root,
+			NodeService:         srv.runtime.NodeService,
+			Nodes:               srv.runtime.Nodes,
+			Edges:               srv.runtime.Edges,
+			EmbedQueue:          srv.runtime.EmbedQueue,
+			WorkflowDrift:       srv.runtime.WorkflowDrift,
+			PropertyDrift:       srv.runtime.PropertyDrift,
+			Embeddings:          srv.runtime.Embeddings,
+			Meta:                srv.runtime.Meta,
+			Embedder:            srv.runtime.Embedder,
+			SemanticDefaultTake: 10,
+		}
+
+		dispatcher := aliasdispatch.NewDispatcher(deps)
+		result, dispatchErr := dispatcher.Run(ctx, alias)
+
+		if dispatchErr != nil {
+			return toolError(dispatchErr), nil
+		}
+
+		if format == "compact" {
+			return aliasCompactResult(result)
+		}
+
+		return toolJSON(map[string]any{
+			"alias":   result.Alias,
+			"command": result.Command,
+			"kind":    result.Kind,
+			"result":  aliasResultJSON(result),
+		})
+	}
+
+	srv.register(tool, handler)
+}
+
+// aliasResultJSON converts a DispatchResult into the JSON-friendly payload
+// embedded under "result" in the envelope. Mirrors cmd/tusk's
+// aliasResultPayload but lives here to keep the MCP package free of a
+// dependency on cmd/tusk.
+func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
+	switch typed := result.Result.(type) {
+	case *query.ListResult:
+		return map[string]any{
+			"rows":  typed.Rows,
+			"count": len(typed.Rows),
+		}
+
+	case *query.Result:
+		if typed.Semantic != nil {
+			return map[string]any{
+				"results": typed.Semantic.Ranked,
+				"count":   len(typed.Semantic.Ranked),
+				"model":   typed.Semantic.Model,
+			}
+		}
+
+		return map[string]any{
+			"rows":  typed.Rows,
+			"count": len(typed.Rows),
+		}
+
+	case *node.GetResult:
+		envelope := map[string]any{
+			"id":    typed.Node.ID,
+			"type":  typed.Node.Type,
+			"path":  typed.Node.Path,
+			"title": typed.Node.Title,
+		}
+
+		if typed.IncludeProperties {
+			envelope["properties"] = typed.Node.Properties
+		}
+
+		if typed.IncludeEdges {
+			envelope["edges"] = typed.Node.Edges
+		}
+
+		if typed.IncludeBody {
+			envelope["body"] = string(typed.Node.Body)
+		}
+
+		return envelope
+
+	case *index.EdgeListResult:
+		return map[string]any{
+			"rows":  typed.Rows,
+			"count": len(typed.Rows),
+		}
+
+	case *doctor.Result:
+		envelope := map[string]any{
+			"issues":            typed.Report.Issues,
+			"embed_queue_depth": typed.Report.EmbedQueueDepth,
+		}
+
+		if typed.Migration != nil {
+			envelope["migrated"] = typed.Migration.Migrated
+			envelope["skipped"] = typed.Migration.Skipped
+		}
+
+		return envelope
+
+	case *status.Result:
+		return map[string]any{
+			"nodes_by_type":     typed.NodesByType,
+			"edge_count":        typed.EdgeCount,
+			"embed_queue_depth": typed.EmbedQueueDepth,
+			"last_reindex_at":   typed.LastReindexAt,
+		}
+	}
+
+	return result.Result
+}
+
+// aliasCompactResult emits the alias result through the matching compact
+// renderer. Used by tusk_run when the caller passes format=compact.
+func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolResult, error) {
+	var buf bytes.Buffer
+
+	switch typed := result.Result.(type) {
+	case *query.ListResult:
+		compactRows := make([]render.CompactRow, 0, len(typed.Rows))
+
+		for _, row := range typed.Rows {
+			compactRows = append(compactRows, render.CompactRow{
+				ID:         row.ID,
+				Type:       row.Type,
+				Title:      row.Title,
+				Body:       row.Body,
+				Properties: row.Properties,
+				Edges:      row.Edges,
+			})
+		}
+
+		if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+
+	case *query.Result:
+		if typed.Semantic != nil {
+			compactRows := make([]render.CompactRow, 0, len(typed.Semantic.Ranked))
+
+			for _, scored := range typed.Semantic.Ranked {
+				compactRows = append(compactRows, render.CompactRow{
+					ID:         scored.ID,
+					Type:       scored.Type,
+					Title:      scored.Title,
+					Body:       scored.Body,
+					Properties: scored.Properties,
+					Edges:      scored.Edges,
+					Score:      scored.Score,
+					HasScore:   true,
+				})
+			}
+
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+
+			break
+		}
+
+		compactRows := make([]render.CompactRow, 0, len(typed.Rows))
+
+		for _, row := range typed.Rows {
+			compactRows = append(compactRows, render.CompactRow{
+				ID:         row.ID,
+				Type:       row.Type,
+				Title:      row.Title,
+				Body:       row.Body,
+				Properties: row.Properties,
+				Edges:      row.Edges,
+			})
+		}
+
+		if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+
+	case *index.EdgeListResult:
+		entries := make([]render.EdgeListEntry, 0, len(typed.Rows))
+
+		for _, row := range typed.Rows {
+			entries = append(entries, render.EdgeListEntry{
+				Type:       row.Type,
+				SourceID:   row.SourceID,
+				TargetID:   row.TargetID,
+				SourcePath: row.SourcePath,
+			})
+		}
+
+		if renderErr := render.CompactEdgeRows(&buf, entries); renderErr != nil {
+			return toolError(renderErr), nil
+		}
+
+	default:
+		// For node get / doctor / status, fall back to JSON inside the
+		// compact envelope so the caller still gets a useful payload.
+		body, marshalErr := json.Marshal(aliasResultJSON(result))
+
+		if marshalErr != nil {
+			return toolError(marshalErr), nil
+		}
+
+		buf.Write(body)
+	}
+
+	return mcpgo.NewToolResultText(buf.String()), nil
 }
 
 // toolJSONError builds a CallToolResult with IsError=true and a JSON-encoded
