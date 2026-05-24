@@ -243,7 +243,14 @@ func registerNodeListTool(srv *Server) {
 			filterExpr = fmt.Sprintf("type=%s", typeFilter)
 		}
 
-		result, runErr := query.ListRun(srv.runtime.Index.DB(), srv.runtime.Manifest, query.ListRequest{Filter: filterExpr})
+		// Default to "+id" so the API contract preserves the historical
+		// NodeRepo.List "ORDER BY id ASC" ordering. The CLI does NOT inherit
+		// this default — its `tusk node list` retains "no implicit order"
+		// behavior unless the user passes --sort.
+		result, runErr := query.ListRun(srv.runtime.Index.DB(), srv.runtime.Manifest, query.ListRequest{
+			Filter: filterExpr,
+			Sort:   "+id",
+		})
 
 		if runErr != nil {
 			return toolError(runErr), nil

@@ -57,6 +57,19 @@ func (srv *Server) HandleToolCall(ctx context.Context, request mcpgo.CallToolReq
 	return handler(ctx, request)
 }
 
+// RegisteredToolNames returns the set of tool names currently registered on
+// the server. Order is unspecified. Exposed so cross-package tests can
+// cross-check the CLI/MCP wiring without duplicating tool-name lists.
+func (srv *Server) RegisteredToolNames() []string {
+	names := make([]string, 0, len(srv.handlers))
+
+	for name := range srv.handlers {
+		names = append(names, name)
+	}
+
+	return names
+}
+
 // ServeStdio runs the server over stdio. Blocks until stdin closes.
 func (srv *Server) ServeStdio() error {
 	return server.ServeStdio(srv.mcp)

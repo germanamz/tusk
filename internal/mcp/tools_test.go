@@ -175,6 +175,45 @@ func TestTool_NodeList(test *testing.T) {
 	}
 }
 
+// TestTool_NodeListStableOrder documents the API contract: tusk_node_list
+// returns rows sorted by id ASC unless the caller passes a sort. Previously
+// enforced by NodeRepo.List; preserved through the query.ListRun refactor
+// via a default Sort = "+id" in the MCP handler.
+func TestTool_NodeListStableOrder(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	// Insert out of alphabetical order to ensure the test actually exercises
+	// the sort rather than relying on insertion order.
+	for _, id := range []string{"notes/c", "notes/a", "notes/b"} {
+		rt.Nodes.Upsert(index.NodeRow{ID: id, Type: "note", Path: id + ".md", PropertiesJSON: "{}", LastChecksum: "x"})
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_list", map[string]any{"type": "note"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 3 {
+		test.Fatalf("len(results) = %d, want 3", len(results))
+	}
+
+	wantIDs := []string{"notes/a", "notes/b", "notes/c"}
+
+	for idx, want := range wantIDs {
+		got, _ := results[idx].(map[string]any)
+
+		if got["id"] != want {
+			test.Errorf("results[%d].id = %v, want %q (full order: %v)", idx, got["id"], want, results)
+		}
+	}
+}
+
 func TestTool_EdgeList(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

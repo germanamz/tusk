@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
@@ -84,6 +85,13 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 				return loadErr
 			}
 
+			// Validate the filter expression before touching the embedder so a
+			// malformed filter surfaces before "--semantic requires
+			// [embeddings]" — preserves the legacy error-message ordering.
+			if validateErr := validateQueryFilter(args[0], loaded); validateErr != nil {
+				return validateErr
+			}
+
 			embedder, embedErr := buildCLIEmbedder(loaded, semanticQuery)
 
 			if embedErr != nil {
@@ -136,6 +144,25 @@ results, --skip M to paginate, and --json for machine-readable output.`,
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
 
 	return queryCmd
+}
+
+// validateQueryFilter runs the same parse + validate the service does, so the
+// CLI can surface filter errors before constructing the embedder. Keeping the
+// pre-flight check in cmd/tusk preserves the legacy error-message ordering
+// (filter problems beat embeddings problems) without coupling the service to
+// CLI presentation concerns.
+func validateQueryFilter(input string, loaded *manifest.Manifest) error {
+	expr, parseErrs := filter.NewParser(input).Parse()
+
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("filter parse: %v", parseErrs[0])
+	}
+
+	if validateErrs := filter.Validate(expr, *loaded); len(validateErrs) > 0 {
+		return fmt.Errorf("filter validate: %v", validateErrs[0])
+	}
+
+	return nil
 }
 
 // buildCLIEmbedder constructs an embed.Embedder from the manifest's
