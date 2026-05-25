@@ -589,6 +589,8 @@ func registerQueryTool(srv *Server) {
 			return toolError(mergeErr), nil
 		}
 
+		explain := argBoolOptional(request, "explain", false)
+
 		result, runErr := query.Run(ctx, query.Deps{
 			Database:   srv.runtime.Index.DB(),
 			Manifest:   srv.runtime.Manifest,
@@ -610,7 +612,7 @@ func registerQueryTool(srv *Server) {
 			Fields:              fields,
 			WorkspaceRoot:       srv.runtime.Root,
 			GraphExpansion:      graphExpansion,
-			Explain:             argBoolOptional(request, "explain", false),
+			Explain:             explain,
 		})
 
 		if runErr != nil {
@@ -652,7 +654,7 @@ func registerQueryTool(srv *Server) {
 						GraphScore:   scored.GraphScore,
 						FinalScore:   scored.FinalScore,
 						Distance:     scored.Distance,
-						HasExplain:   scored.FinalScore != 0,
+						HasExplain:   explain,
 					})
 				}
 			}
@@ -735,14 +737,14 @@ func registerQueryTool(srv *Server) {
 				entry["matched_units"] = scored.MatchedUnits
 			}
 
-			// Explain-trace fields are surfaced only when the query
-			// service populated them (Request.Explain && graph expansion
-			// ran). FinalScore is the canonical "set?" signal: when graph
-			// expansion produced a row, FinalScore is non-zero (equal to
-			// Score). When explain is off the four fields are zero-valued
-			// and selectively skipped here, mirroring the JSON struct
-			// `omitempty` contract.
-			if scored.FinalScore != 0 {
+			// Explain-trace fields are surfaced only when the caller
+			// asked for them (Request.Explain) AND graph expansion
+			// actually populated a breakdown. The query service zeroes
+			// the four fields when Explain is off, so the inner
+			// non-zero guard suppresses the all-zero breakdown that
+			// would otherwise appear when Explain is on without graph
+			// expansion — emitting it would serve no purpose.
+			if explain && (scored.FinalScore != 0 || scored.CosineScore != 0 || scored.GraphScore != 0) {
 				entry["cosine_score"] = scored.CosineScore
 				entry["graph_score"] = scored.GraphScore
 				entry["final_score"] = scored.FinalScore

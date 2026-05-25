@@ -310,14 +310,14 @@ func TestQueryRun_GraphExpansion_LiftsNonSeedIntoTopK(test *testing.T) {
 
 	// --- without expansion: cosine top-5 must exclude node-x ---
 
-	resultNoExpand, err := query.Run(context.Background(), deps, query.Request{
+	resultNoExpand, runErr := query.Run(context.Background(), deps, query.Request{
 		Filter:   "type=note",
 		Semantic: "anything",
 		Take:     5,
 	})
 
-	if err != nil {
-		test.Fatalf("Run (no expand): %v", err)
+	if runErr != nil {
+		test.Fatalf("Run (no expand): %v", runErr)
 	}
 
 	for _, row := range resultNoExpand.Semantic.Ranked {

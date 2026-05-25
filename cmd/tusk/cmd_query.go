@@ -185,7 +185,7 @@ JSON otherwise); --json is sugar for --format json.`,
 			}
 
 			if result.Semantic != nil {
-				return renderQuerySemantic(cmd, result.Semantic, format, fieldsFlag)
+				return renderQuerySemantic(cmd, result.Semantic, format, fieldsFlag, explainFlag)
 			}
 
 			return renderQueryStructural(cmd, result.Rows, format, fieldsFlag)
@@ -411,7 +411,7 @@ func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) e
 // queries. JSON output is a flat array of {id,score,type,path,title,snippet,
 // body?,properties?,edges?}; the table view shows id/score/snippet; the
 // compact view shows the full §4.4 form including expanded body/edges.
-func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string) error {
+func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string, explain bool) error {
 	switch format {
 	case formatJSON:
 		encoder := json.NewEncoder(cmd.OutOrStdout())
@@ -435,7 +435,7 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 				GraphScore:   scored.GraphScore,
 				FinalScore:   scored.FinalScore,
 				Distance:     scored.Distance,
-				HasExplain:   scored.FinalScore != 0,
+				HasExplain:   explain,
 			})
 		}
 
