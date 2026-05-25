@@ -64,6 +64,7 @@ after changing node/edge declarations in tusk.toml.`,
 					return fmt.Errorf("manifest: %w", loadErr)
 				}
 
+				manifest.MergeBuiltinPacks(loaded)
 				engine, buildErr := newBehaviorEngine(loaded)
 
 				if buildErr != nil {
@@ -110,6 +111,7 @@ after changing node/edge declarations in tusk.toml.`,
 					PropertyDrift:   index.NewPropertyDriftRepo(store),
 					Logger:          logger,
 					Workers:         embed.ResolveWorkers(loaded.Embeddings.Workers),
+					Manifest:        loaded,
 				})
 
 				if runErr != nil {

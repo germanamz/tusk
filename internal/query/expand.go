@@ -28,11 +28,17 @@ type IncludeSet struct {
 	Body       bool
 	Edges      bool
 	Properties bool
+	// Units, when true, requests that each returned file row carry its
+	// full sub-unit list (depth-first, ordered by ordinal) in
+	// MatchedUnits. No scoring is performed in the structural path —
+	// each MatchedUnit's HasScore is false. Workspaces with sub-units
+	// disabled silently drop the flag (MatchedUnits stays empty).
+	Units bool
 }
 
 // Any reports whether the set requests at least one expansion.
 func (set IncludeSet) Any() bool {
-	return set.Body || set.Edges || set.Properties
+	return set.Body || set.Edges || set.Properties || set.Units
 }
 
 // ParseInclude parses a list of include tokens into an IncludeSet. Unknown
@@ -52,8 +58,10 @@ func ParseInclude(raw []string) (IncludeSet, error) {
 			set.Edges = true
 		case "properties":
 			set.Properties = true
+		case "units":
+			set.Units = true
 		default:
-			return IncludeSet{}, fmt.Errorf("unknown include %q (valid: body, edges, properties)", token)
+			return IncludeSet{}, fmt.Errorf("unknown include %q (valid: body, edges, properties, units)", token)
 		}
 	}
 
@@ -74,6 +82,8 @@ func IncludeFromFields(fields []string) IncludeSet {
 			set.Edges = true
 		case "properties":
 			set.Properties = true
+		case "units", "matched_units":
+			set.Units = true
 		}
 	}
 
@@ -86,6 +96,7 @@ func MergeInclude(left, right IncludeSet) IncludeSet {
 		Body:       left.Body || right.Body,
 		Edges:      left.Edges || right.Edges,
 		Properties: left.Properties || right.Properties,
+		Units:      left.Units || right.Units,
 	}
 }
 

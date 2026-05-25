@@ -69,7 +69,7 @@ tusk query <filter> [flags]
       --fields strings    project rendered rows to these fields (comma-separated)
       --format string     output format: compact|json (default: compact for TTY, json otherwise)
   -h, --help              help for query
-      --include strings   expand rows: body|edges|properties (comma-separated)
+      --include strings   expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)
       --json              emit structured JSON (sugar for --format json)
       --min-score float   drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)
       --semantic string   rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)

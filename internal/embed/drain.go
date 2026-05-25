@@ -36,6 +36,17 @@ type DrainConfig struct {
 	Logger     *slog.Logger          // optional; nil silences output
 }
 
+// isSubUnit reports whether a node row represents a sub-unit (paragraph,
+// list-item, etc.) of a parent file rather than a file-level row. The
+// parent_id column is NULL on file-level rows and points at the parent
+// file's id on sub-unit rows; see internal/index/node_repo.go.
+func isSubUnit(row *index.NodeRow) bool {
+	// Schema invariant: parent_id is either NULL (file row) or a non-empty
+	// composite ID (sub-unit). A Valid && String=="" state is not produced
+	// by the writer path, so Valid alone is the correct discriminator.
+	return row != nil && row.ParentID.Valid
+}
+
 // embeddingsMatch reports whether the persisted rows already cover every new
 // chunk: same count, same chunk_idx coverage, same content_hash, same model.
 // Used by DrainQueue to skip re-embedding when content is unchanged.
@@ -124,33 +135,71 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
-			content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
+			var (
+				header     []byte
+				body       []byte
+				bodyChunks [][]byte
+			)
 
-			if readErr != nil {
-				nextAttempts := queued.Attempts + 1
+			// Sub-unit rows carry their own pre-synthesized embed payload
+			// (set by the sub-unit sync in Task 3) — including the
+			// `<column-header>: <cell-text>` synthesis for table cells per
+			// spec §5.6. They are embedded as a single vector with no file
+			// header context; the AST already chose the semantic boundary
+			// so we must not chunk further.
+			//
+			// File-level rows fall through to the legacy read+parse+chunk
+			// path. That path is now the back-compat default for workspaces
+			// that disable sub-unit indexing.
+			if isSubUnit(row) {
+				payload := row.EmbedPayload.String
 
-				if nextAttempts < MaxEmbedAttempts {
-					_ = config.Queue.ReEnqueue(queued.NodeID, nextAttempts, readErr.Error())
+				if payload == "" {
+					// Defensive: a sub-unit with an empty payload would
+					// send a zero-byte prompt to the embedder. Drop it
+					// from the queue without retry — re-running won't
+					// repopulate the column.
+					if config.Logger != nil {
+						config.Logger.Warn("embed skip empty sub-unit payload",
+							"node_id", queued.NodeID,
+						)
+					}
+
+					continue
 				}
 
-				continue
-			}
+				header = nil
+				body = []byte(payload)
+				bodyChunks = ASTChunking{}.Chunk(body)
+			} else {
+				content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
 
-			parsed, parseErr := node.ParseFile(row.Path, content)
+				if readErr != nil {
+					nextAttempts := queued.Attempts + 1
 
-			if parseErr != nil {
-				nextAttempts := queued.Attempts + 1
+					if nextAttempts < MaxEmbedAttempts {
+						_ = config.Queue.ReEnqueue(queued.NodeID, nextAttempts, readErr.Error())
+					}
 
-				if nextAttempts < MaxEmbedAttempts {
-					_ = config.Queue.ReEnqueue(queued.NodeID, nextAttempts, parseErr.Error())
+					continue
 				}
 
-				continue
-			}
+				parsed, parseErr := node.ParseFile(row.Path, content)
 
-			header := BuildHeader(parsed)
-			body := BuildBody(parsed)
-			bodyChunks := config.Chunker.Chunk(body)
+				if parseErr != nil {
+					nextAttempts := queued.Attempts + 1
+
+					if nextAttempts < MaxEmbedAttempts {
+						_ = config.Queue.ReEnqueue(queued.NodeID, nextAttempts, parseErr.Error())
+					}
+
+					continue
+				}
+
+				header = BuildHeader(parsed)
+				body = BuildBody(parsed)
+				bodyChunks = config.Chunker.Chunk(body)
+			}
 
 			if len(bodyChunks) == 0 {
 				continue
@@ -255,6 +304,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 						embedStart := time.Now()
 						vec, err := config.Embedder.Embed(nodeCtx, job.payload)
 						latency := time.Since(embedStart)
+						// header is nil for sub-units (len(header)==0), so body == payload in that case.
 						results <- embedResult{
 							chunkIdx:     job.chunkIdx,
 							vector:       vec,
@@ -346,8 +396,8 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
-			sort.Slice(collected, func(i, j int) bool {
-				return collected[i].chunkIdx < collected[j].chunkIdx
+			sort.Slice(collected, func(left, right int) bool {
+				return collected[left].chunkIdx < collected[right].chunkIdx
 			})
 
 			for _, res := range collected {

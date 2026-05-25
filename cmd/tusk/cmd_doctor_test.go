@@ -417,6 +417,24 @@ func TestDoctor_AutoMigrateSkipsRowsWithMissingSourceFile(test *testing.T) {
 		test.Fatalf("open: %v", openErr)
 	}
 
+	// Seed a placeholder node row for the ghost source so the P2 FK on
+	// edges.source_id is satisfied; the test's premise (the source
+	// markdown FILE is absent on disk) still holds — only the index row
+	// is present, mirroring what a legacy __cli__-only state would
+	// produce after the FK migration.
+	nodeRepo := index.NewNodeRepo(store)
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+		ID:             "tickets/ghost",
+		Type:           "ticket",
+		Path:           "tickets/ghost.md",
+		Title:          "ghost",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+	}); upsertErr != nil {
+		test.Fatalf("seed ghost node: %v", upsertErr)
+	}
+
 	edgeRepo := index.NewEdgeRepo(store)
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/ghost", index.CLISourcePath, []index.EdgeRow{

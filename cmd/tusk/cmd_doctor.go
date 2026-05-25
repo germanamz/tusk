@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/germanamz/tusk/internal/doctor"
@@ -10,6 +11,62 @@ import (
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
+
+// subUnitKindOrder pins the rendering order of the per-kind counts so the
+// doctor output stays stable across runs. Matches the order in the spec
+// example (sections → table-cells) and groups by structural prominence.
+var subUnitKindOrder = []string{
+	"section",
+	"paragraph",
+	"list-item",
+	"code-block",
+	"blockquote",
+	"table-cell",
+}
+
+// renderSubUnitPane prints the sub-unit health pane (spec §5.9). Skips
+// the pane entirely when nil — workspaces with sub-units disabled AND a
+// clean index get no output here. The renderer follows the doctor's
+// existing two-space-indent convention.
+func renderSubUnitPane(out io.Writer, pane *doctor.SubUnitPane) {
+	if pane == nil {
+		return
+	}
+
+	_, _ = fmt.Fprintln(out, "sub-units:")
+	_, _ = fmt.Fprintf(out, "  total                 %d\n", pane.Total)
+
+	if len(pane.CountByKind) > 0 {
+		_, _ = fmt.Fprintln(out, "  by kind:")
+
+		// Render the pinned order first so the common kinds appear in
+		// a predictable layout; then any unexpected kinds the pack may
+		// introduce later.
+		seen := map[string]struct{}{}
+
+		for _, kind := range subUnitKindOrder {
+			if count, ok := pane.CountByKind[kind]; ok {
+				_, _ = fmt.Fprintf(out, "    %-18s%d\n", kind, count)
+				seen[kind] = struct{}{}
+			}
+		}
+
+		for kind, count := range pane.CountByKind {
+			if _, already := seen[kind]; already {
+				continue
+			}
+
+			_, _ = fmt.Fprintf(out, "    %-18s%d\n", kind, count)
+		}
+	}
+
+	_, _ = fmt.Fprintf(out, "  hash collisions       %d\n", pane.HashCollisions)
+	_, _ = fmt.Fprintf(out, "  orphans               %d\n", pane.OrphanedSubUnits)
+	_, _ = fmt.Fprintf(out, "  queue (files)         %d\n", pane.EmbedQueueFiles)
+	_, _ = fmt.Fprintf(out, "  queue (sub-units)     %d\n", pane.EmbedQueueSubUnits)
+	_, _ = fmt.Fprintf(out, "  oversize payloads     %d\n", pane.OversizeEmbedPayloads)
+	_, _ = fmt.Fprintf(out, "  reserved conflicts    %d\n", pane.ReservedNameConflicts)
+}
 
 func newDoctorCmd() *cobra.Command {
 	var noMigrate bool
@@ -57,6 +114,7 @@ for a diagnostic-only run.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			introspect := buildVerbIntrospector(cmd.Root())
 			manifest.ValidateAliases(loaded, introspect)
 			manifest.ValidateContext(loaded, introspect)
@@ -153,6 +211,8 @@ for a diagnostic-only run.`,
 						}
 					}
 				}
+
+				renderSubUnitPane(out, report.SubUnitPane)
 
 				return nil
 			})

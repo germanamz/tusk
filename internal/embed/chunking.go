@@ -18,6 +18,22 @@ func (strategy WholeDocument) Chunk(payload []byte) [][]byte {
 	return [][]byte{payload}
 }
 
+// ASTChunking is the chunker used by the drainer for sub-unit rows. Each
+// leaf sub-unit (paragraph, list-item, code-block, blockquote, table-cell)
+// is embedded as a single vector per spec §5.6: the AST already determined
+// the semantic boundary so the chunker must not split it further.
+//
+// Functionally identical to WholeDocument — exposed as a separate type so
+// the drainer's intent is legible at the call site and so future tweaks
+// (e.g. doctor-level oversize warnings) have a dedicated home.
+type ASTChunking struct{}
+
+// Chunk implements ChunkingStrategy. The returned slice always has length
+// 1; the byte slice is the input payload unchanged.
+func (strategy ASTChunking) Chunk(payload []byte) [][]byte {
+	return [][]byte{payload}
+}
+
 // MarkdownRecursive splits a body using recursive descent through
 // markdown-aware separators (H2 -> H3 -> paragraph -> line -> sentence ->
 // word -> byte). Pieces are then greedily packed up to TargetBytes, with

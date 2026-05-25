@@ -55,6 +55,7 @@ cannot interleave.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			setProps, setErr := parseSetFlags(setFlags)
 
 			if setErr != nil {

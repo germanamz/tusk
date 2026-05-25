@@ -1,6 +1,7 @@
 package filter_test
 
 import (
+	"database/sql"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -101,16 +102,16 @@ func TestModifiedSince_EndToEndAgainstIndex(test *testing.T) {
 				test.Fatalf("validate: %+v", validateErrs)
 			}
 
-			sql, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+			sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
 
 			if compileErr != nil {
 				test.Fatalf("compile: %v", compileErr)
 			}
 
-			rows, queryErr := store.DB().Query(sql, params...)
+			rows, queryErr := store.DB().Query(sqlQuery, params...)
 
 			if queryErr != nil {
-				test.Fatalf("query: %v\nsql=%s\nparams=%v", queryErr, sql, params)
+				test.Fatalf("query: %v\nsql=%s\nparams=%v", queryErr, sqlQuery, params)
 			}
 
 			defer rows.Close()
@@ -121,9 +122,10 @@ func TestModifiedSince_EndToEndAgainstIndex(test *testing.T) {
 				var (
 					id, nodeType, path, title, propertiesJSON, lastChecksum string
 					lastMtime, lastSize                                     int64
+					parentID                                                sql.NullString
 				)
 
-				if scanErr := rows.Scan(&id, &nodeType, &path, &title, &propertiesJSON, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
+				if scanErr := rows.Scan(&id, &nodeType, &path, &title, &propertiesJSON, &lastMtime, &lastSize, &lastChecksum, &parentID); scanErr != nil {
 					test.Fatalf("scan: %v", scanErr)
 				}
 

@@ -100,6 +100,7 @@ JSON otherwise); --json is sugar for --format json.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			// Validate the filter expression before touching the embedder so a
 			// malformed filter surfaces before "--semantic requires
 			// [embeddings]" — preserves the legacy error-message ordering.
@@ -126,6 +127,7 @@ JSON otherwise); --json is sugar for --format json.`,
 				Manifest:   loaded,
 				Embedder:   embedder,
 				Embeddings: index.NewEmbeddingRepo(store),
+				Nodes:      index.NewNodeRepo(store),
 			}
 
 			result, runErr := query.Run(context.Background(), deps, query.Request{
@@ -169,7 +171,7 @@ JSON otherwise); --json is sugar for --format json.`,
 	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
 	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)")
-	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties (comma-separated)")
+	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)")
 	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
 	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
 
@@ -280,12 +282,13 @@ func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) e
 
 	for _, row := range rows {
 		compactRows = append(compactRows, render.CompactRow{
-			ID:         row.ID,
-			Type:       row.Type,
-			Title:      row.Title,
-			Body:       row.Body,
-			Properties: row.Properties,
-			Edges:      row.Edges,
+			ID:           row.ID,
+			Type:         row.Type,
+			Title:        row.Title,
+			Body:         row.Body,
+			Properties:   row.Properties,
+			Edges:        row.Edges,
+			MatchedUnits: row.MatchedUnits,
 		})
 	}
 
@@ -307,14 +310,15 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 
 		for _, scored := range semantic.Ranked {
 			compactRows = append(compactRows, render.CompactRow{
-				ID:         scored.ID,
-				Type:       scored.Type,
-				Title:      scored.Title,
-				Body:       scored.Body,
-				Properties: scored.Properties,
-				Edges:      scored.Edges,
-				Score:      scored.Score,
-				HasScore:   true,
+				ID:           scored.ID,
+				Type:         scored.Type,
+				Title:        scored.Title,
+				Body:         scored.Body,
+				Properties:   scored.Properties,
+				Edges:        scored.Edges,
+				Score:        scored.Score,
+				HasScore:     true,
+				MatchedUnits: scored.MatchedUnits,
 			})
 		}
 

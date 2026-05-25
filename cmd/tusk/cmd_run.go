@@ -76,6 +76,7 @@ JSON when piped).`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			manifest.ValidateAliases(loaded, buildVerbIntrospector(cmd.Root()))
 
 			if listAliases {

@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -217,6 +218,10 @@ func TestTool_NodeListStableOrder(test *testing.T) {
 func TestTool_EdgeList(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
+
+	// Seed the source node so the FK added by the P2 migration on
+	// edges.source_id is satisfied.
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"})
 
 	rt.Edges.UpsertAll("tickets/a", "tickets/a.md", []index.EdgeRow{
 		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: "tickets/a.md"},
@@ -1785,6 +1790,9 @@ func TestTool_EdgeList_FormatCompact(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
 
+	// Seed the source node so the FK on edges.source_id is satisfied.
+	rt.Nodes.Upsert(index.NodeRow{ID: "a", Type: "note", Path: "a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"})
+
 	rt.Edges.UpsertAll("a", "a.md", []index.EdgeRow{
 		{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md"},
 	})
@@ -1816,5 +1824,140 @@ func TestTool_EdgeList_FormatCompact(test *testing.T) {
 
 	if !strings.Contains(textContent.Text, "links") || !strings.Contains(textContent.Text, "a") {
 		test.Errorf("compact edge text missing fields:\n%s", textContent.Text)
+	}
+}
+
+// TestTool_Query_SubUnitsIncludeUnitsAttachesMatchedUnits verifies the
+// structural include=units path returns each file's sub-unit list inline
+// as matched_units. Regression test for Task 5 (Phase 2).
+func TestTool_Query_SubUnitsIncludeUnitsAttachesMatchedUnits(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	// File row plus two sub-units owned by it.
+	if err := rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/with-units", Type: "note", Path: "notes/with-units.md",
+		Title: "With units", PropertiesJSON: "{}", LastChecksum: "x",
+	}); err != nil {
+		test.Fatalf("file upsert: %v", err)
+	}
+
+	subRows := []struct {
+		id, typ, props string
+		ordinal        int
+		payload        string
+	}{
+		{id: "notes/with-units#a", typ: "section", props: `{"heading-level":2}`, ordinal: 0, payload: "Top section"},
+		{id: "notes/with-units#b", typ: "paragraph", props: "{}", ordinal: 1, payload: "Body paragraph one"},
+	}
+
+	for _, sub := range subRows {
+		if err := rt.Nodes.Upsert(index.NodeRow{
+			ID: sub.id, Type: sub.typ, Path: "notes/with-units.md",
+			PropertiesJSON: sub.props, LastChecksum: "x",
+			ParentID:     sql.NullString{String: "notes/with-units", Valid: true},
+			Ordinal:      sql.NullInt64{Int64: int64(sub.ordinal), Valid: true},
+			EmbedPayload: sql.NullString{String: sub.payload, Valid: true},
+		}); err != nil {
+			test.Fatalf("sub upsert %s: %v", sub.id, err)
+		}
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":  "type=note",
+		"include": []any{"units"},
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("results = %d, want 1", len(results))
+	}
+
+	first := results[0].(map[string]any)
+	matched, ok := first["matched_units"].([]any)
+
+	if !ok {
+		test.Fatalf("matched_units missing or not array: %v", first)
+	}
+
+	if len(matched) != 2 {
+		test.Errorf("matched_units count = %d, want 2", len(matched))
+	}
+
+	section := matched[0].(map[string]any)
+
+	if section["type"] != "section" {
+		test.Errorf("first matched type = %v, want section", section["type"])
+	}
+
+	if level, _ := section["heading_level"].(float64); level != 2 {
+		test.Errorf("heading_level = %v, want 2", section["heading_level"])
+	}
+
+	if _, hasScore := section["score"]; hasScore {
+		test.Errorf("structural matched_units must not include score: %v", section)
+	}
+}
+
+// TestTool_Query_DirectSubUnitFilterReturnsRowsWithParentID confirms a
+// direct sub-unit filter (e.g. `type=section`) returns sub-units as
+// top-level result rows with parent_id populated.
+func TestTool_Query_DirectSubUnitFilterReturnsRowsWithParentID(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if err := rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/owner", Type: "note", Path: "notes/owner.md",
+		Title: "Owner", PropertiesJSON: "{}", LastChecksum: "x",
+	}); err != nil {
+		test.Fatalf("file upsert: %v", err)
+	}
+
+	if err := rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/owner#sec", Type: "section",
+		Path: "notes/owner.md", PropertiesJSON: `{"heading-level":2}`,
+		LastChecksum: "x",
+		ParentID:     sql.NullString{String: "notes/owner", Valid: true},
+		Ordinal:      sql.NullInt64{Int64: 0, Valid: true},
+		EmbedPayload: sql.NullString{String: "head text", Valid: true},
+	}); err != nil {
+		test.Fatalf("section upsert: %v", err)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter": "type=section",
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("results = %d, want 1", len(results))
+	}
+
+	first := results[0].(map[string]any)
+
+	if first["type"] != "section" {
+		test.Errorf("type = %v, want section", first["type"])
+	}
+
+	if first["parent_id"] != "notes/owner" {
+		test.Errorf("parent_id = %v, want notes/owner", first["parent_id"])
+	}
+
+	if _, hasMatched := first["matched_units"]; hasMatched {
+		test.Errorf("direct sub-unit result must not carry matched_units: %v", first)
 	}
 }

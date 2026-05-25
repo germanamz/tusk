@@ -458,7 +458,7 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
 		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum cosine similarity to include in semantic results (default 0.5). Lower this when an initial query misses.")),
-		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties (semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units (units = matched sub-units per file; semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
@@ -479,6 +479,7 @@ func registerQueryTool(srv *Server) {
 			Manifest:   srv.runtime.Manifest,
 			Embedder:   srv.runtime.Embedder,
 			Embeddings: srv.runtime.Embeddings,
+			Nodes:      srv.runtime.Nodes,
 		}, query.Request{
 			Filter:   filterText,
 			Sort:     argStringOptional(request, "sort"),
@@ -506,12 +507,13 @@ func registerQueryTool(srv *Server) {
 
 				for _, row := range result.Rows {
 					compactRows = append(compactRows, render.CompactRow{
-						ID:         row.ID,
-						Type:       row.Type,
-						Title:      row.Title,
-						Body:       row.Body,
-						Properties: row.Properties,
-						Edges:      row.Edges,
+						ID:           row.ID,
+						Type:         row.Type,
+						Title:        row.Title,
+						Body:         row.Body,
+						Properties:   row.Properties,
+						Edges:        row.Edges,
+						MatchedUnits: row.MatchedUnits,
 					})
 				}
 			} else {
@@ -519,14 +521,15 @@ func registerQueryTool(srv *Server) {
 
 				for _, scored := range result.Semantic.Ranked {
 					compactRows = append(compactRows, render.CompactRow{
-						ID:         scored.ID,
-						Type:       scored.Type,
-						Title:      scored.Title,
-						Body:       scored.Body,
-						Properties: scored.Properties,
-						Edges:      scored.Edges,
-						Score:      scored.Score,
-						HasScore:   true,
+						ID:           scored.ID,
+						Type:         scored.Type,
+						Title:        scored.Title,
+						Body:         scored.Body,
+						Properties:   scored.Properties,
+						Edges:        scored.Edges,
+						Score:        scored.Score,
+						HasScore:     true,
+						MatchedUnits: scored.MatchedUnits,
 					})
 				}
 			}
@@ -549,6 +552,14 @@ func registerQueryTool(srv *Server) {
 					"type":  row.Type,
 					"path":  row.Path,
 					"title": row.Title,
+				}
+
+				if row.ParentID != "" {
+					entry["parent_id"] = row.ParentID
+				}
+
+				if row.MatchedUnits != nil {
+					entry["matched_units"] = row.MatchedUnits
 				}
 
 				if row.Body != "" {
@@ -574,12 +585,15 @@ func registerQueryTool(srv *Server) {
 
 		for _, scored := range semantic.Ranked {
 			entry := map[string]any{
-				"id":      scored.ID,
-				"score":   scored.Score,
-				"type":    scored.Type,
-				"path":    scored.Path,
-				"title":   scored.Title,
-				"snippet": scored.Snippet,
+				"id":    scored.ID,
+				"score": scored.Score,
+				"type":  scored.Type,
+				"path":  scored.Path,
+				"title": scored.Title,
+			}
+
+			if scored.Snippet != "" {
+				entry["snippet"] = scored.Snippet
 			}
 
 			if scored.Body != "" {
@@ -592,6 +606,10 @@ func registerQueryTool(srv *Server) {
 
 			if scored.Edges != nil {
 				entry["edges"] = scored.Edges
+			}
+
+			if scored.MatchedUnits != nil {
+				entry["matched_units"] = scored.MatchedUnits
 			}
 
 			ranking = append(ranking, entry)
@@ -711,6 +729,26 @@ func registerDoctorTool(srv *Server) {
 				"median_chunks": stats.MedianChunks,
 				"max_chunks":    stats.MaxChunks,
 				"top_by_chunks": topByChunks,
+			}
+		}
+
+		if report.SubUnitPane != nil {
+			pane := report.SubUnitPane
+			byKind := make(map[string]any, len(pane.CountByKind))
+
+			for kind, count := range pane.CountByKind {
+				byKind[kind] = count
+			}
+
+			response["sub_units"] = map[string]any{
+				"total":                   pane.Total,
+				"count_by_kind":           byKind,
+				"hash_collisions":         pane.HashCollisions,
+				"orphaned_sub_units":      pane.OrphanedSubUnits,
+				"embed_queue_files":       pane.EmbedQueueFiles,
+				"embed_queue_sub_units":   pane.EmbedQueueSubUnits,
+				"oversize_embed_payloads": pane.OversizeEmbedPayloads,
+				"reserved_name_conflicts": pane.ReservedNameConflicts,
 			}
 		}
 

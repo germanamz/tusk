@@ -124,6 +124,104 @@ func TestCompactNodeRows_Deterministic(test *testing.T) {
 	}
 }
 
+func TestCompactNodeRows_MatchedUnitsSemantic(test *testing.T) {
+	rows := []CompactRow{
+		{
+			ID:       "notes/auth-rfc",
+			Type:     "note",
+			Title:    "Auth RFC",
+			Score:    0.86,
+			HasScore: true,
+			MatchedUnits: []query.MatchedUnit{
+				{ID: "notes/auth-rfc#a1b2c3", Type: "section", HeadingLevel: 2, Ordinal: 4, Score: 0.86, Snippet: "Decision OAuth", HasScore: true},
+				{ID: "notes/auth-rfc#b4d5e6", Type: "section", HeadingLevel: 3, Ordinal: 7, Score: 0.74, Snippet: "PKCE implementation", HasScore: true},
+				{ID: "notes/auth-rfc#d4e5f6", Type: "paragraph", Ordinal: 12, Score: 0.78, Snippet: "Users with SSO", HasScore: true},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	got := buf.String()
+
+	// Spot-check the structural shape rather than the entire string so
+	// minor padding tweaks don't churn the test. The matched-unit lines
+	// must use the arrow indentation, decorate sections with H<level>,
+	// and end with a score column for semantic hits.
+	mustContain := []string{
+		"notes/auth-rfc",
+		"  → #a1b2c3",
+		"section H2",
+		"section H3",
+		"paragraph",
+		"0.8600",
+		"0.7400",
+		"0.7800",
+		"\"Decision OAuth\"",
+	}
+
+	for _, fragment := range mustContain {
+		if !strings.Contains(got, fragment) {
+			test.Errorf("output missing %q\n%s", fragment, got)
+		}
+	}
+}
+
+func TestCompactNodeRows_MatchedUnitsTruncationTail(test *testing.T) {
+	units := make([]query.MatchedUnit, 0, 25)
+
+	for idx := 0; idx < 25; idx++ {
+		units = append(units, query.MatchedUnit{
+			ID:   "notes/big#u" + strings.Repeat("x", 1),
+			Type: "paragraph", Ordinal: idx,
+		})
+	}
+
+	rows := []CompactRow{{ID: "notes/big", Type: "note", Title: "Big", MatchedUnits: units}}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	got := buf.String()
+
+	if !strings.Contains(got, "(5 more)") {
+		test.Errorf("missing (5 more) tail in %q", got)
+	}
+}
+
+func TestCompactNodeRows_MatchedUnitsStructuralOmitsScore(test *testing.T) {
+	rows := []CompactRow{
+		{
+			ID:    "notes/x",
+			Type:  "note",
+			Title: "X",
+			MatchedUnits: []query.MatchedUnit{
+				{ID: "notes/x#a", Type: "paragraph", Ordinal: 0},
+				{ID: "notes/x#b", Type: "paragraph", Ordinal: 1},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	got := buf.String()
+
+	if strings.Contains(got, "0.0000") {
+		test.Errorf("structural matched_units must omit score column: %q", got)
+	}
+}
+
 func TestCompactEdgeRows_Fixture(test *testing.T) {
 	rows := []EdgeListEntry{
 		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: "tickets/a.md"},

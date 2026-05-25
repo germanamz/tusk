@@ -44,6 +44,22 @@ type Manifest struct {
 	// Surfaced through doctor; never raised as a load error.
 	ContextErrors []ContextError `toml:"-"`
 
+	// SubUnitConflicts captures reserved-name collisions between the
+	// built-in sub-document pack and user-declared node types, edge
+	// types, or properties. Populated by MergeBuiltinPacks when the
+	// `sub-units` flag is enabled. Surfaced through doctor; the engine
+	// prefers the built-in declaration and ignores the user's override.
+	SubUnitConflicts []SubUnitConflict `toml:"-"`
+
+	// subdocumentPackApplied records whether MergeBuiltinPacks has
+	// already merged the sub-document pack into this manifest. The
+	// merger short-circuits when true so a second call (e.g., from a
+	// reload path that itself calls Load again) does not re-classify
+	// the pack's own declarations as conflicts. Cleared only by Load
+	// producing a fresh *Manifest; in-place mutation by tests should
+	// reset the flag manually if they re-test the merge path.
+	subdocumentPackApplied bool `toml:"-"`
+
 	// contextRecentPrimitive holds the toml.Primitive captured for the
 	// `recent` key inside [context] so ValidateContext can discriminate
 	// between the string-reference form and the inline [context.recent]
@@ -92,6 +108,12 @@ type PropertyDecl struct {
 type WorkspaceSection struct {
 	Name   string   `toml:"name"`
 	Ignore []string `toml:"ignore"`
+
+	// SubUnitsRaw mirrors the on-disk `sub-units` key. Decoded as a
+	// toml.Primitive so the loader can distinguish "absent" (default to
+	// true) from "explicit false". Consumers should call
+	// Manifest.SubUnitsEnabled instead of reading this directly.
+	SubUnitsRaw toml.Primitive `toml:"sub-units"`
 }
 
 // EmbeddingsSection configures the active embedding provider.
@@ -175,4 +197,37 @@ func matchesTypeList(allowed []string, candidate string) bool {
 	}
 
 	return false
+}
+
+// SubUnitsEnabled returns true when the workspace opts into sub-unit
+// indexing. The default is true (the built-in pack is on when the manifest
+// is silent or `sub-units` is absent); only an explicit `sub-units = false`
+// disables it. The discrimination relies on the toml.MetaData captured at
+// decode time; hand-built manifests (tests that construct a Manifest
+// literal without calling Load) default to true unless the test sets
+// Meta + the primitive explicitly.
+func (loaded *Manifest) SubUnitsEnabled() bool {
+	if loaded == nil {
+		return true
+	}
+
+	if loaded.Meta == nil {
+		// Hand-built manifest — preserve the default.
+		return true
+	}
+
+	if !loaded.Meta.IsDefined("workspace", "sub-units") {
+		return true
+	}
+
+	var explicit bool
+
+	if decodeErr := loaded.Meta.PrimitiveDecode(loaded.Workspace.SubUnitsRaw, &explicit); decodeErr != nil {
+		// Malformed value — treat as default (true) so the engine still
+		// starts. ValidateBuiltinPacks (or a future stricter validator)
+		// can surface this through doctor.
+		return true
+	}
+
+	return explicit
 }

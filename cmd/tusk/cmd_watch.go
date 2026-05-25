@@ -59,6 +59,7 @@ in another shell to observe progress.`,
 					return loadErr
 				}
 
+				manifest.MergeBuiltinPacks(loaded)
 				store, openErr := index.Open(ws.IndexPath)
 
 				if openErr != nil {
@@ -79,6 +80,7 @@ in another shell to observe progress.`,
 					EdgeTypes:       loaded.EdgeTypes,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
 					Logger:          logger,
+					Manifest:        loaded,
 				}); runErr != nil {
 					return runErr
 				}
@@ -142,6 +144,7 @@ in another shell to observe progress.`,
 						EdgeTypes:       loaded.EdgeTypes,
 						WorkspaceIgnore: loaded.Workspace.Ignore,
 						Logger:          logger,
+						Manifest:        loaded,
 					})
 
 					if runErr != nil {

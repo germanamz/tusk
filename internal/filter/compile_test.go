@@ -710,3 +710,151 @@ func TestCompile_ModifiedSinceComposesWithOtherPredicates(test *testing.T) {
 		test.Errorf("params[1] = %T, want int64", params[1])
 	}
 }
+
+// TestCompile_SubUnitTypePredicate confirms that a `type=<sub-unit>`
+// predicate parses and compiles to the same SQL shape as any other core
+// column equality. Sub-unit type names are registered by the
+// sub-document pack (Task 1); the compiler doesn't care about the
+// taxonomy. Regression test for Task 5 (Phase 2).
+func TestCompile_SubUnitTypePredicate(test *testing.T) {
+	for _, typeName := range []string{"section", "paragraph", "list-item", "code-block", "blockquote", "table-cell"} {
+		expr, parseErrs := filter.NewParser("type=" + typeName).Parse()
+
+		if len(parseErrs) != 0 {
+			test.Fatalf("parse %s: %v", typeName, parseErrs)
+		}
+
+		sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+		if compileErr != nil {
+			test.Fatalf("compile %s: %v", typeName, compileErr)
+		}
+
+		if !strings.Contains(sqlText, "type = ?") {
+			test.Errorf("%s: sql missing core column compare: %s", typeName, sqlText)
+		}
+
+		if !reflect.DeepEqual(params, []any{typeName}) {
+			test.Errorf("%s: params = %v, want [%s]", typeName, params, typeName)
+		}
+	}
+}
+
+// TestCompile_BoolLiteralCoercedToInt confirms that bareword `true`/
+// `false` values on a property predicate compile to a comparison
+// against the integer 1/0, matching SQLite's json_extract surface for
+// JSON booleans. Regression for Phase 2 P2 acceptance gap: `checkbox=
+// false` previously compiled to `... = 'false'` and matched nothing.
+func TestCompile_BoolLiteralCoercedToInt(test *testing.T) {
+	cases := []struct {
+		query   string
+		wantInt int
+	}{
+		{"checkbox=false", 0},
+		{"checkbox=true", 1},
+		{"checkbox!=false", 0},
+		{"checkbox!=true", 1},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.query, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser(testCase.query).Parse()
+
+			if len(parseErrs) != 0 {
+				test.Fatalf("parse: %+v", parseErrs)
+			}
+
+			sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+			if compileErr != nil {
+				test.Fatalf("compile: %v", compileErr)
+			}
+
+			if !strings.Contains(sqlText, "json_extract(properties_json, '$.checkbox')") {
+				test.Errorf("missing json_extract on checkbox: %s", sqlText)
+			}
+
+			if strings.Contains(sqlText, "CAST(") {
+				test.Errorf("bool literal must not wrap json_extract in CAST: %s", sqlText)
+			}
+
+			if !reflect.DeepEqual(params, []any{testCase.wantInt}) {
+				test.Errorf("params = %v, want [%d]", params, testCase.wantInt)
+			}
+		})
+	}
+}
+
+// TestCompile_QuotedFalseIsStringLiteral verifies that quoting opts out
+// of the bool coercion: `flag="false"` compares against the string
+// "false", preserving the legacy behaviour for properties whose value
+// is the literal word "false".
+func TestCompile_QuotedFalseIsStringLiteral(test *testing.T) {
+	expr, parseErrs := filter.NewParser(`flag="false"`).Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	_, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if !reflect.DeepEqual(params, []any{"false"}) {
+		test.Errorf("params = %v, want [\"false\"]", params)
+	}
+}
+
+// TestCompile_BoolLiteralOnlyForEqualityOps confirms that bareword bool
+// literals on non-`=`/`!=` operators fall through to the legacy string
+// comparison path (numeric comparators on booleans are nonsensical, but
+// must not panic or silently rewrite).
+func TestCompile_BoolLiteralOnlyForEqualityOps(test *testing.T) {
+	expr, parseErrs := filter.NewParser("checkbox>=false").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	_, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if !reflect.DeepEqual(params, []any{"false"}) {
+		test.Errorf("params = %v, want [\"false\"] (non-equality op skips bool coercion)", params)
+	}
+}
+
+// TestCompile_HeadingLevelPredicate covers the kebab-case heading-level
+// property used by section sub-units. SQLite's JSON1 accepts both
+// `$.heading-level` and `$."heading-level"`; the compiler emits the
+// unquoted form, which works in modern SQLite.
+func TestCompile_HeadingLevelPredicate(test *testing.T) {
+	expr, parseErrs := filter.NewParser("type=section AND heading-level<=2").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %v", parseErrs)
+	}
+
+	sqlText, _, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if !strings.Contains(sqlText, "type = ?") {
+		test.Errorf("missing type predicate: %s", sqlText)
+	}
+
+	if !strings.Contains(sqlText, "heading-level") {
+		test.Errorf("missing heading-level extract: %s", sqlText)
+	}
+
+	if !strings.Contains(sqlText, "<= ?") {
+		test.Errorf("missing <= operator: %s", sqlText)
+	}
+}

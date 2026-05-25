@@ -22,6 +22,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/subunit"
 )
 
 // Config configures Run.
@@ -66,6 +67,15 @@ type Config struct {
 	// Workers caps concurrent embed calls per node when the embedding pipeline
 	// runs. Forwarded to embed.DrainConfig.Workers. Zero means "serial".
 	Workers int
+
+	// Manifest carries the workspace manifest. Optional; when nil the
+	// reindex pass treats sub-units as disabled regardless of any other
+	// flag. When non-nil and Manifest.SubUnitsEnabled() is true, the
+	// per-file loop diffs sub-units into the index alongside the file
+	// row (Plan 2 Task 3). Edges and EdgeTypes still source from the
+	// dedicated Config fields for back-compat with callers that build a
+	// reindex config without a manifest (the existing reindex tests).
+	Manifest *manifest.Manifest
 }
 
 // Report summarizes a reindex pass.
@@ -79,6 +89,13 @@ type Report struct {
 	RefAmbiguous       int // number of ref_ambiguous issues surfaced
 	RefTypeMismatch    int // number of ref_type_mismatch issues surfaced
 	RefCycle           int // number of ref_cycle issues surfaced
+
+	// Sub-unit pipeline counters (Plan 2 Task 3). All zero when the
+	// workspace's `sub-units` flag is false or when Config.Manifest is
+	// nil.
+	SubUnitsInserted  int // sub-unit rows freshly written across all files
+	SubUnitsDeleted   int // sub-unit rows removed across all files
+	SubUnitsReordered int // sub-unit rows whose ordinal changed
 }
 
 // Run walks Root, parses every *.md file with valid frontmatter, and upserts
@@ -171,7 +188,7 @@ func Run(config Config) (*Report, error) {
 
 		checksum := sha256.Sum256(content)
 
-		if upsertErr := config.Repo.Upsert(index.NodeRow{
+		fileRow := index.NodeRow{
 			ID:             parsed.ID,
 			Type:           parsed.Type,
 			Path:           parsed.Path,
@@ -180,7 +197,9 @@ func Run(config Config) (*Report, error) {
 			LastMtime:      stat.ModTime().UnixNano(),
 			LastSize:       stat.Size(),
 			LastChecksum:   hex.EncodeToString(checksum[:]),
-		}); upsertErr != nil {
+		}
+
+		if upsertErr := config.Repo.Upsert(fileRow); upsertErr != nil {
 			return upsertErr
 		}
 
@@ -351,6 +370,38 @@ func Run(config Config) (*Report, error) {
 			if upsertErr := config.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
 				return upsertErr
 			}
+		}
+
+		// + Plan 2 Task 3: sub-unit diff / insert / delete. The
+		// pipeline runs only when the workspace opts in AND the
+		// reindex caller supplied a manifest; the existing test
+		// suite builds Config without one so the older tests stay
+		// on the legacy code path.
+		if config.Manifest != nil && config.Manifest.SubUnitsEnabled() && config.Edges != nil {
+			units, parseUnitsErr := subunit.Parse(parsed.Body)
+
+			if parseUnitsErr != nil {
+				report.Skipped++
+				return nil
+			}
+
+			sync := &subunit.Sync{
+				Repo:     config.Repo,
+				EdgeRepo: config.Edges,
+				EmbedQ:   config.EmbedQueue,
+				Manifest: config.Manifest,
+				Logger:   config.Logger,
+			}
+
+			syncResult, syncErr := sync.ApplyFile(context.Background(), fileRow, units)
+
+			if syncErr != nil {
+				return syncErr
+			}
+
+			report.SubUnitsInserted += syncResult.Inserted
+			report.SubUnitsDeleted += syncResult.Deleted
+			report.SubUnitsReordered += syncResult.Reordered
 		}
 
 		seenPaths[parsed.Path] = struct{}{}

@@ -50,11 +50,20 @@ type Row struct {
 	Title         string `json:"title"`
 	PropertiesRaw string `json:"-"`
 
+	// ParentID is set for direct sub-unit query results (e.g.
+	// `type=section`) so the agent can follow up by file. Empty for file
+	// rows. Sourced from the underlying NodeRow.parent_id column.
+	ParentID string `json:"parent_id,omitempty"`
+
 	// Populated only when the request's Include / Fields asked for the
 	// matching expansion. Same shape as query.ListRow.
 	Body       string         `json:"body,omitempty"`
 	Properties map[string]any `json:"properties,omitempty"`
 	Edges      []EdgeRef      `json:"edges,omitempty"`
+
+	// MatchedUnits is populated when Include contains "units" (structural
+	// path) and the workspace has sub-units enabled. Nil otherwise.
+	MatchedUnits []MatchedUnit `json:"matched_units,omitempty"`
 }
 
 // ScoredRow is a single semantic-ranked result.
@@ -64,13 +73,19 @@ type ScoredRow struct {
 	Path    string  `json:"path"`
 	Title   string  `json:"title"`
 	Score   float64 `json:"score"`
-	Snippet string  `json:"snippet"`
+	Snippet string  `json:"snippet,omitempty"`
 
 	// Body, when set, is the best-matching chunk body for the query (spec
 	// §4.1 — semantic include=body prefers the snippet over the full file).
 	Body       string         `json:"body,omitempty"`
 	Properties map[string]any `json:"properties,omitempty"`
 	Edges      []EdgeRef      `json:"edges,omitempty"`
+
+	// MatchedUnits, when populated, holds the per-sub-unit hits that
+	// contributed to the file-level Score (semantic + sub-units path).
+	// Ordered by descending score. Sections are interleaved with leaves
+	// per §5.7.
+	MatchedUnits []MatchedUnit `json:"matched_units,omitempty"`
 }
 
 // Result is the typed payload returned by Run.
@@ -102,6 +117,12 @@ type Deps struct {
 	Manifest   *manifest.Manifest
 	Embedder   embed.Embedder       // optional; required when req.Semantic != ""
 	Embeddings *index.EmbeddingRepo // optional; required when req.Semantic != ""
+	// Nodes is the node repository used for sub-unit lookups (matched_units
+	// hydration on both the structural include=units path and the semantic
+	// grouped-by-parent path). Optional: callers that never request
+	// matched_units may leave this nil; the implementation will fall back
+	// to a one-off repo when needed.
+	Nodes *index.NodeRepo
 }
 
 // Run is the canonical entry point for the `query` / `tusk_query` verb. It
@@ -156,13 +177,19 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		var (
 			rowID, rowType, rowPath, rowTitle, propertiesRaw, lastChecksum string
 			lastMtime, lastSize                                            int64
+			parentID                                                       sql.NullString
 		)
 
-		if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum); scanErr != nil {
+		if scanErr := rows.Scan(&rowID, &rowType, &rowPath, &rowTitle, &propertiesRaw, &lastMtime, &lastSize, &lastChecksum, &parentID); scanErr != nil {
 			return nil, scanErr
 		}
 
 		row := Row{ID: rowID, Type: rowType, Path: rowPath, Title: rowTitle, PropertiesRaw: propertiesRaw}
+
+		if parentID.Valid {
+			row.ParentID = parentID.String
+		}
+
 		structural = append(structural, row)
 		nodeIDs = append(nodeIDs, rowID)
 		byID[rowID] = row
@@ -182,7 +209,36 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	result := &Result{Rows: structural}
 
+	subUnitsEnabled := deps.Manifest != nil && deps.Manifest.SubUnitsEnabled()
+
 	if req.Semantic == "" {
+		if includeSet.Units && subUnitsEnabled {
+			nodes := deps.Nodes
+
+			if nodes == nil {
+				return nil, fmt.Errorf("query: include=units requires Nodes in Deps")
+			}
+
+			for index := range result.Rows {
+				row := &result.Rows[index]
+
+				if row.ParentID != "" {
+					// The row itself is a sub-unit (direct sub-unit
+					// query). Don't recursively load its sub-tree —
+					// the agent asked for that one row.
+					continue
+				}
+
+				units, loadUnitsErr := LoadFileSubUnits(nodes, row.ID)
+
+				if loadUnitsErr != nil {
+					return nil, loadUnitsErr
+				}
+
+				row.MatchedUnits = units
+			}
+		}
+
 		if expandErr := ExpandRows(result.Rows, includeSet, req.WorkspaceRoot, deps.Database); expandErr != nil {
 			return nil, expandErr
 		}
@@ -198,6 +254,31 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	if embedErr != nil {
 		return nil, embedErr
+	}
+
+	if subUnitsEnabled {
+		// Try the sub-unit-aware path first. If the workspace has no
+		// sub-unit embeddings for any of the candidate files (e.g.
+		// callers that wrote file-level embeddings before the sub-unit
+		// migration), fall back to the legacy by-node-id flow below so
+		// existing fixtures keep working.
+		subEmbeddings, subErr := deps.Embeddings.ListSubUnitsForFiles(nodeIDs)
+
+		if subErr != nil {
+			return nil, subErr
+		}
+
+		if len(subEmbeddings) > 0 {
+			semanticResult, semanticErr := runSemanticSubUnits(ctx, deps, req, includeSet, queryVector, structural)
+
+			if semanticErr != nil {
+				return nil, semanticErr
+			}
+
+			result.Semantic = semanticResult
+
+			return result, nil
+		}
 	}
 
 	loaded, loadErr := deps.Embeddings.ListByNodeIDs(nodeIDs)

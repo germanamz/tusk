@@ -31,6 +31,45 @@ func TestWholeDocument_HandlesEmptyPayload(test *testing.T) {
 	}
 }
 
+func TestASTChunking_ReturnsExactlyOneChunkUnchanged(test *testing.T) {
+	payload := []byte("paragraph body with markdown *emphasis* and `code`")
+
+	chunks := embed.ASTChunking{}.Chunk(payload)
+
+	if len(chunks) != 1 {
+		test.Fatalf("len = %d, want 1 (sub-units are always one chunk per spec §5.6)", len(chunks))
+	}
+
+	if !bytes.Equal(chunks[0], payload) {
+		test.Errorf("chunks[0] = %q, want byte-for-byte %q", chunks[0], payload)
+	}
+}
+
+func TestASTChunking_LargePayloadStillSingleChunk(test *testing.T) {
+	// A sub-unit larger than the legacy MaxBytes (e.g. a long code block)
+	// must still emerge as a single chunk — the chunker does not split
+	// AST-chosen boundaries. Oversize warnings are doctor's job (Task 6).
+	payload := bytes.Repeat([]byte("x"), embed.DefaultMaxBytes*2)
+
+	chunks := embed.ASTChunking{}.Chunk(payload)
+
+	if len(chunks) != 1 {
+		test.Fatalf("len = %d, want 1 even for oversize payload", len(chunks))
+	}
+
+	if len(chunks[0]) != len(payload) {
+		test.Errorf("chunk[0] len = %d, want %d", len(chunks[0]), len(payload))
+	}
+}
+
+func TestASTChunking_EmptyPayloadReturnsSingleEmptyChunk(test *testing.T) {
+	chunks := embed.ASTChunking{}.Chunk(nil)
+
+	if len(chunks) != 1 || len(chunks[0]) != 0 {
+		test.Errorf("got %v, want one empty chunk", chunks)
+	}
+}
+
 func TestMarkdownRecursive_EmptyInputReturnsSingleEmptyChunk(test *testing.T) {
 	chunks := embed.MarkdownRecursive{}.Chunk(nil)
 

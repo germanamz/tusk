@@ -3,6 +3,7 @@ package embed_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -326,14 +327,15 @@ func TestDrainQueue_EmbedsEveryChunkOfMultiChunkNode(test *testing.T) {
 		test.Fatalf("GetByNodeID: %v", getErr)
 	}
 
-	if len(rows) != stub.calls {
-		test.Errorf("persisted rows = %d, want %d (one per embed call)", len(rows), stub.calls)
-	}
-
-	for idx, row := range rows {
-		if row.ChunkIdx != idx {
-			test.Errorf("rows[%d].ChunkIdx = %d, want %d (sequential)", idx, row.ChunkIdx, idx)
-		}
+	// P2 migration: the embeddings table is now UNIQUE(node_id), so
+	// multiple chunks per node collapse to a single row (the last upsert
+	// wins). The drainer still embeds every chunk (verified above by
+	// stub.calls >= 2); only the storage shape changed. Task 4 swaps
+	// MarkdownRecursive for AST chunking so each leaf unit gets its own
+	// node row + its own embedding — restoring the "one row per
+	// semantic chunk" property at the unit granularity.
+	if len(rows) != 1 {
+		test.Errorf("persisted rows = %d, want 1 (UNIQUE(node_id) collapses multi-chunk to one row)", len(rows))
 	}
 }
 
@@ -796,5 +798,286 @@ func TestDrainQueue_WorkersDefaultParityWithSerial(test *testing.T) {
 	rows, _ := embeddingRepo.GetByNodeID("notes/a")
 	if len(rows) != 1 {
 		test.Errorf("rows = %d, want 1", len(rows))
+	}
+}
+
+// recordingEmbedder captures every payload passed to Embed so sub-unit
+// drainer tests can assert "the embedder saw exactly this byte slice"
+// without parsing logs.
+type recordingEmbedder struct {
+	mu       sync.Mutex
+	payloads [][]byte
+	dim      int
+	model    string
+}
+
+func (stub *recordingEmbedder) Embed(_ context.Context, payload []byte) ([]float32, error) {
+	stub.mu.Lock()
+	captured := make([]byte, len(payload))
+	copy(captured, payload)
+	stub.payloads = append(stub.payloads, captured)
+	stub.mu.Unlock()
+
+	out := make([]float32, stub.dim)
+
+	for idx := range out {
+		out[idx] = 0.1
+	}
+
+	return out, nil
+}
+
+func (stub *recordingEmbedder) Model() string { return stub.model }
+func (stub *recordingEmbedder) Dim() int      { return stub.dim }
+
+func TestDrainQueue_SubUnitEmbedsEmbedPayloadDirectly(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	// Seed a parent file row but never write the file to disk: the sub-unit
+	// branch must NOT read the file or parse it. If the drainer falls
+	// through to the legacy path, os.ReadFile will fail and the test will
+	// catch the regression.
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+		ID:             "notes/parent",
+		Type:           "note",
+		Path:           "notes/parent.md",
+		Title:          "parent",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+	}); upsertErr != nil {
+		test.Fatalf("upsert parent: %v", upsertErr)
+	}
+
+	subUnitID := "notes/parent#abcd1234"
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+		ID:             subUnitID,
+		Type:           "paragraph",
+		Path:           "notes/parent.md",
+		Title:          "",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+		ParentID:       sql.NullString{String: "notes/parent", Valid: true},
+		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
+		EmbedPayload:   sql.NullString{String: "test payload", Valid: true},
+	}); upsertErr != nil {
+		test.Fatalf("upsert sub-unit: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue(subUnitID); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	stub := &recordingEmbedder{dim: 3, model: "stub"}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		// Pass MarkdownRecursive to prove the drainer ignores Chunker for
+		// sub-unit rows. If the branch wired this up wrong the sub-unit
+		// would split on the (non-existent) markdown separators and we'd
+		// see a different chunk count or wrong payload.
+		Chunker: embed.MarkdownRecursive{},
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != 1 {
+		test.Errorf("drained = %d, want 1", drained)
+	}
+
+	if len(stub.payloads) != 1 {
+		test.Fatalf("embedder calls = %d, want 1 (one vector per sub-unit per §5.6)", len(stub.payloads))
+	}
+
+	if string(stub.payloads[0]) != "test payload" {
+		test.Errorf("embedded payload = %q, want %q (no header, no file context)", stub.payloads[0], "test payload")
+	}
+
+	rows, getErr := embeddingRepo.GetByNodeID(subUnitID)
+
+	if getErr != nil {
+		test.Fatalf("GetByNodeID: %v", getErr)
+	}
+
+	if len(rows) != 1 {
+		test.Fatalf("persisted rows = %d, want 1", len(rows))
+	}
+
+	if rows[0].Body != "test payload" {
+		test.Errorf("stored body = %q, want %q", rows[0].Body, "test payload")
+	}
+
+	if rows[0].ChunkIdx != 0 {
+		test.Errorf("chunk_idx = %d, want 0 (sub-units are always single-chunk)", rows[0].ChunkIdx)
+	}
+}
+
+func TestDrainQueue_SubUnitWithEmptyEmbedPayloadIsSkipped(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	subUnitID := "notes/parent#empty"
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+		ID:             subUnitID,
+		Type:           "paragraph",
+		Path:           "notes/parent.md",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+		ParentID:       sql.NullString{String: "notes/parent", Valid: true},
+		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
+		EmbedPayload:   sql.NullString{String: "", Valid: true},
+	}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue(subUnitID); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	stub := &recordingEmbedder{dim: 3, model: "stub"}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		Chunker:    embed.WholeDocument{},
+		Logger:     logger,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != 0 {
+		test.Errorf("drained = %d, want 0 (empty payload skipped)", drained)
+	}
+
+	if len(stub.payloads) != 0 {
+		test.Errorf("embedder calls = %d, want 0 (don't embed empty prompts)", len(stub.payloads))
+	}
+
+	if !strings.Contains(buf.String(), "embed skip empty sub-unit payload") {
+		test.Errorf("expected warn log for empty payload; got %q", buf.String())
+	}
+
+	rows, _ := embeddingRepo.GetByNodeID(subUnitID)
+	if len(rows) != 0 {
+		test.Errorf("rows = %d, want 0", len(rows))
+	}
+}
+
+func TestDrainQueue_MixedFileAndSubUnitBatch(test *testing.T) {
+	// Drain a queue containing one file-level row AND one sub-unit row in
+	// the same batch. Both must be embedded with their own respective
+	// payloads — the file-level row reads from disk and chunks, the
+	// sub-unit row reads from embed_payload and emits one chunk.
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "file-only.md", "file body content")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+		ID:             "file-only",
+		Type:           "note",
+		Path:           "file-only.md",
+		Title:          "x",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+	}); upsertErr != nil {
+		test.Fatalf("upsert file: %v", upsertErr)
+	}
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+		ID:             "parent#sub",
+		Type:           "paragraph",
+		Path:           "parent.md",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+		ParentID:       sql.NullString{String: "parent", Valid: true},
+		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
+		EmbedPayload:   sql.NullString{String: "sub unit payload", Valid: true},
+	}); upsertErr != nil {
+		test.Fatalf("upsert sub: %v", upsertErr)
+	}
+
+	for _, id := range []string{"file-only", "parent#sub"} {
+		if enqErr := queueRepo.Enqueue(id); enqErr != nil {
+			test.Fatalf("enqueue %s: %v", id, enqErr)
+		}
+	}
+
+	stub := &recordingEmbedder{dim: 3, model: "stub"}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		Chunker:    embed.WholeDocument{},
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != 2 {
+		test.Errorf("drained = %d, want 2", drained)
+	}
+
+	if len(stub.payloads) != 2 {
+		test.Fatalf("embedder calls = %d, want 2", len(stub.payloads))
+	}
+
+	// Sub-unit payload is the EmbedPayload string verbatim; file payload
+	// contains the BuildHeader+body shape ("[type] note" prefix is the
+	// canonical marker).
+	var sawSubUnit, sawFile bool
+
+	for _, payload := range stub.payloads {
+		if string(payload) == "sub unit payload" {
+			sawSubUnit = true
+			continue
+		}
+
+		if strings.Contains(string(payload), "[type] note") && strings.Contains(string(payload), "file body content") {
+			sawFile = true
+		}
+	}
+
+	if !sawSubUnit {
+		test.Errorf("did not see verbatim sub-unit payload among %q", stub.payloads)
+	}
+
+	if !sawFile {
+		test.Errorf("did not see headered file payload among %q", stub.payloads)
 	}
 }

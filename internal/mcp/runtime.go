@@ -89,6 +89,8 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		return nil, fmt.Errorf("mcp: manifest: %w", loadErr)
 	}
 
+	manifest.MergeBuiltinPacks(loaded)
+
 	lockHandle, lockNewErr := lock.NewWorkspaceLock(ws.Root)
 
 	if lockNewErr != nil {
@@ -217,6 +219,12 @@ func (rt *Runtime) ReloadManifest() error {
 		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
 		manifest.ValidateContext(loaded, rt.aliasIntrospector)
 	}
+
+	// MergeBuiltinPacks re-installs the sub-document pack on top of the
+	// freshly-loaded manifest. Load already calls it once on the
+	// in-memory manifest, but ReloadManifest is reached after a fresh
+	// Load call, so this is defensive: the merge stays idempotent.
+	manifest.MergeBuiltinPacks(loaded)
 
 	rt.Manifest = loaded
 	rt.BehaviorEngine = engine

@@ -61,6 +61,7 @@ any remaining sentinel rows on its next run.`,
 				return loadErr
 			}
 
+			manifest.MergeBuiltinPacks(loaded)
 			if _, declared := loaded.EdgeTypes[edgeType]; !declared {
 				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
 			}

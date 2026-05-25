@@ -34,7 +34,7 @@ func TestParseInclude(test *testing.T) {
 					test.Fatalf("expected error, got %+v", got)
 				}
 
-				if !strings.Contains(err.Error(), "valid: body, edges, properties") {
+				if !strings.Contains(err.Error(), "valid: body, edges, properties, units") {
 					test.Errorf("expected suggestion list in error, got %v", err)
 				}
 
