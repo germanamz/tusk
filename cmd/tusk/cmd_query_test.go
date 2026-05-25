@@ -6,7 +6,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/germanamz/tusk/internal/manifest"
 )
+
+// manifestDefaultGraphExpansion is a tiny test-only shim so the assertions
+// can read like "from default" without typing the package name three times.
+func manifestDefaultGraphExpansion() manifest.GraphExpansion {
+	return manifest.DefaultGraphExpansion()
+}
 
 func TestQueryCmd_FiltersByType(test *testing.T) {
 	initWorkspace(test)
@@ -196,5 +204,168 @@ func TestQueryCmd_ErrorsWithoutFilter(test *testing.T) {
 
 	if execErr := cmd.Execute(); execErr == nil {
 		test.Fatalf("expected error when filter argument is missing")
+	}
+}
+
+// TestQueryCmd_GraphExpandFlagsRegistered confirms the new Phase 3 plumbing
+// flags exist on the command so subsequent tasks can rely on them.
+func TestQueryCmd_GraphExpandFlagsRegistered(test *testing.T) {
+	cmd := newQueryCmd()
+
+	required := []string{"graph-expand", "no-graph-expand", "hops", "graph-weight", "graph-edges", "explain"}
+
+	for _, name := range required {
+		if cmd.Flags().Lookup(name) == nil {
+			test.Errorf("--%s flag not registered on tusk query", name)
+		}
+	}
+}
+
+// TestQueryCmd_RejectsInvalidHops confirms the per-call --hops override is
+// validated before the query runs.
+func TestQueryCmd_RejectsInvalidHops(test *testing.T) {
+	initWorkspace(test)
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"query", "type=note", "--hops", "5"})
+
+	execErr := cmd.Execute()
+
+	if execErr == nil {
+		test.Fatalf("expected error for --hops 5")
+	}
+
+	if !strings.Contains(execErr.Error(), "hops") {
+		test.Errorf("error %q should mention hops", execErr.Error())
+	}
+}
+
+// TestQueryCmd_RejectsInvalidGraphWeight confirms --graph-weight outside
+// [0,1] surfaces a usage error.
+func TestQueryCmd_RejectsInvalidGraphWeight(test *testing.T) {
+	initWorkspace(test)
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"query", "type=note", "--graph-weight", "1.5"})
+
+	execErr := cmd.Execute()
+
+	if execErr == nil {
+		test.Fatalf("expected error for --graph-weight 1.5")
+	}
+
+	if !strings.Contains(execErr.Error(), "graph-weight") {
+		test.Errorf("error %q should mention graph-weight", execErr.Error())
+	}
+}
+
+// TestMergeGraphExpansion_NoOverridesPreservesBase confirms the merger
+// returns the manifest defaults verbatim when no per-call flags are set.
+func TestMergeGraphExpansion_NoOverridesPreservesBase(test *testing.T) {
+	base := manifestDefaultGraphExpansion()
+
+	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{})
+
+	if mergeErr != nil {
+		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+	}
+
+	if got == nil {
+		test.Fatalf("mergeGraphExpansion: nil result")
+	}
+
+	if got.Enabled != base.Enabled {
+		test.Errorf("Enabled = %v, want %v", got.Enabled, base.Enabled)
+	}
+
+	if got.Hops != base.Hops {
+		test.Errorf("Hops = %d, want %d", got.Hops, base.Hops)
+	}
+}
+
+// TestMergeGraphExpansion_NoExpandBeatsExpand asserts the tri-state
+// precedence: --no-graph-expand overrides --graph-expand and the workspace
+// default.
+func TestMergeGraphExpansion_NoExpandBeatsExpand(test *testing.T) {
+	base := manifestDefaultGraphExpansion()
+	base.Enabled = true
+
+	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{
+		ExpandSet:   true,
+		ExpandValue: true,
+		NoExpandSet: true,
+		NoExpand:    true,
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+	}
+
+	if got.Enabled {
+		test.Errorf("Enabled = true, want false (--no-graph-expand must beat --graph-expand)")
+	}
+}
+
+// TestMergeGraphExpansion_ExpandFlagBeatsWorkspaceDisabled confirms that
+// --graph-expand turns the feature on even when the workspace ships with
+// enabled=false.
+func TestMergeGraphExpansion_ExpandFlagBeatsWorkspaceDisabled(test *testing.T) {
+	base := manifestDefaultGraphExpansion() // Enabled = false
+
+	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{
+		ExpandSet:   true,
+		ExpandValue: true,
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+	}
+
+	if !got.Enabled {
+		test.Errorf("Enabled = false, want true (--graph-expand should enable)")
+	}
+}
+
+// TestMergeGraphExpansion_ExpandFalseBeatsWorkspaceEnabled confirms an
+// explicit --graph-expand=false disables the feature even when the workspace
+// manifest enables it. The previous switch arm only ran when ExpandValue was
+// true, silently dropping the user's explicit false.
+func TestMergeGraphExpansion_ExpandFalseBeatsWorkspaceEnabled(test *testing.T) {
+	base := manifestDefaultGraphExpansion()
+	base.Enabled = true // Workspace ships with enabled = true.
+
+	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{
+		ExpandSet:   true,
+		ExpandValue: false,
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+	}
+
+	if got.Enabled {
+		test.Errorf("Enabled = true, want false (--graph-expand=false must beat workspace enabled=true)")
+	}
+}
+
+// TestMergeGraphExpansion_EdgeTypesNotAliased confirms the resolved
+// GraphExpansion does not share the backing array of its base.EdgeTypes
+// slice. The MCP server fans requests out across goroutines, so an aliased
+// slice would race once a future caller mutates it.
+func TestMergeGraphExpansion_EdgeTypesNotAliased(test *testing.T) {
+	base := manifestDefaultGraphExpansion()
+
+	if len(base.EdgeTypes) == 0 {
+		test.Fatalf("default EdgeTypes unexpectedly empty")
+	}
+
+	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{})
+
+	if mergeErr != nil {
+		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+	}
+
+	if &got.EdgeTypes[0] == &base.EdgeTypes[0] {
+		test.Errorf("resolved EdgeTypes shares backing array with base; want clone")
 	}
 }

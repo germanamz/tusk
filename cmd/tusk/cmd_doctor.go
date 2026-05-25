@@ -68,6 +68,45 @@ func renderSubUnitPane(out io.Writer, pane *doctor.SubUnitPane) {
 	_, _ = fmt.Fprintf(out, "  reserved conflicts    %d\n", pane.ReservedNameConflicts)
 }
 
+// renderGraphExpansionPane prints the [query.graph-expansion] pane.
+// Skips entirely when nil (no manifest was supplied to doctor.Run); for
+// every other case the pane is populated so users see the active values
+// regardless of the enabled flag. Follows the doctor's existing
+// two-space-indent convention.
+func renderGraphExpansionPane(out io.Writer, pane *doctor.GraphExpansionPane) {
+	if pane == nil {
+		return
+	}
+
+	_, _ = fmt.Fprintln(out, "graph expansion:")
+	_, _ = fmt.Fprintf(out, "  enabled               %t\n", pane.Enabled)
+	_, _ = fmt.Fprintf(out, "  hops                  %d\n", pane.Hops)
+	_, _ = fmt.Fprintf(out, "  weight                %.2f\n", pane.Weight)
+	_, _ = fmt.Fprintf(out, "  candidate multiplier  %d\n", pane.CandidateMultiplier)
+
+	if len(pane.EdgeTypes) > 0 {
+		_, _ = fmt.Fprintln(out, "  edge types:")
+
+		for _, name := range pane.EdgeTypes {
+			_, _ = fmt.Fprintf(out, "    %s\n", name)
+		}
+	}
+
+	if len(pane.UnknownEdgeTypes) > 0 {
+		_, _ = fmt.Fprintln(out, "  unknown edge types:")
+
+		for _, name := range pane.UnknownEdgeTypes {
+			_, _ = fmt.Fprintf(out, "    %s (not declared in manifest; walker will skip it)\n", name)
+		}
+	}
+
+	if pane.WeightZeroNoOp {
+		_, _ = fmt.Fprintln(out, "  warning: enabled but weight=0 — feature is a no-op")
+	}
+
+	_, _ = fmt.Fprintln(out, "  hint: use `tusk query --semantic ... --explain` to see per-result graph/cosine breakdown when debugging.")
+}
+
 func newDoctorCmd() *cobra.Command {
 	var noMigrate bool
 
@@ -82,6 +121,10 @@ Doctor reports:
     manifest declaration).
   * Dangling edges (edges whose target node no longer exists).
   * Embedding queue depth and last-reindex timestamp.
+  * Sub-unit pane: per-kind counts, hash collisions, oversize payloads.
+  * Graph-expansion pane: the resolved [query.graph-expansion] settings,
+    unknown edge types referenced from the block, and a no-op warning
+    when the feature is enabled with weight=0.
 
 Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
 index back into the source node's markdown frontmatter — pass --no-migrate
@@ -213,6 +256,7 @@ for a diagnostic-only run.`,
 				}
 
 				renderSubUnitPane(out, report.SubUnitPane)
+				renderGraphExpansionPane(out, report.GraphExpansion)
 
 				return nil
 			})

@@ -30,10 +30,20 @@ type MatchedUnit struct {
 	Score    float64 `json:"score,omitempty"`
 	Snippet  string  `json:"snippet,omitempty"`
 	HasScore bool    `json:"-"`
+
+	// Explain-only score-trace fields, mirroring ScoredRow. Populated by
+	// the sub-unit semantic path only when Request.Explain is true and
+	// graph expansion ran. `omitempty` keeps the JSON shape byte-stable
+	// for callers that don't opt into explain mode.
+	CosineScore float64 `json:"cosine_score,omitempty"`
+	GraphScore  float64 `json:"graph_score,omitempty"`
+	FinalScore  float64 `json:"final_score,omitempty"`
+	Distance    int     `json:"distance,omitempty"`
 }
 
 // MarshalJSON emits the score/snippet fields only when HasScore is true so
-// structural-with-include=units rows have no score field per spec §5.7.
+// structural-with-include=units rows have no score field per spec §5.7. The
+// explain-trace fields use the same omitempty convention as ScoredRow.
 func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 	type alias struct {
 		ID           string   `json:"id"`
@@ -43,6 +53,10 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		Ordinal      int      `json:"ordinal"`
 		Score        *float64 `json:"score,omitempty"`
 		Snippet      string   `json:"snippet,omitempty"`
+		CosineScore  float64  `json:"cosine_score,omitempty"`
+		GraphScore   float64  `json:"graph_score,omitempty"`
+		FinalScore   float64  `json:"final_score,omitempty"`
+		Distance     int      `json:"distance,omitempty"`
 	}
 
 	out := alias{
@@ -52,6 +66,10 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		HeadingLevel: unit.HeadingLevel,
 		Ordinal:      unit.Ordinal,
 		Snippet:      unit.Snippet,
+		CosineScore:  unit.CosineScore,
+		GraphScore:   unit.GraphScore,
+		FinalScore:   unit.FinalScore,
+		Distance:     unit.Distance,
 	}
 
 	if unit.HasScore {

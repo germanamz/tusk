@@ -3,6 +3,7 @@ package index
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // EdgeRow is the index representation of a single edge.
@@ -152,6 +153,91 @@ func (repo *EdgeRepo) InsertIgnore(edges []EdgeRow) error {
 	}
 
 	return nil
+}
+
+// NeighborsByEdgeTypes returns every edge whose type matches one of edgeTypes
+// and whose source or target endpoint is in sourceIDs. Used by the graph-expand
+// walker (internal/graphexpand) to fetch all hop-N neighbors in a single SQL
+// call.
+//
+// Both inputs are deduplicated before binding to avoid pathological argument
+// counts; with K seeds and T edge types the bound is K + T placeholders, well
+// under the SQLite default limit of 32766. Returns an empty slice (no error)
+// when either input is empty.
+func (repo *EdgeRepo) NeighborsByEdgeTypes(sourceIDs, edgeTypes []string) ([]EdgeRow, error) {
+	if len(sourceIDs) == 0 || len(edgeTypes) == 0 {
+		return nil, nil
+	}
+
+	uniqueIDs := dedupStrings(sourceIDs)
+	uniqueTypes := dedupStrings(edgeTypes)
+
+	idPlaceholders := strings.TrimRight(strings.Repeat("?,", len(uniqueIDs)), ",")
+	typePlaceholders := strings.TrimRight(strings.Repeat("?,", len(uniqueTypes)), ",")
+
+	queryText := fmt.Sprintf(`
+		SELECT type, source_id, target_id, source_path
+		FROM edges
+		WHERE type IN (%s)
+		  AND (source_id IN (%s) OR target_id IN (%s))
+		ORDER BY type, source_id, target_id
+	`, typePlaceholders, idPlaceholders, idPlaceholders)
+
+	args := make([]any, 0, len(uniqueTypes)+2*len(uniqueIDs))
+
+	for _, edgeType := range uniqueTypes {
+		args = append(args, edgeType)
+	}
+
+	for _, sourceID := range uniqueIDs {
+		args = append(args, sourceID)
+	}
+
+	for _, sourceID := range uniqueIDs {
+		args = append(args, sourceID)
+	}
+
+	rows, queryErr := repo.db.Query(queryText, args...)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-types query: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var results []EdgeRow
+
+	for rows.Next() {
+		row := EdgeRow{}
+
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath); scanErr != nil {
+			return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-types scan: %w", scanErr)
+		}
+
+		results = append(results, row)
+	}
+
+	if iterErr := rows.Err(); iterErr != nil {
+		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-types iterate: %w", iterErr)
+	}
+
+	return results, nil
+}
+
+func dedupStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+
+	for _, value := range values {
+		if _, exists := seen[value]; exists {
+			continue
+		}
+
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+
+	return out
 }
 
 // DeleteBySource removes every edge where source_id = sourceID, regardless of source_path.

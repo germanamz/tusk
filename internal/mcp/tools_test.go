@@ -270,6 +270,125 @@ func TestTool_Query(test *testing.T) {
 	}
 }
 
+// TestTool_Query_GraphExpansionArgsAccepted confirms the new Phase 3
+// arguments are accepted without changing behaviour. The query plumbing
+// stays inert until Task 2 wires the walker in.
+func TestTool_Query_GraphExpansionArgsAccepted(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", Title: "T", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":           "type=ticket",
+		"graph_expand":     true,
+		"hops":             2,
+		"graph_weight":     0.3,
+		"graph_edge_types": []any{"references", "parent"},
+		"explain":          true,
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("len(results) = %d, want 1", len(results))
+	}
+}
+
+// TestTool_Query_OmitsExplainFieldsWhenFlagOff confirms the MCP JSON path
+// suppresses cosine_score/graph_score/final_score/distance when the caller
+// did not opt in via explain=true, even when graph expansion is active. The
+// graph blender populates FinalScore for every row, so a naive
+// `FinalScore != 0` gate would leak the trace fields — the gate is the
+// explain flag.
+func TestTool_Query_OmitsExplainFieldsWhenFlagOff(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "A",
+		PropertiesJSON: "{}", LastChecksum: "x",
+	})
+
+	if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "notes/a", ChunkIdx: 0, Model: "stub", ContentHash: "h",
+		Vector: []float32{1, 0, 0}, Dim: 3, Body: "a body",
+	}); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":       "type=note",
+		"semantic":     "anything",
+		"graph_expand": true,
+		// explain intentionally omitted (defaults to false).
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) == 0 {
+		test.Fatalf("results empty: %v", body)
+	}
+
+	first := results[0].(map[string]any)
+
+	for _, key := range []string{"cosine_score", "graph_score", "final_score", "distance"} {
+		if _, present := first[key]; present {
+			test.Errorf("explain field %q leaked into response without explain=true: %v", key, first)
+		}
+	}
+}
+
+// TestTool_Query_RejectsInvalidHops asserts hops outside {1,2} surfaces a
+// tool error, mirroring the CLI behaviour.
+func TestTool_Query_RejectsInvalidHops(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter": "type=ticket",
+		"hops":   5,
+	})
+
+	if callErr == nil {
+		test.Fatalf("expected error for hops=5, got body=%v", body)
+	}
+}
+
+// TestTool_Query_RejectsInvalidGraphWeight asserts weights outside [0,1]
+// surface a tool error.
+func TestTool_Query_RejectsInvalidGraphWeight(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":       "type=ticket",
+		"graph_weight": 1.5,
+	})
+
+	if callErr == nil {
+		test.Fatalf("expected error for graph_weight=1.5, got body=%v", body)
+	}
+}
+
 func TestTool_Doctor_CleanReport(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

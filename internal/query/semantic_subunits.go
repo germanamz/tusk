@@ -7,22 +7,30 @@ import (
 	"sort"
 
 	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/internal/graphexpand"
 )
 
 // runSemanticSubUnits executes the sub-unit-aware semantic ranking path. It
 // is invoked only when the workspace has sub-units enabled. The structural
-// pre-filter has already produced `structural` (file rows); this function:
+// pre-filter has already produced `structural` (file rows); this function
+// runs the spec §5.7 order, with graph expansion injected after the leaf
+// cosine rank:
 //
 //  1. Loads every sub-unit embedding for those files via
 //     `ListSubUnitsForFiles` (one batched query).
 //  2. Ranks leaves by cosine similarity to queryVector.
-//  3. Computes section scores as heading-weight × max(descendant leaf).
-//  4. Groups hits by parent file; file score is the max across its hits.
-//  5. Applies MinScore / Take / Skip at the file level.
-//  6. Hydrates each file's ScoredRow with title/type from the structural
+//  3. When graph expansion is enabled, walks the leaf id seed set and
+//     blends per spec §6.1; the blended FinalScore replaces the bare
+//     cosine for both MinScore filtering and the section-aggregation
+//     pass below.
+//  4. Filters by MinScore (against the blended score when expansion ran).
+//  5. Computes section scores as heading-weight × max(descendant leaf).
+//  6. Groups hits by parent file; file score is the max across its hits.
+//  7. Applies Take / Skip at the file level.
+//  8. Hydrates each file's ScoredRow with title/type from the structural
 //     pre-filter (cheap byID lookup) and attaches matched_units.
 func runSemanticSubUnits(
-	_ context.Context,
+	ctx context.Context,
 	deps Deps,
 	req Request,
 	includeSet IncludeSet,
@@ -84,6 +92,103 @@ func runSemanticSubUnits(
 	}
 
 	ranked := filter.SemanticRank(candidates, queryVector)
+
+	// Graph expansion at the leaf level. The walker uses leaf ids as
+	// seeds; the default edge-types list includes `contains` so sub-unit
+	// edges naturally extend the seed set with sibling leaves and parent
+	// sections. The blender's FinalScore replaces the leaf's bare cosine
+	// for both MinScore filtering and the section-aggregation pass below.
+	type blendedTrace struct {
+		Cosine   float64
+		Graph    float64
+		Final    float64
+		Distance int
+	}
+
+	var blendedByID map[string]blendedTrace
+
+	graphExpansionActive := req.GraphExpansion != nil && req.GraphExpansion.Enabled
+
+	if graphExpansionActive {
+		if deps.Edges == nil {
+			return nil, fmt.Errorf("query: graph expansion requires Edges in Deps")
+		}
+
+		// Seed set sizing mirrors the file-level path: K = baseTake *
+		// multiplier, capped at len(ranked) when baseTake is 0 (CLI's
+		// "return all ranked" mode) or the product overflows the rank.
+		baseTake := req.Take
+
+		if baseTake <= 0 {
+			baseTake = req.SemanticDefaultTake
+		}
+
+		seedLimit := baseTake * req.GraphExpansion.CandidateMultiplier
+
+		if baseTake == 0 || seedLimit <= 0 || seedLimit > len(ranked) {
+			seedLimit = len(ranked)
+		}
+
+		seedScores := make(map[string]float64, seedLimit)
+		seedCandidates := make([]graphexpand.Candidate, 0, seedLimit)
+
+		for index := 0; index < seedLimit; index++ {
+			scoredResult := ranked[index]
+			clipped := scoredResult.Score
+
+			if clipped < 0 {
+				clipped = 0
+			}
+
+			seedScores[scoredResult.NodeID] = clipped
+			seedCandidates = append(seedCandidates, graphexpand.Candidate{
+				NodeID:      scoredResult.NodeID,
+				CosineScore: clipped,
+				Distance:    0,
+			})
+		}
+
+		walker := graphexpand.NewWalker(deps.Edges, req.GraphExpansion.EdgeTypes, req.GraphExpansion.Hops)
+
+		walkedCandidates, walkedEdges, walkErr := walker.Expand(ctx, seedCandidates)
+
+		if walkErr != nil {
+			return nil, fmt.Errorf("query: graph expansion walk: %w", walkErr)
+		}
+
+		blender := graphexpand.Blender{Weight: req.GraphExpansion.Weight}
+		blendedRows := blender.Score(walkedCandidates, walkedEdges, seedScores)
+
+		blendedByID = make(map[string]blendedTrace, len(blendedRows))
+
+		rankByID := make(map[string]filter.ScoredResult, len(ranked))
+
+		for _, scoredResult := range ranked {
+			rankByID[scoredResult.NodeID] = scoredResult
+		}
+
+		newRanked := make([]filter.ScoredResult, 0, len(blendedRows))
+
+		for _, blended := range blendedRows {
+			blendedByID[blended.NodeID] = blendedTrace{
+				Cosine:   blended.CosineScore,
+				Graph:    blended.GraphScore,
+				Final:    blended.FinalScore,
+				Distance: blended.Distance,
+			}
+
+			previous, hasPrevious := rankByID[blended.NodeID]
+
+			if !hasPrevious {
+				previous = filter.ScoredResult{NodeID: blended.NodeID}
+			}
+
+			previous.Score = blended.FinalScore
+			newRanked = append(newRanked, previous)
+		}
+
+		ranked = newRanked
+	}
 
 	// Apply MinScore at the leaf level so sections only aggregate over
 	// passing leaves. The spec is silent on whether MinScore filters
@@ -156,6 +261,12 @@ func runSemanticSubUnits(
 		row, ok := subIndex.rowsByID[scored.NodeID]
 
 		if !ok {
+			// Walked-in neighbor whose sub-unit row isn't part of the
+			// structural pre-filter's file set. Per the Phase 3 plan
+			// pitfall ("Sub-unit body lookups for walked neighbors"),
+			// the simplest behavior is to drop these rather than do a
+			// per-id lookup; the file-level semantic path handles cross-
+			// file inclusion via a lazy Nodes.Get fallback.
 			continue
 		}
 
@@ -178,6 +289,15 @@ func runSemanticSubUnits(
 
 		if row.ParentID.Valid {
 			unit.ParentID = row.ParentID.String
+		}
+
+		if req.Explain && blendedByID != nil {
+			if trace, ok := blendedByID[scored.NodeID]; ok {
+				unit.CosineScore = trace.Cosine
+				unit.GraphScore = trace.Graph
+				unit.FinalScore = trace.Final
+				unit.Distance = trace.Distance
+			}
 		}
 
 		rememberHit(fileID, unit)

@@ -45,6 +45,10 @@ JSON otherwise); --json is sugar for --format json.
 
 
 .SH OPTIONS
+\fB--explain\fP[=false]
+	include a per-row score-contribution trace (cosine/graph/final/distance) in the response when graph expansion is active
+
+.PP
 \fB--fields\fP=[]
 	project rendered rows to these fields (comma-separated)
 
@@ -53,8 +57,24 @@ JSON otherwise); --json is sugar for --format json.
 	output format: compact|json (default: compact for TTY, json otherwise)
 
 .PP
+\fB--graph-edges\fP=[]
+	comma-separated edge-type names used by the graph expander; omit to inherit manifest
+
+.PP
+\fB--graph-expand\fP[=false]
+	enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)
+
+.PP
+\fB--graph-weight\fP=-1
+	per-hop weight applied to expanded candidates ([0,1];  = inherit manifest)
+
+.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for query
+
+.PP
+\fB--hops\fP=0
+	graph-expansion BFS depth (1 or 2; 0 = inherit manifest)
 
 .PP
 \fB--include\fP=[]
@@ -66,7 +86,11 @@ JSON otherwise); --json is sugar for --format json.
 
 .PP
 \fB--min-score\fP=0
-	drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)
+	drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.
+
+.PP
+\fB--no-graph-expand\fP[=false]
+	disable graph-expanded retrieval for this call (beats [query.graph-expansion] enabled=true)
 
 .PP
 \fB--semantic\fP=""

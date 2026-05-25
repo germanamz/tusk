@@ -412,6 +412,8 @@ func runQuery(ctx context.Context, deps Deps, request any) (any, error) {
 		Manifest:   deps.Manifest,
 		Embedder:   deps.Embedder,
 		Embeddings: deps.Embeddings,
+		Nodes:      deps.Nodes,
+		Edges:      deps.Edges,
 	}, typedRequest)
 }
 

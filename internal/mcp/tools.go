@@ -13,6 +13,7 @@ import (
 	"github.com/germanamz/tusk/internal/contextcompose"
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -129,6 +130,109 @@ func argBoolOptional(request mcpgo.CallToolRequest, key string, defaultValue boo
 	}
 
 	return value
+}
+
+// argBoolTriState extracts an optional boolean argument and discriminates
+// between "absent" and "present". Returns nil when the key is absent or not
+// a bool; otherwise returns a pointer to the supplied value. Used by tri-state
+// arguments (e.g. graph_expand) where the caller's intent of "false" must
+// override a workspace-default "true".
+func argBoolTriState(request mcpgo.CallToolRequest, key string) *bool {
+	args := request.GetArguments()
+	value, ok := args[key].(bool)
+
+	if !ok {
+		return nil
+	}
+
+	return &value
+}
+
+// mergeGraphExpansionFromRequest folds the workspace manifest's
+// GraphExpansion with per-call MCP overrides. Precedence (high to low):
+// graph_expand=false → graph_expand=true → workspace enabled flag. Returns
+// nil only on invalid input (e.g. weight outside [0,1]).
+func mergeGraphExpansionFromRequest(request mcpgo.CallToolRequest, base manifest.GraphExpansion) (*manifest.GraphExpansion, error) {
+	resolved := base
+
+	// Struct copy aliases the EdgeTypes slice header. The MCP server fans
+	// requests out to multiple goroutines that share the runtime manifest;
+	// clone the backing array so a future mutation cannot race with another
+	// in-flight request reading the same slice.
+	if len(base.EdgeTypes) > 0 {
+		cloned := make([]string, len(base.EdgeTypes))
+		copy(cloned, base.EdgeTypes)
+		resolved.EdgeTypes = cloned
+	}
+
+	if expand := argBoolTriState(request, "graph_expand"); expand != nil {
+		resolved.Enabled = *expand
+	}
+
+	args := request.GetArguments()
+
+	if raw, present := args["hops"]; present {
+		hops, ok := coerceMCPInt(raw)
+
+		if !ok {
+			return nil, fmt.Errorf("hops: must be a number (got %T)", raw)
+		}
+
+		if hops != 1 && hops != 2 {
+			return nil, fmt.Errorf("hops: must be 1 or 2 (got %d)", hops)
+		}
+
+		resolved.Hops = hops
+	}
+
+	if raw, present := args["graph_weight"]; present {
+		weight, ok := coerceMCPFloat(raw)
+
+		if !ok {
+			return nil, fmt.Errorf("graph_weight: must be a number (got %T)", raw)
+		}
+
+		if weight < 0 || weight > 1 {
+			return nil, fmt.Errorf("graph_weight: must be in [0.0, 1.0] (got %v)", weight)
+		}
+
+		resolved.Weight = weight
+	}
+
+	if _, present := args["graph_edge_types"]; present {
+		edges := argStringSlice(request, "graph_edge_types")
+		// Materialise a copy so we don't share storage with caller-provided
+		// state through the JSON decoder.
+		copied := make([]string, len(edges))
+		copy(copied, edges)
+		resolved.EdgeTypes = copied
+	}
+
+	return &resolved, nil
+}
+
+// coerceMCPInt converts a JSON-decoded number argument to int.
+func coerceMCPInt(raw any) (int, bool) {
+	switch typed := raw.(type) {
+	case float64:
+		return int(typed), true
+	case int:
+		return typed, true
+	}
+
+	return 0, false
+}
+
+// coerceMCPFloat converts a JSON-decoded number argument to float64.
+func coerceMCPFloat(raw any) (float64, bool) {
+	switch typed := raw.(type) {
+	case float64:
+		return typed, true
+	case int:
+		return float64(typed), true
+	}
+
+	return 0, false
 }
 
 // argFloatOptional extracts an optional numeric argument from the request as a
@@ -457,10 +561,15 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
-		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum cosine similarity to include in semantic results (default 0.5). Lower this when an initial query misses.")),
+		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum similarity score to include in semantic results (default 0.5). Lower this when an initial query misses. When graph expansion is active, this filters the blended final score, not the bare cosine.")),
 		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units (units = matched sub-units per file; semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
+		mcpgo.WithBoolean("graph_expand", mcpgo.Description("Override the workspace's graph-expansion enabled flag for this call (tri-state: omit to inherit, true to force-on, false to force-off).")),
+		mcpgo.WithNumber("hops", mcpgo.Description("Graph-expansion BFS depth (1 or 2). Omit to inherit the manifest's [query.graph-expansion] hops.")),
+		mcpgo.WithNumber("graph_weight", mcpgo.Description("Per-hop weight applied to expanded candidates ([0,1]). Omit to inherit the manifest setting.")),
+		mcpgo.WithArray("graph_edge_types", mcpgo.Description("Edge-type names used by the graph expander. Omit to inherit the manifest setting."), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithBoolean("explain", mcpgo.Description("Include a per-row score-contribution trace (cosine_score/graph_score/final_score/distance) in the response when graph expansion is active.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -474,12 +583,21 @@ func registerQueryTool(srv *Server) {
 		fields := argStringSlice(request, "fields")
 		format := argStringOptional(request, "format")
 
+		graphExpansion, mergeErr := mergeGraphExpansionFromRequest(request, srv.runtime.Manifest.GraphExpansion)
+
+		if mergeErr != nil {
+			return toolError(mergeErr), nil
+		}
+
+		explain := argBoolOptional(request, "explain", false)
+
 		result, runErr := query.Run(ctx, query.Deps{
 			Database:   srv.runtime.Index.DB(),
 			Manifest:   srv.runtime.Manifest,
 			Embedder:   srv.runtime.Embedder,
 			Embeddings: srv.runtime.Embeddings,
 			Nodes:      srv.runtime.Nodes,
+			Edges:      srv.runtime.Edges,
 		}, query.Request{
 			Filter:   filterText,
 			Sort:     argStringOptional(request, "sort"),
@@ -493,6 +611,8 @@ func registerQueryTool(srv *Server) {
 			Include:             includeRaw,
 			Fields:              fields,
 			WorkspaceRoot:       srv.runtime.Root,
+			GraphExpansion:      graphExpansion,
+			Explain:             explain,
 		})
 
 		if runErr != nil {
@@ -530,6 +650,11 @@ func registerQueryTool(srv *Server) {
 						Score:        scored.Score,
 						HasScore:     true,
 						MatchedUnits: scored.MatchedUnits,
+						CosineScore:  scored.CosineScore,
+						GraphScore:   scored.GraphScore,
+						FinalScore:   scored.FinalScore,
+						Distance:     scored.Distance,
+						HasExplain:   explain,
 					})
 				}
 			}
@@ -610,6 +735,20 @@ func registerQueryTool(srv *Server) {
 
 			if scored.MatchedUnits != nil {
 				entry["matched_units"] = scored.MatchedUnits
+			}
+
+			// Explain-trace fields are surfaced only when the caller
+			// asked for them (Request.Explain) AND graph expansion
+			// actually populated a breakdown. The query service zeroes
+			// the four fields when Explain is off, so the inner
+			// non-zero guard suppresses the all-zero breakdown that
+			// would otherwise appear when Explain is on without graph
+			// expansion — emitting it would serve no purpose.
+			if explain && (scored.FinalScore != 0 || scored.CosineScore != 0 || scored.GraphScore != 0) {
+				entry["cosine_score"] = scored.CosineScore
+				entry["graph_score"] = scored.GraphScore
+				entry["final_score"] = scored.FinalScore
+				entry["distance"] = scored.Distance
 			}
 
 			ranking = append(ranking, entry)
@@ -749,6 +888,20 @@ func registerDoctorTool(srv *Server) {
 				"embed_queue_sub_units":   pane.EmbedQueueSubUnits,
 				"oversize_embed_payloads": pane.OversizeEmbedPayloads,
 				"reserved_name_conflicts": pane.ReservedNameConflicts,
+			}
+		}
+
+		if report.GraphExpansion != nil {
+			pane := report.GraphExpansion
+
+			response["graph_expansion"] = map[string]any{
+				"enabled":              pane.Enabled,
+				"hops":                 pane.Hops,
+				"weight":               pane.Weight,
+				"candidate_multiplier": pane.CandidateMultiplier,
+				"edge_types":           pane.EdgeTypes,
+				"unknown_edge_types":   pane.UnknownEdgeTypes,
+				"weight_zero_no_op":    pane.WeightZeroNoOp,
 			}
 		}
 

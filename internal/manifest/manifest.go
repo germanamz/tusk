@@ -79,6 +79,32 @@ type Manifest struct {
 	// Kinds can call PrimitiveDecode against their subtable. Nil for
 	// hand-built manifests (tests that construct a Manifest literal).
 	Meta *toml.MetaData `toml:"-"`
+
+	// queryGraphExpansion carries the on-disk [query.graph-expansion]
+	// primitives captured by decodeQuerySection. Consumed and cleared by
+	// resolveGraphExpansion; consumers should read GraphExpansion instead.
+	queryGraphExpansion graphExpansionTOML `toml:"-"`
+
+	// queryGraphExpansionMeta is the toml.MetaData produced by the
+	// secondary [query] decode. resolveGraphExpansion uses it to
+	// PrimitiveDecode each captured primitive (the outer Manifest meta is
+	// not valid for primitives captured by a separate Decode call).
+	queryGraphExpansionMeta *toml.MetaData `toml:"-"`
+
+	// GraphExpansion is the resolved [query.graph-expansion] configuration.
+	// Populated by the loader's resolveGraphExpansion finaliser; defaults
+	// match DefaultGraphExpansion when the block is absent. Task 1 plumbs
+	// the field through but query.Run intentionally ignores it; Tasks 2-4
+	// of the agent-retrieval-improvements Phase 3 plan wire it into the
+	// retrieval pipeline.
+	GraphExpansion GraphExpansion `toml:"-"`
+}
+
+// queryDecode is the BurntSushi/toml wrapper used by the loader to decode the
+// [query] section into a graphExpansionTOML primitive table. Defined here so
+// the loader can hand the decoded subtable to resolveGraphExpansion.
+type queryDecode struct {
+	Query querySection `toml:"query"`
 }
 
 // NodeType is a manifest-declared node type with an optional description and

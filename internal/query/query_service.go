@@ -10,6 +10,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/internal/graphexpand"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -40,6 +41,21 @@ type Request struct {
 	Include       []string
 	Fields        []string
 	WorkspaceRoot string
+
+	// GraphExpansion carries the resolved per-call graph-expansion config
+	// (defaults merged with manifest [query.graph-expansion] and per-call
+	// override flags). Populated by the CLI / MCP handler; the query
+	// service ignores the field for Task 1 of the Phase 3 plan and only
+	// reads it once Tasks 2-4 wire it into the retrieval pipeline. Nil is
+	// treated as "no expansion".
+	GraphExpansion *manifest.GraphExpansion
+
+	// Explain, when true, asks the query service to emit a structured
+	// trace of how each result row was scored (semantic + graph
+	// contributions). Wired into the response in Task 3 of the Phase 3
+	// plan; Task 1 plumbs the field so the Request struct doesn't churn
+	// twice.
+	Explain bool
 }
 
 // Row is a single structural result.
@@ -86,6 +102,17 @@ type ScoredRow struct {
 	// Ordered by descending score. Sections are interleaved with leaves
 	// per §5.7.
 	MatchedUnits []MatchedUnit `json:"matched_units,omitempty"`
+
+	// Explain-only score-trace fields. Populated by the query service only
+	// when Request.Explain is true AND graph expansion ran for this row.
+	// `omitempty` keeps the JSON wire format byte-stable for callers that
+	// never opt into explain mode. When graph expansion is on, Score and
+	// FinalScore carry the same value; CosineScore exposes the bare
+	// (clipped) cosine and GraphScore the seed-neighbor contribution.
+	CosineScore float64 `json:"cosine_score,omitempty"`
+	GraphScore  float64 `json:"graph_score,omitempty"`
+	FinalScore  float64 `json:"final_score,omitempty"`
+	Distance    int     `json:"distance,omitempty"`
 }
 
 // Result is the typed payload returned by Run.
@@ -123,6 +150,10 @@ type Deps struct {
 	// matched_units may leave this nil; the implementation will fall back
 	// to a one-off repo when needed.
 	Nodes *index.NodeRepo
+	// Edges is the edge repository the graph-expansion walker reads from.
+	// Optional: required when req.GraphExpansion != nil && Enabled. CLI and
+	// MCP both populate this from the shared index store.
+	Edges *index.EdgeRepo
 }
 
 // Run is the canonical entry point for the `query` / `tusk_query` verb. It
@@ -300,6 +331,114 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	ranked := filter.SemanticRank(candidates, queryVector)
 
+	// Per-row scoring trace, only populated when graph expansion runs and
+	// the caller asked for it. blendedByID maps a node id to its final
+	// blended score plus the (CosineScore, GraphScore, Distance) breakdown.
+	// When graph expansion is off, the map is nil and downstream code
+	// preserves the legacy bare-cosine behavior.
+	type blendedTrace struct {
+		Cosine   float64
+		Graph    float64
+		Final    float64
+		Distance int
+	}
+
+	var blendedByID map[string]blendedTrace
+
+	graphExpansionActive := req.GraphExpansion != nil && req.GraphExpansion.Enabled
+
+	if graphExpansionActive {
+		if deps.Edges == nil {
+			return nil, fmt.Errorf("query: graph expansion requires Edges in Deps")
+		}
+
+		// K = take * candidate-multiplier (spec §6.2). When the caller left
+		// Take unset (0), use SemanticDefaultTake as the basis; when both
+		// are 0 — CLI "return all ranked" mode — cap K at len(ranked) so
+		// the entire candidate pool is used as seed material.
+		baseTake := req.Take
+
+		if baseTake <= 0 {
+			baseTake = req.SemanticDefaultTake
+		}
+
+		seedLimit := baseTake * req.GraphExpansion.CandidateMultiplier
+
+		if baseTake == 0 || seedLimit <= 0 || seedLimit > len(ranked) {
+			seedLimit = len(ranked)
+		}
+
+		seedScores := make(map[string]float64, seedLimit)
+		seedCandidates := make([]graphexpand.Candidate, 0, seedLimit)
+
+		for index := 0; index < seedLimit; index++ {
+			scoredResult := ranked[index]
+			// Clip to [0,1] when seeding so the walker / blender see a
+			// canonical positive cosine range (mirrors blend.clipUnit).
+			clipped := scoredResult.Score
+
+			if clipped < 0 {
+				clipped = 0
+			}
+
+			seedScores[scoredResult.NodeID] = clipped
+			seedCandidates = append(seedCandidates, graphexpand.Candidate{
+				NodeID:      scoredResult.NodeID,
+				CosineScore: clipped,
+				Distance:    0,
+			})
+		}
+
+		walker := graphexpand.NewWalker(deps.Edges, req.GraphExpansion.EdgeTypes, req.GraphExpansion.Hops)
+
+		walkedCandidates, walkedEdges, walkErr := walker.Expand(ctx, seedCandidates)
+
+		if walkErr != nil {
+			return nil, fmt.Errorf("query: graph expansion walk: %w", walkErr)
+		}
+
+		blender := graphexpand.Blender{Weight: req.GraphExpansion.Weight}
+		blendedRows := blender.Score(walkedCandidates, walkedEdges, seedScores)
+
+		blendedByID = make(map[string]blendedTrace, len(blendedRows))
+
+		// Existing chunk-body lookups assume one ScoredResult per node id.
+		// Build an index over the original rank so we can carry the best
+		// chunk body / score back into the new ordering. Walked neighbors
+		// not present in the original rank get an empty BestChunkBody and
+		// score 0 (they had no embedding); the blender already filled in
+		// the graph-derived score.
+		rankByID := make(map[string]filter.ScoredResult, len(ranked))
+
+		for _, scoredResult := range ranked {
+			rankByID[scoredResult.NodeID] = scoredResult
+		}
+
+		newRanked := make([]filter.ScoredResult, 0, len(blendedRows))
+
+		for _, blended := range blendedRows {
+			blendedByID[blended.NodeID] = blendedTrace{
+				Cosine:   blended.CosineScore,
+				Graph:    blended.GraphScore,
+				Final:    blended.FinalScore,
+				Distance: blended.Distance,
+			}
+
+			previous, hasPrevious := rankByID[blended.NodeID]
+
+			if !hasPrevious {
+				previous = filter.ScoredResult{NodeID: blended.NodeID}
+			}
+
+			// Replace the bare cosine with the blended final so downstream
+			// MinScore + ordering operate on FinalScore (spec §6.1).
+			previous.Score = blended.FinalScore
+			newRanked = append(newRanked, previous)
+		}
+
+		ranked = newRanked
+	}
+
 	filteredBelowMinScore := 0
 
 	if req.MinScore > 0 {
@@ -343,7 +482,26 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 	scored := make([]ScoredRow, 0, len(ranked))
 
 	for _, scoredCandidate := range ranked {
-		meta := byID[scoredCandidate.NodeID]
+		meta, hasMeta := byID[scoredCandidate.NodeID]
+
+		// Walked neighbors may not be in the structural pre-filter result.
+		// Fall back to a lazy NodeRepo lookup so the rendered row still
+		// carries title/type/path (spec §6.5 budgets K × avg_degree edge
+		// reads; the few extra node reads are negligible).
+		if !hasMeta && graphExpansionActive && deps.Nodes != nil {
+			nodeRow, getErr := deps.Nodes.Get(scoredCandidate.NodeID)
+
+			if getErr == nil && nodeRow != nil {
+				meta = Row{
+					ID:            nodeRow.ID,
+					Type:          nodeRow.Type,
+					Path:          nodeRow.Path,
+					Title:         nodeRow.Title,
+					PropertiesRaw: nodeRow.PropertiesJSON,
+				}
+			}
+		}
+
 		snippet := filter.RenderSnippetForQuery(scoredCandidate.BestChunkBody, req.Semantic, 200)
 
 		row := ScoredRow{
@@ -370,6 +528,15 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 			}
 
 			row.Properties = properties
+		}
+
+		if req.Explain && blendedByID != nil {
+			if trace, ok := blendedByID[scoredCandidate.NodeID]; ok {
+				row.CosineScore = trace.Cosine
+				row.GraphScore = trace.Graph
+				row.FinalScore = trace.Final
+				row.Distance = trace.Distance
+			}
 		}
 
 		scored = append(scored, row)

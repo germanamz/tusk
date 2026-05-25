@@ -89,11 +89,42 @@ func Load(manifestPath string) (*Manifest, error) {
 		loaded.contextRecentDefined = false
 	}
 
+	if queryDecodeErr := decodeQuerySection(body, loaded); queryDecodeErr != nil {
+		return nil, fmt.Errorf("manifest: decode query section in %s: %w", manifestPath, queryDecodeErr)
+	}
+
+	if resolveErr := resolveGraphExpansion(loaded); resolveErr != nil {
+		return nil, fmt.Errorf("manifest: %w", resolveErr)
+	}
+
 	if validateErr := Validate(loaded); validateErr != nil {
 		return nil, validateErr
 	}
 
 	return loaded, nil
+}
+
+// decodeQuerySection performs a secondary decode of the top-level [query]
+// table so the loader can capture per-field toml.Primitive values for
+// [query.graph-expansion]. The primary Manifest decode already validates
+// the overall TOML shape; this decode never fails on an absent block
+// (Go zero-values for missing primitives).
+func decodeQuerySection(body string, loaded *Manifest) error {
+	var wrapper queryDecode
+
+	queryMeta, queryDecodeErr := toml.Decode(body, &wrapper)
+
+	if queryDecodeErr != nil {
+		return queryDecodeErr
+	}
+
+	loaded.queryGraphExpansion = wrapper.Query.GraphExpansion
+	// Stash the local meta because toml.Primitive values can only be
+	// PrimitiveDecode'd against the MetaData returned by the same Decode
+	// call that produced them.
+	loaded.queryGraphExpansionMeta = &queryMeta
+
+	return nil
 }
 
 // MergeBuiltinPacks applies built-in type packs (currently just the
