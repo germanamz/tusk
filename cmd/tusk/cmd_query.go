@@ -30,6 +30,13 @@ func newQueryCmd() *cobra.Command {
 		includeFlag   []string
 		fieldsFlag    []string
 		formatFlag    string
+
+		graphExpand   bool
+		graphNoExpand bool
+		hops          int
+		graphWeight   float64
+		graphEdges    []string
+		explainFlag   bool
 	)
 
 	queryCmd := &cobra.Command{
@@ -130,6 +137,23 @@ JSON otherwise); --json is sugar for --format json.`,
 				Nodes:      index.NewNodeRepo(store),
 			}
 
+			graphExpansion, mergeErr := mergeGraphExpansion(cmd, loaded.GraphExpansion, graphExpansionOverrides{
+				ExpandSet:   cmd.Flags().Changed("graph-expand"),
+				ExpandValue: graphExpand,
+				NoExpandSet: cmd.Flags().Changed("no-graph-expand"),
+				NoExpand:    graphNoExpand,
+				HopsSet:     cmd.Flags().Changed("hops"),
+				HopsValue:   hops,
+				WeightSet:   cmd.Flags().Changed("graph-weight"),
+				WeightValue: graphWeight,
+				EdgesSet:    cmd.Flags().Changed("graph-edges"),
+				EdgesValue:  graphEdges,
+			})
+
+			if mergeErr != nil {
+				return mergeErr
+			}
+
 			result, runErr := query.Run(context.Background(), deps, query.Request{
 				Filter:   args[0],
 				Sort:     sortSpec,
@@ -144,6 +168,8 @@ JSON otherwise); --json is sugar for --format json.`,
 				Include:             includeFlag,
 				Fields:              fieldsFlag,
 				WorkspaceRoot:       ws.Root,
+				GraphExpansion:      graphExpansion,
+				Explain:             explainFlag,
 			})
 
 			if runErr != nil {
@@ -174,8 +200,82 @@ JSON otherwise); --json is sugar for --format json.`,
 	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)")
 	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
 	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
+	queryCmd.Flags().BoolVar(&graphExpand, "graph-expand", false, "enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)")
+	queryCmd.Flags().BoolVar(&graphNoExpand, "no-graph-expand", false, "disable graph-expanded retrieval for this call (beats [query.graph-expansion] enabled=true)")
+	queryCmd.Flags().IntVar(&hops, "hops", 0, "graph-expansion BFS depth (1 or 2; 0 = inherit manifest)")
+	queryCmd.Flags().Float64Var(&graphWeight, "graph-weight", -1, "per-hop weight applied to expanded candidates ([0,1]; <0 = inherit manifest)")
+	queryCmd.Flags().StringSliceVar(&graphEdges, "graph-edges", nil, "comma-separated edge-type names used by the graph expander; omit to inherit manifest")
+	queryCmd.Flags().BoolVar(&explainFlag, "explain", false, "include a per-row score-contribution trace in the response (wired in Phase 3 Task 3)")
 
 	return queryCmd
+}
+
+// graphExpansionOverrides captures the per-call CLI flag state for graph
+// expansion. Each "Set" boolean is true when cobra reports the flag changed
+// from its default; the corresponding value field carries the user input.
+type graphExpansionOverrides struct {
+	ExpandSet   bool
+	ExpandValue bool
+
+	NoExpandSet bool
+	NoExpand    bool
+
+	HopsSet   bool
+	HopsValue int
+
+	WeightSet   bool
+	WeightValue float64
+
+	EdgesSet   bool
+	EdgesValue []string
+}
+
+// mergeGraphExpansion folds the workspace manifest configuration and the
+// per-call CLI overrides into a single resolved GraphExpansion. Precedence
+// (high to low): --no-graph-expand → --graph-expand → manifest enabled flag.
+// Returns nil only on invalid input (e.g. --graph-weight outside [0,1]).
+//
+// The returned pointer is never nil on success: subsequent tasks read the
+// struct directly off Request.GraphExpansion.
+func mergeGraphExpansion(cmd *cobra.Command, base manifest.GraphExpansion, override graphExpansionOverrides) (*manifest.GraphExpansion, error) {
+	_ = cmd // accepted for future per-flag diagnostics; unused for now.
+
+	resolved := base
+
+	if override.HopsSet {
+		if override.HopsValue != 1 && override.HopsValue != 2 {
+			return nil, fmt.Errorf("--hops must be 1 or 2 (got %d)", override.HopsValue)
+		}
+
+		resolved.Hops = override.HopsValue
+	}
+
+	if override.WeightSet {
+		if override.WeightValue < 0 || override.WeightValue > 1 {
+			return nil, fmt.Errorf("--graph-weight must be in [0.0, 1.0] (got %v)", override.WeightValue)
+		}
+
+		resolved.Weight = override.WeightValue
+	}
+
+	if override.EdgesSet {
+		// Copy to avoid sharing the cobra-owned slice with the manifest.
+		edges := make([]string, len(override.EdgesValue))
+		copy(edges, override.EdgesValue)
+
+		resolved.EdgeTypes = edges
+	}
+
+	// Tri-state precedence: --no-graph-expand beats --graph-expand beats the
+	// manifest default.
+	switch {
+	case override.NoExpandSet && override.NoExpand:
+		resolved.Enabled = false
+	case override.ExpandSet && override.ExpandValue:
+		resolved.Enabled = true
+	}
+
+	return &resolved, nil
 }
 
 // validateQueryFilter runs the same parse + validate the service does, so the

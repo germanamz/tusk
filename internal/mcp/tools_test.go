@@ -270,6 +270,73 @@ func TestTool_Query(test *testing.T) {
 	}
 }
 
+// TestTool_Query_GraphExpansionArgsAccepted confirms the new Phase 3
+// arguments are accepted without changing behaviour. The query plumbing
+// stays inert until Task 2 wires the walker in.
+func TestTool_Query_GraphExpansionArgsAccepted(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", Title: "T", PropertiesJSON: "{}", LastChecksum: "x"})
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":           "type=ticket",
+		"graph_expand":     true,
+		"hops":             2,
+		"graph_weight":     0.3,
+		"graph_edge_types": []any{"references", "parent"},
+		"explain":          true,
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("len(results) = %d, want 1", len(results))
+	}
+}
+
+// TestTool_Query_RejectsInvalidHops asserts hops outside {1,2} surfaces a
+// tool error, mirroring the CLI behaviour.
+func TestTool_Query_RejectsInvalidHops(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter": "type=ticket",
+		"hops":   5,
+	})
+
+	if callErr == nil {
+		test.Fatalf("expected error for hops=5, got body=%v", body)
+	}
+}
+
+// TestTool_Query_RejectsInvalidGraphWeight asserts weights outside [0,1]
+// surface a tool error.
+func TestTool_Query_RejectsInvalidGraphWeight(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":       "type=ticket",
+		"graph_weight": 1.5,
+	})
+
+	if callErr == nil {
+		test.Fatalf("expected error for graph_weight=1.5, got body=%v", body)
+	}
+}
+
 func TestTool_Doctor_CleanReport(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

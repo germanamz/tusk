@@ -309,3 +309,19 @@ func loadInlineManifest(test *testing.T, body string) *manifest.Manifest {
 
 	return loaded
 }
+
+// loadInlineManifestAllowError mirrors loadInlineManifest but returns the
+// Load error to the caller instead of failing the test. Used by validation
+// tests that expect Load to reject the body.
+func loadInlineManifestAllowError(test *testing.T, body string) (*manifest.Manifest, error) {
+	test.Helper()
+
+	dir := test.TempDir()
+	path := filepath.Join(dir, "tusk.toml")
+
+	if writeErr := os.WriteFile(path, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	return manifest.Load(path)
+}
