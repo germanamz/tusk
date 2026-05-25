@@ -6,7 +6,10 @@ import (
 	"path/filepath"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/workspace"
+	"github.com/germanamz/tusk/internal/workspace/indexopen"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +60,28 @@ and running "tusk reindex".`,
 
 			indexPath := filepath.Join(cwd, workspace.IndexDirname, workspace.IndexFilename)
 
-			store, openErr := index.Open(indexPath)
+			loaded, loadErr := manifest.Load(manifestPath)
+
+			if loadErr != nil {
+				return fmt.Errorf("init: read just-written manifest: %w", loadErr)
+			}
+
+			manifest.MergeBuiltinPacks(loaded)
+
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: indexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      cwd,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
+			})
 
 			if openErr != nil {
 				return fmt.Errorf("init: bootstrap index: %w", openErr)

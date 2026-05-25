@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/workspace"
+	"github.com/germanamz/tusk/internal/workspace/indexopen"
 	"github.com/spf13/cobra"
 )
 
@@ -50,14 +51,6 @@ after changing node/edge declarations in tusk.toml.`,
 				verbose, _ := cmd.Flags().GetBool("verbose")
 				logger := newLogger(cmd.ErrOrStderr(), verbose)
 
-				store, openErr := index.Open(ws.IndexPath)
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
 				loaded, loadErr := manifest.Load(ws.ManifestPath)
 
 				if loadErr != nil {
@@ -65,6 +58,28 @@ after changing node/edge declarations in tusk.toml.`,
 				}
 
 				manifest.MergeBuiltinPacks(loaded)
+
+				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+					IndexPath: ws.IndexPath,
+					ReindexFactory: func(idx *index.Index) reindex.Config {
+						return reindex.Config{
+							Root:      ws.Root,
+							Repo:      index.NewNodeRepo(idx),
+							Edges:     index.NewEdgeRepo(idx),
+							EdgeTypes: loaded.EdgeTypes,
+						}
+					},
+					Logger: func(msg string) {
+						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+					},
+				})
+
+				if openErr != nil {
+					return openErr
+				}
+
+				defer store.Close()
+
 				engine, buildErr := newBehaviorEngine(loaded)
 
 				if buildErr != nil {
