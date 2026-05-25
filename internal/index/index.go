@@ -195,9 +195,28 @@ func Open(dbPath string) (*Index, error) {
 	idx := &Index{db: db, path: dbPath}
 
 	metaRepo := NewMetaRepo(idx)
-	if setErr := metaRepo.Set(MetaSchemaVersionKey, SchemaVersion); setErr != nil {
+
+	observed, getErr := metaRepo.Get(MetaSchemaVersionKey)
+	if getErr != nil {
 		idx.Close()
-		return nil, fmt.Errorf("index: persist schema_version: %w", setErr)
+		return nil, fmt.Errorf("index: read schema_version: %w", getErr)
+	}
+
+	switch {
+	case observed == "":
+		// Fresh DB (or one created by Task 1 which wrote a value
+		// unconditionally — that value matches SchemaVersion). Persist
+		// the constant.
+		if setErr := metaRepo.Set(MetaSchemaVersionKey, SchemaVersion); setErr != nil {
+			idx.Close()
+			return nil, fmt.Errorf("index: persist schema_version: %w", setErr)
+		}
+	case observed != SchemaVersion:
+		idx.Close()
+		return nil, &SchemaVersionError{
+			Observed: observed,
+			Expected: SchemaVersion,
+		}
 	}
 
 	return idx, nil
