@@ -192,7 +192,15 @@ func Open(dbPath string) (*Index, error) {
 		return nil, fmt.Errorf("index: release bootstrap conn: %w", closeErr)
 	}
 
-	return &Index{db: db, path: dbPath}, nil
+	idx := &Index{db: db, path: dbPath}
+
+	metaRepo := NewMetaRepo(idx)
+	if setErr := metaRepo.Set(MetaSchemaVersionKey, SchemaVersion); setErr != nil {
+		idx.Close()
+		return nil, fmt.Errorf("index: persist schema_version: %w", setErr)
+	}
+
+	return idx, nil
 }
 
 // nodesColumnNames returns the set of column names currently on the nodes
