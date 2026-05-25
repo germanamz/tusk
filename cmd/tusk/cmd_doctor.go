@@ -8,7 +8,9 @@ import (
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/workspace"
+	"github.com/germanamz/tusk/internal/workspace/indexopen"
 	"github.com/spf13/cobra"
 )
 
@@ -165,7 +167,20 @@ for a diagnostic-only run.`,
 			out := cmd.OutOrStdout()
 
 			return withWorkspaceLock(ws, func() error {
-				store, openErr := index.Open(ws.IndexPath)
+				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+					IndexPath: ws.IndexPath,
+					ReindexFactory: func(idx *index.Index) reindex.Config {
+						return reindex.Config{
+							Root:      ws.Root,
+							Repo:      index.NewNodeRepo(idx),
+							Edges:     index.NewEdgeRepo(idx),
+							EdgeTypes: loaded.EdgeTypes,
+						}
+					},
+					Logger: func(msg string) {
+						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+					},
+				})
 
 				if openErr != nil {
 					return openErr

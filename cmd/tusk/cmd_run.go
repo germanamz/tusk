@@ -19,9 +19,11 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/status"
 	"github.com/germanamz/tusk/internal/workspace"
+	"github.com/germanamz/tusk/internal/workspace/indexopen"
 )
 
 // newRunCmd builds the `tusk run` Cobra command. The dispatcher is
@@ -111,7 +113,20 @@ JSON when piped).`,
 			// dispatch path uniform — matches cmd/tusk/cmd_doctor.go's
 			// behavior.
 			return withWorkspaceLock(ws, func() error {
-				store, openErr := index.Open(ws.IndexPath)
+				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+					IndexPath: ws.IndexPath,
+					ReindexFactory: func(idx *index.Index) reindex.Config {
+						return reindex.Config{
+							Root:      ws.Root,
+							Repo:      index.NewNodeRepo(idx),
+							Edges:     index.NewEdgeRepo(idx),
+							EdgeTypes: loaded.EdgeTypes,
+						}
+					},
+					Logger: func(msg string) {
+						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+					},
+				})
 
 				if openErr != nil {
 					return openErr
