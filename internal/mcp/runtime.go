@@ -15,7 +15,9 @@ import (
 	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/workspace"
+	"github.com/germanamz/tusk/internal/workspace/indexopen"
 )
 
 // Runtime bundles every shared dependency the MCP server's tool handlers need.
@@ -104,7 +106,28 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		return nil, fmt.Errorf("mcp: lock: %w", acquireErr)
 	}
 
-	store, openErr := index.Open(ws.IndexPath)
+	rt := &Runtime{}
+
+	for _, opt := range opts {
+		opt(rt)
+	}
+
+	store, openErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
+		IndexPath: ws.IndexPath,
+		ReindexFactory: func(idx *index.Index) reindex.Config {
+			return reindex.Config{
+				Root:      ws.Root,
+				Repo:      index.NewNodeRepo(idx),
+				Edges:     index.NewEdgeRepo(idx),
+				EdgeTypes: loaded.EdgeTypes,
+			}
+		},
+		Logger: func(msg string) {
+			if rt.Logger != nil {
+				rt.Logger.Info(msg)
+			}
+		},
+	})
 
 	if openErr != nil {
 		_ = lockHandle.Release()
@@ -124,22 +147,20 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	driftRepo := index.NewWorkflowDriftRepo(store)
 	propertyDriftRepo := index.NewPropertyDriftRepo(store)
 
-	rt := &Runtime{
-		Root:           ws.Root,
-		ManifestPath:   ws.ManifestPath,
-		IndexPath:      ws.IndexPath,
-		Manifest:       loaded,
-		Index:          store,
-		Nodes:          index.NewNodeRepo(store),
-		Edges:          index.NewEdgeRepo(store),
-		EmbedQueue:     index.NewEmbedQueueRepo(store),
-		Embeddings:     index.NewEmbeddingRepo(store),
-		Meta:           index.NewMetaRepo(store),
-		BehaviorEngine: engine,
-		WorkflowDrift:  driftRepo,
-		PropertyDrift:  propertyDriftRepo,
-		lockHandle:     lockHandle,
-	}
+	rt.Root = ws.Root
+	rt.ManifestPath = ws.ManifestPath
+	rt.IndexPath = ws.IndexPath
+	rt.Manifest = loaded
+	rt.Index = store
+	rt.Nodes = index.NewNodeRepo(store)
+	rt.Edges = index.NewEdgeRepo(store)
+	rt.EmbedQueue = index.NewEmbedQueueRepo(store)
+	rt.Embeddings = index.NewEmbeddingRepo(store)
+	rt.Meta = index.NewMetaRepo(store)
+	rt.BehaviorEngine = engine
+	rt.WorkflowDrift = driftRepo
+	rt.PropertyDrift = propertyDriftRepo
+	rt.lockHandle = lockHandle
 
 	rt.NodeService = node.NewServiceWithBehaviors(
 		rt.Root,
@@ -154,10 +175,6 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		os.Stderr,
 		node.NewIndexRefLookup(rt.Nodes),
 	)
-
-	for _, opt := range opts {
-		opt(rt)
-	}
 
 	if rt.aliasIntrospector != nil {
 		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
