@@ -10,9 +10,60 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/mcp"
 )
+
+func TestRuntimeRebuildsOnSchemaMismatch(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte("[workspace]\nname = \"test\"\n"), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "hello.md"), []byte("---\ntitle: hello\n---\nbody\n"), 0o644); writeErr != nil {
+		test.Fatalf("write fixture: %v", writeErr)
+	}
+
+	indexPath := filepath.Join(root, ".tusk", "index.db")
+
+	if mkErr := os.MkdirAll(filepath.Dir(indexPath), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	seedStore, openErr := index.Open(indexPath)
+
+	if openErr != nil {
+		test.Fatalf("seed open: %v", openErr)
+	}
+
+	if setErr := index.NewMetaRepo(seedStore).Set(index.MetaSchemaVersionKey, "from-other-binary"); setErr != nil {
+		test.Fatalf("seed mismatch: %v", setErr)
+	}
+
+	if closeErr := seedStore.Close(); closeErr != nil {
+		test.Fatalf("close seed: %v", closeErr)
+	}
+
+	rt, bootErr := mcp.Open(root)
+
+	if bootErr != nil {
+		test.Fatalf("mcp.Open: %v", bootErr)
+	}
+
+	defer rt.Close()
+
+	got, getErr := index.NewMetaRepo(rt.Index).Get(index.MetaSchemaVersionKey)
+
+	if getErr != nil {
+		test.Fatalf("read schema_version: %v", getErr)
+	}
+
+	if got != index.SchemaVersion {
+		test.Errorf("rebuilt schema_version = %q, want %q", got, index.SchemaVersion)
+	}
+}
 
 func TestRuntime_OpenWithNodeTypesWiresPropertyDrift(test *testing.T) {
 	root := test.TempDir()
