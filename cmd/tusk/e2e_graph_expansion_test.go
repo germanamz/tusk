@@ -163,6 +163,10 @@ edge-types = ["references"]
 	baselineIDs := idsOf(baseline)
 	hubPosBaseline := indexOf(baselineIDs, "hub")
 
+	if hubPosBaseline < 0 {
+		test.Fatalf("baseline missing hub from ranked result: %v", baselineIDs)
+	}
+
 	if hubPosBaseline != len(baselineIDs)-1 {
 		test.Errorf("baseline (expansion off): hub at position %d (of %d); expected LAST because its cosine is orthogonal to the query: %v", hubPosBaseline, len(baselineIDs), baselineIDs)
 	}

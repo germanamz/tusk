@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -69,6 +70,7 @@ func computeGraphExpansionPane(loaded *manifest.Manifest) (*GraphExpansionPane, 
 			pane.UnknownEdgeTypes = append(pane.UnknownEdgeTypes, name)
 		}
 	}
+	sort.Strings(pane.UnknownEdgeTypes)
 
 	if resolved.Enabled && resolved.Weight == 0 {
 		pane.WeightZeroNoOp = true

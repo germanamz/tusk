@@ -659,6 +659,73 @@ edge-types = ["references", "contains", "made-up-edge"]
 	}
 }
 
+// TestRun_GraphExpansionPaneSortsUnknownEdgeTypes confirms that
+// UnknownEdgeTypes is emitted in lexicographic order regardless of the
+// on-disk TOML iteration order, and that the matching
+// IssueGraphExpansionUnknownEdge entries follow the same sorted order.
+// This guards against non-deterministic CLI output and Issue ordering
+// when two or more unknown edge types are configured.
+func TestRun_GraphExpansionPaneSortsUnknownEdgeTypes(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[query.graph-expansion]
+enabled = true
+edge-types = ["z-extra", "a-extra"]
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated")
+	}
+
+	wantUnknown := []string{"a-extra", "z-extra"}
+
+	if len(pane.UnknownEdgeTypes) != len(wantUnknown) {
+		test.Fatalf("UnknownEdgeTypes = %v, want %v", pane.UnknownEdgeTypes, wantUnknown)
+	}
+
+	for index, got := range pane.UnknownEdgeTypes {
+		if got != wantUnknown[index] {
+			test.Errorf("UnknownEdgeTypes[%d] = %q, want %q (full slice: %v)", index, got, wantUnknown[index], pane.UnknownEdgeTypes)
+		}
+	}
+
+	var unknownIDs []string
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionUnknownEdge {
+			unknownIDs = append(unknownIDs, issue.NodeID)
+		}
+	}
+
+	if len(unknownIDs) != len(wantUnknown) {
+		test.Fatalf("IssueGraphExpansionUnknownEdge NodeIDs = %v, want %v", unknownIDs, wantUnknown)
+	}
+
+	for index, got := range unknownIDs {
+		if got != wantUnknown[index] {
+			test.Errorf("IssueGraphExpansionUnknownEdge[%d].NodeID = %q, want %q (full slice: %v)", index, got, wantUnknown[index], unknownIDs)
+		}
+	}
+}
+
 // TestRun_GraphExpansionPaneFlagsWeightZeroNoOp confirms the WeightZeroNoOp
 // flag and matching Issue light up when Enabled=true && Weight=0.
 func TestRun_GraphExpansionPaneFlagsWeightZeroNoOp(test *testing.T) {
