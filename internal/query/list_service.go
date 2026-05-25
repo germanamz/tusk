@@ -8,6 +8,10 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
+// listRowScanColumns is the column set the structural list path reads from
+// the filter compiler. It must stay in sync with filter.Compile's SELECT.
+// We keep parent_id last to match the compiler's ordering.
+
 // ListRequest configures ListRun. Filter is the filter-expression string
 // (empty string matches all rows). Sort, Take, and Skip mirror the CLI flags.
 //
@@ -100,11 +104,16 @@ func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListReques
 	result := &ListResult{}
 
 	for rows.Next() {
-		var row ListRow
+		var (
+			row      ListRow
+			parentID sql.NullString
+		)
 
-		if scanErr := rows.Scan(&row.ID, &row.Type, &row.Path, &row.Title, &row.PropertiesRaw, &row.LastMtime, &row.LastSize, &row.LastChecksum); scanErr != nil {
+		if scanErr := rows.Scan(&row.ID, &row.Type, &row.Path, &row.Title, &row.PropertiesRaw, &row.LastMtime, &row.LastSize, &row.LastChecksum, &parentID); scanErr != nil {
 			return nil, scanErr
 		}
+
+		_ = parentID // ListRow has no ParentID field today; reserved for symmetry with query.Run.
 
 		result.Rows = append(result.Rows, row)
 	}

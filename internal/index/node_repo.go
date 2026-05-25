@@ -221,15 +221,46 @@ func (repo *NodeRepo) ListByParent(parentID string) ([]NodeRow, error) {
 // ordered by ordinal ASC so callers walking the slice see depth-first
 // document order.
 //
+// We use GLOB rather than LIKE because LIKE treats `_` as a wildcard,
+// which would silently alias sibling files (e.g. `notes/foo_a` matching
+// `notes/foo b`'s sub-units). GLOB's wildcards are `*` and `?`, neither
+// of which can appear in a workspace file id.
+//
 // Use this for whole-file sub-unit diffs (sync, doctor); use ListByParent
 // when you only need the immediate children of a single parent.
 func (repo *NodeRepo) ListSubUnitsForFile(fileID string) ([]NodeRow, error) {
-	pattern := fileID + "#%"
+	pattern := fileID + "#*"
 
 	return repo.queryNodes(
-		nodeSelectColumns+` FROM nodes WHERE id LIKE ? ORDER BY ordinal ASC`,
+		nodeSelectColumns+` FROM nodes WHERE id GLOB ? ORDER BY ordinal ASC`,
 		pattern,
 	)
+}
+
+// ListSubUnitsForFiles is the batched form of ListSubUnitsForFile. It runs a
+// single query with one GLOB predicate per file id, OR'd together. Returns
+// rows ordered by id, then ordinal ASC; callers that need per-file grouping
+// should bucket by `fileIDFromSubUnit` (the query layer's helper). Used by
+// the sub-unit-aware semantic ranker to avoid an N+1 lookup over candidate
+// files.
+//
+// Empty input yields an empty slice with no query executed.
+func (repo *NodeRepo) ListSubUnitsForFiles(fileIDs []string) ([]NodeRow, error) {
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+
+	conditions := make([]string, 0, len(fileIDs))
+	args := make([]any, 0, len(fileIDs))
+
+	for _, fileID := range fileIDs {
+		conditions = append(conditions, "id GLOB ?")
+		args = append(args, fileID+"#*")
+	}
+
+	query := nodeSelectColumns + ` FROM nodes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY id ASC, ordinal ASC`
+
+	return repo.queryNodes(query, args...)
 }
 
 // FindByTitle returns the IDs of all nodes whose title matches title.

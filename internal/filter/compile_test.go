@@ -710,3 +710,62 @@ func TestCompile_ModifiedSinceComposesWithOtherPredicates(test *testing.T) {
 		test.Errorf("params[1] = %T, want int64", params[1])
 	}
 }
+
+// TestCompile_SubUnitTypePredicate confirms that a `type=<sub-unit>`
+// predicate parses and compiles to the same SQL shape as any other core
+// column equality. Sub-unit type names are registered by the
+// sub-document pack (Task 1); the compiler doesn't care about the
+// taxonomy. Regression test for Task 5 (Phase 2).
+func TestCompile_SubUnitTypePredicate(test *testing.T) {
+	for _, typeName := range []string{"section", "paragraph", "list-item", "code-block", "blockquote", "table-cell"} {
+		expr, parseErrs := filter.NewParser("type=" + typeName).Parse()
+
+		if len(parseErrs) != 0 {
+			test.Fatalf("parse %s: %v", typeName, parseErrs)
+		}
+
+		sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+		if compileErr != nil {
+			test.Fatalf("compile %s: %v", typeName, compileErr)
+		}
+
+		if !strings.Contains(sqlText, "type = ?") {
+			test.Errorf("%s: sql missing core column compare: %s", typeName, sqlText)
+		}
+
+		if !reflect.DeepEqual(params, []any{typeName}) {
+			test.Errorf("%s: params = %v, want [%s]", typeName, params, typeName)
+		}
+	}
+}
+
+// TestCompile_HeadingLevelPredicate covers the kebab-case heading-level
+// property used by section sub-units. SQLite's JSON1 accepts both
+// `$.heading-level` and `$."heading-level"`; the compiler emits the
+// unquoted form, which works in modern SQLite.
+func TestCompile_HeadingLevelPredicate(test *testing.T) {
+	expr, parseErrs := filter.NewParser("type=section AND heading-level<=2").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %v", parseErrs)
+	}
+
+	sqlText, _, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if !strings.Contains(sqlText, "type = ?") {
+		test.Errorf("missing type predicate: %s", sqlText)
+	}
+
+	if !strings.Contains(sqlText, "heading-level") {
+		test.Errorf("missing heading-level extract: %s", sqlText)
+	}
+
+	if !strings.Contains(sqlText, "<= ?") {
+		test.Errorf("missing <= operator: %s", sqlText)
+	}
+}

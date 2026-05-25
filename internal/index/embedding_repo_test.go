@@ -305,3 +305,41 @@ func TestEmbeddingRepo_Stats_Aggregates(test *testing.T) {
 		}
 	}
 }
+
+// TestEmbeddingRepo_ListSubUnitsForFiles_UnderscoreNoLeakage pins the GLOB
+// pattern fix: with SQL LIKE, `notes/foo_a` would match `notes/foo b`'s
+// sub-units because `_` is a LIKE wildcard. GLOB only honors `*` and `?`,
+// neither of which can appear in a workspace file id.
+func TestEmbeddingRepo_ListSubUnitsForFiles_UnderscoreNoLeakage(test *testing.T) {
+	repo := newTestEmbeddingRepo(test,
+		"notes/foo_a",
+		"notes/foo b",
+		"notes/foo_a#aaa",
+		"notes/foo b#xxx",
+	)
+
+	rows := []index.EmbeddingRow{
+		{NodeID: "notes/foo_a#aaa", ChunkIdx: 0, Model: "m", ContentHash: "h1", Vector: []float32{0.1}, Dim: 1},
+		{NodeID: "notes/foo b#xxx", ChunkIdx: 0, Model: "m", ContentHash: "h2", Vector: []float32{0.2}, Dim: 1},
+	}
+
+	for _, row := range rows {
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("Upsert %s: %v", row.NodeID, upsertErr)
+		}
+	}
+
+	loaded, listErr := repo.ListSubUnitsForFiles([]string{"notes/foo_a"})
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles foo_a: %v", listErr)
+	}
+
+	if len(loaded) != 1 {
+		test.Fatalf("foo_a embeddings = %d, want 1 (no leakage from foo b)", len(loaded))
+	}
+
+	if loaded[0].NodeID != "notes/foo_a#aaa" {
+		test.Errorf("foo_a embedding id = %q, want notes/foo_a#aaa", loaded[0].NodeID)
+	}
+}

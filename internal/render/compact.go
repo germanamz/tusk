@@ -31,7 +31,18 @@ type CompactRow struct {
 	// "score wasn't set by the caller" so the renderer can decide whether
 	// to emit the score token.
 	HasScore bool
+
+	// MatchedUnits, when non-empty, triggers the hierarchical render
+	// path: the file row is followed by indented `→ #<hash>` lines for
+	// each matched sub-unit. See writeMatchedUnits.
+	MatchedUnits []query.MatchedUnit
 }
+
+// defaultMatchedUnitsLimit caps how many matched units the compact renderer
+// prints per file row before collapsing the tail to `(N more)`. JSON output
+// is unaffected. The threshold is intentionally generous so a typical
+// section-heavy file still shows in full.
+const defaultMatchedUnitsLimit = 20
 
 // CompactOpts narrows the renderer's behavior.
 type CompactOpts struct {
@@ -76,6 +87,7 @@ func CompactNodeRows(out io.Writer, rows []CompactRow, opts CompactOpts) error {
 		writeRecordLine(&builder, row, fieldSet, idWidth, typeWidth, titleWidth)
 		writeBody(&builder, row, fieldSet)
 		writeEdges(&builder, row, fieldSet)
+		writeMatchedUnits(&builder, row, fieldSet)
 	}
 
 	_, writeErr := io.WriteString(out, builder.String())
@@ -206,6 +218,126 @@ func writeBody(builder *strings.Builder, row CompactRow, fieldSet map[string]str
 		builder.WriteString(line)
 		builder.WriteString("\n")
 	}
+}
+
+// writeMatchedUnits emits the hierarchical sub-unit lines for a file row
+// when MatchedUnits is non-empty (semantic group-by-parent or structural
+// include=units). Each unit renders as:
+//
+//	→ #<hash>   section H2   "snippet..."   0.86
+//
+// Sections are decorated as `section H<n>`; leaves show their plain type
+// (paragraph, list-item, etc). When the unit has no Score (structural
+// path), the trailing score column is omitted. Long lists collapse to
+// `(N more)` past defaultMatchedUnitsLimit to keep agent output bounded.
+func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}) {
+	if !showField(fieldSet, "matched_units") && fieldSet != nil {
+		return
+	}
+
+	if len(row.MatchedUnits) == 0 {
+		return
+	}
+
+	units := row.MatchedUnits
+
+	limit := defaultMatchedUnitsLimit
+	truncated := 0
+
+	if len(units) > limit {
+		truncated = len(units) - limit
+		units = units[:limit]
+	}
+
+	// Compute per-column widths over the units in this group so the
+	// arrow / id / decorated-type / snippet columns align.
+	var (
+		idWidth      int
+		typeWidth    int
+		snippetWidth int
+		showScore    bool
+	)
+
+	displays := make([]matchedUnitDisplay, len(units))
+
+	for index, unit := range units {
+		display := formatMatchedUnit(unit)
+		displays[index] = display
+
+		if len(display.idCol) > idWidth {
+			idWidth = len(display.idCol)
+		}
+
+		if len(display.typeCol) > typeWidth {
+			typeWidth = len(display.typeCol)
+		}
+
+		if len(display.snippetCol) > snippetWidth {
+			snippetWidth = len(display.snippetCol)
+		}
+
+		if unit.HasScore {
+			showScore = true
+		}
+	}
+
+	for index, display := range displays {
+		var line strings.Builder
+
+		line.WriteString("  → ")
+		line.WriteString(padRight(display.idCol, idWidth))
+		line.WriteString("  ")
+		line.WriteString(padRight(display.typeCol, typeWidth))
+
+		if snippetWidth > 0 {
+			line.WriteString("  ")
+			line.WriteString(padRight(display.snippetCol, snippetWidth))
+		}
+
+		if showScore && units[index].HasScore {
+			fmt.Fprintf(&line, "  %.4f", units[index].Score)
+		}
+
+		builder.WriteString(strings.TrimRight(line.String(), " "))
+		builder.WriteString("\n")
+	}
+
+	if truncated > 0 {
+		fmt.Fprintf(builder, "  (%d more)\n", truncated)
+	}
+}
+
+// matchedUnitDisplay is the formatted column set for one MatchedUnit row.
+type matchedUnitDisplay struct {
+	idCol      string
+	typeCol    string
+	snippetCol string
+}
+
+// formatMatchedUnit produces the per-column strings for a unit. The id
+// column is `#<hash>` when the unit id is composite (`<fileID>#<hash>`),
+// or the full id otherwise. The type column decorates sections with their
+// heading level. The snippet column wraps non-empty snippets in quotes.
+func formatMatchedUnit(unit query.MatchedUnit) matchedUnitDisplay {
+	idCol := unit.ID
+
+	if hashIdx := strings.IndexByte(unit.ID, '#'); hashIdx >= 0 {
+		idCol = "#" + unit.ID[hashIdx+1:]
+	}
+
+	typeCol := unit.Type
+
+	if unit.Type == "section" && unit.HeadingLevel > 0 {
+		typeCol = fmt.Sprintf("section H%d", unit.HeadingLevel)
+	}
+
+	snippetCol := ""
+
+	if unit.Snippet != "" {
+		snippetCol = fmt.Sprintf("%q", unit.Snippet)
+	}
+
+	return matchedUnitDisplay{idCol: idCol, typeCol: typeCol, snippetCol: snippetCol}
 }
 
 // writeEdges emits one indented line per edge using the spec §4.4 arrow form.

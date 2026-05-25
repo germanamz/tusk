@@ -399,3 +399,183 @@ func TestNodeRepo_DeleteByPath(test *testing.T) {
 		test.Errorf("err after delete = %v, want ErrNodeNotFound", getErr)
 	}
 }
+
+// TestNodeRepo_ListSubUnitsForFile_UnderscoreNoLeakage exercises the GLOB
+// pattern fix: file paths containing `_` (extremely common in workspaces)
+// must not silently match siblings via SQL LIKE's underscore-as-wildcard
+// semantics. The regression seeds two files whose ids only differ in a
+// single character where one has `_` and the other has a literal space;
+// under LIKE both queries would alias the other file's sub-units.
+func TestNodeRepo_ListSubUnitsForFile_UnderscoreNoLeakage(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	parents := []index.NodeRow{
+		{ID: "notes/foo_a", Type: "note", Path: "notes/foo_a.md", Title: "foo_a", PropertiesJSON: `{}`, LastChecksum: "h"},
+		{ID: "notes/foo b", Type: "note", Path: "notes/foo b.md", Title: "foo b", PropertiesJSON: `{}`, LastChecksum: "h"},
+	}
+
+	for _, parent := range parents {
+		if upsertErr := repo.Upsert(parent); upsertErr != nil {
+			test.Fatalf("Upsert parent %s: %v", parent.ID, upsertErr)
+		}
+	}
+
+	subUnits := []index.NodeRow{
+		{
+			ID: "notes/foo_a#aaa", Type: "paragraph", Path: "notes/foo_a.md",
+			Title: "fooA-a", PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/foo_a", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+		{
+			ID: "notes/foo_a#bbb", Type: "paragraph", Path: "notes/foo_a.md",
+			Title: "fooA-b", PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/foo_a", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 1, Valid: true},
+		},
+		{
+			ID: "notes/foo b#xxx", Type: "paragraph", Path: "notes/foo b.md",
+			Title: "fooB-x", PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/foo b", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+	}
+
+	for _, row := range subUnits {
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("Upsert sub-unit %s: %v", row.ID, upsertErr)
+		}
+	}
+
+	fooA, listErr := repo.ListSubUnitsForFile("notes/foo_a")
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFile foo_a: %v", listErr)
+	}
+
+	if len(fooA) != 2 {
+		test.Fatalf("foo_a sub-units = %d, want 2 (no leakage from foo b)", len(fooA))
+	}
+
+	for _, row := range fooA {
+		if row.ParentID.String != "notes/foo_a" {
+			test.Errorf("foo_a sub-unit %s parent = %q, want notes/foo_a", row.ID, row.ParentID.String)
+		}
+	}
+
+	fooB, listErr := repo.ListSubUnitsForFile("notes/foo b")
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFile foo b: %v", listErr)
+	}
+
+	if len(fooB) != 1 {
+		test.Fatalf("foo b sub-units = %d, want 1", len(fooB))
+	}
+
+	if fooB[0].ID != "notes/foo b#xxx" {
+		test.Errorf("foo b sub-unit id = %q, want notes/foo b#xxx", fooB[0].ID)
+	}
+}
+
+// TestNodeRepo_ListSubUnitsForFiles batches multiple file ids in a single
+// query and must produce the same union ListSubUnitsForFile would over each
+// id, with no LIKE-style underscore aliasing.
+func TestNodeRepo_ListSubUnitsForFiles(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	parents := []index.NodeRow{
+		{ID: "notes/foo_a", Type: "note", Path: "notes/foo_a.md", Title: "foo_a", PropertiesJSON: `{}`, LastChecksum: "h"},
+		{ID: "notes/foo b", Type: "note", Path: "notes/foo b.md", Title: "foo b", PropertiesJSON: `{}`, LastChecksum: "h"},
+		{ID: "notes/other", Type: "note", Path: "notes/other.md", Title: "other", PropertiesJSON: `{}`, LastChecksum: "h"},
+	}
+
+	for _, parent := range parents {
+		if upsertErr := repo.Upsert(parent); upsertErr != nil {
+			test.Fatalf("Upsert parent %s: %v", parent.ID, upsertErr)
+		}
+	}
+
+	subUnits := []index.NodeRow{
+		{
+			ID: "notes/foo_a#aaa", Type: "paragraph", Path: "notes/foo_a.md",
+			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/foo_a", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+		{
+			ID: "notes/foo b#xxx", Type: "paragraph", Path: "notes/foo b.md",
+			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/foo b", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+		{
+			ID: "notes/other#ooo", Type: "paragraph", Path: "notes/other.md",
+			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/other", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+	}
+
+	for _, row := range subUnits {
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("Upsert sub-unit %s: %v", row.ID, upsertErr)
+		}
+	}
+
+	// Asking for only foo_a must not include foo b's sub-unit (LIKE would).
+	loaded, listErr := repo.ListSubUnitsForFiles([]string{"notes/foo_a"})
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles foo_a: %v", listErr)
+	}
+
+	if len(loaded) != 1 {
+		test.Fatalf("foo_a batched sub-units = %d, want 1 (no leakage)", len(loaded))
+	}
+
+	if loaded[0].ID != "notes/foo_a#aaa" {
+		test.Errorf("foo_a batched id = %q, want notes/foo_a#aaa", loaded[0].ID)
+	}
+
+	// Batched request covering two files returns the union and excludes
+	// the unmentioned `other` file.
+	loaded, listErr = repo.ListSubUnitsForFiles([]string{"notes/foo_a", "notes/foo b"})
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles foo_a+foo b: %v", listErr)
+	}
+
+	if len(loaded) != 2 {
+		test.Fatalf("batched sub-units = %d, want 2", len(loaded))
+	}
+
+	gotIDs := map[string]bool{}
+
+	for _, row := range loaded {
+		gotIDs[row.ID] = true
+	}
+
+	for _, want := range []string{"notes/foo_a#aaa", "notes/foo b#xxx"} {
+		if !gotIDs[want] {
+			test.Errorf("missing id %q in batched result %v", want, gotIDs)
+		}
+	}
+
+	if gotIDs["notes/other#ooo"] {
+		test.Errorf("batched result leaked unrelated file: %v", gotIDs)
+	}
+
+	// Empty input is a no-op; never executes a query.
+	empty, listErr := repo.ListSubUnitsForFiles(nil)
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles nil: %v", listErr)
+	}
+
+	if len(empty) != 0 {
+		test.Errorf("nil input returned %d rows, want 0", len(empty))
+	}
+}

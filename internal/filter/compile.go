@@ -35,7 +35,7 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 		builder.WriteString(" ")
 	}
 
-	builder.WriteString(`SELECT id, type, path, title, properties_json, last_mtime, last_size, last_checksum FROM nodes WHERE `)
+	builder.WriteString(`SELECT id, type, path, title, properties_json, last_mtime, last_size, last_checksum, parent_id FROM nodes WHERE `)
 	builder.WriteString(whereClause)
 
 	if len(opts.SortKeys) > 0 {

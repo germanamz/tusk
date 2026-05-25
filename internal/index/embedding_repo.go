@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // EmbeddingRow is the index representation of one node's embedding (one chunk).
@@ -73,6 +74,49 @@ func (repo *EmbeddingRepo) GetByNodeID(nodeID string) ([]EmbeddingRow, error) {
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("embeddingRepo: get %s: %w", nodeID, queryErr)
+	}
+
+	defer rows.Close()
+
+	return scanEmbeddings(rows)
+}
+
+// ListSubUnitsForFiles returns every embedding whose node_id matches the
+// composite sub-unit pattern `<fileID>#*` for any fileID in the input. Used
+// by the query layer's sub-unit-aware semantic path: the structural filter
+// returns file ids, and the semantic ranker pulls every sub-unit embedding
+// owned by those files in a single batched query.
+//
+// We use GLOB rather than LIKE because LIKE treats `_` as a wildcard, which
+// would silently alias sibling files (e.g. `notes/foo_a` matching
+// `notes/foo b`'s sub-units). GLOB's wildcards are `*` and `?`, neither of
+// which can appear in a workspace file id.
+//
+// Returns an empty slice when no rows match. Caller is responsible for
+// stitching the embedding rows back to their parent file via the
+// `<fileID>#<hash>` id format.
+func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRow, error) {
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+
+	conditions := make([]string, 0, len(fileIDs))
+	args := make([]any, 0, len(fileIDs))
+
+	for _, fileID := range fileIDs {
+		conditions = append(conditions, "node_id GLOB ?")
+		args = append(args, fileID+"#*")
+	}
+
+	query := fmt.Sprintf(
+		`SELECT node_id, chunk_idx, model, content_hash, vector, dim, body FROM embeddings WHERE %s ORDER BY node_id, chunk_idx`,
+		strings.Join(conditions, " OR "),
+	)
+
+	rows, queryErr := repo.db.Query(query, args...)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("embeddingRepo: list sub-units: %w", queryErr)
 	}
 
 	defer rows.Close()
