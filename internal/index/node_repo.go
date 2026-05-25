@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrNodeNotFound is returned by NodeRepo.Get when the node id is not in the index.
@@ -19,6 +20,22 @@ type NodeRow struct {
 	LastMtime      int64
 	LastSize       int64
 	LastChecksum   string
+
+	// ParentID is the id of the file node this row is a sub-unit of. NULL
+	// (sql.NullString{Valid:false}) for file-level rows. Populated by the
+	// sub-unit sync pipeline. Schema column is `parent_id` (P2 migration).
+	ParentID sql.NullString
+
+	// Ordinal is the depth-first position of a sub-unit within its parent
+	// file, 0-based. NULL for file-level rows. Schema column is `ordinal`
+	// (P2 migration). Used by query-time ordering of `contains` traversals.
+	Ordinal sql.NullInt64
+
+	// EmbedPayload is the synthesized text the embedder should send to the
+	// model for this row. NULL for file-level rows (the embedder builds its
+	// own payload from the parsed file). Schema column is `embed_payload`
+	// (P2 migration).
+	EmbedPayload sql.NullString
 }
 
 // ListFilter narrows a NodeRepo.List call. Plan 1b supports type only.
@@ -36,23 +53,119 @@ func NewNodeRepo(idx *Index) *NodeRepo {
 	return &NodeRepo{db: idx.DB()}
 }
 
+// nodeUpsertSQL is the ON CONFLICT-aware upsert statement shared by Upsert
+// and BulkUpsert. The columns are listed in a fixed order so the bind
+// arguments line up across both call sites.
+const nodeUpsertSQL = `
+	INSERT INTO nodes (
+		id, type, path, title, properties_json,
+		last_mtime, last_size, last_checksum,
+		parent_id, ordinal, embed_payload
+	)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		type            = excluded.type,
+		path            = excluded.path,
+		title           = excluded.title,
+		properties_json = excluded.properties_json,
+		last_mtime      = excluded.last_mtime,
+		last_size       = excluded.last_size,
+		last_checksum   = excluded.last_checksum,
+		parent_id       = excluded.parent_id,
+		ordinal         = excluded.ordinal,
+		embed_payload   = excluded.embed_payload
+`
+
+// nodeUpsertArgs returns the positional bind arguments for nodeUpsertSQL.
+func nodeUpsertArgs(row NodeRow) []any {
+	return []any{
+		row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON,
+		row.LastMtime, row.LastSize, row.LastChecksum,
+		row.ParentID, row.Ordinal, row.EmbedPayload,
+	}
+}
+
 // Upsert inserts or replaces a node row.
 func (repo *NodeRepo) Upsert(row NodeRow) error {
-	_, execErr := repo.db.Exec(`
-		INSERT INTO nodes (id, type, path, title, properties_json, last_mtime, last_size, last_checksum)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			type            = excluded.type,
-			path            = excluded.path,
-			title           = excluded.title,
-			properties_json = excluded.properties_json,
-			last_mtime      = excluded.last_mtime,
-			last_size       = excluded.last_size,
-			last_checksum   = excluded.last_checksum
-	`, row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON, row.LastMtime, row.LastSize, row.LastChecksum)
-
-	if execErr != nil {
+	if _, execErr := repo.db.Exec(nodeUpsertSQL, nodeUpsertArgs(row)...); execErr != nil {
 		return fmt.Errorf("nodeRepo: upsert %s: %w", row.ID, execErr)
+	}
+
+	return nil
+}
+
+// BulkUpsert inserts or replaces every row in a single transaction. The
+// transactional wrap means a partial failure rolls back all rows so callers
+// observe an all-or-nothing outcome per call. Used by the sub-unit sync
+// pipeline (Task 3) where every file's new units land together.
+func (repo *NodeRepo) BulkUpsert(rows []NodeRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("nodeRepo: bulk upsert begin: %w", beginErr)
+	}
+
+	stmt, prepErr := tx.Prepare(nodeUpsertSQL)
+
+	if prepErr != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("nodeRepo: bulk upsert prepare: %w", prepErr)
+	}
+
+	for _, row := range rows {
+		if _, execErr := stmt.Exec(nodeUpsertArgs(row)...); execErr != nil {
+			stmt.Close()
+			_ = tx.Rollback()
+			return fmt.Errorf("nodeRepo: bulk upsert %s: %w", row.ID, execErr)
+		}
+	}
+
+	stmt.Close()
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("nodeRepo: bulk upsert commit: %w", commitErr)
+	}
+
+	return nil
+}
+
+// BulkDelete removes every row whose id is in ids in a single transaction.
+// FK cascades drop the matching `edges.source_id` and `embeddings.node_id`
+// rows automatically (P2 schema). A partial failure rolls back all deletes.
+func (repo *NodeRepo) BulkDelete(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("nodeRepo: bulk delete begin: %w", beginErr)
+	}
+
+	stmt, prepErr := tx.Prepare(`DELETE FROM nodes WHERE id = ?`)
+
+	if prepErr != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("nodeRepo: bulk delete prepare: %w", prepErr)
+	}
+
+	for _, id := range ids {
+		if _, execErr := stmt.Exec(id); execErr != nil {
+			stmt.Close()
+			_ = tx.Rollback()
+			return fmt.Errorf("nodeRepo: bulk delete %s: %w", id, execErr)
+		}
+	}
+
+	stmt.Close()
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("nodeRepo: bulk delete commit: %w", commitErr)
 	}
 
 	return nil
@@ -60,16 +173,11 @@ func (repo *NodeRepo) Upsert(row NodeRow) error {
 
 // Get returns the row with the given id, or ErrNodeNotFound.
 func (repo *NodeRepo) Get(nodeID string) (*NodeRow, error) {
-	row := repo.db.QueryRow(`
-		SELECT id, type, path, title, properties_json, last_mtime, last_size, last_checksum
-		FROM nodes
-		WHERE id = ?
-	`, nodeID)
+	row := repo.db.QueryRow(nodeSelectColumns+` FROM nodes WHERE id = ?`, nodeID)
 
-	loaded := &NodeRow{}
-	scanErr := row.Scan(&loaded.ID, &loaded.Type, &loaded.Path, &loaded.Title, &loaded.PropertiesJSON, &loaded.LastMtime, &loaded.LastSize, &loaded.LastChecksum)
+	loaded, scanErr := scanNodeRow(row)
 
-	if scanErr == sql.ErrNoRows {
+	if errors.Is(scanErr, sql.ErrNoRows) {
 		return nil, ErrNodeNotFound
 	}
 
@@ -82,7 +190,7 @@ func (repo *NodeRepo) Get(nodeID string) (*NodeRow, error) {
 
 // List returns rows matching filter, ordered by id ASC.
 func (repo *NodeRepo) List(filter ListFilter) ([]NodeRow, error) {
-	query := `SELECT id, type, path, title, properties_json, last_mtime, last_size, last_checksum FROM nodes`
+	query := nodeSelectColumns + ` FROM nodes`
 	args := []any{}
 
 	if filter.Type != "" {
@@ -92,27 +200,36 @@ func (repo *NodeRepo) List(filter ListFilter) ([]NodeRow, error) {
 
 	query += ` ORDER BY id ASC`
 
-	rows, queryErr := repo.db.Query(query, args...)
+	return repo.queryNodes(query, args...)
+}
 
-	if queryErr != nil {
-		return nil, fmt.Errorf("nodeRepo: list: %w", queryErr)
-	}
+// ListByParent returns every sub-unit row whose `parent_id` equals parentID,
+// ordered by ordinal ASC. Returns an empty slice (nil) when the parent has
+// no sub-unit rows. Used by the sub-unit sync pipeline (Task 3) to diff the
+// existing rows against the parser's freshly produced units.
+func (repo *NodeRepo) ListByParent(parentID string) ([]NodeRow, error) {
+	return repo.queryNodes(
+		nodeSelectColumns+` FROM nodes WHERE parent_id = ? ORDER BY ordinal ASC`,
+		parentID,
+	)
+}
 
-	defer rows.Close()
+// ListSubUnitsForFile returns every sub-unit row belonging to a file,
+// regardless of how deeply nested in the document's section tree. The
+// match is on the row id prefix `fileID#`, which mirrors the id format
+// produced by the Task 3 sync pipeline (`<fileID>#<hash>`). Rows are
+// ordered by ordinal ASC so callers walking the slice see depth-first
+// document order.
+//
+// Use this for whole-file sub-unit diffs (sync, doctor); use ListByParent
+// when you only need the immediate children of a single parent.
+func (repo *NodeRepo) ListSubUnitsForFile(fileID string) ([]NodeRow, error) {
+	pattern := fileID + "#%"
 
-	var results []NodeRow
-
-	for rows.Next() {
-		row := NodeRow{}
-
-		if scanErr := rows.Scan(&row.ID, &row.Type, &row.Path, &row.Title, &row.PropertiesJSON, &row.LastMtime, &row.LastSize, &row.LastChecksum); scanErr != nil {
-			return nil, fmt.Errorf("nodeRepo: scan: %w", scanErr)
-		}
-
-		results = append(results, row)
-	}
-
-	return results, rows.Err()
+	return repo.queryNodes(
+		nodeSelectColumns+` FROM nodes WHERE id LIKE ? ORDER BY ordinal ASC`,
+		pattern,
+	)
 }
 
 // FindByTitle returns the IDs of all nodes whose title matches title.
@@ -166,4 +283,70 @@ func (repo *NodeRepo) DeleteByPath(filePath string) error {
 	}
 
 	return nil
+}
+
+// nodeSelectColumns is the fixed column list used by Get, List, and
+// ListByParent so every scan path uses the same struct shape.
+const nodeSelectColumns = `SELECT id, type, path, title, properties_json,
+	last_mtime, last_size, last_checksum,
+	parent_id, ordinal, embed_payload`
+
+// queryNodes runs a SELECT that returns the standard NodeRow column set and
+// materializes the result slice.
+func (repo *NodeRepo) queryNodes(query string, args ...any) ([]NodeRow, error) {
+	rows, queryErr := repo.db.Query(query, args...)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("nodeRepo: %s: %w", firstWord(query), queryErr)
+	}
+
+	defer rows.Close()
+
+	var results []NodeRow
+
+	for rows.Next() {
+		loaded, scanErr := scanNodeRow(rows)
+
+		if scanErr != nil {
+			return nil, fmt.Errorf("nodeRepo: scan: %w", scanErr)
+		}
+
+		results = append(results, *loaded)
+	}
+
+	return results, rows.Err()
+}
+
+// rowScanner abstracts *sql.Row and *sql.Rows so scanNodeRow can serve both
+// single-row Get and multi-row List paths without duplication.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanNodeRow(row rowScanner) (*NodeRow, error) {
+	loaded := &NodeRow{}
+
+	scanErr := row.Scan(
+		&loaded.ID, &loaded.Type, &loaded.Path, &loaded.Title, &loaded.PropertiesJSON,
+		&loaded.LastMtime, &loaded.LastSize, &loaded.LastChecksum,
+		&loaded.ParentID, &loaded.Ordinal, &loaded.EmbedPayload,
+	)
+
+	if scanErr != nil {
+		return nil, scanErr
+	}
+
+	return loaded, nil
+}
+
+// firstWord returns the first whitespace-delimited token of a SQL string —
+// used solely to give queryNodes errors a readable verb prefix.
+func firstWord(query string) string {
+	trimmed := strings.TrimSpace(query)
+
+	if idx := strings.IndexAny(trimmed, " \t\n"); idx > 0 {
+		return strings.ToLower(trimmed[:idx])
+	}
+
+	return strings.ToLower(trimmed)
 }

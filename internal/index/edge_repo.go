@@ -99,6 +99,61 @@ func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
 	return out, rows.Err()
 }
 
+// DeleteBySourceAndType removes every edge whose (source_id, type) matches
+// sourceID and edgeType. Used by the sub-unit sync pipeline to clear the
+// file's `contains` edges before rewriting them, without touching the
+// file's frontmatter-derived edges (which carry the same source_id but
+// different type values).
+func (repo *EdgeRepo) DeleteBySourceAndType(sourceID, edgeType string) error {
+	_, execErr := repo.db.Exec(`DELETE FROM edges WHERE source_id = ? AND type = ?`, sourceID, edgeType)
+
+	if execErr != nil {
+		return fmt.Errorf("edgeRepo: delete source %s type %s: %w", sourceID, edgeType, execErr)
+	}
+
+	return nil
+}
+
+// InsertIgnore inserts every row, skipping duplicates that violate the
+// UNIQUE(type, source_id, target_id, source_path) constraint. Used by the
+// sub-unit sync pipeline to additively write the file's `contains` edges
+// without first wiping unrelated edges. Wraps the inserts in a single
+// transaction so partial failure rolls back.
+func (repo *EdgeRepo) InsertIgnore(edges []EdgeRow) error {
+	if len(edges) == 0 {
+		return nil
+	}
+
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("edgeRepo: insert-ignore begin: %w", beginErr)
+	}
+
+	stmt, prepErr := tx.Prepare(`INSERT OR IGNORE INTO edges (type, source_id, target_id, source_path) VALUES (?, ?, ?, ?)`)
+
+	if prepErr != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("edgeRepo: insert-ignore prepare: %w", prepErr)
+	}
+
+	for _, edge := range edges {
+		if _, execErr := stmt.Exec(edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath); execErr != nil {
+			stmt.Close()
+			_ = tx.Rollback()
+			return fmt.Errorf("edgeRepo: insert-ignore %s→%s: %w", edge.SourceID, edge.TargetID, execErr)
+		}
+	}
+
+	stmt.Close()
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("edgeRepo: insert-ignore commit: %w", commitErr)
+	}
+
+	return nil
+}
+
 // DeleteBySource removes every edge where source_id = sourceID, regardless of source_path.
 func (repo *EdgeRepo) DeleteBySource(sourceID string) error {
 	_, execErr := repo.db.Exec(`DELETE FROM edges WHERE source_id = ?`, sourceID)

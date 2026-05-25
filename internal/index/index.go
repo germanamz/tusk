@@ -21,7 +21,7 @@ const schema = `
 CREATE TABLE IF NOT EXISTS nodes (
 	id              TEXT PRIMARY KEY,           -- workspace-relative path without extension
 	type            TEXT NOT NULL,
-	path            TEXT NOT NULL UNIQUE,       -- workspace-relative file path with extension
+	path            TEXT NOT NULL,              -- workspace-relative file path with extension; unique among file rows only
 	title           TEXT,
 	properties_json TEXT NOT NULL DEFAULT '{}', -- JSON object of all non-edge frontmatter properties
 	last_mtime      INTEGER NOT NULL,           -- unix nanoseconds
@@ -37,6 +37,10 @@ CREATE INDEX IF NOT EXISTS nodes_type_idx ON nodes(type);
 -- migrateAddSubUnitColumns after it ensures the columns exist. The
 -- IF NOT EXISTS check there is safe because the index was either
 -- created on a fresh DB by that migration or by a previous run.
+-- The partial UNIQUE index on path (file rows only) is created by
+-- migrateRelaxNodesPathUnique once the sub-units columns exist —
+-- sub-unit rows inherit their parent file's path, so a table-level
+-- UNIQUE(path) constraint would block them.
 
 CREATE TABLE IF NOT EXISTS edges (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,6 +176,12 @@ func Open(dbPath string) (*Index, error) {
 	}
 
 	if migrateErr := migrateAddEdgesSourceFK(ctx, conn); migrateErr != nil {
+		conn.Close()
+		db.Close()
+		return nil, migrateErr
+	}
+
+	if migrateErr := migrateRelaxNodesPathUnique(ctx, conn); migrateErr != nil {
 		conn.Close()
 		db.Close()
 		return nil, migrateErr
@@ -446,6 +456,139 @@ func migrateAddEdgesSourceFK(ctx context.Context, conn *sql.Conn) error {
 
 		return nil
 	})
+}
+
+// migrateRelaxNodesPathUnique drops the table-level UNIQUE constraint on
+// nodes.path (added by the pre-P2 schema) and replaces it with a partial
+// UNIQUE index over file rows only (`WHERE parent_id IS NULL`). Sub-unit
+// rows added by the Task 3 sync pipeline inherit their parent file's path,
+// so a table-level UNIQUE(path) would prevent the second-and-subsequent
+// sub-units of a file from being inserted. The partial index keeps the
+// "one file per workspace path" invariant intact while letting many
+// sub-units share that path.
+//
+// Idempotent: returns nil once the partial index exists and the rebuilt
+// nodes table no longer carries the table-level UNIQUE(path).
+//
+// SQLite cannot drop a column-level UNIQUE constraint in place, so the
+// migration uses the same copy/drop/rename recipe as
+// migrateAddEdgesSourceFK. Foreign-key enforcement is disabled for the
+// rebuild because the rebuilt nodes table is briefly renamed, which
+// would otherwise break edges.source_id and embeddings.node_id FKs that
+// point at it.
+func migrateRelaxNodesPathUnique(ctx context.Context, conn *sql.Conn) error {
+	needs, needsErr := nodesPathNeedsRelax(ctx, conn)
+
+	if needsErr != nil {
+		return needsErr
+	}
+
+	if !needs {
+		// Ensure the partial unique index exists even when the table
+		// is already in its post-migration shape (covers fresh DBs
+		// where the schema constant created the table without the
+		// UNIQUE constraint and only the index is missing).
+		if _, execErr := conn.ExecContext(ctx,
+			`CREATE UNIQUE INDEX IF NOT EXISTS nodes_file_path_uidx ON nodes(path) WHERE parent_id IS NULL`,
+		); execErr != nil {
+			return fmt.Errorf("index: create nodes_file_path_uidx: %w", execErr)
+		}
+
+		return nil
+	}
+
+	return withForeignKeysDisabled(ctx, conn, func() error {
+		statements := []string{
+			`CREATE TABLE nodes_new (
+				id              TEXT PRIMARY KEY,
+				type            TEXT NOT NULL,
+				path            TEXT NOT NULL,
+				title           TEXT,
+				properties_json TEXT NOT NULL DEFAULT '{}',
+				last_mtime      INTEGER NOT NULL,
+				last_size       INTEGER NOT NULL,
+				last_checksum   TEXT NOT NULL,
+				parent_id       TEXT NULL,
+				ordinal         INTEGER NULL,
+				embed_payload   TEXT NULL
+			)`,
+			`INSERT INTO nodes_new (
+				id, type, path, title, properties_json,
+				last_mtime, last_size, last_checksum,
+				parent_id, ordinal, embed_payload
+			)
+			SELECT id, type, path, title, properties_json,
+				last_mtime, last_size, last_checksum,
+				parent_id, ordinal, embed_payload
+			FROM nodes`,
+			`DROP TABLE nodes`,
+			`ALTER TABLE nodes_new RENAME TO nodes`,
+			`CREATE INDEX IF NOT EXISTS nodes_type_idx ON nodes(type)`,
+			`CREATE INDEX IF NOT EXISTS nodes_parent_id_ordinal ON nodes(parent_id, ordinal)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS nodes_file_path_uidx ON nodes(path) WHERE parent_id IS NULL`,
+		}
+
+		tx, beginErr := conn.BeginTx(ctx, nil)
+
+		if beginErr != nil {
+			return fmt.Errorf("index: begin nodes path-unique migration: %w", beginErr)
+		}
+
+		for _, statement := range statements {
+			if _, execErr := tx.ExecContext(ctx, statement); execErr != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("index: migrate nodes path-unique (statement %q): %w", statement, execErr)
+			}
+		}
+
+		if commitErr := tx.Commit(); commitErr != nil {
+			return fmt.Errorf("index: commit nodes path-unique migration: %w", commitErr)
+		}
+
+		return nil
+	})
+}
+
+// nodesPathNeedsRelax reports whether the nodes table still carries the
+// pre-P2 table-level UNIQUE(path) constraint. The constraint surfaces in
+// PRAGMA index_list as an auto-generated `sqlite_autoindex_nodes_<n>`
+// unique index that does NOT carry a partial-index predicate. The
+// post-migration `nodes_file_path_uidx` is partial (and lives under a
+// stable name) so the two are easily distinguished.
+func nodesPathNeedsRelax(ctx context.Context, conn *sql.Conn) (bool, error) {
+	rows, queryErr := conn.QueryContext(ctx, `PRAGMA index_list(nodes)`)
+
+	if queryErr != nil {
+		return false, fmt.Errorf("index: inspect nodes indexes: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var hasAutoUnique bool
+
+	for rows.Next() {
+		var seq int
+		var name, origin string
+		var unique, partial int
+
+		if scanErr := rows.Scan(&seq, &name, &unique, &origin, &partial); scanErr != nil {
+			return false, fmt.Errorf("index: scan nodes index info: %w", scanErr)
+		}
+
+		// `origin = "u"` marks a unique constraint declared inline on
+		// a column (the only way an automatic UNIQUE index shows up
+		// for nodes.path). The partial flag is 0 for the legacy
+		// constraint; the post-migration index is partial.
+		if unique == 1 && origin == "u" && partial == 0 {
+			hasAutoUnique = true
+		}
+	}
+
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return false, fmt.Errorf("index: iterate nodes index info: %w", rowsErr)
+	}
+
+	return hasAutoUnique, nil
 }
 
 // withForeignKeysDisabled temporarily toggles PRAGMA foreign_keys = OFF,

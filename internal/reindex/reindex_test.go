@@ -874,6 +874,243 @@ func TestRun_UnflaggedReferencesEdgeDoesNotMaterialize(test *testing.T) {
 	}
 }
 
+// TestRun_SubUnitsEnabled_WritesAndConvergesRows is the end-to-end
+// happy-path test for the sub-unit pipeline (Phase 2 Task 3). It seeds
+// three markdown files exercising headings, lists, wikilinks, and a
+// degenerate single-paragraph body, runs Reindex with sub-units
+// enabled, then rewrites one paragraph in one file and re-runs to
+// confirm only the edited paragraph's row id changes.
+func TestRun_SubUnitsEnabled_WritesAndConvergesRows(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/long.md", "type: note\ntitle: Long\n",
+		"# Heading\n\nFirst paragraph.\n\n## Sub\n\n- list item one\n- list item two\n")
+	writeNode(test, root, "notes/wikilink.md", "type: note\ntitle: WL\n",
+		"see [[notes/long]] for context\n")
+	writeNode(test, root, "notes/tiny.md", "type: note\ntitle: Tiny\n", "just one paragraph\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+			Wikilinks:   true,
+		},
+	}
+
+	// Hand-built manifest with no Meta — SubUnitsEnabled() returns
+	// true by default for hand-built manifests.
+	loaded := &manifest.Manifest{EdgeTypes: edgeTypes}
+
+	cfg := reindex.Config{
+		Root:      root,
+		Repo:      repo,
+		Edges:     edgeRepo,
+		EdgeTypes: edgeTypes,
+		Manifest:  loaded,
+	}
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if report.SubUnitsInserted == 0 {
+		test.Errorf("SubUnitsInserted = 0, want >0")
+	}
+
+	longRows, listErr := repo.ListSubUnitsForFile("notes/long")
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFile: %v", listErr)
+	}
+
+	if len(longRows) == 0 {
+		test.Errorf("expected sub-unit rows for notes/long, got none")
+	}
+
+	tinyRows, _ := repo.ListSubUnitsForFile("notes/tiny")
+
+	if len(tinyRows) != 1 {
+		test.Errorf("tiny sub-unit rows = %d, want 1", len(tinyRows))
+	}
+
+	// A wikilink in a sub-unit body must materialize as a references
+	// edge with the sub-unit row as the source.
+	wikiRows, _ := repo.ListSubUnitsForFile("notes/wikilink")
+
+	if len(wikiRows) == 0 {
+		test.Fatalf("no sub-unit rows for wikilink file")
+	}
+
+	var sawWikilinkEdge bool
+
+	for _, row := range wikiRows {
+		listed, _ := edgeRepo.ListBySource(row.ID)
+
+		for _, edge := range listed {
+			if edge.Type == "references" && edge.TargetID == "notes/long" {
+				sawWikilinkEdge = true
+			}
+		}
+	}
+
+	if !sawWikilinkEdge {
+		test.Errorf("expected references edge from a wikilink sub-unit to notes/long")
+	}
+
+	// `contains` edges from the file row to each sub-unit (one per row).
+	containsEdges, _ := edgeRepo.ListBySource("notes/long")
+
+	var containsCount int
+
+	for _, edge := range containsEdges {
+		if edge.Type == "contains" {
+			containsCount++
+		}
+	}
+
+	if containsCount != len(longRows) {
+		test.Errorf("contains edges = %d, want %d", containsCount, len(longRows))
+	}
+
+	// Capture pre-edit ids so we can prove only the edited row turns over.
+	preTinyIDs := map[string]struct{}{}
+
+	for _, row := range tinyRows {
+		preTinyIDs[row.ID] = struct{}{}
+	}
+
+	preLongIDs := map[string]struct{}{}
+
+	for _, row := range longRows {
+		preLongIDs[row.ID] = struct{}{}
+	}
+
+	// Edit one paragraph in `notes/tiny.md` — the row id (a hash of
+	// the body) must change; long and wikilink rows must not.
+	writeNode(test, root, "notes/tiny.md", "type: note\ntitle: Tiny\n", "edited paragraph body\n")
+
+	if _, runErr = reindex.Run(cfg); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	postTinyRows, _ := repo.ListSubUnitsForFile("notes/tiny")
+
+	if len(postTinyRows) != 1 {
+		test.Errorf("post tiny rows = %d, want 1", len(postTinyRows))
+	}
+
+	if _, kept := preTinyIDs[postTinyRows[0].ID]; kept {
+		test.Errorf("tiny row id %q unchanged after edit; expected new hash", postTinyRows[0].ID)
+	}
+
+	postLongRows, _ := repo.ListSubUnitsForFile("notes/long")
+
+	if len(postLongRows) != len(longRows) {
+		test.Errorf("long rows churned: pre=%d post=%d", len(longRows), len(postLongRows))
+	}
+
+	for _, row := range postLongRows {
+		if _, kept := preLongIDs[row.ID]; !kept {
+			test.Errorf("long row id %q changed across reindex passes", row.ID)
+		}
+	}
+}
+
+// TestRun_SubUnitsDisabled_NoSubUnitRows is the back-compat regression:
+// when SubUnitsEnabled() is false, the reindex pass must NOT write any
+// sub-unit rows. Loaded from a real manifest file so the toml.MetaData
+// is present and the disable signal reaches the engine.
+func TestRun_SubUnitsDisabled_NoSubUnitRows(test *testing.T) {
+	root := test.TempDir()
+
+	manifestPath := filepath.Join(root, "tusk.toml")
+
+	manifestBody := `
+[workspace]
+name = "test"
+sub-units = false
+
+[edge-types.references]
+from = ["*"]
+to = ["*"]
+cardinality = "many-to-many"
+wikilinks = true
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("manifest.Load: %v", loadErr)
+	}
+
+	if loaded.SubUnitsEnabled() {
+		test.Fatalf("manifest opted out but SubUnitsEnabled() = true")
+	}
+
+	writeNode(test, root, "notes/long.md", "type: note\ntitle: Long\n",
+		"# H\n\nfirst\n\n- a\n- b\n")
+	writeNode(test, root, "notes/tiny.md", "type: note\ntitle: T\n", "just one\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:      root,
+		Repo:      repo,
+		Edges:     edgeRepo,
+		EdgeTypes: loaded.EdgeTypes,
+		Manifest:  loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.SubUnitsInserted != 0 {
+		test.Errorf("SubUnitsInserted = %d, want 0 with sub-units disabled", report.SubUnitsInserted)
+	}
+
+	for _, fileID := range []string{"notes/long", "notes/tiny"} {
+		subRows, _ := repo.ListSubUnitsForFile(fileID)
+
+		if len(subRows) != 0 {
+			test.Errorf("%s: sub-unit rows present with sub-units disabled: %d", fileID, len(subRows))
+		}
+	}
+
+	// Defense-in-depth: assert directly against the schema that no node
+	// row has a non-null parent_id. ListSubUnitsForFile filters by id
+	// prefix; this query catches any row that slipped past the prefix
+	// filter (e.g., if SubUnitsEnabled() ever changes its default
+	// semantics and the engine starts writing sub-units under a
+	// different id scheme).
+	var parentedCount int
+
+	scanErr := store.DB().QueryRow(`SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL`).Scan(&parentedCount)
+
+	if scanErr != nil {
+		test.Fatalf("count parent_id rows: %v", scanErr)
+	}
+
+	if parentedCount != 0 {
+		test.Errorf("nodes with parent_id IS NOT NULL = %d, want 0 with sub-units disabled", parentedCount)
+	}
+}
+
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
 	test.Helper()
 

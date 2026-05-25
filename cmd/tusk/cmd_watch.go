@@ -80,6 +80,7 @@ in another shell to observe progress.`,
 					EdgeTypes:       loaded.EdgeTypes,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
 					Logger:          logger,
+					Manifest:        loaded,
 				}); runErr != nil {
 					return runErr
 				}
@@ -143,6 +144,7 @@ in another shell to observe progress.`,
 						EdgeTypes:       loaded.EdgeTypes,
 						WorkspaceIgnore: loaded.Workspace.Ignore,
 						Logger:          logger,
+						Manifest:        loaded,
 					})
 
 					if runErr != nil {
