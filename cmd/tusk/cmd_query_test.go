@@ -325,3 +325,47 @@ func TestMergeGraphExpansion_ExpandFlagBeatsWorkspaceDisabled(test *testing.T) {
 		test.Errorf("Enabled = false, want true (--graph-expand should enable)")
 	}
 }
+
+// TestMergeGraphExpansion_ExpandFalseBeatsWorkspaceEnabled confirms an
+// explicit --graph-expand=false disables the feature even when the workspace
+// manifest enables it. The previous switch arm only ran when ExpandValue was
+// true, silently dropping the user's explicit false.
+func TestMergeGraphExpansion_ExpandFalseBeatsWorkspaceEnabled(test *testing.T) {
+	base := manifestDefaultGraphExpansion()
+	base.Enabled = true // Workspace ships with enabled = true.
+
+	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{
+		ExpandSet:   true,
+		ExpandValue: false,
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+	}
+
+	if got.Enabled {
+		test.Errorf("Enabled = true, want false (--graph-expand=false must beat workspace enabled=true)")
+	}
+}
+
+// TestMergeGraphExpansion_EdgeTypesNotAliased confirms the resolved
+// GraphExpansion does not share the backing array of its base.EdgeTypes
+// slice. The MCP server fans requests out across goroutines, so an aliased
+// slice would race once a future caller mutates it.
+func TestMergeGraphExpansion_EdgeTypesNotAliased(test *testing.T) {
+	base := manifestDefaultGraphExpansion()
+
+	if len(base.EdgeTypes) == 0 {
+		test.Fatalf("default EdgeTypes unexpectedly empty")
+	}
+
+	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{})
+
+	if mergeErr != nil {
+		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+	}
+
+	if &got.EdgeTypes[0] == &base.EdgeTypes[0] {
+		test.Errorf("resolved EdgeTypes shares backing array with base; want clone")
+	}
+}

@@ -155,6 +155,16 @@ func argBoolTriState(request mcpgo.CallToolRequest, key string) *bool {
 func mergeGraphExpansionFromRequest(request mcpgo.CallToolRequest, base manifest.GraphExpansion) (*manifest.GraphExpansion, error) {
 	resolved := base
 
+	// Struct copy aliases the EdgeTypes slice header. The MCP server fans
+	// requests out to multiple goroutines that share the runtime manifest;
+	// clone the backing array so a future mutation cannot race with another
+	// in-flight request reading the same slice.
+	if len(base.EdgeTypes) > 0 {
+		cloned := make([]string, len(base.EdgeTypes))
+		copy(cloned, base.EdgeTypes)
+		resolved.EdgeTypes = cloned
+	}
+
 	if expand := argBoolTriState(request, "graph_expand"); expand != nil {
 		resolved.Enabled = *expand
 	}

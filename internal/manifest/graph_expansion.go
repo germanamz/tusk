@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/BurntSushi/toml"
@@ -135,7 +136,10 @@ func resolveGraphExpansion(loaded *Manifest) error {
 	}
 
 	if errs := resolved.Validate(); len(errs) > 0 {
-		return errs[0]
+		// Validate accumulates rule violations; surface every one so users
+		// see all problems in a single load attempt rather than fixing them
+		// one round-trip at a time.
+		return errors.Join(errs...)
 	}
 
 	loaded.GraphExpansion = resolved

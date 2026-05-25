@@ -261,6 +261,54 @@ func TestGraphExpansion_ValidateReportsAllErrors(test *testing.T) {
 	}
 }
 
+// TestGraphExpansion_LoadReportsAllErrors confirms Load aggregates every
+// validation failure into a single error so users see hops AND weight problems
+// at once instead of fixing them one round-trip at a time.
+func TestGraphExpansion_LoadReportsAllErrors(test *testing.T) {
+	body := `
+[workspace]
+name = "x"
+
+[query.graph-expansion]
+enabled = true
+hops    = 7
+weight  = 1.5
+`
+
+	_, loadErr := loadInlineManifestAllowError(test, body)
+
+	if loadErr == nil {
+		test.Fatalf("expected error for bad hops AND bad weight, got nil")
+	}
+
+	if !strings.Contains(loadErr.Error(), "hops") {
+		test.Errorf("error %q should mention hops", loadErr.Error())
+	}
+
+	if !strings.Contains(loadErr.Error(), "weight") {
+		test.Errorf("error %q should mention weight", loadErr.Error())
+	}
+}
+
+// TestDefaultGraphExpansion_EdgeTypesIsolated confirms that two separate calls
+// to DefaultGraphExpansion return EdgeTypes slices that do not share backing
+// storage. A shared backing array would let one caller's mutation leak into
+// every subsequent default, which the resolver and tests rely on staying
+// pristine.
+func TestDefaultGraphExpansion_EdgeTypesIsolated(test *testing.T) {
+	first := manifest.DefaultGraphExpansion()
+	second := manifest.DefaultGraphExpansion()
+
+	if len(first.EdgeTypes) == 0 || len(second.EdgeTypes) == 0 {
+		test.Fatalf("default EdgeTypes unexpectedly empty: first=%v second=%v",
+			first.EdgeTypes, second.EdgeTypes)
+	}
+
+	if &first.EdgeTypes[0] == &second.EdgeTypes[0] {
+		test.Errorf("DefaultGraphExpansion EdgeTypes share backing array; want fresh slice per call")
+	}
+}
+
 // intToString is a tiny stand-in for strconv.Itoa to keep the test file's
 // import list small.
 func intToString(value int) string {

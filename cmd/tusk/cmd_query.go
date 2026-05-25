@@ -242,6 +242,15 @@ func mergeGraphExpansion(cmd *cobra.Command, base manifest.GraphExpansion, overr
 
 	resolved := base
 
+	// Struct copy aliases the EdgeTypes slice header; clone the backing
+	// array so per-call mutations cannot leak into the shared manifest
+	// configuration (matters for MCP, harmless but cheap for CLI).
+	if len(base.EdgeTypes) > 0 {
+		cloned := make([]string, len(base.EdgeTypes))
+		copy(cloned, base.EdgeTypes)
+		resolved.EdgeTypes = cloned
+	}
+
 	if override.HopsSet {
 		if override.HopsValue != 1 && override.HopsValue != 2 {
 			return nil, fmt.Errorf("--hops must be 1 or 2 (got %d)", override.HopsValue)
@@ -267,12 +276,14 @@ func mergeGraphExpansion(cmd *cobra.Command, base manifest.GraphExpansion, overr
 	}
 
 	// Tri-state precedence: --no-graph-expand beats --graph-expand beats the
-	// manifest default.
+	// manifest default. An explicit --graph-expand=false must also override
+	// the manifest, so we honor ExpandValue directly when ExpandSet is true
+	// instead of gating on the value being true.
 	switch {
-	case override.NoExpandSet && override.NoExpand:
+	case override.NoExpandSet:
 		resolved.Enabled = false
-	case override.ExpandSet && override.ExpandValue:
-		resolved.Enabled = true
+	case override.ExpandSet:
+		resolved.Enabled = override.ExpandValue
 	}
 
 	return &resolved, nil
