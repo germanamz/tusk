@@ -63,6 +63,13 @@ const (
 	// and ignores the user's override; doctor surfaces the override so
 	// users notice the shadowing.
 	IssueSubUnitReserved = "sub-unit-reserved"
+
+	// IssueSubUnitsDisabledDirty surfaces the back-compat hazard where
+	// the manifest opts out of sub-units (`[workspace] sub-units =
+	// false`) but the index still contains sub-unit rows from a previous
+	// run with sub-units enabled. Doctor does NOT auto-clean; the user
+	// must run `tusk reindex --force` to drop the stale rows.
+	IssueSubUnitsDisabledDirty = "sub-units-disabled-dirty"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -90,6 +97,49 @@ type Report struct {
 	// can surface sub-document reserved-name overrides without
 	// re-parsing Issues.
 	SubUnitConflicts []manifest.SubUnitConflict
+	// SubUnitPane is the typed sub-unit health summary (Plan 2 Task 6
+	// / spec §5.9). nil when the manifest opts out of sub-units AND no
+	// sub-unit rows exist in the index. When sub-units are disabled but
+	// stale rows remain, the pane is still populated so the CLI/MCP
+	// renderer can show the dirty-state counts alongside the
+	// IssueSubUnitsDisabledDirty warning.
+	SubUnitPane *SubUnitPane
+}
+
+// SubUnitPane summarizes the sub-unit pipeline's health for tusk doctor
+// (spec §5.9). All counts are computed from the index at Run time.
+type SubUnitPane struct {
+	// Total is the total number of sub-unit rows
+	// (`nodes.parent_id IS NOT NULL`).
+	Total int
+	// CountByKind buckets the totals by `nodes.type` for sub-unit rows.
+	// Keys are the subunit.Kind string values: "section", "paragraph",
+	// "list-item", "code-block", "blockquote", "table-cell".
+	CountByKind map[string]int
+	// HashCollisions counts sub-unit rows whose id carries a
+	// disambiguating numeric suffix (`<fileID>#<hash>-<N>` with N > 0)
+	// — i.e., the parser's ResolveCollisions had to suffix the row to
+	// keep the id unique within the file. A high count signals
+	// duplicate-content paragraphs the embedder cannot distinguish.
+	HashCollisions int
+	// OrphanedSubUnits counts rows whose parent_id does not resolve to
+	// a node row. Should always be zero (FK CASCADE), surfaced only
+	// when > 0 as a "this indicates a bug" warning.
+	OrphanedSubUnits int
+	// EmbedQueueFiles is the number of pending file-level rows in the
+	// embed queue (queued id contains no `#`).
+	EmbedQueueFiles int
+	// EmbedQueueSubUnits is the number of pending sub-unit rows in the
+	// embed queue (queued id contains `#`).
+	EmbedQueueSubUnits int
+	// OversizeEmbedPayloads is the number of sub-unit rows whose
+	// embed_payload byte length exceeds embed.DefaultMaxBytes. The
+	// chunker normally keeps payloads under this bound; a non-zero
+	// count indicates the AST emitted a single leaf exceeding the cap.
+	OversizeEmbedPayloads int
+	// ReservedNameConflicts mirrors len(Report.SubUnitConflicts) so the
+	// pane can show the recap count without the caller re-counting.
+	ReservedNameConflicts int
 }
 
 // EmbedStatsReport summarizes chunking aggregates for tusk doctor.
@@ -271,7 +321,102 @@ func Run(config Config) (*Report, error) {
 		}
 	}
 
+	if config.Nodes != nil {
+		pane, paneErr := computeSubUnitPane(config)
+
+		if paneErr != nil {
+			return nil, paneErr
+		}
+
+		if pane != nil {
+			pane.ReservedNameConflicts = len(report.SubUnitConflicts)
+			report.SubUnitPane = pane
+
+			// Manifest opt-out + stale rows = dirty index warning.
+			if config.Manifest != nil && !config.Manifest.SubUnitsEnabled() && pane.Total > 0 {
+				report.Issues = append(report.Issues, Issue{
+					Kind:    IssueSubUnitsDisabledDirty,
+					Message: fmt.Sprintf("sub-units disabled but index contains %d sub-unit rows; run `tusk reindex --force` to clean up.", pane.Total),
+				})
+			}
+		}
+	}
+
 	return report, nil
+}
+
+// computeSubUnitPane reads the index for sub-unit health metrics. Returns
+// nil when sub-units are disabled by the manifest AND the index has no
+// sub-unit rows (the common back-compat case). When stale rows exist
+// despite the opt-out, the pane is populated so the CLI/MCP renderer can
+// show the counts alongside the dirty-state issue.
+func computeSubUnitPane(config Config) (*SubUnitPane, error) {
+	// Cheap pre-check: skip the pane entirely on a fresh index with the
+	// opt-out in place. Most workspaces never opt out, so the early
+	// return only fires for the explicit disable + clean state.
+	total, totalErr := config.Nodes.CountSubUnits()
+
+	if totalErr != nil {
+		return nil, totalErr
+	}
+
+	if total == 0 && config.Manifest != nil && !config.Manifest.SubUnitsEnabled() {
+		return nil, nil
+	}
+
+	pane := &SubUnitPane{Total: total}
+
+	byKind, kindErr := config.Nodes.CountSubUnitsByKind()
+
+	if kindErr != nil {
+		return nil, kindErr
+	}
+
+	pane.CountByKind = byKind
+
+	collisions, collisionErr := config.Nodes.CountSubUnitHashCollisions()
+
+	if collisionErr != nil {
+		return nil, collisionErr
+	}
+
+	pane.HashCollisions = collisions
+
+	orphans, orphanErr := config.Nodes.CountOrphanedSubUnits()
+
+	if orphanErr != nil {
+		return nil, orphanErr
+	}
+
+	pane.OrphanedSubUnits = orphans
+
+	oversize, oversizeErr := config.Nodes.CountOversizeSubUnitPayloads(embed.DefaultMaxBytes)
+
+	if oversizeErr != nil {
+		return nil, oversizeErr
+	}
+
+	pane.OversizeEmbedPayloads = oversize
+
+	// Embed queue split. Walk the pending ids and bucket on whether the
+	// id is a sub-unit (`#` separator) or a file row.
+	if config.EmbedQueue != nil {
+		queued, listErr := config.EmbedQueue.ListNodeIDs()
+
+		if listErr != nil {
+			return nil, fmt.Errorf("doctor: list embed queue ids: %w", listErr)
+		}
+
+		for _, id := range queued {
+			if strings.Contains(id, "#") {
+				pane.EmbedQueueSubUnits++
+			} else {
+				pane.EmbedQueueFiles++
+			}
+		}
+	}
+
+	return pane, nil
 }
 
 // CheckPinnedNodes returns the IDs declared under [context.pinned] that

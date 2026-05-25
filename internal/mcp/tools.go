@@ -732,6 +732,26 @@ func registerDoctorTool(srv *Server) {
 			}
 		}
 
+		if report.SubUnitPane != nil {
+			pane := report.SubUnitPane
+			byKind := make(map[string]any, len(pane.CountByKind))
+
+			for kind, count := range pane.CountByKind {
+				byKind[kind] = count
+			}
+
+			response["sub_units"] = map[string]any{
+				"total":                   pane.Total,
+				"count_by_kind":           byKind,
+				"hash_collisions":         pane.HashCollisions,
+				"orphaned_sub_units":      pane.OrphanedSubUnits,
+				"embed_queue_files":       pane.EmbedQueueFiles,
+				"embed_queue_sub_units":   pane.EmbedQueueSubUnits,
+				"oversize_embed_payloads": pane.OversizeEmbedPayloads,
+				"reserved_name_conflicts": pane.ReservedNameConflicts,
+			}
+		}
+
 		return toolJSON(response)
 	}
 

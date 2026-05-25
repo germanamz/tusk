@@ -3,6 +3,7 @@ package index_test
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -577,5 +578,95 @@ func TestNodeRepo_ListSubUnitsForFiles(test *testing.T) {
 
 	if len(empty) != 0 {
 		test.Errorf("nil input returned %d rows, want 0", len(empty))
+	}
+}
+
+// TestSQLite_OctetLengthAvailable confirms modernc.org/sqlite supports
+// `octet_length()` and that it reports the byte count of UTF-8 text
+// (not codepoints). CountOversizeSubUnitPayloads relies on this to
+// compare bytes against embed.DefaultMaxBytes, which is a byte
+// threshold; `length()` would surface the codepoint count and
+// undercount multi-byte UTF-8.
+func TestSQLite_OctetLengthAvailable(test *testing.T) {
+	store := openTestIndex(test)
+
+	var (
+		bytesCount      int
+		codepointsCount int
+	)
+
+	if scanErr := store.DB().QueryRow("SELECT octet_length('héllo'), length('héllo')").Scan(&bytesCount, &codepointsCount); scanErr != nil {
+		test.Fatalf("octet_length probe failed (driver may lack support): %v", scanErr)
+	}
+
+	if bytesCount != 6 {
+		test.Errorf("octet_length('héllo') = %d, want 6 (é is 2 bytes in UTF-8)", bytesCount)
+	}
+
+	if codepointsCount != 5 {
+		test.Errorf("length('héllo') = %d, want 5 (codepoint count)", codepointsCount)
+	}
+}
+
+// TestNodeRepo_CountOversizeSubUnitPayloads_BytesNotCodepoints inserts a
+// sub-unit whose embed_payload is 3000 codepoints of multi-byte Cyrillic
+// (≈6000 bytes total). A codepoint-based length comparison would report
+// 3000 ≤ 4000 and miss the row; CountOversizeSubUnitPayloads must use
+// byte length and return 1.
+func TestNodeRepo_CountOversizeSubUnitPayloads_BytesNotCodepoints(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	parent := index.NodeRow{
+		ID:             "notes/cyrillic",
+		Type:           "note",
+		Path:           "notes/cyrillic.md",
+		Title:          "Cyrillic",
+		PropertiesJSON: `{}`,
+		LastChecksum:   "h",
+	}
+
+	if upsertErr := repo.Upsert(parent); upsertErr != nil {
+		test.Fatalf("Upsert parent: %v", upsertErr)
+	}
+
+	// Cyrillic "д" (U+0434) is 2 bytes in UTF-8. 3000 codepoints → 6000
+	// bytes, which exceeds the 4000-byte threshold but is below the
+	// codepoint count.
+	multiByteRune := "д"
+	payloadRunes := strings.Repeat(multiByteRune, 3000)
+
+	subUnit := index.NodeRow{
+		ID:             "notes/cyrillic#bulk",
+		Type:           "paragraph",
+		Path:           "notes/cyrillic.md",
+		Title:          "bulk",
+		PropertiesJSON: `{}`,
+		LastChecksum:   "h",
+		ParentID:       sql.NullString{String: "notes/cyrillic", Valid: true},
+		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
+		EmbedPayload:   sql.NullString{String: payloadRunes, Valid: true},
+	}
+
+	if upsertErr := repo.Upsert(subUnit); upsertErr != nil {
+		test.Fatalf("Upsert sub-unit: %v", upsertErr)
+	}
+
+	count, countErr := repo.CountOversizeSubUnitPayloads(4000)
+
+	if countErr != nil {
+		test.Fatalf("CountOversizeSubUnitPayloads: %v", countErr)
+	}
+
+	if count != 1 {
+		test.Errorf("CountOversizeSubUnitPayloads(4000) = %d, want 1 (3000 codepoints × 2 bytes = 6000 bytes > 4000)", count)
+	}
+
+	// Sanity: the same payload measured against an 8000-byte threshold
+	// must NOT count, ruling out the row simply tripping any threshold.
+	count8000, _ := repo.CountOversizeSubUnitPayloads(8000)
+
+	if count8000 != 0 {
+		test.Errorf("CountOversizeSubUnitPayloads(8000) = %d, want 0 (6000 bytes ≤ 8000)", count8000)
 	}
 }

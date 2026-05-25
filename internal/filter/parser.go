@@ -247,7 +247,7 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 	return &PropertyPredicate{
 		Property: identToken.Value,
 		Op:       op,
-		Value:    StringValue{V: leftValueToken.Value},
+		Value:    StringValue{V: leftValueToken.Value, Bareword: leftValueToken.Kind == TokenBareValue},
 		Pos:      identToken.Pos,
 	}
 }

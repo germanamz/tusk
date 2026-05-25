@@ -199,11 +199,40 @@ func compileProperty(predicate *PropertyPredicate) (string, []any, error) {
 		return column + " " + sqlOp + " ?", []any{stringValue.V}, nil
 	}
 
+	if intValue, isBool := boolLiteralAsInt(stringValue, predicate.Op); isBool {
+		return fmt.Sprintf(`json_extract(properties_json, '$.%s') %s ?`, predicate.Property, sqlOp), []any{intValue}, nil
+	}
+
 	if isNumericOp(predicate.Op) {
 		return fmt.Sprintf(`CAST(json_extract(properties_json, '$.%s') AS INTEGER) %s ?`, predicate.Property, sqlOp), []any{stringValue.V}, nil
 	}
 
 	return fmt.Sprintf(`json_extract(properties_json, '$.%s') %s ?`, predicate.Property, sqlOp), []any{stringValue.V}, nil
+}
+
+// boolLiteralAsInt returns (1/0, true) when value is a bareword
+// `true`/`false` and op is `=` or `!=`, signalling that the compiler
+// should compare against an integer (SQLite's json_extract surfaces
+// JSON booleans as integer 0/1). Quoted values (`="false"`) are treated
+// as strings and skip this coercion, mirroring Python/JSON conventions
+// where the bareword denotes a bool literal.
+func boolLiteralAsInt(value StringValue, op Op) (int, bool) {
+	if !value.Bareword {
+		return 0, false
+	}
+
+	if op != OpEQ && op != OpNE {
+		return 0, false
+	}
+
+	switch value.V {
+	case "true":
+		return 1, true
+	case "false":
+		return 0, true
+	}
+
+	return 0, false
 }
 
 func propertyColumn(name string) (string, bool) {
@@ -331,6 +360,10 @@ func compilePropertyOnAlias(predicate *PropertyPredicate, alias string) (string,
 
 	if _, isCore := coreColumns[predicate.Property]; isCore {
 		return fmt.Sprintf("%s.%s %s ?", alias, predicate.Property, sqlOp), []any{stringValue.V}, nil
+	}
+
+	if intValue, isBool := boolLiteralAsInt(stringValue, predicate.Op); isBool {
+		return fmt.Sprintf(`json_extract(%s.properties_json, '$.%s') %s ?`, alias, predicate.Property, sqlOp), []any{intValue}, nil
 	}
 
 	if isNumericOp(predicate.Op) {

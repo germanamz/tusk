@@ -305,6 +305,114 @@ func (repo *NodeRepo) FindByTitle(targetType, title string) ([]string, error) {
 	return ids, rows.Err()
 }
 
+// CountSubUnits returns the total number of sub-unit rows in the index
+// (rows with parent_id IS NOT NULL). Used by tusk doctor's sub-unit
+// pane (spec §5.9).
+func (repo *NodeRepo) CountSubUnits() (int, error) {
+	var count int
+
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL`).Scan(&count); scanErr != nil {
+		return 0, fmt.Errorf("nodeRepo: count sub-units: %w", scanErr)
+	}
+
+	return count, nil
+}
+
+// CountSubUnitsByKind returns the sub-unit row counts grouped by the
+// `type` column (which carries the subunit.Kind string for sub-unit
+// rows: "section", "paragraph", "list-item", ...). Used by tusk
+// doctor's sub-unit pane.
+func (repo *NodeRepo) CountSubUnitsByKind() (map[string]int, error) {
+	rows, queryErr := repo.db.Query(`SELECT type, COUNT(*) FROM nodes WHERE parent_id IS NOT NULL GROUP BY type`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("nodeRepo: count sub-units by kind: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	out := map[string]int{}
+
+	for rows.Next() {
+		var (
+			kind  string
+			count int
+		)
+
+		if scanErr := rows.Scan(&kind, &count); scanErr != nil {
+			return nil, fmt.Errorf("nodeRepo: scan sub-unit kind: %w", scanErr)
+		}
+
+		out[kind] = count
+	}
+
+	return out, rows.Err()
+}
+
+// CountSubUnitHashCollisions returns the number of sub-unit rows whose
+// id carries a disambiguating numeric suffix produced by the parser's
+// ResolveCollisions pass — the pattern `<fileID>#<hash>-<N>` with
+// `N > 0`. The GLOB requires one-or-more digits after the trailing `-`
+// so file ids that happen to end in `-<digit>` (e.g. `notes/foo-2`) are
+// not counted (the leading `*#*` enforces the sub-unit shape) and
+// suffixes ≥10 are included.
+func (repo *NodeRepo) CountSubUnitHashCollisions() (int, error) {
+	var count int
+
+	if scanErr := repo.db.QueryRow(
+		`SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL AND id GLOB '*#*-[0-9]*'`,
+	).Scan(&count); scanErr != nil {
+		return 0, fmt.Errorf("nodeRepo: count sub-unit hash collisions: %w", scanErr)
+	}
+
+	return count, nil
+}
+
+// CountOrphanedSubUnits returns the number of sub-unit rows whose
+// parent_id does not resolve to any nodes.id. FK cascades should keep
+// this at zero; a non-zero count indicates an indexer bug.
+func (repo *NodeRepo) CountOrphanedSubUnits() (int, error) {
+	var count int
+
+	if scanErr := repo.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM nodes child
+		WHERE child.parent_id IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM nodes parent WHERE parent.id = child.parent_id
+		  )
+	`).Scan(&count); scanErr != nil {
+		return 0, fmt.Errorf("nodeRepo: count orphaned sub-units: %w", scanErr)
+	}
+
+	return count, nil
+}
+
+// CountOversizeSubUnitPayloads returns the number of sub-unit rows
+// whose embed_payload byte length exceeds maxBytes. Used by tusk
+// doctor's sub-unit pane to surface AST leaves that bypass the
+// chunker's normal bound.
+//
+// SQLite's `length()` on a TEXT column returns the codepoint count,
+// which undercounts multi-byte UTF-8 (Cyrillic, CJK, emoji, etc.).
+// embed.DefaultMaxBytes is a *byte* threshold, so we use
+// `octet_length()` to compare bytes against bytes.
+func (repo *NodeRepo) CountOversizeSubUnitPayloads(maxBytes int) (int, error) {
+	var count int
+
+	if scanErr := repo.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM nodes
+		WHERE parent_id IS NOT NULL
+		  AND embed_payload IS NOT NULL
+		  AND octet_length(embed_payload) > ?
+	`, maxBytes).Scan(&count); scanErr != nil {
+		return 0, fmt.Errorf("nodeRepo: count oversize sub-unit payloads: %w", scanErr)
+	}
+
+	return count, nil
+}
+
 // DeleteByPath removes the node row whose path equals filePath.
 func (repo *NodeRepo) DeleteByPath(filePath string) error {
 	_, execErr := repo.db.Exec(`DELETE FROM nodes WHERE path = ?`, filePath)

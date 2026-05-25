@@ -151,8 +151,18 @@ type Value interface {
 }
 
 // StringValue holds a single string value.
+//
+// Bareword reports whether the value was written without quotes in the
+// source filter (lexer TokenBareValue) vs quoted (lexer TokenString).
+// The compiler uses this to distinguish `checkbox=false` (bool literal,
+// coerced to integer 0 to match SQLite's json_extract of a JSON bool)
+// from `checkbox="false"` (the string literal "false"). Existing code
+// constructing StringValue programmatically (e.g. hand-built AST in
+// tests) leaves Bareword=false, which preserves the legacy string-
+// compare behaviour.
 type StringValue struct {
-	V string
+	V        string
+	Bareword bool
 }
 
 func (stringValue StringValue) valueNode() {}

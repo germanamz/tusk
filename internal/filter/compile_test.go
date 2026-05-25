@@ -740,6 +740,95 @@ func TestCompile_SubUnitTypePredicate(test *testing.T) {
 	}
 }
 
+// TestCompile_BoolLiteralCoercedToInt confirms that bareword `true`/
+// `false` values on a property predicate compile to a comparison
+// against the integer 1/0, matching SQLite's json_extract surface for
+// JSON booleans. Regression for Phase 2 P2 acceptance gap: `checkbox=
+// false` previously compiled to `... = 'false'` and matched nothing.
+func TestCompile_BoolLiteralCoercedToInt(test *testing.T) {
+	cases := []struct {
+		query   string
+		wantInt int
+	}{
+		{"checkbox=false", 0},
+		{"checkbox=true", 1},
+		{"checkbox!=false", 0},
+		{"checkbox!=true", 1},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.query, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser(testCase.query).Parse()
+
+			if len(parseErrs) != 0 {
+				test.Fatalf("parse: %+v", parseErrs)
+			}
+
+			sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+			if compileErr != nil {
+				test.Fatalf("compile: %v", compileErr)
+			}
+
+			if !strings.Contains(sqlText, "json_extract(properties_json, '$.checkbox')") {
+				test.Errorf("missing json_extract on checkbox: %s", sqlText)
+			}
+
+			if strings.Contains(sqlText, "CAST(") {
+				test.Errorf("bool literal must not wrap json_extract in CAST: %s", sqlText)
+			}
+
+			if !reflect.DeepEqual(params, []any{testCase.wantInt}) {
+				test.Errorf("params = %v, want [%d]", params, testCase.wantInt)
+			}
+		})
+	}
+}
+
+// TestCompile_QuotedFalseIsStringLiteral verifies that quoting opts out
+// of the bool coercion: `flag="false"` compares against the string
+// "false", preserving the legacy behaviour for properties whose value
+// is the literal word "false".
+func TestCompile_QuotedFalseIsStringLiteral(test *testing.T) {
+	expr, parseErrs := filter.NewParser(`flag="false"`).Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	_, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if !reflect.DeepEqual(params, []any{"false"}) {
+		test.Errorf("params = %v, want [\"false\"]", params)
+	}
+}
+
+// TestCompile_BoolLiteralOnlyForEqualityOps confirms that bareword bool
+// literals on non-`=`/`!=` operators fall through to the legacy string
+// comparison path (numeric comparators on booleans are nonsensical, but
+// must not panic or silently rewrite).
+func TestCompile_BoolLiteralOnlyForEqualityOps(test *testing.T) {
+	expr, parseErrs := filter.NewParser("checkbox>=false").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	_, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	if !reflect.DeepEqual(params, []any{"false"}) {
+		test.Errorf("params = %v, want [\"false\"] (non-equality op skips bool coercion)", params)
+	}
+}
+
 // TestCompile_HeadingLevelPredicate covers the kebab-case heading-level
 // property used by section sub-units. SQLite's JSON1 accepts both
 // `$.heading-level` and `$."heading-level"`; the compiler emits the
