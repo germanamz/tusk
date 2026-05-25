@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.0](https://github.com/germanamz/tusk/compare/v1.4.0...v1.5.0) (2026-05-25)
+
+
+### Features
+
+* agent retrieval improvements (Phase 1) ([#413](https://github.com/germanamz/tusk/issues/413)) ([4449671](https://github.com/germanamz/tusk/commit/44496715f2ab2b8dceedb027b6afff8b55f9f46b))
+* agent retrieval improvements (Phase 2) ([#415](https://github.com/germanamz/tusk/issues/415)) ([c739f6a](https://github.com/germanamz/tusk/commit/c739f6afb474e052a76657815623edafb133e913))
+* agent retrieval improvements (Phase 3) ([#416](https://github.com/germanamz/tusk/issues/416)) ([c4e8073](https://github.com/germanamz/tusk/commit/c4e8073affe11741234936b64f6b1bb559d9b68b))
+
 ## [1.4.0](https://github.com/germanamz/tusk/compare/v1.3.0...v1.4.0) (2026-05-20)
 
 
