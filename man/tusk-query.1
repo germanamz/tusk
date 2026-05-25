@@ -46,7 +46,7 @@ JSON otherwise); --json is sugar for --format json.
 
 .SH OPTIONS
 \fB--explain\fP[=false]
-	include a per-row score-contribution trace in the response (wired in Phase 3 Task 3)
+	include a per-row score-contribution trace (cosine/graph/final/distance) in the response when graph expansion is active
 
 .PP
 \fB--fields\fP=[]
@@ -86,7 +86,7 @@ JSON otherwise); --json is sugar for --format json.
 
 .PP
 \fB--min-score\fP=0
-	drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)
+	drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.
 
 .PP
 \fB--no-graph-expand\fP[=false]

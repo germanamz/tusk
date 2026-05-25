@@ -66,7 +66,7 @@ tusk query <filter> [flags]
 ### Options
 
 ```
-      --explain               include a per-row score-contribution trace in the response (wired in Phase 3 Task 3)
+      --explain               include a per-row score-contribution trace (cosine/graph/final/distance) in the response when graph expansion is active
       --fields strings        project rendered rows to these fields (comma-separated)
       --format string         output format: compact|json (default: compact for TTY, json otherwise)
       --graph-edges strings   comma-separated edge-type names used by the graph expander; omit to inherit manifest
@@ -76,7 +76,7 @@ tusk query <filter> [flags]
       --hops int              graph-expansion BFS depth (1 or 2; 0 = inherit manifest)
       --include strings       expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)
       --json                  emit structured JSON (sugar for --format json)
-      --min-score float       drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)
+      --min-score float       drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.
       --no-graph-expand       disable graph-expanded retrieval for this call (beats [query.graph-expansion] enabled=true)
       --semantic string       rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)
       --skip int              skip the first M rows (requires --take)

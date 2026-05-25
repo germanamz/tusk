@@ -32,6 +32,17 @@ type CompactRow struct {
 	// to emit the score token.
 	HasScore bool
 
+	// Explain-trace fields. When HasExplain is true the renderer appends a
+	// space-separated `cosine=… graph=… final=… dist=N` tail to the row's
+	// record line. The format is intentionally machine-friendly (key=value
+	// tokens) so agents can parse it; the plan's `0.84 = 0.74×0.8 + …`
+	// math notation was illustrative only.
+	CosineScore float64
+	GraphScore  float64
+	FinalScore  float64
+	Distance    int
+	HasExplain  bool
+
 	// MatchedUnits, when non-empty, triggers the hierarchical render
 	// path: the file row is followed by indented `→ #<hash>` lines for
 	// each matched sub-unit. See writeMatchedUnits.
@@ -191,6 +202,13 @@ func writeRecordLine(builder *strings.Builder, row CompactRow, fieldSet map[stri
 
 	if showField(fieldSet, "score") && row.HasScore {
 		line = appendToken(line, fmt.Sprintf("score=%.4f", row.Score))
+	}
+
+	if row.HasExplain {
+		line = appendToken(line, fmt.Sprintf(
+			"cosine=%.4f graph=%.4f final=%.4f dist=%d",
+			row.CosineScore, row.GraphScore, row.FinalScore, row.Distance,
+		))
 	}
 
 	if showField(fieldSet, "properties") && len(row.Properties) > 0 {

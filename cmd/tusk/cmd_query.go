@@ -135,6 +135,7 @@ JSON otherwise); --json is sugar for --format json.`,
 				Embedder:   embedder,
 				Embeddings: index.NewEmbeddingRepo(store),
 				Nodes:      index.NewNodeRepo(store),
+				Edges:      index.NewEdgeRepo(store),
 			}
 
 			graphExpansion, mergeErr := mergeGraphExpansion(cmd, loaded.GraphExpansion, graphExpansionOverrides{
@@ -196,7 +197,7 @@ JSON otherwise); --json is sugar for --format json.`,
 	queryCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
 	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
-	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this cosine similarity (default 0 = no filter; MCP tusk_query defaults to 0.5)")
+	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.")
 	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)")
 	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
 	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
@@ -205,7 +206,7 @@ JSON otherwise); --json is sugar for --format json.`,
 	queryCmd.Flags().IntVar(&hops, "hops", 0, "graph-expansion BFS depth (1 or 2; 0 = inherit manifest)")
 	queryCmd.Flags().Float64Var(&graphWeight, "graph-weight", -1, "per-hop weight applied to expanded candidates ([0,1]; <0 = inherit manifest)")
 	queryCmd.Flags().StringSliceVar(&graphEdges, "graph-edges", nil, "comma-separated edge-type names used by the graph expander; omit to inherit manifest")
-	queryCmd.Flags().BoolVar(&explainFlag, "explain", false, "include a per-row score-contribution trace in the response (wired in Phase 3 Task 3)")
+	queryCmd.Flags().BoolVar(&explainFlag, "explain", false, "include a per-row score-contribution trace (cosine/graph/final/distance) in the response when graph expansion is active")
 
 	return queryCmd
 }
@@ -430,6 +431,11 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 				Score:        scored.Score,
 				HasScore:     true,
 				MatchedUnits: scored.MatchedUnits,
+				CosineScore:  scored.CosineScore,
+				GraphScore:   scored.GraphScore,
+				FinalScore:   scored.FinalScore,
+				Distance:     scored.Distance,
+				HasExplain:   scored.FinalScore != 0,
 			})
 		}
 

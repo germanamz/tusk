@@ -222,6 +222,63 @@ func TestCompactNodeRows_MatchedUnitsStructuralOmitsScore(test *testing.T) {
 	}
 }
 
+func TestCompactNodeRows_ExplainTail(test *testing.T) {
+	rows := []CompactRow{
+		{
+			ID:    "notes/x",
+			Type:  "note",
+			Title: "X",
+
+			Score:    0.84,
+			HasScore: true,
+
+			CosineScore: 0.74,
+			GraphScore:  0.66,
+			FinalScore:  0.84,
+			Distance:    1,
+			HasExplain:  true,
+		},
+	}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	got := buf.String()
+
+	mustContain := []string{
+		"score=0.8400",
+		"cosine=0.7400",
+		"graph=0.6600",
+		"final=0.8400",
+		"dist=1",
+	}
+
+	for _, fragment := range mustContain {
+		if !strings.Contains(got, fragment) {
+			test.Errorf("explain tail missing %q in:\n%s", fragment, got)
+		}
+	}
+}
+
+func TestCompactNodeRows_ExplainOmittedWithoutFlag(test *testing.T) {
+	rows := []CompactRow{
+		{ID: "notes/x", Type: "note", Title: "X", Score: 0.84, HasScore: true},
+	}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	if strings.Contains(buf.String(), "cosine=") {
+		test.Errorf("non-explain row leaked cosine token: %q", buf.String())
+	}
+}
+
 func TestCompactEdgeRows_Fixture(test *testing.T) {
 	rows := []EdgeListEntry{
 		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: "tickets/a.md"},

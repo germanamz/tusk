@@ -561,7 +561,7 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
-		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum cosine similarity to include in semantic results (default 0.5). Lower this when an initial query misses.")),
+		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum similarity score to include in semantic results (default 0.5). Lower this when an initial query misses. When graph expansion is active, this filters the blended final score, not the bare cosine.")),
 		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units (units = matched sub-units per file; semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
@@ -569,7 +569,7 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("hops", mcpgo.Description("Graph-expansion BFS depth (1 or 2). Omit to inherit the manifest's [query.graph-expansion] hops.")),
 		mcpgo.WithNumber("graph_weight", mcpgo.Description("Per-hop weight applied to expanded candidates ([0,1]). Omit to inherit the manifest setting.")),
 		mcpgo.WithArray("graph_edge_types", mcpgo.Description("Edge-type names used by the graph expander. Omit to inherit the manifest setting."), mcpgo.Items(map[string]any{"type": "string"})),
-		mcpgo.WithBoolean("explain", mcpgo.Description("Include a per-row score-contribution trace in the response (wired in Phase 3 Task 3).")),
+		mcpgo.WithBoolean("explain", mcpgo.Description("Include a per-row score-contribution trace (cosine_score/graph_score/final_score/distance) in the response when graph expansion is active.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -595,6 +595,7 @@ func registerQueryTool(srv *Server) {
 			Embedder:   srv.runtime.Embedder,
 			Embeddings: srv.runtime.Embeddings,
 			Nodes:      srv.runtime.Nodes,
+			Edges:      srv.runtime.Edges,
 		}, query.Request{
 			Filter:   filterText,
 			Sort:     argStringOptional(request, "sort"),
@@ -647,6 +648,11 @@ func registerQueryTool(srv *Server) {
 						Score:        scored.Score,
 						HasScore:     true,
 						MatchedUnits: scored.MatchedUnits,
+						CosineScore:  scored.CosineScore,
+						GraphScore:   scored.GraphScore,
+						FinalScore:   scored.FinalScore,
+						Distance:     scored.Distance,
+						HasExplain:   scored.FinalScore != 0,
 					})
 				}
 			}
@@ -727,6 +733,20 @@ func registerQueryTool(srv *Server) {
 
 			if scored.MatchedUnits != nil {
 				entry["matched_units"] = scored.MatchedUnits
+			}
+
+			// Explain-trace fields are surfaced only when the query
+			// service populated them (Request.Explain && graph expansion
+			// ran). FinalScore is the canonical "set?" signal: when graph
+			// expansion produced a row, FinalScore is non-zero (equal to
+			// Score). When explain is off the four fields are zero-valued
+			// and selectively skipped here, mirroring the JSON struct
+			// `omitempty` contract.
+			if scored.FinalScore != 0 {
+				entry["cosine_score"] = scored.CosineScore
+				entry["graph_score"] = scored.GraphScore
+				entry["final_score"] = scored.FinalScore
+				entry["distance"] = scored.Distance
 			}
 
 			ranking = append(ranking, entry)
