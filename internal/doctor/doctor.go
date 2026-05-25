@@ -70,6 +70,18 @@ const (
 	// run with sub-units enabled. Doctor does NOT auto-clean; the user
 	// must run `tusk reindex --force` to drop the stale rows.
 	IssueSubUnitsDisabledDirty = "sub-units-disabled-dirty"
+
+	// IssueGraphExpansionUnknownEdge surfaces an entry in
+	// [query.graph-expansion] edge-types that does not resolve to a
+	// declared edge type in the merged manifest. The walker silently
+	// skips such names; doctor flags them so users notice drift.
+	IssueGraphExpansionUnknownEdge = "graph-expansion-unknown-edge"
+
+	// IssueGraphExpansionWeightZero surfaces the no-op configuration
+	// where [query.graph-expansion] enabled=true but weight=0. The
+	// feature is on but contributes nothing to the blended score —
+	// almost certainly a config bug.
+	IssueGraphExpansionWeightZero = "graph-expansion-weight-zero"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -104,6 +116,11 @@ type Report struct {
 	// renderer can show the dirty-state counts alongside the
 	// IssueSubUnitsDisabledDirty warning.
 	SubUnitPane *SubUnitPane
+	// GraphExpansion is the typed [query.graph-expansion] pane (Phase 3
+	// Task 4). Populated whenever Config.Manifest is non-nil so the
+	// renderer can surface the active values regardless of the enabled
+	// flag. nil when no manifest was supplied to Run.
+	GraphExpansion *GraphExpansionPane
 }
 
 // SubUnitPane summarizes the sub-unit pipeline's health for tusk doctor
@@ -195,6 +212,13 @@ func Run(config Config) (*Report, error) {
 				Message: contextErr.Message,
 			})
 		}
+	}
+
+	if config.Manifest != nil {
+		pane, issues := computeGraphExpansionPane(config.Manifest)
+
+		report.GraphExpansion = pane
+		report.Issues = append(report.Issues, issues...)
 	}
 
 	if config.Manifest != nil && len(config.Manifest.SubUnitConflicts) > 0 {

@@ -891,6 +891,20 @@ func registerDoctorTool(srv *Server) {
 			}
 		}
 
+		if report.GraphExpansion != nil {
+			pane := report.GraphExpansion
+
+			response["graph_expansion"] = map[string]any{
+				"enabled":              pane.Enabled,
+				"hops":                 pane.Hops,
+				"weight":               pane.Weight,
+				"candidate_multiplier": pane.CandidateMultiplier,
+				"edge_types":           pane.EdgeTypes,
+				"unknown_edge_types":   pane.UnknownEdgeTypes,
+				"weight_zero_no_op":    pane.WeightZeroNoOp,
+			}
+		}
+
 		return toolJSON(response)
 	}
 

@@ -16,6 +16,10 @@ Doctor reports:
     manifest declaration).
   * Dangling edges (edges whose target node no longer exists).
   * Embedding queue depth and last-reindex timestamp.
+  * Sub-unit pane: per-kind counts, hash collisions, oversize payloads.
+  * Graph-expansion pane: the resolved [query.graph-expansion] settings,
+    unknown edge types referenced from the block, and a no-op warning
+    when the feature is enabled with weight=0.
 
 Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
 index back into the source node's markdown frontmatter — pass --no-migrate

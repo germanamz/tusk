@@ -461,6 +461,312 @@ func TestRun_SurfacesSubUnitConflicts(test *testing.T) {
 	}
 }
 
+// TestRun_GraphExpansionPaneAbsentWithoutManifest confirms the typed
+// pane stays nil when no manifest is supplied (e.g., the fresh-index
+// fixtures used elsewhere in this file).
+func TestRun_GraphExpansionPaneAbsentWithoutManifest(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.GraphExpansion != nil {
+		test.Errorf("GraphExpansion = %+v, want nil for nil manifest", report.GraphExpansion)
+	}
+}
+
+// loadGraphExpansionManifest writes a tusk.toml with the given body and
+// returns the loaded *Manifest after MergeBuiltinPacks has run, mirroring
+// how cmd_doctor.go prepares the manifest before calling doctor.Run.
+func loadGraphExpansionManifest(test *testing.T, body string) *manifest.Manifest {
+	test.Helper()
+
+	path := filepath.Join(test.TempDir(), "tusk.toml")
+
+	if writeErr := os.WriteFile(path, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(path)
+
+	if loadErr != nil {
+		test.Fatalf("manifest.Load: %v", loadErr)
+	}
+
+	manifest.MergeBuiltinPacks(loaded)
+
+	return loaded
+}
+
+// TestRun_GraphExpansionPaneDefaults_WithBuiltinContains confirms a
+// manifest with no [query.graph-expansion] block populates the pane with
+// DefaultGraphExpansion values. With sub-units on (default),
+// MergeBuiltinPacks injects `contains` so it is NOT flagged as unknown;
+// `references` and `parent` are not declared in the bare manifest and
+// are flagged as unknown. No Issues should be emitted because Enabled
+// defaults to false.
+func TestRun_GraphExpansionPaneDefaults_WithBuiltinContains(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated for manifest with no block")
+	}
+
+	if pane.Enabled {
+		test.Errorf("Enabled = true, want false (default)")
+	}
+
+	if pane.Hops != 1 {
+		test.Errorf("Hops = %d, want 1 (default)", pane.Hops)
+	}
+
+	if pane.Weight != 0.2 {
+		test.Errorf("Weight = %v, want 0.2 (default)", pane.Weight)
+	}
+
+	if pane.CandidateMultiplier != 5 {
+		test.Errorf("CandidateMultiplier = %d, want 5 (default)", pane.CandidateMultiplier)
+	}
+
+	containsUnknown := false
+
+	for _, name := range pane.UnknownEdgeTypes {
+		if name == "contains" {
+			containsUnknown = true
+		}
+	}
+
+	if containsUnknown {
+		test.Errorf("UnknownEdgeTypes contains \"contains\" but sub-units pack should have injected it: %v", pane.UnknownEdgeTypes)
+	}
+
+	// references, parent, tagged are not declared in the bare manifest;
+	// they should appear as unknown.
+	for _, want := range []string{"references", "parent", "tagged"} {
+		found := false
+
+		for _, name := range pane.UnknownEdgeTypes {
+			if name == want {
+				found = true
+			}
+		}
+
+		if !found {
+			test.Errorf("UnknownEdgeTypes missing %q; got %v", want, pane.UnknownEdgeTypes)
+		}
+	}
+
+	// No Issues should be emitted: feature is disabled by default.
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionUnknownEdge || issue.Kind == doctor.IssueGraphExpansionWeightZero {
+			test.Errorf("expected no graph-expansion Issues when Enabled=false; got %+v", issue)
+		}
+	}
+}
+
+// TestRun_GraphExpansionPaneEnabledSurfacesUnknownEdge confirms that
+// when Enabled=true, unknown edge types both populate
+// pane.UnknownEdgeTypes and emit one IssueGraphExpansionUnknownEdge per
+// entry.
+func TestRun_GraphExpansionPaneEnabledSurfacesUnknownEdge(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[edge-types.references]
+from = ["*"]
+to = ["*"]
+cardinality = "many-to-many"
+
+[query.graph-expansion]
+enabled = true
+edge-types = ["references", "contains", "made-up-edge"]
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated")
+	}
+
+	if !pane.Enabled {
+		test.Errorf("Enabled = false, want true")
+	}
+
+	if len(pane.UnknownEdgeTypes) != 1 || pane.UnknownEdgeTypes[0] != "made-up-edge" {
+		test.Errorf("UnknownEdgeTypes = %v, want [made-up-edge]", pane.UnknownEdgeTypes)
+	}
+
+	unknownIssues := 0
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionUnknownEdge {
+			unknownIssues++
+
+			if issue.NodeID != "made-up-edge" {
+				test.Errorf("Issue.NodeID = %q, want \"made-up-edge\"", issue.NodeID)
+			}
+
+			if !strings.Contains(issue.Message, "made-up-edge") {
+				test.Errorf("Issue.Message = %q, want mention of made-up-edge", issue.Message)
+			}
+		}
+	}
+
+	if unknownIssues != 1 {
+		test.Errorf("IssueGraphExpansionUnknownEdge count = %d, want 1", unknownIssues)
+	}
+}
+
+// TestRun_GraphExpansionPaneFlagsWeightZeroNoOp confirms the WeightZeroNoOp
+// flag and matching Issue light up when Enabled=true && Weight=0.
+func TestRun_GraphExpansionPaneFlagsWeightZeroNoOp(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[edge-types.references]
+from = ["*"]
+to = ["*"]
+cardinality = "many-to-many"
+
+[query.graph-expansion]
+enabled = true
+weight = 0.0
+edge-types = ["references", "contains"]
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated")
+	}
+
+	if !pane.WeightZeroNoOp {
+		test.Errorf("WeightZeroNoOp = false, want true")
+	}
+
+	sawZero := false
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionWeightZero {
+			sawZero = true
+
+			if !strings.Contains(issue.Message, "no-op") {
+				test.Errorf("Issue.Message = %q, want mention of no-op", issue.Message)
+			}
+		}
+	}
+
+	if !sawZero {
+		test.Errorf("expected IssueGraphExpansionWeightZero, got %+v", report.Issues)
+	}
+}
+
+// TestRun_GraphExpansionPaneDisabledSuppressesIssues confirms that a
+// configured-but-disabled block still populates UnknownEdgeTypes in the
+// typed pane but emits no Issues — warnings for an off feature are noise.
+func TestRun_GraphExpansionPaneDisabledSuppressesIssues(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[query.graph-expansion]
+enabled = false
+weight = 0.0
+edge-types = ["made-up-edge"]
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated even when disabled")
+	}
+
+	if len(pane.UnknownEdgeTypes) != 1 || pane.UnknownEdgeTypes[0] != "made-up-edge" {
+		test.Errorf("UnknownEdgeTypes = %v, want [made-up-edge]", pane.UnknownEdgeTypes)
+	}
+
+	if pane.WeightZeroNoOp {
+		test.Errorf("WeightZeroNoOp = true, want false when Enabled=false")
+	}
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionUnknownEdge || issue.Kind == doctor.IssueGraphExpansionWeightZero {
+			test.Errorf("expected no graph-expansion Issues when Enabled=false; got %+v", issue)
+		}
+	}
+}
+
 // loadSubUnitsDisabledManifest writes a minimal tusk.toml with
 // `[workspace] sub-units = false` and returns the loaded *Manifest.
 // SubUnitsEnabled requires the toml.MetaData captured at decode time,
