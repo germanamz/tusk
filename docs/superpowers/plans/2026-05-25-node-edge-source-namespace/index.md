@@ -18,10 +18,10 @@
 | 2 | Nodes table reshape | `phase-2-nodes-reshape.md` | 6 | `nodes.kind` and `nodes.source` columns, CHECK constraint, composite index, writers populate, readers stop reading `parent_id` for row-class |
 | 3 | Edges table reshape | `phase-3-edges-reshape.md` | 6 | `edges.kind` and `edges.source` columns, CHECK constraint, new UNIQUE shape, `edges_source_type_idx` and `edges_kind_idx`, every edge writer populates |
 | 4 | Reservation rescoping | `phase-4-reservation-rescoping.md` | 3 | `subdocument` typepack reservations scoped to `source='markdown'`; `SubUnitConflict` validator fires only on within-source collisions |
-| 5 | Reference-resolution grammar | `phase-5-reference-resolution.md` | 6 | `<source>:<type>` parser, `EdgeRef`/`NodeRef` types, `NeighborsByEdgeRefs`, walker and query layers updated, MCP boundary parses the notation |
+| 5 | Reference-resolution grammar | `phase-5-reference-resolution.md` | 7 | `<source>:<type>` parser, `EdgeRef`/`NodeRef` types, `NeighborsByEdgeRefs`, walker and filter compiler updated, filter grammar accepts qualified edge-type idents, MCP boundary parses the notation |
 | 6 | Cleanup | `phase-6-cleanup.md` | 2 | Embeddings DDL fixed to `UNIQUE(node_id, chunk_idx)` so the hash-skip can fire; dead legacy-migration code removed from `internal/index/index.go` |
 
-**Totals:** 29 tasks across 6 phases; each phase's "finishing" task carries the finishing PR.
+**Totals:** 30 tasks across 6 phases; each phase's "finishing" task carries the finishing PR. Phase 5 carries 7 tasks because the original task 5.4 was split (5.4 covers node-type literal compilation in `internal/filter`; 5.4a was added when implementing 5.4 revealed that qualified edge-type identifier syntax requires distinct lexer/parser/validator work).
 
 ## PR Structure
 
