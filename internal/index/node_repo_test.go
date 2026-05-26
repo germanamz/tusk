@@ -79,6 +79,47 @@ func TestNodeRepo_UpsertAndGet(test *testing.T) {
 	}
 }
 
+func TestNodeRepo_UpsertSetsFileKindAndNullSource(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	row := index.NodeRow{
+		ID:             "notes/hello",
+		Type:           "note",
+		Path:           "notes/hello.md",
+		Title:          "Hello",
+		PropertiesJSON: "{}",
+		LastMtime:      1,
+		LastSize:       1,
+		LastChecksum:   "abc",
+	}
+
+	if upsertErr := repo.Upsert(row); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	var (
+		kind   sql.NullString
+		source sql.NullString
+	)
+
+	scanErr := store.DB().QueryRow(
+		`SELECT kind, source FROM nodes WHERE id = ?`, row.ID,
+	).Scan(&kind, &source)
+
+	if scanErr != nil {
+		test.Fatalf("scan: %v", scanErr)
+	}
+
+	if !kind.Valid || kind.String != "file" {
+		test.Errorf("kind = %+v, want \"file\"", kind)
+	}
+
+	if source.Valid {
+		test.Errorf("source = %+v, want NULL", source)
+	}
+}
+
 func TestNodeRepo_UpsertReplacesExistingRow(test *testing.T) {
 	store := openTestIndex(test)
 	repo := index.NewNodeRepo(store)
