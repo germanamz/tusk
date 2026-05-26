@@ -53,9 +53,37 @@ func NewNodeRepo(idx *Index) *NodeRepo {
 	return &NodeRepo{db: idx.DB()}
 }
 
-// nodeUpsertSQL is the ON CONFLICT-aware upsert statement shared by Upsert
-// and BulkUpsert. The columns are listed in a fixed order so the bind
-// arguments line up across both call sites.
+// nodeUpsertFileSQL writes a file-class row: literal `kind='file'` and
+// `source=NULL`. Used by Upsert (the file-row writer). Sub-unit rows go
+// through BulkUpsert / nodeUpsertSQL, which leaves kind/source untouched
+// pending Task 2.3.
+const nodeUpsertFileSQL = `
+	INSERT INTO nodes (
+		id, type, path, title, properties_json,
+		last_mtime, last_size, last_checksum,
+		parent_id, ordinal, embed_payload,
+		kind, source
+	)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', NULL)
+	ON CONFLICT(id) DO UPDATE SET
+		type            = excluded.type,
+		path            = excluded.path,
+		title           = excluded.title,
+		properties_json = excluded.properties_json,
+		last_mtime      = excluded.last_mtime,
+		last_size       = excluded.last_size,
+		last_checksum   = excluded.last_checksum,
+		parent_id       = excluded.parent_id,
+		ordinal         = excluded.ordinal,
+		embed_payload   = excluded.embed_payload,
+		kind            = 'file',
+		source          = NULL
+`
+
+// nodeUpsertSQL is the ON CONFLICT-aware upsert statement used by
+// BulkUpsert for sub-unit rows. The columns are listed in a fixed order
+// so the bind arguments line up. `kind` and `source` are intentionally
+// omitted here — Task 2.3 will introduce a dedicated sub-unit writer.
 const nodeUpsertSQL = `
 	INSERT INTO nodes (
 		id, type, path, title, properties_json,
@@ -76,7 +104,9 @@ const nodeUpsertSQL = `
 		embed_payload   = excluded.embed_payload
 `
 
-// nodeUpsertArgs returns the positional bind arguments for nodeUpsertSQL.
+// nodeUpsertArgs returns the positional bind arguments shared by
+// nodeUpsertFileSQL and nodeUpsertSQL (both bind the same eleven
+// columns; the file-row SQL appends `kind`/`source` as literals).
 func nodeUpsertArgs(row NodeRow) []any {
 	return []any{
 		row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON,
@@ -85,9 +115,10 @@ func nodeUpsertArgs(row NodeRow) []any {
 	}
 }
 
-// Upsert inserts or replaces a node row.
+// Upsert inserts or replaces a file-class node row, writing
+// `kind='file'` and `source=NULL`.
 func (repo *NodeRepo) Upsert(row NodeRow) error {
-	if _, execErr := repo.db.Exec(nodeUpsertSQL, nodeUpsertArgs(row)...); execErr != nil {
+	if _, execErr := repo.db.Exec(nodeUpsertFileSQL, nodeUpsertArgs(row)...); execErr != nil {
 		return fmt.Errorf("nodeRepo: upsert %s: %w", row.ID, execErr)
 	}
 
