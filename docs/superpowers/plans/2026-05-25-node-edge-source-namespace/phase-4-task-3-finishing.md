@@ -16,7 +16,7 @@ After Task 4.2:
 
 ## Steps
 
-- [ ] **Step 1: Write the integration test**
+- [x] **Step 1: Write the integration test**
 
 ```go
 package index_test
@@ -107,30 +107,30 @@ Body.
 }
 ```
 
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 Run: `go test ./internal/index/... -run TestPhase4_UserSectionAndPackSectionCoexist -v`
 
 Expected: PASS.
 
-- [ ] **Step 3: Workspace suite**
+- [x] **Step 3: Workspace suite**
 
 Run: `go test ./...`
 
 Expected: clean.
 
-- [ ] **Step 4: `make vet` and `make lint`**
+- [x] **Step 4: `make vet` and `make lint`**
 
 Expected: clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 git add internal/index/phase4_integration_test.go
 git commit -m "test(index): user-namespace section coexists with pack-namespace section"
 ```
 
-- [ ] **Step 6: Open the PR**
+- [x] **Step 6: Open the PR**
 
 ```
 gh pr create --title "feat(manifest): phase-4 finishing — user/pack reservations coexist" --body "$(cat <<'EOF'
