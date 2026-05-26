@@ -66,6 +66,14 @@ type SyncResult struct {
 // edge writer and tests reference the same string.
 const containsEdgeType = "contains"
 
+// structuralEdgeKind tags edges produced by the sub-unit pipeline so the
+// schema's kind column reflects the writer path.
+const structuralEdgeKind = "structural"
+
+// markdownEdgeSource names the namespace for structural edges derived
+// from markdown sub-unit parsing. Populates the edges.source column.
+const markdownEdgeSource = "markdown"
+
 // ApplyFile diffs units against the existing sub-unit rows for fileRow
 // and converges the index to match. The parent file row must already be
 // upserted; ApplyFile only writes sub-unit rows under fileRow.ID. units
@@ -274,6 +282,8 @@ func (sync *Sync) rewriteContains(fileRow index.NodeRow, units []Unit) error {
 			SourceID:   fileRow.ID,
 			TargetID:   subunitRowID(fileRow.ID, unit.Hash),
 			SourcePath: fileRow.Path,
+			Kind:       structuralEdgeKind,
+			Source:     sql.NullString{String: markdownEdgeSource, Valid: true},
 		})
 	}
 

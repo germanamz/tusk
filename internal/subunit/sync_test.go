@@ -387,6 +387,48 @@ func TestSync_ContainsEdgePerInsertedUnit(test *testing.T) {
 	}
 }
 
+func TestSync_ContainsEdgesAreStructural(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := referencesManifest(test)
+	sync, nodes, edges, _ := newSync(store, loaded)
+
+	parent := seedFileRow(test, nodes, "notes/structural", "notes/structural.md")
+
+	units, _ := subunit.Parse([]byte("# H\n\nfirst\n\nsecond\n"))
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+		test.Fatalf("ApplyFile: %v", applyErr)
+	}
+
+	listed, listErr := edges.ListBySource(parent.ID)
+
+	if listErr != nil {
+		test.Fatalf("ListBySource: %v", listErr)
+	}
+
+	var seen int
+
+	for _, edge := range listed {
+		if edge.Type != "contains" {
+			continue
+		}
+
+		seen++
+
+		if edge.Kind != "structural" {
+			test.Errorf("contains edge kind = %q, want %q", edge.Kind, "structural")
+		}
+
+		if !edge.Source.Valid || edge.Source.String != "markdown" {
+			test.Errorf("contains edge source = %+v, want {markdown true}", edge.Source)
+		}
+	}
+
+	if seen == 0 {
+		test.Fatal("expected at least one contains edge")
+	}
+}
+
 func TestSync_FrontmatterEdgesSurviveContainsRewrite(test *testing.T) {
 	store := openSyncTestIndex(test)
 	loaded := referencesManifest(test)
