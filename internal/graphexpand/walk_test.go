@@ -2,6 +2,7 @@ package graphexpand_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -57,14 +58,14 @@ func fixtureGraph(test *testing.T) *index.EdgeRepo {
 
 	references := map[string][]index.EdgeRow{
 		"f1": {
-			{Type: "references", SourceID: "f1", TargetID: "f2", SourcePath: "f1.md"},
-			{Type: "references", SourceID: "f1", TargetID: "f3", SourcePath: "f1.md"},
+			{Type: "references", SourceID: "f1", TargetID: "f2", SourcePath: "f1.md", Kind: "direct"},
+			{Type: "references", SourceID: "f1", TargetID: "f3", SourcePath: "f1.md", Kind: "direct"},
 		},
 		"f3": {
-			{Type: "references", SourceID: "f3", TargetID: "f4", SourcePath: "f3.md"},
+			{Type: "references", SourceID: "f3", TargetID: "f4", SourcePath: "f3.md", Kind: "direct"},
 		},
 		"f4": {
-			{Type: "references", SourceID: "f4", TargetID: "f5", SourcePath: "f4.md"},
+			{Type: "references", SourceID: "f4", TargetID: "f5", SourcePath: "f4.md", Kind: "direct"},
 		},
 	}
 
@@ -85,6 +86,8 @@ func fixtureGraph(test *testing.T) *index.EdgeRepo {
 				SourceID:   fileID,
 				TargetID:   subID,
 				SourcePath: fileID + ".md",
+				Kind:       "structural",
+				Source:     sql.NullString{String: "markdown", Valid: true},
 			})
 		}
 
@@ -103,6 +106,8 @@ func fixtureGraph(test *testing.T) *index.EdgeRepo {
 				SourceID:   fileID,
 				TargetID:   subID,
 				SourcePath: fileID + ".md",
+				Kind:       "structural",
+				Source:     sql.NullString{String: "markdown", Valid: true},
 			})
 		}
 

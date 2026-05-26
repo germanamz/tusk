@@ -153,7 +153,7 @@ func TestExpandListRows_Edges(test *testing.T) {
 		test.Fatal(err)
 	}
 
-	if err := edges.UpsertAll("a", "a.md", []index.EdgeRow{{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md"}}); err != nil {
+	if err := edges.UpsertAll("a", "a.md", []index.EdgeRow{{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md", Kind: "direct"}}); err != nil {
 		test.Fatal(err)
 	}
 

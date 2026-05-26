@@ -441,7 +441,7 @@ func TestSync_FrontmatterEdgesSurviveContainsRewrite(test *testing.T) {
 	// (source_id, source_path) pair as the file row. This stands in
 	// for what the file-level reindex pass writes via EdgeRepo.UpsertAll.
 	frontEdge := []index.EdgeRow{
-		{Type: "references", SourceID: parent.ID, TargetID: "notes/other", SourcePath: parent.Path},
+		{Type: "references", SourceID: parent.ID, TargetID: "notes/other", SourcePath: parent.Path, Kind: "direct"},
 	}
 
 	if upsertErr := edges.UpsertAll(parent.ID, parent.Path, frontEdge); upsertErr != nil {

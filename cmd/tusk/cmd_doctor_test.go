@@ -160,7 +160,7 @@ func TestDoctor_AutoMigratesLegacyCLIRows(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}
@@ -217,7 +217,7 @@ func TestDoctor_AutoMigratesLegacyMCPRows(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.MCPSourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.MCPSourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.MCPSourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __mcp__: %v", upsertErr)
 	}
@@ -276,13 +276,13 @@ func TestDoctor_AutoMigratesMixedCLIAndMCPRows(test *testing.T) {
 	// Seed a legacy __cli__ row (blocks: a → b) and a legacy __mcp__ row
 	// (parent: a → c) for the same source node.
 	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.MCPSourcePath, []index.EdgeRow{
-		{Type: "parent", SourceID: "tickets/a", TargetID: "tickets/c", SourcePath: index.MCPSourcePath},
+		{Type: "parent", SourceID: "tickets/a", TargetID: "tickets/c", SourcePath: index.MCPSourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __mcp__: %v", upsertErr)
 	}
@@ -348,7 +348,7 @@ func TestDoctor_NoMigrateFlagSkipsMutation(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}
@@ -438,7 +438,7 @@ func TestDoctor_AutoMigrateSkipsRowsWithMissingSourceFile(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/ghost", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/ghost", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/ghost", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}
@@ -495,7 +495,7 @@ func TestDoctor_AutoMigrateIsIdempotent(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}

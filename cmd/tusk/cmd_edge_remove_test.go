@@ -103,7 +103,7 @@ func TestEdgeRemoveCmd_SweepsLegacyCLIRow(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}
