@@ -29,7 +29,9 @@ CREATE TABLE IF NOT EXISTS nodes (
 	last_checksum   TEXT NOT NULL,              -- sha256 hex
 	parent_id       TEXT NULL,                  -- parent file id for sub-units; NULL for files (P2)
 	ordinal         INTEGER NULL,               -- position within parent; NULL for files (P2)
-	embed_payload   TEXT NULL                   -- synthesized embedding payload for sub-units (P2)
+	embed_payload   TEXT NULL,                  -- synthesized embedding payload for sub-units (P2)
+	kind            TEXT NULL,                  -- row-class: 'file' | 'subunit' (Phase 2)
+	source          TEXT NULL                   -- namespace identifier; NULL = user (Phase 2)
 );
 
 CREATE INDEX IF NOT EXISTS nodes_type_idx ON nodes(type);
