@@ -1111,6 +1111,106 @@ wikilinks = true
 	}
 }
 
+// TestReindex_RefDerivedEdgesCarryDerivedKind asserts that an edge synthesized
+// from a node-type's ref property (here `assignee: ref → person`) writes
+// kind='derived', source=NULL when reindex persists it. Direct edges
+// (e.g. wikilink-resolved `references`) coexist on the same node so the test
+// pins the assertion to the ref property's edge type.
+func TestReindex_RefDerivedEdgesCarryDerivedKind(test *testing.T) {
+	dir := test.TempDir()
+
+	manifestContent := `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tusk.toml"), []byte(manifestContent), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "people"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir people: %v", mkErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir tickets: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "people/alice.md"), []byte(
+		"---\ntype: person\ntitle: alice\nname: Alice\n---\n\nbio\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write person: %v", writeErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tickets/auth.md"), []byte(
+		"---\ntype: ticket\ntitle: Auth\nassignee: alice\n---\n\nbody\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write ticket: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	idx, idxErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if idxErr != nil {
+		test.Fatalf("open index: %v", idxErr)
+	}
+
+	defer idx.Close()
+
+	loaded, loadErr := manifest.Load(filepath.Join(dir, "tusk.toml"))
+
+	if loadErr != nil {
+		test.Fatalf("Load manifest: %v", loadErr)
+	}
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root:          dir,
+		Repo:          index.NewNodeRepo(idx),
+		Edges:         index.NewEdgeRepo(idx),
+		EdgeTypes:     loaded.EdgeTypes,
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: index.NewPropertyDriftRepo(idx),
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	var (
+		kind   *string
+		source *string
+	)
+
+	scanErr := idx.DB().QueryRow(`
+		SELECT kind, source
+		FROM edges
+		WHERE type = 'assignee' AND source_id = 'tickets/auth' AND target_id = 'people/alice'
+	`).Scan(&kind, &source)
+
+	if scanErr != nil {
+		test.Fatalf("scan assignee edge: %v", scanErr)
+	}
+
+	if kind == nil || *kind != "derived" {
+		test.Errorf("derived edge kind = %v, want \"derived\"", kind)
+	}
+
+	if source != nil {
+		test.Errorf("derived edge source = %v, want NULL", *source)
+	}
+}
+
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
 	test.Helper()
 

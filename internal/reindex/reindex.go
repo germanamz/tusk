@@ -365,7 +365,7 @@ func Run(config Config) (*Report, error) {
 		}
 
 		if config.Edges != nil {
-			edgeRows := flattenEdges(parsed)
+			edgeRows := flattenEdges(parsed, config.NodeTypes)
 
 			if upsertErr := config.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
 				return upsertErr
@@ -570,19 +570,59 @@ func propertyErrorKindString(kind node.PropertyErrorKind) string {
 }
 
 // flattenEdges turns parsed.Edges into the EdgeRow shape expected by EdgeRepo.
-func flattenEdges(parsedNode *node.Node) []index.EdgeRow {
+//
+// Each row is tagged with `kind`:
+//   - "derived" — the edge-type name matches a ref-property declared on
+//     parsedNode.Type (i.e. it was synthesized by `synthesizeRefEdgeTypes`).
+//   - "direct"  — every other edge (frontmatter-direct, wikilink-resolved,
+//     etc.). Phase 3 Task 3 will refine the direct/wikilink split; this task
+//     uses "direct" as the placeholder for everything non-derived.
+//
+// Source is left NULL: Phase 3 only writes a non-NULL source for structural
+// sub-unit edges, which never come through this code path.
+func flattenEdges(parsedNode *node.Node, nodeTypes map[string]manifest.NodeType) []index.EdgeRow {
+	refProps := refPropertyNamesForType(parsedNode.Type, nodeTypes)
+
 	var rows []index.EdgeRow
 
 	for edgeType, targets := range parsedNode.Edges {
+		kind := "direct"
+
+		if _, isRef := refProps[edgeType]; isRef {
+			kind = "derived"
+		}
+
 		for _, target := range targets {
 			rows = append(rows, index.EdgeRow{
 				Type:       edgeType,
 				SourceID:   parsedNode.ID,
 				TargetID:   target,
 				SourcePath: parsedNode.Path,
+				Kind:       kind,
 			})
 		}
 	}
 
 	return rows
+}
+
+// refPropertyNamesForType returns the set of property names that are
+// ref-shaped on the given node type. Returns an empty (non-nil) map when the
+// type is unknown or has no ref properties.
+func refPropertyNamesForType(typeName string, nodeTypes map[string]manifest.NodeType) map[string]struct{} {
+	out := map[string]struct{}{}
+
+	nodeType, declared := nodeTypes[typeName]
+
+	if !declared {
+		return out
+	}
+
+	for _, prop := range nodeType.Properties {
+		if manifest.IsRefProperty(prop) {
+			out[prop.Name] = struct{}{}
+		}
+	}
+
+	return out
 }

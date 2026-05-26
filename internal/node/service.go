@@ -242,7 +242,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 			return nil, fmt.Errorf("behavior %s rejected create: %w", rejector, fireErr)
 		}
 
-		for _, edgeRow := range flattenEdges(parsed) {
+		for _, edgeRow := range flattenEdges(parsed, service.nodeTypes) {
 			if rejector, fireErr := service.behaviors.FireEdgeAddValidate(edgeRow); fireErr != nil {
 				return nil, fmt.Errorf("behavior %s rejected edge add: %w", rejector, fireErr)
 			}
@@ -283,7 +283,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, upsertErr
 	}
 
-	edgeRows := flattenEdges(parsed)
+	edgeRows := flattenEdges(parsed, service.nodeTypes)
 
 	if service.edges != nil {
 		if upsertErr := service.edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
@@ -504,7 +504,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 		fireResult = result
 
-		removed, added := diffEdgeSets(beforeNode, reparsed)
+		removed, added := diffEdgeSets(beforeNode, reparsed, service.nodeTypes)
 
 		for _, edgeRow := range removed {
 			if rejector, edgeFireErr := service.behaviors.FireEdgeRemoveValidate(edgeRow); edgeFireErr != nil {
@@ -550,7 +550,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	}
 
 	if service.edges != nil {
-		if upsertErr := service.edges.UpsertAll(reparsed.ID, reparsed.Path, flattenEdges(reparsed)); upsertErr != nil {
+		if upsertErr := service.edges.UpsertAll(reparsed.ID, reparsed.Path, flattenEdges(reparsed, service.nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
 	}
@@ -565,7 +565,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	if service.behaviors != nil {
 		_ = service.behaviors.FireNodeWriteAfter(beforeNode, reparsed)
 
-		removed, added := diffEdgeSets(beforeNode, reparsed)
+		removed, added := diffEdgeSets(beforeNode, reparsed, service.nodeTypes)
 
 		for _, edgeRow := range removed {
 			_ = service.behaviors.FireEdgeRemoveAfter(edgeRow)
@@ -679,16 +679,30 @@ func (service *Service) resolveTargetType(targetID string) (string, bool) {
 
 // flattenEdges turns parsed.Edges (map of edge-type → []targetID) into the
 // EdgeRow shape expected by index.EdgeRepo.UpsertAll.
-func flattenEdges(parsedNode *Node) []index.EdgeRow {
+//
+// Each row is tagged with `kind`: "derived" when the edge-type name matches a
+// ref-property declared on parsedNode.Type (synthesized by the manifest
+// loader's `synthesizeRefEdgeTypes`); "direct" for every other edge. Source
+// is left NULL — structural sub-unit edges never come through this code path.
+func flattenEdges(parsedNode *Node, nodeTypes map[string]manifest.NodeType) []index.EdgeRow {
+	refProps := refPropertyNamesForType(parsedNode.Type, nodeTypes)
+
 	var rows []index.EdgeRow
 
 	for edgeType, targets := range parsedNode.Edges {
+		kind := "direct"
+
+		if _, isRef := refProps[edgeType]; isRef {
+			kind = "derived"
+		}
+
 		for _, target := range targets {
 			rows = append(rows, index.EdgeRow{
 				Type:       edgeType,
 				SourceID:   parsedNode.ID,
 				TargetID:   target,
 				SourcePath: parsedNode.Path,
+				Kind:       kind,
 			})
 		}
 	}
@@ -696,12 +710,33 @@ func flattenEdges(parsedNode *Node) []index.EdgeRow {
 	return rows
 }
 
+// refPropertyNamesForType returns the set of property names that are
+// ref-shaped on the given node type. Returns an empty (non-nil) map when the
+// type is unknown or has no ref properties.
+func refPropertyNamesForType(typeName string, nodeTypes map[string]manifest.NodeType) map[string]struct{} {
+	out := map[string]struct{}{}
+
+	nodeType, declared := nodeTypes[typeName]
+
+	if !declared {
+		return out
+	}
+
+	for _, prop := range nodeType.Properties {
+		if manifest.IsRefProperty(prop) {
+			out[prop.Name] = struct{}{}
+		}
+	}
+
+	return out
+}
+
 // diffEdgeSets compares before vs. after edge sets and returns the rows
 // to fire EdgeRemove / EdgeAdd hooks for. A row identifies its edge by
 // (Type, SourceID, TargetID); ordering matches flattenEdges.
-func diffEdgeSets(before, after *Node) (removed, added []index.EdgeRow) {
-	beforeRows := flattenEdges(before)
-	afterRows := flattenEdges(after)
+func diffEdgeSets(before, after *Node, nodeTypes map[string]manifest.NodeType) (removed, added []index.EdgeRow) {
+	beforeRows := flattenEdges(before, nodeTypes)
+	afterRows := flattenEdges(after, nodeTypes)
 
 	type key struct {
 		typeName string
