@@ -248,6 +248,52 @@ func TestTool_EdgeList(test *testing.T) {
 	}
 }
 
+// TestTool_EdgeListAcceptsQualifiedType confirms that a `<source>:<type>`
+// argument to tusk_edge_list filters by both the edge type and the source
+// namespace. Two `contains` edges live in the index — one user-namespace
+// (source IS NULL, kind=direct) and one markdown-scoped (source='markdown',
+// kind=structural) — and `type=markdown:contains` returns only the latter.
+func TestTool_EdgeListAcceptsQualifiedType(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	for _, id := range []string{"projects/a", "projects/b", "notes/a", "notes/a#sec"} {
+		rt.Nodes.Upsert(index.NodeRow{ID: id, Type: "note", Path: id + ".md", PropertiesJSON: "{}", LastChecksum: "x"})
+	}
+
+	if upsertErr := rt.Edges.UpsertAll("projects/a", "projects/a.md", []index.EdgeRow{
+		{Type: "contains", SourceID: "projects/a", TargetID: "projects/b", SourcePath: "projects/a.md", Kind: "direct"},
+	}); upsertErr != nil {
+		test.Fatalf("UpsertAll user-namespace: %v", upsertErr)
+	}
+
+	if upsertErr := rt.Edges.UpsertAll("notes/a", "notes/a.md", []index.EdgeRow{
+		{Type: "contains", SourceID: "notes/a", TargetID: "notes/a#sec", SourcePath: "notes/a.md", Kind: "structural", Source: sql.NullString{String: "markdown", Valid: true}},
+	}); upsertErr != nil {
+		test.Fatalf("UpsertAll markdown-scoped: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_edge_list", map[string]any{"type": "markdown:contains"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_edge_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("len(results) = %d, want 1 (rows=%v)", len(results), results)
+	}
+
+	first := results[0].(map[string]any)
+
+	if first["source_id"] != "notes/a" || first["target_id"] != "notes/a#sec" {
+		test.Errorf("first = %v, want markdown-scoped contains edge", first)
+	}
+}
+
 func TestTool_Query(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

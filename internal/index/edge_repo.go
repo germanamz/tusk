@@ -86,6 +86,62 @@ func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT type, source_id, target_id, source_path, kind, source FROM edges WHERE type = ? ORDER BY source_id, target_id`, edgeType)
 }
 
+// ListByEdgeRef returns every edge matching ref's scope semantics, ordered
+// by source_id then target_id. Scope mapping mirrors NeighborsByEdgeRefs:
+//
+//	ScopeAny    → type = ?
+//	ScopeUser   → source IS NULL AND type = ?
+//	ScopeSource → source = ?       AND type = ?
+func (repo *EdgeRepo) ListByEdgeRef(ref typeref.Ref) ([]EdgeRow, error) {
+	const selectClause = `SELECT type, source_id, target_id, source_path, kind, source FROM edges WHERE `
+	const orderClause = ` ORDER BY source_id, target_id`
+
+	var (
+		whereClause string
+		args        []any
+	)
+
+	switch ref.Scope {
+	case typeref.ScopeAny:
+		whereClause = `type = ?`
+		args = []any{ref.Type}
+	case typeref.ScopeUser:
+		whereClause = `source IS NULL AND type = ?`
+		args = []any{ref.Type}
+	case typeref.ScopeSource:
+		whereClause = `source = ? AND type = ?`
+		args = []any{ref.Source, ref.Type}
+	default:
+		return nil, fmt.Errorf("edgeRepo: unsupported ref scope %v", ref.Scope)
+	}
+
+	rows, queryErr := repo.db.Query(selectClause+whereClause+orderClause, args...)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("edgeRepo: list-by-edge-ref query: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var results []EdgeRow
+
+	for rows.Next() {
+		row := EdgeRow{}
+
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source); scanErr != nil {
+			return nil, fmt.Errorf("edgeRepo: list-by-edge-ref scan: %w", scanErr)
+		}
+
+		results = append(results, row)
+	}
+
+	if iterErr := rows.Err(); iterErr != nil {
+		return nil, fmt.Errorf("edgeRepo: list-by-edge-ref iterate: %w", iterErr)
+	}
+
+	return results, nil
+}
+
 // ListAll returns every edge in the index, ordered by source_id, type, target_id.
 func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
 	rows, queryErr := repo.db.Query(`
@@ -170,85 +226,15 @@ func (repo *EdgeRepo) InsertIgnore(edges []EdgeRow) error {
 	return nil
 }
 
-// NeighborsByEdgeTypes returns every edge whose type matches one of edgeTypes
-// and whose source or target endpoint is in sourceIDs. Used by the graph-expand
-// walker (internal/graphexpand) to fetch all hop-N neighbors in a single SQL
-// call.
-//
-// Both inputs are deduplicated before binding to avoid pathological argument
-// counts; with K seeds and T edge types the bound is K + T placeholders, well
-// under the SQLite default limit of 32766. Returns an empty slice (no error)
-// when either input is empty.
-func (repo *EdgeRepo) NeighborsByEdgeTypes(sourceIDs, edgeTypes []string) ([]EdgeRow, error) {
-	if len(sourceIDs) == 0 || len(edgeTypes) == 0 {
-		return nil, nil
-	}
-
-	uniqueIDs := dedupStrings(sourceIDs)
-	uniqueTypes := dedupStrings(edgeTypes)
-
-	idPlaceholders := strings.TrimRight(strings.Repeat("?,", len(uniqueIDs)), ",")
-	typePlaceholders := strings.TrimRight(strings.Repeat("?,", len(uniqueTypes)), ",")
-
-	queryText := fmt.Sprintf(`
-		SELECT type, source_id, target_id, source_path, kind, source
-		FROM edges
-		WHERE type IN (%s)
-		  AND (source_id IN (%s) OR target_id IN (%s))
-		ORDER BY type, source_id, target_id
-	`, typePlaceholders, idPlaceholders, idPlaceholders)
-
-	args := make([]any, 0, len(uniqueTypes)+2*len(uniqueIDs))
-
-	for _, edgeType := range uniqueTypes {
-		args = append(args, edgeType)
-	}
-
-	for _, sourceID := range uniqueIDs {
-		args = append(args, sourceID)
-	}
-
-	for _, sourceID := range uniqueIDs {
-		args = append(args, sourceID)
-	}
-
-	rows, queryErr := repo.db.Query(queryText, args...)
-
-	if queryErr != nil {
-		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-types query: %w", queryErr)
-	}
-
-	defer rows.Close()
-
-	var results []EdgeRow
-
-	for rows.Next() {
-		row := EdgeRow{}
-
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source); scanErr != nil {
-			return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-types scan: %w", scanErr)
-		}
-
-		results = append(results, row)
-	}
-
-	if iterErr := rows.Err(); iterErr != nil {
-		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-types iterate: %w", iterErr)
-	}
-
-	return results, nil
-}
-
-// NeighborsByEdgeRefs is the typeref-aware sibling of
-// NeighborsByEdgeTypes. It accepts parsed EdgeRef values and builds a
-// grouped OR predicate so each scope maps to its correct SQL form:
+// NeighborsByEdgeRefs accepts parsed EdgeRef values and builds a grouped
+// OR predicate so each scope maps to its correct SQL form:
 //
 //	ScopeAny    → type = ?
 //	ScopeUser   → source IS NULL AND type = ?
 //	ScopeSource → source = ?       AND type = ?
 //
-// Multiple refs are combined with OR. Endpoint filter (source_id or
-// target_id IN sourceIDs) matches NeighborsByEdgeTypes.
+// Multiple refs are combined with OR. Edges match when either source_id
+// or target_id is in sourceIDs.
 func (repo *EdgeRepo) NeighborsByEdgeRefs(refs []typeref.EdgeRef, sourceIDs []string) ([]EdgeRow, error) {
 	if len(refs) == 0 || len(sourceIDs) == 0 {
 		return nil, nil
