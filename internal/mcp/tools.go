@@ -24,6 +24,7 @@ import (
 )
 
 func registerTools(srv *Server) {
+	registerHelpTool(srv)
 	registerStatusTool(srv)
 	registerNodeGetTool(srv)
 	registerNodeListTool(srv)

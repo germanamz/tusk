@@ -1,7 +1,6 @@
 package index_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,12 +8,13 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 )
 
-// TestPhase2_RebuildPreservesNodeShape rebuilds a workspace from
-// scratch and asserts every row carries valid kind/source values.
-func TestPhase2_RebuildPreservesNodeShape(test *testing.T) {
+// TestRebuildPreservesNodeKindAndSource rebuilds a workspace from
+// scratch through OpenOrRebuild and asserts every node row carries
+// valid kind/source values: file rows have source=NULL, sub-units
+// have source='markdown', and at least one of each kind is produced.
+func TestRebuildPreservesNodeKindAndSource(test *testing.T) {
 	test.Parallel()
 
 	root := test.TempDir()
@@ -34,41 +34,17 @@ Paragraph two.
 	if writeErr := os.WriteFile(filepath.Join(root, "standup.md"), []byte(noteWithSections), 0o644); writeErr != nil {
 		test.Fatalf("seed file: %v", writeErr)
 	}
+
 	indexPath := filepath.Join(root, ".tusk", "index.db")
-	if mkErr := os.MkdirAll(filepath.Dir(indexPath), 0o755); mkErr != nil {
-		test.Fatalf("mkdir: %v", mkErr)
-	}
 
-	// Seed a stale DB so OpenOrRebuild trips the schema-version mismatch
-	// and exercises the drop → reopen → reindex path end-to-end.
-	stale, openErr := index.Open(indexPath)
-	if openErr != nil {
-		test.Fatalf("seed open: %v", openErr)
-	}
-	if setErr := index.NewMetaRepo(stale).Set(index.MetaSchemaVersionKey, "stale-version"); setErr != nil {
-		test.Fatalf("seed mismatch: %v", setErr)
-	}
-	if closeErr := stale.Close(); closeErr != nil {
-		test.Fatalf("close seed: %v", closeErr)
-	}
-
-	cfg := indexopen.Config{
-		IndexPath: indexPath,
-		ReindexFactory: func(idx *index.Index) reindex.Config {
-			return reindex.Config{
-				Root:     root,
-				Repo:     index.NewNodeRepo(idx),
-				Edges:    index.NewEdgeRepo(idx),
-				Manifest: &manifest.Manifest{},
-			}
-		},
-		Logger: func(string) {},
-	}
-
-	store, openErr := indexopen.OpenOrRebuild(context.Background(), cfg)
-	if openErr != nil {
-		test.Fatalf("OpenOrRebuild: %v", openErr)
-	}
+	store := openRebuilt(test, indexPath, func(idx *index.Index) reindex.Config {
+		return reindex.Config{
+			Root:     root,
+			Repo:     index.NewNodeRepo(idx),
+			Edges:    index.NewEdgeRepo(idx),
+			Manifest: &manifest.Manifest{},
+		}
+	})
 	defer store.Close()
 
 	// Every row has a valid kind value.
