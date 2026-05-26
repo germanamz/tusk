@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // EdgeRow is the index representation of a single edge.
@@ -232,6 +234,88 @@ func (repo *EdgeRepo) NeighborsByEdgeTypes(sourceIDs, edgeTypes []string) ([]Edg
 
 	if iterErr := rows.Err(); iterErr != nil {
 		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-types iterate: %w", iterErr)
+	}
+
+	return results, nil
+}
+
+// NeighborsByEdgeRefs is the typeref-aware sibling of
+// NeighborsByEdgeTypes. It accepts parsed EdgeRef values and builds a
+// grouped OR predicate so each scope maps to its correct SQL form:
+//
+//	ScopeAny    → type = ?
+//	ScopeUser   → source IS NULL AND type = ?
+//	ScopeSource → source = ?       AND type = ?
+//
+// Multiple refs are combined with OR. Endpoint filter (source_id or
+// target_id IN sourceIDs) matches NeighborsByEdgeTypes.
+func (repo *EdgeRepo) NeighborsByEdgeRefs(refs []typeref.EdgeRef, sourceIDs []string) ([]EdgeRow, error) {
+	if len(refs) == 0 || len(sourceIDs) == 0 {
+		return nil, nil
+	}
+
+	uniqueIDs := dedupStrings(sourceIDs)
+
+	clauses := make([]string, 0, len(refs))
+	args := make([]any, 0, len(refs)*2+2*len(uniqueIDs))
+
+	for _, ref := range refs {
+		switch ref.Scope {
+		case typeref.ScopeAny:
+			clauses = append(clauses, "type = ?")
+			args = append(args, ref.Type)
+		case typeref.ScopeUser:
+			clauses = append(clauses, "(source IS NULL AND type = ?)")
+			args = append(args, ref.Type)
+		case typeref.ScopeSource:
+			clauses = append(clauses, "(source = ? AND type = ?)")
+			args = append(args, ref.Source, ref.Type)
+		default:
+			return nil, fmt.Errorf("edgeRepo: unsupported ref scope %v", ref.Scope)
+		}
+	}
+
+	idPlaceholders := strings.TrimRight(strings.Repeat("?,", len(uniqueIDs)), ",")
+	whereRefs := "(" + strings.Join(clauses, " OR ") + ")"
+
+	queryText := fmt.Sprintf(`
+		SELECT type, source_id, target_id, source_path, kind, source
+		FROM edges
+		WHERE %s
+		  AND (source_id IN (%s) OR target_id IN (%s))
+		ORDER BY type, source_id, target_id
+	`, whereRefs, idPlaceholders, idPlaceholders)
+
+	for _, id := range uniqueIDs {
+		args = append(args, id)
+	}
+
+	for _, id := range uniqueIDs {
+		args = append(args, id)
+	}
+
+	rows, queryErr := repo.db.Query(queryText, args...)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-refs query: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var results []EdgeRow
+
+	for rows.Next() {
+		row := EdgeRow{}
+
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source); scanErr != nil {
+			return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-refs scan: %w", scanErr)
+		}
+
+		results = append(results, row)
+	}
+
+	if iterErr := rows.Err(); iterErr != nil {
+		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-refs iterate: %w", iterErr)
 	}
 
 	return results, nil

@@ -4,7 +4,37 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/typeref"
 )
+
+func strptr(value string) *string {
+	return &value
+}
+
+func seedFourNodes(test *testing.T, store *index.Index) {
+	test.Helper()
+	seedNodes(test, store, "projects/a", "projects/b", "notes/a", "notes/a#sec")
+}
+
+// insertEdge writes a single edge row. source is *string so callers
+// can pass nil to mean SQL NULL (the user namespace).
+func insertEdge(test *testing.T, store *index.Index, edgeType, sourceID, targetID, sourcePath, kind string, source *string) {
+	test.Helper()
+
+	var sourceArg any
+	if source == nil {
+		sourceArg = nil
+	} else {
+		sourceArg = *source
+	}
+
+	if _, execErr := store.DB().Exec(`
+		INSERT INTO edges (type, source_id, target_id, source_path, kind, source)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, edgeType, sourceID, targetID, sourcePath, kind, sourceArg); execErr != nil {
+		test.Fatalf("insertEdge: %v", execErr)
+	}
+}
 
 // newTestEdgeRepo opens a fresh index, seeds the provided node ids
 // (required since the P2 migration added a foreign key from
@@ -241,6 +271,73 @@ func TestEdgeRepo_NeighborsByEdgeTypes_UnknownEdgeType(test *testing.T) {
 
 	if len(rows) != 0 {
 		test.Errorf("unknown type rows = %+v, want empty", rows)
+	}
+}
+
+func TestNeighborsByEdgeRefs_ScopeAnyMatchesUnion(test *testing.T) {
+	test.Parallel()
+
+	store := openTestIndex(test)
+	seedFourNodes(test, store)
+
+	insertEdge(test, store, "contains", "projects/a", "projects/b", "projects/a.md", "direct", nil)
+	insertEdge(test, store, "contains", "notes/a", "notes/a#sec", "notes/a.md", "structural", strptr("markdown"))
+
+	repo := index.NewEdgeRepo(store)
+	rows, err := repo.NeighborsByEdgeRefs(
+		[]typeref.EdgeRef{{Scope: typeref.ScopeAny, Type: "contains"}},
+		[]string{"projects/a", "notes/a"},
+	)
+	if err != nil {
+		test.Fatalf("NeighborsByEdgeRefs: %v", err)
+	}
+	if len(rows) != 2 {
+		test.Errorf("ScopeAny returned %d rows, want 2", len(rows))
+	}
+}
+
+func TestNeighborsByEdgeRefs_ScopeUserMatchesNullSource(test *testing.T) {
+	test.Parallel()
+
+	store := openTestIndex(test)
+	seedFourNodes(test, store)
+	insertEdge(test, store, "contains", "projects/a", "projects/b", "projects/a.md", "direct", nil)
+	insertEdge(test, store, "contains", "notes/a", "notes/a#sec", "notes/a.md", "structural", strptr("markdown"))
+
+	repo := index.NewEdgeRepo(store)
+	rows, err := repo.NeighborsByEdgeRefs(
+		[]typeref.EdgeRef{{Scope: typeref.ScopeUser, Type: "contains"}},
+		[]string{"projects/a", "notes/a"},
+	)
+	if err != nil {
+		test.Fatalf("NeighborsByEdgeRefs: %v", err)
+	}
+	if len(rows) != 1 {
+		test.Errorf("ScopeUser returned %d rows, want 1 (only the user-namespace edge)", len(rows))
+	}
+	if rows[0].SourceID != "projects/a" {
+		test.Errorf("ScopeUser returned wrong edge: %+v", rows[0])
+	}
+}
+
+func TestNeighborsByEdgeRefs_ScopeSourceMatchesOnePack(test *testing.T) {
+	test.Parallel()
+
+	store := openTestIndex(test)
+	seedFourNodes(test, store)
+	insertEdge(test, store, "contains", "projects/a", "projects/b", "projects/a.md", "direct", nil)
+	insertEdge(test, store, "contains", "notes/a", "notes/a#sec", "notes/a.md", "structural", strptr("markdown"))
+
+	repo := index.NewEdgeRepo(store)
+	rows, err := repo.NeighborsByEdgeRefs(
+		[]typeref.EdgeRef{{Scope: typeref.ScopeSource, Source: "markdown", Type: "contains"}},
+		[]string{"projects/a", "notes/a"},
+	)
+	if err != nil {
+		test.Fatalf("NeighborsByEdgeRefs: %v", err)
+	}
+	if len(rows) != 1 {
+		test.Errorf("ScopeSource returned %d rows, want 1 (only the markdown edge)", len(rows))
 	}
 }
 
