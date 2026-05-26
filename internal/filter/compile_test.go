@@ -858,3 +858,119 @@ func TestCompile_HeadingLevelPredicate(test *testing.T) {
 		test.Errorf("missing <= operator: %s", sqlText)
 	}
 }
+
+func TestCompileNodeTypeRefScopes(test *testing.T) {
+	test.Parallel()
+
+	cases := []struct {
+		name       string
+		input      string
+		wantClause string
+		wantParams []any
+	}{
+		{
+			name:       "bare type",
+			input:      "type=section",
+			wantClause: "type = ?",
+			wantParams: []any{"section"},
+		},
+		{
+			name:       "user-namespace type",
+			input:      "type=:section",
+			wantClause: "source IS NULL AND type = ?",
+			wantParams: []any{"section"},
+		},
+		{
+			name:       "source-qualified type",
+			input:      "type=markdown:section",
+			wantClause: "source = ? AND type = ?",
+			wantParams: []any{"markdown", "section"},
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser(testCase.input).Parse()
+
+			if len(parseErrs) > 0 {
+				test.Fatalf("parse: %v", parseErrs[0])
+			}
+
+			sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+			if compileErr != nil {
+				test.Fatalf("compile: %v", compileErr)
+			}
+
+			if !strings.Contains(sqlText, testCase.wantClause) {
+				test.Errorf("sql missing %q\ngot: %s", testCase.wantClause, sqlText)
+			}
+
+			if !reflect.DeepEqual(params, testCase.wantParams) {
+				test.Errorf("params = %v, want %v", params, testCase.wantParams)
+			}
+		})
+	}
+}
+
+// TestCompileNodeTypeRefScopesInsideEdgePredicate confirms scope-aware
+// node-type compilation also fires for type predicates nested inside an
+// edge predicate (e.g. `references->type=:section`). The edge type
+// itself remains bare here because qualified-edge-type syntax in
+// filter expressions requires parser/lexer extensions not in scope for
+// this task — see Phase 5 follow-up.
+func TestCompileNodeTypeRefScopesInsideEdgePredicate(test *testing.T) {
+	test.Parallel()
+
+	loaded := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"references": {Cardinality: manifest.CardinalityOneToMany},
+		},
+	}
+
+	cases := []struct {
+		name       string
+		input      string
+		wantClause string
+	}{
+		{
+			name:       "bare inner type",
+			input:      "references->type=section",
+			wantClause: "n0.type = ?",
+		},
+		{
+			name:       "user-namespace inner type",
+			input:      "references->type=:section",
+			wantClause: "n0.source IS NULL AND n0.type = ?",
+		},
+		{
+			name:       "source-qualified inner type",
+			input:      "references->type=markdown:section",
+			wantClause: "n0.source = ? AND n0.type = ?",
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser(testCase.input).Parse()
+
+			if len(parseErrs) > 0 {
+				test.Fatalf("parse: %v", parseErrs[0])
+			}
+
+			if validateErrs := filter.Validate(expr, loaded); len(validateErrs) > 0 {
+				test.Fatalf("validate: %v", validateErrs[0])
+			}
+
+			sqlText, _, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+			if compileErr != nil {
+				test.Fatalf("compile: %v", compileErr)
+			}
+
+			if !strings.Contains(sqlText, testCase.wantClause) {
+				test.Errorf("sql missing %q\ngot: %s", testCase.wantClause, sqlText)
+			}
+		})
+	}
+}
