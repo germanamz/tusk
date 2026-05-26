@@ -106,6 +106,20 @@ func (parser *Parser) parseAtom() Expr {
 func (parser *Parser) parsePredicate() Expr {
 	first := parser.peek()
 
+	// `:type->...` opens with a colon. The keyword/property paths both
+	// require an identifier first, so route the user-namespace edge form
+	// straight into the edge parser before the identifier check below.
+	if first.Kind == TokenColon {
+		if parser.peekEdgeTypeRefArity() > 0 {
+			return parser.parseEdgePredicate(0)
+		}
+
+		parser.appendErr(first.Pos, "expected identifier")
+		parser.advance()
+
+		return nil
+	}
+
 	if first.Kind != TokenIdent {
 		parser.appendErr(first.Pos, "expected identifier")
 		parser.advance()
@@ -128,9 +142,7 @@ func (parser *Parser) parsePredicate() Expr {
 		}
 	}
 
-	next := parser.peekN(1)
-
-	if next.Kind == TokenArrowOut || next.Kind == TokenArrowIn {
+	if parser.peekEdgeTypeRefArity() > 0 {
 		return parser.parseEdgePredicate(0)
 	}
 
@@ -145,14 +157,16 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 		return nil
 	}
 
-	identToken := parser.advance()
+	arity := parser.peekEdgeTypeRefArity()
 
-	if identToken.Kind != TokenIdent {
-		parser.appendErr(identToken.Pos, "expected edge type identifier")
+	if arity == 0 {
+		token := parser.peek()
+		parser.appendErr(token.Pos, "expected edge type identifier")
 
 		return nil
 	}
 
+	canonical, edgePos := parser.consumeEdgeTypeRef(arity)
 	arrowToken := parser.advance()
 
 	var direction Direction
@@ -169,9 +183,9 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 	}
 
 	pred := &EdgePredicate{
-		EdgeType:  identToken.Value,
+		EdgeType:  canonical,
 		Direction: direction,
-		Pos:       identToken.Pos,
+		Pos:       edgePos,
 	}
 
 	next := parser.peek()
@@ -181,15 +195,13 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 		return pred
 	}
 
+	if innerArity := parser.peekEdgeTypeRefArity(); innerArity > 0 {
+		pred.Inner = parser.parseEdgePredicate(depth + 1)
+
+		return pred
+	}
+
 	if next.Kind == TokenIdent {
-		afterIdent := parser.peekN(1)
-
-		if afterIdent.Kind == TokenArrowOut || afterIdent.Kind == TokenArrowIn {
-			pred.Inner = parser.parseEdgePredicate(depth + 1)
-
-			return pred
-		}
-
 		pred.Inner = parser.parsePropertyPredicate()
 
 		return pred
@@ -198,6 +210,86 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 	parser.appendErr(next.Pos, "expected inner predicate or end of edge predicate")
 
 	return pred
+}
+
+// peekEdgeTypeRefArity returns the number of leading tokens that compose
+// a qualified edge-type identifier sitting just before an arrow operator:
+// 1 for the bare `type->` form, 2 for `:type->`, 3 for `source:type->`.
+// Returns 0 when no edge-type prefix is present in the lookahead buffer.
+//
+// Speculative tokens buffered during the lookahead are rewound on a
+// negative result so callers can fall back to the value-position lexer
+// (which is mode-distinct from Next()) without losing the input bytes.
+func (parser *Parser) peekEdgeTypeRefArity() int {
+	savedBuffer := len(parser.buffer)
+	savedPos := parser.lexer.pos
+
+	arity := parser.computeEdgeTypeRefArity()
+
+	if arity == 0 && len(parser.buffer) > savedBuffer {
+		parser.buffer = parser.buffer[:savedBuffer]
+		parser.lexer.pos = savedPos
+	}
+
+	return arity
+}
+
+func (parser *Parser) computeEdgeTypeRefArity() int {
+	first := parser.peek()
+
+	if first.Kind == TokenIdent {
+		second := parser.peekN(1)
+
+		if second.Kind == TokenArrowOut || second.Kind == TokenArrowIn {
+			return 1
+		}
+
+		if second.Kind == TokenColon && parser.peekN(2).Kind == TokenIdent {
+			after := parser.peekN(3)
+
+			if after.Kind == TokenArrowOut || after.Kind == TokenArrowIn {
+				return 3
+			}
+		}
+
+		return 0
+	}
+
+	if first.Kind == TokenColon && parser.peekN(1).Kind == TokenIdent {
+		after := parser.peekN(2)
+
+		if after.Kind == TokenArrowOut || after.Kind == TokenArrowIn {
+			return 2
+		}
+	}
+
+	return 0
+}
+
+// consumeEdgeTypeRef advances tokens for the edge-type prefix described
+// by peekEdgeTypeRefArity and returns the canonical "[source:]type"
+// string along with the position of the first consumed token. The caller
+// is responsible for consuming the arrow that follows.
+func (parser *Parser) consumeEdgeTypeRef(arity int) (string, int) {
+	switch arity {
+	case 1:
+		ident := parser.advance()
+
+		return ident.Value, ident.Pos
+	case 2:
+		colon := parser.advance()
+		ident := parser.advance()
+
+		return ":" + ident.Value, colon.Pos
+	case 3:
+		source := parser.advance()
+		parser.advance()
+		typeIdent := parser.advance()
+
+		return source.Value + ":" + typeIdent.Value, source.Pos
+	}
+
+	return "", parser.peek().Pos
 }
 
 func (parser *Parser) parsePropertyPredicate() Expr {
