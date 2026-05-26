@@ -30,11 +30,15 @@ CREATE TABLE IF NOT EXISTS nodes (
 	parent_id       TEXT NULL,                  -- parent file id for sub-units; NULL for files (P2)
 	ordinal         INTEGER NULL,               -- position within parent; NULL for files (P2)
 	embed_payload   TEXT NULL,                  -- synthesized embedding payload for sub-units (P2)
-	kind            TEXT NULL,                  -- row-class: 'file' | 'subunit' (Phase 2)
-	source          TEXT NULL                   -- namespace identifier; NULL = user (Phase 2)
+	kind            TEXT NOT NULL,              -- row-class: 'file' | 'subunit'
+	source          TEXT NULL,                  -- namespace identifier; NULL = user
+	CHECK (
+		(kind = 'file'    AND source IS NULL     AND parent_id IS NULL) OR
+		(kind = 'subunit' AND source IS NOT NULL AND parent_id IS NOT NULL)
+	)
 );
 
-CREATE INDEX IF NOT EXISTS nodes_type_idx ON nodes(type);
+CREATE INDEX IF NOT EXISTS nodes_kind_type_idx ON nodes(kind, type);
 -- The (parent_id, ordinal) composite index is created by
 -- migrateAddSubUnitColumns after it ensures the columns exist. The
 -- IF NOT EXISTS check there is safe because the index was either
@@ -42,7 +46,9 @@ CREATE INDEX IF NOT EXISTS nodes_type_idx ON nodes(type);
 -- The partial UNIQUE index on path (file rows only) is created by
 -- migrateRelaxNodesPathUnique once the sub-units columns exist —
 -- sub-unit rows inherit their parent file's path, so a table-level
--- UNIQUE(path) constraint would block them.
+-- UNIQUE(path) constraint would block them. The predicate is on
+-- kind='file' (previously parent_id IS NULL — equivalent under the
+-- CHECK, but matches the post-tighten discriminator).
 
 CREATE TABLE IF NOT EXISTS edges (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -518,7 +524,7 @@ func migrateRelaxNodesPathUnique(ctx context.Context, conn *sql.Conn) error {
 		// where the schema constant created the table without the
 		// UNIQUE constraint and only the index is missing).
 		if _, execErr := conn.ExecContext(ctx,
-			`CREATE UNIQUE INDEX IF NOT EXISTS nodes_file_path_uidx ON nodes(path) WHERE parent_id IS NULL`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS nodes_file_path_uidx ON nodes(path) WHERE kind = 'file'`,
 		); execErr != nil {
 			return fmt.Errorf("index: create nodes_file_path_uidx: %w", execErr)
 		}
