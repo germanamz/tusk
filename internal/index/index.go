@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS edges (
 	source_id   TEXT NOT NULL,
 	target_id   TEXT NOT NULL,
 	source_path TEXT NOT NULL,
+	kind        TEXT NULL,                  -- 'direct' | 'derived' | 'structural' (Phase 3)
+	source      TEXT NULL,                  -- namespace identifier; NULL = user (Phase 3)
 	UNIQUE(type, source_id, target_id, source_path),
 	FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE
 );
