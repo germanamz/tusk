@@ -19,6 +19,7 @@ import (
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/status"
+	"github.com/germanamz/tusk/internal/typeref"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -505,11 +506,22 @@ func registerEdgeListTool(srv *Server) {
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		format := argStringOptional(request, "format")
 
-		result, runErr := index.EdgeListRun(srv.runtime.Edges, index.EdgeListRequest{
+		req := index.EdgeListRequest{
 			From: argStringOptional(request, "from"),
 			To:   argStringOptional(request, "to"),
-			Type: argStringOptional(request, "type"),
-		})
+		}
+
+		if typeArg := argStringOptional(request, "type"); typeArg != "" {
+			ref, parseErr := typeref.Parse(typeArg)
+
+			if parseErr != nil {
+				return toolError(fmt.Errorf("tusk_edge_list: parse type: %w", parseErr)), nil
+			}
+
+			req.TypeRef = &ref
+		}
+
+		result, runErr := index.EdgeListRun(srv.runtime.Edges, req)
 
 		if runErr != nil {
 			return toolError(runErr), nil
