@@ -19,7 +19,7 @@ After Task 4.1:
 
 ## Steps
 
-- [ ] **Step 1: Locate the validator**
+- [x] **Step 1: Locate the validator**
 
 Run:
 ```
@@ -28,7 +28,7 @@ grep -rn 'SubUnitConflict\|reserved.*conflict' internal/manifest
 
 Identify the function that constructs `SubUnitConflict`. Typically it walks `loaded.NodeTypes` and `loaded.EdgeTypes`, comparing each user-declared name against the reserved lists.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 In `internal/manifest/subunits_test.go`:
 
@@ -91,13 +91,13 @@ to   = ["task"]
 
 (Use the existing test file's manifest fixture helper if one exists; the literal TOML above is a fallback.)
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `go test ./internal/manifest/... -run 'TestUserNamespace' -v`
 
 Expected: FAIL — current validator raises `SubUnitConflict`.
 
-- [ ] **Step 4: Rescope the validator**
+- [x] **Step 4: Rescope the validator**
 
 Find the validator code. The current logic looks roughly like:
 
@@ -153,34 +153,34 @@ The `decl.Source` field does not exist on the current `NodeType` struct; today e
 
 Then drop the conflict construction in the user-namespace path. Apply the same change to the edge-type path.
 
-- [ ] **Step 5: Add a synthetic within-source test**
+- [x] **Step 5: Add a synthetic within-source test**
 
 To prove the validator still works for within-source collisions when future grammar enables it, write a unit test against a hand-constructed `Manifest` struct that simulates a within-source declaration. This may require a test-only helper or unexported `setSource` method on `NodeType`. If neither exists and adding one is out of scope, leave a regression test for the user-vs-pack rescue case only and add a TODO referencing the user-configurable-sources future-extension spec.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `go test ./internal/manifest/... -run 'TestUserNamespace' -v`
 
 Expected: PASS.
 
-- [ ] **Step 7: Run the workspace suite**
+- [x] **Step 7: Run the workspace suite**
 
 Run: `go test ./...`
 
 Expected: clean. Some pre-existing tests may have asserted that user-namespace `section` raises `SubUnitConflict` — those tests need to be updated to assert the new behavior (no conflict). The implementer must identify and update each.
 
-- [ ] **Step 8: `make vet` and `make lint`**
+- [x] **Step 8: `make vet` and `make lint`**
 
 Expected: clean.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```
 git add internal/manifest
 git commit -m "feat(manifest): SubUnitConflict no longer fires for user-vs-pack collisions"
 ```
 
-- [ ] **Step 10: Open the PR**
+- [x] **Step 10: Open the PR**
 
 ```
 gh pr create --title "feat(manifest): SubUnitConflict no longer fires for user-vs-pack collisions" --body "$(cat <<'EOF'
