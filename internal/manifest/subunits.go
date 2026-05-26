@@ -1,41 +1,14 @@
 package manifest
 
-import "sort"
+import "maps"
 
-// subdocumentReservedNodeTypes are the node-type names owned by the
-// built-in sub-document pack. Mirrored at
-// internal/typepacks/subdocument.ReservedNodeTypes for external callers
-// (Task 2 onward) that need the same list without importing manifest's
-// internal merge code.
-var subdocumentReservedNodeTypes = []string{
-	"section",
-	"paragraph",
-	"list-item",
-	"code-block",
-	"blockquote",
-	"table-cell",
-}
-
-// subdocumentReservedEdgeTypes are the edge-type names owned by the
-// built-in sub-document pack. `contains` is the literal type; the
-// inverse `contained-by` is reserved too so a user cannot shadow it
-// with an explicit declaration.
-var subdocumentReservedEdgeTypes = []string{
-	"contains",
-	"contained-by",
-}
-
-// subdocumentReservedProperties maps each reserved node type to the
-// property names the pack owns on that type. Used by mergeSubdocumentPack
-// to surface property-level conflicts.
-var subdocumentReservedProperties = map[string][]string{
-	"section":    {"heading-level"},
-	"paragraph":  {},
-	"list-item":  {"checkbox"},
-	"code-block": {"lang"},
-	"blockquote": {},
-	"table-cell": {"header", "row", "column", "column-header"},
-}
+// The canonical public list of reserved names lives at
+// internal/typepacks/subdocument.{ReservedNodeTypes,ReservedEdgeTypes,
+// ReservedProperties}. The mirror that previously lived here was used
+// only by the user-vs-pack conflict-detection loop, which was removed
+// in Phase 4 Task 2 — those collisions are no longer real conflicts
+// because the pack's reservations are scoped to source = "markdown"
+// while user declarations live at source = NULL.
 
 // SubdocumentNodeTypes returns a freshly allocated map of the built-in
 // sub-document pack's node-type declarations. Mirrored by
@@ -138,19 +111,31 @@ type SubUnitConflict struct {
 
 // mergeSubdocumentPack merges the built-in sub-document pack into
 // loaded when the manifest opts into sub-units (default true). The
-// merge:
+// merge installs the pack's node and edge types into the manifest's
+// effective NodeTypes/EdgeTypes maps.
 //
-//   - Records a SubUnitConflict for every user-declared node-type,
-//     edge-type, or reserved-property name that collides with the
-//     pack's reserved set.
-//   - Drops the user's overriding declaration so downstream consumers
-//     see only the built-in declarations.
-//   - Adds the pack's node types and edge types to the manifest's
-//     effective NodeTypes and EdgeTypes maps.
+// Reservation scope: the pack reserves its names within
+// source = subdocument.Source() (i.e., source = "markdown"). User
+// declarations of the same names live in the user namespace
+// (source = NULL) and are NOT in conflict with the pack — they
+// describe a different slice of the index. SubUnitConflict therefore
+// does not fire for user-vs-pack collisions.
 //
-// Idempotent: re-running observes no remaining conflicts because the
-// user's overrides were removed on the first pass; re-installing the
-// built-in declarations is a deterministic overwrite.
+// The SubUnitConflict type and the loop structure are retained because
+// a future user-configurable-sources extension may let a manifest
+// declare types at a specific source; a declaration targeting
+// source = "markdown" would still collide with the pack. As of today
+// the manifest grammar can only produce user-namespace declarations,
+// so the within-source path is a no-op.
+//
+// Map mechanics: the pack's declarations overwrite any user entry of
+// the same name in the flat NodeTypes/EdgeTypes maps. Source-keyed
+// grammar storage is out of scope for this phase; full source
+// scoping of the in-memory manifest lands with the
+// user-configurable-sources extension.
+//
+// Idempotent: re-running re-installs the pack's declarations
+// deterministically.
 func mergeSubdocumentPack(loaded *Manifest) {
 	if !loaded.SubUnitsEnabled() {
 		return
@@ -160,97 +145,18 @@ func mergeSubdocumentPack(loaded *Manifest) {
 		return
 	}
 
-	reservedNodes := stringSet(subdocumentReservedNodeTypes)
-	reservedEdges := stringSet(subdocumentReservedEdgeTypes)
-
-	// Node-type and property collisions. Iterate over a sorted snapshot
-	// so SubUnitConflicts ordering is deterministic.
-	for _, name := range sortedMapKeys(loaded.NodeTypes) {
-		if _, reserved := reservedNodes[name]; !reserved {
-			continue
-		}
-
-		loaded.SubUnitConflicts = append(loaded.SubUnitConflicts, SubUnitConflict{
-			Kind: "node-type",
-			Name: name,
-			Message: "node-types." + name +
-				": reserved by the sub-document pack; the user declaration is ignored. Disable the pack with `[workspace] sub-units = false` or rename the type.",
-		})
-
-		reservedProps := stringSet(subdocumentReservedProperties[name])
-
-		for _, prop := range loaded.NodeTypes[name].Properties {
-			if _, isReserved := reservedProps[prop.Name]; !isReserved {
-				continue
-			}
-
-			loaded.SubUnitConflicts = append(loaded.SubUnitConflicts, SubUnitConflict{
-				Kind:      "property",
-				Name:      prop.Name,
-				OwnerType: name,
-				Message: "node-types." + name + "." + prop.Name +
-					": reserved by the sub-document pack; the user declaration is ignored.",
-			})
-		}
-
-		delete(loaded.NodeTypes, name)
-	}
-
-	// Edge-type collisions.
-	for _, name := range sortedMapKeys(loaded.EdgeTypes) {
-		if _, reserved := reservedEdges[name]; !reserved {
-			continue
-		}
-
-		loaded.SubUnitConflicts = append(loaded.SubUnitConflicts, SubUnitConflict{
-			Kind: "edge-type",
-			Name: name,
-			Message: "edge-types." + name +
-				": reserved by the sub-document pack; the user declaration is ignored. Disable the pack with `[workspace] sub-units = false` or rename the edge type.",
-		})
-
-		delete(loaded.EdgeTypes, name)
-	}
-
 	// Install the built-in declarations.
 	if loaded.NodeTypes == nil {
 		loaded.NodeTypes = make(map[string]NodeType)
 	}
 
-	for name, nodeType := range subdocumentNodeTypes() {
-		loaded.NodeTypes[name] = nodeType
-	}
+	maps.Copy(loaded.NodeTypes, subdocumentNodeTypes())
 
 	if loaded.EdgeTypes == nil {
 		loaded.EdgeTypes = make(EdgeTypes)
 	}
 
-	for name, edgeType := range subdocumentEdgeTypes() {
-		loaded.EdgeTypes[name] = edgeType
-	}
+	maps.Copy(loaded.EdgeTypes, subdocumentEdgeTypes())
 
 	loaded.subdocumentPackApplied = true
-}
-
-// stringSet returns the input slice as a lookup set.
-func stringSet(items []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(items))
-
-	for _, item := range items {
-		out[item] = struct{}{}
-	}
-
-	return out
-}
-
-// sortedMapKeys returns the keys of m in lexicographic order.
-func sortedMapKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-
-	for k := range m {
-		out = append(out, k)
-	}
-
-	sort.Strings(out)
-	return out
 }

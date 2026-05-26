@@ -124,11 +124,14 @@ sub-units = false
 	}
 }
 
-// TestMergeBuiltinPacks_ReportsReservedNodeTypeConflict confirms a
-// user-declared node type whose name collides with a reserved name
-// surfaces a SubUnitConflict and is removed from NodeTypes (the
-// built-in declaration wins).
-func TestMergeBuiltinPacks_ReportsReservedNodeTypeConflict(test *testing.T) {
+// TestMergeBuiltinPacks_UserDeclaredReservedNodeTypeRaisesNoConflict
+// confirms that a user-declared node type whose name matches a pack
+// reservation no longer raises a SubUnitConflict. User declarations
+// live at source = NULL; the pack's reservations live at
+// source = "markdown" — they're in different namespaces. The pack's
+// declaration still wins the in-memory NodeTypes map (full
+// source-keyed grammar storage is a future-phase change).
+func TestMergeBuiltinPacks_UserDeclaredReservedNodeTypeRaisesNoConflict(test *testing.T) {
 	loaded := loadInlineManifest(test, `
 [workspace]
 name = "x"
@@ -143,50 +146,28 @@ properties = [
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	if len(loaded.SubUnitConflicts) == 0 {
-		test.Fatalf("SubUnitConflicts empty; expected at least one node-type conflict")
+	if len(loaded.SubUnitConflicts) != 0 {
+		test.Errorf("SubUnitConflicts should be empty after rescoping; got %+v", loaded.SubUnitConflicts)
 	}
 
-	nodeTypeConflicts := 0
-	propConflicts := 0
-
-	for _, conflict := range loaded.SubUnitConflicts {
-		switch conflict.Kind {
-		case "node-type":
-			if conflict.Name == "section" {
-				nodeTypeConflicts++
-			}
-		case "property":
-			if conflict.OwnerType == "section" && conflict.Name == "heading-level" {
-				propConflicts++
-			}
-		}
-	}
-
-	if nodeTypeConflicts != 1 {
-		test.Errorf("expected 1 node-type conflict for section, got %d", nodeTypeConflicts)
-	}
-
-	if propConflicts != 1 {
-		test.Errorf("expected 1 property conflict for section.heading-level, got %d", propConflicts)
-	}
-
-	// The built-in declaration should now be in place.
+	// The built-in declaration should still be in place in the
+	// NodeTypes map.
 	got, has := loaded.NodeTypes["section"]
 
 	if !has {
-		test.Fatalf("section node type missing after conflict resolution")
+		test.Fatalf("section node type missing after merge")
 	}
 
 	if got.Description == "user override" {
-		test.Errorf("section description = %q, expected built-in to win", got.Description)
+		test.Errorf("section description = %q, expected built-in to win in the map", got.Description)
 	}
 }
 
-// TestMergeBuiltinPacks_ReportsReservedEdgeTypeConflict confirms a
-// user-declared edge type colliding with `contains` or `contained-by`
-// surfaces a conflict.
-func TestMergeBuiltinPacks_ReportsReservedEdgeTypeConflict(test *testing.T) {
+// TestMergeBuiltinPacks_UserDeclaredReservedEdgeTypeRaisesNoConflict
+// is the edge-type analogue: a user-declared `contains` edge no
+// longer raises a SubUnitConflict, and the pack's declaration still
+// wins the in-memory EdgeTypes map.
+func TestMergeBuiltinPacks_UserDeclaredReservedEdgeTypeRaisesNoConflict(test *testing.T) {
 	loaded := loadInlineManifest(test, `
 [workspace]
 name = "x"
@@ -202,17 +183,8 @@ cardinality = "many-to-many"
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	found := false
-
-	for _, conflict := range loaded.SubUnitConflicts {
-		if conflict.Kind == "edge-type" && conflict.Name == "contains" {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		test.Errorf("expected edge-type conflict for 'contains'; got %+v", loaded.SubUnitConflicts)
+	if len(loaded.SubUnitConflicts) != 0 {
+		test.Errorf("SubUnitConflicts should be empty after rescoping; got %+v", loaded.SubUnitConflicts)
 	}
 
 	// The built-in declaration wins.
@@ -283,6 +255,69 @@ properties = []
 
 	if len(loaded.NodeTypes) != firstNodes {
 		test.Errorf("node-type count changed across calls: %d -> %d", firstNodes, len(loaded.NodeTypes))
+	}
+}
+
+// TestMergeBuiltinPacks_UserNamespaceSectionDeclarationLoadsClean confirms
+// that a user-declared `section` node-type in the user namespace
+// (source = NULL) coexists with the sub-document pack's reservation
+// in source = "markdown" without raising a SubUnitConflict. Phase 4
+// Task 2 — the validator no longer fires for user-vs-pack collisions
+// because the two declarations live in different source namespaces.
+func TestMergeBuiltinPacks_UserNamespaceSectionDeclarationLoadsClean(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+sub-units = true
+
+[node-types.section]
+description = "user-namespace section"
+properties = [
+    { name = "summary", type = "string" },
+]
+`)
+
+	manifest.MergeBuiltinPacks(loaded)
+
+	if len(loaded.SubUnitConflicts) != 0 {
+		test.Errorf("SubUnitConflicts populated for user-namespace section declaration: %+v", loaded.SubUnitConflicts)
+	}
+
+	if _, exists := loaded.NodeTypes["section"]; !exists {
+		test.Error("NodeTypes missing 'section' after merge")
+	}
+}
+
+// TestMergeBuiltinPacks_UserNamespaceContainsEdgeDeclarationLoadsClean
+// is the edge-type analogue of the section test above — a user-declared
+// `contains` edge in the user namespace loads cleanly alongside the
+// pack's source = "markdown" reservation.
+func TestMergeBuiltinPacks_UserNamespaceContainsEdgeDeclarationLoadsClean(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+sub-units = true
+
+[node-types.project]
+properties = []
+
+[node-types.task]
+properties = []
+
+[edge-types.contains]
+from = ["project"]
+to = ["task"]
+cardinality = "one-to-many"
+`)
+
+	manifest.MergeBuiltinPacks(loaded)
+
+	if len(loaded.SubUnitConflicts) != 0 {
+		test.Errorf("SubUnitConflicts populated for user-namespace contains edge declaration: %+v", loaded.SubUnitConflicts)
+	}
+
+	if _, exists := loaded.EdgeTypes["contains"]; !exists {
+		test.Error("EdgeTypes missing 'contains' after merge")
 	}
 }
 
