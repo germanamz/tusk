@@ -17,9 +17,7 @@ import (
 //   - "structural" — produced by the sub-unit pipeline (contains / contained-by).
 //
 // Source carries the namespace identifier when present (e.g. "markdown" for
-// structural sub-unit edges). NULL for direct and derived edges. Phase 3 of the
-// node/edge source-namespace plan introduces these columns; subsequent tasks
-// tighten the schema with NOT NULL + CHECK + a UNIQUE swap.
+// structural sub-unit edges). NULL for direct and derived edges.
 type EdgeRow struct {
 	Type       string
 	SourceID   string
