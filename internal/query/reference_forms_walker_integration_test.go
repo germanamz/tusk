@@ -11,11 +11,10 @@ import (
 	"github.com/germanamz/tusk/internal/typeref"
 )
 
-// TestPhase5_ThreeReferenceFormsAcrossWalker is the Phase 5 acceptance
-// test: a single fixture carries one user-namespace edge (source IS
-// NULL) and one markdown-namespace edge (source = 'markdown'), both of
-// type `contains`. Three Walker.Expand runs — one per reference form —
-// must select the correct subset:
+// TestWalkerHandlesAllReferenceForms drives a fixture that carries one
+// user-namespace edge (source IS NULL) and one markdown-namespace edge
+// (source = 'markdown'), both of type `contains`. Three Walker.Expand
+// runs — one per reference form — must select the correct subset:
 //
 //	bare `contains`        → union (both edges fire)
 //	`:contains`            → user-namespace only
@@ -23,7 +22,7 @@ import (
 //
 // This validates the end-to-end wiring: typeref.Parse → Walker.Expand
 // → EdgeRepo.NeighborsByEdgeRefs → SQL scope-aware WHERE clauses.
-func TestPhase5_ThreeReferenceFormsAcrossWalker(test *testing.T) {
+func TestWalkerHandlesAllReferenceForms(test *testing.T) {
 	store := openTestStore(test)
 
 	nodes := index.NewNodeRepo(store)

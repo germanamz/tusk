@@ -1,7 +1,6 @@
 package index_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,16 +8,16 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 )
 
-// TestPhase4_UserSectionAndPackSectionCoexist rebuilds a workspace whose
-// manifest declares a user-namespace `section` node-type and confirms
-// the resulting index holds both a `(file, NULL, section)` row from the
+// TestUserAndPackSectionTypesCoexist rebuilds a workspace whose manifest
+// declares a user-namespace `section` node-type and confirms the
+// resulting index holds both a `(file, NULL, section)` row from the
 // user-declared file and a `(subunit, markdown, section)` row from the
-// markdown sub-document pack. After Phase 4 Task 2 rescoping the two
-// reservations live in different (kind, source) slices and must coexist.
-func TestPhase4_UserSectionAndPackSectionCoexist(test *testing.T) {
+// markdown sub-document pack. The reservation system scopes user and
+// pack declarations into separate (kind, source) slices so identically
+// named types coexist without conflict.
+func TestUserAndPackSectionTypesCoexist(test *testing.T) {
 	test.Parallel()
 
 	root := test.TempDir()
@@ -73,40 +72,17 @@ Body.
 	}
 
 	indexPath := filepath.Join(root, ".tusk", "index.db")
-	if mkErr := os.MkdirAll(filepath.Dir(indexPath), 0o755); mkErr != nil {
-		test.Fatalf("mkdir: %v", mkErr)
-	}
 
-	// Seed a stale DB so OpenOrRebuild trips the schema-version mismatch
-	// and exercises the rebuild path end-to-end.
-	stale, openErr := index.Open(indexPath)
-	if openErr != nil {
-		test.Fatalf("seed open: %v", openErr)
-	}
-	if setErr := index.NewMetaRepo(stale).Set(index.MetaSchemaVersionKey, "stale-version"); setErr != nil {
-		test.Fatalf("seed mismatch: %v", setErr)
-	}
-	if closeErr := stale.Close(); closeErr != nil {
-		test.Fatalf("close seed: %v", closeErr)
-	}
-
-	store, openErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
-		IndexPath: indexPath,
-		ReindexFactory: func(idx *index.Index) reindex.Config {
-			return reindex.Config{
-				Root:      root,
-				Repo:      index.NewNodeRepo(idx),
-				Edges:     index.NewEdgeRepo(idx),
-				EdgeTypes: loaded.EdgeTypes,
-				NodeTypes: loaded.NodeTypes,
-				Manifest:  loaded,
-			}
-		},
-		Logger: func(string) {},
+	store := openRebuilt(test, indexPath, func(idx *index.Index) reindex.Config {
+		return reindex.Config{
+			Root:      root,
+			Repo:      index.NewNodeRepo(idx),
+			Edges:     index.NewEdgeRepo(idx),
+			EdgeTypes: loaded.EdgeTypes,
+			NodeTypes: loaded.NodeTypes,
+			Manifest:  loaded,
+		}
 	})
-	if openErr != nil {
-		test.Fatalf("OpenOrRebuild: %v", openErr)
-	}
 	defer store.Close()
 
 	var userSectionCount int
