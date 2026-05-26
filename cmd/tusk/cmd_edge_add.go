@@ -140,7 +140,7 @@ same graph state.`,
 					return writeErr
 				}
 
-				if reindexErr := node.ReindexSource(ws.Root, index.NewEdgeRepo(store), loaded.EdgeTypes, source); reindexErr != nil {
+				if reindexErr := node.ReindexSource(ws.Root, index.NewEdgeRepo(store), loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
 					return reindexErr
 				}
 

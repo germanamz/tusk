@@ -1211,6 +1211,111 @@ properties = [
 	}
 }
 
+// TestReindex_DirectEdgesCarryDirectKind asserts that frontmatter property-value
+// edges that do NOT come from a ref-property declaration, and wikilink-resolved
+// edges, both write kind='direct', source=NULL when reindex persists them.
+func TestReindex_DirectEdgesCarryDirectKind(test *testing.T) {
+	dir := test.TempDir()
+
+	manifestContent := `
+[workspace]
+name = "test"
+
+[node-types.note]
+properties = []
+
+[edge-types.mentions]
+from = ["*"]
+to = ["*"]
+cardinality = "many-to-many"
+
+[edge-types.references]
+from = ["*"]
+to = ["*"]
+cardinality = "many-to-many"
+wikilinks = true
+`
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "tusk.toml"), []byte(manifestContent), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, "notes"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir notes: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "notes/target.md"), []byte(
+		"---\ntype: note\ntitle: Target\n---\n\nbody\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write target: %v", writeErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "notes/source.md"), []byte(
+		"---\ntype: note\ntitle: Source\nmentions:\n  - notes/target\n---\n\nAlso refers to [[notes/target]].\n",
+	), 0o644); writeErr != nil {
+		test.Fatalf("write source: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(dir, ".tusk"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir .tusk: %v", mkErr)
+	}
+
+	idx, idxErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if idxErr != nil {
+		test.Fatalf("open index: %v", idxErr)
+	}
+
+	defer idx.Close()
+
+	loaded, loadErr := manifest.Load(filepath.Join(dir, "tusk.toml"))
+
+	if loadErr != nil {
+		test.Fatalf("Load manifest: %v", loadErr)
+	}
+
+	if _, runErr := reindex.Run(reindex.Config{
+		Root:          dir,
+		Repo:          index.NewNodeRepo(idx),
+		Edges:         index.NewEdgeRepo(idx),
+		EdgeTypes:     loaded.EdgeTypes,
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: index.NewPropertyDriftRepo(idx),
+	}); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	assertDirectEdge := func(edgeType string) {
+		test.Helper()
+
+		var (
+			kind   *string
+			source *string
+		)
+
+		scanErr := idx.DB().QueryRow(`
+			SELECT kind, source
+			FROM edges
+			WHERE type = ? AND source_id = 'notes/source' AND target_id = 'notes/target'
+		`, edgeType).Scan(&kind, &source)
+
+		if scanErr != nil {
+			test.Fatalf("scan %s edge: %v", edgeType, scanErr)
+		}
+
+		if kind == nil || *kind != "direct" {
+			test.Errorf("%s edge kind = %v, want \"direct\"", edgeType, kind)
+		}
+
+		if source != nil {
+			test.Errorf("%s edge source = %v, want NULL", edgeType, *source)
+		}
+	}
+
+	assertDirectEdge("mentions")
+	assertDirectEdge("references")
+}
+
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
 	test.Helper()
 

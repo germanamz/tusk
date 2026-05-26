@@ -106,7 +106,7 @@ func TestRename_MovesFileAndRewritesReferringEdgesInFrontmatter(test *testing.T)
 		test.Fatalf("create child: %v", childErr)
 	}
 
-	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, edgeTypes, "tickets/old-parent", "tickets/new-parent.md")
+	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, edgeTypes, nil, "tickets/old-parent", "tickets/new-parent.md")
 
 	if renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
@@ -164,7 +164,7 @@ func TestRename_InheritsSourceExtensionWhenTargetHasNone(test *testing.T) {
 		test.Fatalf("create foo: %v", createErr)
 	}
 
-	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, "notes/foo", "notes/bar")
+	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, nil, "notes/foo", "notes/bar")
 
 	if renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
@@ -202,7 +202,7 @@ func TestRename_HonorsExplicitTargetExtension(test *testing.T) {
 		test.Fatalf("create foo: %v", createErr)
 	}
 
-	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, "notes/foo", "notes/bar.md")
+	plan, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, nil, "notes/foo", "notes/bar.md")
 
 	if renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
@@ -227,7 +227,7 @@ func TestRename_ReturnsErrorWhenTargetExists(test *testing.T) {
 	_, _ = service.Create(node.CreateInput{RelPath: "a.md", Type: "note"})
 	_, _ = service.Create(node.CreateInput{RelPath: "b.md", Type: "note"})
 
-	_, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, "a", "b.md")
+	_, renameErr := node.Rename(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, nil, "a", "b.md")
 
 	if renameErr == nil {
 		test.Fatalf("expected error renaming over existing target")

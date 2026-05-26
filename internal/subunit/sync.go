@@ -400,6 +400,7 @@ func buildOutboundEdges(unit Unit, sourceID, sourcePath string, wikilinkEdgeName
 			SourceID:   sourceID,
 			TargetID:   spec.TargetID,
 			SourcePath: sourcePath,
+			Kind:       "direct",
 		})
 	}
 

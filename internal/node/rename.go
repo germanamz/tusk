@@ -54,7 +54,7 @@ type RenamePlan struct {
 // (e.g. ".md") but newRelPath does not, the source's extension is inherited so
 // the renamed file keeps its on-disk extension and the new node id matches the
 // "path without extension" convention used elsewhere.
-func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edgeTypes manifest.EdgeTypes, oldID, newRelPath string) (*RenamePlan, error) {
+func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType, oldID, newRelPath string) (*RenamePlan, error) {
 	row, getErr := nodeRepo.Get(oldID)
 
 	if getErr != nil {
@@ -133,6 +133,8 @@ func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edg
 			SourceID:   newID,
 			TargetID:   edge.TargetID,
 			SourcePath: newRelPath,
+			Kind:       edge.Kind,
+			Source:     edge.Source,
 		})
 	}
 
@@ -163,18 +165,7 @@ func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edg
 			return nil, resolveErr
 		}
 
-		var rewritten []index.EdgeRow
-
-		for edgeType, targets := range parsed.Edges {
-			for _, target := range targets {
-				rewritten = append(rewritten, index.EdgeRow{
-					Type: edgeType, SourceID: parsed.ID, TargetID: target,
-					SourcePath: parsed.Path,
-				})
-			}
-		}
-
-		if upsertErr := edgeRepo.UpsertAll(parsed.ID, parsed.Path, rewritten); upsertErr != nil {
+		if upsertErr := edgeRepo.UpsertAll(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
 	}

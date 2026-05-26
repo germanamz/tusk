@@ -705,7 +705,7 @@ func Migrate(config Config) (*MigrationReport, error) {
 				fmt.Sprintf("%s [%s]: %s → %s", row.Type, row.SourcePath, row.SourceID, row.TargetID))
 		}
 
-		if reindexErr := node.ReindexSource(config.Root, config.Edges, config.Manifest.EdgeTypes, sourceID); reindexErr != nil {
+		if reindexErr := node.ReindexSource(config.Root, config.Edges, config.Manifest.EdgeTypes, config.Manifest.NodeTypes, sourceID); reindexErr != nil {
 			return nil, fmt.Errorf("doctor: reindex %s: %w", sourceID, reindexErr)
 		}
 
