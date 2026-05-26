@@ -38,17 +38,14 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 		return encodeErr
 	}
 
-	// P2 made node_id the uniqueness key; chunk_idx is retained for
-	// back-compat reads but is always 0 on new writes when the sub-units
-	// pack is producing leaf-unit embeddings. Updates land on the
-	// existing row regardless of chunk_idx, preserving the legacy
-	// "latest chunk wins" semantic. For multi-chunk nodes, the last
-	// chunk processed wins; the body column reflects that last chunk.
+	// One row per (node_id, chunk_idx). A repeat upsert for the same
+	// (node_id, chunk_idx) replaces that row's payload in place; chunks
+	// at other indexes are untouched. This lets DrainQueue's hash-skip
+	// short-circuit when every chunk of a node matches the persisted set.
 	_, execErr := repo.db.Exec(`
 		INSERT INTO embeddings (node_id, chunk_idx, model, content_hash, vector, dim, body)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(node_id) DO UPDATE SET
-			chunk_idx    = excluded.chunk_idx,
+		ON CONFLICT(node_id, chunk_idx) DO UPDATE SET
 			model        = excluded.model,
 			content_hash = excluded.content_hash,
 			vector       = excluded.vector,

@@ -75,14 +75,15 @@ CREATE INDEX IF NOT EXISTS edges_kind_idx        ON edges(kind);
 
 CREATE TABLE IF NOT EXISTS embeddings (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,
-	node_id      TEXT NOT NULL UNIQUE,
+	node_id      TEXT NOT NULL,
 	chunk_idx    INTEGER NOT NULL DEFAULT 0,
 	model        TEXT NOT NULL,
 	content_hash TEXT NOT NULL,
 	vector       BLOB NOT NULL,
 	dim          INTEGER NOT NULL,
 	body         TEXT NOT NULL DEFAULT '',
-	FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+	FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+	UNIQUE(node_id, chunk_idx)
 );
 
 CREATE INDEX IF NOT EXISTS embeddings_node_idx ON embeddings(node_id);

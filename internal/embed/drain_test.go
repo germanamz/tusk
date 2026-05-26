@@ -327,15 +327,8 @@ func TestDrainQueue_EmbedsEveryChunkOfMultiChunkNode(test *testing.T) {
 		test.Fatalf("GetByNodeID: %v", getErr)
 	}
 
-	// P2 migration: the embeddings table is now UNIQUE(node_id), so
-	// multiple chunks per node collapse to a single row (the last upsert
-	// wins). The drainer still embeds every chunk (verified above by
-	// stub.calls >= 2); only the storage shape changed. Task 4 swaps
-	// MarkdownRecursive for AST chunking so each leaf unit gets its own
-	// node row + its own embedding — restoring the "one row per
-	// semantic chunk" property at the unit granularity.
-	if len(rows) != 1 {
-		test.Errorf("persisted rows = %d, want 1 (UNIQUE(node_id) collapses multi-chunk to one row)", len(rows))
+	if len(rows) != stub.calls {
+		test.Errorf("persisted rows = %d, want %d (one per chunk)", len(rows), stub.calls)
 	}
 }
 
@@ -767,6 +760,75 @@ func TestDrainQueue_SkipsEmbedWhenContentUnchanged(test *testing.T) {
 		if rowsAfter[i].ContentHash != rowsBefore[i].ContentHash {
 			test.Errorf("rows[%d].ContentHash changed: was %q, now %q", i, rowsBefore[i].ContentHash, rowsAfter[i].ContentHash)
 		}
+	}
+}
+
+func TestDrainQueue_SkipsEmbedWhenContentUnchanged_MultiChunk(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	body := strings.Repeat("alpha ", 200) +
+		"\n## Section B\n" + strings.Repeat("bravo ", 200) +
+		"\n## Section C\n" + strings.Repeat("charlie ", 200)
+
+	createNodeFile(test, root, "notes/multi.md", body)
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "notes/multi", Type: "note", Path: "notes/multi.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	stub := &drainStubEmbedder{dim: 3, model: "stub"}
+	chunker := embed.MarkdownRecursive{TargetBytes: 400, MaxBytes: 2000, OverlapBytes: 0}
+
+	if enqErr := queueRepo.Enqueue("notes/multi"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		Chunker:    chunker,
+	}); drainErr != nil {
+		test.Fatalf("first drain: %v", drainErr)
+	}
+
+	firstPassCalls := stub.calls
+
+	if firstPassCalls < 2 {
+		test.Fatalf("first drain made %d embed calls; need >= 2 chunks for this test", firstPassCalls)
+	}
+
+	if enqErr := queueRepo.Enqueue("notes/multi"); enqErr != nil {
+		test.Fatalf("re-enqueue: %v", enqErr)
+	}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   stub,
+		Chunker:    chunker,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("second drain: %v", drainErr)
+	}
+
+	if drained != 1 {
+		test.Errorf("drained = %d, want 1", drained)
+	}
+
+	if stub.calls != firstPassCalls {
+		test.Errorf("embedder.calls = %d after second drain, want %d (no re-embedding for unchanged multi-chunk content)", stub.calls, firstPassCalls)
 	}
 }
 
