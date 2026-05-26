@@ -13,6 +13,7 @@ import (
 	"github.com/germanamz/tusk/internal/graphexpand"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // Request configures Run. Filter is the structural filter expression and is
@@ -389,7 +390,13 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 			})
 		}
 
-		walker := graphexpand.NewWalker(deps.Edges, req.GraphExpansion.EdgeTypes, req.GraphExpansion.Hops)
+		edgeRefs, parseErr := typeref.ParseMany(req.GraphExpansion.EdgeTypes)
+
+		if parseErr != nil {
+			return nil, fmt.Errorf("query: graph expansion parse edge types: %w", parseErr)
+		}
+
+		walker := graphexpand.NewWalker(deps.Edges, edgeRefs, req.GraphExpansion.Hops)
 
 		walkedCandidates, walkedEdges, walkErr := walker.Expand(ctx, seedCandidates)
 

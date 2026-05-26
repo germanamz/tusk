@@ -8,6 +8,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/graphexpand"
+	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // runSemanticSubUnits executes the sub-unit-aware semantic ranking path. It
@@ -148,7 +149,13 @@ func runSemanticSubUnits(
 			})
 		}
 
-		walker := graphexpand.NewWalker(deps.Edges, req.GraphExpansion.EdgeTypes, req.GraphExpansion.Hops)
+		edgeRefs, parseErr := typeref.ParseMany(req.GraphExpansion.EdgeTypes)
+
+		if parseErr != nil {
+			return nil, fmt.Errorf("query: graph expansion parse edge types: %w", parseErr)
+		}
+
+		walker := graphexpand.NewWalker(deps.Edges, edgeRefs, req.GraphExpansion.Hops)
 
 		walkedCandidates, walkedEdges, walkErr := walker.Expand(ctx, seedCandidates)
 

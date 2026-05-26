@@ -8,7 +8,16 @@ import (
 
 	"github.com/germanamz/tusk/internal/graphexpand"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/typeref"
 )
+
+func refsAny(types ...string) []typeref.EdgeRef {
+	refs := make([]typeref.EdgeRef, len(types))
+	for index, edgeType := range types {
+		refs[index] = typeref.EdgeRef{Scope: typeref.ScopeAny, Type: edgeType}
+	}
+	return refs
+}
 
 // fixtureGraph builds a small graph used across walker tests:
 //
@@ -146,7 +155,7 @@ func candidateByID(test *testing.T, candidates []graphexpand.Candidate, nodeID s
 func TestWalker_OneHop_ReferencesOnly(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	walker := graphexpand.NewWalker(edgeRepo, []string{"references"}, 1)
+	walker := graphexpand.NewWalker(edgeRepo, refsAny("references"), 1)
 
 	seeds := []graphexpand.Candidate{
 		{NodeID: "f1", CosineScore: 0.9, Distance: 0},
@@ -230,7 +239,7 @@ func TestWalker_OneHop_ReferencesOnly(test *testing.T) {
 func TestWalker_OneHop_ReferencesAndContains(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	walker := graphexpand.NewWalker(edgeRepo, []string{"references", "contains"}, 1)
+	walker := graphexpand.NewWalker(edgeRepo, refsAny("references", "contains"), 1)
 
 	seeds := []graphexpand.Candidate{
 		{NodeID: "f1", CosineScore: 0.9, Distance: 0},
@@ -267,7 +276,7 @@ func TestWalker_OneHop_ReferencesAndContains(test *testing.T) {
 func TestWalker_TwoHop_References(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	walker := graphexpand.NewWalker(edgeRepo, []string{"references"}, 2)
+	walker := graphexpand.NewWalker(edgeRepo, refsAny("references"), 2)
 
 	seeds := []graphexpand.Candidate{
 		{NodeID: "f1", CosineScore: 0.9, Distance: 0},
@@ -306,7 +315,7 @@ func TestWalker_TwoHop_References(test *testing.T) {
 func TestWalker_DeterministicOrdering(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	walker := graphexpand.NewWalker(edgeRepo, []string{"references"}, 2)
+	walker := graphexpand.NewWalker(edgeRepo, refsAny("references"), 2)
 
 	seeds := []graphexpand.Candidate{
 		{NodeID: "f3", CosineScore: 0.7, Distance: 0},
@@ -355,7 +364,7 @@ func TestWalker_DeterministicOrdering(test *testing.T) {
 func TestWalker_UnknownEdgeTypeProducesNoRows(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	walker := graphexpand.NewWalker(edgeRepo, []string{"no-such-type"}, 1)
+	walker := graphexpand.NewWalker(edgeRepo, refsAny("no-such-type"), 1)
 
 	seeds := []graphexpand.Candidate{
 		{NodeID: "f1", CosineScore: 1.0, Distance: 0},
@@ -379,7 +388,7 @@ func TestWalker_UnknownEdgeTypeProducesNoRows(test *testing.T) {
 func TestWalker_ContextCancellation(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	walker := graphexpand.NewWalker(edgeRepo, []string{"references"}, 2)
+	walker := graphexpand.NewWalker(edgeRepo, refsAny("references"), 2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -400,7 +409,7 @@ func TestWalker_ContextCancellation(test *testing.T) {
 func TestWalker_EmptySeeds(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	walker := graphexpand.NewWalker(edgeRepo, []string{"references"}, 1)
+	walker := graphexpand.NewWalker(edgeRepo, refsAny("references"), 1)
 
 	candidates, edges, expandErr := walker.Expand(context.Background(), nil)
 
@@ -417,14 +426,14 @@ func TestWalker_EmptySeeds(test *testing.T) {
 	}
 }
 
-func TestWalker_DefensiveCopyEdgeTypes(test *testing.T) {
+func TestWalker_DefensiveCopyEdgeRefs(test *testing.T) {
 	edgeRepo := fixtureGraph(test)
 
-	edgeTypes := []string{"references"}
-	walker := graphexpand.NewWalker(edgeRepo, edgeTypes, 1)
+	edgeRefs := refsAny("references")
+	walker := graphexpand.NewWalker(edgeRepo, edgeRefs, 1)
 
 	// Mutate the caller's slice — walker must be unaffected.
-	edgeTypes[0] = "mutated"
+	edgeRefs[0] = typeref.EdgeRef{Scope: typeref.ScopeAny, Type: "mutated"}
 
 	candidates, _, expandErr := walker.Expand(context.Background(), []graphexpand.Candidate{
 		{NodeID: "f1", CosineScore: 0.9, Distance: 0},
@@ -441,6 +450,71 @@ func TestWalker_DefensiveCopyEdgeTypes(test *testing.T) {
 	}
 
 	if !idSet["f2"] || !idSet["f3"] {
-		test.Errorf("walker did not defensively copy edge types; candidates = %v", candidateIDs(candidates))
+		test.Errorf("walker did not defensively copy edge refs; candidates = %v", candidateIDs(candidates))
+	}
+}
+
+// TestWalker_ScopeSourceFiltersUserEdges confirms that a ScopeSource ref
+// matches only edges with edges.source equal to that source — a
+// user-direct edge sharing the same type must not contribute.
+func TestWalker_ScopeSourceFiltersUserEdges(test *testing.T) {
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	test.Cleanup(func() { store.Close() })
+
+	nodeRepo := index.NewNodeRepo(store)
+
+	for _, nodeID := range []string{"f1", "structural-target", "user-target"} {
+		if upsertErr := nodeRepo.Upsert(index.NodeRow{
+			ID:             nodeID,
+			Type:           "note",
+			Path:           nodeID + ".md",
+			Title:          nodeID,
+			PropertiesJSON: "{}",
+			LastChecksum:   "x",
+		}); upsertErr != nil {
+			test.Fatalf("upsert %s: %v", nodeID, upsertErr)
+		}
+	}
+
+	edgeRepo := index.NewEdgeRepo(store)
+
+	if upsertErr := edgeRepo.UpsertAll("f1", "f1.md", []index.EdgeRow{
+		// Source-scoped (edges.source = "markdown").
+		{Type: "contains", SourceID: "f1", TargetID: "structural-target", SourcePath: "f1.md", Kind: "structural", Source: sql.NullString{String: "markdown", Valid: true}},
+		// User-direct (edges.source IS NULL) — same type, different scope.
+		{Type: "contains", SourceID: "f1", TargetID: "user-target", SourcePath: "f1.md", Kind: "direct"},
+	}); upsertErr != nil {
+		test.Fatalf("upsert edges: %v", upsertErr)
+	}
+
+	walker := graphexpand.NewWalker(edgeRepo, []typeref.EdgeRef{
+		{Scope: typeref.ScopeSource, Source: "markdown", Type: "contains"},
+	}, 1)
+
+	candidates, _, expandErr := walker.Expand(context.Background(), []graphexpand.Candidate{
+		{NodeID: "f1", CosineScore: 0.9, Distance: 0},
+	})
+
+	if expandErr != nil {
+		test.Fatalf("Expand: %v", expandErr)
+	}
+
+	idSet := map[string]bool{}
+
+	for _, candidate := range candidates {
+		idSet[candidate.NodeID] = true
+	}
+
+	if !idSet["structural-target"] {
+		test.Errorf("missing markdown-scope candidate structural-target in %v", candidateIDs(candidates))
+	}
+
+	if idSet["user-target"] {
+		test.Errorf("unexpected user-direct candidate user-target — ref scoped to source='markdown'")
 	}
 }

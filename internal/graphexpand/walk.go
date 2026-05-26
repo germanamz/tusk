@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // Candidate is a node under consideration for ranking. Seeds carry their
@@ -31,32 +32,32 @@ type NeighborEdge struct {
 }
 
 // Walker performs bounded N-hop graph walks restricted to a set of edge
-// types. Callers reuse a Walker across queries; it carries no mutable state.
+// type refs. Callers reuse a Walker across queries; it carries no mutable state.
 type Walker struct {
-	Edges     *index.EdgeRepo
-	EdgeTypes []string
-	MaxHops   int
+	Edges    *index.EdgeRepo
+	EdgeRefs []typeref.EdgeRef
+	MaxHops  int
 }
 
-// NewWalker constructs a Walker. It defensively copies edgeTypes so the
+// NewWalker constructs a Walker. It defensively copies edgeRefs so the
 // caller (typically the MCP handler with a manifest-derived slice) can
 // safely mutate or reuse its original.
-func NewWalker(repo *index.EdgeRepo, edgeTypes []string, maxHops int) *Walker {
-	copied := make([]string, len(edgeTypes))
-	copy(copied, edgeTypes)
+func NewWalker(repo *index.EdgeRepo, edgeRefs []typeref.EdgeRef, maxHops int) *Walker {
+	copied := make([]typeref.EdgeRef, len(edgeRefs))
+	copy(copied, edgeRefs)
 
 	return &Walker{
-		Edges:     repo,
-		EdgeTypes: copied,
-		MaxHops:   maxHops,
+		Edges:    repo,
+		EdgeRefs: copied,
+		MaxHops:  maxHops,
 	}
 }
 
-// Expand walks the graph from seeds along Walker.EdgeTypes, up to
+// Expand walks the graph from seeds along Walker.EdgeRefs, up to
 // Walker.MaxHops. Returns the augmented candidate set (seeds plus newly
 // discovered neighbors) and the deduplicated edges touched by the walk.
 //
-// The walk is undirected: an edge with type in EdgeTypes contributes to the
+// The walk is undirected: an edge matching any EdgeRef contributes to the
 // neighbor set whether the seed is on its source or target side.
 //
 // Ordering: candidates are returned sorted by (Distance asc, NodeID asc);
@@ -91,7 +92,7 @@ func (walker *Walker) Expand(ctx context.Context, seeds []Candidate) ([]Candidat
 		cosineByID[seed.NodeID] = seed.CosineScore
 	}
 
-	if len(distanceByID) == 0 || len(walker.EdgeTypes) == 0 {
+	if len(distanceByID) == 0 || len(walker.EdgeRefs) == 0 {
 		return walker.finalize(distanceByID, cosineByID), nil, nil
 	}
 
@@ -111,7 +112,7 @@ func (walker *Walker) Expand(ctx context.Context, seeds []Candidate) ([]Candidat
 			break
 		}
 
-		rows, queryErr := walker.Edges.NeighborsByEdgeTypes(frontier, walker.EdgeTypes)
+		rows, queryErr := walker.Edges.NeighborsByEdgeRefs(walker.EdgeRefs, frontier)
 
 		if queryErr != nil {
 			return nil, nil, fmt.Errorf("graphexpand: hop %d: %w", hop, queryErr)
