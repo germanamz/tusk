@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.6.0](https://github.com/germanamz/tusk/compare/v1.5.0...v1.6.0) (2026-05-26)
+
+
+### Features
+
+* **edges:** frontmatter-direct edges write kind='direct' ([#436](https://github.com/germanamz/tusk/issues/436)) ([37a11fa](https://github.com/germanamz/tusk/commit/37a11fab6b3f16a2c0edee60b8267e9ab9b86165))
+* **edges:** ref-derived edges write kind='derived', source=NULL ([#434](https://github.com/germanamz/tusk/issues/434)) ([6ad796a](https://github.com/germanamz/tusk/commit/6ad796ade28838c50eb84c46c5fb8058aa974f5d))
+* **filter:** accept qualified edge-type identifiers in filter grammar ([#451](https://github.com/germanamz/tusk/issues/451)) ([9dc95da](https://github.com/germanamz/tusk/commit/9dc95da11d137a012028cbc91cc19533192a15db))
+* **filter:** compile node-type literals as scope-aware typerefs ([#449](https://github.com/germanamz/tusk/issues/449)) ([73e6fad](https://github.com/germanamz/tusk/commit/73e6fad26c71d49ba4803a768e1871777a7adee1))
+* **index:** add NeighborsByEdgeRefs accepting typeref scope-aware refs ([#447](https://github.com/germanamz/tusk/issues/447)) ([20099a9](https://github.com/germanamz/tusk/commit/20099a9dd0dd5849ae8f26a5d7d0417eaf79919f))
+* **index:** add nullable kind/source columns to edges ([#433](https://github.com/germanamz/tusk/issues/433)) ([c729701](https://github.com/germanamz/tusk/commit/c729701734a6ce9068409cd9140bb8761bb3f9c4))
+* **index:** add nullable kind/source columns to nodes ([#425](https://github.com/germanamz/tusk/issues/425)) ([87f3910](https://github.com/germanamz/tusk/commit/87f39106a44dada060cd536ad63bf0348d93b0f2))
+* **index:** add SchemaVersion constant and meta persistence ([#418](https://github.com/germanamz/tusk/issues/418)) ([09bf297](https://github.com/germanamz/tusk/commit/09bf2974fcdd15770f32a684804daf99ecd55068))
+* **index:** file-row upserts set kind='file', source=NULL ([#426](https://github.com/germanamz/tusk/issues/426)) ([e2973e9](https://github.com/germanamz/tusk/commit/e2973e98497575f26f6917d087959b28fff7f5c9))
+* **indexopen:** add OpenOrRebuild helper for schema-version rebuilds ([#421](https://github.com/germanamz/tusk/issues/421)) ([e5c5354](https://github.com/germanamz/tusk/commit/e5c5354788dfe1a06c13e0ea22f3237c2a08506f))
+* **index:** phase-2 finishing — nodes reshape complete ([#431](https://github.com/germanamz/tusk/issues/431)) ([cfd775d](https://github.com/germanamz/tusk/commit/cfd775d24b7c419a3d98412389cf55ebd7c5846a))
+* **index:** return SchemaVersionError on version mismatch ([#420](https://github.com/germanamz/tusk/issues/420)) ([938a7fd](https://github.com/germanamz/tusk/commit/938a7fd5a4ceed49941a86b45449d53d40b6e7f2))
+* **index:** tighten edges DDL with NOT NULL kind, CHECK, UNIQUE+source ([#440](https://github.com/germanamz/tusk/issues/440)) ([a4822f5](https://github.com/germanamz/tusk/commit/a4822f5e4b58ffff11585985506bba49d3b0965a))
+* **index:** tighten nodes DDL with NOT NULL kind, CHECK, composite index ([#430](https://github.com/germanamz/tusk/issues/430)) ([af805a5](https://github.com/germanamz/tusk/commit/af805a5083fdd09681f308763e90564a6928467f))
+* **manifest:** SubUnitConflict no longer fires for user-vs-pack collisions ([#443](https://github.com/germanamz/tusk/issues/443)) ([9d0ce89](https://github.com/germanamz/tusk/commit/9d0ce898c6fc9a83b7d9f2803888ebc9e8e53093))
+* **mcp:** parse qualified type references; remove NeighborsByEdgeTypes ([#452](https://github.com/germanamz/tusk/issues/452)) ([80946f1](https://github.com/germanamz/tusk/commit/80946f16c19497f8a528a348d4b052e26ab77a0b))
+* **subunit:** contains edges write kind='structural', source='markdown' ([#437](https://github.com/germanamz/tusk/issues/437)) ([62a3189](https://github.com/germanamz/tusk/commit/62a3189d523cc61b450261a8cff5bedcb8e4cd3f))
+* **subunit:** contains edges write kind='structural', source='markdown' ([#438](https://github.com/germanamz/tusk/issues/438)) ([14580cf](https://github.com/germanamz/tusk/commit/14580cfdf211ad5e84aeb0327f3f73c6772dc037))
+* **subunit:** sync writes kind='subunit', source='markdown' ([#427](https://github.com/germanamz/tusk/issues/427)) ([990e11e](https://github.com/germanamz/tusk/commit/990e11eb73c78d547a4f35f5e1490c8ac632e710))
+* **typepacks:** subdocument exposes Source() and source-scoped reservation semantics ([#442](https://github.com/germanamz/tusk/issues/442)) ([a8c19df](https://github.com/germanamz/tusk/commit/a8c19df4e06f83999f9dcd3e2a25bc225bdf2a30))
+* **typeref:** parser for &lt;source&gt;:&lt;type&gt; canonical notation ([#446](https://github.com/germanamz/tusk/issues/446)) ([298ef45](https://github.com/germanamz/tusk/commit/298ef45becfbc9807add4d09ff2f34eda4d5999b))
+
+
+### Bug Fixes
+
+* **index:** embeddings UNIQUE(node_id, chunk_idx) so hash-skip can fire ([#454](https://github.com/germanamz/tusk/issues/454)) ([0361ef4](https://github.com/germanamz/tusk/commit/0361ef4f58a7fa4e89cac6ff50875becf707eeda))
+
 ## [1.5.0](https://github.com/germanamz/tusk/compare/v1.4.0...v1.5.0) (2026-05-25)
 
 
