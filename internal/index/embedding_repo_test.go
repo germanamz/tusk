@@ -91,6 +91,37 @@ func TestEmbeddingRepo_UpsertReplacesByContentHash(test *testing.T) {
 	}
 }
 
+func TestEmbeddingRepo_Upsert_AllowsMultipleChunksPerNode(test *testing.T) {
+	repo := newTestEmbeddingRepo(test, "n")
+
+	base := index.EmbeddingRow{
+		NodeID: "n", Model: "m", ContentHash: "h", Vector: []float32{0.1}, Dim: 1,
+	}
+
+	base.ChunkIdx = 0
+
+	if err := repo.Upsert(base); err != nil {
+		test.Fatalf("upsert chunk 0: %v", err)
+	}
+
+	base.ChunkIdx = 1
+	base.ContentHash = "h2"
+
+	if err := repo.Upsert(base); err != nil {
+		test.Fatalf("upsert chunk 1: %v", err)
+	}
+
+	rows, getErr := repo.GetByNodeID("n")
+
+	if getErr != nil {
+		test.Fatalf("GetByNodeID: %v", getErr)
+	}
+
+	if len(rows) != 2 {
+		test.Errorf("rows = %d, want 2 (UNIQUE(node_id, chunk_idx) keeps both)", len(rows))
+	}
+}
+
 func TestEmbeddingRepo_ListByNodeIDs(test *testing.T) {
 	repo := newTestEmbeddingRepo(test, "a", "b", "c")
 
@@ -232,13 +263,6 @@ func TestEmbeddingRepo_Stats_Empty(test *testing.T) {
 }
 
 func TestEmbeddingRepo_Stats_Aggregates(test *testing.T) {
-	// P2 made embeddings UNIQUE(node_id), so the "N chunks per node"
-	// fixtures that pre-dated the migration now collapse to one row per
-	// node. The aggregate stats still exercise the same code paths —
-	// per-node count, median, max, large-chunk detection — just with the
-	// new "always one chunk per node" reality. Task 4 may later restore
-	// "many chunks per file" semantics by inserting one node per
-	// sub-unit; this test then exercises that path automatically.
 	nodeIDs := []string{"a", "b", "c", "d"}
 	repo := newTestEmbeddingRepo(test, nodeIDs...)
 
@@ -275,7 +299,7 @@ func TestEmbeddingRepo_Stats_Aggregates(test *testing.T) {
 	}
 
 	if stats.TotalChunks != 4 {
-		test.Errorf("TotalChunks = %d, want 4 (one per node under UNIQUE(node_id))", stats.TotalChunks)
+		test.Errorf("TotalChunks = %d, want 4", stats.TotalChunks)
 	}
 
 	if stats.MaxChunks != 1 {
