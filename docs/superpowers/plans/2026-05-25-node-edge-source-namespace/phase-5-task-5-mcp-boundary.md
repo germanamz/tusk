@@ -3,14 +3,23 @@
 **Phase:** 5 (Reference-resolution grammar)
 **Spec:** § *Naming conventions*
 
-**Goal:** Update the MCP runtime so every tool argument that takes a type name parses it via `typeref.Parse`. Delete `NeighborsByEdgeTypes` (replaced by `NeighborsByEdgeRefs` in Task 5.2) — the bridge code's removal target.
+**Goal:** Update MCP tool argument handlers so the remaining direct-input type-name fields (notably `tusk_edge_list`'s `type` field) parse via `typeref.Parse` and feed scope-aware queries. Delete `NeighborsByEdgeTypes` (replaced by `NeighborsByEdgeRefs` in Task 5.2) — the bridge code's removal target.
+
+## What 5.5 does **not** need to do
+
+After Tasks 5.3, 5.4, and 5.4a, several MCP surfaces already inherit typeref behavior transparently:
+
+- `tusk_context` / `tusk_query`'s `graph_edge_types` argument flows into `manifest.GraphExpansion.EdgeTypes`, which `internal/query/query_service.go` already passes through `typeref.ParseMany` (landed in Task 5.3).
+- `tusk_node_list`'s `type` argument is wrapped as `fmt.Sprintf("type=%s", typeFilter)` and handed to `query.ListRun`. After Task 5.4 the filter compiler parses that value as a typeref, so qualified node-type strings work end-to-end with no MCP-side change.
+- After Task 5.4a, the filter grammar also accepts qualified edge-type identifiers, so any MCP path that hands a user-supplied filter string straight to the parser inherits the new grammar automatically.
 
 ## Inherits From
 
-After Task 5.4:
-- All internal callers parse type names via `typeref`.
+After Task 5.4a:
+- `typeref.Parse` / `ParseMany` available.
+- Filter compiler and parser accept the full `<source>:<type>` grammar for both node-type literals and edge-type identifiers.
 - `NeighborsByEdgeRefs` is the canonical neighbor lookup.
-- `NeighborsByEdgeTypes` still exists but has no production callers.
+- `NeighborsByEdgeTypes` still exists but has no production callers outside of `tusk_edge_list`'s `index.EdgeListRun` path, which this task replaces.
 
 ## Files
 
@@ -20,14 +29,19 @@ After Task 5.4:
 
 ## Steps
 
-- [ ] **Step 1: Locate MCP tool arguments that take type names**
+- [ ] **Step 1: Locate MCP tool arguments that take type names directly**
 
 Run:
 ```
-grep -rn 'EdgeTypes\|node.*type.*string\|TypeName' internal/mcp
+grep -rn 'argString.*"type"\|EdgeListRequest\|NeighborsByEdgeTypes' internal/mcp internal/index
 ```
 
-Identify each MCP tool (likely `tusk_context`, `tusk_query`) that exposes a type-name argument.
+The remaining direct-input surfaces after the work in 5.3–5.4a are:
+
+- `tusk_edge_list` (`internal/mcp/tools.go:496-512`) — passes `type` straight into `index.EdgeListRun`'s `EdgeListRequest.Type` which is used as a literal SQL `type = ?` filter.
+- Any remaining caller of `NeighborsByEdgeTypes` (verify via grep — should be limited to tests and possibly one production site).
+
+`tusk_context` / `tusk_query`'s `graph_edge_types` and `tusk_node_list`'s `type` are *not* in scope — they inherit typeref behavior from Tasks 5.3 and 5.4 respectively (see "What 5.5 does not need to do" above).
 
 - [ ] **Step 2: Write the failing test**
 
