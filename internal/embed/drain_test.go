@@ -856,7 +856,7 @@ func TestDrainQueue_SubUnitEmbedsEmbedPayloadDirectly(test *testing.T) {
 
 	subUnitID := "notes/parent#abcd1234"
 
-	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+	if upsertErr := nodeRepo.BulkUpsert([]index.NodeRow{{
 		ID:             subUnitID,
 		Type:           "paragraph",
 		Path:           "notes/parent.md",
@@ -866,7 +866,7 @@ func TestDrainQueue_SubUnitEmbedsEmbedPayloadDirectly(test *testing.T) {
 		ParentID:       sql.NullString{String: "notes/parent", Valid: true},
 		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload:   sql.NullString{String: "test payload", Valid: true},
-	}); upsertErr != nil {
+	}}); upsertErr != nil {
 		test.Fatalf("upsert sub-unit: %v", upsertErr)
 	}
 
@@ -935,7 +935,7 @@ func TestDrainQueue_SubUnitWithEmptyEmbedPayloadIsSkipped(test *testing.T) {
 
 	subUnitID := "notes/parent#empty"
 
-	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+	if upsertErr := nodeRepo.BulkUpsert([]index.NodeRow{{
 		ID:             subUnitID,
 		Type:           "paragraph",
 		Path:           "notes/parent.md",
@@ -944,7 +944,7 @@ func TestDrainQueue_SubUnitWithEmptyEmbedPayloadIsSkipped(test *testing.T) {
 		ParentID:       sql.NullString{String: "notes/parent", Valid: true},
 		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload:   sql.NullString{String: "", Valid: true},
-	}); upsertErr != nil {
+	}}); upsertErr != nil {
 		test.Fatalf("upsert: %v", upsertErr)
 	}
 
@@ -1015,7 +1015,7 @@ func TestDrainQueue_MixedFileAndSubUnitBatch(test *testing.T) {
 		test.Fatalf("upsert file: %v", upsertErr)
 	}
 
-	if upsertErr := nodeRepo.Upsert(index.NodeRow{
+	if upsertErr := nodeRepo.BulkUpsert([]index.NodeRow{{
 		ID:             "parent#sub",
 		Type:           "paragraph",
 		Path:           "parent.md",
@@ -1024,7 +1024,7 @@ func TestDrainQueue_MixedFileAndSubUnitBatch(test *testing.T) {
 		ParentID:       sql.NullString{String: "parent", Valid: true},
 		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload:   sql.NullString{String: "sub unit payload", Valid: true},
-	}); upsertErr != nil {
+	}}); upsertErr != nil {
 		test.Fatalf("upsert sub: %v", upsertErr)
 	}
 

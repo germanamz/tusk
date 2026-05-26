@@ -1970,16 +1970,20 @@ func TestTool_Query_SubUnitsIncludeUnitsAttachesMatchedUnits(test *testing.T) {
 		{id: "notes/with-units#b", typ: "paragraph", props: "{}", ordinal: 1, payload: "Body paragraph one"},
 	}
 
+	subUnits := make([]index.NodeRow, 0, len(subRows))
+
 	for _, sub := range subRows {
-		if err := rt.Nodes.Upsert(index.NodeRow{
+		subUnits = append(subUnits, index.NodeRow{
 			ID: sub.id, Type: sub.typ, Path: "notes/with-units.md",
 			PropertiesJSON: sub.props, LastChecksum: "x",
 			ParentID:     sql.NullString{String: "notes/with-units", Valid: true},
 			Ordinal:      sql.NullInt64{Int64: int64(sub.ordinal), Valid: true},
 			EmbedPayload: sql.NullString{String: sub.payload, Valid: true},
-		}); err != nil {
-			test.Fatalf("sub upsert %s: %v", sub.id, err)
-		}
+		})
+	}
+
+	if err := rt.Nodes.BulkUpsert(subUnits); err != nil {
+		test.Fatalf("sub bulk upsert: %v", err)
 	}
 
 	srv := mcp.NewServer(rt)
@@ -2039,14 +2043,14 @@ func TestTool_Query_DirectSubUnitFilterReturnsRowsWithParentID(test *testing.T) 
 		test.Fatalf("file upsert: %v", err)
 	}
 
-	if err := rt.Nodes.Upsert(index.NodeRow{
+	if err := rt.Nodes.BulkUpsert([]index.NodeRow{{
 		ID: "notes/owner#sec", Type: "section",
 		Path: "notes/owner.md", PropertiesJSON: `{"heading-level":2}`,
 		LastChecksum: "x",
 		ParentID:     sql.NullString{String: "notes/owner", Valid: true},
 		Ordinal:      sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload: sql.NullString{String: "head text", Valid: true},
-	}); err != nil {
+	}}); err != nil {
 		test.Fatalf("section upsert: %v", err)
 	}
 

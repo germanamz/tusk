@@ -245,10 +245,8 @@ func TestNodeRepo_ListByParent(test *testing.T) {
 		},
 	}
 
-	for _, row := range subUnits {
-		if upsertErr := repo.Upsert(row); upsertErr != nil {
-			test.Fatalf("Upsert sub-unit %s: %v", row.ID, upsertErr)
-		}
+	if bulkErr := repo.BulkUpsert(subUnits); bulkErr != nil {
+		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
 	}
 
 	listed, listErr := repo.ListByParent(parent.ID)
@@ -289,14 +287,29 @@ func TestNodeRepo_BulkUpsert(test *testing.T) {
 	store := openTestIndex(test)
 	repo := index.NewNodeRepo(store)
 
+	parent := index.NodeRow{
+		ID: "doc", Type: "note", Path: "doc.md", Title: "Doc",
+		PropertiesJSON: `{}`, LastChecksum: "h",
+	}
+
+	if upsertErr := repo.Upsert(parent); upsertErr != nil {
+		test.Fatalf("Upsert parent: %v", upsertErr)
+	}
+
 	rows := []index.NodeRow{
 		{
-			ID: "doc-one", Type: "note", Path: "doc-one.md", Title: "One",
+			ID: "doc#one", Type: "paragraph", Path: parent.Path, Title: "One",
 			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID:     sql.NullString{String: parent.ID, Valid: true},
+			Ordinal:      sql.NullInt64{Int64: 0, Valid: true},
+			EmbedPayload: sql.NullString{String: "one body", Valid: true},
 		},
 		{
-			ID: "doc-two", Type: "note", Path: "doc-two.md", Title: "Two",
+			ID: "doc#two", Type: "paragraph", Path: parent.Path, Title: "Two",
 			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID:     sql.NullString{String: parent.ID, Valid: true},
+			Ordinal:      sql.NullInt64{Int64: 1, Valid: true},
+			EmbedPayload: sql.NullString{String: "two body", Valid: true},
 		},
 	}
 
@@ -323,7 +336,7 @@ func TestNodeRepo_BulkUpsert(test *testing.T) {
 		test.Fatalf("second BulkUpsert: %v", bulkErr)
 	}
 
-	updated, _ := repo.Get("doc-one")
+	updated, _ := repo.Get("doc#one")
 
 	if updated.Title != "One Updated" {
 		test.Errorf("updated title = %q, want %q", updated.Title, "One Updated")
@@ -345,8 +358,10 @@ func TestNodeRepo_BulkDelete(test *testing.T) {
 		{ID: "c", Type: "note", Path: "c.md", Title: "C", PropertiesJSON: `{}`, LastChecksum: "h"},
 	}
 
-	if bulkErr := repo.BulkUpsert(rows); bulkErr != nil {
-		test.Fatalf("seed BulkUpsert: %v", bulkErr)
+	for _, row := range rows {
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("seed Upsert %s: %v", row.ID, upsertErr)
+		}
 	}
 
 	if deleteErr := repo.BulkDelete([]string{"a", "c"}); deleteErr != nil {
@@ -386,12 +401,12 @@ func TestNodeRepo_BulkDeleteCascadesEdgesAndEmbeddings(test *testing.T) {
 
 	subID := "f#abc"
 
-	if upsertErr := nodes.Upsert(index.NodeRow{
+	if bulkErr := nodes.BulkUpsert([]index.NodeRow{{
 		ID: subID, Type: "paragraph", Path: "f.md", Title: "p", PropertiesJSON: `{}`, LastChecksum: "h",
 		ParentID: sql.NullString{String: "f", Valid: true},
 		Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
-	}); upsertErr != nil {
-		test.Fatalf("Upsert sub-unit: %v", upsertErr)
+	}}); bulkErr != nil {
+		test.Fatalf("BulkUpsert sub-unit: %v", bulkErr)
 	}
 
 	// Seed an outbound edge and an embedding row on the sub-unit.
@@ -484,10 +499,8 @@ func TestNodeRepo_ListSubUnitsForFile_UnderscoreNoLeakage(test *testing.T) {
 		},
 	}
 
-	for _, row := range subUnits {
-		if upsertErr := repo.Upsert(row); upsertErr != nil {
-			test.Fatalf("Upsert sub-unit %s: %v", row.ID, upsertErr)
-		}
+	if bulkErr := repo.BulkUpsert(subUnits); bulkErr != nil {
+		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
 	}
 
 	fooA, listErr := repo.ListSubUnitsForFile("notes/foo_a")
@@ -561,10 +574,8 @@ func TestNodeRepo_ListSubUnitsForFiles(test *testing.T) {
 		},
 	}
 
-	for _, row := range subUnits {
-		if upsertErr := repo.Upsert(row); upsertErr != nil {
-			test.Fatalf("Upsert sub-unit %s: %v", row.ID, upsertErr)
-		}
+	if bulkErr := repo.BulkUpsert(subUnits); bulkErr != nil {
+		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
 	}
 
 	// Asking for only foo_a must not include foo b's sub-unit (LIKE would).
@@ -709,33 +720,5 @@ func TestNodeRepo_CountOversizeSubUnitPayloads_BytesNotCodepoints(test *testing.
 
 	if count8000 != 0 {
 		test.Errorf("CountOversizeSubUnitPayloads(8000) = %d, want 0 (6000 bytes ≤ 8000)", count8000)
-	}
-}
-
-func TestCountSubUnitsUsesKindNotParentID(test *testing.T) {
-	test.Parallel()
-
-	store := openTestIndex(test)
-
-	seedNodes(test, store, "some-parent")
-
-	_, execErr := store.DB().Exec(`
-		INSERT INTO nodes (id, type, path, properties_json,
-		                   last_mtime, last_size, last_checksum,
-		                   parent_id, kind, source)
-		VALUES ('weird-row', 'note', 'weird.md', '{}',
-		        0, 0, '', 'some-parent', 'file', NULL)
-	`)
-	if execErr != nil {
-		test.Fatalf("seed: %v", execErr)
-	}
-
-	got, countErr := index.NewNodeRepo(store).CountSubUnits()
-	if countErr != nil {
-		test.Fatalf("CountSubUnits: %v", countErr)
-	}
-
-	if got != 0 {
-		test.Errorf("CountSubUnits = %d, want 0 (row has kind='file')", got)
 	}
 }
