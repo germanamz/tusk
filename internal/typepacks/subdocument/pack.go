@@ -19,10 +19,21 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
+// Source returns the source-namespace identifier this typepack
+// owns: "markdown". Every node-type in ReservedNodeTypes and every
+// edge-type in ReservedEdgeTypes is reserved only within rows whose
+// `source` column matches this value; the user namespace
+// (`source = NULL`) is unaffected.
+func Source() string {
+	return "markdown"
+}
+
 // ReservedNodeTypes are the node-type names owned by the sub-document
-// pack. A user manifest that declares any of these under
-// [node-types.<name>] when sub-units is enabled raises a
-// manifest.SubUnitConflict.
+// pack within source = Source() (i.e., source='markdown'). A user
+// manifest that declares any of these under [node-types.<name>] in
+// the user namespace (source = NULL) is allowed; only declarations
+// targeting the same source raise manifest.SubUnitConflict (rescoped
+// in Phase 4, Task 2).
 var ReservedNodeTypes = []string{
 	"section",
 	"paragraph",
@@ -32,10 +43,12 @@ var ReservedNodeTypes = []string{
 	"table-cell",
 }
 
-// ReservedEdgeTypes are the edge-type names owned (or derived) by the
-// pack. `contains` is the literal edge type; `contained-by` is the
-// inverse name derived by the grammar machinery from the `inverse`
-// field on the `contains` edge type. Both are reserved.
+// ReservedEdgeTypes are the edge-type names owned (or derived) by
+// the pack within source = Source(). `contains` is the literal edge
+// type; `contained-by` is the inverse name derived by the grammar
+// machinery from the `inverse` field on the `contains` edge type.
+// User-namespace declarations (source = NULL) of the same names are
+// allowed; only within-source duplicates raise a conflict.
 var ReservedEdgeTypes = []string{
 	"contains",
 	"contained-by",
