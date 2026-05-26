@@ -75,7 +75,7 @@ func TestQueryRun_GraphExpansion_PromotesReferentialHub(test *testing.T) {
 	// graph_score the average of the referrers' cosines (~0.9).
 	for _, referrer := range []string{"ref-1", "ref-2", "ref-3"} {
 		if err := edges.UpsertAll(referrer, referrer+".md", []index.EdgeRow{
-			{Type: "references", SourceID: referrer, TargetID: "node-x", SourcePath: referrer + ".md"},
+			{Type: "references", SourceID: referrer, TargetID: "node-x", SourcePath: referrer + ".md", Kind: "direct"},
 		}); err != nil {
 			test.Fatalf("edges %s: %v", referrer, err)
 		}
@@ -290,7 +290,7 @@ func TestQueryRun_GraphExpansion_LiftsNonSeedIntoTopK(test *testing.T) {
 
 	for _, ref := range []string{"filler-a", "filler-b", "filler-c"} {
 		if err := edges.UpsertAll(ref, ref+".md", []index.EdgeRow{
-			{Type: "references", SourceID: ref, TargetID: "node-x", SourcePath: ref + ".md"},
+			{Type: "references", SourceID: ref, TargetID: "node-x", SourcePath: ref + ".md", Kind: "direct"},
 		}); err != nil {
 			test.Fatalf("edges %s: %v", ref, err)
 		}

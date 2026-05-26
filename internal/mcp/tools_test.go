@@ -224,7 +224,7 @@ func TestTool_EdgeList(test *testing.T) {
 	rt.Nodes.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"})
 
 	rt.Edges.UpsertAll("tickets/a", "tickets/a.md", []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: "tickets/a.md"},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: "tickets/a.md", Kind: "direct"},
 	})
 
 	srv := mcp.NewServer(rt)
@@ -712,7 +712,7 @@ cardinality = "many-to-many"
 	// Seed a legacy __mcp__ row directly (bypassing the MCP tool). This simulates
 	// a row left over from a pre-frontmatter "tusk_edge_add" call.
 	if upsertErr := rt.Edges.UpsertAll("tickets/a", index.MCPSourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.MCPSourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.MCPSourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __mcp__: %v", upsertErr)
 	}
@@ -787,7 +787,7 @@ cardinality = "many-to-many"
 	// Seed a legacy __cli__ row directly (bypassing the MCP tool) to simulate
 	// a row left over from a pre-frontmatter `tusk edge add` invocation.
 	if upsertErr := rt.Edges.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}
@@ -873,7 +873,7 @@ cardinality = "many-to-many"
 	}
 
 	if upsertErr := rt.Edges.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("seed __cli__: %v", upsertErr)
 	}
@@ -1913,7 +1913,7 @@ func TestTool_EdgeList_FormatCompact(test *testing.T) {
 	rt.Nodes.Upsert(index.NodeRow{ID: "a", Type: "note", Path: "a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"})
 
 	rt.Edges.UpsertAll("a", "a.md", []index.EdgeRow{
-		{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md"},
+		{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md", Kind: "direct"},
 	})
 
 	srv := mcp.NewServer(rt)

@@ -232,7 +232,7 @@ func TestDispatcher_EdgeList(test *testing.T) {
 
 	// Insert one edge so the list returns something.
 	if upsertErr := deps.Edges.UpsertAll("notes/hello", "notes/hello.md", []index.EdgeRow{
-		{Type: "references", SourceID: "notes/hello", TargetID: "notes/world", SourcePath: "notes/hello.md"},
+		{Type: "references", SourceID: "notes/hello", TargetID: "notes/world", SourcePath: "notes/hello.md", Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("UpsertAll: %v", upsertErr)
 	}

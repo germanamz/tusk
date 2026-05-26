@@ -41,7 +41,7 @@ func TestRun_FlagsDanglingEdges(test *testing.T) {
 
 	nodeRepo.Upsert(index.NodeRow{ID: "tickets/a", Type: "ticket", Path: "tickets/a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"})
 	edgeRepo.UpsertAll("tickets/a", "tickets/a.md", []index.EdgeRow{
-		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/missing", SourcePath: "tickets/a.md"},
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/missing", SourcePath: "tickets/a.md", Kind: "direct"},
 	})
 
 	report, runErr := doctor.Run(doctor.Config{

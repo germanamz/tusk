@@ -411,7 +411,7 @@ func TestNodeRepo_BulkDeleteCascadesEdgesAndEmbeddings(test *testing.T) {
 
 	// Seed an outbound edge and an embedding row on the sub-unit.
 	if upsertErr := edges.UpsertAll(subID, "f.md", []index.EdgeRow{
-		{Type: "references", SourceID: subID, TargetID: "f", SourcePath: "f.md"},
+		{Type: "references", SourceID: subID, TargetID: "f", SourcePath: "f.md", Kind: "direct"},
 	}); upsertErr != nil {
 		test.Fatalf("UpsertAll: %v", upsertErr)
 	}
