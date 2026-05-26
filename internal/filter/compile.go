@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // CompileOptions configures Compile.
@@ -168,8 +170,45 @@ func compileModifiedSince(predicate *ModifiedSincePredicate) (string, []any, err
 	return "last_mtime >= ?", []any{thresholdNs}, nil
 }
 
+// compileTypeRef parses raw as a typeref and returns a SQL fragment plus
+// params constraining a (source, type) pair on the nodes/edges table.
+// columnPrefix is "" for the top-level nodes table or "<alias>." for an
+// aliased row inside an edge predicate. Bare names emit the legacy
+// `type <op> ?` shape; qualified names add a `source IS NULL` or
+// `source = ?` conjunct per spec § Naming conventions.
+func compileTypeRef(raw, columnPrefix string, op Op) (string, []any, error) {
+	ref, parseErr := typeref.Parse(raw)
+
+	if parseErr != nil {
+		return "", nil, fmt.Errorf("compile: parse type ref: %w", parseErr)
+	}
+
+	sqlOp := opToSQL(op)
+
+	switch ref.Scope {
+	case typeref.ScopeAny:
+		return fmt.Sprintf("%stype %s ?", columnPrefix, sqlOp), []any{ref.Type}, nil
+	case typeref.ScopeUser:
+		return fmt.Sprintf("%ssource IS NULL AND %stype %s ?", columnPrefix, columnPrefix, sqlOp), []any{ref.Type}, nil
+	case typeref.ScopeSource:
+		return fmt.Sprintf("%ssource = ? AND %stype %s ?", columnPrefix, columnPrefix, sqlOp), []any{ref.Source, ref.Type}, nil
+	}
+
+	return "", nil, fmt.Errorf("compile: unknown typeref scope %v", ref.Scope)
+}
+
 func compileProperty(predicate *PropertyPredicate) (string, []any, error) {
 	column, isCoreColumn := propertyColumn(predicate.Property)
+
+	if predicate.Property == "type" && predicate.Op != OpRange {
+		stringValue, ok := predicate.Value.(StringValue)
+
+		if !ok {
+			return "", nil, fmt.Errorf("compile: type predicate with non-StringValue")
+		}
+
+		return compileTypeRef(stringValue.V, "", predicate.Op)
+	}
 
 	if predicate.Op == OpRange {
 		rangeValue, ok := predicate.Value.(RangeValue)
@@ -345,6 +384,16 @@ func compileInnerOnAlias(inner Expr, alias string, depth int) (string, []any, er
 }
 
 func compilePropertyOnAlias(predicate *PropertyPredicate, alias string) (string, []any, error) {
+	if predicate.Property == "type" && predicate.Op != OpRange {
+		stringValue, ok := predicate.Value.(StringValue)
+
+		if !ok {
+			return "", nil, fmt.Errorf("compile: type predicate with non-StringValue")
+		}
+
+		return compileTypeRef(stringValue.V, alias+".", predicate.Op)
+	}
+
 	if predicate.Op == OpRange {
 		rangeValue := predicate.Value.(RangeValue)
 

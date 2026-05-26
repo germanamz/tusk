@@ -19,7 +19,7 @@ After Task 5.2:
 
 ## Steps
 
-- [ ] **Step 1: Locate the call sites**
+- [x] **Step 1: Locate the call sites**
 
 Run:
 ```
@@ -28,7 +28,7 @@ grep -rn 'graphexpand.Walker\|EdgeTypes\b' internal/
 
 Identify every place a `Walker` is constructed and where its `EdgeTypes` field is populated. The query layer is the primary consumer; the manifest's `[query.graph-expansion]` config feeds into it.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 In `internal/graphexpand/walk_test.go`:
 
@@ -67,13 +67,13 @@ func TestWalkerUsesEdgeRefs(test *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `go test ./internal/graphexpand/... -run TestWalkerUsesEdgeRefs -v`
 
 Expected: build failure — `EdgeRefs` undefined.
 
-- [ ] **Step 4: Update the `Walker` struct and `Expand`**
+- [x] **Step 4: Update the `Walker` struct and `Expand`**
 
 In `internal/graphexpand/walk.go`:
 
@@ -89,7 +89,7 @@ Update `Expand` (and any internal helper) to call `NeighborsByEdgeRefs(walker.Ed
 
 Remove the `EdgeTypes []string` field entirely — bridge-code retention is not needed because the only callers are within tusk and the migration is atomic across this PR.
 
-- [ ] **Step 5: Update callers**
+- [x] **Step 5: Update callers**
 
 For every site found in Step 1 that constructs a `Walker`, replace:
 
@@ -117,30 +117,30 @@ walker := graphexpand.Walker{
 
 (The `cfg.EdgeTypes` source — manifest config — remains a `[]string` for now. Manifest grammar parsing belongs to query/manifest layers, not to the walker.)
 
-- [ ] **Step 6: Run the new test**
+- [x] **Step 6: Run the new test**
 
 Run: `go test ./internal/graphexpand/... -run TestWalkerUsesEdgeRefs -v`
 
 Expected: PASS.
 
-- [ ] **Step 7: Run the workspace suite**
+- [x] **Step 7: Run the workspace suite**
 
 Run: `go test ./...`
 
 Expected: clean. Any test directly constructing a `Walker` with the old field name needs the same migration.
 
-- [ ] **Step 8: `make vet` and `make lint`**
+- [x] **Step 8: `make vet` and `make lint`**
 
 Expected: clean.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```
 git add internal/graphexpand internal/query
 git commit -m "refactor(graphexpand): walker takes EdgeRefs instead of EdgeTypes strings"
 ```
 
-- [ ] **Step 10: Open the PR**
+- [x] **Step 10: Open the PR**
 
 ```
 gh pr create --title "refactor(graphexpand): walker takes EdgeRefs instead of EdgeTypes strings" --body "$(cat <<'EOF'
@@ -151,9 +151,9 @@ gh pr create --title "refactor(graphexpand): walker takes EdgeRefs instead of Ed
 - Phase 5, Task 3 of the node/edge source-namespace plan
 
 ## Test plan
-- [ ] `go test ./internal/graphexpand/... -v` passes (incl. new scope test)
-- [ ] `go test ./...` passes
-- [ ] `make vet && make lint` clean
+- [x] `go test ./internal/graphexpand/... -v` passes (incl. new scope test)
+- [x] `go test ./...` passes
+- [x] `make vet && make lint` clean
 EOF
 )"
 ```
