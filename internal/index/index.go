@@ -56,16 +56,22 @@ CREATE TABLE IF NOT EXISTS edges (
 	source_id   TEXT NOT NULL,
 	target_id   TEXT NOT NULL,
 	source_path TEXT NOT NULL,
-	kind        TEXT NULL,                  -- 'direct' | 'derived' | 'structural' (Phase 3)
-	source      TEXT NULL,                  -- namespace identifier; NULL = user (Phase 3)
-	UNIQUE(type, source_id, target_id, source_path),
-	FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE
+	kind        TEXT NOT NULL,              -- 'direct' | 'derived' | 'structural'
+	source      TEXT NULL,                  -- namespace identifier; NULL = user
+	UNIQUE(source, type, source_id, target_id, source_path),
+	FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
+	CHECK (
+		(kind IN ('direct', 'derived') AND source IS NULL) OR
+		(kind = 'structural'           AND source IS NOT NULL)
+	)
 );
 
 CREATE INDEX IF NOT EXISTS edges_source_idx      ON edges(source_id);
 CREATE INDEX IF NOT EXISTS edges_target_idx      ON edges(target_id);
 CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges(type);
 CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path);
+CREATE INDEX IF NOT EXISTS edges_source_type_idx ON edges(source, type);
+CREATE INDEX IF NOT EXISTS edges_kind_idx        ON edges(kind);
 
 CREATE TABLE IF NOT EXISTS embeddings (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,
