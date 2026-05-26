@@ -127,7 +127,7 @@ type Report struct {
 // (spec §5.9). All counts are computed from the index at Run time.
 type SubUnitPane struct {
 	// Total is the total number of sub-unit rows
-	// (`nodes.parent_id IS NOT NULL`).
+	// (`nodes.kind = 'subunit'`).
 	Total int
 	// CountByKind buckets the totals by `nodes.type` for sub-unit rows.
 	// Keys are the subunit.Kind string values: "section", "paragraph",

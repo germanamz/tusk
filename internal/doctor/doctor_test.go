@@ -936,10 +936,8 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 			EmbedPayload: sql.NullString{String: strings.Repeat("y", embed.DefaultMaxBytes+1), Valid: true}},
 	}
 
-	for _, row := range subRows {
-		if upsertErr := nodes.Upsert(row); upsertErr != nil {
-			test.Fatalf("upsert sub-unit %s: %v", row.ID, upsertErr)
-		}
+	if upsertErr := nodes.BulkUpsert(subRows); upsertErr != nil {
+		test.Fatalf("bulk upsert sub-units: %v", upsertErr)
 	}
 
 	// File-level enqueue + a sub-unit enqueue so the bucket counters
@@ -1029,8 +1027,10 @@ func TestRun_SubUnitsDisabledDirtyEmitsWarning(test *testing.T) {
 
 	parentID := sql.NullString{String: "notes/n", Valid: true}
 
-	for idx := 0; idx < 2; idx++ {
-		row := index.NodeRow{
+	staleRows := make([]index.NodeRow, 0, 2)
+
+	for idx := range 2 {
+		staleRows = append(staleRows, index.NodeRow{
 			ID:             "notes/n#stale" + string(rune('a'+idx)),
 			Type:           "paragraph",
 			Path:           "notes/n.md",
@@ -1039,11 +1039,11 @@ func TestRun_SubUnitsDisabledDirtyEmitsWarning(test *testing.T) {
 			ParentID:       parentID,
 			Ordinal:        sql.NullInt64{Int64: int64(idx), Valid: true},
 			EmbedPayload:   sql.NullString{String: "stale", Valid: true},
-		}
+		})
+	}
 
-		if upsertErr := nodes.Upsert(row); upsertErr != nil {
-			test.Fatalf("upsert stale row: %v", upsertErr)
-		}
+	if upsertErr := nodes.BulkUpsert(staleRows); upsertErr != nil {
+		test.Fatalf("bulk upsert stale rows: %v", upsertErr)
 	}
 
 	loaded := loadSubUnitsDisabledManifest(test)

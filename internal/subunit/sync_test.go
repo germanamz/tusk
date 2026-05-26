@@ -491,7 +491,7 @@ func TestSync_WritesKindAndSourceForSubUnits(test *testing.T) {
 		test.Fatalf("ApplyFile: %v", applyErr)
 	}
 
-	rows, queryErr := store.DB().Query(`SELECT id, kind, source FROM nodes WHERE parent_id IS NOT NULL`)
+	rows, queryErr := store.DB().Query(`SELECT id, kind, source FROM nodes WHERE parent_id = ?`, parent.ID)
 
 	if queryErr != nil {
 		test.Fatalf("query subunits: %v", queryErr)

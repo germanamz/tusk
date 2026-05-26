@@ -1092,22 +1092,22 @@ wikilinks = true
 		}
 	}
 
-	// Defense-in-depth: assert directly against the schema that no node
-	// row has a non-null parent_id. ListSubUnitsForFile filters by id
-	// prefix; this query catches any row that slipped past the prefix
-	// filter (e.g., if SubUnitsEnabled() ever changes its default
-	// semantics and the engine starts writing sub-units under a
-	// different id scheme).
-	var parentedCount int
+	// Defense-in-depth: assert directly against the schema that no
+	// sub-unit row exists. ListSubUnitsForFile filters by id prefix;
+	// this query catches any row that slipped past the prefix filter
+	// (e.g., if SubUnitsEnabled() ever changes its default semantics
+	// and the engine starts writing sub-units under a different id
+	// scheme).
+	var subUnitCount int
 
-	scanErr := store.DB().QueryRow(`SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL`).Scan(&parentedCount)
+	scanErr := store.DB().QueryRow(`SELECT COUNT(*) FROM nodes WHERE kind = 'subunit'`).Scan(&subUnitCount)
 
 	if scanErr != nil {
-		test.Fatalf("count parent_id rows: %v", scanErr)
+		test.Fatalf("count sub-unit rows: %v", scanErr)
 	}
 
-	if parentedCount != 0 {
-		test.Errorf("nodes with parent_id IS NOT NULL = %d, want 0 with sub-units disabled", parentedCount)
+	if subUnitCount != 0 {
+		test.Errorf("nodes with kind='subunit' = %d, want 0 with sub-units disabled", subUnitCount)
 	}
 }
 

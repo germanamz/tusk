@@ -341,12 +341,12 @@ func (repo *NodeRepo) FindByTitle(targetType, title string) ([]string, error) {
 }
 
 // CountSubUnits returns the total number of sub-unit rows in the index
-// (rows with parent_id IS NOT NULL). Used by tusk doctor's sub-unit
-// pane (spec §5.9).
+// (rows with kind='subunit'). Used by tusk doctor's sub-unit pane
+// (spec §5.9).
 func (repo *NodeRepo) CountSubUnits() (int, error) {
 	var count int
 
-	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL`).Scan(&count); scanErr != nil {
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE kind = 'subunit'`).Scan(&count); scanErr != nil {
 		return 0, fmt.Errorf("nodeRepo: count sub-units: %w", scanErr)
 	}
 
@@ -358,7 +358,7 @@ func (repo *NodeRepo) CountSubUnits() (int, error) {
 // rows: "section", "paragraph", "list-item", ...). Used by tusk
 // doctor's sub-unit pane.
 func (repo *NodeRepo) CountSubUnitsByKind() (map[string]int, error) {
-	rows, queryErr := repo.db.Query(`SELECT type, COUNT(*) FROM nodes WHERE parent_id IS NOT NULL GROUP BY type`)
+	rows, queryErr := repo.db.Query(`SELECT type, COUNT(*) FROM nodes WHERE kind = 'subunit' GROUP BY type`)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("nodeRepo: count sub-units by kind: %w", queryErr)
@@ -395,7 +395,7 @@ func (repo *NodeRepo) CountSubUnitHashCollisions() (int, error) {
 	var count int
 
 	if scanErr := repo.db.QueryRow(
-		`SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL AND id GLOB '*#*-[0-9]*'`,
+		`SELECT COUNT(*) FROM nodes WHERE kind = 'subunit' AND id GLOB '*#*-[0-9]*'`,
 	).Scan(&count); scanErr != nil {
 		return 0, fmt.Errorf("nodeRepo: count sub-unit hash collisions: %w", scanErr)
 	}
@@ -412,7 +412,7 @@ func (repo *NodeRepo) CountOrphanedSubUnits() (int, error) {
 	if scanErr := repo.db.QueryRow(`
 		SELECT COUNT(*)
 		FROM nodes child
-		WHERE child.parent_id IS NOT NULL
+		WHERE child.kind = 'subunit'
 		  AND NOT EXISTS (
 			SELECT 1 FROM nodes parent WHERE parent.id = child.parent_id
 		  )
@@ -438,7 +438,7 @@ func (repo *NodeRepo) CountOversizeSubUnitPayloads(maxBytes int) (int, error) {
 	if scanErr := repo.db.QueryRow(`
 		SELECT COUNT(*)
 		FROM nodes
-		WHERE parent_id IS NOT NULL
+		WHERE kind = 'subunit'
 		  AND embed_payload IS NOT NULL
 		  AND octet_length(embed_payload) > ?
 	`, maxBytes).Scan(&count); scanErr != nil {

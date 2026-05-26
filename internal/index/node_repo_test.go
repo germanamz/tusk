@@ -689,8 +689,8 @@ func TestNodeRepo_CountOversizeSubUnitPayloads_BytesNotCodepoints(test *testing.
 		EmbedPayload:   sql.NullString{String: payloadRunes, Valid: true},
 	}
 
-	if upsertErr := repo.Upsert(subUnit); upsertErr != nil {
-		test.Fatalf("Upsert sub-unit: %v", upsertErr)
+	if upsertErr := repo.BulkUpsert([]index.NodeRow{subUnit}); upsertErr != nil {
+		test.Fatalf("BulkUpsert sub-unit: %v", upsertErr)
 	}
 
 	count, countErr := repo.CountOversizeSubUnitPayloads(4000)
@@ -709,5 +709,33 @@ func TestNodeRepo_CountOversizeSubUnitPayloads_BytesNotCodepoints(test *testing.
 
 	if count8000 != 0 {
 		test.Errorf("CountOversizeSubUnitPayloads(8000) = %d, want 0 (6000 bytes ≤ 8000)", count8000)
+	}
+}
+
+func TestCountSubUnitsUsesKindNotParentID(test *testing.T) {
+	test.Parallel()
+
+	store := openTestIndex(test)
+
+	seedNodes(test, store, "some-parent")
+
+	_, execErr := store.DB().Exec(`
+		INSERT INTO nodes (id, type, path, properties_json,
+		                   last_mtime, last_size, last_checksum,
+		                   parent_id, kind, source)
+		VALUES ('weird-row', 'note', 'weird.md', '{}',
+		        0, 0, '', 'some-parent', 'file', NULL)
+	`)
+	if execErr != nil {
+		test.Fatalf("seed: %v", execErr)
+	}
+
+	got, countErr := index.NewNodeRepo(store).CountSubUnits()
+	if countErr != nil {
+		test.Fatalf("CountSubUnits: %v", countErr)
+	}
+
+	if got != 0 {
+		test.Errorf("CountSubUnits = %d, want 0 (row has kind='file')", got)
 	}
 }
