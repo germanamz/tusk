@@ -352,10 +352,16 @@ func compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, e
 		joinColumn = fmt.Sprintf("%s.id = %s.source_id", nodeAlias, edgeAlias)
 	}
 
-	if predicate.Inner == nil {
-		sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s WHERE %s AND %s.type = ?)", edgeAlias, sourceColumn, edgeAlias)
+	edgeClause, edgeParams, edgeErr := compileTypeRef(predicate.EdgeType, edgeAlias+".", OpEQ)
 
-		return sql, []any{predicate.EdgeType}, nil
+	if edgeErr != nil {
+		return "", nil, edgeErr
+	}
+
+	if predicate.Inner == nil {
+		sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s WHERE %s AND %s)", edgeAlias, sourceColumn, edgeClause)
+
+		return sql, edgeParams, nil
 	}
 
 	innerSQL, innerParams, innerErr := compileInnerOnAlias(predicate.Inner, nodeAlias, depth)
@@ -364,10 +370,10 @@ func compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, e
 		return "", nil, innerErr
 	}
 
-	sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s JOIN nodes %s ON %s WHERE %s AND %s.type = ? AND %s)",
-		edgeAlias, nodeAlias, joinColumn, sourceColumn, edgeAlias, innerSQL)
+	sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s JOIN nodes %s ON %s WHERE %s AND %s AND %s)",
+		edgeAlias, nodeAlias, joinColumn, sourceColumn, edgeClause, innerSQL)
 
-	params := append([]any{predicate.EdgeType}, innerParams...)
+	params := append(edgeParams, innerParams...)
 
 	return sql, params, nil
 }

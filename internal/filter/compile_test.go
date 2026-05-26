@@ -913,12 +913,77 @@ func TestCompileNodeTypeRefScopes(test *testing.T) {
 	}
 }
 
+// TestCompileEdgeTypeRefScopes confirms that the edge-type identifier
+// in a filter predicate accepts the bare, `:type`, and `source:type`
+// canonical forms and compiles to the same scope-aware SQL pattern that
+// Task 5.4 established for node types — now against `edges(source, type)`.
+func TestCompileEdgeTypeRefScopes(test *testing.T) {
+	test.Parallel()
+
+	loaded := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"references": {Cardinality: manifest.CardinalityOneToMany},
+		},
+	}
+
+	cases := []struct {
+		name           string
+		input          string
+		wantEdgeClause string
+		wantFirstParam any
+	}{
+		{
+			name:           "bare edge type",
+			input:          "references->type=section",
+			wantEdgeClause: "e0.type = ?",
+			wantFirstParam: "references",
+		},
+		{
+			name:           "user-namespace edge type",
+			input:          ":references->type=section",
+			wantEdgeClause: "e0.source IS NULL AND e0.type = ?",
+			wantFirstParam: "references",
+		},
+		{
+			name:           "source-qualified edge type",
+			input:          "markdown:references->type=section",
+			wantEdgeClause: "e0.source = ? AND e0.type = ?",
+			wantFirstParam: "markdown",
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, parseErrs := filter.NewParser(testCase.input).Parse()
+
+			if len(parseErrs) > 0 {
+				test.Fatalf("parse: %v", parseErrs[0])
+			}
+
+			if validateErrs := filter.Validate(expr, loaded); len(validateErrs) > 0 {
+				test.Fatalf("validate: %v", validateErrs[0])
+			}
+
+			sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+
+			if compileErr != nil {
+				test.Fatalf("compile: %v", compileErr)
+			}
+
+			if !strings.Contains(sqlText, testCase.wantEdgeClause) {
+				test.Errorf("sql missing %q\ngot: %s", testCase.wantEdgeClause, sqlText)
+			}
+
+			if len(params) == 0 || params[0] != testCase.wantFirstParam {
+				test.Errorf("first param = %v, want %v", params, testCase.wantFirstParam)
+			}
+		})
+	}
+}
+
 // TestCompileNodeTypeRefScopesInsideEdgePredicate confirms scope-aware
 // node-type compilation also fires for type predicates nested inside an
-// edge predicate (e.g. `references->type=:section`). The edge type
-// itself remains bare here because qualified-edge-type syntax in
-// filter expressions requires parser/lexer extensions not in scope for
-// this task — see Phase 5 follow-up.
+// edge predicate (e.g. `references->type=:section`).
 func TestCompileNodeTypeRefScopesInsideEdgePredicate(test *testing.T) {
 	test.Parallel()
 

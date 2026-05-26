@@ -249,6 +249,35 @@ func TestValidate_UnqualifiedNoHierarchiesAtAll(test *testing.T) {
 	}
 }
 
+func TestValidateQualifiedEdgeType(test *testing.T) {
+	test.Parallel()
+
+	loaded := manifest.Manifest{
+		EdgeTypes: map[string]manifest.EdgeType{
+			"references": {Cardinality: manifest.CardinalityOneToMany},
+		},
+	}
+
+	for _, input := range []string{"references->id=x", ":references->id=x", "markdown:references->id=x"} {
+		expr, parseErrs := filter.NewParser(input).Parse()
+
+		if len(parseErrs) > 0 {
+			test.Fatalf("parse %q: %v", input, parseErrs[0])
+		}
+
+		if errs := filter.Validate(expr, loaded); len(errs) > 0 {
+			test.Errorf("validate %q: %v", input, errs[0])
+		}
+	}
+
+	expr, _ := filter.NewParser("referenced->id=x").Parse()
+	errs := filter.Validate(expr, loaded)
+
+	if len(errs) == 0 || !strings.Contains(errs[0].Message, "not declared") {
+		test.Errorf("expected not-declared error for bare unknown edge type, got %v", errs)
+	}
+}
+
 func TestValidate_ModifiedSinceDurations(test *testing.T) {
 	cases := []struct {
 		raw  string

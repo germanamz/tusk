@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // ValidationError reports a validation problem with a position and a hint.
@@ -55,11 +56,18 @@ func (collector *validationCollector) walk(expr Expr) {
 	case *PropertyPredicate:
 		// Properties are not validated against the manifest in Plan 4 (see spec §5.2).
 	case *EdgePredicate:
-		if _, declared := collector.manifest.EdgeTypes[typed.EdgeType]; !declared {
+		ref, parseErr := typeref.Parse(typed.EdgeType)
+
+		if parseErr != nil {
 			collector.errors = append(collector.errors, ValidationError{
 				Pos:     typed.Pos,
-				Message: fmt.Sprintf("edge type %q not declared in manifest", typed.EdgeType),
-				Hint:    suggestEdgeType(typed.EdgeType, collector.manifest.EdgeTypes),
+				Message: fmt.Sprintf("edge type %q is not a valid type reference", typed.EdgeType),
+			})
+		} else if _, declared := collector.manifest.EdgeTypes[ref.Type]; !declared {
+			collector.errors = append(collector.errors, ValidationError{
+				Pos:     typed.Pos,
+				Message: fmt.Sprintf("edge type %q not declared in manifest", ref.Type),
+				Hint:    suggestEdgeType(ref.Type, collector.manifest.EdgeTypes),
 			})
 		}
 
