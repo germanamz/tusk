@@ -111,8 +111,10 @@ func seedAuthRFC(t *testing.T, store *index.Index) {
 		},
 	}
 
+	subUnitRows := make([]index.NodeRow, 0, len(subUnits))
+
 	for _, unit := range subUnits {
-		row := index.NodeRow{
+		subUnitRows = append(subUnitRows, index.NodeRow{
 			ID:             unit.id,
 			Type:           unit.typ,
 			Path:           "notes/auth-rfc.md",
@@ -122,12 +124,14 @@ func seedAuthRFC(t *testing.T, store *index.Index) {
 			ParentID:       sql.NullString{String: unit.parent, Valid: true},
 			Ordinal:        sql.NullInt64{Int64: int64(unit.ordinal), Valid: true},
 			EmbedPayload:   sql.NullString{String: unit.payload, Valid: true},
-		}
+		})
+	}
 
-		if err := nodes.Upsert(row); err != nil {
-			t.Fatalf("sub-unit upsert %s: %v", unit.id, err)
-		}
+	if err := nodes.BulkUpsert(subUnitRows); err != nil {
+		t.Fatalf("sub-unit bulk upsert: %v", err)
+	}
 
+	for _, unit := range subUnits {
 		if !unit.isLeaf {
 			continue
 		}
