@@ -75,7 +75,7 @@ state.`,
 
 				defer store.Close()
 
-				plan, renameErr := node.Rename(ws.Root, index.NewNodeRepo(store), index.NewEdgeRepo(store), loaded.EdgeTypes, args[0], args[1])
+				plan, renameErr := node.Rename(ws.Root, index.NewNodeRepo(store), index.NewEdgeRepo(store), loaded.EdgeTypes, loaded.NodeTypes, args[0], args[1])
 
 				if renameErr != nil {
 					return renameErr

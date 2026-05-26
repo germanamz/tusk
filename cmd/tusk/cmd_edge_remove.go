@@ -96,7 +96,7 @@ any remaining sentinel rows on its next run.`,
 
 				edgeRepo := index.NewEdgeRepo(store)
 
-				if reindexErr := node.ReindexSource(ws.Root, edgeRepo, loaded.EdgeTypes, source); reindexErr != nil {
+				if reindexErr := node.ReindexSource(ws.Root, edgeRepo, loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
 					return reindexErr
 				}
 

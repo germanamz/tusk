@@ -1135,7 +1135,7 @@ func registerNodeMoveTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		plan, renameErr := node.Rename(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, nodeID, newPath)
+		plan, renameErr := node.Rename(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, srv.runtime.Manifest.NodeTypes, nodeID, newPath)
 
 		if renameErr != nil {
 			return toolError(renameErr), nil
@@ -1247,7 +1247,7 @@ func registerEdgeAddTool(srv *Server) {
 			return toolError(writeErr), nil
 		}
 
-		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, sourceID); reindexErr != nil {
+		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, srv.runtime.Manifest.NodeTypes, sourceID); reindexErr != nil {
 			return toolError(reindexErr), nil
 		}
 
@@ -1296,7 +1296,7 @@ func registerEdgeRemoveTool(srv *Server) {
 			return toolError(writeErr), nil
 		}
 
-		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, sourceID); reindexErr != nil {
+		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, srv.runtime.Manifest.NodeTypes, sourceID); reindexErr != nil {
 			return toolError(reindexErr), nil
 		}
 

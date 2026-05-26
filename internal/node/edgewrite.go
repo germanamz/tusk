@@ -200,6 +200,7 @@ func ReindexSource(
 	workspaceRoot string,
 	edges *index.EdgeRepo,
 	edgeTypes manifest.EdgeTypes,
+	nodeTypes map[string]manifest.NodeType,
 	sourceID string,
 ) error {
 	relPath := sourceID + ".md"
@@ -221,20 +222,7 @@ func ReindexSource(
 		return fmt.Errorf("edgewrite: resolve %s: %w", relPath, resolveErr)
 	}
 
-	var edgeRows []index.EdgeRow
-
-	for edgeType, targets := range parsed.Edges {
-		for _, target := range targets {
-			edgeRows = append(edgeRows, index.EdgeRow{
-				Type:       edgeType,
-				SourceID:   parsed.ID,
-				TargetID:   target,
-				SourcePath: parsed.Path,
-			})
-		}
-	}
-
-	if upsertErr := edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
+	if upsertErr := edges.UpsertAll(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
 		return fmt.Errorf("edgewrite: upsert %s: %w", relPath, upsertErr)
 	}
 
