@@ -55,8 +55,8 @@ func NewNodeRepo(idx *Index) *NodeRepo {
 
 // nodeUpsertFileSQL writes a file-class row: literal `kind='file'` and
 // `source=NULL`. Used by Upsert (the file-row writer). Sub-unit rows go
-// through BulkUpsert / nodeUpsertSQL, which leaves kind/source untouched
-// pending Task 2.3.
+// through BulkUpsert / nodeUpsertSubUnitSQL, which writes
+// `kind='subunit', source='markdown'`.
 const nodeUpsertFileSQL = `
 	INSERT INTO nodes (
 		id, type, path, title, properties_json,
@@ -80,17 +80,19 @@ const nodeUpsertFileSQL = `
 		source          = NULL
 `
 
-// nodeUpsertSQL is the ON CONFLICT-aware upsert statement used by
-// BulkUpsert for sub-unit rows. The columns are listed in a fixed order
-// so the bind arguments line up. `kind` and `source` are intentionally
-// omitted here — Task 2.3 will introduce a dedicated sub-unit writer.
-const nodeUpsertSQL = `
+// nodeUpsertSubUnitSQL writes a sub-unit-class row: literal
+// `kind='subunit'` and `source='markdown'`. Used by BulkUpsert (the
+// sub-unit row writer). The columns are listed in a fixed order so the
+// bind arguments line up; `kind` and `source` are written as SQL
+// literals to mirror nodeUpsertFileSQL.
+const nodeUpsertSubUnitSQL = `
 	INSERT INTO nodes (
 		id, type, path, title, properties_json,
 		last_mtime, last_size, last_checksum,
-		parent_id, ordinal, embed_payload
+		parent_id, ordinal, embed_payload,
+		kind, source
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', 'markdown')
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -101,12 +103,14 @@ const nodeUpsertSQL = `
 		last_checksum   = excluded.last_checksum,
 		parent_id       = excluded.parent_id,
 		ordinal         = excluded.ordinal,
-		embed_payload   = excluded.embed_payload
+		embed_payload   = excluded.embed_payload,
+		kind            = 'subunit',
+		source          = 'markdown'
 `
 
 // nodeUpsertArgs returns the positional bind arguments shared by
-// nodeUpsertFileSQL and nodeUpsertSQL (both bind the same eleven
-// columns; the file-row SQL appends `kind`/`source` as literals).
+// nodeUpsertFileSQL and nodeUpsertSubUnitSQL (both bind the same eleven
+// columns; the two writers append `kind`/`source` as SQL literals).
 func nodeUpsertArgs(row NodeRow) []any {
 	return []any{
 		row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON,
@@ -140,7 +144,7 @@ func (repo *NodeRepo) BulkUpsert(rows []NodeRow) error {
 		return fmt.Errorf("nodeRepo: bulk upsert begin: %w", beginErr)
 	}
 
-	stmt, prepErr := tx.Prepare(nodeUpsertSQL)
+	stmt, prepErr := tx.Prepare(nodeUpsertSubUnitSQL)
 
 	if prepErr != nil {
 		_ = tx.Rollback()

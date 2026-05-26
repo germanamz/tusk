@@ -474,6 +474,64 @@ func TestSync_LeavesEnqueuedSectionsSkipped(test *testing.T) {
 	}
 }
 
+func TestSync_WritesKindAndSourceForSubUnits(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := referencesManifest(test)
+	sync, nodes, _, _ := newSync(store, loaded)
+
+	parent := seedFileRow(test, nodes, "notes/kind", "notes/kind.md")
+
+	units, parseErr := subunit.Parse([]byte("# Heading\n\nfirst paragraph\n\nsecond paragraph\n"))
+
+	if parseErr != nil {
+		test.Fatalf("Parse: %v", parseErr)
+	}
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+		test.Fatalf("ApplyFile: %v", applyErr)
+	}
+
+	rows, queryErr := store.DB().Query(`SELECT id, kind, source FROM nodes WHERE parent_id IS NOT NULL`)
+
+	if queryErr != nil {
+		test.Fatalf("query subunits: %v", queryErr)
+	}
+
+	defer rows.Close()
+
+	var seen int
+
+	for rows.Next() {
+		var (
+			id     string
+			kind   *string
+			source *string
+		)
+
+		if scanErr := rows.Scan(&id, &kind, &source); scanErr != nil {
+			test.Fatalf("scan: %v", scanErr)
+		}
+
+		seen++
+
+		if kind == nil || *kind != "subunit" {
+			test.Errorf("row %s: kind = %v, want \"subunit\"", id, kind)
+		}
+
+		if source == nil || *source != "markdown" {
+			test.Errorf("row %s: source = %v, want \"markdown\"", id, source)
+		}
+	}
+
+	if iterErr := rows.Err(); iterErr != nil {
+		test.Fatalf("iter: %v", iterErr)
+	}
+
+	if seen == 0 {
+		test.Fatal("expected at least one sub-unit row")
+	}
+}
+
 func TestSync_EmptyUnitsDeletesAllRowsAndContains(test *testing.T) {
 	store := openSyncTestIndex(test)
 	loaded := referencesManifest(test)
