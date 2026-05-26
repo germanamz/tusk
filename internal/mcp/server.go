@@ -11,6 +11,23 @@ import (
 	"github.com/germanamz/tusk/internal/version"
 )
 
+// serverInstructions is sent back in the MCP initialize response. Clients
+// surface this to the model at session start, so it carries the load of
+// telling agents that Tusk is local (not a remote service) and pointing at
+// the tusk_help tool for everything else. Keep it short — the deep content
+// lives in the tusk_help topics.
+const serverInstructions = `Tusk is a LOCAL workspace indexer running over the current working directory.
+There is no remote service. Every tool operates on:
+  - markdown files under ./
+  - the schema declared in ./tusk.toml
+  - the SQLite index at ./.tusk/index.db
+
+To declare new node-types or edge-types, edit ./tusk.toml directly (no MCP
+tool for this), then call tusk_reindex.
+
+Call tusk_help() for an overview + topic index, or tusk_help(topic: "<name>")
+for deep dives on: workflow, node-types, edge-types, manifest, filter, query, packs.`
+
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
 	runtime  *Runtime
@@ -25,6 +42,7 @@ func NewServer(runtime *Runtime) *Server {
 		"tusk",
 		version.Current,
 		server.WithToolCapabilities(true),
+		server.WithInstructions(serverInstructions),
 	)
 
 	srv := &Server{
