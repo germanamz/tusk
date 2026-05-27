@@ -1176,7 +1176,15 @@ func registerNodeDeleteTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		if deleteErr := node.Delete(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, nodeID); deleteErr != nil {
+		if deleteErr := node.Delete(
+			srv.runtime.Root,
+			srv.runtime.Nodes,
+			srv.runtime.Edges,
+			srv.runtime.FileState,
+			srv.runtime.WorkerID,
+			srv.runtime.LeaseTTL,
+			nodeID,
+		); deleteErr != nil {
 			return toolError(deleteErr), nil
 		}
 
