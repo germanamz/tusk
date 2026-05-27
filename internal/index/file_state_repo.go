@@ -138,6 +138,58 @@ func (repo *FileStateRepo) Tombstone(path string) error {
 	return nil
 }
 
+// EnsurePlaceholder inserts a minimal row for path if no row exists. The
+// placeholder carries empty content_hash, zero mtime/size, state='live',
+// last_seen_gen=0, and no lease. On conflict the existing row is left
+// untouched so callers can safely invoke this before Claim without
+// disturbing live observed-state columns.
+//
+// Used by node.WriteWithLease to make pre-existing nodes (no file_state
+// row yet) claimable on the first write after Phase 4 ships.
+func (repo *FileStateRepo) EnsurePlaceholder(path string) error {
+	now := time.Now().UnixNano()
+
+	_, execErr := repo.db.Exec(`
+		INSERT INTO file_state (
+			path, content_hash, mtime_ns, size, state,
+			leased_by, leased_until_ns, pending_temp_path, pending_hash,
+			last_seen_gen, updated_at_ns
+		)
+		VALUES (?, '', 0, 0, ?, NULL, NULL, NULL, NULL, 0, ?)
+		ON CONFLICT(path) DO NOTHING
+	`, path, FileStateLive, now)
+
+	if execErr != nil {
+		return fmt.Errorf("fileStateRepo: ensure placeholder %s: %w", path, execErr)
+	}
+
+	return nil
+}
+
+// SetPending records the in-flight staged file path and its hash on the
+// file_state row for path. The update is guarded by `leased_by =
+// workerID` so a row whose lease has been reclaimed by another worker
+// is left alone — the late update is a silent no-op.
+//
+// Used by node.WriteWithLease between staging a temp file and renaming
+// it over the target, so a crashed writer's temp can be reaped by the
+// next Claim.
+func (repo *FileStateRepo) SetPending(path, workerID, tempPath, pendingHash string) error {
+	_, execErr := repo.db.Exec(`
+		UPDATE file_state
+		SET    pending_temp_path = ?,
+		       pending_hash      = ?,
+		       updated_at_ns     = ?
+		WHERE  path = ? AND leased_by = ?
+	`, tempPath, pendingHash, time.Now().UnixNano(), path, workerID)
+
+	if execErr != nil {
+		return fmt.Errorf("fileStateRepo: set pending %s: %w", path, execErr)
+	}
+
+	return nil
+}
+
 // ListByGenLessThan returns every live row whose last_seen_gen is strictly
 // less than gen, ordered by path. Tombstoned rows are excluded — they are
 // already past the reap horizon. Used by reindex reap to find files that
