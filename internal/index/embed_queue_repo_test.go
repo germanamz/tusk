@@ -3,8 +3,15 @@ package index_test
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+)
+
+const (
+	testWorkerA = "worker-a"
+	testWorkerB = "worker-b"
+	testTTL     = 60 * time.Second
 )
 
 func newTestEmbedQueueRepo(test *testing.T) *index.EmbedQueueRepo {
@@ -51,147 +58,455 @@ func TestEmbedQueueRepo_EnqueueIsIdempotent(test *testing.T) {
 	}
 }
 
-func TestEmbedQueueRepo_DrainReturnsEnqueuedNodesAndRemovesThem(test *testing.T) {
+func TestEmbedQueueRepo_DrainEmptyReturnsEmpty(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	if len(drained) != 0 {
+		test.Errorf("Drain on empty = %d rows, want 0", len(drained))
+	}
+}
+
+func TestEmbedQueueRepo_DrainClaimsBatchAndSetsLease(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 
 	for _, nodeID := range []string{"a", "b", "c"} {
-		repo.Enqueue(nodeID)
+		if enqErr := repo.Enqueue(nodeID); enqErr != nil {
+			test.Fatalf("Enqueue %s: %v", nodeID, enqErr)
+		}
 	}
 
-	drained, drainErr := repo.Drain(10)
+	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
 	}
 
 	if len(drained) != 3 {
-		test.Errorf("len = %d, want 3", len(drained))
+		test.Fatalf("len = %d, want 3 (all rows claimed)", len(drained))
+	}
+
+	// Drain no longer removes rows on read; they stay in the table
+	// holding leases.
+	depth, _ := repo.Depth()
+
+	if depth != 3 {
+		test.Errorf("Depth after Drain = %d, want 3 (claim does not delete)", depth)
+	}
+
+	for _, row := range drained {
+		if row.LeasedBy == nil || *row.LeasedBy != testWorkerA {
+			test.Errorf("LeasedBy = %v, want %q", row.LeasedBy, testWorkerA)
+		}
+
+		if row.LeasedUntilNs == nil || *row.LeasedUntilNs == 0 {
+			test.Errorf("LeasedUntilNs = %v, want non-nil non-zero", row.LeasedUntilNs)
+		}
+
+		if row.LeaseStartedAtNs == nil || *row.LeaseStartedAtNs == 0 {
+			test.Errorf("LeaseStartedAtNs = %v, want non-nil non-zero", row.LeaseStartedAtNs)
+		}
+
+		if row.Kind != "embed" {
+			test.Errorf("Kind = %q, want %q", row.Kind, "embed")
+		}
+	}
+}
+
+func TestEmbedQueueRepo_DrainHonorsBatchSize(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	for _, nodeID := range []string{"a", "b", "c", "d", "e"} {
+		if enqErr := repo.Enqueue(nodeID); enqErr != nil {
+			test.Fatalf("Enqueue %s: %v", nodeID, enqErr)
+		}
+	}
+
+	drained, _ := repo.Drain(testWorkerA, 2, testTTL)
+
+	if len(drained) != 2 {
+		test.Errorf("len = %d, want 2", len(drained))
+	}
+}
+
+func TestEmbedQueueRepo_DrainTwoWorkersGetDisjointBatches(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	for _, nodeID := range []string{"a", "b", "c", "d"} {
+		if enqErr := repo.Enqueue(nodeID); enqErr != nil {
+			test.Fatalf("Enqueue %s: %v", nodeID, enqErr)
+		}
+	}
+
+	firstBatch, drainErr := repo.Drain(testWorkerA, 2, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("first Drain: %v", drainErr)
+	}
+
+	secondBatch, drainErr := repo.Drain(testWorkerB, 2, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("second Drain: %v", drainErr)
+	}
+
+	if len(firstBatch) != 2 || len(secondBatch) != 2 {
+		test.Fatalf("batch sizes = %d, %d; want 2, 2", len(firstBatch), len(secondBatch))
+	}
+
+	seen := make(map[string]struct{}, 4)
+
+	for _, row := range firstBatch {
+		if row.LeasedBy == nil || *row.LeasedBy != testWorkerA {
+			test.Errorf("first batch LeasedBy = %v, want %q", row.LeasedBy, testWorkerA)
+		}
+
+		seen[row.NodeID] = struct{}{}
+	}
+
+	for _, row := range secondBatch {
+		if row.LeasedBy == nil || *row.LeasedBy != testWorkerB {
+			test.Errorf("second batch LeasedBy = %v, want %q", row.LeasedBy, testWorkerB)
+		}
+
+		if _, dup := seen[row.NodeID]; dup {
+			test.Errorf("node %s appeared in both batches", row.NodeID)
+		}
+	}
+}
+
+func TestEmbedQueueRepo_DrainSkipsRowsLeasedByAnotherWorker(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.Enqueue("only"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	firstBatch, _ := repo.Drain(testWorkerA, 10, testTTL)
+
+	if len(firstBatch) != 1 {
+		test.Fatalf("first batch = %d, want 1", len(firstBatch))
+	}
+
+	// Lease held by worker A; worker B's drain sees nothing claimable.
+	secondBatch, drainErr := repo.Drain(testWorkerB, 10, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("second Drain: %v", drainErr)
+	}
+
+	if len(secondBatch) != 0 {
+		test.Errorf("second batch = %d, want 0 (row leased by other worker)", len(secondBatch))
+	}
+}
+
+func TestEmbedQueueRepo_DrainReclaimsExpiredLease(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.Enqueue("only"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	// Negative TTL forces leased_until_ns into the past.
+	firstBatch, _ := repo.Drain(testWorkerA, 10, -1*time.Second)
+
+	if len(firstBatch) != 1 {
+		test.Fatalf("first batch = %d, want 1", len(firstBatch))
+	}
+
+	// Worker B now sees the row as expired-claimable.
+	secondBatch, drainErr := repo.Drain(testWorkerB, 10, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("second Drain: %v", drainErr)
+	}
+
+	if len(secondBatch) != 1 {
+		test.Fatalf("second batch = %d, want 1 (expired lease reclaimable)", len(secondBatch))
+	}
+
+	if secondBatch[0].LeasedBy == nil || *secondBatch[0].LeasedBy != testWorkerB {
+		test.Errorf("LeasedBy = %v, want %q", secondBatch[0].LeasedBy, testWorkerB)
+	}
+}
+
+func TestEmbedQueueRepo_AckDeletesWhenWorkerMatches(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.Enqueue("n1"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	if ackErr := repo.Ack("n1", testWorkerA); ackErr != nil {
+		test.Fatalf("Ack: %v", ackErr)
 	}
 
 	depth, _ := repo.Depth()
 
 	if depth != 0 {
-		test.Errorf("Depth after drain = %d, want 0", depth)
+		test.Errorf("Depth after Ack = %d, want 0", depth)
 	}
 }
 
-func TestEmbedQueueRepo_DrainHonorsLimit(test *testing.T) {
+func TestEmbedQueueRepo_AckIsNoOpWhenLeaseMovedOn(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 
-	for _, nodeID := range []string{"a", "b", "c", "d", "e"} {
-		repo.Enqueue(nodeID)
+	if enqErr := repo.Enqueue("n1"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	drained, _ := repo.Drain(2)
+	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
 
-	if len(drained) != 2 {
-		test.Errorf("len = %d, want 2", len(drained))
+	// Stale worker tries to Ack — the lease is held by worker A. No-op.
+	if ackErr := repo.Ack("n1", testWorkerB); ackErr != nil {
+		test.Fatalf("Ack stale: %v", ackErr)
 	}
 
 	depth, _ := repo.Depth()
 
-	if depth != 3 {
-		test.Errorf("Depth after partial drain = %d, want 3", depth)
+	if depth != 1 {
+		test.Errorf("Depth after stale Ack = %d, want 1 (row preserved)", depth)
 	}
 }
 
-func TestEmbedQueueRepo_ReEnqueuePreservesAttempts(test *testing.T) {
+func TestEmbedQueueRepo_NackBumpsAttemptsAndClearsLease(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 
 	if enqErr := repo.Enqueue("n1"); enqErr != nil {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	firstDrain, firstDrainErr := repo.Drain(10)
+	firstBatch, _ := repo.Drain(testWorkerA, 10, testTTL)
 
-	if firstDrainErr != nil {
-		test.Fatalf("first Drain: %v", firstDrainErr)
+	if len(firstBatch) != 1 || firstBatch[0].Attempts != 0 {
+		test.Fatalf("first batch = %+v, want one row with Attempts=0", firstBatch)
 	}
 
-	if len(firstDrain) != 1 || firstDrain[0].Attempts != 0 {
-		test.Fatalf("first drain = %+v, want one row with Attempts=0", firstDrain)
+	if nackErr := repo.Nack("n1", testWorkerA, errBoom()); nackErr != nil {
+		test.Fatalf("Nack: %v", nackErr)
 	}
 
-	if reErr := repo.ReEnqueue("n1", 1, "first failure"); reErr != nil {
-		test.Fatalf("ReEnqueue 1: %v", reErr)
+	secondBatch, _ := repo.Drain(testWorkerA, 10, testTTL)
+
+	if len(secondBatch) != 1 {
+		test.Fatalf("second batch = %d, want 1", len(secondBatch))
 	}
 
-	secondDrain, secondDrainErr := repo.Drain(10)
-
-	if secondDrainErr != nil {
-		test.Fatalf("second Drain: %v", secondDrainErr)
+	if secondBatch[0].Attempts != 1 {
+		test.Errorf("Attempts after Nack = %d, want 1", secondBatch[0].Attempts)
 	}
 
-	if len(secondDrain) != 1 {
-		test.Fatalf("second drain len = %d, want 1", len(secondDrain))
-	}
-
-	if secondDrain[0].Attempts != 1 {
-		test.Errorf("Attempts after first ReEnqueue = %d, want 1", secondDrain[0].Attempts)
-	}
-
-	if secondDrain[0].LastError != "first failure" {
-		test.Errorf("LastError after first ReEnqueue = %q, want %q", secondDrain[0].LastError, "first failure")
-	}
-
-	if reErr := repo.ReEnqueue("n1", 2, "second failure"); reErr != nil {
-		test.Fatalf("ReEnqueue 2: %v", reErr)
-	}
-
-	thirdDrain, thirdDrainErr := repo.Drain(10)
-
-	if thirdDrainErr != nil {
-		test.Fatalf("third Drain: %v", thirdDrainErr)
-	}
-
-	if len(thirdDrain) != 1 {
-		test.Fatalf("third drain len = %d, want 1", len(thirdDrain))
-	}
-
-	if thirdDrain[0].Attempts != 2 {
-		test.Errorf("Attempts after second ReEnqueue = %d, want 2", thirdDrain[0].Attempts)
-	}
-
-	if thirdDrain[0].LastError != "second failure" {
-		test.Errorf("LastError after second ReEnqueue = %q, want %q", thirdDrain[0].LastError, "second failure")
+	if secondBatch[0].LastError != "boom" {
+		test.Errorf("LastError = %q, want %q", secondBatch[0].LastError, "boom")
 	}
 }
 
-// TODO(retry-cap): assert enqueued_at-bump prevents starvation (skipped — flaky on coarse clocks).
+func TestEmbedQueueRepo_NackIsNoOpWhenLeaseMovedOn(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewEmbedQueueRepo(store)
 
-func TestEmbedQueueRepo_EnqueueDefaultsKindToEmbedAndLeavesLeaseFieldsNil(test *testing.T) {
+	if enqErr := repo.Enqueue("n1"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	// Stale worker — its Nack must not touch the row.
+	if nackErr := repo.Nack("n1", testWorkerB, errBoom()); nackErr != nil {
+		test.Fatalf("Nack: %v", nackErr)
+	}
+
+	var (
+		leasedBy  *string
+		attempts  int
+		lastError *string
+	)
+
+	if scanErr := store.DB().QueryRow(`
+		SELECT leased_by, attempts, last_error FROM embed_queue WHERE node_id = ?
+	`, "n1").Scan(&leasedBy, &attempts, &lastError); scanErr != nil {
+		test.Fatalf("inspect row: %v", scanErr)
+	}
+
+	if leasedBy == nil || *leasedBy != testWorkerA {
+		test.Errorf("LeasedBy after stale Nack = %v, want %q", leasedBy, testWorkerA)
+	}
+
+	if attempts != 0 {
+		test.Errorf("Attempts after stale Nack = %d, want 0", attempts)
+	}
+
+	if lastError != nil && *lastError != "" {
+		test.Errorf("LastError after stale Nack = %v, want nil/empty", lastError)
+	}
+}
+
+func TestEmbedQueueRepo_DropRemovesRow(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.Enqueue("doomed"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	if dropErr := repo.Drop("doomed", testWorkerA); dropErr != nil {
+		test.Fatalf("Drop: %v", dropErr)
+	}
+
+	depth, _ := repo.Depth()
+
+	if depth != 0 {
+		test.Errorf("Depth after Drop = %d, want 0", depth)
+	}
+}
+
+func TestEmbedQueueRepo_DropIsNoOpWhenLeaseMovedOn(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 
 	if enqErr := repo.Enqueue("n1"); enqErr != nil {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	drained, drainErr := repo.Drain(10)
+	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	if dropErr := repo.Drop("n1", testWorkerB); dropErr != nil {
+		test.Fatalf("Drop: %v", dropErr)
+	}
+
+	depth, _ := repo.Depth()
+
+	if depth != 1 {
+		test.Errorf("Depth after stale Drop = %d, want 1 (row preserved)", depth)
+	}
+}
+
+func TestEmbedQueueRepo_DrainFiltersOutReindexKind(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewEmbedQueueRepo(store)
+
+	// Insert a reindex row directly via SQL — there's no public helper
+	// yet; Phase 6 will add EnqueueReindex.
+	if _, execErr := store.DB().Exec(`
+		INSERT INTO embed_queue (node_id, enqueued_at, attempts, kind)
+		VALUES (?, ?, 0, 'reindex')
+	`, "reindex-only", time.Now().UnixNano()); execErr != nil {
+		test.Fatalf("insert reindex row: %v", execErr)
+	}
+
+	if enqErr := repo.Enqueue("embed-only"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
 	}
 
 	if len(drained) != 1 {
-		test.Fatalf("len = %d, want 1", len(drained))
+		test.Fatalf("len = %d, want 1 (reindex row must be filtered)", len(drained))
 	}
 
-	row := drained[0]
-
-	if row.Kind != "embed" {
-		test.Errorf("Kind = %q, want %q", row.Kind, "embed")
+	if drained[0].NodeID != "embed-only" {
+		test.Errorf("NodeID = %q, want %q", drained[0].NodeID, "embed-only")
 	}
 
-	if row.LeasedBy != nil {
-		test.Errorf("LeasedBy = %v, want nil", row.LeasedBy)
+	// Reindex row remains untouched.
+	var (
+		kind     string
+		leasedBy *string
+	)
+
+	if scanErr := store.DB().QueryRow(`SELECT kind, leased_by FROM embed_queue WHERE node_id = ?`, "reindex-only").Scan(&kind, &leasedBy); scanErr != nil {
+		test.Fatalf("inspect reindex row: %v", scanErr)
 	}
 
-	if row.LeasedUntilNs != nil {
-		test.Errorf("LeasedUntilNs = %v, want nil", row.LeasedUntilNs)
+	if kind != "reindex" {
+		test.Errorf("kind = %q, want %q", kind, "reindex")
 	}
 
-	if row.LeaseStartedAtNs != nil {
-		test.Errorf("LeaseStartedAtNs = %v, want nil", row.LeaseStartedAtNs)
+	if leasedBy != nil {
+		test.Errorf("LeasedBy on reindex row = %v, want nil (untouched)", leasedBy)
+	}
+}
+
+func TestEmbedQueueRepo_ReEnqueuePreservesAttempts(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if reErr := repo.ReEnqueue("n1", 1, "first failure"); reErr != nil {
+		test.Fatalf("ReEnqueue 1: %v", reErr)
+	}
+
+	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	if len(drained) != 1 || drained[0].Attempts != 1 || drained[0].LastError != "first failure" {
+		test.Errorf("Drained = %+v, want Attempts=1, LastError=\"first failure\"", drained)
+	}
+}
+
+// TODO(retry-cap): assert enqueued_at-bump prevents starvation (skipped — flaky on coarse clocks).
+
+func TestEmbedQueueRepo_EnqueueDefaultsKindToEmbedAndLeavesLeaseFieldsNil(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewEmbedQueueRepo(store)
+
+	if enqErr := repo.Enqueue("n1"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	// Inspect the row directly (rather than via Drain, which would
+	// overwrite the lease fields) to verify the table-default kind and
+	// the initial nil lease columns.
+	var (
+		kind             string
+		leasedBy         *string
+		leasedUntilNs    *int64
+		leaseStartedAtNs *int64
+	)
+
+	if scanErr := store.DB().QueryRow(`
+		SELECT kind, leased_by, leased_until_ns, lease_started_at_ns
+		FROM embed_queue WHERE node_id = ?
+	`, "n1").Scan(&kind, &leasedBy, &leasedUntilNs, &leaseStartedAtNs); scanErr != nil {
+		test.Fatalf("inspect row: %v", scanErr)
+	}
+
+	if kind != "embed" {
+		test.Errorf("Kind = %q, want %q", kind, "embed")
+	}
+
+	if leasedBy != nil {
+		test.Errorf("LeasedBy = %v, want nil", leasedBy)
+	}
+
+	if leasedUntilNs != nil {
+		test.Errorf("LeasedUntilNs = %v, want nil", leasedUntilNs)
+	}
+
+	if leaseStartedAtNs != nil {
+		test.Errorf("LeaseStartedAtNs = %v, want nil", leaseStartedAtNs)
 	}
 }
 
@@ -202,7 +517,7 @@ func TestEmbedQueueRepo_ReEnqueuePreservesKindDefault(test *testing.T) {
 		test.Fatalf("ReEnqueue: %v", reErr)
 	}
 
-	drained, drainErr := repo.Drain(10)
+	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
@@ -254,3 +569,9 @@ func TestEmbedQueueRepo_ListNodeIDs_Empty(test *testing.T) {
 		test.Errorf("ListNodeIDs = %v, want empty", ids)
 	}
 }
+
+type boomErr struct{}
+
+func (boomErr) Error() string { return "boom" }
+
+func errBoom() error { return boomErr{} }
