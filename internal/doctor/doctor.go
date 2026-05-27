@@ -93,9 +93,10 @@ type Issue struct {
 
 // Report is the doctor's verdict.
 type Report struct {
-	Issues          []Issue
-	EmbedQueueDepth int
-	EmbedStats      *EmbedStatsReport
+	Issues            []Issue
+	EmbedQueueDepth   int // pending rows with kind='embed'
+	ReindexQueueDepth int // pending rows with kind='reindex'
+	EmbedStats        *EmbedStatsReport
 	// AliasErrors mirrors Manifest.AliasErrors for callers that want the
 	// typed list (CLI, MCP) instead of parsing them back out of Issues.
 	AliasErrors []manifest.AliasError
@@ -266,13 +267,21 @@ func Run(config Config) (*Report, error) {
 	}
 
 	if config.EmbedQueue != nil {
-		depth, depthErr := config.EmbedQueue.Depth()
+		embedDepth, embedDepthErr := config.EmbedQueue.DepthByKind("embed")
 
-		if depthErr != nil {
-			return nil, depthErr
+		if embedDepthErr != nil {
+			return nil, embedDepthErr
 		}
 
-		report.EmbedQueueDepth = depth
+		report.EmbedQueueDepth = embedDepth
+
+		reindexDepth, reindexDepthErr := config.EmbedQueue.DepthByKind("reindex")
+
+		if reindexDepthErr != nil {
+			return nil, reindexDepthErr
+		}
+
+		report.ReindexQueueDepth = reindexDepth
 	}
 
 	if config.WorkflowDrift != nil {

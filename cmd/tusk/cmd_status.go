@@ -100,8 +100,8 @@ warnings and drift detail.`,
 
 			_ = tab.Flush()
 
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edges: %d\nembed queue depth: %d\nlast reindex (unix ns): %s\n",
-				result.EdgeCount, result.EmbedQueueDepth, result.LastReindexAt)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edges: %d\nembed queue depth: %d\nreindex queue depth: %d\nlast reindex (unix ns): %s\n",
+				result.EdgeCount, result.EmbedQueueDepth, result.ReindexQueueDepth, result.LastReindexAt)
 
 			return nil
 		},

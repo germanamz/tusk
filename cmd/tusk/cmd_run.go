@@ -346,8 +346,9 @@ func aliasResultPayload(result *aliasdispatch.DispatchResult) any {
 
 	case *doctor.Result:
 		envelope := map[string]any{
-			"issues":            typed.Report.Issues,
-			"embed_queue_depth": typed.Report.EmbedQueueDepth,
+			"issues":              typed.Report.Issues,
+			"embed_queue_depth":   typed.Report.EmbedQueueDepth,
+			"reindex_queue_depth": typed.Report.ReindexQueueDepth,
 		}
 
 		if typed.Migration != nil {
@@ -359,10 +360,11 @@ func aliasResultPayload(result *aliasdispatch.DispatchResult) any {
 
 	case *status.Result:
 		return map[string]any{
-			"nodes_by_type":     typed.NodesByType,
-			"edge_count":        typed.EdgeCount,
-			"embed_queue_depth": typed.EmbedQueueDepth,
-			"last_reindex_at":   typed.LastReindexAt,
+			"nodes_by_type":       typed.NodesByType,
+			"edge_count":          typed.EdgeCount,
+			"embed_queue_depth":   typed.EmbedQueueDepth,
+			"reindex_queue_depth": typed.ReindexQueueDepth,
+			"last_reindex_at":     typed.LastReindexAt,
 		}
 	}
 
@@ -480,6 +482,7 @@ func renderAliasDoctor(out io.Writer, result *doctor.Result, _ outputFormat) err
 	}
 
 	_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", result.Report.EmbedQueueDepth)
+	_, _ = fmt.Fprintf(out, "reindex queue depth: %d\n", result.Report.ReindexQueueDepth)
 
 	return nil
 }
@@ -501,6 +504,7 @@ func renderAliasStatus(out io.Writer, result *status.Result, _ outputFormat) err
 
 	_, _ = fmt.Fprintf(out, "edges: %d\n", result.EdgeCount)
 	_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", result.EmbedQueueDepth)
+	_, _ = fmt.Fprintf(out, "reindex queue depth: %d\n", result.ReindexQueueDepth)
 	_, _ = fmt.Fprintf(out, "last reindex at: %s\n", result.LastReindexAt)
 
 	return nil
