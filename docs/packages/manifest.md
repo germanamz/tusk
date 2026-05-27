@@ -43,3 +43,24 @@ Hierarchy edges (and any edge type that should expose stable child order) may de
 - `ordered = "<prop>"` — children are ordered by the named source-node property (e.g. `ordered = "rank"`).
 
 After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ordered = true`, `OrderedBy` is set to `"order"`. See the 2026-05-18 edges-from-frontmatter design (`docs/superpowers/specs/2026-05-18-edges-from-frontmatter-design.md`) for the wire format and rationale.
+
+### Lease TTL — `[lease]`
+
+The optional `[lease]` block configures the lease window applied to every concurrency-coordination path in tusk (today: the `embed_queue` Drain; Phase 4 onwards: the `file_state` Claim used by node writes). One value covers every lease-taking path.
+
+```toml
+[lease]
+ttl_seconds = 90
+```
+
+- `ttl_seconds` (integer, optional) — lease window in seconds. When omitted, the resolver falls through to the env override and then the 60-second default. The loader rejects explicit `0` or negative values with `manifest: lease.ttl_seconds must be > 0`.
+
+**Env override:** `TUSK_LEASE_TTL_SECONDS` takes precedence over the manifest value. A malformed or non-positive env value is ignored with a warning (operators should not have a process refuse to start because of a bad env var). The resolution order, highest precedence first, is:
+
+1. `TUSK_LEASE_TTL_SECONDS` (positive integer).
+2. `[lease] ttl_seconds` in `tusk.toml` (positive integer).
+3. Default: 60 seconds.
+
+**Read once at startup.** The TTL is resolved when the process starts; changing the env var or the manifest field requires a restart. There is no hot-reload and no lease renewal / heartbeat — a worker that misses its deadline simply lets the lease expire and a peer reclaims the work.
+
+**Tuning hazard.** Setting the TTL very low (e.g. 1 s) risks lease expiry mid-flight: a long embed of a large node or a slow file write can lose its lease before completing, at which point a second worker reclaims the row and redoes the work. The default (60 s) comfortably covers every observed embed/write latency; only shorten it if you are confident every workload finishes inside the new window.

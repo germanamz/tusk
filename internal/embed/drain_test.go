@@ -1143,3 +1143,184 @@ func TestDrainQueue_MixedFileAndSubUnitBatch(test *testing.T) {
 		test.Errorf("did not see headered file payload among %q", stub.payloads)
 	}
 }
+
+// gateStubEmbedder blocks every Embed call until release is closed. Tests use
+// it to observe the queue's leased state while a claim is still in-flight.
+type gateStubEmbedder struct {
+	dim     int
+	model   string
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (stub *gateStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	stub.once.Do(func() { close(stub.started) })
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-stub.release:
+		return nil, fmt.Errorf("released")
+	}
+}
+
+func (stub *gateStubEmbedder) Model() string { return stub.model }
+func (stub *gateStubEmbedder) Dim() int      { return stub.dim }
+
+// TestDrainQueue_HonorsConfiguredTTL confirms that DrainConfig.TTL flows
+// through to the EmbedQueueRepo.Drain claim. The test gates the embedder so
+// the row stays leased while we read its leased_until_ns directly from the
+// DB, then releases the embedder to let DrainQueue tear down cleanly.
+func TestDrainQueue_HonorsConfiguredTTL(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "notes/a.md", "hi")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("notes/a"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	gate := &gateStubEmbedder{
+		dim:     3,
+		model:   "stub",
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	ttl := 5 * time.Second
+
+	drainDone := make(chan struct{})
+
+	go func() {
+		defer close(drainDone)
+		_, _ = embed.DrainQueue(context.Background(), embed.DrainConfig{
+			Root:       root,
+			Nodes:      nodeRepo,
+			Queue:      queueRepo,
+			Embeddings: embeddingRepo,
+			Embedder:   gate,
+			Chunker:    embed.WholeDocument{},
+			TTL:        ttl,
+		})
+	}()
+
+	select {
+	case <-gate.started:
+	case <-time.After(2 * time.Second):
+		close(gate.release)
+		<-drainDone
+		test.Fatalf("embedder never started — DrainQueue did not claim the lease")
+	}
+
+	lowerBound := time.Now().Add(ttl - 1500*time.Millisecond).UnixNano()
+	upperBound := time.Now().Add(ttl + 1500*time.Millisecond).UnixNano()
+
+	var leasedUntilNs int64
+
+	if scanErr := store.DB().QueryRow(
+		`SELECT leased_until_ns FROM embed_queue WHERE node_id = ?`,
+		"notes/a",
+	).Scan(&leasedUntilNs); scanErr != nil {
+		close(gate.release)
+		<-drainDone
+		test.Fatalf("query leased_until_ns: %v", scanErr)
+	}
+
+	if leasedUntilNs < lowerBound || leasedUntilNs > upperBound {
+		close(gate.release)
+		<-drainDone
+		test.Errorf("leased_until_ns = %d, want in [%d, %d] (now + ~%v)", leasedUntilNs, lowerBound, upperBound, ttl)
+
+		return
+	}
+
+	close(gate.release)
+	<-drainDone
+}
+
+// TestDrainQueue_DefaultsTTLWhenUnset confirms that DrainQueue falls back to
+// the 60-second default lease window when DrainConfig.TTL is zero. This is
+// the back-compat path for existing callers that built DrainConfig without
+// the TTL field.
+func TestDrainQueue_DefaultsTTLWhenUnset(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "notes/a.md", "hi")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("notes/a"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	gate := &gateStubEmbedder{
+		dim:     3,
+		model:   "stub",
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	drainDone := make(chan struct{})
+
+	go func() {
+		defer close(drainDone)
+		_, _ = embed.DrainQueue(context.Background(), embed.DrainConfig{
+			Root:       root,
+			Nodes:      nodeRepo,
+			Queue:      queueRepo,
+			Embeddings: embeddingRepo,
+			Embedder:   gate,
+			Chunker:    embed.WholeDocument{},
+			// TTL intentionally omitted; defaults to 60s.
+		})
+	}()
+
+	select {
+	case <-gate.started:
+	case <-time.After(2 * time.Second):
+		close(gate.release)
+		<-drainDone
+		test.Fatalf("embedder never started")
+	}
+
+	defaultTTL := 60 * time.Second
+	lowerBound := time.Now().Add(defaultTTL - 2*time.Second).UnixNano()
+	upperBound := time.Now().Add(defaultTTL + 2*time.Second).UnixNano()
+
+	var leasedUntilNs int64
+
+	if scanErr := store.DB().QueryRow(
+		`SELECT leased_until_ns FROM embed_queue WHERE node_id = ?`,
+		"notes/a",
+	).Scan(&leasedUntilNs); scanErr != nil {
+		close(gate.release)
+		<-drainDone
+		test.Fatalf("query leased_until_ns: %v", scanErr)
+	}
+
+	close(gate.release)
+	<-drainDone
+
+	if leasedUntilNs < lowerBound || leasedUntilNs > upperBound {
+		test.Errorf("leased_until_ns = %d, want in [%d, %d] (now + ~60s default)", leasedUntilNs, lowerBound, upperBound)
+	}
+}

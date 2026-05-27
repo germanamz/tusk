@@ -185,6 +185,10 @@ func Validate(loaded *Manifest) error {
 		return validateErr
 	}
 
+	if validateErr := validateLease(loaded); validateErr != nil {
+		return validateErr
+	}
+
 	if validateErr := validateNodeTypes(loaded); validateErr != nil {
 		return validateErr
 	}

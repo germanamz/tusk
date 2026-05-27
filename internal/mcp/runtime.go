@@ -12,6 +12,7 @@ import (
 	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
@@ -42,6 +43,7 @@ type Runtime struct {
 	Embedder embed.Embedder
 	Chunker  embed.ChunkingStrategy
 	Workers  int
+	LeaseTTL time.Duration
 
 	// AliasIntrospector is the manifest.VerbIntrospector used to validate
 	// manifest-declared aliases at Open time. Callers that construct a
@@ -180,6 +182,8 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
 		manifest.ValidateContext(loaded, rt.aliasIntrospector)
 	}
+
+	rt.LeaseTTL = leaseconfig.Resolve(loaded.Lease.TTLSeconds)
 
 	if loaded.Embeddings.Provider == "ollama" {
 		timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
