@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -71,7 +72,15 @@ want to rename rather than remove.`,
 
 				defer store.Close()
 
-				if deleteErr := node.Delete(ws.Root, index.NewNodeRepo(store), index.NewEdgeRepo(store), args[0]); deleteErr != nil {
+				if deleteErr := node.Delete(
+					ws.Root,
+					index.NewNodeRepo(store),
+					index.NewEdgeRepo(store),
+					index.NewFileStateRepo(store),
+					index.WorkerID(),
+					leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+					args[0],
+				); deleteErr != nil {
 					return deleteErr
 				}
 

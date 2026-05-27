@@ -1,11 +1,12 @@
 package node
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -14,17 +15,37 @@ import (
 // Delete removes the file for the given node id, deletes the node row and
 // outgoing edges from the index, and leaves incoming edges as dangling
 // references (surfaced by tusk doctor in Plan 8).
-func Delete(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, nodeID string) error {
+//
+// The file removal goes through WriteWithLease so concurrent writers
+// serialize on file_state and the row transitions to state='tombstone'
+// as a soft-delete audit record.
+func Delete(
+	root string,
+	nodeRepo *index.NodeRepo,
+	edgeRepo *index.EdgeRepo,
+	fileState *index.FileStateRepo,
+	workerID string,
+	leaseTTL time.Duration,
+	nodeID string,
+) error {
 	row, getErr := nodeRepo.Get(nodeID)
 
 	if getErr != nil {
 		return getErr
 	}
 
-	absPath := filepath.Join(root, row.Path)
+	mutator := func(current []byte) (Mutation, error) {
+		if current == nil {
+			return WriteNoChange(), nil
+		}
 
-	if rmErr := os.Remove(absPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-		return fmt.Errorf("node: rm %s: %w", absPath, rmErr)
+		return WriteTombstone(), nil
+	}
+
+	if writeErr := WriteWithLease(
+		context.Background(), root, fileState, workerID, leaseTTL, row.Path, mutator,
+	); writeErr != nil {
+		return writeErr
 	}
 
 	if deleteEdgesErr := edgeRepo.DeleteBySource(nodeID); deleteEdgesErr != nil {
