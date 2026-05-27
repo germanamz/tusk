@@ -31,8 +31,9 @@ Use --prop key=value (repeatable) to set values and --unset key
 (repeatable) to remove them. Values are typed the same way as in
 "node create": int, then bool, then string.
 
-The operation runs under the workspace lock so concurrent watcher reindex
-cannot interleave.`,
+The operation coordinates with concurrent watchers and other tusk
+processes via a per-file lease, so safe interleaving is preserved
+without holding a workspace-wide lock.`,
 		Example: `  # Change a ticket's status and priority
   tusk node modify tickets/T-001 --prop status=in-progress --prop priority=2
 
@@ -71,61 +72,59 @@ cannot interleave.`,
 				return buildErr
 			}
 
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				nodes := index.NewNodeRepo(store)
-
-				service := node.NewServiceWithBehaviors(
-					ws.Root,
-					nodes,
-					index.NewEdgeRepo(store),
-					loaded.EdgeTypes,
-					index.NewEmbedQueueRepo(store),
-					loaded.NodeTypes,
-					index.NewPropertyDriftRepo(store),
-					engine,
-					index.NewWorkflowDriftRepo(store),
-					cmd.ErrOrStderr(),
-					node.NewIndexRefLookup(nodes),
-					index.NewFileStateRepo(store),
-					index.WorkerID(),
-					leaseconfig.Resolve(loaded.Lease.TTLSeconds),
-				)
-
-				modified, modifyErr := service.Modify(node.ModifyInput{
-					ID:        args[0],
-					SetProps:  setProps,
-					UnsetKeys: unsetFlags,
-				})
-
-				if modifyErr != nil {
-					return modifyErr
-				}
-
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Modified %s\n", modified.ID)
-
-				return nil
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			nodes := index.NewNodeRepo(store)
+
+			service := node.NewServiceWithBehaviors(
+				ws.Root,
+				nodes,
+				index.NewEdgeRepo(store),
+				loaded.EdgeTypes,
+				index.NewEmbedQueueRepo(store),
+				loaded.NodeTypes,
+				index.NewPropertyDriftRepo(store),
+				engine,
+				index.NewWorkflowDriftRepo(store),
+				cmd.ErrOrStderr(),
+				node.NewIndexRefLookup(nodes),
+				index.NewFileStateRepo(store),
+				index.WorkerID(),
+				leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+			)
+
+			modified, modifyErr := service.Modify(node.ModifyInput{
+				ID:        args[0],
+				SetProps:  setProps,
+				UnsetKeys: unsetFlags,
+			})
+
+			if modifyErr != nil {
+				return modifyErr
+			}
+
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Modified %s\n", modified.ID)
+
+			return nil
 		},
 	}
 

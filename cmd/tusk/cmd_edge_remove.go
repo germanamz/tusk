@@ -68,74 +68,72 @@ any remaining sentinel rows on its next run.`,
 				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
 			}
 
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
+			})
 
-				if openErr != nil {
-					return openErr
-				}
+			if openErr != nil {
+				return openErr
+			}
 
-				defer store.Close()
+			defer store.Close()
 
-				if writeErr := node.RemoveEdgeFromFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
-					return writeErr
-				}
+			if writeErr := node.RemoveEdgeFromFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
+				return writeErr
+			}
 
-				edgeRepo := index.NewEdgeRepo(store)
+			edgeRepo := index.NewEdgeRepo(store)
 
-				if reindexErr := node.ReindexSource(ws.Root, edgeRepo, loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
-					return reindexErr
-				}
+			if reindexErr := node.ReindexSource(ws.Root, edgeRepo, loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
+				return reindexErr
+			}
 
-				// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
-				legacy, listErr := edgeRepo.ListBySource(source)
+			// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
+			legacy, listErr := edgeRepo.ListBySource(source)
 
-				if listErr != nil {
-					return fmt.Errorf("edge remove: list legacy rows: %w", listErr)
-				}
+			if listErr != nil {
+				return fmt.Errorf("edge remove: list legacy rows: %w", listErr)
+			}
 
-				var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
+			var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
 
-				for _, row := range legacy {
-					matchesTriple := row.Type == edgeType && row.TargetID == target
+			for _, row := range legacy {
+				matchesTriple := row.Type == edgeType && row.TargetID == target
 
-					switch row.SourcePath {
-					case index.CLISourcePath:
-						if !matchesTriple {
-							keptLegacyCLI = append(keptLegacyCLI, row)
-						}
-					case index.MCPSourcePath:
-						if !matchesTriple {
-							keptLegacyMCP = append(keptLegacyMCP, row)
-						}
+				switch row.SourcePath {
+				case index.CLISourcePath:
+					if !matchesTriple {
+						keptLegacyCLI = append(keptLegacyCLI, row)
+					}
+				case index.MCPSourcePath:
+					if !matchesTriple {
+						keptLegacyMCP = append(keptLegacyMCP, row)
 					}
 				}
+			}
 
-				if upsertErr := edgeRepo.UpsertAll(source, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
-					return upsertErr
-				}
+			if upsertErr := edgeRepo.UpsertAll(source, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
+				return upsertErr
+			}
 
-				if upsertErr := edgeRepo.UpsertAll(source, index.MCPSourcePath, keptLegacyMCP); upsertErr != nil {
-					return upsertErr
-				}
+			if upsertErr := edgeRepo.UpsertAll(source, index.MCPSourcePath, keptLegacyMCP); upsertErr != nil {
+				return upsertErr
+			}
 
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed edge %s: %s → %s\n", edgeType, source, target)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed edge %s: %s → %s\n", edgeType, source, target)
 
-				return nil
-			})
+			return nil
 		},
 	}
 

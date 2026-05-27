@@ -50,45 +50,108 @@ in another shell to observe progress.`,
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
-			return withWorkspaceLock(ws, func() error {
-				verbose, _ := cmd.Flags().GetBool("verbose")
-				logger := newLogger(cmd.ErrOrStderr(), verbose)
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			logger := newLogger(cmd.ErrOrStderr(), verbose)
 
-				loaded, loadErr := manifest.Load(ws.ManifestPath)
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
 
-				if loadErr != nil {
-					return loadErr
+			if loadErr != nil {
+				return loadErr
+			}
+
+			manifest.MergeBuiltinPacks(loaded)
+
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
+			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			nodeRepo := index.NewNodeRepo(store)
+			edgeRepo := index.NewEdgeRepo(store)
+
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
+
+			if _, runErr := reindex.Run(reindex.Config{
+				Root:            ws.Root,
+				Repo:            nodeRepo,
+				Edges:           edgeRepo,
+				EdgeTypes:       loaded.EdgeTypes,
+				WorkspaceIgnore: loaded.Workspace.Ignore,
+				Logger:          logger,
+				Manifest:        loaded,
+			}); runErr != nil {
+				return runErr
+			}
+
+			logger.Info("watch started", "root", ws.Root)
+
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Watching for changes (Ctrl-C to stop)…")
+
+			watcherInstance, newErr := watcher.New(ws.Root)
+
+			if newErr != nil {
+				return newErr
+			}
+
+			defer watcherInstance.Close()
+
+			parent := cmd.Context()
+
+			if parent == nil {
+				parent = context.Background()
+			}
+
+			ctx, cancel := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
+			handler := func(event watcher.WatchEvent) error {
+				if event.Path == "" || event.Path == "." {
+					return nil
 				}
 
-				manifest.MergeBuiltinPacks(loaded)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s\n", kindLabel(event.Kind), event.Path)
 
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
+				logger.Debug("watch fs event", "kind", kindLabel(event.Kind), "path", event.Path)
 
-				if openErr != nil {
-					return openErr
+				if event.Kind == watcher.EventDelete {
+					if delErr := nodeRepo.DeleteByPath(event.Path); delErr != nil {
+						return delErr
+					}
+
+					return nil
 				}
 
-				defer store.Close()
+				absPath := filepath.Join(ws.Root, event.Path)
 
-				nodeRepo := index.NewNodeRepo(store)
-				edgeRepo := index.NewEdgeRepo(store)
+				stat, statErr := os.Stat(absPath)
 
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
+				if statErr != nil {
+					return nil // file already gone or unreadable
+				}
 
-				if _, runErr := reindex.Run(reindex.Config{
+				if stat.IsDir() {
+					return nil
+				}
+
+				// Plan 3 ships full-tree reindex on each event for simplicity.
+				// Plan 8 polish: replace with single-file partial reindex.
+				_, runErr := reindex.Run(reindex.Config{
 					Root:            ws.Root,
 					Repo:            nodeRepo,
 					Edges:           edgeRepo,
@@ -96,83 +159,18 @@ in another shell to observe progress.`,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
 					Logger:          logger,
 					Manifest:        loaded,
-				}); runErr != nil {
+				})
+
+				if runErr != nil {
+					logger.Warn("watch handler reindex failed", "path", event.Path, "err", runErr.Error())
+
 					return runErr
 				}
 
-				logger.Info("watch started", "root", ws.Root)
+				return nil
+			}
 
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Watching for changes (Ctrl-C to stop)…")
-
-				watcherInstance, newErr := watcher.New(ws.Root)
-
-				if newErr != nil {
-					return newErr
-				}
-
-				defer watcherInstance.Close()
-
-				parent := cmd.Context()
-
-				if parent == nil {
-					parent = context.Background()
-				}
-
-				ctx, cancel := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
-				defer cancel()
-
-				handler := func(event watcher.WatchEvent) error {
-					if event.Path == "" || event.Path == "." {
-						return nil
-					}
-
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s\n", kindLabel(event.Kind), event.Path)
-
-					logger.Debug("watch fs event", "kind", kindLabel(event.Kind), "path", event.Path)
-
-					if event.Kind == watcher.EventDelete {
-						if delErr := nodeRepo.DeleteByPath(event.Path); delErr != nil {
-							return delErr
-						}
-
-						return nil
-					}
-
-					absPath := filepath.Join(ws.Root, event.Path)
-
-					stat, statErr := os.Stat(absPath)
-
-					if statErr != nil {
-						return nil // file already gone or unreadable
-					}
-
-					if stat.IsDir() {
-						return nil
-					}
-
-					// Plan 3 ships full-tree reindex on each event for simplicity.
-					// Plan 8 polish: replace with single-file partial reindex.
-					_, runErr := reindex.Run(reindex.Config{
-						Root:            ws.Root,
-						Repo:            nodeRepo,
-						Edges:           edgeRepo,
-						EdgeTypes:       loaded.EdgeTypes,
-						WorkspaceIgnore: loaded.Workspace.Ignore,
-						Logger:          logger,
-						Manifest:        loaded,
-					})
-
-					if runErr != nil {
-						logger.Warn("watch handler reindex failed", "path", event.Path, "err", runErr.Error())
-
-						return runErr
-					}
-
-					return nil
-				}
-
-				return watcherInstance.Run(ctx, handler)
-			})
+			return watcherInstance.Run(ctx, handler)
 		},
 	}
 

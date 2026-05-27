@@ -166,6 +166,10 @@ for a diagnostic-only run.`,
 
 			out := cmd.OutOrStdout()
 
+			// Doctor's migration arm rewrites source markdown across the
+			// workspace; keep the workspace flock. Per-file leases cover
+			// row writes for runtime mutations but not the workspace-wide
+			// schema migration this command performs.
 			return withWorkspaceLock(ws, func() error {
 				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
 					IndexPath: ws.IndexPath,

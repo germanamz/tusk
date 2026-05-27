@@ -81,73 +81,71 @@ same graph state.`,
 				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
 			}
 
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				nodeRepo := index.NewNodeRepo(store)
-
-				sourceRow, sourceErr := nodeRepo.Get(source)
-
-				if sourceErr != nil {
-					return fmt.Errorf("source: %w", sourceErr)
-				}
-
-				if !edgeDef.AllowsSource(sourceRow.Type) {
-					return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
-				}
-
-				if targetRow, getErr := nodeRepo.Get(target); getErr == nil {
-					if !edgeDef.AllowsTarget(targetRow.Type) {
-						return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
 					}
-				}
-
-				if edgeDef.Acyclic {
-					edgeRepo := index.NewEdgeRepo(store)
-					existing, listErr := edgeRepo.ListByType(edgeType)
-
-					if listErr != nil {
-						return listErr
-					}
-
-					adjacency := buildAdjacency(existing)
-
-					if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: source, Target: target}, adjacency); cycleErr != nil {
-						return cycleErr
-					}
-				}
-
-				if writeErr := node.AddEdgeToFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
-					return writeErr
-				}
-
-				if reindexErr := node.ReindexSource(ws.Root, index.NewEdgeRepo(store), loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
-					return reindexErr
-				}
-
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added edge %s: %s → %s\n", edgeType, source, target)
-
-				return nil
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			nodeRepo := index.NewNodeRepo(store)
+
+			sourceRow, sourceErr := nodeRepo.Get(source)
+
+			if sourceErr != nil {
+				return fmt.Errorf("source: %w", sourceErr)
+			}
+
+			if !edgeDef.AllowsSource(sourceRow.Type) {
+				return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
+			}
+
+			if targetRow, getErr := nodeRepo.Get(target); getErr == nil {
+				if !edgeDef.AllowsTarget(targetRow.Type) {
+					return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
+				}
+			}
+
+			if edgeDef.Acyclic {
+				edgeRepo := index.NewEdgeRepo(store)
+				existing, listErr := edgeRepo.ListByType(edgeType)
+
+				if listErr != nil {
+					return listErr
+				}
+
+				adjacency := buildAdjacency(existing)
+
+				if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: source, Target: target}, adjacency); cycleErr != nil {
+					return cycleErr
+				}
+			}
+
+			if writeErr := node.AddEdgeToFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
+				return writeErr
+			}
+
+			if reindexErr := node.ReindexSource(ws.Root, index.NewEdgeRepo(store), loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
+				return reindexErr
+			}
+
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added edge %s: %s → %s\n", edgeType, source, target)
+
+			return nil
 		},
 	}
 
