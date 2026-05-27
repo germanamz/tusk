@@ -8,8 +8,10 @@ package index
 // (DDL, indexes, CHECK constraints) changes in a way that the in-place
 // migration code cannot bridge.
 //
-// 2026-05-27-file-state: adds file_state for per-file coordination.
-const SchemaVersion = "2026-05-27-file-state"
+// 2026-05-27-embed-queue-leases: adds leased_by, leased_until_ns,
+// lease_started_at_ns, and kind columns to embed_queue (plus a
+// (kind, leased_until_ns) index) in preparation for lease-based draining.
+const SchemaVersion = "2026-05-27-embed-queue-leases"
 
 // MetaSchemaVersionKey is the key under which SchemaVersion is stored
 // in the meta table. The value lives next to other workspace-scoped

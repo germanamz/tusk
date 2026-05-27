@@ -8,10 +8,14 @@ import (
 
 // QueueRow represents a row in embed_queue.
 type QueueRow struct {
-	NodeID     string
-	EnqueuedAt int64
-	Attempts   int
-	LastError  string
+	NodeID           string
+	EnqueuedAt       int64
+	Attempts         int
+	LastError        string
+	LeasedBy         *string
+	LeasedUntilNs    *int64
+	LeaseStartedAtNs *int64
+	Kind             string
 }
 
 // EmbedQueueRepo persists pending embed jobs.
@@ -25,6 +29,8 @@ func NewEmbedQueueRepo(idx *Index) *EmbedQueueRepo {
 }
 
 // Enqueue inserts a row for nodeID. Idempotent — if the row exists, no-op.
+// The kind column defaults to 'embed'; Phase 6 adds a separate
+// EnqueueReindex helper that sets kind = 'reindex' explicitly.
 func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
 	_, execErr := repo.db.Exec(`
 		INSERT INTO embed_queue (node_id, enqueued_at, attempts)
@@ -44,7 +50,8 @@ func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
 // most-recent attempt (anti-starvation). If a row already exists for nodeID
 // (rare — Drain deletes before the embed loop runs — but possible if a caller
 // re-enqueues out of band), its attempts, last_error, and enqueued_at are
-// overwritten.
+// overwritten. The kind column defaults to 'embed' and is not touched here;
+// reindex jobs use the dedicated Phase 6 helper.
 func (repo *EmbedQueueRepo) ReEnqueue(nodeID string, attempts int, lastError string) error {
 	_, execErr := repo.db.Exec(`
 		INSERT INTO embed_queue (node_id, enqueued_at, attempts, last_error)
@@ -72,7 +79,8 @@ func (repo *EmbedQueueRepo) Drain(limit int) ([]QueueRow, error) {
 	}
 
 	rows, queryErr := tx.Query(`
-		SELECT node_id, enqueued_at, attempts, COALESCE(last_error, '')
+		SELECT node_id, enqueued_at, attempts, COALESCE(last_error, ''),
+		       leased_by, leased_until_ns, lease_started_at_ns, kind
 		FROM embed_queue
 		ORDER BY enqueued_at ASC
 		LIMIT ?
@@ -88,7 +96,10 @@ func (repo *EmbedQueueRepo) Drain(limit int) ([]QueueRow, error) {
 	for rows.Next() {
 		var row QueueRow
 
-		if scanErr := rows.Scan(&row.NodeID, &row.EnqueuedAt, &row.Attempts, &row.LastError); scanErr != nil {
+		if scanErr := rows.Scan(
+			&row.NodeID, &row.EnqueuedAt, &row.Attempts, &row.LastError,
+			&row.LeasedBy, &row.LeasedUntilNs, &row.LeaseStartedAtNs, &row.Kind,
+		); scanErr != nil {
 			rows.Close()
 			_ = tx.Rollback()
 			return nil, fmt.Errorf("embedQueueRepo: drain scan: %w", scanErr)
