@@ -101,63 +101,61 @@ reindex pass will materialize the edge from the markdown frontmatter.`,
 				return setErr
 			}
 
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				nodes := index.NewNodeRepo(store)
-
-				service := node.NewServiceWithBehaviors(
-					ws.Root,
-					nodes,
-					index.NewEdgeRepo(store),
-					loaded.EdgeTypes,
-					index.NewEmbedQueueRepo(store),
-					loaded.NodeTypes,
-					index.NewPropertyDriftRepo(store),
-					engine,
-					index.NewWorkflowDriftRepo(store),
-					cmd.ErrOrStderr(),
-					node.NewIndexRefLookup(nodes),
-					index.NewFileStateRepo(store),
-					index.WorkerID(),
-					leaseconfig.Resolve(loaded.Lease.TTLSeconds),
-				)
-
-				created, createErr := service.Create(node.CreateInput{
-					RelPath:    relPath,
-					Type:       nodeType,
-					Title:      title,
-					Properties: setProps,
-					Body:       body,
-				})
-
-				if createErr != nil {
-					return createErr
-				}
-
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Created %s (id=%s)\n", created.Path, created.ID)
-
-				return nil
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			nodes := index.NewNodeRepo(store)
+
+			service := node.NewServiceWithBehaviors(
+				ws.Root,
+				nodes,
+				index.NewEdgeRepo(store),
+				loaded.EdgeTypes,
+				index.NewEmbedQueueRepo(store),
+				loaded.NodeTypes,
+				index.NewPropertyDriftRepo(store),
+				engine,
+				index.NewWorkflowDriftRepo(store),
+				cmd.ErrOrStderr(),
+				node.NewIndexRefLookup(nodes),
+				index.NewFileStateRepo(store),
+				index.WorkerID(),
+				leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+			)
+
+			created, createErr := service.Create(node.CreateInput{
+				RelPath:    relPath,
+				Type:       nodeType,
+				Title:      title,
+				Properties: setProps,
+				Body:       body,
+			})
+
+			if createErr != nil {
+				return createErr
+			}
+
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Created %s (id=%s)\n", created.Path, created.ID)
+
+			return nil
 		},
 	}
 

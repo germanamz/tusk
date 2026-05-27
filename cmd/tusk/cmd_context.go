@@ -90,65 +90,63 @@ the output format (default: compact at TTY, JSON when piped).`,
 				return formatErr
 			}
 
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				aliasDeps := aliasdispatch.Deps{
-					Database:      store.DB(),
-					Manifest:      loaded,
-					WorkspaceRoot: ws.Root,
-					NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
-					Nodes:         index.NewNodeRepo(store),
-					Edges:         index.NewEdgeRepo(store),
-					EmbedQueue:    index.NewEmbedQueueRepo(store),
-					WorkflowDrift: index.NewWorkflowDriftRepo(store),
-					PropertyDrift: index.NewPropertyDriftRepo(store),
-					Embeddings:    index.NewEmbeddingRepo(store),
-					Meta:          index.NewMetaRepo(store),
-					Embedder:      buildContextEmbedder(loaded),
-					// CLI keeps the historical no-cap behavior for semantic
-					// pages; MCP applies 10.
-					SemanticDefaultTake: 0,
-				}
-
-				dispatcher := aliasdispatch.NewDispatcher(aliasDeps)
-
-				composeDeps := contextcompose.Deps{
-					Manifest:      loaded,
-					Dispatcher:    dispatcher,
-					WorkspaceRoot: ws.Root,
-					Database:      store.DB(),
-				}
-
-				result, composeErr := contextcompose.Compose(cmd.Context(), composeDeps, contextcompose.Request{
-					Include: includeFlag,
-				})
-
-				if composeErr != nil {
-					return composeErr
-				}
-
-				return renderContextResult(cmd.OutOrStdout(), result, format)
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			aliasDeps := aliasdispatch.Deps{
+				Database:      store.DB(),
+				Manifest:      loaded,
+				WorkspaceRoot: ws.Root,
+				NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
+				Nodes:         index.NewNodeRepo(store),
+				Edges:         index.NewEdgeRepo(store),
+				EmbedQueue:    index.NewEmbedQueueRepo(store),
+				WorkflowDrift: index.NewWorkflowDriftRepo(store),
+				PropertyDrift: index.NewPropertyDriftRepo(store),
+				Embeddings:    index.NewEmbeddingRepo(store),
+				Meta:          index.NewMetaRepo(store),
+				Embedder:      buildContextEmbedder(loaded),
+				// CLI keeps the historical no-cap behavior for semantic
+				// pages; MCP applies 10.
+				SemanticDefaultTake: 0,
+			}
+
+			dispatcher := aliasdispatch.NewDispatcher(aliasDeps)
+
+			composeDeps := contextcompose.Deps{
+				Manifest:      loaded,
+				Dispatcher:    dispatcher,
+				WorkspaceRoot: ws.Root,
+				Database:      store.DB(),
+			}
+
+			result, composeErr := contextcompose.Compose(cmd.Context(), composeDeps, contextcompose.Request{
+				Include: includeFlag,
+			})
+
+			if composeErr != nil {
+				return composeErr
+			}
+
+			return renderContextResult(cmd.OutOrStdout(), result, format)
 		},
 	}
 

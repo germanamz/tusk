@@ -1,6 +1,8 @@
 // Package lock provides an advisory cross-process workspace write lock backed
-// by a flock at .tusk/lock. CLI subcommands that mutate state acquire the
-// lock before touching files or the index.
+// by a flock at .tusk/lock. The lock is reserved for schema migrations and
+// other workspace-wide reorganizations; runtime mutations coordinate via the
+// per-file lease in internal/index (file_state) and the per-job lease on
+// embed_queue.
 package lock
 
 import (

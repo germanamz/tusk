@@ -18,8 +18,9 @@ Use --prop key=value (repeatable) to set values and --unset key
 "node create": int, then bool, then string.
 
 .PP
-The operation runs under the workspace lock so concurrent watcher reindex
-cannot interleave.
+The operation coordinates with concurrent watchers and other tusk
+processes via a per-file lease, so safe interleaving is preserved
+without holding a workspace-wide lock.
 
 
 .SH OPTIONS

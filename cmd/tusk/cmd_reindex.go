@@ -47,138 +47,136 @@ after changing node/edge declarations in tusk.toml.`,
 				return fmt.Errorf("workspace: %w", findErr)
 			}
 
-			return withWorkspaceLock(ws, func() error {
-				verbose, _ := cmd.Flags().GetBool("verbose")
-				logger := newLogger(cmd.ErrOrStderr(), verbose)
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			logger := newLogger(cmd.ErrOrStderr(), verbose)
 
-				loaded, loadErr := manifest.Load(ws.ManifestPath)
+			loaded, loadErr := manifest.Load(ws.ManifestPath)
 
-				if loadErr != nil {
-					return fmt.Errorf("manifest: %w", loadErr)
-				}
+			if loadErr != nil {
+				return fmt.Errorf("manifest: %w", loadErr)
+			}
 
-				manifest.MergeBuiltinPacks(loaded)
+			manifest.MergeBuiltinPacks(loaded)
 
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				engine, buildErr := newBehaviorEngine(loaded)
-
-				if buildErr != nil {
-					return buildErr
-				}
-
-				edgeRepo := index.NewEdgeRepo(store)
-				driftRepo := index.NewWorkflowDriftRepo(store)
-
-				var embedder embed.Embedder
-				var chunker embed.ChunkingStrategy
-				var embedQueue *index.EmbedQueueRepo
-				var embeddingRepo *index.EmbeddingRepo
-
-				if loaded.Embeddings.Provider == "ollama" {
-					timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
-
-					embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
-						Endpoint: loaded.Embeddings.Endpoint,
-						Model:    loaded.Embeddings.Model,
-						Dim:      loaded.Embeddings.Dim,
-						Logger:   logger,
-						Timeout:  timeout,
-					})
-					chunker = embed.MarkdownRecursive{}
-					embedQueue = index.NewEmbedQueueRepo(store)
-					embeddingRepo = index.NewEmbeddingRepo(store)
-				}
-
-				report, runErr := reindex.Run(reindex.Config{
-					Root:            ws.Root,
-					Repo:            index.NewNodeRepo(store),
-					Edges:           edgeRepo,
-					EdgeTypes:       loaded.EdgeTypes,
-					WorkspaceIgnore: loaded.Workspace.Ignore,
-					EmbedQueue:      embedQueue,
-					EmbeddingRepo:   embeddingRepo,
-					Embedder:        embedder,
-					Chunker:         chunker,
-					Meta:            index.NewMetaRepo(store),
-					Behaviors:       engine,
-					DriftLog:        driftRepo,
-					NodeTypes:       loaded.NodeTypes,
-					PropertyDrift:   index.NewPropertyDriftRepo(store),
-					Logger:          logger,
-					Workers:         embed.ResolveWorkers(loaded.Embeddings.Workers),
-					Manifest:        loaded,
-				})
-
-				if runErr != nil {
-					return runErr
-				}
-
-				out := cmd.OutOrStdout()
-
-				var violationParts []string
-
-				if report.WorkflowViolations > 0 {
-					violationParts = append(violationParts,
-						fmt.Sprintf("%d workflow-violation%s", report.WorkflowViolations, plural(report.WorkflowViolations)))
-				}
-
-				if report.PropertyViolations > 0 {
-					violationParts = append(violationParts,
-						fmt.Sprintf("%d property-violation%s", report.PropertyViolations, plural(report.PropertyViolations)))
-				}
-
-				if report.RefDangling > 0 {
-					violationParts = append(violationParts,
-						fmt.Sprintf("%d ref-dangling", report.RefDangling))
-				}
-
-				if report.RefAmbiguous > 0 {
-					violationParts = append(violationParts,
-						fmt.Sprintf("%d ref-ambiguous", report.RefAmbiguous))
-				}
-
-				if report.RefTypeMismatch > 0 {
-					violationParts = append(violationParts,
-						fmt.Sprintf("%d ref-type-mismatch", report.RefTypeMismatch))
-				}
-
-				if report.RefCycle > 0 {
-					violationParts = append(violationParts,
-						fmt.Sprintf("%d ref-cycle", report.RefCycle))
-				}
-
-				if len(violationParts) > 0 {
-					_, _ = fmt.Fprintf(out,
-						"Reindex done: %d indexed, %d removed, %d skipped (%s)\nRun `tusk doctor` to inspect violations\n",
-						report.Indexed, report.Removed, report.Skipped,
-						strings.Join(violationParts, ", "))
-				} else {
-					_, _ = fmt.Fprintf(out, "Reindex done: %d indexed, %d removed, %d skipped\n",
-						report.Indexed, report.Removed, report.Skipped)
-				}
-
-				return nil
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			engine, buildErr := newBehaviorEngine(loaded)
+
+			if buildErr != nil {
+				return buildErr
+			}
+
+			edgeRepo := index.NewEdgeRepo(store)
+			driftRepo := index.NewWorkflowDriftRepo(store)
+
+			var embedder embed.Embedder
+			var chunker embed.ChunkingStrategy
+			var embedQueue *index.EmbedQueueRepo
+			var embeddingRepo *index.EmbeddingRepo
+
+			if loaded.Embeddings.Provider == "ollama" {
+				timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
+
+				embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
+					Endpoint: loaded.Embeddings.Endpoint,
+					Model:    loaded.Embeddings.Model,
+					Dim:      loaded.Embeddings.Dim,
+					Logger:   logger,
+					Timeout:  timeout,
+				})
+				chunker = embed.MarkdownRecursive{}
+				embedQueue = index.NewEmbedQueueRepo(store)
+				embeddingRepo = index.NewEmbeddingRepo(store)
+			}
+
+			report, runErr := reindex.Run(reindex.Config{
+				Root:            ws.Root,
+				Repo:            index.NewNodeRepo(store),
+				Edges:           edgeRepo,
+				EdgeTypes:       loaded.EdgeTypes,
+				WorkspaceIgnore: loaded.Workspace.Ignore,
+				EmbedQueue:      embedQueue,
+				EmbeddingRepo:   embeddingRepo,
+				Embedder:        embedder,
+				Chunker:         chunker,
+				Meta:            index.NewMetaRepo(store),
+				Behaviors:       engine,
+				DriftLog:        driftRepo,
+				NodeTypes:       loaded.NodeTypes,
+				PropertyDrift:   index.NewPropertyDriftRepo(store),
+				Logger:          logger,
+				Workers:         embed.ResolveWorkers(loaded.Embeddings.Workers),
+				Manifest:        loaded,
+			})
+
+			if runErr != nil {
+				return runErr
+			}
+
+			out := cmd.OutOrStdout()
+
+			var violationParts []string
+
+			if report.WorkflowViolations > 0 {
+				violationParts = append(violationParts,
+					fmt.Sprintf("%d workflow-violation%s", report.WorkflowViolations, plural(report.WorkflowViolations)))
+			}
+
+			if report.PropertyViolations > 0 {
+				violationParts = append(violationParts,
+					fmt.Sprintf("%d property-violation%s", report.PropertyViolations, plural(report.PropertyViolations)))
+			}
+
+			if report.RefDangling > 0 {
+				violationParts = append(violationParts,
+					fmt.Sprintf("%d ref-dangling", report.RefDangling))
+			}
+
+			if report.RefAmbiguous > 0 {
+				violationParts = append(violationParts,
+					fmt.Sprintf("%d ref-ambiguous", report.RefAmbiguous))
+			}
+
+			if report.RefTypeMismatch > 0 {
+				violationParts = append(violationParts,
+					fmt.Sprintf("%d ref-type-mismatch", report.RefTypeMismatch))
+			}
+
+			if report.RefCycle > 0 {
+				violationParts = append(violationParts,
+					fmt.Sprintf("%d ref-cycle", report.RefCycle))
+			}
+
+			if len(violationParts) > 0 {
+				_, _ = fmt.Fprintf(out,
+					"Reindex done: %d indexed, %d removed, %d skipped (%s)\nRun `tusk doctor` to inspect violations\n",
+					report.Indexed, report.Removed, report.Skipped,
+					strings.Join(violationParts, ", "))
+			} else {
+				_, _ = fmt.Fprintf(out, "Reindex done: %d indexed, %d removed, %d skipped\n",
+					report.Indexed, report.Removed, report.Skipped)
+			}
+
+			return nil
 		},
 	}
 

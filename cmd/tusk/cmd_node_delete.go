@@ -50,44 +50,42 @@ want to rename rather than remove.`,
 
 			manifest.MergeBuiltinPacks(loaded)
 
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				if deleteErr := node.Delete(
-					ws.Root,
-					index.NewNodeRepo(store),
-					index.NewEdgeRepo(store),
-					index.NewFileStateRepo(store),
-					index.WorkerID(),
-					leaseconfig.Resolve(loaded.Lease.TTLSeconds),
-					args[0],
-				); deleteErr != nil {
-					return deleteErr
-				}
-
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", args[0])
-
-				return nil
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			if deleteErr := node.Delete(
+				ws.Root,
+				index.NewNodeRepo(store),
+				index.NewEdgeRepo(store),
+				index.NewFileStateRepo(store),
+				index.WorkerID(),
+				leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+				args[0],
+			); deleteErr != nil {
+				return deleteErr
+			}
+
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", args[0])
+
+			return nil
 		},
 	}
 

@@ -106,61 +106,53 @@ JSON when piped).`,
 				return formatErr
 			}
 
-			// Hold the workspace lock for the dispatch: a `doctor` alias
-			// with the default (no-migrate=false) mutates source files
-			// via doctor.Migrate. Other read-only aliases don't strictly
-			// need the lock, but the wrapper is cheap and keeps the
-			// dispatch path uniform — matches cmd/tusk/cmd_doctor.go's
-			// behavior.
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
-
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				deps := aliasdispatch.Deps{
-					Database:      store.DB(),
-					Manifest:      loaded,
-					WorkspaceRoot: ws.Root,
-					NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
-					Nodes:         index.NewNodeRepo(store),
-					Edges:         index.NewEdgeRepo(store),
-					EmbedQueue:    index.NewEmbedQueueRepo(store),
-					WorkflowDrift: index.NewWorkflowDriftRepo(store),
-					PropertyDrift: index.NewPropertyDriftRepo(store),
-					Embeddings:    index.NewEmbeddingRepo(store),
-					Meta:          index.NewMetaRepo(store),
-					Embedder:      buildAliasEmbedder(loaded),
-					// CLI keeps the historical "no semantic page cap unless
-					// the caller asks" behavior; MCP applies a default of 10.
-					SemanticDefaultTake: 0,
-				}
-
-				dispatcher := aliasdispatch.NewDispatcher(deps)
-				result, dispatchErr := dispatcher.Run(context.Background(), alias)
-
-				if dispatchErr != nil {
-					return dispatchErr
-				}
-
-				return renderAliasResult(cmd.OutOrStdout(), result, format)
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			deps := aliasdispatch.Deps{
+				Database:      store.DB(),
+				Manifest:      loaded,
+				WorkspaceRoot: ws.Root,
+				NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
+				Nodes:         index.NewNodeRepo(store),
+				Edges:         index.NewEdgeRepo(store),
+				EmbedQueue:    index.NewEmbedQueueRepo(store),
+				WorkflowDrift: index.NewWorkflowDriftRepo(store),
+				PropertyDrift: index.NewPropertyDriftRepo(store),
+				Embeddings:    index.NewEmbeddingRepo(store),
+				Meta:          index.NewMetaRepo(store),
+				Embedder:      buildAliasEmbedder(loaded),
+				// CLI keeps the historical "no semantic page cap unless
+				// the caller asks" behavior; MCP applies a default of 10.
+				SemanticDefaultTake: 0,
+			}
+
+			dispatcher := aliasdispatch.NewDispatcher(deps)
+			result, dispatchErr := dispatcher.Run(context.Background(), alias)
+
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
+			return renderAliasResult(cmd.OutOrStdout(), result, format)
 		},
 	}
 

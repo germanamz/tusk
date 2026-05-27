@@ -14,8 +14,9 @@ Use --prop key=value (repeatable) to set values and --unset key
 (repeatable) to remove them. Values are typed the same way as in
 "node create": int, then bool, then string.
 
-The operation runs under the workspace lock so concurrent watcher reindex
-cannot interleave.
+The operation coordinates with concurrent watchers and other tusk
+processes via a per-file lease, so safe interleaving is preserved
+without holding a workspace-wide lock.
 
 ```
 tusk node modify <id> [flags]

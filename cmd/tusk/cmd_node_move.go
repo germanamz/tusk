@@ -54,49 +54,48 @@ state.`,
 			}
 
 			manifest.MergeBuiltinPacks(loaded)
-			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:      ws.Root,
-							Repo:      index.NewNodeRepo(idx),
-							Edges:     index.NewEdgeRepo(idx),
-							EdgeTypes: loaded.EdgeTypes,
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
 
-				if openErr != nil {
-					return openErr
-				}
-
-				defer store.Close()
-
-				plan, renameErr := node.Rename(
-					ws.Root,
-					index.NewNodeRepo(store),
-					index.NewEdgeRepo(store),
-					index.NewFileStateRepo(store),
-					index.WorkerID(),
-					leaseconfig.Resolve(loaded.Lease.TTLSeconds),
-					loaded.EdgeTypes,
-					loaded.NodeTypes,
-					args[0],
-					args[1],
-				)
-
-				if renameErr != nil {
-					return renameErr
-				}
-
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Renamed %s → %s (rewrote %d referring file(s))\n", plan.OldID, plan.NewID, len(plan.AffectedFiles))
-
-				return nil
+			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+				IndexPath: ws.IndexPath,
+				ReindexFactory: func(idx *index.Index) reindex.Config {
+					return reindex.Config{
+						Root:      ws.Root,
+						Repo:      index.NewNodeRepo(idx),
+						Edges:     index.NewEdgeRepo(idx),
+						EdgeTypes: loaded.EdgeTypes,
+					}
+				},
+				Logger: func(msg string) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				},
 			})
+
+			if openErr != nil {
+				return openErr
+			}
+
+			defer store.Close()
+
+			plan, renameErr := node.Rename(
+				ws.Root,
+				index.NewNodeRepo(store),
+				index.NewEdgeRepo(store),
+				index.NewFileStateRepo(store),
+				index.WorkerID(),
+				leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+				loaded.EdgeTypes,
+				loaded.NodeTypes,
+				args[0],
+				args[1],
+			)
+
+			if renameErr != nil {
+				return renameErr
+			}
+
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Renamed %s → %s (rewrote %d referring file(s))\n", plan.OldID, plan.NewID, len(plan.AffectedFiles))
+
+			return nil
 		},
 	}
 
