@@ -83,11 +83,18 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE INDEX IF NOT EXISTS embeddings_node_idx ON embeddings(node_id);
 
 CREATE TABLE IF NOT EXISTS embed_queue (
-	node_id     TEXT PRIMARY KEY,
-	enqueued_at INTEGER NOT NULL,
-	attempts    INTEGER NOT NULL DEFAULT 0,
-	last_error  TEXT
+	node_id              TEXT PRIMARY KEY,
+	enqueued_at          INTEGER NOT NULL,
+	attempts             INTEGER NOT NULL DEFAULT 0,
+	last_error           TEXT,
+	leased_by            TEXT,                          -- worker id, NULL = unleased
+	leased_until_ns      INTEGER,                       -- absolute expiry, NULL = unleased
+	lease_started_at_ns  INTEGER,                       -- when lease was taken, NULL = unleased
+	kind                 TEXT NOT NULL DEFAULT 'embed'  -- 'embed' | 'reindex'
 );
+
+CREATE INDEX IF NOT EXISTS idx_embed_queue_kind_lease
+	ON embed_queue(kind, leased_until_ns);
 
 CREATE TABLE IF NOT EXISTS file_state (
 	path              TEXT PRIMARY KEY,
