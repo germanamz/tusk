@@ -89,6 +89,27 @@ CREATE TABLE IF NOT EXISTS embed_queue (
 	last_error  TEXT
 );
 
+CREATE TABLE IF NOT EXISTS file_state (
+	path              TEXT PRIMARY KEY,
+	content_hash      TEXT NOT NULL,
+	mtime_ns          INTEGER NOT NULL,
+	size              INTEGER NOT NULL,
+	state             TEXT NOT NULL,              -- 'live' | 'tombstone'
+	leased_by         TEXT,                       -- worker id, NULL = unleased
+	leased_until_ns   INTEGER,                    -- absolute expiry, NULL = unleased
+	pending_temp_path TEXT,                       -- in-flight write target, NULL = none
+	pending_hash      TEXT,                       -- hash of content being staged, NULL = none
+	last_seen_gen     INTEGER NOT NULL DEFAULT 0, -- reindex generation
+	updated_at_ns     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_state_lease
+	ON file_state(leased_until_ns)
+	WHERE leased_by IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_file_state_seen
+	ON file_state(last_seen_gen);
+
 CREATE TABLE IF NOT EXISTS manifest_snapshot (
 	loaded_at INTEGER NOT NULL,                 -- unix nanoseconds
 	body_json TEXT NOT NULL                     -- JSON-serialized snapshot of the manifest

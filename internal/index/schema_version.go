@@ -7,7 +7,9 @@ package index
 // files. The string is opaque — bump it whenever the schema shape
 // (DDL, indexes, CHECK constraints) changes in a way that the in-place
 // migration code cannot bridge.
-const SchemaVersion = "2026-05-26-embeddings-per-chunk"
+//
+// 2026-05-27-file-state: adds file_state for per-file coordination.
+const SchemaVersion = "2026-05-27-file-state"
 
 // MetaSchemaVersionKey is the key under which SchemaVersion is stored
 // in the meta table. The value lives next to other workspace-scoped
