@@ -34,7 +34,6 @@ type ModifyInput struct {
 	ID        string         // required; node id (path without extension)
 	SetProps  map[string]any // properties to upsert (excluding "type"; modify rejects type changes)
 	UnsetKeys []string       // top-level frontmatter keys to remove
-	Body      *[]byte        // when non-nil, replaces the body; nil leaves body untouched
 }
 
 // ListFilter narrows Service.List. Plan 1b supports type only.
@@ -335,9 +334,10 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 	return parsed, nil
 }
 
-// Modify reads a node from disk, applies SetProps/UnsetKeys/Body, validates
+// Modify reads a node from disk, applies SetProps/UnsetKeys, validates
 // against the manifest, atomically rewrites the file, and updates index rows.
 // Modify enqueues the node for re-embedding when the service has an EmbedQueue.
+// Body changes are out of scope: write to the file directly and let the watcher reindex.
 func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	row, getErr := service.repo.Get(input.ID)
 
@@ -384,14 +384,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		parsed.Properties[key] = value
 	}
 
-	body := parsed.Body
-
-	if input.Body != nil {
-		body = *input.Body
-		parsed.Body = body
-	}
-
-	rendered, renderErr := renderMarkdown(parsed.Properties, body)
+	rendered, renderErr := renderMarkdown(parsed.Properties, parsed.Body)
 
 	if renderErr != nil {
 		return nil, renderErr

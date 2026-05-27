@@ -1025,11 +1025,10 @@ func registerNodeCreateTool(srv *Server) {
 
 func registerNodeModifyTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_modify",
-		mcpgo.WithDescription("Modify a node's frontmatter properties. Cannot change type."),
+		mcpgo.WithDescription("Modify a node's frontmatter properties (set or unset). Cannot change type. Body changes are made by writing to the file directly; the watcher reindexes."),
 		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id")),
 		mcpgo.WithObject("set", mcpgo.Description("Properties to upsert (key→value)")),
 		mcpgo.WithArray("unset", mcpgo.Description("Property keys to remove"), mcpgo.Items(map[string]any{"type": "string"})),
-		mcpgo.WithString("body", mcpgo.Description("Optional new markdown body")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -1046,11 +1045,6 @@ func registerNodeModifyTool(srv *Server) {
 			ID:        nodeID,
 			SetProps:  setProps,
 			UnsetKeys: unsetKeys,
-		}
-
-		if rawBody, hasBody := request.GetArguments()["body"].(string); hasBody {
-			body := []byte(rawBody)
-			input.Body = &body
 		}
 
 		// Build a per-call Service so recovery warnings flow into our local
