@@ -1145,7 +1145,18 @@ func registerNodeMoveTool(srv *Server) {
 			return toolError(parseErr), nil
 		}
 
-		plan, renameErr := node.Rename(srv.runtime.Root, srv.runtime.Nodes, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, srv.runtime.Manifest.NodeTypes, nodeID, newPath)
+		plan, renameErr := node.Rename(
+			srv.runtime.Root,
+			srv.runtime.Nodes,
+			srv.runtime.Edges,
+			srv.runtime.FileState,
+			srv.runtime.WorkerID,
+			srv.runtime.LeaseTTL,
+			srv.runtime.Manifest.EdgeTypes,
+			srv.runtime.Manifest.NodeTypes,
+			nodeID,
+			newPath,
+		)
 
 		if renameErr != nil {
 			return toolError(renameErr), nil
