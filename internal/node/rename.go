@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -75,7 +76,32 @@ type RenamePlan struct {
 // (e.g. ".md") but newRelPath does not, the source's extension is inherited so
 // the renamed file keeps its on-disk extension and the new node id matches the
 // "path without extension" convention used elsewhere.
-func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType, oldID, newRelPath string) (*RenamePlan, error) {
+//
+// Move is the one writer that does NOT route through WriteWithLease: the
+// helper is single-path by design (see T4.1's task doc § Scope), and the
+// two-path commit here can't be expressed by composing two single-path
+// calls. Rename instead composes the lease primitives directly,
+// acquiring both source and destination leases in lexicographic order
+// of path. The lex ordering is the standard fix for two-lock deadlocks:
+// two concurrent moves A→B and B→A would deadlock if each claimed its
+// source first, so we force both to claim min(paths) then max(paths).
+//
+// Frontmatter rewrites on OTHER referring files happen AFTER the two
+// leases release. Those sibling files are not under this Rename's
+// leases; today the workspace flock serializes all writers so the
+// rewrites can't race, but the cross-file rewrite-vs-modify gap is a
+// known concern for Phase 5+ when the flock is removed.
+func Rename(
+	root string,
+	nodeRepo *index.NodeRepo,
+	edgeRepo *index.EdgeRepo,
+	fileState *index.FileStateRepo,
+	workerID string,
+	leaseTTL time.Duration,
+	edgeTypes manifest.EdgeTypes,
+	nodeTypes map[string]manifest.NodeType,
+	oldID, newRelPath string,
+) (*RenamePlan, error) {
 	row, getErr := nodeRepo.Get(oldID)
 
 	if getErr != nil {
@@ -89,26 +115,105 @@ func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edg
 	}
 
 	newID := strings.TrimSuffix(newRelPath, filepath.Ext(newRelPath))
+	oldPath := row.Path
+	oldAbs := filepath.Join(root, oldPath)
 	newAbs := filepath.Join(root, newRelPath)
 
-	if _, statErr := os.Stat(newAbs); statErr == nil {
+	if oldPath == newRelPath {
 		return nil, fmt.Errorf("node: rename target %s already exists", newRelPath)
 	}
 
-	oldAbs := filepath.Join(root, row.Path)
+	loPath, hiPath := oldPath, newRelPath
+
+	if loPath > hiPath {
+		loPath, hiPath = hiPath, loPath
+	}
+
+	if ensureErr := fileState.EnsurePlaceholder(loPath); ensureErr != nil {
+		return nil, ensureErr
+	}
+
+	if ensureErr := fileState.EnsurePlaceholder(hiPath); ensureErr != nil {
+		return nil, ensureErr
+	}
+
+	if _, claimErr := fileState.Claim(loPath, workerID, leaseTTL); claimErr != nil {
+		return nil, claimErr
+	}
+
+	if _, claimErr := fileState.Claim(hiPath, workerID, leaseTTL); claimErr != nil {
+		_ = releaseAbandon(fileState, loPath, workerID)
+
+		return nil, claimErr
+	}
+
+	// Re-check destination-exists INSIDE the held leases so a concurrent
+	// Create can't sneak a file in between the check and os.Rename.
+	if _, statErr := os.Stat(newAbs); statErr == nil {
+		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
+			fmt.Errorf("node: rename target %s already exists", newRelPath))
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
+			fmt.Errorf("node: stat %s: %w", newRelPath, statErr))
+	}
+
+	srcBytes, readErr := os.ReadFile(oldAbs)
+
+	if readErr != nil {
+		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
+			fmt.Errorf("node: read %s: %w", oldPath, readErr))
+	}
 
 	if mkErr := os.MkdirAll(filepath.Dir(newAbs), 0o755); mkErr != nil {
-		return nil, fmt.Errorf("node: mkdir %s: %w", filepath.Dir(newAbs), mkErr)
+		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
+			fmt.Errorf("node: mkdir %s: %w", filepath.Dir(newAbs), mkErr))
 	}
 
 	if renameFileErr := os.Rename(oldAbs, newAbs); renameFileErr != nil {
-		return nil, fmt.Errorf("node: rename file: %w", renameFileErr)
+		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
+			fmt.Errorf("node: rename file: %w", renameFileErr))
+	}
+
+	dstStat, statErr := os.Stat(newAbs)
+
+	if statErr != nil {
+		// Restore the source file so the workspace returns to its
+		// pre-Rename shape before we abandon the leases.
+		_ = os.Rename(newAbs, oldAbs)
+
+		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
+			fmt.Errorf("node: stat %s: %w", newRelPath, statErr))
+	}
+
+	newHash := sha256HexBytes(srcBytes)
+
+	if releaseErr := fileState.Release(index.ReleaseContext{
+		Path:        newRelPath,
+		WorkerID:    workerID,
+		Success:     true,
+		State:       index.FileStateLive,
+		ContentHash: newHash,
+		MtimeNs:     dstStat.ModTime().UnixNano(),
+		Size:        dstStat.Size(),
+	}); releaseErr != nil {
+		return nil, fmt.Errorf("node: rename: release destination %s: %w", newRelPath, releaseErr)
+	}
+
+	if releaseErr := fileState.Release(index.ReleaseContext{
+		Path:        oldPath,
+		WorkerID:    workerID,
+		Success:     true,
+		State:       index.FileStateTombstone,
+		ContentHash: "",
+		MtimeNs:     time.Now().UnixNano(),
+		Size:        0,
+	}); releaseErr != nil {
+		return nil, fmt.Errorf("node: rename: release source %s: %w", oldPath, releaseErr)
 	}
 
 	referring, listErr := edgeRepo.ListByTarget(oldID)
 
 	if listErr != nil {
-		_ = os.Rename(newAbs, oldAbs)
 		return nil, listErr
 	}
 
@@ -124,8 +229,6 @@ func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edg
 
 	// Update node index: delete-old → insert-new (NodeRepo.Upsert is keyed on
 	// id; mutating row.ID then upserting would leave the old row behind).
-	oldPath := row.Path
-
 	if deleteOldErr := nodeRepo.DeleteByPath(oldPath); deleteOldErr != nil {
 		return nil, deleteOldErr
 	}
@@ -198,6 +301,37 @@ func Rename(root string, nodeRepo *index.NodeRepo, edgeRepo *index.EdgeRepo, edg
 		NewPath:       newRelPath,
 		AffectedFiles: affectedFiles,
 	}, nil
+}
+
+// releaseAbandon clears a single held lease on the abandon path so
+// observed-state columns stay where they were. Errors are swallowed by
+// callers that are already returning a more meaningful cause.
+func releaseAbandon(repo *index.FileStateRepo, path, workerID string) error {
+	return repo.Release(index.ReleaseContext{
+		Path:     path,
+		WorkerID: workerID,
+		Success:  false,
+	})
+}
+
+// abandonRenameLeases releases BOTH held leases on the abandon path and
+// returns cause (wrapped if either release itself failed). Used when an
+// error occurs between the two successful Claims and the two commit
+// Releases — the file-on-disk state has been rolled back by the caller
+// where possible.
+func abandonRenameLeases(repo *index.FileStateRepo, loPath, hiPath, workerID string, cause error) error {
+	loErr := releaseAbandon(repo, loPath, workerID)
+	hiErr := releaseAbandon(repo, hiPath, workerID)
+
+	if loErr != nil {
+		return fmt.Errorf("node: rename: abandon %s: %w (cause: %v)", loPath, loErr, cause)
+	}
+
+	if hiErr != nil {
+		return fmt.Errorf("node: rename: abandon %s: %w (cause: %v)", hiPath, hiErr, cause)
+	}
+
+	return cause
 }
 
 func uniqueSourcePaths(edges []index.EdgeRow) []string {

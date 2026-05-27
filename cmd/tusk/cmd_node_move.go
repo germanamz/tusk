@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -75,7 +76,18 @@ state.`,
 
 				defer store.Close()
 
-				plan, renameErr := node.Rename(ws.Root, index.NewNodeRepo(store), index.NewEdgeRepo(store), loaded.EdgeTypes, loaded.NodeTypes, args[0], args[1])
+				plan, renameErr := node.Rename(
+					ws.Root,
+					index.NewNodeRepo(store),
+					index.NewEdgeRepo(store),
+					index.NewFileStateRepo(store),
+					index.WorkerID(),
+					leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+					loaded.EdgeTypes,
+					loaded.NodeTypes,
+					args[0],
+					args[1],
+				)
 
 				if renameErr != nil {
 					return renameErr
