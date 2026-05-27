@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestEmbedQueueRepo_EnqueueIsIdempotent(test *testing.T) {
 func TestEmbedQueueRepo_DrainEmptyReturnsEmpty(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 
-	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
@@ -81,7 +82,7 @@ func TestEmbedQueueRepo_DrainClaimsBatchAndSetsLease(test *testing.T) {
 		}
 	}
 
-	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
@@ -127,7 +128,7 @@ func TestEmbedQueueRepo_DrainHonorsBatchSize(test *testing.T) {
 		}
 	}
 
-	drained, _ := repo.Drain(testWorkerA, 2, testTTL)
+	drained, _ := repo.DrainEmbed(testWorkerA, 2, testTTL)
 
 	if len(drained) != 2 {
 		test.Errorf("len = %d, want 2", len(drained))
@@ -143,13 +144,13 @@ func TestEmbedQueueRepo_DrainTwoWorkersGetDisjointBatches(test *testing.T) {
 		}
 	}
 
-	firstBatch, drainErr := repo.Drain(testWorkerA, 2, testTTL)
+	firstBatch, drainErr := repo.DrainEmbed(testWorkerA, 2, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("first Drain: %v", drainErr)
 	}
 
-	secondBatch, drainErr := repo.Drain(testWorkerB, 2, testTTL)
+	secondBatch, drainErr := repo.DrainEmbed(testWorkerB, 2, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("second Drain: %v", drainErr)
@@ -187,14 +188,14 @@ func TestEmbedQueueRepo_DrainSkipsRowsLeasedByAnotherWorker(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	firstBatch, _ := repo.Drain(testWorkerA, 10, testTTL)
+	firstBatch, _ := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if len(firstBatch) != 1 {
 		test.Fatalf("first batch = %d, want 1", len(firstBatch))
 	}
 
 	// Lease held by worker A; worker B's drain sees nothing claimable.
-	secondBatch, drainErr := repo.Drain(testWorkerB, 10, testTTL)
+	secondBatch, drainErr := repo.DrainEmbed(testWorkerB, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("second Drain: %v", drainErr)
@@ -213,14 +214,14 @@ func TestEmbedQueueRepo_DrainReclaimsExpiredLease(test *testing.T) {
 	}
 
 	// Negative TTL forces leased_until_ns into the past.
-	firstBatch, _ := repo.Drain(testWorkerA, 10, -1*time.Second)
+	firstBatch, _ := repo.DrainEmbed(testWorkerA, 10, -1*time.Second)
 
 	if len(firstBatch) != 1 {
 		test.Fatalf("first batch = %d, want 1", len(firstBatch))
 	}
 
 	// Worker B now sees the row as expired-claimable.
-	secondBatch, drainErr := repo.Drain(testWorkerB, 10, testTTL)
+	secondBatch, drainErr := repo.DrainEmbed(testWorkerB, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("second Drain: %v", drainErr)
@@ -242,7 +243,7 @@ func TestEmbedQueueRepo_AckDeletesWhenWorkerMatches(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+	if _, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL); drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
 	}
 
@@ -264,7 +265,7 @@ func TestEmbedQueueRepo_AckIsNoOpWhenLeaseMovedOn(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+	if _, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL); drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
 	}
 
@@ -287,7 +288,7 @@ func TestEmbedQueueRepo_NackBumpsAttemptsAndClearsLease(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	firstBatch, _ := repo.Drain(testWorkerA, 10, testTTL)
+	firstBatch, _ := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if len(firstBatch) != 1 || firstBatch[0].Attempts != 0 {
 		test.Fatalf("first batch = %+v, want one row with Attempts=0", firstBatch)
@@ -297,7 +298,7 @@ func TestEmbedQueueRepo_NackBumpsAttemptsAndClearsLease(test *testing.T) {
 		test.Fatalf("Nack: %v", nackErr)
 	}
 
-	secondBatch, _ := repo.Drain(testWorkerA, 10, testTTL)
+	secondBatch, _ := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if len(secondBatch) != 1 {
 		test.Fatalf("second batch = %d, want 1", len(secondBatch))
@@ -320,7 +321,7 @@ func TestEmbedQueueRepo_NackIsNoOpWhenLeaseMovedOn(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+	if _, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL); drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
 	}
 
@@ -361,7 +362,7 @@ func TestEmbedQueueRepo_DropRemovesRow(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+	if _, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL); drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
 	}
 
@@ -383,7 +384,7 @@ func TestEmbedQueueRepo_DropIsNoOpWhenLeaseMovedOn(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	if _, drainErr := repo.Drain(testWorkerA, 10, testTTL); drainErr != nil {
+	if _, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL); drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
 	}
 
@@ -415,7 +416,7 @@ func TestEmbedQueueRepo_DrainFiltersOutReindexKind(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
@@ -455,7 +456,7 @@ func TestEmbedQueueRepo_ReEnqueuePreservesAttempts(test *testing.T) {
 		test.Fatalf("ReEnqueue 1: %v", reErr)
 	}
 
-	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
@@ -517,7 +518,7 @@ func TestEmbedQueueRepo_ReEnqueuePreservesKindDefault(test *testing.T) {
 		test.Fatalf("ReEnqueue: %v", reErr)
 	}
 
-	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)
@@ -662,7 +663,7 @@ func TestEmbedQueueRepo_DepthByKindSeparatesEmbedAndReindex(test *testing.T) {
 	}
 }
 
-func TestEmbedQueueRepo_DrainIgnoresEnqueueReindexRows(test *testing.T) {
+func TestEmbedQueueRepo_DrainEmbedIgnoresReindexRows(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 
 	if enqErr := repo.EnqueueReindex("notes/a.md"); enqErr != nil {
@@ -673,10 +674,10 @@ func TestEmbedQueueRepo_DrainIgnoresEnqueueReindexRows(test *testing.T) {
 		test.Fatalf("Enqueue: %v", enqErr)
 	}
 
-	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
 
 	if drainErr != nil {
-		test.Fatalf("Drain: %v", drainErr)
+		test.Fatalf("DrainEmbed: %v", drainErr)
 	}
 
 	if len(drained) != 1 {
@@ -685,6 +686,98 @@ func TestEmbedQueueRepo_DrainIgnoresEnqueueReindexRows(test *testing.T) {
 
 	if drained[0].NodeID != "embed-node" {
 		test.Errorf("NodeID = %q, want %q", drained[0].NodeID, "embed-node")
+	}
+}
+
+func TestEmbedQueueRepo_DrainReindexReturnsOnlyReindexRows(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewEmbedQueueRepo(store)
+
+	if enqErr := repo.EnqueueReindex("notes/a.md"); enqErr != nil {
+		test.Fatalf("EnqueueReindex: %v", enqErr)
+	}
+
+	if enqErr := repo.EnqueueReindex("notes/b.md"); enqErr != nil {
+		test.Fatalf("EnqueueReindex: %v", enqErr)
+	}
+
+	if enqErr := repo.Enqueue("embed-only"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	drained, drainErr := repo.DrainReindex(testWorkerA, 10, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("DrainReindex: %v", drainErr)
+	}
+
+	if len(drained) != 2 {
+		test.Fatalf("len = %d, want 2 (only reindex rows)", len(drained))
+	}
+
+	for _, row := range drained {
+		if row.Kind != "reindex" {
+			test.Errorf("Kind = %q, want %q", row.Kind, "reindex")
+		}
+
+		if !strings.HasPrefix(row.NodeID, index.ReindexNodeIDPrefix) {
+			test.Errorf("NodeID = %q, want prefix %q", row.NodeID, index.ReindexNodeIDPrefix)
+		}
+
+		if row.LeasedBy == nil || *row.LeasedBy != testWorkerA {
+			test.Errorf("LeasedBy = %v, want %q", row.LeasedBy, testWorkerA)
+		}
+	}
+
+	// The embed-only row stays unleased and undrained.
+	var (
+		kind     string
+		leasedBy *string
+	)
+
+	if scanErr := store.DB().QueryRow(`SELECT kind, leased_by FROM embed_queue WHERE node_id = ?`, "embed-only").Scan(&kind, &leasedBy); scanErr != nil {
+		test.Fatalf("inspect embed row: %v", scanErr)
+	}
+
+	if kind != "embed" {
+		test.Errorf("kind = %q, want %q", kind, "embed")
+	}
+
+	if leasedBy != nil {
+		test.Errorf("LeasedBy on embed row = %v, want nil (untouched)", leasedBy)
+	}
+}
+
+func TestEmbedQueueRepo_DrainReindexLeasesAndReclaimsExpired(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.EnqueueReindex("notes/only.md"); enqErr != nil {
+		test.Fatalf("EnqueueReindex: %v", enqErr)
+	}
+
+	// Negative TTL forces leased_until_ns into the past.
+	firstBatch, drainErr := repo.DrainReindex(testWorkerA, 10, -1*time.Second)
+
+	if drainErr != nil {
+		test.Fatalf("first DrainReindex: %v", drainErr)
+	}
+
+	if len(firstBatch) != 1 {
+		test.Fatalf("first batch = %d, want 1", len(firstBatch))
+	}
+
+	secondBatch, drainErr := repo.DrainReindex(testWorkerB, 10, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("second DrainReindex: %v", drainErr)
+	}
+
+	if len(secondBatch) != 1 {
+		test.Fatalf("second batch = %d, want 1 (expired lease reclaimable)", len(secondBatch))
+	}
+
+	if secondBatch[0].LeasedBy == nil || *secondBatch[0].LeasedBy != testWorkerB {
+		test.Errorf("LeasedBy = %v, want %q", secondBatch[0].LeasedBy, testWorkerB)
 	}
 }
 

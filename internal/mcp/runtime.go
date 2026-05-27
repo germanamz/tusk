@@ -110,6 +110,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 				EdgeTypes:  loaded.EdgeTypes,
 				Meta:       index.NewMetaRepo(idx),
 				FileStates: index.NewFileStateRepo(idx),
+				EmbedQueue: index.NewEmbedQueueRepo(idx),
 			}
 		},
 		Logger: func(msg string) {

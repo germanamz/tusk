@@ -101,6 +101,7 @@ Body text.
 			PropertyDrift: index.NewPropertyDriftRepo(idx),
 			Meta:          index.NewMetaRepo(idx),
 			FileStates:    index.NewFileStateRepo(idx),
+			EmbedQueue:    index.NewEmbedQueueRepo(idx),
 		}
 	})
 	defer store.Close()

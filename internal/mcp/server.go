@@ -123,11 +123,16 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 
 	var waitGroup sync.WaitGroup
 
-	waitGroup.Add(2)
+	waitGroup.Add(3)
 
 	go func() {
 		defer waitGroup.Done()
 		record(RunDrainer(ctx, DrainerConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
+	}()
+
+	go func() {
+		defer waitGroup.Done()
+		record(RunReindexDrainer(ctx, ReindexDrainerConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
 	}()
 
 	go func() {

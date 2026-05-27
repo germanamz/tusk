@@ -64,7 +64,7 @@ func TestService_ModifyNoOpDoesNotTouchMtimeOrQueue(test *testing.T) {
 
 	// Drain+Ack the embed_queue row Create enqueued so the no-op test
 	// below starts from an empty queue.
-	drained, drainErr := queueRepo.Drain("test-worker", 16, time.Minute)
+	drained, drainErr := queueRepo.DrainEmbed("test-worker", 16, time.Minute)
 
 	if drainErr != nil {
 		test.Fatalf("drain seed: %v", drainErr)

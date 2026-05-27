@@ -71,6 +71,7 @@ in another shell to observe progress.`,
 						EdgeTypes:  loaded.EdgeTypes,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
+						EmbedQueue: index.NewEmbedQueueRepo(idx),
 					}
 				},
 				Logger: func(msg string) {
@@ -88,6 +89,7 @@ in another shell to observe progress.`,
 			edgeRepo := index.NewEdgeRepo(store)
 			metaRepo := index.NewMetaRepo(store)
 			fileStateRepo := index.NewFileStateRepo(store)
+			embedQueueRepo := index.NewEmbedQueueRepo(store)
 
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
 
@@ -97,6 +99,7 @@ in another shell to observe progress.`,
 				Edges:           edgeRepo,
 				EdgeTypes:       loaded.EdgeTypes,
 				WorkspaceIgnore: loaded.Workspace.Ignore,
+				EmbedQueue:      embedQueueRepo,
 				Meta:            metaRepo,
 				FileStates:      fileStateRepo,
 				Logger:          logger,
@@ -163,6 +166,7 @@ in another shell to observe progress.`,
 					Edges:           edgeRepo,
 					EdgeTypes:       loaded.EdgeTypes,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
+					EmbedQueue:      embedQueueRepo,
 					Meta:            metaRepo,
 					FileStates:      fileStateRepo,
 					Logger:          logger,

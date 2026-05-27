@@ -128,7 +128,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			return drained, nil
 		}
 
-		batch, drainErr := config.Queue.Drain(workerID, limit, leaseTTL)
+		batch, drainErr := config.Queue.DrainEmbed(workerID, limit, leaseTTL)
 
 		if drainErr != nil {
 			return drained, drainErr

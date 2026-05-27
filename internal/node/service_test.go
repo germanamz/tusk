@@ -867,7 +867,7 @@ func TestService_Modify_EnqueuesEmbed(test *testing.T) {
 		test.Fatalf("Create: %v", createErr)
 	}
 
-	queueRepo.Drain(index.WorkerID(), 100, time.Minute) // clear from Create
+	queueRepo.DrainEmbed(index.WorkerID(), 100, time.Minute) // clear from Create
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
 		ID:       "notes/hi",

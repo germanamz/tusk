@@ -17,9 +17,17 @@ func TestRunWatcher_PicksUpExternalEdit(test *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan error, 1)
+	drainerDone := make(chan error, 1)
 
 	go func() {
 		done <- mcp.RunWatcher(ctx, mcp.WatchConfig{Runtime: rt})
+	}()
+
+	go func() {
+		drainerDone <- mcp.RunReindexDrainer(ctx, mcp.ReindexDrainerConfig{
+			Runtime:  rt,
+			Interval: 100 * time.Millisecond,
+		})
 	}()
 
 	time.Sleep(100 * time.Millisecond) // let watcher boot
@@ -40,6 +48,7 @@ func TestRunWatcher_PicksUpExternalEdit(test *testing.T) {
 		if _, getErr := rt.Nodes.Get("notes/external"); getErr == nil {
 			cancel()
 			<-done
+			<-drainerDone
 
 			return
 		}
@@ -49,6 +58,7 @@ func TestRunWatcher_PicksUpExternalEdit(test *testing.T) {
 
 	cancel()
 	<-done
+	<-drainerDone
 
 	test.Fatalf("expected node notes/external to be indexed after watcher saw the write")
 }

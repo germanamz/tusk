@@ -45,6 +45,7 @@ Paragraph two.
 			Manifest:   &manifest.Manifest{},
 			Meta:       index.NewMetaRepo(idx),
 			FileStates: index.NewFileStateRepo(idx),
+			EmbedQueue: index.NewEmbedQueueRepo(idx),
 		}
 	})
 	defer store.Close()

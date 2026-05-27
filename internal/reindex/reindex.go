@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -23,7 +22,6 @@ import (
 	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
-	"github.com/germanamz/tusk/internal/subunit"
 )
 
 // Config configures Run.
@@ -85,6 +83,14 @@ type Config struct {
 	// dedicated Config fields for back-compat with callers that build a
 	// reindex config without a manifest (the existing reindex tests).
 	Manifest *manifest.Manifest
+
+	// Async controls whether Run drains the reindex queue before returning.
+	// Default (false) blocks until every enqueued reindex job is processed
+	// by an in-process worker pool — the CLI and rebuild paths rely on this
+	// "Run returns ⇒ work done" semantic. Set true for callers that own a
+	// long-lived background worker pool (watch/MCP runtime) so Run returns
+	// as soon as the walk completes.
+	Async bool
 }
 
 // Report summarizes a reindex pass.
@@ -124,11 +130,11 @@ func Run(config Config) (*Report, error) {
 		return nil, fmt.Errorf("reindex: FileStates is required")
 	}
 
+	if config.EmbedQueue == nil {
+		return nil, fmt.Errorf("reindex: EmbedQueue is required")
+	}
+
 	report := &Report{}
-	// seenPaths is retained solely to feed the embed re-enqueue loop
-	// below. T6.3 will replace the embed producer and this set goes
-	// away with it.
-	seenPaths := map[string]struct{}{}
 
 	start := time.Now()
 
@@ -202,258 +208,16 @@ func Run(config Config) (*Report, error) {
 			return fmt.Errorf("reindex: read %s: %w", path, readErr)
 		}
 
-		parsed, parseErr := node.ParseFile(relPath, content)
-
-		if parseErr != nil {
-			report.Skipped++
-
-			return nil
-		}
-
-		if resolveErr := node.ResolveEdges(parsed, config.EdgeTypes); resolveErr != nil {
-			report.Skipped++
-
-			return nil
-		}
-
-		node.MaterializeWikilinks(parsed, config.EdgeTypes)
-
 		stat, statErr := entry.Info()
 
 		if statErr != nil {
 			return fmt.Errorf("reindex: stat %s: %w", path, statErr)
 		}
 
-		// BRIDGE: this in-walker per-file work duplicates the queue-driven
-		// worker path introduced by T6.4. Both producers run during T6.3 →
-		// T6.4 ship; T6.4 removes everything between this comment and the
-		// matching "// END BRIDGE" marker.
-		propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
-
-		if marshalErr != nil {
-			return fmt.Errorf("reindex: marshal %s: %w", relPath, marshalErr)
-		}
-
 		checksum := sha256.Sum256(content)
 
-		fileRow := index.NodeRow{
-			ID:             parsed.ID,
-			Type:           parsed.Type,
-			Path:           parsed.Path,
-			Title:          parsed.Title,
-			PropertiesJSON: string(propertiesJSON),
-			LastMtime:      stat.ModTime().UnixNano(),
-			LastSize:       stat.Size(),
-			LastChecksum:   hex.EncodeToString(checksum[:]),
-		}
-
-		if upsertErr := config.Repo.Upsert(fileRow); upsertErr != nil {
-			return upsertErr
-		}
-
-		// + Plan 7: workflow validation in warn mode. Rejections become
-		// drift rows; recoveries become drift rows; clean passes clear
-		// any prior drift for this node.
-		if config.Behaviors != nil {
-			result, fireErr := config.Behaviors.FireNodeWriteValidateWithRecovery(nil, parsed)
-
-			now := time.Now().UnixNano()
-
-			switch {
-			case fireErr != nil:
-				report.WorkflowViolations++
-
-				if config.DriftLog != nil {
-					_ = config.DriftLog.Append(index.WorkflowDriftRow{
-						NodeID:         parsed.ID,
-						PackInstance:   instanceFromQualifier(result.Rejector),
-						PackKind:       kindFromQualifier(result.Rejector),
-						ObservedStatus: readStatusFromParsed(parsed),
-						Property:       extractPropertyFromError(fireErr),
-						ObservedAt:     now,
-					})
-				}
-
-			case len(result.Recovered) > 0:
-				report.WorkflowViolations += len(result.Recovered)
-
-				if config.DriftLog != nil {
-					for _, recovered := range result.Recovered {
-						_ = config.DriftLog.Append(index.WorkflowDriftRow{
-							NodeID:         parsed.ID,
-							PackInstance:   recovered.PackInstance,
-							PackKind:       recovered.PackKind,
-							ObservedStatus: recovered.From,
-							Property:       recovered.Property,
-							ObservedAt:     now,
-						})
-					}
-				}
-
-			default:
-				if config.DriftLog != nil {
-					_ = config.DriftLog.ClearForNode(parsed.ID)
-				}
-			}
-		}
-
-		// + Plan 7.b: property validation in warn mode. Hard errors and
-		// drift entries both become drift rows; indexing never aborts.
-		if config.NodeTypes != nil {
-			if _, typed := config.NodeTypes[parsed.Type]; typed {
-				propResult := node.ValidateProperties(parsed, config.NodeTypes)
-
-				if config.Behaviors != nil {
-					propResult.Drift = node.FilterReservedDrift(propResult.Drift, parsed.Type, config.Behaviors.ReservedProperties())
-				}
-
-				now := time.Now().UnixNano()
-
-				for _, hardErr := range propResult.HardErrors {
-					report.PropertyViolations++
-
-					if config.PropertyDrift != nil {
-						kind := propertyErrorKindString(hardErr.Kind)
-
-						if kind != "" {
-							_ = config.PropertyDrift.Append(index.PropertyDriftRow{
-								NodeID:     parsed.ID,
-								NodeType:   parsed.Type,
-								Kind:       kind,
-								Property:   hardErr.Property,
-								Details:    hardErr.Reason,
-								ObservedAt: now,
-							})
-						}
-					}
-				}
-
-				for _, drift := range propResult.Drift {
-					report.PropertyViolations++
-
-					if config.PropertyDrift != nil {
-						_ = config.PropertyDrift.Append(index.PropertyDriftRow{
-							NodeID:     parsed.ID,
-							NodeType:   parsed.Type,
-							Kind:       "undeclared-property",
-							Property:   drift.Property,
-							Details:    drift.Reason,
-							ObservedAt: now,
-						})
-					}
-				}
-
-				if len(propResult.HardErrors) == 0 && len(propResult.Drift) == 0 {
-					if config.PropertyDrift != nil {
-						_ = config.PropertyDrift.ClearForNode(parsed.ID)
-					}
-				}
-
-				// + Plan 7.c.1: ref resolution in warn mode. Ref errors become
-				// drift rows; clean pass relies on the ClearForNode above (single
-				// point per node). Resolved edges are merged into parsed.Edges so
-				// the existing edge-write path persists them. Unresolved ref edges
-				// are cleared from parsed.Edges so bad values are never stored.
-				if config.PropertyDrift != nil {
-					refLookup := node.NewIndexRefLookup(config.Repo)
-					refResult := node.ResolveRefs(parsed, config.NodeTypes, refLookup)
-					refNow := time.Now().UnixNano()
-
-					// Track which ref properties had errors so their edges can be cleared.
-					refErrorProps := map[string]struct{}{}
-
-					for _, refErr := range refResult.HardErrors {
-						details, _ := json.Marshal(map[string]any{
-							"value":       refErr.Value,
-							"to":          refErr.To,
-							"candidates":  refErr.Candidates,
-							"actual_type": refErr.ActualType,
-						})
-
-						_ = config.PropertyDrift.Append(index.PropertyDriftRow{
-							NodeID:     parsed.ID,
-							NodeType:   parsed.Type,
-							Kind:       string(refErr.Kind),
-							Property:   refErr.Property,
-							Details:    string(details),
-							ObservedAt: refNow,
-						})
-
-						switch refErr.Kind {
-						case node.RefErrDangling:
-							report.RefDangling++
-						case node.RefErrAmbiguous:
-							report.RefAmbiguous++
-						case node.RefErrTypeMismatch:
-							report.RefTypeMismatch++
-						case node.RefErrCycle:
-							report.RefCycle++
-						}
-
-						refErrorProps[refErr.Property] = struct{}{}
-					}
-
-					// Clear unresolved ref edges so raw unresolved values are not stored.
-					for propName := range refErrorProps {
-						delete(parsed.Edges, propName)
-					}
-
-					// Merge resolved ref edges: replace raw values with resolved node IDs.
-					resolvedByProp := map[string][]string{}
-
-					for _, edge := range refResult.Edges {
-						resolvedByProp[edge.EdgeType] = appendUnique(resolvedByProp[edge.EdgeType], edge.TargetID)
-					}
-
-					for propName, targets := range resolvedByProp {
-						parsed.Edges[propName] = targets
-					}
-				}
-			}
-		}
-
-		if config.Edges != nil {
-			edgeRows := flattenEdges(parsed, config.NodeTypes)
-
-			if upsertErr := config.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
-				return upsertErr
-			}
-		}
-
-		// + Plan 2 Task 3: sub-unit diff / insert / delete. The
-		// pipeline runs only when the workspace opts in AND the
-		// reindex caller supplied a manifest; the existing test
-		// suite builds Config without one so the older tests stay
-		// on the legacy code path.
-		if config.Manifest != nil && config.Manifest.SubUnitsEnabled() && config.Edges != nil {
-			units, parseUnitsErr := subunit.Parse(parsed.Body)
-
-			if parseUnitsErr != nil {
-				report.Skipped++
-				return nil
-			}
-
-			sync := &subunit.Sync{
-				Repo:     config.Repo,
-				EdgeRepo: config.Edges,
-				EmbedQ:   config.EmbedQueue,
-				Manifest: config.Manifest,
-				Logger:   config.Logger,
-			}
-
-			syncResult, syncErr := sync.ApplyFile(context.Background(), fileRow, units)
-
-			if syncErr != nil {
-				return syncErr
-			}
-
-			report.SubUnitsInserted += syncResult.Inserted
-			report.SubUnitsDeleted += syncResult.Deleted
-			report.SubUnitsReordered += syncResult.Reordered
-		}
-
 		if upsertErr := config.FileStates.Upsert(index.FileStateRow{
-			Path:        parsed.Path,
+			Path:        relPath,
 			ContentHash: hex.EncodeToString(checksum[:]),
 			MtimeNs:     stat.ModTime().UnixNano(),
 			Size:        stat.Size(),
@@ -462,16 +226,10 @@ func Run(config Config) (*Report, error) {
 		}); upsertErr != nil {
 			return upsertErr
 		}
-		// END BRIDGE
 
-		if config.EmbedQueue != nil {
-			if enqErr := config.EmbedQueue.EnqueueReindex(parsed.Path); enqErr != nil {
-				return enqErr
-			}
+		if enqErr := config.EmbedQueue.EnqueueReindex(relPath); enqErr != nil {
+			return enqErr
 		}
-
-		seenPaths[parsed.Path] = struct{}{}
-		report.Indexed++
 
 		return nil
 	})
@@ -613,13 +371,43 @@ func Run(config Config) (*Report, error) {
 		}
 	}
 
-	if config.Embedder != nil {
-		// Enqueue every indexed node so the drain loop covers them.
-		for path := range seenPaths {
-			id := strings.TrimSuffix(path, ".md")
-			_ = config.EmbedQueue.Enqueue(id)
+	if !config.Async {
+		drainReport, drainErr := DrainReindexQueue(context.Background(), WorkerConfig{
+			Root:          config.Root,
+			Repo:          config.Repo,
+			Edges:         config.Edges,
+			EdgeTypes:     config.EdgeTypes,
+			EmbedQueue:    config.EmbedQueue,
+			FileStates:    config.FileStates,
+			Manifest:      config.Manifest,
+			Behaviors:     config.Behaviors,
+			DriftLog:      config.DriftLog,
+			NodeTypes:     config.NodeTypes,
+			PropertyDrift: config.PropertyDrift,
+			Logger:        config.Logger,
+			Workers:       config.Workers,
+			TTL:           leaseTTL,
+			Generation:    gen,
+		})
+
+		if drainErr != nil {
+			return nil, fmt.Errorf("reindex: drain reindex queue: %w", drainErr)
 		}
 
+		report.Indexed += drainReport.Indexed
+		report.Skipped += drainReport.Skipped
+		report.WorkflowViolations += drainReport.WorkflowViolations
+		report.PropertyViolations += drainReport.PropertyViolations
+		report.RefDangling += drainReport.RefDangling
+		report.RefAmbiguous += drainReport.RefAmbiguous
+		report.RefTypeMismatch += drainReport.RefTypeMismatch
+		report.RefCycle += drainReport.RefCycle
+		report.SubUnitsInserted += drainReport.SubUnitsInserted
+		report.SubUnitsDeleted += drainReport.SubUnitsDeleted
+		report.SubUnitsReordered += drainReport.SubUnitsReordered
+	}
+
+	if config.Embedder != nil {
 		if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
 			Root:       config.Root,
 			Nodes:      config.Repo,

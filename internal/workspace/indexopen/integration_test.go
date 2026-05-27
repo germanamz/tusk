@@ -32,6 +32,7 @@ func TestFullCycle_OpenMismatchRebuildReopen(test *testing.T) {
 			Repo:       index.NewNodeRepo(idx),
 			Meta:       index.NewMetaRepo(idx),
 			FileStates: index.NewFileStateRepo(idx),
+			EmbedQueue: index.NewEmbedQueueRepo(idx),
 		}
 	}
 
