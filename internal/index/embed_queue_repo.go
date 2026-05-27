@@ -3,8 +3,17 @@ package index
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
+
+// ReindexNodeIDPrefix is the literal prefix prepended to the file path when
+// enqueueing a reindex job. The embed_queue PRIMARY KEY is node_id alone, so
+// real embed node IDs (path minus extension) and reindex node IDs (path) would
+// otherwise collide. Prefixing the reindex variant keeps the key namespaces
+// disjoint without a schema change. T6.4's reindex worker strips this prefix
+// with strings.TrimPrefix.
+const ReindexNodeIDPrefix = "reindex:"
 
 // QueueRow represents a row in embed_queue.
 type QueueRow struct {
@@ -40,6 +49,35 @@ func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
 
 	if execErr != nil {
 		return fmt.Errorf("embedQueueRepo: enqueue %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
+// EnqueueReindex inserts a kind='reindex' row keyed by ReindexNodeIDPrefix+path.
+// Idempotent: ON CONFLICT(node_id) DO NOTHING handles two concurrent walks of
+// the same file. Returns an error when path itself begins with the reserved
+// prefix, preserving the round-trip invariant that T6.4's worker can recover
+// the file path via strings.TrimPrefix(nodeID, ReindexNodeIDPrefix).
+//
+// Real embed node IDs derive from file paths via TrimSuffix(".md"); none
+// currently start with the literal "reindex:" prefix in any vault path. This
+// guard catches a future renaming that would break that invariant.
+func (repo *EmbedQueueRepo) EnqueueReindex(path string) error {
+	if strings.HasPrefix(path, ReindexNodeIDPrefix) {
+		return fmt.Errorf("embedQueueRepo: enqueue reindex %q: path must not start with %q", path, ReindexNodeIDPrefix)
+	}
+
+	nodeID := ReindexNodeIDPrefix + path
+
+	_, execErr := repo.db.Exec(`
+		INSERT INTO embed_queue (node_id, enqueued_at, attempts, kind)
+		VALUES (?, ?, 0, 'reindex')
+		ON CONFLICT(node_id) DO NOTHING
+	`, nodeID, time.Now().UnixNano())
+
+	if execErr != nil {
+		return fmt.Errorf("embedQueueRepo: enqueue reindex %s: %w", nodeID, execErr)
 	}
 
 	return nil
@@ -186,7 +224,8 @@ func (repo *EmbedQueueRepo) Drop(nodeID, workerID string) error {
 	return nil
 }
 
-// Depth returns the number of pending rows.
+// Depth returns the number of pending rows across all kinds. Callers that
+// need to distinguish embed vs reindex jobs should use DepthByKind.
 func (repo *EmbedQueueRepo) Depth() (int, error) {
 	var depth int
 
@@ -197,9 +236,23 @@ func (repo *EmbedQueueRepo) Depth() (int, error) {
 	return depth, nil
 }
 
-// ListNodeIDs returns every pending node_id, sorted ascending.
+// DepthByKind returns the number of pending rows whose kind matches the
+// argument. Used by status reporters to separate embed vs reindex backlogs.
+func (repo *EmbedQueueRepo) DepthByKind(kind string) (int, error) {
+	var depth int
+
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM embed_queue WHERE kind = ?`, kind).Scan(&depth); scanErr != nil {
+		return 0, fmt.Errorf("embedQueueRepo: depth by kind %q: %w", kind, scanErr)
+	}
+
+	return depth, nil
+}
+
+// ListNodeIDs returns every pending kind='embed' node_id, sorted ascending.
+// Reindex rows are excluded — callers wanting reindex jobs should query
+// directly or use a kind-filtered helper.
 func (repo *EmbedQueueRepo) ListNodeIDs() ([]string, error) {
-	rows, queryErr := repo.db.Query(`SELECT node_id FROM embed_queue ORDER BY node_id`)
+	rows, queryErr := repo.db.Query(`SELECT node_id FROM embed_queue WHERE kind = 'embed' ORDER BY node_id`)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("embedQueueRepo: list node ids: %w", queryErr)

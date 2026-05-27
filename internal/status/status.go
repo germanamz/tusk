@@ -7,10 +7,11 @@ import (
 
 // SnapshotData describes the workspace at a moment in time.
 type SnapshotData struct {
-	NodesByType     map[string]int
-	EdgeCount       int
-	EmbedQueueDepth int
-	LastReindexAt   string
+	NodesByType       map[string]int
+	EdgeCount         int
+	EmbedQueueDepth   int // pending rows with kind='embed'
+	ReindexQueueDepth int // pending rows with kind='reindex'
+	LastReindexAt     string
 }
 
 // Config configures Snapshot.
@@ -43,13 +44,21 @@ func Snapshot(config Config) (*SnapshotData, error) {
 
 	snap.EdgeCount = len(edges)
 
-	depth, depthErr := config.EmbedQueue.Depth()
+	embedDepth, embedDepthErr := config.EmbedQueue.DepthByKind("embed")
 
-	if depthErr != nil {
-		return nil, depthErr
+	if embedDepthErr != nil {
+		return nil, embedDepthErr
 	}
 
-	snap.EmbedQueueDepth = depth
+	snap.EmbedQueueDepth = embedDepth
+
+	reindexDepth, reindexDepthErr := config.EmbedQueue.DepthByKind("reindex")
+
+	if reindexDepthErr != nil {
+		return nil, reindexDepthErr
+	}
+
+	snap.ReindexQueueDepth = reindexDepth
 
 	last, lastErr := config.Meta.Get("last_reindex_at")
 

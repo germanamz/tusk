@@ -9,10 +9,11 @@ type Request = Config
 // Result is the typed payload returned by Run. The shape mirrors SnapshotData
 // so existing renderers and MCP handlers can consume it without translation.
 type Result struct {
-	NodesByType     map[string]int
-	EdgeCount       int
-	EmbedQueueDepth int
-	LastReindexAt   string
+	NodesByType       map[string]int
+	EdgeCount         int
+	EmbedQueueDepth   int // pending rows with kind='embed'
+	ReindexQueueDepth int // pending rows with kind='reindex'
+	LastReindexAt     string
 }
 
 // Run is the canonical entry point for the `status` / `tusk_status` verb.
@@ -25,9 +26,10 @@ func Run(req Request) (*Result, error) {
 	}
 
 	return &Result{
-		NodesByType:     snap.NodesByType,
-		EdgeCount:       snap.EdgeCount,
-		EmbedQueueDepth: snap.EmbedQueueDepth,
-		LastReindexAt:   snap.LastReindexAt,
+		NodesByType:       snap.NodesByType,
+		EdgeCount:         snap.EdgeCount,
+		EmbedQueueDepth:   snap.EmbedQueueDepth,
+		ReindexQueueDepth: snap.ReindexQueueDepth,
+		LastReindexAt:     snap.LastReindexAt,
 	}, nil
 }

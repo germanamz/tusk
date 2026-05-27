@@ -57,6 +57,39 @@ func TestSnapshot_ReportsQueueDepth(test *testing.T) {
 	if snap.EmbedQueueDepth != 3 {
 		test.Errorf("EmbedQueueDepth = %d, want 3", snap.EmbedQueueDepth)
 	}
+
+	if snap.ReindexQueueDepth != 0 {
+		test.Errorf("ReindexQueueDepth = %d, want 0", snap.ReindexQueueDepth)
+	}
+}
+
+func TestSnapshot_SeparatesEmbedAndReindexDepth(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	queueRepo := index.NewEmbedQueueRepo(store)
+	queueRepo.Enqueue("embed-1")
+	queueRepo.Enqueue("embed-2")
+	queueRepo.EnqueueReindex("notes/a.md")
+
+	snap, snapErr := status.Snapshot(status.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: queueRepo,
+		Meta:       index.NewMetaRepo(store),
+	})
+
+	if snapErr != nil {
+		test.Fatalf("Snapshot: %v", snapErr)
+	}
+
+	if snap.EmbedQueueDepth != 2 {
+		test.Errorf("EmbedQueueDepth = %d, want 2 (reindex row must not count)", snap.EmbedQueueDepth)
+	}
+
+	if snap.ReindexQueueDepth != 1 {
+		test.Errorf("ReindexQueueDepth = %d, want 1", snap.ReindexQueueDepth)
+	}
 }
 
 func TestSnapshot_LastReindexAt(test *testing.T) {

@@ -570,6 +570,124 @@ func TestEmbedQueueRepo_ListNodeIDs_Empty(test *testing.T) {
 	}
 }
 
+func TestEmbedQueueRepo_EnqueueReindexInsertsPrefixedRow(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewEmbedQueueRepo(store)
+
+	if enqErr := repo.EnqueueReindex("notes/a.md"); enqErr != nil {
+		test.Fatalf("EnqueueReindex: %v", enqErr)
+	}
+
+	var (
+		nodeID string
+		kind   string
+	)
+
+	if scanErr := store.DB().QueryRow(`SELECT node_id, kind FROM embed_queue`).Scan(&nodeID, &kind); scanErr != nil {
+		test.Fatalf("scan row: %v", scanErr)
+	}
+
+	if nodeID != "reindex:notes/a.md" {
+		test.Errorf("node_id = %q, want %q", nodeID, "reindex:notes/a.md")
+	}
+
+	if kind != "reindex" {
+		test.Errorf("kind = %q, want %q", kind, "reindex")
+	}
+}
+
+func TestEmbedQueueRepo_EnqueueReindexIsIdempotent(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	for idx := 0; idx < 3; idx++ {
+		if enqErr := repo.EnqueueReindex("notes/dup.md"); enqErr != nil {
+			test.Fatalf("EnqueueReindex %d: %v", idx, enqErr)
+		}
+	}
+
+	depth, _ := repo.Depth()
+
+	if depth != 1 {
+		test.Errorf("Depth = %d, want 1 after idempotent EnqueueReindex", depth)
+	}
+}
+
+func TestEmbedQueueRepo_EnqueueReindexRejectsPrefixedPath(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.EnqueueReindex("reindex:already/prefixed.md"); enqErr == nil {
+		test.Fatalf("EnqueueReindex on prefixed path: want error, got nil")
+	}
+
+	depth, _ := repo.Depth()
+
+	if depth != 0 {
+		test.Errorf("Depth = %d, want 0 (no row written on reject)", depth)
+	}
+}
+
+func TestEmbedQueueRepo_DepthByKindSeparatesEmbedAndReindex(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.Enqueue("a"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	if enqErr := repo.Enqueue("b"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	if enqErr := repo.EnqueueReindex("notes/x.md"); enqErr != nil {
+		test.Fatalf("EnqueueReindex: %v", enqErr)
+	}
+
+	embedDepth, embedErr := repo.DepthByKind("embed")
+
+	if embedErr != nil {
+		test.Fatalf("DepthByKind embed: %v", embedErr)
+	}
+
+	if embedDepth != 2 {
+		test.Errorf("DepthByKind(embed) = %d, want 2", embedDepth)
+	}
+
+	reindexDepth, reindexErr := repo.DepthByKind("reindex")
+
+	if reindexErr != nil {
+		test.Fatalf("DepthByKind reindex: %v", reindexErr)
+	}
+
+	if reindexDepth != 1 {
+		test.Errorf("DepthByKind(reindex) = %d, want 1", reindexDepth)
+	}
+}
+
+func TestEmbedQueueRepo_DrainIgnoresEnqueueReindexRows(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.EnqueueReindex("notes/a.md"); enqErr != nil {
+		test.Fatalf("EnqueueReindex: %v", enqErr)
+	}
+
+	if enqErr := repo.Enqueue("embed-node"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	drained, drainErr := repo.Drain(testWorkerA, 10, testTTL)
+
+	if drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	if len(drained) != 1 {
+		test.Fatalf("len = %d, want 1 (reindex row must not drain)", len(drained))
+	}
+
+	if drained[0].NodeID != "embed-node" {
+		test.Errorf("NodeID = %q, want %q", drained[0].NodeID, "embed-node")
+	}
+}
+
 type boomErr struct{}
 
 func (boomErr) Error() string { return "boom" }

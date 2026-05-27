@@ -60,10 +60,11 @@ func registerStatusTool(srv *Server) {
 		}
 
 		return toolJSON(map[string]any{
-			"nodes_by_type":     result.NodesByType,
-			"edge_count":        result.EdgeCount,
-			"embed_queue_depth": result.EmbedQueueDepth,
-			"last_reindex_at":   result.LastReindexAt,
+			"nodes_by_type":       result.NodesByType,
+			"edge_count":          result.EdgeCount,
+			"embed_queue_depth":   result.EmbedQueueDepth,
+			"reindex_queue_depth": result.ReindexQueueDepth,
+			"last_reindex_at":     result.LastReindexAt,
 		})
 	}
 
@@ -823,8 +824,9 @@ func registerDoctorTool(srv *Server) {
 		}
 
 		response := map[string]any{
-			"issues":            issues,
-			"embed_queue_depth": report.EmbedQueueDepth,
+			"issues":              issues,
+			"embed_queue_depth":   report.EmbedQueueDepth,
+			"reindex_queue_depth": report.ReindexQueueDepth,
 		}
 
 		if len(report.AliasErrors) > 0 {
@@ -1719,8 +1721,9 @@ func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
 
 	case *doctor.Result:
 		envelope := map[string]any{
-			"issues":            typed.Report.Issues,
-			"embed_queue_depth": typed.Report.EmbedQueueDepth,
+			"issues":              typed.Report.Issues,
+			"embed_queue_depth":   typed.Report.EmbedQueueDepth,
+			"reindex_queue_depth": typed.Report.ReindexQueueDepth,
 		}
 
 		if len(typed.Report.AliasErrors) > 0 {
@@ -1745,10 +1748,11 @@ func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
 
 	case *status.Result:
 		return map[string]any{
-			"nodes_by_type":     typed.NodesByType,
-			"edge_count":        typed.EdgeCount,
-			"embed_queue_depth": typed.EmbedQueueDepth,
-			"last_reindex_at":   typed.LastReindexAt,
+			"nodes_by_type":       typed.NodesByType,
+			"edge_count":          typed.EdgeCount,
+			"embed_queue_depth":   typed.EmbedQueueDepth,
+			"reindex_queue_depth": typed.ReindexQueueDepth,
+			"last_reindex_at":     typed.LastReindexAt,
 		}
 	}
 

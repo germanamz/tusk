@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -341,10 +342,10 @@ func TestRun_DrainsEmbedQueue(test *testing.T) {
 		test.Errorf("embedder calls = %d, want 2", embedder.calls)
 	}
 
-	depth, _ := queueRepo.Depth()
+	embedDepth, _ := queueRepo.DepthByKind("embed")
 
-	if depth != 0 {
-		test.Errorf("queue depth = %d, want 0 after drain", depth)
+	if embedDepth != 0 {
+		test.Errorf("embed queue depth = %d, want 0 after drain", embedDepth)
 	}
 
 	loaded, _ := embeddingRepo.GetByNodeID("a")
@@ -1841,5 +1842,135 @@ func TestRun_ReapSkipsLeasedRow(test *testing.T) {
 
 	if row.State != index.FileStateTombstone {
 		test.Errorf("state = %q, want tombstone", row.State)
+	}
+}
+
+func TestRun_EnqueuesReindexJobPerMarkdownFile(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\ntitle: A\n", "Body.\n")
+	writeNode(test, root, "notes/b.md", "type: note\ntitle: B\n", "Body.\n")
+	writeNode(test, root, "tickets/c.md", "type: ticket\ntitle: C\n", "Body.\n")
+	writeNode(test, root, "ignored.txt", "", "not markdown")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	queueRepo := index.NewEmbedQueueRepo(store)
+
+	cfg := withGen(store, reindex.Config{
+		Root:       root,
+		Repo:       index.NewNodeRepo(store),
+		EmbedQueue: queueRepo,
+	})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	reindexDepth, depthErr := queueRepo.DepthByKind("reindex")
+
+	if depthErr != nil {
+		test.Fatalf("DepthByKind: %v", depthErr)
+	}
+
+	if reindexDepth != 3 {
+		test.Errorf("reindex queue depth = %d, want 3", reindexDepth)
+	}
+
+	rows, queryErr := store.DB().Query(`SELECT node_id FROM embed_queue WHERE kind = 'reindex' ORDER BY node_id`)
+
+	if queryErr != nil {
+		test.Fatalf("query reindex rows: %v", queryErr)
+	}
+
+	defer rows.Close()
+
+	var ids []string
+
+	for rows.Next() {
+		var id string
+
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			test.Fatalf("scan: %v", scanErr)
+		}
+
+		ids = append(ids, id)
+	}
+
+	want := []string{"reindex:notes/a.md", "reindex:notes/b.md", "reindex:tickets/c.md"}
+
+	if !reflect.DeepEqual(ids, want) {
+		test.Errorf("reindex node_ids = %v, want %v", ids, want)
+	}
+}
+
+func TestRun_ReindexJobEnqueueIsIdempotent(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\ntitle: A\n", "Body.\n")
+	writeNode(test, root, "notes/b.md", "type: note\ntitle: B\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	queueRepo := index.NewEmbedQueueRepo(store)
+
+	cfg := withGen(store, reindex.Config{
+		Root:       root,
+		Repo:       index.NewNodeRepo(store),
+		EmbedQueue: queueRepo,
+	})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	reindexDepth, _ := queueRepo.DepthByKind("reindex")
+
+	if reindexDepth != 2 {
+		test.Errorf("reindex queue depth after two walks = %d, want 2 (idempotent)", reindexDepth)
+	}
+}
+
+func TestRun_ReindexJobsNotReturnedByEmbedDrain(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\ntitle: A\n", "Body.\n")
+	writeNode(test, root, "notes/b.md", "type: note\ntitle: B\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	queueRepo := index.NewEmbedQueueRepo(store)
+
+	cfg := withGen(store, reindex.Config{
+		Root:       root,
+		Repo:       index.NewNodeRepo(store),
+		EmbedQueue: queueRepo,
+	})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	drained, drainErr := queueRepo.Drain("worker-test", 100, time.Minute)
+
+	if drainErr != nil {
+		test.Fatalf("Drain: %v", drainErr)
+	}
+
+	for _, row := range drained {
+		if row.Kind != "embed" {
+			test.Errorf("drained row kind = %q, want %q (reindex rows must not drain)", row.Kind, "embed")
+		}
+
+		if strings.HasPrefix(row.NodeID, index.ReindexNodeIDPrefix) {
+			test.Errorf("drained node_id = %q starts with reindex prefix", row.NodeID)
+		}
 	}
 }

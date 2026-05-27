@@ -224,6 +224,10 @@ func Run(config Config) (*Report, error) {
 			return fmt.Errorf("reindex: stat %s: %w", path, statErr)
 		}
 
+		// BRIDGE: this in-walker per-file work duplicates the queue-driven
+		// worker path introduced by T6.4. Both producers run during T6.3 →
+		// T6.4 ship; T6.4 removes everything between this comment and the
+		// matching "// END BRIDGE" marker.
 		propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
 
 		if marshalErr != nil {
@@ -457,6 +461,13 @@ func Run(config Config) (*Report, error) {
 			LastSeenGen: gen,
 		}); upsertErr != nil {
 			return upsertErr
+		}
+		// END BRIDGE
+
+		if config.EmbedQueue != nil {
+			if enqErr := config.EmbedQueue.EnqueueReindex(parsed.Path); enqErr != nil {
+				return enqErr
+			}
 		}
 
 		seenPaths[parsed.Path] = struct{}{}

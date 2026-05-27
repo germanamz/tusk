@@ -258,6 +258,7 @@ for a diagnostic-only run.`,
 				}
 
 				_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", report.EmbedQueueDepth)
+				_, _ = fmt.Fprintf(out, "reindex queue depth: %d\n", report.ReindexQueueDepth)
 
 				if report.EmbedStats != nil {
 					stats := report.EmbedStats
