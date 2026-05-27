@@ -13,7 +13,6 @@ import (
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/leaseconfig"
-	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -55,8 +54,6 @@ type Runtime struct {
 	aliasIntrospector manifest.VerbIntrospector
 
 	Logger *slog.Logger // optional; nil silences output
-
-	lockHandle *lock.WorkspaceLock // workspace file-lock held for the Runtime's lifetime
 }
 
 // Option mutates a Runtime during Open.
@@ -97,19 +94,6 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	lockHandle, lockNewErr := lock.NewWorkspaceLock(ws.Root)
-
-	if lockNewErr != nil {
-		return nil, fmt.Errorf("mcp: lock: %w", lockNewErr)
-	}
-
-	acquireCtx, acquireCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer acquireCancel()
-
-	if acquireErr := lockHandle.Acquire(acquireCtx); acquireErr != nil {
-		return nil, fmt.Errorf("mcp: lock: %w", acquireErr)
-	}
-
 	rt := &Runtime{}
 
 	for _, opt := range opts {
@@ -134,8 +118,6 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	})
 
 	if openErr != nil {
-		_ = lockHandle.Release()
-
 		return nil, fmt.Errorf("mcp: index: %w", openErr)
 	}
 
@@ -143,7 +125,6 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 
 	if buildErr != nil {
 		store.Close()
-		_ = lockHandle.Release()
 
 		return nil, fmt.Errorf("mcp: behavior engine: %w", buildErr)
 	}
@@ -165,7 +146,6 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	rt.BehaviorEngine = engine
 	rt.WorkflowDrift = driftRepo
 	rt.PropertyDrift = propertyDriftRepo
-	rt.lockHandle = lockHandle
 	rt.LeaseTTL = leaseconfig.Resolve(loaded.Lease.TTLSeconds)
 	rt.WorkerID = index.WorkerID()
 
@@ -208,9 +188,8 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	return rt, nil
 }
 
-// Close releases the index handle and the workspace lock acquired by Open.
-// Idempotent: subsequent calls are no-ops because Index and lockHandle are
-// niled after the first release.
+// Close releases the index handle acquired by Open. Idempotent: subsequent
+// calls are no-ops because Index is niled after the first release.
 func (rt *Runtime) Close() error {
 	if rt.Index == nil {
 		return nil
@@ -218,11 +197,6 @@ func (rt *Runtime) Close() error {
 
 	closeErr := rt.Index.Close()
 	rt.Index = nil
-
-	if rt.lockHandle != nil {
-		_ = rt.lockHandle.Release()
-		rt.lockHandle = nil
-	}
 
 	return closeErr
 }

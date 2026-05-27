@@ -2,16 +2,12 @@ package mcp_test
 
 import (
 	"bytes"
-	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/mcp"
 )
 
@@ -139,7 +135,7 @@ func TestOpen_FailsWhenNoWorkspace(test *testing.T) {
 	}
 }
 
-func TestRuntime_OpenAcquiresWorkspaceLock(test *testing.T) {
+func TestOpen_AllowsConcurrentInstances(test *testing.T) {
 	root := test.TempDir()
 
 	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
@@ -152,39 +148,37 @@ name = "x"
 		test.Fatalf("mkdir .tusk: %v", mkErr)
 	}
 
-	rt, openErr := mcp.Open(root)
+	rtA, openErrA := mcp.Open(root)
 
-	if openErr != nil {
-		test.Fatalf("Open: %v", openErr)
+	if openErrA != nil {
+		test.Fatalf("Open A: %v", openErrA)
 	}
 
-	defer rt.Close()
+	defer rtA.Close()
 
-	extLock, newErr := lock.NewWorkspaceLock(root)
+	rtB, openErrB := mcp.Open(root)
 
-	if newErr != nil {
-		test.Fatalf("NewWorkspaceLock: %v", newErr)
+	if openErrB != nil {
+		test.Fatalf("Open B: %v", openErrB)
 	}
 
-	busyCtx, busyCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer busyCancel()
+	defer rtB.Close()
 
-	if acqErr := extLock.Acquire(busyCtx); !errors.Is(acqErr, lock.ErrBusy) {
-		test.Errorf("expected ErrBusy while runtime holds lock; got %v", acqErr)
+	if rtA.Nodes == nil || rtA.FileState == nil {
+		test.Errorf("runtime A missing Nodes/FileState")
 	}
 
-	if closeErr := rt.Close(); closeErr != nil {
-		test.Fatalf("Close: %v", closeErr)
+	if rtB.Nodes == nil || rtB.FileState == nil {
+		test.Errorf("runtime B missing Nodes/FileState")
 	}
 
-	freeCtx, freeCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer freeCancel()
-
-	if acqErr := extLock.Acquire(freeCtx); acqErr != nil {
-		test.Errorf("expected lock to be free after Close; got %v", acqErr)
+	if closeErr := rtA.Close(); closeErr != nil {
+		test.Errorf("Close A: %v", closeErr)
 	}
 
-	_ = extLock.Release()
+	if closeErr := rtB.Close(); closeErr != nil {
+		test.Errorf("Close B: %v", closeErr)
+	}
 }
 
 func TestOpen_WithLogger_PopulatesRuntimeLogger(test *testing.T) {
