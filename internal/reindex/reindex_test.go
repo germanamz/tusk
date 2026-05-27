@@ -374,6 +374,7 @@ func TestRun_RecordsLastReindexAt(test *testing.T) {
 		Repo:       index.NewNodeRepo(store),
 		Meta:       metaRepo,
 		FileStates: index.NewFileStateRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
 	}); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
@@ -1337,6 +1338,7 @@ func TestRun_BumpsReindexGen(test *testing.T) {
 		Repo:       repo,
 		Meta:       meta,
 		FileStates: fileStates,
+		EmbedQueue: index.NewEmbedQueueRepo(store),
 	})
 
 	if firstErr != nil {
@@ -1358,6 +1360,7 @@ func TestRun_BumpsReindexGen(test *testing.T) {
 		Repo:       repo,
 		Meta:       meta,
 		FileStates: fileStates,
+		EmbedQueue: index.NewEmbedQueueRepo(store),
 	})
 
 	if secondErr != nil {
@@ -1394,6 +1397,7 @@ func TestRun_WritesLastSeenGenForEveryIndexedFile(test *testing.T) {
 		Repo:       repo,
 		Meta:       meta,
 		FileStates: fileStates,
+		EmbedQueue: index.NewEmbedQueueRepo(store),
 	})
 
 	if runErr != nil {
@@ -1442,6 +1446,7 @@ func TestRun_ConcurrentInvocationsProduceDistinctGens(test *testing.T) {
 		Repo:       repo,
 		Meta:       meta,
 		FileStates: fileStates,
+		EmbedQueue: index.NewEmbedQueueRepo(store),
 	}
 
 	var (
@@ -1487,9 +1492,10 @@ func TestRun_ConcurrentInvocationsProduceDistinctGens(test *testing.T) {
 	}
 }
 
-// withGen wires Meta and FileStates onto cfg from store. T6.1 made both
-// fields required on reindex.Config; this helper keeps the older test
-// bodies short.
+// withGen wires Meta, FileStates, and EmbedQueue onto cfg from store. T6.1
+// made Meta and FileStates required; T6.4 made EmbedQueue required (the
+// queue-driven worker pool is the only producer of per-file work). This
+// helper keeps the older test bodies short.
 func withGen(store *index.Index, cfg reindex.Config) reindex.Config {
 	if cfg.Meta == nil {
 		cfg.Meta = index.NewMetaRepo(store)
@@ -1497,6 +1503,10 @@ func withGen(store *index.Index, cfg reindex.Config) reindex.Config {
 
 	if cfg.FileStates == nil {
 		cfg.FileStates = index.NewFileStateRepo(store)
+	}
+
+	if cfg.EmbedQueue == nil {
+		cfg.EmbedQueue = index.NewEmbedQueueRepo(store)
 	}
 
 	return cfg
@@ -1862,6 +1872,7 @@ func TestRun_EnqueuesReindexJobPerMarkdownFile(test *testing.T) {
 		Root:       root,
 		Repo:       index.NewNodeRepo(store),
 		EmbedQueue: queueRepo,
+		Async:      true,
 	})
 
 	if _, runErr := reindex.Run(cfg); runErr != nil {
@@ -1920,6 +1931,7 @@ func TestRun_ReindexJobEnqueueIsIdempotent(test *testing.T) {
 		Root:       root,
 		Repo:       index.NewNodeRepo(store),
 		EmbedQueue: queueRepo,
+		Async:      true,
 	})
 
 	if _, runErr := reindex.Run(cfg); runErr != nil {
@@ -1952,13 +1964,14 @@ func TestRun_ReindexJobsNotReturnedByEmbedDrain(test *testing.T) {
 		Root:       root,
 		Repo:       index.NewNodeRepo(store),
 		EmbedQueue: queueRepo,
+		Async:      true,
 	})
 
 	if _, runErr := reindex.Run(cfg); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
 
-	drained, drainErr := queueRepo.Drain("worker-test", 100, time.Minute)
+	drained, drainErr := queueRepo.DrainEmbed("worker-test", 100, time.Minute)
 
 	if drainErr != nil {
 		test.Fatalf("Drain: %v", drainErr)

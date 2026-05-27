@@ -72,10 +72,13 @@ structured output instead (compact for TTY, JSON otherwise).`,
 				IndexPath: ws.IndexPath,
 				ReindexFactory: func(idx *index.Index) reindex.Config {
 					return reindex.Config{
-						Root:      ws.Root,
-						Repo:      index.NewNodeRepo(idx),
-						Edges:     index.NewEdgeRepo(idx),
-						EdgeTypes: loaded.EdgeTypes,
+						Root:       ws.Root,
+						Repo:       index.NewNodeRepo(idx),
+						Edges:      index.NewEdgeRepo(idx),
+						EdgeTypes:  loaded.EdgeTypes,
+						Meta:       index.NewMetaRepo(idx),
+						FileStates: index.NewFileStateRepo(idx),
+						EmbedQueue: index.NewEmbedQueueRepo(idx),
 					}
 				},
 				Logger: func(msg string) {

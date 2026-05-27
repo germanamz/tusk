@@ -45,6 +45,7 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 			Meta:            config.Runtime.Meta,
 			FileStates:      config.Runtime.FileState,
 			Logger:          config.Logger,
+			Async:           true,
 		})
 
 		if runErr != nil && config.Logger != nil {

@@ -1388,12 +1388,12 @@ func registerReindexTool(srv *Server) {
 			Edges:           srv.runtime.Edges,
 			EdgeTypes:       srv.runtime.Manifest.EdgeTypes,
 			WorkspaceIgnore: srv.runtime.Manifest.Workspace.Ignore,
+			EmbedQueue:      srv.runtime.EmbedQueue,
 			Meta:            srv.runtime.Meta,
 			FileStates:      srv.runtime.FileState,
 		}
 
 		if !noEmbed && srv.runtime.Embedder != nil {
-			config.EmbedQueue = srv.runtime.EmbedQueue
 			config.EmbeddingRepo = srv.runtime.Embeddings
 			config.Embedder = srv.runtime.Embedder
 			config.Chunker = srv.runtime.Chunker

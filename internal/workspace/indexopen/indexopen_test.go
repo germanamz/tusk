@@ -46,6 +46,7 @@ func TestOpenOrRebuildOpensFreshIndex(test *testing.T) {
 				Repo:       index.NewNodeRepo(store),
 				Meta:       index.NewMetaRepo(store),
 				FileStates: index.NewFileStateRepo(store),
+				EmbedQueue: index.NewEmbedQueueRepo(store),
 			}
 		},
 		Logger: func(string) {},
@@ -96,6 +97,7 @@ func TestOpenOrRebuildRebuildsOnMismatch(test *testing.T) {
 				Repo:       index.NewNodeRepo(store),
 				Meta:       index.NewMetaRepo(store),
 				FileStates: index.NewFileStateRepo(store),
+				EmbedQueue: index.NewEmbedQueueRepo(store),
 			}
 		},
 		Logger: func(msg string) {

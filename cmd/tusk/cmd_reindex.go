@@ -68,6 +68,7 @@ after changing node/edge declarations in tusk.toml.`,
 						EdgeTypes:  loaded.EdgeTypes,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
+						EmbedQueue: index.NewEmbedQueueRepo(idx),
 					}
 				},
 				Logger: func(msg string) {
@@ -92,8 +93,9 @@ after changing node/edge declarations in tusk.toml.`,
 
 			var embedder embed.Embedder
 			var chunker embed.ChunkingStrategy
-			var embedQueue *index.EmbedQueueRepo
 			var embeddingRepo *index.EmbeddingRepo
+
+			embedQueue := index.NewEmbedQueueRepo(store)
 
 			if loaded.Embeddings.Provider == "ollama" {
 				timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
@@ -106,7 +108,6 @@ after changing node/edge declarations in tusk.toml.`,
 					Timeout:  timeout,
 				})
 				chunker = embed.MarkdownRecursive{}
-				embedQueue = index.NewEmbedQueueRepo(store)
 				embeddingRepo = index.NewEmbeddingRepo(store)
 			}
 

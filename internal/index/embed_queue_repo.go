@@ -107,17 +107,29 @@ func (repo *EmbedQueueRepo) ReEnqueue(nodeID string, attempts int, lastError str
 	return nil
 }
 
-// Drain atomically claims up to batchSize unleased (or expired-lease)
-// embed rows for workerID, setting leased_by / leased_until_ns /
+// DrainEmbed atomically claims up to batchSize unleased (or expired-lease)
+// kind='embed' rows for workerID, setting leased_by / leased_until_ns /
 // lease_started_at_ns to now and now+ttl. Returns the claimed rows
-// oldest-first. The kind filter is hardcoded to 'embed'; reindex jobs
-// are drained by a separate Phase 6 worker path.
+// oldest-first.
 //
 // On success the caller embeds each row and calls Ack to delete it; on
 // failure the caller calls Nack to release the lease and bump attempts,
 // or Drop to remove the row when the attempts cap is hit. On crash the
-// lease expires after ttl and another worker's Drain reclaims it.
-func (repo *EmbedQueueRepo) Drain(workerID string, batchSize int, ttl time.Duration) ([]QueueRow, error) {
+// lease expires after ttl and another worker's DrainEmbed reclaims it.
+func (repo *EmbedQueueRepo) DrainEmbed(workerID string, batchSize int, ttl time.Duration) ([]QueueRow, error) {
+	return repo.drainByKind(workerID, batchSize, ttl, "embed")
+}
+
+// DrainReindex atomically claims up to batchSize unleased (or expired-lease)
+// kind='reindex' rows. Same lease semantics as DrainEmbed. Phase 6 introduces
+// the reindex-queue worker pool that consumes these claims.
+func (repo *EmbedQueueRepo) DrainReindex(workerID string, batchSize int, ttl time.Duration) ([]QueueRow, error) {
+	return repo.drainByKind(workerID, batchSize, ttl, "reindex")
+}
+
+// drainByKind is the kind-parameterized lease-claim primitive shared by
+// DrainEmbed and DrainReindex. The lease SQL lives here once.
+func (repo *EmbedQueueRepo) drainByKind(workerID string, batchSize int, ttl time.Duration, kind string) ([]QueueRow, error) {
 	now := time.Now().UnixNano()
 	leasedUntil := now + ttl.Nanoseconds()
 
@@ -128,16 +140,16 @@ func (repo *EmbedQueueRepo) Drain(workerID string, batchSize int, ttl time.Durat
 		       lease_started_at_ns = ?
 		WHERE  node_id IN (
 		         SELECT node_id FROM embed_queue
-		         WHERE  kind = 'embed'
+		         WHERE  kind = ?
 		           AND  (leased_by IS NULL OR leased_until_ns < ?)
 		         ORDER BY enqueued_at ASC
 		         LIMIT ?
 		       )
 		RETURNING node_id, enqueued_at, attempts, COALESCE(last_error, ''), kind
-	`, workerID, leasedUntil, now, now, batchSize)
+	`, workerID, leasedUntil, now, kind, now, batchSize)
 
 	if queryErr != nil {
-		return nil, fmt.Errorf("embedQueueRepo: drain claim: %w", queryErr)
+		return nil, fmt.Errorf("embedQueueRepo: drain %s claim: %w", kind, queryErr)
 	}
 
 	defer rows.Close()
@@ -148,7 +160,7 @@ func (repo *EmbedQueueRepo) Drain(workerID string, batchSize int, ttl time.Durat
 		var row QueueRow
 
 		if scanErr := rows.Scan(&row.NodeID, &row.EnqueuedAt, &row.Attempts, &row.LastError, &row.Kind); scanErr != nil {
-			return nil, fmt.Errorf("embedQueueRepo: drain scan: %w", scanErr)
+			return nil, fmt.Errorf("embedQueueRepo: drain %s scan: %w", kind, scanErr)
 		}
 
 		leasedBy := workerID
@@ -162,7 +174,7 @@ func (repo *EmbedQueueRepo) Drain(workerID string, batchSize int, ttl time.Durat
 	}
 
 	if rowsErr := rows.Err(); rowsErr != nil {
-		return nil, fmt.Errorf("embedQueueRepo: drain rows: %w", rowsErr)
+		return nil, fmt.Errorf("embedQueueRepo: drain %s rows: %w", kind, rowsErr)
 	}
 
 	return drained, nil
