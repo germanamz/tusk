@@ -211,6 +211,7 @@ func commitReplace(
 		Path:        relPath,
 		WorkerID:    workerID,
 		Success:     true,
+		State:       index.FileStateLive,
 		ContentHash: newHash,
 		MtimeNs:     stat.ModTime().UnixNano(),
 		Size:        stat.Size(),

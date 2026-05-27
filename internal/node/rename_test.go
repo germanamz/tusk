@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -24,7 +25,10 @@ func TestDelete_RemovesFileAndEdges(test *testing.T) {
 		"parent": manifest.EdgeType{From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToOne},
 	}
 
-	service := node.NewServiceWithManifest(root, nodeRepo, edgeRepo, edgeTypes)
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, edgeTypes, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, parentErr := service.Create(node.CreateInput{
 		RelPath: "tickets/parent.md", Type: "ticket", Title: "Parent",
@@ -89,7 +93,10 @@ func TestRename_MovesFileAndRewritesReferringEdgesInFrontmatter(test *testing.T)
 		"parent": manifest.EdgeType{From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToOne},
 	}
 
-	service := node.NewServiceWithManifest(root, nodeRepo, edgeRepo, edgeTypes)
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, edgeTypes, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, parentErr := service.Create(node.CreateInput{
 		RelPath: "tickets/old-parent.md", Type: "ticket", Title: "Parent",
@@ -158,7 +165,10 @@ func TestRename_InheritsSourceExtensionWhenTargetHasNone(test *testing.T) {
 	nodeRepo := index.NewNodeRepo(store)
 	edgeRepo := index.NewEdgeRepo(store)
 
-	service := node.NewServiceWithManifest(root, nodeRepo, edgeRepo, manifest.EdgeTypes{})
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/foo.md", Type: "note"}); createErr != nil {
 		test.Fatalf("create foo: %v", createErr)
@@ -196,7 +206,10 @@ func TestRename_HonorsExplicitTargetExtension(test *testing.T) {
 	nodeRepo := index.NewNodeRepo(store)
 	edgeRepo := index.NewEdgeRepo(store)
 
-	service := node.NewServiceWithManifest(root, nodeRepo, edgeRepo, manifest.EdgeTypes{})
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/foo.md", Type: "note"}); createErr != nil {
 		test.Fatalf("create foo: %v", createErr)
@@ -222,7 +235,10 @@ func TestRename_ReturnsErrorWhenTargetExists(test *testing.T) {
 	nodeRepo := index.NewNodeRepo(store)
 	edgeRepo := index.NewEdgeRepo(store)
 
-	service := node.NewServiceWithManifest(root, nodeRepo, edgeRepo, manifest.EdgeTypes{})
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	_, _ = service.Create(node.CreateInput{RelPath: "a.md", Type: "note"})
 	_, _ = service.Create(node.CreateInput{RelPath: "b.md", Type: "note"})

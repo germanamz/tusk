@@ -34,6 +34,7 @@ type Runtime struct {
 	EmbedQueue  *index.EmbedQueueRepo
 	Embeddings  *index.EmbeddingRepo
 	Meta        *index.MetaRepo
+	FileState   *index.FileStateRepo
 	NodeService *node.Service
 
 	BehaviorEngine *behavior.Engine
@@ -44,6 +45,7 @@ type Runtime struct {
 	Chunker  embed.ChunkingStrategy
 	Workers  int
 	LeaseTTL time.Duration
+	WorkerID string
 
 	// AliasIntrospector is the manifest.VerbIntrospector used to validate
 	// manifest-declared aliases at Open time. Callers that construct a
@@ -159,10 +161,13 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	rt.EmbedQueue = index.NewEmbedQueueRepo(store)
 	rt.Embeddings = index.NewEmbeddingRepo(store)
 	rt.Meta = index.NewMetaRepo(store)
+	rt.FileState = index.NewFileStateRepo(store)
 	rt.BehaviorEngine = engine
 	rt.WorkflowDrift = driftRepo
 	rt.PropertyDrift = propertyDriftRepo
 	rt.lockHandle = lockHandle
+	rt.LeaseTTL = leaseconfig.Resolve(loaded.Lease.TTLSeconds)
+	rt.WorkerID = index.WorkerID()
 
 	rt.NodeService = node.NewServiceWithBehaviors(
 		rt.Root,
@@ -176,14 +181,15 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		driftRepo,
 		os.Stderr,
 		node.NewIndexRefLookup(rt.Nodes),
+		rt.FileState,
+		rt.WorkerID,
+		rt.LeaseTTL,
 	)
 
 	if rt.aliasIntrospector != nil {
 		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
 		manifest.ValidateContext(loaded, rt.aliasIntrospector)
 	}
-
-	rt.LeaseTTL = leaseconfig.Resolve(loaded.Lease.TTLSeconds)
 
 	if loaded.Embeddings.Provider == "ollama" {
 		timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
@@ -261,6 +267,9 @@ func (rt *Runtime) ReloadManifest() error {
 		rt.WorkflowDrift,
 		os.Stderr,
 		node.NewIndexRefLookup(rt.Nodes),
+		rt.FileState,
+		rt.WorkerID,
+		rt.LeaseTTL,
 	)
 
 	return nil

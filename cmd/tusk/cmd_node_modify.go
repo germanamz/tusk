@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -106,6 +107,9 @@ cannot interleave.`,
 					index.NewWorkflowDriftRepo(store),
 					cmd.ErrOrStderr(),
 					node.NewIndexRefLookup(nodes),
+					index.NewFileStateRepo(store),
+					index.WorkerID(),
+					leaseconfig.Resolve(loaded.Lease.TTLSeconds),
 				)
 
 				modified, modifyErr := service.Modify(node.ModifyInput{
