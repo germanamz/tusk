@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -817,7 +818,7 @@ func TestService_Modify_EnqueuesEmbed(test *testing.T) {
 		test.Fatalf("Create: %v", createErr)
 	}
 
-	queueRepo.Drain(100) // clear from Create
+	queueRepo.Drain(index.WorkerID(), 100, time.Minute) // clear from Create
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
 		ID:       "notes/hi",
