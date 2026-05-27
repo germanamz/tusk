@@ -1387,6 +1387,7 @@ func registerReindexTool(srv *Server) {
 			EdgeTypes:       srv.runtime.Manifest.EdgeTypes,
 			WorkspaceIgnore: srv.runtime.Manifest.Workspace.Ignore,
 			Meta:            srv.runtime.Meta,
+			FileStates:      srv.runtime.FileState,
 		}
 
 		if !noEmbed && srv.runtime.Embedder != nil {

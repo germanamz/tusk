@@ -41,9 +41,17 @@ type Config struct {
 	Embedder      embed.Embedder
 	Chunker       embed.ChunkingStrategy
 
-	// Meta is optional; when set, Run records `last_reindex_at` (unix nanoseconds
-	// formatted as decimal string) at the end of every successful pass.
+	// Meta is required. At the start of each pass Run atomically bumps the
+	// `reindex_gen` key on Meta and stamps the resulting value on every
+	// file_state row it touches; at the end of the pass it records
+	// `last_reindex_at` (unix nanoseconds formatted as decimal string).
 	Meta *index.MetaRepo
+
+	// FileStates is required. The walker upserts a file_state row for
+	// every indexed file, stamping `last_seen_gen` with the current
+	// generation so T6.2's generation-based reap can identify rows whose
+	// files disappeared between passes.
+	FileStates *index.FileStateRepo
 
 	// Behaviors is optional; when set, Run fires the workflow validator in
 	// warn mode for each indexed node. Violations are persisted to DriftLog.
@@ -97,21 +105,43 @@ type Report struct {
 	SubUnitsInserted  int // sub-unit rows freshly written across all files
 	SubUnitsDeleted   int // sub-unit rows removed across all files
 	SubUnitsReordered int // sub-unit rows whose ordinal changed
+
+	// Generation is the value of `reindex_gen` assigned to this pass.
+	// Informational for callers; T6.2 will use it for generation-based
+	// orphan reap.
+	Generation int64
 }
 
 // Run walks Root, parses every *.md file with valid frontmatter, and upserts
 // or removes index rows so the index matches what is on disk. When Edges and
 // EdgeTypes are configured, edges are written and removed alongside nodes.
 func Run(config Config) (*Report, error) {
+	if config.Meta == nil {
+		return nil, fmt.Errorf("reindex: Meta is required")
+	}
+
+	if config.FileStates == nil {
+		return nil, fmt.Errorf("reindex: FileStates is required")
+	}
+
 	report := &Report{}
 	seenPaths := map[string]struct{}{}
 
 	start := time.Now()
 
+	gen, incrErr := config.Meta.Incr("reindex_gen", 1)
+
+	if incrErr != nil {
+		return nil, fmt.Errorf("reindex: bump reindex_gen: %w", incrErr)
+	}
+
+	report.Generation = gen
+
 	if config.Logger != nil {
 		config.Logger.Info("reindex walk start",
 			"root", config.Root,
 			"ignore_patterns_count", len(config.WorkspaceIgnore),
+			"generation", gen,
 		)
 	}
 
@@ -405,6 +435,17 @@ func Run(config Config) (*Report, error) {
 			report.SubUnitsReordered += syncResult.Reordered
 		}
 
+		if upsertErr := config.FileStates.Upsert(index.FileStateRow{
+			Path:        parsed.Path,
+			ContentHash: hex.EncodeToString(checksum[:]),
+			MtimeNs:     stat.ModTime().UnixNano(),
+			Size:        stat.Size(),
+			State:       index.FileStateLive,
+			LastSeenGen: gen,
+		}); upsertErr != nil {
+			return upsertErr
+		}
+
 		seenPaths[parsed.Path] = struct{}{}
 		report.Indexed++
 
@@ -467,10 +508,8 @@ func Run(config Config) (*Report, error) {
 		}
 	}
 
-	if config.Meta != nil {
-		if setErr := config.Meta.Set("last_reindex_at", fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
-			return nil, fmt.Errorf("reindex: record last_reindex_at: %w", setErr)
-		}
+	if setErr := config.Meta.Set("last_reindex_at", fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
+		return nil, fmt.Errorf("reindex: record last_reindex_at: %w", setErr)
 	}
 
 	if config.Logger != nil {

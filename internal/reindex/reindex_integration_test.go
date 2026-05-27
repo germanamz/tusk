@@ -115,6 +115,8 @@ func TestPhase2Integration(test *testing.T) {
 		EmbeddingRepo: embeddings,
 		Embedder:      embedder,
 		Chunker:       embed.WholeDocument{},
+		Meta:          index.NewMetaRepo(store),
+		FileStates:    index.NewFileStateRepo(store),
 	}
 
 	report, runErr := reindex.Run(cfg)

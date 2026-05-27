@@ -65,10 +65,12 @@ in another shell to observe progress.`,
 				IndexPath: ws.IndexPath,
 				ReindexFactory: func(idx *index.Index) reindex.Config {
 					return reindex.Config{
-						Root:      ws.Root,
-						Repo:      index.NewNodeRepo(idx),
-						Edges:     index.NewEdgeRepo(idx),
-						EdgeTypes: loaded.EdgeTypes,
+						Root:       ws.Root,
+						Repo:       index.NewNodeRepo(idx),
+						Edges:      index.NewEdgeRepo(idx),
+						EdgeTypes:  loaded.EdgeTypes,
+						Meta:       index.NewMetaRepo(idx),
+						FileStates: index.NewFileStateRepo(idx),
 					}
 				},
 				Logger: func(msg string) {
@@ -84,6 +86,8 @@ in another shell to observe progress.`,
 
 			nodeRepo := index.NewNodeRepo(store)
 			edgeRepo := index.NewEdgeRepo(store)
+			metaRepo := index.NewMetaRepo(store)
+			fileStateRepo := index.NewFileStateRepo(store)
 
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
 
@@ -93,6 +97,8 @@ in another shell to observe progress.`,
 				Edges:           edgeRepo,
 				EdgeTypes:       loaded.EdgeTypes,
 				WorkspaceIgnore: loaded.Workspace.Ignore,
+				Meta:            metaRepo,
+				FileStates:      fileStateRepo,
 				Logger:          logger,
 				Manifest:        loaded,
 			}); runErr != nil {
@@ -157,6 +163,8 @@ in another shell to observe progress.`,
 					Edges:           edgeRepo,
 					EdgeTypes:       loaded.EdgeTypes,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
+					Meta:            metaRepo,
+					FileStates:      fileStateRepo,
 					Logger:          logger,
 					Manifest:        loaded,
 				})

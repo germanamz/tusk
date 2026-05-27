@@ -42,8 +42,10 @@ func TestOpenOrRebuildOpensFreshIndex(test *testing.T) {
 		IndexPath: indexPath,
 		ReindexFactory: func(store *index.Index) reindex.Config {
 			return reindex.Config{
-				Root: root,
-				Repo: index.NewNodeRepo(store),
+				Root:       root,
+				Repo:       index.NewNodeRepo(store),
+				Meta:       index.NewMetaRepo(store),
+				FileStates: index.NewFileStateRepo(store),
 			}
 		},
 		Logger: func(string) {},
@@ -90,8 +92,10 @@ func TestOpenOrRebuildRebuildsOnMismatch(test *testing.T) {
 		IndexPath: indexPath,
 		ReindexFactory: func(store *index.Index) reindex.Config {
 			return reindex.Config{
-				Root: root,
-				Repo: index.NewNodeRepo(store),
+				Root:       root,
+				Repo:       index.NewNodeRepo(store),
+				Meta:       index.NewMetaRepo(store),
+				FileStates: index.NewFileStateRepo(store),
 			}
 		},
 		Logger: func(msg string) {

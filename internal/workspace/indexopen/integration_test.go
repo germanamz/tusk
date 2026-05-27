@@ -28,8 +28,10 @@ func TestFullCycle_OpenMismatchRebuildReopen(test *testing.T) {
 
 	factory := func(idx *index.Index) reindex.Config {
 		return reindex.Config{
-			Root: root,
-			Repo: index.NewNodeRepo(idx),
+			Root:       root,
+			Repo:       index.NewNodeRepo(idx),
+			Meta:       index.NewMetaRepo(idx),
+			FileStates: index.NewFileStateRepo(idx),
 		}
 	}
 
