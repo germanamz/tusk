@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -1517,5 +1518,328 @@ func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
 
 	if writeErr := os.WriteFile(abs, []byte(content), 0o644); writeErr != nil {
 		test.Fatalf("write: %v", writeErr)
+	}
+}
+
+// TestRun_ReapPreservesFileCreatedMidWalk asserts that a file_state row
+// whose last_seen_gen is greater than or equal to the current walk's
+// generation is never considered for reap. Simulates a handler writing
+// a new file (and stamping the next gen) between two reindex passes.
+func TestRun_ReapPreservesFileCreatedMidWalk(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	cfg := withGen(store, reindex.Config{Root: root, Repo: repo})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// Simulate a concurrent handler: write a brand-new file on disk and
+	// stamp its file_state row with gen=3 (next walk will use gen=2 and
+	// must not reap a row whose last_seen_gen >= 2).
+	writeNode(test, root, "notes/b.md", "type: note\n", "Body.\n")
+
+	if upsertErr := cfg.FileStates.Upsert(index.FileStateRow{
+		Path:        "notes/b.md",
+		ContentHash: "deadbeef",
+		MtimeNs:     1,
+		Size:        1,
+		State:       index.FileStateLive,
+		LastSeenGen: 3,
+	}); upsertErr != nil {
+		test.Fatalf("seed b file_state: %v", upsertErr)
+	}
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	row, getErr := cfg.FileStates.Get("notes/b.md")
+
+	if getErr != nil {
+		test.Fatalf("FileStates.Get(notes/b.md): %v", getErr)
+	}
+
+	if row.State != index.FileStateLive {
+		test.Errorf("state = %q, want live", row.State)
+	}
+
+	if _, getErr := repo.Get("notes/b"); getErr != nil {
+		test.Errorf("notes/b node missing: %v", getErr)
+	}
+}
+
+// TestRun_ReapDeletesFileRemovedBetweenWalks asserts the happy-path
+// reap: a file that was indexed on walk 1 and removed from disk before
+// walk 2 has its file_state tombstoned, its node row deleted, and its
+// edges cascade-deleted.
+func TestRun_ReapDeletesFileRemovedBetweenWalks(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "tickets/a.md", "type: ticket\ntitle: A\nparent: tickets/b\n", "")
+	writeNode(test, root, "tickets/b.md", "type: ticket\ntitle: B\n", "")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"parent": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket"},
+			Cardinality: manifest.CardinalityManyToOne,
+		},
+	}
+
+	cfg := withGen(store, reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if rmErr := os.Remove(filepath.Join(root, "tickets/a.md")); rmErr != nil {
+		test.Fatalf("rm: %v", rmErr)
+	}
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	if report.Removed != 1 {
+		test.Errorf("Removed = %d, want 1", report.Removed)
+	}
+
+	row, getErr := cfg.FileStates.Get("tickets/a.md")
+
+	if getErr != nil {
+		test.Fatalf("FileStates.Get(tickets/a.md): %v", getErr)
+	}
+
+	if row.State != index.FileStateTombstone {
+		test.Errorf("state = %q, want tombstone", row.State)
+	}
+
+	if _, getErr := repo.Get("tickets/a"); getErr != index.ErrNodeNotFound {
+		test.Errorf("err = %v, want ErrNodeNotFound", getErr)
+	}
+
+	edges, _ := edgeRepo.ListBySource("tickets/a")
+
+	if len(edges) != 0 {
+		test.Errorf("edges remain: %+v", edges)
+	}
+}
+
+// TestRun_ReapStatReVerifiesBeforeDelete asserts that a candidate row
+// whose file still exists on disk is NOT tombstoned: the reap pass
+// re-stats and bumps last_seen_gen instead. Simulates the candidate
+// list including a survivor by downgrading its last_seen_gen via raw
+// SQL.
+func TestRun_ReapStatReVerifiesBeforeDelete(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	cfg := withGen(store, reindex.Config{Root: root, Repo: repo})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// To make notes/a.md a reap candidate whose os.Stat will succeed,
+	// pin its last_seen_gen below any future gen AND hide the file
+	// from the walker so it doesn't get re-stamped during the walk.
+	if _, execErr := store.DB().Exec(
+		`UPDATE file_state SET last_seen_gen = 0 WHERE path = ?`,
+		"notes/a.md",
+	); execErr != nil {
+		test.Fatalf("downgrade last_seen_gen: %v", execErr)
+	}
+
+	cfgIgnored := cfg
+	cfgIgnored.WorkspaceIgnore = []string{"notes/a.md"}
+
+	report, runErr := reindex.Run(cfgIgnored)
+
+	if runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	if report.Removed != 0 {
+		test.Errorf("Removed = %d, want 0 (file still on disk)", report.Removed)
+	}
+
+	row, getErr := cfg.FileStates.Get("notes/a.md")
+
+	if getErr != nil {
+		test.Fatalf("FileStates.Get: %v", getErr)
+	}
+
+	if row.State != index.FileStateLive {
+		test.Errorf("state = %q, want live", row.State)
+	}
+
+	if row.LastSeenGen != report.Generation {
+		test.Errorf("LastSeenGen = %d, want %d", row.LastSeenGen, report.Generation)
+	}
+}
+
+// TestRun_ConcurrentWalksDoNotDoubleDelete asserts that two reindex
+// passes running concurrently over the same workspace, with a file
+// removed from disk, tombstone the file_state row at most once and
+// never error out.
+func TestRun_ConcurrentWalksDoNotDoubleDelete(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	cfg := withGen(store, reindex.Config{Root: root, Repo: repo})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if rmErr := os.Remove(filepath.Join(root, "notes/a.md")); rmErr != nil {
+		test.Fatalf("rm: %v", rmErr)
+	}
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		removed int
+	)
+
+	wg.Add(2)
+
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+
+			report, runErr := reindex.Run(cfg)
+
+			if runErr != nil {
+				test.Errorf("Run: %v", runErr)
+				return
+			}
+
+			mu.Lock()
+			removed += report.Removed
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	if removed != 1 {
+		test.Errorf("total Removed across two walks = %d, want 1", removed)
+	}
+
+	row, getErr := cfg.FileStates.Get("notes/a.md")
+
+	if getErr != nil {
+		test.Fatalf("FileStates.Get: %v", getErr)
+	}
+
+	if row.State != index.FileStateTombstone {
+		test.Errorf("state = %q, want tombstone", row.State)
+	}
+
+	if _, getErr := repo.Get("notes/a"); getErr != index.ErrNodeNotFound {
+		test.Errorf("err = %v, want ErrNodeNotFound", getErr)
+	}
+}
+
+// TestRun_ReapSkipsLeasedRow asserts that the reap pass skips any
+// candidate whose lease is held by another worker, even when the file
+// is missing from disk. The candidate is reconsidered on the next walk
+// once the lease is released.
+func TestRun_ReapSkipsLeasedRow(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	cfg := withGen(store, reindex.Config{Root: root, Repo: repo})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// Another worker holds the lease through the next walk.
+	otherWorker := "other-worker-" + index.WorkerID()
+
+	if _, claimErr := cfg.FileStates.Claim("notes/a.md", otherWorker, 30*time.Second); claimErr != nil {
+		test.Fatalf("Claim: %v", claimErr)
+	}
+
+	if rmErr := os.Remove(filepath.Join(root, "notes/a.md")); rmErr != nil {
+		test.Fatalf("rm: %v", rmErr)
+	}
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	if report.Removed != 0 {
+		test.Errorf("Removed = %d, want 0 (row leased by another worker)", report.Removed)
+	}
+
+	row, getErr := cfg.FileStates.Get("notes/a.md")
+
+	if getErr != nil {
+		test.Fatalf("FileStates.Get: %v", getErr)
+	}
+
+	if row.State != index.FileStateLive {
+		test.Errorf("state = %q, want live (lease holder owns the row)", row.State)
+	}
+
+	// Release the foreign lease; the next walk should now tombstone.
+	if releaseErr := cfg.FileStates.Release(index.ReleaseContext{
+		Path:     "notes/a.md",
+		WorkerID: otherWorker,
+	}); releaseErr != nil {
+		test.Fatalf("Release: %v", releaseErr)
+	}
+
+	report, runErr = reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("third Run: %v", runErr)
+	}
+
+	if report.Removed != 1 {
+		test.Errorf("Removed = %d, want 1 (lease now free)", report.Removed)
+	}
+
+	row, getErr = cfg.FileStates.Get("notes/a.md")
+
+	if getErr != nil {
+		test.Fatalf("FileStates.Get: %v", getErr)
+	}
+
+	if row.State != index.FileStateTombstone {
+		test.Errorf("state = %q, want tombstone", row.State)
 	}
 }

@@ -125,9 +125,22 @@ func Run(config Config) (*Report, error) {
 	}
 
 	report := &Report{}
+	// seenPaths is retained solely to feed the embed re-enqueue loop
+	// below. T6.3 will replace the embed producer and this set goes
+	// away with it.
 	seenPaths := map[string]struct{}{}
 
 	start := time.Now()
+
+	workerID := index.WorkerID()
+
+	var manifestTTL int
+
+	if config.Manifest != nil {
+		manifestTTL = config.Manifest.Lease.TTLSeconds
+	}
+
+	leaseTTL := leaseconfig.Resolve(manifestTTL)
 
 	gen, incrErr := config.Meta.Incr("reindex_gen", 1)
 
@@ -456,28 +469,137 @@ func Run(config Config) (*Report, error) {
 		return nil, fmt.Errorf("reindex: walk: %w", walkErr)
 	}
 
-	existingRows, listErr := config.Repo.List(index.ListFilter{})
+	candidates, listErr := config.FileStates.ListByGenLessThan(gen)
 
 	if listErr != nil {
-		return nil, listErr
+		return nil, fmt.Errorf("reindex: list orphan candidates: %w", listErr)
 	}
 
-	for _, row := range existingRows {
-		if _, kept := seenPaths[row.Path]; kept {
+	for _, candidate := range candidates {
+		_, claimErr := config.FileStates.Claim(candidate.Path, workerID, leaseTTL)
+
+		if errors.Is(claimErr, index.ErrBusy) {
 			continue
 		}
 
-		if deleteErr := config.Repo.DeleteByPath(row.Path); deleteErr != nil {
-			return nil, deleteErr
+		if claimErr != nil {
+			return nil, fmt.Errorf("reindex: claim %s: %w", candidate.Path, claimErr)
 		}
 
-		if config.Edges != nil {
-			if deleteErr := config.Edges.DeleteBySource(row.ID); deleteErr != nil {
-				return nil, deleteErr
+		// Re-check state under the lease: another concurrent walker
+		// may have tombstoned this row between our ListByGenLessThan
+		// snapshot and our Claim. Skip already-tombstoned rows so we
+		// neither double-tombstone nor double-count Removed.
+		current, getErr := config.FileStates.Get(candidate.Path)
+
+		if getErr != nil {
+			_ = config.FileStates.Release(index.ReleaseContext{
+				Path:     candidate.Path,
+				WorkerID: workerID,
+			})
+			return nil, fmt.Errorf("reindex: re-read %s: %w", candidate.Path, getErr)
+		}
+
+		if current.State != index.FileStateLive {
+			if releaseErr := config.FileStates.Release(index.ReleaseContext{
+				Path:     candidate.Path,
+				WorkerID: workerID,
+			}); releaseErr != nil {
+				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
 			}
+
+			continue
 		}
 
-		report.Removed++
+		if current.LastSeenGen >= gen {
+			// Another walker (or a live writer) already stamped this
+			// row with a current-or-future gen. Leave it alone.
+			if releaseErr := config.FileStates.Release(index.ReleaseContext{
+				Path:     candidate.Path,
+				WorkerID: workerID,
+			}); releaseErr != nil {
+				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
+			}
+
+			continue
+		}
+
+		statPath := filepath.Join(config.Root, candidate.Path)
+		_, statErr := os.Stat(statPath)
+
+		switch {
+		case statErr == nil:
+			// File still exists — another process recreated it between
+			// the previous walk and this one (or this walk simply
+			// skipped it via the ignore matcher). Stamp last_seen_gen
+			// so the next reap doesn't reconsider it, then release.
+			if upsertErr := config.FileStates.Upsert(index.FileStateRow{
+				Path:        candidate.Path,
+				ContentHash: candidate.ContentHash,
+				MtimeNs:     candidate.MtimeNs,
+				Size:        candidate.Size,
+				State:       index.FileStateLive,
+				LastSeenGen: gen,
+			}); upsertErr != nil {
+				_ = config.FileStates.Release(index.ReleaseContext{
+					Path:     candidate.Path,
+					WorkerID: workerID,
+				})
+				return nil, fmt.Errorf("reindex: refresh gen %s: %w", candidate.Path, upsertErr)
+			}
+
+			if releaseErr := config.FileStates.Release(index.ReleaseContext{
+				Path:     candidate.Path,
+				WorkerID: workerID,
+			}); releaseErr != nil {
+				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
+			}
+
+		case errors.Is(statErr, fs.ErrNotExist):
+			if tombstoneErr := config.FileStates.Tombstone(candidate.Path); tombstoneErr != nil {
+				_ = config.FileStates.Release(index.ReleaseContext{
+					Path:     candidate.Path,
+					WorkerID: workerID,
+				})
+				return nil, fmt.Errorf("reindex: tombstone %s: %w", candidate.Path, tombstoneErr)
+			}
+
+			nodeID := strings.TrimSuffix(candidate.Path, ".md")
+
+			if deleteErr := config.Repo.DeleteByPath(candidate.Path); deleteErr != nil {
+				_ = config.FileStates.Release(index.ReleaseContext{
+					Path:     candidate.Path,
+					WorkerID: workerID,
+				})
+				return nil, fmt.Errorf("reindex: delete node %s: %w", candidate.Path, deleteErr)
+			}
+
+			if config.Edges != nil {
+				if deleteErr := config.Edges.DeleteBySource(nodeID); deleteErr != nil {
+					_ = config.FileStates.Release(index.ReleaseContext{
+						Path:     candidate.Path,
+						WorkerID: workerID,
+					})
+					return nil, fmt.Errorf("reindex: delete edges %s: %w", nodeID, deleteErr)
+				}
+			}
+
+			if releaseErr := config.FileStates.Release(index.ReleaseContext{
+				Path:     candidate.Path,
+				WorkerID: workerID,
+			}); releaseErr != nil {
+				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
+			}
+
+			report.Removed++
+
+		default:
+			_ = config.FileStates.Release(index.ReleaseContext{
+				Path:     candidate.Path,
+				WorkerID: workerID,
+			})
+			return nil, fmt.Errorf("reindex: stat %s: %w", statPath, statErr)
+		}
 	}
 
 	if config.Embedder != nil {
@@ -485,12 +607,6 @@ func Run(config Config) (*Report, error) {
 		for path := range seenPaths {
 			id := strings.TrimSuffix(path, ".md")
 			_ = config.EmbedQueue.Enqueue(id)
-		}
-
-		var manifestTTL int
-
-		if config.Manifest != nil {
-			manifestTTL = config.Manifest.Lease.TTLSeconds
 		}
 
 		if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
@@ -501,7 +617,7 @@ func Run(config Config) (*Report, error) {
 			Embedder:   config.Embedder,
 			Chunker:    config.Chunker,
 			Workers:    config.Workers,
-			TTL:        leaseconfig.Resolve(manifestTTL),
+			TTL:        leaseTTL,
 			Logger:     config.Logger,
 		}); drainErr != nil {
 			return nil, drainErr
