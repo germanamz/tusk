@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -411,183 +412,234 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 // against the manifest, atomically rewrites the file, and updates index rows.
 // Modify enqueues the node for re-embedding when the service has an EmbedQueue.
 // Body changes are out of scope: write to the file directly and let the watcher reindex.
+//
+// Phase 4 (T4.3): the file write routes through WriteWithLease. The
+// read+parse+apply+render+validate pipeline runs inside the Mutator so
+// the on-disk bytes seen by validation are the bytes the lease commits.
+// A no-op delta (rendered == current) returns WriteNoChange and skips
+// post-write index/embed/hook work — mtime stays put and the embed
+// queue does not grow.
 func (service *Service) Modify(input ModifyInput) (*Node, error) {
+	if service.fileState == nil {
+		return nil, ErrLeaseNotConfigured
+	}
+
 	row, getErr := service.repo.Get(input.ID)
 
 	if getErr != nil {
 		return nil, getErr
 	}
 
-	absPath := filepath.Join(service.root, row.Path)
+	var (
+		beforeNode    *Node
+		reparsed      *Node
+		rendered      []byte
+		modPropResult PropertyValidationResult
+		fireResult    FireResult
+		changed       bool
+	)
 
-	original, readErr := os.ReadFile(absPath)
-
-	if readErr != nil {
-		return nil, fmt.Errorf("node: read %s: %w", row.Path, readErr)
-	}
-
-	beforeNode, parseBeforeErr := ParseFile(row.Path, original)
-
-	if parseBeforeErr != nil {
-		return nil, parseBeforeErr
-	}
-
-	// Resolve edges on the before-node so the diff against the after-node
-	// is well-defined.
-	if resolveErr := ResolveEdges(beforeNode, service.edgeTypes); resolveErr != nil {
-		return nil, resolveErr
-	}
-
-	// Apply Set/Unset/Body to produce after-node.
-	parsed := beforeNode.Clone()
-
-	for _, key := range input.UnsetKeys {
-		if key == "type" {
-			return nil, fmt.Errorf("node: cannot unset reserved key %q", key)
+	mutator := func(current []byte) (Mutation, error) {
+		if current == nil {
+			return Mutation{}, fmt.Errorf("node: %s: file vanished", row.Path)
 		}
 
-		delete(parsed.Properties, key)
-	}
+		parsedBefore, parseBeforeErr := ParseFile(row.Path, current)
 
-	for key, value := range input.SetProps {
-		if key == "type" && value != parsed.Type {
-			return nil, fmt.Errorf("node: cannot change type via Modify (current=%q, requested=%v)", parsed.Type, value)
+		if parseBeforeErr != nil {
+			return Mutation{}, parseBeforeErr
 		}
 
-		parsed.Properties[key] = value
-	}
+		// Resolve edges on the before-node so the diff against the after-node
+		// is well-defined.
+		if resolveErr := ResolveEdges(parsedBefore, service.edgeTypes); resolveErr != nil {
+			return Mutation{}, resolveErr
+		}
 
-	rendered, renderErr := renderMarkdown(parsed.Properties, parsed.Body)
+		beforeNode = parsedBefore
 
-	if renderErr != nil {
-		return nil, renderErr
-	}
+		// Apply Set/Unset to produce after-node.
+		parsed := parsedBefore.Clone()
 
-	reparsed, reparseErr := ParseFile(row.Path, rendered)
+		for _, key := range input.UnsetKeys {
+			if key == "type" {
+				return Mutation{}, fmt.Errorf("node: cannot unset reserved key %q", key)
+			}
 
-	if reparseErr != nil {
-		return nil, reparseErr
-	}
+			delete(parsed.Properties, key)
+		}
 
-	// Initialize Edges map (ParseFile does not; ResolveEdges also does this,
-	// but ResolveRefs must run first for ref-typed properties).
-	if reparsed.Edges == nil {
-		reparsed.Edges = map[string][]string{}
-	}
+		for key, value := range input.SetProps {
+			if key == "type" && value != parsed.Type {
+				return Mutation{}, fmt.Errorf("node: cannot change type via Modify (current=%q, requested=%v)", parsed.Type, value)
+			}
 
-	// Plan 7.c.1: ref resolution — runs before ResolveEdges (same reason as Create).
-	if service.refs != nil {
-		refResult := ResolveRefs(reparsed, service.nodeTypes, service.refs)
+			parsed.Properties[key] = value
+		}
 
-		if len(refResult.HardErrors) > 0 {
-			return nil, &RefValidationError{
+		newRendered, renderErr := renderMarkdown(parsed.Properties, parsed.Body)
+
+		if renderErr != nil {
+			return Mutation{}, renderErr
+		}
+
+		newParsed, reparseErr := ParseFile(row.Path, newRendered)
+
+		if reparseErr != nil {
+			return Mutation{}, reparseErr
+		}
+
+		// Initialize Edges map (ParseFile does not; ResolveEdges also does this,
+		// but ResolveRefs must run first for ref-typed properties).
+		if newParsed.Edges == nil {
+			newParsed.Edges = map[string][]string{}
+		}
+
+		// Plan 7.c.1: ref resolution — runs before ResolveEdges (same reason as Create).
+		if service.refs != nil {
+			refResult := ResolveRefs(newParsed, service.nodeTypes, service.refs)
+
+			if len(refResult.HardErrors) > 0 {
+				return Mutation{}, &RefValidationError{
+					Op:       "modify",
+					NodeID:   newParsed.ID,
+					NodeType: newParsed.Type,
+					Errors:   refResult.HardErrors,
+				}
+			}
+
+			for _, edge := range refResult.Edges {
+				newParsed.Edges[edge.EdgeType] = appendUnique(newParsed.Edges[edge.EdgeType], edge.TargetID)
+			}
+
+			// Remove resolved ref properties so ResolveEdges skips them.
+			removeRefProperties(newParsed, service.nodeTypes)
+		}
+
+		if resolveErr := ResolveEdges(newParsed, service.edgeTypes); resolveErr != nil {
+			return Mutation{}, resolveErr
+		}
+
+		if validateErr := ValidateEdges(newParsed, service.edgeTypes, EdgeContext{
+			ResolveTargetType: service.resolveTargetType,
+		}); validateErr != nil {
+			return Mutation{}, validateErr
+		}
+
+		if cycleErr := service.detectCyclesForAcyclicEdges(newParsed); cycleErr != nil {
+			return Mutation{}, cycleErr
+		}
+
+		// Plan 7.b: property validation + required-unset check — runs before hook validate-phase.
+		propResult := ValidateProperties(newParsed, service.nodeTypes)
+		propResult.Drift = FilterReservedDrift(propResult.Drift, newParsed.Type, service.reservedProperties())
+
+		// In the Modify path, ErrRequiredMissing from the validator is suppressed:
+		// properties that were never set on a pre-existing node are not blocked by
+		// Modify (the node predates the declaration). ErrCannotUnsetRequired (below)
+		// handles the case where a required property is explicitly removed.
+		var modHardErrors []PropertyError
+
+		for _, pe := range propResult.HardErrors {
+			if pe.Kind != ErrRequiredMissing {
+				modHardErrors = append(modHardErrors, pe)
+			}
+		}
+
+		propResult.HardErrors = modHardErrors
+
+		// Detect explicit unset of required properties. We check input.UnsetKeys
+		// directly (not WhichRequiredWereUnset) so that unsetting a required key
+		// that was never present is also caught.
+		if nt, declared := service.nodeTypes[newParsed.Type]; declared {
+			declByNameForUnset := make(map[string]manifest.PropertyDecl, len(nt.Properties))
+
+			for _, decl := range nt.Properties {
+				declByNameForUnset[decl.Name] = decl
+			}
+
+			for _, unsetKey := range input.UnsetKeys {
+				if decl, found := declByNameForUnset[unsetKey]; found && decl.Required {
+					propResult.HardErrors = append(propResult.HardErrors, PropertyError{
+						Kind:     ErrCannotUnsetRequired,
+						Property: unsetKey,
+						Reason:   fmt.Sprintf("cannot unset required property %q on type %q", unsetKey, newParsed.Type),
+					})
+				}
+			}
+		}
+
+		if len(propResult.HardErrors) > 0 {
+			return Mutation{}, &PropertyValidationError{
 				Op:       "modify",
-				NodeID:   reparsed.ID,
-				NodeType: reparsed.Type,
-				Errors:   refResult.HardErrors,
+				NodeID:   newParsed.ID,
+				NodeType: newParsed.Type,
+				Errors:   propResult.HardErrors,
 			}
 		}
 
-		for _, edge := range refResult.Edges {
-			reparsed.Edges[edge.EdgeType] = appendUnique(reparsed.Edges[edge.EdgeType], edge.TargetID)
-		}
+		// Plan 7: recovery-aware validate phase + edge diff hooks.
+		var fr FireResult
 
-		// Remove resolved ref properties so ResolveEdges skips them.
-		removeRefProperties(reparsed, service.nodeTypes)
-	}
+		if service.behaviors != nil {
+			result, fireErr := service.behaviors.FireNodeWriteValidateWithRecovery(parsedBefore, newParsed)
 
-	if resolveErr := ResolveEdges(reparsed, service.edgeTypes); resolveErr != nil {
-		return nil, resolveErr
-	}
-
-	if validateErr := ValidateEdges(reparsed, service.edgeTypes, EdgeContext{
-		ResolveTargetType: service.resolveTargetType,
-	}); validateErr != nil {
-		return nil, validateErr
-	}
-
-	if cycleErr := service.detectCyclesForAcyclicEdges(reparsed); cycleErr != nil {
-		return nil, cycleErr
-	}
-
-	// Plan 7.b: property validation + required-unset check — runs before hook validate-phase.
-	modPropResult := ValidateProperties(reparsed, service.nodeTypes)
-	modPropResult.Drift = FilterReservedDrift(modPropResult.Drift, reparsed.Type, service.reservedProperties())
-
-	// In the Modify path, ErrRequiredMissing from the validator is suppressed:
-	// properties that were never set on a pre-existing node are not blocked by
-	// Modify (the node predates the declaration). ErrCannotUnsetRequired (below)
-	// handles the case where a required property is explicitly removed.
-	var modHardErrors []PropertyError
-
-	for _, pe := range modPropResult.HardErrors {
-		if pe.Kind != ErrRequiredMissing {
-			modHardErrors = append(modHardErrors, pe)
-		}
-	}
-
-	modPropResult.HardErrors = modHardErrors
-
-	// Detect explicit unset of required properties. We check input.UnsetKeys
-	// directly (not WhichRequiredWereUnset) so that unsetting a required key
-	// that was never present is also caught.
-	if nt, declared := service.nodeTypes[reparsed.Type]; declared {
-		declByNameForUnset := make(map[string]manifest.PropertyDecl, len(nt.Properties))
-
-		for _, decl := range nt.Properties {
-			declByNameForUnset[decl.Name] = decl
-		}
-
-		for _, unsetKey := range input.UnsetKeys {
-			if decl, found := declByNameForUnset[unsetKey]; found && decl.Required {
-				modPropResult.HardErrors = append(modPropResult.HardErrors, PropertyError{
-					Kind:     ErrCannotUnsetRequired,
-					Property: unsetKey,
-					Reason:   fmt.Sprintf("cannot unset required property %q on type %q", unsetKey, reparsed.Type),
-				})
+			if fireErr != nil {
+				return Mutation{}, fmt.Errorf("behavior %s rejected modify: %w", result.Rejector, fireErr)
 			}
-		}
-	}
 
-	if len(modPropResult.HardErrors) > 0 {
-		return nil, &PropertyValidationError{
-			Op:       "modify",
-			NodeID:   reparsed.ID,
-			NodeType: reparsed.Type,
-			Errors:   modPropResult.HardErrors,
-		}
-	}
+			fr = result
 
-	// Plan 7: recovery-aware validate phase + edge diff hooks.
-	var fireResult FireResult
+			removed, added := diffEdgeSets(parsedBefore, newParsed, service.nodeTypes)
 
-	if service.behaviors != nil {
-		result, fireErr := service.behaviors.FireNodeWriteValidateWithRecovery(beforeNode, reparsed)
+			for _, edgeRow := range removed {
+				if rejector, edgeFireErr := service.behaviors.FireEdgeRemoveValidate(edgeRow); edgeFireErr != nil {
+					return Mutation{}, fmt.Errorf("behavior %s rejected edge remove: %w", rejector, edgeFireErr)
+				}
+			}
 
-		if fireErr != nil {
-			return nil, fmt.Errorf("behavior %s rejected modify: %w", result.Rejector, fireErr)
-		}
-
-		fireResult = result
-
-		removed, added := diffEdgeSets(beforeNode, reparsed, service.nodeTypes)
-
-		for _, edgeRow := range removed {
-			if rejector, edgeFireErr := service.behaviors.FireEdgeRemoveValidate(edgeRow); edgeFireErr != nil {
-				return nil, fmt.Errorf("behavior %s rejected edge remove: %w", rejector, edgeFireErr)
+			for _, edgeRow := range added {
+				if rejector, edgeFireErr := service.behaviors.FireEdgeAddValidate(edgeRow); edgeFireErr != nil {
+					return Mutation{}, fmt.Errorf("behavior %s rejected edge add: %w", rejector, edgeFireErr)
+				}
 			}
 		}
 
-		for _, edgeRow := range added {
-			if rejector, edgeFireErr := service.behaviors.FireEdgeAddValidate(edgeRow); edgeFireErr != nil {
-				return nil, fmt.Errorf("behavior %s rejected edge add: %w", rejector, edgeFireErr)
-			}
+		// No-op detection: validation has passed; if the rendered bytes
+		// match what's already on disk, release the lease without touching
+		// the file or the embed queue. Validation still ran so input-only
+		// errors (e.g. unsetting a required key that was never set) surface.
+		if bytes.Equal(newRendered, current) {
+			reparsed = parsedBefore
+			return WriteNoChange(), nil
 		}
+
+		reparsed = newParsed
+		rendered = newRendered
+		modPropResult = propResult
+		fireResult = fr
+		changed = true
+
+		return WriteReplace(newRendered), nil
 	}
 
-	if writeErr := atomicWrite(absPath, rendered); writeErr != nil {
-		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
+	if writeErr := WriteWithLease(
+		context.Background(),
+		service.root,
+		service.fileState,
+		service.workerID,
+		service.leaseTTL,
+		row.Path,
+		mutator,
+	); writeErr != nil {
+		return nil, writeErr
 	}
+
+	if !changed {
+		return reparsed, nil
+	}
+
+	absPath := filepath.Join(service.root, row.Path)
 
 	stat, statErr := os.Stat(absPath)
 
