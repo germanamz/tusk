@@ -1063,6 +1063,9 @@ func registerNodeModifyTool(srv *Server) {
 			srv.runtime.WorkflowDrift,
 			&warningsBuf,
 			node.NewIndexRefLookup(srv.runtime.Nodes),
+			srv.runtime.FileState,
+			srv.runtime.WorkerID,
+			srv.runtime.LeaseTTL,
 		)
 
 		modified, modifyErr := perCallService.Modify(input)

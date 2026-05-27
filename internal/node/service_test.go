@@ -45,7 +45,16 @@ func newTestService(test *testing.T) (*node.Service, string) {
 
 	test.Cleanup(func() { store.Close() })
 
-	service := node.NewService(root, index.NewNodeRepo(store))
+	service := node.NewServiceWithLease(
+		root,
+		index.NewNodeRepo(store),
+		nil,
+		manifest.EdgeTypes{},
+		nil,
+		index.NewFileStateRepo(store),
+		"test-worker",
+		time.Minute,
+	)
 
 	return service, root
 }
@@ -234,7 +243,16 @@ func newTestServiceWithManifest(test *testing.T, edgeTypes manifest.EdgeTypes) (
 
 	test.Cleanup(func() { store.Close() })
 
-	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), edgeTypes)
+	service := node.NewServiceWithLease(
+		root,
+		index.NewNodeRepo(store),
+		index.NewEdgeRepo(store),
+		edgeTypes,
+		nil,
+		index.NewFileStateRepo(store),
+		"test-worker",
+		time.Minute,
+	)
 
 	return service, root
 }
@@ -366,7 +384,10 @@ func TestService_CreateEnqueuesEmbedding(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 	queueRepo := index.NewEmbedQueueRepo(store)
 
-	service := node.NewServiceWithEmbedQueue(root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, queueRepo)
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, manifest.EdgeTypes{}, queueRepo,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, createErr := service.Create(node.CreateInput{
 		RelPath: "n.md", Type: "note", Title: "N",
@@ -386,7 +407,10 @@ func TestService_Modify_UpdatesProperty(test *testing.T) {
 	store := openTempIndex(test, root)
 	defer store.Close()
 
-	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{})
+	service := node.NewServiceWithLease(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{}, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, createErr := service.Create(node.CreateInput{
 		RelPath: "notes/hi.md",
@@ -422,7 +446,10 @@ func TestService_Modify_UnsetRemovesProperty(test *testing.T) {
 	store := openTempIndex(test, root)
 	defer store.Close()
 
-	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{})
+	service := node.NewServiceWithLease(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{}, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, createErr := service.Create(node.CreateInput{
 		RelPath:    "notes/hi.md",
@@ -451,7 +478,10 @@ func TestService_Modify_RejectsTypeChange(test *testing.T) {
 	store := openTempIndex(test, root)
 	defer store.Close()
 
-	service := node.NewServiceWithManifest(root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{})
+	service := node.NewServiceWithLease(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store), manifest.EdgeTypes{}, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
 
 	if _, createErr := service.Create(node.CreateInput{
 		RelPath: "notes/hi.md",
@@ -501,6 +531,9 @@ func TestCreate_HookValidatePhaseRejectsBeforeWrite(test *testing.T) {
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
 		nil,
+		index.NewFileStateRepo(store),
+		"test-worker",
+		time.Minute,
 	)
 
 	_, createErr := service.Create(node.CreateInput{
@@ -551,6 +584,9 @@ func TestCreate_HookAfterPhaseFiresAfterCommit(test *testing.T) {
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
 		nil,
+		index.NewFileStateRepo(store),
+		"test-worker",
+		time.Minute,
 	)
 
 	if _, createErr := service.Create(node.CreateInput{
@@ -593,6 +629,7 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
 		nil, nil, nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -628,6 +665,9 @@ func TestModify_HookValidatePhaseRejects(test *testing.T) {
 		index.NewWorkflowDriftRepo(store),
 		io.Discard,
 		nil,
+		index.NewFileStateRepo(store),
+		"test-worker",
+		time.Minute,
 	)
 
 	_, modifyErr := service.Modify(node.ModifyInput{
@@ -653,6 +693,7 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		manifest.EdgeTypes{},
 		index.NewEmbedQueueRepo(store),
 		nil, nil, nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -683,6 +724,9 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 		driftRepo,
 		&warnings,
 		nil,
+		index.NewFileStateRepo(store),
+		"test-worker",
+		time.Minute,
 	)
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
@@ -723,6 +767,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		nil, nil, nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -740,6 +785,7 @@ func TestModify_HookCleanPassClearsDrift(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		nil, nil, engine, driftRepo, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, modifyErr := service.Modify(node.ModifyInput{
@@ -806,12 +852,15 @@ func TestService_Modify_EnqueuesEmbed(test *testing.T) {
 	defer store.Close()
 
 	queueRepo := index.NewEmbedQueueRepo(store)
-	service := node.NewServiceWithEmbedQueue(
+	service := node.NewServiceWithLease(
 		root,
 		index.NewNodeRepo(store),
 		index.NewEdgeRepo(store),
 		manifest.EdgeTypes{},
 		queueRepo,
+		index.NewFileStateRepo(store),
+		"test-worker",
+		time.Minute,
 	)
 
 	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/hi.md", Type: "note"}); createErr != nil {
@@ -853,6 +902,7 @@ func TestCreate_PropertyRequiredMissingRejects(test *testing.T) {
 		decls,
 		index.NewPropertyDriftRepo(store),
 		nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	_, createErr := service.Create(node.CreateInput{
@@ -889,6 +939,7 @@ func TestCreate_PropertyTypeMismatchRejects(test *testing.T) {
 		decls,
 		index.NewPropertyDriftRepo(store),
 		nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	_, createErr := service.Create(node.CreateInput{
@@ -925,6 +976,7 @@ func TestCreate_PropertyUndeclaredWritesAndDrifts(test *testing.T) {
 		decls,
 		driftRepo,
 		nil, nil, &warnings, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, createErr := service.Create(node.CreateInput{
@@ -957,6 +1009,7 @@ func TestModify_PropertyTypeMismatchRejects(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		nil, nil, nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -975,6 +1028,7 @@ func TestModify_PropertyTypeMismatchRejects(test *testing.T) {
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		decls, index.NewPropertyDriftRepo(store),
 		nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	_, modifyErr := service.Modify(node.ModifyInput{
@@ -997,6 +1051,7 @@ func TestModify_UnsetRequiredRejects(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		nil, nil, nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -1016,6 +1071,7 @@ func TestModify_UnsetRequiredRejects(test *testing.T) {
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		decls, index.NewPropertyDriftRepo(store),
 		nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	_, modifyErr := service.Modify(node.ModifyInput{
@@ -1038,6 +1094,7 @@ func TestModify_UndeclaredPropertyDriftsAndClearsOnCleanPass(test *testing.T) {
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		nil, nil, nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	if _, createErr := seed.Create(node.CreateInput{
@@ -1061,6 +1118,7 @@ func TestModify_UndeclaredPropertyDriftsAndClearsOnCleanPass(test *testing.T) {
 		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
 		decls, driftRepo,
 		nil, nil, &warnings, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
 	)
 
 	// First Modify: add an undeclared property → drift.
@@ -1116,6 +1174,7 @@ func TestServiceCreate_RefResolutionDangling(test *testing.T) {
 		dir, repo, edges, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
 		node.NewIndexRefLookup(repo), // helper from this task
+		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
 	_, createErr := service.Create(node.CreateInput{
@@ -1165,6 +1224,7 @@ func TestServiceCreate_RefResolutionHappy(test *testing.T) {
 		dir, repo, edges, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
 		node.NewIndexRefLookup(repo),
+		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
 	if _, createErr := service.Create(node.CreateInput{
@@ -1213,6 +1273,7 @@ func TestServiceModify_RefRemovedDeletesEdge(test *testing.T) {
 		dir, repo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
 		node.NewIndexRefLookup(repo),
+		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
 	// Create alice.
@@ -1282,6 +1343,7 @@ func TestServiceCreate_RefAcyclicCycleRejected(test *testing.T) {
 		dir, repo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
 		node.NewIndexRefLookup(repo),
+		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
 	// Create ticket-a.

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,6 +20,13 @@ import (
 
 // ErrAlreadyExists is returned by Create when the target file already exists.
 var ErrAlreadyExists = errors.New("node: file already exists")
+
+// ErrLeaseNotConfigured is returned by Service.Create when the Service
+// was constructed without a FileStateRepo. The lease path is required
+// for write handlers — read-only constructors (NewService,
+// NewServiceWithManifest, NewServiceWithEmbedQueue) leave fileState nil
+// and produce services that cannot Create.
+var ErrLeaseNotConfigured = errors.New("node: service constructed without lease; use NewServiceWithLease or NewServiceWithBehaviors")
 
 // CreateInput configures Service.Create.
 type CreateInput struct {
@@ -57,6 +65,14 @@ type Service struct {
 	warnings  io.Writer                // optional; nil = io.Discard
 
 	refs RefLookup // optional; nil = ref resolution disabled
+
+	// Lease primitives required by Create's WriteWithLease path. Nil
+	// fileState means the service was built via a read-only constructor
+	// (NewService, NewServiceWithManifest, NewServiceWithEmbedQueue) and
+	// Create will reject with ErrLeaseNotConfigured.
+	fileState *index.FileStateRepo
+	workerID  string
+	leaseTTL  time.Duration
 }
 
 // NewService constructs a Service for a workspace whose manifest has no edge
@@ -96,12 +112,39 @@ func NewServiceWithEmbedQueue(workspaceRoot string, repo *index.NodeRepo, edges 
 	}
 }
 
+// NewServiceWithLease constructs a write-capable Service wired with a
+// FileStateRepo so Create routes through WriteWithLease. It is the
+// minimal lease-aware constructor; callers that need behavior hooks,
+// drift, or ref resolution should use NewServiceWithBehaviors instead.
+func NewServiceWithLease(
+	workspaceRoot string,
+	repo *index.NodeRepo,
+	edges *index.EdgeRepo,
+	edgeTypes manifest.EdgeTypes,
+	embedQueue *index.EmbedQueueRepo,
+	fileState *index.FileStateRepo,
+	workerID string,
+	leaseTTL time.Duration,
+) *Service {
+	return &Service{
+		root:       workspaceRoot,
+		repo:       repo,
+		edges:      edges,
+		edgeTypes:  edgeTypes,
+		embedQueue: embedQueue,
+		fileState:  fileState,
+		workerID:   workerID,
+		leaseTTL:   leaseTTL,
+	}
+}
+
 // NewServiceWithBehaviors is the Plan 7 production constructor: like
 // NewServiceWithEmbedQueue, but also wires the behavior engine, the
 // drift log, and a warnings writer (defaults to io.Discard when nil).
 // Plan 7.b adds nodeTypes and propertyDrift; Plan 7.c.1 adds refs for
-// ref-property resolution. Pass nil for unused fields; nil refs disables
-// ref resolution (nil-tolerant for forward compatibility).
+// ref-property resolution. Phase 4 (T4.2) adds the lease primitives
+// (fileState, workerID, leaseTTL) — Create requires these. Pass nil
+// for unused optional fields; nil refs disables ref resolution.
 func NewServiceWithBehaviors(
 	workspaceRoot string,
 	repo *index.NodeRepo,
@@ -114,6 +157,9 @@ func NewServiceWithBehaviors(
 	drift *index.WorkflowDriftRepo,
 	warnings io.Writer,
 	refs RefLookup,
+	fileState *index.FileStateRepo,
+	workerID string,
+	leaseTTL time.Duration,
 ) *Service {
 	if warnings == nil {
 		warnings = io.Discard
@@ -131,6 +177,9 @@ func NewServiceWithBehaviors(
 		drift:         drift,
 		warnings:      warnings,
 		refs:          refs,
+		fileState:     fileState,
+		workerID:      workerID,
+		leaseTTL:      leaseTTL,
 	}
 }
 
@@ -146,7 +195,16 @@ func (service *Service) reservedProperties() map[string]map[string]struct{} {
 
 // Create writes the node file and upserts the index row in one operation.
 // When the service has an EdgeRepo configured, edges are also persisted.
+//
+// Phase 4 (T4.2): the file write routes through WriteWithLease so the
+// file_state row is populated and concurrent creates against the same
+// path are coordinated by the lease. Requires the service to have been
+// constructed with lease wiring; ErrLeaseNotConfigured otherwise.
 func (service *Service) Create(input CreateInput) (*Node, error) {
+	if service.fileState == nil {
+		return nil, ErrLeaseNotConfigured
+	}
+
 	absPath := filepath.Join(service.root, input.RelPath)
 
 	if _, statErr := os.Stat(absPath); statErr == nil {
@@ -248,12 +306,27 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		}
 	}
 
-	if mkErr := os.MkdirAll(filepath.Dir(absPath), 0o755); mkErr != nil {
-		return nil, fmt.Errorf("node: mkdir %s: %w", filepath.Dir(absPath), mkErr)
+	mutator := func(current []byte) (Mutation, error) {
+		// Race-safety guard: the lease has been claimed and the file
+		// (re-)read under the lease. If something is already there, the
+		// pre-write os.Stat check above lost a race with another writer.
+		if len(current) > 0 {
+			return Mutation{}, ErrAlreadyExists
+		}
+
+		return WriteReplace(rendered), nil
 	}
 
-	if writeErr := os.WriteFile(absPath, rendered, 0o644); writeErr != nil {
-		return nil, fmt.Errorf("node: write %s: %w", absPath, writeErr)
+	if writeErr := WriteWithLease(
+		context.Background(),
+		service.root,
+		service.fileState,
+		service.workerID,
+		service.leaseTTL,
+		input.RelPath,
+		mutator,
+	); writeErr != nil {
+		return nil, writeErr
 	}
 
 	stat, statErr := os.Stat(absPath)
