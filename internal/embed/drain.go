@@ -23,10 +23,11 @@ import (
 // cap is per-drain, not per-node-lifetime.
 const MaxEmbedAttempts = 3
 
-// embedLeaseTTL is the lease window Drain claims hold against the
-// embed_queue. TTL: bridged constant, replaced in task 3.2 with env /
-// manifest configuration.
-const embedLeaseTTL = 60 * time.Second
+// defaultEmbedLeaseTTL is the defensive fallback DrainQueue applies when
+// DrainConfig.TTL is zero or negative. Production callers resolve the TTL
+// through internal/leaseconfig.Resolve and pass it in; tests that omit
+// the field still get a sane window.
+const defaultEmbedLeaseTTL = 60 * time.Second
 
 // DrainConfig configures DrainQueue.
 type DrainConfig struct {
@@ -38,6 +39,7 @@ type DrainConfig struct {
 	Chunker    ChunkingStrategy      // required when Embedder is set
 	BatchSize  int                   // queue rows pulled per drain iteration; defaults to 50
 	Workers    int                   // concurrent embed calls per node; defaults to 1 (serial)
+	TTL        time.Duration         // lease window applied per Drain claim; defaults to 60s when <= 0
 	Logger     *slog.Logger          // optional; nil silences output
 }
 
@@ -113,6 +115,12 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 
 	workerID := index.WorkerID()
 
+	leaseTTL := config.TTL
+
+	if leaseTTL <= 0 {
+		leaseTTL = defaultEmbedLeaseTTL
+	}
+
 	var drained int
 
 	for {
@@ -120,7 +128,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			return drained, nil
 		}
 
-		batch, drainErr := config.Queue.Drain(workerID, limit, embedLeaseTTL)
+		batch, drainErr := config.Queue.Drain(workerID, limit, leaseTTL)
 
 		if drainErr != nil {
 			return drained, drainErr

@@ -11,6 +11,7 @@ type Manifest struct {
 	Workspace  WorkspaceSection    `toml:"workspace"`
 	EdgeTypes  EdgeTypes           `toml:"edge-types"`
 	Embeddings EmbeddingsSection   `toml:"embeddings"`
+	Lease      LeaseSection        `toml:"lease"`
 	NodeTypes  map[string]NodeType `toml:"node-types"`
 
 	// Behaviors is a two-level map: kind name → instance name → raw TOML

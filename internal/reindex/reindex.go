@@ -20,6 +20,7 @@ import (
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/subunit"
@@ -445,6 +446,12 @@ func Run(config Config) (*Report, error) {
 			_ = config.EmbedQueue.Enqueue(id)
 		}
 
+		var manifestTTL int
+
+		if config.Manifest != nil {
+			manifestTTL = config.Manifest.Lease.TTLSeconds
+		}
+
 		if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
 			Root:       config.Root,
 			Nodes:      config.Repo,
@@ -453,6 +460,7 @@ func Run(config Config) (*Report, error) {
 			Embedder:   config.Embedder,
 			Chunker:    config.Chunker,
 			Workers:    config.Workers,
+			TTL:        leaseconfig.Resolve(manifestTTL),
 			Logger:     config.Logger,
 		}); drainErr != nil {
 			return nil, drainErr

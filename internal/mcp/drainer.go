@@ -45,6 +45,7 @@ func RunDrainer(ctx context.Context, config DrainerConfig) error {
 				Embedder:   config.Runtime.Embedder,
 				Chunker:    config.Runtime.Chunker,
 				Workers:    config.Runtime.Workers,
+				TTL:        config.Runtime.LeaseTTL,
 			})
 
 			if drainErr != nil && config.Logger != nil {
