@@ -99,6 +99,8 @@ Body text.
 			NodeTypes:     loaded.NodeTypes,
 			Manifest:      loaded,
 			PropertyDrift: index.NewPropertyDriftRepo(idx),
+			Meta:          index.NewMetaRepo(idx),
+			FileStates:    index.NewFileStateRepo(idx),
 		}
 	})
 	defer store.Close()

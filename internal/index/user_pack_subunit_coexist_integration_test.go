@@ -75,12 +75,14 @@ Body.
 
 	store := openRebuilt(test, indexPath, func(idx *index.Index) reindex.Config {
 		return reindex.Config{
-			Root:      root,
-			Repo:      index.NewNodeRepo(idx),
-			Edges:     index.NewEdgeRepo(idx),
-			EdgeTypes: loaded.EdgeTypes,
-			NodeTypes: loaded.NodeTypes,
-			Manifest:  loaded,
+			Root:       root,
+			Repo:       index.NewNodeRepo(idx),
+			Edges:      index.NewEdgeRepo(idx),
+			EdgeTypes:  loaded.EdgeTypes,
+			NodeTypes:  loaded.NodeTypes,
+			Manifest:   loaded,
+			Meta:       index.NewMetaRepo(idx),
+			FileStates: index.NewFileStateRepo(idx),
 		}
 	})
 	defer store.Close()

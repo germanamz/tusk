@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -37,7 +38,7 @@ func TestRun_IndexesAllMarkdownNodes(test *testing.T) {
 
 	repo := index.NewNodeRepo(store)
 
-	report, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+	report, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -76,7 +77,7 @@ func TestRun_SkipsTuskInternalDir(test *testing.T) {
 
 	repo := index.NewNodeRepo(store)
 
-	_, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+	_, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -99,7 +100,7 @@ func TestRun_RemovesStaleEntries(test *testing.T) {
 
 	repo := index.NewNodeRepo(store)
 
-	if _, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo}); runErr != nil {
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo})); runErr != nil {
 		test.Fatalf("first Run: %v", runErr)
 	}
 
@@ -107,7 +108,7 @@ func TestRun_RemovesStaleEntries(test *testing.T) {
 		test.Fatalf("rm: %v", rmErr)
 	}
 
-	report, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+	report, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
 
 	if runErr != nil {
 		test.Fatalf("second Run: %v", runErr)
@@ -140,12 +141,12 @@ func TestRun_PersistsFrontmatterEdges(test *testing.T) {
 		},
 	}
 
-	report, runErr := reindex.Run(reindex.Config{
+	report, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:      root,
 		Repo:      repo,
 		Edges:     edgeRepo,
 		EdgeTypes: edgeTypes,
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -181,7 +182,7 @@ func TestRun_PersistsWikilinksAsReferenceEdges(test *testing.T) {
 		},
 	}
 
-	if _, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}); runErr != nil {
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes})); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
 
@@ -210,7 +211,7 @@ func TestRun_RemovedFileAlsoRemovesEdges(test *testing.T) {
 		},
 	}
 
-	cfg := reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}
+	cfg := withGen(store, reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes})
 
 	if _, runErr := reindex.Run(cfg); runErr != nil {
 		test.Fatalf("first Run: %v", runErr)
@@ -247,7 +248,7 @@ func TestRun_RespectsRootGitignore(test *testing.T) {
 
 	repo := index.NewNodeRepo(store)
 
-	report, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo})
+	report, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -269,11 +270,11 @@ func TestRun_RespectsWorkspaceIgnore(test *testing.T) {
 
 	repo := index.NewNodeRepo(store)
 
-	report, runErr := reindex.Run(reindex.Config{
+	report, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:            root,
 		Repo:            repo,
 		WorkspaceIgnore: []string{"drafts/"},
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -314,7 +315,7 @@ func TestRun_DrainsEmbedQueue(test *testing.T) {
 	embeddingRepo := index.NewEmbeddingRepo(store)
 	embedder := &stubEmbedder{model: "test", dim: 3}
 
-	cfg := reindex.Config{
+	cfg := withGen(store, reindex.Config{
 		Root:          root,
 		Repo:          nodeRepo,
 		Edges:         edgeRepo,
@@ -323,7 +324,7 @@ func TestRun_DrainsEmbedQueue(test *testing.T) {
 		EmbeddingRepo: embeddingRepo,
 		Embedder:      embedder,
 		Chunker:       embed.WholeDocument{},
-	}
+	})
 
 	report, runErr := reindex.Run(cfg)
 
@@ -367,9 +368,10 @@ func TestRun_RecordsLastReindexAt(test *testing.T) {
 	metaRepo := index.NewMetaRepo(store)
 
 	if _, runErr := reindex.Run(reindex.Config{
-		Root: root,
-		Repo: index.NewNodeRepo(store),
-		Meta: metaRepo,
+		Root:       root,
+		Repo:       index.NewNodeRepo(store),
+		Meta:       metaRepo,
+		FileStates: index.NewFileStateRepo(store),
 	}); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
@@ -410,12 +412,12 @@ body
 	driftRepo := index.NewWorkflowDriftRepo(store)
 	engine := buildWorkflowEngineForReindexTest(test)
 
-	report, runErr := reindex.Run(reindex.Config{
+	report, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:      root,
 		Repo:      index.NewNodeRepo(store),
 		Behaviors: engine,
 		DriftLog:  driftRepo,
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -465,12 +467,12 @@ status: pending
 
 	engine := buildWorkflowEngineForReindexTest(test)
 
-	if _, runErr := reindex.Run(reindex.Config{
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:      root,
 		Repo:      index.NewNodeRepo(store),
 		Behaviors: engine,
 		DriftLog:  driftRepo,
-	}); runErr != nil {
+	})); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
 
@@ -548,12 +550,12 @@ body
 
 	driftRepo := index.NewPropertyDriftRepo(store)
 
-	report, runErr := reindex.Run(reindex.Config{
+	report, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:          root,
 		Repo:          index.NewNodeRepo(store),
 		NodeTypes:     decls,
 		PropertyDrift: driftRepo,
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -603,12 +605,12 @@ priority: 3
 		"ticket": {Properties: []manifest.PropertyDecl{{Name: "priority", Type: "int"}}},
 	}
 
-	if _, runErr := reindex.Run(reindex.Config{
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:          root,
 		Repo:          index.NewNodeRepo(store),
 		NodeTypes:     decls,
 		PropertyDrift: driftRepo,
-	}); runErr != nil {
+	})); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
 
@@ -670,14 +672,14 @@ properties = [
 		test.Fatalf("Load manifest: %v", loadErr)
 	}
 
-	report, runErr := reindex.Run(reindex.Config{
+	report, runErr := reindex.Run(withGen(idx, reindex.Config{
 		Root:          dir,
 		Repo:          index.NewNodeRepo(idx),
 		Edges:         index.NewEdgeRepo(idx),
 		EdgeTypes:     loaded.EdgeTypes,
 		NodeTypes:     loaded.NodeTypes,
 		PropertyDrift: driftRepo,
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -775,14 +777,14 @@ properties = [
 		test.Fatalf("append stale row: %v", appendErr)
 	}
 
-	_, runErr := reindex.Run(reindex.Config{
+	_, runErr := reindex.Run(withGen(idx, reindex.Config{
 		Root:          dir,
 		Repo:          index.NewNodeRepo(idx),
 		Edges:         index.NewEdgeRepo(idx),
 		EdgeTypes:     loaded.EdgeTypes,
 		NodeTypes:     loaded.NodeTypes,
 		PropertyDrift: driftRepo,
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -815,11 +817,11 @@ func TestRun_LogsWalkStartAndComplete(test *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	_, runErr := reindex.Run(reindex.Config{
+	_, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:   tempDir,
 		Repo:   index.NewNodeRepo(store),
 		Logger: logger,
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("run: %v", runErr)
@@ -859,7 +861,7 @@ func TestRun_UnflaggedReferencesEdgeDoesNotMaterialize(test *testing.T) {
 		},
 	}
 
-	if _, runErr := reindex.Run(reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes}); runErr != nil {
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes})); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
 
@@ -906,13 +908,13 @@ func TestRun_SubUnitsEnabled_WritesAndConvergesRows(test *testing.T) {
 	// true by default for hand-built manifests.
 	loaded := &manifest.Manifest{EdgeTypes: edgeTypes}
 
-	cfg := reindex.Config{
+	cfg := withGen(store, reindex.Config{
 		Root:      root,
 		Repo:      repo,
 		Edges:     edgeRepo,
 		EdgeTypes: edgeTypes,
 		Manifest:  loaded,
-	}
+	})
 
 	report, runErr := reindex.Run(cfg)
 
@@ -1068,13 +1070,13 @@ wikilinks = true
 	repo := index.NewNodeRepo(store)
 	edgeRepo := index.NewEdgeRepo(store)
 
-	report, runErr := reindex.Run(reindex.Config{
+	report, runErr := reindex.Run(withGen(store, reindex.Config{
 		Root:      root,
 		Repo:      repo,
 		Edges:     edgeRepo,
 		EdgeTypes: loaded.EdgeTypes,
 		Manifest:  loaded,
-	})
+	}))
 
 	if runErr != nil {
 		test.Fatalf("Run: %v", runErr)
@@ -1176,14 +1178,14 @@ properties = [
 		test.Fatalf("Load manifest: %v", loadErr)
 	}
 
-	if _, runErr := reindex.Run(reindex.Config{
+	if _, runErr := reindex.Run(withGen(idx, reindex.Config{
 		Root:          dir,
 		Repo:          index.NewNodeRepo(idx),
 		Edges:         index.NewEdgeRepo(idx),
 		EdgeTypes:     loaded.EdgeTypes,
 		NodeTypes:     loaded.NodeTypes,
 		PropertyDrift: index.NewPropertyDriftRepo(idx),
-	}); runErr != nil {
+	})); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
 
@@ -1274,14 +1276,14 @@ wikilinks = true
 		test.Fatalf("Load manifest: %v", loadErr)
 	}
 
-	if _, runErr := reindex.Run(reindex.Config{
+	if _, runErr := reindex.Run(withGen(idx, reindex.Config{
 		Root:          dir,
 		Repo:          index.NewNodeRepo(idx),
 		Edges:         index.NewEdgeRepo(idx),
 		EdgeTypes:     loaded.EdgeTypes,
 		NodeTypes:     loaded.NodeTypes,
 		PropertyDrift: index.NewPropertyDriftRepo(idx),
-	}); runErr != nil {
+	})); runErr != nil {
 		test.Fatalf("Run: %v", runErr)
 	}
 
@@ -1314,6 +1316,188 @@ wikilinks = true
 
 	assertDirectEdge("mentions")
 	assertDirectEdge("references")
+}
+
+func TestRun_BumpsReindexGen(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	meta := index.NewMetaRepo(store)
+	fileStates := index.NewFileStateRepo(store)
+
+	firstReport, firstErr := reindex.Run(reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		Meta:       meta,
+		FileStates: fileStates,
+	})
+
+	if firstErr != nil {
+		test.Fatalf("first Run: %v", firstErr)
+	}
+
+	if firstReport.Generation != 1 {
+		test.Errorf("first Generation = %d, want 1", firstReport.Generation)
+	}
+
+	stored, _ := meta.Get("reindex_gen")
+
+	if stored != "1" {
+		test.Errorf("meta reindex_gen after first run = %q, want %q", stored, "1")
+	}
+
+	secondReport, secondErr := reindex.Run(reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		Meta:       meta,
+		FileStates: fileStates,
+	})
+
+	if secondErr != nil {
+		test.Fatalf("second Run: %v", secondErr)
+	}
+
+	if secondReport.Generation != 2 {
+		test.Errorf("second Generation = %d, want 2", secondReport.Generation)
+	}
+
+	stored, _ = meta.Get("reindex_gen")
+
+	if stored != "2" {
+		test.Errorf("meta reindex_gen after second run = %q, want %q", stored, "2")
+	}
+}
+
+func TestRun_WritesLastSeenGenForEveryIndexedFile(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\n", "Body.\n")
+	writeNode(test, root, "notes/b.md", "type: note\n", "Body.\n")
+	writeNode(test, root, "notes/c.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	meta := index.NewMetaRepo(store)
+	fileStates := index.NewFileStateRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		Meta:       meta,
+		FileStates: fileStates,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Generation != 1 {
+		test.Fatalf("Generation = %d, want 1", report.Generation)
+	}
+
+	for _, path := range []string{"notes/a.md", "notes/b.md", "notes/c.md"} {
+		row, getErr := fileStates.Get(path)
+
+		if getErr != nil {
+			test.Fatalf("FileStates.Get(%q): %v", path, getErr)
+		}
+
+		if row.LastSeenGen != report.Generation {
+			test.Errorf("%s LastSeenGen = %d, want %d", path, row.LastSeenGen, report.Generation)
+		}
+
+		if row.State != index.FileStateLive {
+			test.Errorf("%s State = %q, want %q", path, row.State, index.FileStateLive)
+		}
+
+		if row.ContentHash == "" {
+			test.Errorf("%s ContentHash is empty", path)
+		}
+	}
+}
+
+func TestRun_ConcurrentInvocationsProduceDistinctGens(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	meta := index.NewMetaRepo(store)
+	fileStates := index.NewFileStateRepo(store)
+
+	cfg := reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		Meta:       meta,
+		FileStates: fileStates,
+	}
+
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		gens []int64
+	)
+
+	wg.Add(2)
+
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+
+			report, runErr := reindex.Run(cfg)
+
+			if runErr != nil {
+				test.Errorf("Run: %v", runErr)
+
+				return
+			}
+
+			mu.Lock()
+			gens = append(gens, report.Generation)
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	if len(gens) != 2 {
+		test.Fatalf("len(gens) = %d, want 2", len(gens))
+	}
+
+	if gens[0] == gens[1] {
+		test.Errorf("expected distinct generations, both = %d", gens[0])
+	}
+
+	stored, _ := meta.Get("reindex_gen")
+
+	if stored != "2" {
+		test.Errorf("meta reindex_gen = %q, want %q", stored, "2")
+	}
+}
+
+// withGen wires Meta and FileStates onto cfg from store. T6.1 made both
+// fields required on reindex.Config; this helper keeps the older test
+// bodies short.
+func withGen(store *index.Index, cfg reindex.Config) reindex.Config {
+	if cfg.Meta == nil {
+		cfg.Meta = index.NewMetaRepo(store)
+	}
+
+	if cfg.FileStates == nil {
+		cfg.FileStates = index.NewFileStateRepo(store)
+	}
+
+	return cfg
 }
 
 func writeNode(test *testing.T, root, relPath, frontmatter, body string) {
