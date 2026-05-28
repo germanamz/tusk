@@ -100,8 +100,11 @@ func (srv *Server) ServeSSE(addr string) error {
 	return sse.Start(addr)
 }
 
-// RunBackground starts the embed-queue drainer and the file watcher. It blocks
-// until ctx cancels, then returns the first non-nil error from either worker.
+// RunBackground starts the embed-queue drainer, reindex drainer, and file
+// watcher. All three goroutines are gated on runtime.Workers > 0: when workers
+// are disabled the instance becomes a pure read-server and does not observe
+// FS changes (the watcher would enqueue reindex jobs that never drain).
+// Blocks until ctx cancels, then returns the first non-nil error.
 func (srv *Server) RunBackground(ctx context.Context) error {
 	var (
 		mu    sync.Mutex
@@ -124,7 +127,7 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 	var waitGroup sync.WaitGroup
 
 	if srv.runtime.Workers > 0 {
-		waitGroup.Add(2)
+		waitGroup.Add(3)
 
 		go func() {
 			defer waitGroup.Done()
@@ -135,14 +138,12 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 			defer waitGroup.Done()
 			record(RunReindexDrainer(ctx, ReindexDrainerConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
 		}()
+
+		go func() {
+			defer waitGroup.Done()
+			record(RunWatcher(ctx, WatchConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
+		}()
 	}
-
-	waitGroup.Add(1)
-
-	go func() {
-		defer waitGroup.Done()
-		record(RunWatcher(ctx, WatchConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
-	}()
 
 	waitGroup.Wait()
 

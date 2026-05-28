@@ -17,6 +17,29 @@ func TestWatchCmd_HelpRenders(test *testing.T) {
 	}
 }
 
+func TestWatchCmd_WorkersZeroEarlyExit(test *testing.T) {
+	wsDir := setupTempWorkspace(test)
+	chdir(test, wsDir)
+
+	test.Setenv("TUSK_EMBED_WORKERS", "0")
+
+	stderr := &bytes.Buffer{}
+	rootCmd := newRootCmd()
+	rootCmd.SetOut(io.Discard)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"watch"})
+
+	runErr := rootCmd.Execute()
+
+	if runErr == nil {
+		test.Fatalf("expected error when workers=0; got nil")
+	}
+
+	if !strings.Contains(runErr.Error(), "embed workers disabled") {
+		test.Errorf("error %q does not contain %q", runErr.Error(), "embed workers disabled")
+	}
+}
+
 func TestWatchCmd_VerboseEmitsInitialReindexLogs(test *testing.T) {
 	wsDir := setupTempWorkspace(test)
 	chdir(test, wsDir)

@@ -30,7 +30,10 @@ service as "tusk node create" / "modify", so files edited in vim, Obsidian,
 or piped from an LLM produce identical index state.
 
 Runs until interrupted (Ctrl-C). Pair with "tusk status" or "tusk doctor"
-in another shell to observe progress.`,
+in another shell to observe progress.
+
+Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + `) makes
+"tusk watch" refuse to start; the watcher needs a drainer.`,
 		Example: `  # Foreground: keep the index live while you author in any editor
   tusk watch
 
@@ -60,6 +63,13 @@ in another shell to observe progress.`,
 			}
 
 			manifest.MergeBuiltinPacks(loaded)
+
+			if resolveEmbedWorkers(loaded) == 0 {
+				return fmt.Errorf(
+					"tusk watch: embed workers disabled (workers=0); watch needs at least one worker. " +
+						"To run a watcher-only instance, ensure another tusk instance is draining " +
+						"this workspace's index, then unset TUSK_EMBED_WORKERS or set [embeddings] workers > 0 in tusk.toml")
+			}
 
 			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
 				IndexPath: ws.IndexPath,

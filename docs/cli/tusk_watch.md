@@ -19,6 +19,9 @@ or piped from an LLM produce identical index state.
 Runs until interrupted (Ctrl-C). Pair with "tusk status" or "tusk doctor"
 in another shell to observe progress.
 
+Setting `[embeddings] workers = 0` (or `TUSK_EMBED_WORKERS=0`) makes
+"tusk watch" refuse to start; the watcher needs a drainer.
+
 ```
 tusk watch [flags]
 ```
