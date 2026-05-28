@@ -14,22 +14,14 @@ type Embedder interface {
 	Dim() int
 }
 
-// DefaultWorkers and DefaultTimeoutSeconds are the user-facing defaults applied
-// at construction sites when the corresponding manifest field is unset. Phase 2
-// of Spec B adds DefaultBatchSize alongside these for batched embed calls.
-const (
-	DefaultWorkers        = 4
-	DefaultTimeoutSeconds = 120
-)
-
-// ResolveWorkers returns the configured workers value or DefaultWorkers when zero.
-func ResolveWorkers(configured int) int {
-	if configured <= 0 {
-		return DefaultWorkers
-	}
-
-	return configured
-}
+// DefaultTimeoutSeconds is the user-facing default applied at construction
+// sites when the manifest field is unset. Phase 2 of Spec B adds
+// DefaultBatchSize alongside this for batched embed calls.
+//
+// The worker-pool size is resolved by internal/embedconfig.ResolveWorkers,
+// which honors an explicit 0 as "opt out of the worker pool in this
+// instance."
+const DefaultTimeoutSeconds = 120
 
 // ResolveTimeoutSeconds returns the configured value or DefaultTimeoutSeconds when zero.
 func ResolveTimeoutSeconds(configured int) int {

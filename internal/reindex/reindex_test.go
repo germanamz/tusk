@@ -1509,6 +1509,13 @@ func withGen(store *index.Index, cfg reindex.Config) reindex.Config {
 		cfg.EmbedQueue = index.NewEmbedQueueRepo(store)
 	}
 
+	// Tests that don't explicitly opt out of the worker pool get the
+	// pre-T7.1 default. T7.1 made cfg.Workers == 0 mean "skip drain",
+	// which would break every reindex_test that expects Run to drain.
+	if cfg.Workers == 0 {
+		cfg.Workers = 2
+	}
+
 	return cfg
 }
 

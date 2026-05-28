@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,9 +19,6 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/subunit"
 )
-
-// BRIDGE: hardcoded reindex worker count; replaced by embedconfig.ResolveWorkers in task 7.1.
-const defaultReindexWorkers = 0 // resolved at call site via max(1, runtime.NumCPU()/2)
 
 // defaultReindexBatch is the default claim size per Drain call. Workers drain
 // in cycles; small enough that lease churn is acceptable, large enough that
@@ -50,7 +46,9 @@ type WorkerConfig struct {
 	Logger        *slog.Logger
 
 	// Workers caps the number of goroutines draining the queue in parallel.
-	// Zero or negative resolves to max(1, runtime.NumCPU()/2).
+	// The caller resolves the final value via embedconfig.ResolveWorkers;
+	// 0 means "opt out" — DrainReindexQueue returns immediately without
+	// spawning workers or touching the queue.
 	Workers int
 
 	// BatchSize is the claim size per Drain call. Zero defaults to defaultReindexBatch.
@@ -110,8 +108,7 @@ func DrainReindexQueue(ctx context.Context, cfg WorkerConfig) (DrainReport, erro
 	workers := cfg.Workers
 
 	if workers <= 0 {
-		_ = defaultReindexWorkers
-		workers = max(1, runtime.NumCPU()/2)
+		return DrainReport{}, nil
 	}
 
 	batch := cfg.BatchSize

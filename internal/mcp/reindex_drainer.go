@@ -54,6 +54,7 @@ func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 				NodeTypes:     config.Runtime.Manifest.NodeTypes,
 				PropertyDrift: config.Runtime.PropertyDrift,
 				Logger:        config.Logger,
+				Workers:       config.Runtime.Workers,
 				TTL:           config.Runtime.LeaseTTL,
 				Generation:    gen,
 			})

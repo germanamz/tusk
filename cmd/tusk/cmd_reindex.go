@@ -27,7 +27,13 @@ happen lazily — run "tusk watch" alongside, or in the background, to
 drain the embedding queue.
 
 Run reindex after editing files outside Tusk (vim, Obsidian, scripts) or
-after changing node/edge declarations in tusk.toml.`,
+after changing node/edge declarations in tusk.toml.
+
+Worker pool: the embed/reindex pool size resolves from TUSK_EMBED_WORKERS,
+then [embeddings] workers in tusk.toml, then max(1, NumCPU/2). Setting
+the pool size to 0 opts out: this invocation walks and enqueues but does
+not drain — another instance (or a later tusk reindex run) must drain
+the queue.`,
 		Example: `  # Catch the index up with disk
   tusk reindex
 
@@ -69,6 +75,7 @@ after changing node/edge declarations in tusk.toml.`,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
 						EmbedQueue: index.NewEmbedQueueRepo(idx),
+						Workers:    resolveEmbedWorkers(loaded),
 					}
 				},
 				Logger: func(msg string) {
@@ -128,7 +135,7 @@ after changing node/edge declarations in tusk.toml.`,
 				NodeTypes:       loaded.NodeTypes,
 				PropertyDrift:   index.NewPropertyDriftRepo(store),
 				Logger:          logger,
-				Workers:         embed.ResolveWorkers(loaded.Embeddings.Workers),
+				Workers:         resolveEmbedWorkers(loaded),
 				Manifest:        loaded,
 			})
 
