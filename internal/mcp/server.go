@@ -103,8 +103,10 @@ func (srv *Server) ServeSSE(addr string) error {
 // RunBackground starts the embed-queue drainer, reindex drainer, and file
 // watcher. All three goroutines are gated on runtime.Workers > 0: when workers
 // are disabled the instance becomes a pure read-server and does not observe
-// FS changes (the watcher would enqueue reindex jobs that never drain).
-// Blocks until ctx cancels, then returns the first non-nil error.
+// FS changes (the watcher would enqueue reindex jobs that never drain). In that
+// case it emits a single startup WARN (via runtime.Logger, if set) so the
+// operator knows indexing won't happen in this instance, then returns
+// immediately. Blocks until ctx cancels, then returns the first non-nil error.
 func (srv *Server) RunBackground(ctx context.Context) error {
 	var (
 		mu    sync.Mutex
@@ -143,6 +145,11 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 			defer waitGroup.Done()
 			record(RunWatcher(ctx, WatchConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
 		}()
+	} else if srv.runtime.Logger != nil {
+		srv.runtime.Logger.Warn(
+			"embed workers disabled; watch is also disabled in this instance. " +
+				"Ensure another instance (or scheduled tusk reindex) drives indexing " +
+				"for this workspace, otherwise the index will go stale.")
 	}
 
 	waitGroup.Wait()

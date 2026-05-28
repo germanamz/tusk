@@ -1,9 +1,12 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +159,105 @@ workers  = 0
 
 	if depth != 0 {
 		test.Errorf("reindex depth after external write = %d, want 0 (watcher must not run)", depth)
+	}
+}
+
+// TestRunBackground_WorkersZeroEmitsWarn confirms the T7.3 startup warning:
+// when runtime.Workers == 0, RunBackground emits a single WARN explaining that
+// indexing is disabled in this instance.
+func TestRunBackground_WorkersZeroEmitsWarn(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model    = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+dim      = 768
+workers  = 0
+`), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	rt, openErr := mcp.Open(root, mcp.WithLogger(logger))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	if rt.Workers != 0 {
+		test.Fatalf("rt.Workers = %d, want 0", rt.Workers)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	// workers=0 has no background goroutines, so RunBackground returns at once.
+	if runErr := srv.RunBackground(context.Background()); runErr != nil {
+		test.Fatalf("RunBackground: %v", runErr)
+	}
+
+	if !strings.Contains(buf.String(), "embed workers disabled") {
+		test.Errorf("log output missing WARN; got: %q", buf.String())
+	}
+}
+
+// TestRunBackground_WorkersPositiveNoWarn confirms the WARN is absent when
+// workers > 0: the drainers and watcher start instead.
+func TestRunBackground_WorkersPositiveNoWarn(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+`), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	rt, openErr := mcp.Open(root, mcp.WithLogger(logger))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	if rt.Workers < 1 {
+		test.Fatalf("rt.Workers = %d, want >= 1 (default resolves to max(1, NumCPU/2))", rt.Workers)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- srv.RunBackground(ctx)
+	}()
+
+	time.Sleep(200 * time.Millisecond) // let the background goroutines boot
+
+	cancel()
+
+	select {
+	case runErr := <-done:
+		if runErr != nil && runErr != context.Canceled {
+			test.Fatalf("RunBackground: %v", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		test.Fatalf("RunBackground did not return after cancel")
+	}
+
+	if strings.Contains(buf.String(), "embed workers disabled") {
+		test.Errorf("WARN should be absent when workers > 0; got: %q", buf.String())
 	}
 }
