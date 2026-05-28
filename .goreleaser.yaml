@@ -50,9 +50,8 @@ changelog:
     - title: Others
       order: 999
 
+# The GitHub release is owned by release-please; this workflow runs goreleaser
+# with --skip=publish and uploads dist/* to that release. Disabled here so a
+# manual `goreleaser release` never creates a competing release.
 release:
-  github:
-    owner: germanamz
-    name: tusk
-  mode: keep-existing
-  prerelease: auto
+  disable: true
