@@ -764,8 +764,8 @@ func validate(loaded *Manifest) error {
 			return fmt.Errorf("manifest: embeddings.model must be set when embeddings.provider is configured")
 		}
 
-		if loaded.Embeddings.Workers < 0 {
-			return fmt.Errorf("manifest: embeddings.workers must be >= 0 (got %d); zero or absent uses the default", loaded.Embeddings.Workers)
+		if loaded.Embeddings.Workers != nil && *loaded.Embeddings.Workers < 0 {
+			return fmt.Errorf("manifest: embeddings.workers must be >= 0 (got %d); absent uses the default, 0 opts out of the worker pool in this instance", *loaded.Embeddings.Workers)
 		}
 
 		if loaded.Embeddings.TimeoutSeconds < 0 {

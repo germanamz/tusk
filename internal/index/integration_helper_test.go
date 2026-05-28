@@ -34,9 +34,17 @@ func openRebuilt(test *testing.T, indexPath string, factory func(*index.Index) r
 	}
 
 	store, openErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
-		IndexPath:      indexPath,
-		ReindexFactory: factory,
-		Logger:         func(string) {},
+		IndexPath: indexPath,
+		ReindexFactory: func(idx *index.Index) reindex.Config {
+			cfg := factory(idx)
+
+			if cfg.Workers == 0 {
+				cfg.Workers = 2
+			}
+
+			return cfg
+		},
+		Logger: func(string) {},
 	})
 	if openErr != nil {
 		test.Fatalf("OpenOrRebuild: %v", openErr)

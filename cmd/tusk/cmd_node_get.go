@@ -79,6 +79,7 @@ structured output instead (compact for TTY, JSON otherwise).`,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
 						EmbedQueue: index.NewEmbedQueueRepo(idx),
+						Workers:    resolveEmbedWorkers(loaded),
 					}
 				},
 				Logger: func(msg string) {

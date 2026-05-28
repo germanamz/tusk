@@ -152,13 +152,17 @@ type WorkspaceSection struct {
 // Workers caps concurrency per node, BatchSize caps prompts per HTTP call
 // (Phase 2 of Spec B), TimeoutSeconds sets the HTTP client timeout for
 // the embedder. All optional; sensible defaults apply when omitted.
+//
+// Workers is a pointer so the loader can distinguish "absent" (defaults
+// applied at resolution time) from "explicit 0" (opt out of the worker
+// pool in this instance). See internal/embedconfig.
 type EmbeddingsSection struct {
 	Provider       string `toml:"provider"`
 	Model          string `toml:"model"`
 	Endpoint       string `toml:"endpoint"`
 	Dim            int    `toml:"dim"`
 	APIKey         string `toml:"api-key"`
-	Workers        int    `toml:"workers"`
+	Workers        *int   `toml:"workers"`
 	TimeoutSeconds int    `toml:"timeout-seconds"`
 }
 

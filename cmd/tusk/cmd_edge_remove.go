@@ -79,6 +79,7 @@ any remaining sentinel rows on its next run.`,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
 						EmbedQueue: index.NewEmbedQueueRepo(idx),
+						Workers:    resolveEmbedWorkers(loaded),
 					}
 				},
 				Logger: func(msg string) {

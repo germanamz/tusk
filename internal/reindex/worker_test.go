@@ -108,6 +108,116 @@ func TestDrainReindexQueue_ProcessesWalkerEnqueuedJobs(test *testing.T) {
 	}
 }
 
+// TestDrainReindexQueue_WorkersZeroReturnsEmptyReportWithoutClaiming asserts
+// the T7.1 opt-out semantic: Workers=0 means the worker pool never starts and
+// the queue is left intact for some other instance to drain.
+func TestDrainReindexQueue_WorkersZeroReturnsEmptyReportWithoutClaiming(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\ntitle: A\n", "Body.\n")
+	writeNode(test, root, "notes/b.md", "type: note\ntitle: B\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	fileStates := index.NewFileStateRepo(store)
+	meta := index.NewMetaRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		EmbedQueue: queueRepo,
+		Meta:       meta,
+		FileStates: fileStates,
+		Async:      true,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	depth, _ := queueRepo.DepthByKind("reindex")
+
+	if depth != 2 {
+		test.Fatalf("reindex depth after walk = %d, want 2", depth)
+	}
+
+	drainReport, drainErr := reindex.DrainReindexQueue(context.Background(), reindex.WorkerConfig{
+		Root:       root,
+		Repo:       repo,
+		EmbedQueue: queueRepo,
+		FileStates: fileStates,
+		Workers:    0,
+		TTL:        time.Minute,
+		Generation: report.Generation,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainReindexQueue: %v", drainErr)
+	}
+
+	if drainReport.Indexed != 0 {
+		test.Errorf("Indexed = %d, want 0 (workers=0 must not claim)", drainReport.Indexed)
+	}
+
+	remaining, _ := queueRepo.DepthByKind("reindex")
+
+	if remaining != 2 {
+		test.Errorf("reindex depth after opt-out drain = %d, want 2 (queue must be retained)", remaining)
+	}
+
+	if loaded, _ := repo.List(index.ListFilter{}); len(loaded) != 0 {
+		test.Errorf("node rows after opt-out drain = %d, want 0", len(loaded))
+	}
+}
+
+// TestRun_WorkersZeroSyncSkipsDrain asserts that reindex.Run with sync mode
+// (Async=false) and Workers=0 walks and enqueues but does not drain, leaving
+// the caller responsible for orchestrating drainage.
+func TestRun_WorkersZeroSyncSkipsDrain(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/a.md", "type: note\ntitle: A\n", "Body.\n")
+	writeNode(test, root, "notes/b.md", "type: note\ntitle: B\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	fileStates := index.NewFileStateRepo(store)
+	meta := index.NewMetaRepo(store)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		EmbedQueue: queueRepo,
+		Meta:       meta,
+		FileStates: fileStates,
+		Workers:    0,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.Indexed != 0 {
+		test.Errorf("Indexed = %d, want 0 (sync drain must be skipped)", report.Indexed)
+	}
+
+	depth, _ := queueRepo.DepthByKind("reindex")
+
+	if depth != 2 {
+		test.Errorf("reindex depth after Run = %d, want 2 (queue retained for drainage elsewhere)", depth)
+	}
+
+	if loaded, _ := repo.List(index.ListFilter{}); len(loaded) != 0 {
+		test.Errorf("node rows after Run = %d, want 0", len(loaded))
+	}
+}
+
 // TestDrainReindexQueue_ContextCancelLeavesRowLeased asserts that cancelling
 // ctx mid-drain returns promptly without acking the in-flight row; the row
 // stays leased until ttl expires, at which point another worker can reclaim.

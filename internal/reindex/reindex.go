@@ -372,6 +372,15 @@ func Run(config Config) (*Report, error) {
 	}
 
 	if !config.Async {
+		if config.Workers <= 0 {
+			if config.Logger != nil {
+				config.Logger.Info("reindex: workers=0; sync drain skipped, queue retained",
+					"root", config.Root,
+					"generation", gen,
+				)
+			}
+		}
+
 		drainReport, drainErr := DrainReindexQueue(context.Background(), WorkerConfig{
 			Root:          config.Root,
 			Repo:          config.Repo,
@@ -407,7 +416,7 @@ func Run(config Config) (*Report, error) {
 		report.SubUnitsReordered += drainReport.SubUnitsReordered
 	}
 
-	if config.Embedder != nil {
+	if config.Embedder != nil && config.Workers > 0 {
 		if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
 			Root:       config.Root,
 			Nodes:      config.Repo,

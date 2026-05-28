@@ -1391,6 +1391,7 @@ func registerReindexTool(srv *Server) {
 			EmbedQueue:      srv.runtime.EmbedQueue,
 			Meta:            srv.runtime.Meta,
 			FileStates:      srv.runtime.FileState,
+			Workers:         srv.runtime.Workers,
 		}
 
 		if !noEmbed && srv.runtime.Embedder != nil {

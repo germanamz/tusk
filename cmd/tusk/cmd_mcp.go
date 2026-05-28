@@ -41,7 +41,14 @@ Transports:
 
 The server holds the workspace open for the lifetime of the session, drains
 the embed queue in the background, and watches the workspace for external
-edits.`,
+edits.
+
+Worker pool: TUSK_EMBED_WORKERS overrides [embeddings] workers in tusk.toml;
+both default to max(1, NumCPU/2). Setting the pool size to 0 turns this
+instance into a read-only server — the embed and reindex drainers are not
+started, so another instance (or a scheduled tusk reindex) must keep the
+index fresh. The file watcher still runs and still enqueues work for
+whichever instance is draining.`,
 		Example: `  # Default: stdio transport (Claude Code, Cursor, Zed)
   tusk mcp
 

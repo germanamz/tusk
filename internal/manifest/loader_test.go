@@ -252,8 +252,75 @@ workers  = 6
 		test.Fatalf("Load: %v", loadErr)
 	}
 
-	if loaded.Embeddings.Workers != 6 {
-		test.Errorf("Workers = %d, want 6", loaded.Embeddings.Workers)
+	if loaded.Embeddings.Workers == nil {
+		test.Fatalf("Workers = nil, want pointer to 6")
+	}
+
+	if *loaded.Embeddings.Workers != 6 {
+		test.Errorf("Workers = %d, want 6", *loaded.Embeddings.Workers)
+	}
+}
+
+func TestLoad_AbsentWorkersIsNil(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model    = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+dim      = 768
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if loaded.Embeddings.Workers != nil {
+		test.Errorf("Workers = %v, want nil for absent key", *loaded.Embeddings.Workers)
+	}
+}
+
+func TestLoad_ExplicitZeroWorkersIsNonNil(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model    = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+dim      = 768
+workers  = 0
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	if loaded.Embeddings.Workers == nil {
+		test.Fatalf("Workers = nil, want pointer to 0")
+	}
+
+	if *loaded.Embeddings.Workers != 0 {
+		test.Errorf("Workers = %d, want 0", *loaded.Embeddings.Workers)
 	}
 }
 

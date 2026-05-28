@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/behavior"
 	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/embedconfig"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -185,8 +186,12 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 			Timeout:  timeout,
 		})
 		rt.Chunker = embed.MarkdownRecursive{}
-		rt.Workers = embed.ResolveWorkers(loaded.Embeddings.Workers)
 	}
+
+	// Resolve worker count regardless of provider — the reindex worker pool
+	// processes workflow/property/edge/sub-unit work even when no embedder
+	// is configured. embedconfig honors an explicit 0 as the opt-out signal.
+	rt.Workers = embedconfig.ResolveWorkers(loaded.Embeddings.Workers)
 
 	return rt, nil
 }

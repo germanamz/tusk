@@ -72,6 +72,7 @@ in another shell to observe progress.`,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
 						EmbedQueue: index.NewEmbedQueueRepo(idx),
+						Workers:    resolveEmbedWorkers(loaded),
 					}
 				},
 				Logger: func(msg string) {
@@ -104,6 +105,7 @@ in another shell to observe progress.`,
 				FileStates:      fileStateRepo,
 				Logger:          logger,
 				Manifest:        loaded,
+				Workers:         resolveEmbedWorkers(loaded),
 			}); runErr != nil {
 				return runErr
 			}
@@ -171,6 +173,7 @@ in another shell to observe progress.`,
 					FileStates:      fileStateRepo,
 					Logger:          logger,
 					Manifest:        loaded,
+					Workers:         resolveEmbedWorkers(loaded),
 				})
 
 				if runErr != nil {

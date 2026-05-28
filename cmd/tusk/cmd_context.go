@@ -101,6 +101,7 @@ the output format (default: compact at TTY, JSON when piped).`,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
 						EmbedQueue: index.NewEmbedQueueRepo(idx),
+						Workers:    resolveEmbedWorkers(loaded),
 					}
 				},
 				Logger: func(msg string) {

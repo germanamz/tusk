@@ -64,3 +64,23 @@ ttl_seconds = 90
 **Read once at startup.** The TTL is resolved when the process starts; changing the env var or the manifest field requires a restart. There is no hot-reload and no lease renewal / heartbeat — a worker that misses its deadline simply lets the lease expire and a peer reclaims the work.
 
 **Tuning hazard.** Setting the TTL very low (e.g. 1 s) risks lease expiry mid-flight: a long embed of a large node or a slow file write can lose its lease before completing, at which point a second worker reclaims the row and redoes the work. The default (60 s) comfortably covers every observed embed/write latency; only shorten it if you are confident every workload finishes inside the new window.
+
+### Embed/reindex worker pool — `[embeddings] workers`
+
+The `workers` field under `[embeddings]` caps the number of goroutines the process spawns to drain the embed and reindex queues.
+
+```toml
+[embeddings]
+workers = 4
+```
+
+- `workers` (integer ≥ 0, optional) — pool size for the embed + reindex worker pool. When omitted, the resolver falls through to the env override and then the default `max(1, NumCPU/2)`.
+- `workers = 0` — **opt out.** This instance does not start the embed or reindex worker pool. The MCP server still answers queries and mutations, the file watcher still runs, but nothing in this process drains the queue. **Some other instance (or a scheduled `tusk reindex`) must drive indexing** or the index will go stale.
+
+**Env override:** `TUSK_EMBED_WORKERS` takes precedence over the manifest value. Malformed or negative env values are ignored with a warning. Resolution order, highest precedence first:
+
+1. `TUSK_EMBED_WORKERS` (non-negative integer; `0` means opt out).
+2. `[embeddings] workers` in `tusk.toml` (non-negative integer; `0` means opt out).
+3. Default: `max(1, NumCPU/2)`.
+
+The pool size is resolved once at process start; changes require a restart.

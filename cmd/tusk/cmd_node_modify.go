@@ -83,6 +83,7 @@ without holding a workspace-wide lock.`,
 						Meta:       index.NewMetaRepo(idx),
 						FileStates: index.NewFileStateRepo(idx),
 						EmbedQueue: index.NewEmbedQueueRepo(idx),
+						Workers:    resolveEmbedWorkers(loaded),
 					}
 				},
 				Logger: func(msg string) {
