@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/germanamz/tusk/compare/v1.7.0...v1.7.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* **docs:** expand tusk --help/man reference with config + examples ([#479](https://github.com/germanamz/tusk/issues/479)) ([61490f8](https://github.com/germanamz/tusk/commit/61490f8a3926dee440c7c3d21de9d0dd6c2a030a))
+
 ## [1.7.0](https://github.com/germanamz/tusk/compare/v1.6.0...v1.7.0) (2026-05-28)
 
 
