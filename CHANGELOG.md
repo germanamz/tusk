@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.7.0](https://github.com/germanamz/tusk/compare/v1.6.0...v1.7.0) (2026-05-28)
+
+
+### Features
+
+* **embed:** resolve worker pool size via env + manifest ([#475](https://github.com/germanamz/tusk/issues/475)) ([41893dc](https://github.com/germanamz/tusk/commit/41893dc8fb7a8e18e344a7cb187a1ba07296ca55))
+* **index:** add file_state lease primitive and worker identity ([#461](https://github.com/germanamz/tusk/issues/461)) ([41180f0](https://github.com/germanamz/tusk/commit/41180f059825fc9c278dea97d736966a6c4d6626))
+* **index:** add file_state table and FileStateRepo CRUD ([#459](https://github.com/germanamz/tusk/issues/459)) ([6418786](https://github.com/germanamz/tusk/commit/64187860ebfdce200f054f1023459998e3e24ca8))
+* **index:** add lease and kind columns to embed_queue ([#460](https://github.com/germanamz/tusk/issues/460)) ([ce531d3](https://github.com/germanamz/tusk/commit/ce531d3755c71a465f5abf171043a9489ea3d010))
+* **index:** convert embed_queue Drain to lease claim + Ack/Nack ([#462](https://github.com/germanamz/tusk/issues/462)) ([8c06478](https://github.com/germanamz/tusk/commit/8c0647885158000e1627d22fde7cc1d7043cac68))
+* **leaseconfig:** plumb lease TTL via env and manifest ([#463](https://github.com/germanamz/tusk/issues/463)) ([92e5977](https://github.com/germanamz/tusk/commit/92e5977ded2ba2f71f593e37280b40cbe7d47ac7))
+* **mcp:** drop body parameter from tusk_node_modify ([#457](https://github.com/germanamz/tusk/issues/457)) ([1d04026](https://github.com/germanamz/tusk/commit/1d04026e4735bc478e8e40bb956b9d1dac46c5b7))
+* **mcp:** skip watcher and tusk watch CLI when workers=0 ([#476](https://github.com/germanamz/tusk/issues/476)) ([369462d](https://github.com/germanamz/tusk/commit/369462d8360b20413f5a877c0222a8be62f592f4))
+* **mcp:** warn at startup when embed workers disabled ([#477](https://github.com/germanamz/tusk/issues/477)) ([8a1cb24](https://github.com/germanamz/tusk/commit/8a1cb24e486c20cec8e70018148079ced99651d2))
+* **node:** add WriteWithLease helper for lease-protected writes ([#464](https://github.com/germanamz/tusk/issues/464)) ([3488752](https://github.com/germanamz/tusk/commit/3488752e5e4d67523cf55de9211b55cfd9c0cce4))
+* **node:** convert node.Delete to WriteWithLease ([#467](https://github.com/germanamz/tusk/issues/467)) ([4bc6841](https://github.com/germanamz/tusk/commit/4bc68413dc61db64a022ba7c2dbbd29009c38057))
+* **node:** convert node.Rename to lease-protected move ([#468](https://github.com/germanamz/tusk/issues/468)) ([9f4bb08](https://github.com/germanamz/tusk/commit/9f4bb08549d9678094d401f210b26b90ce46bcc0))
+* **node:** convert Service.Create to WriteWithLease ([#465](https://github.com/germanamz/tusk/issues/465)) ([31ba4ac](https://github.com/germanamz/tusk/commit/31ba4ac34c1e56f4899839f99409a3f7e6ca67f2))
+* **node:** convert Service.Modify to WriteWithLease ([#466](https://github.com/germanamz/tusk/issues/466)) ([92ab287](https://github.com/germanamz/tusk/commit/92ab287cb813d34500a5f1ad468cc8de2b4bc049))
+* **reindex:** add reindex_gen counter and last_seen_gen tracking ([#471](https://github.com/germanamz/tusk/issues/471)) ([3522814](https://github.com/germanamz/tusk/commit/3522814a8499854b2344d56151b8588757740cb2))
+* **reindex:** drain reindex jobs via parallel worker pool ([#474](https://github.com/germanamz/tusk/issues/474)) ([19a5c27](https://github.com/germanamz/tusk/commit/19a5c27d523d6cb8a6a5403c0c6fefa8a0534f69))
+* **reindex:** enqueue per-file reindex jobs during walk (bridge) ([#473](https://github.com/germanamz/tusk/issues/473)) ([8ea3cad](https://github.com/germanamz/tusk/commit/8ea3cadc7738645e347ce048e43b74aace2d86bb))
+* **reindex:** replace seenPaths reap with generation-based + lease-confirmed reap ([#472](https://github.com/germanamz/tusk/issues/472)) ([781128e](https://github.com/germanamz/tusk/commit/781128e20aef35e26edb09968e9470dfb6b1fea6))
+
 ## [1.6.0](https://github.com/germanamz/tusk/compare/v1.5.0...v1.6.0) (2026-05-26)
 
 
