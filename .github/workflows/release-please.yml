@@ -11,6 +11,11 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
+      upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
       - uses: actions/create-github-app-token@v1
         id: app-token
@@ -18,7 +23,62 @@ jobs:
           app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  goreleaser:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # release-please created the GitHub release as a draft, so the git tag
+      # does not exist yet. Recreate it locally so goreleaser can derive the
+      # version; the remote tag is created when we publish the draft below.
+      - name: Recreate release tag locally
+        run: git tag "${{ needs.release-please.outputs.tag_name }}" "${{ needs.release-please.outputs.sha }}"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean --skip=publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Attach binaries to the draft, then publish. We address the release by the
+      # id embedded in upload_url rather than by tag: a draft release has no git
+      # tag yet, and gh's tag-based lookups can't find it (cli/cli#5252).
+      # Flipping draft=false creates the remote tag and makes the release public,
+      # so the release and its artifacts go live together.
+      - name: Attach binaries and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_URL: ${{ needs.release-please.outputs.upload_url }}
+        run: |
+          set -euo pipefail
+          upload_base="${UPLOAD_URL%\{*}"
+          release_id="$(printf '%s' "$upload_base" | sed -E 's#.*/releases/([0-9]+)/assets#\1#')"
+          for f in dist/tusk_*.tar.gz dist/tusk_*.zip dist/checksums.txt; do
+            case "$f" in
+              *.zip) ct=application/zip ;;
+              *.tar.gz) ct=application/gzip ;;
+              *) ct=text/plain ;;
+            esac
+            gh api --method POST "${upload_base}?name=$(basename "$f")" \
+              -H "Content-Type: $ct" --input "$f"
+          done
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -F draft=false -f make_latest=true

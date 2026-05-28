@@ -8,7 +8,8 @@
   "pull-request-title-pattern": "chore(release): release v${version}",
   "packages": {
     ".": {
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "draft": true
     }
   }
 }
