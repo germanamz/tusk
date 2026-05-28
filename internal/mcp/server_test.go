@@ -81,3 +81,80 @@ workers  = 0
 		test.Errorf("reindex depth after RunBackground = %d, want 1 (drainer must not run)", depth)
 	}
 }
+
+// TestRunBackground_WorkersZeroSkipsWatcher confirms the T7.2 gate: when
+// runtime.Workers == 0 the file watcher goroutine never starts, so an
+// out-of-process write to the vault does not enqueue a reindex job.
+func TestRunBackground_WorkersZeroSkipsWatcher(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model    = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+dim      = 768
+workers  = 0
+`), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	if rt.Workers != 0 {
+		test.Fatalf("rt.Workers = %d, want 0", rt.Workers)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- srv.RunBackground(ctx)
+	}()
+
+	time.Sleep(200 * time.Millisecond) // let any watcher boot if it were going to
+
+	if mkErr := os.MkdirAll(filepath.Join(root, "notes"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	body := []byte("---\ntype: note\ntitle: external\n---\n\nbody\n")
+
+	if writeErr := os.WriteFile(filepath.Join(root, "notes/external.md"), body, 0o644); writeErr != nil {
+		test.Fatalf("write external: %v", writeErr)
+	}
+
+	time.Sleep(300 * time.Millisecond) // give a hypothetical watcher time to react
+
+	cancel()
+
+	select {
+	case runErr := <-done:
+		if runErr != nil && runErr != context.Canceled {
+			test.Fatalf("RunBackground: %v", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		test.Fatalf("RunBackground did not return after cancel")
+	}
+
+	depth, depthErr := rt.EmbedQueue.DepthByKind("reindex")
+
+	if depthErr != nil {
+		test.Fatalf("DepthByKind: %v", depthErr)
+	}
+
+	if depth != 0 {
+		test.Errorf("reindex depth after external write = %d, want 0 (watcher must not run)", depth)
+	}
+}
