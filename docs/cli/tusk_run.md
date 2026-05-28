@@ -54,5 +54,5 @@ tusk run [alias] [flags]
 
 ### SEE ALSO
 
-* [tusk](tusk.md)	 - Local-first agent brain: index a markdown vault into a graph
+* [tusk](tusk.md)	 - Local-first memory for agents: index a markdown vault into a graph
 

@@ -70,7 +70,7 @@ Use "tusk edge list" with --from/--to/--type to filter.
 
 ### SEE ALSO
 
-* [tusk](tusk.md)	 - Local-first agent brain: index a markdown vault into a graph
+* [tusk](tusk.md)	 - Local-first memory for agents: index a markdown vault into a graph
 * [tusk edge add](tusk_edge_add.md)	 - Add a typed edge from one node to another
 * [tusk edge list](tusk_edge_list.md)	 - List edges, optionally filtered by source, target, or kind
 * [tusk edge remove](tusk_edge_remove.md)	 - Remove a specific edge by source, kind, and target

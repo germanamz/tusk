@@ -29,6 +29,6 @@ project types) instead of writing the schema by hand.
 
 ### SEE ALSO
 
-* [tusk](tusk.md)	 - Local-first agent brain: index a markdown vault into a graph
+* [tusk](tusk.md)	 - Local-first memory for agents: index a markdown vault into a graph
 * [tusk pack add](tusk_pack_add.md)	 - Copy a built-in type pack's declarations into tusk.toml
 
