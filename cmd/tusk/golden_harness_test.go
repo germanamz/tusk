@@ -176,6 +176,19 @@ func removeFile(test *testing.T, root, relPath string) {
 	}
 }
 
+// reindexWorkspace runs `tusk reindex` and fails the test if it errors — for
+// setups that write several fixture files and then bring the index up to date
+// in one pass.
+func reindexWorkspace(test *testing.T, root string) {
+	test.Helper()
+
+	_, stderr, ok := runCLISplit(root, "reindex")
+
+	if !ok {
+		test.Fatalf("reindex: %s", stderr.String())
+	}
+}
+
 // writeGoldenNode writes content to root/relPath verbatim, then reindexes so the
 // node row exists for read commands. Writing the file directly (rather than via
 // `node create`) lets a golden case own the exact bytes it asserts on.
@@ -183,12 +196,7 @@ func writeGoldenNode(test *testing.T, root, relPath, content string) {
 	test.Helper()
 
 	writeFile(test, root, relPath, content)
-
-	_, stderr, ok := runCLISplit(root, "reindex")
-
-	if !ok {
-		test.Fatalf("reindex after writing %s: %s", relPath, stderr.String())
-	}
+	reindexWorkspace(test, root)
 }
 
 // goldenDiff returns a human-readable description of the first per-line

@@ -10,9 +10,27 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/mcp"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
+
+// seedNode inserts a minimal node row directly into the runtime's index — for
+// MCP cases that need pre-existing nodes (status counts, node_get of an existing
+// node, etc.) without driving a full reindex.
+func seedNode(test *testing.T, rt *mcp.Runtime, nodeID, nodeType string) {
+	test.Helper()
+
+	if upErr := rt.Nodes.Upsert(index.NodeRow{
+		ID:             nodeID,
+		Type:           nodeType,
+		Path:           nodeID + ".md",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+	}); upErr != nil {
+		test.Fatalf("seed node %s: %v", nodeID, upErr)
+	}
+}
 
 // Shared harness for the MCP golden suite (Initiative 1). Pins the MCP wire
 // surface byte-for-byte so Initiative 2 refactors validate against a frozen
