@@ -47,6 +47,24 @@ func createRealNode(test *testing.T, rt *mcp.Runtime, relPath, nodeType, title s
 	}
 }
 
+// addRealEdge adds an edge via the tusk_edge_add tool — for setups that need a
+// pre-existing edge before exercising edge_list / edge_remove / cycle rejection.
+func addRealEdge(test *testing.T, rt *mcp.Runtime, edgeType, sourceID, targetID string) {
+	test.Helper()
+
+	srv := mcp.NewServer(rt)
+
+	_, isError := rawToolResult(test, srv, "tusk_edge_add", map[string]any{
+		"type":      edgeType,
+		"source_id": sourceID,
+		"target_id": targetID,
+	})
+
+	if isError {
+		test.Fatalf("edge_add %s %s->%s failed", edgeType, sourceID, targetID)
+	}
+}
+
 // Shared harness for the MCP golden suite (Initiative 1). Pins the MCP wire
 // surface byte-for-byte so Initiative 2 refactors validate against a frozen
 // baseline. Holds the determinism scrubber, the runtime builder, the table
