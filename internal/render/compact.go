@@ -67,6 +67,20 @@ type CompactOpts struct {
 // tab-aligned columns; expanded body/edges/properties follow as indented
 // continuation lines. Output is deterministic — identical input slices always
 // produce byte-identical output (the renderer test asserts this).
+// maxWidth returns the longest extract(item) byte length across items — the
+// shared column-width pass behind the compact renderers.
+func maxWidth[T any](items []T, extract func(T) string) int {
+	width := 0
+
+	for _, item := range items {
+		if length := len(extract(item)); length > width {
+			width = length
+		}
+	}
+
+	return width
+}
+
 func CompactNodeRows(out io.Writer, rows []CompactRow, opts CompactOpts) error {
 	if len(rows) == 0 {
 		return nil
@@ -78,18 +92,16 @@ func CompactNodeRows(out io.Writer, rows []CompactRow, opts CompactOpts) error {
 	// front so every record uses the same widths.
 	var idWidth, typeWidth, titleWidth int
 
-	for _, row := range rows {
-		if showField(fieldSet, "id") && len(row.ID) > idWidth {
-			idWidth = len(row.ID)
-		}
+	if showField(fieldSet, "id") {
+		idWidth = maxWidth(rows, func(row CompactRow) string { return row.ID })
+	}
 
-		if showField(fieldSet, "type") && len(row.Type) > typeWidth {
-			typeWidth = len(row.Type)
-		}
+	if showField(fieldSet, "type") {
+		typeWidth = maxWidth(rows, func(row CompactRow) string { return row.Type })
+	}
 
-		if showField(fieldSet, "title") && len(row.Title) > titleWidth {
-			titleWidth = len(row.Title)
-		}
+	if showField(fieldSet, "title") {
+		titleWidth = maxWidth(rows, func(row CompactRow) string { return row.Title })
 	}
 
 	var builder strings.Builder
@@ -113,21 +125,9 @@ func CompactEdgeRows(out io.Writer, rows []EdgeListEntry) error {
 		return nil
 	}
 
-	var typeWidth, sourceWidth, targetWidth int
-
-	for _, row := range rows {
-		if len(row.Type) > typeWidth {
-			typeWidth = len(row.Type)
-		}
-
-		if len(row.SourceID) > sourceWidth {
-			sourceWidth = len(row.SourceID)
-		}
-
-		if len(row.TargetID) > targetWidth {
-			targetWidth = len(row.TargetID)
-		}
-	}
+	typeWidth := maxWidth(rows, func(row EdgeListEntry) string { return row.Type })
+	sourceWidth := maxWidth(rows, func(row EdgeListEntry) string { return row.SourceID })
+	targetWidth := maxWidth(rows, func(row EdgeListEntry) string { return row.TargetID })
 
 	var builder strings.Builder
 
@@ -231,7 +231,7 @@ func writeBody(builder *strings.Builder, row CompactRow, fieldSet map[string]str
 
 	body := strings.TrimRight(row.Body, "\n")
 
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		builder.WriteString("  ")
 		builder.WriteString(line)
 		builder.WriteString("\n")
@@ -269,35 +269,20 @@ func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[st
 
 	// Compute per-column widths over the units in this group so the
 	// arrow / id / decorated-type / snippet columns align.
-	var (
-		idWidth      int
-		typeWidth    int
-		snippetWidth int
-		showScore    bool
-	)
-
 	displays := make([]matchedUnitDisplay, len(units))
+	showScore := false
 
 	for index, unit := range units {
-		display := formatMatchedUnit(unit)
-		displays[index] = display
-
-		if len(display.idCol) > idWidth {
-			idWidth = len(display.idCol)
-		}
-
-		if len(display.typeCol) > typeWidth {
-			typeWidth = len(display.typeCol)
-		}
-
-		if len(display.snippetCol) > snippetWidth {
-			snippetWidth = len(display.snippetCol)
-		}
+		displays[index] = formatMatchedUnit(unit)
 
 		if unit.HasScore {
 			showScore = true
 		}
 	}
+
+	idWidth := maxWidth(displays, func(display matchedUnitDisplay) string { return display.idCol })
+	typeWidth := maxWidth(displays, func(display matchedUnitDisplay) string { return display.typeCol })
+	snippetWidth := maxWidth(displays, func(display matchedUnitDisplay) string { return display.snippetCol })
 
 	for index, display := range displays {
 		var line strings.Builder
