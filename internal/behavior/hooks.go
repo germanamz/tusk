@@ -17,6 +17,12 @@ type HookContext struct {
 	PackInstance string // e.g. "tickets"
 }
 
+// qualified returns the "kind.instance" identifier used as a validator's
+// rejection name and as the prefix on aggregated reactor errors.
+func (ctx HookContext) qualified() string {
+	return ctx.PackKind + "." + ctx.PackInstance
+}
+
 // Phase identifies when a hook fires relative to the underlying write.
 type Phase int
 
