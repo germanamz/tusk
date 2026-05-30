@@ -12,12 +12,13 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/mcp"
+	"github.com/germanamz/tusk/internal/node"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
 // seedNode inserts a minimal node row directly into the runtime's index — for
-// MCP cases that need pre-existing nodes (status counts, node_get of an existing
-// node, etc.) without driving a full reindex.
+// MCP cases that need pre-existing nodes (status counts, node_get/list of
+// existing nodes) without driving a full reindex or writing a file.
 func seedNode(test *testing.T, rt *mcp.Runtime, nodeID, nodeType string) {
 	test.Helper()
 
@@ -29,6 +30,20 @@ func seedNode(test *testing.T, rt *mcp.Runtime, nodeID, nodeType string) {
 		LastChecksum:   "x",
 	}); upErr != nil {
 		test.Fatalf("seed node %s: %v", nodeID, upErr)
+	}
+}
+
+// createRealNode writes a node through the runtime's NodeService — file plus
+// index row — for tools that mutate the file on disk (modify/move/delete).
+func createRealNode(test *testing.T, rt *mcp.Runtime, relPath, nodeType, title string) {
+	test.Helper()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: relPath,
+		Type:    nodeType,
+		Title:   title,
+	}); createErr != nil {
+		test.Fatalf("create node %s: %v", relPath, createErr)
 	}
 }
 
@@ -134,7 +149,10 @@ func runGoldenMCPCases(test *testing.T, cases []goldenMCPCase) {
 				test.Errorf("JSON-object body = %v, want %v\ntext:\n%s", gotJSONObj, testCase.wantJSONObj, text)
 			}
 
-			if diff := goldenDiff(scrub(testCase.wantText, ""), scrub(text, "")); diff != "" {
+			// Thread rt.Root so any absolute workspace path a tool body or
+			// error leaks collapses to <WS> (e.g. node_get's file-not-found
+			// error), keeping goldens machine-independent.
+			if diff := goldenDiff(scrub(testCase.wantText, rt.Root), scrub(text, rt.Root)); diff != "" {
 				test.Errorf("%s", diff)
 			}
 		})
