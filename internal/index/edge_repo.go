@@ -37,6 +37,10 @@ func NewEdgeRepo(idx *Index) *EdgeRepo {
 	return &EdgeRepo{db: idx.DB()}
 }
 
+// edgeColumns is the column list shared by every edges-table read and write,
+// in the order EdgeRow's fields are scanned.
+const edgeColumns = "type, source_id, target_id, source_path, kind, source"
+
 // UpsertAll replaces every edge declared by sourcePath with the provided set.
 // The replacement is transactional: existing edges where source_id = sourceID
 // AND source_path = sourcePath are deleted, then the new edges are inserted.
@@ -54,7 +58,7 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 
 	for _, edge := range edges {
 		if _, insertErr := tx.Exec(`
-			INSERT INTO edges (type, source_id, target_id, source_path, kind, source)
+			INSERT INTO edges (`+edgeColumns+`)
 			VALUES (?, ?, ?, ?, ?, ?)
 		`, edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source); insertErr != nil {
 			_ = tx.Rollback()
@@ -71,17 +75,17 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 
 // ListBySource returns all edges where source_id = sourceID, ordered by type then target_id.
 func (repo *EdgeRepo) ListBySource(sourceID string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT type, source_id, target_id, source_path, kind, source FROM edges WHERE source_id = ? ORDER BY type, target_id`, sourceID)
+	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_id = ? ORDER BY type, target_id`, sourceID)
 }
 
 // ListByTarget returns all edges where target_id = targetID, ordered by type then source_id.
 func (repo *EdgeRepo) ListByTarget(targetID string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT type, source_id, target_id, source_path, kind, source FROM edges WHERE target_id = ? ORDER BY type, source_id`, targetID)
+	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE target_id = ? ORDER BY type, source_id`, targetID)
 }
 
 // ListByType returns all edges where type = edgeType, ordered by source_id then target_id.
 func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT type, source_id, target_id, source_path, kind, source FROM edges WHERE type = ? ORDER BY source_id, target_id`, edgeType)
+	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE type = ? ORDER BY source_id, target_id`, edgeType)
 }
 
 // ListByEdgeRef returns every edge matching ref's scope semantics, ordered
@@ -91,7 +95,7 @@ func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
 //	ScopeUser   → source IS NULL AND type = ?
 //	ScopeSource → source = ?       AND type = ?
 func (repo *EdgeRepo) ListByEdgeRef(ref typeref.Ref) ([]EdgeRow, error) {
-	const selectClause = `SELECT type, source_id, target_id, source_path, kind, source FROM edges WHERE `
+	const selectClause = "SELECT " + edgeColumns + " FROM edges WHERE "
 	const orderClause = ` ORDER BY source_id, target_id`
 
 	var (
@@ -143,7 +147,7 @@ func (repo *EdgeRepo) ListByEdgeRef(ref typeref.Ref) ([]EdgeRow, error) {
 // ListAll returns every edge in the index, ordered by source_id, type, target_id.
 func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
 	rows, queryErr := repo.db.Query(`
-		SELECT type, source_id, target_id, source_path, kind, source
+		SELECT ` + edgeColumns + `
 		FROM edges
 		ORDER BY source_id, type, target_id
 	`)
@@ -200,7 +204,7 @@ func (repo *EdgeRepo) InsertIgnore(edges []EdgeRow) error {
 		return fmt.Errorf("edgeRepo: insert-ignore begin: %w", beginErr)
 	}
 
-	stmt, prepErr := tx.Prepare(`INSERT OR IGNORE INTO edges (type, source_id, target_id, source_path, kind, source) VALUES (?, ?, ?, ?, ?, ?)`)
+	stmt, prepErr := tx.Prepare(`INSERT OR IGNORE INTO edges (` + edgeColumns + `) VALUES (?, ?, ?, ?, ?, ?)`)
 
 	if prepErr != nil {
 		_ = tx.Rollback()
@@ -259,11 +263,11 @@ func (repo *EdgeRepo) NeighborsByEdgeRefs(refs []typeref.EdgeRef, sourceIDs []st
 		}
 	}
 
-	idPlaceholders := strings.TrimRight(strings.Repeat("?,", len(uniqueIDs)), ",")
+	idPlaceholders := inPlaceholders(len(uniqueIDs))
 	whereRefs := "(" + strings.Join(clauses, " OR ") + ")"
 
 	queryText := fmt.Sprintf(`
-		SELECT type, source_id, target_id, source_path, kind, source
+		SELECT `+edgeColumns+`
 		FROM edges
 		WHERE %s
 		  AND (source_id IN (%s) OR target_id IN (%s))
