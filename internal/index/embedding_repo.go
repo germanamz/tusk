@@ -127,19 +127,13 @@ func (repo *EmbeddingRepo) ListByNodeIDs(nodeIDs []string) ([]EmbeddingRow, erro
 		return nil, nil
 	}
 
-	placeholders := make([]byte, 0, len(nodeIDs)*2-1)
-	args := make([]any, 0, len(nodeIDs))
+	args := make([]any, len(nodeIDs))
 
 	for idx, nodeID := range nodeIDs {
-		if idx > 0 {
-			placeholders = append(placeholders, ',')
-		}
-
-		placeholders = append(placeholders, '?')
-		args = append(args, nodeID)
+		args[idx] = nodeID
 	}
 
-	query := fmt.Sprintf(`SELECT node_id, chunk_idx, model, content_hash, vector, dim, body FROM embeddings WHERE node_id IN (%s) ORDER BY node_id, chunk_idx`, string(placeholders))
+	query := fmt.Sprintf(`SELECT node_id, chunk_idx, model, content_hash, vector, dim, body FROM embeddings WHERE node_id IN (%s) ORDER BY node_id, chunk_idx`, inPlaceholders(len(nodeIDs)))
 
 	rows, queryErr := repo.db.Query(query, args...)
 
