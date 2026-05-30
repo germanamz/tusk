@@ -69,14 +69,16 @@ func goldenWorkspace(test *testing.T, manifestBody string) string {
 // is deliberately no -update flag (spec §3.1): a regression must never be
 // auto-blessed, so expected output is edited by hand from the diff.
 type goldenCLICase struct {
-	name       string
-	manifest   string // tusk.toml body; "" uses the default `init` manifest
-	noInit     bool   // run in a bare (un-initialized) dir — for `tusk init` itself
-	setup      func(test *testing.T, root string)
-	args       []string
-	wantStdout string
-	wantStderr string // exact stderr after scrubbing; checked only when non-empty
-	wantErr    bool   // command is expected to exit non-zero
+	name               string
+	manifest           string // tusk.toml body; "" uses the default `init` manifest
+	noInit             bool   // run in a bare (un-initialized) dir — for `tusk init` itself
+	setup              func(test *testing.T, root string)
+	args               []string
+	argsFunc           func(root string) []string // computes args from the root (e.g. file:// paths); takes precedence over args
+	wantStdout         string
+	wantStderr         string // exact stderr after scrubbing; checked only when non-empty
+	wantStderrContains string // substring stderr must contain after scrubbing — for messages with a library-owned tail we must not pin exactly
+	wantErr            bool   // command is expected to exit non-zero
 }
 
 // runGoldenCLICases drives each case through the in-process fast tier
@@ -94,7 +96,13 @@ func runGoldenCLICases(test *testing.T, cases []goldenCLICase) {
 				testCase.setup(test, root)
 			}
 
-			stdout, stderr, ok := runCLISplit(root, testCase.args...)
+			args := testCase.args
+
+			if testCase.argsFunc != nil {
+				args = testCase.argsFunc(root)
+			}
+
+			stdout, stderr, ok := runCLISplit(root, args...)
 
 			if ok == testCase.wantErr {
 				test.Fatalf("exit ok = %v, wantErr = %v\nstderr:\n%s", ok, testCase.wantErr, stderr.String())
@@ -107,6 +115,14 @@ func runGoldenCLICases(test *testing.T, cases []goldenCLICase) {
 			if testCase.wantStderr != "" {
 				if diff := goldenDiff(scrubWorkspace(testCase.wantStderr, root), scrubWorkspace(stderr.String(), root)); diff != "" {
 					test.Errorf("stderr %s", diff)
+				}
+			}
+
+			if testCase.wantStderrContains != "" {
+				gotStderr := scrubWorkspace(stderr.String(), root)
+
+				if want := scrubWorkspace(testCase.wantStderrContains, root); !strings.Contains(gotStderr, want) {
+					test.Errorf("stderr %q does not contain %q", gotStderr, want)
 				}
 			}
 		})
