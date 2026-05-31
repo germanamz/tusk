@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.7.2](https://github.com/germanamz/tusk/compare/v1.7.1...v1.7.2) (2026-05-31)
+
+
+### Bug Fixes
+
+* **workflow:** stop reindex flagging valid non-initial states as drift ([#507](https://github.com/germanamz/tusk/issues/507)) ([1f7a869](https://github.com/germanamz/tusk/commit/1f7a86982124de01dbb2c2a6d94b433b8c10d344)), closes [#497](https://github.com/germanamz/tusk/issues/497)
+
+
+### Code Refactoring
+
+* **aliasdispatch:** extract internal/argval and collapse coercion via argReader ([#503](https://github.com/germanamz/tusk/issues/503)) ([58c5a55](https://github.com/germanamz/tusk/commit/58c5a55ff73f11dd34351bcf429f0ef2513e9c0f))
+* **behavior:** collapse the eight dispatch chains onto a generic entry ([#492](https://github.com/germanamz/tusk/issues/492)) ([c48c0f5](https://github.com/germanamz/tusk/commit/c48c0f56c187e186ebb8f07f3d5cbedb6af9c87c))
+* **cli:** extract resolveWorkspace/openStore preamble and shared helpers ([#505](https://github.com/germanamz/tusk/issues/505)) ([80f3149](https://github.com/germanamz/tusk/commit/80f3149144d65417f0bb574fede66d6d7937c610))
+* **doctor:** share edge comparator, legacy predicate, unify ref messages ([#502](https://github.com/germanamz/tusk/issues/502)) ([6237120](https://github.com/germanamz/tusk/commit/623712022c0b510e3e6ef78e6c0b9a6f31d92250))
+* **filter:** dedupe binary-join SQL, the recursive CTE, and error appends ([#496](https://github.com/germanamz/tusk/issues/496)) ([75cf9cb](https://github.com/germanamz/tusk/commit/75cf9cb12533f64707d3acb1cbd07e4c23e5fe3a))
+* **index:** dedupe edge column list and IN-clause placeholders ([#494](https://github.com/germanamz/tusk/issues/494)) ([e2b0d08](https://github.com/germanamz/tusk/commit/e2b0d088f7f8417bef459270ac98444bf2bb1e01))
+* **manifest:** reuse isRefProperty and extract a graph-expansion decode helper ([#495](https://github.com/germanamz/tusk/issues/495)) ([3c237aa](https://github.com/germanamz/tusk/commit/3c237aac714a47917fe7f51cfa73033fa3c3f687))
+* **mcp:** share node-write classify, alias-errors, required-strings, compaction ([#504](https://github.com/germanamz/tusk/issues/504)) ([cdc7eb6](https://github.com/germanamz/tusk/commit/cdc7eb6565206008ae3de8e241ffd5d16e554410))
+* **node:** dedupe type-mismatch, edge write-back, and Create/Modify persist ([#498](https://github.com/germanamz/tusk/issues/498)) ([e840bde](https://github.com/germanamz/tusk/commit/e840bdef87d40716e276a65d0100ab7748b3bae8))
+* **query:** dedupe graph-expansion blend, paging, and the compile preamble ([#499](https://github.com/germanamz/tusk/issues/499)) ([bf7d8cf](https://github.com/germanamz/tusk/commit/bf7d8cf5aa0d4f984c8dd932c94fe2a0695e5c2d))
+* **reindex:** factor orphan-reap lease release and embed retry-or-drop ([#501](https://github.com/germanamz/tusk/issues/501)) ([6d238d8](https://github.com/germanamz/tusk/commit/6d238d8410c80729ec5f1c47a1abb997601282e9))
+* **render:** extract maxWidth helper for the compact column passes ([#493](https://github.com/germanamz/tusk/issues/493)) ([bea4799](https://github.com/germanamz/tusk/commit/bea47995427762d9b020f343ec87ce6def3e19f0))
+* **subunit:** add stringProperty twin and merge identical code-block cases ([#500](https://github.com/germanamz/tusk/issues/500)) ([594491e](https://github.com/germanamz/tusk/commit/594491ea3bb8dc5491d8ce4da09b5fab7f976772))
+
 ## [1.7.1](https://github.com/germanamz/tusk/compare/v1.7.0...v1.7.1) (2026-05-28)
 
 
