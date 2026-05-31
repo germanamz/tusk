@@ -492,65 +492,42 @@ func renderPropertyDriftMessage(row index.PropertyDriftRow) string {
 		return fmt.Sprintf("node-types: required property %q missing on type %q", row.Property, row.NodeType)
 	case IssueEnumViolation:
 		return fmt.Sprintf("node-types: property %q — %s", row.Property, row.Details)
-	case IssueRefDangling:
-		return formatRefDangling(row)
-	case IssueRefAmbiguous:
-		return formatRefAmbiguous(row)
-	case IssueRefTypeMismatch:
-		return formatRefTypeMismatch(row)
-	case IssueRefCycle:
-		return formatRefCycle(row)
+	case IssueRefDangling, IssueRefAmbiguous, IssueRefTypeMismatch, IssueRefCycle:
+		return formatRef(row)
 	default:
 		return fmt.Sprintf("node-types: %s on property %q", row.Kind, row.Property)
 	}
 }
 
-func formatRefDangling(row index.PropertyDriftRow) string {
-	var details struct {
-		Value string `json:"value"`
-		To    string `json:"to"`
-	}
-
-	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
-
-	return fmt.Sprintf("node-types: ref property %q value %q did not resolve to any %q", row.Property, details.Value, details.To)
-}
-
-func formatRefAmbiguous(row index.PropertyDriftRow) string {
+// formatRef renders the Issue message for the four ref-resolution drift kinds.
+// Their row.Details JSON shapes use disjoint keys, so one best-effort unmarshal
+// into a superset struct serves every kind; a switch on row.Kind reproduces each
+// per-kind message verbatim. Called only for the four ref kinds, so the dangling
+// form is the default.
+func formatRef(row index.PropertyDriftRow) string {
 	var details struct {
 		Value      string   `json:"value"`
 		To         string   `json:"to"`
 		Candidates []string `json:"candidates"`
+		ActualType string   `json:"actual_type"`
+		Path       []string `json:"path"`
 	}
 
 	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
 
-	return fmt.Sprintf("node-types: ref property %q value %q matches multiple %q candidates: %s",
-		row.Property, details.Value, details.To, strings.Join(details.Candidates, ", "))
-}
-
-func formatRefTypeMismatch(row index.PropertyDriftRow) string {
-	var details struct {
-		Value      string `json:"value"`
-		To         string `json:"to"`
-		ActualType string `json:"actual_type"`
+	switch row.Kind {
+	case IssueRefAmbiguous:
+		return fmt.Sprintf("node-types: ref property %q value %q matches multiple %q candidates: %s",
+			row.Property, details.Value, details.To, strings.Join(details.Candidates, ", "))
+	case IssueRefTypeMismatch:
+		return fmt.Sprintf("node-types: ref property %q value %q target type %q does not match required %q",
+			row.Property, details.Value, details.ActualType, details.To)
+	case IssueRefCycle:
+		return fmt.Sprintf("node-types: ref property %q forms a cycle: %s",
+			row.Property, strings.Join(details.Path, " → "))
+	default: // IssueRefDangling
+		return fmt.Sprintf("node-types: ref property %q value %q did not resolve to any %q", row.Property, details.Value, details.To)
 	}
-
-	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
-
-	return fmt.Sprintf("node-types: ref property %q value %q target type %q does not match required %q",
-		row.Property, details.Value, details.ActualType, details.To)
-}
-
-func formatRefCycle(row index.PropertyDriftRow) string {
-	var details struct {
-		Path []string `json:"path"`
-	}
-
-	_ = json.Unmarshal([]byte(row.Details), &details) // best-effort
-
-	return fmt.Sprintf("node-types: ref property %q forms a cycle: %s",
-		row.Property, strings.Join(details.Path, " → "))
 }
 
 // findNoChunkNodes returns an Issue for every indexed node that has no
@@ -609,6 +586,28 @@ func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, qu
 	return issues, nil
 }
 
+// edgeRowLess orders edge rows by (Type, TargetID, SourcePath) — the
+// deterministic tail shared by Migrate (within a single source group) and
+// LegacyDrift (after its SourceID primary key).
+func edgeRowLess(left, right index.EdgeRow) bool {
+	if left.Type != right.Type {
+		return left.Type < right.Type
+	}
+
+	if left.TargetID != right.TargetID {
+		return left.TargetID < right.TargetID
+	}
+
+	return left.SourcePath < right.SourcePath
+}
+
+// isLegacyEdge reports whether an edge row was written under the legacy CLI or
+// MCP sentinel source path — the rows Migrate rewrites into frontmatter and
+// LegacyDrift surfaces.
+func isLegacyEdge(row index.EdgeRow) bool {
+	return row.SourcePath == index.CLISourcePath || row.SourcePath == index.MCPSourcePath
+}
+
 // Migrate walks every edge row whose source_path is the legacy CLI or MCP
 // sentinel (index.CLISourcePath / index.MCPSourcePath), rewrites it into the
 // source node's markdown frontmatter, and clears the legacy row from the
@@ -649,7 +648,7 @@ func Migrate(config Config) (*MigrationReport, error) {
 	sourcePaths := map[string]map[string]struct{}{}
 
 	for _, row := range all {
-		if row.SourcePath != index.CLISourcePath && row.SourcePath != index.MCPSourcePath {
+		if !isLegacyEdge(row) {
 			continue
 		}
 
@@ -694,15 +693,7 @@ func Migrate(config Config) (*MigrationReport, error) {
 		}
 
 		sort.Slice(rows, func(left, right int) bool {
-			if rows[left].Type != rows[right].Type {
-				return rows[left].Type < rows[right].Type
-			}
-
-			if rows[left].TargetID != rows[right].TargetID {
-				return rows[left].TargetID < rows[right].TargetID
-			}
-
-			return rows[left].SourcePath < rows[right].SourcePath
+			return edgeRowLess(rows[left], rows[right])
 		})
 
 		for _, row := range rows {
@@ -758,7 +749,7 @@ func LegacyDrift(config Config) ([]Issue, error) {
 	legacy := make([]index.EdgeRow, 0)
 
 	for _, row := range all {
-		if row.SourcePath != index.CLISourcePath && row.SourcePath != index.MCPSourcePath {
+		if !isLegacyEdge(row) {
 			continue
 		}
 
@@ -770,15 +761,7 @@ func LegacyDrift(config Config) ([]Issue, error) {
 			return legacy[left].SourceID < legacy[right].SourceID
 		}
 
-		if legacy[left].Type != legacy[right].Type {
-			return legacy[left].Type < legacy[right].Type
-		}
-
-		if legacy[left].TargetID != legacy[right].TargetID {
-			return legacy[left].TargetID < legacy[right].TargetID
-		}
-
-		return legacy[left].SourcePath < legacy[right].SourcePath
+		return edgeRowLess(legacy[left], legacy[right])
 	})
 
 	issues := make([]Issue, 0, len(legacy))
@@ -806,6 +789,16 @@ func LegacyDrift(config Config) ([]Issue, error) {
 	return issues, nil
 }
 
+// newDanglingEdgeIssue builds the Issue for an edge whose target_id has no node
+// row. Shared by findDanglingEdges' cache-hit-negative and cache-miss branches.
+func newDanglingEdgeIssue(edge index.EdgeRow) Issue {
+	return Issue{
+		Kind:    IssueDanglingEdge,
+		NodeID:  edge.SourceID,
+		Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
+	}
+}
+
 // findDanglingEdges scans every edge and flags those whose target_id has no
 // node row.
 func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, error) {
@@ -827,11 +820,7 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, e
 				continue
 			}
 
-			issues = append(issues, Issue{
-				Kind:    IssueDanglingEdge,
-				NodeID:  edge.SourceID,
-				Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
-			})
+			issues = append(issues, newDanglingEdgeIssue(edge))
 
 			continue
 		}
@@ -839,11 +828,7 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, e
 		if _, getErr := nodes.Get(edge.TargetID); getErr != nil {
 			resolved[edge.TargetID] = false
 
-			issues = append(issues, Issue{
-				Kind:    IssueDanglingEdge,
-				NodeID:  edge.SourceID,
-				Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
-			})
+			issues = append(issues, newDanglingEdgeIssue(edge))
 
 			continue
 		}
