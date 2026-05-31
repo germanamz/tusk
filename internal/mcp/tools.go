@@ -84,6 +84,25 @@ func argString(request mcpgo.CallToolRequest, key string) (string, error) {
 	return value, nil
 }
 
+// requireStrings reads several required string arguments in order, returning
+// them positionally or the first argString error (preserving its exact text and
+// key precedence). For handlers whose required-string reads are consecutive.
+func requireStrings(request mcpgo.CallToolRequest, keys ...string) ([]string, error) {
+	values := make([]string, len(keys))
+
+	for index, key := range keys {
+		value, parseErr := argString(request, key)
+
+		if parseErr != nil {
+			return nil, parseErr
+		}
+
+		values[index] = value
+	}
+
+	return values, nil
+}
+
 // argStringOptional extracts an optional string argument from the request.
 // Returns an empty string when the key is absent or its value is not a string.
 func argStringOptional(request mcpgo.CallToolRequest, key string) string {
@@ -443,14 +462,7 @@ func registerNodeListTool(srv *Server) {
 			compactRows := make([]render.CompactRow, 0, len(result.Rows))
 
 			for _, row := range result.Rows {
-				compactRows = append(compactRows, render.CompactRow{
-					ID:         row.ID,
-					Type:       row.Type,
-					Title:      row.Title,
-					Body:       row.Body,
-					Properties: row.Properties,
-					Edges:      row.Edges,
-				})
+				compactRows = append(compactRows, listRowToCompact(row))
 			}
 
 			var buf bytes.Buffer
@@ -830,16 +842,7 @@ func registerDoctorTool(srv *Server) {
 		}
 
 		if len(report.AliasErrors) > 0 {
-			aliasErrors := make([]map[string]any, 0, len(report.AliasErrors))
-
-			for _, aliasErr := range report.AliasErrors {
-				aliasErrors = append(aliasErrors, map[string]any{
-					"name":    aliasErr.Name,
-					"message": aliasErr.Message,
-				})
-			}
-
-			response["alias_errors"] = aliasErrors
+			response["alias_errors"] = aliasErrorsPayload(report.AliasErrors)
 		}
 
 		if len(report.ContextErrors) > 0 {
@@ -958,17 +961,13 @@ func registerNodeCreateTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		path, parseErr := argString(request, "path")
+		required, parseErr := requireStrings(request, "path", "type")
 
 		if parseErr != nil {
 			return toolError(parseErr), nil
 		}
 
-		nodeType, parseErr := argString(request, "type")
-
-		if parseErr != nil {
-			return toolError(parseErr), nil
-		}
+		path, nodeType := required[0], required[1]
 
 		title := argStringOptional(request, "title")
 		body := argStringOptional(request, "body")
@@ -983,35 +982,7 @@ func registerNodeCreateTool(srv *Server) {
 		})
 
 		if createErr != nil {
-			var workflowErr *workflow.Error
-
-			if errors.As(createErr, &workflowErr) {
-				return toolJSONError(map[string]any{
-					"error":         "workflow-rejection",
-					"code":          string(workflowErr.Code),
-					"message":       workflowErr.Error(),
-					"property":      workflowErr.Property,
-					"from":          workflowErr.From,
-					"to":            workflowErr.To,
-					"valid_targets": stringSliceOrNil(workflowErr.ValidTargets),
-					"known_states":  stringSliceOrNil(workflowErr.KnownStates),
-					"pack_instance": workflowErr.PackInstance,
-				}), nil
-			}
-
-			var propErr *node.PropertyValidationError
-
-			if errors.As(createErr, &propErr) {
-				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
-			}
-
-			var refErr *node.RefValidationError
-
-			if errors.As(createErr, &refErr) {
-				return toolJSONError(buildRefRejectionPayload(refErr)), nil
-			}
-
-			return toolError(createErr), nil
+			return classifyNodeWriteError(createErr), nil
 		}
 
 		return toolJSON(map[string]any{
@@ -1073,35 +1044,7 @@ func registerNodeModifyTool(srv *Server) {
 		modified, modifyErr := perCallService.Modify(input)
 
 		if modifyErr != nil {
-			var workflowErr *workflow.Error
-
-			if errors.As(modifyErr, &workflowErr) {
-				return toolJSONError(map[string]any{
-					"error":         "workflow-rejection",
-					"code":          string(workflowErr.Code),
-					"message":       workflowErr.Error(),
-					"property":      workflowErr.Property,
-					"from":          workflowErr.From,
-					"to":            workflowErr.To,
-					"valid_targets": stringSliceOrNil(workflowErr.ValidTargets),
-					"known_states":  stringSliceOrNil(workflowErr.KnownStates),
-					"pack_instance": workflowErr.PackInstance,
-				}), nil
-			}
-
-			var propErr *node.PropertyValidationError
-
-			if errors.As(modifyErr, &propErr) {
-				return toolJSONError(buildPropertyRejectionPayload(propErr)), nil
-			}
-
-			var refErr *node.RefValidationError
-
-			if errors.As(modifyErr, &refErr) {
-				return toolJSONError(buildRefRejectionPayload(refErr)), nil
-			}
-
-			return toolError(modifyErr), nil
+			return classifyNodeWriteError(modifyErr), nil
 		}
 
 		result := map[string]any{
@@ -1135,17 +1078,13 @@ func registerNodeMoveTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		nodeID, parseErr := argString(request, "id")
+		required, parseErr := requireStrings(request, "id", "new_path")
 
 		if parseErr != nil {
 			return toolError(parseErr), nil
 		}
 
-		newPath, parseErr := argString(request, "new_path")
-
-		if parseErr != nil {
-			return toolError(parseErr), nil
-		}
+		nodeID, newPath := required[0], required[1]
 
 		plan, renameErr := node.Rename(
 			srv.runtime.Root,
@@ -1216,23 +1155,13 @@ func registerEdgeAddTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		edgeType, parseErr := argString(request, "type")
+		required, parseErr := requireStrings(request, "type", "source_id", "target_id")
 
 		if parseErr != nil {
 			return toolError(parseErr), nil
 		}
 
-		sourceID, parseErr := argString(request, "source_id")
-
-		if parseErr != nil {
-			return toolError(parseErr), nil
-		}
-
-		targetID, parseErr := argString(request, "target_id")
-
-		if parseErr != nil {
-			return toolError(parseErr), nil
-		}
+		edgeType, sourceID, targetID := required[0], required[1], required[2]
 
 		edgeDef, declared := srv.runtime.Manifest.EdgeTypes[edgeType]
 
@@ -1301,23 +1230,13 @@ func registerEdgeRemoveTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		edgeType, parseErr := argString(request, "type")
+		required, parseErr := requireStrings(request, "type", "source_id", "target_id")
 
 		if parseErr != nil {
 			return toolError(parseErr), nil
 		}
 
-		sourceID, parseErr := argString(request, "source_id")
-
-		if parseErr != nil {
-			return toolError(parseErr), nil
-		}
-
-		targetID, parseErr := argString(request, "target_id")
-
-		if parseErr != nil {
-			return toolError(parseErr), nil
-		}
+		edgeType, sourceID, targetID := required[0], required[1], required[2]
 
 		if _, declared := srv.runtime.Manifest.EdgeTypes[edgeType]; !declared {
 			return toolError(fmt.Errorf("edge type %q not declared in manifest", edgeType)), nil
@@ -1647,20 +1566,28 @@ func contextCompactResult(result *contextcompose.Result) (*mcpgo.CallToolResult,
 	return mcpgo.NewToolResultText(buf.String()), nil
 }
 
+// listRowToCompact maps a structural list row to the compact render row,
+// copying only the structural fields — never Score/MatchedUnits/explain, which
+// the structural-compact paths deliberately omit. Shared by the node-list,
+// context, and alias-list compact renderers.
+func listRowToCompact(row query.ListRow) render.CompactRow {
+	return render.CompactRow{
+		ID:         row.ID,
+		Type:       row.Type,
+		Title:      row.Title,
+		Body:       row.Body,
+		Properties: row.Properties,
+		Edges:      row.Edges,
+	}
+}
+
 // writeNodeRowsCompact is the contextcompose-specific helper that re-uses
 // render.CompactNodeRows but accepts the contextcompose row shape directly.
 func writeNodeRowsCompact(out *bytes.Buffer, rows []query.ListRow) error {
 	compactRows := make([]render.CompactRow, 0, len(rows))
 
 	for _, row := range rows {
-		compactRows = append(compactRows, render.CompactRow{
-			ID:         row.ID,
-			Type:       row.Type,
-			Title:      row.Title,
-			Body:       row.Body,
-			Properties: row.Properties,
-			Edges:      row.Edges,
-		})
+		compactRows = append(compactRows, listRowToCompact(row))
 	}
 
 	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
@@ -1728,16 +1655,7 @@ func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
 		}
 
 		if len(typed.Report.AliasErrors) > 0 {
-			aliasErrors := make([]map[string]any, 0, len(typed.Report.AliasErrors))
-
-			for _, aliasErr := range typed.Report.AliasErrors {
-				aliasErrors = append(aliasErrors, map[string]any{
-					"name":    aliasErr.Name,
-					"message": aliasErr.Message,
-				})
-			}
-
-			envelope["alias_errors"] = aliasErrors
+			envelope["alias_errors"] = aliasErrorsPayload(typed.Report.AliasErrors)
 		}
 
 		if typed.Migration != nil {
@@ -1770,14 +1688,7 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 		compactRows := make([]render.CompactRow, 0, len(typed.Rows))
 
 		for _, row := range typed.Rows {
-			compactRows = append(compactRows, render.CompactRow{
-				ID:         row.ID,
-				Type:       row.Type,
-				Title:      row.Title,
-				Body:       row.Body,
-				Properties: row.Properties,
-				Edges:      row.Edges,
-			})
+			compactRows = append(compactRows, listRowToCompact(row))
 		}
 
 		if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
@@ -1867,6 +1778,42 @@ func toolJSONError(payload map[string]any) *mcpgo.CallToolResult {
 		IsError: true,
 		Content: []mcpgo.Content{mcpgo.NewTextContent(string(body))},
 	}
+}
+
+// classifyNodeWriteError maps a node create/modify failure to the structured
+// MCP result the tools return: a typed JSON rejection for workflow / property /
+// ref validation errors (in that precedence order), or a plain-text toolError
+// for anything else. Shared by tusk_node_create and tusk_node_modify.
+func classifyNodeWriteError(err error) *mcpgo.CallToolResult {
+	var workflowErr *workflow.Error
+
+	if errors.As(err, &workflowErr) {
+		return toolJSONError(map[string]any{
+			"error":         "workflow-rejection",
+			"code":          string(workflowErr.Code),
+			"message":       workflowErr.Error(),
+			"property":      workflowErr.Property,
+			"from":          workflowErr.From,
+			"to":            workflowErr.To,
+			"valid_targets": stringSliceOrNil(workflowErr.ValidTargets),
+			"known_states":  stringSliceOrNil(workflowErr.KnownStates),
+			"pack_instance": workflowErr.PackInstance,
+		})
+	}
+
+	var propErr *node.PropertyValidationError
+
+	if errors.As(err, &propErr) {
+		return toolJSONError(buildPropertyRejectionPayload(propErr))
+	}
+
+	var refErr *node.RefValidationError
+
+	if errors.As(err, &refErr) {
+		return toolJSONError(buildRefRejectionPayload(refErr))
+	}
+
+	return toolError(err)
 }
 
 // buildPropertyRejectionPayload constructs the structured node-types-rejection
@@ -2041,4 +1988,21 @@ func buildRefRejectionPayload(refErr *node.RefValidationError) map[string]any {
 		"ok":     false,
 		"errors": rendered,
 	}
+}
+
+// aliasErrorsPayload renders manifest alias-validation errors as the
+// {name, message} maps the doctor tool and the tusk_run / tusk_context
+// envelopes embed under "alias_errors". Callers keep their own len()>0 guard so
+// the empty-omits-the-key behavior stays at the call site.
+func aliasErrorsPayload(errs []manifest.AliasError) []map[string]any {
+	aliasErrors := make([]map[string]any, 0, len(errs))
+
+	for _, aliasErr := range errs {
+		aliasErrors = append(aliasErrors, map[string]any{
+			"name":    aliasErr.Name,
+			"message": aliasErr.Message,
+		})
+	}
+
+	return aliasErrors
 }
