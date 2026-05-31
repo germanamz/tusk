@@ -501,6 +501,18 @@ func extractPropertyFromError(err error) string {
 	return "status"
 }
 
+// workflowErrorCode pulls the rejection Code off a *workflow.Error, or ""
+// when the error did not originate from the workflow pack.
+func workflowErrorCode(err error) string {
+	var workflowErr *workflow.Error
+
+	if errors.As(err, &workflowErr) {
+		return string(workflowErr.Code)
+	}
+
+	return ""
+}
+
 // propertyErrorKindString maps a node.PropertyErrorKind to the string used
 // in property_drift rows. Returns "" for kinds that cannot arise from reindex.
 func propertyErrorKindString(kind node.PropertyErrorKind) string {

@@ -37,6 +37,46 @@ func TestWorkflowDriftRepo_AppendThenList(test *testing.T) {
 	}
 }
 
+func TestWorkflowDriftRepo_RoundTripsErrorCodeAndDetail(test *testing.T) {
+	store, closer := newTestIndex(test)
+	defer closer()
+
+	repo := index.NewWorkflowDriftRepo(store)
+
+	row := index.WorkflowDriftRow{
+		NodeID:         "tickets/foo",
+		PackInstance:   "tickets",
+		PackKind:       "workflow",
+		ObservedStatus: "blocked",
+		Property:       "status",
+		ErrorCode:      "unknown-target-state",
+		Detail:         "workflow \"tickets\": \"blocked\" is not a declared state for property \"status\"",
+		ObservedAt:     1700_000_000,
+	}
+
+	if appendErr := repo.Append(row); appendErr != nil {
+		test.Fatalf("Append: %v", appendErr)
+	}
+
+	rows, listErr := repo.ListAll()
+
+	if listErr != nil {
+		test.Fatalf("ListAll: %v", listErr)
+	}
+
+	if len(rows) != 1 {
+		test.Fatalf("ListAll: want 1 row, got %d", len(rows))
+	}
+
+	if rows[0].ErrorCode != row.ErrorCode {
+		test.Errorf("ErrorCode = %q, want %q", rows[0].ErrorCode, row.ErrorCode)
+	}
+
+	if rows[0].Detail != row.Detail {
+		test.Errorf("Detail = %q, want %q", rows[0].Detail, row.Detail)
+	}
+}
+
 func TestWorkflowDriftRepo_AppendIdempotentOnPK(test *testing.T) {
 	store, closer := newTestIndex(test)
 	defer closer()

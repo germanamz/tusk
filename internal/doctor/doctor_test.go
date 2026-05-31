@@ -125,6 +125,48 @@ func TestRun_SurfacesWorkflowViolation(test *testing.T) {
 	}
 }
 
+func TestRun_WorkflowViolationUsesPersistedDetail(test *testing.T) {
+	store, closer := newTempIndex(test)
+	defer closer()
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+
+	const detail = "workflow \"tickets\": cannot transition status \"active\" → \"completed\"\n  valid targets from \"active\": done"
+
+	if appendErr := driftRepo.Append(index.WorkflowDriftRow{
+		NodeID: "tickets/foo", PackInstance: "tickets", PackKind: "workflow",
+		ObservedStatus: "completed", Property: "status",
+		ErrorCode: "illegal-transition", Detail: detail, ObservedAt: 100,
+	}); appendErr != nil {
+		test.Fatalf("Append: %v", appendErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:         index.NewNodeRepo(store),
+		WorkflowDrift: driftRepo,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	var msg string
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueWorkflowViolation && issue.NodeID == "tickets/foo" {
+			msg = issue.Message
+		}
+	}
+
+	if !strings.Contains(msg, "cannot transition") {
+		test.Errorf("Issue.Message = %q, want the persisted detail (mentions 'cannot transition')", msg)
+	}
+
+	if strings.Contains(msg, "is not a declared state") {
+		test.Errorf("Issue.Message = %q, want persisted detail, not the hardcoded fallback", msg)
+	}
+}
+
 func TestRun_SurfacesPropertyDrift(test *testing.T) {
 	store, closer := newTempIndex(test)
 	defer closer()

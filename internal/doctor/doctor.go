@@ -293,10 +293,9 @@ func Run(config Config) (*Report, error) {
 
 		for _, row := range drift {
 			report.Issues = append(report.Issues, Issue{
-				Kind:   IssueWorkflowViolation,
-				NodeID: row.NodeID,
-				Message: fmt.Sprintf("workflow %q: status %q is not a declared state for property %q",
-					row.PackInstance, row.ObservedStatus, row.Property),
+				Kind:    IssueWorkflowViolation,
+				NodeID:  row.NodeID,
+				Message: renderWorkflowDriftMessage(row),
 			})
 		}
 	}
@@ -478,6 +477,19 @@ func CheckPinnedNodes(loaded *manifest.Manifest, nodes *index.NodeRepo) []string
 	}
 
 	return missing
+}
+
+// renderWorkflowDriftMessage formats the Issue message for a workflow drift
+// row. It prefers the rendered Detail persisted by the producer (which carries
+// the real rejection code's full text); rows written before the detail column
+// existed fall back to the legacy "not a declared state" rendering.
+func renderWorkflowDriftMessage(row index.WorkflowDriftRow) string {
+	if row.Detail != "" {
+		return row.Detail
+	}
+
+	return fmt.Sprintf("workflow %q: status %q is not a declared state for property %q",
+		row.PackInstance, row.ObservedStatus, row.Property)
 }
 
 // renderPropertyDriftMessage formats the Issue message for a property drift

@@ -14,7 +14,13 @@ type WorkflowDriftRow struct {
 	PackKind       string
 	ObservedStatus string
 	Property       string
-	ObservedAt     int64
+	// ErrorCode is the workflow rejection code (e.g. "unknown-target-state").
+	// Empty for rows written before this column existed.
+	ErrorCode string
+	// Detail is the fully-rendered rejection message; doctor prefers it over
+	// reconstructing a message. Empty for legacy rows.
+	Detail     string
+	ObservedAt int64
 }
 
 // WorkflowDriftRepo persists workflow-validation drift events for
@@ -32,13 +38,15 @@ func NewWorkflowDriftRepo(idx *Index) *WorkflowDriftRepo {
 // observed_at + property + pack_kind win.
 func (repo *WorkflowDriftRepo) Append(row WorkflowDriftRow) error {
 	_, execErr := repo.db.Exec(`
-		INSERT INTO workflow_drift (node_id, pack_instance, pack_kind, observed_status, property, observed_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO workflow_drift (node_id, pack_instance, pack_kind, observed_status, property, error_code, detail, observed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(node_id, pack_instance, observed_status) DO UPDATE SET
 			pack_kind = excluded.pack_kind,
 			property = excluded.property,
+			error_code = excluded.error_code,
+			detail = excluded.detail,
 			observed_at = excluded.observed_at
-	`, row.NodeID, row.PackInstance, row.PackKind, row.ObservedStatus, row.Property, row.ObservedAt)
+	`, row.NodeID, row.PackInstance, row.PackKind, row.ObservedStatus, row.Property, row.ErrorCode, row.Detail, row.ObservedAt)
 
 	if execErr != nil {
 		return fmt.Errorf("workflowDriftRepo: append: %w", execErr)
@@ -51,7 +59,7 @@ func (repo *WorkflowDriftRepo) Append(row WorkflowDriftRow) error {
 // observed_status) for stable rendering.
 func (repo *WorkflowDriftRepo) ListAll() ([]WorkflowDriftRow, error) {
 	rows, queryErr := repo.db.Query(`
-		SELECT node_id, pack_instance, pack_kind, observed_status, property, observed_at
+		SELECT node_id, pack_instance, pack_kind, observed_status, property, error_code, detail, observed_at
 		FROM workflow_drift
 		ORDER BY node_id, pack_instance, observed_status
 	`)
@@ -67,7 +75,7 @@ func (repo *WorkflowDriftRepo) ListAll() ([]WorkflowDriftRow, error) {
 	for rows.Next() {
 		var row WorkflowDriftRow
 
-		if scanErr := rows.Scan(&row.NodeID, &row.PackInstance, &row.PackKind, &row.ObservedStatus, &row.Property, &row.ObservedAt); scanErr != nil {
+		if scanErr := rows.Scan(&row.NodeID, &row.PackInstance, &row.PackKind, &row.ObservedStatus, &row.Property, &row.ErrorCode, &row.Detail, &row.ObservedAt); scanErr != nil {
 			return nil, fmt.Errorf("workflowDriftRepo: scan: %w", scanErr)
 		}
 

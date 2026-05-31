@@ -11,7 +11,11 @@ package index
 // 2026-05-27-embed-queue-leases: adds leased_by, leased_until_ns,
 // lease_started_at_ns, and kind columns to embed_queue (plus a
 // (kind, leased_until_ns) index) in preparation for lease-based draining.
-const SchemaVersion = "2026-05-27-embed-queue-leases"
+//
+// 2026-05-31-workflow-drift-error-code: adds error_code and detail
+// columns to workflow_drift so drift rows carry the real rejection code
+// and rendered message instead of doctor reconstructing a fixed string.
+const SchemaVersion = "2026-05-31-workflow-drift-error-code"
 
 // MetaSchemaVersionKey is the key under which SchemaVersion is stored
 // in the meta table. The value lives next to other workspace-scoped

@@ -743,7 +743,15 @@ func TestModify_HookRecoveryWritesDriftAndWarns(test *testing.T) {
 	rows, _ := driftRepo.ListAll()
 
 	if len(rows) != 1 || rows[0].ObservedStatus != "blocked" {
-		test.Errorf("drift rows = %+v, want one row for 'blocked'", rows)
+		test.Fatalf("drift rows = %+v, want one row for 'blocked'", rows)
+	}
+
+	if rows[0].ErrorCode != "recovered" {
+		test.Errorf("ErrorCode = %q, want %q", rows[0].ErrorCode, "recovered")
+	}
+
+	if !strings.Contains(rows[0].Detail, "recovered from unknown status") {
+		test.Errorf("Detail = %q, want the rendered recovery message", rows[0].Detail)
 	}
 }
 

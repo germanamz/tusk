@@ -304,12 +304,22 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	}
 
 	if cfg.Behaviors != nil {
-		result, fireErr := cfg.Behaviors.FireNodeWriteValidateWithRecovery(nil, parsed)
+		// Reindex reads already-persisted state; it is not a write event, so
+		// there is no transition to validate. Passing the node as its own
+		// "before" makes the validator take the no-transition fast-path
+		// (before == after), flagging only a status value that is not a
+		// declared state at all (genuine on-disk drift). Transition legality
+		// and the initial-state-on-create rule are write-time policies enforced
+		// at the node create/modify boundary, where a real "before" exists;
+		// reindex has no access to a node's prior status and cannot — and must
+		// not — re-litigate transition history.
+		result, fireErr := cfg.Behaviors.FireNodeWriteValidateWithRecovery(parsed, parsed)
 
-		now := time.Now().UnixNano()
-
-		switch {
-		case fireErr != nil:
+		// With before == after the validator can only reject with a hard error
+		// (a status that is not a declared state); orphan-state recovery — which
+		// requires a transition out of an unknown prior status — cannot arise on
+		// this path. Recovery is surfaced on the write-time modify path instead.
+		if fireErr != nil {
 			report.WorkflowViolations++
 
 			if cfg.DriftLog != nil {
@@ -319,30 +329,13 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 					PackKind:       kindFromQualifier(result.Rejector),
 					ObservedStatus: readStatusFromParsed(parsed),
 					Property:       extractPropertyFromError(fireErr),
-					ObservedAt:     now,
+					ErrorCode:      workflowErrorCode(fireErr),
+					Detail:         fireErr.Error(),
+					ObservedAt:     time.Now().UnixNano(),
 				})
 			}
-
-		case len(result.Recovered) > 0:
-			report.WorkflowViolations += len(result.Recovered)
-
-			if cfg.DriftLog != nil {
-				for _, recovered := range result.Recovered {
-					_ = cfg.DriftLog.Append(index.WorkflowDriftRow{
-						NodeID:         parsed.ID,
-						PackInstance:   recovered.PackInstance,
-						PackKind:       recovered.PackKind,
-						ObservedStatus: recovered.From,
-						Property:       recovered.Property,
-						ObservedAt:     now,
-					})
-				}
-			}
-
-		default:
-			if cfg.DriftLog != nil {
-				_ = cfg.DriftLog.ClearForNode(parsed.ID)
-			}
+		} else if cfg.DriftLog != nil {
+			_ = cfg.DriftLog.ClearForNode(parsed.ID)
 		}
 	}
 
