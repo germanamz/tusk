@@ -27,6 +27,26 @@ import (
 //
 // The function does not touch the index — the caller is expected to
 // reparse the source file and run an upsert (or rely on the watcher).
+// setEdgeTargets writes targets back into props[edgeName]: an empty list deletes
+// the key, a single target writes a scalar, and multiple write an ordered []any.
+// Insertion order is preserved by ranging targets.
+func setEdgeTargets(props map[string]any, edgeName string, targets []string) {
+	switch len(targets) {
+	case 0:
+		delete(props, edgeName)
+	case 1:
+		props[edgeName] = targets[0]
+	default:
+		out := make([]any, len(targets))
+
+		for index, target := range targets {
+			out[index] = target
+		}
+
+		props[edgeName] = out
+	}
+}
+
 func AddEdgeToFrontmatter(
 	workspaceRoot, sourceID, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
@@ -79,17 +99,7 @@ func AddEdgeToFrontmatter(
 
 		targets = append(targets, targetID)
 
-		if len(targets) == 1 {
-			parsed.Properties[edgeName] = targets[0]
-		} else {
-			out := make([]any, len(targets))
-
-			for index, target := range targets {
-				out[index] = target
-			}
-
-			parsed.Properties[edgeName] = out
-		}
+		setEdgeTargets(parsed.Properties, edgeName, targets)
 
 	default:
 		return fmt.Errorf("edgewrite: unknown cardinality %q on edge %q", edgeDef.Cardinality, edgeName)
@@ -160,20 +170,7 @@ func RemoveEdgeFromFrontmatter(
 		return nil // idempotent
 	}
 
-	switch len(kept) {
-	case 0:
-		delete(parsed.Properties, edgeName)
-	case 1:
-		parsed.Properties[edgeName] = kept[0]
-	default:
-		out := make([]any, len(kept))
-
-		for index, target := range kept {
-			out[index] = target
-		}
-
-		parsed.Properties[edgeName] = out
-	}
+	setEdgeTargets(parsed.Properties, edgeName, kept)
 
 	rendered, renderErr := renderMarkdown(parsed.Properties, parsed.Body)
 

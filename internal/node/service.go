@@ -197,6 +197,71 @@ func (service *Service) reservedProperties() map[string]map[string]struct{} {
 // Create writes the node file and upserts the index row in one operation.
 // When the service has an EdgeRepo configured, edges are also persisted.
 //
+// persistNodeRow stats the just-written file, checksums the rendered bytes, and
+// upserts the node's index row. It runs after WriteWithLease has committed the
+// file (no lease is held here) and stops at repo.Upsert — edge upserts and embed
+// enqueues stay at the call site. Create and Modify share it; each passes its
+// own already-computed absPath.
+func (service *Service) persistNodeRow(absPath string, node *Node, rendered []byte) error {
+	stat, statErr := os.Stat(absPath)
+
+	if statErr != nil {
+		return fmt.Errorf("node: stat %s: %w", absPath, statErr)
+	}
+
+	checksum := sha256Hex(rendered)
+	propertiesJSON, marshalErr := json.Marshal(node.Properties)
+
+	if marshalErr != nil {
+		return fmt.Errorf("node: marshal properties: %w", marshalErr)
+	}
+
+	if upsertErr := service.repo.Upsert(index.NodeRow{
+		ID:             node.ID,
+		Type:           node.Type,
+		Path:           node.Path,
+		Title:          node.Title,
+		PropertiesJSON: string(propertiesJSON),
+		LastMtime:      stat.ModTime().UnixNano(),
+		LastSize:       stat.Size(),
+		LastChecksum:   checksum,
+	}); upsertErr != nil {
+		return upsertErr
+	}
+
+	return nil
+}
+
+// surfacePropertyDrift emits the undeclared-property warnings + drift rows, or
+// clears prior drift on a clean pass. It fires after the index commits, holds no
+// lease, and touches no file. Both Create and Modify call it as their last
+// statement before returning.
+func (service *Service) surfacePropertyDrift(node *Node, drift []PropertyDrift) {
+	if len(drift) > 0 {
+		now := time.Now().UnixNano()
+
+		for _, entry := range drift {
+			_, _ = fmt.Fprintf(service.warnings,
+				"warning: node-types: property %q is not declared on type %q; surfaces as a property-drift in tusk doctor\n",
+				entry.Property, node.Type)
+
+			if service.propertyDrift != nil {
+				_ = service.propertyDrift.Append(index.PropertyDriftRow{
+					Kind:       "undeclared-property",
+					NodeID:     node.ID,
+					NodeType:   node.Type,
+					Property:   entry.Property,
+					Details:    entry.Reason,
+					ObservedAt: now,
+				})
+			}
+		}
+	} else if service.propertyDrift != nil {
+		// Clean pass: no hard errors, no drift — clear any prior drift for this node.
+		_ = service.propertyDrift.ClearForNode(node.ID)
+	}
+}
+
 // Phase 4 (T4.2): the file write routes through WriteWithLease so the
 // file_state row is populated and concurrent creates against the same
 // path are coordinated by the lease. Requires the service to have been
@@ -330,30 +395,8 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, writeErr
 	}
 
-	stat, statErr := os.Stat(absPath)
-
-	if statErr != nil {
-		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
-	}
-
-	checksum := sha256Hex(rendered)
-	propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
-
-	if marshalErr != nil {
-		return nil, fmt.Errorf("node: marshal properties: %w", marshalErr)
-	}
-
-	if upsertErr := service.repo.Upsert(index.NodeRow{
-		ID:             parsed.ID,
-		Type:           parsed.Type,
-		Path:           parsed.Path,
-		Title:          parsed.Title,
-		PropertiesJSON: string(propertiesJSON),
-		LastMtime:      stat.ModTime().UnixNano(),
-		LastSize:       stat.Size(),
-		LastChecksum:   checksum,
-	}); upsertErr != nil {
-		return nil, upsertErr
+	if persistErr := service.persistNodeRow(absPath, parsed, rendered); persistErr != nil {
+		return nil, persistErr
 	}
 
 	edgeRows := flattenEdges(parsed, service.nodeTypes)
@@ -381,29 +424,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 	}
 
 	// Plan 7.b: property drift surface — fires after index commits.
-	if len(propResult.Drift) > 0 {
-		now := time.Now().UnixNano()
-
-		for _, drift := range propResult.Drift {
-			_, _ = fmt.Fprintf(service.warnings,
-				"warning: node-types: property %q is not declared on type %q; surfaces as a property-drift in tusk doctor\n",
-				drift.Property, parsed.Type)
-
-			if service.propertyDrift != nil {
-				_ = service.propertyDrift.Append(index.PropertyDriftRow{
-					Kind:       "undeclared-property",
-					NodeID:     parsed.ID,
-					NodeType:   parsed.Type,
-					Property:   drift.Property,
-					Details:    drift.Reason,
-					ObservedAt: now,
-				})
-			}
-		}
-	} else if service.propertyDrift != nil {
-		// Clean pass: no hard errors, no drift — clear any prior drift for this node.
-		_ = service.propertyDrift.ClearForNode(parsed.ID)
-	}
+	service.surfacePropertyDrift(parsed, propResult.Drift)
 
 	return parsed, nil
 }
@@ -641,30 +662,8 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	absPath := filepath.Join(service.root, row.Path)
 
-	stat, statErr := os.Stat(absPath)
-
-	if statErr != nil {
-		return nil, fmt.Errorf("node: stat %s: %w", absPath, statErr)
-	}
-
-	checksum := sha256Hex(rendered)
-	propertiesJSON, marshalErr := json.Marshal(reparsed.Properties)
-
-	if marshalErr != nil {
-		return nil, fmt.Errorf("node: marshal properties: %w", marshalErr)
-	}
-
-	if upsertErr := service.repo.Upsert(index.NodeRow{
-		ID:             reparsed.ID,
-		Type:           reparsed.Type,
-		Path:           reparsed.Path,
-		Title:          reparsed.Title,
-		PropertiesJSON: string(propertiesJSON),
-		LastMtime:      stat.ModTime().UnixNano(),
-		LastSize:       stat.Size(),
-		LastChecksum:   checksum,
-	}); upsertErr != nil {
-		return nil, upsertErr
+	if persistErr := service.persistNodeRow(absPath, reparsed, rendered); persistErr != nil {
+		return nil, persistErr
 	}
 
 	if service.edges != nil {
@@ -720,29 +719,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	}
 
 	// Plan 7.b: property drift surface — fires after index commits.
-	if len(modPropResult.Drift) > 0 {
-		now := time.Now().UnixNano()
-
-		for _, drift := range modPropResult.Drift {
-			_, _ = fmt.Fprintf(service.warnings,
-				"warning: node-types: property %q is not declared on type %q; surfaces as a property-drift in tusk doctor\n",
-				drift.Property, reparsed.Type)
-
-			if service.propertyDrift != nil {
-				_ = service.propertyDrift.Append(index.PropertyDriftRow{
-					Kind:       "undeclared-property",
-					NodeID:     reparsed.ID,
-					NodeType:   reparsed.Type,
-					Property:   drift.Property,
-					Details:    drift.Reason,
-					ObservedAt: now,
-				})
-			}
-		}
-	} else if service.propertyDrift != nil {
-		// Clean pass: no drift — clear any prior property drift for this node.
-		_ = service.propertyDrift.ClearForNode(reparsed.ID)
-	}
+	service.surfacePropertyDrift(reparsed, modPropResult.Drift)
 
 	return reparsed, nil
 }
