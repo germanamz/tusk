@@ -3,16 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"text/tabwriter"
 
-	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
-	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/render"
-	"github.com/germanamz/tusk/internal/workspace"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 	"github.com/spf13/cobra"
 )
 
@@ -65,49 +59,18 @@ ranking, use "tusk query" with --semantic.`,
   tusk node list 'type=ticket AND priority=1' --take 1 | awk 'NR==2 {print $1}' | xargs tusk node get`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, cwdErr := os.Getwd()
+			ws, loaded, resolveErr := resolveWorkspace()
 
-			if cwdErr != nil {
-				return cwdErr
+			if resolveErr != nil {
+				return resolveErr
 			}
-
-			ws, findErr := workspace.Find(cwd)
-
-			if findErr != nil {
-				return fmt.Errorf("workspace: %w", findErr)
-			}
-
-			loaded, loadErr := manifest.Load(ws.ManifestPath)
-
-			if loadErr != nil {
-				return loadErr
-			}
-
-			manifest.MergeBuiltinPacks(loaded)
 			filterArg := ""
 
 			if len(args) == 1 {
 				filterArg = args[0]
 			}
 
-			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-				IndexPath: ws.IndexPath,
-				ReindexFactory: func(idx *index.Index) reindex.Config {
-					return reindex.Config{
-						Root:       ws.Root,
-						Repo:       index.NewNodeRepo(idx),
-						Edges:      index.NewEdgeRepo(idx),
-						EdgeTypes:  loaded.EdgeTypes,
-						Meta:       index.NewMetaRepo(idx),
-						FileStates: index.NewFileStateRepo(idx),
-						EmbedQueue: index.NewEmbedQueueRepo(idx),
-						Workers:    resolveEmbedWorkers(loaded),
-					}
-				},
-				Logger: func(msg string) {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-				},
-			})
+			store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
 			if openErr != nil {
 				return openErr
@@ -173,14 +136,7 @@ func renderListCompact(out interface{ Write(p []byte) (int, error) }, rows []que
 	compactRows := make([]render.CompactRow, 0, len(rows))
 
 	for _, row := range rows {
-		compactRows = append(compactRows, render.CompactRow{
-			ID:         row.ID,
-			Type:       row.Type,
-			Title:      row.Title,
-			Body:       row.Body,
-			Properties: row.Properties,
-			Edges:      row.Edges,
-		})
+		compactRows = append(compactRows, listRowToCompactBasic(row))
 	}
 
 	return render.CompactNodeRows(out, compactRows, render.CompactOpts{Fields: fields})

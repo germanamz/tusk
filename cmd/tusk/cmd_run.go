@@ -5,25 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/doctor"
-	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
-	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/status"
-	"github.com/germanamz/tusk/internal/workspace"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 )
 
 // newRunCmd builds the `tusk run` Cobra command. The dispatcher is
@@ -60,25 +54,11 @@ JSON when piped).`,
   tusk run open-tickets --json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, cwdErr := os.Getwd()
+			ws, loaded, resolveErr := resolveWorkspace()
 
-			if cwdErr != nil {
-				return cwdErr
+			if resolveErr != nil {
+				return resolveErr
 			}
-
-			ws, findErr := workspace.Find(cwd)
-
-			if findErr != nil {
-				return fmt.Errorf("workspace: %w", findErr)
-			}
-
-			loaded, loadErr := manifest.Load(ws.ManifestPath)
-
-			if loadErr != nil {
-				return loadErr
-			}
-
-			manifest.MergeBuiltinPacks(loaded)
 			manifest.ValidateAliases(loaded, buildVerbIntrospector(cmd.Root()))
 
 			if listAliases {
@@ -106,24 +86,7 @@ JSON when piped).`,
 				return formatErr
 			}
 
-			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-				IndexPath: ws.IndexPath,
-				ReindexFactory: func(idx *index.Index) reindex.Config {
-					return reindex.Config{
-						Root:       ws.Root,
-						Repo:       index.NewNodeRepo(idx),
-						Edges:      index.NewEdgeRepo(idx),
-						EdgeTypes:  loaded.EdgeTypes,
-						Meta:       index.NewMetaRepo(idx),
-						FileStates: index.NewFileStateRepo(idx),
-						EmbedQueue: index.NewEmbedQueueRepo(idx),
-						Workers:    resolveEmbedWorkers(loaded),
-					}
-				},
-				Logger: func(msg string) {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-				},
-			})
+			store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
 			if openErr != nil {
 				return openErr
@@ -131,23 +94,7 @@ JSON when piped).`,
 
 			defer store.Close()
 
-			deps := aliasdispatch.Deps{
-				Database:      store.DB(),
-				Manifest:      loaded,
-				WorkspaceRoot: ws.Root,
-				NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
-				Nodes:         index.NewNodeRepo(store),
-				Edges:         index.NewEdgeRepo(store),
-				EmbedQueue:    index.NewEmbedQueueRepo(store),
-				WorkflowDrift: index.NewWorkflowDriftRepo(store),
-				PropertyDrift: index.NewPropertyDriftRepo(store),
-				Embeddings:    index.NewEmbeddingRepo(store),
-				Meta:          index.NewMetaRepo(store),
-				Embedder:      buildAliasEmbedder(loaded),
-				// CLI keeps the historical "no semantic page cap unless
-				// the caller asks" behavior; MCP applies a default of 10.
-				SemanticDefaultTake: 0,
-			}
+			deps := newAliasDeps(store, loaded, ws, buildEmbedder(loaded))
 
 			dispatcher := aliasdispatch.NewDispatcher(deps)
 			result, dispatchErr := dispatcher.Run(context.Background(), alias)
@@ -165,25 +112,6 @@ JSON when piped).`,
 	runCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 
 	return runCmd
-}
-
-// buildAliasEmbedder constructs an embed.Embedder when [embeddings] is
-// configured. The dispatcher only needs one when the alias targets `query`
-// with semantic ranking; we always build it (cheap) so the alias is free to
-// opt in without a separate code path.
-func buildAliasEmbedder(loaded *manifest.Manifest) embed.Embedder {
-	if loaded.Embeddings.Provider != "ollama" {
-		return nil
-	}
-
-	timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
-
-	return embed.NewOllamaEmbedder(embed.OllamaConfig{
-		Endpoint: loaded.Embeddings.Endpoint,
-		Model:    loaded.Embeddings.Model,
-		Dim:      loaded.Embeddings.Dim,
-		Timeout:  timeout,
-	})
 }
 
 // findAliasError returns the AliasError matching name, if any.
@@ -379,14 +307,7 @@ func renderAliasNodeList(out io.Writer, result *query.ListResult, _ outputFormat
 	compactRows := make([]render.CompactRow, 0, len(result.Rows))
 
 	for _, row := range result.Rows {
-		compactRows = append(compactRows, render.CompactRow{
-			ID:         row.ID,
-			Type:       row.Type,
-			Title:      row.Title,
-			Body:       row.Body,
-			Properties: row.Properties,
-			Edges:      row.Edges,
-		})
+		compactRows = append(compactRows, listRowToCompactBasic(row))
 	}
 
 	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})

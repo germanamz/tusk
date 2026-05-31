@@ -3,14 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/reindex"
-	"github.com/germanamz/tusk/internal/workspace"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 	"github.com/spf13/cobra"
 )
 
@@ -141,25 +137,11 @@ for a diagnostic-only run.`,
   # Diagnostic-only run; do not migrate legacy edge rows
   tusk doctor --no-migrate`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, cwdErr := os.Getwd()
+			ws, loaded, resolveErr := resolveWorkspace()
 
-			if cwdErr != nil {
-				return cwdErr
+			if resolveErr != nil {
+				return resolveErr
 			}
-
-			ws, findErr := workspace.Find(cwd)
-
-			if findErr != nil {
-				return fmt.Errorf("workspace: %w", findErr)
-			}
-
-			loaded, loadErr := manifest.Load(ws.ManifestPath)
-
-			if loadErr != nil {
-				return loadErr
-			}
-
-			manifest.MergeBuiltinPacks(loaded)
 			introspect := buildVerbIntrospector(cmd.Root())
 			manifest.ValidateAliases(loaded, introspect)
 			manifest.ValidateContext(loaded, introspect)
@@ -171,24 +153,7 @@ for a diagnostic-only run.`,
 			// row writes for runtime mutations but not the workspace-wide
 			// schema migration this command performs.
 			return withWorkspaceLock(ws, func() error {
-				store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-					IndexPath: ws.IndexPath,
-					ReindexFactory: func(idx *index.Index) reindex.Config {
-						return reindex.Config{
-							Root:       ws.Root,
-							Repo:       index.NewNodeRepo(idx),
-							Edges:      index.NewEdgeRepo(idx),
-							EdgeTypes:  loaded.EdgeTypes,
-							Meta:       index.NewMetaRepo(idx),
-							FileStates: index.NewFileStateRepo(idx),
-							EmbedQueue: index.NewEmbedQueueRepo(idx),
-							Workers:    resolveEmbedWorkers(loaded),
-						}
-					},
-					Logger: func(msg string) {
-						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-					},
-				})
+				store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
 				if openErr != nil {
 					return openErr

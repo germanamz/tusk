@@ -13,7 +13,6 @@ import (
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/watcher"
 	"github.com/germanamz/tusk/internal/workspace"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 	"github.com/spf13/cobra"
 )
 
@@ -71,24 +70,7 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 						"this workspace's index, then unset TUSK_EMBED_WORKERS or set [embeddings] workers > 0 in tusk.toml")
 			}
 
-			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-				IndexPath: ws.IndexPath,
-				ReindexFactory: func(idx *index.Index) reindex.Config {
-					return reindex.Config{
-						Root:       ws.Root,
-						Repo:       index.NewNodeRepo(idx),
-						Edges:      index.NewEdgeRepo(idx),
-						EdgeTypes:  loaded.EdgeTypes,
-						Meta:       index.NewMetaRepo(idx),
-						FileStates: index.NewFileStateRepo(idx),
-						EmbedQueue: index.NewEmbedQueueRepo(idx),
-						Workers:    resolveEmbedWorkers(loaded),
-					}
-				},
-				Logger: func(msg string) {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-				},
-			})
+			store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
 			if openErr != nil {
 				return openErr

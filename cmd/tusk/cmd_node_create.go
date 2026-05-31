@@ -5,13 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/leaseconfig"
-	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
-	"github.com/germanamz/tusk/internal/reindex"
-	"github.com/germanamz/tusk/internal/workspace"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 	"github.com/spf13/cobra"
 )
 
@@ -64,25 +58,11 @@ reindex pass will materialize the edge from the markdown frontmatter.`,
 				return fmt.Errorf("--type is required")
 			}
 
-			cwd, getCwdErr := os.Getwd()
+			ws, loaded, resolveErr := resolveWorkspace()
 
-			if getCwdErr != nil {
-				return getCwdErr
+			if resolveErr != nil {
+				return resolveErr
 			}
-
-			ws, findErr := workspace.Find(cwd)
-
-			if findErr != nil {
-				return fmt.Errorf("workspace: %w", findErr)
-			}
-
-			loaded, loadErr := manifest.Load(ws.ManifestPath)
-
-			if loadErr != nil {
-				return loadErr
-			}
-
-			manifest.MergeBuiltinPacks(loaded)
 			engine, buildErr := newBehaviorEngine(loaded)
 
 			if buildErr != nil {
@@ -101,24 +81,7 @@ reindex pass will materialize the edge from the markdown frontmatter.`,
 				return setErr
 			}
 
-			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-				IndexPath: ws.IndexPath,
-				ReindexFactory: func(idx *index.Index) reindex.Config {
-					return reindex.Config{
-						Root:       ws.Root,
-						Repo:       index.NewNodeRepo(idx),
-						Edges:      index.NewEdgeRepo(idx),
-						EdgeTypes:  loaded.EdgeTypes,
-						Meta:       index.NewMetaRepo(idx),
-						FileStates: index.NewFileStateRepo(idx),
-						EmbedQueue: index.NewEmbedQueueRepo(idx),
-						Workers:    resolveEmbedWorkers(loaded),
-					}
-				},
-				Logger: func(msg string) {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-				},
-			})
+			store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
 			if openErr != nil {
 				return openErr
@@ -126,24 +89,7 @@ reindex pass will materialize the edge from the markdown frontmatter.`,
 
 			defer store.Close()
 
-			nodes := index.NewNodeRepo(store)
-
-			service := node.NewServiceWithBehaviors(
-				ws.Root,
-				nodes,
-				index.NewEdgeRepo(store),
-				loaded.EdgeTypes,
-				index.NewEmbedQueueRepo(store),
-				loaded.NodeTypes,
-				index.NewPropertyDriftRepo(store),
-				engine,
-				index.NewWorkflowDriftRepo(store),
-				cmd.ErrOrStderr(),
-				node.NewIndexRefLookup(nodes),
-				index.NewFileStateRepo(store),
-				index.WorkerID(),
-				leaseconfig.Resolve(loaded.Lease.TTLSeconds),
-			)
+			service := newNodeService(ws, store, loaded, engine, cmd.ErrOrStderr())
 
 			created, createErr := service.Create(node.CreateInput{
 				RelPath:    relPath,
