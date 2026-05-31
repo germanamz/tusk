@@ -4,23 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/contextcompose"
-	"github.com/germanamz/tusk/internal/embed"
-	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
-	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/render"
-	"github.com/germanamz/tusk/internal/workspace"
-	"github.com/germanamz/tusk/internal/workspace/indexopen"
 )
 
 // newContextCmd builds the `tusk context` Cobra command. It composes the
@@ -60,25 +52,11 @@ the output format (default: compact at TTY, JSON when piped).`,
   tusk context --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, cwdErr := os.Getwd()
+			ws, loaded, resolveErr := resolveWorkspace()
 
-			if cwdErr != nil {
-				return cwdErr
+			if resolveErr != nil {
+				return resolveErr
 			}
-
-			ws, findErr := workspace.Find(cwd)
-
-			if findErr != nil {
-				return fmt.Errorf("workspace: %w", findErr)
-			}
-
-			loaded, loadErr := manifest.Load(ws.ManifestPath)
-
-			if loadErr != nil {
-				return loadErr
-			}
-
-			manifest.MergeBuiltinPacks(loaded)
 			introspect := buildVerbIntrospector(cmd.Root())
 			manifest.ValidateAliases(loaded, introspect)
 			manifest.ValidateContext(loaded, introspect)
@@ -90,24 +68,7 @@ the output format (default: compact at TTY, JSON when piped).`,
 				return formatErr
 			}
 
-			store, openErr := indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
-				IndexPath: ws.IndexPath,
-				ReindexFactory: func(idx *index.Index) reindex.Config {
-					return reindex.Config{
-						Root:       ws.Root,
-						Repo:       index.NewNodeRepo(idx),
-						Edges:      index.NewEdgeRepo(idx),
-						EdgeTypes:  loaded.EdgeTypes,
-						Meta:       index.NewMetaRepo(idx),
-						FileStates: index.NewFileStateRepo(idx),
-						EmbedQueue: index.NewEmbedQueueRepo(idx),
-						Workers:    resolveEmbedWorkers(loaded),
-					}
-				},
-				Logger: func(msg string) {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
-				},
-			})
+			store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
 			if openErr != nil {
 				return openErr
@@ -115,23 +76,7 @@ the output format (default: compact at TTY, JSON when piped).`,
 
 			defer store.Close()
 
-			aliasDeps := aliasdispatch.Deps{
-				Database:      store.DB(),
-				Manifest:      loaded,
-				WorkspaceRoot: ws.Root,
-				NodeService:   node.NewService(ws.Root, index.NewNodeRepo(store)),
-				Nodes:         index.NewNodeRepo(store),
-				Edges:         index.NewEdgeRepo(store),
-				EmbedQueue:    index.NewEmbedQueueRepo(store),
-				WorkflowDrift: index.NewWorkflowDriftRepo(store),
-				PropertyDrift: index.NewPropertyDriftRepo(store),
-				Embeddings:    index.NewEmbeddingRepo(store),
-				Meta:          index.NewMetaRepo(store),
-				Embedder:      buildContextEmbedder(loaded),
-				// CLI keeps the historical no-cap behavior for semantic
-				// pages; MCP applies 10.
-				SemanticDefaultTake: 0,
-			}
+			aliasDeps := newAliasDeps(store, loaded, ws, buildEmbedder(loaded))
 
 			dispatcher := aliasdispatch.NewDispatcher(aliasDeps)
 
@@ -159,24 +104,6 @@ the output format (default: compact at TTY, JSON when piped).`,
 	contextCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "per-node include set for pinned + recent (default body,edges)")
 
 	return contextCmd
-}
-
-// buildContextEmbedder mirrors buildAliasEmbedder: returns an Embedder when
-// [embeddings] is configured so an include alias targeting query --semantic
-// works without a separate code path.
-func buildContextEmbedder(loaded *manifest.Manifest) embed.Embedder {
-	if loaded.Embeddings.Provider != "ollama" {
-		return nil
-	}
-
-	timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
-
-	return embed.NewOllamaEmbedder(embed.OllamaConfig{
-		Endpoint: loaded.Embeddings.Endpoint,
-		Model:    loaded.Embeddings.Model,
-		Dim:      loaded.Embeddings.Dim,
-		Timeout:  timeout,
-	})
 }
 
 // renderContextResult writes the composed digest in either compact or JSON
@@ -300,14 +227,7 @@ func writeCompactNodeRowsBuilder(builder *strings.Builder, rows []query.ListRow)
 	compactRows := make([]render.CompactRow, 0, len(rows))
 
 	for _, row := range rows {
-		compactRows = append(compactRows, render.CompactRow{
-			ID:         row.ID,
-			Type:       row.Type,
-			Title:      row.Title,
-			Body:       row.Body,
-			Properties: row.Properties,
-			Edges:      row.Edges,
-		})
+		compactRows = append(compactRows, listRowToCompactBasic(row))
 	}
 
 	return render.CompactNodeRows(builder, compactRows, render.CompactOpts{})
