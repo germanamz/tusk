@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/germanamz/tusk/internal/argval"
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
@@ -194,57 +195,19 @@ func builtinAdapters() map[string]VerbAdapter {
 // --- node list adapter ---
 
 func buildNodeListRequest(args map[string]any, deps Deps) (any, error) {
-	req := query.ListRequest{
-		WorkspaceRoot: deps.WorkspaceRoot,
+	reader := &argReader{args: args}
+
+	req := query.ListRequest{WorkspaceRoot: deps.WorkspaceRoot}
+	req.Filter = reader.String("filter")
+	req.Sort = reader.String("sort")
+	req.Take = reader.Int("take")
+	req.Skip = reader.Int("skip")
+	req.Include = reader.StringSlice("include")
+	req.Fields = reader.StringSlice("fields")
+
+	if reader.err != nil {
+		return nil, reader.err
 	}
-
-	filterVal, filterErr := optionalString(args, "filter")
-
-	if filterErr != nil {
-		return nil, filterErr
-	}
-
-	req.Filter = filterVal
-
-	sortVal, sortErr := optionalString(args, "sort")
-
-	if sortErr != nil {
-		return nil, sortErr
-	}
-
-	req.Sort = sortVal
-
-	takeVal, takeErr := optionalInt(args, "take")
-
-	if takeErr != nil {
-		return nil, takeErr
-	}
-
-	req.Take = takeVal
-
-	skipVal, skipErr := optionalInt(args, "skip")
-
-	if skipErr != nil {
-		return nil, skipErr
-	}
-
-	req.Skip = skipVal
-
-	includeVal, includeErr := optionalStringSlice(args, "include")
-
-	if includeErr != nil {
-		return nil, includeErr
-	}
-
-	req.Include = includeVal
-
-	fieldsVal, fieldsErr := optionalStringSlice(args, "fields")
-
-	if fieldsErr != nil {
-		return nil, fieldsErr
-	}
-
-	req.Fields = fieldsVal
 
 	return req, nil
 }
@@ -270,35 +233,27 @@ func runNodeList(_ context.Context, deps Deps, request any) (any, error) {
 // --- node get adapter ---
 
 func buildNodeGetRequest(args map[string]any, _ Deps) (any, error) {
-	req := node.GetRequest{}
+	reader := &argReader{args: args}
 
-	idVal, idErr := optionalString(args, "id")
+	id := reader.String("id")
 
-	if idErr != nil {
-		return nil, idErr
+	// A type error on id wins over the required-check; the required-check then
+	// fires before include/fields are read — matching the original ordering.
+	if reader.err != nil {
+		return nil, reader.err
 	}
 
-	if idVal == "" {
+	if id == "" {
 		return nil, fmt.Errorf("node get adapter: args.id is required")
 	}
 
-	req.ID = idVal
+	req := node.GetRequest{ID: id}
+	req.Include = reader.StringSlice("include")
+	req.Fields = reader.StringSlice("fields")
 
-	includeVal, includeErr := optionalStringSlice(args, "include")
-
-	if includeErr != nil {
-		return nil, includeErr
+	if reader.err != nil {
+		return nil, reader.err
 	}
-
-	req.Include = includeVal
-
-	fieldsVal, fieldsErr := optionalStringSlice(args, "fields")
-
-	if fieldsErr != nil {
-		return nil, fieldsErr
-	}
-
-	req.Fields = fieldsVal
 
 	return req, nil
 }
@@ -320,74 +275,24 @@ func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
 // --- query adapter ---
 
 func buildQueryRequest(args map[string]any, deps Deps) (any, error) {
+	reader := &argReader{args: args}
+
 	req := query.Request{
 		WorkspaceRoot:       deps.WorkspaceRoot,
 		SemanticDefaultTake: deps.SemanticDefaultTake,
 	}
+	req.Filter = reader.String("filter")
+	req.Sort = reader.String("sort")
+	req.Take = reader.Int("take")
+	req.Skip = reader.Int("skip")
+	req.Semantic = reader.String("semantic")
+	req.MinScore = reader.Float("min-score")
+	req.Include = reader.StringSlice("include")
+	req.Fields = reader.StringSlice("fields")
 
-	filterVal, filterErr := optionalString(args, "filter")
-
-	if filterErr != nil {
-		return nil, filterErr
+	if reader.err != nil {
+		return nil, reader.err
 	}
-
-	req.Filter = filterVal
-
-	sortVal, sortErr := optionalString(args, "sort")
-
-	if sortErr != nil {
-		return nil, sortErr
-	}
-
-	req.Sort = sortVal
-
-	takeVal, takeErr := optionalInt(args, "take")
-
-	if takeErr != nil {
-		return nil, takeErr
-	}
-
-	req.Take = takeVal
-
-	skipVal, skipErr := optionalInt(args, "skip")
-
-	if skipErr != nil {
-		return nil, skipErr
-	}
-
-	req.Skip = skipVal
-
-	semanticVal, semanticErr := optionalString(args, "semantic")
-
-	if semanticErr != nil {
-		return nil, semanticErr
-	}
-
-	req.Semantic = semanticVal
-
-	minScoreVal, minScoreErr := optionalFloat(args, "min-score")
-
-	if minScoreErr != nil {
-		return nil, minScoreErr
-	}
-
-	req.MinScore = minScoreVal
-
-	includeVal, includeErr := optionalStringSlice(args, "include")
-
-	if includeErr != nil {
-		return nil, includeErr
-	}
-
-	req.Include = includeVal
-
-	fieldsVal, fieldsErr := optionalStringSlice(args, "fields")
-
-	if fieldsErr != nil {
-		return nil, fieldsErr
-	}
-
-	req.Fields = fieldsVal
 
 	return req, nil
 }
@@ -420,31 +325,16 @@ func runQuery(ctx context.Context, deps Deps, request any) (any, error) {
 // --- edge list adapter ---
 
 func buildEdgeListRequest(args map[string]any, _ Deps) (any, error) {
+	reader := &argReader{args: args}
+
 	req := index.EdgeListRequest{}
+	req.From = reader.String("from")
+	req.To = reader.String("to")
+	req.Type = reader.String("type")
 
-	fromVal, fromErr := optionalString(args, "from")
-
-	if fromErr != nil {
-		return nil, fromErr
+	if reader.err != nil {
+		return nil, reader.err
 	}
-
-	req.From = fromVal
-
-	toVal, toErr := optionalString(args, "to")
-
-	if toErr != nil {
-		return nil, toErr
-	}
-
-	req.To = toVal
-
-	typeVal, typeErr := optionalString(args, "type")
-
-	if typeErr != nil {
-		return nil, typeErr
-	}
-
-	req.Type = typeVal
 
 	return req, nil
 }
@@ -466,7 +356,7 @@ func runEdgeList(_ context.Context, deps Deps, request any) (any, error) {
 // --- doctor adapter ---
 
 func buildDoctorRequest(args map[string]any, deps Deps) (any, error) {
-	noMigrate, noMigrateErr := optionalBool(args, "no-migrate")
+	noMigrate, noMigrateErr := argval.Bool(args, "no-migrate")
 
 	if noMigrateErr != nil {
 		return nil, noMigrateErr
@@ -518,121 +408,79 @@ func runStatus(_ context.Context, _ Deps, request any) (any, error) {
 	return status.Run(typedRequest)
 }
 
-// --- arg coercion helpers ---
+// --- arg coercion ---
 
-// optionalString returns the value of args[key] as a string, or "" if absent.
-// Returns an error if the value is present but the wrong type.
-func optionalString(args map[string]any, key string) (string, error) {
-	raw, ok := args[key]
-
-	if !ok {
-		return "", nil
-	}
-
-	typed, isString := raw.(string)
-
-	if !isString {
-		return "", fmt.Errorf("arg %q has type %T, want string", key, raw)
-	}
-
-	return typed, nil
+// argReader coerces fields off an alias args map, accumulating the first
+// coercion error so a builder can assign every field and check once at the end.
+// Once an error is recorded every subsequent read is a no-op returning the zero
+// value — observably identical to the short-circuit-on-first-error builders this
+// replaced (the coercers are pure and the built request is discarded on error).
+// It delegates to internal/argval for the actual coercion + error text.
+type argReader struct {
+	args map[string]any
+	err  error
 }
 
-// optionalInt returns the value of args[key] as an int. BurntSushi/toml
-// decodes integers as int64 when the destination is map[string]any;
-// optionalInt also accepts float64 for exact-integer values so the helper is
-// resilient to JSON-bridged callers.
-func optionalInt(args map[string]any, key string) (int, error) {
-	raw, ok := args[key]
-
-	if !ok {
-		return 0, nil
+func (reader *argReader) String(key string) string {
+	if reader.err != nil {
+		return ""
 	}
 
-	switch typed := raw.(type) {
-	case int:
-		return typed, nil
-	case int64:
-		return int(typed), nil
-	case float64:
-		if typed != float64(int64(typed)) {
-			return 0, fmt.Errorf("arg %q has type %T (non-integer float), want int", key, raw)
-		}
+	value, err := argval.String(reader.args, key)
 
-		return int(typed), nil
+	if err != nil {
+		reader.err = err
+
+		return ""
 	}
 
-	return 0, fmt.Errorf("arg %q has type %T, want int", key, raw)
+	return value
 }
 
-// optionalFloat returns the value of args[key] as a float64.
-func optionalFloat(args map[string]any, key string) (float64, error) {
-	raw, ok := args[key]
-
-	if !ok {
-		return 0, nil
+func (reader *argReader) Int(key string) int {
+	if reader.err != nil {
+		return 0
 	}
 
-	switch typed := raw.(type) {
-	case float64:
-		return typed, nil
-	case int:
-		return float64(typed), nil
-	case int64:
-		return float64(typed), nil
+	value, err := argval.Int(reader.args, key)
+
+	if err != nil {
+		reader.err = err
+
+		return 0
 	}
 
-	return 0, fmt.Errorf("arg %q has type %T, want float64", key, raw)
+	return value
 }
 
-// optionalBool returns the value of args[key] as a bool.
-func optionalBool(args map[string]any, key string) (bool, error) {
-	raw, ok := args[key]
-
-	if !ok {
-		return false, nil
+func (reader *argReader) Float(key string) float64 {
+	if reader.err != nil {
+		return 0
 	}
 
-	typed, isBool := raw.(bool)
+	value, err := argval.Float(reader.args, key)
 
-	if !isBool {
-		return false, fmt.Errorf("arg %q has type %T, want bool", key, raw)
+	if err != nil {
+		reader.err = err
+
+		return 0
 	}
 
-	return typed, nil
+	return value
 }
 
-// optionalStringSlice returns the value of args[key] as a []string. A bare
-// string is also accepted (single value), matching Cobra's StringSlice
-// semantics.
-func optionalStringSlice(args map[string]any, key string) ([]string, error) {
-	raw, ok := args[key]
-
-	if !ok {
-		return nil, nil
+func (reader *argReader) StringSlice(key string) []string {
+	if reader.err != nil {
+		return nil
 	}
 
-	if str, isString := raw.(string); isString {
-		return []string{str}, nil
+	value, err := argval.StringSlice(reader.args, key)
+
+	if err != nil {
+		reader.err = err
+
+		return nil
 	}
 
-	typed, isSlice := raw.([]any)
-
-	if !isSlice {
-		return nil, fmt.Errorf("arg %q has type %T, want []string", key, raw)
-	}
-
-	out := make([]string, 0, len(typed))
-
-	for index, item := range typed {
-		str, isString := item.(string)
-
-		if !isString {
-			return nil, fmt.Errorf("arg %q element %d has type %T, want string", key, index, item)
-		}
-
-		out = append(out, str)
-	}
-
-	return out, nil
+	return value
 }
