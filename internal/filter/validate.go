@@ -43,6 +43,12 @@ type validationCollector struct {
 	errors   []ValidationError
 }
 
+// add appends a validation error. A zero-value hint renders without a hint line
+// (ValidationError.Error branches on Hint != "").
+func (collector *validationCollector) add(pos int, message, hint string) {
+	collector.errors = append(collector.errors, ValidationError{Pos: pos, Message: message, Hint: hint})
+}
+
 func (collector *validationCollector) walk(expr Expr) {
 	switch typed := expr.(type) {
 	case *OrExpr:
@@ -59,16 +65,9 @@ func (collector *validationCollector) walk(expr Expr) {
 		ref, parseErr := typeref.Parse(typed.EdgeType)
 
 		if parseErr != nil {
-			collector.errors = append(collector.errors, ValidationError{
-				Pos:     typed.Pos,
-				Message: fmt.Sprintf("edge type %q is not a valid type reference", typed.EdgeType),
-			})
+			collector.add(typed.Pos, fmt.Sprintf("edge type %q is not a valid type reference", typed.EdgeType), "")
 		} else if _, declared := collector.manifest.EdgeTypes[ref.Type]; !declared {
-			collector.errors = append(collector.errors, ValidationError{
-				Pos:     typed.Pos,
-				Message: fmt.Sprintf("edge type %q not declared in manifest", ref.Type),
-				Hint:    suggestEdgeType(ref.Type, collector.manifest.EdgeTypes),
-			})
+			collector.add(typed.Pos, fmt.Sprintf("edge type %q not declared in manifest", ref.Type), suggestEdgeType(ref.Type, collector.manifest.EdgeTypes))
 		}
 
 		if typed.Inner != nil {
@@ -87,11 +86,7 @@ func (collector *validationCollector) walk(expr Expr) {
 // first; anything else is tried as a duration first.
 func (collector *validationCollector) resolveModifiedSince(pred *ModifiedSincePredicate) {
 	if pred.Raw == "" {
-		collector.errors = append(collector.errors, ValidationError{
-			Pos:     pred.Pos,
-			Message: "modified-since: empty value",
-			Hint:    `expected duration like "7d" or ISO date like "2026-05-23"`,
-		})
+		collector.add(pred.Pos, "modified-since: empty value", `expected duration like "7d" or ISO date like "2026-05-23"`)
 
 		return
 	}
@@ -124,11 +119,7 @@ func (collector *validationCollector) resolveModifiedSince(pred *ModifiedSincePr
 		}
 	}
 
-	collector.errors = append(collector.errors, ValidationError{
-		Pos:     pred.Pos,
-		Message: fmt.Sprintf("modified-since: unparseable value %q", pred.Raw),
-		Hint:    `expected duration like "7d" or ISO date like "2026-05-23"`,
-	})
+	collector.add(pred.Pos, fmt.Sprintf("modified-since: unparseable value %q", pred.Raw), `expected duration like "7d" or ISO date like "2026-05-23"`)
 }
 
 // looksLikeDate returns true when raw contains a '-' immediately followed
@@ -252,11 +243,7 @@ func (collector *validationCollector) resolveShortcut(shortcut *TraversalShortcu
 		edgeName, found := aliasToEdge[shortcut.Alias]
 
 		if !found {
-			collector.errors = append(collector.errors, ValidationError{
-				Pos:     shortcut.Pos,
-				Message: fmt.Sprintf("unknown hierarchy alias %q", shortcut.Alias),
-				Hint:    formatAliasList(aliasToEdge),
-			})
+			collector.add(shortcut.Pos, fmt.Sprintf("unknown hierarchy alias %q", shortcut.Alias), formatAliasList(aliasToEdge))
 
 			return
 		}
@@ -287,20 +274,12 @@ func (collector *validationCollector) resolveShortcut(shortcut *TraversalShortcu
 			hint = fmt.Sprintf("e.g. %s->*=<id>; or add hierarchy = \"<alias>\" to that edge in tusk.toml", candidate)
 		}
 
-		collector.errors = append(collector.errors, ValidationError{
-			Pos:     shortcut.Pos,
-			Message: "no hierarchy edges declared in this workspace",
-			Hint:    hint,
-		})
+		collector.add(shortcut.Pos, "no hierarchy edges declared in this workspace", hint)
 
 		return
 	}
 
-	collector.errors = append(collector.errors, ValidationError{
-		Pos:     shortcut.Pos,
-		Message: "no default hierarchy and multiple are declared",
-		Hint:    fmt.Sprintf("use tree:<alias>=<id> or set hierarchy-default = true on one of: %s", formatAliasList(aliasToEdge)),
-	})
+	collector.add(shortcut.Pos, "no default hierarchy and multiple are declared", fmt.Sprintf("use tree:<alias>=<id> or set hierarchy-default = true on one of: %s", formatAliasList(aliasToEdge)))
 }
 
 // assignEdge stamps the resolved edge name onto the shortcut and, when the

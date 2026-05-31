@@ -71,6 +71,39 @@ type compileState struct {
 	defaultOrderBy string
 }
 
+// recursiveDescendantsCTE returns the recursive-CTE body that walks `type` edges
+// from a seed node down to depth 5. name is injected into all five positions.
+// ShortcutTree and the ShortcutRoot ascendants pass share this verbatim; the
+// root descendants body has a different seed and is built separately.
+func recursiveDescendantsCTE(name string) string {
+	return fmt.Sprintf(`%s AS (
+    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = ?
+    UNION ALL
+    SELECT edges.target_id, %s.depth + 1 FROM %s
+        JOIN edges ON edges.source_id = %s.target_id
+        WHERE edges.type = ? AND %s.depth < 5
+)`, name, name, name, name, name)
+}
+
+// compileBinary compiles the two operands of an AND/OR node on the same state —
+// left first, so CTE numbering and the leftmost-OrderedBy-wins side effects are
+// preserved — and joins their SQL with joiner, left params before right.
+func (state *compileState) compileBinary(left, right Expr, joiner string) (string, []any, error) {
+	leftSQL, leftParams, leftErr := state.compileWhere(left)
+
+	if leftErr != nil {
+		return "", nil, leftErr
+	}
+
+	rightSQL, rightParams, rightErr := state.compileWhere(right)
+
+	if rightErr != nil {
+		return "", nil, rightErr
+	}
+
+	return "(" + leftSQL + ") " + joiner + " (" + rightSQL + ")", append(leftParams, rightParams...), nil
+}
+
 func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 	if expr == nil {
 		return "1 = 1", nil, nil
@@ -78,33 +111,9 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 
 	switch typed := expr.(type) {
 	case *OrExpr:
-		left, leftParams, leftErr := state.compileWhere(typed.Left)
-
-		if leftErr != nil {
-			return "", nil, leftErr
-		}
-
-		right, rightParams, rightErr := state.compileWhere(typed.Right)
-
-		if rightErr != nil {
-			return "", nil, rightErr
-		}
-
-		return "(" + left + ") OR (" + right + ")", append(leftParams, rightParams...), nil
+		return state.compileBinary(typed.Left, typed.Right, "OR")
 	case *AndExpr:
-		left, leftParams, leftErr := state.compileWhere(typed.Left)
-
-		if leftErr != nil {
-			return "", nil, leftErr
-		}
-
-		right, rightParams, rightErr := state.compileWhere(typed.Right)
-
-		if rightErr != nil {
-			return "", nil, rightErr
-		}
-
-		return "(" + left + ") AND (" + right + ")", append(leftParams, rightParams...), nil
+		return state.compileBinary(typed.Left, typed.Right, "AND")
 	case *NotExpr:
 		inner, innerParams, innerErr := state.compileWhere(typed.Inner)
 
@@ -450,13 +459,7 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string,
 		return whereClause, nil, []any{edge, shortcut.NodeID}, nil
 	case ShortcutTree:
 		cteName := fmt.Sprintf("descendants_%d", counter)
-		cteBody := fmt.Sprintf(`%s AS (
-    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = ?
-    UNION ALL
-    SELECT edges.target_id, %s.depth + 1 FROM %s
-        JOIN edges ON edges.source_id = %s.target_id
-        WHERE edges.type = ? AND %s.depth < 5
-)`, cteName, cteName, cteName, cteName, cteName)
+		cteBody := recursiveDescendantsCTE(cteName)
 
 		whereClause := fmt.Sprintf("nodes.id IN (SELECT target_id FROM %s)", cteName)
 
@@ -464,13 +467,7 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string,
 	case ShortcutRoot:
 		ascendantsName := fmt.Sprintf("ascendants_%d", counter)
 		descendantsName := fmt.Sprintf("from_root_%d", counter)
-		ascendantsBody := fmt.Sprintf(`%s AS (
-    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = ?
-    UNION ALL
-    SELECT edges.target_id, %s.depth + 1 FROM %s
-        JOIN edges ON edges.source_id = %s.target_id
-        WHERE edges.type = ? AND %s.depth < 5
-)`, ascendantsName, ascendantsName, ascendantsName, ascendantsName, ascendantsName)
+		ascendantsBody := recursiveDescendantsCTE(ascendantsName)
 
 		descendantsBody := fmt.Sprintf(`%s AS (
     SELECT id AS target_id, 1 AS depth FROM nodes
