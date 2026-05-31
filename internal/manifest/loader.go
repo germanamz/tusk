@@ -626,10 +626,7 @@ func validatePropertyTypeConstraints(typeName string, prop PropertyDecl) error {
 func validateRefTargets(loaded *Manifest) error {
 	for typeName, nodeType := range loaded.NodeTypes {
 		for _, prop := range nodeType.Properties {
-			isRef := prop.Type == "ref"
-			isListOfRef := prop.Type == "list-of" && prop.ItemType == "ref"
-
-			if !isRef && !isListOfRef {
+			if !isRefProperty(prop) {
 				continue
 			}
 

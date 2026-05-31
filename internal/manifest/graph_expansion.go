@@ -88,6 +88,23 @@ type querySection struct {
 	GraphExpansion graphExpansionTOML `toml:"graph-expansion"`
 }
 
+// decodeGraphExpansionField decodes a single [query.graph-expansion] scalar key
+// into dst when it is present in the manifest, wrapping a decode failure with
+// the key name. It captures the four scalar branches verbatim; the slice-valued
+// edge-types key keeps its decode-into-local-then-assign shape and is not routed
+// through here.
+func decodeGraphExpansionField[T any](meta *toml.MetaData, prim toml.Primitive, dst *T, key string) error {
+	if !meta.IsDefined("query", "graph-expansion", key) {
+		return nil
+	}
+
+	if decodeErr := meta.PrimitiveDecode(prim, dst); decodeErr != nil {
+		return fmt.Errorf("query.graph-expansion: %s: %w", key, decodeErr)
+	}
+
+	return nil
+}
+
 // resolveGraphExpansion finalises Manifest.GraphExpansion after the primary
 // decode. It populates defaults for absent or partially-set fields and
 // returns a hard error when any rule in Validate is broken.
@@ -100,18 +117,16 @@ func resolveGraphExpansion(loaded *Manifest) error {
 	raw := loaded.queryGraphExpansion
 
 	if meta != nil {
-		if meta.IsDefined("query", "graph-expansion", "enabled") {
-			if decodeErr := meta.PrimitiveDecode(raw.Enabled, &resolved.Enabled); decodeErr != nil {
-				return fmt.Errorf("query.graph-expansion: enabled: %w", decodeErr)
-			}
+		if decodeErr := decodeGraphExpansionField(meta, raw.Enabled, &resolved.Enabled, "enabled"); decodeErr != nil {
+			return decodeErr
 		}
 
-		if meta.IsDefined("query", "graph-expansion", "hops") {
-			if decodeErr := meta.PrimitiveDecode(raw.Hops, &resolved.Hops); decodeErr != nil {
-				return fmt.Errorf("query.graph-expansion: hops: %w", decodeErr)
-			}
+		if decodeErr := decodeGraphExpansionField(meta, raw.Hops, &resolved.Hops, "hops"); decodeErr != nil {
+			return decodeErr
 		}
 
+		// edge-types decodes into a local and assigns only on success, so it
+		// keeps its own shape rather than routing through the scalar helper.
 		if meta.IsDefined("query", "graph-expansion", "edge-types") {
 			var edges []string
 
@@ -122,16 +137,12 @@ func resolveGraphExpansion(loaded *Manifest) error {
 			resolved.EdgeTypes = edges
 		}
 
-		if meta.IsDefined("query", "graph-expansion", "weight") {
-			if decodeErr := meta.PrimitiveDecode(raw.Weight, &resolved.Weight); decodeErr != nil {
-				return fmt.Errorf("query.graph-expansion: weight: %w", decodeErr)
-			}
+		if decodeErr := decodeGraphExpansionField(meta, raw.Weight, &resolved.Weight, "weight"); decodeErr != nil {
+			return decodeErr
 		}
 
-		if meta.IsDefined("query", "graph-expansion", "candidate-multiplier") {
-			if decodeErr := meta.PrimitiveDecode(raw.CandidateMultiplier, &resolved.CandidateMultiplier); decodeErr != nil {
-				return fmt.Errorf("query.graph-expansion: candidate-multiplier: %w", decodeErr)
-			}
+		if decodeErr := decodeGraphExpansionField(meta, raw.CandidateMultiplier, &resolved.CandidateMultiplier, "candidate-multiplier"); decodeErr != nil {
+			return decodeErr
 		}
 	}
 
