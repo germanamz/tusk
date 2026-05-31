@@ -79,6 +79,19 @@ func embeddingsMatch(existing []index.EmbeddingRow, newHashes []string, model st
 	return true
 }
 
+// retryOrDrop applies the per-node retry policy after a non-retryable read or
+// parse failure: it drops the node from the queue once it has exhausted
+// MaxEmbedAttempts, otherwise re-enqueues it with the error attached. Queue
+// errors are intentionally ignored — the next drain pass re-converges. The
+// elaborate embed-call-failure path logs and is handled inline.
+func retryOrDrop(queue *index.EmbedQueueRepo, nodeID, workerID string, attempts int, err error) {
+	if attempts+1 >= MaxEmbedAttempts {
+		_ = queue.Drop(nodeID, workerID)
+	} else {
+		_ = queue.Nack(nodeID, workerID, err)
+	}
+}
+
 // DrainQueue pops every pending row from embed_queue and embeds it. Returns the
 // number of nodes successfully embedded. Failed rows are re-enqueued (with an
 // incremented attempts counter) until MaxEmbedAttempts is reached, at which
@@ -194,11 +207,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
 
 				if readErr != nil {
-					if queued.Attempts+1 >= MaxEmbedAttempts {
-						_ = config.Queue.Drop(queued.NodeID, workerID)
-					} else {
-						_ = config.Queue.Nack(queued.NodeID, workerID, readErr)
-					}
+					retryOrDrop(config.Queue, queued.NodeID, workerID, queued.Attempts, readErr)
 
 					continue
 				}
@@ -206,11 +215,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				parsed, parseErr := node.ParseFile(row.Path, content)
 
 				if parseErr != nil {
-					if queued.Attempts+1 >= MaxEmbedAttempts {
-						_ = config.Queue.Drop(queued.NodeID, workerID)
-					} else {
-						_ = config.Queue.Nack(queued.NodeID, workerID, parseErr)
-					}
+					retryOrDrop(config.Queue, queued.NodeID, workerID, queued.Attempts, parseErr)
 
 					continue
 				}

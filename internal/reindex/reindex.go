@@ -245,6 +245,13 @@ func Run(config Config) (*Report, error) {
 	}
 
 	for _, candidate := range candidates {
+		// release returns the candidate's lease. Defined per-iteration so it
+		// captures the current candidate; factors the ReleaseContext literal
+		// repeated across every exit path below.
+		release := func() error {
+			return config.FileStates.Release(index.ReleaseContext{Path: candidate.Path, WorkerID: workerID})
+		}
+
 		_, claimErr := config.FileStates.Claim(candidate.Path, workerID, leaseTTL)
 
 		if errors.Is(claimErr, index.ErrBusy) {
@@ -262,18 +269,12 @@ func Run(config Config) (*Report, error) {
 		current, getErr := config.FileStates.Get(candidate.Path)
 
 		if getErr != nil {
-			_ = config.FileStates.Release(index.ReleaseContext{
-				Path:     candidate.Path,
-				WorkerID: workerID,
-			})
+			_ = release()
 			return nil, fmt.Errorf("reindex: re-read %s: %w", candidate.Path, getErr)
 		}
 
 		if current.State != index.FileStateLive {
-			if releaseErr := config.FileStates.Release(index.ReleaseContext{
-				Path:     candidate.Path,
-				WorkerID: workerID,
-			}); releaseErr != nil {
+			if releaseErr := release(); releaseErr != nil {
 				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
 			}
 
@@ -283,10 +284,7 @@ func Run(config Config) (*Report, error) {
 		if current.LastSeenGen >= gen {
 			// Another walker (or a live writer) already stamped this
 			// row with a current-or-future gen. Leave it alone.
-			if releaseErr := config.FileStates.Release(index.ReleaseContext{
-				Path:     candidate.Path,
-				WorkerID: workerID,
-			}); releaseErr != nil {
+			if releaseErr := release(); releaseErr != nil {
 				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
 			}
 
@@ -310,63 +308,42 @@ func Run(config Config) (*Report, error) {
 				State:       index.FileStateLive,
 				LastSeenGen: gen,
 			}); upsertErr != nil {
-				_ = config.FileStates.Release(index.ReleaseContext{
-					Path:     candidate.Path,
-					WorkerID: workerID,
-				})
+				_ = release()
 				return nil, fmt.Errorf("reindex: refresh gen %s: %w", candidate.Path, upsertErr)
 			}
 
-			if releaseErr := config.FileStates.Release(index.ReleaseContext{
-				Path:     candidate.Path,
-				WorkerID: workerID,
-			}); releaseErr != nil {
+			if releaseErr := release(); releaseErr != nil {
 				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
 			}
 
 		case errors.Is(statErr, fs.ErrNotExist):
 			if tombstoneErr := config.FileStates.Tombstone(candidate.Path); tombstoneErr != nil {
-				_ = config.FileStates.Release(index.ReleaseContext{
-					Path:     candidate.Path,
-					WorkerID: workerID,
-				})
+				_ = release()
 				return nil, fmt.Errorf("reindex: tombstone %s: %w", candidate.Path, tombstoneErr)
 			}
 
 			nodeID := strings.TrimSuffix(candidate.Path, ".md")
 
 			if deleteErr := config.Repo.DeleteByPath(candidate.Path); deleteErr != nil {
-				_ = config.FileStates.Release(index.ReleaseContext{
-					Path:     candidate.Path,
-					WorkerID: workerID,
-				})
+				_ = release()
 				return nil, fmt.Errorf("reindex: delete node %s: %w", candidate.Path, deleteErr)
 			}
 
 			if config.Edges != nil {
 				if deleteErr := config.Edges.DeleteBySource(nodeID); deleteErr != nil {
-					_ = config.FileStates.Release(index.ReleaseContext{
-						Path:     candidate.Path,
-						WorkerID: workerID,
-					})
+					_ = release()
 					return nil, fmt.Errorf("reindex: delete edges %s: %w", nodeID, deleteErr)
 				}
 			}
 
-			if releaseErr := config.FileStates.Release(index.ReleaseContext{
-				Path:     candidate.Path,
-				WorkerID: workerID,
-			}); releaseErr != nil {
+			if releaseErr := release(); releaseErr != nil {
 				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
 			}
 
 			report.Removed++
 
 		default:
-			_ = config.FileStates.Release(index.ReleaseContext{
-				Path:     candidate.Path,
-				WorkerID: workerID,
-			})
+			_ = release()
 			return nil, fmt.Errorf("reindex: stat %s: %w", statPath, statErr)
 		}
 	}
