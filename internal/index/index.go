@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS workflow_drift (
 	pack_kind        TEXT NOT NULL,
 	observed_status  TEXT NOT NULL,
 	property         TEXT NOT NULL,
+	error_code       TEXT NOT NULL DEFAULT '',
+	detail           TEXT NOT NULL DEFAULT '',
 	observed_at      INTEGER NOT NULL,
 	PRIMARY KEY (node_id, pack_instance, observed_status)
 );

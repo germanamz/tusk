@@ -707,6 +707,8 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 					PackKind:       recovered.PackKind,
 					ObservedStatus: recovered.From,
 					Property:       recovered.Property,
+					ErrorCode:      "recovered",
+					Detail:         recovered.Message,
 					ObservedAt:     now,
 				})
 			}

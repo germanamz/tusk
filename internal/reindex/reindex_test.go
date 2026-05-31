@@ -442,6 +442,103 @@ body
 	}
 }
 
+func TestRun_OffSchemaStatusDriftCarriesErrorCodeAndDetail(test *testing.T) {
+	root := test.TempDir()
+
+	store, openErr := index.Open(filepath.Join(root, "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+status: bogus
+---
+body
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+	engine := buildWorkflowEngineForReindexTest(test)
+
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{
+		Root:      root,
+		Repo:      index.NewNodeRepo(store),
+		Behaviors: engine,
+		DriftLog:  driftRepo,
+	})); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 1 {
+		test.Fatalf("drift rows = %+v, want 1", rows)
+	}
+
+	if rows[0].ErrorCode != "unknown-target-state" {
+		test.Errorf("ErrorCode = %q, want %q", rows[0].ErrorCode, "unknown-target-state")
+	}
+
+	if !strings.Contains(rows[0].Detail, "is not a declared state") {
+		test.Errorf("Detail = %q, want the rendered workflow error", rows[0].Detail)
+	}
+}
+
+func TestRun_NonInitialDeclaredStateDoesNotDrift(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	// A ticket that legitimately advanced pending -> active (a declared
+	// transition) and now sits in a non-initial declared state. Reindex
+	// reads persisted state; it is not a creation event, so this must not
+	// be rejected as ErrNonInitialOnCreate.
+	if writeErr := os.WriteFile(filepath.Join(root, "ticket.md"), []byte(`---
+type: ticket
+status: active
+---
+body
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	driftRepo := index.NewWorkflowDriftRepo(store)
+	engine := buildWorkflowEngineForReindexTest(test)
+
+	report, runErr := reindex.Run(withGen(store, reindex.Config{
+		Root:      root,
+		Repo:      index.NewNodeRepo(store),
+		Behaviors: engine,
+		DriftLog:  driftRepo,
+	}))
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.WorkflowViolations != 0 {
+		test.Errorf("WorkflowViolations = %d, want 0 (active is a declared state)", report.WorkflowViolations)
+	}
+
+	rows, _ := driftRepo.ListAll()
+
+	if len(rows) != 0 {
+		test.Errorf("drift rows = %+v, want none for a declared non-initial state", rows)
+	}
+}
+
 func TestRun_CleanPassClearsDrift(test *testing.T) {
 	root := test.TempDir()
 	dbPath := filepath.Join(root, "index.db")
