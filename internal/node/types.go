@@ -243,15 +243,22 @@ func validateValue(name string, value any, decl manifest.PropertyDecl, nodeType 
 	}
 }
 
+// typeMismatch builds the single-element ErrTypeMismatch result the type
+// validators return. reason is computed at each call site so its exact wording
+// is preserved.
+func typeMismatch(name string, value any, decl manifest.PropertyDecl, reason string) []PropertyError {
+	return []PropertyError{{
+		Kind:     ErrTypeMismatch,
+		Property: name,
+		Type:     renderDeclType(decl),
+		Value:    value,
+		Reason:   reason,
+	}}
+}
+
 func validateString(name string, value any, decl manifest.PropertyDecl) []PropertyError {
 	if _, ok := value.(string); !ok {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value is not a string", decl.Type),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value is not a string", decl.Type))
 	}
 
 	return nil
@@ -262,13 +269,7 @@ func validateInt(name string, value any, decl manifest.PropertyDecl) []PropertyE
 	case int, int64:
 		return nil
 	default:
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value %v is not an integer", decl.Type, value),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value %v is not an integer", decl.Type, value))
 	}
 }
 
@@ -277,25 +278,13 @@ func validateFloat(name string, value any, decl manifest.PropertyDecl) []Propert
 	case float64, int, int64:
 		return nil
 	default:
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value %v is not a number", decl.Type, value),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value %v is not a number", decl.Type, value))
 	}
 }
 
 func validateBool(name string, value any, decl manifest.PropertyDecl) []PropertyError {
 	if _, ok := value.(bool); !ok {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value %v is not a boolean", decl.Type, value),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value %v is not a boolean", decl.Type, value))
 	}
 
 	return nil
@@ -305,23 +294,11 @@ func validateDate(name string, value any, decl manifest.PropertyDecl) []Property
 	str, ok := value.(string)
 
 	if !ok {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value is not a string", decl.Type),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value is not a string", decl.Type))
 	}
 
 	if _, parseErr := time.Parse(time.DateOnly, str); parseErr != nil {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value %q is not a valid date (YYYY-MM-DD)", decl.Type, str),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value %q is not a valid date (YYYY-MM-DD)", decl.Type, str))
 	}
 
 	return nil
@@ -331,23 +308,11 @@ func validateDatetime(name string, value any, decl manifest.PropertyDecl) []Prop
 	str, ok := value.(string)
 
 	if !ok {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value is not a string", decl.Type),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value is not a string", decl.Type))
 	}
 
 	if _, parseErr := time.Parse(time.RFC3339, str); parseErr != nil {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value %q is not a valid RFC3339 datetime", decl.Type, str),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value %q is not a valid RFC3339 datetime", decl.Type, str))
 	}
 
 	return nil
@@ -357,13 +322,7 @@ func validateEnum(name string, value any, decl manifest.PropertyDecl) []Property
 	str, ok := value.(string)
 
 	if !ok {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value is not a string", decl.Type),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value is not a string", decl.Type))
 	}
 
 	for _, allowed := range decl.Values {
@@ -385,13 +344,7 @@ func validateListOf(name string, value any, decl manifest.PropertyDecl) []Proper
 	list, ok := value.([]any)
 
 	if !ok {
-		return []PropertyError{{
-			Kind:     ErrTypeMismatch,
-			Property: name,
-			Type:     renderDeclType(decl),
-			Value:    value,
-			Reason:   fmt.Sprintf("expected type %q but value is not a list", renderDeclType(decl)),
-		}}
+		return typeMismatch(name, value, decl, fmt.Sprintf("expected type %q but value is not a list", renderDeclType(decl)))
 	}
 
 	// Build a synthetic element decl using the item-type.
