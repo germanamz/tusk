@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
@@ -357,5 +358,75 @@ func TestDispatcher_UnknownVerb(test *testing.T) {
 
 	if runErr == nil {
 		test.Fatalf("Run: expected error for unknown verb, got nil")
+	}
+}
+
+// TestDispatcher_BuildArgErrorOrder pins the per-Build coercion order: the FIRST
+// bad field in source order wins, even when several args are mistyped. Aliases
+// are built by hand (bypassing manifest validation) so the bad types reach the
+// adapter's coercion path. This is the regression net for the argReader, whose
+// methods no-op after the first error.
+func TestDispatcher_BuildArgErrorOrder(test *testing.T) {
+	deps := setupWorkspace(test)
+	dispatcher := aliasdispatch.NewDispatcher(deps)
+
+	cases := []struct {
+		name    string
+		command string
+		args    map[string]any
+		want    string
+	}{
+		{
+			name:    "node list: first bad field wins (take before skip)",
+			command: "node list",
+			args:    map[string]any{"take": "x", "skip": "y"},
+			want:    `arg "take" has type string, want int`,
+		},
+		{
+			name:    "query: semantic interleaves before include",
+			command: "query",
+			args:    map[string]any{"semantic": 7, "include": 9},
+			want:    `arg "semantic" has type int, want string`,
+		},
+		{
+			name:    "query: min-score before include",
+			command: "query",
+			args:    map[string]any{"min-score": "x", "include": 9},
+			want:    `arg "min-score" has type string, want float64`,
+		},
+		{
+			name:    "node get: id type error beats required",
+			command: "node get",
+			args:    map[string]any{"id": 42},
+			want:    `arg "id" has type int, want string`,
+		},
+		{
+			name:    "node get: required fires when id absent",
+			command: "node get",
+			args:    map[string]any{},
+			want:    "node get adapter: args.id is required",
+		},
+		{
+			name:    "edge list: from before to",
+			command: "edge list",
+			args:    map[string]any{"from": 1, "to": 2},
+			want:    `arg "from" has type int, want string`,
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			alias := manifest.Alias{Name: "t", Command: testCase.command, Args: testCase.args}
+
+			_, runErr := dispatcher.Run(context.Background(), alias)
+
+			if runErr == nil {
+				test.Fatalf("Run: expected error, got nil")
+			}
+
+			if !strings.Contains(runErr.Error(), testCase.want) {
+				test.Errorf("error = %q, want substring %q", runErr.Error(), testCase.want)
+			}
+		})
 	}
 }
