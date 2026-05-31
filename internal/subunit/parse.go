@@ -349,10 +349,7 @@ func sectionBodyText(source []byte, heading *ast.Heading) string {
 // enclosing section.
 func descendantBodyText(source []byte, node ast.Node) string {
 	switch typed := node.(type) {
-	case *ast.FencedCodeBlock:
-		return string(typed.Lines().Value(source))
-
-	case *ast.CodeBlock:
+	case *ast.FencedCodeBlock, *ast.CodeBlock:
 		return string(typed.Lines().Value(source))
 
 	case *ast.Blockquote:

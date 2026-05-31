@@ -58,12 +58,12 @@ func ComputeHash(unit Unit) string {
 		}
 		_, _ = fmt.Fprintf(hasher, "list-item\x00%s\x00%s", marker, unit.Text)
 	case KindCodeBlock:
-		lang, _ := unit.Properties["lang"].(string)
+		lang := stringProperty(unit, "lang")
 		_, _ = fmt.Fprintf(hasher, "code-block\x00%s\x00%s", lang, unit.Text)
 	case KindTableCell:
 		row := intProperty(unit, "row")
 		col := intProperty(unit, "column")
-		header, _ := unit.Properties["column-header"].(string)
+		header := stringProperty(unit, "column-header")
 		_, _ = fmt.Fprintf(hasher, "table-cell\x00%d\x00%d\x00%s\x00%s", row, col, unit.Text, header)
 	default:
 		// Defensive: unknown kinds get a salt-free hash so the
@@ -101,6 +101,16 @@ func intProperty(unit Unit, key string) int {
 	}
 
 	return 0
+}
+
+// stringProperty returns the string value stored under key, or "" when the
+// key is missing or holds a non-string value. The string twin of intProperty;
+// it uses the same unchecked comma-ok assertion so a non-string value yields
+// "" rather than panicking — the defensive behavior ComputeHash relies on.
+func stringProperty(unit Unit, key string) string {
+	value, _ := unit.Properties[key].(string)
+
+	return value
 }
 
 // ResolveCollisions assigns deterministic disambiguating suffixes to
