@@ -5,15 +5,12 @@ package query
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/filter"
-	"github.com/germanamz/tusk/internal/graphexpand"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // Request configures Run. Filter is the structural filter expression and is
@@ -164,38 +161,10 @@ type Deps struct {
 // Dependencies are passed as primitives to avoid an import cycle on
 // internal/mcp.
 func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
-	expr, parseErrs := filter.NewParser(req.Filter).Parse()
-
-	if len(parseErrs) > 0 {
-		return nil, fmt.Errorf("filter parse: %v", parseErrs[0])
-	}
-
-	validateErrs := filter.Validate(expr, *deps.Manifest)
-
-	if len(validateErrs) > 0 {
-		return nil, fmt.Errorf("filter validate: %v", validateErrs[0])
-	}
-
-	sortKeys, sortErr := filter.ParseSort(req.Sort)
-
-	if sortErr != nil {
-		return nil, sortErr
-	}
-
-	sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
-		SortKeys: sortKeys,
-		Take:     req.Take,
-		Skip:     req.Skip,
-	})
+	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, req.Sort, req.Take, req.Skip)
 
 	if compileErr != nil {
 		return nil, compileErr
-	}
-
-	rows, queryErr := deps.Database.Query(sqlQuery, params...)
-
-	if queryErr != nil {
-		return nil, queryErr
 	}
 
 	defer rows.Close()
@@ -332,159 +301,19 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	ranked := filter.SemanticRank(candidates, queryVector)
 
-	// Per-row scoring trace, only populated when graph expansion runs and
-	// the caller asked for it. blendedByID maps a node id to its final
-	// blended score plus the (CosineScore, GraphScore, Distance) breakdown.
-	// When graph expansion is off, the map is nil and downstream code
-	// preserves the legacy bare-cosine behavior.
-	type blendedTrace struct {
-		Cosine   float64
-		Graph    float64
-		Final    float64
-		Distance int
-	}
-
-	var blendedByID map[string]blendedTrace
-
+	// graphExpansionActive is also read below to gate the lazy NodeRepo
+	// fallback for walked-in neighbors (spec §6.5), so keep it in scope here.
 	graphExpansionActive := req.GraphExpansion != nil && req.GraphExpansion.Enabled
 
-	if graphExpansionActive {
-		if deps.Edges == nil {
-			return nil, fmt.Errorf("query: graph expansion requires Edges in Deps")
-		}
+	ranked, blendedByID, blendErr := expandAndBlend(ctx, deps, req, ranked)
 
-		// K = take * candidate-multiplier (spec §6.2). When the caller left
-		// Take unset (0), use SemanticDefaultTake as the basis; when both
-		// are 0 — CLI "return all ranked" mode — cap K at len(ranked) so
-		// the entire candidate pool is used as seed material.
-		baseTake := req.Take
-
-		if baseTake <= 0 {
-			baseTake = req.SemanticDefaultTake
-		}
-
-		seedLimit := baseTake * req.GraphExpansion.CandidateMultiplier
-
-		if baseTake == 0 || seedLimit <= 0 || seedLimit > len(ranked) {
-			seedLimit = len(ranked)
-		}
-
-		seedScores := make(map[string]float64, seedLimit)
-		seedCandidates := make([]graphexpand.Candidate, 0, seedLimit)
-
-		for index := 0; index < seedLimit; index++ {
-			scoredResult := ranked[index]
-			// Clip to [0,1] when seeding so the walker / blender see a
-			// canonical positive cosine range (mirrors blend.clipUnit).
-			clipped := scoredResult.Score
-
-			if clipped < 0 {
-				clipped = 0
-			}
-
-			seedScores[scoredResult.NodeID] = clipped
-			seedCandidates = append(seedCandidates, graphexpand.Candidate{
-				NodeID:      scoredResult.NodeID,
-				CosineScore: clipped,
-				Distance:    0,
-			})
-		}
-
-		edgeRefs, parseErr := typeref.ParseMany(req.GraphExpansion.EdgeTypes)
-
-		if parseErr != nil {
-			return nil, fmt.Errorf("query: graph expansion parse edge types: %w", parseErr)
-		}
-
-		walker := graphexpand.NewWalker(deps.Edges, edgeRefs, req.GraphExpansion.Hops)
-
-		walkedCandidates, walkedEdges, walkErr := walker.Expand(ctx, seedCandidates)
-
-		if walkErr != nil {
-			return nil, fmt.Errorf("query: graph expansion walk: %w", walkErr)
-		}
-
-		blender := graphexpand.Blender{Weight: req.GraphExpansion.Weight}
-		blendedRows := blender.Score(walkedCandidates, walkedEdges, seedScores)
-
-		blendedByID = make(map[string]blendedTrace, len(blendedRows))
-
-		// Existing chunk-body lookups assume one ScoredResult per node id.
-		// Build an index over the original rank so we can carry the best
-		// chunk body / score back into the new ordering. Walked neighbors
-		// not present in the original rank get an empty BestChunkBody and
-		// score 0 (they had no embedding); the blender already filled in
-		// the graph-derived score.
-		rankByID := make(map[string]filter.ScoredResult, len(ranked))
-
-		for _, scoredResult := range ranked {
-			rankByID[scoredResult.NodeID] = scoredResult
-		}
-
-		newRanked := make([]filter.ScoredResult, 0, len(blendedRows))
-
-		for _, blended := range blendedRows {
-			blendedByID[blended.NodeID] = blendedTrace{
-				Cosine:   blended.CosineScore,
-				Graph:    blended.GraphScore,
-				Final:    blended.FinalScore,
-				Distance: blended.Distance,
-			}
-
-			previous, hasPrevious := rankByID[blended.NodeID]
-
-			if !hasPrevious {
-				previous = filter.ScoredResult{NodeID: blended.NodeID}
-			}
-
-			// Replace the bare cosine with the blended final so downstream
-			// MinScore + ordering operate on FinalScore (spec §6.1).
-			previous.Score = blended.FinalScore
-			newRanked = append(newRanked, previous)
-		}
-
-		ranked = newRanked
+	if blendErr != nil {
+		return nil, blendErr
 	}
 
-	filteredBelowMinScore := 0
+	ranked, filteredBelowMinScore := applyMinScore(ranked, req.MinScore)
 
-	if req.MinScore > 0 {
-		kept := ranked[:0]
-
-		for _, scored := range ranked {
-			if scored.Score >= req.MinScore {
-				kept = append(kept, scored)
-
-				continue
-			}
-
-			filteredBelowMinScore++
-		}
-
-		ranked = kept
-	}
-
-	effectiveTake := req.Take
-
-	if effectiveTake <= 0 {
-		effectiveTake = req.SemanticDefaultTake
-	}
-
-	if effectiveTake > 0 {
-		startIdx := req.Skip
-
-		if startIdx > len(ranked) {
-			startIdx = len(ranked)
-		}
-
-		endIdx := startIdx + effectiveTake
-
-		if endIdx > len(ranked) {
-			endIdx = len(ranked)
-		}
-
-		ranked = ranked[startIdx:endIdx]
-	}
+	ranked = window(ranked, req.Skip, req.Take, req.SemanticDefaultTake)
 
 	scored := make([]ScoredRow, 0, len(ranked))
 
@@ -528,10 +357,10 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		}
 
 		if includeSet.Properties && meta.PropertiesRaw != "" {
-			var properties map[string]any
+			properties, propErr := unmarshalProperties(meta.PropertiesRaw, meta.ID)
 
-			if unmarshalErr := json.Unmarshal([]byte(meta.PropertiesRaw), &properties); unmarshalErr != nil {
-				return nil, fmt.Errorf("expand: parse properties for %s: %w", meta.ID, unmarshalErr)
+			if propErr != nil {
+				return nil, propErr
 			}
 
 			row.Properties = properties

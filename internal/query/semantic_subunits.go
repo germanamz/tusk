@@ -2,13 +2,10 @@ package query
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 
 	"github.com/germanamz/tusk/internal/filter"
-	"github.com/germanamz/tusk/internal/graphexpand"
-	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // runSemanticSubUnits executes the sub-unit-aware semantic ranking path. It
@@ -94,130 +91,22 @@ func runSemanticSubUnits(
 
 	ranked := filter.SemanticRank(candidates, queryVector)
 
-	// Graph expansion at the leaf level. The walker uses leaf ids as
-	// seeds; the default edge-types list includes `contains` so sub-unit
-	// edges naturally extend the seed set with sibling leaves and parent
-	// sections. The blender's FinalScore replaces the leaf's bare cosine
-	// for both MinScore filtering and the section-aggregation pass below.
-	type blendedTrace struct {
-		Cosine   float64
-		Graph    float64
-		Final    float64
-		Distance int
-	}
+	// Graph expansion at the leaf level. The walker uses leaf ids as seeds;
+	// the default edge-types list includes `contains` so sub-unit edges
+	// naturally extend the seed set with sibling leaves and parent sections.
+	// The blender's FinalScore replaces the leaf's bare cosine for both
+	// MinScore filtering and the section-aggregation pass below.
+	ranked, blendedByID, blendErr := expandAndBlend(ctx, deps, req, ranked)
 
-	var blendedByID map[string]blendedTrace
-
-	graphExpansionActive := req.GraphExpansion != nil && req.GraphExpansion.Enabled
-
-	if graphExpansionActive {
-		if deps.Edges == nil {
-			return nil, fmt.Errorf("query: graph expansion requires Edges in Deps")
-		}
-
-		// Seed set sizing mirrors the file-level path: K = baseTake *
-		// multiplier, capped at len(ranked) when baseTake is 0 (CLI's
-		// "return all ranked" mode) or the product overflows the rank.
-		baseTake := req.Take
-
-		if baseTake <= 0 {
-			baseTake = req.SemanticDefaultTake
-		}
-
-		seedLimit := baseTake * req.GraphExpansion.CandidateMultiplier
-
-		if baseTake == 0 || seedLimit <= 0 || seedLimit > len(ranked) {
-			seedLimit = len(ranked)
-		}
-
-		seedScores := make(map[string]float64, seedLimit)
-		seedCandidates := make([]graphexpand.Candidate, 0, seedLimit)
-
-		for index := 0; index < seedLimit; index++ {
-			scoredResult := ranked[index]
-			clipped := scoredResult.Score
-
-			if clipped < 0 {
-				clipped = 0
-			}
-
-			seedScores[scoredResult.NodeID] = clipped
-			seedCandidates = append(seedCandidates, graphexpand.Candidate{
-				NodeID:      scoredResult.NodeID,
-				CosineScore: clipped,
-				Distance:    0,
-			})
-		}
-
-		edgeRefs, parseErr := typeref.ParseMany(req.GraphExpansion.EdgeTypes)
-
-		if parseErr != nil {
-			return nil, fmt.Errorf("query: graph expansion parse edge types: %w", parseErr)
-		}
-
-		walker := graphexpand.NewWalker(deps.Edges, edgeRefs, req.GraphExpansion.Hops)
-
-		walkedCandidates, walkedEdges, walkErr := walker.Expand(ctx, seedCandidates)
-
-		if walkErr != nil {
-			return nil, fmt.Errorf("query: graph expansion walk: %w", walkErr)
-		}
-
-		blender := graphexpand.Blender{Weight: req.GraphExpansion.Weight}
-		blendedRows := blender.Score(walkedCandidates, walkedEdges, seedScores)
-
-		blendedByID = make(map[string]blendedTrace, len(blendedRows))
-
-		rankByID := make(map[string]filter.ScoredResult, len(ranked))
-
-		for _, scoredResult := range ranked {
-			rankByID[scoredResult.NodeID] = scoredResult
-		}
-
-		newRanked := make([]filter.ScoredResult, 0, len(blendedRows))
-
-		for _, blended := range blendedRows {
-			blendedByID[blended.NodeID] = blendedTrace{
-				Cosine:   blended.CosineScore,
-				Graph:    blended.GraphScore,
-				Final:    blended.FinalScore,
-				Distance: blended.Distance,
-			}
-
-			previous, hasPrevious := rankByID[blended.NodeID]
-
-			if !hasPrevious {
-				previous = filter.ScoredResult{NodeID: blended.NodeID}
-			}
-
-			previous.Score = blended.FinalScore
-			newRanked = append(newRanked, previous)
-		}
-
-		ranked = newRanked
+	if blendErr != nil {
+		return nil, blendErr
 	}
 
 	// Apply MinScore at the leaf level so sections only aggregate over
 	// passing leaves. The spec is silent on whether MinScore filters
 	// sections, but a tighter interpretation (leaves first, then derived
 	// section scores) keeps the §5.7 weight semantics simple.
-	filteredBelowMinScore := 0
-
-	if req.MinScore > 0 {
-		kept := ranked[:0]
-
-		for _, scored := range ranked {
-			if scored.Score >= req.MinScore {
-				kept = append(kept, scored)
-
-				continue
-			}
-
-			filteredBelowMinScore++
-		}
-
-		ranked = kept
-	}
+	ranked, filteredBelowMinScore := applyMinScore(ranked, req.MinScore)
 
 	leafScores := make(map[string]float64, len(ranked))
 	leafBest := make(map[string]filter.ScoredResult, len(ranked))
@@ -383,27 +272,7 @@ func runSemanticSubUnits(
 	})
 
 	// Apply skip/take at the file level.
-	effectiveTake := req.Take
-
-	if effectiveTake <= 0 {
-		effectiveTake = req.SemanticDefaultTake
-	}
-
-	if effectiveTake > 0 {
-		startIdx := req.Skip
-
-		if startIdx > len(ordered) {
-			startIdx = len(ordered)
-		}
-
-		endIdx := startIdx + effectiveTake
-
-		if endIdx > len(ordered) {
-			endIdx = len(ordered)
-		}
-
-		ordered = ordered[startIdx:endIdx]
-	}
+	ordered = window(ordered, req.Skip, req.Take, req.SemanticDefaultTake)
 
 	// Materialize ScoredRow per file. Sort matched_units by descending
 	// score, ties broken by ordinal ascending for stable output.
@@ -462,10 +331,10 @@ func runSemanticSubUnits(
 		}
 
 		if includeSet.Properties && meta.PropertiesRaw != "" {
-			var properties map[string]any
+			properties, propErr := unmarshalProperties(meta.PropertiesRaw, meta.ID)
 
-			if unmarshalErr := json.Unmarshal([]byte(meta.PropertiesRaw), &properties); unmarshalErr != nil {
-				return nil, fmt.Errorf("expand: parse properties for %s: %w", meta.ID, unmarshalErr)
+			if propErr != nil {
+				return nil, propErr
 			}
 
 			row.Properties = properties

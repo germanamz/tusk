@@ -65,38 +65,10 @@ type ListRow struct {
 // Lives in internal/query rather than internal/node so that `node` does not
 // pull in the filter package (which imports embed → node, creating a cycle).
 func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListRequest) (*ListResult, error) {
-	expr, parseErrs := filter.NewParser(req.Filter).Parse()
-
-	if len(parseErrs) > 0 {
-		return nil, fmt.Errorf("filter parse: %v", parseErrs[0])
-	}
-
-	validateErrs := filter.Validate(expr, *loadedManifest)
-
-	if len(validateErrs) > 0 {
-		return nil, fmt.Errorf("filter validate: %v", validateErrs[0])
-	}
-
-	sortKeys, sortErr := filter.ParseSort(req.Sort)
-
-	if sortErr != nil {
-		return nil, sortErr
-	}
-
-	sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
-		SortKeys: sortKeys,
-		Take:     req.Take,
-		Skip:     req.Skip,
-	})
+	rows, compileErr := compileAndQuery(database, loadedManifest, req.Filter, req.Sort, req.Take, req.Skip)
 
 	if compileErr != nil {
 		return nil, compileErr
-	}
-
-	rows, queryErr := database.Query(sqlQuery, params...)
-
-	if queryErr != nil {
-		return nil, queryErr
 	}
 
 	defer rows.Close()
@@ -135,4 +107,48 @@ func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListReques
 	}
 
 	return result, nil
+}
+
+// compileAndQuery parses and validates the structural filter, compiles it to
+// SQL with the given sort/take/skip, and runs it against the index. It returns
+// the OPEN *sql.Rows — the caller owns the result set and must defer
+// rows.Close(). The error chain (parse, validate, sort, compile, query) is the
+// exact order both Run and ListRun relied on before this was hoisted, with
+// identical error text.
+func compileAndQuery(database *sql.DB, loadedManifest *manifest.Manifest, filterStr, sortStr string, take, skip int) (*sql.Rows, error) {
+	expr, parseErrs := filter.NewParser(filterStr).Parse()
+
+	if len(parseErrs) > 0 {
+		return nil, fmt.Errorf("filter parse: %v", parseErrs[0])
+	}
+
+	validateErrs := filter.Validate(expr, *loadedManifest)
+
+	if len(validateErrs) > 0 {
+		return nil, fmt.Errorf("filter validate: %v", validateErrs[0])
+	}
+
+	sortKeys, sortErr := filter.ParseSort(sortStr)
+
+	if sortErr != nil {
+		return nil, sortErr
+	}
+
+	sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
+		SortKeys: sortKeys,
+		Take:     take,
+		Skip:     skip,
+	})
+
+	if compileErr != nil {
+		return nil, compileErr
+	}
+
+	rows, queryErr := database.Query(sqlQuery, params...)
+
+	if queryErr != nil {
+		return nil, queryErr
+	}
+
+	return rows, nil
 }

@@ -188,10 +188,10 @@ func expandRowLikes(rows []rowLike, set IncludeSet, workspaceRoot string, db *sq
 				continue
 			}
 
-			var properties map[string]any
+			properties, propErr := unmarshalProperties(raw, row.rowID())
 
-			if unmarshalErr := json.Unmarshal([]byte(raw), &properties); unmarshalErr != nil {
-				return fmt.Errorf("expand: parse properties for %s: %w", row.rowID(), unmarshalErr)
+			if propErr != nil {
+				return propErr
 			}
 
 			row.setProperties(properties)
@@ -209,6 +209,23 @@ func expandRowLikes(rows []rowLike, set IncludeSet, workspaceRoot string, db *sq
 	}
 
 	return nil
+}
+
+// unmarshalProperties decodes a row's stored properties JSON into a map. An
+// empty string yields (nil, nil); a decode failure is wrapped with the row id.
+// Shared by the structural expansion path and both semantic ranking paths.
+func unmarshalProperties(raw, id string) (map[string]any, error) {
+	if raw == "" {
+		return nil, nil
+	}
+
+	var properties map[string]any
+
+	if unmarshalErr := json.Unmarshal([]byte(raw), &properties); unmarshalErr != nil {
+		return nil, fmt.Errorf("expand: parse properties for %s: %w", id, unmarshalErr)
+	}
+
+	return properties, nil
 }
 
 // loadEdgesForRows fetches outgoing and incoming edges for every row in a
