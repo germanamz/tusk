@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/mcp"
 )
 
@@ -49,6 +50,44 @@ func TestGoldenMCP_Doctor(test *testing.T) {
 		},
 	})
 }
+
+// TestGoldenMCP_DoctorWorkflowViolation pins the structured issues array for a
+// workflow-violation drift row — the MCP-side contract for #497. The row is
+// seeded directly (so the envelope stays deterministic: no reindex, no embed
+// jobs); the message is the validator's full rendered detail, which the issue's
+// hardcoded doctor string could not produce.
+func TestGoldenMCP_DoctorWorkflowViolation(test *testing.T) {
+	runGoldenMCPCases(test, []goldenMCPCase{
+		{
+			name: "doctor renders a workflow drift row's persisted detail",
+			setup: func(test *testing.T, rt *mcp.Runtime) {
+				if appendErr := rt.WorkflowDrift.Append(index.WorkflowDriftRow{
+					NodeID:         "tickets/demo",
+					PackInstance:   "kanban",
+					PackKind:       "workflow",
+					ObservedStatus: "bogus",
+					Property:       "status",
+					ErrorCode:      "unknown-target-state",
+					Detail:         "workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n  declared states: active, completed, pending",
+					ObservedAt:     1,
+				}); appendErr != nil {
+					test.Fatalf("seed workflow drift: %v", appendErr)
+				}
+			},
+			tool:        "tusk_doctor",
+			args:        map[string]any{},
+			wantIsError: false,
+			wantJSONObj: true,
+			wantText:    goldenMCPDoctorWorkflowViolation,
+		},
+	})
+}
+
+// goldenMCPDoctorWorkflowViolation is goldenMCPDoctorClean with the issues array
+// carrying the seeded workflow-violation row. The message is the validator's
+// fully-rendered detail (escaped \n + "declared states:" continuation) — the
+// structured MCP form of the #497 fix. Captured from a real run.
+const goldenMCPDoctorWorkflowViolation = `{"embed_queue_depth":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"enabled":false,"hops":1,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[{"kind":"workflow-violation","message":"workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n  declared states: active, completed, pending","node_id":"tickets/demo"}],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"skipped":null,"skipped_count":0,"sub_units":{"count_by_kind":{},"embed_queue_files":0,"embed_queue_sub_units":0,"hash_collisions":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"reserved_name_conflicts":0,"total":0}}`
 
 // goldenMCPDoctorClean is tusk_doctor's clean-workspace envelope. Note mcp.Open
 // merges the builtin pack, so graph_expansion carries the same default edge
