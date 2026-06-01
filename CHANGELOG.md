@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.3](https://github.com/germanamz/tusk/compare/v1.7.2...v1.7.3) (2026-06-01)
+
+
+### Bug Fixes
+
+* **install:** deliver man pages so 'man tusk' works ([#511](https://github.com/germanamz/tusk/issues/511)) ([fb5d093](https://github.com/germanamz/tusk/commit/fb5d0937f81b86895f9d2b99c420b989d0355877))
+
 ## [1.7.2](https://github.com/germanamz/tusk/compare/v1.7.1...v1.7.2) (2026-05-31)
 
 
