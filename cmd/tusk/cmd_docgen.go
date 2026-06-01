@@ -7,12 +7,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 
 	"github.com/germanamz/tusk/internal/version"
 )
+
+// manDate pins the .TH revision date in generated man pages. Without it cobra
+// stamps time.Now(), so the committed pages "drift" the moment the calendar
+// month rolls over and the docs-drift check fails on unrelated PRs. Bump this
+// when you deliberately want the displayed revision date to move.
+var manDate = time.Date(2026, time.May, 5, 0, 0, 0, 0, time.UTC)
 
 const indexHeader = `# Tusk CLI reference
 
@@ -54,6 +61,7 @@ func generateDocs(manDir, docDir string) error {
 	manHeader := &doc.GenManHeader{
 		Title:   "TUSK",
 		Section: "1",
+		Date:    &manDate,
 		Source:  "Tusk " + version.Current,
 		Manual:  "Tusk Manual",
 	}

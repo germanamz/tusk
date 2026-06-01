@@ -27,6 +27,13 @@ archives:
       - tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # Specifying `files` replaces goreleaser's defaults, so re-list the docs we
+    # still want alongside the man pages install.sh extracts.
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+      - man/*.1
     format_overrides:
       - goos: windows
         formats:
