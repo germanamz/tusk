@@ -34,7 +34,7 @@ markdown vault  ──▶  tusk indexer  ──▶  SQLite graph + embeddings
 curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
 ```
 
-Detects your OS/arch, downloads the latest GitHub release, and drops the `tusk` binary into `~/.local/bin` (override with `INSTALL_DIR=/usr/local/bin`). Pin a specific release with `TUSK_VERSION=v1.1.0`. Prebuilt archives ship for darwin/linux/windows on amd64 + arm64.
+Detects your OS/arch, downloads the latest GitHub release, drops the `tusk` binary into `~/.local/bin` (override with `INSTALL_DIR=/usr/local/bin`), and installs its man pages into `~/.local/share/man` (override with `MAN_DIR`; `man tusk` works once that dir is on your `MANPATH`). Pin a specific release with `TUSK_VERSION=v1.1.0`. Prebuilt archives ship for darwin/linux/windows on amd64 + arm64.
 
 ### From source
 

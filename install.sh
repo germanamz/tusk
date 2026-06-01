@@ -4,6 +4,13 @@ set -e
 REPO="germanamz/tusk"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 
+# Man pages go next to the binary by convention (.../bin -> .../share/man).
+# Override with MAN_DIR; fall back to ~/.local/share/man for non-standard dirs.
+case "$INSTALL_DIR" in
+  */bin) MAN_DIR="${MAN_DIR:-${INSTALL_DIR%/bin}/share/man}" ;;
+  *)     MAN_DIR="${MAN_DIR:-${HOME}/.local/share/man}" ;;
+esac
+
 # Detect OS
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$OS" in
@@ -45,6 +52,16 @@ mkdir -p "$INSTALL_DIR"
 mv "${TMPDIR}/tusk" "${INSTALL_DIR}/tusk"
 
 echo "tusk ${VERSION} installed to ${INSTALL_DIR}/tusk"
+
+# Man pages are best-effort: a read-only MAN_DIR (e.g. /usr/local without sudo)
+# must not fail the binary install that already succeeded.
+if ls "${TMPDIR}/man/"*.1 >/dev/null 2>&1; then
+  if mkdir -p "${MAN_DIR}/man1" 2>/dev/null && cp "${TMPDIR}/man/"*.1 "${MAN_DIR}/man1/" 2>/dev/null; then
+    echo "man pages installed to ${MAN_DIR}/man1"
+  else
+    echo "Note: could not write man pages to ${MAN_DIR}/man1 — skipped (set MAN_DIR to override)." >&2
+  fi
+fi
 echo
 case ":$PATH:" in
   *:"$INSTALL_DIR":*) ;;
