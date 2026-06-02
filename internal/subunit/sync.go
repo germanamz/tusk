@@ -101,38 +101,39 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 		return nil, fmt.Errorf("subunit sync: list existing %s: %w", fileRow.ID, listErr)
 	}
 
-	// Index existing rows by their content-hash (the suffix of the
-	// row id after the "#") so we can diff against parser hashes.
-	existingByHash := make(map[string]index.NodeRow, len(existing))
+	// Index existing rows by their structural address (the suffix of the
+	// row id after the "#") so we can diff against parser addresses.
+	existingByAddr := make(map[string]index.NodeRow, len(existing))
 
 	for _, row := range existing {
-		hash := hashFromID(row.ID, fileRow.ID)
+		addr := addressFromID(row.ID, fileRow.ID)
 
-		if hash == "" {
+		if addr == "" {
 			continue
 		}
 
-		existingByHash[hash] = row
+		existingByAddr[addr] = row
 	}
 
 	// Bucket the new units the same way for a symmetric diff.
-	newByHash := make(map[string]Unit, len(units))
+	newByAddr := make(map[string]Unit, len(units))
 
 	for _, unit := range units {
-		newByHash[unit.Hash] = unit
+		newByAddr[unitAddress(unit)] = unit
 	}
 
-	// Inserted: hashes present in new \ existing. The order is the
-	// parser's depth-first emission order, so downstream callers
-	// receive deterministic enqueue and edge-write order.
+	// Inserted: addresses present in new \ existing. The order is the
+	// parser's depth-first emission order, so downstream callers receive
+	// deterministic enqueue and edge-write order.
 	var insertRows []index.NodeRow
 	var insertedUnits []Unit
 
-	// Reordered: hashes in both, ordinal changed.
+	// Reordered/changed: addresses in both whose ordinal or content moved.
 	var reorderRows []index.NodeRow
 
 	for _, unit := range units {
-		subunitID := subunitRowID(fileRow.ID, unit.Hash)
+		addr := unitAddress(unit)
+		subunitID := subunitRowID(fileRow.ID, addr)
 
 		row, buildErr := buildSubUnitRow(fileRow, unit, subunitID)
 
@@ -140,7 +141,7 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 			return nil, buildErr
 		}
 
-		prior, alreadyExists := existingByHash[unit.Hash]
+		prior, alreadyExists := existingByAddr[addr]
 
 		if !alreadyExists {
 			insertRows = append(insertRows, row)
@@ -149,21 +150,30 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 			continue
 		}
 
-		if prior.Ordinal.Valid && prior.Ordinal.Int64 == int64(unit.Ordinal) {
-			// Identity unchanged — skip the upsert to keep the row
-			// untouched. The spec's "don't touch other fields"
-			// clause is honored by not re-emitting the row.
+		sameOrdinal := prior.Ordinal.Valid && prior.Ordinal.Int64 == int64(unit.Ordinal)
+		sameContent := prior.ContentHash.String == unit.ContentHash
+
+		if sameOrdinal && sameContent {
+			// Address, ordinal, and content all unchanged — leave the
+			// row untouched.
 			continue
 		}
 
+		// The address still resolves but ordinal and/or content moved.
+		// Upsert the row (new ordinal/content_hash); when the content
+		// changed, re-derive edges and re-enqueue the embed for leaves.
 		reorderRows = append(reorderRows, row)
+
+		if !sameContent && unit.Kind != KindSection {
+			insertedUnits = append(insertedUnits, unit)
+		}
 	}
 
-	// Deleted: hashes in existing \ new.
+	// Deleted: addresses in existing \ new.
 	var deleteIDs []string
 
-	for hash, row := range existingByHash {
-		if _, kept := newByHash[hash]; kept {
+	for addr, row := range existingByAddr {
+		if _, kept := newByAddr[addr]; kept {
 			continue
 		}
 
@@ -204,7 +214,7 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 	wikilinkEdgeNames := wikilinkEdgeTypeNames(sync.Manifest)
 
 	for _, unit := range insertedUnits {
-		subunitID := subunitRowID(fileRow.ID, unit.Hash)
+		subunitID := subunitRowID(fileRow.ID, unitAddress(unit))
 		edges := buildOutboundEdges(unit, subunitID, fileRow.Path, wikilinkEdgeNames)
 
 		if upsertErr := sync.EdgeRepo.UpsertAll(subunitID, fileRow.Path, edges); upsertErr != nil {
@@ -234,7 +244,7 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 				continue
 			}
 
-			subunitID := subunitRowID(fileRow.ID, unit.Hash)
+			subunitID := subunitRowID(fileRow.ID, unitAddress(unit))
 
 			if enqueueErr := sync.EmbedQ.Enqueue(subunitID); enqueueErr != nil {
 				return nil, fmt.Errorf("subunit sync: enqueue %s: %w", subunitID, enqueueErr)
@@ -280,7 +290,7 @@ func (sync *Sync) rewriteContains(fileRow index.NodeRow, units []Unit) error {
 		rows = append(rows, index.EdgeRow{
 			Type:       containsEdgeType,
 			SourceID:   fileRow.ID,
-			TargetID:   subunitRowID(fileRow.ID, unit.Hash),
+			TargetID:   subunitRowID(fileRow.ID, unitAddress(unit)),
 			SourcePath: fileRow.Path,
 			Kind:       structuralEdgeKind,
 			Source:     sql.NullString{String: markdownEdgeSource, Valid: true},
@@ -294,18 +304,29 @@ func (sync *Sync) rewriteContains(fileRow index.NodeRow, units []Unit) error {
 	return nil
 }
 
-// subunitRowID returns the canonical row id for a sub-unit. The format
-// is "<fileID>#<hash>", a string that cannot collide with a file id (no
-// file id contains `#`).
-func subunitRowID(fileID, hash string) string {
-	return fileID + "#" + hash
+// unitAddress returns the address suffix for a unit's row id: the structural
+// address when the kind has one, falling back to the content hash for kinds
+// with no address rule.
+func unitAddress(unit Unit) string {
+	if unit.Address != "" {
+		return unit.Address
+	}
+
+	return unit.Hash
 }
 
-// hashFromID returns the hash component of a sub-unit row id given its
-// expected parent file id. Returns "" when id does not have the
-// "<fileID>#..." shape (i.e., when the row is not a sub-unit of the
-// supplied file).
-func hashFromID(id, fileID string) string {
+// subunitRowID returns the canonical row id for a sub-unit. The format is
+// "<fileID>#<address>", a string that cannot collide with a file id (no file
+// id contains `#`).
+func subunitRowID(fileID, address string) string {
+	return fileID + "#" + address
+}
+
+// addressFromID returns the structural-address component of a sub-unit row id
+// given its expected parent file id. Returns "" when id does not have the
+// "<fileID>#..." shape (i.e., when the row is not a sub-unit of the supplied
+// file).
+func addressFromID(id, fileID string) string {
 	prefix := fileID + "#"
 
 	if len(id) <= len(prefix) || id[:len(prefix)] != prefix {
@@ -325,7 +346,7 @@ func buildSubUnitRow(fileRow index.NodeRow, unit Unit, subunitID string) (index.
 		return index.NodeRow{}, fmt.Errorf("subunit sync: marshal properties for %s: %w", subunitID, marshalErr)
 	}
 
-	parent := sql.NullString{String: parentRowID(fileRow.ID, unit.ParentHash), Valid: true}
+	parent := sql.NullString{String: parentRowID(fileRow.ID, unit.ParentAddress), Valid: true}
 
 	return index.NodeRow{
 		ID:             subunitID,
@@ -339,19 +360,20 @@ func buildSubUnitRow(fileRow index.NodeRow, unit Unit, subunitID string) (index.
 		ParentID:       parent,
 		Ordinal:        sql.NullInt64{Int64: int64(unit.Ordinal), Valid: true},
 		EmbedPayload:   sql.NullString{String: unit.EmbedPayload, Valid: true},
+		ContentHash:    sql.NullString{String: unit.ContentHash, Valid: unit.ContentHash != ""},
 	}, nil
 }
 
-// parentRowID resolves a unit's parent row id. When ParentHash is empty
-// the unit lives at the document root, so its parent is the file row
-// itself. Otherwise its parent is the sibling section row identified by
-// "<fileID>#<ParentHash>".
-func parentRowID(fileID, parentHash string) string {
-	if parentHash == "" {
+// parentRowID resolves a unit's parent row id. When parentAddress is empty the
+// unit lives at the document root, so its parent is the file row itself.
+// Otherwise its parent is the enclosing section row identified by
+// "<fileID>#<parentAddress>".
+func parentRowID(fileID, parentAddress string) string {
+	if parentAddress == "" {
 		return fileID
 	}
 
-	return subunitRowID(fileID, parentHash)
+	return subunitRowID(fileID, parentAddress)
 }
 
 // wikilinkEdgeTypeNames returns the names of every edge type the

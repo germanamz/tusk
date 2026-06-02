@@ -198,16 +198,16 @@ func TestSync_SecondCallRemovesUnitDeletesRow(test *testing.T) {
 	}
 }
 
-func TestSync_SecondCallChangedUnitReplacesRow(test *testing.T) {
+func TestSync_InPlaceEditKeepsAddressBumpsContentHash(test *testing.T) {
 	store := openSyncTestIndex(test)
 	loaded := referencesManifest(test)
 	sync, nodes, _, _ := newSync(store, loaded)
 
 	parent := seedFileRow(test, nodes, "notes/edit", "notes/edit.md")
 
-	// Heading-free body so the diff observes a clean paragraph
-	// swap; with a heading present, the section hash would also
-	// change and the result would be Inserted=2 Deleted=2.
+	// Heading-free body: a single root paragraph at the stable structural
+	// address P1. Editing its prose must keep the id and only change the
+	// content_hash (the spec's stability-under-in-place-edit guarantee).
 	first, _ := subunit.Parse([]byte("hello world\n"))
 
 	if _, applyErr := sync.ApplyFile(context.Background(), parent, first); applyErr != nil {
@@ -215,6 +215,10 @@ func TestSync_SecondCallChangedUnitReplacesRow(test *testing.T) {
 	}
 
 	firstRows, _ := nodes.ListSubUnitsForFile(parent.ID)
+
+	if len(firstRows) != 1 {
+		test.Fatalf("expected 1 row after first apply, got %d", len(firstRows))
+	}
 
 	second, _ := subunit.Parse([]byte("hello edited\n"))
 
@@ -224,34 +228,24 @@ func TestSync_SecondCallChangedUnitReplacesRow(test *testing.T) {
 		test.Fatalf("second ApplyFile: %v", applyErr)
 	}
 
-	if result.Inserted != 1 || result.Deleted != 1 {
-		test.Errorf("expected one swap, got %+v", result)
+	// Address is positional (P1) and stays stable, so the row is updated
+	// in place rather than swapped.
+	if result.Inserted != 0 || result.Deleted != 0 || result.Reordered != 1 {
+		test.Errorf("expected in-place update (Reordered=1), got %+v", result)
 	}
 
 	postRows, _ := nodes.ListSubUnitsForFile(parent.ID)
 
-	if len(postRows) != len(firstRows) {
-		test.Errorf("post len = %d, want %d", len(postRows), len(firstRows))
+	if len(postRows) != 1 {
+		test.Fatalf("expected 1 row after edit, got %d", len(postRows))
 	}
 
-	// The edited paragraph row must have a new id (its hash changed).
-	firstIDs := map[string]struct{}{}
-
-	for _, row := range firstRows {
-		firstIDs[row.ID] = struct{}{}
+	if postRows[0].ID != firstRows[0].ID {
+		test.Errorf("row id changed across in-place edit: %q -> %q", firstRows[0].ID, postRows[0].ID)
 	}
 
-	foundNew := false
-
-	for _, row := range postRows {
-		if _, kept := firstIDs[row.ID]; !kept {
-			foundNew = true
-			break
-		}
-	}
-
-	if !foundNew {
-		test.Errorf("no new row id after content edit: pre=%v post=%v", firstRows, postRows)
+	if postRows[0].ContentHash.String == firstRows[0].ContentHash.String {
+		test.Errorf("content_hash did not change after edit: %q", postRows[0].ContentHash.String)
 	}
 }
 
@@ -295,28 +289,31 @@ func TestSync_ReorderedUnitsBumpReordered(test *testing.T) {
 		test.Fatalf("ListSubUnitsForFile: %v", listErr)
 	}
 
-	persistedByHash := make(map[string]int64, len(persisted))
+	// Under positional addressing the two paragraph addresses (P1, P2) stay
+	// put while their content swaps, so each address's persisted
+	// content_hash must now match the new unit that occupies it.
+	persistedByAddr := make(map[string]string, len(persisted))
 
 	for _, row := range persisted {
-		hash := row.ID[len(parent.ID)+1:]
+		addr := row.ID[len(parent.ID)+1:]
 		if !row.Ordinal.Valid {
 			test.Errorf("row %s has NULL ordinal", row.ID)
 			continue
 		}
 
-		persistedByHash[hash] = row.Ordinal.Int64
+		persistedByAddr[addr] = row.ContentHash.String
 	}
 
 	for _, unit := range second {
-		got, ok := persistedByHash[unit.Hash]
+		got, ok := persistedByAddr[unit.Address]
 
 		if !ok {
-			test.Errorf("hash %s missing from persisted rows", unit.Hash)
+			test.Errorf("address %s missing from persisted rows", unit.Address)
 			continue
 		}
 
-		if got != int64(unit.Ordinal) {
-			test.Errorf("hash %s: persisted ordinal = %d, want %d", unit.Hash, got, unit.Ordinal)
+		if got != unit.ContentHash {
+			test.Errorf("address %s: persisted content_hash = %q, want %q", unit.Address, got, unit.ContentHash)
 		}
 	}
 }
@@ -500,7 +497,7 @@ func TestSync_LeavesEnqueuedSectionsSkipped(test *testing.T) {
 	}
 
 	for _, unit := range units {
-		subunitID := parent.ID + "#" + unit.Hash
+		subunitID := parent.ID + "#" + unit.Address
 		_, present := queued[subunitID]
 
 		switch unit.Kind {

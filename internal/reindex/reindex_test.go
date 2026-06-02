@@ -1094,8 +1094,9 @@ func TestRun_SubUnitsEnabled_WritesAndConvergesRows(test *testing.T) {
 		preLongIDs[row.ID] = struct{}{}
 	}
 
-	// Edit one paragraph in `notes/tiny.md` — the row id (a hash of
-	// the body) must change; long and wikilink rows must not.
+	// Edit one paragraph in `notes/tiny.md` — its structural address (P1)
+	// is positional and stays stable, so the row id must NOT change; only
+	// its content_hash turns over. Long and wikilink rows must not change.
 	writeNode(test, root, "notes/tiny.md", "type: note\ntitle: Tiny\n", "edited paragraph body\n")
 
 	if _, runErr = reindex.Run(cfg); runErr != nil {
@@ -1108,8 +1109,12 @@ func TestRun_SubUnitsEnabled_WritesAndConvergesRows(test *testing.T) {
 		test.Errorf("post tiny rows = %d, want 1", len(postTinyRows))
 	}
 
-	if _, kept := preTinyIDs[postTinyRows[0].ID]; kept {
-		test.Errorf("tiny row id %q unchanged after edit; expected new hash", postTinyRows[0].ID)
+	if _, kept := preTinyIDs[postTinyRows[0].ID]; !kept {
+		test.Errorf("tiny row id %q changed after in-place edit; structural address should be stable", postTinyRows[0].ID)
+	}
+
+	if postTinyRows[0].ContentHash.String == tinyRows[0].ContentHash.String {
+		test.Errorf("tiny content_hash unchanged after edit: %q", postTinyRows[0].ContentHash.String)
 	}
 
 	postLongRows, _ := repo.ListSubUnitsForFile("notes/long")
