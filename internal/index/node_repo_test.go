@@ -79,6 +79,39 @@ func TestNodeRepo_UpsertAndGet(test *testing.T) {
 	}
 }
 
+func TestNodeRow_ContentHashRoundTrip(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	seedNodes(test, store, "notes/f")
+
+	sub := index.NodeRow{
+		ID:             "notes/f#S1P1",
+		Type:           "paragraph",
+		Path:           "notes/f.md",
+		Title:          "hello",
+		PropertiesJSON: "{}",
+		LastChecksum:   "x",
+		ParentID:       sql.NullString{String: "notes/f", Valid: true},
+		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
+		ContentHash:    sql.NullString{String: "abc123", Valid: true},
+	}
+
+	if upsertErr := repo.BulkUpsert([]index.NodeRow{sub}); upsertErr != nil {
+		test.Fatalf("BulkUpsert: %v", upsertErr)
+	}
+
+	loaded, loadErr := repo.Get("notes/f#S1P1")
+
+	if loadErr != nil {
+		test.Fatalf("Get: %v", loadErr)
+	}
+
+	if !loaded.ContentHash.Valid || loaded.ContentHash.String != "abc123" {
+		test.Fatalf("content_hash: got %q (valid=%v), want abc123", loaded.ContentHash.String, loaded.ContentHash.Valid)
+	}
+}
+
 func TestNodeRepo_UpsertSetsFileKindAndNullSource(test *testing.T) {
 	store := openTestIndex(test)
 	repo := index.NewNodeRepo(store)

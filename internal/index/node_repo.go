@@ -36,6 +36,12 @@ type NodeRow struct {
 	// own payload from the parsed file). Schema column is `embed_payload`
 	// (P2 migration).
 	EmbedPayload sql.NullString
+
+	// ContentHash is the current content fingerprint of a sub-unit row:
+	// sha256(embed payload) for embeddable leaves, sha256 of the heading for
+	// sections. NULL for file-level rows. Drives the sync re-embed decision
+	// and doctor coverage. Schema column is `content_hash`.
+	ContentHash sql.NullString
 }
 
 // ListFilter narrows a NodeRepo.List call. Plan 1b supports type only.
@@ -61,10 +67,10 @@ const nodeUpsertFileSQL = `
 	INSERT INTO nodes (
 		id, type, path, title, properties_json,
 		last_mtime, last_size, last_checksum,
-		parent_id, ordinal, embed_payload,
+		parent_id, ordinal, embed_payload, content_hash,
 		kind, source
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', NULL)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', NULL)
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -76,6 +82,7 @@ const nodeUpsertFileSQL = `
 		parent_id       = excluded.parent_id,
 		ordinal         = excluded.ordinal,
 		embed_payload   = excluded.embed_payload,
+		content_hash    = excluded.content_hash,
 		kind            = 'file',
 		source          = NULL
 `
@@ -89,10 +96,10 @@ const nodeUpsertSubUnitSQL = `
 	INSERT INTO nodes (
 		id, type, path, title, properties_json,
 		last_mtime, last_size, last_checksum,
-		parent_id, ordinal, embed_payload,
+		parent_id, ordinal, embed_payload, content_hash,
 		kind, source
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', 'markdown')
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', 'markdown')
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -104,6 +111,7 @@ const nodeUpsertSubUnitSQL = `
 		parent_id       = excluded.parent_id,
 		ordinal         = excluded.ordinal,
 		embed_payload   = excluded.embed_payload,
+		content_hash    = excluded.content_hash,
 		kind            = 'subunit',
 		source          = 'markdown'
 `
@@ -115,7 +123,7 @@ func nodeUpsertArgs(row NodeRow) []any {
 	return []any{
 		row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON,
 		row.LastMtime, row.LastSize, row.LastChecksum,
-		row.ParentID, row.Ordinal, row.EmbedPayload,
+		row.ParentID, row.Ordinal, row.EmbedPayload, row.ContentHash,
 	}
 }
 
@@ -463,7 +471,7 @@ func (repo *NodeRepo) DeleteByPath(filePath string) error {
 // ListByParent so every scan path uses the same struct shape.
 const nodeSelectColumns = `SELECT id, type, path, title, properties_json,
 	last_mtime, last_size, last_checksum,
-	parent_id, ordinal, embed_payload`
+	parent_id, ordinal, embed_payload, content_hash`
 
 // queryNodes runs a SELECT that returns the standard NodeRow column set and
 // materializes the result slice.
@@ -503,7 +511,7 @@ func scanNodeRow(row rowScanner) (*NodeRow, error) {
 	scanErr := row.Scan(
 		&loaded.ID, &loaded.Type, &loaded.Path, &loaded.Title, &loaded.PropertiesJSON,
 		&loaded.LastMtime, &loaded.LastSize, &loaded.LastChecksum,
-		&loaded.ParentID, &loaded.Ordinal, &loaded.EmbedPayload,
+		&loaded.ParentID, &loaded.Ordinal, &loaded.EmbedPayload, &loaded.ContentHash,
 	)
 
 	if scanErr != nil {

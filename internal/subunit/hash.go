@@ -4,15 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"strconv"
 )
 
 // HashLength is the number of hex characters retained from the
 // SHA-256 digest. Twelve chars (six bytes) yields a 2^48-sized hash
 // space — enough for per-file collision rates well below the rate at
-// which markdown authors edit a single file. Real collisions are
-// handled deterministically by ResolveCollisions below.
+// which markdown authors edit a single file. The hash is now used only
+// as the fallback id for kinds with no structural address; collisions
+// among fallback ids are disambiguated by disambiguateFallbackIDs.
 const HashLength = 12
 
 // ComputeHash returns the 12-hex-char content hash for unit using
@@ -111,43 +111,4 @@ func stringProperty(unit Unit, key string) string {
 	value, _ := unit.Properties[key].(string)
 
 	return value
-}
-
-// ResolveCollisions assigns deterministic disambiguating suffixes to
-// any units that share the same bare hash. The first occurrence (by
-// ordinal) keeps the bare twelve-char hash; subsequent occurrences
-// get "-1", "-2", … appended. Mutates the slice in place and returns
-// it for chaining ergonomics.
-//
-// Ordering uses the existing Ordinal field, so the disambiguation
-// outcome is independent of slice order: callers may sort or rearrange
-// units freely before invoking ResolveCollisions.
-func ResolveCollisions(units []Unit) []Unit {
-	if len(units) < 2 {
-		return units
-	}
-
-	// Group indexes by bare hash.
-	groups := make(map[string][]int, len(units))
-	for idx, unit := range units {
-		groups[unit.Hash] = append(groups[unit.Hash], idx)
-	}
-
-	for hash, idxs := range groups {
-		if len(idxs) < 2 {
-			continue
-		}
-
-		// Stable order: smallest Ordinal first.
-		sort.Slice(idxs, func(left, right int) bool {
-			return units[idxs[left]].Ordinal < units[idxs[right]].Ordinal
-		})
-
-		// First keeps the bare hash; subsequent get "-N".
-		for nth, idx := range idxs[1:] {
-			units[idx].Hash = fmt.Sprintf("%s-%d", hash, nth+1)
-		}
-	}
-
-	return units
 }

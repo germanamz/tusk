@@ -344,7 +344,7 @@ func TestParse_NestedBlockquoteFlattensToOne(test *testing.T) {
 	}
 }
 
-func TestParse_DuplicateParagraphsCollisionSuffix(test *testing.T) {
+func TestParse_DuplicateParagraphsDistinctAddresses(test *testing.T) {
 	src := readFixture(test, "duplicate-paragraphs.md")
 	units, err := Parse(src)
 	if err != nil {
@@ -355,26 +355,31 @@ func TestParse_DuplicateParagraphsCollisionSuffix(test *testing.T) {
 		test.Fatalf("want 4 paragraphs, got %d\n%s", len(units), dumpUnits(units))
 	}
 
-	// First "Same line of text." keeps its bare hash; second and
-	// third get "-1" and "-2" suffixes; the middle one is unique.
-	bareHash := units[0].Hash
-	if strings.Contains(bareHash, "-") {
-		test.Errorf("[0] should keep bare hash, got %q", bareHash)
-	}
-	if units[1].Hash == bareHash {
-		test.Errorf("[1] middle paragraph collided with [0]; got %q", units[1].Hash)
-	}
-	if units[2].Hash != bareHash+"-1" {
-		test.Errorf("[2] hash: want %q, got %q", bareHash+"-1", units[2].Hash)
-	}
-	if units[3].Hash != bareHash+"-2" {
-		test.Errorf("[3] hash: want %q, got %q", bareHash+"-2", units[3].Hash)
+	// Every paragraph gets a distinct positional address with no -N suffix,
+	// regardless of duplicate content.
+	seen := map[string]bool{}
+	for idx, unit := range units {
+		if strings.Contains(unit.Address, "-") {
+			test.Errorf("[%d] address must not carry -N suffix: %q", idx, unit.Address)
+		}
+		if seen[unit.Address] {
+			test.Errorf("[%d] duplicate address %q", idx, unit.Address)
+		}
+		seen[unit.Address] = true
 	}
 
-	// Pin the bare hash so any future change to paragraph hashing
-	// surfaces immediately.
-	if bareHash != "5eeca445c587" {
-		test.Errorf("paragraph bare hash drifted: want %q, got %q", "5eeca445c587", bareHash)
+	// The three identical paragraphs ([0], [2], [3]) share one content_hash
+	// — this is what lets the embedder dedupe them to a single shared vector
+	// — while the unique middle paragraph ([1]) differs.
+	if units[0].ContentHash != units[2].ContentHash || units[0].ContentHash != units[3].ContentHash {
+		test.Errorf("identical paragraphs must share a content_hash: %q %q %q",
+			units[0].ContentHash, units[2].ContentHash, units[3].ContentHash)
+	}
+	if units[1].ContentHash == units[0].ContentHash {
+		test.Errorf("the unique middle paragraph must have a distinct content_hash")
+	}
+	if len(units[0].ContentHash) != 64 {
+		test.Errorf("content_hash should be a 64-char sha256 hex, got %q", units[0].ContentHash)
 	}
 }
 

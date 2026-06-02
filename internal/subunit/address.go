@@ -125,6 +125,35 @@ func tableCellAddress(path string, tableIdx, row, col int) string {
 	return fmt.Sprintf("%sT%dR%dC%d", path, tableIdx, row, col)
 }
 
+// disambiguateFallbackIDs suffixes the content hash of any units that would
+// otherwise share a row id. Structural addresses are unique by construction
+// (position within the file), so this only ever fires for kinds with no
+// address rule, which fall back to their content hash. The first occurrence
+// keeps the bare hash; later duplicates get "-1", "-2", … Mutates and returns
+// the slice. Replaces the former ResolveCollisions, which suffixed every
+// content-hash collision back when the hash was the identity.
+func disambiguateFallbackIDs(units []Unit) []Unit {
+	seen := map[string]int{}
+
+	for idx := range units {
+		id := units[idx].Address
+		if id == "" {
+			id = units[idx].Hash
+		}
+
+		if nth := seen[id]; nth > 0 {
+			// Only fallback (hash) ids can reach here; addressed units are
+			// unique, so suffixing the hash is safe and never alters a
+			// structural address.
+			units[idx].Hash += "-" + strconv.Itoa(nth)
+		}
+
+		seen[id]++
+	}
+
+	return units
+}
+
 // contentHashFor returns the fingerprint stored on nodes.content_hash. For leaf
 // kinds it is sha256(EmbedPayload) — exactly the bytes the embedder sends — so a
 // leaf that merely shifts position keeps its hash and reuses its vector. For
