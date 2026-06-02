@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -82,6 +83,35 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 	}
 
 	return nil
+}
+
+// ExistsByContentHash reports whether a shared vector already exists for this
+// content under the given model. The drain uses it to attach a node to an
+// already-embedded content_hash instead of calling the model again.
+func (repo *EmbeddingRepo) ExistsByContentHash(contentHash, model string) (bool, error) {
+	var one int
+
+	queryErr := repo.db.QueryRow(
+		`SELECT 1 FROM embeddings WHERE content_hash = ? AND model = ? LIMIT 1`,
+		contentHash, model,
+	).Scan(&one)
+
+	if errors.Is(queryErr, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	if queryErr != nil {
+		return false, fmt.Errorf("embeddingRepo: exists %s: %w", contentHash, queryErr)
+	}
+
+	return true, nil
+}
+
+// MapNodeChunk records (or replaces) the node→content mapping for one chunk
+// without touching the shared vector. Used to attach a node to an
+// already-embedded content_hash (reuse without a model call).
+func (repo *EmbeddingRepo) MapNodeChunk(nodeID string, chunkIdx int, contentHash, model string) error {
+	return upsertMapping(repo.db, nodeID, chunkIdx, contentHash, model)
 }
 
 // upsertMapping writes (or replaces) the node→content mapping for one chunk.

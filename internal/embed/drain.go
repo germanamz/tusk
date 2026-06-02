@@ -294,6 +294,61 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				continue
 			}
 
+			// Reuse path: if every chunk's content already has a stored
+			// vector (embedded under this node previously or under another
+			// node sharing the content), attach this node to those vectors
+			// via the junction without calling the model. This is what keeps
+			// a restructure — a shifted address with unchanged content — from
+			// re-embedding, and is where cross-node de-duplication pays off.
+			allReusable := len(chunkHashes) > 0
+
+			for _, hash := range chunkHashes {
+				exists, existsErr := config.Embeddings.ExistsByContentHash(hash, config.Embedder.Model())
+
+				if existsErr != nil || !exists {
+					allReusable = false
+
+					break
+				}
+			}
+
+			if allReusable {
+				mapErr := error(nil)
+
+				for chunkIdx, hash := range chunkHashes {
+					if mapErr = config.Embeddings.MapNodeChunk(queued.NodeID, chunkIdx, hash, config.Embedder.Model()); mapErr != nil {
+						break
+					}
+				}
+
+				if mapErr != nil {
+					retryOrDrop(config.Queue, queued.NodeID, workerID, queued.Attempts, mapErr)
+
+					batchFailed++
+
+					continue
+				}
+
+				if config.Logger != nil {
+					config.Logger.Debug("embed reuse by content hash",
+						"node_id", queued.NodeID,
+						"chunks", len(chunkHashes),
+					)
+				}
+
+				if ackErr := config.Queue.Ack(queued.NodeID, workerID); ackErr != nil && config.Logger != nil {
+					config.Logger.Warn("embed ack failed",
+						"node_id", queued.NodeID,
+						"err", ackErr.Error(),
+					)
+				}
+
+				drained++
+				batchSucceeded++
+
+				continue
+			}
+
 			workers := config.Workers
 
 			if workers < 1 {
