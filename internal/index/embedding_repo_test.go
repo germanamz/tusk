@@ -272,7 +272,7 @@ func TestEmbeddingRepo_Stats_Aggregates(test *testing.T) {
 			NodeID:      nodeID,
 			ChunkIdx:    0,
 			Model:       "m",
-			ContentHash: "h",
+			ContentHash: "h-" + nodeID, // distinct content per node (no sharing)
 			Vector:      []float32{0.1},
 			Dim:         1,
 			Body:        body,
@@ -365,5 +365,97 @@ func TestEmbeddingRepo_ListSubUnitsForFiles_UnderscoreNoLeakage(test *testing.T)
 
 	if loaded[0].NodeID != "notes/foo_a#aaa" {
 		test.Errorf("foo_a embedding id = %q, want notes/foo_a#aaa", loaded[0].NodeID)
+	}
+}
+
+func TestEmbeddingRepo_GCOrphanVectors(test *testing.T) {
+	store := openTestIndex(test)
+	seedNodes(test, store, "notes/a#S1P1", "notes/b#S1P1")
+	repo := index.NewEmbeddingRepo(store)
+
+	if upsertErr := repo.Upsert(index.EmbeddingRow{
+		NodeID: "notes/a#S1P1", ChunkIdx: 0, Model: "m", ContentHash: "h1",
+		Vector: []float32{0.1}, Dim: 1,
+	}); upsertErr != nil {
+		test.Fatalf("upsert a: %v", upsertErr)
+	}
+
+	if upsertErr := repo.Upsert(index.EmbeddingRow{
+		NodeID: "notes/b#S1P1", ChunkIdx: 0, Model: "m", ContentHash: "h2",
+		Vector: []float32{0.2}, Dim: 1,
+	}); upsertErr != nil {
+		test.Fatalf("upsert b: %v", upsertErr)
+	}
+
+	// Drop a's mapping: h1's vector is now orphaned; h2 is still referenced.
+	if deleteErr := repo.DeleteByNodeID("notes/a#S1P1"); deleteErr != nil {
+		test.Fatalf("delete a: %v", deleteErr)
+	}
+
+	removed, gcErr := repo.GCOrphanVectors()
+
+	if gcErr != nil {
+		test.Fatalf("GCOrphanVectors: %v", gcErr)
+	}
+
+	if removed != 1 {
+		test.Fatalf("gc removed %d, want 1", removed)
+	}
+
+	var surviving int
+
+	if scanErr := store.DB().QueryRow(`SELECT COUNT(*) FROM embeddings`).Scan(&surviving); scanErr != nil {
+		test.Fatalf("count embeddings: %v", scanErr)
+	}
+
+	if surviving != 1 {
+		test.Fatalf("expected 1 surviving vector (h2), got %d", surviving)
+	}
+
+	// The still-referenced node keeps resolving its vector.
+	second, _ := repo.GetByNodeID("notes/b#S1P1")
+
+	if len(second) != 1 {
+		test.Fatalf("b should still resolve its vector, got %d", len(second))
+	}
+}
+
+func TestEmbeddingRepo_DedupeByContentHash(test *testing.T) {
+	store := openTestIndex(test)
+	seedNodes(test, store, "notes/a#S1P1", "notes/b#S1P1")
+	repo := index.NewEmbeddingRepo(store)
+
+	vec := []float32{0.1, 0.2}
+
+	for _, id := range []string{"notes/a#S1P1", "notes/b#S1P1"} {
+		if upsertErr := repo.Upsert(index.EmbeddingRow{
+			NodeID: id, ChunkIdx: 0, Model: "m", ContentHash: "shared",
+			Vector: vec, Dim: 2, Body: "x",
+		}); upsertErr != nil {
+			test.Fatalf("Upsert %s: %v", id, upsertErr)
+		}
+	}
+
+	// Identical content across two nodes is stored as a single shared vector.
+	var vectorRows int
+
+	if scanErr := store.DB().QueryRow(`SELECT COUNT(*) FROM embeddings`).Scan(&vectorRows); scanErr != nil {
+		test.Fatalf("count embeddings: %v", scanErr)
+	}
+
+	if vectorRows != 1 {
+		test.Fatalf("expected 1 shared vector row, got %d", vectorRows)
+	}
+
+	// ...but each node still resolves its vector through the junction.
+	first, _ := repo.GetByNodeID("notes/a#S1P1")
+	second, _ := repo.GetByNodeID("notes/b#S1P1")
+
+	if len(first) != 1 || len(second) != 1 {
+		test.Fatalf("each node resolves its vector: a=%d b=%d", len(first), len(second))
+	}
+
+	if first[0].ContentHash != "shared" || second[0].ContentHash != "shared" {
+		test.Errorf("content hash mismatch: a=%q b=%q", first[0].ContentHash, second[0].ContentHash)
 	}
 }

@@ -85,6 +85,87 @@ func TestDrainQueue_DrainsToEmpty(test *testing.T) {
 	}
 }
 
+func TestDrainQueue_ReusesVectorWithoutModelCall(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	// Two parent files, each with a sub-unit carrying the SAME embed payload.
+	for _, file := range []string{"notes/a", "notes/b"} {
+		if upsertErr := nodeRepo.Upsert(index.NodeRow{
+			ID: file, Type: "note", Path: file + ".md", Title: "x",
+			PropertiesJSON: "{}", LastChecksum: "x",
+		}); upsertErr != nil {
+			test.Fatalf("upsert file %s: %v", file, upsertErr)
+		}
+	}
+
+	subRows := []index.NodeRow{
+		{
+			ID: "notes/a#S1P1", Type: "paragraph", Path: "notes/a.md", Title: "p",
+			PropertiesJSON: "{}", LastChecksum: "x",
+			ParentID:     sql.NullString{String: "notes/a", Valid: true},
+			Ordinal:      sql.NullInt64{Int64: 0, Valid: true},
+			EmbedPayload: sql.NullString{String: "shared text", Valid: true},
+		},
+		{
+			ID: "notes/b#S1P1", Type: "paragraph", Path: "notes/b.md", Title: "p",
+			PropertiesJSON: "{}", LastChecksum: "x",
+			ParentID:     sql.NullString{String: "notes/b", Valid: true},
+			Ordinal:      sql.NullInt64{Int64: 0, Valid: true},
+			EmbedPayload: sql.NullString{String: "shared text", Valid: true},
+		},
+	}
+
+	if upsertErr := nodeRepo.BulkUpsert(subRows); upsertErr != nil {
+		test.Fatalf("bulk upsert sub-units: %v", upsertErr)
+	}
+
+	for _, sub := range subRows {
+		if enqErr := queueRepo.Enqueue(sub.ID); enqErr != nil {
+			test.Fatalf("enqueue %s: %v", sub.ID, enqErr)
+		}
+	}
+
+	embedder := &drainStubEmbedder{dim: 3, model: "stub"}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   embedder,
+		Chunker:    embed.ASTChunking{},
+		BatchSize:  50,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != 2 {
+		test.Errorf("drained = %d, want 2", drained)
+	}
+
+	// The model is called exactly once: the second sub-unit reuses the
+	// shared vector by content hash.
+	if embedder.calls != 1 {
+		test.Errorf("embedder.calls = %d, want 1 (identical content embeds once)", embedder.calls)
+	}
+
+	// Both sub-units still resolve their (shared) vector through the junction.
+	first, _ := embeddingRepo.GetByNodeID("notes/a#S1P1")
+	second, _ := embeddingRepo.GetByNodeID("notes/b#S1P1")
+
+	if len(first) != 1 || len(second) != 1 {
+		test.Errorf("each sub-unit resolves its vector: a=%d b=%d", len(first), len(second))
+	}
+}
+
 func TestDrainQueue_NoopWhenNoEmbedder(test *testing.T) {
 	store := openIndex(test, test.TempDir())
 	defer store.Close()

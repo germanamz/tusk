@@ -148,6 +148,17 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 		}
 
 		if len(batch) == 0 {
+			// Queue is drained: reclaim any vectors no node references any
+			// more (orphaned by content edits or deletes). Safe here because
+			// no drain work is in flight.
+			if removed, gcErr := config.Embeddings.GCOrphanVectors(); gcErr != nil {
+				if config.Logger != nil {
+					config.Logger.Warn("embed gc failed", "err", gcErr.Error())
+				}
+			} else if removed > 0 && config.Logger != nil {
+				config.Logger.Debug("embed gc orphan vectors", "removed", removed)
+			}
+
 			return drained, nil
 		}
 
@@ -290,6 +301,61 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 				_ = config.Queue.Drop(queued.NodeID, workerID)
 
 				batchFailed++
+
+				continue
+			}
+
+			// Reuse path: if every chunk's content already has a stored
+			// vector (embedded under this node previously or under another
+			// node sharing the content), attach this node to those vectors
+			// via the junction without calling the model. This is what keeps
+			// a restructure — a shifted address with unchanged content — from
+			// re-embedding, and is where cross-node de-duplication pays off.
+			allReusable := len(chunkHashes) > 0
+
+			for _, hash := range chunkHashes {
+				exists, existsErr := config.Embeddings.ExistsByContentHash(hash, config.Embedder.Model())
+
+				if existsErr != nil || !exists {
+					allReusable = false
+
+					break
+				}
+			}
+
+			if allReusable {
+				mapErr := error(nil)
+
+				for chunkIdx, hash := range chunkHashes {
+					if mapErr = config.Embeddings.MapNodeChunk(queued.NodeID, chunkIdx, hash, config.Embedder.Model()); mapErr != nil {
+						break
+					}
+				}
+
+				if mapErr != nil {
+					retryOrDrop(config.Queue, queued.NodeID, workerID, queued.Attempts, mapErr)
+
+					batchFailed++
+
+					continue
+				}
+
+				if config.Logger != nil {
+					config.Logger.Debug("embed reuse by content hash",
+						"node_id", queued.NodeID,
+						"chunks", len(chunkHashes),
+					)
+				}
+
+				if ackErr := config.Queue.Ack(queued.NodeID, workerID); ackErr != nil && config.Logger != nil {
+					config.Logger.Warn("embed ack failed",
+						"node_id", queued.NodeID,
+						"err", ackErr.Error(),
+					)
+				}
+
+				drained++
+				batchSucceeded++
 
 				continue
 			}

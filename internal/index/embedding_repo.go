@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -30,7 +31,23 @@ func NewEmbeddingRepo(idx *Index) *EmbeddingRepo {
 	return &EmbeddingRepo{db: idx.DB()}
 }
 
-// Upsert inserts or replaces the embedding for (node_id, chunk_idx).
+// sqlExecer is satisfied by both *sql.DB and *sql.Tx, letting the mapping
+// writer run inside or outside a transaction.
+type sqlExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// embeddingJoinSelect resolves node-chunk mappings to their shared vectors. It
+// produces the seven columns scanEmbeddings expects, in order.
+const embeddingJoinSelect = `
+	SELECT ne.node_id, ne.chunk_idx, e.model, e.content_hash, e.vector, e.dim, e.body
+	FROM node_embeddings ne
+	JOIN embeddings e ON e.content_hash = ne.content_hash AND e.model = ne.model`
+
+// Upsert stores the shared vector (once per content_hash, model) and the
+// node→content mapping for this chunk. Two nodes with identical content write
+// the same embeddings row (transparent de-duplication) but distinct
+// node_embeddings rows.
 func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 	encoded, encodeErr := encodeVector(row.Vector)
 
@@ -38,35 +55,108 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 		return encodeErr
 	}
 
-	// One row per (node_id, chunk_idx). A repeat upsert for the same
-	// (node_id, chunk_idx) replaces that row's payload in place; chunks
-	// at other indexes are untouched. This lets DrainQueue's hash-skip
-	// short-circuit when every chunk of a node matches the persisted set.
-	_, execErr := repo.db.Exec(`
-		INSERT INTO embeddings (node_id, chunk_idx, model, content_hash, vector, dim, body)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(node_id, chunk_idx) DO UPDATE SET
-			model        = excluded.model,
-			content_hash = excluded.content_hash,
-			vector       = excluded.vector,
-			dim          = excluded.dim,
-			body         = excluded.body
-	`, row.NodeID, row.ChunkIdx, row.Model, row.ContentHash, encoded, row.Dim, row.Body)
+	tx, beginErr := repo.db.Begin()
 
-	if execErr != nil {
-		return fmt.Errorf("embeddingRepo: upsert %s: %w", row.NodeID, execErr)
+	if beginErr != nil {
+		return fmt.Errorf("embeddingRepo: upsert begin %s: %w", row.NodeID, beginErr)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	if _, execErr := tx.Exec(`
+		INSERT INTO embeddings (content_hash, model, vector, dim, body)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(content_hash, model) DO UPDATE SET
+			vector = excluded.vector,
+			dim    = excluded.dim,
+			body   = excluded.body
+	`, row.ContentHash, row.Model, encoded, row.Dim, row.Body); execErr != nil {
+		return fmt.Errorf("embeddingRepo: upsert vector %s: %w", row.ContentHash, execErr)
+	}
+
+	if mapErr := upsertMapping(tx, row.NodeID, row.ChunkIdx, row.ContentHash, row.Model); mapErr != nil {
+		return mapErr
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("embeddingRepo: upsert commit %s: %w", row.NodeID, commitErr)
 	}
 
 	return nil
 }
 
-// GetByNodeID returns all embeddings (chunks) for nodeID, ordered by chunk_idx.
+// ExistsByContentHash reports whether a shared vector already exists for this
+// content under the given model. The drain uses it to attach a node to an
+// already-embedded content_hash instead of calling the model again.
+func (repo *EmbeddingRepo) ExistsByContentHash(contentHash, model string) (bool, error) {
+	var one int
+
+	queryErr := repo.db.QueryRow(
+		`SELECT 1 FROM embeddings WHERE content_hash = ? AND model = ? LIMIT 1`,
+		contentHash, model,
+	).Scan(&one)
+
+	if errors.Is(queryErr, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	if queryErr != nil {
+		return false, fmt.Errorf("embeddingRepo: exists %s: %w", contentHash, queryErr)
+	}
+
+	return true, nil
+}
+
+// MapNodeChunk records (or replaces) the node→content mapping for one chunk
+// without touching the shared vector. Used to attach a node to an
+// already-embedded content_hash (reuse without a model call).
+func (repo *EmbeddingRepo) MapNodeChunk(nodeID string, chunkIdx int, contentHash, model string) error {
+	return upsertMapping(repo.db, nodeID, chunkIdx, contentHash, model)
+}
+
+// GCOrphanVectors deletes shared vectors that no node mapping references, and
+// returns the number removed. Callers MUST serialize this with drain: run it
+// only when the embed queue is drained (and under the workspace lock) so a
+// vector isn't reclaimed out from under an in-flight mapping write.
+func (repo *EmbeddingRepo) GCOrphanVectors() (int, error) {
+	result, execErr := repo.db.Exec(`
+		DELETE FROM embeddings
+		WHERE NOT EXISTS (
+			SELECT 1 FROM node_embeddings ne
+			WHERE ne.content_hash = embeddings.content_hash AND ne.model = embeddings.model
+		)
+	`)
+
+	if execErr != nil {
+		return 0, fmt.Errorf("embeddingRepo: gc orphans: %w", execErr)
+	}
+
+	removed, _ := result.RowsAffected()
+
+	return int(removed), nil
+}
+
+// upsertMapping writes (or replaces) the node→content mapping for one chunk.
+func upsertMapping(exec sqlExecer, nodeID string, chunkIdx int, contentHash, model string) error {
+	if _, execErr := exec.Exec(`
+		INSERT INTO node_embeddings (node_id, chunk_idx, content_hash, model)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(node_id, chunk_idx) DO UPDATE SET
+			content_hash = excluded.content_hash,
+			model        = excluded.model
+	`, nodeID, chunkIdx, contentHash, model); execErr != nil {
+		return fmt.Errorf("embeddingRepo: upsert mapping %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
+// GetByNodeID returns all embeddings (chunks) for nodeID, resolved through the
+// junction to their shared vectors, ordered by chunk_idx.
 func (repo *EmbeddingRepo) GetByNodeID(nodeID string) ([]EmbeddingRow, error) {
-	rows, queryErr := repo.db.Query(`
-		SELECT node_id, chunk_idx, model, content_hash, vector, dim, body
-		FROM embeddings
-		WHERE node_id = ?
-		ORDER BY chunk_idx
+	rows, queryErr := repo.db.Query(embeddingJoinSelect+`
+		WHERE ne.node_id = ?
+		ORDER BY ne.chunk_idx
 	`, nodeID)
 
 	if queryErr != nil {
@@ -101,14 +191,11 @@ func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRo
 	args := make([]any, 0, len(fileIDs))
 
 	for _, fileID := range fileIDs {
-		conditions = append(conditions, "node_id GLOB ?")
+		conditions = append(conditions, "ne.node_id GLOB ?")
 		args = append(args, fileID+"#*")
 	}
 
-	query := fmt.Sprintf(
-		`SELECT node_id, chunk_idx, model, content_hash, vector, dim, body FROM embeddings WHERE %s ORDER BY node_id, chunk_idx`,
-		strings.Join(conditions, " OR "),
-	)
+	query := embeddingJoinSelect + ` WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY ne.node_id, ne.chunk_idx`
 
 	rows, queryErr := repo.db.Query(query, args...)
 
@@ -133,7 +220,7 @@ func (repo *EmbeddingRepo) ListByNodeIDs(nodeIDs []string) ([]EmbeddingRow, erro
 		args[idx] = nodeID
 	}
 
-	query := fmt.Sprintf(`SELECT node_id, chunk_idx, model, content_hash, vector, dim, body FROM embeddings WHERE node_id IN (%s) ORDER BY node_id, chunk_idx`, inPlaceholders(len(nodeIDs)))
+	query := embeddingJoinSelect + fmt.Sprintf(` WHERE ne.node_id IN (%s) ORDER BY ne.node_id, ne.chunk_idx`, inPlaceholders(len(nodeIDs)))
 
 	rows, queryErr := repo.db.Query(query, args...)
 
@@ -146,9 +233,10 @@ func (repo *EmbeddingRepo) ListByNodeIDs(nodeIDs []string) ([]EmbeddingRow, erro
 	return scanEmbeddings(rows)
 }
 
-// DeleteByNodeID removes every embedding for nodeID.
+// DeleteByNodeID removes every node→content mapping for nodeID. The shared
+// vectors stay until GCOrphanVectors sweeps any that no mapping references.
 func (repo *EmbeddingRepo) DeleteByNodeID(nodeID string) error {
-	_, execErr := repo.db.Exec(`DELETE FROM embeddings WHERE node_id = ?`, nodeID)
+	_, execErr := repo.db.Exec(`DELETE FROM node_embeddings WHERE node_id = ?`, nodeID)
 
 	if execErr != nil {
 		return fmt.Errorf("embeddingRepo: delete %s: %w", nodeID, execErr)
@@ -157,10 +245,10 @@ func (repo *EmbeddingRepo) DeleteByNodeID(nodeID string) error {
 	return nil
 }
 
-// ListNodeIDs returns every distinct node_id present in the embeddings
-// table, sorted ascending.
+// ListNodeIDs returns every distinct node_id that has at least one embedding
+// mapping, sorted ascending.
 func (repo *EmbeddingRepo) ListNodeIDs() ([]string, error) {
-	rows, queryErr := repo.db.Query(`SELECT DISTINCT node_id FROM embeddings ORDER BY node_id`)
+	rows, queryErr := repo.db.Query(`SELECT DISTINCT node_id FROM node_embeddings ORDER BY node_id`)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("embeddingRepo: list node ids: %w", queryErr)
@@ -213,10 +301,10 @@ type NodeChunkInfo struct {
 func (repo *EmbeddingRepo) Stats(largeChunkThreshold int) (EmbeddingStats, error) {
 	var stats EmbeddingStats
 
-	// Per-node counts.
+	// Per-node counts (from the junction — one mapping per node-chunk).
 	rows, queryErr := repo.db.Query(`
 		SELECT node_id, COUNT(*) AS chunk_count
-		FROM embeddings
+		FROM node_embeddings
 		GROUP BY node_id
 		ORDER BY chunk_count DESC, node_id ASC
 	`)
@@ -267,12 +355,14 @@ func (repo *EmbeddingRepo) Stats(largeChunkThreshold int) (EmbeddingStats, error
 
 	stats.TopByChunks = append(stats.TopByChunks, perNode[:topN]...)
 
-	// Large chunks (length(body) >= threshold).
+	// Large chunks (length(body) >= threshold), resolved per node-chunk
+	// through the junction to the shared vector's body.
 	largeRows, largeErr := repo.db.Query(`
-		SELECT node_id, chunk_idx, length(body) AS body_len
-		FROM embeddings
-		WHERE length(body) >= ?
-		ORDER BY node_id, chunk_idx
+		SELECT ne.node_id, ne.chunk_idx, length(e.body) AS body_len
+		FROM node_embeddings ne
+		JOIN embeddings e ON e.content_hash = ne.content_hash AND e.model = ne.model
+		WHERE length(e.body) >= ?
+		ORDER BY ne.node_id, ne.chunk_idx
 	`, largeChunkThreshold)
 
 	if largeErr != nil {

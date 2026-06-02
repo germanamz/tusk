@@ -19,7 +19,12 @@ package index
 // 2026-06-01-structural-subunit-addressing: adds the nodes.content_hash
 // column (current content fingerprint of a sub-unit). Sub-unit ids become
 // structural addresses; a full rebuild from source recomputes them.
-const SchemaVersion = "2026-06-01-structural-subunit-addressing"
+//
+// 2026-06-02-content-addressed-embeddings: replaces the node_id-keyed
+// embeddings table with a content-addressed store (PK content_hash, model)
+// plus a node_embeddings junction (node_id, chunk_idx -> content_hash). A full
+// rebuild re-embeds; identical content is now stored once and shared.
+const SchemaVersion = "2026-06-02-content-addressed-embeddings"
 
 // MetaSchemaVersionKey is the key under which SchemaVersion is stored
 // in the meta table. The value lives next to other workspace-scoped

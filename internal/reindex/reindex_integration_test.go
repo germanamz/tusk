@@ -200,24 +200,27 @@ func TestPhase2Integration(test *testing.T) {
 
 	leafEmbeddingsExpected := totalLeafSubUnits + report.Indexed
 
+	// Count node→content mappings (one per embedded node-chunk). The
+	// content-addressed `embeddings` table may hold fewer rows when leaves
+	// share content, but every leaf + file row still has its own mapping.
 	var embeddingCount int
 
-	if scanErr := store.DB().QueryRow(`SELECT COUNT(*) FROM embeddings`).Scan(&embeddingCount); scanErr != nil {
-		test.Fatalf("count embeddings: %v", scanErr)
+	if scanErr := store.DB().QueryRow(`SELECT COUNT(*) FROM node_embeddings`).Scan(&embeddingCount); scanErr != nil {
+		test.Fatalf("count node_embeddings: %v", scanErr)
 	}
 
 	if embeddingCount != leafEmbeddingsExpected {
-		test.Errorf("embeddings = %d, want %d (one per leaf sub-unit + one per file row)",
+		test.Errorf("node_embeddings = %d, want %d (one per leaf sub-unit + one per file row)",
 			embeddingCount, leafEmbeddingsExpected)
 	}
 
-	// Sub-unit-only embedding count must equal the leaf count exactly:
-	// no section row should ever land in the embeddings table.
+	// No section row should ever get an embedding mapping: sections are
+	// aggregated from their descendants at query time, never embedded.
 	var sectionEmbeddingCount int
 
 	if scanErr := store.DB().QueryRow(`
-		SELECT COUNT(*) FROM embeddings e
-		JOIN nodes n ON n.id = e.node_id
+		SELECT COUNT(*) FROM node_embeddings ne
+		JOIN nodes n ON n.id = ne.node_id
 		WHERE n.type = 'section'
 	`).Scan(&sectionEmbeddingCount); scanErr != nil {
 		test.Fatalf("count section embeddings: %v", scanErr)
