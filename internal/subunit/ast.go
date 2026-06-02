@@ -50,10 +50,23 @@ const (
 type Unit struct {
 	// Kind is the sub-unit type. One of the Kind* constants above.
 	Kind Kind
-	// Hash is the unit's content-hash identity. Twelve hex chars
-	// for unique content; "<12hex>-<N>" when collision-suffixed
-	// by ResolveCollisions. Never carries the leading `#`.
+	// Hash is the unit's content-hash identity, retained only as the
+	// fallback id suffix when the kind has no structural address.
+	// Twelve hex chars; never carries the leading `#`.
 	Hash string
+	// Address is the structural address suffix that identifies this unit
+	// within its file: "S1.2" (section path), "S1.2P3" (paragraph),
+	// "P1" (root-level), "S1.2T1R2C0" (table cell). Empty when the kind
+	// has no address rule, in which case the id falls back to Hash.
+	// Assigned by Parse.
+	Address string
+	// ContentHash is the current content fingerprint stored on the row's
+	// nodes.content_hash column. For leaf kinds it is sha256(EmbedPayload)
+	// — exactly what the embedder sends — so a leaf that merely shifts
+	// position keeps its hash and reuses its vector. For sections it is
+	// sha256("section\x00<level>\x00<heading-text>") so heading edits are
+	// detected (sections are never embedded). Lowercase hex.
+	ContentHash string
 	// Ordinal is the unit's depth-first position within the file,
 	// 0-based. Assigned by Parse across all emitted units.
 	Ordinal int
@@ -64,6 +77,11 @@ type Unit struct {
 	// section under an H2) reference the closest enclosing
 	// section.
 	ParentHash string
+	// ParentAddress is the Address of the enclosing section, or the
+	// empty string at the document root. Replaces ParentHash for parent
+	// row-id wiring once the id is address-based (Phase 2). Assigned by
+	// Parse.
+	ParentAddress string
 	// Text is the literal body text used for storage and display.
 	// Uses goldmark's normalized form, which collapses adjacent
 	// whitespace and standardizes line endings.
