@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 	parent_id       TEXT NULL,                  -- parent file id for sub-units; NULL for files
 	ordinal         INTEGER NULL,               -- position within parent; NULL for files
 	embed_payload   TEXT NULL,                  -- synthesized embedding payload for sub-units
+	content_hash    TEXT NULL,                  -- sha256 of embed payload (leaves) / heading (sections); NULL for files
 	kind            TEXT NOT NULL,              -- row-class: 'file' | 'subunit'
 	source          TEXT NULL,                  -- namespace identifier; NULL = user
 	CHECK (

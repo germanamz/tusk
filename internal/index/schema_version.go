@@ -15,7 +15,11 @@ package index
 // 2026-05-31-workflow-drift-error-code: adds error_code and detail
 // columns to workflow_drift so drift rows carry the real rejection code
 // and rendered message instead of doctor reconstructing a fixed string.
-const SchemaVersion = "2026-05-31-workflow-drift-error-code"
+//
+// 2026-06-01-structural-subunit-addressing: adds the nodes.content_hash
+// column (current content fingerprint of a sub-unit). Sub-unit ids become
+// structural addresses; a full rebuild from source recomputes them.
+const SchemaVersion = "2026-06-01-structural-subunit-addressing"
 
 // MetaSchemaVersionKey is the key under which SchemaVersion is stored
 // in the meta table. The value lives next to other workspace-scoped
