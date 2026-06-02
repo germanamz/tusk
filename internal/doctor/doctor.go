@@ -542,8 +542,22 @@ func formatRef(row index.PropertyDriftRow) string {
 	}
 }
 
-// findNoChunkNodes returns an Issue for every indexed node that has no
-// embedding rows and is not pending in the embed queue.
+// isEmbeddableSubUnit reports whether a sub-unit node-type is embedded. Section
+// sub-units are aggregated from their descendants at query time and are never
+// embedded, so they must not be flagged as missing embeddings (#513).
+func isEmbeddableSubUnit(typeName string) bool {
+	switch typeName {
+	case "paragraph", "list-item", "code-block", "blockquote", "table-cell":
+		return true
+	default:
+		return false
+	}
+}
+
+// findNoChunkNodes returns an Issue for every indexed node that should have an
+// embedding but has none and is not pending. File rows are always checked;
+// sub-unit rows are checked only when their kind is embeddable (sections are
+// skipped — they are aggregated, not embedded).
 func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, queue *index.EmbedQueueRepo) ([]Issue, error) {
 	indexed, listErr := nodes.List(index.ListFilter{})
 
@@ -580,6 +594,12 @@ func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, qu
 	var issues []Issue
 
 	for _, row := range indexed {
+		// Sub-unit rows with a non-embeddable kind (sections) are never
+		// embedded by design — skip them so they aren't false positives.
+		if row.ParentID.Valid && !isEmbeddableSubUnit(row.Type) {
+			continue
+		}
+
 		if _, embedded := embeddedSet[row.ID]; embedded {
 			continue
 		}
