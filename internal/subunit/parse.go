@@ -28,14 +28,6 @@ var markdownParser = goldmark.New(
 	),
 )
 
-// sectionFrame is the section stack entry used by Parse to track the
-// open heading hierarchy during a single document walk.
-type sectionFrame struct {
-	level int
-	hash  string
-	index int
-}
-
 // Parse converts the supplied markdown source into a deterministic
 // flat list of sub-units. The returned slice is ordered by
 // depth-first AST traversal; Ordinal mirrors the slice index.
@@ -47,30 +39,27 @@ func Parse(source []byte) ([]Unit, error) {
 
 	var units []Unit
 
-	// Section stack: each entry is the closest open section at
-	// that depth. The top is the deepest open section.
-	sectionStack := []sectionFrame{}
+	// ctx threads the section stack and per-section address counters
+	// through the walk.
+	ctx := newWalkCtx()
 
-	// parentHash returns the hash of the deepest open section, or
-	// "" if none. Stable while we build the slice because section
-	// hashes are computed at emit time.
-	parentHash := func() string {
-		if len(sectionStack) == 0 {
-			return ""
-		}
-		return sectionStack[len(sectionStack)-1].hash
-	}
-
-	// emit appends a unit, assigns its ordinal, computes its hash,
-	// and returns its slice index.
+	// emit appends a unit, assigns its ordinal, parent links, hashes, and
+	// structural address, then returns its slice index. Sections and table
+	// cells pre-set Address before calling emit; other leaves get their
+	// address from the deepest frame's per-kind counter here.
 	emit := func(unit Unit) int {
 		unit.Ordinal = len(units)
-		unit.ParentHash = parentHash()
+		unit.ParentHash = ctx.currentHash()
+		unit.ParentAddress = ctx.currentAddress()
 		if unit.EmbedPayload == "" {
 			unit.EmbedPayload = unit.Text
 		}
 		unit.Title = makeTitle(unit.Text)
 		unit.Hash = ComputeHash(unit)
+		unit.ContentHash = contentHashFor(unit)
+		if unit.Address == "" {
+			unit.Address = ctx.leafAddress(unit.Kind)
+		}
 		units = append(units, unit)
 		return unit.Ordinal
 	}
@@ -79,7 +68,7 @@ func Parse(source []byte) ([]Unit, error) {
 	// dispatch on kind ourselves so we can flatten blockquotes,
 	// skip table containers, etc.
 	for child := doc.FirstChild(); child != nil; child = child.NextSibling() {
-		walkBlock(source, child, &sectionStack, &units, emit)
+		walkBlock(source, child, ctx, &units, emit)
 	}
 
 	units = ResolveCollisions(units)
@@ -93,7 +82,7 @@ func Parse(source []byte) ([]Unit, error) {
 func walkBlock(
 	source []byte,
 	block ast.Node,
-	sectionStack *[]sectionFrame,
+	ctx *WalkCtx,
 	units *[]Unit,
 	emit func(Unit) int,
 ) {
@@ -101,9 +90,9 @@ func walkBlock(
 	case *ast.Heading:
 		// Close any sections at or deeper than this heading
 		// level so the new section nests correctly.
-		for len(*sectionStack) > 0 && (*sectionStack)[len(*sectionStack)-1].level >= typed.Level {
-			*sectionStack = (*sectionStack)[:len(*sectionStack)-1]
-		}
+		ctx.closeToLevel(typed.Level)
+
+		addr := ctx.openSectionAddress()
 
 		headingText := normalizedText(source, typed)
 		bodyText := sectionBodyText(source, typed)
@@ -113,18 +102,15 @@ func walkBlock(
 		}
 
 		idx := emit(Unit{
-			Kind: KindSection,
-			Text: fullText,
+			Kind:    KindSection,
+			Address: addr,
+			Text:    fullText,
 			Properties: map[string]any{
 				"heading-level": typed.Level,
 			},
 		})
 
-		*sectionStack = append(*sectionStack, sectionFrame{
-			level: typed.Level,
-			hash:  (*units)[idx].Hash,
-			index: idx,
-		})
+		ctx.push(typed.Level, (*units)[idx].Hash, addr)
 
 	case *ast.Paragraph:
 		emit(Unit{
@@ -154,7 +140,7 @@ func walkBlock(
 		// branch.
 		for li := typed.FirstChild(); li != nil; li = li.NextSibling() {
 			if item, ok := li.(*ast.ListItem); ok {
-				walkListItem(source, item, sectionStack, units, emit)
+				walkListItem(source, item, ctx, units, emit)
 			}
 		}
 
@@ -186,7 +172,7 @@ func walkBlock(
 		})
 
 	case *extast.Table:
-		walkTable(source, typed, emit)
+		walkTable(source, typed, ctx, emit)
 
 	case *ast.ThematicBreak, *ast.HTMLBlock:
 		// Horizontal rules and raw HTML blocks do not emit
@@ -208,7 +194,7 @@ func walkBlock(
 func walkListItem(
 	source []byte,
 	item *ast.ListItem,
-	sectionStack *[]sectionFrame,
+	ctx *WalkCtx,
 	units *[]Unit,
 	emit func(Unit) int,
 ) {
@@ -234,7 +220,7 @@ func walkListItem(
 	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
 		switch child.(type) {
 		case *ast.List, *ast.FencedCodeBlock, *ast.CodeBlock, *ast.Blockquote:
-			walkBlock(source, child, sectionStack, units, emit)
+			walkBlock(source, child, ctx, units, emit)
 		}
 	}
 }
@@ -245,8 +231,14 @@ func walkListItem(
 func walkTable(
 	source []byte,
 	tbl *extast.Table,
+	ctx *WalkCtx,
 	emit func(Unit) int,
 ) {
+	// One table index per table within the enclosing section; cells
+	// address as <path>T<k>R<row>C<col>.
+	tableIdx := ctx.nextTableIndex()
+	path := ctx.currentAddress()
+
 	// First pass: collect the header cells so body rows can look
 	// up their column-header by index.
 	var headers []string
@@ -264,8 +256,9 @@ func walkTable(
 				txt := normalizedText(source, tc)
 				headers = append(headers, txt)
 				emit(Unit{
-					Kind: KindTableCell,
-					Text: txt,
+					Kind:    KindTableCell,
+					Address: tableCellAddress(path, tableIdx, rowIndex, col),
+					Text:    txt,
 					Properties: map[string]any{
 						"header":        true,
 						"row":           rowIndex,
@@ -295,6 +288,7 @@ func walkTable(
 				}
 				emit(Unit{
 					Kind:         KindTableCell,
+					Address:      tableCellAddress(path, tableIdx, rowIndex, col),
 					Text:         txt,
 					EmbedPayload: payload,
 					Properties: map[string]any{
