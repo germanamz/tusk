@@ -71,7 +71,7 @@ func Parse(source []byte) ([]Unit, error) {
 		walkBlock(source, child, ctx, &units, emit)
 	}
 
-	units = ResolveCollisions(units)
+	units = disambiguateFallbackIDs(units)
 
 	return units, nil
 }

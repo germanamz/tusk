@@ -85,98 +85,36 @@ func TestComputeHash_TableCellPropertiesAffectHash(test *testing.T) {
 	}
 }
 
-func TestResolveCollisions_TwoCollisions(test *testing.T) {
-	units := []Unit{
-		{Hash: "aaaaaaaaaaaa", Ordinal: 0},
-		{Hash: "bbbbbbbbbbbb", Ordinal: 1},
-		{Hash: "aaaaaaaaaaaa", Ordinal: 2},
+func TestDisambiguateFallbackIDs_NoSuffixForAddressedUnits(test *testing.T) {
+	// Two list items with identical text get distinct positional addresses
+	// (L1, L2) and must NOT receive a -N hash suffix.
+	units, err := Parse([]byte("- dup\n- dup\n"))
+	if err != nil {
+		test.Fatal(err)
 	}
-	ResolveCollisions(units)
 
-	if units[0].Hash != "aaaaaaaaaaaa" {
-		test.Errorf("[0] should keep bare hash, got %q", units[0].Hash)
-	}
-	if units[1].Hash != "bbbbbbbbbbbb" {
-		test.Errorf("[1] unique hash should not change, got %q", units[1].Hash)
-	}
-	if units[2].Hash != "aaaaaaaaaaaa-1" {
-		test.Errorf("[2] want %q, got %q", "aaaaaaaaaaaa-1", units[2].Hash)
-	}
-}
-
-func TestResolveCollisions_ThreeCollisions(test *testing.T) {
-	units := []Unit{
-		{Hash: "ffffffffffff", Ordinal: 0},
-		{Hash: "ffffffffffff", Ordinal: 1},
-		{Hash: "ffffffffffff", Ordinal: 2},
-	}
-	ResolveCollisions(units)
-
-	want := []string{"ffffffffffff", "ffffffffffff-1", "ffffffffffff-2"}
-	for i, w := range want {
-		if units[i].Hash != w {
-			test.Errorf("[%d] want %q, got %q", i, w, units[i].Hash)
+	for _, unit := range units {
+		if strings.ContainsRune(unit.Address, '-') {
+			test.Errorf("addressed unit must not carry -N suffix: %q", unit.Address)
 		}
 	}
 }
 
-func TestResolveCollisions_MixedUniqueAndColliding(test *testing.T) {
+func TestDisambiguateFallbackIDs_SuffixesCollidingFallbackHashes(test *testing.T) {
+	// Units with no structural address fall back to their content hash;
+	// later duplicates get -1, -2, …
 	units := []Unit{
-		{Hash: "111111111111", Ordinal: 0},
-		{Hash: "222222222222", Ordinal: 1},
-		{Hash: "111111111111", Ordinal: 2},
-		{Hash: "333333333333", Ordinal: 3},
-		{Hash: "222222222222", Ordinal: 4},
-		{Hash: "111111111111", Ordinal: 5},
+		{Hash: "aaaaaaaaaaaa"},
+		{Hash: "aaaaaaaaaaaa"},
+		{Hash: "aaaaaaaaaaaa"},
 	}
-	ResolveCollisions(units)
 
-	want := []string{
-		"111111111111",
-		"222222222222",
-		"111111111111-1",
-		"333333333333",
-		"222222222222-1",
-		"111111111111-2",
-	}
-	for i, w := range want {
-		if units[i].Hash != w {
-			test.Errorf("[%d] want %q, got %q", i, w, units[i].Hash)
+	disambiguateFallbackIDs(units)
+
+	want := []string{"aaaaaaaaaaaa", "aaaaaaaaaaaa-1", "aaaaaaaaaaaa-2"}
+	for idx, expected := range want {
+		if units[idx].Hash != expected {
+			test.Errorf("[%d] want %q, got %q", idx, expected, units[idx].Hash)
 		}
-	}
-}
-
-func TestResolveCollisions_OrderingByOrdinalNotSliceIndex(test *testing.T) {
-	// Three colliding entries inserted in reverse ordinal order.
-	units := []Unit{
-		{Hash: "xxxxxxxxxxxx", Ordinal: 5},
-		{Hash: "xxxxxxxxxxxx", Ordinal: 3},
-		{Hash: "xxxxxxxxxxxx", Ordinal: 1},
-	}
-	ResolveCollisions(units)
-
-	// The lowest-ordinal entry (Ordinal=1) gets the bare hash.
-	// Find by ordinal and verify.
-	byOrdinal := map[int]string{}
-	for _, u := range units {
-		byOrdinal[u.Ordinal] = u.Hash
-	}
-
-	if byOrdinal[1] != "xxxxxxxxxxxx" {
-		test.Errorf("Ordinal=1 should keep bare hash, got %q", byOrdinal[1])
-	}
-	if byOrdinal[3] != "xxxxxxxxxxxx-1" {
-		test.Errorf("Ordinal=3 should be -1, got %q", byOrdinal[3])
-	}
-	if byOrdinal[5] != "xxxxxxxxxxxx-2" {
-		test.Errorf("Ordinal=5 should be -2, got %q", byOrdinal[5])
-	}
-}
-
-func TestResolveCollisions_NoOpForSingleUnit(test *testing.T) {
-	units := []Unit{{Hash: "abcabcabcabc", Ordinal: 0}}
-	ResolveCollisions(units)
-	if units[0].Hash != "abcabcabcabc" {
-		test.Errorf("single unit should not get suffix, got %q", units[0].Hash)
 	}
 }
