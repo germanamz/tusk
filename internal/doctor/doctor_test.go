@@ -1033,17 +1033,20 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 		{ID: "notes/n#aaaa", Type: "section", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 0, Valid: true},
 			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
+		// Two leaves with the SAME content_hash — one deduped group.
 		{ID: "notes/n#bbbb", Type: "paragraph", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 1, Valid: true},
-			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
+			EmbedPayload: sql.NullString{String: "tiny", Valid: true},
+			ContentHash:  sql.NullString{String: "dupcontent", Valid: true}},
 		{ID: "notes/n#cccc", Type: "list-item", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 2, Valid: true},
-			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
-		// Disambiguation-suffix row: id ends in `-1`. Should be counted
-		// as a hash collision.
-		{ID: "notes/n#dddd-1", Type: "paragraph", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
+			EmbedPayload: sql.NullString{String: "tiny", Valid: true},
+			ContentHash:  sql.NullString{String: "dupcontent", Valid: true}},
+		// A distinct-content paragraph (own content_hash → not deduped).
+		{ID: "notes/n#dddd", Type: "paragraph", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 3, Valid: true},
-			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
+			EmbedPayload: sql.NullString{String: "unique", Valid: true},
+			ContentHash:  sql.NullString{String: "uniquecontent", Valid: true}},
 		// Oversize embed payload (> embed.DefaultMaxBytes).
 		{ID: "notes/n#eeee", Type: "code-block", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 4, Valid: true},
@@ -1062,15 +1065,6 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 
 	if enqErr := queue.Enqueue("notes/n#cccc"); enqErr != nil {
 		test.Fatalf("enqueue sub-unit: %v", enqErr)
-	}
-
-	// File ID that ends in `-2` to assert the collision GLOB doesn't
-	// false-positive. We don't enqueue this one; just create it.
-	if upsertErr := nodes.Upsert(index.NodeRow{
-		ID: "notes/foo-2", Type: "note", Path: "notes/foo-2.md", Title: "Foo2",
-		PropertiesJSON: "{}", LastChecksum: "x",
-	}); upsertErr != nil {
-		test.Fatalf("upsert sibling: %v", upsertErr)
 	}
 
 	report, runErr := doctor.Run(doctor.Config{
@@ -1101,8 +1095,8 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 		}
 	}
 
-	if pane.HashCollisions != 1 {
-		test.Errorf("HashCollisions = %d, want 1", pane.HashCollisions)
+	if pane.DedupedSubUnits != 1 {
+		test.Errorf("DedupedSubUnits = %d, want 1", pane.DedupedSubUnits)
 	}
 
 	if pane.OrphanedSubUnits != 0 {

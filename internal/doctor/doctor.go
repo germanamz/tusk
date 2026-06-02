@@ -134,12 +134,11 @@ type SubUnitPane struct {
 	// Keys are the subunit.Kind string values: "section", "paragraph",
 	// "list-item", "code-block", "blockquote", "table-cell".
 	CountByKind map[string]int
-	// HashCollisions counts sub-unit rows whose id carries a
-	// disambiguating numeric suffix (`<fileID>#<hash>-<N>` with N > 0)
-	// — i.e., the parser's ResolveCollisions had to suffix the row to
-	// keep the id unique within the file. A high count signals
-	// duplicate-content paragraphs the embedder cannot distinguish.
-	HashCollisions int
+	// DedupedSubUnits counts content_hash values shared by two or more
+	// sub-unit rows — groups of duplicate-content leaves that the
+	// content-addressed embedding store collapses to a single shared
+	// vector. Informational: a high count just means repeated content.
+	DedupedSubUnits int
 	// OrphanedSubUnits counts rows whose parent_id does not resolve to
 	// a node row. Should always be zero (FK CASCADE), surfaced only
 	// when > 0 as a "this indicates a bug" warning.
@@ -406,13 +405,13 @@ func computeSubUnitPane(config Config) (*SubUnitPane, error) {
 
 	pane.CountByKind = byKind
 
-	collisions, collisionErr := config.Nodes.CountSubUnitHashCollisions()
+	deduped, dedupedErr := config.Nodes.CountDedupedSubUnits()
 
-	if collisionErr != nil {
-		return nil, collisionErr
+	if dedupedErr != nil {
+		return nil, dedupedErr
 	}
 
-	pane.HashCollisions = collisions
+	pane.DedupedSubUnits = deduped
 
 	orphans, orphanErr := config.Nodes.CountOrphanedSubUnits()
 

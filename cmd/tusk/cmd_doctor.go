@@ -58,7 +58,7 @@ func renderSubUnitPane(out io.Writer, pane *doctor.SubUnitPane) {
 		}
 	}
 
-	_, _ = fmt.Fprintf(out, "  hash collisions       %d\n", pane.HashCollisions)
+	_, _ = fmt.Fprintf(out, "  deduped sub-units     %d\n", pane.DedupedSubUnits)
 	_, _ = fmt.Fprintf(out, "  orphans               %d\n", pane.OrphanedSubUnits)
 	_, _ = fmt.Fprintf(out, "  queue (files)         %d\n", pane.EmbedQueueFiles)
 	_, _ = fmt.Fprintf(out, "  queue (sub-units)     %d\n", pane.EmbedQueueSubUnits)
@@ -119,7 +119,7 @@ Doctor reports:
     manifest declaration).
   * Dangling edges (edges whose target node no longer exists).
   * Embedding queue depth and last-reindex timestamp.
-  * Sub-unit pane: per-kind counts, hash collisions, oversize payloads.
+  * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
   * Graph-expansion pane: the resolved [query.graph-expansion] settings,
     unknown edge types referenced from the block, and a no-op warning
     when the feature is enabled with weight=0.
