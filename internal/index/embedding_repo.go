@@ -114,6 +114,28 @@ func (repo *EmbeddingRepo) MapNodeChunk(nodeID string, chunkIdx int, contentHash
 	return upsertMapping(repo.db, nodeID, chunkIdx, contentHash, model)
 }
 
+// GCOrphanVectors deletes shared vectors that no node mapping references, and
+// returns the number removed. Callers MUST serialize this with drain: run it
+// only when the embed queue is drained (and under the workspace lock) so a
+// vector isn't reclaimed out from under an in-flight mapping write.
+func (repo *EmbeddingRepo) GCOrphanVectors() (int, error) {
+	result, execErr := repo.db.Exec(`
+		DELETE FROM embeddings
+		WHERE NOT EXISTS (
+			SELECT 1 FROM node_embeddings ne
+			WHERE ne.content_hash = embeddings.content_hash AND ne.model = embeddings.model
+		)
+	`)
+
+	if execErr != nil {
+		return 0, fmt.Errorf("embeddingRepo: gc orphans: %w", execErr)
+	}
+
+	removed, _ := result.RowsAffected()
+
+	return int(removed), nil
+}
+
 // upsertMapping writes (or replaces) the node→content mapping for one chunk.
 func upsertMapping(exec sqlExecer, nodeID string, chunkIdx int, contentHash, model string) error {
 	if _, execErr := exec.Exec(`
