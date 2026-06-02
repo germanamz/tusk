@@ -180,7 +180,7 @@ func contains(haystack []string, needle string) bool {
 // added in the P2 migration actually cascade when a node row is
 // deleted. The PRAGMA foreign_keys = ON setting in Open is load-bearing
 // here — if it slips off, the FKs silently no-op.
-func TestOpen_CascadeDeleteEdgesAndEmbeddings(test *testing.T) {
+func TestOpen_CascadeDeleteEdgesAndEmbeddingMappings(test *testing.T) {
 	dbPath := filepath.Join(test.TempDir(), "index.db")
 
 	idx, openErr := index.Open(dbPath)
@@ -209,10 +209,17 @@ func TestOpen_CascadeDeleteEdgesAndEmbeddings(test *testing.T) {
 	}
 
 	if _, execErr := idx.DB().Exec(`
-		INSERT INTO embeddings (node_id, chunk_idx, model, content_hash, vector, dim, body)
-		VALUES ('src', 0, 'm', 'h', x'00000000', 1, 'b');
+		INSERT INTO embeddings (content_hash, model, vector, dim, body)
+		VALUES ('h', 'm', x'00000000', 1, 'b');
 	`); execErr != nil {
 		test.Fatalf("seed embedding: %v", execErr)
+	}
+
+	if _, execErr := idx.DB().Exec(`
+		INSERT INTO node_embeddings (node_id, chunk_idx, content_hash, model)
+		VALUES ('src', 0, 'h', 'm');
+	`); execErr != nil {
+		test.Fatalf("seed node_embedding mapping: %v", execErr)
 	}
 
 	if _, execErr := idx.DB().Exec(`DELETE FROM nodes WHERE id = 'src'`); execErr != nil {
@@ -229,13 +236,25 @@ func TestOpen_CascadeDeleteEdgesAndEmbeddings(test *testing.T) {
 		test.Errorf("expected cascade-delete to remove edges; remaining = %d", edgeCount)
 	}
 
-	var embedCount int
+	var mapCount int
 
-	if scanErr := idx.DB().QueryRow(`SELECT COUNT(*) FROM embeddings WHERE node_id = 'src'`).Scan(&embedCount); scanErr != nil {
+	if scanErr := idx.DB().QueryRow(`SELECT COUNT(*) FROM node_embeddings WHERE node_id = 'src'`).Scan(&mapCount); scanErr != nil {
+		test.Fatalf("count node_embeddings: %v", scanErr)
+	}
+
+	if mapCount != 0 {
+		test.Errorf("expected cascade-delete to remove node_embeddings mappings; remaining = %d", mapCount)
+	}
+
+	// The shared vector is content-scoped: it survives node deletion and is
+	// reclaimed by GCOrphanVectors, not by the FK cascade.
+	var vecCount int
+
+	if scanErr := idx.DB().QueryRow(`SELECT COUNT(*) FROM embeddings WHERE content_hash = 'h'`).Scan(&vecCount); scanErr != nil {
 		test.Fatalf("count embeddings: %v", scanErr)
 	}
 
-	if embedCount != 0 {
-		test.Errorf("expected cascade-delete to remove embeddings; remaining = %d", embedCount)
+	if vecCount != 1 {
+		test.Errorf("expected shared vector to survive cascade; remaining = %d", vecCount)
 	}
 }

@@ -68,20 +68,33 @@ CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path);
 CREATE INDEX IF NOT EXISTS edges_source_type_idx ON edges(source, type);
 CREATE INDEX IF NOT EXISTS edges_kind_idx        ON edges(kind);
 
+-- embeddings is the content-addressed vector store: one row per unique
+-- (content_hash, model). Many node-chunks can reference the same vector via
+-- node_embeddings, so identical content is embedded once and shared. There is
+-- no node_id here; vector lifetime is content-scoped and orphans are GC'd when
+-- no mapping references a content_hash (see EmbeddingRepo.GCOrphanVectors).
 CREATE TABLE IF NOT EXISTS embeddings (
-	id           INTEGER PRIMARY KEY AUTOINCREMENT,
-	node_id      TEXT NOT NULL,
-	chunk_idx    INTEGER NOT NULL DEFAULT 0,
-	model        TEXT NOT NULL,
 	content_hash TEXT NOT NULL,
+	model        TEXT NOT NULL,
 	vector       BLOB NOT NULL,
 	dim          INTEGER NOT NULL,
 	body         TEXT NOT NULL DEFAULT '',
-	FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
-	UNIQUE(node_id, chunk_idx)
+	PRIMARY KEY (content_hash, model)
 );
 
-CREATE INDEX IF NOT EXISTS embeddings_node_idx ON embeddings(node_id);
+-- node_embeddings maps each embedded node-chunk to its shared vector. Sub-unit
+-- rows have exactly one mapping (chunk_idx 0); file rows have one per chunk.
+-- The FK cascades mappings away when a node is deleted.
+CREATE TABLE IF NOT EXISTS node_embeddings (
+	node_id      TEXT NOT NULL,
+	chunk_idx    INTEGER NOT NULL DEFAULT 0,
+	content_hash TEXT NOT NULL,
+	model        TEXT NOT NULL,
+	PRIMARY KEY (node_id, chunk_idx),
+	FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS node_embeddings_hash_idx ON node_embeddings(content_hash);
 
 CREATE TABLE IF NOT EXISTS embed_queue (
 	node_id              TEXT PRIMARY KEY,
