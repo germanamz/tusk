@@ -32,7 +32,12 @@ Worker pool: the embed/reindex pool size resolves from TUSK_EMBED_WORKERS,
 then [embeddings] workers in tusk.toml, then max(1, NumCPU/2). Setting
 the pool size to 0 opts out: this invocation walks and enqueues but does
 not drain — another instance (or a later tusk reindex run) must drain
-the queue.`,
+the queue.
+
+Sub-unit addresses: each markdown sub-unit is indexed under a structural
+address appended to the file id, e.g. notes/doc#S1.2P3. Editing prose in place
+keeps a unit's address and re-embeds only the changed content; restructuring
+shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 		Example: `  # Catch the index up with disk
   tusk reindex
 
