@@ -25,6 +25,12 @@ Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
 index back into the source node's markdown frontmatter — pass --no-migrate
 for a diagnostic-only run.
 
+Sub-unit addresses: sub-units are indexed under structural addresses appended
+to the file id, e.g. notes/doc#S1.2P3. The "deduped sub-units" count is the
+number of content groups shared by two or more sub-units (embedded once, then
+shared). Sections are aggregated from their descendants, never embedded, so
+they are not flagged as missing embeddings.
+
 ```
 tusk doctor [flags]
 ```

@@ -7,7 +7,7 @@ status: stable
 
 # internal/index
 
-SQLite-backed index. Owns the schema (nodes, edges, embeddings, embed_queue, workflow_drift, property_drift, meta) and the per-table repos. Opens the DB with `_journal_mode=WAL` and `_busy_timeout=5000` so reindex, watcher, and MCP tool calls can share the file safely.
+SQLite-backed index. Owns the schema (nodes, edges, embeddings, node_embeddings, embed_queue, workflow_drift, property_drift, meta) and the per-table repos. Sub-unit `nodes` rows carry a structural-address id (`<fileID>#S1.2P3`) and a `content_hash`; vectors are content-addressed — `embeddings` is keyed by `(content_hash, model)` and `node_embeddings` maps each node-chunk to its shared vector. Opens the DB with `_journal_mode=WAL` and `_busy_timeout=5000` so reindex, watcher, and MCP tool calls can share the file safely.
 
 ## Public surface
 

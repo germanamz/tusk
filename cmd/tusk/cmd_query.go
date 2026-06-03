@@ -68,7 +68,12 @@ results, --skip M to paginate. Use --include to expand each row with
 body, edges, or properties (comma-separated; for semantic results body
 is the best-matching chunk). Use --fields to project the rendered shape.
 Use --format to pick compact or JSON output (default: compact for TTY,
-JSON otherwise); --json is sugar for --format json.`,
+JSON otherwise); --json is sugar for --format json.
+
+Sub-unit addresses: a sub-unit's id appends a structural address to the file
+id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
+(a table cell). Addresses stay stable under in-place edits and shift only when
+the document is restructured.`,
 		Example: `  # Structural: all priority-1 tickets touched in the last week
   tusk query 'type=ticket AND priority=1 AND modified-since:7d'
 

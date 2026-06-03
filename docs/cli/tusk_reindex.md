@@ -24,6 +24,11 @@ the pool size to 0 opts out: this invocation walks and enqueues but does
 not drain — another instance (or a later tusk reindex run) must drain
 the queue.
 
+Sub-unit addresses: each markdown sub-unit is indexed under a structural
+address appended to the file id, e.g. notes/doc#S1.2P3. Editing prose in place
+keeps a unit's address and re-embeds only the changed content; restructuring
+shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.
+
 ```
 tusk reindex [flags]
 ```
