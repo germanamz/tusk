@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.0](https://github.com/germanamz/tusk/compare/v1.7.3...v1.8.0) (2026-06-03)
+
+
+### Features
+
+* **index:** content-addressed embeddings, no re-embed on restructure (phase 3/5) ([#517](https://github.com/germanamz/tusk/issues/517)) ([9d21272](https://github.com/germanamz/tusk/commit/9d2127265fe95f0e74f5a4fbf3f21a1b97fcca8c))
+* **subunit:** compute structural sub-unit addresses in parser (phase 1/5) ([#514](https://github.com/germanamz/tusk/issues/514)) ([68622e8](https://github.com/germanamz/tusk/commit/68622e8f18fd6e46a0b13a14bc011e3e6478d2da))
+* **subunit:** flip sub-unit identity to structural addresses (phase 2/5) ([#516](https://github.com/germanamz/tusk/issues/516)) ([42fa87f](https://github.com/germanamz/tusk/commit/42fa87fbfe34f1857750a06728e6cf8c9a28627f))
+
+
+### Bug Fixes
+
+* **doctor:** close [#513](https://github.com/germanamz/tusk/issues/513) — stop flagging never-embedded sections (phase 4/5) ([#518](https://github.com/germanamz/tusk/issues/518)) ([ac78aa4](https://github.com/germanamz/tusk/commit/ac78aa4bc92c6d6dd35843e0cb5d85b072cd7baa))
+
 ## [1.7.3](https://github.com/germanamz/tusk/compare/v1.7.2...v1.7.3) (2026-06-01)
 
 
