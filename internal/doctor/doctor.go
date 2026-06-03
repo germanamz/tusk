@@ -134,12 +134,11 @@ type SubUnitPane struct {
 	// Keys are the subunit.Kind string values: "section", "paragraph",
 	// "list-item", "code-block", "blockquote", "table-cell".
 	CountByKind map[string]int
-	// HashCollisions counts sub-unit rows whose id carries a
-	// disambiguating numeric suffix (`<fileID>#<hash>-<N>` with N > 0)
-	// — i.e., the parser's ResolveCollisions had to suffix the row to
-	// keep the id unique within the file. A high count signals
-	// duplicate-content paragraphs the embedder cannot distinguish.
-	HashCollisions int
+	// DedupedSubUnits counts content_hash values shared by two or more
+	// sub-unit rows — groups of duplicate-content leaves that the
+	// content-addressed embedding store collapses to a single shared
+	// vector. Informational: a high count just means repeated content.
+	DedupedSubUnits int
 	// OrphanedSubUnits counts rows whose parent_id does not resolve to
 	// a node row. Should always be zero (FK CASCADE), surfaced only
 	// when > 0 as a "this indicates a bug" warning.
@@ -406,13 +405,13 @@ func computeSubUnitPane(config Config) (*SubUnitPane, error) {
 
 	pane.CountByKind = byKind
 
-	collisions, collisionErr := config.Nodes.CountSubUnitHashCollisions()
+	deduped, dedupedErr := config.Nodes.CountDedupedSubUnits()
 
-	if collisionErr != nil {
-		return nil, collisionErr
+	if dedupedErr != nil {
+		return nil, dedupedErr
 	}
 
-	pane.HashCollisions = collisions
+	pane.DedupedSubUnits = deduped
 
 	orphans, orphanErr := config.Nodes.CountOrphanedSubUnits()
 
@@ -542,8 +541,22 @@ func formatRef(row index.PropertyDriftRow) string {
 	}
 }
 
-// findNoChunkNodes returns an Issue for every indexed node that has no
-// embedding rows and is not pending in the embed queue.
+// isEmbeddableSubUnit reports whether a sub-unit node-type is embedded. Section
+// sub-units are aggregated from their descendants at query time and are never
+// embedded, so they must not be flagged as missing embeddings (#513).
+func isEmbeddableSubUnit(typeName string) bool {
+	switch typeName {
+	case "paragraph", "list-item", "code-block", "blockquote", "table-cell":
+		return true
+	default:
+		return false
+	}
+}
+
+// findNoChunkNodes returns an Issue for every indexed node that should have an
+// embedding but has none and is not pending. File rows are always checked;
+// sub-unit rows are checked only when their kind is embeddable (sections are
+// skipped — they are aggregated, not embedded).
 func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, queue *index.EmbedQueueRepo) ([]Issue, error) {
 	indexed, listErr := nodes.List(index.ListFilter{})
 
@@ -580,6 +593,12 @@ func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, qu
 	var issues []Issue
 
 	for _, row := range indexed {
+		// Sub-unit rows with a non-embeddable kind (sections) are never
+		// embedded by design — skip them so they aren't false positives.
+		if row.ParentID.Valid && !isEmbeddableSubUnit(row.Type) {
+			continue
+		}
+
 		if _, embedded := embeddedSet[row.ID]; embedded {
 			continue
 		}

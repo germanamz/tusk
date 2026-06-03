@@ -900,7 +900,7 @@ func registerDoctorTool(srv *Server) {
 			response["sub_units"] = map[string]any{
 				"total":                   pane.Total,
 				"count_by_kind":           byKind,
-				"hash_collisions":         pane.HashCollisions,
+				"deduped_sub_units":       pane.DedupedSubUnits,
 				"orphaned_sub_units":      pane.OrphanedSubUnits,
 				"embed_queue_files":       pane.EmbedQueueFiles,
 				"embed_queue_sub_units":   pane.EmbedQueueSubUnits,

@@ -16,7 +16,7 @@ Doctor reports:
     manifest declaration).
   * Dangling edges (edges whose target node no longer exists).
   * Embedding queue depth and last-reindex timestamp.
-  * Sub-unit pane: per-kind counts, hash collisions, oversize payloads.
+  * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
   * Graph-expansion pane: the resolved [query.graph-expansion] settings,
     unknown edge types referenced from the block, and a no-op warning
     when the feature is enabled with weight=0.

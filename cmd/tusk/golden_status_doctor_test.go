@@ -119,7 +119,7 @@ const goldenDoctorClean = "doctor: no issues\n" +
 	"reindex queue depth: 0\n" +
 	"sub-units:\n" +
 	"  total                 0\n" +
-	"  hash collisions       0\n" +
+	"  deduped sub-units     0\n" +
 	"  orphans               0\n" +
 	"  queue (files)         0\n" +
 	"  queue (sub-units)     0\n" +

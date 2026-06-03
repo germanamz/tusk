@@ -392,20 +392,23 @@ func (repo *NodeRepo) CountSubUnitsByKind() (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// CountSubUnitHashCollisions returns the number of sub-unit rows whose
-// id carries a disambiguating numeric suffix produced by the parser's
-// ResolveCollisions pass — the pattern `<fileID>#<hash>-<N>` with
-// `N > 0`. The GLOB requires one-or-more digits after the trailing `-`
-// so file ids that happen to end in `-<digit>` (e.g. `notes/foo-2`) are
-// not counted (the leading `*#*` enforces the sub-unit shape) and
-// suffixes ≥10 are included.
-func (repo *NodeRepo) CountSubUnitHashCollisions() (int, error) {
+// CountDedupedSubUnits returns the number of content_hash values shared by two
+// or more sub-unit rows — i.e. groups of duplicate-content leaves that the
+// content-addressed embedding store collapses to a single shared vector. A
+// high count is informational (lots of repeated content), not a problem.
+func (repo *NodeRepo) CountDedupedSubUnits() (int, error) {
 	var count int
 
-	if scanErr := repo.db.QueryRow(
-		`SELECT COUNT(*) FROM nodes WHERE kind = 'subunit' AND id GLOB '*#*-[0-9]*'`,
-	).Scan(&count); scanErr != nil {
-		return 0, fmt.Errorf("nodeRepo: count sub-unit hash collisions: %w", scanErr)
+	if scanErr := repo.db.QueryRow(`
+		SELECT COUNT(*) FROM (
+			SELECT content_hash
+			FROM nodes
+			WHERE kind = 'subunit' AND content_hash IS NOT NULL
+			GROUP BY content_hash
+			HAVING COUNT(*) > 1
+		)
+	`).Scan(&count); scanErr != nil {
+		return 0, fmt.Errorf("nodeRepo: count deduped sub-units: %w", scanErr)
 	}
 
 	return count, nil

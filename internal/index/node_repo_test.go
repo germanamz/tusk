@@ -112,6 +112,40 @@ func TestNodeRow_ContentHashRoundTrip(test *testing.T) {
 	}
 }
 
+func TestNodeRepo_CountDedupedSubUnits(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	seedNodes(test, store, "notes/f")
+
+	sub := func(id, hash string) index.NodeRow {
+		return index.NodeRow{
+			ID: id, Type: "paragraph", Path: "notes/f.md", PropertiesJSON: "{}", LastChecksum: "x",
+			ParentID:    sql.NullString{String: "notes/f", Valid: true},
+			Ordinal:     sql.NullInt64{Int64: 0, Valid: true},
+			ContentHash: sql.NullString{String: hash, Valid: true},
+		}
+	}
+
+	if upsertErr := repo.BulkUpsert([]index.NodeRow{
+		sub("notes/f#S1P1", "h1"),
+		sub("notes/f#S1P2", "h1"), // duplicate of P1 → one deduped group
+		sub("notes/f#S1P3", "h2"), // unique
+	}); upsertErr != nil {
+		test.Fatalf("BulkUpsert: %v", upsertErr)
+	}
+
+	count, countErr := repo.CountDedupedSubUnits()
+
+	if countErr != nil {
+		test.Fatalf("CountDedupedSubUnits: %v", countErr)
+	}
+
+	if count != 1 {
+		test.Fatalf("deduped groups = %d, want 1", count)
+	}
+}
+
 func TestNodeRepo_UpsertSetsFileKindAndNullSource(test *testing.T) {
 	store := openTestIndex(test)
 	repo := index.NewNodeRepo(store)

@@ -424,6 +424,78 @@ func TestRun_EmbedStatsAndIssues(test *testing.T) {
 	}
 }
 
+func TestRun_EmbedNoChunks_SkipsSectionsFlagsMissingLeaf(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	edges := index.NewEdgeRepo(store)
+	embedQueue := index.NewEmbedQueueRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	// Parent file (embedded so its own row isn't flagged).
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "notes/f", Type: "note", Title: "F", Path: "notes/f.md", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert file: %v", upsertErr)
+	}
+
+	if upsertErr := embeddings.Upsert(index.EmbeddingRow{NodeID: "notes/f", ChunkIdx: 0, Model: "m", ContentHash: "hf", Vector: []float32{0.1}, Dim: 1, Body: "x"}); upsertErr != nil {
+		test.Fatalf("embed file: %v", upsertErr)
+	}
+
+	sub := func(id, typ, hash string) index.NodeRow {
+		return index.NodeRow{
+			ID: id, Type: typ, Title: id, Path: "notes/f.md", PropertiesJSON: "{}", LastChecksum: "x",
+			ParentID:    sql.NullString{String: "notes/f", Valid: true},
+			Ordinal:     sql.NullInt64{Int64: 0, Valid: true},
+			ContentHash: sql.NullString{String: hash, Valid: hash != ""},
+		}
+	}
+
+	if upsertErr := nodes.BulkUpsert([]index.NodeRow{
+		sub("notes/f#S1", "section", ""),          // never embedded → must NOT flag
+		sub("notes/f#S1P1", "paragraph", "hp"),    // embedded below → must NOT flag
+		sub("notes/f#S1P2", "paragraph", "hmiss"), // no embedding, not pending → must flag
+	}); upsertErr != nil {
+		test.Fatalf("bulk upsert subs: %v", upsertErr)
+	}
+
+	if upsertErr := embeddings.Upsert(index.EmbeddingRow{NodeID: "notes/f#S1P1", ChunkIdx: 0, Model: "m", ContentHash: "hp", Vector: []float32{0.2}, Dim: 1, Body: "p"}); upsertErr != nil {
+		test.Fatalf("embed leaf: %v", upsertErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      nodes,
+		Edges:      edges,
+		EmbedQueue: embedQueue,
+		Embeddings: embeddings,
+		Manifest:   &manifest.Manifest{Embeddings: manifest.EmbeddingsSection{Provider: "ollama"}},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	flagged := map[string]bool{}
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueEmbedNoChunks {
+			flagged[issue.NodeID] = true
+		}
+	}
+
+	if flagged["notes/f#S1"] {
+		test.Error("section notes/f#S1 must not be flagged embed-no-chunks (#513)")
+	}
+
+	if flagged["notes/f#S1P1"] {
+		test.Error("embedded leaf notes/f#S1P1 must not be flagged")
+	}
+
+	if !flagged["notes/f#S1P2"] {
+		test.Error("genuinely missing leaf notes/f#S1P2 must still be flagged")
+	}
+}
+
 func TestRun_EmbedStatsNilWithoutEmbeddingsConfig(test *testing.T) {
 	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
 	defer store.Close()
@@ -961,17 +1033,20 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 		{ID: "notes/n#aaaa", Type: "section", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 0, Valid: true},
 			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
+		// Two leaves with the SAME content_hash — one deduped group.
 		{ID: "notes/n#bbbb", Type: "paragraph", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 1, Valid: true},
-			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
+			EmbedPayload: sql.NullString{String: "tiny", Valid: true},
+			ContentHash:  sql.NullString{String: "dupcontent", Valid: true}},
 		{ID: "notes/n#cccc", Type: "list-item", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 2, Valid: true},
-			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
-		// Disambiguation-suffix row: id ends in `-1`. Should be counted
-		// as a hash collision.
-		{ID: "notes/n#dddd-1", Type: "paragraph", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
+			EmbedPayload: sql.NullString{String: "tiny", Valid: true},
+			ContentHash:  sql.NullString{String: "dupcontent", Valid: true}},
+		// A distinct-content paragraph (own content_hash → not deduped).
+		{ID: "notes/n#dddd", Type: "paragraph", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 3, Valid: true},
-			EmbedPayload: sql.NullString{String: "tiny", Valid: true}},
+			EmbedPayload: sql.NullString{String: "unique", Valid: true},
+			ContentHash:  sql.NullString{String: "uniquecontent", Valid: true}},
 		// Oversize embed payload (> embed.DefaultMaxBytes).
 		{ID: "notes/n#eeee", Type: "code-block", Path: "notes/n.md", PropertiesJSON: "{}", LastChecksum: "x",
 			ParentID: parentID, Ordinal: sql.NullInt64{Int64: 4, Valid: true},
@@ -990,15 +1065,6 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 
 	if enqErr := queue.Enqueue("notes/n#cccc"); enqErr != nil {
 		test.Fatalf("enqueue sub-unit: %v", enqErr)
-	}
-
-	// File ID that ends in `-2` to assert the collision GLOB doesn't
-	// false-positive. We don't enqueue this one; just create it.
-	if upsertErr := nodes.Upsert(index.NodeRow{
-		ID: "notes/foo-2", Type: "note", Path: "notes/foo-2.md", Title: "Foo2",
-		PropertiesJSON: "{}", LastChecksum: "x",
-	}); upsertErr != nil {
-		test.Fatalf("upsert sibling: %v", upsertErr)
 	}
 
 	report, runErr := doctor.Run(doctor.Config{
@@ -1029,8 +1095,8 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 		}
 	}
 
-	if pane.HashCollisions != 1 {
-		test.Errorf("HashCollisions = %d, want 1", pane.HashCollisions)
+	if pane.DedupedSubUnits != 1 {
+		test.Errorf("DedupedSubUnits = %d, want 1", pane.DedupedSubUnits)
 	}
 
 	if pane.OrphanedSubUnits != 0 {
