@@ -18,4 +18,4 @@ Semantic-retrieval pipeline. Holds the embed queue (per-node TODO rows in SQLite
 
 ## Notes
 
-Whole-document chunks (not per-paragraph) — keeps the embedding model context within bounds and avoids chunk-stitching at retrieval time. Single embedding provider (Ollama). API-provider fallbacks (OpenAI, Voyage, Anthropic) are §10.5 in the master spec but unbuilt — candidate scope for Plan 8.
+Sub-units embed per-leaf (the AST already chose the semantic boundary); file-level rows (when sub-units are disabled) chunk whole-document via `MarkdownRecursive`. Vectors are **content-addressed**: the `embeddings` table holds one row per `(content_hash, model)`, and the `node_embeddings` junction maps each node-chunk to its shared vector. So identical content embeds once and is shared across nodes, a sub-unit whose address shifts on a restructure reuses its vector with no model call, and vectors no mapping references are GC'd when the embed queue drains. Single embedding provider (Ollama); API-provider fallbacks (OpenAI, Voyage, Anthropic) are §10.5 in the master spec but unbuilt.
