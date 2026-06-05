@@ -380,20 +380,14 @@ tusk doctor     # validation warnings, dangling refs/wikilinks, embed-queue erro
 
 Single Go binary, single SQLite index, single embedding provider (Ollama for now).
 
-```
-┌──────────────────────────────────────────────────────┐
-│ Workspace (markdown + tusk.toml)                     │
-└─────────────────────┬────────────────────────────────┘
-                      │ fs walk / fsnotify
-┌─────────────────────▼────────────────────────────────┐
-│ Engine (cmd/tusk + internal/*)                       │
-│   manifest · node · edge · reindex · filter · embed  │
-│   watcher · behaviors · mcp                          │
-└─────────────────────┬────────────────────────────────┘
-                      │ reads / writes
-┌─────────────────────▼────────────────────────────────┐
-│ .tusk/tusk.db   (SQLite WAL, embeddings table)       │
-└──────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    workspace["Workspace<br/>(markdown + tusk.toml)"]
+    engine["Engine (cmd/tusk + internal/*)<br/>manifest · node · edge · reindex · filter · embed<br/>watcher · behaviors · mcp"]
+    db[(".tusk/tusk.db<br/>SQLite WAL, embeddings table")]
+
+    workspace -->|"fs walk / fsnotify"| engine
+    engine -->|"reads / writes"| db
 ```
 
 - **Filesystem > index, always.** The index is a cache; `rm -rf .tusk/ && tusk reindex` rebuilds it.
