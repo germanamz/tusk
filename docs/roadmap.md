@@ -10,7 +10,7 @@ designs: each graduates into its own
 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` when it's time to
 brainstorm and plan it.
 
-- **Last updated:** 2026-05-17
+- **Last updated:** 2026-06-05
 - **Latest release:** v1.2.0
 - **Closed specs/plans:**
   - v1 ground-up rewrite (shipped through 1.0/1.1) — design folded into [`PRODUCT.md`](../PRODUCT.md); original spec preserved in git history
@@ -20,16 +20,19 @@ brainstorm and plan it.
 ## Forward-looking explorations
 
 Each is independent in execution; the order reflects dependencies and
-risk-adjusted payoff. Items #6 and #7 are smaller ergonomic asks promoted from
-the Superhuman bootstrap session.
+risk-adjusted payoff. Items #1–#3 capture index/manifest lifecycle ergonomics
+and HTML-content support, raised 2026-06-05. Item #9 is a smaller ergonomic ask
+promoted from the Superhuman bootstrap session.
 
-1. [Native-Go embedding models](#1-native-go-embedding-models)
-2. [Indexed checkbox todos in nodes](#2-indexed-checkbox-todos-in-nodes)
-3. [CI-distributed prebuilt indexes](#3-ci-distributed-prebuilt-indexes)
-4. [Paragraph indexing with local summarization](#4-paragraph-indexing-with-local-summarization)
-5. [Distributed indexing](#5-distributed-indexing)
-6. [Composite `tusk_node_attach`](#6-composite-tusk_node_attach)
-7. [Depth-N descendants in one query](#7-depth-n-descendants-in-one-query)
+1. [Index reset and rebuild](#1-index-reset-and-rebuild)
+2. [Hot manifest reload](#2-hot-manifest-reload)
+3. [HTML content AST](#3-html-content-ast)
+4. [Native-Go embedding models](#4-native-go-embedding-models)
+5. [Indexed checkbox todos in nodes](#5-indexed-checkbox-todos-in-nodes)
+6. [CI-distributed prebuilt indexes](#6-ci-distributed-prebuilt-indexes)
+7. [Paragraph indexing with local summarization](#7-paragraph-indexing-with-local-summarization)
+8. [Distributed indexing](#8-distributed-indexing)
+9. [Depth-N descendants in one query](#9-depth-n-descendants-in-one-query)
 
 Below the focus items, the [v1 deferred backlog](#v1-deferred-backlog) lists
 work parked in the v1 spec (§3.2 / §8.2) that's still on the table but
@@ -37,7 +40,104 @@ unscheduled.
 
 ---
 
-## 1. Native-Go embedding models
+## 1. Index reset and rebuild
+
+**Problem.** The blessed recovery move when the index is stale, corrupt, or
+schema-drifted is `rm -rf .tusk/ && tusk reindex` — documented in the README
+architecture notes. But it lives only as shell folklore: there's no first-class
+command, and agents driving Tusk over MCP can't shell out to `rm -rf` at all.
+When an agent suspects a bad index, it has no in-band way to drop and rebuild.
+
+**Why now.** Pure quality-of-life with a real correctness angle — an agent that
+can self-heal a wedged index recovers without a human dropping to a terminal.
+The underlying operation already exists and is safe by design (filesystem is
+authoritative; the index is a cache), so this is mostly surface.
+
+**Sketch.** New command + matching MCP tool that (1) removes the `.tusk/` index
+artifacts (DB + WAL/SHM), (2) triggers a full reindex, and (3) returns the same
+summary `tusk reindex` does. Guard with a confirmation flag on the CLI
+(`--yes`) and make the MCP tool explicit about what it destroys. Keep it
+distinct from `reindex`, which never deletes.
+
+**Open questions.**
+- Naming. Candidates floated: `restart`, `reset`, `rebuild`. `restart` collides
+  conceptually with #2 (manifest reload) and with "restart the server"; `reset`
+  reads closest to the destroy-and-rebuild semantics. Needs brainstorm.
+- Blast radius: drop the whole `.tusk/` directory, or only the index DB +
+  sidecars (preserving any future cached artifacts / config under `.tusk/`)?
+- MCP safety: should the tool require an explicit `confirm: true` arg given it
+  destroys local state?
+
+**Dependencies.** None. Reuses the existing reindex path.
+
+## 2. Hot manifest reload
+
+**Problem.** `tusk.toml` is the schema. Today, editing it to add a node-type or
+edge-type means the long-running `tusk mcp serve` process holds a stale manifest
+until it's restarted — yet the MCP guidance tells agents to "edit ./tusk.toml
+directly … then call tusk_reindex." Reindex re-reads *content*; it isn't a
+contract that the in-memory manifest is reloaded. Agents that evolve the schema
+mid-session have to ask a human to bounce the server.
+
+**Why now.** Removes the one remaining "go restart the daemon" step from the
+agent loop. Schema evolution is a normal part of bootstrapping a workspace, and
+the long-lived MCP server is exactly where the stale-manifest cost is felt.
+
+**Sketch.** New command + matching MCP tool that re-reads `tusk.toml`,
+re-validates it, swaps the in-memory manifest atomically, and reports what
+changed (added/removed node-types, edge-types, behaviors). On validation
+failure, keep the old manifest loaded and return the error. Optionally fold this
+into the watcher so a `tusk.toml` write auto-reloads, with the explicit
+command/tool as the deterministic path for agents.
+
+**Open questions.**
+- Auto-reload via the watcher vs. explicit-only. Auto is ergonomic but a
+  half-saved `tusk.toml` could transiently fail validation; explicit is
+  predictable. Probably ship explicit first, watcher-driven later.
+- Reload vs. reindex interaction: does a schema change that invalidates existing
+  nodes (e.g. a removed node-type) trigger a reindex, or just re-validate and
+  surface conflicts?
+- Concurrency: reloading under the single-writer lock while a reindex is in
+  flight.
+
+**Dependencies.** None blocking. Pairs naturally with #1 (both are
+server-lifecycle ergonomics) but ships independently.
+
+## 3. HTML content AST
+
+**Problem.** Tusk indexes markdown. Content that arrives as HTML — pasted
+fragments, scraped pages, exported docs — is either skipped or indexed as raw
+markup, so the embeddings carry tag soup (`<div class=...>`) instead of the
+prose, and structured signals living in `data-*` attributes are invisible to
+the graph.
+
+**Why now.** Widens the corpus Tusk can usefully retrieve over without inventing
+a new node type — HTML is a common interchange format for the notes and
+references that land in a vault. `data-*` attributes in particular often carry
+exactly the structured metadata we'd otherwise ask a user to hand-enter.
+
+**Sketch.** A new HTML AST pass (mirroring the markdown pass) that parses HTML
+content and extracts (1) DOM text nodes as the indexable prose and (2) `data-*`
+attributes as candidate properties/signals. Plus — possibly — a command + MCP
+tool that renders a node's (or a file's) content as plain text, stripping tags
+so an agent can pull "just the words" without the HTML bloat.
+
+**Open questions.**
+- Parser choice: `golang.org/x/net/html` (std-adjacent, robust) vs. a lighter
+  tokenizer. Lean toward `x/net/html`.
+- Which attributes become first-class — only `data-*`, or also semantic ones
+  like `id`, `class`, `href`, `src`, `alt`, `title`, `role`/`aria-*`? All of a
+  chosen set, or a configured allowlist? Risk of attribute noise polluting the
+  property space.
+- Scope: a new content *type* alongside markdown, or a preprocessing step that
+  normalizes HTML → text/properties before the existing markdown pipeline?
+- Does the plain-text extractor belong here, or is it a general "render node as
+  plain text" utility that also helps markdown consumers?
+
+**Dependencies.** None. Composes with the existing chunking strategies (#7) once
+HTML content is normalized to text.
+
+## 4. Native-Go embedding models
 
 **Problem.** Today every new user must install Ollama, pull a model, and keep
 `ollama serve` running before `tusk reindex` can produce embeddings. This is
@@ -64,10 +164,10 @@ provider switch correctly invalidates.
 - Binary size budget — current `tusk` is small; adding a model bloats it.
   Option: ship a separate `tusk-models` companion binary, or fetch on first run.
 
-**Dependencies.** None blocking. Unblocks #3 (#3's runtime story) and #4 (#4
+**Dependencies.** None blocking. Unblocks #6 (#6's runtime story) and #7 (#7
 benefits from a local model identity that survives release).
 
-## 2. Indexed checkbox todos in nodes
+## 5. Indexed checkbox todos in nodes
 
 **Problem.** GitHub-flavored markdown checkboxes (`- [ ]`, `- [x]`) inside
 node bodies are invisible to the index today. Users (and agents) can't ask "show
@@ -95,7 +195,7 @@ rewrite the markdown atomically (same lock as `node modify`).
 
 **Dependencies.** None. Could ship in parallel with anything.
 
-## 3. CI-distributed prebuilt indexes
+## 6. CI-distributed prebuilt indexes
 
 **Problem.** Bootstrapping a new vault from a published corpus (e.g. the Tusk
 docs, a curated reference set) means re-running the full embed pipeline locally.
@@ -121,11 +221,11 @@ bootstrapped index.
 - Should the bootstrapped index be authoritative or replaceable on first
   `reindex --force`?
 
-**Dependencies.** #1 (a native embedder makes "user can open a published index"
+**Dependencies.** #4 (a native embedder makes "user can open a published index"
 not require an external model server). Could ship with Ollama-only as a first
 cut, then expand.
 
-## 4. Paragraph indexing with local summarization
+## 7. Paragraph indexing with local summarization
 
 **Problem.** Today retrieval returns whole nodes (or `MarkdownRecursive` chunks,
 shipped in #372/#376). For long nodes, the agent gets back too much text and
@@ -152,13 +252,13 @@ hash so summary-prompt or summary-model changes can re-run without re-embed.
   time (latency hit per query, no storage). Probably index-time with cache.
 - Cost / quality of small models for summarization. Gemma 2B class is plausible
   locally; smaller models often hallucinate.
-- Interaction with #1 — does the native-Go story extend to decoder inference,
+- Interaction with #4 — does the native-Go story extend to decoder inference,
   or stay encoder-only?
 
-**Dependencies.** #1 (clarifies how we run local models). Builds on existing
+**Dependencies.** #4 (clarifies how we run local models). Builds on existing
 `MarkdownRecursive` chunker.
 
-## 5. Distributed indexing
+## 8. Distributed indexing
 
 **Problem.** A single logical vault sharded across multiple machines or agents.
 Hard primarily because of **rebalancing**: as nodes are added/removed, shard
@@ -179,7 +279,7 @@ concrete user need lands.
   followers pull deltas. No central coordinator.
 - **Cross-workspace federation** (lighter cousin, already in v1 spec §3.2). Not
   a sharded vault — multiple local vaults queried in parallel. Likely the
-  first useful step toward (#5) without committing to the full distributed
+  first useful step toward (#8) without committing to the full distributed
   story.
 
 **Open questions.**
@@ -189,36 +289,10 @@ concrete user need lands.
   metadata?).
 - Failure modes — partial reads, stale shards, write conflicts.
 
-**Dependencies.** None blocking, but worth seeing #1, #3, and #4 land first
+**Dependencies.** None blocking, but worth seeing #4, #6, and #7 land first
 since they sharpen what a "shard" carries.
 
-## 6. Composite `tusk_node_attach`
-
-**Problem.** A common agent pattern is "create a node and immediately attach
-it to an existing one" (Story → phase plan, ticket → epic, WBS child →
-parent). Today this is two MCP calls — `tusk_node_create` then
-`tusk_edge_add`. Either can fail in the middle, leaving an orphan node or a
-missing edge, and the agent has to write the recovery logic.
-
-**Why now.** Surfaced as the most-felt ergonomic gap during the Superhuman
-workspace bootstrap. Pure additive surface — no behavior change to existing
-calls. Small scope, clear payoff.
-
-**Sketch.** New `tusk_node_attach` MCP tool and matching `tusk node attach`
-CLI that wrap node create + edge add in a single transaction. Args mirror
-`node create` plus an edge spec (`--edge-type`, `--parent` or symmetric
-`--source/--target`).
-
-**Open questions.**
-- Single edge or multiple edges per call? (Common case is one; multiple
-  complicates the failure-recovery story.)
-- Atomicity semantics on partial failure — roll back the node, or commit and
-  surface the partial-success error?
-- Naming. `attach` vs. `link` vs. `node create --attach-to`.
-
-**Dependencies.** None.
-
-## 7. Depth-N descendants in one query
+## 9. Depth-N descendants in one query
 
 **Problem.** Traversing a parent/child tree from the public surface requires
 N round trips, one per level. The binary already carries `descendants_%d`
@@ -260,13 +334,13 @@ the table. Reconciled against the five focus items above.
 | `due-reminders` behavior pack | Local notifications when due dates approach. |
 | `recurring` behavior pack | Auto-create instances of a template node on a schedule. |
 | `vector-watcher` behavior pack | Re-embed when content drifts substantially. |
-| Cross-workspace queries | Lighter cousin of #5 (Distributed indexing). May land first as a stepping stone. |
+| Cross-workspace queries | Lighter cousin of #8 (Distributed indexing). May land first as a stepping stone. |
 | Plugin loading for behavior packs | v2+. |
 | Web UI / TUI | v2+. |
 
 **Superseded:**
 
-- *Bundled local embedding model (ONNX)* → replaced by #1 (Native-Go embedding
+- *Bundled local embedding model (ONNX)* → replaced by #4 (Native-Go embedding
   models). Different bet: pure-Go runtime, no ONNX dependency.
 
 ---
