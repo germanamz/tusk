@@ -32,8 +32,3 @@ See `STYLE.md` for the codebase naming and spacing conventions (rules 1–4 are 
 ## Commits
 
 Conventional commits with scope: `feat(cli):`, `fix(index):`, `docs(spec):`, `chore(cleanup):`, etc.
-
-## v0 references
-
-- `v0.14.0` — last v0 release tag; preserves all v0 sources. Branch from it (`git checkout -b v0-hotfix v0.14.0`) if an emergency v0 patch is ever needed.
-- `v0-final` — tag on `main` marking the cleanup commit that retires v0 documentation

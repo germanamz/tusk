@@ -417,10 +417,6 @@ make fmt
 
 See [`STYLE.md`](STYLE.md) for the codebase conventions and [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to propose changes.
 
-## v0 references
-
-- [`v0.14.0`](https://github.com/germanamz/tusk/releases/tag/v0.14.0) — last v0 release tag; preserves all v0 sources. Branch from it if a v0 patch is ever needed.
-
 ## License
 
 [Apache 2.0](LICENSE)

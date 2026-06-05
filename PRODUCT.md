@@ -15,8 +15,7 @@ from a vault that any other tool — vim, Obsidian, ripgrep, git — can also re
 > **Status:** v1 has shipped. For install and usage see the [`README`](README.md)
 > and [`docs/cli/`](docs/cli/README.md); per-package internals live in
 > [`docs/packages/`](docs/packages/); forward-looking work is tracked in
-> [`docs/roadmap.md`](docs/roadmap.md). For v0.x product information, see the
-> [`v0.14.0`](https://github.com/germanamz/tusk/releases/tag/v0.14.0) tag.
+> [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Why Tusk exists
 

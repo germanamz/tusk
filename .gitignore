@@ -38,10 +38,7 @@ Thumbs.db
 *.db-shm
 *.db-wal
 
-# v0 dev DB
-.data/
-
-# v1 local index
+# local index
 .tusk/
 
 # Worktrees

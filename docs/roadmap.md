@@ -122,8 +122,8 @@ bootstrapped index.
   `reindex --force`?
 
 **Dependencies.** #1 (a native embedder makes "user can open a published index"
-not require an external model server). Could ship with Ollama-only as a v0,
-then expand.
+not require an external model server). Could ship with Ollama-only as a first
+cut, then expand.
 
 ## 4. Paragraph indexing with local summarization
 
@@ -263,7 +263,6 @@ the table. Reconciled against the five focus items above.
 | Cross-workspace queries | Lighter cousin of #5 (Distributed indexing). May land first as a stepping stone. |
 | Plugin loading for behavior packs | v2+. |
 | Web UI / TUI | v2+. |
-| Migration tool from v0.x | Likely dead — no demand signal since v1.0. Drop if still quiet by v1.3. |
 
 **Superseded:**
 
