@@ -419,8 +419,7 @@ See [`STYLE.md`](STYLE.md) for the codebase conventions and [`CONTRIBUTING.md`](
 
 ## v0 references
 
-- [`v0.14.0`](https://github.com/germanamz/tusk/releases/tag/v0.14.0) — last v0 release tag
-- [`v0-archive`](https://github.com/germanamz/tusk/tree/v0-archive) — long-lived branch holding v0 sources
+- [`v0.14.0`](https://github.com/germanamz/tusk/releases/tag/v0.14.0) — last v0 release tag; preserves all v0 sources. Branch from it if a v0 patch is ever needed.
 
 ## License
 
