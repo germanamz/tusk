@@ -384,7 +384,7 @@ Single Go binary, single SQLite index, single embedding provider (Ollama for now
 flowchart TD
     workspace["Workspace<br/>(markdown + tusk.toml)"]
     engine["Engine (cmd/tusk + internal/*)<br/>manifest · node · edge · reindex · filter · embed<br/>watcher · behaviors · mcp"]
-    db[(".tusk/tusk.db<br/>SQLite WAL, embeddings table")]
+    db[".tusk/tusk.db<br/>(SQLite WAL, embeddings table)"]
 
     workspace -->|"fs walk / fsnotify"| engine
     engine -->|"reads / writes"| db
