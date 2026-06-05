@@ -13,7 +13,7 @@ brainstorm and plan it.
 - **Last updated:** 2026-05-17
 - **Latest release:** v1.2.0
 - **Closed specs/plans:**
-  - `specs/2026-05-05-tusk-v1-rebuild-design.md` — v1 ground-up rewrite (shipped through 1.0/1.1)
+  - v1 ground-up rewrite (shipped through 1.0/1.1) — design folded into [`PRODUCT.md`](../PRODUCT.md); original spec preserved in git history
   - CLI docs (`man/` + `docs/cli/`) — shipped in #393
   - v1.1 bug backlog (5 bugs surfaced bootstrapping the Superhuman workspace) — shipped in v1.2.0 via #397, #399, #400, #401, #402
 
@@ -248,8 +248,9 @@ depth knob. Reuse the existing SQL machinery.
 
 ## v1 deferred backlog
 
-From `specs/2026-05-05-tusk-v1-rebuild-design.md` §3.2 and §8.2 — parked but
-still on the table. Reconciled against the five focus items above.
+From the v1 design spec's out-of-scope and future-behavior sections (folded into
+[`PRODUCT.md`](../PRODUCT.md); full text in git history) — parked but still on
+the table. Reconciled against the five focus items above.
 
 | Item | Notes |
 |---|---|

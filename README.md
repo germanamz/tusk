@@ -400,7 +400,7 @@ Single Go binary, single SQLite index, single embedding provider (Ollama for now
 - **Stateless across machines.** Clone the vault, reindex, get an identical brain.
 - **Single-writer, many-readers.** SQLite WAL + a workspace-wide advisory lock so `tusk mcp` and one-shot CLI calls coexist.
 
-The authoritative reference is the design spec at [`docs/superpowers/specs/2026-05-05-tusk-v1-rebuild-design.md`](docs/superpowers/specs/2026-05-05-tusk-v1-rebuild-design.md). Per-package notes live in [`docs/packages/`](docs/packages/).
+Product vision and design principles live in [`PRODUCT.md`](PRODUCT.md). Per-package notes live in [`docs/packages/`](docs/packages/).
 
 ---
 
