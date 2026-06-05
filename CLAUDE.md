@@ -6,11 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Tusk v1 is a local-first agent brain: a markdown vault with a smart, schema-validated, semantically-indexed graph layered on top. Files (markdown + manifest TOML) are the source of truth; git is the history; tusk is the indexer + retrieval engine.
 
-The v1 rebuild has shipped the full CLI and MCP server. The authoritative reference for architecture and behavior is the design spec; per-package detail lives under `docs/packages/`.
+The v1 rebuild has shipped the full CLI and MCP server. Product vision and design principles live in `PRODUCT.md`; usage and the working surface live in `README.md` and `docs/cli/`; per-package architecture and behavior detail lives under `docs/packages/`.
 
-## Spec
+## Reference
 
-- **Design spec:** `docs/superpowers/specs/2026-05-05-tusk-v1-rebuild-design.md` — read this first.
+- **Product & design principles:** `PRODUCT.md` — what Tusk is and why; read this first.
+- **Usage:** `README.md` and `docs/cli/` — install, quickstart, and per-command CLI/MCP reference.
 - **Package docs:** `docs/packages/*.md` — one file per `internal/*` package, describing public surface and intent.
 
 ## Commands

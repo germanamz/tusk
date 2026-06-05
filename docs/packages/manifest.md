@@ -42,7 +42,7 @@ Hierarchy edges (and any edge type that should expose stable child order) may de
 - `ordered = true` — children are ordered by the source node's `order` property (the default key).
 - `ordered = "<prop>"` — children are ordered by the named source-node property (e.g. `ordered = "rank"`).
 
-After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ordered = true`, `OrderedBy` is set to `"order"`. See the 2026-05-18 edges-from-frontmatter design (`docs/superpowers/specs/2026-05-18-edges-from-frontmatter-design.md`) for the wire format and rationale.
+After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ordered = true`, `OrderedBy` is set to `"order"`. Edges are declared in frontmatter (the 2026-05-18 edges-from-frontmatter design): `tusk edge add` / `tusk_edge_add` mutate frontmatter directly and the index is rebuilt from it.
 
 ### Lease TTL — `[lease]`
 
