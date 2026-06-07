@@ -48,3 +48,51 @@ func Read(root string) (int64, error) {
 
 	return value, nil
 }
+
+// Bump increments the epoch by one and writes it atomically (temp file in the
+// same directory + rename). Returns the new value. Callers serialize concurrent
+// bumps with the workspace lock; absent that, Bump is last-writer-wins.
+func Bump(root string) (int64, error) {
+	dir := filepath.Join(root, ".tusk")
+
+	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+		return 0, fmt.Errorf("indexepoch: ensure dir: %w", mkErr)
+	}
+
+	current, readErr := Read(root)
+
+	if readErr != nil {
+		return 0, readErr
+	}
+
+	next := current + 1
+
+	temp, tempErr := os.CreateTemp(dir, EpochFilename+".tmp-*")
+
+	if tempErr != nil {
+		return 0, fmt.Errorf("indexepoch: temp: %w", tempErr)
+	}
+
+	tempName := temp.Name()
+
+	if _, writeErr := temp.WriteString(strconv.FormatInt(next, 10) + "\n"); writeErr != nil {
+		_ = temp.Close()
+		_ = os.Remove(tempName)
+
+		return 0, fmt.Errorf("indexepoch: write temp: %w", writeErr)
+	}
+
+	if closeErr := temp.Close(); closeErr != nil {
+		_ = os.Remove(tempName)
+
+		return 0, fmt.Errorf("indexepoch: close temp: %w", closeErr)
+	}
+
+	if renameErr := os.Rename(tempName, epochPath(root)); renameErr != nil {
+		_ = os.Remove(tempName)
+
+		return 0, fmt.Errorf("indexepoch: rename: %w", renameErr)
+	}
+
+	return next, nil
+}
