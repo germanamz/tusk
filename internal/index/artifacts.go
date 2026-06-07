@@ -10,7 +10,10 @@ import (
 // WAL and SHM sidecars (dbPath+"-wal", dbPath+"-shm"). Absent files are not an
 // error. Returns the paths actually removed, in deletion order. Used by the
 // reset path and by OpenOrRebuild's schema-mismatch rebuild so both drop the
-// full artifact set — leaving a stale WAL/SHM behind is a corruption trap.
+// full artifact set rather than leaving orphaned -wal/-shm sidecars behind.
+// (A fresh index.Open salt-validates and rewrites a mismatched WAL, so the
+// leftovers are not replayed onto the new DB — this is cleanup/hygiene, not a
+// fix for observable corruption.)
 func RemoveArtifacts(dbPath string) ([]string, error) {
 	var removed []string
 
