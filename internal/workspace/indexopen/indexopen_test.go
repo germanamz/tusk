@@ -138,3 +138,69 @@ func TestOpenOrRebuildRebuildsOnMismatch(test *testing.T) {
 		test.Error("OpenOrRebuild returned ErrSchemaIncompatible instead of rebuilding")
 	}
 }
+
+// TestOpenOrRebuild_RemovesSidecarsOnRebuild pins the post-condition that a
+// schema-mismatch rebuild leaves no *stale* WAL/SHM content behind. The rebuild
+// now routes its delete through index.RemoveArtifacts (the whole index.db /
+// -wal / -shm triplet) rather than os.Remove on index.db alone, so orphaned
+// sidecars are dropped explicitly before the fresh open. A fresh WAL/SHM may be
+// recreated by the new connection during reindex; what must NOT survive is the
+// pre-rebuild stale content.
+func TestOpenOrRebuild_RemovesSidecarsOnRebuild(test *testing.T) {
+	root := test.TempDir()
+	indexPath := filepath.Join(root, ".tusk", "index.db")
+
+	if mkErr := os.MkdirAll(filepath.Dir(indexPath), 0o755); mkErr != nil {
+		test.Fatalf("mkdir index dir: %v", mkErr)
+	}
+
+	// Open once to bootstrap, then poison the schema_version so the next
+	// open trips ErrSchemaIncompatible and rebuilds.
+	store, openErr := index.Open(indexPath)
+
+	if openErr != nil {
+		test.Fatalf("seed open: %v", openErr)
+	}
+
+	if setErr := index.NewMetaRepo(store).Set(index.MetaSchemaVersionKey, "v0-incompatible"); setErr != nil {
+		test.Fatalf("poison schema_version: %v", setErr)
+	}
+
+	store.Close()
+
+	// Fabricate stale sidecars next to the DB.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if writeErr := os.WriteFile(indexPath+suffix, []byte("stale"), 0o644); writeErr != nil {
+			test.Fatalf("seed sidecar %s: %v", suffix, writeErr)
+		}
+	}
+
+	rebuilt, rebuildErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
+		IndexPath: indexPath,
+		ReindexFactory: func(idx *index.Index) reindex.Config {
+			return reindex.Config{
+				Root:       root,
+				Repo:       index.NewNodeRepo(idx),
+				Edges:      index.NewEdgeRepo(idx),
+				Meta:       index.NewMetaRepo(idx),
+				FileStates: index.NewFileStateRepo(idx),
+				EmbedQueue: index.NewEmbedQueueRepo(idx),
+			}
+		},
+	})
+
+	if rebuildErr != nil {
+		test.Fatalf("OpenOrRebuild: %v", rebuildErr)
+	}
+
+	defer rebuilt.Close()
+
+	for _, suffix := range []string{"-wal", "-shm"} {
+		// A fresh WAL/SHM may be recreated by the new connection; what must NOT
+		// survive is the *stale* content. Assert the stale bytes are gone.
+		data, statErr := os.ReadFile(indexPath + suffix)
+		if statErr == nil && string(data) == "stale" {
+			test.Errorf("stale sidecar %q survived rebuild", indexPath+suffix)
+		}
+	}
+}

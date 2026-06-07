@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -59,7 +58,7 @@ func OpenOrRebuild(ctx context.Context, cfg Config) (*index.Index, error) {
 		cfg.Logger("index schema changed in this version, rebuilding…")
 	}
 
-	if removeErr := os.Remove(cfg.IndexPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+	if _, removeErr := index.RemoveArtifacts(cfg.IndexPath); removeErr != nil {
 		return nil, fmt.Errorf("indexopen: delete stale index at %s: %w", cfg.IndexPath, removeErr)
 	}
 
