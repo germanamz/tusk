@@ -84,3 +84,45 @@ func TestMaybeReopenForEpoch(test *testing.T) {
 		test.Fatalf("expected seenEpoch 1 after convergence, got %d", srv.seenEpoch.Load())
 	}
 }
+
+func TestTwoDaemons_ConvergeAfterReset(test *testing.T) {
+	root := setupServerWorkspace(test) // a workspace dir with a node on disk; see helper note
+
+	daemonA := newServerForRoot(test, root)
+	daemonB := newServerForRoot(test, root)
+
+	// Daemon A resets the shared index.
+	if _, err := daemonA.HandleToolCall(context.Background(), resetRequest(true)); err != nil {
+		test.Fatalf("A reset: %v", err)
+	}
+
+	// Daemon B detects the epoch advance and reopens onto the fresh DB.
+	reopened, err := daemonB.maybeReopenForEpoch(context.Background(), 5*time.Second)
+	if err != nil {
+		test.Fatalf("B converge: %v", err)
+	}
+
+	if !reopened {
+		test.Fatal("B did not reopen after A's reset")
+	}
+
+	// B must serve a non-error list against the fresh handle (proves convergence).
+	if listResult, listErr := daemonB.HandleToolCall(context.Background(), nodeListRequest()); listErr != nil || listResult.IsError {
+		test.Fatalf("B list after convergence failed: err=%v result=%s", listErr, textOf(listResult))
+	}
+
+	// Neither daemon runs a drainer in this test, so A's Async walk left the fresh
+	// DB with only enqueued reindex jobs. Drive a synchronous rebuild through B and
+	// assert the node materializes (the lease-coordinated queues make the
+	// resetter+sibling walks idempotent in production).
+	rebuildIndex(test, daemonB)
+
+	listResult, listErr := daemonB.HandleToolCall(context.Background(), nodeListRequest())
+	if listErr != nil || listResult.IsError {
+		test.Fatalf("B list after rebuild failed: err=%v result=%s", listErr, textOf(listResult))
+	}
+
+	if !strings.Contains(textOf(listResult), seededNodeID(test)) {
+		test.Fatalf("B missing rebuilt node; got: %s", textOf(listResult))
+	}
+}
