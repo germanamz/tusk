@@ -111,6 +111,7 @@ CONFIGURATION
 	rootCmd.AddCommand(newPackCmd())
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newContextCmd())
+	rootCmd.AddCommand(newReloadCmd()) // NEW: hot manifest reload
 	rootCmd.AddCommand(newDocgenCmd())
 
 	return rootCmd
