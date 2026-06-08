@@ -76,8 +76,6 @@ func buildTestServer(test *testing.T) *Server {
 }
 
 // seededNodeID is the id of the node setupServerWorkspace writes to disk.
-//
-//nolint:unused // shared fixture surface consumed by Phases 6-8 reset/epoch tests.
 func seededNodeID(test *testing.T) string {
 	test.Helper()
 
@@ -110,8 +108,6 @@ func textOf(result *mcpgo.CallToolResult) string {
 // runtime handle (Workers:1, blocking), so structural node/edge rows materialize
 // for assertions. Use after a reset/reopen, which only kick an Async walk (it
 // enqueues reindex jobs but does NOT write node rows without a running drainer).
-//
-//nolint:unused // shared fixture surface consumed by Phases 6-8 reset/epoch tests.
 func rebuildIndex(test *testing.T, srv *Server) {
 	test.Helper()
 
