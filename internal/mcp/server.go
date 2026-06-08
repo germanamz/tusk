@@ -44,6 +44,7 @@ for deep dives on: workflow, node-types, edge-types, manifest, filter, query, pa
 type Server struct {
 	mu                sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
 	resetMu           sync.Mutex   // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
+	reloadMu          sync.Mutex   // serializes originating reloads in-process (tusk_reload) so epochs advance monotonically and one owner reindexes
 	reindexMu         sync.Mutex   // per-process reindex gate, held during reindex.Run walk/enqueue (file watcher now; tusk_reload in a later phase)
 	seenEpoch         atomic.Int64 // last .tusk/epoch this daemon has converged to
 	seenManifestEpoch atomic.Int64 // last .tusk/manifest-epoch this daemon has converged to
