@@ -101,6 +101,7 @@ CONFIGURATION
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newNodeCmd())
 	rootCmd.AddCommand(newReindexCmd())
+	rootCmd.AddCommand(newResetCmd())
 	rootCmd.AddCommand(newEdgeCmd())
 	rootCmd.AddCommand(newWatchCmd())
 	rootCmd.AddCommand(newQueryCmd())
