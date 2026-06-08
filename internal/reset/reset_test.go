@@ -2,6 +2,7 @@ package reset
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/indexepoch"
+	"github.com/germanamz/tusk/internal/lock"
 )
 
 func TestPerform_DeletesReopensAndBumps(test *testing.T) {
@@ -83,4 +85,39 @@ func TestPerform_ReapsStaging(test *testing.T) {
 	if _, statErr := os.Stat(stagingDir); !os.IsNotExist(statErr) {
 		test.Errorf("staging dir survived reset (stat err: %v)", statErr)
 	}
+}
+
+func TestPerform_ReopenFailureLeavesEpochUnbumped(test *testing.T) {
+	root := test.TempDir()
+	indexPath := filepath.Join(root, ".tusk", "index.db")
+
+	seed, openErr := index.Open(indexPath)
+	if openErr != nil {
+		test.Fatalf("seed open: %v", openErr)
+	}
+	seed.Close()
+
+	_, err := Perform(context.Background(), Config{
+		Root:      root,
+		IndexPath: indexPath,
+		LockTTL:   time.Second,
+		Reopen:    func() (*index.Index, error) { return nil, errors.New("boom") },
+	})
+	if err == nil {
+		test.Fatal("expected Perform to fail when Reopen fails")
+	}
+
+	// Epoch must NOT have advanced.
+	if got, _ := indexepoch.Read(root); got != 0 {
+		test.Errorf("epoch advanced to %d on reopen failure; want 0", got)
+	}
+
+	// Lock must have been released — a fresh acquire must succeed quickly.
+	handle, _ := lock.NewWorkspaceLock(root)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if acquireErr := handle.Acquire(ctx); acquireErr != nil {
+		test.Errorf("lock not released after reopen failure: %v", acquireErr)
+	}
+	handle.Release()
 }
