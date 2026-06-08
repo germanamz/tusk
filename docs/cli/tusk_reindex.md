@@ -16,7 +16,11 @@ happen lazily — run "tusk watch" alongside, or in the background, to
 drain the embedding queue.
 
 Run reindex after editing files outside Tusk (vim, Obsidian, scripts) or
-after changing node/edge declarations in tusk.toml.
+after changing node/edge declarations in tusk.toml. For a schema change on a
+running daemon, prefer "tusk reload" (or the tusk_reload MCP tool): it swaps
+the in-memory schema and kicks a reindex that re-validates the index against
+the new node-types, edge-types, and behaviors, surfacing violation counts in
+the reindex output and "tusk doctor".
 
 Worker pool: the embed/reindex pool size resolves from TUSK_EMBED_WORKERS,
 then [embeddings] workers in tusk.toml, then max(1, NumCPU/2). Setting

@@ -205,6 +205,8 @@ inverse     = "referenced-by"
 
 `ref` properties auto-materialize edge types of the same name — declaring `supersedes` as a `ref` to `decision` gives you a `supersedes` edge for free.
 
+Edited `tusk.toml` while a daemon is running? `tusk reload` (or the `tusk_reload` MCP tool) re-reads and validates the manifest, hot-swaps the schema in place — no restart — and converges any sibling daemons via the `.tusk/manifest-epoch` sentinel. It then reindexes to re-validate your content against the new schema. Validation matches startup, so a reload lands the same state a restart would.
+
 ### Type packs (built-in templates)
 
 Instead of declaring everything by hand, `tusk pack add <name>` splices a curated TOML block into your manifest:

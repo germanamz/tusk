@@ -31,8 +31,10 @@ There is no remote service. Every tool operates on:
   - the schema declared in ./tusk.toml
   - the SQLite index at ./.tusk/index.db
 
-To declare new node-types or edge-types, edit ./tusk.toml directly (no MCP
-tool for this), then call tusk_reindex.
+To declare new node-types or edge-types, edit ./tusk.toml directly, then call
+tusk_reload to validate and hot-swap the schema (it also kicks a reindex and
+converges any sibling daemons). tusk_reindex alone re-reads content, not the
+in-memory schema.
 
 If the index seems wedged or corrupt, call tusk_reset(confirm: true) to drop and
 rebuild it from your files.
