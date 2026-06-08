@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/manifestepoch"
 )
 
@@ -204,5 +205,49 @@ func TestSiblingReloadManifest_NeverReindexes(test *testing.T) {
 
 	if newGen != oldGen {
 		test.Fatalf("expected reindex_gen to stay %q, got %q (sibling should NOT reindex)", oldGen, newGen)
+	}
+}
+
+// Test the reset + reload race: a sibling detects BOTH an index-epoch bump
+// (reset) and a manifest-epoch bump (reload) in the same window. It must
+// converge both (index, manifest) atomically so it never serves the fresh
+// index against the stale manifest.
+func TestSiblingReopen_ConvergesManifestToo(test *testing.T) {
+	root := setupServerWorkspace(test)
+
+	daemon := newServerForRoot(test, root)
+
+	// Simulate another process resetting the index (bumps index-epoch) and
+	// reloading the manifest (bumps manifest-epoch) in the same window. Both
+	// sentinels are bumped out-of-band; this daemon's siblingReopen (which the
+	// index-epoch watcher would trigger) must converge BOTH epochs and install
+	// the fresh index against the fresh manifest — never the fresh index against
+	// the stale manifest.
+	if _, err := indexepoch.Bump(root); err != nil {
+		test.Fatalf("index bump: %v", err)
+	}
+
+	if _, err := manifestepoch.Bump(root); err != nil {
+		test.Fatalf("manifest bump: %v", err)
+	}
+
+	if err := daemon.siblingReopen(context.Background(), 5*time.Second); err != nil {
+		test.Fatalf("siblingReopen: %v", err)
+	}
+
+	// Both epochs must be tracked.
+	if daemon.seenEpoch.Load() != 1 {
+		test.Fatalf("expected seenEpoch=1, got %d", daemon.seenEpoch.Load())
+	}
+
+	if daemon.seenManifestEpoch.Load() != 1 {
+		test.Fatalf("expected seenManifestEpoch=1, got %d", daemon.seenManifestEpoch.Load())
+	}
+
+	// The daemon must serve: verify a node list works (the fresh manifest
+	// + fresh index are consistent).
+	listResult, listErr := daemon.HandleToolCall(context.Background(), nodeListRequest())
+	if listErr != nil || listResult.IsError {
+		test.Fatalf("node list after convergence: %v result=%s", listErr, textOf(listResult))
 	}
 }

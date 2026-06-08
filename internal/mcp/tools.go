@@ -1390,7 +1390,7 @@ func registerResetTool(srv *Server) {
 			// Quiesce already closed old.Index; recover a live handle so the daemon
 			// keeps serving (PerformLocked does not reopen on its own error paths).
 			if store, reopenErr := index.Open(indexPath); reopenErr == nil {
-				if installErr := srv.installStoreLocked(store); installErr != nil {
+				if installErr := srv.installStoreLocked(store, old.Manifest); installErr != nil {
 					store.Close()
 					srv.mu.Unlock()
 
@@ -1407,7 +1407,7 @@ func registerResetTool(srv *Server) {
 			return toolError(resetErr), nil
 		}
 
-		if installErr := srv.installStoreLocked(result.Store); installErr != nil {
+		if installErr := srv.installStoreLocked(result.Store, old.Manifest); installErr != nil {
 			result.Store.Close()
 			srv.mu.Unlock()
 

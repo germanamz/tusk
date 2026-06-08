@@ -14,6 +14,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/lock"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/manifestepoch"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/version"
@@ -124,7 +125,7 @@ func (srv *Server) registerWrite(tool mcpgo.Tool, handler server.ToolHandlerFunc
 // closes it before deleting; the non-destructive reopenInPlace / siblingReopen
 // close it only after a successful swap. Shared by reopenInPlace, the tusk_reset
 // tool (Phase 6), and siblingReopen (Phase 7).
-func (srv *Server) installStoreLocked(store *index.Index) error {
+func (srv *Server) installStoreLocked(store *index.Index, manifestOverride *manifest.Manifest) error {
 	old := srv.runtime
 
 	fresh := &Runtime{
@@ -135,7 +136,7 @@ func (srv *Server) installStoreLocked(store *index.Index) error {
 		aliasIntrospector: old.aliasIntrospector,
 	}
 
-	if buildErr := fresh.buildFromStore(store, old.Manifest); buildErr != nil {
+	if buildErr := fresh.buildFromStore(store, manifestOverride); buildErr != nil {
 		return buildErr
 	}
 
@@ -170,7 +171,7 @@ func (srv *Server) reopenInPlace() error {
 		return fmt.Errorf("mcp: reopen: %w", openErr)
 	}
 
-	if installErr := srv.installStoreLocked(store); installErr != nil {
+	if installErr := srv.installStoreLocked(store, old.Manifest); installErr != nil {
 		_ = store.Close()
 
 		return installErr
@@ -226,6 +227,41 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 
 	defer func() { _ = lockHandle.Release() }()
 
+	// Re-read manifest-epoch under the flock. If it advanced past
+	// seenManifestEpoch, load and validate the fresh manifest OFF the write-lock
+	// (so read-locked handlers never block on TOML parsing) and pass it to
+	// installStoreLocked below; otherwise reuse the current manifest unchanged.
+	// This converges the (index, manifest) pair atomically when a reset and a
+	// reload land in the same window, so the daemon never serves the fresh index
+	// against the stale manifest. resetMu + the flock are held across this whole
+	// section, so srv.runtime is stable between this snapshot and the swap below.
+	srv.mu.RLock()
+	manifestPath := srv.runtime.ManifestPath
+	aliasIntrospector := srv.runtime.aliasIntrospector
+	freshManifest := srv.runtime.Manifest
+	srv.mu.RUnlock()
+
+	latestManifestEpoch, _ := manifestepoch.Read(root)
+	manifestAdvanced := false
+	if latestManifestEpoch > srv.seenManifestEpoch.Load() {
+		loaded, loadErr := manifest.Load(manifestPath)
+
+		if loadErr == nil {
+			manifest.MergeBuiltinPacks(loaded)
+
+			if aliasIntrospector != nil {
+				manifest.ValidateAliases(loaded, aliasIntrospector)
+				manifest.ValidateContext(loaded, aliasIntrospector)
+			}
+
+			// Gate on behavior engine build (blocking), not on alias/context (non-blocking).
+			if _, buildErr := buildBehaviorEngine(loaded); buildErr == nil {
+				freshManifest = loaded
+				manifestAdvanced = true
+			}
+		}
+	}
+
 	_, statErr := os.Stat(indexPath)
 	fileAbsent := os.IsNotExist(statErr)
 
@@ -243,11 +279,17 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 		return fmt.Errorf("mcp: sibling reopen: %w", openErr)
 	}
 
-	if installErr := srv.installStoreLocked(store); installErr != nil {
+	if installErr := srv.installStoreLocked(store, freshManifest); installErr != nil {
 		_ = store.Close()
 		srv.mu.Unlock()
 
 		return installErr
+	}
+
+	// Record the manifest epoch only AFTER a successful swap, so a failed install
+	// leaves seenManifestEpoch unchanged and the next tick retries the reload.
+	if manifestAdvanced {
+		srv.seenManifestEpoch.Store(latestManifestEpoch)
 	}
 
 	fresh := srv.runtime  // freshly-installed runtime (used by the recreator branch)
