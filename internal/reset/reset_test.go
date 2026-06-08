@@ -121,3 +121,42 @@ func TestPerform_ReopenFailureLeavesEpochUnbumped(test *testing.T) {
 	}
 	handle.Release()
 }
+
+func TestPerform_LockBusyDeletesNothing(test *testing.T) {
+	root := test.TempDir()
+	indexPath := filepath.Join(root, ".tusk", "index.db")
+
+	seed, openErr := index.Open(indexPath)
+	if openErr != nil {
+		test.Fatalf("seed open: %v", openErr)
+	}
+	seed.Close()
+
+	// Hold the workspace lock from a separate handle to simulate a busy reset.
+	holder, _ := lock.NewWorkspaceLock(root)
+	holdCtx, holdCancel := context.WithTimeout(context.Background(), time.Second)
+	defer holdCancel()
+	if acquireErr := holder.Acquire(holdCtx); acquireErr != nil {
+		test.Fatalf("holder acquire: %v", acquireErr)
+	}
+	defer holder.Release()
+
+	reopenCalled := false
+	_, err := Perform(context.Background(), Config{
+		Root:      root,
+		IndexPath: indexPath,
+		LockTTL:   200 * time.Millisecond,
+		Reopen:    func() (*index.Index, error) { reopenCalled = true; return index.Open(indexPath) },
+	})
+
+	if !errors.Is(err, lock.ErrBusy) {
+		test.Fatalf("expected lock.ErrBusy, got %v", err)
+	}
+	if reopenCalled {
+		test.Error("Reopen ran despite lock contention")
+	}
+	// The seeded index must still be on disk — nothing was deleted.
+	if _, statErr := os.Stat(indexPath); statErr != nil {
+		test.Errorf("seed index was deleted under contention: %v", statErr)
+	}
+}
