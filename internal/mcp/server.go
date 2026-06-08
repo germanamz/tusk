@@ -3,12 +3,18 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/indexepoch"
+	"github.com/germanamz/tusk/internal/lock"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/version"
 )
 
@@ -31,11 +37,12 @@ for deep dives on: workflow, node-types, edge-types, manifest, filter, query, pa
 
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
-	mu       sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
-	resetMu  sync.Mutex   // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
-	runtime  *Runtime
-	mcp      *server.MCPServer
-	handlers map[string]server.ToolHandlerFunc
+	mu        sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
+	resetMu   sync.Mutex   // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
+	seenEpoch atomic.Int64 // last .tusk/epoch this daemon has converged to
+	runtime   *Runtime
+	mcp       *server.MCPServer
+	handlers  map[string]server.ToolHandlerFunc
 }
 
 // NewServer builds a Server, registers every Tusk tool, and returns it. The
@@ -53,6 +60,9 @@ func NewServer(runtime *Runtime) *Server {
 		mcp:      core,
 		handlers: map[string]server.ToolHandlerFunc{},
 	}
+
+	initialEpoch, _ := indexepoch.Read(runtime.Root)
+	srv.seenEpoch.Store(initialEpoch)
 
 	registerTools(srv)
 
@@ -163,6 +173,137 @@ func (srv *Server) reopenInPlace() error {
 	return nil
 }
 
+// siblingReopen reacts to another process having reset the shared index. It
+// serializes on resetMu (against the local tusk_reset tool), awaits the resetter
+// by acquiring the cross-process flock (which the resetter holds across
+// delete→recreate→epoch-bump), then swaps to a fresh handle under the write-lock.
+//
+// If the index file is absent when the flock is acquired, the resetter crashed
+// mid-reset; this daemon becomes the recreator: it reopens (which recreates the
+// file), bumps the epoch, and kicks an Async rebuild. Otherwise it joins the
+// already-recreated file and lets the lease-coordinated drainers rebuild.
+//
+// On flock-acquire timeout (a hung-but-alive resetter) it returns lock.ErrBusy
+// WITHOUT closing the current handle, so the daemon keeps serving (stale) and
+// retries on the next tick.
+func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) error {
+	srv.resetMu.Lock()
+	defer srv.resetMu.Unlock()
+
+	srv.mu.RLock()
+	root := srv.runtime.Root
+	indexPath := srv.runtime.IndexPath
+	srv.mu.RUnlock()
+
+	// Already converged? When both watchers (RunEpochWatcher + the Phase 8
+	// fast-path) detect the same bump, the first siblingReopen updates seenEpoch;
+	// once we hold resetMu it is stable, so a stale second call is a cheap no-op.
+	// (This compares the .tusk/epoch sentinel, not the index file — it never skips
+	// a genuine new bump.)
+	if latest, _ := indexepoch.Read(root); latest <= srv.seenEpoch.Load() {
+		return nil
+	}
+
+	lockHandle, lockErr := lock.NewWorkspaceLock(root)
+	if lockErr != nil {
+		return fmt.Errorf("mcp: sibling reopen lock: %w", lockErr)
+	}
+
+	acquireCtx, cancel := context.WithTimeout(ctx, lockTTL)
+	defer cancel()
+
+	if acquireErr := lockHandle.Acquire(acquireCtx); acquireErr != nil {
+		return acquireErr // ErrBusy: keep the old handle, retry next tick
+	}
+
+	defer func() { _ = lockHandle.Release() }()
+
+	_, statErr := os.Stat(indexPath)
+	fileAbsent := os.IsNotExist(statErr)
+
+	srv.mu.Lock()
+	old := srv.runtime
+
+	// Open the new handle BEFORE closing the old one, and swap BEFORE closing, so
+	// a failed open/rebuild leaves the old handle installed and live — the daemon
+	// keeps serving rather than being left on a closed DB (matches reopenInPlace).
+	// On the recreator path (file absent) index.Open recreates the file here.
+	store, openErr := index.Open(indexPath)
+	if openErr != nil {
+		srv.mu.Unlock()
+
+		return fmt.Errorf("mcp: sibling reopen: %w", openErr)
+	}
+
+	if installErr := srv.installStoreLocked(store); installErr != nil {
+		_ = store.Close()
+		srv.mu.Unlock()
+
+		return installErr
+	}
+
+	fresh := srv.runtime  // freshly-installed runtime (used by the recreator branch)
+	_ = old.Index.Close() // close the old handle only after a successful swap
+	srv.mu.Unlock()
+
+	if fileAbsent {
+		// We are the recreator (resetter died mid-reset). Bump the epoch so other
+		// siblings converge, and rebuild from disk.
+		bumped, bumpErr := indexepoch.Bump(root)
+		if bumpErr != nil {
+			return fmt.Errorf("mcp: recreator bump: %w", bumpErr)
+		}
+
+		srv.seenEpoch.Store(bumped)
+
+		if _, runErr := reindex.Run(reindex.Config{
+			Root:            fresh.Root,
+			Repo:            fresh.Nodes,
+			Edges:           fresh.Edges,
+			EdgeTypes:       fresh.Manifest.EdgeTypes,
+			WorkspaceIgnore: fresh.Manifest.Workspace.Ignore,
+			EmbedQueue:      fresh.EmbedQueue,
+			Meta:            fresh.Meta,
+			FileStates:      fresh.FileState,
+			Workers:         fresh.Workers,
+			Async:           true,
+		}); runErr != nil {
+			return fmt.Errorf("mcp: recreator reindex: %w", runErr)
+		}
+
+		return nil
+	}
+
+	// Joined an already-recreated file: record the resetter's epoch.
+	current, _ := indexepoch.Read(root)
+	srv.seenEpoch.Store(current)
+
+	return nil
+}
+
+// maybeReopenForEpoch reopens the index if .tusk/epoch advanced beyond the
+// last-seen value (another process reset it). Returns true if a reopen happened.
+func (srv *Server) maybeReopenForEpoch(ctx context.Context, lockTTL time.Duration) (bool, error) {
+	srv.mu.RLock()
+	root := srv.runtime.Root
+	srv.mu.RUnlock()
+
+	current, readErr := indexepoch.Read(root)
+	if readErr != nil {
+		return false, readErr
+	}
+
+	if current <= srv.seenEpoch.Load() {
+		return false, nil
+	}
+
+	if reopenErr := srv.siblingReopen(ctx, lockTTL); reopenErr != nil {
+		return false, reopenErr
+	}
+
+	return true, nil
+}
+
 // HandleToolCall is exported for tests; production code goes through stdio/SSE.
 // It dispatches to the registered handler for request.Params.Name. Returns an
 // "unknown tool" CallToolResult error when the tool isn't registered.
@@ -235,7 +376,7 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 	srv.mu.RUnlock()
 
 	if workers > 0 {
-		waitGroup.Add(3)
+		waitGroup.Add(4)
 
 		go func() {
 			defer waitGroup.Done()
@@ -250,6 +391,11 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 		go func() {
 			defer waitGroup.Done()
 			record(RunWatcher(ctx, WatchConfig{Server: srv, Logger: logger}))
+		}()
+
+		go func() {
+			defer waitGroup.Done()
+			record(RunEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
 		}()
 	} else if logger != nil {
 		logger.Warn(

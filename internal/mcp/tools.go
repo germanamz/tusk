@@ -1414,7 +1414,8 @@ func registerResetTool(srv *Server) {
 			return toolError(installErr), nil
 		}
 
-		fresh := srv.runtime // the freshly-installed runtime
+		fresh := srv.runtime              // the freshly-installed runtime
+		srv.seenEpoch.Store(result.Epoch) // record our own bump; MUST be under srv.mu, before Unlock
 		srv.mu.Unlock()
 
 		report, runErr := reindex.Run(reindex.Config{
