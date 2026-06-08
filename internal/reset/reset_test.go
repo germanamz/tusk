@@ -56,3 +56,31 @@ func TestPerform_DeletesReopensAndBumps(test *testing.T) {
 		test.Errorf("fresh store unusable: %v", listErr)
 	}
 }
+
+func TestPerform_ReapsStaging(test *testing.T) {
+	root := test.TempDir()
+	indexPath := filepath.Join(root, ".tusk", "index.db")
+	stagingDir := filepath.Join(root, ".tusk", "staging")
+
+	if mkErr := os.MkdirAll(stagingDir, 0o755); mkErr != nil {
+		test.Fatalf("mkdir staging: %v", mkErr)
+	}
+	if writeErr := os.WriteFile(filepath.Join(stagingDir, "foo.tmp"), []byte("x"), 0o644); writeErr != nil {
+		test.Fatalf("seed staging: %v", writeErr)
+	}
+
+	result, err := Perform(context.Background(), Config{
+		Root:      root,
+		IndexPath: indexPath,
+		LockTTL:   time.Second,
+		Reopen:    func() (*index.Index, error) { return index.Open(indexPath) },
+	})
+	if err != nil {
+		test.Fatalf("Perform: %v", err)
+	}
+	defer result.Store.Close()
+
+	if _, statErr := os.Stat(stagingDir); !os.IsNotExist(statErr) {
+		test.Errorf("staging dir survived reset (stat err: %v)", statErr)
+	}
+}
