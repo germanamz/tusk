@@ -165,3 +165,17 @@ func TestResetTool_SummaryAndRepeat(test *testing.T) {
 		test.Errorf("expected epoch 2 after repeated reset, got %d", second2.Epoch)
 	}
 }
+
+func TestResetTool_UpdatesSeenEpoch(test *testing.T) {
+	srv := buildTestServer(test)
+
+	if _, err := srv.HandleToolCall(context.Background(), resetRequest(true)); err != nil {
+		test.Fatalf("reset: %v", err)
+	}
+
+	// The resetting daemon must record its own bump so the epoch-watcher does
+	// not treat it as a foreign reset.
+	if seen := srv.seenEpoch.Load(); seen != 1 {
+		test.Fatalf("expected seenEpoch 1 after own reset, got %d", seen)
+	}
+}
