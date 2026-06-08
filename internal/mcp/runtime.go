@@ -69,7 +69,7 @@ func WithLogger(logger *slog.Logger) Option {
 }
 
 // WithAliasIntrospector wires a manifest.VerbIntrospector that Open (and
-// ReloadManifest) consult to validate manifest-declared aliases. Callers
+// buildReloaded) consult to validate manifest-declared aliases. Callers
 // that have a Cobra root build the introspector with
 // cmd/tusk.buildVerbIntrospector; callers without (tests) can pass a
 // hand-built map.
@@ -227,52 +227,42 @@ func (rt *Runtime) Close() error {
 	return closeErr
 }
 
-// ReloadManifest re-reads the manifest from disk and rebuilds the NodeService
-// and BehaviorEngine. Use after `tusk_reindex` or out-of-band manifest edits.
-func (rt *Runtime) ReloadManifest() error {
+// buildReloaded re-reads the manifest from disk, validates it with the SAME
+// semantics as boot (parse error and behavior-engine build failure are
+// blocking; dangling aliases / bad [context] entries are dropped and recorded
+// on the fresh Manifest), and builds a FRESH Runtime that reuses the open index
+// handle but recomputes everything else from the new manifest — so a hot reload
+// is identical to a restart. On a blocking failure it returns an error and
+// mutates nothing.
+func (rt *Runtime) buildReloaded() (*Runtime, *ManifestDiff, error) {
 	loaded, loadErr := manifest.Load(rt.ManifestPath)
-
 	if loadErr != nil {
-		return fmt.Errorf("mcp: reload manifest: %w", loadErr)
+		return nil, nil, fmt.Errorf("mcp: reload manifest: %w", loadErr)
 	}
 
-	engine, buildErr := buildBehaviorEngine(loaded)
-
-	if buildErr != nil {
-		return fmt.Errorf("mcp: rebuild behavior engine: %w", buildErr)
-	}
-
-	if rt.aliasIntrospector != nil {
-		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
-		manifest.ValidateContext(loaded, rt.aliasIntrospector)
-	}
-
-	// MergeBuiltinPacks re-installs the sub-document pack on top of the
-	// freshly-loaded manifest. Load already calls it once on the
-	// in-memory manifest, but ReloadManifest is reached after a fresh
-	// Load call, so this is defensive: the merge stays idempotent.
 	manifest.MergeBuiltinPacks(loaded)
 
-	rt.Manifest = loaded
-	rt.BehaviorEngine = engine
-	rt.NodeService = node.NewServiceWithBehaviors(
-		rt.Root,
-		rt.Nodes,
-		rt.Edges,
-		loaded.EdgeTypes,
-		rt.EmbedQueue,
-		loaded.NodeTypes,
-		rt.PropertyDrift,
-		engine,
-		rt.WorkflowDrift,
-		os.Stderr,
-		node.NewIndexRefLookup(rt.Nodes),
-		rt.FileState,
-		rt.WorkerID,
-		rt.LeaseTTL,
-	)
+	diff := DiffManifests(rt.Manifest, loaded)
 
-	return nil
+	fresh := &Runtime{
+		Root:              rt.Root,
+		ManifestPath:      rt.ManifestPath,
+		IndexPath:         rt.IndexPath,
+		Logger:            rt.Logger,
+		aliasIntrospector: rt.aliasIntrospector,
+	}
+
+	if buildErr := fresh.buildFromStore(rt.Index, loaded); buildErr != nil {
+		return nil, nil, buildErr
+	}
+
+	return fresh, &diff, nil
+}
+
+// SetAliasIntrospector injects an alias introspector after construction. Used by
+// tests; production callers wire it through the WithAliasIntrospector option.
+func (rt *Runtime) SetAliasIntrospector(introspect manifest.VerbIntrospector) {
+	rt.aliasIntrospector = introspect
 }
 
 // buildBehaviorEngine constructs a *behavior.Engine from loaded by registering
