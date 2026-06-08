@@ -2,12 +2,14 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/indexepoch"
+	"github.com/germanamz/tusk/internal/lock"
 )
 
 // Sibling that finds the index file ABSENT (resetter crashed after delete)
@@ -124,5 +126,44 @@ func TestTwoDaemons_ConvergeAfterReset(test *testing.T) {
 
 	if !strings.Contains(textOf(listResult), seededNodeID(test)) {
 		test.Fatalf("B missing rebuilt node; got: %s", textOf(listResult))
+	}
+}
+
+func TestSiblingReopen_HungResetterReturnsBusy(test *testing.T) {
+	srv := buildTestServer(test)
+	root := srv.snapshotRuntime().Root
+
+	// Realistic precondition: a hung resetter bumped the epoch (recreate+bump
+	// happen before it hangs holding the flock), so the re-check inside
+	// siblingReopen proceeds to the flock-await.
+	if _, err := indexepoch.Bump(root); err != nil {
+		test.Fatalf("bump: %v", err)
+	}
+
+	// Simulate a hung-but-alive resetter holding the flock.
+	holder, _ := lock.NewWorkspaceLock(root)
+	holdCtx, holdCancel := context.WithTimeout(context.Background(), 2*time.Second)
+
+	defer holdCancel()
+
+	if acquireErr := holder.Acquire(holdCtx); acquireErr != nil {
+		test.Fatalf("holder acquire: %v", acquireErr)
+	}
+
+	err := srv.siblingReopen(context.Background(), 200*time.Millisecond)
+	if !errors.Is(err, lock.ErrBusy) {
+		test.Fatalf("expected ErrBusy while resetter holds the flock, got %v", err)
+	}
+
+	// The daemon kept its handle and still serves.
+	if listResult, listErr := srv.HandleToolCall(context.Background(), nodeListRequest()); listErr != nil || listResult.IsError {
+		test.Fatalf("daemon stopped serving after busy reopen: err=%v result=%s", listErr, textOf(listResult))
+	}
+
+	// Resetter "dies": release the flock. Now a reopen succeeds (takeover).
+	_ = holder.Release()
+
+	if reopenErr := srv.siblingReopen(context.Background(), 5*time.Second); reopenErr != nil {
+		test.Fatalf("takeover reopen after flock freed: %v", reopenErr)
 	}
 }
