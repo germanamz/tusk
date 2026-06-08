@@ -44,6 +44,7 @@ for deep dives on: workflow, node-types, edge-types, manifest, filter, query, pa
 type Server struct {
 	mu                sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
 	resetMu           sync.Mutex   // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
+	reindexMu         sync.Mutex   // per-process reindex gate, held during reindex.Run walk/enqueue (file watcher now; tusk_reload in a later phase)
 	seenEpoch         atomic.Int64 // last .tusk/epoch this daemon has converged to
 	seenManifestEpoch atomic.Int64 // last .tusk/manifest-epoch this daemon has converged to
 	runtime           *Runtime
@@ -486,14 +487,14 @@ func (srv *Server) ServeSSE(addr string) error {
 	return sse.Start(addr)
 }
 
-// RunBackground starts the embed-queue drainer, reindex drainer, file watcher,
-// epoch-tick watcher, and the fsnotify epoch fast-path. All five goroutines are
-// gated on runtime.Workers > 0: when workers
-// are disabled the instance becomes a pure read-server and does not observe
-// FS changes (the watcher would enqueue reindex jobs that never drain). In that
-// case it emits a single startup WARN (via runtime.Logger, if set) so the
-// operator knows indexing won't happen in this instance, then returns
-// immediately. Blocks until ctx cancels, then returns the first non-nil error.
+// RunBackground starts the background goroutines for this daemon. The two
+// drainers and the file watcher are gated on runtime.Workers > 0 (they produce
+// and consume reindex work). The two epoch-watcher pairs (index + manifest)
+// always run — convergence is a consistency property, not an indexing one, so a
+// read-only (Workers=0) daemon must still pick up a sibling's reset (index-epoch)
+// and reload (manifest-epoch) rather than serve a stale index or schema. The
+// epoch watchers are lightweight (a 2s poll + an fsnotify watch on .tusk/).
+// Blocks until ctx cancels, then returns the first non-nil error.
 func (srv *Server) RunBackground(ctx context.Context) error {
 	var (
 		mu    sync.Mutex
@@ -520,8 +521,9 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 	logger := srv.runtime.Logger
 	srv.mu.RUnlock()
 
+	// Resource-heavy passes — drainers + file watcher — require workers.
 	if workers > 0 {
-		waitGroup.Add(5)
+		waitGroup.Add(3)
 
 		go func() {
 			defer waitGroup.Done()
@@ -537,22 +539,36 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 			defer waitGroup.Done()
 			record(RunWatcher(ctx, WatchConfig{Server: srv, Logger: logger}))
 		}()
-
-		go func() {
-			defer waitGroup.Done()
-			record(RunEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
-		}()
-
-		go func() {
-			defer waitGroup.Done()
-			record(RunIndexEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
-		}()
 	} else if logger != nil {
 		logger.Warn(
-			"embed workers disabled; watch is also disabled in this instance. " +
-				"Ensure another instance (or scheduled tusk reindex) drives indexing " +
-				"for this workspace, otherwise the index will go stale.")
+			"embed workers disabled; content indexing and embedding are disabled in this instance. " +
+				"Schema (node-types, edge-types, behaviors) and index resets still converge automatically, " +
+				"but ensure another instance (or scheduled tusk reindex) drives content indexing for this " +
+				"workspace, otherwise the index will go stale.")
 	}
+
+	// Epoch watchers (index + manifest) always run so read-only daemons converge.
+	waitGroup.Add(4)
+
+	go func() {
+		defer waitGroup.Done()
+		record(RunEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+	}()
+
+	go func() {
+		defer waitGroup.Done()
+		record(RunIndexEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+	}()
+
+	go func() {
+		defer waitGroup.Done()
+		record(RunManifestEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+	}()
+
+	go func() {
+		defer waitGroup.Done()
+		record(RunManifestEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+	}()
 
 	waitGroup.Wait()
 

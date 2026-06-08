@@ -48,6 +48,9 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 
 		rt := config.Server.snapshotRuntime() // re-snapshot per event; pass runs off the snapshot
 
+		// Serialize the reindex walk/enqueue against an originating reload's reindex
+		// (a later phase) so generation stamping never interleaves old and new schema.
+		config.Server.reindexMu.Lock()
 		_, runErr := reindex.Run(reindex.Config{
 			Root:            rt.Root,
 			Repo:            rt.Nodes,
@@ -63,6 +66,7 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 			Logger:          config.Logger,
 			Async:           true,
 		})
+		config.Server.reindexMu.Unlock()
 
 		if runErr != nil && config.Logger != nil {
 			config.Logger.Warn("watcher reindex error", "err", runErr, "path", event.Path)

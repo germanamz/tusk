@@ -164,7 +164,10 @@ workers  = 0
 
 // TestRunBackground_WorkersZeroEmitsWarn confirms the T7.3 startup warning:
 // when runtime.Workers == 0, RunBackground emits a single WARN explaining that
-// indexing is disabled in this instance.
+// indexing is disabled in this instance. The epoch watchers still run (they
+// always start regardless of workers), so RunBackground now blocks until the
+// context cancels; this test cancels after a brief boot window to capture the
+// WARN.
 func TestRunBackground_WorkersZeroEmitsWarn(test *testing.T) {
 	root := test.TempDir()
 
@@ -198,9 +201,28 @@ workers  = 0
 
 	srv := mcp.NewServer(rt)
 
-	// workers=0 has no background goroutines, so RunBackground returns at once.
-	if runErr := srv.RunBackground(context.Background()); runErr != nil {
-		test.Fatalf("RunBackground: %v", runErr)
+	// Epoch watchers always run, so RunBackground blocks until cancelled.
+	// Cancel after a brief boot window — the WARN is emitted synchronously
+	// (before any goroutine is spawned) so it appears immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- srv.RunBackground(ctx)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	cancel()
+
+	select {
+	case runErr := <-done:
+		if runErr != nil && runErr != context.Canceled {
+			test.Fatalf("RunBackground: %v", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		test.Fatalf("RunBackground did not return after cancel")
 	}
 
 	if !strings.Contains(buf.String(), "embed workers disabled") {
