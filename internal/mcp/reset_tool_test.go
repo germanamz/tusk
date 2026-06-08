@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -116,4 +117,51 @@ func TestResetTool_ConcurrentReadsAreSafe(test *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestResetTool_SummaryAndRepeat(test *testing.T) {
+	srv := buildTestServer(test)
+
+	first, err := srv.HandleToolCall(context.Background(), resetRequest(true))
+	if err != nil || first.IsError {
+		test.Fatalf("first reset failed: err=%v result=%s", err, textOf(first))
+	}
+
+	var payload struct {
+		Indexed          int      `json:"indexed"`
+		Removed          int      `json:"removed"`
+		Skipped          int      `json:"skipped"`
+		Epoch            int64    `json:"epoch"`
+		DeletedArtifacts []string `json:"deleted_artifacts"`
+	}
+
+	if unmarshalErr := json.Unmarshal([]byte(textOf(first)), &payload); unmarshalErr != nil {
+		test.Fatalf("reset summary is not JSON: %v (%s)", unmarshalErr, textOf(first))
+	}
+
+	if payload.Epoch != 1 {
+		test.Errorf("expected epoch 1, got %d", payload.Epoch)
+	}
+
+	if len(payload.DeletedArtifacts) == 0 {
+		test.Error("expected deleted_artifacts to list the dropped index file(s)")
+	}
+
+	// A second reset must succeed and advance the epoch to 2.
+	second, err := srv.HandleToolCall(context.Background(), resetRequest(true))
+	if err != nil || second.IsError {
+		test.Fatalf("second reset failed: err=%v result=%s", err, textOf(second))
+	}
+
+	var second2 struct {
+		Epoch int64 `json:"epoch"`
+	}
+
+	if unmarshalErr := json.Unmarshal([]byte(textOf(second)), &second2); unmarshalErr != nil {
+		test.Fatalf("second reset summary not JSON: %v", unmarshalErr)
+	}
+
+	if second2.Epoch != 2 {
+		test.Errorf("expected epoch 2 after repeated reset, got %d", second2.Epoch)
+	}
 }
