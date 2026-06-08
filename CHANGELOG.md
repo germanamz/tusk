@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.9.0](https://github.com/germanamz/tusk/compare/v1.8.0...v1.9.0) (2026-06-08)
+
+
+### Features
+
+* **cli:** add tusk reset command ([#528](https://github.com/germanamz/tusk/issues/528)) ([721f60f](https://github.com/germanamz/tusk/commit/721f60fbfea8cce1a2dec729df203922f26d170f))
+* **indexepoch:** add .tusk/epoch sentinel for index-reset detection ([#526](https://github.com/germanamz/tusk/issues/526)) ([5e4348b](https://github.com/germanamz/tusk/commit/5e4348b74d7c3baa392457a16bab7283c44fd020))
+* **mcp:** add tusk_reset tool ([#530](https://github.com/germanamz/tusk/issues/530)) ([8142e0d](https://github.com/germanamz/tusk/commit/8142e0d2978432464b812176f99235bb699658b0))
+* **mcp:** converge sibling daemons after a reset ([#531](https://github.com/germanamz/tusk/issues/531)) ([fd10a2b](https://github.com/germanamz/tusk/commit/fd10a2b495486d67da6c71dfa68e5c47deb89975))
+* **mcp:** fsnotify fast-path for index-reset convergence ([#532](https://github.com/germanamz/tusk/issues/532)) ([06f3a8f](https://github.com/germanamz/tusk/commit/06f3a8f184587e2c19e26837e3a8d0a7a0426a7c))
+* **reset:** add reset core (lock, delete, reopen, bump) ([#527](https://github.com/germanamz/tusk/issues/527)) ([750b3d9](https://github.com/germanamz/tusk/commit/750b3d92834760693a02d4a7ef965a944675be63))
+
+
+### Bug Fixes
+
+* **index:** drop orphaned WAL/SHM sidecars on index rebuild ([#524](https://github.com/germanamz/tusk/issues/524)) ([8d0360d](https://github.com/germanamz/tusk/commit/8d0360da5f2660cd15ef840757a37e34d6495107))
+* **watcher:** honor ignore rules so .tusk/ writes don't loop reindex ([#534](https://github.com/germanamz/tusk/issues/534)) ([5210b48](https://github.com/germanamz/tusk/commit/5210b483a5f9bcbdcef964c8ffbfd48637dab6ff))
+
+
+### Code Refactoring
+
+* **mcp:** swappable runtime infrastructure (snapshot model) ([#529](https://github.com/germanamz/tusk/issues/529)) ([f53f5f9](https://github.com/germanamz/tusk/commit/f53f5f90e17499bc435b45edde31eea295b5bc4e))
+
 ## [1.8.0](https://github.com/germanamz/tusk/compare/v1.7.3...v1.8.0) (2026-06-03)
 
 
