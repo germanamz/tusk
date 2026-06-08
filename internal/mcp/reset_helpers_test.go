@@ -13,8 +13,6 @@ import (
 // node file ON DISK (disk presence is mandatory: tusk_reset / siblingReopen
 // rebuild from disk, so a row-only seed would vanish after a reset). Returns the
 // workspace root.
-//
-//nolint:unused // becomes live in Task 5 (swap_test.go) and Phases 6-8 reset/epoch tests.
 func setupServerWorkspace(test *testing.T) string {
 	test.Helper()
 
@@ -38,8 +36,6 @@ func setupServerWorkspace(test *testing.T) string {
 // newServerForRoot opens the workspace at root, populates the index with a
 // blocking reindex (Open does NOT index a fresh empty DB), and returns a Server.
 // Two daemons can share one root by calling this twice with the same root.
-//
-//nolint:unused // becomes live in Task 5 (swap_test.go) and Phases 6-8 reset/epoch tests.
 func newServerForRoot(test *testing.T, root string) *Server {
 	test.Helper()
 
@@ -73,8 +69,6 @@ func newServerForRoot(test *testing.T, root string) *Server {
 }
 
 // buildTestServer is the common single-daemon fixture.
-//
-//nolint:unused // becomes live in Task 5 (swap_test.go) and Phases 6-8 reset/epoch tests.
 func buildTestServer(test *testing.T) *Server {
 	test.Helper()
 
@@ -91,8 +85,6 @@ func seededNodeID(test *testing.T) string {
 }
 
 // nodeListRequest builds a tusk_node_list call.
-//
-//nolint:unused // becomes live in Task 5 (swap_test.go) and Phases 6-8 reset/epoch tests.
 func nodeListRequest() mcpgo.CallToolRequest {
 	req := mcpgo.CallToolRequest{}
 	req.Params.Name = "tusk_node_list"
@@ -102,8 +94,6 @@ func nodeListRequest() mcpgo.CallToolRequest {
 
 // textOf extracts the text content of a tool result (mirrors the idiom in the
 // package mcp_test golden harness, duplicated here for package mcp).
-//
-//nolint:unused // becomes live in Task 5 (swap_test.go) and Phases 6-8 reset/epoch tests.
 func textOf(result *mcpgo.CallToolResult) string {
 	if result == nil || len(result.Content) == 0 {
 		return ""

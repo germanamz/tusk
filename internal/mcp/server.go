@@ -8,6 +8,7 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/version"
 )
 
@@ -30,9 +31,8 @@ for deep dives on: workflow, node-types, edge-types, manifest, filter, query, pa
 
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
-	mu sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
-	//nolint:unused // becomes live in Task 5 (reopenInPlace) and Phases 6-7; serializes index-replacement ops.
-	resetMu  sync.Mutex // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
+	mu       sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
+	resetMu  sync.Mutex   // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
 	runtime  *Runtime
 	mcp      *server.MCPServer
 	handlers map[string]server.ToolHandlerFunc
@@ -97,6 +97,63 @@ func (srv *Server) register(tool mcpgo.Tool, handler server.ToolHandlerFunc) {
 func (srv *Server) registerWrite(tool mcpgo.Tool, handler server.ToolHandlerFunc) {
 	srv.mcp.AddTool(tool, handler)
 	srv.handlers[tool.Name] = handler
+}
+
+// installStoreLocked builds a fresh Runtime from an already-open store (reusing
+// the current root/paths/logger/introspector and manifest) and swaps it in as
+// srv.runtime. The CALLER must hold srv.mu (write) and must have closed the old
+// handle (or be replacing it via reset). Shared by reopenInPlace, the tusk_reset
+// tool (Phase 6), and siblingReopen (Phase 7).
+func (srv *Server) installStoreLocked(store *index.Index) error {
+	old := srv.runtime
+
+	fresh := &Runtime{
+		Root:              old.Root,
+		ManifestPath:      old.ManifestPath,
+		IndexPath:         old.IndexPath,
+		Logger:            old.Logger,
+		aliasIntrospector: old.aliasIntrospector,
+	}
+
+	if buildErr := fresh.buildFromStore(store, old.Manifest); buildErr != nil {
+		return buildErr
+	}
+
+	srv.runtime = fresh
+
+	return nil
+}
+
+// reopenInPlace closes the current index handle and reopens the SAME path under
+// the write-lock — the NON-DESTRUCTIVE swap (it deletes nothing). The write-lock
+// waits for in-flight read-locked handlers (so no handler observes a closed
+// handle); a background drainer mid-pass holds only a snapshot, and
+// database/sql.Close lets its in-flight query finish before the close completes,
+// after which it errors and re-snapshots next tick. resetMu serializes this
+// against the tusk_reset tool (Phase 6) and siblingReopen (Phase 7) so their
+// flock / write-lock acquisition orders cannot interleave into a deadlock.
+func (srv *Server) reopenInPlace() error {
+	srv.resetMu.Lock()
+	defer srv.resetMu.Unlock()
+
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	srv.runtime.Index.Close()
+
+	store, openErr := index.Open(srv.runtime.IndexPath)
+
+	if openErr != nil {
+		return fmt.Errorf("mcp: reopen: %w", openErr)
+	}
+
+	if installErr := srv.installStoreLocked(store); installErr != nil {
+		store.Close()
+
+		return installErr
+	}
+
+	return nil
 }
 
 // HandleToolCall is exported for tests; production code goes through stdio/SSE.
