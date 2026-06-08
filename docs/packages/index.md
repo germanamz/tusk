@@ -12,6 +12,7 @@ SQLite-backed index. Owns the schema (nodes, edges, embeddings, node_embeddings,
 ## Public surface
 
 - `Open(path string) (*Store, error)` — opens or creates the DB.
+- `RemoveArtifacts(dbPath string) ([]string, error)` — deletes the DB file together with its `-wal`/`-shm` sidecars (absent files are not an error); returns the paths removed. Used by `internal/reset` and by `OpenOrRebuild`'s schema-mismatch rebuild so both drop the full artifact set rather than orphaning sidecars.
 - `NodeRepo`, `EdgeRepo`, `EmbeddingRepo`, `EmbedQueueRepo`, `DriftLog`, `PropertyDrift`, `MetaRepo` — narrow CRUD facades.
 - `RefLookup` semantics live in `internal/node` but bind to `*NodeRepo` in production via `node.NewIndexRefLookup`.
 

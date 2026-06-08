@@ -32,6 +32,9 @@ There is no remote service. Every tool operates on:
 To declare new node-types or edge-types, edit ./tusk.toml directly (no MCP
 tool for this), then call tusk_reindex.
 
+If the index seems wedged or corrupt, call tusk_reset(confirm: true) to drop and
+rebuild it from your files.
+
 Call tusk_help() for an overview + topic index, or tusk_help(topic: "<name>")
 for deep dives on: workflow, node-types, edge-types, manifest, filter, query, packs.`
 
@@ -342,8 +345,9 @@ func (srv *Server) ServeSSE(addr string) error {
 	return sse.Start(addr)
 }
 
-// RunBackground starts the embed-queue drainer, reindex drainer, and file
-// watcher. All three goroutines are gated on runtime.Workers > 0: when workers
+// RunBackground starts the embed-queue drainer, reindex drainer, file watcher,
+// epoch-tick watcher, and the fsnotify epoch fast-path. All five goroutines are
+// gated on runtime.Workers > 0: when workers
 // are disabled the instance becomes a pure read-server and does not observe
 // FS changes (the watcher would enqueue reindex jobs that never drain). In that
 // case it emits a single startup WARN (via runtime.Logger, if set) so the
@@ -376,7 +380,7 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 	srv.mu.RUnlock()
 
 	if workers > 0 {
-		waitGroup.Add(4)
+		waitGroup.Add(5)
 
 		go func() {
 			defer waitGroup.Done()
@@ -396,6 +400,11 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 		go func() {
 			defer waitGroup.Done()
 			record(RunEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+		}()
+
+		go func() {
+			defer waitGroup.Done()
+			record(RunIndexEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
 		}()
 	} else if logger != nil {
 		logger.Warn(

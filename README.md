@@ -390,7 +390,7 @@ flowchart TD
     engine -->|"reads / writes"| db
 ```
 
-- **Filesystem > index, always.** The index is a cache; `rm -rf .tusk/ && tusk reindex` rebuilds it.
+- **Filesystem > index, always.** The index is a cache; if it is stale, wedged, or corrupt, run `tusk reset` (or the `tusk_reset` MCP tool with `confirm: true`) to drop and rebuild it from your files. The markdown files are the source of truth, so nothing is lost.
 - **Stateless across machines.** Clone the vault, reindex, get an identical brain.
 - **Single-writer, many-readers.** SQLite WAL + a workspace-wide advisory lock so `tusk mcp` and one-shot CLI calls coexist.
 

@@ -129,6 +129,40 @@ func TestTwoDaemons_ConvergeAfterReset(test *testing.T) {
 	}
 }
 
+// The fsnotify fast-path converges well before the 2s epoch tick: bumping the
+// epoch fires a directory event on .tusk/epoch and the watcher calls
+// maybeReopenForEpoch immediately.
+func TestEpochFastWatcher_ReopensPromptly(test *testing.T) {
+	srv := buildTestServer(test)
+	root := srv.runtime.Root
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	defer cancel()
+
+	go func() { _ = RunIndexEpochFastWatcher(ctx, EpochWatchConfig{Server: srv}) }()
+
+	// Let the watcher register its fsnotify Add.
+	time.Sleep(150 * time.Millisecond)
+
+	if _, err := indexepoch.Bump(root); err != nil {
+		test.Fatalf("bump: %v", err)
+	}
+
+	// Should converge well under the 2s tick; poll briefly.
+	deadline := time.Now().Add(2 * time.Second)
+
+	for time.Now().Before(deadline) {
+		if srv.seenEpoch.Load() == 1 {
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	test.Fatalf("fast watcher did not converge; seenEpoch=%d", srv.seenEpoch.Load())
+}
+
 func TestSiblingReopen_HungResetterReturnsBusy(test *testing.T) {
 	srv := buildTestServer(test)
 	root := srv.snapshotRuntime().Root
