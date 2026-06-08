@@ -312,6 +312,100 @@ func (srv *Server) maybeReopenForEpoch(ctx context.Context, lockTTL time.Duratio
 	return true, nil
 }
 
+// maybeReloadManifestForEpoch reloads the manifest if .tusk/manifest-epoch
+// advanced beyond the last-seen value (another process reloaded it). Returns
+// true if a reload happened. Called by the two manifest watchers. Mirrors
+// maybeReopenForEpoch but targets the manifest, not the index.
+func (srv *Server) maybeReloadManifestForEpoch(ctx context.Context, lockTTL time.Duration) (bool, error) {
+	srv.mu.RLock()
+	root := srv.runtime.Root
+	srv.mu.RUnlock()
+
+	current, readErr := manifestepoch.Read(root)
+
+	if readErr != nil {
+		return false, readErr
+	}
+
+	if current <= srv.seenManifestEpoch.Load() {
+		return false, nil
+	}
+
+	if reloadErr := srv.siblingReloadManifest(ctx, lockTTL); reloadErr != nil {
+		return false, reloadErr
+	}
+
+	return true, nil
+}
+
+// siblingReloadManifest reacts to another process having reloaded the manifest.
+// It serializes on resetMu (against local index swaps), awaits the reloader by
+// acquiring the cross-process flock (which the reloader holds across load→
+// validate→swap→epoch-bump), then delegates to buildReloaded (which loads +
+// validates + builds a fresh Runtime reusing the open Index/repos), swaps the
+// pointer under the write-lock, and records the epoch only on success. Sibling
+// does NOT reindex (locked decision #4).
+//
+// buildReloaded gates on blocking validation (parse + behavior-engine) and is
+// lenient on alias/context (recorded on the fresh Manifest, swap still proceeds);
+// on a blocking failure it returns an error and seenManifestEpoch is left
+// unchanged so the next tick retries once tusk.toml is valid again.
+//
+// On flock-acquire timeout it returns lock.ErrBusy WITHOUT advancing seenManifestEpoch,
+// so the daemon keeps serving (stale manifest) and retries on the next tick.
+func (srv *Server) siblingReloadManifest(ctx context.Context, lockTTL time.Duration) error {
+	srv.resetMu.Lock()
+	defer srv.resetMu.Unlock()
+
+	srv.mu.RLock()
+	root := srv.runtime.Root
+	srv.mu.RUnlock()
+
+	// Already converged? Dedup when both watchers detect the same bump.
+	if latest, _ := manifestepoch.Read(root); latest <= srv.seenManifestEpoch.Load() {
+		return nil
+	}
+
+	lockHandle, lockErr := lock.NewWorkspaceLock(root)
+
+	if lockErr != nil {
+		return fmt.Errorf("mcp: sibling reload lock: %w", lockErr)
+	}
+
+	acquireCtx, cancel := context.WithTimeout(ctx, lockTTL)
+	defer cancel()
+
+	if acquireErr := lockHandle.Acquire(acquireCtx); acquireErr != nil {
+		return acquireErr // ErrBusy: keep the old manifest, retry next tick
+	}
+
+	defer func() { _ = lockHandle.Release() }()
+
+	// Snapshot the current runtime, then load + validate + build a fresh Runtime
+	// OFF the write-lock (buildReloaded does the TOML parse + validation), so
+	// readers never block on parsing. buildReloaded reuses the open Index/repos.
+	srv.mu.RLock()
+	old := srv.runtime
+	srv.mu.RUnlock()
+
+	fresh, _, buildErr := old.buildReloaded()
+
+	if buildErr != nil {
+		return fmt.Errorf("mcp: sibling reload: %w", buildErr)
+	}
+
+	// Swap the pointer under the write-lock and record the epoch on success.
+	// The fresh Runtime reuses the open Index and the same drift repos, so there
+	// is nothing on old to close here — the index handle stays live.
+	srv.mu.Lock()
+	srv.runtime = fresh
+	latestEpoch, _ := manifestepoch.Read(root)
+	srv.seenManifestEpoch.Store(latestEpoch)
+	srv.mu.Unlock()
+
+	return nil
+}
+
 // HandleToolCall is exported for tests; production code goes through stdio/SSE.
 // It dispatches to the registered handler for request.Params.Name. Returns an
 // "unknown tool" CallToolResult error when the tool isn't registered.
