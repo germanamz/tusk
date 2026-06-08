@@ -14,6 +14,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/lock"
+	"github.com/germanamz/tusk/internal/manifestepoch"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/version"
 )
@@ -40,12 +41,13 @@ for deep dives on: workflow, node-types, edge-types, manifest, filter, query, pa
 
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
-	mu        sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
-	resetMu   sync.Mutex   // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
-	seenEpoch atomic.Int64 // last .tusk/epoch this daemon has converged to
-	runtime   *Runtime
-	mcp       *server.MCPServer
-	handlers  map[string]server.ToolHandlerFunc
+	mu                sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
+	resetMu           sync.Mutex   // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
+	seenEpoch         atomic.Int64 // last .tusk/epoch this daemon has converged to
+	seenManifestEpoch atomic.Int64 // last .tusk/manifest-epoch this daemon has converged to
+	runtime           *Runtime
+	mcp               *server.MCPServer
+	handlers          map[string]server.ToolHandlerFunc
 }
 
 // NewServer builds a Server, registers every Tusk tool, and returns it. The
@@ -66,6 +68,9 @@ func NewServer(runtime *Runtime) *Server {
 
 	initialEpoch, _ := indexepoch.Read(runtime.Root)
 	srv.seenEpoch.Store(initialEpoch)
+
+	initialManifestEpoch, _ := manifestepoch.Read(runtime.Root)
+	srv.seenManifestEpoch.Store(initialManifestEpoch)
 
 	registerTools(srv)
 
