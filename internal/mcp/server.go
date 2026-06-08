@@ -3,14 +3,18 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/indexepoch"
+	"github.com/germanamz/tusk/internal/lock"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/version"
 )
 
@@ -165,6 +169,114 @@ func (srv *Server) reopenInPlace() error {
 	}
 
 	_ = old.Index.Close()
+
+	return nil
+}
+
+// siblingReopen reacts to another process having reset the shared index. It
+// serializes on resetMu (against the local tusk_reset tool), awaits the resetter
+// by acquiring the cross-process flock (which the resetter holds across
+// delete→recreate→epoch-bump), then swaps to a fresh handle under the write-lock.
+//
+// If the index file is absent when the flock is acquired, the resetter crashed
+// mid-reset; this daemon becomes the recreator: it reopens (which recreates the
+// file), bumps the epoch, and kicks an Async rebuild. Otherwise it joins the
+// already-recreated file and lets the lease-coordinated drainers rebuild.
+//
+// On flock-acquire timeout (a hung-but-alive resetter) it returns lock.ErrBusy
+// WITHOUT closing the current handle, so the daemon keeps serving (stale) and
+// retries on the next tick.
+func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) error {
+	srv.resetMu.Lock()
+	defer srv.resetMu.Unlock()
+
+	srv.mu.RLock()
+	root := srv.runtime.Root
+	indexPath := srv.runtime.IndexPath
+	srv.mu.RUnlock()
+
+	// Already converged? When both watchers (RunEpochWatcher + the Phase 8
+	// fast-path) detect the same bump, the first siblingReopen updates seenEpoch;
+	// once we hold resetMu it is stable, so a stale second call is a cheap no-op.
+	// (This compares the .tusk/epoch sentinel, not the index file — it never skips
+	// a genuine new bump.)
+	if latest, _ := indexepoch.Read(root); latest <= srv.seenEpoch.Load() {
+		return nil
+	}
+
+	lockHandle, lockErr := lock.NewWorkspaceLock(root)
+	if lockErr != nil {
+		return fmt.Errorf("mcp: sibling reopen lock: %w", lockErr)
+	}
+
+	acquireCtx, cancel := context.WithTimeout(ctx, lockTTL)
+	defer cancel()
+
+	if acquireErr := lockHandle.Acquire(acquireCtx); acquireErr != nil {
+		return acquireErr // ErrBusy: keep the old handle, retry next tick
+	}
+
+	defer func() { _ = lockHandle.Release() }()
+
+	_, statErr := os.Stat(indexPath)
+	fileAbsent := os.IsNotExist(statErr)
+
+	srv.mu.Lock()
+	old := srv.runtime
+
+	// Open the new handle BEFORE closing the old one, and swap BEFORE closing, so
+	// a failed open/rebuild leaves the old handle installed and live — the daemon
+	// keeps serving rather than being left on a closed DB (matches reopenInPlace).
+	// On the recreator path (file absent) index.Open recreates the file here.
+	store, openErr := index.Open(indexPath)
+	if openErr != nil {
+		srv.mu.Unlock()
+
+		return fmt.Errorf("mcp: sibling reopen: %w", openErr)
+	}
+
+	if installErr := srv.installStoreLocked(store); installErr != nil {
+		_ = store.Close()
+		srv.mu.Unlock()
+
+		return installErr
+	}
+
+	fresh := srv.runtime  // freshly-installed runtime (used by the recreator branch)
+	_ = old.Index.Close() // close the old handle only after a successful swap
+	srv.mu.Unlock()
+
+	if fileAbsent {
+		// We are the recreator (resetter died mid-reset). Bump the epoch so other
+		// siblings converge, and rebuild from disk.
+		bumped, bumpErr := indexepoch.Bump(root)
+		if bumpErr != nil {
+			return fmt.Errorf("mcp: recreator bump: %w", bumpErr)
+		}
+
+		srv.seenEpoch.Store(bumped)
+
+		if _, runErr := reindex.Run(reindex.Config{
+			Root:            fresh.Root,
+			Repo:            fresh.Nodes,
+			Edges:           fresh.Edges,
+			EdgeTypes:       fresh.Manifest.EdgeTypes,
+			WorkspaceIgnore: fresh.Manifest.Workspace.Ignore,
+			EmbedQueue:      fresh.EmbedQueue,
+			Meta:            fresh.Meta,
+			FileStates:      fresh.FileState,
+			Workers:         fresh.Workers,
+			Async:           true,
+		}); runErr != nil {
+			return fmt.Errorf("mcp: recreator reindex: %w", runErr)
+		}
+
+		return nil
+	}
+
+	// Joined an already-recreated file: record the resetter's epoch.
+	current, _ := indexepoch.Read(root)
+	srv.seenEpoch.Store(current)
 
 	return nil
 }
