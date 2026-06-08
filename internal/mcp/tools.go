@@ -14,7 +14,9 @@ import (
 	"github.com/germanamz/tusk/internal/contextcompose"
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/manifestepoch"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -43,6 +45,7 @@ func registerTools(srv *Server) {
 	registerRunTool(srv)
 	registerContextTool(srv)
 	registerResetTool(srv)
+	registerReloadTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -1787,6 +1790,259 @@ func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
 	}
 
 	return result.Result
+}
+
+// registerReloadTool exposes the manifest reload over MCP. The handler is
+// registered via registerWrite (NO read-lock wrapper) because it takes the
+// runtime write-lock itself and performs a cross-process flock acquire.
+// The flock is acquired OUTSIDE srv.mu so the daemon keeps serving reads
+// during the (possibly contended) flock-await; the write-lock window is
+// only the brief structural swap. Args: no_reindex (bool, default false),
+// no_embed (bool, default false). The handler body is the package-level
+// reloadToolHandler so unit tests can call it directly.
+func registerReloadTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_reload",
+		mcpgo.WithDescription("Hot reload the manifest: re-read tusk.toml, validate, swap the in-memory schema and behavior engine, bump .tusk/manifest-epoch to notify siblings, and kick a reindex pass. Returns the manifest-epoch, a diff (added/removed node-types, edge-types, behaviors), and the reindex report."),
+		mcpgo.WithBoolean("no_reindex", mcpgo.Description("Skip the reindex pass (default false)")),
+		mcpgo.WithBoolean("no_embed", mcpgo.Description("Skip the embedding phase of the reindex (default false)")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		return reloadToolHandler(ctx, request, srv)
+	}
+
+	srv.registerWrite(tool, handler)
+}
+
+// reloadToolHandler is the package-level body of tusk_reload, extracted so unit
+// tests can invoke it directly without wiring the full MCP transport. It
+// snapshots the runtime, acquires the cross-process flock OUTSIDE srv.mu,
+// validates+builds a fresh Runtime via rt.buildReloaded() (which loads, merges
+// packs, runs the lenient alias/context gates, and builds the behavior engine —
+// returning an error on a blocking failure), swaps it under the write-lock,
+// bumps the manifest-epoch, then (unless no_reindex) kicks an async reindex
+// under reindexMu.
+func reloadToolHandler(ctx context.Context, request mcpgo.CallToolRequest, srv *Server) (*mcpgo.CallToolResult, error) {
+	noReindex := argBoolOptional(request, "no_reindex", false)
+	noEmbed := argBoolOptional(request, "no_embed", false)
+
+	// reloadMu serializes originating reloads so epochs advance monotonically
+	// and only one owner reindexes. It (and the flock below) are released
+	// EXPLICITLY before the reindex pass (spec §6a step 9→10) via guarded
+	// closures; the deferred calls are backstops that fire on the early
+	// error-return paths. The guards make the explicit release + the defer
+	// idempotent (calling Unlock twice on a sync.Mutex would panic).
+	srv.reloadMu.Lock()
+	reloadMuHeld := true
+	releaseReloadMu := func() {
+		if reloadMuHeld {
+			reloadMuHeld = false
+			srv.reloadMu.Unlock()
+		}
+	}
+	defer releaseReloadMu()
+
+	// Snapshot the live runtime (brief RLock inside snapshotRuntime).
+	rt := srv.snapshotRuntime()
+	root := rt.Root
+
+	// Acquire the cross-process flock OUTSIDE srv.mu: the daemon keeps serving
+	// reads during the (possibly contended) flock-await.
+	lockHandle, lockErr := lock.NewWorkspaceLock(root)
+	if lockErr != nil {
+		return toolError(lockErr), nil
+	}
+
+	acquireCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if acquireErr := lockHandle.Acquire(acquireCtx); acquireErr != nil {
+		return toolError(acquireErr), nil
+	}
+
+	flockHeld := true
+	releaseFlock := func() {
+		if flockHeld {
+			flockHeld = false
+			_ = lockHandle.Release()
+		}
+	}
+	defer releaseFlock()
+
+	// Load + validate + build the fresh Runtime all off the write-lock (readers
+	// never block on TOML parsing). buildReloaded is private and takes no context;
+	// it returns an error on a blocking failure (parse/structural error or
+	// behavior-engine build failure), leaving rt unmutated.
+	fresh, diff, buildErr := rt.buildReloaded()
+	if buildErr != nil {
+		return toolJSON(map[string]any{
+			"manifest_epoch":    srv.seenManifestEpoch.Load(),
+			"diff":              emptyManifestDiff(),
+			"reindex":           emptyReindexReport(),
+			"validation_errors": []string{buildErr.Error()},
+			"warnings":          []string{},
+		})
+	}
+
+	// Collect warnings (non-blocking validation errors recorded on the fresh manifest).
+	warnings := []string{}
+	for _, aliasErr := range fresh.Manifest.AliasErrors {
+		warnings = append(warnings, fmt.Sprintf("invalid alias %q: %s", aliasErr.Name, aliasErr.Message))
+	}
+	for _, contextErr := range fresh.Manifest.ContextErrors {
+		warnings = append(warnings, fmt.Sprintf("invalid context entry: %s", contextErr.Message))
+	}
+
+	// Swap under the write-lock.
+	srv.mu.Lock()
+	old := srv.runtime
+	srv.runtime = fresh
+
+	// Bump manifest-epoch and record it under the write-lock.
+	newEpoch, bumpErr := manifestepoch.Bump(root)
+	if bumpErr != nil {
+		// Revert the swap on bump failure.
+		srv.runtime = old
+		srv.mu.Unlock()
+
+		return toolJSON(map[string]any{
+			"manifest_epoch":    srv.seenManifestEpoch.Load(),
+			"diff":              emptyManifestDiff(),
+			"reindex":           emptyReindexReport(),
+			"validation_errors": []string{bumpErr.Error()},
+			"warnings":          []string{},
+		})
+	}
+
+	srv.seenManifestEpoch.Store(newEpoch)
+	srv.mu.Unlock()
+
+	// Release the flock and reloadMu BEFORE the reindex pass (spec §6a step 9→10).
+	// The swap + epoch bump are done and have propagated, so a concurrent
+	// reset/reload on another process must not wait on the flock through this
+	// reindex's (synchronous) workspace walk. After this, the reindex is
+	// serialized only by reindexMu (against the file watcher and a sibling-owned
+	// reindex), while the next reload's swap+bump can proceed under the flock.
+	releaseFlock()
+	releaseReloadMu()
+
+	// Reindex coupling: off the flock and reloadMu, under reindexMu (skip if no_reindex).
+	reindexReport := emptyReindexReport()
+	reindexReport["kicked"] = false
+
+	if !noReindex {
+		srv.reindexMu.Lock()
+		defer srv.reindexMu.Unlock()
+
+		reindexConfig := reindex.Config{
+			Root:            fresh.Root,
+			Repo:            fresh.Nodes,
+			Edges:           fresh.Edges,
+			EdgeTypes:       fresh.Manifest.EdgeTypes,
+			WorkspaceIgnore: fresh.Manifest.Workspace.Ignore,
+			EmbedQueue:      fresh.EmbedQueue,
+			Meta:            fresh.Meta,
+			FileStates:      fresh.FileState,
+			Behaviors:       fresh.BehaviorEngine,
+			DriftLog:        fresh.WorkflowDrift,
+			NodeTypes:       fresh.Manifest.NodeTypes,
+			PropertyDrift:   fresh.PropertyDrift,
+			Workers:         fresh.Workers,
+			Logger:          fresh.Logger,
+			Async:           true,
+		}
+
+		if !noEmbed && fresh.Embedder != nil {
+			reindexConfig.EmbeddingRepo = fresh.Embeddings
+			reindexConfig.Embedder = fresh.Embedder
+			reindexConfig.Chunker = fresh.Chunker
+		}
+
+		report, runErr := reindex.Run(reindexConfig)
+		if runErr != nil {
+			// Non-blocking: the manifest-epoch was already bumped and the in-memory
+			// schema swapped, so the reload itself succeeded and siblings still
+			// converge their schema. Only the index lags; the next watcher pass or a
+			// manual tusk_reindex repairs it. reindex.kicked stays false in the
+			// response so the caller can see the pass did not complete.
+			if fresh.Logger != nil {
+				fresh.Logger.Warn("reindex after reload failed", "err", runErr)
+			}
+		} else {
+			reindexReport = map[string]any{
+				"kicked":              true,
+				"async":               true,
+				"indexed":             report.Indexed,
+				"removed":             report.Removed,
+				"skipped":             report.Skipped,
+				"workflow_violations": report.WorkflowViolations,
+				"property_violations": report.PropertyViolations,
+				"ref_dangling":        report.RefDangling,
+				"ref_ambiguous":       report.RefAmbiguous,
+				"ref_type_mismatch":   report.RefTypeMismatch,
+				"ref_cycle":           report.RefCycle,
+			}
+		}
+	}
+
+	return toolJSON(map[string]any{
+		"manifest_epoch": newEpoch,
+		"diff": map[string]any{
+			"node_types": map[string]any{
+				"added":   diff.NodeTypes.Added,
+				"removed": diff.NodeTypes.Removed,
+			},
+			"edge_types": map[string]any{
+				"added":   diff.EdgeTypes.Added,
+				"removed": diff.EdgeTypes.Removed,
+			},
+			"behaviors": map[string]any{
+				"added":   behaviorRefsToJSON(diff.Behaviors.Added),
+				"removed": behaviorRefsToJSON(diff.Behaviors.Removed),
+			},
+		},
+		"reindex":           reindexReport,
+		"validation_errors": []string{},
+		"warnings":          warnings,
+	})
+}
+
+// emptyManifestDiff returns a zero-valued ManifestDiff as a JSON envelope.
+func emptyManifestDiff() map[string]any {
+	return map[string]any{
+		"node_types": map[string]any{"added": []string{}, "removed": []string{}},
+		"edge_types": map[string]any{"added": []string{}, "removed": []string{}},
+		"behaviors":  map[string]any{"added": []map[string]string{}, "removed": []map[string]string{}},
+	}
+}
+
+// emptyReindexReport returns a zero-valued reindex report envelope.
+func emptyReindexReport() map[string]any {
+	return map[string]any{
+		"kicked":              false,
+		"async":               true,
+		"indexed":             0,
+		"removed":             0,
+		"skipped":             0,
+		"workflow_violations": 0,
+		"property_violations": 0,
+		"ref_dangling":        0,
+		"ref_ambiguous":       0,
+		"ref_type_mismatch":   0,
+		"ref_cycle":           0,
+	}
+}
+
+// behaviorRefsToJSON converts a slice of BehaviorRef to JSON-serializable map slices.
+func behaviorRefsToJSON(refs []BehaviorRef) []map[string]string {
+	result := make([]map[string]string, len(refs))
+	for index, ref := range refs {
+		result[index] = map[string]string{
+			"kind":     ref.Kind,
+			"instance": ref.Instance,
+		}
+	}
+	return result
 }
 
 // aliasCompactResult emits the alias result through the matching compact
