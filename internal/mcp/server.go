@@ -281,6 +281,29 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 	return nil
 }
 
+// maybeReopenForEpoch reopens the index if .tusk/epoch advanced beyond the
+// last-seen value (another process reset it). Returns true if a reopen happened.
+func (srv *Server) maybeReopenForEpoch(ctx context.Context, lockTTL time.Duration) (bool, error) {
+	srv.mu.RLock()
+	root := srv.runtime.Root
+	srv.mu.RUnlock()
+
+	current, readErr := indexepoch.Read(root)
+	if readErr != nil {
+		return false, readErr
+	}
+
+	if current <= srv.seenEpoch.Load() {
+		return false, nil
+	}
+
+	if reopenErr := srv.siblingReopen(ctx, lockTTL); reopenErr != nil {
+		return false, reopenErr
+	}
+
+	return true, nil
+}
+
 // HandleToolCall is exported for tests; production code goes through stdio/SSE.
 // It dispatches to the registered handler for request.Params.Name. Returns an
 // "unknown tool" CallToolResult error when the tool isn't registered.
@@ -353,7 +376,7 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 	srv.mu.RUnlock()
 
 	if workers > 0 {
-		waitGroup.Add(3)
+		waitGroup.Add(4)
 
 		go func() {
 			defer waitGroup.Done()
@@ -368,6 +391,11 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 		go func() {
 			defer waitGroup.Done()
 			record(RunWatcher(ctx, WatchConfig{Server: srv, Logger: logger}))
+		}()
+
+		go func() {
+			defer waitGroup.Done()
+			record(RunEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
 		}()
 	} else if logger != nil {
 		logger.Warn(

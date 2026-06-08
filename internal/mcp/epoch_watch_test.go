@@ -49,3 +49,38 @@ func TestSiblingReopen_RecreatesWhenFileAbsent(test *testing.T) {
 		test.Fatalf("recreator did not rebuild; got: %s", textOf(listResult))
 	}
 }
+
+func TestMaybeReopenForEpoch(test *testing.T) {
+	srv := buildTestServer(test)
+	root := srv.runtime.Root
+
+	// No epoch advance yet → no reopen.
+	reopened, err := srv.maybeReopenForEpoch(context.Background(), 5*time.Second)
+	if err != nil {
+		test.Fatalf("maybeReopenForEpoch (no change): %v", err)
+	}
+
+	if reopened {
+		test.Fatal("reopened despite unchanged epoch")
+	}
+
+	// Simulate a foreign reset: bump epoch out-of-band (another process would
+	// have recreated the DB; here the existing file is still valid, so reopen
+	// just re-points the handle).
+	if _, bumpErr := indexepoch.Bump(root); bumpErr != nil {
+		test.Fatalf("bump: %v", bumpErr)
+	}
+
+	reopened, err = srv.maybeReopenForEpoch(context.Background(), 5*time.Second)
+	if err != nil {
+		test.Fatalf("maybeReopenForEpoch (advanced): %v", err)
+	}
+
+	if !reopened {
+		test.Fatal("expected a reopen after epoch advance")
+	}
+
+	if srv.seenEpoch.Load() != 1 {
+		test.Fatalf("expected seenEpoch 1 after convergence, got %d", srv.seenEpoch.Load())
+	}
+}
