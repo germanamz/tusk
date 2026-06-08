@@ -101,8 +101,10 @@ func (srv *Server) registerWrite(tool mcpgo.Tool, handler server.ToolHandlerFunc
 
 // installStoreLocked builds a fresh Runtime from an already-open store (reusing
 // the current root/paths/logger/introspector and manifest) and swaps it in as
-// srv.runtime. The CALLER must hold srv.mu (write) and must have closed the old
-// handle (or be replacing it via reset). Shared by reopenInPlace, the tusk_reset
+// srv.runtime. It does NOT close the old handle — the CALLER (which must hold
+// srv.mu write) owns the old handle's lifecycle: the destructive tusk_reset
+// closes it before deleting; the non-destructive reopenInPlace / siblingReopen
+// close it only after a successful swap. Shared by reopenInPlace, the tusk_reset
 // tool (Phase 6), and siblingReopen (Phase 7).
 func (srv *Server) installStoreLocked(store *index.Index) error {
 	old := srv.runtime
