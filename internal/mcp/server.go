@@ -30,6 +30,9 @@ for deep dives on: workflow, node-types, edge-types, manifest, filter, query, pa
 
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
+	mu sync.RWMutex // guards the runtime pointer; readers = handlers (whole body) + snapshotRuntime (brief), writer = swap
+	//nolint:unused // becomes live in Task 5 (reopenInPlace) and Phases 6-7; serializes index-replacement ops.
+	resetMu  sync.Mutex // serializes ALL index-replacement ops in-process (reset tool + sibling reopen) so the flock/write-lock acquisition orders cannot interleave into a deadlock
 	runtime  *Runtime
 	mcp      *server.MCPServer
 	handlers map[string]server.ToolHandlerFunc
@@ -56,8 +59,46 @@ func NewServer(runtime *Runtime) *Server {
 	return srv
 }
 
-// register adds tool to both the mcp-go server and srv.handlers.
+// snapshotRuntime returns the current runtime pointer under a brief read-lock.
+// Background goroutines (drainers, watcher) call this each tick and then run
+// their drain/reindex pass on the returned snapshot WITHOUT holding the lock —
+// so a reset's write-lock is never blocked by a long Ollama-bound pass. If a
+// concurrent swap closes the snapshot's handle mid-pass, database/sql.Close
+// first lets the in-flight query finish (no panic), then subsequent queries
+// error; the drainer logs and re-snapshots next tick (the index is a cache).
+// Handlers do NOT use this — they hold the read-lock for their whole body (via
+// the guarded register) so they never observe a closed handle.
+//
+//nolint:unused // becomes live in Task 3 (drainers + tusk_reindex snapshot off the lock).
+func (srv *Server) snapshotRuntime() *Runtime {
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+
+	return srv.runtime
+}
+
+// register adds tool to the mcp-go server and srv.handlers, wrapping the handler
+// so it holds the runtime read-lock for its entire duration. Use registerWrite
+// for tools that must take the write-lock themselves (e.g. tusk_reset).
 func (srv *Server) register(tool mcpgo.Tool, handler server.ToolHandlerFunc) {
+	guarded := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		srv.mu.RLock()
+		defer srv.mu.RUnlock()
+
+		return handler(ctx, request)
+	}
+
+	srv.mcp.AddTool(tool, guarded)
+	srv.handlers[tool.Name] = guarded
+}
+
+// registerWrite registers a handler WITHOUT the read-lock wrapper, for tools
+// that acquire the write-lock internally (a read-locked handler taking the
+// write-lock would deadlock) or that run a long pass off a snapshot. Used by
+// tusk_reindex (snapshots, runs off the lock) and by tusk_reset in Phase 6.
+//
+//nolint:unused // becomes live in Task 3 (tusk_reindex re-registers through this).
+func (srv *Server) registerWrite(tool mcpgo.Tool, handler server.ToolHandlerFunc) {
 	srv.mcp.AddTool(tool, handler)
 	srv.handlers[tool.Name] = handler
 }
