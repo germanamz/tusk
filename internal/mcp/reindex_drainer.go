@@ -11,15 +11,16 @@ import (
 
 // ReindexDrainerConfig configures RunReindexDrainer.
 type ReindexDrainerConfig struct {
-	Runtime  *Runtime
+	Server   *Server
 	Interval time.Duration // default 2 * time.Second
 	Logger   *slog.Logger  // optional; nil silences output
 }
 
 // RunReindexDrainer loops on a ticker calling reindex.DrainReindexQueue until
-// ctx cancels. The generation stamp comes from the runtime's MetaRepo on each
-// tick so newly-enqueued reindex jobs from concurrent walks are processed
-// against the correct gen.
+// ctx cancels. Each tick it snapshots the runtime under a brief read-lock, then
+// runs the drain pass off the snapshot WITHOUT holding the lock. The generation
+// stamp comes from the snapshot's MetaRepo on each tick so newly-enqueued
+// reindex jobs from concurrent walks are processed against the correct gen.
 func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 	interval := config.Interval
 
@@ -35,27 +36,29 @@ func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			rt := config.Server.snapshotRuntime() // brief read-lock; pass runs off the snapshot
+
 			var gen int64
 
-			if stored, getErr := config.Runtime.Meta.Get("reindex_gen"); getErr == nil && stored != "" {
+			if stored, getErr := rt.Meta.Get("reindex_gen"); getErr == nil && stored != "" {
 				gen, _ = strconv.ParseInt(stored, 10, 64)
 			}
 
 			report, drainErr := reindex.DrainReindexQueue(ctx, reindex.WorkerConfig{
-				Root:          config.Runtime.Root,
-				Repo:          config.Runtime.Nodes,
-				Edges:         config.Runtime.Edges,
-				EdgeTypes:     config.Runtime.Manifest.EdgeTypes,
-				EmbedQueue:    config.Runtime.EmbedQueue,
-				FileStates:    config.Runtime.FileState,
-				Manifest:      config.Runtime.Manifest,
-				Behaviors:     config.Runtime.BehaviorEngine,
-				DriftLog:      config.Runtime.WorkflowDrift,
-				NodeTypes:     config.Runtime.Manifest.NodeTypes,
-				PropertyDrift: config.Runtime.PropertyDrift,
+				Root:          rt.Root,
+				Repo:          rt.Nodes,
+				Edges:         rt.Edges,
+				EdgeTypes:     rt.Manifest.EdgeTypes,
+				EmbedQueue:    rt.EmbedQueue,
+				FileStates:    rt.FileState,
+				Manifest:      rt.Manifest,
+				Behaviors:     rt.BehaviorEngine,
+				DriftLog:      rt.WorkflowDrift,
+				NodeTypes:     rt.Manifest.NodeTypes,
+				PropertyDrift: rt.PropertyDrift,
 				Logger:        config.Logger,
-				Workers:       config.Runtime.Workers,
-				TTL:           config.Runtime.LeaseTTL,
+				Workers:       rt.Workers,
+				TTL:           rt.LeaseTTL,
 				Generation:    gen,
 			})
 

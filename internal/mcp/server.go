@@ -68,8 +68,6 @@ func NewServer(runtime *Runtime) *Server {
 // error; the drainer logs and re-snapshots next tick (the index is a cache).
 // Handlers do NOT use this — they hold the read-lock for their whole body (via
 // the guarded register) so they never observe a closed handle.
-//
-//nolint:unused // becomes live in Task 3 (drainers + tusk_reindex snapshot off the lock).
 func (srv *Server) snapshotRuntime() *Runtime {
 	srv.mu.RLock()
 	defer srv.mu.RUnlock()
@@ -96,8 +94,6 @@ func (srv *Server) register(tool mcpgo.Tool, handler server.ToolHandlerFunc) {
 // that acquire the write-lock internally (a read-locked handler taking the
 // write-lock would deadlock) or that run a long pass off a snapshot. Used by
 // tusk_reindex (snapshots, runs off the lock) and by tusk_reset in Phase 6.
-//
-//nolint:unused // becomes live in Task 3 (tusk_reindex re-registers through this).
 func (srv *Server) registerWrite(tool mcpgo.Tool, handler server.ToolHandlerFunc) {
 	srv.mcp.AddTool(tool, handler)
 	srv.handlers[tool.Name] = handler
@@ -169,25 +165,30 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 
 	var waitGroup sync.WaitGroup
 
-	if srv.runtime.Workers > 0 {
+	srv.mu.RLock()
+	workers := srv.runtime.Workers
+	logger := srv.runtime.Logger
+	srv.mu.RUnlock()
+
+	if workers > 0 {
 		waitGroup.Add(3)
 
 		go func() {
 			defer waitGroup.Done()
-			record(RunDrainer(ctx, DrainerConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
+			record(RunDrainer(ctx, DrainerConfig{Server: srv, Logger: logger}))
 		}()
 
 		go func() {
 			defer waitGroup.Done()
-			record(RunReindexDrainer(ctx, ReindexDrainerConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
+			record(RunReindexDrainer(ctx, ReindexDrainerConfig{Server: srv, Logger: logger}))
 		}()
 
 		go func() {
 			defer waitGroup.Done()
-			record(RunWatcher(ctx, WatchConfig{Runtime: srv.runtime, Logger: srv.runtime.Logger}))
+			record(RunWatcher(ctx, WatchConfig{Server: srv, Logger: logger}))
 		}()
-	} else if srv.runtime.Logger != nil {
-		srv.runtime.Logger.Warn(
+	} else if logger != nil {
+		logger.Warn(
 			"embed workers disabled; watch is also disabled in this instance. " +
 				"Ensure another instance (or scheduled tusk reindex) drives indexing " +
 				"for this workspace, otherwise the index will go stale.")

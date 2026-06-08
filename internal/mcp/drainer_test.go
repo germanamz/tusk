@@ -15,6 +15,8 @@ func TestRunDrainer_DrainsQueueAndStopsOnCancel(test *testing.T) {
 
 	rt.Nodes.Upsert(index.NodeRow{ID: "notes/x", Type: "note", Path: "notes/x.md", PropertiesJSON: "{}", LastChecksum: "x"})
 
+	srv := mcp.NewServer(rt)
+
 	// No embedder → drainer is a no-op but should still respect the ticker
 	// and exit on context cancellation cleanly.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -23,7 +25,7 @@ func TestRunDrainer_DrainsQueueAndStopsOnCancel(test *testing.T) {
 
 	go func() {
 		done <- mcp.RunDrainer(ctx, mcp.DrainerConfig{
-			Runtime:  rt,
+			Server:   srv,
 			Interval: 20 * time.Millisecond,
 		})
 	}()
