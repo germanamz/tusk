@@ -11,6 +11,49 @@ import (
 	"github.com/germanamz/tusk/internal/manifestepoch"
 )
 
+// TestRunBackground_UngatesEpochWatchers_WhenWorkersZero asserts that a
+// Workers=0 (read-only) daemon still converges a manifest-epoch bump through
+// RunBackground. Before this change, the epoch-watcher goroutines were gated on
+// workers > 0 and never started — this test caught that regression.
+func TestRunBackground_UngatesEpochWatchers_WhenWorkersZero(test *testing.T) {
+	root := setupServerWorkspace(test)
+
+	rt, rtErr := Open(root)
+	if rtErr != nil {
+		test.Fatalf("Open: %v", rtErr)
+	}
+	defer func() { _ = rt.Close() }()
+
+	rt.Workers = 0 // read-only daemon
+
+	daemon := NewServer(rt)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = daemon.RunBackground(ctx) }()
+
+	time.Sleep(150 * time.Millisecond) // let the epoch watchers boot
+
+	if _, err := manifestepoch.Bump(root); err != nil {
+		test.Fatalf("bump: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if daemon.seenManifestEpoch.Load() >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if seen := daemon.seenManifestEpoch.Load(); seen < 1 {
+		test.Fatalf("Workers=0 daemon did not converge manifest-epoch: got %d, want >= 1", seen)
+	}
+
+	cancel()
+}
+
 // Test that NewServer initializes seenManifestEpoch from the persisted sentinel.
 func TestNewServer_InitializesSeenManifestEpoch(test *testing.T) {
 	root := setupServerWorkspace(test)
