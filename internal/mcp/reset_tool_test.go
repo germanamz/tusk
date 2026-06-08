@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/indexepoch"
@@ -75,4 +76,44 @@ func TestResetTool_SwapsAndKeepsServing(test *testing.T) {
 	if !strings.Contains(textOf(listResult), seededNodeID(test)) {
 		test.Fatalf("rebuilt index missing the seeded node; got: %s", textOf(listResult))
 	}
+}
+
+func TestResetTool_ConcurrentReadsAreSafe(test *testing.T) {
+	srv := buildTestServer(test)
+
+	var wg sync.WaitGroup
+
+	// Fire many concurrent node_list reads while a reset swaps the handle.
+	for range 20 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			res, err := srv.HandleToolCall(context.Background(), nodeListRequest())
+			if err != nil {
+				test.Errorf("concurrent list transport error: %v", err)
+
+				return
+			}
+
+			// A read may legitimately race a reset and see a transient empty
+			// list, but it must NEVER surface a DB-closed/error result.
+			if res.IsError {
+				test.Errorf("concurrent list errored during reset: %s", textOf(res))
+			}
+		}()
+	}
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		if _, err := srv.HandleToolCall(context.Background(), resetRequest(true)); err != nil {
+			test.Errorf("reset transport error: %v", err)
+		}
+	}()
+
+	wg.Wait()
 }
