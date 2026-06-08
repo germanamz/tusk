@@ -1,0 +1,52 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-reset - Drop the local index and rebuild it from source files
+
+
+.SH SYNOPSIS
+\fBtusk reset [flags]\fP
+
+
+.SH DESCRIPTION
+Delete the local SQLite index (.tusk/index.db and its WAL/SHM
+sidecars) and rebuild it from scratch by walking the workspace.
+
+.PP
+Unlike "tusk reindex" — which never deletes and only re-parses changed files —
+reset destroys the index entirely, so it recovers from a corrupt or wedged
+index. The markdown files are the source of truth, so nothing is lost; the
+rebuild re-derives every node, edge, and embedding from disk.
+
+.PP
+Reset re-embeds every node, which can be expensive with a local embedding
+model. It requires confirmation; pass --yes to skip the prompt.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for reset
+
+.PP
+\fB--yes\fP[=false]
+	skip the confirmation prompt
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Drop and rebuild the index, with confirmation
+  tusk reset
+
+  # Non-interactive (e.g. scripts/agents)
+  tusk reset --yes
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP
