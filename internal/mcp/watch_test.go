@@ -14,18 +14,20 @@ func TestRunWatcher_PicksUpExternalEdit(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
 
+	srv := mcp.NewServer(rt)
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan error, 1)
 	drainerDone := make(chan error, 1)
 
 	go func() {
-		done <- mcp.RunWatcher(ctx, mcp.WatchConfig{Runtime: rt})
+		done <- mcp.RunWatcher(ctx, mcp.WatchConfig{Server: srv})
 	}()
 
 	go func() {
 		drainerDone <- mcp.RunReindexDrainer(ctx, mcp.ReindexDrainerConfig{
-			Runtime:  rt,
+			Server:   srv,
 			Interval: 100 * time.Millisecond,
 		})
 	}()

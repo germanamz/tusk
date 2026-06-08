@@ -1301,22 +1301,24 @@ func registerReindexTool(srv *Server) {
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		noEmbed, _ := request.GetArguments()["no_embed"].(bool)
 
+		rt := srv.snapshotRuntime() // run the (long) reindex off the read-lock
+
 		config := reindex.Config{
-			Root:            srv.runtime.Root,
-			Repo:            srv.runtime.Nodes,
-			Edges:           srv.runtime.Edges,
-			EdgeTypes:       srv.runtime.Manifest.EdgeTypes,
-			WorkspaceIgnore: srv.runtime.Manifest.Workspace.Ignore,
-			EmbedQueue:      srv.runtime.EmbedQueue,
-			Meta:            srv.runtime.Meta,
-			FileStates:      srv.runtime.FileState,
-			Workers:         srv.runtime.Workers,
+			Root:            rt.Root,
+			Repo:            rt.Nodes,
+			Edges:           rt.Edges,
+			EdgeTypes:       rt.Manifest.EdgeTypes,
+			WorkspaceIgnore: rt.Manifest.Workspace.Ignore,
+			EmbedQueue:      rt.EmbedQueue,
+			Meta:            rt.Meta,
+			FileStates:      rt.FileState,
+			Workers:         rt.Workers,
 		}
 
-		if !noEmbed && srv.runtime.Embedder != nil {
-			config.EmbeddingRepo = srv.runtime.Embeddings
-			config.Embedder = srv.runtime.Embedder
-			config.Chunker = srv.runtime.Chunker
+		if !noEmbed && rt.Embedder != nil {
+			config.EmbeddingRepo = rt.Embeddings
+			config.Embedder = rt.Embedder
+			config.Chunker = rt.Chunker
 		}
 
 		report, runErr := reindex.Run(config)
@@ -1332,7 +1334,7 @@ func registerReindexTool(srv *Server) {
 		})
 	}
 
-	srv.register(tool, handler)
+	srv.registerWrite(tool, handler)
 }
 
 // registerRunTool exposes the manifest-declared alias mechanism over MCP.

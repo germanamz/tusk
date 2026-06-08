@@ -10,16 +10,20 @@ import (
 
 // WatchConfig configures RunWatcher.
 type WatchConfig struct {
-	Runtime *Runtime
-	Logger  *slog.Logger
+	Server *Server
+	Logger *slog.Logger
 }
 
-// RunWatcher boots an fsnotify watcher rooted at runtime.Root and reacts to
-// every debounced event by re-running the full reindex pass. Plan 6 mirrors
-// Plan 3's full-tree reindex strategy; single-file partial reindex lands in
-// Plan 8.
+// RunWatcher boots an fsnotify watcher rooted at the runtime's Root and reacts
+// to every debounced event by re-running the full reindex pass. The watcher
+// snapshots the runtime under a brief read-lock — once for the root at boot and
+// again per event — then runs the reindex pass off the snapshot WITHOUT holding
+// the lock. Plan 6 mirrors Plan 3's full-tree reindex strategy; single-file
+// partial reindex lands in Plan 8.
 func RunWatcher(ctx context.Context, config WatchConfig) error {
-	instance, newErr := watcher.New(config.Runtime.Root)
+	root := config.Server.snapshotRuntime().Root // brief read-lock; watcher boots off the snapshot
+
+	instance, newErr := watcher.New(root)
 
 	if newErr != nil {
 		return newErr
@@ -32,18 +36,20 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 			return nil
 		}
 
+		rt := config.Server.snapshotRuntime() // re-snapshot per event; pass runs off the snapshot
+
 		_, runErr := reindex.Run(reindex.Config{
-			Root:            config.Runtime.Root,
-			Repo:            config.Runtime.Nodes,
-			Edges:           config.Runtime.Edges,
-			EdgeTypes:       config.Runtime.Manifest.EdgeTypes,
-			WorkspaceIgnore: config.Runtime.Manifest.Workspace.Ignore,
-			EmbedQueue:      config.Runtime.EmbedQueue,
-			EmbeddingRepo:   config.Runtime.Embeddings,
-			Embedder:        config.Runtime.Embedder,
-			Chunker:         config.Runtime.Chunker,
-			Meta:            config.Runtime.Meta,
-			FileStates:      config.Runtime.FileState,
+			Root:            rt.Root,
+			Repo:            rt.Nodes,
+			Edges:           rt.Edges,
+			EdgeTypes:       rt.Manifest.EdgeTypes,
+			WorkspaceIgnore: rt.Manifest.Workspace.Ignore,
+			EmbedQueue:      rt.EmbedQueue,
+			EmbeddingRepo:   rt.Embeddings,
+			Embedder:        rt.Embedder,
+			Chunker:         rt.Chunker,
+			Meta:            rt.Meta,
+			FileStates:      rt.FileState,
 			Logger:          config.Logger,
 			Async:           true,
 		})
