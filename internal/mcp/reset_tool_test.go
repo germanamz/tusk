@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -177,5 +179,40 @@ func TestResetTool_UpdatesSeenEpoch(test *testing.T) {
 	// not treat it as a foreign reset.
 	if seen := srv.seenEpoch.Load(); seen != 1 {
 		test.Fatalf("expected seenEpoch 1 after own reset, got %d", seen)
+	}
+}
+
+// TestResetTool_RecoveryReopenKeepsServing pins the handler's recovery branch:
+// when reset.PerformLocked fails AFTER Quiesce has already closed the old handle,
+// the handler best-effort reopens so the daemon keeps serving rather than being
+// stranded on a closed DB. We inject a post-quiesce failure by making the
+// .tusk/epoch sentinel a directory, so the epoch Bump (the last PerformLocked
+// step) fails while the index file has already been recreated.
+func TestResetTool_RecoveryReopenKeepsServing(test *testing.T) {
+	srv := buildTestServer(test)
+	root := srv.snapshotRuntime().Root
+
+	if err := os.Mkdir(filepath.Join(root, ".tusk", "epoch"), 0o755); err != nil {
+		test.Fatalf("inject epoch dir: %v", err)
+	}
+
+	result, err := srv.HandleToolCall(context.Background(), resetRequest(true))
+	if err != nil {
+		test.Fatalf("transport error: %v", err)
+	}
+
+	if result == nil || !result.IsError {
+		test.Fatalf("expected reset to fail when the epoch bump is blocked, got %+v", result)
+	}
+
+	// The recovery-reopen must have left the daemon on a LIVE handle: a follow-up
+	// read returns a non-error result, not "database is closed".
+	listResult, listErr := srv.HandleToolCall(context.Background(), nodeListRequest())
+	if listErr != nil {
+		test.Fatalf("node list after recovered reset: %v", listErr)
+	}
+
+	if listResult.IsError {
+		test.Fatalf("daemon left on a closed DB after a failed reset: %s", textOf(listResult))
 	}
 }
