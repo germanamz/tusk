@@ -9,19 +9,27 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/germanamz/tusk/internal/ignore"
 )
 
 // Watcher wraps fsnotify and emits debounced WatchEvents.
 type Watcher struct {
 	root      string
 	fsWatcher *fsnotify.Watcher
+	matcher   ignore.Matcher
 }
 
 // New constructs a Watcher rooted at workspaceRoot. The caller must invoke Run
 // to start receiving events and Close when done. New also walks the workspace
 // once and adds every directory to the watch set so subdirectory changes are
 // observed (fsnotify on Linux watches a single directory per Add call).
-func New(workspaceRoot string) (*Watcher, error) {
+//
+// matcher mirrors the reindex walker's ignore rules: dirs it rejects (.tusk/,
+// .git/, [workspace] ignore) are neither watched nor descended into, and Run
+// drops any event whose path it rejects. This prevents index writes under
+// .tusk/ from tripping the watcher into a self-sustaining reindex loop. A nil
+// matcher disables filtering (every directory is watched).
+func New(workspaceRoot string, matcher ignore.Matcher) (*Watcher, error) {
 	fsWatcher, newErr := fsnotify.NewWatcher()
 
 	if newErr != nil {
@@ -38,9 +46,22 @@ func New(workspaceRoot string) (*Watcher, error) {
 			return walkErr
 		}
 
-		if entry.IsDir() && path != workspaceRoot {
-			_ = fsWatcher.Add(path)
+		if !entry.IsDir() || path == workspaceRoot {
+			return nil
 		}
+
+		// Mirror the reindex walker: never watch a dir the ignore matcher rejects
+		// (.tusk/, .git/, [workspace] ignore). Watching .tusk/ would make every
+		// index write trip the watcher into a self-sustaining reindex loop.
+		if matcher != nil {
+			relPath, relErr := filepath.Rel(workspaceRoot, path)
+
+			if relErr == nil && matcher.Matches(filepath.ToSlash(relPath), true) {
+				return filepath.SkipDir
+			}
+		}
+
+		_ = fsWatcher.Add(path)
 
 		return nil
 	})
@@ -50,7 +71,7 @@ func New(workspaceRoot string) (*Watcher, error) {
 		return nil, fmt.Errorf("watcher: walk: %w", walkErr)
 	}
 
-	return &Watcher{root: workspaceRoot, fsWatcher: fsWatcher}, nil
+	return &Watcher{root: workspaceRoot, fsWatcher: fsWatcher, matcher: matcher}, nil
 }
 
 // Close releases the underlying fsnotify resources.
@@ -93,6 +114,17 @@ func (instance *Watcher) Run(ctx context.Context, handler EventHandler) error {
 			}
 
 			relPath = filepath.ToSlash(relPath)
+
+			// Drop ignored paths even if they reach us via the root-level watch
+			// (fsWatcher.Add(workspaceRoot) still reports .tusk/.git children that
+			// New's WalkDir skip declined to Add). The event carries no reliable
+			// is-dir bit, so probe both interpretations: a bare ignored dir like
+			// ".tusk" only matches as a dir, while ".tusk/index.db-wal" matches as
+			// a file. Closes the reindex-loop gap.
+			if instance.matcher != nil &&
+				(instance.matcher.Matches(relPath, false) || instance.matcher.Matches(relPath, true)) {
+				continue
+			}
 
 			kind := classify(raw.Op)
 
