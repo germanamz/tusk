@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/watcher"
 )
@@ -21,9 +22,18 @@ type WatchConfig struct {
 // the lock. Plan 6 mirrors Plan 3's full-tree reindex strategy; single-file
 // partial reindex lands in Plan 8.
 func RunWatcher(ctx context.Context, config WatchConfig) error {
-	root := config.Server.snapshotRuntime().Root // brief read-lock; watcher boots off the snapshot
+	boot := config.Server.snapshotRuntime() // brief read-lock; watcher boots off the snapshot
+	root := boot.Root
 
-	instance, newErr := watcher.New(root)
+	// Mirror the reindex walker's ignore rules so index writes under .tusk/ (and
+	// .git/ activity) never trip the watcher into a self-sustaining reindex loop.
+	matcher, matcherErr := ignore.NewMatcher(root, boot.Manifest.Workspace.Ignore)
+
+	if matcherErr != nil {
+		return matcherErr
+	}
+
+	instance, newErr := watcher.New(root, matcher)
 
 	if newErr != nil {
 		return newErr

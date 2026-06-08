@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -106,7 +107,13 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Watching for changes (Ctrl-C to stop)…")
 
-			watcherInstance, newErr := watcher.New(ws.Root)
+			matcher, matcherErr := ignore.NewMatcher(ws.Root, loaded.Workspace.Ignore)
+
+			if matcherErr != nil {
+				return matcherErr
+			}
+
+			watcherInstance, newErr := watcher.New(ws.Root, matcher)
 
 			if newErr != nil {
 				return newErr

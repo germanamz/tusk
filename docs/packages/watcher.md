@@ -12,8 +12,8 @@ Long-running fsnotify-based file watcher. Subscribes to the workspace tree (minu
 ## Public surface
 
 - `Watcher` — long-running goroutine.
-- `New(workspace, repos…, debounce duration) (*Watcher, error)`.
-- `(*Watcher).Run(ctx) error` — blocks until ctx is cancelled.
+- `New(workspaceRoot string, matcher ignore.Matcher) (*Watcher, error)` — walks the tree once, watching every directory the matcher does not reject.
+- `(*Watcher).Run(ctx, handler) error` — blocks until ctx is cancelled, dropping events whose path the matcher rejects.
 
 ## Notes
 
