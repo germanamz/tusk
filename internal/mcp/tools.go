@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/behavior/workflow"
@@ -18,6 +19,7 @@ import (
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/render"
+	"github.com/germanamz/tusk/internal/reset"
 	"github.com/germanamz/tusk/internal/status"
 	"github.com/germanamz/tusk/internal/typeref"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
@@ -40,6 +42,7 @@ func registerTools(srv *Server) {
 	registerReindexTool(srv)
 	registerRunTool(srv)
 	registerContextTool(srv)
+	registerResetTool(srv)
 }
 
 func registerStatusTool(srv *Server) {
@@ -1331,6 +1334,111 @@ func registerReindexTool(srv *Server) {
 			"indexed": report.Indexed,
 			"removed": report.Removed,
 			"skipped": report.Skipped,
+		})
+	}
+
+	srv.registerWrite(tool, handler)
+}
+
+// registerResetTool exposes the destructive index reset over MCP. The handler is
+// registered via registerWrite (NO read-lock wrapper) because it takes the
+// runtime write-lock itself; a read-locked handler upgrading to a write-lock
+// would deadlock. The cross-process flock is acquired OUTSIDE srv.mu so the
+// daemon keeps serving reads during a (possibly contended) flock-await; the
+// write-lock window is only the brief structural swap.
+func registerResetTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_reset",
+		mcpgo.WithDescription("Drop the local index and rebuild it from source files. DESTRUCTIVE: deletes .tusk/index.db (and WAL/SHM) and the embed queue, then rebuilds from disk — every node is re-embedded. Markdown files are the source of truth, so no content is lost. Requires confirm=true."),
+		mcpgo.WithBoolean("confirm", mcpgo.Description("Must be true to proceed.")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		if !argBoolOptional(request, "confirm", false) {
+			return toolError(errors.New("tusk_reset requires confirm=true: it deletes .tusk/index.db and the embed queue, then rebuilds from disk (every node is re-embedded)")), nil
+		}
+
+		// resetMu serializes against a concurrent sibling reopen (Phase 7) so the
+		// flock and the runtime write-lock cannot be acquired in conflicting
+		// orders within this process.
+		srv.resetMu.Lock()
+		defer srv.resetMu.Unlock()
+
+		rt := srv.snapshotRuntime()
+		root, indexPath := rt.Root, rt.IndexPath
+
+		// Acquire the cross-process flock OUTSIDE srv.mu: the daemon keeps serving
+		// reads during the (possibly contended) flock-await, up to LockTTL.
+		lockHandle, lockErr := reset.AcquireLock(ctx, root, 5*time.Second)
+		if lockErr != nil {
+			return toolError(lockErr), nil
+		}
+
+		defer func() { _ = lockHandle.Release() }()
+
+		// Brief write-lock: close → delete → reap → reopen → bump → install. No
+		// Ollama/embed work happens under it.
+		srv.mu.Lock()
+		old := srv.runtime
+
+		result, resetErr := reset.PerformLocked(reset.Config{
+			Root:      root,
+			IndexPath: indexPath,
+			Quiesce:   func() error { old.Index.Close(); return nil },
+			Reopen:    func() (*index.Index, error) { return index.Open(indexPath) },
+		})
+		if resetErr != nil {
+			// Quiesce already closed old.Index; recover a live handle so the daemon
+			// keeps serving (PerformLocked does not reopen on its own error paths).
+			if store, reopenErr := index.Open(indexPath); reopenErr == nil {
+				if installErr := srv.installStoreLocked(store); installErr != nil {
+					store.Close()
+					srv.mu.Unlock()
+
+					return toolError(fmt.Errorf("%w (recovery reopen failed: %v; restart the daemon)", resetErr, installErr)), nil
+				}
+			} else {
+				srv.mu.Unlock()
+
+				return toolError(fmt.Errorf("%w (recovery reopen failed: %v; restart the daemon)", resetErr, reopenErr)), nil
+			}
+
+			srv.mu.Unlock()
+
+			return toolError(resetErr), nil
+		}
+
+		if installErr := srv.installStoreLocked(result.Store); installErr != nil {
+			result.Store.Close()
+			srv.mu.Unlock()
+
+			return toolError(installErr), nil
+		}
+
+		fresh := srv.runtime // the freshly-installed runtime
+		srv.mu.Unlock()
+
+		report, runErr := reindex.Run(reindex.Config{
+			Root:            fresh.Root,
+			Repo:            fresh.Nodes,
+			Edges:           fresh.Edges,
+			EdgeTypes:       fresh.Manifest.EdgeTypes,
+			WorkspaceIgnore: fresh.Manifest.Workspace.Ignore,
+			EmbedQueue:      fresh.EmbedQueue,
+			Meta:            fresh.Meta,
+			FileStates:      fresh.FileState,
+			Workers:         fresh.Workers,
+			Async:           true,
+		})
+		if runErr != nil {
+			return toolError(runErr), nil
+		}
+
+		return toolJSON(map[string]any{
+			"indexed":           report.Indexed,
+			"removed":           report.Removed,
+			"skipped":           report.Skipped,
+			"epoch":             result.Epoch,
+			"deleted_artifacts": result.DeletedArtifacts,
 		})
 	}
 
