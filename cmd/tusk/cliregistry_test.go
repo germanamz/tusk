@@ -33,6 +33,7 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		// the alias dispatcher — they manage the workspace itself).
 		"init":     {},
 		"reindex":  {},
+		"reload":   {},
 		"reset":    {},
 		"watch":    {},
 		"mcp":      {},
