@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,5 +71,38 @@ func TestReset_WithoutYesAborts(test *testing.T) {
 	// Reset must NOT have run: the epoch is still 0.
 	if epoch, _ := indexepoch.Read(root); epoch != 0 {
 		test.Fatalf("reset ran despite decline (epoch=%d)", epoch)
+	}
+}
+
+func TestReset_RecoversCorruptIndex(test *testing.T) {
+	root := setupTempWorkspace(test)
+	createNode(test, root, "notes/hi.md", "note", "Hi", "")
+	chdir(test, root)
+
+	// Corrupt the index file with garbage bytes (no process holds it open here).
+	indexPath := filepath.Join(root, ".tusk", "index.db")
+
+	if writeErr := os.WriteFile(indexPath, []byte("not a sqlite database at all"), 0o644); writeErr != nil {
+		test.Fatalf("corrupt index: %v", writeErr)
+	}
+
+	out, err := runResetCLI("", "reset", "--yes")
+
+	if err != nil {
+		test.Fatalf("reset --yes on corrupt index: %v (out=%s)", err, out)
+	}
+
+	if !strings.Contains(out, "Reset done") {
+		test.Fatalf("expected recovery, got: %s", out)
+	}
+
+	listOut, listErr := runCLI("node", "list")
+
+	if listErr != nil {
+		test.Fatalf("node list after recovery: %v", listErr)
+	}
+
+	if !strings.Contains(listOut, "notes/hi") {
+		test.Fatalf("expected recovered index to contain notes/hi, got: %s", listOut)
 	}
 }
