@@ -101,6 +101,10 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		opt(rt)
 	}
 
+	rt.Root = ws.Root
+	rt.ManifestPath = ws.ManifestPath
+	rt.IndexPath = ws.IndexPath
+
 	store, openErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
 		IndexPath: ws.IndexPath,
 		ReindexFactory: func(idx *index.Index) reindex.Config {
@@ -125,20 +129,31 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 		return nil, fmt.Errorf("mcp: index: %w", openErr)
 	}
 
+	if buildErr := rt.buildFromStore(store, loaded); buildErr != nil {
+		store.Close()
+
+		return nil, buildErr
+	}
+
+	return rt, nil
+}
+
+// buildFromStore wires an already-open store and an already-merged manifest into
+// rt: behavior engine, every repo, NodeService, embedder/chunker, worker count,
+// and alias/context validation. rt.Root, rt.ManifestPath, rt.IndexPath,
+// rt.Logger, and rt.aliasIntrospector must already be set. Shared by Open and by
+// the reset/sibling-reopen paths so a Runtime is assembled identically at boot
+// and after a swap.
+func (rt *Runtime) buildFromStore(store *index.Index, loaded *manifest.Manifest) error {
 	engine, buildErr := buildBehaviorEngine(loaded)
 
 	if buildErr != nil {
-		store.Close()
-
-		return nil, fmt.Errorf("mcp: behavior engine: %w", buildErr)
+		return fmt.Errorf("mcp: behavior engine: %w", buildErr)
 	}
 
 	driftRepo := index.NewWorkflowDriftRepo(store)
 	propertyDriftRepo := index.NewPropertyDriftRepo(store)
 
-	rt.Root = ws.Root
-	rt.ManifestPath = ws.ManifestPath
-	rt.IndexPath = ws.IndexPath
 	rt.Manifest = loaded
 	rt.Index = store
 	rt.Nodes = index.NewNodeRepo(store)
@@ -186,6 +201,9 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 			Timeout:  timeout,
 		})
 		rt.Chunker = embed.MarkdownRecursive{}
+	} else {
+		rt.Embedder = nil
+		rt.Chunker = nil
 	}
 
 	// Resolve worker count regardless of provider — the reindex worker pool
@@ -193,7 +211,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	// is configured. embedconfig honors an explicit 0 as the opt-out signal.
 	rt.Workers = embedconfig.ResolveWorkers(loaded.Embeddings.Workers)
 
-	return rt, nil
+	return nil
 }
 
 // Close releases the index handle acquired by Open. Idempotent: subsequent
