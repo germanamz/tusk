@@ -32,6 +32,9 @@ There is no remote service. Every tool operates on:
 To declare new node-types or edge-types, edit ./tusk.toml directly (no MCP
 tool for this), then call tusk_reindex.
 
+If the index seems wedged or corrupt, call tusk_reset(confirm: true) to drop and
+rebuild it from your files.
+
 Call tusk_help() for an overview + topic index, or tusk_help(topic: "<name>")
 for deep dives on: workflow, node-types, edge-types, manifest, filter, query, packs.`
 
