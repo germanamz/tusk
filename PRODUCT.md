@@ -71,9 +71,10 @@ single Go binary — manifest loader, node/edge writer, file watcher, query
 compiler, embedding pipeline), and a **local index** (`.tusk/`, gitignored,
 SQLite + vectors).
 
-- **Filesystem > index, always.** The index is a cache.
-  `rm -rf .tusk/ && tusk reindex` rebuilds it identically (modulo embedding
-  cost).
+- **Filesystem > index, always.** The index is a cache; if it is stale, wedged,
+  or corrupt, run `tusk reset` (or the `tusk_reset` MCP tool with `confirm: true`)
+  to drop and rebuild it from your files (modulo embedding cost). The markdown
+  files are the source of truth, so nothing is lost.
 - **External edits are first-class.** vim, Obsidian, ripgrep, an LLM piping
   markdown to disk — all work without going through the engine. The watcher
   keeps the index live; one-shot CLI users run `tusk reindex`.
