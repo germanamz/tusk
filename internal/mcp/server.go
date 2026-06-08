@@ -139,19 +139,24 @@ func (srv *Server) reopenInPlace() error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	srv.runtime.Index.Close()
+	old := srv.runtime
 
-	store, openErr := index.Open(srv.runtime.IndexPath)
+	// Open the new handle BEFORE closing the old one, and swap BEFORE closing,
+	// so a failed open/rebuild leaves the old handle installed and live — the
+	// server keeps serving rather than being left on a closed DB.
+	store, openErr := index.Open(old.IndexPath)
 
 	if openErr != nil {
 		return fmt.Errorf("mcp: reopen: %w", openErr)
 	}
 
 	if installErr := srv.installStoreLocked(store); installErr != nil {
-		store.Close()
+		_ = store.Close()
 
 		return installErr
 	}
+
+	_ = old.Index.Close()
 
 	return nil
 }
