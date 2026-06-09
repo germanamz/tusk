@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.10.0](https://github.com/germanamz/tusk/compare/v1.9.0...v1.10.0) (2026-06-09)
+
+
+### Features
+
+* **cli:** add tusk reload command for hot manifest reload ([#543](https://github.com/germanamz/tusk/issues/543)) ([b938795](https://github.com/germanamz/tusk/commit/b938795445b4b3beac906a417cd61b5cbeb6ab7c))
+* **manifestepoch:** add .tusk/manifest-epoch sentinel ([#535](https://github.com/germanamz/tusk/issues/535)) ([bfcad37](https://github.com/germanamz/tusk/commit/bfcad37efd5a289c7240040865a5615831461899))
+* **mcp:** add manifest diff for reload reporting ([#537](https://github.com/germanamz/tusk/issues/537)) ([887ebbb](https://github.com/germanamz/tusk/commit/887ebbb9c16773bc6524878091c3d8e8fa53f367))
+* **mcp:** add manifest-epoch poll + fsnotify watchers ([#540](https://github.com/germanamz/tusk/issues/540)) ([4c28de5](https://github.com/germanamz/tusk/commit/4c28de53486341727440021dc7c79ac97cfcf050))
+* **mcp:** add tusk_reload tool ([#542](https://github.com/germanamz/tusk/issues/542)) ([02e586d](https://github.com/germanamz/tusk/commit/02e586d9961e6a729f45d5449d1dd35117dab68c))
+* **mcp:** run epoch watchers at workers=0 and gate reindex with reindexMu ([#541](https://github.com/germanamz/tusk/issues/541)) ([0023dbc](https://github.com/germanamz/tusk/commit/0023dbce7d047d014fac578f1cfd8294b5ee2ce7))
+* **mcp:** sibling-side manifest-epoch convergence on Server ([#539](https://github.com/germanamz/tusk/issues/539)) ([d8d76fb](https://github.com/germanamz/tusk/commit/d8d76fbf5ac8901b934b6930c090f00ad6a2801c))
+
+
+### Code Refactoring
+
+* **mcp:** replace ReloadManifest with validating buildReloaded ([#538](https://github.com/germanamz/tusk/issues/538)) ([0d37803](https://github.com/germanamz/tusk/commit/0d378037e965e45590676f7355187fdc95473746))
+
 ## [1.9.0](https://github.com/germanamz/tusk/compare/v1.8.0...v1.9.0) (2026-06-08)
 
 
