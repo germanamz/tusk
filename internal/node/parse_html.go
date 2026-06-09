@@ -19,6 +19,15 @@ const (
 	htmlTitleKey = "title"
 )
 
+// HTMLSignalsKey is the reserved Properties key under which ParseHTMLFile stores
+// data-* attribute signals as map[string][]string. It is drift-exempt for HTML
+// node types (wired in Phase 4) so signals never surface as undeclared
+// properties.
+const HTMLSignalsKey = "data"
+
+// htmlDataPrefix is the attribute-name prefix that marks a data-* signal.
+const htmlDataPrefix = "data-"
+
 // ParseHTMLFile parses content as a standalone HTML node file. relPath is the
 // workspace-relative path (with extension); unlike ParseFile, the HTML node id
 // RETAINS its extension (foo.html -> id "foo.html") so it never collides with a
@@ -66,6 +75,12 @@ func ParseHTMLFile(relPath string, content []byte) (*Node, error) {
 	}
 
 	properties = normalizeYAMLNumbers(properties)
+
+	signals := collectDataSignals(root)
+
+	if len(signals) > 0 {
+		properties[HTMLSignalsKey] = signals
+	}
 
 	return &Node{
 		ID:         relPath,
@@ -212,4 +227,34 @@ func elementText(node *html.Node) string {
 // the result.
 func collapseText(text string) string {
 	return strings.Join(strings.Fields(text), " ")
+}
+
+// collectDataSignals walks the parsed tree and gathers every data-* attribute
+// into a map keyed by the attribute name minus the "data-" prefix. Values are
+// always a list, ordered by element document order; an element carrying the
+// same data-* attribute twice (malformed) contributes only the first per the
+// x/net/html parser's de-duplication.
+func collectDataSignals(root *html.Node) map[string][]string {
+	signals := map[string][]string{}
+
+	var walk func(node *html.Node)
+
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode {
+			for _, attr := range node.Attr {
+				if strings.HasPrefix(attr.Key, htmlDataPrefix) {
+					key := strings.TrimPrefix(attr.Key, htmlDataPrefix)
+					signals[key] = append(signals[key], attr.Val)
+				}
+			}
+		}
+
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+
+	walk(root)
+
+	return signals
 }

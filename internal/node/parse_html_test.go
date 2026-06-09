@@ -173,3 +173,54 @@ func TestParseHTMLFile_TypeAndTitleNotInProperties(test *testing.T) {
 		test.Errorf("title leaked into Properties")
 	}
 }
+
+func TestParseHTMLFile_DataAttributesCollectedIntoSignals(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+</head><body>
+<div data-topic="auth" data-stage="draft">x</div>
+<span data-topic="oauth">y</span>
+</body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("p.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	signals, hasSignals := parsed.Properties[node.HTMLSignalsKey].(map[string][]string)
+
+	if !hasSignals {
+		test.Fatalf("data signals not a map[string][]string: %T", parsed.Properties[node.HTMLSignalsKey])
+	}
+
+	topic := signals["topic"]
+
+	if len(topic) != 2 || topic[0] != "auth" || topic[1] != "oauth" {
+		test.Errorf("topic = %v, want [auth oauth] in document order", topic)
+	}
+
+	stage := signals["stage"]
+
+	if len(stage) != 1 || stage[0] != "draft" {
+		test.Errorf("stage = %v, want [draft]", stage)
+	}
+}
+
+func TestParseHTMLFile_NoDataAttributesOmitsSignalsKey(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+</head><body><p>No data attributes.</p></body></html>`)
+
+	parsed, _ := node.ParseHTMLFile("p.html", content)
+
+	if _, present := parsed.Properties[node.HTMLSignalsKey]; present {
+		test.Errorf("signals key present with no data-* attributes")
+	}
+}
+
+func TestHTMLSignalsKeyValue(test *testing.T) {
+	if node.HTMLSignalsKey != "data" {
+		test.Errorf("HTMLSignalsKey = %q, want data", node.HTMLSignalsKey)
+	}
+}
