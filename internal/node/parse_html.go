@@ -40,10 +40,25 @@ func ParseHTMLFile(relPath string, content []byte) (*Node, error) {
 		return nil, ErrMissingType
 	}
 
+	title := directives.last(htmlTitleKey)
+
+	if title == "" {
+		title = firstElementText(root, func(node *html.Node) bool {
+			return node.DataAtom == atom.Title
+		})
+	}
+
+	if title == "" {
+		title = firstElementText(root, func(node *html.Node) bool {
+			return node.DataAtom == atom.H1
+		})
+	}
+
 	return &Node{
 		ID:         relPath,
 		Path:       relPath,
 		Type:       typeValue,
+		Title:      title,
 		Properties: map[string]any{},
 	}, nil
 }
@@ -105,4 +120,65 @@ func collectMetaDirectives(root *html.Node) metaDirectives {
 	walk(root)
 
 	return directives
+}
+
+// firstElementText returns the collapsed text content of the first element in
+// document order satisfying match, or "" if none match. Whitespace runs are
+// collapsed to single spaces and the result is trimmed.
+func firstElementText(root *html.Node, match func(*html.Node) bool) string {
+	var found *html.Node
+
+	var walk func(node *html.Node)
+
+	walk = func(node *html.Node) {
+		if found != nil {
+			return
+		}
+
+		if node.Type == html.ElementNode && match(node) {
+			found = node
+
+			return
+		}
+
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+
+	walk(root)
+
+	if found == nil {
+		return ""
+	}
+
+	return collapseText(elementText(found))
+}
+
+// elementText concatenates all descendant text-node content of node in
+// document order, with no whitespace processing.
+func elementText(node *html.Node) string {
+	var builder strings.Builder
+
+	var walk func(current *html.Node)
+
+	walk = func(current *html.Node) {
+		if current.Type == html.TextNode {
+			builder.WriteString(current.Data)
+		}
+
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+
+	walk(node)
+
+	return builder.String()
+}
+
+// collapseText collapses internal whitespace runs to single spaces and trims
+// the result.
+func collapseText(text string) string {
+	return strings.Join(strings.Fields(text), " ")
 }

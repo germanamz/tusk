@@ -54,3 +54,58 @@ func TestParseHTMLFile_EmptyTypeContentReturnsErrMissingType(test *testing.T) {
 		test.Errorf("err = %v, want ErrMissingType", parseErr)
 	}
 }
+
+func TestParseHTMLFile_TitleFromMetaWins(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<meta name="tusk:title" content="Meta Title">
+<title>Element Title</title>
+</head><body><h1>Heading Title</h1></body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("p.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	if parsed.Title != "Meta Title" {
+		test.Errorf("Title = %q, want Meta Title", parsed.Title)
+	}
+}
+
+func TestParseHTMLFile_TitleFallsBackToTitleElement(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<title>Element Title</title>
+</head><body><h1>Heading Title</h1></body></html>`)
+
+	parsed, _ := node.ParseHTMLFile("p.html", content)
+
+	if parsed.Title != "Element Title" {
+		test.Errorf("Title = %q, want Element Title", parsed.Title)
+	}
+}
+
+func TestParseHTMLFile_TitleFallsBackToFirstH1(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+</head><body><h1>First Heading</h1><h1>Second Heading</h1></body></html>`)
+
+	parsed, _ := node.ParseHTMLFile("p.html", content)
+
+	if parsed.Title != "First Heading" {
+		test.Errorf("Title = %q, want First Heading", parsed.Title)
+	}
+}
+
+func TestParseHTMLFile_TitleEmptyWhenNoSource(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+</head><body><p>No title anywhere.</p></body></html>`)
+
+	parsed, _ := node.ParseHTMLFile("p.html", content)
+
+	if parsed.Title != "" {
+		test.Errorf("Title = %q, want empty", parsed.Title)
+	}
+}
