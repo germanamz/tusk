@@ -3,6 +3,7 @@ package html_test
 import (
 	"testing"
 
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/typepacks/html"
 )
 
@@ -94,5 +95,72 @@ func TestHTMLReservedPropertiesHasNoDataKey(test *testing.T) {
 				test.Errorf("ReservedProperties[%q] contains %q; the data-signals exemption is owned by Phase 4, not this pack", nodeType, "data")
 			}
 		}
+	}
+}
+
+func TestHTMLNodeTypesReExportSubdocumentSchema(test *testing.T) {
+	test.Parallel()
+
+	nodeTypes := html.NodeTypes()
+
+	for _, name := range html.ReservedNodeTypes {
+		if _, has := nodeTypes[name]; !has {
+			test.Errorf("NodeTypes() missing %q", name)
+		}
+	}
+
+	section, has := nodeTypes["section"]
+
+	if !has {
+		test.Fatalf("NodeTypes() missing 'section'")
+	}
+
+	foundHeadingLevel := false
+
+	for _, prop := range section.Properties {
+		if prop.Name == "heading-level" {
+			foundHeadingLevel = true
+
+			if prop.Type != "int" {
+				test.Errorf("section.heading-level type = %q, want %q", prop.Type, "int")
+			}
+		}
+	}
+
+	if !foundHeadingLevel {
+		test.Errorf("NodeTypes()[section] missing heading-level property")
+	}
+}
+
+func TestHTMLNodeTypesReturnsFreshMap(test *testing.T) {
+	test.Parallel()
+
+	first := html.NodeTypes()
+	delete(first, "section")
+
+	second := html.NodeTypes()
+
+	if _, has := second["section"]; !has {
+		test.Errorf("NodeTypes() returned a shared map: mutation of one call leaked into another")
+	}
+}
+
+func TestHTMLEdgeTypesReExportContains(test *testing.T) {
+	test.Parallel()
+
+	edgeTypes := html.EdgeTypes()
+
+	contains, has := edgeTypes["contains"]
+
+	if !has {
+		test.Fatalf("EdgeTypes() missing 'contains'")
+	}
+
+	if contains.Inverse != "contained-by" {
+		test.Errorf("contains.Inverse = %q, want %q", contains.Inverse, "contained-by")
+	}
+
+	if contains.Cardinality != manifest.CardinalityOneToMany {
+		test.Errorf("contains.Cardinality = %q, want one-to-many", contains.Cardinality)
 	}
 }

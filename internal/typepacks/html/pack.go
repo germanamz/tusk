@@ -29,6 +29,8 @@ package html
 
 import (
 	"sort"
+
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 // Source returns the source-namespace identifier this typepack owns:
@@ -86,4 +88,20 @@ func SortedReservedEdgeTypes() []string {
 	out := append([]string(nil), ReservedEdgeTypes...)
 	sort.Strings(out)
 	return out
+}
+
+// NodeTypes returns the pack's node-type declarations keyed by name.
+// Re-exposed from manifest.SubdocumentNodeTypes: the HTML pack's
+// node-type schema is identical to the markdown sub-document pack's
+// (same six kinds, same typed properties); only Source() differs, so
+// no separate Go declaration is warranted.
+func NodeTypes() map[string]manifest.NodeType {
+	return manifest.SubdocumentNodeTypes()
+}
+
+// EdgeTypes returns the pack's edge-type declarations keyed by name.
+// Re-exposed from manifest.SubdocumentEdgeTypes (the `contains` edge
+// is identical across both content kinds).
+func EdgeTypes() manifest.EdgeTypes {
+	return manifest.SubdocumentEdgeTypes()
 }
