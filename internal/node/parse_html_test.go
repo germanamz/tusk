@@ -2,6 +2,7 @@ package node_test
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -294,5 +295,76 @@ func TestParseHTMLFile_BodyMatchesHTMLUnit(test *testing.T) {
 
 	if string(parsed.Body) != want {
 		test.Errorf("Body = %q, want htmlunit.NormalizeText = %q", string(parsed.Body), want)
+	}
+}
+
+func TestParseHTMLFile_MalformedHTMLDoesNotError(test *testing.T) {
+	// Unclosed tags, stray text, missing </body> — x/net/html recovers.
+	content := []byte(`<html><head><meta name="tusk:type" content="reference"><body><p>open<div>nested<span>text`)
+
+	parsed, parseErr := node.ParseHTMLFile("p.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile errored on malformed input: %v", parseErr)
+	}
+
+	if parsed.Type != "reference" {
+		test.Errorf("Type = %q, want reference", parsed.Type)
+	}
+
+	if !strings.Contains(string(parsed.Body), "text") {
+		test.Errorf("Body lost recovered text: %q", string(parsed.Body))
+	}
+}
+
+func TestParseHTMLFile_EmptyBody(test *testing.T) {
+	content := []byte(`<html><head><meta name="tusk:type" content="reference"></head><body></body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("p.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	if strings.TrimSpace(string(parsed.Body)) != "" {
+		test.Errorf("Body = %q, want empty", string(parsed.Body))
+	}
+}
+
+func TestParseHTMLFile_EmptyInputReturnsErrMissingType(test *testing.T) {
+	_, parseErr := node.ParseHTMLFile("p.html", []byte(""))
+
+	if !errors.Is(parseErr, node.ErrMissingType) {
+		test.Errorf("err = %v, want ErrMissingType", parseErr)
+	}
+}
+
+func TestParseHTMLFile_Deterministic(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<meta name="tusk:title" content="Determinism">
+<meta name="tusk:priority" content="7">
+</head><body>
+<div data-topic="a" data-topic-2="b">x</div>
+<p>Stable &amp; repeatable.</p>
+</body></html>`)
+
+	first, firstErr := node.ParseHTMLFile("notes/det.html", content)
+	second, secondErr := node.ParseHTMLFile("notes/det.html", content)
+
+	if firstErr != nil || secondErr != nil {
+		test.Fatalf("ParseHTMLFile errs: %v / %v", firstErr, secondErr)
+	}
+
+	if first.ID != second.ID || first.Type != second.Type || first.Title != second.Title {
+		test.Errorf("ID/Type/Title differ between parses")
+	}
+
+	if string(first.Body) != string(second.Body) {
+		test.Errorf("Body differs between parses: %q vs %q", string(first.Body), string(second.Body))
+	}
+
+	if !reflect.DeepEqual(first.Properties, second.Properties) {
+		test.Errorf("Properties differ between parses: %v vs %v", first.Properties, second.Properties)
 	}
 }
