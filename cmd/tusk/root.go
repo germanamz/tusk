@@ -29,7 +29,8 @@ WHY GRAPHRAG
 
 HOW TO USE
   1. tusk init --name my-brain   Create tusk.toml and the .tusk/ index.
-  2. edit tusk.toml              Declare your node types and edge types.
+  2. edit tusk.toml              Declare node/edge types; "tusk reload" hot-swaps
+                                 changes into a running daemon (no restart).
   3. tusk node create …          Add content (or write .md files directly).
   4. tusk reindex / tusk watch   Bring the index up to date / keep it live.
   5. tusk query / tusk context   Retrieve structurally, semantically, or both.

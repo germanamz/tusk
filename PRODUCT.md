@@ -91,9 +91,9 @@ SQLite + vectors).
 
 One engine, two surfaces, with type-pack ergonomics on top:
 
-- **CLI** — `tusk init`, `tusk reindex`, `tusk doctor`, `tusk status`,
-  `tusk node …`, `tusk edge …`, `tusk query …`, plus pack shortcuts
-  (`tusk ticket open`, `tusk note new`).
+- **CLI** — `tusk init`, `tusk reindex`, `tusk reload`, `tusk doctor`,
+  `tusk status`, `tusk node …`, `tusk edge …`, `tusk query …`, plus pack
+  shortcuts (`tusk ticket open`, `tusk note new`).
 - **MCP server** — every CLI verb maps 1:1 to a `tusk_<noun>_<verb>` tool over
   stdio or SSE, so any MCP-compatible agent (Claude Code, Cursor, …) shares the
   same engine.
