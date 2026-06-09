@@ -75,6 +75,45 @@ func walk(
 			ctx.push(lvl, (*units)[idx].Hash, addr)
 			return
 		}
+		switch node.Data {
+		case "p":
+			emit(subunit.Unit{
+				Kind:       subunit.KindParagraph,
+				Text:       elementText(node),
+				Properties: map[string]any{},
+			})
+			return
+		case "li":
+			emit(subunit.Unit{
+				Kind:       subunit.KindListItem,
+				Text:       elementText(node),
+				Properties: map[string]any{},
+			})
+			return
+		case "blockquote":
+			emit(subunit.Unit{
+				Kind:       subunit.KindBlockquote,
+				Text:       elementText(node),
+				Properties: map[string]any{},
+			})
+			return
+		case "pre":
+			emit(subunit.Unit{
+				Kind: subunit.KindCodeBlock,
+				Text: elementText(node),
+				Properties: map[string]any{
+					"lang": "",
+				},
+			})
+			return
+		case "table":
+			// Table cells are addressed in Task 4; recurse with
+			// inBlock so any nested headings are demoted.
+			for child := node.FirstChild; child != nil; child = child.NextSibling {
+				walk(source, child, ctx, units, emit, true)
+			}
+			return
+		}
 	}
 
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
