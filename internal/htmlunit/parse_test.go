@@ -1,6 +1,10 @@
 package htmlunit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -115,5 +119,70 @@ func TestParse_TableCellAddressing(test *testing.T) {
 	}
 	if got, _ := body.Properties["column-header"].(string); got != "Age" {
 		test.Errorf("column-header property: want %q, got %q", "Age", got)
+	}
+}
+
+func TestParse_ContentHashOrdinalParent(test *testing.T) {
+	src := []byte(`<h1>Top</h1><p>Body text</p>`)
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+	if len(units) != 2 {
+		test.Fatalf("want 2 units, got %d", len(units))
+	}
+
+	sec, para := units[0], units[1]
+
+	for i, u := range units {
+		if u.Ordinal != i {
+			test.Errorf("ordinal: unit %d has Ordinal %d", i, u.Ordinal)
+		}
+	}
+	if para.ParentAddress != "S1" {
+		test.Errorf("paragraph parent address: want S1, got %q", para.ParentAddress)
+	}
+	if para.ParentHash != sec.Hash {
+		test.Errorf("paragraph parent hash: want %q, got %q", sec.Hash, para.ParentHash)
+	}
+
+	wantLeaf := sha256.Sum256([]byte(para.EmbedPayload))
+	if para.ContentHash != hex.EncodeToString(wantLeaf[:]) {
+		test.Errorf("leaf content hash: want %q, got %q", hex.EncodeToString(wantLeaf[:]), para.ContentHash)
+	}
+	wantSec := sha256.Sum256(fmt.Appendf(nil, "section\x00%d\x00%s", 1, "Top"))
+	if sec.ContentHash != hex.EncodeToString(wantSec[:]) {
+		test.Errorf("section content hash: want %q, got %q", hex.EncodeToString(wantSec[:]), sec.ContentHash)
+	}
+	if sec.Hash != subunit.ComputeHash(subunit.Unit{
+		Kind:       subunit.KindSection,
+		Text:       "Top",
+		Properties: map[string]any{"heading-level": 1},
+	}) {
+		test.Errorf("section hash does not match subunit.ComputeHash")
+	}
+}
+
+func TestParse_Deterministic(test *testing.T) {
+	src := []byte(`<h1>A</h1><p>x</p><h2>B</h2><ul><li>y</li></ul>` +
+		`<table><tr><th>h</th></tr><tr><td>v</td></tr></table>`)
+	first, err := Parse(src)
+	if err != nil {
+		test.Fatalf("first parse: %v", err)
+	}
+	second, err := Parse(src)
+	if err != nil {
+		test.Fatalf("second parse: %v", err)
+	}
+	if len(first) != len(second) {
+		test.Fatalf("unit count differs: %d vs %d", len(first), len(second))
+	}
+	for i := range first {
+		// subunit.Unit carries a Properties map, so the structs are not
+		// comparable with ==; reflect.DeepEqual compares the full value
+		// (including the map) for the determinism assertion.
+		if !reflect.DeepEqual(first[i], second[i]) {
+			test.Errorf("unit %d differs across parses:\n a=%+v\n b=%+v", i, first[i], second[i])
+		}
 	}
 }
