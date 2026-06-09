@@ -84,3 +84,36 @@ func TestParse_RootLevelParagraphNoHeading(test *testing.T) {
 		test.Errorf("root paragraph parent: want empty, got %q", units[0].ParentAddress)
 	}
 }
+
+func TestParse_TableCellAddressing(test *testing.T) {
+	src := []byte(`<h1>Top</h1><table>` +
+		`<tr><th>Name</th><th>Age</th></tr>` +
+		`<tr><td>Ada</td><td>36</td></tr>` +
+		`</table>`)
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+
+	// section + 2 header cells + 2 body cells
+	if len(units) != 5 {
+		test.Fatalf("want 5 units, got %d: %v", len(units), addresses(units))
+	}
+	wantAddr := []string{"S1", "S1T1R0C0", "S1T1R0C1", "S1T1R1C0", "S1T1R1C1"}
+	if strings.Join(addresses(units), ",") != strings.Join(wantAddr, ",") {
+		test.Fatalf("addresses: want %v, got %v", wantAddr, addresses(units))
+	}
+	for _, u := range units[1:] {
+		if u.Kind != subunit.KindTableCell {
+			test.Errorf("kind for %q: want table-cell, got %q", u.Address, u.Kind)
+		}
+	}
+
+	body := units[4] // Age=36 cell
+	if body.EmbedPayload != "Age: 36" {
+		test.Errorf("body cell embed payload: want %q, got %q", "Age: 36", body.EmbedPayload)
+	}
+	if got, _ := body.Properties["column-header"].(string); got != "Age" {
+		test.Errorf("column-header property: want %q, got %q", "Age", got)
+	}
+}

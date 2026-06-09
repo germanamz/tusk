@@ -107,11 +107,7 @@ func walk(
 			})
 			return
 		case "table":
-			// Table cells are addressed in Task 4; recurse with
-			// inBlock so any nested headings are demoted.
-			for child := node.FirstChild; child != nil; child = child.NextSibling {
-				walk(source, child, ctx, units, emit, true)
-			}
+			walkTable(node, ctx, emit)
 			return
 		}
 	}
@@ -119,4 +115,92 @@ func walk(
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		walk(source, child, ctx, units, emit, inBlock)
 	}
+}
+
+// walkTable emits one table-cell unit per cell. The <table> container
+// itself emits no unit. Header cells (<th> in the first row) populate
+// the column-header lookup; body cells get an "<header>: <cell>"
+// EmbedPayload when their column has a header, mirroring
+// subunit.walkTable (parse.go:231).
+func walkTable(
+	table *html.Node,
+	ctx *walkCtx,
+	emit func(subunit.Unit) int,
+) {
+	tableIdx := ctx.nextTableIndex()
+	path := ctx.currentAddress()
+
+	var headers []string
+	rowIndex := 0
+
+	for _, row := range tableRows(table) {
+		col := 0
+		for cell := row.FirstChild; cell != nil; cell = cell.NextSibling {
+			if cell.Type != html.ElementNode || (cell.Data != "td" && cell.Data != "th") {
+				continue
+			}
+			txt := elementText(cell)
+			if cell.Data == "th" {
+				headers = append(headers, txt)
+				emit(subunit.Unit{
+					Kind:    subunit.KindTableCell,
+					Address: tableCellAddress(path, tableIdx, rowIndex, col),
+					Text:    txt,
+					Properties: map[string]any{
+						"header":        true,
+						"row":           rowIndex,
+						"column":        col,
+						"column-header": "",
+					},
+				})
+				col++
+				continue
+			}
+			colHeader := ""
+			if col < len(headers) {
+				colHeader = headers[col]
+			}
+			payload := txt
+			if colHeader != "" {
+				payload = colHeader + ": " + txt
+			}
+			emit(subunit.Unit{
+				Kind:         subunit.KindTableCell,
+				Address:      tableCellAddress(path, tableIdx, rowIndex, col),
+				Text:         txt,
+				EmbedPayload: payload,
+				Properties: map[string]any{
+					"header":        false,
+					"row":           rowIndex,
+					"column":        col,
+					"column-header": colHeader,
+				},
+			})
+			col++
+		}
+		rowIndex++
+	}
+}
+
+// tableRows returns the <tr> elements of a table in document order,
+// descending through any synthesized thead/tbody/tfoot grouping that
+// x/net/html inserts.
+func tableRows(table *html.Node) []*html.Node {
+	var rows []*html.Node
+	var visit func(node *html.Node)
+	visit = func(node *html.Node) {
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type != html.ElementNode {
+				continue
+			}
+			switch child.Data {
+			case "thead", "tbody", "tfoot":
+				visit(child)
+			case "tr":
+				rows = append(rows, child)
+			}
+		}
+	}
+	visit(table)
+	return rows
 }

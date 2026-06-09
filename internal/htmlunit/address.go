@@ -33,14 +33,14 @@ func headingLevel(tag string) (int, bool) {
 // sectionFrame is one entry on the open-heading stack: the heading
 // level (for nesting/closing), the section's content hash (for the
 // ParentHash wiring), its structural address ("S1.2"), and the
-// per-kind counters for the leaves directly beneath it. The per-table
-// counter joins this frame in Task 4 when table cells gain addresses.
+// per-kind / per-table counters for the leaves directly beneath it.
 type sectionFrame struct {
 	level         int
 	hash          string
 	address       string
 	childHeadings int
 	kindCounts    map[subunitKind]int
+	tableCount    int
 }
 
 // subunitKind is an alias so address bookkeeping reads cleanly without
@@ -117,6 +117,13 @@ func (c *walkCtx) leafAddress(kind subunit.Kind) string {
 	return frame.address + letter + strconv.Itoa(frame.kindCounts[subunitKind(kind)])
 }
 
+// nextTableIndex advances and returns the deepest frame's table counter.
+func (c *walkCtx) nextTableIndex() int {
+	frame := c.deepest()
+	frame.tableCount++
+	return frame.tableCount
+}
+
 // leafLetter maps a leaf kind to its address letter, matching the
 // subunit grammar (P/B/Q/L). The boolean is false for kinds with no
 // structural address rule (they fall back to the content hash).
@@ -133,6 +140,12 @@ func leafLetter(k subunit.Kind) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// tableCellAddress builds "<path>T<k>R<row>C<col>" for a table cell,
+// matching the subunit grammar.
+func tableCellAddress(path string, tableIdx, row, col int) string {
+	return fmt.Sprintf("%sT%dR%dC%d", path, tableIdx, row, col)
 }
 
 // disambiguateFallbackIDs suffixes the Hash of any units that would
