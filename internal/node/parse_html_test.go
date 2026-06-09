@@ -2,8 +2,10 @@ package node_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/htmlunit"
 	"github.com/germanamz/tusk/internal/node"
 )
 
@@ -222,5 +224,75 @@ func TestParseHTMLFile_NoDataAttributesOmitsSignalsKey(test *testing.T) {
 func TestHTMLSignalsKeyValue(test *testing.T) {
 	if node.HTMLSignalsKey != "data" {
 		test.Errorf("HTMLSignalsKey = %q, want data", node.HTMLSignalsKey)
+	}
+}
+
+func TestParseHTMLFile_IDRetainsExtension(test *testing.T) {
+	content := []byte(`<html><head><meta name="tusk:type" content="reference"></head><body><p>x</p></body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("notes/foo.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	if parsed.ID != "notes/foo.html" {
+		test.Errorf("ID = %q, want notes/foo.html (extension retained)", parsed.ID)
+	}
+}
+
+func TestParseHTMLFile_BodyIsNormalizedProse(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<style>.x{color:red}</style>
+</head><body>
+<h1>Title</h1>
+<p>First &amp; second.</p>
+<script>ignore()</script>
+</body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("p.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	body := string(parsed.Body)
+
+	if strings.Contains(body, "<p>") || strings.Contains(body, "color:red") || strings.Contains(body, "ignore()") {
+		test.Errorf("Body contains markup/script/style: %q", body)
+	}
+
+	if !strings.Contains(body, "First & second.") {
+		test.Errorf("Body missing decoded prose: %q", body)
+	}
+}
+
+// TestParseHTMLFile_BodyMatchesHTMLUnit pins that the in-package normalizeHTMLText
+// port (used because node cannot import htmlunit without an import cycle) stays
+// byte-for-byte identical to htmlunit.NormalizeText, so the file-level body never
+// drifts from the Phase 6 render path.
+func TestParseHTMLFile_BodyMatchesHTMLUnit(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<style>.x{color:red}</style>
+</head><body>
+<h1>Title</h1>
+<p>First &amp; second.</p>
+<blockquote>Quoted&nbsp;text</blockquote>
+<ul><li>one</li><li>two</li></ul>
+<script>ignore()</script>
+</body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("p.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	want := htmlunit.NormalizeText(content)
+
+	if string(parsed.Body) != want {
+		test.Errorf("Body = %q, want htmlunit.NormalizeText = %q", string(parsed.Body), want)
 	}
 }
