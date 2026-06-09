@@ -109,3 +109,67 @@ func TestParseHTMLFile_TitleEmptyWhenNoSource(test *testing.T) {
 		test.Errorf("Title = %q, want empty", parsed.Title)
 	}
 }
+
+func TestParseHTMLFile_MetaPropertiesAreYAMLTyped(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<meta name="tusk:priority" content="3">
+<meta name="tusk:active" content="true">
+<meta name="tusk:owner" content="german">
+</head><body></body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("p.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	priority, hasPriority := parsed.Properties["priority"]
+
+	if !hasPriority {
+		test.Fatalf("priority not in Properties")
+	}
+
+	if priorityInt, isInt := priority.(int); !isInt || priorityInt != 3 {
+		test.Errorf("priority = %v (%T), want 3 (int)", priority, priority)
+	}
+
+	if active, isBool := parsed.Properties["active"].(bool); !isBool || active != true {
+		test.Errorf("active = %v (%T), want true (bool)", parsed.Properties["active"], parsed.Properties["active"])
+	}
+
+	if owner, isStr := parsed.Properties["owner"].(string); !isStr || owner != "german" {
+		test.Errorf("owner = %v (%T), want \"german\" (string)", parsed.Properties["owner"], parsed.Properties["owner"])
+	}
+}
+
+func TestParseHTMLFile_MetaPropertyRepeatLastWins(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<meta name="tusk:priority" content="1">
+<meta name="tusk:priority" content="9">
+</head><body></body></html>`)
+
+	parsed, _ := node.ParseHTMLFile("p.html", content)
+
+	if priorityInt, isInt := parsed.Properties["priority"].(int); !isInt || priorityInt != 9 {
+		test.Errorf("priority = %v (%T), want 9 (int)", parsed.Properties["priority"], parsed.Properties["priority"])
+	}
+}
+
+func TestParseHTMLFile_TypeAndTitleNotInProperties(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+<meta name="tusk:title" content="A Title">
+</head><body></body></html>`)
+
+	parsed, _ := node.ParseHTMLFile("p.html", content)
+
+	if _, hasType := parsed.Properties["type"]; hasType {
+		test.Errorf("type leaked into Properties")
+	}
+
+	if _, hasTitle := parsed.Properties["title"]; hasTitle {
+		test.Errorf("title leaked into Properties")
+	}
+}

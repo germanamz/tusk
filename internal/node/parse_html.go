@@ -5,6 +5,7 @@ import (
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
+	"gopkg.in/yaml.v3"
 )
 
 // htmlMetaPrefix is the name= prefix that marks a <meta> tag as a Tusk
@@ -54,13 +55,43 @@ func ParseHTMLFile(relPath string, content []byte) (*Node, error) {
 		})
 	}
 
+	properties := map[string]any{}
+
+	for _, key := range directives.order {
+		if key == htmlTypeKey || key == htmlTitleKey {
+			continue
+		}
+
+		properties[key] = parseYAMLScalar(directives.last(key))
+	}
+
+	properties = normalizeYAMLNumbers(properties)
+
 	return &Node{
 		ID:         relPath,
 		Path:       relPath,
 		Type:       typeValue,
 		Title:      title,
-		Properties: map[string]any{},
+		Properties: properties,
 	}, nil
+}
+
+// parseYAMLScalar decodes a single meta content string with the same scalar
+// rules frontmatter uses, so "42" -> int, "true" -> bool, an ISO date stays a
+// string, etc. A value that does not decode (or decodes to nil) falls back to
+// the raw string so no content is ever lost.
+func parseYAMLScalar(raw string) any {
+	var value any
+
+	if unmarshalErr := yaml.Unmarshal([]byte(raw), &value); unmarshalErr != nil {
+		return raw
+	}
+
+	if value == nil {
+		return raw
+	}
+
+	return value
 }
 
 // metaDirectives holds tusk:KEY meta values in document order. A key may repeat;
