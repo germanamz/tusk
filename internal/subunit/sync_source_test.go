@@ -84,3 +84,54 @@ func TestSync_SourceHTMLWritesHTMLContainsEdges(test *testing.T) {
 		}
 	}
 }
+
+func TestSync_SourceHTMLStampsHTMLOnSubUnitNodeRows(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := referencesManifest(test)
+	sync, nodes, _, _ := newSync(store, loaded)
+
+	sync.Source = "html"
+
+	parent := seedFileRow(test, nodes, "notes/page.html", "notes/page.html")
+
+	units, parseErr := subunit.Parse([]byte("# Title\n\nFirst paragraph.\n"))
+
+	if parseErr != nil {
+		test.Fatalf("Parse: %v", parseErr)
+	}
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+		test.Fatalf("ApplyFile: %v", applyErr)
+	}
+
+	rows, queryErr := store.DB().Query(`SELECT id, source FROM nodes WHERE id GLOB ?`, parent.ID+"#*")
+
+	if queryErr != nil {
+		test.Fatalf("query sub-unit rows: %v", queryErr)
+	}
+
+	defer rows.Close()
+
+	seen := 0
+
+	for rows.Next() {
+		var (
+			id     string
+			source *string
+		)
+
+		if scanErr := rows.Scan(&id, &source); scanErr != nil {
+			test.Fatalf("scan: %v", scanErr)
+		}
+
+		seen++
+
+		if source == nil || *source != "html" {
+			test.Errorf("row %s: source = %v, want \"html\"", id, source)
+		}
+	}
+
+	if seen == 0 {
+		test.Fatalf("no sub-unit rows written")
+	}
+}

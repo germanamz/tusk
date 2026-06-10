@@ -2028,7 +2028,7 @@ func TestTool_Query_SubUnitsIncludeUnitsAttachesMatchedUnits(test *testing.T) {
 		})
 	}
 
-	if err := rt.Nodes.BulkUpsert(subUnits); err != nil {
+	if err := rt.Nodes.BulkUpsert(subUnits, "markdown"); err != nil {
 		test.Fatalf("sub bulk upsert: %v", err)
 	}
 
@@ -2096,7 +2096,7 @@ func TestTool_Query_DirectSubUnitFilterReturnsRowsWithParentID(test *testing.T) 
 		ParentID:     sql.NullString{String: "notes/owner", Valid: true},
 		Ordinal:      sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload: sql.NullString{String: "head text", Valid: true},
-	}}); err != nil {
+	}}, "markdown"); err != nil {
 		test.Fatalf("section upsert: %v", err)
 	}
 

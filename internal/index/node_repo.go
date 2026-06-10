@@ -88,10 +88,11 @@ const nodeUpsertFileSQL = `
 `
 
 // nodeUpsertSubUnitSQL writes a sub-unit-class row: literal
-// `kind='subunit'` and `source='markdown'`. Used by BulkUpsert (the
-// sub-unit row writer). The columns are listed in a fixed order so the
-// bind arguments line up; `kind` and `source` are written as SQL
-// literals to mirror nodeUpsertFileSQL.
+// `kind='subunit'` and a caller-supplied `source` (bound as the final
+// `?`). Used by BulkUpsert (the sub-unit row writer). The columns are
+// listed in a fixed order so the bind arguments line up; `kind` is a SQL
+// literal to mirror nodeUpsertFileSQL, while `source` is bound so the
+// sub-unit pipeline can stamp the namespace ("markdown" or "html").
 const nodeUpsertSubUnitSQL = `
 	INSERT INTO nodes (
 		id, type, path, title, properties_json,
@@ -99,7 +100,7 @@ const nodeUpsertSubUnitSQL = `
 		parent_id, ordinal, embed_payload, content_hash,
 		kind, source
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', 'markdown')
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', ?)
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -113,7 +114,7 @@ const nodeUpsertSubUnitSQL = `
 		embed_payload   = excluded.embed_payload,
 		content_hash    = excluded.content_hash,
 		kind            = 'subunit',
-		source          = 'markdown'
+		source          = excluded.source
 `
 
 // nodeUpsertArgs returns the positional bind arguments shared by
@@ -137,11 +138,12 @@ func (repo *NodeRepo) Upsert(row NodeRow) error {
 	return nil
 }
 
-// BulkUpsert inserts or replaces every row in a single transaction. The
-// transactional wrap means a partial failure rolls back all rows so callers
-// observe an all-or-nothing outcome per call. Used by the sub-unit sync
-// pipeline (Task 3) where every file's new units land together.
-func (repo *NodeRepo) BulkUpsert(rows []NodeRow) error {
+// BulkUpsert inserts or replaces every sub-unit row in a single
+// transaction, stamping the supplied source on the nodes.source column.
+// The transactional wrap means a partial failure rolls back all rows so
+// callers observe an all-or-nothing outcome per call. Used by the
+// sub-unit sync pipeline; source is the namespace ("markdown" or "html").
+func (repo *NodeRepo) BulkUpsert(rows []NodeRow, source string) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -160,7 +162,7 @@ func (repo *NodeRepo) BulkUpsert(rows []NodeRow) error {
 	}
 
 	for _, row := range rows {
-		if _, execErr := stmt.Exec(nodeUpsertArgs(row)...); execErr != nil {
+		if _, execErr := stmt.Exec(append(nodeUpsertArgs(row), source)...); execErr != nil {
 			stmt.Close()
 			_ = tx.Rollback()
 			return fmt.Errorf("nodeRepo: bulk upsert %s: %w", row.ID, execErr)

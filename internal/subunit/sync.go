@@ -199,7 +199,7 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 
 	// Apply node row changes.
 	if len(insertRows) > 0 {
-		if upsertErr := sync.Repo.BulkUpsert(insertRows); upsertErr != nil {
+		if upsertErr := sync.Repo.BulkUpsert(insertRows, sync.resolvedSource()); upsertErr != nil {
 			return nil, fmt.Errorf("subunit sync: insert rows for %s: %w", fileRow.ID, upsertErr)
 		}
 
@@ -207,7 +207,7 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 	}
 
 	if len(reorderRows) > 0 {
-		if upsertErr := sync.Repo.BulkUpsert(reorderRows); upsertErr != nil {
+		if upsertErr := sync.Repo.BulkUpsert(reorderRows, sync.resolvedSource()); upsertErr != nil {
 			return nil, fmt.Errorf("subunit sync: reorder rows for %s: %w", fileRow.ID, upsertErr)
 		}
 
