@@ -344,7 +344,16 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 			propResult := node.ValidateProperties(parsed, cfg.NodeTypes)
 
 			if cfg.Behaviors != nil {
-				propResult.Drift = node.FilterReservedDrift(propResult.Drift, parsed.Type, cfg.Behaviors.ReservedProperties())
+				reserved := cfg.Behaviors.ReservedProperties()
+
+				// HTML nodes carry data-* signals under the reserved
+				// node.HTMLSignalsKey; exempt it from drift so signals never
+				// surface as undeclared user properties.
+				if isHTMLPath(parsed.Path) {
+					reserved = htmlReservedDrift(reserved, parsed.Type)
+				}
+
+				propResult.Drift = node.FilterReservedDrift(propResult.Drift, parsed.Type, reserved)
 			}
 
 			now := time.Now().UnixNano()

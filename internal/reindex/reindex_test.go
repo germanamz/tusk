@@ -3,6 +3,7 @@ package reindex_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
 )
 
@@ -2236,5 +2238,93 @@ func TestRun_HTMLNodeEmitsNoSubUnits_Bridge(test *testing.T) {
 
 	if row, _ := repo.Get("notes/page.html"); row == nil {
 		test.Errorf("expected the HTML file node row to still exist")
+	}
+}
+
+func TestRun_HTMLDataSignalsIndexedAndDriftExempt(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head><meta name=\"tusk:type\" content=\"note\"></head>"+
+			"<body><p data-topic=\"auth\" data-owner=\"ana\">Hello world.</p></body></html>\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	engine, engErr := behavior.NewEngine(nil, nil)
+
+	if engErr != nil {
+		test.Fatalf("new engine: %v", engErr)
+	}
+
+	nodeTypes := map[string]manifest.NodeType{
+		"note": {},
+	}
+
+	cfg := withGen(store, reindex.Config{
+		Root:          root,
+		Repo:          repo,
+		Edges:         edgeRepo,
+		Manifest:      &manifest.Manifest{},
+		NodeTypes:     nodeTypes,
+		Behaviors:     engine,
+		PropertyDrift: driftRepo,
+	})
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	row, getErr := repo.Get("notes/page.html")
+
+	if getErr != nil || row == nil {
+		test.Fatalf("expected node notes/page.html: row=%v err=%v", row, getErr)
+	}
+
+	var props map[string]any
+
+	if unmErr := json.Unmarshal([]byte(row.PropertiesJSON), &props); unmErr != nil {
+		test.Fatalf("unmarshal properties_json: %v", unmErr)
+	}
+
+	data, ok := props["data"].(map[string]any)
+
+	if !ok {
+		test.Fatalf("Properties[\"data\"] missing or wrong shape: %#v", props["data"])
+	}
+
+	if got, _ := data["topic"].([]any); len(got) == 0 || got[0] != "auth" {
+		test.Errorf("data[topic] = %#v, want [auth]", data["topic"])
+	}
+
+	if got, _ := data["owner"].([]any); len(got) == 0 || got[0] != "ana" {
+		test.Errorf("data[owner] = %#v, want [ana]", data["owner"])
+	}
+
+	// The reserved data key must never surface as drift.
+	if report.PropertyViolations != 0 {
+		test.Errorf("PropertyViolations = %d, want 0 (data is drift-exempt)", report.PropertyViolations)
+	}
+
+	driftRows, listErr := driftRepo.ListAll()
+
+	if listErr != nil {
+		test.Fatalf("ListAll: %v", listErr)
+	}
+
+	for _, dr := range driftRows {
+		if dr.NodeID != "notes/page.html" {
+			continue
+		}
+
+		if dr.Property == node.HTMLSignalsKey {
+			test.Errorf("data surfaced as drift row: %+v", dr)
+		}
 	}
 }
