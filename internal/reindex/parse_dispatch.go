@@ -20,3 +20,17 @@ func parseContentFile(relPath string, content []byte) (*node.Node, error) {
 		return node.ParseFile(relPath, content)
 	}
 }
+
+// isHTMLPath reports whether a workspace path is an HTML content kind.
+//
+// BRIDGE (removal target: Phase 5). Only the sub-unit-skip guard at
+// worker.go:455 uses this; Phase 5 deletes both the guard and this helper when
+// the real HTML sub-unit branch lands.
+func isHTMLPath(path string) bool {
+	switch filepath.Ext(path) {
+	case ".html", ".htm":
+		return true
+	default:
+		return false
+	}
+}

@@ -2189,3 +2189,52 @@ func TestRun_IndexesHTMLFileAsWholeNode(test *testing.T) {
 		test.Errorf("Title = %q, want Page", row.Title)
 	}
 }
+
+func TestRun_HTMLNodeEmitsNoSubUnits_Bridge(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head><meta name=\"tusk:type\" content=\"note\"></head>"+
+			"<body><h1>Heading</h1><p>First.</p><p>Second.</p></body></html>\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	// Hand-built manifest with no Meta → SubUnitsEnabled() defaults true,
+	// so the sub-unit block is reached and the bridge must skip it.
+	loaded := &manifest.Manifest{}
+
+	cfg := withGen(store, reindex.Config{
+		Root:     root,
+		Repo:     repo,
+		Edges:    edgeRepo,
+		Manifest: loaded,
+	})
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.SubUnitsInserted != 0 {
+		test.Errorf("SubUnitsInserted = %d, want 0 (HTML sub-units skipped by bridge)", report.SubUnitsInserted)
+	}
+
+	subRows, listErr := repo.ListSubUnitsForFile("notes/page.html")
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFile: %v", listErr)
+	}
+
+	if len(subRows) != 0 {
+		test.Errorf("sub-unit rows for notes/page.html = %d, want 0", len(subRows))
+	}
+
+	if row, _ := repo.Get("notes/page.html"); row == nil {
+		test.Errorf("expected the HTML file node row to still exist")
+	}
+}

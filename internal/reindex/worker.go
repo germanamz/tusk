@@ -452,7 +452,13 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		}
 	}
 
-	if cfg.Manifest != nil && cfg.Manifest.SubUnitsEnabled() && cfg.Edges != nil {
+	// BRIDGE (removal target: Phase 5). subunit.Parse is the goldmark
+	// (markdown) sub-unit parser; running it on a normalized HTML body would
+	// mint bogus markdown-namespace sub-units. Phase 5 replaces this skip with
+	// a real HTML branch (htmlunit.Parse + subunit.Sync{Source:"html"}); until
+	// then HTML nodes index as whole nodes with no sub-units. Delete this guard
+	// (isHTMLPath check) and wire the HTML branch in Phase 5.
+	if cfg.Manifest != nil && cfg.Manifest.SubUnitsEnabled() && cfg.Edges != nil && !isHTMLPath(parsed.Path) {
 		units, parseUnitsErr := subunit.Parse(parsed.Body)
 
 		if parseUnitsErr != nil {
