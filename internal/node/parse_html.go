@@ -3,6 +3,7 @@ package node
 import (
 	"strings"
 
+	"github.com/germanamz/tusk/internal/htmltext"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 	"gopkg.in/yaml.v3"
@@ -88,7 +89,7 @@ func ParseHTMLFile(relPath string, content []byte) (*Node, error) {
 		Type:       typeValue,
 		Title:      title,
 		Properties: properties,
-		Body:       []byte(normalizeHTMLText(content)),
+		Body:       []byte(htmltext.NormalizeText(content)),
 	}, nil
 }
 
@@ -228,84 +229,6 @@ func elementText(node *html.Node) string {
 // the result.
 func collapseText(text string) string {
 	return strings.Join(strings.Fields(text), " ")
-}
-
-// htmlBlockTags is the set of element names that introduce a paragraph break
-// (blank line) in normalized output. It mirrors htmlunit.NormalizeText's block
-// set exactly; normalizeHTMLText is a verbatim port kept in this package because
-// importing internal/htmlunit here would form an import cycle
-// (node -> htmlunit -> subunit -> node). TestParseHTMLFile_BodyMatchesHTMLUnit
-// pins byte-for-byte equivalence with htmlunit.NormalizeText so the two never
-// drift.
-var htmlBlockTags = map[string]bool{
-	"p": true, "div": true, "section": true, "article": true,
-	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
-	"ul": true, "ol": true, "li": true, "blockquote": true,
-	"pre": true, "table": true, "tr": true, "td": true, "th": true,
-	"header": true, "footer": true, "main": true, "aside": true, "nav": true,
-}
-
-// normalizeHTMLText renders HTML source to deterministic plain prose: tags
-// stripped, block elements separated by a blank line, inline elements joined,
-// HTML entities decoded (by x/net/html), intra-block whitespace collapsed to
-// single spaces, and head/script/style/comment content excluded. It is a
-// verbatim port of htmlunit.NormalizeText (see htmlBlockTags doc for the
-// import-cycle rationale).
-func normalizeHTMLText(source []byte) string {
-	doc, parseErr := html.Parse(strings.NewReader(string(source)))
-
-	if parseErr != nil {
-		return ""
-	}
-
-	var blocks []string
-
-	var cur strings.Builder
-
-	flush := func() {
-		text := strings.Join(strings.Fields(cur.String()), " ")
-
-		if text != "" {
-			blocks = append(blocks, text)
-		}
-
-		cur.Reset()
-	}
-
-	var visit func(node *html.Node)
-
-	visit = func(node *html.Node) {
-		if node.Type == html.ElementNode {
-			switch node.Data {
-			case "head", "script", "style":
-				return
-			}
-		}
-
-		if node.Type == html.TextNode {
-			cur.WriteString(node.Data)
-			cur.WriteByte(' ')
-		}
-
-		isBlock := node.Type == html.ElementNode && htmlBlockTags[node.Data]
-
-		if isBlock {
-			flush()
-		}
-
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			visit(child)
-		}
-
-		if isBlock {
-			flush()
-		}
-	}
-
-	visit(doc)
-	flush()
-
-	return strings.Join(blocks, "\n\n")
 }
 
 // collectDataSignals walks the parsed tree and gathers every data-* attribute
