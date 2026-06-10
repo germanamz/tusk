@@ -47,6 +47,12 @@ type Sync struct {
 	Manifest *manifest.Manifest
 	// Logger receives a structured `sync apply` line per file. Optional.
 	Logger *slog.Logger
+	// Source names the namespace stamped on this file's sub-unit rows
+	// and structural edges (the nodes.source and edges.source columns).
+	// The zero value ("") is treated as "markdown" for back-compat so
+	// existing markdown callers need no change. The HTML pipeline sets
+	// it to "html"; the value must match a built-in typepack Source().
+	Source string
 }
 
 // SyncResult summarizes the work ApplyFile performed for one file. The
@@ -70,9 +76,20 @@ const containsEdgeType = "contains"
 // schema's kind column reflects the writer path.
 const structuralEdgeKind = "structural"
 
-// markdownEdgeSource names the namespace for structural edges derived
-// from markdown sub-unit parsing. Populates the edges.source column.
-const markdownEdgeSource = "markdown"
+// defaultSyncSource names the namespace used when Sync.Source is the
+// zero value. Keeps pre-existing markdown callers byte-identical: an
+// unset Source still stamps "markdown" on edges.source and nodes.source.
+const defaultSyncSource = "markdown"
+
+// resolvedSource returns the effective namespace for this sync: the
+// explicit Source when set, else defaultSyncSource.
+func (sync *Sync) resolvedSource() string {
+	if sync.Source == "" {
+		return defaultSyncSource
+	}
+
+	return sync.Source
+}
 
 // ApplyFile diffs units against the existing sub-unit rows for fileRow
 // and converges the index to match. The parent file row must already be
@@ -293,7 +310,7 @@ func (sync *Sync) rewriteContains(fileRow index.NodeRow, units []Unit) error {
 			TargetID:   subunitRowID(fileRow.ID, unitAddress(unit)),
 			SourcePath: fileRow.Path,
 			Kind:       structuralEdgeKind,
-			Source:     sql.NullString{String: markdownEdgeSource, Valid: true},
+			Source:     sql.NullString{String: sync.resolvedSource(), Valid: true},
 		})
 	}
 
