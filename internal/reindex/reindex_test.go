@@ -3,6 +3,7 @@ package reindex_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
 )
 
@@ -2093,6 +2095,236 @@ func TestRun_ReindexJobsNotReturnedByEmbedDrain(test *testing.T) {
 
 		if strings.HasPrefix(row.NodeID, index.ReindexNodeIDPrefix) {
 			test.Errorf("drained node_id = %q starts with reindex prefix", row.NodeID)
+		}
+	}
+}
+
+func TestRun_WalkGateEnqueuesHTMLFiles(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head><meta name=\"tusk:type\" content=\"note\"></head><body><p>Hi.</p></body></html>\n")
+	writeNode(test, root, "ignored.txt", "", "not indexable")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	queue := index.NewEmbedQueueRepo(store)
+
+	cfg := withGen(store, reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		EmbedQueue: queue,
+		// Workers=-1 keeps the queue undrained (T7.1 "skip drain" path) so we
+		// can assert the walk's enqueue decision in isolation, before parse
+		// dispatch exists.
+		Workers: -1,
+	})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	claimed, claimErr := queue.DrainReindex("test-worker", 8, time.Minute)
+
+	if claimErr != nil {
+		test.Fatalf("DrainReindex: %v", claimErr)
+	}
+
+	var sawHTML, sawTxt bool
+
+	for _, row := range claimed {
+		path := strings.TrimPrefix(row.NodeID, index.ReindexNodeIDPrefix)
+
+		if path == "notes/page.html" {
+			sawHTML = true
+		}
+
+		if path == "ignored.txt" {
+			sawTxt = true
+		}
+	}
+
+	if !sawHTML {
+		test.Errorf("walk did not enqueue notes/page.html")
+	}
+
+	if sawTxt {
+		test.Errorf("walk wrongly enqueued ignored.txt")
+	}
+}
+
+func TestRun_IndexesHTMLFileAsWholeNode(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head>"+
+			"<meta name=\"tusk:type\" content=\"note\">"+
+			"<meta name=\"tusk:title\" content=\"Page\">"+
+			"</head><body><p>Hello world.</p></body></html>\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo})); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	row, getErr := repo.Get("notes/page.html")
+
+	if getErr != nil || row == nil {
+		test.Fatalf("expected node id notes/page.html: row=%v err=%v", row, getErr)
+	}
+
+	if row.Type != "note" {
+		test.Errorf("Type = %q, want note", row.Type)
+	}
+
+	if row.Path != "notes/page.html" {
+		test.Errorf("Path = %q, want notes/page.html", row.Path)
+	}
+
+	if row.Title != "Page" {
+		test.Errorf("Title = %q, want Page", row.Title)
+	}
+}
+
+func TestRun_HTMLNodeEmitsNoSubUnits_Bridge(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head><meta name=\"tusk:type\" content=\"note\"></head>"+
+			"<body><h1>Heading</h1><p>First.</p><p>Second.</p></body></html>\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	// Hand-built manifest with no Meta → SubUnitsEnabled() defaults true,
+	// so the sub-unit block is reached and the bridge must skip it.
+	loaded := &manifest.Manifest{}
+
+	cfg := withGen(store, reindex.Config{
+		Root:     root,
+		Repo:     repo,
+		Edges:    edgeRepo,
+		Manifest: loaded,
+	})
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.SubUnitsInserted != 0 {
+		test.Errorf("SubUnitsInserted = %d, want 0 (HTML sub-units skipped by bridge)", report.SubUnitsInserted)
+	}
+
+	subRows, listErr := repo.ListSubUnitsForFile("notes/page.html")
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFile: %v", listErr)
+	}
+
+	if len(subRows) != 0 {
+		test.Errorf("sub-unit rows for notes/page.html = %d, want 0", len(subRows))
+	}
+
+	if row, _ := repo.Get("notes/page.html"); row == nil {
+		test.Errorf("expected the HTML file node row to still exist")
+	}
+}
+
+func TestRun_HTMLDataSignalsIndexedAndDriftExempt(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head><meta name=\"tusk:type\" content=\"note\"></head>"+
+			"<body><p data-topic=\"auth\" data-owner=\"ana\">Hello world.</p></body></html>\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	driftRepo := index.NewPropertyDriftRepo(store)
+
+	engine, engErr := behavior.NewEngine(nil, nil)
+
+	if engErr != nil {
+		test.Fatalf("new engine: %v", engErr)
+	}
+
+	nodeTypes := map[string]manifest.NodeType{
+		"note": {},
+	}
+
+	cfg := withGen(store, reindex.Config{
+		Root:          root,
+		Repo:          repo,
+		Edges:         edgeRepo,
+		Manifest:      &manifest.Manifest{},
+		NodeTypes:     nodeTypes,
+		Behaviors:     engine,
+		PropertyDrift: driftRepo,
+	})
+
+	report, runErr := reindex.Run(cfg)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	row, getErr := repo.Get("notes/page.html")
+
+	if getErr != nil || row == nil {
+		test.Fatalf("expected node notes/page.html: row=%v err=%v", row, getErr)
+	}
+
+	var props map[string]any
+
+	if unmErr := json.Unmarshal([]byte(row.PropertiesJSON), &props); unmErr != nil {
+		test.Fatalf("unmarshal properties_json: %v", unmErr)
+	}
+
+	data, ok := props["data"].(map[string]any)
+
+	if !ok {
+		test.Fatalf("Properties[\"data\"] missing or wrong shape: %#v", props["data"])
+	}
+
+	if got, _ := data["topic"].([]any); len(got) == 0 || got[0] != "auth" {
+		test.Errorf("data[topic] = %#v, want [auth]", data["topic"])
+	}
+
+	if got, _ := data["owner"].([]any); len(got) == 0 || got[0] != "ana" {
+		test.Errorf("data[owner] = %#v, want [ana]", data["owner"])
+	}
+
+	// The reserved data key must never surface as drift.
+	if report.PropertyViolations != 0 {
+		test.Errorf("PropertyViolations = %d, want 0 (data is drift-exempt)", report.PropertyViolations)
+	}
+
+	driftRows, listErr := driftRepo.ListAll()
+
+	if listErr != nil {
+		test.Fatalf("ListAll: %v", listErr)
+	}
+
+	for _, dr := range driftRows {
+		if dr.NodeID != "notes/page.html" {
+			continue
+		}
+
+		if dr.Property == node.HTMLSignalsKey {
+			test.Errorf("data surfaced as drift row: %+v", dr)
 		}
 	}
 }

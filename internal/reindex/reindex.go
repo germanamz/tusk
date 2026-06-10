@@ -24,6 +24,27 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
+// indexableExts is the single source of truth for which file extensions the
+// reindex pipeline treats as content nodes. Consulted by the walk gate, the
+// tombstone derivation, and the parse dispatch so the set is declared once.
+var indexableExts = map[string]bool{
+	".md":   true,
+	".html": true,
+	".htm":  true,
+}
+
+// nodeIDForPath derives a node id from a workspace-relative path. Markdown
+// keeps its historical bare-stem id (strips ".md"); every other indexable
+// kind retains its full filename so same-stem files (foo.md / foo.html) never
+// collide on the nodes.id PRIMARY KEY (design Decision #12).
+func nodeIDForPath(path string) string {
+	if filepath.Ext(path) == ".md" {
+		return strings.TrimSuffix(path, ".md")
+	}
+
+	return path
+}
+
 // Config configures Run.
 type Config struct {
 	Root            string             // workspace root
@@ -198,7 +219,7 @@ func Run(config Config) (*Report, error) {
 			return nil
 		}
 
-		if filepath.Ext(path) != ".md" {
+		if !indexableExts[filepath.Ext(path)] {
 			return nil
 		}
 
@@ -322,7 +343,7 @@ func Run(config Config) (*Report, error) {
 				return nil, fmt.Errorf("reindex: tombstone %s: %w", candidate.Path, tombstoneErr)
 			}
 
-			nodeID := strings.TrimSuffix(candidate.Path, ".md")
+			nodeID := nodeIDForPath(candidate.Path)
 
 			if deleteErr := config.Repo.DeleteByPath(candidate.Path); deleteErr != nil {
 				_ = release()

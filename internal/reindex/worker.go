@@ -268,7 +268,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		return fmt.Errorf("reindex: stat %s: %w", relPath, statErr)
 	}
 
-	parsed, parseErr := node.ParseFile(relPath, content)
+	parsed, parseErr := parseContentFile(relPath, content)
 
 	if parseErr != nil {
 		return errSkipFile
@@ -344,7 +344,16 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 			propResult := node.ValidateProperties(parsed, cfg.NodeTypes)
 
 			if cfg.Behaviors != nil {
-				propResult.Drift = node.FilterReservedDrift(propResult.Drift, parsed.Type, cfg.Behaviors.ReservedProperties())
+				reserved := cfg.Behaviors.ReservedProperties()
+
+				// HTML nodes carry data-* signals under the reserved
+				// node.HTMLSignalsKey; exempt it from drift so signals never
+				// surface as undeclared user properties.
+				if isHTMLPath(parsed.Path) {
+					reserved = htmlReservedDrift(reserved, parsed.Type)
+				}
+
+				propResult.Drift = node.FilterReservedDrift(propResult.Drift, parsed.Type, reserved)
 			}
 
 			now := time.Now().UnixNano()
@@ -452,7 +461,13 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		}
 	}
 
-	if cfg.Manifest != nil && cfg.Manifest.SubUnitsEnabled() && cfg.Edges != nil {
+	// BRIDGE (removal target: Phase 5). subunit.Parse is the goldmark
+	// (markdown) sub-unit parser; running it on a normalized HTML body would
+	// mint bogus markdown-namespace sub-units. Phase 5 replaces this skip with
+	// a real HTML branch (htmlunit.Parse + subunit.Sync{Source:"html"}); until
+	// then HTML nodes index as whole nodes with no sub-units. Delete this guard
+	// (isHTMLPath check) and wire the HTML branch in Phase 5.
+	if cfg.Manifest != nil && cfg.Manifest.SubUnitsEnabled() && cfg.Edges != nil && !isHTMLPath(parsed.Path) {
 		units, parseUnitsErr := subunit.Parse(parsed.Body)
 
 		if parseUnitsErr != nil {
