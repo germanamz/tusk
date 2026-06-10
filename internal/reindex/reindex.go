@@ -343,7 +343,7 @@ func Run(config Config) (*Report, error) {
 				return nil, fmt.Errorf("reindex: tombstone %s: %w", candidate.Path, tombstoneErr)
 			}
 
-			nodeID := strings.TrimSuffix(candidate.Path, ".md")
+			nodeID := nodeIDForPath(candidate.Path)
 
 			if deleteErr := config.Repo.DeleteByPath(candidate.Path); deleteErr != nil {
 				_ = release()

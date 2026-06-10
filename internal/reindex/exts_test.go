@@ -30,3 +30,15 @@ func TestNodeIDForPath_StripsOnlyMarkdown(test *testing.T) {
 		}
 	}
 }
+
+func TestNodeIDForPath_TombstoneParityWithMarkdown(test *testing.T) {
+	// Parity check: the tombstone path and the parse path must agree on the
+	// id for the same file, for both markdown and html.
+	if nodeIDForPath("notes/auth.md") != "notes/auth" {
+		test.Errorf("markdown tombstone id mismatch")
+	}
+
+	if nodeIDForPath("notes/page.html") != "notes/page.html" {
+		test.Errorf("html tombstone id mismatch")
+	}
+}
