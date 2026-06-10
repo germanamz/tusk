@@ -2152,3 +2152,40 @@ func TestRun_WalkGateEnqueuesHTMLFiles(test *testing.T) {
 		test.Errorf("walk wrongly enqueued ignored.txt")
 	}
 }
+
+func TestRun_IndexesHTMLFileAsWholeNode(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head>"+
+			"<meta name=\"tusk:type\" content=\"note\">"+
+			"<meta name=\"tusk:title\" content=\"Page\">"+
+			"</head><body><p>Hello world.</p></body></html>\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo})); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	row, getErr := repo.Get("notes/page.html")
+
+	if getErr != nil || row == nil {
+		test.Fatalf("expected node id notes/page.html: row=%v err=%v", row, getErr)
+	}
+
+	if row.Type != "note" {
+		test.Errorf("Type = %q, want note", row.Type)
+	}
+
+	if row.Path != "notes/page.html" {
+		test.Errorf("Path = %q, want notes/page.html", row.Path)
+	}
+
+	if row.Title != "Page" {
+		test.Errorf("Title = %q, want Page", row.Title)
+	}
+}
