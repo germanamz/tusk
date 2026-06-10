@@ -219,7 +219,7 @@ func Run(config Config) (*Report, error) {
 			return nil
 		}
 
-		if filepath.Ext(path) != ".md" {
+		if !indexableExts[filepath.Ext(path)] {
 			return nil
 		}
 

@@ -2096,3 +2096,59 @@ func TestRun_ReindexJobsNotReturnedByEmbedDrain(test *testing.T) {
 		}
 	}
 }
+
+func TestRun_WalkGateEnqueuesHTMLFiles(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/page.html", "",
+		"<html><head><meta name=\"tusk:type\" content=\"note\"></head><body><p>Hi.</p></body></html>\n")
+	writeNode(test, root, "ignored.txt", "", "not indexable")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	queue := index.NewEmbedQueueRepo(store)
+
+	cfg := withGen(store, reindex.Config{
+		Root:       root,
+		Repo:       repo,
+		EmbedQueue: queue,
+		// Workers=-1 keeps the queue undrained (T7.1 "skip drain" path) so we
+		// can assert the walk's enqueue decision in isolation, before parse
+		// dispatch exists.
+		Workers: -1,
+	})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	claimed, claimErr := queue.DrainReindex("test-worker", 8, time.Minute)
+
+	if claimErr != nil {
+		test.Fatalf("DrainReindex: %v", claimErr)
+	}
+
+	var sawHTML, sawTxt bool
+
+	for _, row := range claimed {
+		path := strings.TrimPrefix(row.NodeID, index.ReindexNodeIDPrefix)
+
+		if path == "notes/page.html" {
+			sawHTML = true
+		}
+
+		if path == "ignored.txt" {
+			sawTxt = true
+		}
+	}
+
+	if !sawHTML {
+		test.Errorf("walk did not enqueue notes/page.html")
+	}
+
+	if sawTxt {
+		test.Errorf("walk wrongly enqueued ignored.txt")
+	}
+}
