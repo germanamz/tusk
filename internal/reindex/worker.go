@@ -14,10 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/germanamz/tusk/internal/htmlunit"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/subunit"
+	"github.com/germanamz/tusk/internal/typepacks/html"
 )
 
 // defaultReindexBatch is the default claim size per Drain call. Workers drain
@@ -461,14 +463,24 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		}
 	}
 
-	// BRIDGE (removal target: Phase 5). subunit.Parse is the goldmark
-	// (markdown) sub-unit parser; running it on a normalized HTML body would
-	// mint bogus markdown-namespace sub-units. Phase 5 replaces this skip with
-	// a real HTML branch (htmlunit.Parse + subunit.Sync{Source:"html"}); until
-	// then HTML nodes index as whole nodes with no sub-units. Delete this guard
-	// (isHTMLPath check) and wire the HTML branch in Phase 5.
-	if cfg.Manifest != nil && cfg.Manifest.SubUnitsEnabled() && cfg.Edges != nil && !isHTMLPath(parsed.Path) {
-		units, parseUnitsErr := subunit.Parse(parsed.Body)
+	if cfg.Manifest != nil && cfg.Manifest.SubUnitsEnabled() && cfg.Edges != nil {
+		var (
+			units         []subunit.Unit
+			parseUnitsErr error
+			subSource     string
+		)
+
+		switch filepath.Ext(relPath) {
+		case ".html", ".htm":
+			// htmlunit.Parse needs the raw HTML to recover the heading
+			// outline and block structure; parsed.Body is the normalized
+			// plaintext (Phase 4), which has no markup left to address.
+			units, parseUnitsErr = htmlunit.Parse(content)
+			subSource = html.Source()
+		default:
+			units, parseUnitsErr = subunit.Parse(parsed.Body)
+			subSource = "markdown"
+		}
 
 		if parseUnitsErr != nil {
 			return errSkipFile
@@ -480,6 +492,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 			EmbedQ:   cfg.EmbedQueue,
 			Manifest: cfg.Manifest,
 			Logger:   cfg.Logger,
+			Source:   subSource,
 		}
 
 		syncResult, syncErr := sync.ApplyFile(context.Background(), fileRow, units)

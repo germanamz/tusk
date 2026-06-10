@@ -2,12 +2,14 @@ package reindex_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
 )
 
@@ -382,4 +384,74 @@ func itoa(value int) string {
 	}
 
 	return string(digits)
+}
+
+func TestDrainReindexQueue_HTMLEmitsHTMLSubUnits(test *testing.T) {
+	root := test.TempDir()
+
+	htmlBody := "<html><head>" +
+		"<meta name=\"tusk:type\" content=\"note\">" +
+		"<meta name=\"tusk:title\" content=\"Page\">" +
+		"</head><body>" +
+		"<h1>Heading</h1><p>First paragraph.</p><p>Second paragraph.</p>" +
+		"</body></html>"
+
+	if writeErr := os.WriteFile(filepath.Join(root, "page.html"), []byte(htmlBody), 0o644); writeErr != nil {
+		test.Fatalf("write page.html: %v", writeErr)
+	}
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edges := index.NewEdgeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	fileStates := index.NewFileStateRepo(store)
+	meta := index.NewMetaRepo(store)
+
+	// A hand-built Manifest with Meta==nil has SubUnitsEnabled()==true by
+	// default; MergeBuiltinPacks splices the subdocument + html packs
+	// (Phase 2) so NodeTypes/EdgeTypes carry the reserved sub-unit decls.
+	loaded := &manifest.Manifest{}
+	manifest.MergeBuiltinPacks(loaded)
+
+	report, runErr := reindex.Run(reindex.Config{
+		Root: root, Repo: repo, EmbedQueue: queueRepo, Meta: meta,
+		FileStates: fileStates, Async: true,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if _, drainErr := reindex.DrainReindexQueue(context.Background(), reindex.WorkerConfig{
+		Root: root, Repo: repo, Edges: edges, EmbedQueue: queueRepo,
+		FileStates: fileStates, Manifest: loaded, NodeTypes: loaded.NodeTypes,
+		EdgeTypes: loaded.EdgeTypes, Workers: 1, TTL: time.Minute,
+		Generation: report.Generation,
+	}); drainErr != nil {
+		test.Fatalf("DrainReindexQueue: %v", drainErr)
+	}
+
+	subUnits, listErr := repo.ListSubUnitsForFile("page.html")
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFile: %v", listErr)
+	}
+
+	if len(subUnits) == 0 {
+		test.Fatalf("no HTML sub-unit rows written")
+	}
+
+	for _, sub := range subUnits {
+		var source string
+
+		if scanErr := store.DB().QueryRow(`SELECT source FROM nodes WHERE id = ?`, sub.ID).Scan(&source); scanErr != nil {
+			test.Fatalf("scan source for %s: %v", sub.ID, scanErr)
+		}
+
+		if source != "html" {
+			test.Errorf("sub-unit %s: source = %q, want %q", sub.ID, source, "html")
+		}
+	}
 }
