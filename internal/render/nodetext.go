@@ -47,12 +47,13 @@ func NodeText(path string, body []byte) string {
 // not text leaves. Top-level blocks are joined with a blank line so paragraphs
 // stay separated. The function is pure and performs no I/O.
 func markdownPlainText(body []byte) string {
-	doc := plaintextParser.Parser().Parse(text.NewReader(stripFrontmatter(body)))
+	source := stripFrontmatter(body)
+	doc := plaintextParser.Parser().Parse(text.NewReader(source))
 
 	var parts []string
 
 	for block := doc.FirstChild(); block != nil; block = block.NextSibling() {
-		segment := strings.TrimRight(blockText(block, body), "\n")
+		segment := strings.TrimRight(blockText(block, source), "\n")
 
 		if segment != "" {
 			parts = append(parts, segment)
