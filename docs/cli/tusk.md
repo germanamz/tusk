@@ -110,7 +110,7 @@ CONFIGURATION
 * [tusk edge](tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
 * [tusk init](tusk_init.md)	 - Initialize a Tusk workspace in the current directory
 * [tusk mcp](tusk_mcp.md)	 - Run the long-running MCP server (stdio or SSE)
-* [tusk node](tusk_node.md)	 - Manage individual nodes (create, get, list, modify, move, delete)
+* [tusk node](tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
 * [tusk pack](tusk_pack.md)	 - Install and manage built-in type packs
 * [tusk query](tusk_query.md)	 - Run a structural, semantic, or hybrid query against the index
 * [tusk reindex](tusk_reindex.md)	 - Walk the workspace and bring the index up to date with disk

@@ -12,7 +12,7 @@ import (
 func newNodeCmd() *cobra.Command {
 	nodeCmd := &cobra.Command{
 		Use:   "node",
-		Short: "Manage individual nodes (create, get, list, modify, move, delete)",
+		Short: "Manage individual nodes (create, get, render, list, modify, move, delete)",
 		Long: `Manage individual nodes in the workspace.
 
 A node is one markdown file with YAML frontmatter declaring its type and
@@ -61,6 +61,7 @@ the filter grammar.`,
 	nodeCmd.AddCommand(newNodeDeleteCmd())
 	nodeCmd.AddCommand(newNodeMoveCmd())
 	nodeCmd.AddCommand(newNodeModifyCmd())
+	nodeCmd.AddCommand(newNodeRenderCmd())
 
 	return nodeCmd
 }

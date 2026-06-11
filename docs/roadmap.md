@@ -10,9 +10,10 @@ designs: each graduates into its own
 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` when it's time to
 brainstorm and plan it.
 
-- **Last updated:** 2026-06-08
+- **Last updated:** 2026-06-09
 - **Latest release:** v1.2.0
 - **Closed specs/plans:**
+  - HTML content AST (`.html`/`.htm` files as first-class nodes + `tusk node render` / `tusk_node_render`) — shipped; design folded into [`PRODUCT.md`](../PRODUCT.md) and [`README`](../README.md).
   - v1 ground-up rewrite (shipped through 1.0/1.1) — design folded into [`PRODUCT.md`](../PRODUCT.md); original spec preserved in git history
   - CLI docs (`man/` + `docs/cli/`) — shipped in #393
   - v1.1 bug backlog (5 bugs surfaced bootstrapping the Superhuman workspace) — shipped in v1.2.0 via #397, #399, #400, #401, #402
@@ -22,17 +23,15 @@ brainstorm and plan it.
 ## Forward-looking explorations
 
 Each is independent in execution; the order reflects dependencies and
-risk-adjusted payoff. Item #1 (HTML content AST) was raised 2026-06-05 alongside
-the now-shipped manifest-reload work. Item #7 is a smaller ergonomic ask
-promoted from the Superhuman bootstrap session.
+risk-adjusted payoff. Item #6 is a smaller ergonomic ask promoted from the
+Superhuman bootstrap session.
 
-1. [HTML content AST](#1-html-content-ast)
-2. [Native-Go embedding models](#2-native-go-embedding-models)
-3. [Indexed checkbox todos in nodes](#3-indexed-checkbox-todos-in-nodes)
-4. [CI-distributed prebuilt indexes](#4-ci-distributed-prebuilt-indexes)
-5. [Paragraph indexing with local summarization](#5-paragraph-indexing-with-local-summarization)
-6. [Distributed indexing](#6-distributed-indexing)
-7. [Depth-N descendants in one query](#7-depth-n-descendants-in-one-query)
+1. [Native-Go embedding models](#1-native-go-embedding-models)
+2. [Indexed checkbox todos in nodes](#2-indexed-checkbox-todos-in-nodes)
+3. [CI-distributed prebuilt indexes](#3-ci-distributed-prebuilt-indexes)
+4. [Paragraph indexing with local summarization](#4-paragraph-indexing-with-local-summarization)
+5. [Distributed indexing](#5-distributed-indexing)
+6. [Depth-N descendants in one query](#6-depth-n-descendants-in-one-query)
 
 Below the focus items, the [v1 deferred backlog](#v1-deferred-backlog) lists
 work parked in the v1 spec (§3.2 / §8.2) that's still on the table but
@@ -40,41 +39,7 @@ unscheduled.
 
 ---
 
-## 1. HTML content AST
-
-**Problem.** Tusk indexes markdown. Content that arrives as HTML — pasted
-fragments, scraped pages, exported docs — is either skipped or indexed as raw
-markup, so the embeddings carry tag soup (`<div class=...>`) instead of the
-prose, and structured signals living in `data-*` attributes are invisible to
-the graph.
-
-**Why now.** Widens the corpus Tusk can usefully retrieve over without inventing
-a new node type — HTML is a common interchange format for the notes and
-references that land in a vault. `data-*` attributes in particular often carry
-exactly the structured metadata we'd otherwise ask a user to hand-enter.
-
-**Sketch.** A new HTML AST pass (mirroring the markdown pass) that parses HTML
-content and extracts (1) DOM text nodes as the indexable prose and (2) `data-*`
-attributes as candidate properties/signals. Plus — possibly — a command + MCP
-tool that renders a node's (or a file's) content as plain text, stripping tags
-so an agent can pull "just the words" without the HTML bloat.
-
-**Open questions.**
-- Parser choice: `golang.org/x/net/html` (std-adjacent, robust) vs. a lighter
-  tokenizer. Lean toward `x/net/html`.
-- Which attributes become first-class — only `data-*`, or also semantic ones
-  like `id`, `class`, `href`, `src`, `alt`, `title`, `role`/`aria-*`? All of a
-  chosen set, or a configured allowlist? Risk of attribute noise polluting the
-  property space.
-- Scope: a new content *type* alongside markdown, or a preprocessing step that
-  normalizes HTML → text/properties before the existing markdown pipeline?
-- Does the plain-text extractor belong here, or is it a general "render node as
-  plain text" utility that also helps markdown consumers?
-
-**Dependencies.** None. Composes with the existing chunking strategies (#5) once
-HTML content is normalized to text.
-
-## 2. Native-Go embedding models
+## 1. Native-Go embedding models
 
 **Problem.** Today every new user must install Ollama, pull a model, and keep
 `ollama serve` running before `tusk reindex` can produce embeddings. This is
@@ -101,10 +66,10 @@ provider switch correctly invalidates.
 - Binary size budget — current `tusk` is small; adding a model bloats it.
   Option: ship a separate `tusk-models` companion binary, or fetch on first run.
 
-**Dependencies.** None blocking. Unblocks #4 (#4's runtime story) and #5 (#5
+**Dependencies.** None blocking. Unblocks #3 (#3's runtime story) and #4 (#4
 benefits from a local model identity that survives release).
 
-## 3. Indexed checkbox todos in nodes
+## 2. Indexed checkbox todos in nodes
 
 **Problem.** GitHub-flavored markdown checkboxes (`- [ ]`, `- [x]`) inside
 node bodies are invisible to the index today. Users (and agents) can't ask "show
@@ -132,7 +97,7 @@ rewrite the markdown atomically (same lock as `node modify`).
 
 **Dependencies.** None. Could ship in parallel with anything.
 
-## 4. CI-distributed prebuilt indexes
+## 3. CI-distributed prebuilt indexes
 
 **Problem.** Bootstrapping a new vault from a published corpus (e.g. the Tusk
 docs, a curated reference set) means re-running the full embed pipeline locally.
@@ -158,11 +123,11 @@ bootstrapped index.
 - Should the bootstrapped index be authoritative or replaceable on first
   `reindex --force`?
 
-**Dependencies.** #2 (a native embedder makes "user can open a published index"
+**Dependencies.** #1 (a native embedder makes "user can open a published index"
 not require an external model server). Could ship with Ollama-only as a first
 cut, then expand.
 
-## 5. Paragraph indexing with local summarization
+## 4. Paragraph indexing with local summarization
 
 **Problem.** Today retrieval returns whole nodes (or `MarkdownRecursive` chunks,
 shipped in #372/#376). For long nodes, the agent gets back too much text and
@@ -189,13 +154,13 @@ hash so summary-prompt or summary-model changes can re-run without re-embed.
   time (latency hit per query, no storage). Probably index-time with cache.
 - Cost / quality of small models for summarization. Gemma 2B class is plausible
   locally; smaller models often hallucinate.
-- Interaction with #2 — does the native-Go story extend to decoder inference,
+- Interaction with #1 — does the native-Go story extend to decoder inference,
   or stay encoder-only?
 
-**Dependencies.** #2 (clarifies how we run local models). Builds on existing
+**Dependencies.** #1 (clarifies how we run local models). Builds on existing
 `MarkdownRecursive` chunker.
 
-## 6. Distributed indexing
+## 5. Distributed indexing
 
 **Problem.** A single logical vault sharded across multiple machines or agents.
 Hard primarily because of **rebalancing**: as nodes are added/removed, shard
@@ -216,7 +181,7 @@ concrete user need lands.
   followers pull deltas. No central coordinator.
 - **Cross-workspace federation** (lighter cousin, already in v1 spec §3.2). Not
   a sharded vault — multiple local vaults queried in parallel. Likely the
-  first useful step toward (#6) without committing to the full distributed
+  first useful step toward (#5) without committing to the full distributed
   story.
 
 **Open questions.**
@@ -226,10 +191,10 @@ concrete user need lands.
   metadata?).
 - Failure modes — partial reads, stale shards, write conflicts.
 
-**Dependencies.** None blocking, but worth seeing #2, #4, and #5 land first
+**Dependencies.** None blocking, but worth seeing #1, #3, and #4 land first
 since they sharpen what a "shard" carries.
 
-## 7. Depth-N descendants in one query
+## 6. Depth-N descendants in one query
 
 **Problem.** Traversing a parent/child tree from the public surface requires
 N round trips, one per level. The binary already carries `descendants_%d`
@@ -271,13 +236,13 @@ the table. Reconciled against the five focus items above.
 | `due-reminders` behavior pack | Local notifications when due dates approach. |
 | `recurring` behavior pack | Auto-create instances of a template node on a schedule. |
 | `vector-watcher` behavior pack | Re-embed when content drifts substantially. |
-| Cross-workspace queries | Lighter cousin of #6 (Distributed indexing). May land first as a stepping stone. |
+| Cross-workspace queries | Lighter cousin of #5 (Distributed indexing). May land first as a stepping stone. |
 | Plugin loading for behavior packs | v2+. |
 | Web UI / TUI | v2+. |
 
 **Superseded:**
 
-- *Bundled local embedding model (ONNX)* → replaced by #2 (Native-Go embedding
+- *Bundled local embedding model (ONNX)* → replaced by #1 (Native-Go embedding
   models). Different bet: pure-Go runtime, no ONNX dependency.
 
 ---

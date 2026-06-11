@@ -24,12 +24,13 @@ type VerbSpec struct {
 // alias dispatcher (Phase 1, Task 3) consults this map to decide whether a
 // verb may be projected through the user's alias namespace.
 var ReadOnly = map[string]VerbSpec{
-	"node list": {Positionals: []string{"filter"}, Tool: "tusk_node_list", Verb: "node list", ReadOnly: true},
-	"node get":  {Positionals: []string{"id"}, Tool: "tusk_node_get", Verb: "node get", ReadOnly: true},
-	"query":     {Positionals: []string{"filter"}, Tool: "tusk_query", Verb: "query", ReadOnly: true},
-	"edge list": {Positionals: nil, Tool: "tusk_edge_list", Verb: "edge list", ReadOnly: true},
-	"doctor":    {Positionals: nil, Tool: "tusk_doctor", Verb: "doctor", ReadOnly: true},
-	"status":    {Positionals: nil, Tool: "tusk_status", Verb: "status", ReadOnly: true},
+	"node list":   {Positionals: []string{"filter"}, Tool: "tusk_node_list", Verb: "node list", ReadOnly: true},
+	"node get":    {Positionals: []string{"id"}, Tool: "tusk_node_get", Verb: "node get", ReadOnly: true},
+	"node render": {Positionals: []string{"id"}, Tool: "tusk_node_render", Verb: "node render", ReadOnly: true},
+	"query":       {Positionals: []string{"filter"}, Tool: "tusk_query", Verb: "query", ReadOnly: true},
+	"edge list":   {Positionals: nil, Tool: "tusk_edge_list", Verb: "edge list", ReadOnly: true},
+	"doctor":      {Positionals: nil, Tool: "tusk_doctor", Verb: "doctor", ReadOnly: true},
+	"status":      {Positionals: nil, Tool: "tusk_status", Verb: "status", ReadOnly: true},
 }
 
 // Write enumerates the CLI verbs that mutate disk or index state. Listed so

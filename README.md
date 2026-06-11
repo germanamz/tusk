@@ -259,6 +259,10 @@ Runs fsnotify against the workspace and applies edits incrementally. Drains the 
 ### What gets indexed
 
 - Every `.md` file with a `type:` field, anywhere in the workspace.
+- Every `.html` / `.htm` file with a `<meta name="tusk:type">` tag — indexed
+  over its **prose** (tags stripped, entities decoded), with `<meta name="tusk:*">`
+  becoming typed node properties and `data-*` attributes captured as lenient
+  signals under the reserved `data` key.
 - Filtered through `.gitignore` + `[workspace] ignore` patterns.
 - `.tusk/` and `.git/` are always ignored.
 
@@ -354,6 +358,7 @@ Or directly in `~/.claude.json`:
 | `tusk_status` | node counts by type, edge count, queue depth, last reindex |
 | `tusk_doctor` | validation warnings, dangling refs, embed-queue retries |
 | `tusk_node_get` / `tusk_node_list` | read by id or filter |
+| `tusk_node_render` | render a node's content as plain text (HTML tags / markdown markup stripped) |
 | `tusk_node_create` / `tusk_node_modify` / `tusk_node_move` / `tusk_node_delete` | write |
 | `tusk_edge_add` / `tusk_edge_remove` / `tusk_edge_list` | edge CRUD |
 | `tusk_query` | structural + optional `semantic` ranking |

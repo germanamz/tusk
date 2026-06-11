@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,6 +33,7 @@ func registerTools(srv *Server) {
 	registerHelpTool(srv)
 	registerStatusTool(srv)
 	registerNodeGetTool(srv)
+	registerNodeRenderTool(srv)
 	registerNodeListTool(srv)
 	registerEdgeListTool(srv)
 	registerQueryTool(srv)
@@ -419,6 +422,37 @@ func registerNodeGetTool(srv *Server) {
 		}
 
 		return toolJSON(payload)
+	}
+
+	srv.register(tool, handler)
+}
+
+func registerNodeRenderTool(srv *Server) {
+	tool := mcpgo.NewTool("tusk_node_render",
+		mcpgo.WithDescription("Render a node's content as plain text. HTML nodes have tags stripped and entities decoded; markdown nodes have markup removed. Read-only — touches no files or index state. The id is the workspace-relative path (markdown drops the extension, HTML retains it)."),
+		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id (e.g. \"notes/hi\" or \"page.html\")")),
+	)
+
+	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		nodeID, parseErr := argString(request, "id")
+
+		if parseErr != nil {
+			return toolError(parseErr), nil
+		}
+
+		row, getErr := srv.runtime.Nodes.Get(nodeID)
+
+		if getErr != nil {
+			return toolError(getErr), nil
+		}
+
+		body, readErr := os.ReadFile(filepath.Join(srv.runtime.Root, row.Path))
+
+		if readErr != nil {
+			return toolError(readErr), nil
+		}
+
+		return mcpgo.NewToolResultText(render.NodeText(row.Path, body)), nil
 	}
 
 	srv.register(tool, handler)

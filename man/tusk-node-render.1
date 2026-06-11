@@ -1,0 +1,47 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-node-render - Render a node's content as plain text (tags / markup stripped)
+
+
+.SH SYNOPSIS
+\fBtusk node render  [flags]\fP
+
+
+.SH DESCRIPTION
+Render a node's content as plain text.
+
+.PP
+HTML nodes have their tags stripped and entities decoded; markdown nodes have
+their markup removed. The output is "just the words" — useful for piping a node
+into a tool that wants prose, not markup.
+
+.PP
+The node id is the workspace-relative path: markdown nodes drop the extension
+(notes/hello.md has id "notes/hello"), HTML nodes retain it (page.html has id
+"page.html"). Render is read-only — it never touches files or index state.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for render
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Strip markdown markup
+  tusk node render notes/hello
+
+  # Strip HTML tags
+  tusk node render page.html
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-node(1)\fP

@@ -96,3 +96,43 @@ func TestGoldenCLI_NodeLifecycle(test *testing.T) {
 		},
 	})
 }
+
+// TestGoldenCLI_NodeRender pins the plain-text render output for a markdown node
+// (markup stripped) and an HTML node (tags stripped, entities decoded). Both
+// fixtures are written and reindexed via writeGoldenNode so their rows exist
+// before render resolves them.
+func TestGoldenCLI_NodeRender(test *testing.T) {
+	runGoldenCLICases(test, []goldenCLICase{
+		{
+			name: "node render strips markdown markup",
+			setup: func(test *testing.T, root string) {
+				writeGoldenNode(test, root, "notes/r.md", goldenRenderMarkdownFile)
+			},
+			args:       []string{"node", "render", "notes/r"},
+			wantStdout: goldenRenderMarkdownPlain,
+		},
+		{
+			name: "node render strips html tags",
+			setup: func(test *testing.T, root string) {
+				writeGoldenNode(test, root, "page.html", goldenRenderHTMLFile)
+			},
+			args:       []string{"node", "render", "page.html"},
+			wantStdout: goldenRenderHTMLPlain,
+		},
+	})
+}
+
+// goldenRenderMarkdownFile is the on-disk markdown fixture for the render golden.
+const goldenRenderMarkdownFile = "---\ntype: note\ntitle: R\n---\n\n# Heading\n\nFirst **bold** line.\n"
+
+// goldenRenderMarkdownPlain is the exact expected plain-text render of the
+// markdown fixture (markup removed, trailing newline from Fprintln).
+const goldenRenderMarkdownPlain = "Heading\n\nFirst bold line.\n"
+
+// goldenRenderHTMLFile is the on-disk HTML fixture for the render golden.
+const goldenRenderHTMLFile = "<html><head><meta name=\"tusk:type\" content=\"note\"></head>" +
+	"<body><h1>Greeting</h1><p>Hello &amp; goodbye.</p></body></html>"
+
+// goldenRenderHTMLPlain is the exact expected plain-text render of the HTML
+// fixture (tags stripped, &amp; decoded, trailing newline from Fprintln).
+const goldenRenderHTMLPlain = "Greeting\n\nHello & goodbye.\n"
