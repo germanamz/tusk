@@ -455,7 +455,7 @@ func TestRun_EmbedNoChunks_SkipsSectionsFlagsMissingLeaf(test *testing.T) {
 		sub("notes/f#S1", "section", ""),          // never embedded → must NOT flag
 		sub("notes/f#S1P1", "paragraph", "hp"),    // embedded below → must NOT flag
 		sub("notes/f#S1P2", "paragraph", "hmiss"), // no embedding, not pending → must flag
-	}); upsertErr != nil {
+	}, "markdown"); upsertErr != nil {
 		test.Fatalf("bulk upsert subs: %v", upsertErr)
 	}
 
@@ -1053,7 +1053,7 @@ func TestRun_SubUnitPaneCountsKindsAndCollisions(test *testing.T) {
 			EmbedPayload: sql.NullString{String: strings.Repeat("y", embed.DefaultMaxBytes+1), Valid: true}},
 	}
 
-	if upsertErr := nodes.BulkUpsert(subRows); upsertErr != nil {
+	if upsertErr := nodes.BulkUpsert(subRows, "markdown"); upsertErr != nil {
 		test.Fatalf("bulk upsert sub-units: %v", upsertErr)
 	}
 
@@ -1150,7 +1150,7 @@ func TestRun_SubUnitsDisabledDirtyEmitsWarning(test *testing.T) {
 		})
 	}
 
-	if upsertErr := nodes.BulkUpsert(staleRows); upsertErr != nil {
+	if upsertErr := nodes.BulkUpsert(staleRows, "markdown"); upsertErr != nil {
 		test.Fatalf("bulk upsert stale rows: %v", upsertErr)
 	}
 

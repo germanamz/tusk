@@ -2192,7 +2192,7 @@ func TestRun_IndexesHTMLFileAsWholeNode(test *testing.T) {
 	}
 }
 
-func TestRun_HTMLNodeEmitsNoSubUnits_Bridge(test *testing.T) {
+func TestRun_HTMLNodeEmitsHTMLSubUnits(test *testing.T) {
 	root := test.TempDir()
 
 	writeNode(test, root, "notes/page.html", "",
@@ -2206,7 +2206,8 @@ func TestRun_HTMLNodeEmitsNoSubUnits_Bridge(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	// Hand-built manifest with no Meta → SubUnitsEnabled() defaults true,
-	// so the sub-unit block is reached and the bridge must skip it.
+	// so the sub-unit block is reached. With the Phase 4 skip bridge removed
+	// (Phase 5), the HTML branch parses sub-units in the "html" namespace.
 	loaded := &manifest.Manifest{}
 
 	cfg := withGen(store, reindex.Config{
@@ -2222,8 +2223,8 @@ func TestRun_HTMLNodeEmitsNoSubUnits_Bridge(test *testing.T) {
 		test.Fatalf("Run: %v", runErr)
 	}
 
-	if report.SubUnitsInserted != 0 {
-		test.Errorf("SubUnitsInserted = %d, want 0 (HTML sub-units skipped by bridge)", report.SubUnitsInserted)
+	if report.SubUnitsInserted == 0 {
+		test.Errorf("SubUnitsInserted = %d, want >0 (HTML sub-units emitted)", report.SubUnitsInserted)
 	}
 
 	subRows, listErr := repo.ListSubUnitsForFile("notes/page.html")
@@ -2232,8 +2233,52 @@ func TestRun_HTMLNodeEmitsNoSubUnits_Bridge(test *testing.T) {
 		test.Fatalf("ListSubUnitsForFile: %v", listErr)
 	}
 
-	if len(subRows) != 0 {
-		test.Errorf("sub-unit rows for notes/page.html = %d, want 0", len(subRows))
+	if len(subRows) == 0 {
+		test.Fatalf("sub-unit rows for notes/page.html = 0, want >0")
+	}
+
+	// Every sub-unit row carries source = "html"; addresses retain the
+	// file-id (extension-preserved) prefix so they never collide with a
+	// same-stem markdown file's sub-units.
+	for _, sub := range subRows {
+		var source string
+
+		if scanErr := store.DB().QueryRow(`SELECT source FROM nodes WHERE id = ?`, sub.ID).Scan(&source); scanErr != nil {
+			test.Fatalf("scan source for %s: %v", sub.ID, scanErr)
+		}
+
+		if source != "html" {
+			test.Errorf("sub-unit %s: source = %q, want %q", sub.ID, source, "html")
+		}
+
+		if !strings.HasPrefix(sub.ID, "notes/page.html#") {
+			test.Errorf("sub-unit id %q lacks expected file prefix", sub.ID)
+		}
+	}
+
+	// The file's contains edges land in the "html" namespace too.
+	containsEdges, edgeErr := edgeRepo.ListBySource("notes/page.html")
+
+	if edgeErr != nil {
+		test.Fatalf("ListBySource: %v", edgeErr)
+	}
+
+	containsCount := 0
+
+	for _, edge := range containsEdges {
+		if edge.Type != "contains" {
+			continue
+		}
+
+		containsCount++
+
+		if !edge.Source.Valid || edge.Source.String != "html" {
+			test.Errorf("contains edge %s: source = %+v, want {html true}", edge.TargetID, edge.Source)
+		}
+	}
+
+	if containsCount == 0 {
+		test.Errorf("no contains edges written for HTML sub-units")
 	}
 
 	if row, _ := repo.Get("notes/page.html"); row == nil {

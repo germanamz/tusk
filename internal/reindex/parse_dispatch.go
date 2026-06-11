@@ -23,11 +23,10 @@ func parseContentFile(relPath string, content []byte) (*node.Node, error) {
 
 // isHTMLPath reports whether a workspace path is an HTML content kind.
 //
-// Two callers: (1) the permanent drift-exemption path at worker.go:347, which
-// must survive; and (2) the sub-unit-skip BRIDGE guard at worker.go:455
-// (removal target: Phase 5). Phase 5 removes ONLY the `&& !isHTMLPath(...)`
-// conjunct at :455 — it must NOT delete this helper, which the drift exemption
-// still uses.
+// One caller: the permanent drift-exemption path in processReindexJob, which
+// exempts the HTML data-* signals key from undeclared-property drift. (The
+// Phase 4 sub-unit-skip bridge that also consulted this helper was removed in
+// Phase 5, when the HTML sub-unit branch landed.)
 func isHTMLPath(path string) bool {
 	switch filepath.Ext(path) {
 	case ".html", ".htm":

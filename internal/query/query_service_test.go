@@ -127,7 +127,7 @@ func seedAuthRFC(t *testing.T, store *index.Index) {
 		})
 	}
 
-	if err := nodes.BulkUpsert(subUnitRows); err != nil {
+	if err := nodes.BulkUpsert(subUnitRows, "markdown"); err != nil {
 		t.Fatalf("sub-unit bulk upsert: %v", err)
 	}
 

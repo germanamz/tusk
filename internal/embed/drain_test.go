@@ -121,7 +121,7 @@ func TestDrainQueue_ReusesVectorWithoutModelCall(test *testing.T) {
 		},
 	}
 
-	if upsertErr := nodeRepo.BulkUpsert(subRows); upsertErr != nil {
+	if upsertErr := nodeRepo.BulkUpsert(subRows, "markdown"); upsertErr != nil {
 		test.Fatalf("bulk upsert sub-units: %v", upsertErr)
 	}
 
@@ -1009,7 +1009,7 @@ func TestDrainQueue_SubUnitEmbedsEmbedPayloadDirectly(test *testing.T) {
 		ParentID:       sql.NullString{String: "notes/parent", Valid: true},
 		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload:   sql.NullString{String: "test payload", Valid: true},
-	}}); upsertErr != nil {
+	}}, "markdown"); upsertErr != nil {
 		test.Fatalf("upsert sub-unit: %v", upsertErr)
 	}
 
@@ -1087,7 +1087,7 @@ func TestDrainQueue_SubUnitWithEmptyEmbedPayloadIsSkipped(test *testing.T) {
 		ParentID:       sql.NullString{String: "notes/parent", Valid: true},
 		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload:   sql.NullString{String: "", Valid: true},
-	}}); upsertErr != nil {
+	}}, "markdown"); upsertErr != nil {
 		test.Fatalf("upsert: %v", upsertErr)
 	}
 
@@ -1167,7 +1167,7 @@ func TestDrainQueue_MixedFileAndSubUnitBatch(test *testing.T) {
 		ParentID:       sql.NullString{String: "parent", Valid: true},
 		Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
 		EmbedPayload:   sql.NullString{String: "sub unit payload", Valid: true},
-	}}); upsertErr != nil {
+	}}, "markdown"); upsertErr != nil {
 		test.Fatalf("upsert sub: %v", upsertErr)
 	}
 

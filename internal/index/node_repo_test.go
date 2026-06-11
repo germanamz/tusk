@@ -97,7 +97,7 @@ func TestNodeRow_ContentHashRoundTrip(test *testing.T) {
 		ContentHash:    sql.NullString{String: "abc123", Valid: true},
 	}
 
-	if upsertErr := repo.BulkUpsert([]index.NodeRow{sub}); upsertErr != nil {
+	if upsertErr := repo.BulkUpsert([]index.NodeRow{sub}, "markdown"); upsertErr != nil {
 		test.Fatalf("BulkUpsert: %v", upsertErr)
 	}
 
@@ -131,7 +131,7 @@ func TestNodeRepo_CountDedupedSubUnits(test *testing.T) {
 		sub("notes/f#S1P1", "h1"),
 		sub("notes/f#S1P2", "h1"), // duplicate of P1 → one deduped group
 		sub("notes/f#S1P3", "h2"), // unique
-	}); upsertErr != nil {
+	}, "markdown"); upsertErr != nil {
 		test.Fatalf("BulkUpsert: %v", upsertErr)
 	}
 
@@ -312,7 +312,7 @@ func TestNodeRepo_ListByParent(test *testing.T) {
 		},
 	}
 
-	if bulkErr := repo.BulkUpsert(subUnits); bulkErr != nil {
+	if bulkErr := repo.BulkUpsert(subUnits, "markdown"); bulkErr != nil {
 		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
 	}
 
@@ -380,7 +380,7 @@ func TestNodeRepo_BulkUpsert(test *testing.T) {
 		},
 	}
 
-	if bulkErr := repo.BulkUpsert(rows); bulkErr != nil {
+	if bulkErr := repo.BulkUpsert(rows, "markdown"); bulkErr != nil {
 		test.Fatalf("BulkUpsert: %v", bulkErr)
 	}
 
@@ -399,7 +399,7 @@ func TestNodeRepo_BulkUpsert(test *testing.T) {
 	// Re-upsert replaces fields.
 	rows[0].Title = "One Updated"
 
-	if bulkErr := repo.BulkUpsert(rows); bulkErr != nil {
+	if bulkErr := repo.BulkUpsert(rows, "markdown"); bulkErr != nil {
 		test.Fatalf("second BulkUpsert: %v", bulkErr)
 	}
 
@@ -410,7 +410,7 @@ func TestNodeRepo_BulkUpsert(test *testing.T) {
 	}
 
 	// Empty slice is a no-op.
-	if bulkErr := repo.BulkUpsert(nil); bulkErr != nil {
+	if bulkErr := repo.BulkUpsert(nil, "markdown"); bulkErr != nil {
 		test.Errorf("BulkUpsert(nil): %v", bulkErr)
 	}
 }
@@ -472,7 +472,7 @@ func TestNodeRepo_BulkDeleteCascadesEdgesAndEmbeddings(test *testing.T) {
 		ID: subID, Type: "paragraph", Path: "f.md", Title: "p", PropertiesJSON: `{}`, LastChecksum: "h",
 		ParentID: sql.NullString{String: "f", Valid: true},
 		Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
-	}}); bulkErr != nil {
+	}}, "markdown"); bulkErr != nil {
 		test.Fatalf("BulkUpsert sub-unit: %v", bulkErr)
 	}
 
@@ -566,7 +566,7 @@ func TestNodeRepo_ListSubUnitsForFile_UnderscoreNoLeakage(test *testing.T) {
 		},
 	}
 
-	if bulkErr := repo.BulkUpsert(subUnits); bulkErr != nil {
+	if bulkErr := repo.BulkUpsert(subUnits, "markdown"); bulkErr != nil {
 		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
 	}
 
@@ -641,7 +641,7 @@ func TestNodeRepo_ListSubUnitsForFiles(test *testing.T) {
 		},
 	}
 
-	if bulkErr := repo.BulkUpsert(subUnits); bulkErr != nil {
+	if bulkErr := repo.BulkUpsert(subUnits, "markdown"); bulkErr != nil {
 		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
 	}
 
@@ -767,7 +767,7 @@ func TestNodeRepo_CountOversizeSubUnitPayloads_BytesNotCodepoints(test *testing.
 		EmbedPayload:   sql.NullString{String: payloadRunes, Valid: true},
 	}
 
-	if upsertErr := repo.BulkUpsert([]index.NodeRow{subUnit}); upsertErr != nil {
+	if upsertErr := repo.BulkUpsert([]index.NodeRow{subUnit}, "markdown"); upsertErr != nil {
 		test.Fatalf("BulkUpsert sub-unit: %v", upsertErr)
 	}
 
