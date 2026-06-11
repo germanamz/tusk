@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bytes"
 	"path/filepath"
 	"strings"
 
@@ -10,6 +11,10 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/text"
 )
+
+// frontmatterDelimiter opens and closes a YAML frontmatter block. Render strips
+// the block so node metadata never leaks into the rendered prose.
+var frontmatterDelimiter = []byte("---")
 
 // plaintextParser mirrors the goldmark instance internal/subunit uses
 // (CommonMark + Table + TaskList, footnotes off) so markdownPlainText sees the
@@ -42,7 +47,7 @@ func NodeText(path string, body []byte) string {
 // not text leaves. Top-level blocks are joined with a blank line so paragraphs
 // stay separated. The function is pure and performs no I/O.
 func markdownPlainText(body []byte) string {
-	doc := plaintextParser.Parser().Parse(text.NewReader(body))
+	doc := plaintextParser.Parser().Parse(text.NewReader(stripFrontmatter(body)))
 
 	var parts []string
 
@@ -93,6 +98,29 @@ func blockText(node ast.Node, source []byte) string {
 	})
 
 	return out.String()
+}
+
+// stripFrontmatter removes a leading YAML frontmatter block ("---" … "---")
+// from a markdown body so node metadata never appears in the rendered prose.
+// Bodies without a frontmatter block are returned unchanged.
+func stripFrontmatter(body []byte) []byte {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+
+	if !bytes.HasPrefix(trimmed, frontmatterDelimiter) {
+		return body
+	}
+
+	afterOpen := bytes.TrimLeft(trimmed[len(frontmatterDelimiter):], "\r\n")
+
+	closingIndex := bytes.Index(afterOpen, append([]byte("\n"), frontmatterDelimiter...))
+
+	if closingIndex < 0 {
+		return body
+	}
+
+	rest := afterOpen[closingIndex+len("\n")+len(frontmatterDelimiter):]
+
+	return bytes.TrimLeft(rest, "\r\n")
 }
 
 // writeLines appends the raw line content of a code block to out.

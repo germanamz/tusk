@@ -12,12 +12,13 @@ import (
 // dispatcher (Phase 1, Task 3).
 func TestReadOnlyTools(test *testing.T) {
 	expected := map[string]string{
-		"node list": "tusk_node_list",
-		"node get":  "tusk_node_get",
-		"query":     "tusk_query",
-		"edge list": "tusk_edge_list",
-		"doctor":    "tusk_doctor",
-		"status":    "tusk_status",
+		"node list":   "tusk_node_list",
+		"node get":    "tusk_node_get",
+		"node render": "tusk_node_render",
+		"query":       "tusk_query",
+		"edge list":   "tusk_edge_list",
+		"doctor":      "tusk_doctor",
+		"status":      "tusk_status",
 	}
 
 	for verb, wantTool := range expected {
@@ -52,12 +53,13 @@ func TestReadOnlyTools(test *testing.T) {
 // silently.
 func TestReadOnlyPositionals(test *testing.T) {
 	cases := map[string][]string{
-		"node list": {"filter"},
-		"node get":  {"id"},
-		"query":     {"filter"},
-		"edge list": nil,
-		"doctor":    nil,
-		"status":    nil,
+		"node list":   {"filter"},
+		"node get":    {"id"},
+		"node render": {"id"},
+		"query":       {"filter"},
+		"edge list":   nil,
+		"doctor":      nil,
+		"status":      nil,
 	}
 
 	for verb, spec := range cliregistry.ReadOnly {
