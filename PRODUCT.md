@@ -46,9 +46,14 @@ Every captured concept — a ticket, a note, a decision, a meeting, a tag — is
 **node** in a typed graph; relationships are **edges**. That is the whole
 modeling vocabulary.
 
-- **Nodes are markdown files.** Any `.md` file with a `type:` field in YAML
-  frontmatter is a node; its workspace-relative path (minus extension) is its
-  canonical id. There is no separate id field.
+- **Nodes are markdown — or HTML — files.** Any `.md` file with a `type:` field
+  in YAML frontmatter is a node; its workspace-relative path (minus the `.md`
+  extension) is its canonical id. There is no separate id field. `.html`/`.htm`
+  files that declare `<meta name="tusk:type">` are first-class nodes too: an HTML
+  pass extracts DOM text as indexable prose and `data-*` attributes as signals,
+  mirroring the markdown sub-unit pass under a `source = "html"` namespace (HTML
+  ids retain their extension). `tusk node render` and the paired `tusk_node_render`
+  MCP tool return any node's content as plain text.
 - **Edges are typed and declared.** Frontmatter keys are either properties or
   edges; the manifest decides which, and enforces edge legality (`from`/`to`
   types, cardinality, ordering, acyclicity). Body wikilinks materialize
