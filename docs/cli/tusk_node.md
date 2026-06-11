@@ -4,7 +4,7 @@ title: tusk node
 
 ## tusk node
 
-Manage individual nodes (create, get, list, modify, move, delete)
+Manage individual nodes (create, get, render, list, modify, move, delete)
 
 ### Synopsis
 
@@ -70,4 +70,5 @@ the filter grammar.
 * [tusk node list](tusk_node_list.md)	 - List nodes from the index, optionally filtering by expression
 * [tusk node modify](tusk_node_modify.md)	 - Modify a node's frontmatter properties
 * [tusk node move](tusk_node_move.md)	 - Atomically rename a node and rewrite all referring edges
+* [tusk node render](tusk_node_render.md)	 - Render a node's content as plain text (tags / markup stripped)
 

@@ -53,5 +53,5 @@ tusk node get <node-id> [flags]
 
 ### SEE ALSO
 
-* [tusk node](tusk_node.md)	 - Manage individual nodes (create, get, list, modify, move, delete)
+* [tusk node](tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
 
