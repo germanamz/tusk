@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.11.0](https://github.com/germanamz/tusk/compare/v1.10.0...v1.11.0) (2026-06-12)
+
+
+### Features
+
+* **cli:** add tusk node render + tusk_node_render, graduate HTML content AST (phase 6/6) ([#552](https://github.com/germanamz/tusk/issues/552)) ([4ce3300](https://github.com/germanamz/tusk/commit/4ce330035be2d7d5b5c94c2703a7996eac61d0b5))
+* **htmlunit:** add HTML sub-unit parser and text normalizer (HTML AST phase 1/6) ([#546](https://github.com/germanamz/tusk/issues/546)) ([988dbba](https://github.com/germanamz/tusk/commit/988dbbaed28a0e2379f01194fce9bf46b340f994))
+* **node:** add ParseHTMLFile + extract htmltext leaf package (HTML AST phase 3/6) ([#549](https://github.com/germanamz/tusk/issues/549)) ([7a7a9cc](https://github.com/germanamz/tusk/commit/7a7a9ccdea6029e1b7cea59d651a5287d0fed385))
+* **reindex:** emit HTML sub-units via source-parameterized Sync (HTML AST phase 5/6) ([#551](https://github.com/germanamz/tusk/issues/551)) ([021ca24](https://github.com/germanamz/tusk/commit/021ca24ebcee8e2bcc49b87c7a4e00bb1942ef4a))
+* **reindex:** index .html files as nodes — HTML AST pipeline activation (phase 4/6) ([#550](https://github.com/germanamz/tusk/issues/550)) ([cd81b6f](https://github.com/germanamz/tusk/commit/cd81b6f4199ce4f36b94235eaa17d467f46b26bc))
+* **typepacks:** add html typepack constants package (HTML AST phase 2/6) ([#548](https://github.com/germanamz/tusk/issues/548)) ([21985f9](https://github.com/germanamz/tusk/commit/21985f9b129c8be7bddf3faf5d71f0cf5f55e164))
+
+
+### Bug Fixes
+
+* **node:** read HTML nodes via ParseContentFile; reject HTML create/modify ([#553](https://github.com/germanamz/tusk/issues/553)) ([499be0a](https://github.com/germanamz/tusk/commit/499be0aa2e85723d66f61a14c93214daeffccd5a))
+
 ## [1.10.0](https://github.com/germanamz/tusk/compare/v1.9.0...v1.10.0) (2026-06-09)
 
 
