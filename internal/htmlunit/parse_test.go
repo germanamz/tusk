@@ -186,3 +186,105 @@ func TestParse_Deterministic(test *testing.T) {
 		}
 	}
 }
+
+func TestParse_ListItemCheckboxProperty(test *testing.T) {
+	src := []byte(`<ul>` +
+		`<li><input type="checkbox" checked> Done thing</li>` +
+		`<li><input type="checkbox"> Pending thing</li>` +
+		`<li>Plain bullet without checkbox</li>` +
+		`</ul>`)
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+	if len(units) != 3 {
+		test.Fatalf("want 3 units, got %d: %v", len(units), addresses(units))
+	}
+
+	if got, ok := units[0].Properties["checkbox"]; !ok || got != true {
+		test.Errorf("unit 0 checkbox: want true, got %v (present=%v)", got, ok)
+	}
+	if got, ok := units[1].Properties["checkbox"]; !ok || got != false {
+		test.Errorf("unit 1 checkbox: want false, got %v (present=%v)", got, ok)
+	}
+	if _, ok := units[2].Properties["checkbox"]; ok {
+		test.Errorf("unit 2: plain bullet must have no checkbox property")
+	}
+
+	// The input element contributes no text; the item text is marker-free.
+	if units[0].Text != "Done thing" {
+		test.Errorf("unit 0 text: want %q, got %q", "Done thing", units[0].Text)
+	}
+}
+
+func TestParse_CheckboxAttributeVariants(test *testing.T) {
+	cases := []struct {
+		name string
+		li   string
+		want any // nil asserts the property is absent
+	}{
+		{"bare checked", `<li><input type="checkbox" checked> a</li>`, true},
+		{"empty checked", `<li><input type="checkbox" checked=""> a</li>`, true},
+		{"checked equals checked", `<li><input type="checkbox" checked="checked"> a</li>`, true},
+		{"uppercase type value", `<li><input type="CHECKBOX"> a</li>`, false},
+		{"loose list paragraph wrap finds checkbox", `<li><p><input type="checkbox"> a</p></li>`, false},
+		{"first input wins", `<li><input type="checkbox"> a <input type="checkbox" checked> b</li>`, false},
+		{"non-checkbox input", `<li><input type="text"> a</li>`, nil},
+		{"input without type", `<li><input> a</li>`, nil},
+	}
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			units, err := Parse([]byte("<ul>" + testCase.li + "</ul>"))
+			if err != nil {
+				test.Fatalf("parse: %v", err)
+			}
+			if len(units) != 1 {
+				test.Fatalf("want 1 unit, got %d: %v", len(units), addresses(units))
+			}
+			got, ok := units[0].Properties["checkbox"]
+			if testCase.want == nil {
+				if ok {
+					test.Fatalf("checkbox: want absent, got %v", got)
+				}
+				return
+			}
+			if !ok || got != testCase.want {
+				test.Fatalf("checkbox: want %v, got %v (present=%v)", testCase.want, got, ok)
+			}
+		})
+	}
+}
+
+func TestParse_CheckboxOutsideListItemIgnored(test *testing.T) {
+	src := []byte(`<p><input type="checkbox" checked> not a todo</p>`)
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+	if len(units) != 1 || units[0].Kind != subunit.KindParagraph {
+		test.Fatalf("want 1 paragraph unit, got %v", addresses(units))
+	}
+	if _, ok := units[0].Properties["checkbox"]; ok {
+		test.Errorf("paragraph must not carry a checkbox property")
+	}
+}
+
+func TestParse_CheckboxToggleChangesHashNotContentHash(test *testing.T) {
+	done, err := Parse([]byte(`<ul><li><input type="checkbox" checked> Ship it</li></ul>`))
+	if err != nil {
+		test.Fatalf("parse done: %v", err)
+	}
+	open, err := Parse([]byte(`<ul><li><input type="checkbox"> Ship it</li></ul>`))
+	if err != nil {
+		test.Fatalf("parse open: %v", err)
+	}
+	if len(done) != 1 || len(open) != 1 {
+		test.Fatalf("want 1 unit each, got %d and %d", len(done), len(open))
+	}
+	if done[0].Hash == open[0].Hash {
+		test.Errorf("Hash must differ across checkbox state (reindex diffing relies on it)")
+	}
+	if done[0].ContentHash != open[0].ContentHash {
+		test.Errorf("ContentHash must match across checkbox state (embed payload is marker-free)")
+	}
+}

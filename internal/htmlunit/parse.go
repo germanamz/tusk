@@ -84,10 +84,14 @@ func walk(
 			})
 			return
 		case "li":
+			props := map[string]any{}
+			if checked, ok := listItemCheckbox(node); ok {
+				props["checkbox"] = checked
+			}
 			emit(subunit.Unit{
 				Kind:       subunit.KindListItem,
 				Text:       elementText(node),
-				Properties: map[string]any{},
+				Properties: props,
 			})
 			return
 		case "blockquote":
