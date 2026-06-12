@@ -288,3 +288,75 @@ func TestParse_CheckboxToggleChangesHashNotContentHash(test *testing.T) {
 		test.Errorf("ContentHash must match across checkbox state (embed payload is marker-free)")
 	}
 }
+
+func TestParse_NestedListItemsEmitAsPeers(test *testing.T) {
+	src := []byte(`<h1>Plan</h1><ul>` +
+		`<li><input type="checkbox"> Parent task<ul>` +
+		`<li><input type="checkbox" checked> Child done</li>` +
+		`<li><input type="checkbox"> Child pending</li>` +
+		`</ul></li>` +
+		`<li>Sibling after nested</li>` +
+		`</ul>`)
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+
+	want := []string{"S1", "S1L1", "S1L2", "S1L3", "S1L4"}
+	got := addresses(units)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		test.Fatalf("addresses: want %v, got %v", want, got)
+	}
+
+	// Parent own-text excludes the nested items' text.
+	if units[1].Text != "Parent task" {
+		test.Errorf("parent text: want %q, got %q", "Parent task", units[1].Text)
+	}
+
+	wantBoxes := map[int]bool{1: false, 2: true, 3: false}
+	for idx, wantBox := range wantBoxes {
+		if got, ok := units[idx].Properties["checkbox"]; !ok || got != wantBox {
+			test.Errorf("unit %d checkbox: want %v, got %v (present=%v)", idx, wantBox, got, ok)
+		}
+	}
+	if _, ok := units[4].Properties["checkbox"]; ok {
+		test.Errorf("sibling plain bullet must have no checkbox property")
+	}
+}
+
+func TestParse_NestedCheckboxDoesNotLeakToParent(test *testing.T) {
+	src := []byte(`<ul><li>Parent<ul><li><input type="checkbox" checked> Child</li></ul></li></ul>`)
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+	if len(units) != 2 {
+		test.Fatalf("want 2 units, got %d: %v", len(units), addresses(units))
+	}
+	if _, ok := units[0].Properties["checkbox"]; ok {
+		test.Errorf("parent without own marker must have no checkbox property")
+	}
+	if got, ok := units[1].Properties["checkbox"]; !ok || got != true {
+		test.Errorf("child checkbox: want true, got %v (present=%v)", got, ok)
+	}
+}
+
+func TestParse_NestedListInsideWrapperStillRecurses(test *testing.T) {
+	src := []byte(`<ul><li>Parent<div><ul><li>Wrapped child</li></ul></div></li></ul>`)
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+
+	want := []string{"L1", "L2"}
+	got := addresses(units)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		test.Fatalf("addresses: want %v, got %v", want, got)
+	}
+	if units[0].Text != "Parent" {
+		test.Errorf("parent text: want %q, got %q", "Parent", units[0].Text)
+	}
+	if units[1].Text != "Wrapped child" {
+		test.Errorf("child text: want %q, got %q", "Wrapped child", units[1].Text)
+	}
+}

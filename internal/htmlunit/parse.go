@@ -90,9 +90,16 @@ func walk(
 			}
 			emit(subunit.Unit{
 				Kind:       subunit.KindListItem,
-				Text:       elementText(node),
+				Text:       listItemOwnText(node),
 				Properties: props,
 			})
+			// Nested lists emit their items as peers under the
+			// enclosing section, continuing the L counter in
+			// document order — the same flatten-as-peers rule as
+			// subunit.walkListItem (parse.go:215).
+			for _, list := range nestedLists(node) {
+				walk(source, list, ctx, units, emit, inBlock)
+			}
 			return
 		case "blockquote":
 			emit(subunit.Unit{

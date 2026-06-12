@@ -24,6 +24,17 @@ func elementText(node *html.Node) string {
 // collectText appends every descendant text node's data to builder,
 // skipping script/style subtrees.
 func collectText(node *html.Node, builder *strings.Builder) {
+	collectTextPruning(node, builder, nil)
+}
+
+// collectTextPruning is collectText with an optional prune predicate:
+// subtrees for which prune returns true contribute no text. Used by
+// listItemOwnText to exclude nested <ul>/<ol> from a list item's own
+// text.
+func collectTextPruning(node *html.Node, builder *strings.Builder, prune func(*html.Node) bool) {
+	if prune != nil && prune(node) {
+		return
+	}
 	if node.Type == html.ElementNode {
 		switch node.Data {
 		case "script", "style":
@@ -34,7 +45,7 @@ func collectText(node *html.Node, builder *strings.Builder) {
 		builder.WriteString(node.Data)
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		collectText(child, builder)
+		collectTextPruning(child, builder, prune)
 	}
 }
 

@@ -74,3 +74,41 @@ func hasAttr(node *html.Node, key string) bool {
 	}
 	return false
 }
+
+// listItemOwnText returns the collapsed inline text of the item
+// excluding nested <ul>/<ol> subtrees — the HTML twin of
+// subunit.extractListItemText (parse.go:437). Nested list items are
+// walked separately as peer units; <input> elements contribute no
+// text, so the checkbox marker is naturally absent.
+func listItemOwnText(item *html.Node) string {
+	var builder strings.Builder
+	for child := item.FirstChild; child != nil; child = child.NextSibling {
+		collectTextPruning(child, &builder, isListContainer)
+	}
+	return strings.Join(strings.Fields(builder.String()), " ")
+}
+
+// nestedLists returns the topmost <ul>/<ol> descendants of item in
+// document order — anywhere in the subtree, wrappers like <div>
+// included. Lists nested deeper are reached when the walk recurses
+// into their own parent <li>, so descent stops at each match.
+func nestedLists(item *html.Node) []*html.Node {
+	var lists []*html.Node
+
+	var visit func(node *html.Node)
+	visit = func(node *html.Node) {
+		if isListContainer(node) {
+			lists = append(lists, node)
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
+	}
+
+	for child := item.FirstChild; child != nil; child = child.NextSibling {
+		visit(child)
+	}
+
+	return lists
+}
