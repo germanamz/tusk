@@ -1,39 +1,13 @@
 package reindex
 
-import (
-	"path/filepath"
+import "github.com/germanamz/tusk/internal/node"
 
-	"github.com/germanamz/tusk/internal/node"
-)
-
-// parseContentFile parses a workspace file into a *node.Node, dispatching by
-// extension: HTML kinds go through node.ParseHTMLFile (id retains the
-// extension), everything else through the markdown node.ParseFile (id strips
-// the extension). This is a thin internal switch on the content kind, not a
-// registry — the only structural seam HTML indexing adds to the pipeline.
-func parseContentFile(relPath string, content []byte) (*node.Node, error) {
-	// keep in sync — import cycle (reindex imports embed) prevents sharing
-	switch filepath.Ext(relPath) {
-	case ".html", ".htm":
-		return node.ParseHTMLFile(relPath, content)
-	default:
-		return node.ParseFile(relPath, content)
-	}
-}
-
-// isHTMLPath reports whether a workspace path is an HTML content kind.
-//
-// One caller: the permanent drift-exemption path in processReindexJob, which
-// exempts the HTML data-* signals key from undeclared-property drift. (The
-// Phase 4 sub-unit-skip bridge that also consulted this helper was removed in
-// Phase 5, when the HTML sub-unit branch landed.)
+// isHTMLPath reports whether a workspace path is an HTML content kind. It
+// delegates to node.IsHTMLPath so the content-kind set has a single source of
+// truth. Used by the drift-exemption path in processReindexJob, which exempts
+// the HTML data-* signals key from undeclared-property drift.
 func isHTMLPath(path string) bool {
-	switch filepath.Ext(path) {
-	case ".html", ".htm":
-		return true
-	default:
-		return false
-	}
+	return node.IsHTMLPath(path)
 }
 
 // htmlReservedDrift augments a behavior-engine reserved-property map with the

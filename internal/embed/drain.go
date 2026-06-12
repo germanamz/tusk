@@ -223,16 +223,7 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 					continue
 				}
 
-				var parsed *node.Node
-				var parseErr error
-
-				// keep in sync — import cycle (reindex imports embed) prevents sharing
-				switch filepath.Ext(row.Path) {
-				case ".html", ".htm":
-					parsed, parseErr = node.ParseHTMLFile(row.Path, content)
-				default:
-					parsed, parseErr = node.ParseFile(row.Path, content)
-				}
+				parsed, parseErr := node.ParseContentFile(row.Path, content)
 
 				if parseErr != nil {
 					retryOrDrop(config.Queue, queued.NodeID, workerID, queued.Attempts, parseErr)

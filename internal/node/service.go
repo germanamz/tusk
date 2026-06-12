@@ -29,6 +29,12 @@ var ErrAlreadyExists = errors.New("node: file already exists")
 // and produce services that cannot Create.
 var ErrLeaseNotConfigured = errors.New("node: service constructed without lease; use NewServiceWithLease or NewServiceWithBehaviors")
 
+// ErrHTMLNodeNotEditable indicates an attempt to create or modify an HTML node
+// through the node service. HTML files are authored and edited externally; the
+// service only reads them (Get) and the engine indexes them. Mutating one here
+// would re-render it as markdown and corrupt the file.
+var ErrHTMLNodeNotEditable = errors.New("node: HTML nodes cannot be created or modified via the node service; edit the .html file directly")
+
 // CreateInput configures Service.Create.
 type CreateInput struct {
 	RelPath    string         // workspace-relative target path including extension (e.g. "tickets/foo.md")
@@ -271,6 +277,10 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, ErrLeaseNotConfigured
 	}
 
+	if IsHTMLPath(input.RelPath) {
+		return nil, ErrHTMLNodeNotEditable
+	}
+
 	absPath := filepath.Join(service.root, input.RelPath)
 
 	if _, statErr := os.Stat(absPath); statErr == nil {
@@ -449,6 +459,10 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	if getErr != nil {
 		return nil, getErr
+	}
+
+	if IsHTMLPath(row.Path) {
+		return nil, ErrHTMLNodeNotEditable
 	}
 
 	var (
@@ -962,7 +976,7 @@ func (service *Service) Get(nodeID string) (*Node, error) {
 		return nil, fmt.Errorf("node: read %s: %w", row.Path, readErr)
 	}
 
-	return ParseFile(row.Path, content)
+	return ParseContentFile(row.Path, content)
 }
 
 // List returns nodes from the index matching filter. Bodies are not loaded.
