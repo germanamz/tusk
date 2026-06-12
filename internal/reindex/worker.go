@@ -270,7 +270,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		return fmt.Errorf("reindex: stat %s: %w", relPath, statErr)
 	}
 
-	parsed, parseErr := parseContentFile(relPath, content)
+	parsed, parseErr := node.ParseContentFile(relPath, content)
 
 	if parseErr != nil {
 		return errSkipFile
