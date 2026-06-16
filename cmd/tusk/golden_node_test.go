@@ -136,3 +136,46 @@ const goldenRenderHTMLFile = "<html><head><meta name=\"tusk:type\" content=\"not
 // goldenRenderHTMLPlain is the exact expected plain-text render of the HTML
 // fixture (tags stripped, &amp; decoded, trailing newline from Fprintln).
 const goldenRenderHTMLPlain = "Greeting\n\nHello & goodbye.\n"
+
+// TestGoldenCLI_CheckboxTodos pins the cross-source todo query: GFM task-list
+// state in markdown and <input type="checkbox"> state in HTML both surface as
+// the checkbox property on list-item sub-units, filterable in one query.
+func TestGoldenCLI_CheckboxTodos(test *testing.T) {
+	runGoldenCLICases(test, []goldenCLICase{
+		{
+			name: "node list filters open todos across markdown and html",
+			setup: func(test *testing.T, root string) {
+				writeFile(test, root, "todo.md", goldenTodoMarkdownFile)
+				writeFile(test, root, "todo.html", goldenTodoHTMLFile)
+				reindexWorkspace(test, root)
+			},
+			args: []string{
+				"node", "list", "type=list-item AND checkbox=false",
+				"--fields", "id,title", "--format", "compact",
+			},
+			wantStdout: goldenTodoOpenList,
+		},
+	})
+}
+
+// goldenTodoMarkdownFile is the markdown half of the cross-source fixture.
+const goldenTodoMarkdownFile = "---\ntype: note\ntitle: MD todos\n---\n\n- [x] md done\n- [ ] md pending\n"
+
+// goldenTodoHTMLFile is the HTML half: one done item, one open item with an
+// open nested child (the nested item must surface as its own row).
+const goldenTodoHTMLFile = "<html><head><meta name=\"tusk:type\" content=\"note\"></head><body>" +
+	"<ul>" +
+	"<li><input type=\"checkbox\" checked> html done</li>" +
+	"<li><input type=\"checkbox\"> html pending<ul>" +
+	"<li><input type=\"checkbox\"> html nested pending</li>" +
+	"</ul></li>" +
+	"</ul></body></html>"
+
+// goldenTodoOpenList is the expected compact id/title output: exactly the
+// three open items — html pending (todo.html#L2), html nested pending
+// (todo.html#L3), and md pending (todo#L2). SQLite returns HTML sub-units
+// before markdown here (insertion order with no explicit sort). Hand-edited
+// from the run diff per the suite's no-auto-bless rule.
+const goldenTodoOpenList = "todo.html#L2  html pending\n" +
+	"todo.html#L3  html nested pending\n" +
+	"todo#L2       md pending\n"
