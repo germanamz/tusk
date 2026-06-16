@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/germanamz/tusk/compare/v1.11.0...v1.12.0) (2026-06-16)
+
+
+### Features
+
+* **htmlunit:** extract checkbox state from HTML list items ([#555](https://github.com/germanamz/tusk/issues/555)) ([d8a75fb](https://github.com/germanamz/tusk/commit/d8a75fb8fc309f49183875f2ae4fb5909696bf7e))
+
 ## [1.11.0](https://github.com/germanamz/tusk/compare/v1.10.0...v1.11.0) (2026-06-12)
 
 
