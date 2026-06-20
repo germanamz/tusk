@@ -1,7 +1,7 @@
 [workspace]
 name = "tusk"
 
-# Gitignore-style patterns. Tusk only indexes markdown anyway — these prune
+# Gitignore-style patterns. Tusk indexes markdown and HTML — these prune
 # the watcher tree and exclude harness/human-targeted top-level docs.
 ignore = [
     # Build artifacts and module/test caches

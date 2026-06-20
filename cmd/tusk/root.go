@@ -9,16 +9,16 @@ import (
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "tusk",
-		Short: "Local-first memory for agents: index a markdown vault into a graph",
+		Short: "Local-first memory for agents: index a markdown + HTML vault into a graph",
 		Long: `Tusk is a local-first memory system for coding agents. It turns a directory
-of markdown files into a schema-validated, semantically-indexed graph and
+of markdown and HTML files into a schema-validated, semantically-indexed graph and
 serves that graph over MCP, so an agent recalls context with a single query
 instead of many filesystem round trips.
 
-Files are the source of truth (markdown + a tusk.toml manifest), git is the
-history, and tusk is the indexer and retrieval engine. Every node is a plain
-markdown file you can read, edit, and commit by hand — nothing is locked away
-in a proprietary store.
+Files are the source of truth (markdown and HTML + a tusk.toml manifest), git is
+the history, and tusk is the indexer and retrieval engine. Every node is a plain
+markdown or HTML file you can read, edit, and commit by hand — nothing is locked
+away in a proprietary store.
 
 WHY GRAPHRAG
   An agent that greps and reads files pays one round trip per file and still

@@ -1,8 +1,9 @@
 # Node types
 
 A node is one markdown file with YAML frontmatter declaring its `type`
-and properties. Every type must be declared in `./tusk.toml` under
-`[node-types.<type>]` before `tusk_node_create` (or a manual file
+and properties (or an `.html`/`.htm` file declaring its `type` via
+`<meta name="tusk:type">`). Every type must be declared in `./tusk.toml`
+under `[node-types.<type>]` before `tusk_node_create` (or a manual file
 write + `tusk_reindex`) will accept it.
 
 ## Anatomy
@@ -63,6 +64,7 @@ cleanly; any that don't surface as drift in `tusk_doctor`.
 
 If `[workspace].sub-units = true`, the markdown headings inside each
 file are also parsed as sub-unit nodes (one per heading, type
-`section`, kind `subunit`, source `markdown`). These appear in
-`tusk_query` and `tusk_node_list` alongside the file rows. They share
-their parent file's path.
+`section`, kind `subunit`, source `markdown`). HTML files are parsed
+the same way, with their sub-units tagged source `html`. These appear
+in `tusk_query` and `tusk_node_list` alongside the file rows. They
+share their parent file's path.

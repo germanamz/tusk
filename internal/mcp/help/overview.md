@@ -4,7 +4,8 @@ Tusk is a **local** indexer. It runs in the working directory the MCP
 server was launched from — there is no remote service. Every tool call
 operates on:
 
-- `./` — the workspace root: markdown files with YAML frontmatter.
+- `./` — the workspace root: markdown files (YAML frontmatter) and
+  HTML files (`<meta name="tusk:type">`).
 - `./tusk.toml` — the manifest, which declares node types, edge types,
   packs, embeddings, query defaults, and context aliases.
 - `./.tusk/index.db` — the SQLite index. Mutating tools update it in
