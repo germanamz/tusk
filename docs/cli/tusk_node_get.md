@@ -4,16 +4,17 @@ title: tusk node get
 
 ## tusk node get
 
-Print the markdown file for a node by id
+Print the source file (markdown or HTML) for a node by id
 
 ### Synopsis
 
-Print the markdown file (frontmatter + body) for a node by id.
+Print the source file (frontmatter/markup + body) for a node by id.
 
-The node id is the workspace-relative path without extension (e.g. a node
-file at notes/hello.md has id "notes/hello").
+The node id is the workspace-relative path: markdown nodes drop the
+extension (notes/hello.md has id "notes/hello"), while HTML nodes retain
+it (page.html has id "page.html").
 
-By default (no flags) the command prints the raw markdown file to stdout
+By default (no flags) the command prints the raw file to stdout
 verbatim — useful for piping into editors, less, or another tusk command.
 When --include, --fields, --format, or --json is passed the command emits
 structured output instead (compact for TTY, JSON otherwise).
