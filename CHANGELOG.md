@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/germanamz/tusk/compare/v1.12.0...v1.12.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* **docs:** tusk node get help omitted HTML nodes ([#558](https://github.com/germanamz/tusk/issues/558)) ([f585de3](https://github.com/germanamz/tusk/commit/f585de3ecbcccf743d34c8a3d515f99535a48ba0))
+
 ## [1.12.0](https://github.com/germanamz/tusk/compare/v1.11.0...v1.12.0) (2026-06-16)
 
 
