@@ -27,7 +27,7 @@ import (
 // lives in the tusk_help topics.
 const serverInstructions = `Tusk is a LOCAL workspace indexer running over the current working directory.
 There is no remote service. Every tool operates on:
-  - markdown files under ./
+  - markdown and HTML files under ./
   - the schema declared in ./tusk.toml
   - the SQLite index at ./.tusk/index.db
 

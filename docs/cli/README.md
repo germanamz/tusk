@@ -8,7 +8,7 @@ Edit the help strings, then run `make docs`.
 
 ## Commands
 
-- [`tusk`](tusk.md) — Local-first memory for agents: index a markdown vault into a graph
+- [`tusk`](tusk.md) — Local-first memory for agents: index a markdown + HTML vault into a graph
   - [`tusk context`](tusk_context.md) — Compose a warm-context digest from the manifest [context] block
   - [`tusk doctor`](tusk_doctor.md) — Surface validation warnings, dangling edges, and index health issues
   - [`tusk edge`](tusk_edge.md) — Manage edges between nodes (add, remove, list)

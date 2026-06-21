@@ -1,5 +1,5 @@
-// Package reindex walks a workspace, parses every markdown node, and brings the
-// index up to date with what is on disk.
+// Package reindex walks a workspace, parses every markdown and HTML node, and
+// brings the index up to date with what is on disk.
 package reindex
 
 import (
@@ -139,9 +139,10 @@ type Report struct {
 	Generation int64
 }
 
-// Run walks Root, parses every *.md file with valid frontmatter, and upserts
-// or removes index rows so the index matches what is on disk. When Edges and
-// EdgeTypes are configured, edges are written and removed alongside nodes.
+// Run walks Root, parses every *.md file with valid frontmatter and every
+// *.html/*.htm file with a tusk:type meta directive, and upserts or removes
+// index rows so the index matches what is on disk. When Edges and EdgeTypes
+// are configured, edges are written and removed alongside nodes.
 func Run(config Config) (*Report, error) {
 	if config.Meta == nil {
 		return nil, fmt.Errorf("reindex: Meta is required")

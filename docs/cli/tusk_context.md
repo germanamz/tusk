@@ -57,5 +57,5 @@ tusk context [flags]
 
 ### SEE ALSO
 
-* [tusk](tusk.md)	 - Local-first memory for agents: index a markdown vault into a graph
+* [tusk](tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
 

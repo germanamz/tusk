@@ -11,7 +11,8 @@ Manage individual nodes (create, get, render, list, modify, move, delete)
 Manage individual nodes in the workspace.
 
 A node is one markdown file with YAML frontmatter declaring its type and
-properties. Example:
+properties (or an .html/.htm file declaring its type via a tusk:type meta
+tag). Example:
 
   ---
   type: ticket
@@ -63,7 +64,7 @@ the filter grammar.
 
 ### SEE ALSO
 
-* [tusk](tusk.md)	 - Local-first memory for agents: index a markdown vault into a graph
+* [tusk](tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
 * [tusk node create](tusk_node_create.md)	 - Create a new node file and index it
 * [tusk node delete](tusk_node_delete.md)	 - Delete a node file and remove it from the index
 * [tusk node get](tusk_node_get.md)	 - Print the markdown file for a node by id

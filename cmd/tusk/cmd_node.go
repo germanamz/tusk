@@ -16,7 +16,8 @@ func newNodeCmd() *cobra.Command {
 		Long: `Manage individual nodes in the workspace.
 
 A node is one markdown file with YAML frontmatter declaring its type and
-properties. Example:
+properties (or an .html/.htm file declaring its type via a tusk:type meta
+tag). Example:
 
   ---
   type: ticket
