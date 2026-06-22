@@ -100,6 +100,25 @@ jobs:
             exit 1
           fi
 
+  dist-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.12.0 --activate
+      - name: Build frontend
+        run: make web
+      - name: Fail on drift
+        run: |
+          if ! git diff --quiet -- internal/graphview/dist; then
+            echo "::error::internal/graphview/dist is stale. Run 'make web' and commit."
+            git --no-pager diff -- internal/graphview/dist
+            exit 1
+          fi
+
   pr-title:
     runs-on: ubuntu-latest
     steps:
