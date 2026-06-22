@@ -66,6 +66,9 @@ automatically: press space in this terminal to open it, or pass --open.`,
 // serveGraph opens the runtime, starts background maintenance, serves the graph
 // handler, and runs the foreground console until ctx is cancelled.
 func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	cwd, cwdErr := os.Getwd()
 	if cwdErr != nil {
 		return cwdErr
@@ -105,7 +108,8 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 
 	listener, listenErr := net.Listen("tcp", cfg.addr)
 	if listenErr != nil {
-		cancelWait(ctx, bgDone)
+		cancel()
+		<-bgDone
 
 		return fmt.Errorf("graph: listen %s: %w", cfg.addr, listenErr)
 	}
@@ -126,7 +130,9 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 	}
 
 	// Tilt-style foreground console (status line + keypress loop).
-	runConsole(ctx, cmd, viewServer, runtime, boundURL)
+	runConsole(ctx, cancel, cmd, viewServer, runtime, boundURL)
+
+	cancel() // unblock RunBackground + viewServer.Run before draining
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
@@ -139,12 +145,6 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 	}
 
 	return nil
-}
-
-func cancelWait(ctx context.Context, bgDone <-chan error) {
-	if ctx.Err() == nil {
-		<-bgDone
-	}
 }
 
 // isLoopbackAddr reports whether addr binds only the loopback interface.
