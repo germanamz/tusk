@@ -53,6 +53,8 @@ func (srv *Server) routes() {
 
 	srv.mux.HandleFunc("GET /api/graph", srv.handleGraph)
 
+	srv.mux.HandleFunc("GET /api/node/{id...}", srv.handleNode)
+
 	srv.mux.Handle("GET /", srv.staticHandler())
 }
 
