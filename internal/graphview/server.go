@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,9 @@ type Server struct {
 	deps    Deps
 	mux     *http.ServeMux
 	pollDur time.Duration
+
+	mu      sync.Mutex
+	clients map[chan []byte]struct{}
 }
 
 // New builds a Server. Handlers are registered immediately; Run(ctx) drives
@@ -27,6 +31,7 @@ func New(deps Deps) *Server {
 		deps:    deps,
 		mux:     http.NewServeMux(),
 		pollDur: poll,
+		clients: make(map[chan []byte]struct{}),
 	}
 
 	srv.routes()
@@ -39,10 +44,9 @@ func (srv *Server) Handler() http.Handler {
 	return srv.mux
 }
 
-// Run drives the SSE broadcast loop until ctx is cancelled. No-op until the
-// SSE task wires the change poller.
+// Run drives the SSE broadcast loop until ctx is cancelled.
 func (srv *Server) Run(ctx context.Context) {
-	<-ctx.Done()
+	srv.runHub(ctx)
 }
 
 func (srv *Server) routes() {
@@ -52,6 +56,8 @@ func (srv *Server) routes() {
 	})
 
 	srv.mux.HandleFunc("GET /api/graph", srv.handleGraph)
+
+	srv.mux.HandleFunc("GET /api/graph/stream", srv.handleStream)
 
 	srv.mux.HandleFunc("GET /api/node/{id...}", srv.handleNode)
 

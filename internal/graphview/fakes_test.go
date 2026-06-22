@@ -1,6 +1,8 @@
 package graphview
 
 import (
+	"sync"
+
 	"github.com/germanamz/tusk/internal/index"
 )
 
@@ -33,10 +35,22 @@ type fakeEdges struct {
 func (fake *fakeEdges) ListAll() ([]index.EdgeRow, error) { return fake.all, nil }
 
 type fakeChanges struct {
+	mu  sync.Mutex
 	sig Signal
 }
 
-func (fake *fakeChanges) Signal() (Signal, error) { return fake.sig, nil }
+func (fake *fakeChanges) Signal() (Signal, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	return fake.sig, nil
+}
+
+func (fake *fakeChanges) setSig(sig Signal) {
+	fake.mu.Lock()
+	fake.sig = sig
+	fake.mu.Unlock()
+}
 
 // fileRow builds a file-level NodeRow (parent_id NULL).
 func fileRow(id, nodeType, title, propsJSON string) index.NodeRow {
