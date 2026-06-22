@@ -51,6 +51,8 @@ func (srv *Server) routes() {
 		_, _ = writer.Write([]byte("ok"))
 	})
 
+	srv.mux.HandleFunc("GET /api/graph", srv.handleGraph)
+
 	srv.mux.Handle("GET /", srv.staticHandler())
 }
 
