@@ -14,6 +14,29 @@
         border-bottom: 1px solid #2a2d3a;
       }
       #facets label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+      #search-form { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+      #search {
+        background: #1e2130; border: 1px solid #2a2d3a; color: #e6e6e6;
+        padding: 3px 8px; border-radius: 4px; font-size: 13px; width: 220px;
+      }
+      #search::placeholder { color: #666; }
+      #search-form button {
+        background: #1e2130; border: 1px solid #2a2d3a; color: #e6e6e6;
+        padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 13px;
+      }
+      #search-form button:hover { background: #2a2d3a; }
+      #search-msg {
+        display: none; position: fixed; top: 42px; right: 12px; z-index: 20;
+        background: rgba(30,33,48,0.95); border: 1px solid #f5a623;
+        color: #f5a623; padding: 6px 12px; border-radius: 4px; font-size: 12px;
+        max-width: 360px;
+      }
+      #banner {
+        display: none; position: fixed; top: 42px; left: 50%; transform: translateX(-50%);
+        z-index: 20; background: rgba(30,33,48,0.95); border: 1px solid #f0c040;
+        color: #f0c040; padding: 6px 16px; border-radius: 4px; font-size: 13px;
+        pointer-events: none;
+      }
       #main-area { display: flex; flex: 1; margin-top: 36px; }
       #graph { flex: 1; height: calc(100vh - 36px); }
       #panel {
@@ -40,7 +63,15 @@
     <script type="module" crossorigin src="./assets/app.js"></script>
   </head>
   <body>
-    <div id="facets"></div>
+    <div id="facets">
+      <!-- facet checkboxes inserted by main.ts -->
+      <form id="search-form">
+        <input id="search" type="search" placeholder="type:ticket … or prose query" autocomplete="off" />
+        <button type="submit">Search</button>
+      </form>
+    </div>
+    <div id="search-msg"></div>
+    <div id="banner">large graph — apply a filter</div>
     <div id="main-area">
       <div id="graph"></div>
       <aside id="panel"></aside>

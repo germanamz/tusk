@@ -1,3 +1,8 @@
+export interface Match {
+  id: string
+  score: number
+}
+
 export interface GraphNode {
   id: string
   type: string

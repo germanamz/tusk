@@ -4,7 +4,8 @@ import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
 import { fetchNodeDetail, fetchSubunits } from './nodeapi'
 import { renderPanel } from './panel'
-import { EDGE_KIND_COLORS } from './encode'
+import { EDGE_KIND_COLORS, colorForType, sizeForDegree } from './encode'
+import { runSearch } from './search'
 
 let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [] }
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false }
@@ -99,10 +100,56 @@ function mergeSubunits(base: Graph, subunits: { nodes: any[]; edges: any[] }): G
 async function boot(): Promise<void> {
   const el = document.getElementById('graph')!
   const panelEl = document.getElementById('panel')!
+  const searchMsg = document.getElementById('search-msg')!
+  const banner = document.getElementById('banner')!
   const scene = createScene(el)
 
   // Build static legend once
   buildLegend()
+
+  // Search form
+  const searchForm = document.getElementById('search-form') as HTMLFormElement
+  const searchInput = document.getElementById('search') as HTMLInputElement
+  searchForm.addEventListener('submit', (e) => {
+    e.preventDefault()
+    const text = searchInput.value.trim()
+    if (!text) return
+    runSearch(text)
+      .then(({ matches, unavailable }) => {
+        if (unavailable) {
+          searchMsg.textContent = 'semantic search needs an embedding provider (structural filter + facets still work)'
+          searchMsg.style.display = 'block'
+          return
+        }
+        searchMsg.style.display = 'none'
+        if (matches.length === 0) {
+          searchMsg.textContent = 'no matches'
+          searchMsg.style.display = 'block'
+          return
+        }
+        const ids = matches.map((m) => m.id)
+        // Visually pulse matched nodes by temporarily boosting their size
+        scene.instance.nodeVal((node: any) => {
+          if (ids.includes(node.id)) return (node.degree ?? 1) * 4 + 8
+          return (node.degree ?? 1) * 2 + 1
+        })
+        scene.instance.nodeColor((node: any) => {
+          if (ids.includes(node.id)) return '#f5a623'
+          return colorForType(node.type)
+        })
+        // Fly camera to first match
+        scene.focus(ids)
+        // Reset highlight after 3 s
+        setTimeout(() => {
+          scene.instance.nodeColor((node: any) => colorForType(node.type))
+          scene.instance.nodeVal((node: any) => sizeForDegree(node.degree))
+        }, 3000)
+      })
+      .catch((err) => {
+        searchMsg.textContent = `search error: ${String(err)}`
+        searchMsg.style.display = 'block'
+      })
+  })
 
   // Node click → fetch detail, render panel
   scene.instance.onNodeClick((node: any) => {
@@ -149,6 +196,12 @@ async function boot(): Promise<void> {
     rawGraph = graph
     buildFacetBar(graph, scene)
     scene.setGraph(applyFacets(graph, facetState))
+    // Scale guardrail: warn when graph is very large but never drop nodes
+    if (graph.nodes.length > 5000) {
+      banner.style.display = 'block'
+    } else {
+      banner.style.display = 'none'
+    }
   }
 
   applyAndRender(await fetchGraph())
