@@ -108,6 +108,7 @@ CONFIGURATION
 * [tusk context](tusk_context.md)	 - Compose a warm-context digest from the manifest [context] block
 * [tusk doctor](tusk_doctor.md)	 - Surface validation warnings, dangling edges, and index health issues
 * [tusk edge](tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
+* [tusk graph](tusk_graph.md)	 - Serve an interactive 3D graph view of the vault
 * [tusk init](tusk_init.md)	 - Initialize a Tusk workspace in the current directory
 * [tusk mcp](tusk_mcp.md)	 - Run the long-running MCP server (stdio or SSE)
 * [tusk node](tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
