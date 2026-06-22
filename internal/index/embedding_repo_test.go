@@ -1,6 +1,7 @@
 package index_test
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -365,6 +366,59 @@ func TestEmbeddingRepo_ListSubUnitsForFiles_UnderscoreNoLeakage(test *testing.T)
 
 	if loaded[0].NodeID != "notes/foo_a#aaa" {
 		test.Errorf("foo_a embedding id = %q, want notes/foo_a#aaa", loaded[0].NodeID)
+	}
+}
+
+// TestEmbeddingRepo_ListSubUnitsForFiles_LargeBatch pins the #564 regression:
+// a hybrid semantic query whose structural filter matches > 1000 ids reaches
+// here with that many file ids. The old implementation OR'd one GLOB per id
+// into a single WHERE clause, whose parse tree exceeded SQLite's
+// SQLITE_MAX_EXPR_DEPTH (default 1000) and aborted with "Expression tree is
+// too large". The repo must chunk the predicate so any id count succeeds.
+func TestEmbeddingRepo_ListSubUnitsForFiles_LargeBatch(test *testing.T) {
+	const fileCount = 1100
+
+	nodeIDs := make([]string, 0, fileCount*2)
+	fileIDs := make([]string, 0, fileCount)
+
+	for i := range fileCount {
+		fileID := fmt.Sprintf("notes/big-%04d", i)
+		fileIDs = append(fileIDs, fileID)
+		nodeIDs = append(nodeIDs, fileID, fileID+"#s")
+	}
+
+	repo := newTestEmbeddingRepo(test, nodeIDs...)
+
+	for i, fileID := range fileIDs {
+		row := index.EmbeddingRow{
+			NodeID:      fileID + "#s",
+			ChunkIdx:    0,
+			Model:       "m",
+			ContentHash: fmt.Sprintf("h%04d", i),
+			Vector:      []float32{0.1},
+			Dim:         1,
+		}
+
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("Upsert %s: %v", row.NodeID, upsertErr)
+		}
+	}
+
+	loaded, listErr := repo.ListSubUnitsForFiles(fileIDs)
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles %d ids: %v", len(fileIDs), listErr)
+	}
+
+	if len(loaded) != fileCount {
+		test.Fatalf("loaded = %d sub-unit embeddings, want %d", len(loaded), fileCount)
+	}
+
+	// Result must stay ordered by node_id ASC across chunk boundaries.
+	for i := 1; i < len(loaded); i++ {
+		if loaded[i-1].NodeID > loaded[i].NodeID {
+			test.Fatalf("rows out of order at %d: %q > %q", i, loaded[i-1].NodeID, loaded[i].NodeID)
+		}
 	}
 }
 
