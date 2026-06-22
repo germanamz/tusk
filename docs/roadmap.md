@@ -10,7 +10,7 @@ designs: each graduates into its own
 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` when it's time to
 brainstorm and plan it.
 
-- **Last updated:** 2026-06-16
+- **Last updated:** 2026-06-21
 - **Latest release:** v1.11.0
 - **Closed specs/plans:**
   - HTML content AST (`.html`/`.htm` files as first-class nodes + `tusk node render` / `tusk_node_render`) — shipped; design folded into [`PRODUCT.md`](../PRODUCT.md) and [`README`](../README.md).
@@ -23,16 +23,16 @@ brainstorm and plan it.
 
 ## Forward-looking explorations
 
-Each is independent in execution. The order now leads with the next focus —
-language-aware code indexing (#1–#3) and an interactive graph view (#4) —
-followed by the earlier backlog (#5–#9), whose internal order still reflects
+Each is independent in execution. The order now leads with the next focus — an
+interactive graph view (#1) — followed by language-aware code indexing (#2–#4)
+and the earlier backlog (#5–#9), whose internal order still reflects
 dependencies and risk-adjusted payoff. Item #9 is a smaller ergonomic ask
 promoted from the Superhuman bootstrap session.
 
-1. [TypeScript/JavaScript indexer pass](#1-typescriptjavascript-indexer-pass)
-2. [Python indexer pass](#2-python-indexer-pass)
-3. [Go indexer pass](#3-go-indexer-pass)
-4. [Graph view (three.js)](#4-graph-view-threejs)
+1. [Graph view (three.js)](#1-graph-view-threejs)
+2. [Go indexer pass](#2-go-indexer-pass)
+3. [TypeScript/JavaScript indexer pass](#3-typescriptjavascript-indexer-pass)
+4. [Python indexer pass](#4-python-indexer-pass)
 5. [Native-Go embedding models](#5-native-go-embedding-models)
 6. [CI-distributed prebuilt indexes](#6-ci-distributed-prebuilt-indexes)
 7. [Paragraph indexing with local summarization](#7-paragraph-indexing-with-local-summarization)
@@ -45,115 +45,14 @@ unscheduled.
 
 ---
 
-## 1. TypeScript/JavaScript indexer pass
-
-**Problem.** Tusk indexes markdown (and now HTML) but treats a source tree as
-opaque. A vault that lives next to a TS/JS codebase can't answer "where is
-`parseConfig` called," "what imports this module," or "what does this function
-*mean*" — the code is invisible to retrieval. Agents working in the repo fall
-back to grep and full-file reads.
-
-**Why now.** The sub-unit + structural-address machinery (shipped for markdown
-and HTML) generalizes to any parseable source: index a file as a node, emit
-sub-units for the structures inside it, attach edges for the relations between
-them. TS/JS is the highest-leverage first language — it's where most
-agent-assisted work happens, and tree-sitter / the TypeScript compiler API give
-a mature parse surface.
-
-**Sketch.** A language pass parses each `.ts`/`.tsx`/`.js`/`.jsx` file and emits:
-- **Symbol-usage edges** — function/method calls, variable assignments and
-  references, `import`/`export` relations, and file-to-file dependencies — so
-  the graph captures who-calls-what and who-imports-what.
-- **Docstring/JSDoc sub-units** — documentation comments attached to the symbol
-  they describe.
-- **Plain-comment sub-units** — inline and block comments that aren't docstrings.
-
-Crucially, **the indexer model never sees raw code.** Embedding source bodies
-would flood the vector index with dense, low-signal tokens (syntax, boilerplate,
-identifiers) and balloon its size for little retrieval gain. Instead Tusk indexes
-the *ideas* — comments and docstrings carry intent in natural language — while
-symbols and their relations are captured structurally as edges, not embeddings.
-Retrieval answers "what was the author thinking here" from comments and "what
-connects to what" from the graph, without ever embedding a statement of code.
-
-**Open questions.**
-- Parser choice: tree-sitter (fast, uniform across languages, weaker type info)
-  vs. the TypeScript compiler API (richer symbol resolution, JS-runtime
-  dependency, TS-centric).
-- Symbol identity across files — fully-resolved vs. heuristic name matching for
-  call/reference edges.
-- How comments map to sub-unit addresses so they stay stable across edits, the
-  way markdown sub-units already do.
-- Edge-type vocabulary: do `calls`, `imports`, `references`, `assigns` live in
-  `tusk.toml` as first-class edge types, or a generic `code-ref` with a subtype?
-
-**Dependencies.** Builds directly on the sub-unit / structural-address work
-(`internal/subunit`) and the source-parameterized Sync added for the HTML AST.
-Establishes the language-pass pattern that #2 and #3 reuse.
-
-## 2. Python indexer pass
-
-**Problem.** Same gap as #1, for Python codebases: imports, call graphs,
-references, and docstrings are invisible to the index.
-
-**Why now.** Python's first-class docstring convention (module/class/function
-`"""..."""`) makes the "index ideas, not code" bet especially strong — a large
-share of intent is already written down in a structured place the pass can lift
-directly.
-
-**Sketch.** The same model as #1 applied to `.py` files: symbol-usage edges
-(calls, assignments, references, `import` / `from ... import`, file relations),
-docstring sub-units, and plain-comment sub-units — and, as in #1, **no raw code
-is embedded.** Language-specific deltas: Python docstrings are first-class AST
-nodes (not comments), so the pass reads them straight from the parse tree;
-dynamic imports and re-exports complicate the dependency graph.
-
-**Open questions.**
-- Parser: tree-sitter-python vs. the stdlib `ast` (would require a Python
-  runtime alongside `tusk`) vs. a pure-Go Python parser.
-- Decorators and dynamic attribute access — how much of the call graph to
-  attempt statically before it stops being reliable.
-- Type-hint signal: index annotations as structured metadata, or ignore in v1?
-
-**Dependencies.** #1 (shares the language-pass framework, edge vocabulary, and
-"comments-not-code" indexing model).
-
-## 3. Go indexer pass
-
-**Problem.** Same gap as #1/#2, for Go — fitting, since `tusk` is itself a Go
-codebase and would become self-describing in its own vault.
-
-**Why now.** Go has the cleanest parse story of the three: `go/parser` and
-`go/ast` are in the standard library, already in-process, and need no external
-toolchain or CGo. Doc-comment conventions are rigid and well-specified, so
-docstring extraction is unusually reliable.
-
-**Sketch.** The #1 model applied to `.go` files: symbol-usage edges (calls,
-assignments, references, `import` paths, file/package relations), doc-comment
-sub-units, and plain-comment sub-units, with **no raw code embedded.** Native
-`go/ast` gives precise positions and comment-to-declaration mapping for stable
-sub-unit addressing. Package-level structure adds a relation layer the other two
-languages lack.
-
-**Open questions.**
-- Granularity: package as node, file as node, or both (Go's package = directory
-  model doesn't map 1:1 to one-file-one-node).
-- Whether to use `go/types` for full symbol resolution (accurate cross-file
-  edges, but needs a buildable module) or stay at the syntactic `go/ast` level.
-- Build-tag and generated-file handling.
-
-**Dependencies.** #1 (language-pass framework). Lowest implementation risk of the
-three thanks to the stdlib parser, so a reasonable place to prove the framework
-even though it's listed third.
-
-## 4. Graph view (three.js)
+## 1. Graph view (three.js)
 
 **Problem.** Tusk's value is the graph — nodes, sub-units, and the edges between
 them — but there's no way to *see* it. Users reason about their vault through
 query results and file listings, never the shape of the whole thing. Dense,
 highly-connected regions and orphaned nodes are invisible.
 
-**Why now.** Once the language passes (#1–#3) land, the graph gets dramatically
+**Why now.** Once the language passes (#2–#4) land, the graph gets dramatically
 richer (call/import/reference edges on top of structural and user edges) and a
 flat list stops conveying it. A visual, interactive view turns the index into
 something you can explore and navigate, and it doubles as a showcase of what the
@@ -176,9 +75,120 @@ node-type / edge-type / tag. Read-only in v1; bound to loopback by default.
 - Live updates: poll the index, watch for changes, or static snapshot per load?
 
 **Dependencies.** Read-only over the existing query/index surface, so technically
-unblocked today — but most valuable after #1–#3 enrich the graph. A narrow,
+unblocked today — but most valuable after #2–#4 enrich the graph. A narrow,
 read-only slice of the deferred "Web UI / TUI" backlog item, promoted ahead of
 the general UI.
+
+## 2. Go indexer pass
+
+**Problem.** Tusk indexes markdown (and now HTML) but treats a source tree as
+opaque. A vault that lives next to a Go codebase can't answer "where is
+`parseConfig` called," "what imports this package," or "what does this function
+*mean*" — the code is invisible to retrieval, and agents working in the repo fall
+back to grep and full-file reads. Fitting to open the language passes with Go,
+since `tusk` is itself a Go codebase and would become self-describing in its own
+vault.
+
+**Why now.** Go has the cleanest parse story of the three: `go/parser` and
+`go/ast` are in the standard library, already in-process, and need no external
+toolchain or CGo. Doc-comment conventions are rigid and well-specified, so
+docstring extraction is unusually reliable. That low-risk, in-process surface
+makes Go the right place to establish the language-pass pattern the other
+languages reuse — the sub-unit + structural-address machinery (shipped for
+markdown and HTML) generalizes to any parseable source: index a file as a node,
+emit sub-units for the structures inside it, attach edges for the relations
+between them.
+
+**Sketch.** A language pass parses each `.go` file and emits:
+- **Symbol-usage edges** — calls, assignments, references, `import` paths, and
+  file/package relations — so the graph captures who-calls-what and
+  who-imports-what.
+- **Doc-comment sub-units** — documentation comments attached to the symbol they
+  describe.
+- **Plain-comment sub-units** — inline and block comments that aren't doc comments.
+
+Crucially, **the indexer model never sees raw code.** Embedding source bodies
+would flood the vector index with dense, low-signal tokens (syntax, boilerplate,
+identifiers) and balloon its size for little retrieval gain. Instead Tusk indexes
+the *ideas* — comments and doc comments carry intent in natural language — while
+symbols and their relations are captured structurally as edges, not embeddings.
+Native `go/ast` gives precise positions and comment-to-declaration mapping for
+stable sub-unit addressing, and package-level structure adds a relation layer the
+other two languages lack.
+
+**Open questions.**
+- Granularity: package as node, file as node, or both (Go's package = directory
+  model doesn't map 1:1 to one-file-one-node).
+- Whether to use `go/types` for full symbol resolution (accurate cross-file
+  edges, but needs a buildable module) or stay at the syntactic `go/ast` level.
+- Build-tag and generated-file handling.
+- Edge-type vocabulary: do `calls`, `imports`, `references`, `assigns` live in
+  `tusk.toml` as first-class edge types, or a generic `code-ref` with a subtype?
+
+**Dependencies.** Builds directly on the sub-unit / structural-address work
+(`internal/subunit`) and the source-parameterized Sync added for the HTML AST.
+Establishes the language-pass pattern — edge vocabulary, comment-to-sub-unit
+addressing, and the "comments-not-code" indexing model — that #3 and #4 reuse.
+Lowest implementation risk of the three thanks to the stdlib parser, which makes
+it the right place to prove the framework.
+
+## 3. TypeScript/JavaScript indexer pass
+
+**Problem.** Same gap as #2, for TS/JS codebases — a vault that lives next to a
+TS/JS tree can't answer "where is `parseConfig` called," "what imports this
+module," or "what does this function *mean*"; the code is invisible to retrieval
+and agents fall back to grep and full-file reads.
+
+**Why now.** TS/JS is the highest-leverage language for this work — it's where
+most agent-assisted development happens, and tree-sitter / the TypeScript
+compiler API give a mature parse surface to apply the framework #2 establishes.
+
+**Sketch.** The #2 model applied to `.ts`/`.tsx`/`.js`/`.jsx` files: symbol-usage
+edges (function/method calls, variable assignments and references,
+`import`/`export` relations, file-to-file dependencies), JSDoc/docstring
+sub-units, and plain-comment sub-units — and, as in #2, **no raw code is
+embedded.** Retrieval answers "what was the author thinking here" from comments
+and "what connects to what" from the graph.
+
+**Open questions.**
+- Parser choice: tree-sitter (fast, uniform across languages, weaker type info)
+  vs. the TypeScript compiler API (richer symbol resolution, JS-runtime
+  dependency, TS-centric).
+- Symbol identity across files — fully-resolved vs. heuristic name matching for
+  call/reference edges.
+- How comments map to sub-unit addresses so they stay stable across edits, the
+  way markdown sub-units already do.
+
+**Dependencies.** #2 (reuses the language-pass framework, edge vocabulary, and
+"comments-not-code" indexing model), applied to the richer, messier JS/TS parse
+surface.
+
+## 4. Python indexer pass
+
+**Problem.** Same gap as #2, for Python codebases: imports, call graphs,
+references, and docstrings are invisible to the index.
+
+**Why now.** Python's first-class docstring convention (module/class/function
+`"""..."""`) makes the "index ideas, not code" bet especially strong — a large
+share of intent is already written down in a structured place the pass can lift
+directly.
+
+**Sketch.** The same model as #2 applied to `.py` files: symbol-usage edges
+(calls, assignments, references, `import` / `from ... import`, file relations),
+docstring sub-units, and plain-comment sub-units — and, as in #2, **no raw code
+is embedded.** Language-specific deltas: Python docstrings are first-class AST
+nodes (not comments), so the pass reads them straight from the parse tree;
+dynamic imports and re-exports complicate the dependency graph.
+
+**Open questions.**
+- Parser: tree-sitter-python vs. the stdlib `ast` (would require a Python
+  runtime alongside `tusk`) vs. a pure-Go Python parser.
+- Decorators and dynamic attribute access — how much of the call graph to
+  attempt statically before it stops being reliable.
+- Type-hint signal: index annotations as structured metadata, or ignore in v1?
+
+**Dependencies.** #2 (shares the language-pass framework, edge vocabulary, and
+"comments-not-code" indexing model).
 
 ## 5. Native-Go embedding models
 
@@ -351,7 +361,7 @@ the table. Reconciled against the focus items above.
 | `vector-watcher` behavior pack | Re-embed when content drifts substantially. |
 | Cross-workspace queries | Lighter cousin of #8 (Distributed indexing). May land first as a stepping stone. |
 | Plugin loading for behavior packs | v2+. |
-| Web UI / TUI | v2+; #4 (Graph view) is a narrow read-only slice promoted ahead of the general UI. |
+| Web UI / TUI | v2+; #1 (Graph view) is a narrow read-only slice promoted ahead of the general UI. |
 
 **Superseded:**
 
