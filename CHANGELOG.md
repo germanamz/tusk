@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/germanamz/tusk/compare/v1.12.1...v1.12.2) (2026-06-22)
+
+
+### Bug Fixes
+
+* **query:** rank full candidate pool for semantic sub-unit filters ([#562](https://github.com/germanamz/tusk/issues/562)) ([7685baf](https://github.com/germanamz/tusk/commit/7685baf9fc9731babdddc0f30ae0198bdafcedae))
+
 ## [1.12.1](https://github.com/germanamz/tusk/compare/v1.12.0...v1.12.1) (2026-06-21)
 
 
