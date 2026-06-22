@@ -161,7 +161,21 @@ type Deps struct {
 // Dependencies are passed as primitives to avoid an import cycle on
 // internal/mcp.
 func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
-	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, req.Sort, req.Take, req.Skip)
+	// The structural pre-filter feeds two paths. The structural-only path
+	// (Semantic == "") returns these rows verbatim, so SQL-level Take/Skip is
+	// the final window. The semantic path RE-windows after ranking (see the
+	// window() calls below), so applying Take/Skip here would truncate the
+	// candidate pool to an arbitrary rowid-ordered slice before scoring —
+	// dropping the genuinely top-ranked rows. This is acute when the filter
+	// admits sub-unit types (#560): each file contributes many sub-unit rows,
+	// so a small LIMIT can slice off whole files before they are ever ranked.
+	structTake, structSkip := req.Take, req.Skip
+
+	if req.Semantic != "" {
+		structTake, structSkip = 0, 0
+	}
+
+	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, req.Sort, structTake, structSkip)
 
 	if compileErr != nil {
 		return nil, compileErr
