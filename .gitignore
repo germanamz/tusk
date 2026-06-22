@@ -49,6 +49,8 @@ Thumbs.db
 
 # Frontend
 web/node_modules/
+web/test-results/
+web/playwright-report/
 
 # Go build/module cache (devcontainer fallback location)
 .go-cache/

@@ -6,6 +6,10 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   root: '.',
   base: './',
+  test: {
+    // Exclude Playwright e2e specs — those run via `pnpm e2e`, not vitest.
+    exclude: ['e2e/**', 'node_modules/**'],
+  },
   build: {
     outDir: '../internal/graphview/dist',
     emptyOutDir: true,
