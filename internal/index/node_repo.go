@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -282,12 +283,40 @@ func (repo *NodeRepo) ListSubUnitsForFile(fileID string) ([]NodeRow, error) {
 	)
 }
 
-// ListSubUnitsForFiles is the batched form of ListSubUnitsForFile. It runs a
-// single query with one GLOB predicate per file id, OR'd together. Returns
-// rows ordered by id, then ordinal ASC; callers that need per-file grouping
-// should bucket by `fileIDFromSubUnit` (the query layer's helper). Used by
-// the sub-unit-aware semantic ranker to avoid an N+1 lookup over candidate
-// files.
+// maxGlobConditions caps how many `col GLOB ?` predicates are OR'd into a
+// single WHERE clause. SQLite parses an OR-chain into a binary tree whose
+// depth grows with the term count; past SQLITE_MAX_EXPR_DEPTH (default 1000)
+// the parser aborts with "Expression tree is too large". Batching ids in
+// chunks well under that ceiling keeps the per-query tree shallow regardless
+// of how many files a hybrid filter matches (#564). Shared by the node and
+// embedding sub-unit-for-files queries.
+const maxGlobConditions = 500
+
+// chunkStrings splits items into consecutive slices of at most size elements;
+// the final chunk may be shorter. A non-positive size yields a single chunk.
+func chunkStrings(items []string, size int) [][]string {
+	if size <= 0 {
+		return [][]string{items}
+	}
+
+	chunks := make([][]string, 0, (len(items)+size-1)/size)
+
+	for start := 0; start < len(items); start += size {
+		end := min(start+size, len(items))
+
+		chunks = append(chunks, items[start:end])
+	}
+
+	return chunks
+}
+
+// ListSubUnitsForFiles is the batched form of ListSubUnitsForFile. It OR's one
+// GLOB predicate per file id, splitting the ids into chunks of
+// maxGlobConditions so the OR-chain never exceeds SQLite's expression-depth
+// ceiling (#564). Returns rows ordered by id, then ordinal ASC; callers that
+// need per-file grouping should bucket by `fileIDFromSubUnit` (the query
+// layer's helper). Used by the sub-unit-aware semantic ranker to avoid an N+1
+// lookup over candidate files.
 //
 // Empty input yields an empty slice with no query executed.
 func (repo *NodeRepo) ListSubUnitsForFiles(fileIDs []string) ([]NodeRow, error) {
@@ -295,17 +324,40 @@ func (repo *NodeRepo) ListSubUnitsForFiles(fileIDs []string) ([]NodeRow, error) 
 		return nil, nil
 	}
 
-	conditions := make([]string, 0, len(fileIDs))
-	args := make([]any, 0, len(fileIDs))
+	var results []NodeRow
 
-	for _, fileID := range fileIDs {
-		conditions = append(conditions, "id GLOB ?")
-		args = append(args, fileID+"#*")
+	for _, chunk := range chunkStrings(fileIDs, maxGlobConditions) {
+		conditions := make([]string, 0, len(chunk))
+		args := make([]any, 0, len(chunk))
+
+		for _, fileID := range chunk {
+			conditions = append(conditions, "id GLOB ?")
+			args = append(args, fileID+"#*")
+		}
+
+		query := nodeSelectColumns + ` FROM nodes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY id ASC, ordinal ASC`
+
+		chunkRows, queryErr := repo.queryNodes(query, args...)
+
+		if queryErr != nil {
+			return nil, queryErr
+		}
+
+		results = append(results, chunkRows...)
 	}
 
-	query := nodeSelectColumns + ` FROM nodes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY id ASC, ordinal ASC`
+	// Chunking splits the id set across queries, so the per-chunk ORDER BY no
+	// longer yields a globally ordered result. Re-sort to preserve the
+	// documented (id, ordinal) contract callers rely on.
+	sort.SliceStable(results, func(left, right int) bool {
+		if results[left].ID != results[right].ID {
+			return results[left].ID < results[right].ID
+		}
 
-	return repo.queryNodes(query, args...)
+		return results[left].Ordinal.Int64 < results[right].Ordinal.Int64
+	})
+
+	return results, nil
 }
 
 // FindByTitle returns the IDs of all nodes whose title matches title.

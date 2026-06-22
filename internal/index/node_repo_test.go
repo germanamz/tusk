@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -697,6 +698,66 @@ func TestNodeRepo_ListSubUnitsForFiles(test *testing.T) {
 
 	if len(empty) != 0 {
 		test.Errorf("nil input returned %d rows, want 0", len(empty))
+	}
+}
+
+// TestNodeRepo_ListSubUnitsForFiles_LargeBatch pins the #564 regression for
+// the node-side twin: a structural filter matching > 1000 ids reaches the
+// sub-unit ranker, which loads every candidate file's rows here. The old
+// one-GLOB-per-id OR-chain exceeded SQLite's SQLITE_MAX_EXPR_DEPTH (default
+// 1000); the repo must chunk the predicate so any id count succeeds.
+func TestNodeRepo_ListSubUnitsForFiles_LargeBatch(test *testing.T) {
+	const fileCount = 1100
+
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	parents := make([]index.NodeRow, 0, fileCount)
+	subUnits := make([]index.NodeRow, 0, fileCount)
+	fileIDs := make([]string, 0, fileCount)
+
+	for i := range fileCount {
+		fileID := fmt.Sprintf("notes/big-%04d", i)
+		fileIDs = append(fileIDs, fileID)
+
+		parents = append(parents, index.NodeRow{
+			ID: fileID, Type: "note", Path: fileID + ".md", Title: fileID,
+			PropertiesJSON: `{}`, LastChecksum: "h",
+		})
+
+		subUnits = append(subUnits, index.NodeRow{
+			ID: fileID + "#s", Type: "paragraph", Path: fileID + ".md",
+			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: fileID, Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		})
+	}
+
+	for _, parent := range parents {
+		if upsertErr := repo.Upsert(parent); upsertErr != nil {
+			test.Fatalf("Upsert parent %s: %v", parent.ID, upsertErr)
+		}
+	}
+
+	if bulkErr := repo.BulkUpsert(subUnits, "markdown"); bulkErr != nil {
+		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
+	}
+
+	loaded, listErr := repo.ListSubUnitsForFiles(fileIDs)
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles %d ids: %v", len(fileIDs), listErr)
+	}
+
+	if len(loaded) != fileCount {
+		test.Fatalf("loaded = %d sub-unit rows, want %d", len(loaded), fileCount)
+	}
+
+	// Result must stay ordered by id ASC across chunk boundaries.
+	for i := 1; i < len(loaded); i++ {
+		if loaded[i-1].ID > loaded[i].ID {
+			test.Fatalf("rows out of order at %d: %q > %q", i, loaded[i-1].ID, loaded[i].ID)
+		}
 	}
 }
 

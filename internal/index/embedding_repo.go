@@ -182,25 +182,58 @@ func (repo *EmbeddingRepo) GetByNodeID(nodeID string) ([]EmbeddingRow, error) {
 // Returns an empty slice when no rows match. Caller is responsible for
 // stitching the embedding rows back to their parent file via the
 // `<fileID>#<hash>` id format.
+//
+// The ids are chunked into batches of maxGlobConditions so the OR-chain never
+// exceeds SQLite's expression-depth ceiling (#564): a hybrid filter matching
+// thousands of sub-units reaches this path with thousands of ids.
 func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRow, error) {
 	if len(fileIDs) == 0 {
 		return nil, nil
 	}
 
-	conditions := make([]string, 0, len(fileIDs))
-	args := make([]any, 0, len(fileIDs))
+	var results []EmbeddingRow
 
-	for _, fileID := range fileIDs {
-		conditions = append(conditions, "ne.node_id GLOB ?")
-		args = append(args, fileID+"#*")
+	for _, chunk := range chunkStrings(fileIDs, maxGlobConditions) {
+		conditions := make([]string, 0, len(chunk))
+		args := make([]any, 0, len(chunk))
+
+		for _, fileID := range chunk {
+			conditions = append(conditions, "ne.node_id GLOB ?")
+			args = append(args, fileID+"#*")
+		}
+
+		query := embeddingJoinSelect + ` WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY ne.node_id, ne.chunk_idx`
+
+		chunkRows, queryErr := repo.queryEmbeddings(query, args...)
+
+		if queryErr != nil {
+			return nil, fmt.Errorf("embeddingRepo: list sub-units: %w", queryErr)
+		}
+
+		results = append(results, chunkRows...)
 	}
 
-	query := embeddingJoinSelect + ` WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY ne.node_id, ne.chunk_idx`
+	// Chunking splits the id set across queries, so the per-chunk ORDER BY no
+	// longer yields a globally ordered result. Re-sort to preserve the
+	// documented (node_id, chunk_idx) contract callers rely on.
+	sort.SliceStable(results, func(left, right int) bool {
+		if results[left].NodeID != results[right].NodeID {
+			return results[left].NodeID < results[right].NodeID
+		}
 
+		return results[left].ChunkIdx < results[right].ChunkIdx
+	})
+
+	return results, nil
+}
+
+// queryEmbeddings runs query and scans the result rows into EmbeddingRow
+// values, closing the rows before returning.
+func (repo *EmbeddingRepo) queryEmbeddings(query string, args ...any) ([]EmbeddingRow, error) {
 	rows, queryErr := repo.db.Query(query, args...)
 
 	if queryErr != nil {
-		return nil, fmt.Errorf("embeddingRepo: list sub-units: %w", queryErr)
+		return nil, queryErr
 	}
 
 	defer rows.Close()
