@@ -55,6 +55,8 @@ func (srv *Server) routes() {
 
 	srv.mux.HandleFunc("GET /api/node/{id...}", srv.handleNode)
 
+	srv.mux.HandleFunc("POST /api/query", srv.handleQuery)
+
 	srv.mux.Handle("GET /", srv.staticHandler())
 }
 
