@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.3](https://github.com/germanamz/tusk/compare/v1.12.2...v1.12.3) (2026-06-22)
+
+
+### Bug Fixes
+
+* **index:** chunk sub-unit GLOB predicates to avoid SQLite depth limit ([#565](https://github.com/germanamz/tusk/issues/565)) ([ada97a7](https://github.com/germanamz/tusk/commit/ada97a72110066f583a9db88aab43c7706c8f96e))
+
 ## [1.12.2](https://github.com/germanamz/tusk/compare/v1.12.1...v1.12.2) (2026-06-22)
 
 
