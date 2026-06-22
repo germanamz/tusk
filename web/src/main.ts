@@ -1,9 +1,13 @@
 import { fetchGraph } from './api'
+import { createScene } from './scene'
+import { subscribeGraph } from './stream'
 
 async function boot(): Promise<void> {
-  const graph = await fetchGraph()
   const el = document.getElementById('graph')!
-  el.textContent = `tusk graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges`
+  const scene = createScene(el)
+
+  scene.setGraph(await fetchGraph())
+  subscribeGraph((graph) => scene.setGraph(graph))
 }
 
 void boot()
