@@ -1,6 +1,6 @@
 # Binaries
 bin/
-dist/
+/dist/
 *.exe
 *.exe~
 *.dll
@@ -46,6 +46,9 @@ Thumbs.db
 
 # Superpowers brainstorm companion (mockup HTML + session state)
 .superpowers/
+
+# Frontend
+web/node_modules/
 
 # Go build/module cache (devcontainer fallback location)
 .go-cache/

@@ -1,0 +1,67 @@
+package graphview
+
+import (
+	"context"
+	"io/fs"
+	"net/http"
+	"time"
+)
+
+// Server hosts the graph-view HTTP API and embedded frontend. Construct with
+// New, mount Handler(), and run Run(ctx) for the SSE broadcast loop.
+type Server struct {
+	deps    Deps
+	mux     *http.ServeMux
+	pollDur time.Duration
+}
+
+// New builds a Server. Handlers are registered immediately; Run(ctx) drives
+// the SSE broadcast loop (added in a later task).
+func New(deps Deps) *Server {
+	poll := deps.PollInterval
+	if poll <= 0 {
+		poll = 2 * time.Second
+	}
+
+	srv := &Server{
+		deps:    deps,
+		mux:     http.NewServeMux(),
+		pollDur: poll,
+	}
+
+	srv.routes()
+
+	return srv
+}
+
+// Handler returns the mountable HTTP handler (API + embedded static assets).
+func (srv *Server) Handler() http.Handler {
+	return srv.mux
+}
+
+// Run drives the SSE broadcast loop until ctx is cancelled. No-op until the
+// SSE task wires the change poller.
+func (srv *Server) Run(ctx context.Context) {
+	<-ctx.Done()
+}
+
+func (srv *Server) routes() {
+	srv.mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("ok"))
+	})
+
+	srv.mux.Handle("GET /", srv.staticHandler())
+}
+
+func (srv *Server) staticHandler() http.Handler {
+	sub, subErr := fs.Sub(distFS, "dist")
+	if subErr != nil {
+		// embed.FS with a known subdir never fails; fall back to 500.
+		return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			http.Error(writer, "static assets unavailable", http.StatusInternalServerError)
+		})
+	}
+
+	return http.FileServerFS(sub)
+}
