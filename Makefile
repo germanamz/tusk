@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race vet lint fmt help docs \
+.PHONY: all build clean test test-race vet lint fmt help docs web \
         devcontainer-up devcontainer-rebuild devcontainer-shell \
         devcontainer-stop devcontainer-down devcontainer-nuke
 
@@ -43,6 +43,9 @@ lint:
 fmt:
 	@pkgs=$$($(GO) list ./... 2>/dev/null); [ -z "$$pkgs" ] && echo "no packages to fmt" || $(GO) fmt $$pkgs
 
+web:
+	cd web && pnpm install --frozen-lockfile && pnpm build
+
 docs: build
 	$(BUILD_DIR)/$(BINARY_NAME) docgen man docs/cli
 
@@ -56,6 +59,7 @@ help:
 	@echo "  fmt               — run gofmt across the tree"
 	@echo "  docs              — regenerate man pages and markdown CLI reference"
 	@echo "  clean             — remove build artifacts"
+	@echo "  web               — build the graph-view frontend into internal/graphview/dist"
 	@echo "  devcontainer-up      — build and start the dev container (uses BuildKit cache)"
 	@echo "  devcontainer-rebuild — build and start the dev container from scratch (no cache)"
 	@echo "  devcontainer-shell   — open an interactive zsh inside the running dev container"
