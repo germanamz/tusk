@@ -360,6 +360,216 @@ func TestQueryRun_SemanticSubUnitsGroupsByParent(test *testing.T) {
 	}
 }
 
+// seedTwoNotesForTruncation inserts two note files, each with one section and
+// one leaf paragraph. The LOW-relevance file ("cooking") is inserted first so
+// its rows take the lowest rowids; the HIGH-relevance file ("transformers") is
+// inserted second. A structural filter that admits sub-unit types matches all
+// six rows, so a small SQL-level LIMIT would slice off transformers entirely —
+// the bug under test (#560). The query vector is {1,0,0}: transformers' leaf is
+// a perfect match (cosine 1.0); cooking's leaf scores ~0.3.
+func seedTwoNotesForTruncation(t *testing.T, store *index.Index) {
+	t.Helper()
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	type note struct {
+		fileID  string
+		secID   string
+		leafID  string
+		payload string
+		leafVec []float32
+	}
+
+	// Order matters: cooking first → lowest rowids → first to survive LIMIT.
+	notes := []note{
+		{
+			fileID:  "cooking",
+			secID:   "cooking#beans",
+			leafID:  "cooking#beans_p",
+			payload: "Cook black beans slowly with garlic and cumin until soft",
+			leafVec: []float32{0.3, 0.95, 0.0},
+		},
+		{
+			fileID:  "transformers",
+			secID:   "transformers#attention",
+			leafID:  "transformers#attention_p",
+			payload: "The self-attention mechanism computes scaled dot-product attention",
+			leafVec: []float32{1.0, 0.0, 0.0},
+		},
+	}
+
+	for _, spec := range notes {
+		if err := nodes.Upsert(index.NodeRow{
+			ID:             spec.fileID,
+			Type:           "note",
+			Path:           spec.fileID + ".md",
+			Title:          spec.fileID,
+			PropertiesJSON: "{}",
+			LastChecksum:   "x",
+		}); err != nil {
+			t.Fatalf("file upsert %s: %v", spec.fileID, err)
+		}
+
+		subRows := []index.NodeRow{
+			{
+				ID:             spec.secID,
+				Type:           "section",
+				Path:           spec.fileID + ".md",
+				PropertiesJSON: `{"heading-level":1}`,
+				LastChecksum:   "x",
+				ParentID:       sql.NullString{String: spec.fileID, Valid: true},
+				Ordinal:        sql.NullInt64{Int64: 0, Valid: true},
+				EmbedPayload:   sql.NullString{String: spec.payload, Valid: true},
+			},
+			{
+				ID:             spec.leafID,
+				Type:           "paragraph",
+				Path:           spec.fileID + ".md",
+				PropertiesJSON: "{}",
+				LastChecksum:   "x",
+				ParentID:       sql.NullString{String: spec.secID, Valid: true},
+				Ordinal:        sql.NullInt64{Int64: 1, Valid: true},
+				EmbedPayload:   sql.NullString{String: spec.payload, Valid: true},
+			},
+		}
+
+		if err := nodes.BulkUpsert(subRows, "markdown"); err != nil {
+			t.Fatalf("sub-unit bulk upsert %s: %v", spec.fileID, err)
+		}
+
+		if err := embeddings.Upsert(index.EmbeddingRow{
+			NodeID:      spec.leafID,
+			ChunkIdx:    0,
+			Model:       "stub",
+			ContentHash: "h_" + spec.leafID,
+			Vector:      spec.leafVec,
+			Dim:         3,
+			Body:        spec.payload,
+		}); err != nil {
+			t.Fatalf("embedding upsert %s: %v", spec.leafID, err)
+		}
+	}
+}
+
+// TestQueryRun_SemanticSubUnitFilterRanksAllCandidates reproduces #560: a
+// hybrid (structural + semantic) query whose filter admits sub-unit types must
+// still rank the full candidate pool, not an arbitrary SQL-truncated slice.
+// With Take applied at the SQL structural level, the relevant file row is
+// pushed out of the LIMIT window and dropped before ranking; the correct
+// behavior windows AFTER ranking.
+func TestQueryRun_SemanticSubUnitFilterRanksAllCandidates(test *testing.T) {
+	store := openTestStore(test)
+	seedTwoNotesForTruncation(test, store)
+
+	deps := query.Deps{
+		Database:   store.DB(),
+		Manifest:   loadManifestWithSubUnits(test),
+		Nodes:      index.NewNodeRepo(store),
+		Embedder:   stubEmbedder{vector: []float32{1, 0, 0}},
+		Embeddings: index.NewEmbeddingRepo(store),
+	}
+
+	result, runErr := query.Run(context.Background(), deps, query.Request{
+		Filter:   "type=note OR type=section OR type=paragraph",
+		Semantic: "self-attention transformer",
+		MinScore: 0.1,
+		Take:     2,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if result.Semantic == nil {
+		test.Fatalf("expected Semantic result")
+	}
+
+	if len(result.Semantic.Ranked) == 0 {
+		test.Fatalf("ranked is empty; transformers was dropped before ranking")
+	}
+
+	top := result.Semantic.Ranked[0]
+
+	if top.ID != "transformers" {
+		test.Errorf("top ranked id = %q (score %f), want transformers", top.ID, top.Score)
+	}
+
+	if top.Score < 0.9 {
+		test.Errorf("transformers score = %f, want ~1.0 (perfect-match leaf)", top.Score)
+	}
+
+	// Both notes should survive into the post-rank Take=2 window.
+	gotIDs := make([]string, 0, len(result.Semantic.Ranked))
+	for _, row := range result.Semantic.Ranked {
+		gotIDs = append(gotIDs, row.ID)
+	}
+
+	if len(result.Semantic.Ranked) != 2 {
+		test.Errorf("ranked files = %v, want both [transformers cooking]", gotIDs)
+	}
+}
+
+// TestQueryRun_SemanticLeakedSubUnitNormalizesToParentFile covers #560's
+// secondary defect: when a sub-unit row enters the semantic path for a file
+// whose own file row is NOT in the structural result (here cooking matches only
+// via its section, not the id= predicate), the ranker must still surface that
+// file. The leaked sub-unit id must normalize to its parent file so the parent
+// glob loads its leaves; otherwise a `<subunit>#*` glob matches nothing and the
+// file is silently dropped.
+func TestQueryRun_SemanticLeakedSubUnitNormalizesToParentFile(test *testing.T) {
+	store := openTestStore(test)
+	seedTwoNotesForTruncation(test, store)
+
+	deps := query.Deps{
+		Database:   store.DB(),
+		Manifest:   loadManifestWithSubUnits(test),
+		Nodes:      index.NewNodeRepo(store),
+		Embedder:   stubEmbedder{vector: []float32{1, 0, 0}},
+		Embeddings: index.NewEmbeddingRepo(store),
+	}
+
+	// transformers matches as a file row; cooking matches ONLY via its
+	// section (cooking the file row is absent from the structural result).
+	result, runErr := query.Run(context.Background(), deps, query.Request{
+		Filter:   "id=transformers OR type=section",
+		Semantic: "self-attention transformer",
+		MinScore: 0.1,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if result.Semantic == nil {
+		test.Fatalf("expected Semantic result")
+	}
+
+	byID := map[string]query.ScoredRow{}
+	for _, row := range result.Semantic.Ranked {
+		byID[row.ID] = row
+	}
+
+	if _, ok := byID["transformers"]; !ok {
+		test.Errorf("transformers missing from ranked %v", byID)
+	}
+
+	cooking, ok := byID["cooking"]
+	if !ok {
+		test.Fatalf("cooking dropped: its section leaked but its file leaves never loaded")
+	}
+
+	// The parent file's metadata must be hydrated even though its file row
+	// was never in the structural pre-filter.
+	if cooking.Type != "note" {
+		test.Errorf("cooking type = %q, want note (hydrated via parent lookup)", cooking.Type)
+	}
+
+	if cooking.Title != "cooking" {
+		test.Errorf("cooking title = %q, want cooking", cooking.Title)
+	}
+}
+
 func TestQueryRun_SubUnitsDisabledKeepsLegacyShape(test *testing.T) {
 	store := openTestStore(test)
 

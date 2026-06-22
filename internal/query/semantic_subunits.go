@@ -2,17 +2,20 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/germanamz/tusk/internal/filter"
+	"github.com/germanamz/tusk/internal/index"
 )
 
 // runSemanticSubUnits executes the sub-unit-aware semantic ranking path. It
 // is invoked only when the workspace has sub-units enabled. The structural
-// pre-filter has already produced `structural` (file rows); this function
-// runs the spec §5.7 order, with graph expansion injected after the leaf
-// cosine rank:
+// pre-filter has produced `structural`; rows are normalized to their parent
+// FILE id (a filter may match sub-unit rows directly, e.g. `type=section`),
+// then this function runs the spec §5.7 order, with graph expansion injected
+// after the leaf cosine rank:
 //
 //  1. Loads every sub-unit embedding for those files via
 //     `ListSubUnitsForFiles` (one batched query).
@@ -42,31 +45,68 @@ func runSemanticSubUnits(
 	}
 
 	// Index the pre-filter result so we can map a sub-unit's file back to
-	// its file-level metadata (type/title/path).
+	// its file-level metadata (type/title/path). fileIDs is the deduped,
+	// first-seen-ordered set of FILE ids to load sub-unit embeddings for.
 	fileMeta := make(map[string]Row, len(structural))
 	fileIDs := make([]string, 0, len(structural))
+	seen := make(map[string]struct{}, len(structural))
+
+	queue := func(fileID string) {
+		if _, ok := seen[fileID]; ok {
+			return
+		}
+
+		seen[fileID] = struct{}{}
+		fileIDs = append(fileIDs, fileID)
+	}
 
 	for _, row := range structural {
-		// Direct sub-unit query: include the row itself rather than
-		// recursing. We handle that case in the structural path; here
-		// we only expect file rows. Sub-unit rows still get their parent
-		// file id recorded so the loop below produces sensible output.
 		if row.ParentID != "" {
-			// Sub-unit rows leaked into the semantic path. Surface them
-			// as standalone ranked rows by treating each sub-unit id as
-			// its own "file" for grouping purposes.
-			fileMeta[row.ID] = row
-			fileIDs = append(fileIDs, row.ID)
+			// A sub-unit row leaked into the semantic path because the
+			// structural filter matched sub-unit types directly (e.g.
+			// `type=section`). Normalize it to its parent file so the
+			// parent `<file>#*` glob loads the file's leaves. Treating the
+			// sub-unit id as its own "file" would instead glob
+			// `<subunit>#*`, which matches nothing — dropping the file (#560).
+			queue(fileIDFromSubUnit(row.ID))
 
 			continue
 		}
 
 		fileMeta[row.ID] = row
-		fileIDs = append(fileIDs, row.ID)
+		queue(row.ID)
 	}
 
 	if len(fileIDs) == 0 {
 		return &SemanticResult{Model: deps.Embedder.Model()}, nil
+	}
+
+	// Hydrate metadata for any file that entered ONLY via a leaked sub-unit
+	// (its own file row was absent from the structural pre-filter), so the
+	// output row still carries type/title/path. A missing parent (orphaned
+	// sub-unit) is tolerated: the file's leaves still rank, just without meta.
+	for _, fileID := range fileIDs {
+		if _, ok := fileMeta[fileID]; ok {
+			continue
+		}
+
+		nodeRow, getErr := nodes.Get(fileID)
+
+		if errors.Is(getErr, index.ErrNodeNotFound) {
+			continue
+		}
+
+		if getErr != nil {
+			return nil, getErr
+		}
+
+		fileMeta[fileID] = Row{
+			ID:            nodeRow.ID,
+			Type:          nodeRow.Type,
+			Path:          nodeRow.Path,
+			Title:         nodeRow.Title,
+			PropertiesRaw: nodeRow.PropertiesJSON,
+		}
 	}
 
 	embeddings, embedErr := deps.Embeddings.ListSubUnitsForFiles(fileIDs)
