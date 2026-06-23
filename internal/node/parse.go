@@ -88,8 +88,6 @@ func splitFrontmatter(content []byte) ([]byte, []byte, error) {
 func normalizeYAMLNumbers(values map[string]any) map[string]any {
 	for key, value := range values {
 		switch typed := value.(type) {
-		case int:
-			values[key] = typed
 		case int64:
 			values[key] = int(typed)
 		case float64:

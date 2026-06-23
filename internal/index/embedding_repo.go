@@ -1,11 +1,11 @@
 package index
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -467,16 +467,17 @@ func scanEmbeddings(rows *sql.Rows) ([]EmbeddingRow, error) {
 	return results, rows.Err()
 }
 
+// encodeVector serializes a float32 vector as little-endian IEEE-754 bytes —
+// the same wire format binary.Write produced, but without the per-element
+// reflection overhead, since this runs on every embedding write and read.
 func encodeVector(vector []float32) ([]byte, error) {
-	buffer := &bytes.Buffer{}
+	encoded := make([]byte, len(vector)*4)
 
-	for _, value := range vector {
-		if writeErr := binary.Write(buffer, binary.LittleEndian, value); writeErr != nil {
-			return nil, fmt.Errorf("embeddingRepo: encode vector: %w", writeErr)
-		}
+	for idx, value := range vector {
+		binary.LittleEndian.PutUint32(encoded[idx*4:], math.Float32bits(value))
 	}
 
-	return buffer.Bytes(), nil
+	return encoded, nil
 }
 
 func decodeVector(encoded []byte, dim int) ([]float32, error) {
@@ -489,12 +490,9 @@ func decodeVector(encoded []byte, dim int) ([]float32, error) {
 	}
 
 	result := make([]float32, dim)
-	reader := bytes.NewReader(encoded)
 
-	for idx := 0; idx < dim; idx++ {
-		if readErr := binary.Read(reader, binary.LittleEndian, &result[idx]); readErr != nil {
-			return nil, fmt.Errorf("embeddingRepo: decode vector at index %d: %w", idx, readErr)
-		}
+	for idx := range dim {
+		result[idx] = math.Float32frombits(binary.LittleEndian.Uint32(encoded[idx*4:]))
 	}
 
 	return result, nil

@@ -190,6 +190,23 @@ func isIdentContinue(character byte) bool {
 		character == '-'
 }
 
+// isIdentifier reports whether text is a bare identifier — the same charset the
+// lexer accepts for property identifiers. Used to guard names that are
+// interpolated into SQL (e.g. ORDER BY columns) rather than parameterized.
+func isIdentifier(text string) bool {
+	if text == "" || !isIdentStart(text[0]) {
+		return false
+	}
+
+	for index := 1; index < len(text); index++ {
+		if !isIdentContinue(text[index]) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func isBareValueChar(character byte) bool {
 	return isIdentContinue(character) ||
 		character == '/' ||

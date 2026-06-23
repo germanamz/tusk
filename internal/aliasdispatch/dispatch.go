@@ -12,7 +12,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
 
 	"github.com/germanamz/tusk/internal/argval"
 	"github.com/germanamz/tusk/internal/doctor"
@@ -128,30 +127,6 @@ func (dispatcher *Dispatcher) Run(ctx context.Context, alias manifest.Alias) (*D
 		Kind:    adapter.Kind,
 		Result:  result,
 	}, nil
-}
-
-// ListAliases returns the alias names known to the underlying manifest in
-// sorted order. Helpful for `tusk run --list`.
-func (dispatcher *Dispatcher) ListAliases() []manifest.Alias {
-	if dispatcher.deps.Manifest == nil {
-		return nil
-	}
-
-	names := make([]string, 0, len(dispatcher.deps.Manifest.Aliases))
-
-	for name := range dispatcher.deps.Manifest.Aliases {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	aliases := make([]manifest.Alias, 0, len(names))
-
-	for _, name := range names {
-		aliases = append(aliases, dispatcher.deps.Manifest.Aliases[name])
-	}
-
-	return aliases
 }
 
 // builtinAdapters returns the canonical adapter map. Exposed via

@@ -96,7 +96,6 @@ type Match struct {
 // NodeSource lists and fetches nodes. Satisfied by *index.NodeRepo.
 type NodeSource interface {
 	ListFileNodes() ([]index.NodeRow, error)
-	CountFileNodes() (int, error)
 	Get(nodeID string) (*index.NodeRow, error)
 	ListByParent(parentID string) ([]index.NodeRow, error)
 }

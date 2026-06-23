@@ -185,7 +185,7 @@ func Rename(
 			fmt.Errorf("node: stat %s: %w", newRelPath, statErr))
 	}
 
-	newHash := sha256HexBytes(srcBytes)
+	newHash := sha256Hex(srcBytes)
 
 	if releaseErr := fileState.Release(index.ReleaseContext{
 		Path:        newRelPath,

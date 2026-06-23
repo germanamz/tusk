@@ -2,7 +2,6 @@
 package mcp
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -105,7 +104,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	rt.ManifestPath = ws.ManifestPath
 	rt.IndexPath = ws.IndexPath
 
-	store, openErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
+	store, openErr := indexopen.OpenOrRebuild(indexopen.Config{
 		IndexPath: ws.IndexPath,
 		ReindexFactory: func(idx *index.Index) reindex.Config {
 			return reindex.Config{

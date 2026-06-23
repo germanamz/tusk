@@ -89,12 +89,7 @@ func Parse(input string) (Ref, error) {
 		return Ref{Scope: ScopeAny, Type: input}, nil
 	}
 
-	parts := strings.SplitN(input, ":", 2)
-	if len(parts) != 2 {
-		return Ref{}, fmt.Errorf("typeref: input %q has too many ':' separators", input)
-	}
-
-	source, typeName := parts[0], parts[1]
+	source, typeName, _ := strings.Cut(input, ":")
 	if strings.Contains(typeName, ":") {
 		return Ref{}, fmt.Errorf("typeref: input %q has too many ':' separators", input)
 	}

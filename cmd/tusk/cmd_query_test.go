@@ -264,7 +264,7 @@ func TestQueryCmd_RejectsInvalidGraphWeight(test *testing.T) {
 func TestMergeGraphExpansion_NoOverridesPreservesBase(test *testing.T) {
 	base := manifestDefaultGraphExpansion()
 
-	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{})
+	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{})
 
 	if mergeErr != nil {
 		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
@@ -290,7 +290,7 @@ func TestMergeGraphExpansion_NoExpandBeatsExpand(test *testing.T) {
 	base := manifestDefaultGraphExpansion()
 	base.Enabled = true
 
-	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{
+	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{
 		ExpandSet:   true,
 		ExpandValue: true,
 		NoExpandSet: true,
@@ -312,7 +312,7 @@ func TestMergeGraphExpansion_NoExpandBeatsExpand(test *testing.T) {
 func TestMergeGraphExpansion_ExpandFlagBeatsWorkspaceDisabled(test *testing.T) {
 	base := manifestDefaultGraphExpansion() // Enabled = false
 
-	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{
+	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{
 		ExpandSet:   true,
 		ExpandValue: true,
 	})
@@ -334,7 +334,7 @@ func TestMergeGraphExpansion_ExpandFalseBeatsWorkspaceEnabled(test *testing.T) {
 	base := manifestDefaultGraphExpansion()
 	base.Enabled = true // Workspace ships with enabled = true.
 
-	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{
+	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{
 		ExpandSet:   true,
 		ExpandValue: false,
 	})
@@ -359,7 +359,7 @@ func TestMergeGraphExpansion_EdgeTypesNotAliased(test *testing.T) {
 		test.Fatalf("default EdgeTypes unexpectedly empty")
 	}
 
-	got, mergeErr := mergeGraphExpansion(newQueryCmd(), base, graphExpansionOverrides{})
+	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{})
 
 	if mergeErr != nil {
 		test.Fatalf("mergeGraphExpansion: %v", mergeErr)

@@ -1,7 +1,6 @@
 package indexopen_test
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -52,7 +51,7 @@ func TestOpenOrRebuildOpensFreshIndex(test *testing.T) {
 		Logger: func(string) {},
 	}
 
-	store, openErr := indexopen.OpenOrRebuild(context.Background(), cfg)
+	store, openErr := indexopen.OpenOrRebuild(cfg)
 	if openErr != nil {
 		test.Fatalf("OpenOrRebuild: %v", openErr)
 	}
@@ -105,7 +104,7 @@ func TestOpenOrRebuildRebuildsOnMismatch(test *testing.T) {
 		},
 	}
 
-	store, openErr := indexopen.OpenOrRebuild(context.Background(), cfg)
+	store, openErr := indexopen.OpenOrRebuild(cfg)
 	if openErr != nil {
 		test.Fatalf("OpenOrRebuild: %v", openErr)
 	}
@@ -175,7 +174,7 @@ func TestOpenOrRebuild_RemovesSidecarsOnRebuild(test *testing.T) {
 		}
 	}
 
-	rebuilt, rebuildErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
+	rebuilt, rebuildErr := indexopen.OpenOrRebuild(indexopen.Config{
 		IndexPath: indexPath,
 		ReindexFactory: func(idx *index.Index) reindex.Config {
 			return reindex.Config{

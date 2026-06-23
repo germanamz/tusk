@@ -41,10 +41,9 @@ func NewWorkspaceLock(root string) (*WorkspaceLock, error) {
 }
 
 // Acquire blocks until the lock is obtained or ctx is cancelled. The poll
-// interval is 50ms; cancellation is checked between polls.
+// interval is 50ms; cancellation (including deadline expiry) is checked
+// between polls via ctx.Done().
 func (lockHandle *WorkspaceLock) Acquire(ctx context.Context) error {
-	deadline, hasDeadline := ctx.Deadline()
-
 	for {
 		acquired, tryErr := lockHandle.flockHandle.TryLock()
 
@@ -54,10 +53,6 @@ func (lockHandle *WorkspaceLock) Acquire(ctx context.Context) error {
 
 		if acquired {
 			return nil
-		}
-
-		if hasDeadline && time.Now().After(deadline) {
-			return ErrBusy
 		}
 
 		select {

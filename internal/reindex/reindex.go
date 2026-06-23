@@ -466,23 +466,17 @@ func appendUnique(slice []string, value string) []string {
 }
 
 func instanceFromQualifier(qualified string) string {
-	for index := 0; index < len(qualified); index++ {
-		if qualified[index] == '.' {
-			return qualified[index+1:]
-		}
+	if _, instance, found := strings.Cut(qualified, "."); found {
+		return instance
 	}
 
 	return qualified
 }
 
 func kindFromQualifier(qualified string) string {
-	for index := 0; index < len(qualified); index++ {
-		if qualified[index] == '.' {
-			return qualified[:index]
-		}
-	}
+	kind, _, _ := strings.Cut(qualified, ".")
 
-	return qualified
+	return kind
 }
 
 // readStatusFromParsed reads the "status" property as a string. The

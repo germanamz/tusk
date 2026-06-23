@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/htmlunit"
+	"github.com/germanamz/tusk/internal/htmltext"
 	"github.com/germanamz/tusk/internal/node"
 )
 
@@ -270,9 +270,8 @@ func TestParseHTMLFile_BodyIsNormalizedProse(test *testing.T) {
 }
 
 // TestParseHTMLFile_BodyMatchesHTMLUnit pins that the in-package normalizeHTMLText
-// port (used because node cannot import htmlunit without an import cycle) stays
-// byte-for-byte identical to htmlunit.NormalizeText, so the file-level body never
-// drifts from the Phase 6 render path.
+// port stays byte-for-byte identical to the shared htmltext.NormalizeText
+// normalizer, so the file-level body never drifts from the render path.
 func TestParseHTMLFile_BodyMatchesHTMLUnit(test *testing.T) {
 	content := []byte(`<html><head>
 <meta name="tusk:type" content="reference">
@@ -291,10 +290,10 @@ func TestParseHTMLFile_BodyMatchesHTMLUnit(test *testing.T) {
 		test.Fatalf("ParseHTMLFile: %v", parseErr)
 	}
 
-	want := htmlunit.NormalizeText(content)
+	want := htmltext.NormalizeText(content)
 
 	if string(parsed.Body) != want {
-		test.Errorf("Body = %q, want htmlunit.NormalizeText = %q", string(parsed.Body), want)
+		test.Errorf("Body = %q, want htmltext.NormalizeText = %q", string(parsed.Body), want)
 	}
 }
 

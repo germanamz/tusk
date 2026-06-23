@@ -1339,7 +1339,7 @@ func registerReindexTool(srv *Server) {
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		noEmbed, _ := request.GetArguments()["no_embed"].(bool)
+		noEmbed := argBoolOptional(request, "no_embed", false)
 
 		rt := srv.snapshotRuntime() // run the (long) reindex off the read-lock
 

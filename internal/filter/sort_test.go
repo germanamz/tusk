@@ -68,3 +68,43 @@ func TestParseSort_RejectsBareSign(test *testing.T) {
 		test.Errorf("expected error for bare sign")
 	}
 }
+
+func TestParseSort_RejectsUnsafePropertyNames(test *testing.T) {
+	// Sort property names are interpolated into ORDER BY json_extract(...),
+	// so anything outside the identifier charset must be rejected at the
+	// boundary rather than reaching the SQL string.
+	cases := []string{
+		`priority') OR 1=1 --`,
+		`foo'); DROP TABLE nodes;--`,
+		`due DESC, (SELECT 1)`,
+		`has space`,
+		`with.dot`,
+		`with/slash`,
+		`with:colon`,
+		`"quoted"`,
+	}
+
+	for _, input := range cases {
+		if _, err := filter.ParseSort(input); err == nil {
+			test.Errorf("input %q: expected error for unsafe property name", input)
+		}
+	}
+}
+
+func TestParseSort_AcceptsIdentifierCharset(test *testing.T) {
+	// Hyphens, underscores, and digits are valid in property names.
+	got, err := filter.ParseSort("+decided-at,-snake_case,field2")
+	if err != nil {
+		test.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []filter.SortKey{
+		{Property: "decided-at", Descending: false},
+		{Property: "snake_case", Descending: true},
+		{Property: "field2", Descending: false},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		test.Errorf("got %+v, want %+v", got, want)
+	}
+}

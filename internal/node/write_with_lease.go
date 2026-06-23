@@ -2,8 +2,6 @@ package node
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -167,7 +165,7 @@ func commitReplace(
 	}
 
 	tempPath := filepath.Join(stagingDir, uuid.NewString())
-	newHash := sha256HexBytes(content)
+	newHash := sha256Hex(content)
 
 	if writeErr := os.WriteFile(tempPath, content, 0o644); writeErr != nil {
 		return abandonLease(repo, relPath, workerID,
@@ -269,10 +267,4 @@ func abandonLease(repo *index.FileStateRepo, relPath, workerID string, cause err
 	}
 
 	return cause
-}
-
-func sha256HexBytes(content []byte) string {
-	sum := sha256.Sum256(content)
-
-	return hex.EncodeToString(sum[:])
 }
