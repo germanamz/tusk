@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.0](https://github.com/germanamz/tusk/compare/v1.13.1...v1.14.0) (2026-06-23)
+
+
+### Features
+
+* **graph:** focus, highlight selection, and alt-drag pan in 3D view ([#571](https://github.com/germanamz/tusk/issues/571)) ([45bf0f3](https://github.com/germanamz/tusk/commit/45bf0f30bab217d20260ca88c4469cddbe661f80))
+
 ## [1.13.1](https://github.com/germanamz/tusk/compare/v1.13.0...v1.13.1) (2026-06-23)
 
 
