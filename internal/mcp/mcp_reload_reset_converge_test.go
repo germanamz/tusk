@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/manifestepoch"
 	"github.com/germanamz/tusk/internal/reset"
 )
 
@@ -61,7 +61,7 @@ func TestMCPReload_ResetAndReloadConvergeAtomically(test *testing.T) {
 		test.Fatalf("write manifest: %v", writeErr)
 	}
 
-	_, bumpErr := manifestepoch.Bump(root)
+	_, bumpErr := epoch.Manifest.Bump(root)
 	if bumpErr != nil {
 		test.Fatalf("bump manifest-epoch: %v", bumpErr)
 	}

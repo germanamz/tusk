@@ -31,6 +31,7 @@ import (
 	"sort"
 
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/typepacks/subdocument"
 )
 
 // Source returns the source-namespace identifier this typepack owns:
@@ -41,38 +42,26 @@ func Source() string {
 	return "html"
 }
 
-// ReservedNodeTypes are the node-type names mirrored from the
-// subdocument pack. Verbatim copy of subdocument.ReservedNodeTypes.
-var ReservedNodeTypes = []string{
-	"section",
-	"paragraph",
-	"list-item",
-	"code-block",
-	"blockquote",
-	"table-cell",
-}
+// ReservedNodeTypes are the node-type names owned by the HTML pack. The
+// HTML sub-document schema is identical to the markdown sub-document
+// pack's, so this aliases subdocument.ReservedNodeTypes rather than
+// re-declaring the same six names: a single source of truth keeps the
+// two source namespaces from drifting. Only Source() distinguishes the
+// two packs.
+var ReservedNodeTypes = subdocument.ReservedNodeTypes
 
-// ReservedEdgeTypes are the edge-type names mirrored from the
-// subdocument pack. Verbatim copy of subdocument.ReservedEdgeTypes:
-// `contains` is the literal edge type; `contained-by` is the derived
-// inverse.
-var ReservedEdgeTypes = []string{
-	"contains",
-	"contained-by",
-}
+// ReservedEdgeTypes are the edge-type names owned (or derived) by the
+// HTML pack. Aliases subdocument.ReservedEdgeTypes: `contains` is the
+// literal edge type and `contained-by` is its derived inverse, identical
+// across both content kinds.
+var ReservedEdgeTypes = subdocument.ReservedEdgeTypes
 
 // ReservedProperties maps each reserved node-type name to the set of
-// property names the pack owns on that type. Verbatim mirror of
-// subdocument.ReservedProperties — NO extra keys (in particular, no
-// "data" key: the HTML signals-bag drift exemption is owned by Phase 4).
-var ReservedProperties = map[string][]string{
-	"section":    {"heading-level"},
-	"paragraph":  {},
-	"list-item":  {"checkbox"},
-	"code-block": {"lang"},
-	"blockquote": {},
-	"table-cell": {"header", "row", "column", "column-header"},
-}
+// property names the pack owns on that type. Aliases
+// subdocument.ReservedProperties — by construction it carries NO extra
+// keys (in particular, no "data" key: the HTML signals-bag drift
+// exemption is owned by Phase 4, not this pack).
+var ReservedProperties = subdocument.ReservedProperties
 
 // SortedReservedNodeTypes returns ReservedNodeTypes in a freshly
 // allocated, lexicographically sorted slice.

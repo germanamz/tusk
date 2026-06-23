@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/reset"
 )
 
@@ -66,7 +66,7 @@ func TestCLIReset_LiveDaemonConverges(test *testing.T) {
 		test.Fatalf("daemon did not converge after CLI reset: seenEpoch=%d want>=%d", seen, result.Epoch)
 	}
 
-	if onDisk, _ := indexepoch.Read(root); onDisk != result.Epoch {
+	if onDisk, _ := epoch.Index.Read(root); onDisk != result.Epoch {
 		test.Fatalf("on-disk epoch %d != reset epoch %d", onDisk, result.Epoch)
 	}
 

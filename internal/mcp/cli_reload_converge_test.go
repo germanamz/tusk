@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/germanamz/tusk/internal/manifestepoch"
+	"github.com/germanamz/tusk/internal/epoch"
 )
 
 // TestCLIReload_LiveDaemonConverges pins the headline guarantee: a CLI-path
@@ -37,7 +37,7 @@ func TestCLIReload_LiveDaemonConverges(test *testing.T) {
 	}
 
 	// Simulate a CLI-side reload: load the manifest, add a node-type, then call
-	// manifestepoch.Bump (exactly what cmd_reload.go does).
+	// epoch.Manifest.Bump (exactly what cmd_reload.go does).
 	manifestPath := filepath.Join(root, "tusk.toml")
 	manifestBytes, readErr := os.ReadFile(manifestPath)
 	if readErr != nil {
@@ -51,7 +51,7 @@ func TestCLIReload_LiveDaemonConverges(test *testing.T) {
 	}
 
 	// Bump the manifest epoch (simulating the CLI path).
-	newEpoch, bumpErr := manifestepoch.Bump(root)
+	newEpoch, bumpErr := epoch.Manifest.Bump(root)
 	if bumpErr != nil {
 		test.Fatalf("CLI bump manifest-epoch: %v", bumpErr)
 	}

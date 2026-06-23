@@ -15,10 +15,10 @@ import (
 	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/contextcompose"
 	"github.com/germanamz/tusk/internal/doctor"
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/manifestepoch"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/reindex"
@@ -1794,7 +1794,7 @@ func reloadToolHandler(ctx context.Context, request mcpgo.CallToolRequest, srv *
 	srv.runtime = fresh
 
 	// Bump manifest-epoch and record it under the write-lock.
-	newEpoch, bumpErr := manifestepoch.Bump(root)
+	newEpoch, bumpErr := epoch.Manifest.Bump(root)
 	if bumpErr != nil {
 		// Revert the swap on bump failure.
 		srv.runtime = old

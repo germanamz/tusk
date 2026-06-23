@@ -8,8 +8,8 @@ import (
 	"strconv"
 
 	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/render"
@@ -47,12 +47,12 @@ func (cs *changeSource) Signal() (Signal, error) {
 		}
 	}
 
-	epoch, epochErr := indexepoch.Read(cs.root)
+	epochValue, epochErr := epoch.Index.Read(cs.root)
 	if epochErr != nil {
 		return sig, epochErr
 	}
 
-	sig.Epoch = epoch
+	sig.Epoch = epochValue
 
 	return sig, nil
 }

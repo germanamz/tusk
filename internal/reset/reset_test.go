@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/lock"
 )
 
@@ -47,7 +47,7 @@ func TestPerform_DeletesReopensAndBumps(test *testing.T) {
 	if result.Epoch != 1 {
 		test.Errorf("expected epoch 1, got %d", result.Epoch)
 	}
-	if got, _ := indexepoch.Read(root); got != 1 {
+	if got, _ := epoch.Index.Read(root); got != 1 {
 		test.Errorf("expected persisted epoch 1, got %d", got)
 	}
 	if len(result.DeletedArtifacts) == 0 {
@@ -108,7 +108,7 @@ func TestPerform_ReopenFailureLeavesEpochUnbumped(test *testing.T) {
 	}
 
 	// Epoch must NOT have advanced.
-	if got, _ := indexepoch.Read(root); got != 0 {
+	if got, _ := epoch.Index.Read(root); got != 0 {
 		test.Errorf("epoch advanced to %d on reopen failure; want 0", got)
 	}
 

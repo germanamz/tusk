@@ -20,26 +20,26 @@ func Parse(source []byte) ([]subunit.Unit, error) {
 	}
 
 	var units []subunit.Unit
-	ctx := newWalkCtx()
+	ctx := subunit.NewWalkCtx()
 
 	emit := func(unit subunit.Unit) int {
 		unit.Ordinal = len(units)
-		unit.ParentAddress = ctx.currentAddress()
+		unit.ParentAddress = ctx.CurrentAddress()
 		if unit.EmbedPayload == "" {
 			unit.EmbedPayload = unit.Text
 		}
 		unit.Title = makeTitle(unit.Text)
 		unit.Hash = subunit.ComputeHash(unit)
-		unit.ContentHash = contentHashFor(unit)
+		unit.ContentHash = subunit.ContentHashFor(unit)
 		if unit.Address == "" {
-			unit.Address = ctx.leafAddress(unit.Kind)
+			unit.Address = ctx.LeafAddress(unit.Kind)
 		}
 		units = append(units, unit)
 		return unit.Ordinal
 	}
 
 	walk(source, doc, ctx, &units, emit, false)
-	units = disambiguateFallbackIDs(units)
+	units = subunit.DisambiguateFallbackIDs(units)
 
 	return units, nil
 }
@@ -50,7 +50,7 @@ func Parse(source []byte) ([]subunit.Unit, error) {
 func walk(
 	source []byte,
 	node *html.Node,
-	ctx *walkCtx,
+	ctx *subunit.WalkCtx,
 	units *[]subunit.Unit,
 	emit func(subunit.Unit) int,
 	inBlock bool,
@@ -61,8 +61,8 @@ func walk(
 			return
 		}
 		if lvl, ok := headingLevel(node.Data); ok && !inBlock {
-			ctx.closeToLevel(lvl)
-			addr := ctx.openSectionAddress()
+			ctx.CloseToLevel(lvl)
+			addr := ctx.OpenSectionAddress()
 			emit(subunit.Unit{
 				Kind:    subunit.KindSection,
 				Address: addr,
@@ -71,7 +71,7 @@ func walk(
 					"heading-level": lvl,
 				},
 			})
-			ctx.push(lvl, addr)
+			ctx.Push(lvl, addr)
 			return
 		}
 		switch node.Data {
@@ -134,11 +134,11 @@ func walk(
 // subunit.walkTable (parse.go:231).
 func walkTable(
 	table *html.Node,
-	ctx *walkCtx,
+	ctx *subunit.WalkCtx,
 	emit func(subunit.Unit) int,
 ) {
-	tableIdx := ctx.nextTableIndex()
-	path := ctx.currentAddress()
+	tableIdx := ctx.NextTableIndex()
+	path := ctx.CurrentAddress()
 
 	var headers []string
 	rowIndex := 0
@@ -154,7 +154,7 @@ func walkTable(
 				headers = append(headers, txt)
 				emit(subunit.Unit{
 					Kind:    subunit.KindTableCell,
-					Address: tableCellAddress(path, tableIdx, rowIndex, col),
+					Address: subunit.TableCellAddress(path, tableIdx, rowIndex, col),
 					Text:    txt,
 					Properties: map[string]any{
 						"header":        true,
@@ -176,7 +176,7 @@ func walkTable(
 			}
 			emit(subunit.Unit{
 				Kind:         subunit.KindTableCell,
-				Address:      tableCellAddress(path, tableIdx, rowIndex, col),
+				Address:      subunit.TableCellAddress(path, tableIdx, rowIndex, col),
 				Text:         txt,
 				EmbedPayload: payload,
 				Properties: map[string]any{

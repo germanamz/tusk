@@ -41,7 +41,7 @@ func Parse(source []byte) ([]Unit, error) {
 
 	// ctx threads the section stack and per-section address counters
 	// through the walk.
-	ctx := newWalkCtx()
+	ctx := NewWalkCtx()
 
 	// emit appends a unit, assigns its ordinal, parent links, hashes, and
 	// structural address, then returns its slice index. Sections and table
@@ -49,15 +49,15 @@ func Parse(source []byte) ([]Unit, error) {
 	// address from the deepest frame's per-kind counter here.
 	emit := func(unit Unit) int {
 		unit.Ordinal = len(units)
-		unit.ParentAddress = ctx.currentAddress()
+		unit.ParentAddress = ctx.CurrentAddress()
 		if unit.EmbedPayload == "" {
 			unit.EmbedPayload = unit.Text
 		}
 		unit.Title = makeTitle(unit.Text)
 		unit.Hash = ComputeHash(unit)
-		unit.ContentHash = contentHashFor(unit)
+		unit.ContentHash = ContentHashFor(unit)
 		if unit.Address == "" {
-			unit.Address = ctx.leafAddress(unit.Kind)
+			unit.Address = ctx.LeafAddress(unit.Kind)
 		}
 		units = append(units, unit)
 		return unit.Ordinal
@@ -70,7 +70,7 @@ func Parse(source []byte) ([]Unit, error) {
 		walkBlock(source, child, ctx, &units, emit)
 	}
 
-	units = disambiguateFallbackIDs(units)
+	units = DisambiguateFallbackIDs(units)
 
 	return units, nil
 }
@@ -89,9 +89,9 @@ func walkBlock(
 	case *ast.Heading:
 		// Close any sections at or deeper than this heading
 		// level so the new section nests correctly.
-		ctx.closeToLevel(typed.Level)
+		ctx.CloseToLevel(typed.Level)
 
-		addr := ctx.openSectionAddress()
+		addr := ctx.OpenSectionAddress()
 
 		headingText := normalizedText(source, typed)
 		bodyText := sectionBodyText(source, typed)
@@ -109,7 +109,7 @@ func walkBlock(
 			},
 		})
 
-		ctx.push(typed.Level, addr)
+		ctx.Push(typed.Level, addr)
 
 	case *ast.Paragraph:
 		emit(Unit{
@@ -235,8 +235,8 @@ func walkTable(
 ) {
 	// One table index per table within the enclosing section; cells
 	// address as <path>T<k>R<row>C<col>.
-	tableIdx := ctx.nextTableIndex()
-	path := ctx.currentAddress()
+	tableIdx := ctx.NextTableIndex()
+	path := ctx.CurrentAddress()
 
 	// First pass: collect the header cells so body rows can look
 	// up their column-header by index.
@@ -256,7 +256,7 @@ func walkTable(
 				headers = append(headers, txt)
 				emit(Unit{
 					Kind:    KindTableCell,
-					Address: tableCellAddress(path, tableIdx, rowIndex, col),
+					Address: TableCellAddress(path, tableIdx, rowIndex, col),
 					Text:    txt,
 					Properties: map[string]any{
 						"header":        true,
@@ -287,7 +287,7 @@ func walkTable(
 				}
 				emit(Unit{
 					Kind:         KindTableCell,
-					Address:      tableCellAddress(path, tableIdx, rowIndex, col),
+					Address:      TableCellAddress(path, tableIdx, rowIndex, col),
 					Text:         txt,
 					EmbedPayload: payload,
 					Properties: map[string]any{

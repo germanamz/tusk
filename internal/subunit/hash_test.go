@@ -109,7 +109,7 @@ func TestDisambiguateFallbackIDs_SuffixesCollidingFallbackHashes(test *testing.T
 		{Hash: "aaaaaaaaaaaa"},
 	}
 
-	disambiguateFallbackIDs(units)
+	DisambiguateFallbackIDs(units)
 
 	want := []string{"aaaaaaaaaaaa", "aaaaaaaaaaaa-1", "aaaaaaaaaaaa-2"}
 	for idx, expected := range want {

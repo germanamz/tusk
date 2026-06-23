@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/indexepoch"
+	"github.com/germanamz/tusk/internal/epoch"
 )
 
 // runResetCLI runs the CLI with an explicit stdin (for the confirmation prompt)
@@ -69,8 +69,8 @@ func TestReset_WithoutYesAborts(test *testing.T) {
 	}
 
 	// Reset must NOT have run: the epoch is still 0.
-	if epoch, _ := indexepoch.Read(root); epoch != 0 {
-		test.Fatalf("reset ran despite decline (epoch=%d)", epoch)
+	if onDisk, _ := epoch.Index.Read(root); onDisk != 0 {
+		test.Fatalf("reset ran despite decline (epoch=%d)", onDisk)
 	}
 }
 

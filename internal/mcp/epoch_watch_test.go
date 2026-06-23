@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/lock"
 )
 
@@ -22,7 +22,7 @@ func TestSiblingReopen_RecreatesWhenFileAbsent(test *testing.T) {
 	// Realistic precondition: a reset advanced the epoch (that is what triggers
 	// siblingReopen). seenEpoch is still 0, so the re-check inside siblingReopen
 	// proceeds.
-	bumped, _ := indexepoch.Bump(root)
+	bumped, _ := epoch.Index.Bump(root)
 
 	// Simulate a resetter that deleted the index and died before recreating.
 	rt.Index.Close()
@@ -37,7 +37,7 @@ func TestSiblingReopen_RecreatesWhenFileAbsent(test *testing.T) {
 
 	// The recreator bumped the epoch again (beyond the triggering bump) and
 	// seenEpoch followed.
-	epoch, _ := indexepoch.Read(root)
+	epoch, _ := epoch.Index.Read(root)
 	if epoch <= bumped || srv.seenEpoch.Load() != epoch {
 		test.Fatalf("expected recreator to bump beyond %d and track it in seenEpoch; epoch=%d seen=%d", bumped, epoch, srv.seenEpoch.Load())
 	}
@@ -69,7 +69,7 @@ func TestMaybeReopenForEpoch(test *testing.T) {
 	// Simulate a foreign reset: bump epoch out-of-band (another process would
 	// have recreated the DB; here the existing file is still valid, so reopen
 	// just re-points the handle).
-	if _, bumpErr := indexepoch.Bump(root); bumpErr != nil {
+	if _, bumpErr := epoch.Index.Bump(root); bumpErr != nil {
 		test.Fatalf("bump: %v", bumpErr)
 	}
 
@@ -145,7 +145,7 @@ func TestEpochFastWatcher_ReopensPromptly(test *testing.T) {
 	// Let the watcher register its fsnotify Add.
 	time.Sleep(150 * time.Millisecond)
 
-	if _, err := indexepoch.Bump(root); err != nil {
+	if _, err := epoch.Index.Bump(root); err != nil {
 		test.Fatalf("bump: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestSiblingReopen_HungResetterReturnsBusy(test *testing.T) {
 	// Realistic precondition: a hung resetter bumped the epoch (recreate+bump
 	// happen before it hangs holding the flock), so the re-check inside
 	// siblingReopen proceeds to the flock-await.
-	if _, err := indexepoch.Bump(root); err != nil {
+	if _, err := epoch.Index.Bump(root); err != nil {
 		test.Fatalf("bump: %v", err)
 	}
 
