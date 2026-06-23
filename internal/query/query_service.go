@@ -273,13 +273,19 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		// callers that wrote file-level embeddings before the sub-unit
 		// migration), fall back to the legacy by-node-id flow below so
 		// existing fixtures keep working.
-		subEmbeddings, subErr := deps.Embeddings.ListSubUnitsForFiles(nodeIDs)
+		//
+		// This is a cheap existence-only probe over the raw structural ids:
+		// it returns a boolean without decoding any vector/body payload. The
+		// real ranking load inside runSemanticSubUnits queries a DIFFERENT,
+		// normalized fileID set, so the probe's result cannot be reused as
+		// the ranking input — only as the gate for whether to take this path.
+		hasSubEmbeddings, subErr := deps.Embeddings.ExistsSubUnitsForFiles(nodeIDs)
 
 		if subErr != nil {
 			return nil, subErr
 		}
 
-		if len(subEmbeddings) > 0 {
+		if hasSubEmbeddings {
 			semanticResult, semanticErr := runSemanticSubUnits(ctx, deps, req, includeSet, queryVector, structural)
 
 			if semanticErr != nil {

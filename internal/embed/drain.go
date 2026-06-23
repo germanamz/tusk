@@ -394,13 +394,20 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 func tryReuse(config DrainConfig, workerID string, queued index.QueueRow, chunkHashes []string) nodeOutcome {
 	allReusable := len(chunkHashes) > 0
 
-	for _, hash := range chunkHashes {
-		exists, existsErr := config.Embeddings.ExistsByContentHash(hash, config.Embedder.Model())
+	// Batch the per-chunk existence check into one IN-clause query. A query
+	// error degrades to "not reusable" (allReusable stays false), mirroring the
+	// prior per-chunk loop, which fell through to the embed path on any error.
+	existing, existsErr := config.Embeddings.ExistsByContentHashes(chunkHashes, config.Embedder.Model())
 
-		if existsErr != nil || !exists {
-			allReusable = false
+	if existsErr != nil {
+		allReusable = false
+	} else {
+		for _, hash := range chunkHashes {
+			if !existing[hash] {
+				allReusable = false
 
-			break
+				break
+			}
 		}
 	}
 

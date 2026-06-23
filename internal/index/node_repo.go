@@ -381,6 +381,27 @@ func (repo *NodeRepo) ListSubUnitsForFiles(fileIDs []string) ([]NodeRow, error) 
 	return results, nil
 }
 
+// ListByIDs returns the rows whose id is in ids, ordered by id ASC. Missing
+// ids are silently absent from the result (no error), so callers can diff the
+// returned set against the requested set to detect non-existent ids. Empty
+// input yields an empty slice with no query executed. Used to batch-resolve a
+// set of node ids in one round trip instead of an N+1 sweep of Get calls.
+func (repo *NodeRepo) ListByIDs(ids []string) ([]NodeRow, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	args := make([]any, len(ids))
+
+	for idx, id := range ids {
+		args[idx] = id
+	}
+
+	query := nodeSelectColumns + ` FROM nodes WHERE id IN (` + inPlaceholders(len(ids)) + `) ORDER BY id ASC`
+
+	return repo.queryNodes(query, args...)
+}
+
 // FindByTitle returns the IDs of all nodes whose title matches title.
 // When targetType is "*", the type filter is skipped and all matching titles
 // are returned. Results are ordered by id ASC for stable doctor candidate lists.

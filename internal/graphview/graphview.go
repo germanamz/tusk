@@ -98,11 +98,14 @@ type NodeSource interface {
 	ListFileNodes() ([]index.NodeRow, error)
 	Get(nodeID string) (*index.NodeRow, error)
 	ListByParent(parentID string) ([]index.NodeRow, error)
+	ListByIDs(ids []string) ([]index.NodeRow, error)
 }
 
 // EdgeSource lists edges. Satisfied by *index.EdgeRepo.
 type EdgeSource interface {
 	ListAll() ([]index.EdgeRow, error)
+	ListBySource(sourceID string) ([]index.EdgeRow, error)
+	ListByTarget(targetID string) ([]index.EdgeRow, error)
 }
 
 // NodeRenderer renders a node id to plain text for the inspect panel.

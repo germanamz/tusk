@@ -852,32 +852,42 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, e
 		return nil, listErr
 	}
 
-	var issues []Issue
-
-	// Cache existence checks: NodeRepo.Get returns an error when the row is
-	// missing; cache positive lookups in a set, query on first miss.
-	resolved := map[string]bool{}
+	// Collect the distinct target ids, then resolve existence in a single
+	// batched lookup instead of one NodeRepo.Get per distinct target.
+	targetIDs := make([]string, 0, len(allEdges))
+	seen := make(map[string]struct{}, len(allEdges))
 
 	for _, edge := range allEdges {
-		if cached, hit := resolved[edge.TargetID]; hit {
-			if cached {
-				continue
-			}
-
-			issues = append(issues, newDanglingEdgeIssue(edge))
-
+		if _, ok := seen[edge.TargetID]; ok {
 			continue
 		}
 
-		if _, getErr := nodes.Get(edge.TargetID); getErr != nil {
-			resolved[edge.TargetID] = false
+		seen[edge.TargetID] = struct{}{}
+		targetIDs = append(targetIDs, edge.TargetID)
+	}
 
-			issues = append(issues, newDanglingEdgeIssue(edge))
+	existingRows, byIDErr := nodes.ListByIDs(targetIDs)
 
+	if byIDErr != nil {
+		return nil, byIDErr
+	}
+
+	exists := make(map[string]struct{}, len(existingRows))
+
+	for _, row := range existingRows {
+		exists[row.ID] = struct{}{}
+	}
+
+	var issues []Issue
+
+	// Iterate edges in ListAll order so the issue set and ordering match the
+	// prior per-edge existence-check path exactly.
+	for _, edge := range allEdges {
+		if _, ok := exists[edge.TargetID]; ok {
 			continue
 		}
 
-		resolved[edge.TargetID] = true
+		issues = append(issues, newDanglingEdgeIssue(edge))
 	}
 
 	return issues, nil

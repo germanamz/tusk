@@ -245,7 +245,10 @@ func runSemanticSubUnits(
 			continue
 		}
 
-		leafScore, found := subIndex.bestLeafScoreUnder(row.ID, leafScores)
+		// One descendant walk yields both the best leaf score (for the
+		// section's aggregate score) and the id of the leaf achieving it
+		// (for the snippet), replacing two separate full-subtree walks.
+		bestLeafID, leafScore, found := subIndex.bestLeafUnder(row.ID, leafScores)
 
 		if !found {
 			continue
@@ -259,8 +262,6 @@ func runSemanticSubUnits(
 		}
 
 		fileID := fileIDFromSubUnit(row.ID)
-
-		bestLeafID := subIndex.bestDescendantLeafID(row.ID, leafScores)
 
 		var snippet string
 

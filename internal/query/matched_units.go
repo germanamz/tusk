@@ -220,88 +220,14 @@ func newSubUnitIndex(rows []index.NodeRow) *subUnitIndex {
 	return idx
 }
 
-// bestLeafScoreUnder returns the maximum leaf score among the section's
-// descendants. leafScores is the map of scored leaf ids → cosine score.
-// Sections themselves are skipped (they're aggregated separately). Returns
-// (0, false) when no descendant leaf was scored.
-func (idx *subUnitIndex) bestLeafScoreUnder(sectionID string, leafScores map[string]float64) (float64, bool) {
-	var (
-		best  float64
-		found bool
-	)
-
-	for _, childID := range idx.childrenByParent[sectionID] {
-		child, ok := idx.rowsByID[childID]
-
-		if !ok {
-			continue
-		}
-
-		if child.Type == "section" {
-			nested, nestedFound := idx.bestLeafScoreUnder(childID, leafScores)
-
-			if nestedFound && (!found || nested > best) {
-				best = nested
-				found = true
-			}
-
-			continue
-		}
-
-		score, ok := leafScores[childID]
-
-		if !ok {
-			continue
-		}
-
-		if !found || score > best {
-			best = score
-			found = true
-		}
-	}
-
-	return best, found
-}
-
-// firstLeafSnippet returns the embed_payload of the first descendant leaf
-// (depth-first, ordinal-ordered). When preferredID is set and resolves to a
-// scored leaf, its body is preferred over the document-order first leaf.
-// Returns empty when the section has no descendant leaf.
-func (idx *subUnitIndex) firstLeafSnippet(sectionID, preferredID string) string {
-	if preferredID != "" {
-		if row, ok := idx.rowsByID[preferredID]; ok && row.Type != "section" {
-			return row.EmbedPayload.String
-		}
-	}
-
-	for _, childID := range idx.childrenByParent[sectionID] {
-		child, ok := idx.rowsByID[childID]
-
-		if !ok {
-			continue
-		}
-
-		if child.Type == "section" {
-			nested := idx.firstLeafSnippet(childID, "")
-
-			if nested != "" {
-				return nested
-			}
-
-			continue
-		}
-
-		if child.EmbedPayload.String != "" {
-			return child.EmbedPayload.String
-		}
-	}
-
-	return ""
-}
-
-// bestDescendantLeafID returns the leaf id with the highest score among the
-// section's descendants, or "" when none of the descendants scored.
-func (idx *subUnitIndex) bestDescendantLeafID(sectionID string, leafScores map[string]float64) string {
+// bestLeafUnder returns, in a single descendant walk, both the maximum leaf
+// score among the section's descendants and the id of the leaf achieving it.
+// leafScores is the map of scored leaf ids → cosine score. Sections are
+// skipped as scoring candidates (they're aggregated separately) but recursed
+// into. Returns ("", 0, false) when no descendant leaf was scored. On a score
+// tie the first leaf in depth-first (ordinal) order wins, matching the prior
+// separate bestLeafScoreUnder / bestDescendantLeafID walks.
+func (idx *subUnitIndex) bestLeafUnder(sectionID string, leafScores map[string]float64) (string, float64, bool) {
 	var (
 		bestID    string
 		bestScore float64
@@ -339,5 +265,41 @@ func (idx *subUnitIndex) bestDescendantLeafID(sectionID string, leafScores map[s
 
 	walk(sectionID)
 
-	return bestID
+	return bestID, bestScore, found
+}
+
+// firstLeafSnippet returns the embed_payload of the first descendant leaf
+// (depth-first, ordinal-ordered). When preferredID is set and resolves to a
+// scored leaf, its body is preferred over the document-order first leaf.
+// Returns empty when the section has no descendant leaf.
+func (idx *subUnitIndex) firstLeafSnippet(sectionID, preferredID string) string {
+	if preferredID != "" {
+		if row, ok := idx.rowsByID[preferredID]; ok && row.Type != "section" {
+			return row.EmbedPayload.String
+		}
+	}
+
+	for _, childID := range idx.childrenByParent[sectionID] {
+		child, ok := idx.rowsByID[childID]
+
+		if !ok {
+			continue
+		}
+
+		if child.Type == "section" {
+			nested := idx.firstLeafSnippet(childID, "")
+
+			if nested != "" {
+				return nested
+			}
+
+			continue
+		}
+
+		if child.EmbedPayload.String != "" {
+			return child.EmbedPayload.String
+		}
+	}
+
+	return ""
 }
