@@ -945,7 +945,6 @@ func registerDoctorTool(srv *Server) {
 				"embed_queue_files":       pane.EmbedQueueFiles,
 				"embed_queue_sub_units":   pane.EmbedQueueSubUnits,
 				"oversize_embed_payloads": pane.OversizeEmbedPayloads,
-				"reserved_name_conflicts": pane.ReservedNameConflicts,
 			}
 		}
 

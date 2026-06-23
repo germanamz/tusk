@@ -122,10 +122,9 @@ func runSemanticSubUnits(
 
 	for _, embeddingRow := range embeddings {
 		candidates = append(candidates, filter.SemanticCandidate{
-			NodeID:   embeddingRow.NodeID,
-			ChunkIdx: embeddingRow.ChunkIdx,
-			Vector:   embeddingRow.Vector,
-			Body:     embeddingRow.Body,
+			NodeID: embeddingRow.NodeID,
+			Vector: embeddingRow.Vector,
+			Body:   embeddingRow.Body,
 		})
 	}
 

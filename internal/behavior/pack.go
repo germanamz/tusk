@@ -7,8 +7,6 @@ import "github.com/BurntSushi/toml"
 type Hooks struct {
 	OnNodeWriteValidate  NodeWriteValidator
 	OnNodeWriteAfter     NodeWriteReactor
-	OnNodeReadValidate   NodeReadValidator
-	OnNodeReadAfter      NodeReadReactor
 	OnEdgeAddValidate    EdgeAddValidator
 	OnEdgeAddAfter       EdgeAddReactor
 	OnEdgeRemoveValidate EdgeRemoveValidator

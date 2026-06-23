@@ -55,10 +55,10 @@ func TestSemanticRank_SkipsCandidatesWithMismatchedDim(test *testing.T) {
 
 func TestSemanticRank_MaxPerNodeAcrossChunks(test *testing.T) {
 	candidates := []filter.SemanticCandidate{
-		{NodeID: "alpha", ChunkIdx: 0, Vector: []float32{0.1, 0, 0}},   // weak
-		{NodeID: "alpha", ChunkIdx: 1, Vector: []float32{1, 0, 0}},     // strong — should win for alpha
-		{NodeID: "bravo", ChunkIdx: 0, Vector: []float32{0.5, 0.5, 0}}, // medium
-		{NodeID: "bravo", ChunkIdx: 1, Vector: []float32{0.6, 0.5, 0}}, // slightly stronger
+		{NodeID: "alpha", Vector: []float32{0.1, 0, 0}},   // weak
+		{NodeID: "alpha", Vector: []float32{1, 0, 0}},     // strong — should win for alpha
+		{NodeID: "bravo", Vector: []float32{0.5, 0.5, 0}}, // medium
+		{NodeID: "bravo", Vector: []float32{0.6, 0.5, 0}}, // slightly stronger
 	}
 
 	ranked := filter.SemanticRank(candidates, []float32{1, 0, 0})
@@ -85,9 +85,9 @@ func TestSemanticRank_TracksBestChunkBody(test *testing.T) {
 	query := []float32{1, 0}
 
 	candidates := []filter.SemanticCandidate{
-		{NodeID: "n1", ChunkIdx: 0, Vector: []float32{0.1, 1}, Body: "low score body"},
-		{NodeID: "n1", ChunkIdx: 1, Vector: []float32{1, 0}, Body: "high score body"},
-		{NodeID: "n2", ChunkIdx: 0, Vector: []float32{0, 1}, Body: "n2 only chunk"},
+		{NodeID: "n1", Vector: []float32{0.1, 1}, Body: "low score body"},
+		{NodeID: "n1", Vector: []float32{1, 0}, Body: "high score body"},
+		{NodeID: "n2", Vector: []float32{0, 1}, Body: "n2 only chunk"},
 	}
 
 	ranked := filter.SemanticRank(candidates, query)
@@ -102,10 +102,6 @@ func TestSemanticRank_TracksBestChunkBody(test *testing.T) {
 		test.Errorf("first.NodeID = %q, want n1", first.NodeID)
 	}
 
-	if first.BestChunkIdx != 1 {
-		test.Errorf("BestChunkIdx = %d, want 1", first.BestChunkIdx)
-	}
-
 	if first.BestChunkBody != "high score body" {
 		test.Errorf("BestChunkBody = %q", first.BestChunkBody)
 	}
@@ -113,9 +109,9 @@ func TestSemanticRank_TracksBestChunkBody(test *testing.T) {
 
 func TestSemanticRank_DeterministicTieBreakByNodeID(test *testing.T) {
 	candidates := []filter.SemanticCandidate{
-		{NodeID: "zebra", ChunkIdx: 0, Vector: []float32{1, 0, 0}},
-		{NodeID: "apple", ChunkIdx: 0, Vector: []float32{1, 0, 0}},
-		{NodeID: "mango", ChunkIdx: 0, Vector: []float32{1, 0, 0}},
+		{NodeID: "zebra", Vector: []float32{1, 0, 0}},
+		{NodeID: "apple", Vector: []float32{1, 0, 0}},
+		{NodeID: "mango", Vector: []float32{1, 0, 0}},
 	}
 
 	ranked := filter.SemanticRank(candidates, []float32{1, 0, 0})

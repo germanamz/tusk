@@ -63,7 +63,6 @@ func renderSubUnitPane(out io.Writer, pane *doctor.SubUnitPane) {
 	_, _ = fmt.Fprintf(out, "  queue (files)         %d\n", pane.EmbedQueueFiles)
 	_, _ = fmt.Fprintf(out, "  queue (sub-units)     %d\n", pane.EmbedQueueSubUnits)
 	_, _ = fmt.Fprintf(out, "  oversize payloads     %d\n", pane.OversizeEmbedPayloads)
-	_, _ = fmt.Fprintf(out, "  reserved conflicts    %d\n", pane.ReservedNameConflicts)
 }
 
 // renderGraphExpansionPane prints the [query.graph-expansion] pane.

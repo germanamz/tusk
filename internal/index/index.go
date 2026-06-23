@@ -131,19 +131,6 @@ CREATE INDEX IF NOT EXISTS idx_file_state_lease
 CREATE INDEX IF NOT EXISTS idx_file_state_seen
 	ON file_state(last_seen_gen);
 
-CREATE TABLE IF NOT EXISTS manifest_snapshot (
-	loaded_at INTEGER NOT NULL,                 -- unix nanoseconds
-	body_json TEXT NOT NULL                     -- JSON-serialized snapshot of the manifest
-);
-
-CREATE TABLE IF NOT EXISTS warnings (
-	id        INTEGER PRIMARY KEY AUTOINCREMENT,
-	node_id   TEXT,                             -- nullable: warning may be workspace-scoped
-	kind      TEXT NOT NULL,
-	message   TEXT NOT NULL,
-	since     INTEGER NOT NULL                  -- unix nanoseconds
-);
-
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
@@ -176,6 +163,17 @@ CREATE TABLE IF NOT EXISTS property_drift (
 CREATE INDEX IF NOT EXISTS property_drift_node_idx ON property_drift(node_id);
 `
 
+// migrations holds idempotent schema fixups applied on every Open, after the
+// bootstrap schema. Each statement must be safe to run repeatedly and on a
+// fresh database. Used to retire tables/columns without forcing a full
+// rebuild + re-embed (which a SchemaVersion bump would).
+const migrations = `
+-- Drop the never-read manifest_snapshot and warnings tables (validation
+-- warnings and embed errors are surfaced live by doctor, not persisted).
+DROP TABLE IF EXISTS manifest_snapshot;
+DROP TABLE IF EXISTS warnings;
+`
+
 // Open opens (and bootstraps if needed) the index at dbPath. The parent
 // directory is created if missing. Incompatible on-disk schemas are
 // surfaced as *SchemaVersionError (wrapping ErrSchemaIncompatible) for
@@ -196,6 +194,11 @@ func Open(dbPath string) (*Index, error) {
 	if _, execErr := db.ExecContext(ctx, schema); execErr != nil {
 		db.Close()
 		return nil, fmt.Errorf("index: bootstrap schema: %w", execErr)
+	}
+
+	if _, execErr := db.ExecContext(ctx, migrations); execErr != nil {
+		db.Close()
+		return nil, fmt.Errorf("index: run migrations: %w", execErr)
 	}
 
 	idx := &Index{db: db, path: dbPath}

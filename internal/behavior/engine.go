@@ -8,14 +8,12 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
-// Engine owns eight dispatch chains, one per (primitive, phase) slot.
+// Engine owns six dispatch chains, one per (primitive, phase) slot.
 // Built once via NewEngine and immutable thereafter; runtime reload
 // rebuilds from scratch.
 type Engine struct {
 	nodeWriteValidate  []entry[NodeWriteValidator]
 	nodeWriteAfter     []entry[NodeWriteReactor]
-	nodeReadValidate   []entry[NodeReadValidator]
-	nodeReadAfter      []entry[NodeReadReactor]
 	edgeAddValidate    []entry[EdgeAddValidator]
 	edgeAddAfter       []entry[EdgeAddReactor]
 	edgeRemoveValidate []entry[EdgeRemoveValidator]
@@ -71,16 +69,6 @@ func NewEngine(instances []Instance, declaredKeys []DeclaredKey) (*Engine, error
 		if hooks.OnNodeWriteAfter != nil {
 			engine.nodeWriteAfter = append(engine.nodeWriteAfter,
 				entry[NodeWriteReactor]{ctx: ctx, fn: hooks.OnNodeWriteAfter})
-		}
-
-		if hooks.OnNodeReadValidate != nil {
-			engine.nodeReadValidate = append(engine.nodeReadValidate,
-				entry[NodeReadValidator]{ctx: ctx, fn: hooks.OnNodeReadValidate})
-		}
-
-		if hooks.OnNodeReadAfter != nil {
-			engine.nodeReadAfter = append(engine.nodeReadAfter,
-				entry[NodeReadReactor]{ctx: ctx, fn: hooks.OnNodeReadAfter})
 		}
 
 		if hooks.OnEdgeAddValidate != nil {
@@ -249,21 +237,5 @@ func (engine *Engine) FireEdgeRemoveValidate(edge index.EdgeRow) (string, error)
 func (engine *Engine) FireEdgeRemoveAfter(edge index.EdgeRow) error {
 	return fireReactors(engine.edgeRemoveAfter, func(fn EdgeRemoveReactor, ctx HookContext) error {
 		return fn(ctx, edge)
-	})
-}
-
-// FireNodeReadValidate / FireNodeReadAfter are reserved in v1: defined
-// for API parity with the other primitives but not invoked from the
-// production write path. Implementations exist so future v1.x consumers
-// can register handlers without changing the engine.
-func (engine *Engine) FireNodeReadValidate(snapshot *node.Node) (string, error) {
-	return fireValidate(engine.nodeReadValidate, func(fn NodeReadValidator, ctx HookContext) error {
-		return fn(ctx, snapshot)
-	})
-}
-
-func (engine *Engine) FireNodeReadAfter(snapshot *node.Node) error {
-	return fireReactors(engine.nodeReadAfter, func(fn NodeReadReactor, ctx HookContext) error {
-		return fn(ctx, snapshot)
 	})
 }

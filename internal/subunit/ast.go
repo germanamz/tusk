@@ -70,17 +70,11 @@ type Unit struct {
 	// Ordinal is the unit's depth-first position within the file,
 	// 0-based. Assigned by Parse across all emitted units.
 	Ordinal int
-	// ParentHash is the Hash of the containing section unit, or
-	// the empty string when the unit lives at the document root
-	// (before the first heading, or in a heading-free document).
-	// Sub-units of sub-units (paragraphs under a section, an H3
-	// section under an H2) reference the closest enclosing
-	// section.
-	ParentHash string
 	// ParentAddress is the Address of the enclosing section, or the
-	// empty string at the document root. Replaces ParentHash for parent
-	// row-id wiring once the id is address-based (Phase 2). Assigned by
-	// Parse.
+	// empty string at the document root (before the first heading, or in
+	// a heading-free document). Sub-units of sub-units (paragraphs under a
+	// section, an H3 section under an H2) reference the closest enclosing
+	// section. Drives parent row-id wiring; assigned by Parse.
 	ParentAddress string
 	// Text is the literal body text used for storage and display.
 	// Uses goldmark's normalized form, which collapses adjacent

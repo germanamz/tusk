@@ -24,7 +24,6 @@ func Parse(source []byte) ([]subunit.Unit, error) {
 
 	emit := func(unit subunit.Unit) int {
 		unit.Ordinal = len(units)
-		unit.ParentHash = ctx.currentHash()
 		unit.ParentAddress = ctx.currentAddress()
 		if unit.EmbedPayload == "" {
 			unit.EmbedPayload = unit.Text
@@ -64,7 +63,7 @@ func walk(
 		if lvl, ok := headingLevel(node.Data); ok && !inBlock {
 			ctx.closeToLevel(lvl)
 			addr := ctx.openSectionAddress()
-			idx := emit(subunit.Unit{
+			emit(subunit.Unit{
 				Kind:    subunit.KindSection,
 				Address: addr,
 				Text:    elementText(node),
@@ -72,7 +71,7 @@ func walk(
 					"heading-level": lvl,
 				},
 			})
-			ctx.push(lvl, (*units)[idx].Hash, addr)
+			ctx.push(lvl, addr)
 			return
 		}
 		switch node.Data {

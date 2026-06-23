@@ -49,7 +49,6 @@ func Parse(source []byte) ([]Unit, error) {
 	// address from the deepest frame's per-kind counter here.
 	emit := func(unit Unit) int {
 		unit.Ordinal = len(units)
-		unit.ParentHash = ctx.currentHash()
 		unit.ParentAddress = ctx.currentAddress()
 		if unit.EmbedPayload == "" {
 			unit.EmbedPayload = unit.Text
@@ -101,7 +100,7 @@ func walkBlock(
 			fullText = headingText + "\n" + bodyText
 		}
 
-		idx := emit(Unit{
+		emit(Unit{
 			Kind:    KindSection,
 			Address: addr,
 			Text:    fullText,
@@ -110,7 +109,7 @@ func walkBlock(
 			},
 		})
 
-		ctx.push(typed.Level, (*units)[idx].Hash, addr)
+		ctx.push(typed.Level, addr)
 
 	case *ast.Paragraph:
 		emit(Unit{

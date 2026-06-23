@@ -57,13 +57,6 @@ const (
 	// time (the IDs depend on runtime state, not manifest shape).
 	IssueContextPinnedMissing = "context-pinned-missing"
 
-	// IssueSubUnitReserved surfaces reserved-name conflicts between the
-	// built-in sub-document pack and user-declared node types, edge
-	// types, or properties. The engine prefers the built-in declaration
-	// and ignores the user's override; doctor surfaces the override so
-	// users notice the shadowing.
-	IssueSubUnitReserved = "sub-unit-reserved"
-
 	// IssueSubUnitsDisabledDirty surfaces the back-compat hazard where
 	// the manifest opts out of sub-units (`[workspace] sub-units =
 	// false`) but the index still contains sub-unit rows from a previous
@@ -106,10 +99,6 @@ type Report struct {
 	// MissingPinnedIDs lists [context.pinned] entries that do not
 	// resolve to a node in the current index. Computed at Run time.
 	MissingPinnedIDs []string
-	// SubUnitConflicts mirrors Manifest.SubUnitConflicts so CLI and MCP
-	// can surface sub-document reserved-name overrides without
-	// re-parsing Issues.
-	SubUnitConflicts []manifest.SubUnitConflict
 	// SubUnitPane is the typed sub-unit health summary (Plan 2 Task 6
 	// / spec §5.9). nil when the manifest opts out of sub-units AND no
 	// sub-unit rows exist in the index. When sub-units are disabled but
@@ -154,9 +143,6 @@ type SubUnitPane struct {
 	// chunker normally keeps payloads under this bound; a non-zero
 	// count indicates the AST emitted a single leaf exceeding the cap.
 	OversizeEmbedPayloads int
-	// ReservedNameConflicts mirrors len(Report.SubUnitConflicts) so the
-	// pane can show the recap count without the caller re-counting.
-	ReservedNameConflicts int
 }
 
 // EmbedStatsReport summarizes chunking aggregates for tusk doctor.
@@ -219,24 +205,6 @@ func Run(config Config) (*Report, error) {
 
 		report.GraphExpansion = pane
 		report.Issues = append(report.Issues, issues...)
-	}
-
-	if config.Manifest != nil && len(config.Manifest.SubUnitConflicts) > 0 {
-		report.SubUnitConflicts = append(report.SubUnitConflicts, config.Manifest.SubUnitConflicts...)
-
-		for _, conflict := range config.Manifest.SubUnitConflicts {
-			nodeID := conflict.Name
-
-			if conflict.OwnerType != "" {
-				nodeID = conflict.OwnerType + "." + conflict.Name
-			}
-
-			report.Issues = append(report.Issues, Issue{
-				Kind:    IssueSubUnitReserved,
-				NodeID:  nodeID,
-				Message: conflict.Message,
-			})
-		}
 	}
 
 	if config.Manifest != nil && config.Nodes != nil && config.Manifest.Context != nil {
@@ -360,7 +328,6 @@ func Run(config Config) (*Report, error) {
 		}
 
 		if pane != nil {
-			pane.ReservedNameConflicts = len(report.SubUnitConflicts)
 			report.SubUnitPane = pane
 
 			// Manifest opt-out + stale rows = dirty index warning.
