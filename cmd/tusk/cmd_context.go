@@ -118,48 +118,12 @@ func renderContextResult(out io.Writer, result *contextcompose.Result, format ou
 }
 
 func renderContextJSON(out io.Writer, result *contextcompose.Result) error {
-	payload := buildContextJSONPayload(result)
+	payload := contextcompose.JSONPayload(result)
 
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 
 	return encoder.Encode(payload)
-}
-
-// buildContextJSONPayload converts the typed *Result into the wire envelope
-// documented in the Phase 1 Task 5 spec. Exported (lowercase but reused by
-// tests in the same package) for parity with the MCP path.
-func buildContextJSONPayload(result *contextcompose.Result) map[string]any {
-	envelope := map[string]any{}
-
-	if len(result.Pinned) > 0 {
-		envelope["pinned"] = result.Pinned
-	}
-
-	if len(result.Recent) > 0 {
-		envelope["recent"] = result.Recent
-	}
-
-	if len(result.Aliases) > 0 {
-		aliasEnv := make(map[string]any, len(result.Aliases))
-
-		for _, name := range contextcompose.SortedIncludeNames(result) {
-			dispatched := result.Aliases[name]
-
-			aliasEnv[name] = map[string]any{
-				"kind":   dispatched.Kind,
-				"result": aliasResultPayload(dispatched),
-			}
-		}
-
-		envelope["aliases"] = aliasEnv
-	}
-
-	if len(result.MissingPinned) > 0 {
-		envelope["missing_pinned"] = result.MissingPinned
-	}
-
-	return envelope
 }
 
 func renderContextCompact(out io.Writer, result *contextcompose.Result) error {

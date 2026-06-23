@@ -366,3 +366,40 @@ func SortedIncludeNames(result *Result) []string {
 
 	return names
 }
+
+// JSONPayload builds the JSON envelope the context digest serializes to. It is
+// the single shaper shared by the CLI (`tusk context --json`) and the MCP
+// server (tusk_context) so both surfaces emit identical JSON. Empty sections
+// are omitted; each alias result is shaped through aliasdispatch.ResultPayload.
+func JSONPayload(result *Result) map[string]any {
+	envelope := map[string]any{}
+
+	if len(result.Pinned) > 0 {
+		envelope["pinned"] = result.Pinned
+	}
+
+	if len(result.Recent) > 0 {
+		envelope["recent"] = result.Recent
+	}
+
+	if len(result.Aliases) > 0 {
+		aliasEnv := make(map[string]any, len(result.Aliases))
+
+		for _, name := range SortedIncludeNames(result) {
+			dispatched := result.Aliases[name]
+
+			aliasEnv[name] = map[string]any{
+				"kind":   dispatched.Kind,
+				"result": aliasdispatch.ResultPayload(dispatched),
+			}
+		}
+
+		envelope["aliases"] = aliasEnv
+	}
+
+	if len(result.MissingPinned) > 0 {
+		envelope["missing_pinned"] = result.MissingPinned
+	}
+
+	return envelope
+}

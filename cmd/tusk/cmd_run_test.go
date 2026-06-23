@@ -72,8 +72,16 @@ command = "status"
 		test.Fatalf("CLI: %v\n%s", runErr, out)
 	}
 
-	if !strings.Contains(out, "nodes by type") {
-		test.Errorf("stdout missing 'nodes by type' header:\n%s", out)
+	// The status-alias compact path now shares renderStatusCompact with
+	// `tusk status`, so it emits the TYPE/COUNT block and the single
+	// `last reindex (unix ns):` label rather than the old "nodes by type"
+	// header.
+	if !strings.Contains(out, "TYPE") || !strings.Contains(out, "COUNT") {
+		test.Errorf("stdout missing TYPE/COUNT header:\n%s", out)
+	}
+
+	if !strings.Contains(out, "last reindex (unix ns):") {
+		test.Errorf("stdout missing unified last-reindex label:\n%s", out)
 	}
 }
 

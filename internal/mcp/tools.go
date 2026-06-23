@@ -130,14 +130,13 @@ func argInt(request mcpgo.CallToolRequest, key string) (int, error) {
 		return 0, fmt.Errorf("missing argument %q", key)
 	}
 
-	switch typed := raw.(type) {
-	case float64:
-		return int(typed), nil
-	case int:
-		return typed, nil
+	value, coerced := coerceMCPInt(raw)
+
+	if !coerced {
+		return 0, fmt.Errorf("argument %q is not a number", key)
 	}
 
-	return 0, fmt.Errorf("argument %q is not a number", key)
+	return value, nil
 }
 
 // argIntOptional extracts an optional numeric argument from the request as an
@@ -276,11 +275,8 @@ func argFloatOptional(request mcpgo.CallToolRequest, key string, defaultValue fl
 		return defaultValue
 	}
 
-	switch typed := raw.(type) {
-	case float64:
-		return typed
-	case int:
-		return float64(typed)
+	if value, coerced := coerceMCPFloat(raw); coerced {
+		return value
 	}
 
 	return defaultValue
@@ -1059,26 +1055,12 @@ func registerNodeModifyTool(srv *Server) {
 			UnsetKeys: unsetKeys,
 		}
 
-		// Build a per-call Service so recovery warnings flow into our local
-		// buffer rather than the runtime's shared os.Stderr.
+		// Derive a per-call Service so recovery warnings flow into our local
+		// buffer rather than the runtime's shared os.Stderr. Every other
+		// dependency is shared with the runtime's NodeService.
 		var warningsBuf bytes.Buffer
 
-		perCallService := node.NewServiceWithBehaviors(
-			srv.runtime.Root,
-			srv.runtime.Nodes,
-			srv.runtime.Edges,
-			srv.runtime.Manifest.EdgeTypes,
-			srv.runtime.EmbedQueue,
-			srv.runtime.Manifest.NodeTypes,
-			srv.runtime.PropertyDrift,
-			srv.runtime.BehaviorEngine,
-			srv.runtime.WorkflowDrift,
-			&warningsBuf,
-			node.NewIndexRefLookup(srv.runtime.Nodes),
-			srv.runtime.FileState,
-			srv.runtime.WorkerID,
-			srv.runtime.LeaseTTL,
-		)
+		perCallService := srv.runtime.NodeService.WithWarningWriter(&warningsBuf)
 
 		modified, modifyErr := perCallService.Modify(input)
 
@@ -1545,7 +1527,7 @@ func registerRunTool(srv *Server) {
 			"alias":   result.Alias,
 			"command": result.Command,
 			"kind":    result.Kind,
-			"result":  aliasResultJSON(result),
+			"result":  aliasdispatch.ResultPayload(result),
 		})
 	}
 
@@ -1603,45 +1585,10 @@ func registerContextTool(srv *Server) {
 			return contextCompactResult(composed)
 		}
 
-		return toolJSON(contextJSONPayload(composed))
+		return toolJSON(contextcompose.JSONPayload(composed))
 	}
 
 	srv.register(tool, handler)
-}
-
-// contextJSONPayload builds the JSON envelope tusk_context returns. Mirrors
-// cmd/tusk's buildContextJSONPayload.
-func contextJSONPayload(result *contextcompose.Result) map[string]any {
-	envelope := map[string]any{}
-
-	if len(result.Pinned) > 0 {
-		envelope["pinned"] = result.Pinned
-	}
-
-	if len(result.Recent) > 0 {
-		envelope["recent"] = result.Recent
-	}
-
-	if len(result.Aliases) > 0 {
-		aliasEnv := make(map[string]any, len(result.Aliases))
-
-		for _, name := range contextcompose.SortedIncludeNames(result) {
-			dispatched := result.Aliases[name]
-
-			aliasEnv[name] = map[string]any{
-				"kind":   dispatched.Kind,
-				"result": aliasResultJSON(dispatched),
-			}
-		}
-
-		envelope["aliases"] = aliasEnv
-	}
-
-	if len(result.MissingPinned) > 0 {
-		envelope["missing_pinned"] = result.MissingPinned
-	}
-
-	return envelope
 }
 
 // contextCompactResult renders the digest as compact text wrapped in a
@@ -1738,91 +1685,6 @@ func writeNodeRowsCompact(out *bytes.Buffer, rows []query.ListRow) error {
 	}
 
 	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
-}
-
-// aliasResultJSON converts a DispatchResult into the JSON-friendly payload
-// embedded under "result" in the envelope. Mirrors cmd/tusk's
-// aliasResultPayload but lives here to keep the MCP package free of a
-// dependency on cmd/tusk.
-func aliasResultJSON(result *aliasdispatch.DispatchResult) any {
-	switch typed := result.Result.(type) {
-	case *query.ListResult:
-		return map[string]any{
-			"rows":  typed.Rows,
-			"count": len(typed.Rows),
-		}
-
-	case *query.Result:
-		if typed.Semantic != nil {
-			return map[string]any{
-				"results": typed.Semantic.Ranked,
-				"count":   len(typed.Semantic.Ranked),
-				"model":   typed.Semantic.Model,
-			}
-		}
-
-		return map[string]any{
-			"rows":  typed.Rows,
-			"count": len(typed.Rows),
-		}
-
-	case *node.GetResult:
-		envelope := map[string]any{
-			"id":    typed.Node.ID,
-			"type":  typed.Node.Type,
-			"path":  typed.Node.Path,
-			"title": typed.Node.Title,
-		}
-
-		if typed.IncludeProperties {
-			envelope["properties"] = typed.Node.Properties
-		}
-
-		if typed.IncludeEdges {
-			envelope["edges"] = typed.Node.Edges
-		}
-
-		if typed.IncludeBody {
-			envelope["body"] = string(typed.Node.Body)
-		}
-
-		return envelope
-
-	case *index.EdgeListResult:
-		return map[string]any{
-			"rows":  typed.Rows,
-			"count": len(typed.Rows),
-		}
-
-	case *doctor.Result:
-		envelope := map[string]any{
-			"issues":              typed.Report.Issues,
-			"embed_queue_depth":   typed.Report.EmbedQueueDepth,
-			"reindex_queue_depth": typed.Report.ReindexQueueDepth,
-		}
-
-		if len(typed.Report.AliasErrors) > 0 {
-			envelope["alias_errors"] = aliasErrorsPayload(typed.Report.AliasErrors)
-		}
-
-		if typed.Migration != nil {
-			envelope["migrated"] = typed.Migration.Migrated
-			envelope["skipped"] = typed.Migration.Skipped
-		}
-
-		return envelope
-
-	case *status.Result:
-		return map[string]any{
-			"nodes_by_type":       typed.NodesByType,
-			"edge_count":          typed.EdgeCount,
-			"embed_queue_depth":   typed.EmbedQueueDepth,
-			"reindex_queue_depth": typed.ReindexQueueDepth,
-			"last_reindex_at":     typed.LastReindexAt,
-		}
-	}
-
-	return result.Result
 }
 
 // registerReloadTool exposes the manifest reload over MCP. The handler is
@@ -2153,7 +2015,7 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 	default:
 		// For node get / doctor / status, fall back to JSON inside the
 		// compact envelope so the caller still gets a useful payload.
-		body, marshalErr := json.Marshal(aliasResultJSON(result))
+		body, marshalErr := json.Marshal(aliasdispatch.ResultPayload(result))
 
 		if marshalErr != nil {
 			return toolError(marshalErr), nil
@@ -2391,18 +2253,10 @@ func buildRefRejectionPayload(refErr *node.RefValidationError) map[string]any {
 }
 
 // aliasErrorsPayload renders manifest alias-validation errors as the
-// {name, message} maps the doctor tool and the tusk_run / tusk_context
-// envelopes embed under "alias_errors". Callers keep their own len()>0 guard so
+// {name, message} maps the doctor tool embeds under "alias_errors". Delegates
+// to aliasdispatch.AliasErrorsPayload so the shape stays shared with the
+// tusk_run / tusk_context envelopes. Callers keep their own len()>0 guard so
 // the empty-omits-the-key behavior stays at the call site.
 func aliasErrorsPayload(errs []manifest.AliasError) []map[string]any {
-	aliasErrors := make([]map[string]any, 0, len(errs))
-
-	for _, aliasErr := range errs {
-		aliasErrors = append(aliasErrors, map[string]any{
-			"name":    aliasErr.Name,
-			"message": aliasErr.Message,
-		})
-	}
-
-	return aliasErrors
+	return aliasdispatch.AliasErrorsPayload(errs)
 }

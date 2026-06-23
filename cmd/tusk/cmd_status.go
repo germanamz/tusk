@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"text/tabwriter"
 
@@ -50,30 +51,38 @@ warnings and drift detail.`,
 				return runErr
 			}
 
-			tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-
-			_, _ = fmt.Fprintln(tab, "TYPE\tCOUNT")
-
-			types := make([]string, 0, len(result.NodesByType))
-
-			for typeName := range result.NodesByType {
-				types = append(types, typeName)
-			}
-
-			sort.Strings(types)
-
-			for _, typeName := range types {
-				_, _ = fmt.Fprintf(tab, "%s\t%d\n", typeName, result.NodesByType[typeName])
-			}
-
-			_ = tab.Flush()
-
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "edges: %d\nembed queue depth: %d\nreindex queue depth: %d\nlast reindex (unix ns): %s\n",
-				result.EdgeCount, result.EmbedQueueDepth, result.ReindexQueueDepth, result.LastReindexAt)
-
-			return nil
+			return renderStatusCompact(cmd.OutOrStdout(), result)
 		},
 	}
 
 	return statusCmd
+}
+
+// renderStatusCompact writes the one-screen compact status summary: a sorted
+// TYPE/COUNT tabwriter block followed by edge / queue-depth / last-reindex
+// lines. Shared by `tusk status` and the status-alias compact path so both
+// surfaces emit identical text (single `last reindex (unix ns):` label).
+func renderStatusCompact(out io.Writer, result *status.Result) error {
+	tab := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+
+	_, _ = fmt.Fprintln(tab, "TYPE\tCOUNT")
+
+	types := make([]string, 0, len(result.NodesByType))
+
+	for typeName := range result.NodesByType {
+		types = append(types, typeName)
+	}
+
+	sort.Strings(types)
+
+	for _, typeName := range types {
+		_, _ = fmt.Fprintf(tab, "%s\t%d\n", typeName, result.NodesByType[typeName])
+	}
+
+	_ = tab.Flush()
+
+	_, writeErr := fmt.Fprintf(out, "edges: %d\nembed queue depth: %d\nreindex queue depth: %d\nlast reindex (unix ns): %s\n",
+		result.EdgeCount, result.EmbedQueueDepth, result.ReindexQueueDepth, result.LastReindexAt)
+
+	return writeErr
 }
