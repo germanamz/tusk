@@ -4,7 +4,7 @@ import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
 import { fetchNodeDetail, fetchSubunits } from './nodeapi'
 import { renderPanel } from './panel'
-import { EDGE_KIND_COLORS, colorForType, sizeForDegree } from './encode'
+import { EDGE_KIND_COLORS } from './encode'
 import { runSearch } from './search'
 
 let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [] }
@@ -81,6 +81,12 @@ function buildLegend(): void {
     item.appendChild(document.createTextNode(kind + '  '))
     legend.appendChild(item)
   }
+  // Controls hint (replaces the library's hidden nav info). Advertises the
+  // Alt+drag pan alongside the default rotate/zoom.
+  const controls = document.createElement('span')
+  controls.style.cssText = 'color:#888;border-left:1px solid #2a2d3a;padding-left:8px;margin-left:4px'
+  controls.textContent = 'drag rotate · alt+drag pan · scroll zoom'
+  legend.appendChild(controls)
 }
 
 function mergeSubunits(base: Graph, subunits: { nodes: any[]; edges: any[] }): Graph {
@@ -128,22 +134,11 @@ async function boot(): Promise<void> {
           return
         }
         const ids = matches.map((m) => m.id)
-        // Visually pulse matched nodes by temporarily boosting their size
-        scene.instance.nodeVal((node: any) => {
-          if (ids.includes(node.id)) return (node.degree ?? 1) * 4 + 8
-          return (node.degree ?? 1) * 2 + 1
-        })
-        scene.instance.nodeColor((node: any) => {
-          if (ids.includes(node.id)) return '#f5a623'
-          return colorForType(node.type)
-        })
-        // Fly camera to first match
+        // Transiently emphasize matched nodes, then fly to the first one.
+        scene.pulse(ids)
         scene.focus(ids)
-        // Reset highlight after 3 s
-        setTimeout(() => {
-          scene.instance.nodeColor((node: any) => colorForType(node.type))
-          scene.instance.nodeVal((node: any) => sizeForDegree(node.degree))
-        }, 3000)
+        // Drop the emphasis after 3 s (the selection highlight, if any, stays).
+        setTimeout(() => scene.clearPulse(), 3000)
       })
       .catch((err) => {
         searchMsg.textContent = `search error: ${String(err)}`
@@ -151,16 +146,19 @@ async function boot(): Promise<void> {
       })
   })
 
-  // Node click → fetch detail, render panel
+  // Node click → select (highlight node + its edges, fly the camera in) and
+  // render its detail panel.
   scene.instance.onNodeClick((node: any) => {
+    scene.select(node.id)
     fetchNodeDetail(node.id)
       .then((detail) => {
         renderPanel(panelEl, detail, (neighborId) => {
-          // Navigate to neighbor: fetch its detail
+          // Navigate to neighbor: select it (re-highlights + focuses) and
+          // fetch its detail.
+          scene.select(neighborId)
           fetchNodeDetail(neighborId)
             .then((nd) => renderPanel(panelEl, nd, () => {}))
             .catch(console.error)
-          scene.focus([neighborId])
         })
 
         // Add expand button for sub-units
@@ -192,6 +190,12 @@ async function boot(): Promise<void> {
       .catch(console.error)
   })
 
+  // Click empty space → clear the selection highlight and the panel.
+  scene.instance.onBackgroundClick(() => {
+    scene.select(null)
+    panelEl.innerHTML = ''
+  })
+
   function applyAndRender(graph: Graph): void {
     rawGraph = graph
     buildFacetBar(graph, scene)
@@ -206,6 +210,13 @@ async function boot(): Promise<void> {
 
   applyAndRender(await fetchGraph())
   subscribeGraph((graph) => applyAndRender(graph))
+
+  // Debug/e2e seam: the scene wraps a WebGL canvas, so interactions and styling
+  // can't be asserted through the DOM. Expose the live graph + scene so the
+  // localhost-only graph view can be inspected from the console or driven by
+  // Playwright (read controls/accessors, project node coords, etc.).
+  ;(window as unknown as { tuskScene?: unknown }).tuskScene = scene
+  ;(window as unknown as { tuskGraph?: unknown }).tuskGraph = scene.instance
 }
 
 void boot()

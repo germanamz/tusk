@@ -65,6 +65,80 @@ test('canvas fits its container and re-fits on resize without pushing UI out of 
   expect(overflow2.scrollWidth).toBeLessThanOrEqual(overflow2.clientWidth + 2)
 })
 
+test('selecting a node highlights it + its edges and focuses the camera; deselecting clears it', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
+
+  // Pick a connected node. (Driving scene.select directly — instead of a canvas
+  // click — keeps this off the flaky raycast-against-a-moving-node path while
+  // still exercising the real highlight/focus code the click handler calls.)
+  const sel = await page.evaluate(() => {
+    const g = (window as any).tuskGraph
+    const { nodes, links } = g.graphData()
+    const id = (end: any) => (typeof end === 'object' ? end.id : end)
+    const node = nodes.find((n: any) => links.some((l: any) => id(l.source) === n.id || id(l.target) === n.id))
+    return node ? node.id : null
+  })
+  expect(sel, 'fixture must have a connected node').not.toBeNull()
+
+  const before = await page.evaluate((selId) => {
+    const g = (window as any).tuskGraph
+    const { nodes } = g.graphData()
+    const node = nodes.find((n: any) => n.id === selId)
+    return { color: g.nodeColor()(node), camera: g.cameraPosition() }
+  }, sel!)
+
+  // Select the node, then read styling + camera straight off the live scene.
+  const after = await page.evaluate((selId) => {
+    const g = (window as any).tuskGraph
+    ;(window as any).tuskScene.select(selId)
+    const { nodes, links } = g.graphData()
+    const id = (end: any) => (typeof end === 'object' ? end.id : end)
+    const node = nodes.find((n: any) => n.id === selId)
+    const incident = links.find((l: any) => id(l.source) === selId || id(l.target) === selId)
+    const other = links.find((l: any) => id(l.source) !== selId && id(l.target) !== selId)
+    return {
+      nodeColor: g.nodeColor()(node),
+      incidentWidth: g.linkWidth()(incident),
+      otherWidth: other ? g.linkWidth()(other) : 0,
+    }
+  }, sel!)
+  // Selected node burns white; its incident edge promotes to a real (cylinder) width.
+  expect(after.nodeColor.toLowerCase()).toBe('#ffffff')
+  expect(after.incidentWidth).toBeGreaterThan(0)
+  expect(after.otherWidth).toBe(0)
+
+  // Focus: the camera flies to the node (animated ~1.2s), so its position shifts.
+  await page.waitForTimeout(1600)
+  const camAfter = await page.evaluate(() => (window as any).tuskGraph.cameraPosition())
+  const moved =
+    Math.abs(camAfter.x - before.camera.x) +
+    Math.abs(camAfter.y - before.camera.y) +
+    Math.abs(camAfter.z - before.camera.z)
+  expect(moved, 'camera should move toward the selected node').toBeGreaterThan(0.5)
+
+  // Deselecting restores the node to its type color.
+  const cleared = await page.evaluate((selId) => {
+    const g = (window as any).tuskGraph
+    ;(window as any).tuskScene.select(null)
+    const node = g.graphData().nodes.find((n: any) => n.id === selId)
+    return g.nodeColor()(node)
+  }, sel!)
+  expect(cleared.toLowerCase()).not.toBe('#ffffff')
+  expect(cleared.toLowerCase()).toBe(before.color.toLowerCase())
+})
+
+test('pan is bound to the Alt modifier (Blender/CAD-style)', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
+  // TrackballControls.keys maps [rotate, zoom, pan] modifier codes; the pan slot
+  // points at Alt so alt+drag pans while left-drag still orbits.
+  const keys = await page.evaluate(() => (window as any).tuskGraph.controls().keys)
+  expect(keys).toEqual(['', '', 'AltLeft'])
+  // The controls hint advertises the Alt+drag pan to the user.
+  await expect(page.locator('#legend')).toContainText('alt+drag pan')
+})
+
 test('a wrapped (multi-row) facets bar never overlaps the graph', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })

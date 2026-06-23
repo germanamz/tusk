@@ -1,3 +1,10 @@
 [workspace]
 name = "e2e"
 ignore = []
+
+# A note→note edge type so the fixture graph has a real edge for the UI's
+# edge-highlight path to exercise. notes/a declares `relates: [notes/b]`.
+[edge-types.relates]
+from        = ["note"]
+to          = ["note"]
+cardinality = "many-to-many"
