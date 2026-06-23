@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/germanamz/tusk/compare/v1.12.3...v1.13.0) (2026-06-23)
+
+
+### Features
+
+* **graph:** interactive 3D graph view (tusk graph) ([#567](https://github.com/germanamz/tusk/issues/567)) ([5702824](https://github.com/germanamz/tusk/commit/5702824d048fdc9b400c2f7af033f67ddfdd816b))
+
 ## [1.12.3](https://github.com/germanamz/tusk/compare/v1.12.2...v1.12.3) (2026-06-22)
 
 
