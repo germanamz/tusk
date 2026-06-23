@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  // Build the fixture index before starting the graph server (see global-setup).
+  globalSetup: './e2e/global-setup.ts',
   webServer: {
     // Playwright resolves `cwd` relative to this config file (web/), so cwd is
     // web/e2e/fixture; the built binary is 3 levels up at repo-root ./bin/tusk.
