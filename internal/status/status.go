@@ -36,13 +36,13 @@ func Snapshot(config Config) (*SnapshotData, error) {
 		snap.NodesByType[row.Type]++
 	}
 
-	edges, edgeErr := config.Edges.ListAll()
+	edgeCount, edgeErr := config.Edges.Count()
 
 	if edgeErr != nil {
 		return nil, edgeErr
 	}
 
-	snap.EdgeCount = len(edges)
+	snap.EdgeCount = edgeCount
 
 	embedDepth, embedDepthErr := config.EmbedQueue.DepthByKind("embed")
 

@@ -192,7 +192,11 @@ func compileTypeRef(raw, columnPrefix string, op Op) (string, []any, error) {
 		return "", nil, fmt.Errorf("compile: parse type ref: %w", parseErr)
 	}
 
-	sqlOp := opToSQL(op)
+	sqlOp, opErr := opToSQL(op)
+
+	if opErr != nil {
+		return "", nil, opErr
+	}
 
 	switch ref.Scope {
 	case typeref.ScopeAny:
@@ -241,7 +245,11 @@ func compileProperty(predicate *PropertyPredicate) (string, []any, error) {
 		return "", nil, fmt.Errorf("compile: PropertyPredicate.Value is not StringValue")
 	}
 
-	sqlOp := opToSQL(predicate.Op)
+	sqlOp, opErr := opToSQL(predicate.Op)
+
+	if opErr != nil {
+		return "", nil, opErr
+	}
 
 	if isCoreColumn {
 		return column + " " + sqlOp + " ?", []any{stringValue.V}, nil
@@ -291,23 +299,16 @@ func propertyColumn(name string) (string, bool) {
 	return "", false
 }
 
-func opToSQL(op Op) string {
-	switch op {
-	case OpEQ:
-		return "="
-	case OpNE:
-		return "!="
-	case OpLT:
-		return "<"
-	case OpLE:
-		return "<="
-	case OpGT:
-		return ">"
-	case OpGE:
-		return ">="
+// opToSQL maps a binary comparison operator to its SQL glyph. The glyph is the
+// single source of truth in Op.String(); opToSQL refuses operators that are not
+// binary comparisons (OpRange, which compiles to BETWEEN, and any unknown
+// value) rather than emitting a "?" sentinel into a query.
+func opToSQL(op Op) (string, error) {
+	if op == OpRange || !op.valid() {
+		return "", fmt.Errorf("compile: %v is not a binary comparison operator", op)
 	}
 
-	return "?"
+	return op.String(), nil
 }
 
 func isNumericOp(op Op) bool {
@@ -420,7 +421,11 @@ func compilePropertyOnAlias(predicate *PropertyPredicate, alias string) (string,
 	}
 
 	stringValue := predicate.Value.(StringValue)
-	sqlOp := opToSQL(predicate.Op)
+	sqlOp, opErr := opToSQL(predicate.Op)
+
+	if opErr != nil {
+		return "", nil, opErr
+	}
 
 	if _, isCore := coreColumns[predicate.Property]; isCore {
 		return fmt.Sprintf("%s.%s %s ?", alias, predicate.Property, sqlOp), []any{stringValue.V}, nil

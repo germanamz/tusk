@@ -331,10 +331,12 @@ func runEdgeList(_ context.Context, deps Deps, request any) (any, error) {
 // --- doctor adapter ---
 
 func buildDoctorRequest(args map[string]any, deps Deps) (any, error) {
-	noMigrate, noMigrateErr := argval.Bool(args, "no-migrate")
+	reader := &argReader{args: args}
 
-	if noMigrateErr != nil {
-		return nil, noMigrateErr
+	noMigrate := reader.Bool("no-migrate")
+
+	if reader.err != nil {
+		return nil, reader.err
 	}
 
 	return doctor.Request{
@@ -423,6 +425,22 @@ func (reader *argReader) Int(key string) int {
 		reader.err = err
 
 		return 0
+	}
+
+	return value
+}
+
+func (reader *argReader) Bool(key string) bool {
+	if reader.err != nil {
+		return false
+	}
+
+	value, err := argval.Bool(reader.args, key)
+
+	if err != nil {
+		reader.err = err
+
+		return false
 	}
 
 	return value

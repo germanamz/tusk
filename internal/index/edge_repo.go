@@ -88,6 +88,17 @@ func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE type = ? ORDER BY source_id, target_id`, edgeType)
 }
 
+// Count returns the total number of edges in the index.
+func (repo *EdgeRepo) Count() (int, error) {
+	var count int
+
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&count); scanErr != nil {
+		return 0, fmt.Errorf("edgeRepo: count: %w", scanErr)
+	}
+
+	return count, nil
+}
+
 // ListByEdgeRef returns every edge matching ref's scope semantics, ordered
 // by source_id then target_id. Scope mapping mirrors NeighborsByEdgeRefs:
 //
@@ -123,25 +134,7 @@ func (repo *EdgeRepo) ListByEdgeRef(ref typeref.Ref) ([]EdgeRow, error) {
 		return nil, fmt.Errorf("edgeRepo: list-by-edge-ref query: %w", queryErr)
 	}
 
-	defer rows.Close()
-
-	var results []EdgeRow
-
-	for rows.Next() {
-		row := EdgeRow{}
-
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source); scanErr != nil {
-			return nil, fmt.Errorf("edgeRepo: list-by-edge-ref scan: %w", scanErr)
-		}
-
-		results = append(results, row)
-	}
-
-	if iterErr := rows.Err(); iterErr != nil {
-		return nil, fmt.Errorf("edgeRepo: list-by-edge-ref iterate: %w", iterErr)
-	}
-
-	return results, nil
+	return scanEdgeRows(rows)
 }
 
 // ListAll returns every edge in the index, ordered by source_id, type, target_id.
@@ -156,21 +149,7 @@ func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
 		return nil, queryErr
 	}
 
-	defer rows.Close()
-
-	var out []EdgeRow
-
-	for rows.Next() {
-		var row EdgeRow
-
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source); scanErr != nil {
-			return nil, scanErr
-		}
-
-		out = append(out, row)
-	}
-
-	return out, rows.Err()
+	return scanEdgeRows(rows)
 }
 
 // DeleteBySourceAndType removes every edge whose (source_id, type) matches
@@ -288,25 +267,7 @@ func (repo *EdgeRepo) NeighborsByEdgeRefs(refs []typeref.EdgeRef, sourceIDs []st
 		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-refs query: %w", queryErr)
 	}
 
-	defer rows.Close()
-
-	var results []EdgeRow
-
-	for rows.Next() {
-		row := EdgeRow{}
-
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source); scanErr != nil {
-			return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-refs scan: %w", scanErr)
-		}
-
-		results = append(results, row)
-	}
-
-	if iterErr := rows.Err(); iterErr != nil {
-		return nil, fmt.Errorf("edgeRepo: neighbors-by-edge-refs iterate: %w", iterErr)
-	}
-
-	return results, nil
+	return scanEdgeRows(rows)
 }
 
 func dedupStrings(values []string) []string {
@@ -343,6 +304,13 @@ func (repo *EdgeRepo) queryEdges(query, arg string) ([]EdgeRow, error) {
 		return nil, fmt.Errorf("edgeRepo: query: %w", queryErr)
 	}
 
+	return scanEdgeRows(rows)
+}
+
+// scanEdgeRows drains rows into EdgeRow values, scanning columns in the
+// order declared by edgeColumns. It closes rows before returning and
+// surfaces both scan and iteration errors.
+func scanEdgeRows(rows *sql.Rows) ([]EdgeRow, error) {
 	defer rows.Close()
 
 	var results []EdgeRow
