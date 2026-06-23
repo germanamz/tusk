@@ -40,23 +40,6 @@ const (
 	IssueLegacyCLIEdge = "legacy-cli-edge"
 	IssueLegacyMCPEdge = "legacy-mcp-edge"
 
-	// IssueAliasInvalid surfaces manifest aliases that failed validation
-	// at load time. The Manifest field on doctor.Config carries the
-	// pre-validated list; Run copies them into Report.AliasErrors and
-	// also emits one Issue per error so legacy renderers keep working.
-	IssueAliasInvalid = "alias-invalid"
-
-	// IssueContextInvalid surfaces manifest [context] block problems
-	// (unknown alias names, both recent forms set, write-verb inline
-	// recent). One Issue per ContextError so the legacy line-oriented
-	// renderer keeps working alongside the typed Report.ContextErrors.
-	IssueContextInvalid = "context-invalid"
-
-	// IssueContextPinnedMissing surfaces manifest [context.pinned] IDs
-	// that do not resolve in the current index. Computed at doctor-run
-	// time (the IDs depend on runtime state, not manifest shape).
-	IssueContextPinnedMissing = "context-pinned-missing"
-
 	// IssueSubUnitsDisabledDirty surfaces the back-compat hazard where
 	// the manifest opts out of sub-units (`[workspace] sub-units =
 	// false`) but the index still contains sub-unit rows from a previous
@@ -177,27 +160,17 @@ type MigrationReport struct {
 func Run(config Config) (*Report, error) {
 	report := &Report{}
 
+	// Alias / context / sub-unit-conflict errors and missing pinned IDs
+	// each flow through their own typed Report field — AliasErrors,
+	// ContextErrors, SubUnitConflicts, MissingPinnedIDs — and every
+	// surface renders them from there. They are deliberately NOT mirrored
+	// into Report.Issues; doing so double-rendered every such error.
 	if config.Manifest != nil && len(config.Manifest.AliasErrors) > 0 {
 		report.AliasErrors = append(report.AliasErrors, config.Manifest.AliasErrors...)
-
-		for _, aliasErr := range config.Manifest.AliasErrors {
-			report.Issues = append(report.Issues, Issue{
-				Kind:    IssueAliasInvalid,
-				NodeID:  aliasErr.Name,
-				Message: aliasErr.Message,
-			})
-		}
 	}
 
 	if config.Manifest != nil && len(config.Manifest.ContextErrors) > 0 {
 		report.ContextErrors = append(report.ContextErrors, config.Manifest.ContextErrors...)
-
-		for _, contextErr := range config.Manifest.ContextErrors {
-			report.Issues = append(report.Issues, Issue{
-				Kind:    IssueContextInvalid,
-				Message: contextErr.Message,
-			})
-		}
 	}
 
 	if config.Manifest != nil {
@@ -212,135 +185,208 @@ func Run(config Config) (*Report, error) {
 
 		if len(missing) > 0 {
 			report.MissingPinnedIDs = missing
-
-			for _, id := range missing {
-				report.Issues = append(report.Issues, Issue{
-					Kind:    IssueContextPinnedMissing,
-					NodeID:  id,
-					Message: fmt.Sprintf("context: pinned node %q does not resolve in the index", id),
-				})
-			}
 		}
 	}
 
-	if config.Edges != nil && config.Nodes != nil {
-		dangling, danglingErr := findDanglingEdges(config.Nodes, config.Edges)
+	// Independent issue-only checks: each scans one repo and contributes
+	// Issues without reading anything an earlier block computed. Order
+	// among them is cosmetic (it fixes the Issue listing order).
+	for _, check := range []func(Config) ([]Issue, error){
+		checkDanglingEdges,
+		checkWorkflowDrift,
+		checkPropertyDrift,
+	} {
+		issues, checkErr := check(config)
 
-		if danglingErr != nil {
-			return nil, danglingErr
+		if checkErr != nil {
+			return nil, checkErr
 		}
 
-		report.Issues = append(report.Issues, dangling...)
+		report.Issues = append(report.Issues, issues...)
 	}
 
-	if config.EmbedQueue != nil {
-		embedDepth, embedDepthErr := config.EmbedQueue.DepthByKind("embed")
-
-		if embedDepthErr != nil {
-			return nil, embedDepthErr
-		}
-
-		report.EmbedQueueDepth = embedDepth
-
-		reindexDepth, reindexDepthErr := config.EmbedQueue.DepthByKind("reindex")
-
-		if reindexDepthErr != nil {
-			return nil, reindexDepthErr
-		}
-
-		report.ReindexQueueDepth = reindexDepth
+	if queueErr := populateQueueDepths(config, report); queueErr != nil {
+		return nil, queueErr
 	}
 
-	if config.WorkflowDrift != nil {
-		drift, listErr := config.WorkflowDrift.ListAll()
-
-		if listErr != nil {
-			return nil, listErr
-		}
-
-		for _, row := range drift {
-			report.Issues = append(report.Issues, Issue{
-				Kind:    IssueWorkflowViolation,
-				NodeID:  row.NodeID,
-				Message: renderWorkflowDriftMessage(row),
-			})
-		}
+	if embedErr := populateEmbedStats(config, report); embedErr != nil {
+		return nil, embedErr
 	}
 
-	if config.PropertyDrift != nil {
-		propDrift, listErr := config.PropertyDrift.ListAll()
-
-		if listErr != nil {
-			return nil, listErr
-		}
-
-		for _, row := range propDrift {
-			report.Issues = append(report.Issues, Issue{
-				Kind:    row.Kind,
-				NodeID:  row.NodeID,
-				Message: renderPropertyDriftMessage(row),
-			})
-		}
-	}
-
-	if config.Embeddings != nil && config.Manifest != nil && config.Manifest.Embeddings.Provider != "" {
-		threshold := int(0.9 * float64(embed.DefaultMaxBytes))
-
-		stats, statsErr := config.Embeddings.Stats(threshold)
-
-		if statsErr != nil {
-			return nil, statsErr
-		}
-
-		report.EmbedStats = &EmbedStatsReport{
-			TotalNodes:   stats.TotalNodes,
-			TotalChunks:  stats.TotalChunks,
-			MeanChunks:   stats.MeanChunks,
-			MedianChunks: stats.MedianChunks,
-			MaxChunks:    stats.MaxChunks,
-			TopByChunks:  stats.TopByChunks,
-		}
-
-		for _, info := range stats.LargeChunks {
-			report.Issues = append(report.Issues, Issue{
-				Kind:    IssueEmbedLargeChunk,
-				NodeID:  info.NodeID,
-				Message: fmt.Sprintf("chunk %d body is %d bytes (>= %d threshold, chunker MaxBytes %d)", info.ChunkIdx, info.BodyLen, threshold, embed.DefaultMaxBytes),
-			})
-		}
-
-		if config.Nodes != nil {
-			noChunks, noChunksErr := findNoChunkNodes(config.Nodes, config.Embeddings, config.EmbedQueue)
-
-			if noChunksErr != nil {
-				return nil, noChunksErr
-			}
-
-			report.Issues = append(report.Issues, noChunks...)
-		}
-	}
-
-	if config.Nodes != nil {
-		pane, paneErr := computeSubUnitPane(config)
-
-		if paneErr != nil {
-			return nil, paneErr
-		}
-
-		if pane != nil {
-			report.SubUnitPane = pane
-
-			// Manifest opt-out + stale rows = dirty index warning.
-			if config.Manifest != nil && !config.Manifest.SubUnitsEnabled() && pane.Total > 0 {
-				report.Issues = append(report.Issues, Issue{
-					Kind:    IssueSubUnitsDisabledDirty,
-					Message: fmt.Sprintf("sub-units disabled but index contains %d sub-unit rows; run `tusk reindex --force` to clean up.", pane.Total),
-				})
-			}
-		}
+	// Sub-unit pane: NOT independent. The dirty-state warning depends on
+	// the pane's freshly-computed Total, so it stays an explicit call after
+	// the independent checks above.
+	if paneErr := populateSubUnitPane(config, report); paneErr != nil {
+		return nil, paneErr
 	}
 
 	return report, nil
+}
+
+// checkDanglingEdges flags every edge whose target_id has no node row. No-op
+// when either repo is absent.
+func checkDanglingEdges(config Config) ([]Issue, error) {
+	if config.Edges == nil || config.Nodes == nil {
+		return nil, nil
+	}
+
+	return findDanglingEdges(config.Nodes, config.Edges)
+}
+
+// checkWorkflowDrift surfaces one workflow-violation Issue per persisted drift
+// row. No-op when the drift repo is absent.
+func checkWorkflowDrift(config Config) ([]Issue, error) {
+	if config.WorkflowDrift == nil {
+		return nil, nil
+	}
+
+	drift, listErr := config.WorkflowDrift.ListAll()
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	issues := make([]Issue, 0, len(drift))
+
+	for _, row := range drift {
+		issues = append(issues, Issue{
+			Kind:    IssueWorkflowViolation,
+			NodeID:  row.NodeID,
+			Message: renderWorkflowDriftMessage(row),
+		})
+	}
+
+	return issues, nil
+}
+
+// checkPropertyDrift surfaces one Issue per persisted property-drift row,
+// carrying the row's own Kind. No-op when the drift repo is absent.
+func checkPropertyDrift(config Config) ([]Issue, error) {
+	if config.PropertyDrift == nil {
+		return nil, nil
+	}
+
+	propDrift, listErr := config.PropertyDrift.ListAll()
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	issues := make([]Issue, 0, len(propDrift))
+
+	for _, row := range propDrift {
+		issues = append(issues, Issue{
+			Kind:    row.Kind,
+			NodeID:  row.NodeID,
+			Message: renderPropertyDriftMessage(row),
+		})
+	}
+
+	return issues, nil
+}
+
+// populateQueueDepths fills report.EmbedQueueDepth / ReindexQueueDepth from the
+// embed queue. No-op when the queue repo is absent.
+func populateQueueDepths(config Config, report *Report) error {
+	if config.EmbedQueue == nil {
+		return nil
+	}
+
+	embedDepth, embedDepthErr := config.EmbedQueue.DepthByKind("embed")
+
+	if embedDepthErr != nil {
+		return embedDepthErr
+	}
+
+	report.EmbedQueueDepth = embedDepth
+
+	reindexDepth, reindexDepthErr := config.EmbedQueue.DepthByKind("reindex")
+
+	if reindexDepthErr != nil {
+		return reindexDepthErr
+	}
+
+	report.ReindexQueueDepth = reindexDepth
+
+	return nil
+}
+
+// populateEmbedStats fills report.EmbedStats and appends the large-chunk /
+// no-chunk Issues. No-op unless an embeddings repo and an embedding provider
+// are both configured.
+func populateEmbedStats(config Config, report *Report) error {
+	if config.Embeddings == nil || config.Manifest == nil || config.Manifest.Embeddings.Provider == "" {
+		return nil
+	}
+
+	threshold := int(0.9 * float64(embed.DefaultMaxBytes))
+
+	stats, statsErr := config.Embeddings.Stats(threshold)
+
+	if statsErr != nil {
+		return statsErr
+	}
+
+	report.EmbedStats = &EmbedStatsReport{
+		TotalNodes:   stats.TotalNodes,
+		TotalChunks:  stats.TotalChunks,
+		MeanChunks:   stats.MeanChunks,
+		MedianChunks: stats.MedianChunks,
+		MaxChunks:    stats.MaxChunks,
+		TopByChunks:  stats.TopByChunks,
+	}
+
+	for _, info := range stats.LargeChunks {
+		report.Issues = append(report.Issues, Issue{
+			Kind:    IssueEmbedLargeChunk,
+			NodeID:  info.NodeID,
+			Message: fmt.Sprintf("chunk %d body is %d bytes (>= %d threshold, chunker MaxBytes %d)", info.ChunkIdx, info.BodyLen, threshold, embed.DefaultMaxBytes),
+		})
+	}
+
+	if config.Nodes != nil {
+		noChunks, noChunksErr := findNoChunkNodes(config.Nodes, config.Embeddings, config.EmbedQueue)
+
+		if noChunksErr != nil {
+			return noChunksErr
+		}
+
+		report.Issues = append(report.Issues, noChunks...)
+	}
+
+	return nil
+}
+
+// populateSubUnitPane computes the sub-unit health pane and the dirty-state
+// warning. It is deliberately NOT one of the independent checks: it keys the
+// dirty-state Issue off the pane's freshly-computed Total. No-op when the node
+// repo is absent or the pane is nil (opt-out + clean index).
+func populateSubUnitPane(config Config, report *Report) error {
+	if config.Nodes == nil {
+		return nil
+	}
+
+	pane, paneErr := computeSubUnitPane(config)
+
+	if paneErr != nil {
+		return paneErr
+	}
+
+	if pane == nil {
+		return nil
+	}
+
+	report.SubUnitPane = pane
+
+	// Manifest opt-out + stale rows = dirty index warning.
+	if config.Manifest != nil && !config.Manifest.SubUnitsEnabled() && pane.Total > 0 {
+		report.Issues = append(report.Issues, Issue{
+			Kind:    IssueSubUnitsDisabledDirty,
+			Message: fmt.Sprintf("sub-units disabled but index contains %d sub-unit rows; run `tusk reindex --force` to clean up.", pane.Total),
+		})
+	}
+
+	return nil
 }
 
 // computeSubUnitPane reads the index for sub-unit health metrics. Returns

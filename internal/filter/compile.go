@@ -123,7 +123,7 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 
 		return "NOT (" + inner + ")", innerParams, nil
 	case *PropertyPredicate:
-		return compileProperty(typed)
+		return compileProperty(typed, "")
 	case *ModifiedSincePredicate:
 		return compileModifiedSince(typed)
 	case *EdgePredicate:
@@ -210,7 +210,13 @@ func compileTypeRef(raw, columnPrefix string, op Op) (string, []any, error) {
 	return "", nil, fmt.Errorf("compile: unknown typeref scope %v", ref.Scope)
 }
 
-func compileProperty(predicate *PropertyPredicate) (string, []any, error) {
+// compileProperty compiles a PropertyPredicate against a column namespace.
+// columnPrefix is "" for the top-level nodes table (bare `type`,
+// `json_extract(properties_json, ...)`) or "<alias>." for a row inside an edge
+// predicate (`n0.type`, `json_extract(n0.properties_json, ...)`), following the
+// same convention compileTypeRef uses. All type assertions are checked so a
+// malformed AST returns an error instead of panicking.
+func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string, []any, error) {
 	column, isCoreColumn := propertyColumn(predicate.Property)
 
 	if predicate.Property == "type" && predicate.Op != OpRange {
@@ -220,7 +226,7 @@ func compileProperty(predicate *PropertyPredicate) (string, []any, error) {
 			return "", nil, fmt.Errorf("compile: type predicate with non-StringValue")
 		}
 
-		return compileTypeRef(stringValue.V, "", predicate.Op)
+		return compileTypeRef(stringValue.V, columnPrefix, predicate.Op)
 	}
 
 	if predicate.Op == OpRange {
@@ -231,10 +237,10 @@ func compileProperty(predicate *PropertyPredicate) (string, []any, error) {
 		}
 
 		if isCoreColumn {
-			return column + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
+			return columnPrefix + column + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
 		}
 
-		extract := fmt.Sprintf(`CAST(json_extract(properties_json, '$.%s') AS INTEGER)`, predicate.Property)
+		extract := fmt.Sprintf(`CAST(json_extract(%sproperties_json, '$.%s') AS INTEGER)`, columnPrefix, predicate.Property)
 
 		return extract + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
 	}
@@ -252,18 +258,18 @@ func compileProperty(predicate *PropertyPredicate) (string, []any, error) {
 	}
 
 	if isCoreColumn {
-		return column + " " + sqlOp + " ?", []any{stringValue.V}, nil
+		return columnPrefix + column + " " + sqlOp + " ?", []any{stringValue.V}, nil
 	}
 
 	if intValue, isBool := boolLiteralAsInt(stringValue, predicate.Op); isBool {
-		return fmt.Sprintf(`json_extract(properties_json, '$.%s') %s ?`, predicate.Property, sqlOp), []any{intValue}, nil
+		return fmt.Sprintf(`json_extract(%sproperties_json, '$.%s') %s ?`, columnPrefix, predicate.Property, sqlOp), []any{intValue}, nil
 	}
 
 	if isNumericOp(predicate.Op) {
-		return fmt.Sprintf(`CAST(json_extract(properties_json, '$.%s') AS INTEGER) %s ?`, predicate.Property, sqlOp), []any{stringValue.V}, nil
+		return fmt.Sprintf(`CAST(json_extract(%sproperties_json, '$.%s') AS INTEGER) %s ?`, columnPrefix, predicate.Property, sqlOp), []any{stringValue.V}, nil
 	}
 
-	return fmt.Sprintf(`json_extract(properties_json, '$.%s') %s ?`, predicate.Property, sqlOp), []any{stringValue.V}, nil
+	return fmt.Sprintf(`json_extract(%sproperties_json, '$.%s') %s ?`, columnPrefix, predicate.Property, sqlOp), []any{stringValue.V}, nil
 }
 
 // boolLiteralAsInt returns (1/0, true) when value is a bareword
@@ -391,55 +397,12 @@ func compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, e
 func compileInnerOnAlias(inner Expr, alias string, depth int) (string, []any, error) {
 	switch typed := inner.(type) {
 	case *PropertyPredicate:
-		return compilePropertyOnAlias(typed, alias)
+		return compileProperty(typed, alias+".")
 	case *EdgePredicate:
 		return compileEdgePredicate(typed, depth+1)
 	}
 
 	return "", nil, fmt.Errorf("compile: unsupported inner predicate type %T", inner)
-}
-
-func compilePropertyOnAlias(predicate *PropertyPredicate, alias string) (string, []any, error) {
-	if predicate.Property == "type" && predicate.Op != OpRange {
-		stringValue, ok := predicate.Value.(StringValue)
-
-		if !ok {
-			return "", nil, fmt.Errorf("compile: type predicate with non-StringValue")
-		}
-
-		return compileTypeRef(stringValue.V, alias+".", predicate.Op)
-	}
-
-	if predicate.Op == OpRange {
-		rangeValue := predicate.Value.(RangeValue)
-
-		if _, isCore := coreColumns[predicate.Property]; isCore {
-			return fmt.Sprintf("%s.%s BETWEEN ? AND ?", alias, predicate.Property), []any{rangeValue.Min, rangeValue.Max}, nil
-		}
-
-		return fmt.Sprintf(`CAST(json_extract(%s.properties_json, '$.%s') AS INTEGER) BETWEEN ? AND ?`, alias, predicate.Property), []any{rangeValue.Min, rangeValue.Max}, nil
-	}
-
-	stringValue := predicate.Value.(StringValue)
-	sqlOp, opErr := opToSQL(predicate.Op)
-
-	if opErr != nil {
-		return "", nil, opErr
-	}
-
-	if _, isCore := coreColumns[predicate.Property]; isCore {
-		return fmt.Sprintf("%s.%s %s ?", alias, predicate.Property, sqlOp), []any{stringValue.V}, nil
-	}
-
-	if intValue, isBool := boolLiteralAsInt(stringValue, predicate.Op); isBool {
-		return fmt.Sprintf(`json_extract(%s.properties_json, '$.%s') %s ?`, alias, predicate.Property, sqlOp), []any{intValue}, nil
-	}
-
-	if isNumericOp(predicate.Op) {
-		return fmt.Sprintf(`CAST(json_extract(%s.properties_json, '$.%s') AS INTEGER) %s ?`, alias, predicate.Property, sqlOp), []any{stringValue.V}, nil
-	}
-
-	return fmt.Sprintf(`json_extract(%s.properties_json, '$.%s') %s ?`, alias, predicate.Property, sqlOp), []any{stringValue.V}, nil
 }
 
 // compileTraversalShortcut returns a WHERE-clause fragment, a slice of CTE
