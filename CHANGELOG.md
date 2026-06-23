@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/germanamz/tusk/compare/v1.13.0...v1.13.1) (2026-06-23)
+
+
+### Bug Fixes
+
+* **graph:** size 3D viewport to its container and harden graph layout ([#569](https://github.com/germanamz/tusk/issues/569)) ([1837af4](https://github.com/germanamz/tusk/commit/1837af4c52f8682c5d2d8cc9954c3838e66aa17b))
+
 ## [1.13.0](https://github.com/germanamz/tusk/compare/v1.12.3...v1.13.0) (2026-06-23)
 
 
