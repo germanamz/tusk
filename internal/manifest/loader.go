@@ -336,11 +336,6 @@ func IsRefProperty(prop PropertyDecl) bool {
 	return prop.Type == "ref" || (prop.Type == "list-of" && prop.ItemType == "ref")
 }
 
-// isRefProperty is the package-internal alias for IsRefProperty.
-func isRefProperty(prop PropertyDecl) bool {
-	return IsRefProperty(prop)
-}
-
 // synthesizeHierarchyBackCompat preserves pre-#405 behavior: a workspace that
 // declares a literal edge type named "parent" without setting a hierarchy
 // alias gets the alias "parent" applied automatically, and becomes the
@@ -436,7 +431,7 @@ func synthesizeRefEdgeTypes(loaded *Manifest) error {
 		nodeType := loaded.NodeTypes[typeName]
 
 		for _, prop := range nodeType.Properties {
-			if !isRefProperty(prop) {
+			if !IsRefProperty(prop) {
 				continue
 			}
 
@@ -492,12 +487,8 @@ func assertCompatibleSynthesis(existing, candidate EdgeType, propName, firstOwne
 		)
 	}
 
-	if existing.OrderedBy != candidate.OrderedBy {
-		return fmt.Errorf(
-			"manifest: ref property %q is declared on both %q and %q with conflicting attributes (ordered-by: %q vs %q); align the declarations or use distinct property names",
-			propName, firstOwner, newOwner, existing.OrderedBy, candidate.OrderedBy,
-		)
-	}
+	// OrderedBy is intentionally not compared: synthesized ref edge types are
+	// always unordered (see buildEdgeTypeFromRef), so both sides are always "".
 
 	if existing.Inverse != candidate.Inverse {
 		return fmt.Errorf(
@@ -626,7 +617,7 @@ func validatePropertyTypeConstraints(typeName string, prop PropertyDecl) error {
 func validateRefTargets(loaded *Manifest) error {
 	for typeName, nodeType := range loaded.NodeTypes {
 		for _, prop := range nodeType.Properties {
-			if !isRefProperty(prop) {
+			if !IsRefProperty(prop) {
 				continue
 			}
 

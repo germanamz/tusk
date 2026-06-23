@@ -1,7 +1,6 @@
 package indexopen_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,7 +43,7 @@ func TestFullCycle_OpenMismatchRebuildReopen(test *testing.T) {
 		Logger:         func(m string) { logs = append(logs, m) },
 	}
 
-	first, openErr := indexopen.OpenOrRebuild(context.Background(), cfg)
+	first, openErr := indexopen.OpenOrRebuild(cfg)
 
 	if openErr != nil {
 		test.Fatalf("fresh open: %v", openErr)
@@ -76,7 +75,7 @@ func TestFullCycle_OpenMismatchRebuildReopen(test *testing.T) {
 		test.Fatalf("close seed: %v", closeErr)
 	}
 
-	third, openErr := indexopen.OpenOrRebuild(context.Background(), cfg)
+	third, openErr := indexopen.OpenOrRebuild(cfg)
 
 	if openErr != nil {
 		test.Fatalf("rebuild open: %v", openErr)
@@ -94,7 +93,7 @@ func TestFullCycle_OpenMismatchRebuildReopen(test *testing.T) {
 
 	logsBefore := len(logs)
 
-	fourth, openErr := indexopen.OpenOrRebuild(context.Background(), cfg)
+	fourth, openErr := indexopen.OpenOrRebuild(cfg)
 
 	if openErr != nil {
 		test.Fatalf("steady-state reopen: %v", openErr)

@@ -584,8 +584,8 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		propResult.HardErrors = modHardErrors
 
 		// Detect explicit unset of required properties. We check input.UnsetKeys
-		// directly (not WhichRequiredWereUnset) so that unsetting a required key
-		// that was never present is also caught.
+		// directly so that unsetting a required key that was never present is
+		// also caught.
 		if nt, declared := service.nodeTypes[newParsed.Type]; declared {
 			declByNameForUnset := make(map[string]manifest.PropertyDecl, len(nt.Properties))
 

@@ -172,33 +172,6 @@ func FilterReservedDrift(drift []PropertyDrift, nodeType string, reserved map[st
 	return filtered
 }
 
-// WhichRequiredWereUnset returns the names of properties that were required,
-// present on before, and absent from after. Used by Service.Modify to detect
-// ErrCannotUnsetRequired violations.
-func WhichRequiredWereUnset(before, after *Node, decls map[string]manifest.NodeType) []string {
-	nodeType, declared := decls[after.Type]
-	if !declared {
-		return nil
-	}
-
-	var unset []string
-
-	for _, decl := range nodeType.Properties {
-		if !decl.Required {
-			continue
-		}
-
-		_, hadBefore := before.Properties[decl.Name]
-		_, hasAfter := after.Properties[decl.Name]
-
-		if hadBefore && !hasAfter {
-			unset = append(unset, decl.Name)
-		}
-	}
-
-	return unset
-}
-
 // renderDeclType returns the human-readable type rendering for a PropertyDecl.
 // Scalars return their bare type name; enum returns "enum(v1,v2,...)";
 // list-of returns "list-of(<inner>)".

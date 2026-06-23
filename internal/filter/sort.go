@@ -46,6 +46,13 @@ func ParseSort(spec string) ([]SortKey, error) {
 			return nil, fmt.Errorf("sort: bare sign at position %d (expected property name after + or -)", index)
 		}
 
+		// The property name is interpolated into ORDER BY json_extract(...),
+		// so it must be a bare identifier — never an arbitrary string that
+		// could break out of the SQL path.
+		if !isIdentifier(trimmed) {
+			return nil, fmt.Errorf("sort: invalid property name %q at position %d (expected letters, digits, '-' or '_')", trimmed, index)
+		}
+
 		key.Property = trimmed
 		keys = append(keys, key)
 	}

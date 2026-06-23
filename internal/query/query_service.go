@@ -42,17 +42,13 @@ type Request struct {
 
 	// GraphExpansion carries the resolved per-call graph-expansion config
 	// (defaults merged with manifest [query.graph-expansion] and per-call
-	// override flags). Populated by the CLI / MCP handler; the query
-	// service ignores the field for Task 1 of the Phase 3 plan and only
-	// reads it once Tasks 2-4 wire it into the retrieval pipeline. Nil is
-	// treated as "no expansion".
+	// override flags). Populated by the CLI / MCP handler and read by the
+	// semantic retrieval pipeline. Nil is treated as "no expansion".
 	GraphExpansion *manifest.GraphExpansion
 
 	// Explain, when true, asks the query service to emit a structured
 	// trace of how each result row was scored (semantic + graph
-	// contributions). Wired into the response in Task 3 of the Phase 3
-	// plan; Task 1 plumbs the field so the Request struct doesn't churn
-	// twice.
+	// contributions).
 	Explain bool
 }
 

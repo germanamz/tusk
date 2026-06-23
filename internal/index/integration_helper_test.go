@@ -1,7 +1,6 @@
 package index_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +32,7 @@ func openRebuilt(test *testing.T, indexPath string, factory func(*index.Index) r
 		test.Fatalf("close seed: %v", closeErr)
 	}
 
-	store, openErr := indexopen.OpenOrRebuild(context.Background(), indexopen.Config{
+	store, openErr := indexopen.OpenOrRebuild(indexopen.Config{
 		IndexPath: indexPath,
 		ReindexFactory: func(idx *index.Index) reindex.Config {
 			cfg := factory(idx)

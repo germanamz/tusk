@@ -127,7 +127,7 @@ the document is restructured.`,
 				Edges:      index.NewEdgeRepo(store),
 			}
 
-			graphExpansion, mergeErr := mergeGraphExpansion(cmd, loaded.GraphExpansion, graphExpansionOverrides{
+			graphExpansion, mergeErr := mergeGraphExpansion(loaded.GraphExpansion, graphExpansionOverrides{
 				ExpandSet:   cmd.Flags().Changed("graph-expand"),
 				ExpandValue: graphExpand,
 				NoExpandSet: cmd.Flags().Changed("no-graph-expand"),
@@ -227,9 +227,7 @@ type graphExpansionOverrides struct {
 //
 // The returned pointer is never nil on success: subsequent tasks read the
 // struct directly off Request.GraphExpansion.
-func mergeGraphExpansion(cmd *cobra.Command, base manifest.GraphExpansion, override graphExpansionOverrides) (*manifest.GraphExpansion, error) {
-	_ = cmd // accepted for future per-flag diagnostics; unused for now.
-
+func mergeGraphExpansion(base manifest.GraphExpansion, override graphExpansionOverrides) (*manifest.GraphExpansion, error) {
 	resolved := base
 
 	// Struct copy aliases the EdgeTypes slice header; clone the backing

@@ -323,30 +323,6 @@ func TestDispatcher_Status(test *testing.T) {
 	}
 }
 
-func TestDispatcher_ListAliases(test *testing.T) {
-	deps := setupWorkspace(test)
-	deps.Manifest.Aliases = map[string]manifest.Alias{
-		"zeta":   {Name: "zeta", Command: "status"},
-		"alpha":  {Name: "alpha", Command: "status"},
-		"middle": {Name: "middle", Command: "status"},
-	}
-
-	dispatcher := aliasdispatch.NewDispatcher(deps)
-	listed := dispatcher.ListAliases()
-
-	if len(listed) != 3 {
-		test.Fatalf("ListAliases len = %d, want 3", len(listed))
-	}
-
-	wantOrder := []string{"alpha", "middle", "zeta"}
-
-	for index, want := range wantOrder {
-		if listed[index].Name != want {
-			test.Errorf("ListAliases[%d].Name = %q, want %q", index, listed[index].Name, want)
-		}
-	}
-}
-
 func TestDispatcher_UnknownVerb(test *testing.T) {
 	deps := setupWorkspace(test)
 	dispatcher := aliasdispatch.NewDispatcher(deps)

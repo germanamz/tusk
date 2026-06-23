@@ -52,7 +52,7 @@ func resolveWorkspace() (*workspace.Workspace, *manifest.Manifest, error) {
 // reindex factory against root. Callers own the returned store's lifecycle and
 // their own error wrapping. Shared by every command that opens the index.
 func openStore(cmd *cobra.Command, root, indexPath string, loaded *manifest.Manifest) (*index.Index, error) {
-	return indexopen.OpenOrRebuild(cmd.Context(), indexopen.Config{
+	return indexopen.OpenOrRebuild(indexopen.Config{
 		IndexPath: indexPath,
 		ReindexFactory: func(idx *index.Index) reindex.Config {
 			return reindex.Config{

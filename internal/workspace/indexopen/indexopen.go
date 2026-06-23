@@ -6,7 +6,6 @@
 package indexopen
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -37,7 +36,7 @@ type Config struct {
 // On success the returned *index.Index is open and ready for use;
 // the caller is responsible for closing it. On error nothing is
 // open.
-func OpenOrRebuild(ctx context.Context, cfg Config) (*index.Index, error) {
+func OpenOrRebuild(cfg Config) (*index.Index, error) {
 	if cfg.IndexPath == "" {
 		return nil, errors.New("indexopen: IndexPath is required")
 	}
@@ -72,8 +71,6 @@ func OpenOrRebuild(ctx context.Context, cfg Config) (*index.Index, error) {
 		fresh.Close()
 		return nil, fmt.Errorf("indexopen: reindex during rebuild: %w", runErr)
 	}
-
-	_ = ctx // reserved for future cancellation wiring
 
 	return fresh, nil
 }
