@@ -249,6 +249,27 @@ func (repo *NodeRepo) List(filter ListFilter) ([]NodeRow, error) {
 	return repo.queryNodes(query, args...)
 }
 
+// ListFileNodes returns every file-level node (parent_id IS NULL), ordered by
+// id ASC. Sub-unit rows are excluded. This is the file-level snapshot source
+// for the graph view; List() with an empty ListFilter would also return
+// sub-units, which the file-level graph does not render.
+func (repo *NodeRepo) ListFileNodes() ([]NodeRow, error) {
+	return repo.queryNodes(nodeSelectColumns + ` FROM nodes WHERE parent_id IS NULL ORDER BY id ASC`)
+}
+
+// CountFileNodes returns the number of file-level nodes (parent_id IS NULL).
+// Used by the graph snapshot to report total size and drive the scale
+// guardrail. EdgeRepo has no count helper; edge totals come from len(ListAll()).
+func (repo *NodeRepo) CountFileNodes() (int, error) {
+	var count int
+
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE parent_id IS NULL`).Scan(&count); scanErr != nil {
+		return 0, fmt.Errorf("nodeRepo: count file nodes: %w", scanErr)
+	}
+
+	return count, nil
+}
+
 // ListByParent returns every sub-unit row whose `parent_id` equals parentID,
 // ordered by ordinal ASC. Returns an empty slice (nil) when the parent has
 // no sub-unit rows. Used by the sub-unit sync pipeline (Task 3) to diff the

@@ -101,6 +101,8 @@ COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
+RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+
 ENV PATH=/home/vscode/.local/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV ZELLIJ_CONFIG_DIR=/etc/zellij
 

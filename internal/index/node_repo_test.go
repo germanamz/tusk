@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -848,5 +849,71 @@ func TestNodeRepo_CountOversizeSubUnitPayloads_BytesNotCodepoints(test *testing.
 
 	if count8000 != 0 {
 		test.Errorf("CountOversizeSubUnitPayloads(8000) = %d, want 0 (6000 bytes ≤ 8000)", count8000)
+	}
+}
+
+func TestNodeRepo_ListFileNodes_excludesSubUnits(test *testing.T) {
+	store := openTestIndex(test) // same helper TestNodeRepo_ListByParent uses
+	repo := index.NewNodeRepo(store)
+
+	// Seed two file nodes + one sub-unit under notes/a, mirroring the
+	// Upsert/BulkUpsert calls in TestNodeRepo_ListByParent (node_repo_test.go:280-318).
+	fileA := index.NodeRow{
+		ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "Note A",
+		PropertiesJSON: `{}`, LastMtime: 1, LastSize: 1, LastChecksum: "h",
+	}
+
+	if upsertErr := repo.Upsert(fileA); upsertErr != nil {
+		test.Fatalf("Upsert notes/a: %v", upsertErr)
+	}
+
+	fileB := index.NodeRow{
+		ID: "notes/b", Type: "note", Path: "notes/b.md", Title: "Note B",
+		PropertiesJSON: `{}`, LastMtime: 1, LastSize: 1, LastChecksum: "h",
+	}
+
+	if upsertErr := repo.Upsert(fileB); upsertErr != nil {
+		test.Fatalf("Upsert notes/b: %v", upsertErr)
+	}
+
+	subUnits := []index.NodeRow{
+		{
+			ID: "notes/a#sec1", Type: "section", Path: fileA.Path,
+			Title: "Section 1", PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: fileA.ID, Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+	}
+
+	if bulkErr := repo.BulkUpsert(subUnits, "markdown"); bulkErr != nil {
+		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
+	}
+
+	files, err := repo.ListFileNodes()
+
+	if err != nil {
+		test.Fatalf("ListFileNodes: %v", err)
+	}
+
+	gotIDs := make([]string, 0, len(files))
+
+	for _, row := range files {
+		gotIDs = append(gotIDs, row.ID)
+	}
+
+	want := []string{"notes/a", "notes/b"}
+
+	if !reflect.DeepEqual(gotIDs, want) {
+		test.Fatalf("ListFileNodes ids = %v, want %v", gotIDs, want)
+	}
+
+	count, err := repo.CountFileNodes()
+
+	if err != nil {
+		test.Fatalf("CountFileNodes: %v", err)
+	}
+
+	if count != 2 {
+		test.Fatalf("CountFileNodes = %d, want 2", count)
 	}
 }

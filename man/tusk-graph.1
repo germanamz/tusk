@@ -1,0 +1,53 @@
+.nh
+.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+
+.SH NAME
+tusk-graph - Serve an interactive 3D graph view of the vault
+
+
+.SH SYNOPSIS
+\fBtusk graph [flags]\fP
+
+
+.SH DESCRIPTION
+Serve a local, read-only 3D graph of the vault (nodes + edges) and
+keep it live as files change.
+
+.PP
+The server binds to loopback by default. It does not open a browser
+automatically: press space in this terminal to open it, or pass --open.
+
+
+.SH OPTIONS
+\fB--addr\fP="127.0.0.1:7373"
+	loopback listen address
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for graph
+
+.PP
+\fB--open\fP[=false]
+	open the browser automatically at startup
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Serve on 127.0.0.1:7373 and press space to open
+  tusk graph
+
+  # Open the browser automatically
+  tusk graph --open
+
+  # Bind a specific loopback port
+  tusk graph --addr 127.0.0.1:9000
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP

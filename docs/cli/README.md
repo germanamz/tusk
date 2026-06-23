@@ -15,6 +15,7 @@ Edit the help strings, then run `make docs`.
     - [`tusk edge add`](tusk_edge_add.md) — Add a typed edge from one node to another
     - [`tusk edge list`](tusk_edge_list.md) — List edges, optionally filtered by source, target, or kind
     - [`tusk edge remove`](tusk_edge_remove.md) — Remove a specific edge by source, kind, and target
+  - [`tusk graph`](tusk_graph.md) — Serve an interactive 3D graph view of the vault
   - [`tusk init`](tusk_init.md) — Initialize a Tusk workspace in the current directory
   - [`tusk mcp`](tusk_mcp.md) — Run the long-running MCP server (stdio or SSE)
   - [`tusk node`](tusk_node.md) — Manage individual nodes (create, get, render, list, modify, move, delete)

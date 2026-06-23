@@ -45,6 +45,9 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		// `context` is the warm-context composer entry point; it fans
 		// out over other aliased verbs rather than being one.
 		"context": {},
+		// `graph` serves a read-only HTTP graph view; it is a long-running
+		// serve command, not part of the alias dispatcher.
+		"graph": {},
 	}
 
 	leaves := collectLeafVerbs(rootCmd, "")

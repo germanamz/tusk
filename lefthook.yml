@@ -55,3 +55,11 @@ pre-push:
           git --no-pager diff --stat -- man docs/cli
           exit 1
         fi
+    web-dist-drift:
+      run: |
+        make web
+        if ! git diff --quiet -- internal/graphview/dist; then
+          echo "internal/graphview/dist is stale. Run 'make web' and commit it."
+          git --no-pager diff --stat -- internal/graphview/dist
+          exit 1
+        fi

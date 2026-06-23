@@ -1,0 +1,23 @@
+{
+  "name": "tusk-graph-web",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "3d-force-graph": "1.73.4",
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.48.0",
+    "typescript": "5.6.3",
+    "vite": "5.4.10",
+    "vitest": "2.1.4"
+  }
+}
