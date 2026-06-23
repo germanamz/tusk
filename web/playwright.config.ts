@@ -10,5 +10,5 @@ export default defineConfig({
     url: 'http://127.0.0.1:7399/healthz',
     reuseExistingServer: false,
   },
-  use: { baseURL: 'http://127.0.0.1:7399' },
+  use: { baseURL: 'http://127.0.0.1:7399', viewport: { width: 1280, height: 720 } },
 })
