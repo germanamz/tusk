@@ -5,10 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>tusk graph</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #0b0e14; color: #e6e6e6; font: 14px system-ui, sans-serif; }
-      #app { display: flex; flex-direction: column; height: 100vh; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6e6e6; font: 14px system-ui, sans-serif; }
+      /* Column layout: the facets bar takes whatever height it needs (it wraps
+         to multiple rows on type/kind-rich vaults) and #main-area fills the
+         rest. No hardcoded bar height, so a wrapped bar can never overlap the
+         graph. */
+      body { display: flex; flex-direction: column; }
       #facets {
-        position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+        flex: 0 0 auto;
         background: rgba(11,14,20,0.85); padding: 6px 12px;
         display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
         border-bottom: 1px solid #2a2d3a;
@@ -25,22 +29,28 @@
         padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 13px;
       }
       #search-form button:hover { background: #2a2d3a; }
+      /* Alert overlays float over the graph area; anchored to #main-area so
+         their position tracks the (variable-height) facets bar automatically. */
       #search-msg {
-        display: none; position: fixed; top: 42px; right: 12px; z-index: 20;
+        display: none; position: absolute; top: 8px; right: 12px; z-index: 20;
         background: rgba(30,33,48,0.95); border: 1px solid #f5a623;
         color: #f5a623; padding: 6px 12px; border-radius: 4px; font-size: 12px;
         max-width: 360px;
       }
       #banner {
-        display: none; position: fixed; top: 42px; left: 50%; transform: translateX(-50%);
+        display: none; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
         z-index: 20; background: rgba(30,33,48,0.95); border: 1px solid #f0c040;
         color: #f0c040; padding: 6px 16px; border-radius: 4px; font-size: 13px;
         pointer-events: none;
       }
-      #main-area { display: flex; flex: 1; margin-top: 36px; }
-      #graph { flex: 1; height: calc(100vh - 36px); }
+      #main-area { position: relative; display: flex; flex: 1; min-height: 0; }
+      /* min-width:0 lets this flex child shrink below the canvas size so the
+         320px panel keeps its place; without it the canvas pushes the panel
+         off-screen (flex items default to min-width:auto). Height comes from
+         the flex row, so the canvas (sized to this element) tracks it exactly. */
+      #graph { flex: 1; min-width: 0; }
       #panel {
-        width: 320px; flex-shrink: 0; overflow-y: auto;
+        width: 320px; flex-shrink: 0; overflow: hidden auto;
         background: #12151f; border-left: 1px solid #2a2d3a;
         padding: 12px; box-sizing: border-box;
       }
@@ -70,9 +80,9 @@
         <button type="submit">Search</button>
       </form>
     </div>
-    <div id="search-msg"></div>
-    <div id="banner">large graph — apply a filter</div>
     <div id="main-area">
+      <div id="search-msg"></div>
+      <div id="banner">large graph — apply a filter</div>
       <div id="graph"></div>
       <aside id="panel"></aside>
     </div>

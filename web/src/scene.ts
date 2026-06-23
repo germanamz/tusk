@@ -10,6 +10,12 @@ export interface Scene {
 
 export function createScene(el: HTMLElement): Scene {
   const graph = ForceGraph3D()(el)
+    // Size the canvas to its container, not the window. 3d-force-graph defaults
+    // width/height to window.innerWidth/innerHeight and never reflows on its own,
+    // so without this the WebGL canvas spills past #graph and shoves the rest of
+    // the UI out of bounds.
+    .width(el.clientWidth)
+    .height(el.clientHeight)
     .backgroundColor('#0b0e14')
     .nodeId('id')
     .nodeLabel((node: any) => `${node.title || node.id} (${node.type})`)
@@ -17,6 +23,15 @@ export function createScene(el: HTMLElement): Scene {
     .nodeVal((node: any) => sizeForDegree(node.degree))
     .linkColor((link: any) => EDGE_KIND_COLORS[link.kind] ?? '#888')
     .linkDirectionalArrowLength(3)
+
+  // Keep the canvas matched to the container on every layout change (window
+  // resize, panel show/hide). The library installs no resize handling itself.
+  const resize = new ResizeObserver(() => {
+    if (el.clientWidth && el.clientHeight) {
+      graph.width(el.clientWidth).height(el.clientHeight)
+    }
+  })
+  resize.observe(el)
 
   return {
     instance: graph,
