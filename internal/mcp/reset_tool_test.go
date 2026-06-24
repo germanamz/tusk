@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/indexepoch"
+	"github.com/germanamz/tusk/internal/epoch"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -57,8 +57,8 @@ func TestResetTool_SwapsAndKeepsServing(test *testing.T) {
 
 	// Async-guaranteed facts: epoch advanced, the daemon still serves a non-error
 	// list against the FRESH handle (proves the swap worked and the DB is open).
-	if epoch, _ := indexepoch.Read(root); epoch != 1 {
-		test.Fatalf("expected epoch 1 after reset, got %d", epoch)
+	if onDisk, _ := epoch.Index.Read(root); onDisk != 1 {
+		test.Fatalf("expected epoch 1 after reset, got %d", onDisk)
 	}
 
 	if listResult, listErr := srv.HandleToolCall(context.Background(), nodeListRequest()); listErr != nil || listResult.IsError {

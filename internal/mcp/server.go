@@ -11,11 +11,10 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/lock"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/manifestepoch"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/version"
 )
@@ -71,10 +70,10 @@ func NewServer(runtime *Runtime) *Server {
 		handlers: map[string]server.ToolHandlerFunc{},
 	}
 
-	initialEpoch, _ := indexepoch.Read(runtime.Root)
+	initialEpoch, _ := epoch.Index.Read(runtime.Root)
 	srv.seenEpoch.Store(initialEpoch)
 
-	initialManifestEpoch, _ := manifestepoch.Read(runtime.Root)
+	initialManifestEpoch, _ := epoch.Manifest.Read(runtime.Root)
 	srv.seenManifestEpoch.Store(initialManifestEpoch)
 
 	registerTools(srv)
@@ -213,7 +212,7 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 	// once we hold resetMu it is stable, so a stale second call is a cheap no-op.
 	// (This compares the .tusk/epoch sentinel, not the index file — it never skips
 	// a genuine new bump.)
-	if latest, _ := indexepoch.Read(root); latest <= srv.seenEpoch.Load() {
+	if latest, _ := epoch.Index.Read(root); latest <= srv.seenEpoch.Load() {
 		return nil
 	}
 
@@ -245,7 +244,7 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 	freshManifest := srv.runtime.Manifest
 	srv.mu.RUnlock()
 
-	latestManifestEpoch, _ := manifestepoch.Read(root)
+	latestManifestEpoch, _ := epoch.Manifest.Read(root)
 	manifestAdvanced := false
 	if latestManifestEpoch > srv.seenManifestEpoch.Load() {
 		loaded, loadErr := manifest.Load(manifestPath)
@@ -303,7 +302,7 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 	if fileAbsent {
 		// We are the recreator (resetter died mid-reset). Bump the epoch so other
 		// siblings converge, and rebuild from disk.
-		bumped, bumpErr := indexepoch.Bump(root)
+		bumped, bumpErr := epoch.Index.Bump(root)
 		if bumpErr != nil {
 			return fmt.Errorf("mcp: recreator bump: %w", bumpErr)
 		}
@@ -329,7 +328,7 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 	}
 
 	// Joined an already-recreated file: record the resetter's epoch.
-	current, _ := indexepoch.Read(root)
+	current, _ := epoch.Index.Read(root)
 	srv.seenEpoch.Store(current)
 
 	return nil
@@ -342,7 +341,7 @@ func (srv *Server) maybeReopenForEpoch(ctx context.Context, lockTTL time.Duratio
 	root := srv.runtime.Root
 	srv.mu.RUnlock()
 
-	current, readErr := indexepoch.Read(root)
+	current, readErr := epoch.Index.Read(root)
 	if readErr != nil {
 		return false, readErr
 	}
@@ -367,7 +366,7 @@ func (srv *Server) maybeReloadManifestForEpoch(ctx context.Context, lockTTL time
 	root := srv.runtime.Root
 	srv.mu.RUnlock()
 
-	current, readErr := manifestepoch.Read(root)
+	current, readErr := epoch.Manifest.Read(root)
 
 	if readErr != nil {
 		return false, readErr
@@ -408,7 +407,7 @@ func (srv *Server) siblingReloadManifest(ctx context.Context, lockTTL time.Durat
 	srv.mu.RUnlock()
 
 	// Already converged? Dedup when both watchers detect the same bump.
-	if latest, _ := manifestepoch.Read(root); latest <= srv.seenManifestEpoch.Load() {
+	if latest, _ := epoch.Manifest.Read(root); latest <= srv.seenManifestEpoch.Load() {
 		return nil
 	}
 
@@ -445,7 +444,7 @@ func (srv *Server) siblingReloadManifest(ctx context.Context, lockTTL time.Durat
 	// is nothing on old to close here — the index handle stays live.
 	srv.mu.Lock()
 	srv.runtime = fresh
-	latestEpoch, _ := manifestepoch.Read(root)
+	latestEpoch, _ := epoch.Manifest.Read(root)
 	srv.seenManifestEpoch.Store(latestEpoch)
 	srv.mu.Unlock()
 

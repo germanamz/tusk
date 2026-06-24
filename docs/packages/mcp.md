@@ -27,7 +27,7 @@ The `Runtime` (its open DB handle especially) is held behind an `RWMutex`. Read 
 
 ## Epoch watchers
 
-A reset bumps the `.tusk/epoch` sentinel (`internal/indexepoch`). Two background goroutines drive convergence on it:
+A reset bumps the `.tusk/epoch` sentinel ([`internal/epoch`](epoch.md), `epoch.Index`). Two background goroutines drive convergence on it:
 
 - `RunEpochWatcher` — the deterministic backstop: polls `.tusk/epoch` on a 2s tick and calls `maybeReopenForEpoch`.
 - `RunIndexEpochFastWatcher` — the low-latency fast-path: an fsnotify watch on the `.tusk/` directory that fires on a change to the `epoch` sentinel and calls `maybeReopenForEpoch` immediately, so siblings converge in milliseconds rather than up to one tick. Both call the same convergence path; the fast-path is pure latency optimization.
@@ -38,7 +38,7 @@ The two epoch-watcher pairs (index + manifest, see below) always run, regardless
 
 A `tusk reload` command or `tusk_reload` tool explicitly reloads the manifest (`tusk.toml`): it re-reads and validates the file, atomically swaps the in-memory schema (manifest, behavior engine, node service) reusing the open index handle, and kicks a reindex to re-validate indexed content against the new schema. Reload is **explicit-only** — the file watcher never auto-reloads on `tusk.toml` writes.
 
-The originating process validates, swaps, bumps the `.tusk/manifest-epoch` sentinel (`internal/manifestepoch`), and owns the single reindex. Sibling daemons converge on the bump via their own watcher pair — `RunManifestEpochWatcher` (2s poll) and `RunManifestEpochFastWatcher` (fsnotify fast-path) — calling `maybeReloadManifestForEpoch` → `siblingReloadManifest`, which reloads the manifest **only** (never reindexes; the originator owns that). When a reset and a reload land in the same window, `siblingReopen` re-reads `manifest-epoch` under the same flock and installs the fresh manifest alongside the fresh index, so a sibling never serves the new index against the stale schema.
+The originating process validates, swaps, bumps the `.tusk/manifest-epoch` sentinel ([`internal/epoch`](epoch.md), `epoch.Manifest`), and owns the single reindex. Sibling daemons converge on the bump via their own watcher pair — `RunManifestEpochWatcher` (2s poll) and `RunManifestEpochFastWatcher` (fsnotify fast-path) — calling `maybeReloadManifestForEpoch` → `siblingReloadManifest`, which reloads the manifest **only** (never reindexes; the originator owns that). When a reset and a reload land in the same window, `siblingReopen` re-reads `manifest-epoch` under the same flock and installs the fresh manifest alongside the fresh index, so a sibling never serves the new index against the stale schema.
 
 Validation matches boot semantics, so a hot reload reaches the same in-memory state a restart would: blocking on a TOML parse/structural error or a behavior-engine build failure (the swap is refused and the epoch is not bumped); non-blocking on dangling aliases / bad `[context]` entries (dropped and surfaced as warnings, exactly as boot does). `seenManifestEpoch` advances only after a successful swap, so a half-written `tusk.toml` is retried on the next tick rather than poisoning convergence.
 

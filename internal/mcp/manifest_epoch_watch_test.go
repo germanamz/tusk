@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/germanamz/tusk/internal/manifestepoch"
+	"github.com/germanamz/tusk/internal/epoch"
 )
 
 // Poll backstop: maybeReloadManifestForEpoch on every tick; no reload if epoch unchanged.
@@ -23,7 +23,7 @@ func TestManifestEpochWatcher_PollsOnTicker(test *testing.T) {
 		test.Fatal("reloaded despite unchanged manifest epoch")
 	}
 
-	if _, bumpErr := manifestepoch.Bump(root); bumpErr != nil {
+	if _, bumpErr := epoch.Manifest.Bump(root); bumpErr != nil {
 		test.Fatalf("bump: %v", bumpErr)
 	}
 
@@ -51,7 +51,7 @@ func TestManifestEpochFastWatcher_ReloadsPromptly(test *testing.T) {
 
 	time.Sleep(150 * time.Millisecond)
 
-	if _, err := manifestepoch.Bump(root); err != nil {
+	if _, err := epoch.Manifest.Bump(root); err != nil {
 		test.Fatalf("bump: %v", err)
 	}
 

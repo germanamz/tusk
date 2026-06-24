@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/manifestepoch"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
@@ -91,7 +91,7 @@ reported as warnings while the swap still proceeds.`,
 			logger.Debug("manifest validation succeeded")
 
 			// All blocking validation passed; bump the epoch
-			newEpoch, bumpErr := manifestepoch.Bump(ws.Root)
+			newEpoch, bumpErr := epoch.Manifest.Bump(ws.Root)
 
 			if bumpErr != nil {
 				return fmt.Errorf("manifestepoch: %w", bumpErr)

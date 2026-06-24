@@ -7,8 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/germanamz/tusk/internal/indexepoch"
-	"github.com/germanamz/tusk/internal/manifestepoch"
+	"github.com/germanamz/tusk/internal/epoch"
 )
 
 // TestRunBackground_UngatesEpochWatchers_WhenWorkersZero asserts that a
@@ -35,7 +34,7 @@ func TestRunBackground_UngatesEpochWatchers_WhenWorkersZero(test *testing.T) {
 
 	time.Sleep(150 * time.Millisecond) // let the epoch watchers boot
 
-	if _, err := manifestepoch.Bump(root); err != nil {
+	if _, err := epoch.Manifest.Bump(root); err != nil {
 		test.Fatalf("bump: %v", err)
 	}
 
@@ -60,7 +59,7 @@ func TestNewServer_InitializesSeenManifestEpoch(test *testing.T) {
 
 	// Manually bump manifest-epoch to 5, simulating a prior reload.
 	for idx := 0; idx < 5; idx++ {
-		if _, err := manifestepoch.Bump(root); err != nil {
+		if _, err := epoch.Manifest.Bump(root); err != nil {
 			test.Fatalf("Bump: %v", err)
 		}
 	}
@@ -108,7 +107,7 @@ func TestMaybeReloadManifestForEpoch_CallsSiblingWhenAdvanced(test *testing.T) {
 
 	// Bump manifest-epoch out-of-band (simulating a prior tusk_reload by another
 	// process or a prior CLI tusk reload).
-	if _, err := manifestepoch.Bump(root); err != nil {
+	if _, err := epoch.Manifest.Bump(root); err != nil {
 		test.Fatalf("Bump: %v", err)
 	}
 
@@ -133,7 +132,7 @@ func TestMaybeReloadManifestForEpoch_Idempotent(test *testing.T) {
 	srv := buildTestServer(test)
 	root := srv.runtime.Root
 
-	if _, err := manifestepoch.Bump(root); err != nil {
+	if _, err := epoch.Manifest.Bump(root); err != nil {
 		test.Fatalf("Bump: %v", err)
 	}
 
@@ -167,7 +166,7 @@ func TestSiblingReloadManifest_SuccessfulReloadUnchanged(test *testing.T) {
 	oldManifest := srv.runtime.Manifest
 
 	// Bump manifest-epoch (no actual TOML change — tests the unchanged case).
-	if _, err := manifestepoch.Bump(srv.runtime.Root); err != nil {
+	if _, err := epoch.Manifest.Bump(srv.runtime.Root); err != nil {
 		test.Fatalf("Bump: %v", err)
 	}
 
@@ -200,7 +199,7 @@ func TestSiblingReloadManifest_NoSwapOnParseError(test *testing.T) {
 	root := srv.runtime.Root
 
 	// Bump manifest-epoch.
-	if _, err := manifestepoch.Bump(root); err != nil {
+	if _, err := epoch.Manifest.Bump(root); err != nil {
 		test.Fatalf("Bump: %v", err)
 	}
 
@@ -233,7 +232,7 @@ func TestSiblingReloadManifest_NeverReindexes(test *testing.T) {
 	oldGen, _ := metaRepo.Get("reindex_gen")
 
 	// Bump and reload.
-	if _, err := manifestepoch.Bump(srv.runtime.Root); err != nil {
+	if _, err := epoch.Manifest.Bump(srv.runtime.Root); err != nil {
 		test.Fatalf("Bump: %v", err)
 	}
 
@@ -266,11 +265,11 @@ func TestSiblingReopen_ConvergesManifestToo(test *testing.T) {
 	// index-epoch watcher would trigger) must converge BOTH epochs and install
 	// the fresh index against the fresh manifest — never the fresh index against
 	// the stale manifest.
-	if _, err := indexepoch.Bump(root); err != nil {
+	if _, err := epoch.Index.Bump(root); err != nil {
 		test.Fatalf("index bump: %v", err)
 	}
 
-	if _, err := manifestepoch.Bump(root); err != nil {
+	if _, err := epoch.Manifest.Bump(root); err != nil {
 		test.Fatalf("manifest bump: %v", err)
 	}
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/germanamz/tusk/internal/manifestepoch"
+	"github.com/germanamz/tusk/internal/epoch"
 )
 
 // TestMCPReload_HalfwriteRecovery pins the partial-write recovery (spec §8):
@@ -38,7 +38,7 @@ name = "test
 
 	// Bump the manifest-epoch while the file is broken (simulating the originator
 	// bumping before the write completes — a race condition this gate recovers from).
-	bumpedEpoch, bumpErr := manifestepoch.Bump(root)
+	bumpedEpoch, bumpErr := epoch.Manifest.Bump(root)
 	if bumpErr != nil {
 		test.Fatalf("bump while broken: %v", bumpErr)
 	}

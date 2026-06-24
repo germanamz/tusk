@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/indexepoch"
 	"github.com/germanamz/tusk/internal/lock"
 )
 
@@ -102,7 +102,7 @@ func PerformLocked(cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("reset: reopen: %w", reopenErr)
 	}
 
-	epoch, bumpErr := indexepoch.Bump(cfg.Root)
+	bumped, bumpErr := epoch.Index.Bump(cfg.Root)
 
 	if bumpErr != nil {
 		_ = store.Close()
@@ -110,7 +110,7 @@ func PerformLocked(cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("reset: bump epoch: %w", bumpErr)
 	}
 
-	return &Result{Epoch: epoch, DeletedArtifacts: deleted, Store: store}, nil
+	return &Result{Epoch: bumped, DeletedArtifacts: deleted, Store: store}, nil
 }
 
 // Perform is the one-shot convenience used by the CLI (which has no live
