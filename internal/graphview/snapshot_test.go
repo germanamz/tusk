@@ -55,15 +55,26 @@ func TestSnapshot_FileLevelOnly(t *testing.T) {
 		t.Fatalf("edges = %d, want 1 (subunit contains edge dropped)", len(graph.Edges))
 	}
 
-	var nodeA GraphNode
+	var nodeA, nodeB GraphNode
 	for _, node := range graph.Nodes {
 		if node.ID == "notes/a" {
 			nodeA = node
+		}
+		if node.ID == "notes/b" {
+			nodeB = node
 		}
 	}
 
 	if nodeA.Degree != 1 {
 		t.Fatalf("notes/a degree = %d, want 1", nodeA.Degree)
+	}
+
+	if nodeA.InDegree != 0 {
+		t.Fatalf("notes/a in_degree = %d, want 0 (source of the only kept edge)", nodeA.InDegree)
+	}
+
+	if nodeB.InDegree != 1 {
+		t.Fatalf("notes/b in_degree = %d, want 1 (target of notes/a -> notes/b)", nodeB.InDegree)
 	}
 
 	if len(nodeA.Tags) != 2 || nodeA.Tags[0] != "x" {

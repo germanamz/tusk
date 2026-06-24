@@ -4,13 +4,24 @@ import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
 import { fetchNodeDetail, fetchSubunits } from './nodeapi'
 import { renderPanel } from './panel'
-import { EDGE_KIND_COLORS } from './encode'
+import { EDGE_KIND_COLORS, buildTypeColors } from './encode'
 import { runSearch } from './search'
 
 let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [] }
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false }
 
-function buildFacetBar(graph: Graph, scene: ReturnType<typeof createScene>): void {
+// The canonical type→color map for a graph is built from its FULL type set, so
+// that filtering (hiding a type) never shifts another type's color. Every render
+// site derives the map from rawGraph and threads the SAME map into the scene,
+// legend, and facet bar so all three stay consistent.
+const colorsFor = (g: Graph): Map<string, string> =>
+  buildTypeColors([...new Set(g.nodes.map((n) => n.type))])
+
+function buildFacetBar(
+  graph: Graph,
+  scene: ReturnType<typeof createScene>,
+  typeColors: Map<string, string>,
+): void {
   const bar = document.getElementById('facets')!
   bar.innerHTML = ''
 
@@ -28,10 +39,14 @@ function buildFacetBar(graph: Graph, scene: ReturnType<typeof createScene>): voi
     cb.addEventListener('change', () => {
       if (cb.checked) facetState.hiddenTypes.delete(t)
       else facetState.hiddenTypes.add(t)
-      scene.setGraph(applyFacets(rawGraph, facetState))
+      scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
     })
     label.appendChild(cb)
-    label.appendChild(document.createTextNode(' ' + t))
+    // A small swatch in the type's hue makes the filter bar self-documenting.
+    const swatch = document.createElement('span')
+    swatch.style.cssText = `display:inline-block;width:10px;height:10px;background:${typeColors.get(t) ?? '#888888'};border-radius:2px;margin:0 4px 0 4px;vertical-align:middle`
+    label.appendChild(swatch)
+    label.appendChild(document.createTextNode(t))
     bar.appendChild(label)
   }
 
@@ -49,7 +64,7 @@ function buildFacetBar(graph: Graph, scene: ReturnType<typeof createScene>): voi
     cb.addEventListener('change', () => {
       if (cb.checked) facetState.hiddenKinds.delete(k)
       else facetState.hiddenKinds.add(k)
-      scene.setGraph(applyFacets(rawGraph, facetState))
+      scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
     })
     label.appendChild(cb)
     label.appendChild(document.createTextNode(' ' + k))
@@ -63,24 +78,53 @@ function buildFacetBar(graph: Graph, scene: ReturnType<typeof createScene>): voi
   orphanCb.checked = facetState.hideOrphans
   orphanCb.addEventListener('change', () => {
     facetState.hideOrphans = orphanCb.checked
-    scene.setGraph(applyFacets(rawGraph, facetState))
+    scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
   })
   orphanLabel.appendChild(orphanCb)
   orphanLabel.appendChild(document.createTextNode('  Hide orphans'))
   bar.appendChild(orphanLabel)
 }
 
-function buildLegend(): void {
+function buildLegend(graph: Graph, typeColors: Map<string, string>): void {
   const legend = document.getElementById('legend')!
-  legend.innerHTML = '<strong>Edge kinds:</strong> '
-  for (const [kind, color] of Object.entries(EDGE_KIND_COLORS)) {
-    const item = document.createElement('span')
+  legend.innerHTML = ''
+
+  const swatchSpan = (color: string): HTMLSpanElement => {
     const swatch = document.createElement('span')
     swatch.style.cssText = `display:inline-block;width:12px;height:12px;background:${color};border-radius:2px;margin-right:4px;vertical-align:middle`
-    item.appendChild(swatch)
+    return swatch
+  }
+
+  // Types section: one colored swatch + label per sorted type, matching the hues
+  // the scene paints. Data-driven so it tracks the current graph's type set.
+  const typesHeader = document.createElement('strong')
+  typesHeader.textContent = 'Types: '
+  legend.appendChild(typesHeader)
+  for (const type of [...new Set(graph.nodes.map((n) => n.type))].sort()) {
+    const item = document.createElement('span')
+    item.appendChild(swatchSpan(typeColors.get(type) ?? '#888888'))
+    item.appendChild(document.createTextNode(type + '  '))
+    legend.appendChild(item)
+  }
+
+  // Edge kinds section (unchanged contents).
+  const kindsHeader = document.createElement('strong')
+  kindsHeader.style.cssText = 'border-left:1px solid #2a2d3a;padding-left:8px;margin-left:4px'
+  kindsHeader.textContent = 'Edge kinds: '
+  legend.appendChild(kindsHeader)
+  for (const [kind, color] of Object.entries(EDGE_KIND_COLORS)) {
+    const item = document.createElement('span')
+    item.appendChild(swatchSpan(color))
     item.appendChild(document.createTextNode(kind + '  '))
     legend.appendChild(item)
   }
+
+  // Importance hint: explains the size/brightness channel.
+  const importance = document.createElement('span')
+  importance.style.cssText = 'color:#888;border-left:1px solid #2a2d3a;padding-left:8px;margin-left:4px'
+  importance.textContent = 'size & brightness = incoming links'
+  legend.appendChild(importance)
+
   // Controls hint (replaces the library's hidden nav info). Advertises the
   // Alt+drag pan alongside the default rotate/zoom.
   const controls = document.createElement('span')
@@ -109,9 +153,6 @@ async function boot(): Promise<void> {
   const searchMsg = document.getElementById('search-msg')!
   const banner = document.getElementById('banner')!
   const scene = createScene(el)
-
-  // Build static legend once
-  buildLegend()
 
   // Search form
   const searchForm = document.getElementById('search-form') as HTMLFormElement
@@ -169,8 +210,10 @@ async function boot(): Promise<void> {
           fetchSubunits(node.id)
             .then((sub) => {
               rawGraph = mergeSubunits(rawGraph, sub)
-              scene.setGraph(applyFacets(rawGraph, facetState))
-              buildFacetBar(rawGraph, scene)
+              const typeColors = colorsFor(rawGraph)
+              scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
+              buildFacetBar(rawGraph, scene, typeColors)
+              buildLegend(rawGraph, typeColors)
             })
             .catch(console.error)
         })
@@ -184,8 +227,10 @@ async function boot(): Promise<void> {
     fetchSubunits(node.id)
       .then((sub) => {
         rawGraph = mergeSubunits(rawGraph, sub)
-        scene.setGraph(applyFacets(rawGraph, facetState))
-        buildFacetBar(rawGraph, scene)
+        const typeColors = colorsFor(rawGraph)
+        scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
+        buildFacetBar(rawGraph, scene, typeColors)
+        buildLegend(rawGraph, typeColors)
       })
       .catch(console.error)
   })
@@ -198,8 +243,10 @@ async function boot(): Promise<void> {
 
   function applyAndRender(graph: Graph): void {
     rawGraph = graph
-    buildFacetBar(graph, scene)
-    scene.setGraph(applyFacets(graph, facetState))
+    const typeColors = colorsFor(graph)
+    buildFacetBar(graph, scene, typeColors)
+    buildLegend(graph, typeColors)
+    scene.setGraph(applyFacets(graph, facetState), typeColors)
     // Scale guardrail: warn when graph is very large but never drop nodes
     if (graph.nodes.length > 5000) {
       banner.style.display = 'block'

@@ -26,6 +26,7 @@ func (srv *Server) snapshot() (Graph, error) {
 	}
 
 	degree := make(map[string]int, len(fileRows))
+	inDegree := make(map[string]int, len(fileRows))
 
 	edges := make([]GraphEdge, 0, len(edgeRows))
 	for _, row := range edgeRows {
@@ -39,17 +40,19 @@ func (srv *Server) snapshot() (Graph, error) {
 		edges = append(edges, GraphEdge{Source: row.SourceID, Target: row.TargetID, Type: row.Type, Kind: row.Kind})
 		degree[row.SourceID]++
 		degree[row.TargetID]++
+		inDegree[row.TargetID]++
 	}
 
 	nodes := make([]GraphNode, 0, len(fileRows))
 	for _, row := range fileRows {
 		nodes = append(nodes, GraphNode{
-			ID:     row.ID,
-			Type:   row.Type,
-			Title:  row.Title,
-			Path:   row.Path,
-			Tags:   tagsFromProperties(row.PropertiesJSON),
-			Degree: degree[row.ID],
+			ID:       row.ID,
+			Type:     row.Type,
+			Title:    row.Title,
+			Path:     row.Path,
+			Tags:     tagsFromProperties(row.PropertiesJSON),
+			Degree:   degree[row.ID],
+			InDegree: inDegree[row.ID],
 		})
 	}
 

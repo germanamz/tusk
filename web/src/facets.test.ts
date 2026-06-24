@@ -5,9 +5,9 @@ import type { Graph } from './api'
 const graph: Graph = {
   generation: 1, epoch: 0,
   nodes: [
-    { id: 'a', type: 'note', title: 'A', path: 'a.md', tags: [], degree: 1 },
-    { id: 'b', type: 'ticket', title: 'B', path: 'b.md', tags: [], degree: 1 },
-    { id: 'c', type: 'note', title: 'C', path: 'c.md', tags: [], degree: 0 },
+    { id: 'a', type: 'note', title: 'A', path: 'a.md', tags: [], degree: 1, in_degree: 0 },
+    { id: 'b', type: 'ticket', title: 'B', path: 'b.md', tags: [], degree: 1, in_degree: 1 },
+    { id: 'c', type: 'note', title: 'C', path: 'c.md', tags: [], degree: 0, in_degree: 0 },
   ],
   edges: [{ source: 'a', target: 'b', type: 'refs', kind: 'direct' }],
 }

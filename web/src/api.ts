@@ -10,6 +10,7 @@ export interface GraphNode {
   path: string
   tags: string[]
   degree: number
+  in_degree: number
 }
 
 export interface GraphEdge {
