@@ -9,7 +9,6 @@ import (
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
@@ -55,16 +54,13 @@ func openStore(cmd *cobra.Command, root, indexPath string, loaded *manifest.Mani
 	return indexopen.OpenOrRebuild(indexopen.Config{
 		IndexPath: indexPath,
 		ReindexFactory: func(idx *index.Index) reindex.Config {
-			return reindex.Config{
-				Root:       root,
-				Repo:       index.NewNodeRepo(idx),
-				Edges:      index.NewEdgeRepo(idx),
-				EdgeTypes:  loaded.EdgeTypes,
-				Meta:       index.NewMetaRepo(idx),
-				FileStates: index.NewFileStateRepo(idx),
-				EmbedQueue: index.NewEmbedQueueRepo(idx),
-				Workers:    resolveEmbedWorkers(loaded),
-			}
+			cfg := reindex.RebuildConfig(root, idx, loaded)
+			// CLI rebuilds run the embed pipeline synchronously, so cap the
+			// per-pass worker pool. The MCP runtime leaves Workers zero and
+			// drains the queue from its own background pool instead.
+			cfg.Workers = resolveEmbedWorkers(loaded)
+
+			return cfg
 		},
 		Logger: func(msg string) {
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
@@ -94,24 +90,7 @@ func buildEmbedder(loaded *manifest.Manifest) embed.Embedder {
 // the runtime repos against store. warnings receives recovery / property-drift
 // warning lines.
 func newNodeService(ws *workspace.Workspace, store *index.Index, loaded *manifest.Manifest, engine node.Behaviors, warnings io.Writer) *node.Service {
-	nodes := index.NewNodeRepo(store)
-
-	return node.NewServiceWithBehaviors(
-		ws.Root,
-		nodes,
-		index.NewEdgeRepo(store),
-		loaded.EdgeTypes,
-		index.NewEmbedQueueRepo(store),
-		loaded.NodeTypes,
-		index.NewPropertyDriftRepo(store),
-		engine,
-		index.NewWorkflowDriftRepo(store),
-		warnings,
-		node.NewIndexRefLookup(nodes),
-		index.NewFileStateRepo(store),
-		index.WorkerID(),
-		leaseconfig.Resolve(loaded.Lease.TTLSeconds),
-	)
+	return node.NewServiceWithDeps(node.DepsFromIndex(ws.Root, store, loaded, engine, warnings))
 }
 
 // newAliasDeps assembles the aliasdispatch.Deps the run and context commands

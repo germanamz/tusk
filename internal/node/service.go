@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
@@ -145,6 +146,104 @@ func NewServiceWithLease(
 	}
 }
 
+// ServiceDeps is the named-field bundle the write-capable Service constructor
+// takes. It carries one field per positional parameter of the historical
+// NewServiceWithBehaviors so call sites can wire dependencies by name and stop
+// restating a 14-argument positional recipe. Optional fields may be left zero:
+// nil EmbedQueue skips embed enqueues, nil NodeTypes runs untyped, nil Behaviors
+// disables hook dispatch, nil Refs disables ref resolution, nil Warnings
+// defaults to io.Discard.
+type ServiceDeps struct {
+	WorkspaceRoot string
+	Repo          *index.NodeRepo
+	Edges         *index.EdgeRepo
+	EdgeTypes     manifest.EdgeTypes
+	EmbedQueue    *index.EmbedQueueRepo
+	NodeTypes     map[string]manifest.NodeType
+	PropertyDrift *index.PropertyDriftRepo
+	Behaviors     Behaviors
+	Drift         *index.WorkflowDriftRepo
+	Warnings      io.Writer
+	Refs          RefLookup
+	FileState     *index.FileStateRepo
+	WorkerID      string
+	LeaseTTL      time.Duration
+}
+
+// DepsFromIndex assembles the ServiceDeps fields derivable from an open index
+// and the merged manifest: the repo handles (fresh, stateless handles over the
+// same DB), the manifest-driven edge/node types, the ref lookup, and the
+// lease primitives (worker id + resolved TTL). The two per-runtime divergent
+// inputs — the behavior engine and the warnings writer — are passed explicitly
+// so this helper never bakes in runtime-specific state. Callers can override
+// any returned field before constructing the Service.
+func DepsFromIndex(workspaceRoot string, store *index.Index, loaded *manifest.Manifest, behaviors Behaviors, warnings io.Writer) ServiceDeps {
+	nodes := index.NewNodeRepo(store)
+
+	return ServiceDeps{
+		WorkspaceRoot: workspaceRoot,
+		Repo:          nodes,
+		Edges:         index.NewEdgeRepo(store),
+		EdgeTypes:     loaded.EdgeTypes,
+		EmbedQueue:    index.NewEmbedQueueRepo(store),
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: index.NewPropertyDriftRepo(store),
+		Behaviors:     behaviors,
+		Drift:         index.NewWorkflowDriftRepo(store),
+		Warnings:      warnings,
+		Refs:          NewIndexRefLookup(nodes),
+		FileState:     index.NewFileStateRepo(store),
+		WorkerID:      index.WorkerID(),
+		LeaseTTL:      leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+	}
+}
+
+// NewServiceWithDeps is the named-field production constructor. It is the single
+// place the write-capable Service is assembled; NewServiceWithBehaviors wraps
+// it for callers that still pass positional arguments. A nil Warnings writer
+// defaults to io.Discard.
+func NewServiceWithDeps(deps ServiceDeps) *Service {
+	warnings := deps.Warnings
+
+	if warnings == nil {
+		warnings = io.Discard
+	}
+
+	return &Service{
+		root:          deps.WorkspaceRoot,
+		repo:          deps.Repo,
+		edges:         deps.Edges,
+		edgeTypes:     deps.EdgeTypes,
+		embedQueue:    deps.EmbedQueue,
+		nodeTypes:     deps.NodeTypes,
+		propertyDrift: deps.PropertyDrift,
+		behaviors:     deps.Behaviors,
+		drift:         deps.Drift,
+		warnings:      warnings,
+		refs:          deps.Refs,
+		fileState:     deps.FileState,
+		workerID:      deps.WorkerID,
+		leaseTTL:      deps.LeaseTTL,
+	}
+}
+
+// WithWarningWriter returns a shallow copy of the Service that writes recovery /
+// property-drift warnings to warnings instead of the receiver's writer. Every
+// other dependency is shared with the receiver (the repos and engine are
+// concurrency-safe handles), so callers that need a per-call warning sink can
+// derive one without rebuilding the whole dependency recipe. A nil writer
+// defaults to io.Discard.
+func (service *Service) WithWarningWriter(warnings io.Writer) *Service {
+	if warnings == nil {
+		warnings = io.Discard
+	}
+
+	clone := *service
+	clone.warnings = warnings
+
+	return &clone
+}
+
 // NewServiceWithBehaviors is the Plan 7 production constructor: like
 // NewServiceWithEmbedQueue, but also wires the behavior engine, the
 // drift log, and a warnings writer (defaults to io.Discard when nil).
@@ -152,6 +251,9 @@ func NewServiceWithLease(
 // ref-property resolution. Phase 4 (T4.2) adds the lease primitives
 // (fileState, workerID, leaseTTL) — Create requires these. Pass nil
 // for unused optional fields; nil refs disables ref resolution.
+//
+// It delegates to NewServiceWithDeps; prefer that named-field constructor at
+// new call sites.
 func NewServiceWithBehaviors(
 	workspaceRoot string,
 	repo *index.NodeRepo,
@@ -168,26 +270,22 @@ func NewServiceWithBehaviors(
 	workerID string,
 	leaseTTL time.Duration,
 ) *Service {
-	if warnings == nil {
-		warnings = io.Discard
-	}
-
-	return &Service{
-		root:          workspaceRoot,
-		repo:          repo,
-		edges:         edges,
-		edgeTypes:     edgeTypes,
-		embedQueue:    embedQueue,
-		nodeTypes:     nodeTypes,
-		propertyDrift: propertyDrift,
-		behaviors:     behaviors,
-		drift:         drift,
-		warnings:      warnings,
-		refs:          refs,
-		fileState:     fileState,
-		workerID:      workerID,
-		leaseTTL:      leaseTTL,
-	}
+	return NewServiceWithDeps(ServiceDeps{
+		WorkspaceRoot: workspaceRoot,
+		Repo:          repo,
+		Edges:         edges,
+		EdgeTypes:     edgeTypes,
+		EmbedQueue:    embedQueue,
+		NodeTypes:     nodeTypes,
+		PropertyDrift: propertyDrift,
+		Behaviors:     behaviors,
+		Drift:         drift,
+		Warnings:      warnings,
+		Refs:          refs,
+		FileState:     fileState,
+		WorkerID:      workerID,
+		LeaseTTL:      leaseTTL,
+	})
 }
 
 // reservedProperties is a nil-safe accessor for Behaviors.ReservedProperties.

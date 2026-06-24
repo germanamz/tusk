@@ -215,92 +215,13 @@ func renderAliasJSON(out io.Writer, result *aliasdispatch.DispatchResult) error 
 		"alias":   result.Alias,
 		"command": result.Command,
 		"kind":    result.Kind,
-		"result":  aliasResultPayload(result),
+		"result":  aliasdispatch.ResultPayload(result),
 	}
 
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 
 	return encoder.Encode(payload)
-}
-
-// aliasResultPayload converts the typed result into the JSON-friendly shape
-// the envelope embeds under "result".
-func aliasResultPayload(result *aliasdispatch.DispatchResult) any {
-	switch typed := result.Result.(type) {
-	case *query.ListResult:
-		return map[string]any{
-			"rows":  typed.Rows,
-			"count": len(typed.Rows),
-		}
-
-	case *query.Result:
-		if typed.Semantic != nil {
-			return map[string]any{
-				"results": typed.Semantic.Ranked,
-				"count":   len(typed.Semantic.Ranked),
-				"model":   typed.Semantic.Model,
-			}
-		}
-
-		return map[string]any{
-			"rows":  typed.Rows,
-			"count": len(typed.Rows),
-		}
-
-	case *node.GetResult:
-		envelope := map[string]any{
-			"id":    typed.Node.ID,
-			"type":  typed.Node.Type,
-			"path":  typed.Node.Path,
-			"title": typed.Node.Title,
-		}
-
-		if typed.IncludeProperties {
-			envelope["properties"] = typed.Node.Properties
-		}
-
-		if typed.IncludeEdges {
-			envelope["edges"] = typed.Node.Edges
-		}
-
-		if typed.IncludeBody {
-			envelope["body"] = string(typed.Node.Body)
-		}
-
-		return envelope
-
-	case *index.EdgeListResult:
-		return map[string]any{
-			"rows":  typed.Rows,
-			"count": len(typed.Rows),
-		}
-
-	case *doctor.Result:
-		envelope := map[string]any{
-			"issues":              typed.Report.Issues,
-			"embed_queue_depth":   typed.Report.EmbedQueueDepth,
-			"reindex_queue_depth": typed.Report.ReindexQueueDepth,
-		}
-
-		if typed.Migration != nil {
-			envelope["migrated"] = typed.Migration.Migrated
-			envelope["skipped"] = typed.Migration.Skipped
-		}
-
-		return envelope
-
-	case *status.Result:
-		return map[string]any{
-			"nodes_by_type":       typed.NodesByType,
-			"edge_count":          typed.EdgeCount,
-			"embed_queue_depth":   typed.EmbedQueueDepth,
-			"reindex_queue_depth": typed.ReindexQueueDepth,
-			"last_reindex_at":     typed.LastReindexAt,
-		}
-	}
-
-	return result.Result
 }
 
 func renderAliasNodeList(out io.Writer, result *query.ListResult, _ outputFormat) error {
@@ -413,24 +334,5 @@ func renderAliasDoctor(out io.Writer, result *doctor.Result, _ outputFormat) err
 }
 
 func renderAliasStatus(out io.Writer, result *status.Result, _ outputFormat) error {
-	types := make([]string, 0, len(result.NodesByType))
-
-	for name := range result.NodesByType {
-		types = append(types, name)
-	}
-
-	sort.Strings(types)
-
-	_, _ = fmt.Fprintln(out, "nodes by type:")
-
-	for _, typeName := range types {
-		_, _ = fmt.Fprintf(out, "  %s\t%d\n", typeName, result.NodesByType[typeName])
-	}
-
-	_, _ = fmt.Fprintf(out, "edges: %d\n", result.EdgeCount)
-	_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", result.EmbedQueueDepth)
-	_, _ = fmt.Fprintf(out, "reindex queue depth: %d\n", result.ReindexQueueDepth)
-	_, _ = fmt.Fprintf(out, "last reindex at: %s\n", result.LastReindexAt)
-
-	return nil
+	return renderStatusCompact(out, result)
 }

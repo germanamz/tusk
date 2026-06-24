@@ -114,6 +114,26 @@ type Config struct {
 	Async bool
 }
 
+// RebuildConfig fills the repo-and-manifest fields a from-scratch index
+// rebuild needs: the workspace root, the node/edge/meta/file-state/embed-queue
+// repos over idx, and the manifest's declared edge types. It is the shared
+// core of the indexopen ReindexFactory used by the CLI and the MCP runtime.
+//
+// Per-caller divergences (Workers, Logger, Chunker, Embedder, …) are NOT set
+// here: callers override the returned config's fields explicitly so the
+// differences stay visible at the call site.
+func RebuildConfig(root string, idx *index.Index, loaded *manifest.Manifest) Config {
+	return Config{
+		Root:       root,
+		Repo:       index.NewNodeRepo(idx),
+		Edges:      index.NewEdgeRepo(idx),
+		EdgeTypes:  loaded.EdgeTypes,
+		Meta:       index.NewMetaRepo(idx),
+		FileStates: index.NewFileStateRepo(idx),
+		EmbedQueue: index.NewEmbedQueueRepo(idx),
+	}
+}
+
 // Report summarizes a reindex pass.
 type Report struct {
 	Indexed            int // number of node files freshly indexed or refreshed

@@ -107,15 +107,9 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	store, openErr := indexopen.OpenOrRebuild(indexopen.Config{
 		IndexPath: ws.IndexPath,
 		ReindexFactory: func(idx *index.Index) reindex.Config {
-			return reindex.Config{
-				Root:       ws.Root,
-				Repo:       index.NewNodeRepo(idx),
-				Edges:      index.NewEdgeRepo(idx),
-				EdgeTypes:  loaded.EdgeTypes,
-				Meta:       index.NewMetaRepo(idx),
-				FileStates: index.NewFileStateRepo(idx),
-				EmbedQueue: index.NewEmbedQueueRepo(idx),
-			}
+			// The MCP runtime leaves Workers zero here and drains the embed
+			// queue from its own long-lived background pool.
+			return reindex.RebuildConfig(ws.Root, idx, loaded)
 		},
 		Logger: func(msg string) {
 			if rt.Logger != nil {
@@ -167,22 +161,7 @@ func (rt *Runtime) buildFromStore(store *index.Index, loaded *manifest.Manifest)
 	rt.LeaseTTL = leaseconfig.Resolve(loaded.Lease.TTLSeconds)
 	rt.WorkerID = index.WorkerID()
 
-	rt.NodeService = node.NewServiceWithBehaviors(
-		rt.Root,
-		rt.Nodes,
-		rt.Edges,
-		loaded.EdgeTypes,
-		rt.EmbedQueue,
-		loaded.NodeTypes,
-		propertyDriftRepo,
-		engine,
-		driftRepo,
-		os.Stderr,
-		node.NewIndexRefLookup(rt.Nodes),
-		rt.FileState,
-		rt.WorkerID,
-		rt.LeaseTTL,
-	)
+	rt.NodeService = node.NewServiceWithDeps(node.DepsFromIndex(rt.Root, store, loaded, engine, os.Stderr))
 
 	if rt.aliasIntrospector != nil {
 		manifest.ValidateAliases(loaded, rt.aliasIntrospector)
