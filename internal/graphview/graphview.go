@@ -27,12 +27,13 @@ type Signal struct {
 
 // GraphNode is one file-level node in the snapshot.
 type GraphNode struct {
-	ID     string   `json:"id"`
-	Type   string   `json:"type"`
-	Title  string   `json:"title"`
-	Path   string   `json:"path"`
-	Tags   []string `json:"tags"`
-	Degree int      `json:"degree"`
+	ID       string   `json:"id"`
+	Type     string   `json:"type"`
+	Title    string   `json:"title"`
+	Path     string   `json:"path"`
+	Tags     []string `json:"tags"`
+	Degree   int      `json:"degree"`
+	InDegree int      `json:"in_degree"`
 }
 
 // GraphEdge is one edge between two file-level nodes. Kind is the index

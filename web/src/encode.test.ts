@@ -1,13 +1,90 @@
 import { describe, it, expect } from 'vitest'
-import { colorForType, sizeForDegree, EDGE_KIND_COLORS, dimColor } from './encode'
+import {
+  buildTypeColors,
+  importanceColor,
+  hexToHsl,
+  sizeForDegree,
+  EDGE_KIND_COLORS,
+  dimColor,
+  BASE_PALETTE,
+} from './encode'
+
+const HEX = /^#[0-9a-f]{6}$/
 
 describe('encode', () => {
-  it('assigns a stable color per type', () => {
-    expect(colorForType('note')).toBe(colorForType('note'))
-    expect(colorForType('note')).not.toBe(colorForType('ticket'))
+  describe('buildTypeColors', () => {
+    it('assigns a distinct color to each distinct type', () => {
+      const colors = buildTypeColors(['note', 'ticket', 'spec'])
+      const values = [...colors.values()]
+      expect(new Set(values).size).toBe(values.length)
+      expect(colors.get('note')).not.toBe(colors.get('ticket'))
+    })
+
+    it('is stable across calls (deterministic, order-independent)', () => {
+      const a = buildTypeColors(['note', 'ticket', 'spec'])
+      const b = buildTypeColors(['spec', 'note', 'ticket'])
+      expect(a.get('note')).toBe(b.get('note'))
+      expect(a.get('ticket')).toBe(b.get('ticket'))
+      expect(a.get('spec')).toBe(b.get('spec'))
+    })
+
+    it('stays collision-free past the base palette (golden-angle hues)', () => {
+      const types = Array.from({ length: BASE_PALETTE.length + 12 }, (_, i) => `type-${i}`)
+      const colors = buildTypeColors(types)
+      expect(colors.size).toBe(types.length)
+      const values = [...colors.values()]
+      expect(new Set(values).size).toBe(values.length)
+      for (const v of values) expect(v).toMatch(HEX)
+    })
   })
 
-  it('scales size monotonically with degree', () => {
+  describe('importanceColor', () => {
+    it('returns a valid #rrggbb color', () => {
+      expect(importanceColor('#4f8cff', 3, 10)).toMatch(HEX)
+    })
+
+    it('raises lightness monotonically with in-degree while preserving hue', () => {
+      const dim = importanceColor('#4f8cff', 0, 10)
+      const mid = importanceColor('#4f8cff', 4, 10)
+      const hub = importanceColor('#4f8cff', 10, 10)
+      const lum = (hex: string) => {
+        const n = parseInt(hex.slice(1), 16)
+        const r = (n >> 16) & 0xff
+        const g = (n >> 8) & 0xff
+        const b = n & 0xff
+        return (Math.max(r, g, b) + Math.min(r, g, b)) / 2
+      }
+      expect(lum(mid)).toBeGreaterThan(lum(dim))
+      expect(lum(hub)).toBeGreaterThan(lum(mid))
+    })
+
+    it('preserves the base hue across the in-degree range (type stays readable)', () => {
+      const base = '#4f8cff'
+      const baseHue = hexToHsl(base)[0]
+      const lo = hexToHsl(importanceColor(base, 0, 10))[0]
+      const hi = hexToHsl(importanceColor(base, 10, 10))[0]
+      // Hue is held fixed; only S/L track in-degree. Allow a tiny epsilon for
+      // the round-trip through 8-bit hex quantization.
+      expect(Math.abs(lo - baseHue)).toBeLessThan(1)
+      expect(Math.abs(hi - baseHue)).toBeLessThan(1)
+      expect(Math.abs(hi - lo)).toBeLessThan(1)
+    })
+
+    it('caps short of white so deselect never restores #ffffff', () => {
+      // The web e2e relies on a deselected node's base color not being white;
+      // L_MAX enforces that even for the brightest hub of a near-white base.
+      expect(importanceColor('#4f8cff', 10, 10)).not.toBe('#ffffff')
+      expect(importanceColor('#ffffff', 10, 10)).not.toBe('#ffffff')
+    })
+
+    it('is safe when maxInDegree is 0 (no NaN, valid hex)', () => {
+      const c = importanceColor('#4f8cff', 0, 0)
+      expect(c).toMatch(HEX)
+      expect(c).not.toContain('NaN')
+    })
+  })
+
+  it('scales size monotonically with in-degree', () => {
     expect(sizeForDegree(10)).toBeGreaterThan(sizeForDegree(0))
   })
 
