@@ -366,6 +366,79 @@ func (service *Service) surfacePropertyDrift(node *Node, drift []PropertyDrift) 
 	}
 }
 
+// resolveAndValidate runs the shared edge/property resolution-and-validation
+// pipeline that Create and Modify both need: initialize the Edges map, resolve
+// ref properties into edges (rejecting on hard ref errors), resolve and
+// validate edges, detect cycles on acyclic edge types, then validate
+// properties and filter reserved-property drift. It returns the property
+// validation result (with reserved drift already filtered) so each caller can
+// apply its own op-specific HardErrors gate — Create rejects on any hard error,
+// Modify first suppresses ErrRequiredMissing and adds its required-unset check.
+//
+// The single asymmetry between the two callers is materializeWikilinks: Create
+// passes true (body [[wikilinks]] become edges), Modify passes false (body
+// changes are out of scope for Modify, so wikilinks are not re-materialized).
+//
+// op ("create" / "modify") is threaded only into RefValidationError so the
+// surfaced error names the operation. A non-nil error is the caller's signal to
+// reject before writing.
+func (service *Service) resolveAndValidate(parsed *Node, op string, materializeWikilinks bool) (PropertyValidationResult, error) {
+	// Initialize Edges map (ParseFile does not; ResolveEdges also does this,
+	// but ResolveRefs must run first for ref-typed properties).
+	if parsed.Edges == nil {
+		parsed.Edges = map[string][]string{}
+	}
+
+	// Plan 7.c.1: ref resolution — runs before ResolveEdges so that ref
+	// property values (bare titles / wikilinks) are resolved before the
+	// raw-ID edge pass consumes them. On hard error, reject before any write.
+	// On success, remove the resolved properties from parsed.Properties so
+	// ResolveEdges does not treat them as raw-ID edges.
+	if service.refs != nil {
+		refResult := ResolveRefs(parsed, service.nodeTypes, service.refs)
+
+		if len(refResult.HardErrors) > 0 {
+			return PropertyValidationResult{}, &RefValidationError{
+				Op:       op,
+				NodeID:   parsed.ID,
+				NodeType: parsed.Type,
+				Errors:   refResult.HardErrors,
+			}
+		}
+
+		for _, edge := range refResult.Edges {
+			parsed.Edges[edge.EdgeType] = appendUnique(parsed.Edges[edge.EdgeType], edge.TargetID)
+		}
+
+		// Remove resolved ref properties so ResolveEdges skips them.
+		removeRefProperties(parsed, service.nodeTypes)
+	}
+
+	if resolveErr := ResolveEdges(parsed, service.edgeTypes); resolveErr != nil {
+		return PropertyValidationResult{}, resolveErr
+	}
+
+	if materializeWikilinks {
+		MaterializeWikilinks(parsed, service.edgeTypes)
+	}
+
+	if validateErr := ValidateEdges(parsed, service.edgeTypes, EdgeContext{
+		ResolveTargetType: service.resolveTargetType,
+	}); validateErr != nil {
+		return PropertyValidationResult{}, validateErr
+	}
+
+	if cycleErr := service.detectCyclesForAcyclicEdges(parsed); cycleErr != nil {
+		return PropertyValidationResult{}, cycleErr
+	}
+
+	// Plan 7.b: property validation — runs before hook validate-phase.
+	propResult := ValidateProperties(parsed, service.nodeTypes)
+	propResult.Drift = FilterReservedDrift(propResult.Drift, parsed.Type, service.reservedProperties())
+
+	return propResult, nil
+}
+
 // Phase 4 (T4.2): the file write routes through WriteWithLease so the
 // file_state row is populated and concurrent creates against the same
 // path are coordinated by the lease. Requires the service to have been
@@ -407,56 +480,13 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, parseErr
 	}
 
-	// Initialize Edges map (ParseFile does not; ResolveEdges also does this,
-	// but ResolveRefs must run first for ref-typed properties).
-	if parsed.Edges == nil {
-		parsed.Edges = map[string][]string{}
-	}
+	// Shared resolve+validate pipeline. Create materializes body wikilinks
+	// into edges (true); the op-specific HardErrors gate stays here.
+	propResult, validateErr := service.resolveAndValidate(parsed, "create", true)
 
-	// Plan 7.c.1: ref resolution — runs before ResolveEdges so that ref
-	// property values (bare titles / wikilinks) are resolved before the
-	// raw-ID edge pass consumes them. On hard error, reject before any write.
-	// On success, remove the resolved properties from parsed.Properties so
-	// ResolveEdges does not treat them as raw-ID edges.
-	if service.refs != nil {
-		refResult := ResolveRefs(parsed, service.nodeTypes, service.refs)
-
-		if len(refResult.HardErrors) > 0 {
-			return nil, &RefValidationError{
-				Op:       "create",
-				NodeID:   parsed.ID,
-				NodeType: parsed.Type,
-				Errors:   refResult.HardErrors,
-			}
-		}
-
-		for _, edge := range refResult.Edges {
-			parsed.Edges[edge.EdgeType] = appendUnique(parsed.Edges[edge.EdgeType], edge.TargetID)
-		}
-
-		// Remove resolved ref properties so ResolveEdges skips them.
-		removeRefProperties(parsed, service.nodeTypes)
-	}
-
-	if resolveErr := ResolveEdges(parsed, service.edgeTypes); resolveErr != nil {
-		return nil, resolveErr
-	}
-
-	MaterializeWikilinks(parsed, service.edgeTypes)
-
-	if validateErr := ValidateEdges(parsed, service.edgeTypes, EdgeContext{
-		ResolveTargetType: service.resolveTargetType,
-	}); validateErr != nil {
+	if validateErr != nil {
 		return nil, validateErr
 	}
-
-	if cycleErr := service.detectCyclesForAcyclicEdges(parsed); cycleErr != nil {
-		return nil, cycleErr
-	}
-
-	// Plan 7.b: property validation — runs before hook validate-phase.
-	propResult := ValidateProperties(parsed, service.nodeTypes)
-	propResult.Drift = FilterReservedDrift(propResult.Drift, parsed.Type, service.reservedProperties())
 
 	if len(propResult.HardErrors) > 0 {
 		return nil, &PropertyValidationError{
@@ -622,50 +652,15 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 			return Mutation{}, reparseErr
 		}
 
-		// Initialize Edges map (ParseFile does not; ResolveEdges also does this,
-		// but ResolveRefs must run first for ref-typed properties).
-		if newParsed.Edges == nil {
-			newParsed.Edges = map[string][]string{}
-		}
+		// Shared resolve+validate pipeline. Modify does NOT materialize body
+		// wikilinks (false) — body changes are out of scope for Modify. The
+		// op-specific HardErrors handling (ErrRequiredMissing suppression +
+		// required-unset check) stays below.
+		propResult, validateErr := service.resolveAndValidate(newParsed, "modify", false)
 
-		// Plan 7.c.1: ref resolution — runs before ResolveEdges (same reason as Create).
-		if service.refs != nil {
-			refResult := ResolveRefs(newParsed, service.nodeTypes, service.refs)
-
-			if len(refResult.HardErrors) > 0 {
-				return Mutation{}, &RefValidationError{
-					Op:       "modify",
-					NodeID:   newParsed.ID,
-					NodeType: newParsed.Type,
-					Errors:   refResult.HardErrors,
-				}
-			}
-
-			for _, edge := range refResult.Edges {
-				newParsed.Edges[edge.EdgeType] = appendUnique(newParsed.Edges[edge.EdgeType], edge.TargetID)
-			}
-
-			// Remove resolved ref properties so ResolveEdges skips them.
-			removeRefProperties(newParsed, service.nodeTypes)
-		}
-
-		if resolveErr := ResolveEdges(newParsed, service.edgeTypes); resolveErr != nil {
-			return Mutation{}, resolveErr
-		}
-
-		if validateErr := ValidateEdges(newParsed, service.edgeTypes, EdgeContext{
-			ResolveTargetType: service.resolveTargetType,
-		}); validateErr != nil {
+		if validateErr != nil {
 			return Mutation{}, validateErr
 		}
-
-		if cycleErr := service.detectCyclesForAcyclicEdges(newParsed); cycleErr != nil {
-			return Mutation{}, cycleErr
-		}
-
-		// Plan 7.b: property validation + required-unset check — runs before hook validate-phase.
-		propResult := ValidateProperties(newParsed, service.nodeTypes)
-		propResult.Drift = FilterReservedDrift(propResult.Drift, newParsed.Type, service.reservedProperties())
 
 		// In the Modify path, ErrRequiredMissing from the validator is suppressed:
 		// properties that were never set on a pre-existing node are not blocked by
