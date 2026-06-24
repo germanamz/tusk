@@ -45,13 +45,6 @@ type Manifest struct {
 	// Surfaced through doctor; never raised as a load error.
 	ContextErrors []ContextError `toml:"-"`
 
-	// SubUnitConflicts is reserved for reserved-name collisions between the
-	// built-in sub-document pack and user-declared node types, edge types,
-	// or properties. No code currently populates it (the merger prefers the
-	// built-in declaration silently); the field and its doctor plumbing are
-	// retained as the seam for a future conflict-surfacing pass.
-	SubUnitConflicts []SubUnitConflict `toml:"-"`
-
 	// subdocumentPackApplied records whether MergeBuiltinPacks has
 	// already merged the sub-document pack into this manifest. The
 	// merger short-circuits when true so a second call (e.g., from a

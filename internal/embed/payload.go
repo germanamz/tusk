@@ -47,9 +47,10 @@ func BuildBody(parsedNode *node.Node) []byte {
 	return parsedNode.Body
 }
 
-// BuildPayload renders a node into the canonical embed input by
-// concatenating BuildHeader and BuildBody. Retained for callers that want
-// the unchunked payload (e.g. tests, WholeDocument strategy).
+// BuildPayload renders a node into the canonical unchunked embed input by
+// concatenating BuildHeader and BuildBody. The drain path builds header and
+// body separately (it chunks the body), so this convenience composition is
+// exercised only by tests; it documents the canonical header+body wire shape.
 func BuildPayload(parsedNode *node.Node) []byte {
 	header := BuildHeader(parsedNode)
 	body := BuildBody(parsedNode)

@@ -449,26 +449,6 @@ func TestEmbedQueueRepo_DrainFiltersOutReindexKind(test *testing.T) {
 	}
 }
 
-func TestEmbedQueueRepo_ReEnqueuePreservesAttempts(test *testing.T) {
-	repo := newTestEmbedQueueRepo(test)
-
-	if reErr := repo.ReEnqueue("n1", 1, "first failure"); reErr != nil {
-		test.Fatalf("ReEnqueue 1: %v", reErr)
-	}
-
-	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
-
-	if drainErr != nil {
-		test.Fatalf("Drain: %v", drainErr)
-	}
-
-	if len(drained) != 1 || drained[0].Attempts != 1 || drained[0].LastError != "first failure" {
-		test.Errorf("Drained = %+v, want Attempts=1, LastError=\"first failure\"", drained)
-	}
-}
-
-// TODO(retry-cap): assert enqueued_at-bump prevents starvation (skipped — flaky on coarse clocks).
-
 func TestEmbedQueueRepo_EnqueueDefaultsKindToEmbedAndLeavesLeaseFieldsNil(test *testing.T) {
 	store := openTestIndex(test)
 	repo := index.NewEmbedQueueRepo(store)
@@ -508,28 +488,6 @@ func TestEmbedQueueRepo_EnqueueDefaultsKindToEmbedAndLeavesLeaseFieldsNil(test *
 
 	if leaseStartedAtNs != nil {
 		test.Errorf("LeaseStartedAtNs = %v, want nil", leaseStartedAtNs)
-	}
-}
-
-func TestEmbedQueueRepo_ReEnqueuePreservesKindDefault(test *testing.T) {
-	repo := newTestEmbedQueueRepo(test)
-
-	if reErr := repo.ReEnqueue("n1", 3, "boom"); reErr != nil {
-		test.Fatalf("ReEnqueue: %v", reErr)
-	}
-
-	drained, drainErr := repo.DrainEmbed(testWorkerA, 10, testTTL)
-
-	if drainErr != nil {
-		test.Fatalf("Drain: %v", drainErr)
-	}
-
-	if len(drained) != 1 {
-		test.Fatalf("len = %d, want 1", len(drained))
-	}
-
-	if drained[0].Kind != "embed" {
-		test.Errorf("Kind = %q, want %q", drained[0].Kind, "embed")
 	}
 }
 

@@ -27,7 +27,7 @@ func dumpUnits(units []Unit) string {
 	var b strings.Builder
 	for _, u := range units {
 		fmt.Fprintf(&b, "[%d] kind=%s hash=%q parent=%q title=%q text=%q props=%v\n",
-			u.Ordinal, u.Kind, u.Hash, u.ParentHash, u.Title, u.Text, u.Properties)
+			u.Ordinal, u.Kind, u.Hash, u.ParentAddress, u.Title, u.Text, u.Properties)
 	}
 	return b.String()
 }
@@ -50,8 +50,8 @@ func TestParse_SingleParagraph(test *testing.T) {
 	if got.Ordinal != 0 {
 		test.Errorf("ordinal: want 0, got %d", got.Ordinal)
 	}
-	if got.ParentHash != "" {
-		test.Errorf("parent hash: want empty, got %q", got.ParentHash)
+	if got.ParentAddress != "" {
+		test.Errorf("parent address: want empty, got %q", got.ParentAddress)
 	}
 	if got.Hash != "380839c0e786" {
 		test.Errorf("hash: want %q (golden), got %q -- dump:\n%s",
@@ -106,30 +106,30 @@ func TestParse_H1H2H3Nesting(test *testing.T) {
 		}
 	}
 
-	// Parent-hash relationships.
-	if units[0].ParentHash != "" {
-		test.Errorf("H1 parent: want empty, got %q", units[0].ParentHash)
+	// Parent-address relationships.
+	if units[0].ParentAddress != "" {
+		test.Errorf("H1 parent: want empty, got %q", units[0].ParentAddress)
 	}
-	if units[1].ParentHash != units[0].Hash {
-		test.Errorf("H1 intro parent: want %q, got %q", units[0].Hash, units[1].ParentHash)
+	if units[1].ParentAddress != units[0].Address {
+		test.Errorf("H1 intro parent: want %q, got %q", units[0].Address, units[1].ParentAddress)
 	}
-	if units[2].ParentHash != units[0].Hash {
-		test.Errorf("H2 parent: want %q (H1), got %q", units[0].Hash, units[2].ParentHash)
+	if units[2].ParentAddress != units[0].Address {
+		test.Errorf("H2 parent: want %q (H1), got %q", units[0].Address, units[2].ParentAddress)
 	}
-	if units[3].ParentHash != units[2].Hash {
-		test.Errorf("H2 body parent: want %q (H2), got %q", units[2].Hash, units[3].ParentHash)
+	if units[3].ParentAddress != units[2].Address {
+		test.Errorf("H2 body parent: want %q (H2), got %q", units[2].Address, units[3].ParentAddress)
 	}
-	if units[4].ParentHash != units[2].Hash {
-		test.Errorf("H3 parent: want %q (H2), got %q", units[2].Hash, units[4].ParentHash)
+	if units[4].ParentAddress != units[2].Address {
+		test.Errorf("H3 parent: want %q (H2), got %q", units[2].Address, units[4].ParentAddress)
 	}
-	if units[5].ParentHash != units[4].Hash {
-		test.Errorf("H3 body parent: want %q (H3), got %q", units[4].Hash, units[5].ParentHash)
+	if units[5].ParentAddress != units[4].Address {
+		test.Errorf("H3 body parent: want %q (H3), got %q", units[4].Address, units[5].ParentAddress)
 	}
-	if units[6].ParentHash != units[0].Hash {
-		test.Errorf("sibling H2 parent: want %q (H1), got %q", units[0].Hash, units[6].ParentHash)
+	if units[6].ParentAddress != units[0].Address {
+		test.Errorf("sibling H2 parent: want %q (H1), got %q", units[0].Address, units[6].ParentAddress)
 	}
-	if units[7].ParentHash != units[6].Hash {
-		test.Errorf("tail paragraph parent: want %q (sibling H2), got %q", units[6].Hash, units[7].ParentHash)
+	if units[7].ParentAddress != units[6].Address {
+		test.Errorf("tail paragraph parent: want %q (sibling H2), got %q", units[6].Address, units[7].ParentAddress)
 	}
 
 	// Golden hashes: pinned to catch accidental hash-input drift.

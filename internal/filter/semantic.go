@@ -12,33 +12,29 @@ import (
 // Body carries the chunk's body text (no header prefix) so renderers can
 // produce a snippet of the highest-scoring chunk per node.
 type SemanticCandidate struct {
-	NodeID   string
-	ChunkIdx int
-	Vector   []float32
-	Body     string
+	NodeID string
+	Vector []float32
+	Body   string
 }
 
 // ScoredResult is one ranked node. Score is the max cosine similarity across
-// the node's chunks. BestChunkIdx and BestChunkBody identify and carry the
-// body of the chunk that produced Score.
+// the node's chunks. BestChunkBody carries the body of the chunk that produced
+// Score (used for snippets).
 type ScoredResult struct {
 	NodeID        string
 	Score         float64
-	BestChunkIdx  int
 	BestChunkBody string
 }
 
 // SemanticRank scores each candidate by cosine similarity to queryVector and
 // returns one row per node, with Score equal to the maximum chunk score for
-// that node. BestChunkIdx and BestChunkBody come from the chunk that produced
-// the max. Results are sorted by score descending, ties broken by NodeID
-// ascending. Candidates whose vectors mismatch queryVector's dimension are
-// silently skipped.
+// that node. BestChunkBody comes from the chunk that produced the max. Results
+// are sorted by score descending, ties broken by NodeID ascending. Candidates
+// whose vectors mismatch queryVector's dimension are silently skipped.
 func SemanticRank(candidates []SemanticCandidate, queryVector []float32) []ScoredResult {
 	type bestEntry struct {
-		score    float64
-		chunkIdx int
-		body     string
+		score float64
+		body  string
 	}
 
 	bestByNode := make(map[string]bestEntry, len(candidates))
@@ -54,9 +50,8 @@ func SemanticRank(candidates []SemanticCandidate, queryVector []float32) []Score
 
 		if !present || score > prev.score {
 			bestByNode[candidate.NodeID] = bestEntry{
-				score:    score,
-				chunkIdx: candidate.ChunkIdx,
-				body:     candidate.Body,
+				score: score,
+				body:  candidate.Body,
 			}
 		}
 	}
@@ -67,7 +62,6 @@ func SemanticRank(candidates []SemanticCandidate, queryVector []float32) []Score
 		scored = append(scored, ScoredResult{
 			NodeID:        nodeID,
 			Score:         entry.score,
-			BestChunkIdx:  entry.chunkIdx,
 			BestChunkBody: entry.body,
 		})
 	}

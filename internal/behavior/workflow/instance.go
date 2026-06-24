@@ -12,17 +12,13 @@ type instance struct {
 	name           string
 	appliesTo      map[string]struct{}
 	statusProperty string
-	states         map[string]roleSet
-	transitions    map[transitionDecl]struct{}
-	hasInitial     bool
-	initialNames   []string
-}
-
-type roleSet struct {
-	initial  bool
-	start    bool
-	terminal bool
-	done     bool
+	// states maps each declared state name to whether it is an initial
+	// state. The start/terminal/done role flags from the config are not
+	// consulted by the v1 engine, so they are not retained here.
+	states       map[string]bool
+	transitions  map[transitionDecl]struct{}
+	hasInitial   bool
+	initialNames []string
 }
 
 func newInstance(name string, cfg workflowConfig) *instance {
@@ -30,7 +26,7 @@ func newInstance(name string, cfg workflowConfig) *instance {
 		name:           name,
 		appliesTo:      map[string]struct{}{},
 		statusProperty: cfg.StatusProperty,
-		states:         map[string]roleSet{},
+		states:         map[string]bool{},
 		transitions:    map[transitionDecl]struct{}{},
 	}
 
@@ -39,12 +35,7 @@ func newInstance(name string, cfg workflowConfig) *instance {
 	}
 
 	for _, state := range cfg.States {
-		inst.states[state.Name] = roleSet{
-			initial:  state.Initial,
-			start:    state.Start,
-			terminal: state.Terminal,
-			done:     state.Done,
-		}
+		inst.states[state.Name] = state.Initial
 
 		if state.Initial {
 			inst.hasInitial = true
@@ -117,7 +108,7 @@ func (inst *instance) validate(ctx behavior.HookContext, before, after *node.Nod
 			}
 		}
 
-		if inst.hasInitial && !inst.states[afterStatus].initial {
+		if inst.hasInitial && !inst.states[afterStatus] {
 			return &Error{
 				Code:         ErrNonInitialOnCreate,
 				Property:     inst.statusProperty,

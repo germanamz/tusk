@@ -142,9 +142,6 @@ func TestParse_ContentHashOrdinalParent(test *testing.T) {
 	if para.ParentAddress != "S1" {
 		test.Errorf("paragraph parent address: want S1, got %q", para.ParentAddress)
 	}
-	if para.ParentHash != sec.Hash {
-		test.Errorf("paragraph parent hash: want %q, got %q", sec.Hash, para.ParentHash)
-	}
 
 	wantLeaf := sha256.Sum256([]byte(para.EmbedPayload))
 	if para.ContentHash != hex.EncodeToString(wantLeaf[:]) {

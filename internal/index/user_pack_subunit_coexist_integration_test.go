@@ -67,10 +67,6 @@ Body.
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	if len(loaded.SubUnitConflicts) != 0 {
-		test.Fatalf("unexpected SubUnitConflicts after rescoping: %+v", loaded.SubUnitConflicts)
-	}
-
 	indexPath := filepath.Join(root, ".tusk", "index.db")
 
 	store := openRebuilt(test, indexPath, func(idx *index.Index) reindex.Config {

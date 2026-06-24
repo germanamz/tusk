@@ -89,26 +89,6 @@ func subdocumentEdgeTypes() EdgeTypes {
 	}
 }
 
-// SubUnitConflict records a single reserved-name collision between the
-// built-in sub-document pack and a user manifest declaration. The kind
-// distinguishes node-type, edge-type, and property conflicts so the
-// renderer can surface each with a meaningful message.
-type SubUnitConflict struct {
-	// Kind is one of "node-type", "edge-type", or "property".
-	Kind string
-
-	// Name is the reserved name that collided.
-	Name string
-
-	// OwnerType is set only when Kind == "property"; it carries the
-	// node-type name on which the property was declared.
-	OwnerType string
-
-	// Message is a pre-formatted human-readable description of the
-	// conflict, suitable for doctor output.
-	Message string
-}
-
 // mergeSubdocumentPack merges the built-in sub-document pack into
 // loaded when the manifest opts into sub-units (default true). The
 // merge installs the pack's node and edge types into the manifest's
@@ -118,15 +98,8 @@ type SubUnitConflict struct {
 // source = subdocument.Source() (i.e., source = "markdown"). User
 // declarations of the same names live in the user namespace
 // (source = NULL) and are NOT in conflict with the pack — they
-// describe a different slice of the index. SubUnitConflict therefore
-// does not fire for user-vs-pack collisions.
-//
-// The SubUnitConflict type and the loop structure are retained because
-// a future user-configurable-sources extension may let a manifest
-// declare types at a specific source; a declaration targeting
-// source = "markdown" would still collide with the pack. As of today
-// the manifest grammar can only produce user-namespace declarations,
-// so the within-source path is a no-op.
+// describe a different slice of the index, so a user-vs-pack collision
+// cannot occur under today's manifest grammar.
 //
 // Map mechanics: the pack's declarations overwrite any user entry of
 // the same name in the flat NodeTypes/EdgeTypes maps. Source-keyed

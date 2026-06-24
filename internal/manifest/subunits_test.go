@@ -118,10 +118,6 @@ sub-units = false
 			test.Errorf("EdgeTypes contains %q with sub-units disabled", name)
 		}
 	}
-
-	if len(loaded.SubUnitConflicts) != 0 {
-		test.Errorf("SubUnitConflicts populated when sub-units disabled: %+v", loaded.SubUnitConflicts)
-	}
 }
 
 // TestMergeBuiltinPacks_UserDeclaredReservedNodeTypeRaisesNoConflict
@@ -145,10 +141,6 @@ properties = [
 `)
 
 	manifest.MergeBuiltinPacks(loaded)
-
-	if len(loaded.SubUnitConflicts) != 0 {
-		test.Errorf("SubUnitConflicts should be empty after rescoping; got %+v", loaded.SubUnitConflicts)
-	}
 
 	// The built-in declaration should still be in place in the
 	// NodeTypes map.
@@ -183,10 +175,6 @@ cardinality = "many-to-many"
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	if len(loaded.SubUnitConflicts) != 0 {
-		test.Errorf("SubUnitConflicts should be empty after rescoping; got %+v", loaded.SubUnitConflicts)
-	}
-
 	// The built-in declaration wins.
 	edge := loaded.EdgeTypes["contains"]
 
@@ -216,10 +204,6 @@ cardinality = "many-to-many"
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	if len(loaded.SubUnitConflicts) != 0 {
-		test.Errorf("unexpected SubUnitConflicts: %+v", loaded.SubUnitConflicts)
-	}
-
 	if _, has := loaded.NodeTypes["ticket"]; !has {
 		test.Errorf("user-declared ticket node type was dropped")
 	}
@@ -230,8 +214,8 @@ cardinality = "many-to-many"
 }
 
 // TestMergeBuiltinPacks_Idempotent confirms running the merge twice on
-// the same manifest produces the same end state (no duplicate
-// conflicts, no duplicate node-type insertions).
+// the same manifest produces the same end state (no duplicate node-type
+// insertions).
 func TestMergeBuiltinPacks_Idempotent(test *testing.T) {
 	loaded := loadInlineManifest(test, `
 [workspace]
@@ -244,14 +228,9 @@ properties = []
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	firstConflicts := len(loaded.SubUnitConflicts)
 	firstNodes := len(loaded.NodeTypes)
 
 	manifest.MergeBuiltinPacks(loaded)
-
-	if len(loaded.SubUnitConflicts) != firstConflicts {
-		test.Errorf("conflicts changed across calls: %d -> %d", firstConflicts, len(loaded.SubUnitConflicts))
-	}
 
 	if len(loaded.NodeTypes) != firstNodes {
 		test.Errorf("node-type count changed across calls: %d -> %d", firstNodes, len(loaded.NodeTypes))
@@ -278,10 +257,6 @@ properties = [
 `)
 
 	manifest.MergeBuiltinPacks(loaded)
-
-	if len(loaded.SubUnitConflicts) != 0 {
-		test.Errorf("SubUnitConflicts populated for user-namespace section declaration: %+v", loaded.SubUnitConflicts)
-	}
 
 	if _, exists := loaded.NodeTypes["section"]; !exists {
 		test.Error("NodeTypes missing 'section' after merge")
@@ -311,10 +286,6 @@ cardinality = "one-to-many"
 `)
 
 	manifest.MergeBuiltinPacks(loaded)
-
-	if len(loaded.SubUnitConflicts) != 0 {
-		test.Errorf("SubUnitConflicts populated for user-namespace contains edge declaration: %+v", loaded.SubUnitConflicts)
-	}
 
 	if _, exists := loaded.EdgeTypes["contains"]; !exists {
 		test.Error("EdgeTypes missing 'contains' after merge")

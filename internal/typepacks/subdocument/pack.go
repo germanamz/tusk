@@ -31,9 +31,9 @@ func Source() string {
 // ReservedNodeTypes are the node-type names owned by the sub-document
 // pack within source = Source() (i.e., source='markdown'). A user
 // manifest that declares any of these under [node-types.<name>] in
-// the user namespace (source = NULL) is allowed; only declarations
-// targeting the same source raise manifest.SubUnitConflict (rescoped
-// in Phase 4, Task 2).
+// the user namespace (source = NULL) is allowed and coexists with the
+// pack — only a declaration targeting the same source would shadow it,
+// which today's manifest grammar cannot express.
 var ReservedNodeTypes = []string{
 	"section",
 	"paragraph",

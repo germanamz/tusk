@@ -124,7 +124,6 @@ const goldenDoctorClean = "doctor: no issues\n" +
 	"  queue (files)         0\n" +
 	"  queue (sub-units)     0\n" +
 	"  oversize payloads     0\n" +
-	"  reserved conflicts    0\n" +
 	"graph expansion:\n" +
 	"  enabled               false\n" +
 	"  hops                  1\n" +

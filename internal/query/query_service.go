@@ -302,10 +302,9 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	for _, embeddingRow := range loaded {
 		candidates = append(candidates, filter.SemanticCandidate{
-			NodeID:   embeddingRow.NodeID,
-			ChunkIdx: embeddingRow.ChunkIdx,
-			Vector:   embeddingRow.Vector,
-			Body:     embeddingRow.Body,
+			NodeID: embeddingRow.NodeID,
+			Vector: embeddingRow.Vector,
+			Body:   embeddingRow.Body,
 		})
 	}
 

@@ -25,11 +25,19 @@ func TestOpen_CreatesSchemaOnFirstOpen(test *testing.T) {
 		test.Fatalf("ListTables: %v", queryErr)
 	}
 
-	requiredTables := []string{"nodes", "manifest_snapshot", "warnings"}
+	requiredTables := []string{"nodes", "edges", "embeddings", "meta"}
 
 	for _, required := range requiredTables {
 		if !contains(tables, required) {
 			test.Errorf("missing table %q in %v", required, tables)
+		}
+	}
+
+	// manifest_snapshot and warnings were retired (never read); the Open
+	// migration drops them, so a fresh DB must not carry them.
+	for _, retired := range []string{"manifest_snapshot", "warnings"} {
+		if contains(tables, retired) {
+			test.Errorf("retired table %q still present in %v", retired, tables)
 		}
 	}
 }

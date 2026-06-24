@@ -31,12 +31,10 @@ func headingLevel(tag string) (int, bool) {
 }
 
 // sectionFrame is one entry on the open-heading stack: the heading
-// level (for nesting/closing), the section's content hash (for the
-// ParentHash wiring), its structural address ("S1.2"), and the
+// level (for nesting/closing), its structural address ("S1.2"), and the
 // per-kind / per-table counters for the leaves directly beneath it.
 type sectionFrame struct {
 	level         int
-	hash          string
 	address       string
 	childHeadings int
 	kindCounts    map[subunitKind]int
@@ -71,7 +69,6 @@ func (c *walkCtx) deepest() *sectionFrame {
 }
 
 func (c *walkCtx) currentAddress() string { return c.deepest().address }
-func (c *walkCtx) currentHash() string    { return c.deepest().hash }
 
 // openSectionAddress computes the address for a heading opening under
 // the current deepest frame, advancing that frame's child-heading
@@ -87,10 +84,9 @@ func (c *walkCtx) openSectionAddress() string {
 	return parent.address + "." + strconv.Itoa(parent.childHeadings)
 }
 
-func (c *walkCtx) push(level int, hash, address string) {
+func (c *walkCtx) push(level int, address string) {
 	c.stack = append(c.stack, sectionFrame{
 		level:      level,
-		hash:       hash,
 		address:    address,
 		kindCounts: map[subunitKind]int{},
 	})

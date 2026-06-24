@@ -83,30 +83,6 @@ func (repo *EmbedQueueRepo) EnqueueReindex(path string) error {
 	return nil
 }
 
-// ReEnqueue reinserts a row for nodeID with the explicit attempts count and
-// last_error, bumping enqueued_at to time.Now() so FIFO ordering reflects the
-// most-recent attempt (anti-starvation). If a row already exists for nodeID,
-// its attempts, last_error, and enqueued_at are overwritten. The kind column
-// defaults to 'embed' via the table default and is not touched here; reindex
-// jobs use the dedicated Phase 6 helper. This method is retained for the
-// rebuild/reindex flow in Phase 6; the embed-drain path uses Nack instead.
-func (repo *EmbedQueueRepo) ReEnqueue(nodeID string, attempts int, lastError string) error {
-	_, execErr := repo.db.Exec(`
-		INSERT INTO embed_queue (node_id, enqueued_at, attempts, last_error)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(node_id) DO UPDATE SET
-			enqueued_at = excluded.enqueued_at,
-			attempts = excluded.attempts,
-			last_error = excluded.last_error
-	`, nodeID, time.Now().UnixNano(), attempts, lastError)
-
-	if execErr != nil {
-		return fmt.Errorf("embedQueueRepo: re-enqueue %s: %w", nodeID, execErr)
-	}
-
-	return nil
-}
-
 // DrainEmbed atomically claims up to batchSize unleased (or expired-lease)
 // kind='embed' rows for workerID, setting leased_by / leased_until_ns /
 // lease_started_at_ns to now and now+ttl. Returns the claimed rows
