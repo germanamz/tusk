@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/germanamz/tusk/compare/v1.14.1...v1.15.0) (2026-06-24)
+
+
+### Features
+
+* **graph:** color nodes by type, size and brighten by in-degree ([#581](https://github.com/germanamz/tusk/issues/581)) ([adc7d22](https://github.com/germanamz/tusk/commit/adc7d22f60286587756823d3bb0d4c28e2f19e70))
+
 ## [1.14.1](https://github.com/germanamz/tusk/compare/v1.14.0...v1.14.1) (2026-06-24)
 
 
