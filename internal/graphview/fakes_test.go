@@ -1,6 +1,7 @@
 package graphview
 
 import (
+	"sort"
 	"sync"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -28,11 +29,73 @@ func (fake *fakeNodes) ListByParent(parentID string) ([]index.NodeRow, error) {
 	return fake.children[parentID], nil
 }
 
+// ListByIDs mirrors *index.NodeRepo.ListByIDs: returns matching rows ordered by
+// id ASC, silently omitting ids with no row.
+func (fake *fakeNodes) ListByIDs(ids []string) ([]index.NodeRow, error) {
+	out := make([]index.NodeRow, 0, len(ids))
+
+	for _, id := range ids {
+		if row, ok := fake.byID[id]; ok {
+			out = append(out, row)
+		}
+	}
+
+	sort.SliceStable(out, func(left, right int) bool {
+		return out[left].ID < out[right].ID
+	})
+
+	return out, nil
+}
+
 type fakeEdges struct {
 	all []index.EdgeRow
 }
 
 func (fake *fakeEdges) ListAll() ([]index.EdgeRow, error) { return fake.all, nil }
+
+// ListBySource mirrors *index.EdgeRepo.ListBySource: edges with the given
+// source_id ordered by type, then target_id.
+func (fake *fakeEdges) ListBySource(sourceID string) ([]index.EdgeRow, error) {
+	out := make([]index.EdgeRow, 0)
+
+	for _, row := range fake.all {
+		if row.SourceID == sourceID {
+			out = append(out, row)
+		}
+	}
+
+	sort.SliceStable(out, func(left, right int) bool {
+		if out[left].Type != out[right].Type {
+			return out[left].Type < out[right].Type
+		}
+
+		return out[left].TargetID < out[right].TargetID
+	})
+
+	return out, nil
+}
+
+// ListByTarget mirrors *index.EdgeRepo.ListByTarget: edges with the given
+// target_id ordered by type, then source_id.
+func (fake *fakeEdges) ListByTarget(targetID string) ([]index.EdgeRow, error) {
+	out := make([]index.EdgeRow, 0)
+
+	for _, row := range fake.all {
+		if row.TargetID == targetID {
+			out = append(out, row)
+		}
+	}
+
+	sort.SliceStable(out, func(left, right int) bool {
+		if out[left].Type != out[right].Type {
+			return out[left].Type < out[right].Type
+		}
+
+		return out[left].SourceID < out[right].SourceID
+	})
+
+	return out, nil
+}
 
 type fakeChanges struct {
 	mu  sync.Mutex

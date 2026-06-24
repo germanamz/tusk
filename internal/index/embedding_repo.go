@@ -85,26 +85,61 @@ func (repo *EmbeddingRepo) Upsert(row EmbeddingRow) error {
 	return nil
 }
 
-// ExistsByContentHash reports whether a shared vector already exists for this
-// content under the given model. The drain uses it to attach a node to an
-// already-embedded content_hash instead of calling the model again.
-func (repo *EmbeddingRepo) ExistsByContentHash(contentHash, model string) (bool, error) {
-	var one int
+// ExistsByContentHashes reports, for each distinct hash in hashes, whether a
+// shared vector already exists for it under the given model. The returned map
+// is keyed by content hash; an absent or false value means no stored vector.
+// The drain reuse path checks every chunk's hash in one IN-clause query instead
+// of one round trip per chunk. Empty input yields an empty map with no query
+// executed.
+func (repo *EmbeddingRepo) ExistsByContentHashes(hashes []string, model string) (map[string]bool, error) {
+	present := make(map[string]bool, len(hashes))
 
-	queryErr := repo.db.QueryRow(
-		`SELECT 1 FROM embeddings WHERE content_hash = ? AND model = ? LIMIT 1`,
-		contentHash, model,
-	).Scan(&one)
-
-	if errors.Is(queryErr, sql.ErrNoRows) {
-		return false, nil
+	if len(hashes) == 0 {
+		return present, nil
 	}
+
+	distinct := make([]string, 0, len(hashes))
+	seen := make(map[string]struct{}, len(hashes))
+
+	for _, hash := range hashes {
+		if _, ok := seen[hash]; ok {
+			continue
+		}
+
+		seen[hash] = struct{}{}
+		distinct = append(distinct, hash)
+	}
+
+	args := make([]any, 0, len(distinct)+1)
+
+	for _, hash := range distinct {
+		args = append(args, hash)
+	}
+
+	args = append(args, model)
+
+	query := `SELECT content_hash FROM embeddings WHERE content_hash IN (` +
+		inPlaceholders(len(distinct)) + `) AND model = ?`
+
+	rows, queryErr := repo.db.Query(query, args...)
 
 	if queryErr != nil {
-		return false, fmt.Errorf("embeddingRepo: exists %s: %w", contentHash, queryErr)
+		return nil, fmt.Errorf("embeddingRepo: exists batch: %w", queryErr)
 	}
 
-	return true, nil
+	defer rows.Close()
+
+	for rows.Next() {
+		var hash string
+
+		if scanErr := rows.Scan(&hash); scanErr != nil {
+			return nil, fmt.Errorf("embeddingRepo: exists batch scan: %w", scanErr)
+		}
+
+		present[hash] = true
+	}
+
+	return present, rows.Err()
 }
 
 // MapNodeChunk records (or replaces) the node→content mapping for one chunk
@@ -225,6 +260,53 @@ func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRo
 	})
 
 	return results, nil
+}
+
+// ExistsSubUnitsForFiles reports whether any sub-unit embedding exists for any
+// fileID in the input, using the same `<fileID>#*` GLOB match and the same
+// inner join to the shared vector as ListSubUnitsForFiles. It is the cheap
+// existence-only probe for that heavier loader: it returns a boolean without
+// decoding any vector or body payload, so the query service can test "are
+// there sub-unit embeddings for these files?" without materializing them.
+//
+// Returns false for empty input. The ids are chunked into batches of
+// maxGlobConditions like ListSubUnitsForFiles; it short-circuits and returns
+// true on the first chunk that matches a row.
+func (repo *EmbeddingRepo) ExistsSubUnitsForFiles(fileIDs []string) (bool, error) {
+	if len(fileIDs) == 0 {
+		return false, nil
+	}
+
+	for _, chunk := range chunkStrings(fileIDs, maxGlobConditions) {
+		conditions := make([]string, 0, len(chunk))
+		args := make([]any, 0, len(chunk))
+
+		for _, fileID := range chunk {
+			conditions = append(conditions, "ne.node_id GLOB ?")
+			args = append(args, fileID+"#*")
+		}
+
+		query := `SELECT 1
+			FROM node_embeddings ne
+			JOIN embeddings e ON e.content_hash = ne.content_hash AND e.model = ne.model
+			WHERE ` + strings.Join(conditions, " OR ") + ` LIMIT 1`
+
+		var one int
+
+		scanErr := repo.db.QueryRow(query, args...).Scan(&one)
+
+		if errors.Is(scanErr, sql.ErrNoRows) {
+			continue
+		}
+
+		if scanErr != nil {
+			return false, fmt.Errorf("embeddingRepo: exists sub-units: %w", scanErr)
+		}
+
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // queryEmbeddings runs query and scans the result rows into EmbeddingRow
