@@ -139,6 +139,23 @@ type Report struct {
 	Generation int64
 }
 
+// mergeDrain folds a DrainReport's per-file counters into rep. The fields
+// mirror DrainReport.merge; only the counters the per-file path produces are
+// accumulated (Removed and Generation are owned by the walk, not the drain).
+func (rep *Report) mergeDrain(other DrainReport) {
+	rep.Indexed += other.Indexed
+	rep.Skipped += other.Skipped
+	rep.WorkflowViolations += other.WorkflowViolations
+	rep.PropertyViolations += other.PropertyViolations
+	rep.RefDangling += other.RefDangling
+	rep.RefAmbiguous += other.RefAmbiguous
+	rep.RefTypeMismatch += other.RefTypeMismatch
+	rep.RefCycle += other.RefCycle
+	rep.SubUnitsInserted += other.SubUnitsInserted
+	rep.SubUnitsDeleted += other.SubUnitsDeleted
+	rep.SubUnitsReordered += other.SubUnitsReordered
+}
+
 // Run walks Root, parses every *.md file with valid frontmatter and every
 // *.html/*.htm file with a tusk:type meta directive, and upserts or removes
 // index rows so the index matches what is on disk. When Edges and EdgeTypes
@@ -402,17 +419,7 @@ func Run(config Config) (*Report, error) {
 			return nil, fmt.Errorf("reindex: drain reindex queue: %w", drainErr)
 		}
 
-		report.Indexed += drainReport.Indexed
-		report.Skipped += drainReport.Skipped
-		report.WorkflowViolations += drainReport.WorkflowViolations
-		report.PropertyViolations += drainReport.PropertyViolations
-		report.RefDangling += drainReport.RefDangling
-		report.RefAmbiguous += drainReport.RefAmbiguous
-		report.RefTypeMismatch += drainReport.RefTypeMismatch
-		report.RefCycle += drainReport.RefCycle
-		report.SubUnitsInserted += drainReport.SubUnitsInserted
-		report.SubUnitsDeleted += drainReport.SubUnitsDeleted
-		report.SubUnitsReordered += drainReport.SubUnitsReordered
+		report.mergeDrain(drainReport)
 	}
 
 	if config.Embedder != nil && config.Workers > 0 {

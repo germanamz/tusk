@@ -15,6 +15,8 @@ const (
 	OpRange
 )
 
+// String returns the canonical glyph for op. It is the single source of truth
+// for operator glyphs; opToSQL reuses it for the comparison operators.
 func (op Op) String() string {
 	switch op {
 	case OpEQ:
@@ -34,6 +36,11 @@ func (op Op) String() string {
 	}
 
 	return "?"
+}
+
+// valid reports whether op is one of the declared Op constants.
+func (op Op) valid() bool {
+	return op >= OpEQ && op <= OpRange
 }
 
 // Direction is the polarity of an edge predicate.

@@ -124,61 +124,49 @@ func (repo *FileStateRepo) Claim(path, workerID string, ttl time.Duration) (*Cla
 func (repo *FileStateRepo) Release(outcome ReleaseContext) error {
 	now := time.Now().UnixNano()
 
-	if !outcome.Success {
-		if _, execErr := repo.db.Exec(`
-			UPDATE file_state
-			SET    leased_by         = NULL,
-			       leased_until_ns   = NULL,
-			       pending_temp_path = NULL,
-			       pending_hash      = NULL,
-			       updated_at_ns     = ?
-			WHERE  path = ? AND leased_by = ?
-		`, now, outcome.Path, outcome.WorkerID); execErr != nil {
-			return fmt.Errorf("fileStateRepo: release abandon %s: %w", outcome.Path, execErr)
-		}
-
-		return nil
-	}
-
-	if outcome.State != "" {
-		if _, execErr := repo.db.Exec(`
-			UPDATE file_state
-			SET    content_hash      = ?,
-			       mtime_ns          = ?,
-			       size              = ?,
-			       state             = ?,
-			       leased_by         = NULL,
-			       leased_until_ns   = NULL,
-			       pending_temp_path = NULL,
-			       pending_hash      = NULL,
-			       updated_at_ns     = ?
-			WHERE  path = ? AND leased_by = ?
-		`,
-			outcome.ContentHash, outcome.MtimeNs, outcome.Size, outcome.State, now,
-			outcome.Path, outcome.WorkerID,
-		); execErr != nil {
-			return fmt.Errorf("fileStateRepo: release commit %s: %w", outcome.Path, execErr)
-		}
-
-		return nil
-	}
-
-	if _, execErr := repo.db.Exec(`
-		UPDATE file_state
-		SET    content_hash      = ?,
-		       mtime_ns          = ?,
-		       size              = ?,
+	// All three release paths clear the lease + pending columns and stamp
+	// updated_at_ns under the same worker-guarded WHERE. Only the leading
+	// observed-state SET assignments differ between abandon and the two
+	// commit variants, so those are built per-path and the shared lease-clear
+	// suffix is appended once.
+	const leaseClearSet = `
 		       leased_by         = NULL,
 		       leased_until_ns   = NULL,
 		       pending_temp_path = NULL,
 		       pending_hash      = NULL,
 		       updated_at_ns     = ?
-		WHERE  path = ? AND leased_by = ?
-	`,
-		outcome.ContentHash, outcome.MtimeNs, outcome.Size, now,
-		outcome.Path, outcome.WorkerID,
-	); execErr != nil {
-		return fmt.Errorf("fileStateRepo: release commit %s: %w", outcome.Path, execErr)
+		WHERE  path = ? AND leased_by = ?`
+
+	var (
+		observedSet string
+		args        []any
+		label       string
+	)
+
+	switch {
+	case !outcome.Success:
+		observedSet = ""
+		args = []any{now, outcome.Path, outcome.WorkerID}
+		label = "abandon"
+	case outcome.State != "":
+		observedSet = `content_hash      = ?,
+		       mtime_ns          = ?,
+		       size              = ?,
+		       state             = ?,`
+		args = []any{outcome.ContentHash, outcome.MtimeNs, outcome.Size, outcome.State, now, outcome.Path, outcome.WorkerID}
+		label = "commit"
+	default:
+		observedSet = `content_hash      = ?,
+		       mtime_ns          = ?,
+		       size              = ?,`
+		args = []any{outcome.ContentHash, outcome.MtimeNs, outcome.Size, now, outcome.Path, outcome.WorkerID}
+		label = "commit"
+	}
+
+	query := "UPDATE file_state\n\t\tSET    " + observedSet + leaseClearSet
+
+	if _, execErr := repo.db.Exec(query, args...); execErr != nil {
+		return fmt.Errorf("fileStateRepo: release %s %s: %w", label, outcome.Path, execErr)
 	}
 
 	return nil

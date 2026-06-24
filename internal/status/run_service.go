@@ -6,30 +6,14 @@ package status
 // field to one but not the other would compile but drop the value.
 type Request = Config
 
-// Result is the typed payload returned by Run. The shape mirrors SnapshotData
-// so existing renderers and MCP handlers can consume it without translation.
-type Result struct {
-	NodesByType       map[string]int
-	EdgeCount         int
-	EmbedQueueDepth   int // pending rows with kind='embed'
-	ReindexQueueDepth int // pending rows with kind='reindex'
-	LastReindexAt     string
-}
+// Result is the typed payload returned by Run. It is a type alias for
+// SnapshotData (the two are field-identical) so existing renderers and MCP
+// handlers consume Snapshot output without translation, and so adding a field
+// to one cannot silently drop it from the other.
+type Result = SnapshotData
 
 // Run is the canonical entry point for the `status` / `tusk_status` verb.
 // It wraps Snapshot so the CLI and MCP handlers share a single code path.
 func Run(req Request) (*Result, error) {
-	snap, snapErr := Snapshot(req)
-
-	if snapErr != nil {
-		return nil, snapErr
-	}
-
-	return &Result{
-		NodesByType:       snap.NodesByType,
-		EdgeCount:         snap.EdgeCount,
-		EmbedQueueDepth:   snap.EmbedQueueDepth,
-		ReindexQueueDepth: snap.ReindexQueueDepth,
-		LastReindexAt:     snap.LastReindexAt,
-	}, nil
+	return Snapshot(req)
 }
