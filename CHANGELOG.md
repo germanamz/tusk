@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.14.1](https://github.com/germanamz/tusk/compare/v1.14.0...v1.14.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* **filter:** reject unsafe --sort property names; drop dead code ([#573](https://github.com/germanamz/tusk/issues/573)) ([7eed2ae](https://github.com/germanamz/tusk/commit/7eed2ae4937c7b9ea88e8098a6eeab89cd809463))
+
+
+### Performance Improvements
+
+* eliminate N+1 queries and double-loads on read paths ([#579](https://github.com/germanamz/tusk/issues/579)) ([54cc519](https://github.com/germanamz/tusk/commit/54cc51926c2d78e0ce28eceb13403ffc19822de4))
+
+
+### Code Refactoring
+
+* decompose god functions and merge duplicated compilers ([#578](https://github.com/germanamz/tusk/issues/578)) ([6e10e76](https://github.com/germanamz/tusk/commit/6e10e76993908afcbf5688d38c56a4f50656e740))
+* **index:** dedupe repo/compile boilerplate ([#575](https://github.com/germanamz/tusk/issues/575)) ([671d26b](https://github.com/germanamz/tusk/commit/671d26b041c0b1c7e1ceb3debc4da26b614df075))
+* remove vestigial state and dead subsystems ([#574](https://github.com/germanamz/tusk/issues/574)) ([70bef30](https://github.com/germanamz/tusk/commit/70bef304cedbc900eadf61a88b06e59d09653669))
+* single-source CLI/MCP wire shapes and runtime wiring ([#576](https://github.com/germanamz/tusk/issues/576)) ([15ee28f](https://github.com/germanamz/tusk/commit/15ee28f450a42a137432b8a8fb5f0c72be15da92))
+* unify sub-unit address machinery and epoch packages ([#577](https://github.com/germanamz/tusk/issues/577)) ([d2310c6](https://github.com/germanamz/tusk/commit/d2310c646afd5cf8be2ededeb966a62a9b7243b5))
+
 ## [1.14.0](https://github.com/germanamz/tusk/compare/v1.13.1...v1.14.0) (2026-06-23)
 
 
