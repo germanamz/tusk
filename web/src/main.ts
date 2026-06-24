@@ -122,7 +122,7 @@ function buildLegend(graph: Graph, typeColors: Map<string, string>): void {
   // Importance hint: explains the size/brightness channel.
   const importance = document.createElement('span')
   importance.style.cssText = 'color:#888;border-left:1px solid #2a2d3a;padding-left:8px;margin-left:4px'
-  importance.textContent = 'size & brightness = incoming links'
+  importance.textContent = 'size & brightness = connections (in + out)'
   legend.appendChild(importance)
 
   // Controls hint (replaces the library's hidden nav info). Advertises the

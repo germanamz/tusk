@@ -6,7 +6,7 @@ test('renders the graph and opens an inspect panel', async ({ page }) => {
   // The 3d-force-graph scene renders into a canvas.
   await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
 
-  // The snapshot API returns the fixture's two nodes.
+  // The snapshot API returns the fixture's nodes.
   const graph = await page.evaluate(async () => (await fetch('./api/graph').then((r) => r.json())))
   expect(graph.nodes.length).toBeGreaterThanOrEqual(2)
 
@@ -189,4 +189,43 @@ test('a wrapped (multi-row) facets bar never overlaps the graph', async ({ page 
   }))
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 2)
   expect(overflow.scrollHeight).toBeLessThanOrEqual(overflow.clientHeight + 2)
+})
+
+test('node size & brightness track total degree end-to-end', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
+
+  // Drive the live scene accessors over the fixture (notes/a is a degree-2 hub
+  // relating to b and c; b and c are degree-1 leaves). This is the only check
+  // that covers the whole pipeline: snapshot.go degree -> wire -> scene.ts's
+  // node.degree read + maxDegree reduce -> encode.ts size/brightness. A revert to
+  // node.in_degree fails here (notes/a has in_degree 0, so it would render at the
+  // floor despite being the highest-degree node).
+  const enc = await page.evaluate(() => {
+    const g = (window as any).tuskGraph
+    const nodes = g.graphData().nodes as any[]
+    const valFn = g.nodeVal()
+    const colorFn = g.nodeColor()
+    const lum = (hex: string) => {
+      const m = /^#([0-9a-f]{6})$/i.exec(hex)
+      if (!m) return -1
+      const n = parseInt(m[1], 16)
+      const ch = [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+      return (Math.max(...ch) + Math.min(...ch)) / 2
+    }
+    const rows = nodes.map((node: any) => ({ degree: node.degree, val: valFn(node), lum: lum(colorFn(node)) }))
+    return {
+      hi: rows.reduce((a, b) => (b.degree > a.degree ? b : a)),
+      lo: rows.reduce((a, b) => (b.degree < a.degree ? b : a)),
+      allNumericDegree: rows.every((r) => typeof r.degree === 'number'),
+    }
+  })
+
+  // The wire carries a numeric total-degree per node, and the fixture has a real
+  // spread, so the comparison below is meaningful (not two equal-degree nodes).
+  expect(enc.allNumericDegree).toBe(true)
+  expect(enc.hi.degree).toBeGreaterThan(enc.lo.degree)
+  // Higher total degree => larger node val (size) and brighter (higher luminance).
+  expect(enc.hi.val).toBeGreaterThan(enc.lo.val)
+  expect(enc.hi.lum).toBeGreaterThan(enc.lo.lum)
 })

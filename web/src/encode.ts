@@ -116,28 +116,47 @@ export function hslToHex(h: number, s: number, l: number): string {
   return '#' + to255(r) + to255(g) + to255(b)
 }
 
-// Brightness range: cap lightness short of white so the hue survives at the
-// bright (hub) end, and floor it so dim leaves stay visible. Saturation tracks
-// importance too, so hubs read both brighter and more vivid.
-const L_MIN = 0.36
-const L_MAX = 0.68
+// Brightness range: widened to amplify the hub/leaf contrast. Lightness is
+// capped short of white so the hue survives at the bright (hub) end, and floored
+// so dim leaves stay visible. Saturation tracks importance too, so hubs read
+// both brighter and more vivid.
+const L_MIN = 0.3
+const L_MAX = 0.78
 const S_MIN = 0.45
-const S_MAX = 0.9
+const S_MAX = 1.0
+
+// Node "val" range. 3d-force-graph renders sphere radius ∝ ∛val, which compresses
+// the scale hard; mapping into 3→60 yields a fixed ~2.7× radius for the top hub
+// vs a min-degree leaf in any view. (The old formula was unnormalized, so its
+// hub/leaf ratio drifted with the graph's max degree — typically ~1.2–2×.) The
+// floor keeps leaves visible.
+const SIZE_MIN_VAL = 3
+const SIZE_MAX_VAL = 60
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
 
-// importanceColor maps a type's base hue plus its in-degree to a hue-preserving
-// color: more incoming links → higher saturation and lightness (a brighter,
-// more vivid node). maxInDegree normalizes the scale; 0 is safe (flat dim).
-export function importanceColor(baseHex: string, inDegree: number, maxInDegree: number): string {
-  let t = maxInDegree > 0 ? Math.sqrt(Math.max(0, inDegree)) / Math.sqrt(maxInDegree) : 0
-  t = Math.min(1, Math.max(0, t))
+// importance normalizes a node's total degree to [0,1] against the rendered
+// set's max, on a sqrt scale so the long tail of low-degree nodes still spreads
+// out. Shared by both visual channels (size and brightness) so they stay in
+// lockstep; maxDegree of 0 is safe (returns 0 → flat minimum).
+function importance(degree: number, maxDegree: number): number {
+  if (maxDegree <= 0) return 0
+  const t = Math.sqrt(Math.max(0, degree)) / Math.sqrt(maxDegree)
+  return Math.min(1, Math.max(0, t))
+}
+
+// importanceColor maps a type's base hue plus its total degree to a hue-
+// preserving color: more connections → higher saturation and lightness (a
+// brighter, more vivid node). maxDegree normalizes the scale; 0 is safe (flat dim).
+export function importanceColor(baseHex: string, degree: number, maxDegree: number): string {
+  const t = importance(degree, maxDegree)
   const [h] = hexToHsl(baseHex)
   return hslToHex(h, lerp(S_MIN, S_MAX, t), lerp(L_MIN, L_MAX, t))
 }
 
-// sizeForDegree keeps its monotonic shape but is now fed in-degree. The floor of
-// 2 keeps in-degree-0 nodes visible but smallest.
-export function sizeForDegree(degree: number): number {
-  return 2 + Math.sqrt(degree) * 1.5
+// sizeForDegree maps a node's total degree to its render val, normalized against
+// the rendered set's max so the most-connected hub is always largest in any view.
+// maxDegree of 0 yields the flat minimum (safe, no NaN).
+export function sizeForDegree(degree: number, maxDegree: number): number {
+  return lerp(SIZE_MIN_VAL, SIZE_MAX_VAL, importance(degree, maxDegree))
 }
