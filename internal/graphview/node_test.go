@@ -110,3 +110,76 @@ func TestNodeSubunits(t *testing.T) {
 		t.Fatalf("subunit edges = %+v", sub.Edges)
 	}
 }
+
+// newSubunitDegreeFixtureDeps builds a parent with three children of differing
+// connectivity so the drill-down degree tally can be exercised:
+//   - hub:  one outgoing direct + one incoming derived edge -> degree 2, in 1
+//   - leaf: only the parent "contains" edge -> degree 0 (structural excluded)
+//   - self: a self-loop -> degree 2, in 1 (both endpoints, matching snapshot)
+func newSubunitDegreeFixtureDeps() Deps {
+	nodes := &fakeNodes{
+		byID: map[string]index.NodeRow{
+			"notes/p":      fileRow("notes/p", "note", "P", ""),
+			"notes/p#hub":  subRow("notes/p#hub", "notes/p", "section", "Hub"),
+			"notes/p#leaf": subRow("notes/p#leaf", "notes/p", "section", "Leaf"),
+			"notes/p#self": subRow("notes/p#self", "notes/p", "section", "Self"),
+		},
+		children: map[string][]index.NodeRow{
+			"notes/p": {
+				subRow("notes/p#hub", "notes/p", "section", "Hub"),
+				subRow("notes/p#leaf", "notes/p", "section", "Leaf"),
+				subRow("notes/p#self", "notes/p", "section", "Self"),
+			},
+		},
+	}
+	edges := &fakeEdges{all: []index.EdgeRow{
+		// Structural parent->child edges MUST NOT count toward sub-unit degree.
+		edge("contains", "notes/p", "notes/p#hub", "structural"),
+		edge("contains", "notes/p", "notes/p#leaf", "structural"),
+		edge("contains", "notes/p", "notes/p#self", "structural"),
+		// hub: one out (direct), one in (derived).
+		edge("references", "notes/p#hub", "notes/x", "direct"),
+		edge("mentions", "notes/y", "notes/p#hub", "derived"),
+		// self-loop: counted at both endpoints, matching snapshot() semantics.
+		edge("related", "notes/p#self", "notes/p#self", "direct"),
+		// leaf: no non-structural edges.
+	}}
+
+	return Deps{Nodes: nodes, Edges: edges}
+}
+
+func TestNodeSubunits_Degree(t *testing.T) {
+	srv := New(newSubunitDegreeFixtureDeps())
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/node/notes/p/subunits")
+	if err != nil {
+		t.Fatalf("GET subunits: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var sub SubunitGraph
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&sub); decodeErr != nil {
+		t.Fatalf("decode: %v", decodeErr)
+	}
+
+	byID := make(map[string]GraphNode, len(sub.Nodes))
+	for _, node := range sub.Nodes {
+		byID[node.ID] = node
+	}
+
+	if got := byID["notes/p#hub"]; got.Degree != 2 || got.InDegree != 1 {
+		t.Fatalf("hub degree=%d in_degree=%d, want 2/1", got.Degree, got.InDegree)
+	}
+
+	// Only the parent "contains" edge touches leaf; structural edges are excluded.
+	if got := byID["notes/p#leaf"]; got.Degree != 0 || got.InDegree != 0 {
+		t.Fatalf("leaf degree=%d in_degree=%d, want 0/0 (structural contains excluded)", got.Degree, got.InDegree)
+	}
+
+	// A self-loop increments both endpoints, matching snapshot() degree semantics.
+	if got := byID["notes/p#self"]; got.Degree != 2 || got.InDegree != 1 {
+		t.Fatalf("self degree=%d in_degree=%d, want 2/1", got.Degree, got.InDegree)
+	}
+}

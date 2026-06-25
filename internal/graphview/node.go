@@ -187,15 +187,68 @@ func (srv *Server) respondSubunits(writer http.ResponseWriter, parentID string) 
 		return
 	}
 
+	degree, inDegree, degErr := srv.subunitDegrees(children)
+	if degErr != nil {
+		http.Error(writer, degErr.Error(), http.StatusServiceUnavailable)
+
+		return
+	}
+
 	nodes := make([]GraphNode, 0, len(children))
 	edges := make([]GraphEdge, 0, len(children))
 
 	for _, child := range children {
-		nodes = append(nodes, GraphNode{ID: child.ID, Type: child.Type, Title: child.Title, Path: child.Path})
+		nodes = append(nodes, GraphNode{
+			ID:       child.ID,
+			Type:     child.Type,
+			Title:    child.Title,
+			Path:     child.Path,
+			Degree:   degree[child.ID],
+			InDegree: inDegree[child.ID],
+		})
 		// Only the forward "contains" edge is materialized; synthesize it from
 		// the known parent→child relation.
 		edges = append(edges, GraphEdge{Source: parentID, Target: child.ID, Type: "contains", Kind: "structural"})
 	}
 
 	writeJSON(writer, SubunitGraph{Nodes: nodes, Edges: edges})
+}
+
+// subunitDegrees tallies each child's degree / in-degree over a single ListAll
+// scan, mirroring snapshot()'s metric so drill-down nodes size and brighten by
+// real connectivity. Structural ("contains") edges are excluded: every sub-unit
+// carries exactly one incoming contains edge from its parent, so counting it
+// would add a constant +1 with no discriminating signal and diverge from the
+// file-level rule (snapshot excludes contains edges by endpoint). Self-loops
+// increment both endpoints, matching snapshot().
+func (srv *Server) subunitDegrees(children []index.NodeRow) (map[string]int, map[string]int, error) {
+	childSet := make(map[string]struct{}, len(children))
+	for _, child := range children {
+		childSet[child.ID] = struct{}{}
+	}
+
+	allEdges, edgeErr := srv.deps.Edges.ListAll()
+	if edgeErr != nil {
+		return nil, nil, edgeErr
+	}
+
+	degree := make(map[string]int, len(children))
+	inDegree := make(map[string]int, len(children))
+
+	for _, row := range allEdges {
+		if row.Kind == "structural" {
+			continue
+		}
+
+		if _, ok := childSet[row.SourceID]; ok {
+			degree[row.SourceID]++
+		}
+
+		if _, ok := childSet[row.TargetID]; ok {
+			degree[row.TargetID]++
+			inDegree[row.TargetID]++
+		}
+	}
+
+	return degree, inDegree, nil
 }
