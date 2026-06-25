@@ -97,6 +97,14 @@ func Load(manifestPath string) (*Manifest, error) {
 		return nil, fmt.Errorf("manifest: %w", resolveErr)
 	}
 
+	if graphDecodeErr := decodeGraphSection(body, loaded); graphDecodeErr != nil {
+		return nil, fmt.Errorf("manifest: decode graph section in %s: %w", manifestPath, graphDecodeErr)
+	}
+
+	if resolveErr := resolveGraphCluster(loaded); resolveErr != nil {
+		return nil, fmt.Errorf("manifest: %w", resolveErr)
+	}
+
 	if validateErr := Validate(loaded); validateErr != nil {
 		return nil, validateErr
 	}
@@ -123,6 +131,29 @@ func decodeQuerySection(body string, loaded *Manifest) error {
 	// PrimitiveDecode'd against the MetaData returned by the same Decode
 	// call that produced them.
 	loaded.queryGraphExpansionMeta = &queryMeta
+
+	return nil
+}
+
+// decodeGraphSection performs a secondary decode of the top-level [graph]
+// table so the loader can capture per-field toml.Primitive values for
+// [graph.cluster]. The primary Manifest decode already validates the overall
+// TOML shape; this decode never fails on an absent block (Go zero-values for
+// missing primitives).
+func decodeGraphSection(body string, loaded *Manifest) error {
+	var wrapper graphDecode
+
+	graphMeta, graphDecodeErr := toml.Decode(body, &wrapper)
+
+	if graphDecodeErr != nil {
+		return graphDecodeErr
+	}
+
+	loaded.graphCluster = wrapper.Graph.Cluster
+	// Stash the local meta because toml.Primitive values can only be
+	// PrimitiveDecode'd against the MetaData returned by the same Decode
+	// call that produced them.
+	loaded.graphClusterMeta = &graphMeta
 
 	return nil
 }

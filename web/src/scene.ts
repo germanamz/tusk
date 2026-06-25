@@ -12,7 +12,7 @@ import {
 import { carryPositions } from './layout'
 
 export interface Scene {
-  setGraph(graph: Graph, typeColors: Map<string, string>): void
+  setGraph(graph: Graph, groupColors: Map<string, string>): void
   focus(ids: string[]): void
   /** Highlight a node + its incident edges and fly the camera to it. Pass null to clear. */
   select(id: string | null): void
@@ -50,11 +50,12 @@ export function createScene(el: HTMLElement): Scene {
   let pulseIds = new Set<string>()
   const isHighlighting = () => selectedId !== null
 
-  // Per-graph visual-encoding state. `typeColors` maps node type → base hue and
-  // is supplied by the caller from the FULL type universe (never recomputed from
-  // a filtered subset, or hiding one type would shift every other type's color).
-  // `maxDegree` normalizes the brightness/size scales over the rendered set.
-  let typeColors = new Map<string, string>()
+  // Per-graph visual-encoding state. `groupColors` maps group value → base hue
+  // and is supplied by the caller from the FULL group universe (never recomputed
+  // from a filtered subset, or hiding one group would shift every other group's
+  // color). `maxDegree` normalizes the brightness/size scales over the rendered
+  // set.
+  let groupColors = new Map<string, string>()
   let maxDegree = 0
 
   // All node/link styling flows through these accessors so selection, dimming,
@@ -63,7 +64,7 @@ export function createScene(el: HTMLElement): Scene {
   const nodeColor = (node: any): string => {
     if (pulseIds.has(node.id)) return PULSE_COLOR
     if (node.id === selectedId) return SELECTED_COLOR
-    const base = importanceColor(typeColors.get(node.type) ?? '#888888', node.degree ?? 0, maxDegree)
+    const base = importanceColor(groupColors.get(node.group) ?? '#888888', node.degree ?? 0, maxDegree)
     return isHighlighting() && !highlightNodes.has(node.id) ? dimColor(base) : base
   }
   const nodeVal = (node: any): number => {
@@ -146,10 +147,10 @@ export function createScene(el: HTMLElement): Scene {
 
   return {
     instance: graph,
-    setGraph(next: Graph, nextTypeColors: Map<string, string>) {
-      // Store the caller-supplied full type→color universe and renormalize the
+    setGraph(next: Graph, nextGroupColors: Map<string, string>) {
+      // Store the caller-supplied full group→color universe and renormalize the
       // brightness/size scale to the degree range of the rendered set.
-      typeColors = nextTypeColors
+      groupColors = nextGroupColors
       maxDegree = next.nodes.reduce((m, node) => Math.max(m, node.degree ?? 0), 0)
       // Carry positions forward from the current frame so d3-force-3d does not
       // re-seed known nodes into the phyllotaxis spiral on every live re-snapshot.
