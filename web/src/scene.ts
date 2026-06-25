@@ -9,6 +9,7 @@ import {
   HIGHLIGHT_LINK_COLOR,
   PULSE_COLOR,
 } from './encode'
+import { carryPositions } from './layout'
 
 export interface Scene {
   setGraph(graph: Graph, typeColors: Map<string, string>): void
@@ -150,8 +151,15 @@ export function createScene(el: HTMLElement): Scene {
       // brightness/size scale to the degree range of the rendered set.
       typeColors = nextTypeColors
       maxDegree = next.nodes.reduce((m, node) => Math.max(m, node.degree ?? 0), 0)
+      // Carry positions forward from the current frame so d3-force-3d does not
+      // re-seed known nodes into the phyllotaxis spiral on every live re-snapshot.
+      // New ids (no prior position) get a plain spread and are seeded normally.
+      const prevById = new Map<string, any>()
+      for (const nd of (graph.graphData() as { nodes: any[] }).nodes) {
+        prevById.set(nd.id, nd)
+      }
       graph.graphData({
-        nodes: next.nodes.map((node) => ({ ...node })),
+        nodes: carryPositions(prevById, next.nodes),
         links: next.edges.map((edge) => ({ ...edge })),
       })
       // New data means new link objects, so the highlight set holds stale
