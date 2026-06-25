@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.0](https://github.com/germanamz/tusk/compare/v1.15.0...v1.16.0) (2026-06-25)
+
+
+### Features
+
+* **graph:** populate degree on sub-unit drill-down nodes ([#585](https://github.com/germanamz/tusk/issues/585)) ([5c71bf7](https://github.com/germanamz/tusk/commit/5c71bf76753e0eec58e9c63ac135cdc239153127))
+* **graph:** size & brighten nodes by total degree (in + out) ([#583](https://github.com/germanamz/tusk/issues/583)) ([5f831fc](https://github.com/germanamz/tusk/commit/5f831fc6b71a00fa032f1cb930d26f5e81d42c48))
+
 ## [1.15.0](https://github.com/germanamz/tusk/compare/v1.14.1...v1.15.0) (2026-06-24)
 
 
