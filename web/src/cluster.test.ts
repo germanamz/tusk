@@ -46,12 +46,14 @@ describe('buildGroupColors', () => {
     }
   })
 
-  it('maps empty-string group to a color (neutral group coverage)', () => {
-    // Nodes missing the property field have group = ""; they should still
-    // receive a deterministic color entry.
+  it('excludes empty-string group from the color map (ungrouped nodes use neutral grey)', () => {
+    // Nodes missing the property field have group = "". They must NOT receive
+    // a palette color so that the `?? '#888888'` fallback in nodeColor is
+    // reachable, rendering them in neutral grey as the spec requires.
     const colors = buildGroupColors(['', 'eng'])
-    expect(colors.has('')).toBe(true)
-    expect(colors.get('')).toMatch(HEX)
+    expect(colors.has('')).toBe(false)
+    expect(colors.has('eng')).toBe(true)
+    expect(colors.get('eng')).toMatch(HEX)
   })
 
   it('handles a single group value without error', () => {

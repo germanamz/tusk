@@ -85,6 +85,10 @@ func TestSnapshot_GroupByType(test *testing.T) {
 		test.Errorf("Cluster.By = %q, want %q", graph.Cluster.By, "type")
 	}
 
+	if graph.Cluster.Property != "" {
+		test.Errorf("Cluster.Property = %q, want %q (empty for by=type)", graph.Cluster.Property, "")
+	}
+
 	for _, nd := range graph.Nodes {
 		if nd.Group != nd.Type {
 			test.Errorf("node %q: Group = %q, want Type = %q", nd.ID, nd.Group, nd.Type)

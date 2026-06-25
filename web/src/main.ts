@@ -110,10 +110,18 @@ function buildLegend(graph: Graph, groupColors: Map<string, string>): void {
   const colorHeader = document.createElement('strong')
   colorHeader.textContent = colorLabel
   legend.appendChild(colorHeader)
-  for (const group of [...new Set(graph.nodes.map((n) => n.group))].sort()) {
+  const allGroups = [...new Set(graph.nodes.map((n) => n.group))]
+  const hasUngrouped = allGroups.includes('')
+  for (const group of allGroups.filter((g) => g !== '').sort()) {
     const item = document.createElement('span')
     item.appendChild(swatchSpan(groupColors.get(group) ?? '#888888'))
     item.appendChild(document.createTextNode(group + '  '))
+    legend.appendChild(item)
+  }
+  if (hasUngrouped) {
+    const item = document.createElement('span')
+    item.appendChild(swatchSpan('#888888'))
+    item.appendChild(document.createTextNode('(none)  '))
     legend.appendChild(item)
   }
 

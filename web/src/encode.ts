@@ -78,7 +78,11 @@ export function buildTypeColors(types: string[]): Map<string, string> {
 // collides. When by = "type", group === type and the output is pixel-identical
 // to buildTypeColors.
 export function buildGroupColors(groups: string[]): Map<string, string> {
-  const distinct = [...new Set(groups)].sort()
+  // Exclude the empty-string sentinel used for nodes whose property field is
+  // absent. Those nodes fall back to #888888 (neutral grey) in nodeColor via
+  // the `?? '#888888'` default; assigning them a real palette hue would waste
+  // a palette slot and make the grey fallback unreachable.
+  const distinct = [...new Set(groups)].filter((g) => g !== '').sort()
   const out = new Map<string, string>()
   distinct.forEach((group, i) => {
     if (i < BASE_PALETTE.length) {
