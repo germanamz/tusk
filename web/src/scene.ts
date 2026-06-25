@@ -52,9 +52,9 @@ export function createScene(el: HTMLElement): Scene {
   // Per-graph visual-encoding state. `typeColors` maps node type → base hue and
   // is supplied by the caller from the FULL type universe (never recomputed from
   // a filtered subset, or hiding one type would shift every other type's color).
-  // `maxInDegree` normalizes the brightness/size scales over the rendered set.
+  // `maxDegree` normalizes the brightness/size scales over the rendered set.
   let typeColors = new Map<string, string>()
-  let maxInDegree = 0
+  let maxDegree = 0
 
   // All node/link styling flows through these accessors so selection, dimming,
   // and search pulses share one source of truth (the search code used to poke
@@ -62,11 +62,11 @@ export function createScene(el: HTMLElement): Scene {
   const nodeColor = (node: any): string => {
     if (pulseIds.has(node.id)) return PULSE_COLOR
     if (node.id === selectedId) return SELECTED_COLOR
-    const base = importanceColor(typeColors.get(node.type) ?? '#888888', node.in_degree ?? 0, maxInDegree)
+    const base = importanceColor(typeColors.get(node.type) ?? '#888888', node.degree ?? 0, maxDegree)
     return isHighlighting() && !highlightNodes.has(node.id) ? dimColor(base) : base
   }
   const nodeVal = (node: any): number => {
-    const base = sizeForDegree(node.in_degree ?? 0)
+    const base = sizeForDegree(node.degree ?? 0, maxDegree)
     if (pulseIds.has(node.id)) return base * 2.5 + 4
     if (node.id === selectedId) return base * 1.8
     return base
@@ -147,9 +147,9 @@ export function createScene(el: HTMLElement): Scene {
     instance: graph,
     setGraph(next: Graph, nextTypeColors: Map<string, string>) {
       // Store the caller-supplied full type→color universe and renormalize the
-      // brightness/size scale to the in-degree range of the rendered set.
+      // brightness/size scale to the degree range of the rendered set.
       typeColors = nextTypeColors
-      maxInDegree = next.nodes.reduce((m, node) => Math.max(m, node.in_degree ?? 0), 0)
+      maxDegree = next.nodes.reduce((m, node) => Math.max(m, node.degree ?? 0), 0)
       graph.graphData({
         nodes: next.nodes.map((node) => ({ ...node })),
         links: next.edges.map((edge) => ({ ...edge })),

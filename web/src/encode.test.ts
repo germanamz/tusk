@@ -43,7 +43,7 @@ describe('encode', () => {
       expect(importanceColor('#4f8cff', 3, 10)).toMatch(HEX)
     })
 
-    it('raises lightness monotonically with in-degree while preserving hue', () => {
+    it('raises lightness monotonically with degree while preserving hue', () => {
       const dim = importanceColor('#4f8cff', 0, 10)
       const mid = importanceColor('#4f8cff', 4, 10)
       const hub = importanceColor('#4f8cff', 10, 10)
@@ -58,12 +58,12 @@ describe('encode', () => {
       expect(lum(hub)).toBeGreaterThan(lum(mid))
     })
 
-    it('preserves the base hue across the in-degree range (type stays readable)', () => {
+    it('preserves the base hue across the degree range (type stays readable)', () => {
       const base = '#4f8cff'
       const baseHue = hexToHsl(base)[0]
       const lo = hexToHsl(importanceColor(base, 0, 10))[0]
       const hi = hexToHsl(importanceColor(base, 10, 10))[0]
-      // Hue is held fixed; only S/L track in-degree. Allow a tiny epsilon for
+      // Hue is held fixed; only S/L track degree. Allow a tiny epsilon for
       // the round-trip through 8-bit hex quantization.
       expect(Math.abs(lo - baseHue)).toBeLessThan(1)
       expect(Math.abs(hi - baseHue)).toBeLessThan(1)
@@ -77,15 +77,47 @@ describe('encode', () => {
       expect(importanceColor('#ffffff', 10, 10)).not.toBe('#ffffff')
     })
 
-    it('is safe when maxInDegree is 0 (no NaN, valid hex)', () => {
+    it('is safe when maxDegree is 0 (no NaN, valid hex)', () => {
       const c = importanceColor('#4f8cff', 0, 0)
       expect(c).toMatch(HEX)
       expect(c).not.toContain('NaN')
     })
+
+    it('amplifies brightness: the top hub reaches the widened lightness ceiling', () => {
+      // Widened L_MAX = 0.78; allow for hex round-trip quantization.
+      expect(hexToHsl(importanceColor('#4f8cff', 10, 10))[2]).toBeGreaterThan(0.7)
+    })
   })
 
-  it('scales size monotonically with in-degree', () => {
-    expect(sizeForDegree(10)).toBeGreaterThan(sizeForDegree(0))
+  it('scales size monotonically with degree', () => {
+    expect(sizeForDegree(10, 10)).toBeGreaterThan(sizeForDegree(0, 10))
+  })
+
+  it('amplifies the hub/leaf gap: top hub radius is ≥2.5× a leaf', () => {
+    // 3d-force-graph renders sphere radius ∝ ∛val, so compare cube roots.
+    const hub = Math.cbrt(sizeForDegree(10, 10))
+    const leaf = Math.cbrt(sizeForDegree(0, 10))
+    expect(hub / leaf).toBeGreaterThanOrEqual(2.5)
+  })
+
+  it('size is safe when maxDegree is 0 (pins the flat minimum, no NaN)', () => {
+    // An all-orphan view (maxDegree 0) must collapse to the floor val, not the
+    // ceiling — assert the value, not just that the two endpoints agree.
+    expect(sizeForDegree(0, 0)).toBe(3)
+    expect(sizeForDegree(5, 0)).toBe(3)
+  })
+
+  it('normalizes against maxDegree: a fixed degree shrinks/dims as the view max grows', () => {
+    // The defining behavior of this change: importance is sqrt(degree/maxDegree),
+    // so a fixed-degree node reads larger & brighter when the rendered set's max
+    // degree is smaller. Guards against silently dropping the maxDegree wiring.
+    const lum = (hex: string) => {
+      const n = parseInt(hex.slice(1), 16)
+      const ch = [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+      return (Math.max(...ch) + Math.min(...ch)) / 2
+    }
+    expect(sizeForDegree(5, 10)).toBeGreaterThan(sizeForDegree(5, 20))
+    expect(lum(importanceColor('#4f8cff', 5, 10))).toBeGreaterThan(lum(importanceColor('#4f8cff', 5, 20)))
   })
 
   it('has a color for each edge kind', () => {
