@@ -222,6 +222,7 @@ async function boot(): Promise<void> {
   // cannot flip the scene back to Semantic after this call returns.
   function applyStructureLayout(): void {
     ++layoutRequestGen
+    hideStatus()
     scene.setLayoutMode('structure')
     layoutMode = 'structure'
     rerender()
