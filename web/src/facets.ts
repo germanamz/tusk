@@ -4,10 +4,13 @@ export interface FacetState {
   hiddenTypes: Set<string>
   hiddenKinds: Set<string>
   hideOrphans: boolean
+  hiddenGroups: Set<string>
 }
 
 export function applyFacets(graph: Graph, state: FacetState): Graph {
-  const nodes = graph.nodes.filter((node) => !state.hiddenTypes.has(node.type))
+  const nodes = graph.nodes.filter(
+    (node) => !state.hiddenTypes.has(node.type) && !state.hiddenGroups.has(node.group),
+  )
   const visible = new Set(nodes.map((node) => node.id))
 
   let edges = graph.edges.filter(

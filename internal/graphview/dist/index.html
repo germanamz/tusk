@@ -63,11 +63,200 @@
         padding: 4px 8px; border-radius: 4px; cursor: pointer;
       }
       #panel button:hover { background: #2a2d3a; }
-      #legend {
-        position: fixed; bottom: 8px; left: 8px; z-index: 10;
-        background: rgba(11,14,20,0.85); padding: 4px 10px;
-        border-radius: 4px; border: 1px solid #2a2d3a;
-        display: flex; align-items: center; gap: 8px; font-size: 12px;
+
+      /* ------------------------------------------------------------------ */
+      /* #controls — collapsible left drawer                                 */
+      /* ------------------------------------------------------------------ */
+      #controls {
+        /* Anchored inside #main-area (position:relative), which sits BELOW the
+           variable-height facets bar — so the drawer always clears it without a
+           fragile fixed top offset. Overlays the left edge of the canvas. */
+        position: absolute;
+        top: 0; bottom: 0; left: 0;
+        width: 220px;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        background: rgba(11,14,20,0.85);
+        border-right: 1px solid #2a2d3a;
+        font-size: 12px;
+        color: #e6e6e6;
+        transition: width 0.15s ease;
+      }
+
+      /* Collapsed: shrink to a thin tab showing only the ≡ toggle button */
+      #controls.collapsed {
+        width: 28px;
+        overflow: hidden;
+      }
+      #controls.collapsed .controls-body,
+      #controls.collapsed .controls-footer {
+        display: none;
+      }
+      #controls.collapsed .controls-collapse-btn {
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        padding: 8px 4px;
+        width: 28px;
+        height: auto;
+        border-radius: 0;
+      }
+
+      .controls-header {
+        flex: 0 0 auto;
+        border-bottom: 1px solid #2a2d3a;
+      }
+
+      .controls-collapse-btn {
+        display: block;
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: #e6e6e6;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 7px 10px;
+        cursor: pointer;
+        text-align: left;
+        white-space: nowrap;
+      }
+      .controls-collapse-btn:hover { background: rgba(255,255,255,0.05); }
+
+      /* Body: fills available vertical space, contains the scrollable list */
+      .controls-body {
+        flex: 1 1 auto;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .controls-group-header {
+        flex: 0 0 auto;
+        padding: 6px 10px 4px;
+        font-size: 11px;
+        color: #aaa;
+        border-bottom: 1px solid #2a2d3a;
+      }
+
+      .controls-group-search {
+        flex: 0 0 auto;
+        margin: 6px 8px 4px;
+        background: #1e2130;
+        border: 1px solid #2a2d3a;
+        color: #e6e6e6;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        width: calc(100% - 16px);
+        box-sizing: border-box;
+      }
+      .controls-group-search::placeholder { color: #666; }
+
+      .controls-bulk {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 4px;
+        padding: 4px 8px;
+        border-bottom: 1px solid #2a2d3a;
+      }
+      .controls-bulk button {
+        flex: 1;
+        background: #1e2130;
+        border: 1px solid #2a2d3a;
+        color: #e6e6e6;
+        padding: 2px 0;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+      }
+      .controls-bulk button:hover { background: #2a2d3a; }
+
+      /* Scrollable group list */
+      .controls-group-list {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 4px 0;
+      }
+      .controls-group-list::-webkit-scrollbar { width: 4px; }
+      .controls-group-list::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 2px; }
+
+      /* Individual group row */
+      .controls-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        cursor: default;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .controls-row:hover { background: rgba(255,255,255,0.04); }
+      .controls-row input[type="checkbox"] { flex: 0 0 auto; cursor: pointer; accent-color: #4f8cff; }
+
+      .controls-swatch {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex: 0 0 auto;
+      }
+
+      .controls-row-label {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 12px;
+      }
+
+      .controls-row-count {
+        flex: 0 0 auto;
+        color: #888;
+        font-size: 11px;
+        min-width: 24px;
+        text-align: right;
+      }
+
+      .controls-solo-btn {
+        flex: 0 0 auto;
+        background: transparent;
+        border: none;
+        color: #888;
+        font-size: 13px;
+        cursor: pointer;
+        padding: 0 2px;
+        line-height: 1;
+        border-radius: 3px;
+      }
+      .controls-solo-btn:hover { color: #e6e6e6; background: rgba(255,255,255,0.08); }
+
+      /* Footer: fixed below the scroll list, never scrolls away */
+      .controls-footer {
+        flex: 0 0 auto;
+        border-top: 1px solid #2a2d3a;
+        padding: 6px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11px;
+      }
+
+      .controls-footer strong {
+        font-size: 11px;
+        color: #aaa;
+      }
+
+      .controls-footer-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-right: 8px;
+      }
+
+      .controls-footer-hint {
+        color: #666;
+        display: block;
       }
     </style>
     <script type="module" crossorigin src="./assets/app.js"></script>
@@ -81,11 +270,14 @@
       </form>
     </div>
     <div id="main-area">
+      <!-- Left controls drawer: built once by controls.ts, diff-updated on each
+           snapshot. Inside #main-area (position:relative) so it sits below the
+           facets bar; position:absolute keeps it out of the flex flow. -->
+      <div id="controls"></div>
       <div id="search-msg"></div>
       <div id="banner">large graph — apply a filter</div>
       <div id="graph"></div>
       <aside id="panel"></aside>
     </div>
-    <div id="legend"></div>
   </body>
 </html>
