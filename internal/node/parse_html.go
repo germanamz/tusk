@@ -90,6 +90,7 @@ func ParseHTMLFile(relPath string, content []byte) (*Node, error) {
 		Title:      title,
 		Properties: properties,
 		Body:       []byte(htmltext.NormalizeText(content)),
+		HTMLLinks:  collectHrefs(root),
 	}, nil
 }
 
@@ -229,6 +230,34 @@ func elementText(node *html.Node) string {
 // the result.
 func collapseText(text string) string {
 	return strings.Join(strings.Fields(text), " ")
+}
+
+// collectHrefs walks the parsed tree and gathers every <a href="…"> attribute
+// value in document order, exactly as written. Filtering (external, in-page
+// anchor) and path resolution are deferred to ResolveHTMLLinks so the parse
+// stays a dumb structural extraction, mirroring collectDataSignals.
+func collectHrefs(root *html.Node) []string {
+	var hrefs []string
+
+	var walk func(node *html.Node)
+
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.DataAtom == atom.A {
+			for _, attr := range node.Attr {
+				if attr.Key == "href" {
+					hrefs = append(hrefs, attr.Val)
+				}
+			}
+		}
+
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+
+	walk(root)
+
+	return hrefs
 }
 
 // collectDataSignals walks the parsed tree and gathers every data-* attribute

@@ -197,6 +197,41 @@ func TestRun_PersistsWikilinksAsReferenceEdges(test *testing.T) {
 	}
 }
 
+func TestRun_PersistsHTMLHrefsAsReferenceEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "mml/index.html",
+		"", `<html><head><meta name="tusk:type" content="note"></head>`+
+			`<body><a href="topic-map.html">map</a> and `+
+			`<a href="https://example.com/x">external</a></body></html>`)
+	writeNode(test, root, "mml/topic-map.html",
+		"", `<html><head><meta name="tusk:type" content="note"></head>`+
+			`<body><p>Topic map.</p></body></html>`)
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+			Wikilinks:   true,
+		},
+	}
+
+	if _, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes})); runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	listed, _ := edgeRepo.ListBySource("mml/index.html")
+
+	if len(listed) != 1 || listed[0].Type != "references" || listed[0].TargetID != "mml/topic-map.html" {
+		test.Errorf("listed = %+v, want one references edge -> mml/topic-map.html (external href ignored)", listed)
+	}
+}
+
 func TestRun_RemovedFileAlsoRemovesEdges(test *testing.T) {
 	root := test.TempDir()
 

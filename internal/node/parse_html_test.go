@@ -58,6 +58,35 @@ func TestParseHTMLFile_EmptyTypeContentReturnsErrMissingType(test *testing.T) {
 	}
 }
 
+func TestParseHTMLFile_CollectsAnchorHrefsRaw(test *testing.T) {
+	content := []byte(`<html><head>
+<meta name="tusk:type" content="reference">
+</head><body>
+<a href="topic-map.html">Map</a>
+<p>See <a href="layer-0.html#sec">layer zero</a> and
+<a href="https://example.com/x">external</a> and
+<a href="#top">top</a>.</p>
+<a>no href</a>
+</body></html>`)
+
+	parsed, parseErr := node.ParseHTMLFile("mml/index.html", content)
+
+	if parseErr != nil {
+		test.Fatalf("ParseHTMLFile: %v", parseErr)
+	}
+
+	want := []string{"topic-map.html", "layer-0.html#sec", "https://example.com/x", "#top"}
+
+	if !reflect.DeepEqual(parsed.HTMLLinks, want) {
+		test.Errorf("HTMLLinks = %v, want %v", parsed.HTMLLinks, want)
+	}
+
+	// Parsing never materializes edges; that is the materialize step's job.
+	if parsed.Edges != nil {
+		test.Errorf("Edges = %v, want nil", parsed.Edges)
+	}
+}
+
 func TestParseHTMLFile_TitleFromMetaWins(test *testing.T) {
 	content := []byte(`<html><head>
 <meta name="tusk:type" content="reference">
