@@ -7,7 +7,7 @@ status: stable
 
 # internal/node
 
-Heart of the data layer. Parses markdown frontmatter, validates properties against the manifest, resolves `ref` properties + body wikilinks into edges, and provides the write-side service used by both CLI commands and MCP tools.
+Heart of the data layer. Parses markdown frontmatter, validates properties against the manifest, resolves `ref` properties + body wikilinks + HTML `<a href>` links into edges, and provides the write-side service used by both CLI commands and MCP tools.
 
 ## Public surface
 
@@ -18,6 +18,8 @@ Heart of the data layer. Parses markdown frontmatter, validates properties again
 - `ResolveRefs(*Node, NodeTypes, RefLookup) RefResolutionResult` — refs + wikilinks → resolved edges.
 - `ExtractWikilinks(body) []string` — fenced-code-aware body scanner.
 - `MaterializeWikilinks(*Node, EdgeTypes)` — appends extracted body wikilinks to every edge type declared with `wikilinks = true`. Replaces the former hardcoded `references` special case; the name of the target edge no longer matters and zero, one, or many edges may opt in. Called by both `Service` and the reindexer.
+- `ResolveHTMLLinks(sourcePath, hrefs) []string` — turns an HTML node's raw `<a href>` values (collected into `Node.HTMLLinks` by `ParseHTMLFile`) into target node ids, resolving each path-relative href against the source file's directory. HTML node ids retain their extension, so `href="topic-map.html"` from `mml/index.html` resolves to `mml/topic-map.html`. Drops external URLs, protocol-relative links, in-page anchors, and links that escape the vault root; strips query/fragment; unique in first-seen order.
+- `MaterializeHTMLLinks(*Node, EdgeTypes)` — the HTML counterpart of `MaterializeWikilinks`: appends resolved `<a href>` targets to every `wikilinks = true` edge type. A no-op for markdown nodes (no `HTMLLinks`). Called by the reindexer, the path that indexes dropped-in HTML files.
 - `AddEdgeToFrontmatter(root, sourceID, edgeType, targetID, edgeTypes) error` — inserts an edge target under the edge-type key in the source's frontmatter, respecting cardinality (scalar for one-to-one / many-to-one; list for one-to-many / many-to-many). Atomic read-mutate-write; callers must hold the workspace lock.
 - `RemoveEdgeFromFrontmatter(root, sourceID, edgeType, targetID, edgeTypes) error` — idempotent inverse; drops the key when the last target is removed.
 - `ReindexSource(root, edgeRepo, edgeTypes, sourceID) error` — re-parses the source file and upserts its resolved edges into the index under the source's real path. Used by `tusk edge add` / `tusk edge remove` to refresh the index after a frontmatter rewrite without waiting for the watcher.

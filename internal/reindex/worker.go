@@ -281,6 +281,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	}
 
 	node.MaterializeWikilinks(parsed, cfg.EdgeTypes)
+	node.MaterializeHTMLLinks(parsed, cfg.EdgeTypes)
 
 	propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
 

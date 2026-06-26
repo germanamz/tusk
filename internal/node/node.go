@@ -11,6 +11,7 @@ type Node struct {
 	Properties map[string]any      // frontmatter keys NOT matching a declared edge type
 	Edges      map[string][]string // edge-type-name → ordered list of target node ids
 	Body       []byte              // markdown body after the closing `---` delimiter
+	HTMLLinks  []string            // raw <a href> values in document order; populated only for HTML nodes by ParseHTMLFile, resolved to edges by MaterializeHTMLLinks
 }
 
 // Clone returns a shallow copy of the Node with the Properties and Edges
