@@ -22,7 +22,8 @@ Serves a read-only, live-updating 3D graph of the vault over a loopback HTTP ser
   - `ClusterMeta` — the active cluster lens state: `By`, `Property`, `Huddle`, `Hull`.
   - `NodeDetail` — the `/api/node/{id}` inspect payload (properties + rendered HTML + neighbors).
   - `SubunitGraph` — the `/api/node/{id}/subunits` drill-down payload.
-- **Dependency interfaces** (satisfied by `*index` repos): `NodeSource`, `EdgeSource`, `NodeRenderer`, `Querier`, `ChangeSource`.
+  - `EmbeddingsResponse` — the `/api/embeddings` payload (one vector per file node): `Model`, `Dim`, `Signature`, `Vectors map[string][]float32`. Drives the semantic layout (see below).
+- **Dependency interfaces** (satisfied by `*index` repos): `NodeSource`, `EdgeSource`, `NodeRenderer`, `Querier`, `ChangeSource`, `EmbeddingSource`.
 - `NewQuerier`, `NewRenderer`, `NewChangeSource` — concrete implementations wired from `cmd/tusk/cmd_graph.go`.
 
 ## Cluster lens architecture
@@ -73,6 +74,23 @@ depth = 1                 # 0 = walk to root; positive = stop at that depth
 ```
 
 An absent `[graph.cluster]` block, or `by = "type"`, reproduces the original behavior: one hue per node type, no huddle, no hull.
+
+## Semantic layout
+
+A second layout **mode**, selected by a drawer toggle (`web/src/controls.ts`). The graph defaults to **Structure** — the force layout above, where proximity means "linked and/or same group". **Semantic** mode instead positions each file node by the *similarity of its embedding*, so notes that mean similar things sit near each other even when they live in different link-communities. The cluster-lens color and hull overlays keep working over either layout, so colouring by link-`community` over semantic *position* shows where link structure and meaning agree or diverge.
+
+```
+GET /api/embeddings ──▶ {nodeId: unit-vector[768]}      server: mean-pool a file's
+  (one vector per file node, EmbeddingSource)            chunk vectors, then L2-normalize
+        │
+        ▼
+  umap-js in a Web Worker ──▶ 3D coords ──▶ pin fx/fy/fz  client: project once, pin nodes,
+  (web/src/layout.worker.ts, web/src/scene.ts)            do NOT register the huddle force
+```
+
+**Server** (`embeddings.go`): `GET /api/embeddings` resolves `node_embeddings ⋈ embeddings` for the file nodes via `EmbeddingSource.ListByNodeIDs`, **mean-pools** each file's chunk vectors and **L2-normalizes** (a file is chunked for embedding, so it owns 1..N vectors; zero-norm files are omitted). `Signature` is a sha256 over the *emitted* nodes' content hashes — a stable cache key that changes only when embedded content does. The endpoint is nil-tolerant: no `EmbeddingSource`, or no embeddings on disk, yields an empty payload and the client disables Semantic mode with a hint. Embeddings exist only if an embedding provider (`[embeddings]`) has run — see `docs/packages/embed.md` and `docs/packages/index.md`.
+
+**Client**: a Web Worker runs `umap-js` (768-dim → 3D, seeded for determinism, then centred and scaled to view space). `scene.ts` pins each node's `fx/fy/fz` to its projected coordinate — re-applied on every snapshot, since `carryPositions` deliberately drops pins — and skips the huddle-force registration in Semantic mode (huddle pulls toward community anchors and would fight the projection). The projection is cached by `Signature`, so SSE re-snapshots re-pin from cached coordinates rather than recomputing UMAP; a `layoutRequestGen` token discards a stale projection if the user toggles back to Structure mid-compute. Nodes with no vector (e.g. expanded drill-down sub-units, which are embedded per sub-unit but carry no file-level vector) are parked on a deterministic shell outside the projected cloud. The toggle is runtime-only and defaults to Structure; there is no `tusk.toml` default for the layout mode.
 
 ## Notes
 
