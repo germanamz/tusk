@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupRows, matchesSearch } from './controls'
+import { groupRows, matchesSearch, bulkAll, bulkNone, bulkInvert } from './controls'
 import type { Graph } from './api'
 
 // ---------------------------------------------------------------------------
@@ -105,5 +105,70 @@ describe('matchesSearch', () => {
 
   it('matches the full label', () => {
     expect(matchesSearch('exact', 'exact')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Bulk set operations
+// ---------------------------------------------------------------------------
+
+describe('bulkAll', () => {
+  it('clears the hidden set', () => {
+    const hidden = new Set(['a', 'b', 'c'])
+    bulkAll(hidden)
+    expect(hidden.size).toBe(0)
+  })
+
+  it('is a no-op on an already-empty set', () => {
+    const hidden = new Set<string>()
+    bulkAll(hidden)
+    expect(hidden.size).toBe(0)
+  })
+})
+
+describe('bulkNone', () => {
+  it('adds every universe item to the hidden set', () => {
+    const hidden = new Set<string>()
+    bulkNone(['a', 'b', 'c'], hidden)
+    expect([...hidden].sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  it('works when some items are already hidden', () => {
+    const hidden = new Set(['a'])
+    bulkNone(['a', 'b', 'c'], hidden)
+    expect([...hidden].sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  it('leaves hidden intact when universe is empty', () => {
+    const hidden = new Set(['x'])
+    bulkNone([], hidden)
+    expect([...hidden]).toEqual(['x'])
+  })
+})
+
+describe('bulkInvert', () => {
+  it('inverts: visible items become hidden and hidden items become visible', () => {
+    const hidden = new Set(['b'])
+    bulkInvert(['a', 'b', 'c'], hidden)
+    // a was visible → hidden; b was hidden → visible; c was visible → hidden
+    expect([...hidden].sort()).toEqual(['a', 'c'])
+  })
+
+  it('hides all when starting with none hidden', () => {
+    const hidden = new Set<string>()
+    bulkInvert(['x', 'y'], hidden)
+    expect([...hidden].sort()).toEqual(['x', 'y'])
+  })
+
+  it('shows all when starting with all hidden', () => {
+    const hidden = new Set(['x', 'y'])
+    bulkInvert(['x', 'y'], hidden)
+    expect(hidden.size).toBe(0)
+  })
+
+  it('is a no-op on an empty universe', () => {
+    const hidden = new Set(['z'])
+    bulkInvert([], hidden)
+    expect([...hidden]).toEqual(['z'])
   })
 })

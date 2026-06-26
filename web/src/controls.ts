@@ -1,7 +1,7 @@
 import type { Graph } from './api'
 import type { Scene } from './scene'
 import type { FacetState } from './facets'
-import { EDGE_KIND_COLORS } from './encode'
+import { EDGE_KIND_COLORS, buildTypeColors } from './encode'
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for unit tests)
@@ -32,6 +32,21 @@ export function matchesSearch(label: string, query: string): boolean {
   return label.toLowerCase().includes(query.toLowerCase())
 }
 
+/** Bulk set operations over a universe of string keys.
+ *  Exported for unit tests. */
+export function bulkAll<T>(hidden: Set<T>): void {
+  hidden.clear()
+}
+export function bulkNone<T>(universe: T[], hidden: Set<T>): void {
+  for (const item of universe) hidden.add(item)
+}
+export function bulkInvert<T>(universe: T[], hidden: Set<T>): void {
+  for (const item of universe) {
+    if (hidden.has(item)) hidden.delete(item)
+    else hidden.add(item)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -59,7 +74,9 @@ export function createControls(deps: ControlsDeps): {
 
   const drawer = document.getElementById('controls')!
 
-  // ---- Header (collapse toggle) ----
+  // ---- Header (collapse toggle + node search) ----
+  // The node search form is already present in the DOM as a static scaffold
+  // inside #controls (see index.html). The collapse button is built here.
   const header = document.createElement('div')
   header.className = 'controls-header'
 
@@ -71,6 +88,15 @@ export function createControls(deps: ControlsDeps): {
     drawer.classList.toggle('collapsed')
   })
   header.appendChild(collapseBtn)
+
+  // Move the static search form (already in DOM from index.html scaffold)
+  // inside the header div. This makes it part of a container that is never
+  // innerHTML-cleared, fixing the wipe bug.
+  const existingSearchForm = document.getElementById('search-form')
+  if (existingSearchForm) {
+    header.appendChild(existingSearchForm)
+  }
+
   drawer.appendChild(header)
 
   // ---- Body (everything that collapses away) ----
@@ -91,11 +117,11 @@ export function createControls(deps: ControlsDeps): {
   groupSearch.style.display = 'none'
   body.appendChild(groupSearch)
 
-  // ---- Bulk controls ----
+  // ---- Bulk controls (groups) ----
   const bulkBar = document.createElement('div')
   bulkBar.className = 'controls-bulk'
 
-  function syncCheckboxes(): void {
+  function syncGroupCheckboxes(): void {
     for (const [group, row] of rowMap.entries()) {
       const cb = row.querySelector<HTMLInputElement>('input[type="checkbox"]')
       if (cb) cb.checked = !facetState.hiddenGroups.has(group)
@@ -111,36 +137,31 @@ export function createControls(deps: ControlsDeps): {
 
   bulkBar.appendChild(
     makeBtn('All', () => {
-      facetState.hiddenGroups.clear()
-      syncCheckboxes()
+      bulkAll(facetState.hiddenGroups)
+      syncGroupCheckboxes()
       onFilterChange()
     }),
   )
   bulkBar.appendChild(
     makeBtn('None', () => {
-      for (const group of rowMap.keys()) {
-        facetState.hiddenGroups.add(group)
-      }
-      syncCheckboxes()
+      bulkNone([...rowMap.keys()], facetState.hiddenGroups)
+      syncGroupCheckboxes()
       onFilterChange()
     }),
   )
   bulkBar.appendChild(
     makeBtn('Invert', () => {
-      for (const group of rowMap.keys()) {
-        if (facetState.hiddenGroups.has(group)) facetState.hiddenGroups.delete(group)
-        else facetState.hiddenGroups.add(group)
-      }
-      syncCheckboxes()
+      bulkInvert([...rowMap.keys()], facetState.hiddenGroups)
+      syncGroupCheckboxes()
       onFilterChange()
     }),
   )
   bulkBar.appendChild(
     makeBtn('Reset', () => {
-      facetState.hiddenGroups.clear()
+      bulkAll(facetState.hiddenGroups)
       committedSolo = null
       scene.focusGroup(null)
-      syncCheckboxes()
+      syncGroupCheckboxes()
       onFilterChange()
     }),
   )
@@ -150,6 +171,48 @@ export function createControls(deps: ControlsDeps): {
   const listEl = document.createElement('div')
   listEl.className = 'controls-group-list'
   body.appendChild(listEl)
+
+  // ---------------------------------------------------------------------------
+  // Filters disclosure section (Types / Kinds / Hide orphans)
+  // ---------------------------------------------------------------------------
+
+  const filtersSection = document.createElement('div')
+  filtersSection.className = 'controls-filters-section'
+
+  const filtersToggle = document.createElement('button')
+  filtersToggle.className = 'controls-filters-toggle'
+  filtersToggle.textContent = '▸ Filters'
+  let filtersOpen = false
+  filtersToggle.addEventListener('click', () => {
+    filtersOpen = !filtersOpen
+    filtersToggle.textContent = (filtersOpen ? '▾' : '▸') + ' Filters'
+    filtersBody.style.display = filtersOpen ? '' : 'none'
+  })
+  filtersSection.appendChild(filtersToggle)
+
+  const filtersBody = document.createElement('div')
+  filtersBody.className = 'controls-filters-body'
+  filtersBody.style.display = 'none'
+  filtersSection.appendChild(filtersBody)
+
+  body.appendChild(filtersSection)
+
+  // Per-type and per-kind row maps for diff-updating
+  const typeRowMap = new Map<string, HTMLDivElement>()
+  const kindRowMap = new Map<string, HTMLDivElement>()
+
+  // Orphan checkbox — built once, never rebuilt
+  const orphanRow = document.createElement('div')
+  orphanRow.className = 'controls-filter-row'
+  const orphanCb = document.createElement('input')
+  orphanCb.type = 'checkbox'
+  orphanCb.checked = facetState.hideOrphans
+  orphanCb.addEventListener('change', () => {
+    facetState.hideOrphans = orphanCb.checked
+    onFilterChange()
+  })
+  orphanRow.appendChild(orphanCb)
+  orphanRow.appendChild(document.createTextNode(' Hide orphans'))
 
   // ---- Footer (fixed, non-scrolling) ----
   const footer = document.createElement('div')
@@ -273,6 +336,209 @@ export function createControls(deps: ControlsDeps): {
   })
 
   // ---------------------------------------------------------------------------
+  // Filters section helpers
+  // ---------------------------------------------------------------------------
+
+  function buildTypeSection(types: string[], typeColors: Map<string, string>): void {
+    // Header row for Types with bulk controls
+    let typeHeader = filtersBody.querySelector<HTMLDivElement>('.controls-filter-type-header')
+    if (!typeHeader) {
+      typeHeader = document.createElement('div')
+      typeHeader.className = 'controls-filter-subheader controls-filter-type-header'
+
+      const label = document.createElement('span')
+      label.textContent = 'Types'
+      typeHeader.appendChild(label)
+
+      const typeBulk = document.createElement('div')
+      typeBulk.className = 'controls-filter-bulk'
+      typeBulk.appendChild(
+        makeBtn('All', () => {
+          bulkAll(facetState.hiddenTypes)
+          syncTypeCheckboxes()
+          onFilterChange()
+        }),
+      )
+      typeBulk.appendChild(
+        makeBtn('None', () => {
+          bulkNone([...typeRowMap.keys()], facetState.hiddenTypes)
+          syncTypeCheckboxes()
+          onFilterChange()
+        }),
+      )
+      typeBulk.appendChild(
+        makeBtn('Invert', () => {
+          bulkInvert([...typeRowMap.keys()], facetState.hiddenTypes)
+          syncTypeCheckboxes()
+          onFilterChange()
+        }),
+      )
+      typeHeader.appendChild(typeBulk)
+      filtersBody.appendChild(typeHeader)
+    }
+
+    // Diff-update type rows
+    const currentTypes = new Set(types)
+    for (const [t, el] of typeRowMap.entries()) {
+      if (!currentTypes.has(t)) {
+        el.remove()
+        typeRowMap.delete(t)
+        facetState.hiddenTypes.delete(t)
+      }
+    }
+
+    for (const t of types) {
+      if (!typeRowMap.has(t)) {
+        const row = document.createElement('div')
+        row.className = 'controls-filter-row'
+        const cb = document.createElement('input')
+        cb.type = 'checkbox'
+        cb.checked = !facetState.hiddenTypes.has(t)
+        cb.addEventListener('change', () => {
+          if (cb.checked) facetState.hiddenTypes.delete(t)
+          else facetState.hiddenTypes.add(t)
+          onFilterChange()
+        })
+        row.appendChild(cb)
+
+        const swatch = document.createElement('span')
+        swatch.className = 'controls-swatch'
+        swatch.style.background = typeColors.get(t) ?? '#888888'
+        row.appendChild(swatch)
+
+        const nameEl = document.createTextNode(' ' + t)
+        row.appendChild(nameEl)
+
+        typeRowMap.set(t, row)
+        // Insert after the type header but before kind rows
+        const kindHeader = filtersBody.querySelector('.controls-filter-kind-header')
+        if (kindHeader) filtersBody.insertBefore(row, kindHeader)
+        else filtersBody.appendChild(row)
+      } else {
+        // Diff-update existing row
+        const row = typeRowMap.get(t)!
+        const cb = row.querySelector<HTMLInputElement>('input[type="checkbox"]')
+        if (cb) cb.checked = !facetState.hiddenTypes.has(t)
+        const swatch = row.querySelector<HTMLSpanElement>('.controls-swatch')
+        if (swatch) swatch.style.background = typeColors.get(t) ?? '#888888'
+      }
+    }
+  }
+
+  function buildKindSection(kinds: string[]): void {
+    // Header row for Kinds with bulk controls
+    let kindHeader = filtersBody.querySelector<HTMLDivElement>('.controls-filter-kind-header')
+    if (!kindHeader) {
+      kindHeader = document.createElement('div')
+      kindHeader.className = 'controls-filter-subheader controls-filter-kind-header'
+
+      const label = document.createElement('span')
+      label.textContent = 'Kinds'
+      kindHeader.appendChild(label)
+
+      const kindBulk = document.createElement('div')
+      kindBulk.className = 'controls-filter-bulk'
+      kindBulk.appendChild(
+        makeBtn('All', () => {
+          bulkAll(facetState.hiddenKinds)
+          syncKindCheckboxes()
+          onFilterChange()
+        }),
+      )
+      kindBulk.appendChild(
+        makeBtn('None', () => {
+          bulkNone([...kindRowMap.keys()], facetState.hiddenKinds)
+          syncKindCheckboxes()
+          onFilterChange()
+        }),
+      )
+      kindBulk.appendChild(
+        makeBtn('Invert', () => {
+          bulkInvert([...kindRowMap.keys()], facetState.hiddenKinds)
+          syncKindCheckboxes()
+          onFilterChange()
+        }),
+      )
+      kindHeader.appendChild(kindBulk)
+
+      // Insert before orphan row placeholder; append for now, orphan appended later
+      filtersBody.appendChild(kindHeader)
+    }
+
+    // Diff-update kind rows
+    const currentKinds = new Set(kinds)
+    for (const [k, el] of kindRowMap.entries()) {
+      if (!currentKinds.has(k)) {
+        el.remove()
+        kindRowMap.delete(k)
+        facetState.hiddenKinds.delete(k)
+      }
+    }
+
+    for (const k of kinds) {
+      if (!kindRowMap.has(k)) {
+        const row = document.createElement('div')
+        row.className = 'controls-filter-row'
+        const cb = document.createElement('input')
+        cb.type = 'checkbox'
+        cb.checked = !facetState.hiddenKinds.has(k)
+        cb.addEventListener('change', () => {
+          if (cb.checked) facetState.hiddenKinds.delete(k)
+          else facetState.hiddenKinds.add(k)
+          onFilterChange()
+        })
+        row.appendChild(cb)
+        row.appendChild(document.createTextNode(' ' + k))
+        kindRowMap.set(k, row)
+        // Insert before the orphan row if it's already in the DOM
+        if (orphanRow.parentElement === filtersBody) {
+          filtersBody.insertBefore(row, orphanRow)
+        } else {
+          filtersBody.appendChild(row)
+        }
+      } else {
+        const row = kindRowMap.get(k)!
+        const cb = row.querySelector<HTMLInputElement>('input[type="checkbox"]')
+        if (cb) cb.checked = !facetState.hiddenKinds.has(k)
+      }
+    }
+  }
+
+  function syncTypeCheckboxes(): void {
+    for (const [t, row] of typeRowMap.entries()) {
+      const cb = row.querySelector<HTMLInputElement>('input[type="checkbox"]')
+      if (cb) cb.checked = !facetState.hiddenTypes.has(t)
+    }
+  }
+
+  function syncKindCheckboxes(): void {
+    for (const [k, row] of kindRowMap.entries()) {
+      const cb = row.querySelector<HTMLInputElement>('input[type="checkbox"]')
+      if (cb) cb.checked = !facetState.hiddenKinds.has(k)
+    }
+  }
+
+  function updateFilters(graph: Graph): void {
+    const types = [...new Set(graph.nodes.map((n) => n.type))].sort()
+    const kinds = [...new Set(graph.edges.map((e) => e.kind))].sort()
+    const typeColors = buildTypeColors(types)
+
+    buildTypeSection(types, typeColors)
+    buildKindSection(kinds)
+
+    // Ensure orphan row is at the end of filtersBody
+    if (orphanRow.parentElement !== filtersBody) {
+      filtersBody.appendChild(orphanRow)
+    } else {
+      // Re-append to keep it last (no-op if already last)
+      filtersBody.appendChild(orphanRow)
+    }
+
+    // Keep orphan checkbox in sync with facetState (in case it changed externally)
+    orphanCb.checked = facetState.hideOrphans
+  }
+
+  // ---------------------------------------------------------------------------
   // update() — diff-update on each snapshot
   // ---------------------------------------------------------------------------
 
@@ -328,6 +594,9 @@ export function createControls(deps: ControlsDeps): {
         ? 'Color: '
         : `Color (${by === 'property' ? (graph.cluster.property ?? 'property') : by}): `
     groupHeader.textContent = `${lensLabel}${rows.length} group${rows.length !== 1 ? 's' : ''}`
+
+    // Diff-update the Filters section.
+    updateFilters(graph)
   }
 
   // ---------------------------------------------------------------------------

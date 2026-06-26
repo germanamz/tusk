@@ -4,7 +4,7 @@ import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
 import { fetchNodeDetail, fetchSubunits } from './nodeapi'
 import { renderPanel } from './panel'
-import { buildTypeColors, buildGroupColors } from './encode'
+import { buildGroupColors } from './encode'
 import { runSearch } from './search'
 import { createControls } from './controls'
 
@@ -12,86 +12,11 @@ let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [], cluster: 
 let rawGroupColors: Map<string, string> = new Map()
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false, hiddenGroups: new Set() }
 
-// colorsFor builds the type→color map for the facet bar's type-filter swatches.
-// The facet bar filters by node type, so it always uses the type palette
-// regardless of the active cluster lens.
-const colorsFor = (g: Graph): Map<string, string> =>
-  buildTypeColors([...new Set(g.nodes.map((n) => n.type))])
-
 // groupColorsFor builds the group→color map for node colors and the legend.
 // When graph.cluster.by === "type", group === type and the colors are
 // pixel-identical to the old type-based coloring.
 const groupColorsFor = (g: Graph): Map<string, string> =>
   buildGroupColors(g.nodes.map((n) => n.group))
-
-function buildFacetBar(
-  graph: Graph,
-  scene: ReturnType<typeof createScene>,
-  typeColors: Map<string, string>,
-): void {
-  const bar = document.getElementById('facets')!
-  bar.innerHTML = ''
-
-  // Node type checkboxes
-  const types = [...new Set(graph.nodes.map((n) => n.type))].sort()
-  const typeLabel = document.createElement('span')
-  typeLabel.textContent = 'Types: '
-  bar.appendChild(typeLabel)
-
-  for (const t of types) {
-    const label = document.createElement('label')
-    const cb = document.createElement('input')
-    cb.type = 'checkbox'
-    cb.checked = !facetState.hiddenTypes.has(t)
-    cb.addEventListener('change', () => {
-      if (cb.checked) facetState.hiddenTypes.delete(t)
-      else facetState.hiddenTypes.add(t)
-      scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
-    })
-    label.appendChild(cb)
-    // A small swatch in the type's hue makes the filter bar self-documenting.
-    const swatch = document.createElement('span')
-    swatch.style.cssText = `display:inline-block;width:10px;height:10px;background:${typeColors.get(t) ?? '#888888'};border-radius:2px;margin:0 4px 0 4px;vertical-align:middle`
-    label.appendChild(swatch)
-    label.appendChild(document.createTextNode(t))
-    bar.appendChild(label)
-  }
-
-  // Edge kind checkboxes
-  const kinds = [...new Set(graph.edges.map((e) => e.kind))].sort()
-  const kindLabel = document.createElement('span')
-  kindLabel.textContent = '  Kinds: '
-  bar.appendChild(kindLabel)
-
-  for (const k of kinds) {
-    const label = document.createElement('label')
-    const cb = document.createElement('input')
-    cb.type = 'checkbox'
-    cb.checked = !facetState.hiddenKinds.has(k)
-    cb.addEventListener('change', () => {
-      if (cb.checked) facetState.hiddenKinds.delete(k)
-      else facetState.hiddenKinds.add(k)
-      scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
-    })
-    label.appendChild(cb)
-    label.appendChild(document.createTextNode(' ' + k))
-    bar.appendChild(label)
-  }
-
-  // Orphans toggle
-  const orphanLabel = document.createElement('label')
-  const orphanCb = document.createElement('input')
-  orphanCb.type = 'checkbox'
-  orphanCb.checked = facetState.hideOrphans
-  orphanCb.addEventListener('change', () => {
-    facetState.hideOrphans = orphanCb.checked
-    scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
-  })
-  orphanLabel.appendChild(orphanCb)
-  orphanLabel.appendChild(document.createTextNode('  Hide orphans'))
-  bar.appendChild(orphanLabel)
-}
-
 
 function mergeSubunits(base: Graph, subunits: { nodes: any[]; edges: any[] }): Graph {
   const existingIds = new Set(base.nodes.map((n) => n.id))
@@ -123,7 +48,9 @@ async function boot(): Promise<void> {
     onFilterChange: () => scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors),
   })
 
-  // Search form
+  // Search form — binds to #search-form / #search which live in the #controls
+  // drawer header (a stable container never innerHTML-cleared). This binding
+  // holds across all live snapshots because controls.ts never rebuilds the header.
   const searchForm = document.getElementById('search-form') as HTMLFormElement
   const searchInput = document.getElementById('search') as HTMLInputElement
   searchForm.addEventListener('submit', (e) => {
@@ -179,10 +106,8 @@ async function boot(): Promise<void> {
           fetchSubunits(node.id)
             .then((sub) => {
               rawGraph = mergeSubunits(rawGraph, sub)
-              const typeColors = colorsFor(rawGraph)
               rawGroupColors = groupColorsFor(rawGraph)
               scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
-              buildFacetBar(rawGraph, scene, typeColors)
               controls.update(rawGraph, rawGroupColors)
             })
             .catch(console.error)
@@ -197,10 +122,8 @@ async function boot(): Promise<void> {
     fetchSubunits(node.id)
       .then((sub) => {
         rawGraph = mergeSubunits(rawGraph, sub)
-        const typeColors = colorsFor(rawGraph)
         rawGroupColors = groupColorsFor(rawGraph)
         scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
-        buildFacetBar(rawGraph, scene, typeColors)
         controls.update(rawGraph, rawGroupColors)
       })
       .catch(console.error)
@@ -215,9 +138,7 @@ async function boot(): Promise<void> {
 
   function applyAndRender(graph: Graph): void {
     rawGraph = graph
-    const typeColors = colorsFor(graph)
     rawGroupColors = groupColorsFor(graph)
-    buildFacetBar(graph, scene, typeColors)
     controls.update(graph, rawGroupColors)
     scene.setGraph(applyFacets(graph, facetState), rawGroupColors)
     // Scale guardrail: warn when graph is very large but never drop nodes

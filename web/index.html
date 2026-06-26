@@ -6,31 +6,23 @@
     <title>tusk graph</title>
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e14; color: #e6e6e6; font: 14px system-ui, sans-serif; }
-      /* Column layout: the facets bar takes whatever height it needs (it wraps
-         to multiple rows on type/kind-rich vaults) and #main-area fills the
-         rest. No hardcoded bar height, so a wrapped bar can never overlap the
-         graph. */
+      /* #main-area fills the entire viewport. #controls overlays the left edge
+         as a position:absolute drawer; #panel is a fixed-width right column. */
       body { display: flex; flex-direction: column; }
-      #facets {
-        flex: 0 0 auto;
-        background: rgba(11,14,20,0.85); padding: 6px 12px;
-        display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-        border-bottom: 1px solid #2a2d3a;
-      }
-      #facets label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-      #search-form { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+      #search-form { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid #2a2d3a; }
       #search {
         background: #1e2130; border: 1px solid #2a2d3a; color: #e6e6e6;
-        padding: 3px 8px; border-radius: 4px; font-size: 13px; width: 220px;
+        padding: 3px 8px; border-radius: 4px; font-size: 13px; width: 100%;
+        box-sizing: border-box;
       }
       #search::placeholder { color: #666; }
       #search-form button {
         background: #1e2130; border: 1px solid #2a2d3a; color: #e6e6e6;
         padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 13px;
+        white-space: nowrap; flex-shrink: 0;
       }
       #search-form button:hover { background: #2a2d3a; }
-      /* Alert overlays float over the graph area; anchored to #main-area so
-         their position tracks the (variable-height) facets bar automatically. */
+      /* Alert overlays float over the graph area. */
       #search-msg {
         display: none; position: absolute; top: 8px; right: 12px; z-index: 20;
         background: rgba(30,33,48,0.95); border: 1px solid #f5a623;
@@ -68,9 +60,8 @@
       /* #controls — collapsible left drawer                                 */
       /* ------------------------------------------------------------------ */
       #controls {
-        /* Anchored inside #main-area (position:relative), which sits BELOW the
-           variable-height facets bar — so the drawer always clears it without a
-           fragile fixed top offset. Overlays the left edge of the canvas. */
+        /* Anchored inside #main-area (position:relative). Overlays the left
+           edge of the canvas. */
         position: absolute;
         top: 0; bottom: 0; left: 0;
         width: 220px;
@@ -90,7 +81,8 @@
         overflow: hidden;
       }
       #controls.collapsed .controls-body,
-      #controls.collapsed .controls-footer {
+      #controls.collapsed .controls-footer,
+      #controls.collapsed #search-form {
         display: none;
       }
       #controls.collapsed .controls-collapse-btn {
@@ -231,6 +223,68 @@
       }
       .controls-solo-btn:hover { color: #e6e6e6; background: rgba(255,255,255,0.08); }
 
+      /* Filters disclosure section */
+      .controls-filters-section {
+        flex: 0 0 auto;
+        border-top: 1px solid #2a2d3a;
+      }
+
+      .controls-filters-toggle {
+        display: block;
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: #aaa;
+        font-size: 11px;
+        padding: 5px 10px;
+        cursor: pointer;
+        text-align: left;
+        white-space: nowrap;
+      }
+      .controls-filters-toggle:hover { background: rgba(255,255,255,0.04); color: #e6e6e6; }
+
+      .controls-filters-body {
+        padding: 2px 0 4px;
+      }
+
+      .controls-filter-subheader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 3px 8px 2px;
+        font-size: 10px;
+        color: #888;
+        border-top: 1px solid #1a1d28;
+      }
+      .controls-filter-subheader:first-child { border-top: none; }
+
+      .controls-filter-bulk {
+        display: flex;
+        gap: 3px;
+      }
+      .controls-filter-bulk button {
+        background: #1e2130;
+        border: 1px solid #2a2d3a;
+        color: #e6e6e6;
+        padding: 1px 5px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 10px;
+      }
+      .controls-filter-bulk button:hover { background: #2a2d3a; }
+
+      .controls-filter-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 10px;
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .controls-filter-row:hover { background: rgba(255,255,255,0.04); }
+      .controls-filter-row input[type="checkbox"] { flex: 0 0 auto; cursor: pointer; accent-color: #4f8cff; }
+
       /* Footer: fixed below the scroll list, never scrolls away */
       .controls-footer {
         flex: 0 0 auto;
@@ -261,18 +315,19 @@
     </style>
   </head>
   <body>
-    <div id="facets">
-      <!-- facet checkboxes inserted by main.ts -->
-      <form id="search-form">
-        <input id="search" type="search" placeholder="type:ticket … or prose query" autocomplete="off" />
-        <button type="submit">Search</button>
-      </form>
-    </div>
     <div id="main-area">
       <!-- Left controls drawer: built once by controls.ts, diff-updated on each
-           snapshot. Inside #main-area (position:relative) so it sits below the
-           facets bar; position:absolute keeps it out of the flex flow. -->
-      <div id="controls"></div>
+           snapshot. Inside #main-area (position:relative) so the drawer fills
+           the full viewport height; position:absolute keeps it out of the flex
+           flow. The static #search-form scaffold lives here so it is never
+           wiped by a container innerHTML-clear. controls.ts moves it into the
+           drawer header on boot. -->
+      <div id="controls">
+        <form id="search-form">
+          <input id="search" type="search" placeholder="search nodes…" autocomplete="off" />
+          <button type="submit">Search</button>
+        </form>
+      </div>
       <div id="search-msg"></div>
       <div id="banner">large graph — apply a filter</div>
       <div id="graph"></div>
