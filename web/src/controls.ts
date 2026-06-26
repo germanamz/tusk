@@ -71,6 +71,10 @@ export function createControls(deps: ControlsDeps): {
   /** Re-read deps.hasEmbeddings() and enable/disable the Semantic option. Call
    *  after the boot-time embeddings prefetch resolves. */
   refreshLayoutAvailability(): void
+  /** Reset the Layout toggle back to Structure. Call when semantic layout fails
+   *  or has no embeddings, so the radio never stays on Semantic while the scene
+   *  is in Structure mode. */
+  resetLayoutToggle(): void
 } {
   const { scene, facetState, onFilterChange } = deps
 
@@ -344,6 +348,7 @@ export function createControls(deps: ControlsDeps): {
   footer.appendChild(layoutGroup)
 
   const semanticRadio = semanticOption.querySelector<HTMLInputElement>('input')!
+  const structureRadio = structureOption.querySelector<HTMLInputElement>('input')!
 
   function refreshLayoutAvailability(): void {
     const enabled = deps.hasEmbeddings()
@@ -352,6 +357,11 @@ export function createControls(deps: ControlsDeps): {
     layoutHint.style.display = enabled ? 'none' : 'block'
   }
   refreshLayoutAvailability()
+
+  function resetLayoutToggle(): void {
+    structureRadio.checked = true
+    semanticRadio.checked = false
+  }
 
   const hintSize = document.createElement('span')
   hintSize.className = 'controls-footer-hint'
@@ -728,5 +738,5 @@ export function createControls(deps: ControlsDeps): {
     scene.focusGroup(null)
   }
 
-  return { update, clearSolo, refreshLayoutAvailability }
+  return { update, clearSolo, refreshLayoutAvailability, resetLayoutToggle }
 }

@@ -159,7 +159,6 @@ async function boot(): Promise<void> {
   async function applySemanticLayout(): Promise<void> {
     if (semanticInFlight) return
     semanticInFlight = true
-    showStatus('computing layout…')
     try {
       // Re-fetch so the signature reflects the current vault content (cheap over
       // loopback). The signature is the projection-cache key below.
@@ -170,6 +169,7 @@ async function boot(): Promise<void> {
       const vectors = embeddingsCache.vectors
       const ids = Object.keys(vectors)
       if (ids.length === 0) {
+        controls.resetLayoutToggle()
         showStatus('no embeddings — run reindex with an embedding provider')
         setTimeout(hideStatus, 5000)
         return // stay in Structure
@@ -177,12 +177,14 @@ async function boot(): Promise<void> {
 
       // Cache hit: the embedded content is unchanged since the last projection,
       // so reuse the stored coords and skip the UMAP worker — re-entering
-      // Semantic is instant.
+      // Semantic is instant. No status banner on a cache hit.
       if (embeddingsCache.signature === projectedSignature && projectedCoords !== null) {
         enterSemantic(projectedCoords)
         return
       }
 
+      // Cache miss — projection is needed. Show the computing banner only now.
+      showStatus('computing layout…')
       const reply = await projectInWorker(
         ids,
         ids.map((id) => vectors[id]),
@@ -193,6 +195,7 @@ async function boot(): Promise<void> {
       projectedCoords = coords
       enterSemantic(coords)
     } catch (err) {
+      controls.resetLayoutToggle()
       showStatus(`semantic layout failed: ${String(err)}`)
       setTimeout(hideStatus, 5000)
       // stay in Structure
