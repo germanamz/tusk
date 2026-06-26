@@ -13,11 +13,20 @@ let rawGroupColors: Map<string, string> = new Map()
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false, hiddenGroups: new Set() }
 
 // Layout-mode orchestration state. Structure is the default; Semantic is reached
-// via the temporary console seam below (the real UI toggle lands in Phase 3).
-// embeddingsCache holds the one-time /api/embeddings fetch (its signature keys a
-// Phase 3 cache).
+// via the Layout toggle in the controls drawer. embeddingsCache holds the latest
+// /api/embeddings fetch.
 let layoutMode: 'structure' | 'semantic' = 'structure'
 let embeddingsCache: EmbeddingsResponse | null = null
+
+// Whether the vault has any embeddings — drives the Semantic toggle's enabled
+// state. Set by the boot-time prefetch and refreshed on each Semantic toggle.
+let embeddingsAvailable = false
+
+// Projection cache keyed by EmbeddingsResponse.signature. While the embedded
+// content is unchanged, re-entering Semantic reuses projectedCoords and skips
+// the UMAP worker entirely; the ~2s SSE re-snapshots never reproject.
+let projectedSignature: string | null = null
+let projectedCoords: Map<string, { x: number; y: number; z: number }> | null = null
 
 // groupColorsFor builds the group→color map for node colors and the legend.
 // When graph.cluster.by === "type", group === type and the colors are
@@ -73,7 +82,24 @@ async function boot(): Promise<void> {
     getGroupColors: () => rawGroupColors,
     facetState,
     onFilterChange: rerender,
+    onLayoutModeChange: (mode) => {
+      if (mode === 'semantic') void applySemanticLayout()
+      else applyStructureLayout()
+    },
+    hasEmbeddings: () => embeddingsAvailable,
   })
+
+  // Prefetch embeddings so the Layout toggle knows whether Semantic is available
+  // before the user opens the drawer. Stored into embeddingsCache; the first
+  // Semantic toggle re-fetches to pick up the latest signature. A failure just
+  // leaves Semantic disabled (Structure is unaffected).
+  fetchEmbeddings()
+    .then((resp) => {
+      embeddingsCache = resp
+      embeddingsAvailable = Object.keys(resp.vectors).length > 0
+      controls.refreshLayoutAvailability()
+    })
+    .catch((err) => console.error('embeddings prefetch failed:', err))
 
   // projectInWorker posts one request to the layout worker and resolves with its
   // reply (or rejects on a worker-reported error). A fresh per-request listener
@@ -112,15 +138,35 @@ async function boot(): Promise<void> {
   // Single in-flight guard so repeated triggers don't stack worker runs.
   let semanticInFlight = false
 
-  // applySemanticLayout: fetch embeddings (once), project them in the worker,
-  // pin the result, and switch the scene to semantic mode. Stays in Structure on
-  // empty embeddings or any failure.
+  // enterSemantic pins the given coords, flips the scene to semantic mode, and
+  // reframes the camera onto the new cloud. setLayoutMode no longer reheats, so
+  // the trailing rerender() owns the single reheat; zoomToFit fits the freshly
+  // pinned (final) positions so the cloud fills the view rather than sitting
+  // off-center and tiny.
+  const enterSemantic = (coords: Map<string, { x: number; y: number; z: number }>): void => {
+    scene.setSemanticCoords(coords)
+    scene.setLayoutMode('semantic')
+    layoutMode = 'semantic'
+    rerender()
+    scene.instance.zoomToFit(600, 40)
+    hideStatus()
+  }
+
+  // applySemanticLayout: refresh embeddings, project them (or reuse a cached
+  // projection when the content signature is unchanged), pin the result, and
+  // switch the scene to semantic mode. Stays in Structure on empty embeddings or
+  // any failure.
   async function applySemanticLayout(): Promise<void> {
     if (semanticInFlight) return
     semanticInFlight = true
     showStatus('computing layout…')
     try {
-      if (embeddingsCache === null) embeddingsCache = await fetchEmbeddings()
+      // Re-fetch so the signature reflects the current vault content (cheap over
+      // loopback). The signature is the projection-cache key below.
+      embeddingsCache = await fetchEmbeddings()
+      embeddingsAvailable = Object.keys(embeddingsCache.vectors).length > 0
+      controls.refreshLayoutAvailability()
+
       const vectors = embeddingsCache.vectors
       const ids = Object.keys(vectors)
       if (ids.length === 0) {
@@ -128,17 +174,24 @@ async function boot(): Promise<void> {
         setTimeout(hideStatus, 5000)
         return // stay in Structure
       }
+
+      // Cache hit: the embedded content is unchanged since the last projection,
+      // so reuse the stored coords and skip the UMAP worker — re-entering
+      // Semantic is instant.
+      if (embeddingsCache.signature === projectedSignature && projectedCoords !== null) {
+        enterSemantic(projectedCoords)
+        return
+      }
+
       const reply = await projectInWorker(
         ids,
         ids.map((id) => vectors[id]),
       )
       const coords = new Map<string, { x: number; y: number; z: number }>()
       reply.ids.forEach((id, i) => coords.set(id, reply.positions[i]))
-      scene.setSemanticCoords(coords)
-      scene.setLayoutMode('semantic')
-      layoutMode = 'semantic'
-      rerender()
-      hideStatus()
+      projectedSignature = embeddingsCache.signature
+      projectedCoords = coords
+      enterSemantic(coords)
     } catch (err) {
       showStatus(`semantic layout failed: ${String(err)}`)
       setTimeout(hideStatus, 5000)
@@ -149,11 +202,13 @@ async function boot(): Promise<void> {
   }
 
   // applyStructureLayout: restore the force layout. The scene drops the pins and
-  // rerender() re-registers huddle (if enabled) via setGraph's Structure gate.
+  // rerender() re-registers huddle (if enabled) via setGraph's Structure gate;
+  // zoomToFit reframes the camera back onto the force layout after the flip.
   function applyStructureLayout(): void {
     scene.setLayoutMode('structure')
     layoutMode = 'structure'
     rerender()
+    scene.instance.zoomToFit(600, 40)
   }
 
   // Search form — binds to #search-form / #search which live in the #controls
@@ -266,16 +321,6 @@ async function boot(): Promise<void> {
   // Playwright (read controls/accessors, project node coords, etc.).
   ;(window as unknown as { tuskScene?: unknown }).tuskScene = scene
   ;(window as unknown as { tuskGraph?: unknown }).tuskGraph = scene.instance
-
-  // Temporary debug trigger [BRIDGE — removed in Phase 3]. Lets Semantic mode be
-  // exercised from the console before the Phase 3 drawer toggle exists; Phase 3
-  // deletes both lines and drives the same two functions from the toggle.
-  ;(window as any).tuskApplySemantic = () => {
-    void applySemanticLayout()
-  }
-  ;(window as any).tuskApplyStructure = () => {
-    applyStructureLayout()
-  }
 }
 
 void boot()

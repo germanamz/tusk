@@ -321,6 +321,25 @@
         color: #666;
         display: block;
       }
+
+      /* Layout toggle (Structure / Semantic) — a small segmented radio group
+         in the footer, above the hint spans. */
+      .controls-layout-options {
+        display: flex;
+        gap: 12px;
+        margin: 2px 0;
+      }
+      .controls-layout-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        font-size: 11px;
+        color: #e6e6e6;
+      }
+      .controls-layout-option input[type="radio"] { cursor: pointer; accent-color: #4f8cff; }
+      .controls-layout-option.disabled { color: #555; cursor: not-allowed; }
+      .controls-layout-option.disabled input[type="radio"] { cursor: not-allowed; }
     </style>
   </head>
   <body>

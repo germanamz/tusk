@@ -5,7 +5,7 @@ import { scaleToViewSpace } from './layout.worker'
 // so importing it here (node, no worker global) just exposes the pure helpers.
 
 describe('scaleToViewSpace', () => {
-  const HALF_EXTENT = 450
+  const HALF_EXTENT = 600
   const EPSILON = 1e-9
 
   it('returns an empty array for empty input', () => {

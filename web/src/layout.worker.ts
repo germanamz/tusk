@@ -30,7 +30,9 @@ export interface LayoutReply {
 // Target half-extent of the projected cloud in view space. The existing layout
 // works in a ~hundreds-of-units range (ANCHOR_RADIUS = 400 in encode.ts); raw
 // UMAP output is ~-10..10 and would clump at the origin without this rescale.
-const VIEW_HALF_EXTENT = 450
+// Raised from 450 → 600 (Phase 3 polish) so meaning-clusters separate visibly
+// rather than reading as one dense blob.
+const VIEW_HALF_EXTENT = 600
 
 // mulberry32: a tiny, fast seeded PRNG. UMAP only needs a uniform [0,1) source;
 // seeding it with a fixed constant makes the projection deterministic, so the
@@ -90,10 +92,14 @@ export function project(req: LayoutRequest): LayoutReply {
   // vectors.length - 1 for tiny inputs and keep it at least 1.
   const nNeighbors = Math.max(1, Math.min(15, vectors.length - 1))
 
+  // minDist/spread are loosened from the umap-js defaults (0.1 / 1.0) to spread
+  // the cloud into a more legible map — at minDist 0.1 clusters read as one dense
+  // clump. The seeded `random` keeps the projection deterministic across runs.
   const umap = new UMAP({
     nComponents: 3,
     nNeighbors,
-    minDist: 0.1,
+    minDist: 0.3,
+    spread: 1.5,
     random: mulberry32(SEED),
   })
 

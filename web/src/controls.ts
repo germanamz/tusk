@@ -57,11 +57,20 @@ interface ControlsDeps {
   getGroupColors: () => Map<string, string>
   facetState: FacetState
   onFilterChange: () => void
+  /** Called when the user flips the Layout toggle (Structure ⇄ Semantic). */
+  onLayoutModeChange: (mode: 'structure' | 'semantic') => void
+  /** Whether the vault has any embeddings. false → Semantic disabled + hint.
+   *  Read on build and re-read by refreshLayoutAvailability() so a late
+   *  embeddings fetch can enable the option after the drawer is built. */
+  hasEmbeddings: () => boolean
 }
 
 export function createControls(deps: ControlsDeps): {
   update(graph: Graph, groupColors: Map<string, string>): void
   clearSolo(): void
+  /** Re-read deps.hasEmbeddings() and enable/disable the Semantic option. Call
+   *  after the boot-time embeddings prefetch resolves. */
+  refreshLayoutAvailability(): void
 } {
   const { scene, facetState, onFilterChange } = deps
 
@@ -289,6 +298,60 @@ export function createControls(deps: ControlsDeps): {
   )
 
   footer.appendChild(edgesGroup)
+
+  // ---- Layout toggle (Structure / Semantic) ----
+  // A segmented two-radio group. Structure (today's force layout) is the default;
+  // Semantic pins nodes to the UMAP embedding map. Semantic is disabled with a
+  // hint until embeddings exist; refreshLayoutAvailability() re-evaluates that
+  // when a late /api/embeddings fetch resolves.
+  const layoutGroup = document.createElement('div')
+  layoutGroup.className = 'controls-layout-group'
+
+  const layoutLabel = document.createElement('strong')
+  layoutLabel.textContent = 'Layout'
+  layoutGroup.appendChild(layoutLabel)
+
+  const layoutOptions = document.createElement('div')
+  layoutOptions.className = 'controls-layout-options'
+
+  const makeLayoutOption = (mode: 'structure' | 'semantic', text: string): HTMLLabelElement => {
+    const lbl = document.createElement('label')
+    lbl.className = 'controls-layout-option'
+    const radio = document.createElement('input')
+    radio.type = 'radio'
+    radio.name = 'layout-mode'
+    radio.value = mode
+    radio.checked = mode === 'structure'
+    radio.addEventListener('change', () => {
+      if (radio.checked) deps.onLayoutModeChange(mode)
+    })
+    lbl.appendChild(radio)
+    lbl.appendChild(document.createTextNode(' ' + text))
+    return lbl
+  }
+
+  const structureOption = makeLayoutOption('structure', 'Structure')
+  const semanticOption = makeLayoutOption('semantic', 'Semantic')
+  layoutOptions.appendChild(structureOption)
+  layoutOptions.appendChild(semanticOption)
+  layoutGroup.appendChild(layoutOptions)
+
+  const layoutHint = document.createElement('span')
+  layoutHint.className = 'controls-footer-hint'
+  layoutHint.textContent = 'no embeddings — reindex with an embedding provider'
+  layoutGroup.appendChild(layoutHint)
+
+  footer.appendChild(layoutGroup)
+
+  const semanticRadio = semanticOption.querySelector<HTMLInputElement>('input')!
+
+  function refreshLayoutAvailability(): void {
+    const enabled = deps.hasEmbeddings()
+    semanticRadio.disabled = !enabled
+    semanticOption.classList.toggle('disabled', !enabled)
+    layoutHint.style.display = enabled ? 'none' : 'block'
+  }
+  refreshLayoutAvailability()
 
   const hintSize = document.createElement('span')
   hintSize.className = 'controls-footer-hint'
@@ -650,6 +713,10 @@ export function createControls(deps: ControlsDeps): {
 
     // Diff-update the Filters section.
     updateFilters(graph)
+
+    // Re-evaluate the Semantic toggle's enabled state in case embeddings
+    // availability changed since the last snapshot.
+    refreshLayoutAvailability()
   }
 
   // ---------------------------------------------------------------------------
@@ -661,5 +728,5 @@ export function createControls(deps: ControlsDeps): {
     scene.focusGroup(null)
   }
 
-  return { update, clearSolo }
+  return { update, clearSolo, refreshLayoutAvailability }
 }
