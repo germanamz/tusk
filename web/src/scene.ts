@@ -5,6 +5,8 @@ import {
   importanceColor,
   sizeForDegree,
   dimColor,
+  rgba,
+  edgeAlpha,
   EDGE_KIND_COLORS,
   SELECTED_COLOR,
   HIGHLIGHT_LINK_COLOR,
@@ -14,6 +16,10 @@ import {
   COLLIDE_RADIUS,
   SOFT_CHARGE_STRENGTH,
   DEFAULT_CHARGE_STRENGTH,
+  INTRA_ALPHA_DEFAULT,
+  INTER_ALPHA_DEFAULT,
+  HUB_STRENGTH_DEFAULT,
+  DIM_FACTOR,
 } from './encode'
 import { carryPositions, fibonacciSphereAnchors } from './layout'
 import { createHullOverlay } from './hulls'
@@ -30,6 +36,9 @@ export interface Scene {
   /** Dim every node/link whose group is not in `focus`; null clears the dimming.
    *  Composes with select() — a node is bright only if neither layer dims it. */
   focusGroup(focus: Set<string> | null): void
+  /** Update edge-emphasis parameters (inter-cluster alpha + hub-fade strength)
+   *  and repaint edges immediately. Partial merge; unspecified keys are kept. */
+  setEdgeEmphasis(partial: { intraAlpha?: number; interAlpha?: number; hubStrength?: number }): void
   instance: ReturnType<typeof ForceGraph3D>
 }
 
@@ -64,6 +73,15 @@ export function createScene(el: HTMLElement): Scene {
   // are dimmed by `nodeColor`/`linkColor`. Composes with the selection layer —
   // a node is bright only if neither the selection layer nor the group layer dims it.
   let focusedGroups: Set<string> | null = null
+
+  // Edge-emphasis state. Controls per-edge alpha: intra-cluster edges keep a
+  // high base alpha; inter-cluster edges are faded to `interAlpha`; hub-incident
+  // edges are further damped by `hubStrength`. `intraAlpha` is not user-exposed.
+  let edgeEmphasis = {
+    intraAlpha: INTRA_ALPHA_DEFAULT,
+    interAlpha: INTER_ALPHA_DEFAULT,
+    hubStrength: HUB_STRENGTH_DEFAULT,
+  }
 
   // Hull overlay: one translucent convex-hull mesh per group, recomputed on a
   // throttled tick and once on engine stop. Created once here; setGraph drives
@@ -107,12 +125,16 @@ export function createScene(el: HTMLElement): Scene {
   }
   const linkColor = (link: any): string => {
     if (highlightLinks.has(link)) return HIGHLIGHT_LINK_COLOR
-    const base = EDGE_KIND_COLORS[link.kind] ?? '#888'
-    const selectionDim = isHighlighting()
+    const kind: string = EDGE_KIND_COLORS[link.kind] ?? '#888'
     const sourceGroup: string = (typeof link.source === 'object' && link.source ? link.source.group : undefined) ?? ''
     const targetGroup: string = (typeof link.target === 'object' && link.target ? link.target.group : undefined) ?? ''
-    const groupDim = focusedGroups !== null && (!focusedGroups.has(sourceGroup) || !focusedGroups.has(targetGroup))
-    return selectionDim || groupDim ? dimColor(base) : base
+    const srcDeg: number = (typeof link.source === 'object' && link.source ? link.source.degree : undefined) ?? 0
+    const tgtDeg: number = (typeof link.target === 'object' && link.target ? link.target.degree : undefined) ?? 0
+    const sameGroup = sourceGroup !== '' && sourceGroup === targetGroup
+    const base = edgeAlpha(sameGroup, srcDeg, tgtDeg, maxDegree, edgeEmphasis)
+    const dimmed = isHighlighting() || (focusedGroups !== null && !(focusedGroups.has(sourceGroup) && focusedGroups.has(targetGroup)))
+    const alpha = dimmed ? base * DIM_FACTOR : base
+    return rgba(kind, alpha)
   }
   // Falsy widths render as cheap distance-independent 1px lines; only the
   // highlighted edges promote to solid cylinders so they stand out.
@@ -301,6 +323,10 @@ export function createScene(el: HTMLElement): Scene {
     },
     focusGroup(focus: Set<string> | null) {
       focusedGroups = focus
+      refresh()
+    },
+    setEdgeEmphasis(partial: { intraAlpha?: number; interAlpha?: number; hubStrength?: number }) {
+      edgeEmphasis = { ...edgeEmphasis, ...partial }
       refresh()
     },
   }

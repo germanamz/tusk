@@ -7,6 +7,9 @@ import {
   EDGE_KIND_COLORS,
   dimColor,
   BASE_PALETTE,
+  rgba,
+  edgeAlpha,
+  HUB_FLOOR,
 } from './encode'
 
 const HEX = /^#[0-9a-f]{6}$/
@@ -124,6 +127,72 @@ describe('encode', () => {
     expect(EDGE_KIND_COLORS.direct).toBeDefined()
     expect(EDGE_KIND_COLORS.derived).toBeDefined()
     expect(EDGE_KIND_COLORS.structural).toBeDefined()
+  })
+
+  describe('rgba', () => {
+    it('converts a #rrggbb hex to an rgba() string', () => {
+      expect(rgba('#7aa2f7', 0.1)).toBe('rgba(122,162,247,0.1)')
+    })
+
+    it('clamps alpha to [0,1]', () => {
+      expect(rgba('#7aa2f7', -0.5)).toBe('rgba(122,162,247,0)')
+      expect(rgba('#7aa2f7', 1.5)).toBe('rgba(122,162,247,1)')
+    })
+
+    it('returns the input unchanged for non-#rrggbb strings', () => {
+      expect(rgba('#888', 0.5)).toBe('#888')
+      expect(rgba('rebeccapurple', 0.5)).toBe('rebeccapurple')
+    })
+  })
+
+  describe('edgeAlpha', () => {
+    const opts = { intraAlpha: 0.85, interAlpha: 0.10, hubStrength: 0.75 }
+
+    it('intra-cluster alpha is greater than inter-cluster alpha', () => {
+      expect(edgeAlpha(true, 1, 1, 10, opts)).toBeGreaterThan(edgeAlpha(false, 1, 1, 10, opts))
+    })
+
+    it('hub damp lowers alpha as endpoint degree rises', () => {
+      const low = edgeAlpha(true, 1, 1, 100, opts)
+      const high = edgeAlpha(true, 99, 99, 100, opts)
+      expect(high).toBeLessThan(low)
+    })
+
+    it('hubStrength=0 produces no hub damp (hubDamp=1)', () => {
+      const noHub = { ...opts, hubStrength: 0 }
+      const withHub = { ...opts, hubStrength: 0.75 }
+      // At high degree, hubStrength=0 should give higher alpha than hubStrength>0
+      expect(edgeAlpha(true, 90, 90, 100, noHub)).toBeGreaterThan(edgeAlpha(true, 90, 90, 100, withHub))
+    })
+
+    it('maxDegree=0 is safe (no NaN, returns base alpha floor)', () => {
+      const a = edgeAlpha(true, 0, 0, 0, opts)
+      expect(Number.isNaN(a)).toBe(false)
+      expect(a).toBeGreaterThanOrEqual(0)
+      expect(a).toBeLessThanOrEqual(1)
+    })
+
+    it('hub floor is respected — hubDamp clamps to HUB_FLOOR even at full strength', () => {
+      // hubStrength=1.0 at max degree makes the raw hubDamp 1 - 1*1 = 0, which must
+      // clamp UP to HUB_FLOOR. So alpha lands exactly at intraAlpha * HUB_FLOOR.
+      const a = edgeAlpha(true, 100, 100, 100, { ...opts, hubStrength: 1.0 })
+      expect(a).toBeCloseTo(opts.intraAlpha * HUB_FLOOR, 6)
+    })
+
+    it('output is always in [0,1]', () => {
+      const cases = [
+        [true, 0, 0, 0],
+        [true, 10, 10, 10],
+        [false, 10, 10, 10],
+        [false, 100, 100, 100],
+        [true, 50, 30, 100],
+      ] as const
+      for (const [sg, src, tgt, max] of cases) {
+        const a = edgeAlpha(sg, src, tgt, max, opts)
+        expect(a).toBeGreaterThanOrEqual(0)
+        expect(a).toBeLessThanOrEqual(1)
+      }
+    })
   })
 
   describe('dimColor', () => {
