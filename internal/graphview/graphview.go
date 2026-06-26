@@ -123,6 +123,12 @@ type EdgeSource interface {
 	ListByTarget(targetID string) ([]index.EdgeRow, error)
 }
 
+// EmbeddingSource fetches stored embedding vectors for nodes. Satisfied by
+// *index.EmbeddingRepo. Used by the /api/embeddings endpoint (semantic layout).
+type EmbeddingSource interface {
+	ListByNodeIDs(nodeIDs []string) ([]index.EmbeddingRow, error)
+}
+
 // NodeRenderer renders a node id to plain text for the inspect panel.
 type NodeRenderer interface {
 	Render(nodeID string) (string, error)
@@ -149,6 +155,7 @@ type Deps struct {
 	Query        Querier
 	Changes      ChangeSource
 	Manifest     *manifest.Manifest // optional; nil tolerates as by = "type"
+	Embeddings   EmbeddingSource    // optional; nil disables /api/embeddings (returns empty)
 	PollInterval time.Duration      // SSE change-poll cadence; defaults to 2s
 	Logger       *slog.Logger       // optional; nil silences
 }

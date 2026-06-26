@@ -83,6 +83,8 @@ func (srv *Server) routes() {
 
 	srv.mux.HandleFunc("POST /api/query", srv.handleQuery)
 
+	srv.mux.HandleFunc("GET /api/embeddings", srv.handleEmbeddings)
+
 	srv.mux.Handle("GET /", srv.staticHandler())
 }
 
