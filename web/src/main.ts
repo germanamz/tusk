@@ -16,6 +16,11 @@ let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), h
 // via the Layout toggle in the controls drawer. embeddingsCache holds the latest
 // /api/embeddings fetch.
 let layoutMode: 'structure' | 'semantic' = 'structure'
+// Generation counter for layout requests. Incremented at the start of every
+// applySemanticLayout() and applyStructureLayout() call. Checked after each await
+// in the async semantic path so a superseded in-flight projection bails out before
+// touching the scene, keeping the radio and layout consistent with the last action.
+let layoutRequestGen = 0
 let embeddingsCache: EmbeddingsResponse | null = null
 
 // Whether the vault has any embeddings — drives the Semantic toggle's enabled
@@ -89,13 +94,12 @@ async function boot(): Promise<void> {
     hasEmbeddings: () => embeddingsAvailable,
   })
 
-  // Prefetch embeddings so the Layout toggle knows whether Semantic is available
-  // before the user opens the drawer. Stored into embeddingsCache; the first
-  // Semantic toggle re-fetches to pick up the latest signature. A failure just
-  // leaves Semantic disabled (Structure is unaffected).
+  // Prefetch embeddings to learn whether Semantic layout is available before the
+  // user opens the drawer. Only the availability boolean is used here; the cache
+  // store is omitted because applySemanticLayout() always re-fetches before
+  // reading embeddingsCache. A failure just leaves Semantic disabled.
   fetchEmbeddings()
     .then((resp) => {
-      embeddingsCache = resp
       embeddingsAvailable = Object.keys(resp.vectors).length > 0
       controls.refreshLayoutAvailability()
     })
@@ -157,12 +161,16 @@ async function boot(): Promise<void> {
   // switch the scene to semantic mode. Stays in Structure on empty embeddings or
   // any failure.
   async function applySemanticLayout(): Promise<void> {
+    const myGen = ++layoutRequestGen
     if (semanticInFlight) return
     semanticInFlight = true
     try {
       // Re-fetch so the signature reflects the current vault content (cheap over
       // loopback). The signature is the projection-cache key below.
       embeddingsCache = await fetchEmbeddings()
+      // Bail if a Structure click (or newer Semantic) superseded this request while
+      // we were waiting for the fetch. The finally block still clears semanticInFlight.
+      if (myGen !== layoutRequestGen) return
       embeddingsAvailable = Object.keys(embeddingsCache.vectors).length > 0
       controls.refreshLayoutAvailability()
 
@@ -189,6 +197,9 @@ async function boot(): Promise<void> {
         ids,
         ids.map((id) => vectors[id]),
       )
+      // Bail again after the (potentially long) worker projection — a Structure
+      // click during UMAP must not let the result overwrite the current layout.
+      if (myGen !== layoutRequestGen) return
       const coords = new Map<string, { x: number; y: number; z: number }>()
       reply.ids.forEach((id, i) => coords.set(id, reply.positions[i]))
       projectedSignature = embeddingsCache.signature
@@ -207,7 +218,10 @@ async function boot(): Promise<void> {
   // applyStructureLayout: restore the force layout. The scene drops the pins and
   // rerender() re-registers huddle (if enabled) via setGraph's Structure gate;
   // zoomToFit reframes the camera back onto the force layout after the flip.
+  // Bumping layoutRequestGen cancels any in-flight semantic projection so it
+  // cannot flip the scene back to Semantic after this call returns.
   function applyStructureLayout(): void {
+    ++layoutRequestGen
     scene.setLayoutMode('structure')
     layoutMode = 'structure'
     rerender()

@@ -188,16 +188,81 @@ func TestBuildEmbeddingsResponse_SignatureStableAndChanges(t *testing.T) {
 	}
 }
 
+// TestBuildEmbeddingsResponse_SignatureEmittedOnly asserts that the cache
+// signature is computed only over nodes that appear in Vectors (i.e. emitted
+// nodes). Changing the content hash of a skipped or zero-norm node must NOT
+// alter the signature; changing an emitted node's hash must.
+func TestBuildEmbeddingsResponse_SignatureEmittedOnly(t *testing.T) {
+	// notes/a and notes/b are emitted normally.
+	// notes/zero has a zero-norm vector → omitted from Vectors.
+	// notes/skip has a dim mismatch → skip=true → omitted from Vectors.
+	base := []index.EmbeddingRow{
+		embRow("notes/a", 0, "hash-a0", []float32{3, 4, 0}),
+		embRow("notes/b", 0, "hash-b0", []float32{1, 0, 0}),
+		embRow("notes/zero", 0, "hash-z0", []float32{0, 0, 0}),
+		// Dim mismatch: first chunk sets dim=3; second has len=2 → skip.
+		{NodeID: "notes/skip", ChunkIdx: 0, Model: "nomic-embed-text", ContentHash: "hash-s0", Vector: []float32{1, 0, 0}, Dim: 3},
+		{NodeID: "notes/skip", ChunkIdx: 1, Model: "nomic-embed-text", ContentHash: "hash-s1", Vector: []float32{1, 0}, Dim: 3},
+	}
+
+	respBase := buildEmbeddingsResponse(base)
+
+	// Sanity: only the two normal nodes are emitted.
+	if len(respBase.Vectors) != 2 {
+		t.Fatalf("expected 2 emitted vectors, got %d", len(respBase.Vectors))
+	}
+
+	// Changing a non-emitted (zero-norm) node must NOT alter the signature.
+	withChangedZero := []index.EmbeddingRow{
+		embRow("notes/a", 0, "hash-a0", []float32{3, 4, 0}),
+		embRow("notes/b", 0, "hash-b0", []float32{1, 0, 0}),
+		embRow("notes/zero", 0, "hash-z0-CHANGED", []float32{0, 0, 0}),
+		{NodeID: "notes/skip", ChunkIdx: 0, Model: "nomic-embed-text", ContentHash: "hash-s0", Vector: []float32{1, 0, 0}, Dim: 3},
+		{NodeID: "notes/skip", ChunkIdx: 1, Model: "nomic-embed-text", ContentHash: "hash-s1", Vector: []float32{1, 0}, Dim: 3},
+	}
+
+	respChangedZero := buildEmbeddingsResponse(withChangedZero)
+	if respBase.Signature != respChangedZero.Signature {
+		t.Errorf("signature changed when a zero-norm (non-emitted) node's hash changed: %q → %q",
+			respBase.Signature, respChangedZero.Signature)
+	}
+
+	// Changing a non-emitted (dim-mismatch / skipped) node must NOT alter the signature.
+	withChangedSkip := []index.EmbeddingRow{
+		embRow("notes/a", 0, "hash-a0", []float32{3, 4, 0}),
+		embRow("notes/b", 0, "hash-b0", []float32{1, 0, 0}),
+		embRow("notes/zero", 0, "hash-z0", []float32{0, 0, 0}),
+		{NodeID: "notes/skip", ChunkIdx: 0, Model: "nomic-embed-text", ContentHash: "hash-s0-CHANGED", Vector: []float32{1, 0, 0}, Dim: 3},
+		{NodeID: "notes/skip", ChunkIdx: 1, Model: "nomic-embed-text", ContentHash: "hash-s1", Vector: []float32{1, 0}, Dim: 3},
+	}
+
+	respChangedSkip := buildEmbeddingsResponse(withChangedSkip)
+	if respBase.Signature != respChangedSkip.Signature {
+		t.Errorf("signature changed when a skipped (non-emitted) node's hash changed: %q → %q",
+			respBase.Signature, respChangedSkip.Signature)
+	}
+
+	// Changing an emitted node's hash MUST alter the signature.
+	withChangedEmitted := []index.EmbeddingRow{
+		embRow("notes/a", 0, "hash-a0-CHANGED", []float32{3, 4, 0}),
+		embRow("notes/b", 0, "hash-b0", []float32{1, 0, 0}),
+		embRow("notes/zero", 0, "hash-z0", []float32{0, 0, 0}),
+		{NodeID: "notes/skip", ChunkIdx: 0, Model: "nomic-embed-text", ContentHash: "hash-s0", Vector: []float32{1, 0, 0}, Dim: 3},
+		{NodeID: "notes/skip", ChunkIdx: 1, Model: "nomic-embed-text", ContentHash: "hash-s1", Vector: []float32{1, 0}, Dim: 3},
+	}
+
+	respChangedEmitted := buildEmbeddingsResponse(withChangedEmitted)
+	if respBase.Signature == respChangedEmitted.Signature {
+		t.Error("signature must change when an emitted node's content hash changes")
+	}
+}
+
 // --- handleEmbeddings HTTP tests ---
 
 func TestHandleEmbeddings_NilSource(t *testing.T) {
-	// Deps.Embeddings == nil → 200 + empty payload.
-	nodes := &fakeNodes{
-		files: []index.NodeRow{
-			fileRow("notes/a", "note", "A", ""),
-		},
-	}
-	srv := New(Deps{Nodes: nodes, Edges: &fakeEdges{}})
+	// Deps.Embeddings == nil → handler returns before calling ListFileNodes, so
+	// no node rows are needed. Asserts a valid empty payload is returned.
+	srv := New(Deps{Nodes: &fakeNodes{}, Edges: &fakeEdges{}})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

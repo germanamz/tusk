@@ -133,11 +133,13 @@ func buildEmbeddingsResponse(rows []index.EmbeddingRow) EmbeddingsResponse {
 		resp.Vectors[nodeID] = vec
 	}
 
-	// Signature: sha256 over nodes in sorted id order. This changes whenever
-	// any file's content (hence its content hashes) changes, giving Phase 3
-	// a stable cache key.
-	sortedIDs := make([]string, len(nodeOrder))
-	copy(sortedIDs, nodeOrder)
+	// Signature: sha256 over *emitted* nodes in sorted id order. Only nodes that
+	// appear in resp.Vectors contribute, so changes to skipped or zero-norm nodes
+	// do not needlessly invalidate the client's projection cache.
+	sortedIDs := make([]string, 0, len(resp.Vectors))
+	for id := range resp.Vectors {
+		sortedIDs = append(sortedIDs, id)
+	}
 	sort.Strings(sortedIDs)
 
 	hasher := sha256.New()
