@@ -1,4 +1,4 @@
-import { fetchGraph, type Graph } from './api'
+import { fetchGraph, fetchEmbeddings, type Graph, type EmbeddingsResponse } from './api'
 import { createScene } from './scene'
 import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
@@ -11,6 +11,27 @@ import { createControls } from './controls'
 let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [], cluster: { by: 'type', huddle: false, hull: false } }
 let rawGroupColors: Map<string, string> = new Map()
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false, hiddenGroups: new Set() }
+
+// Layout-mode orchestration state. Structure is the default; Semantic is reached
+// via the Layout toggle in the controls drawer. embeddingsCache holds the latest
+// /api/embeddings fetch.
+let layoutMode: 'structure' | 'semantic' = 'structure'
+// Generation counter for layout requests. Incremented at the start of every
+// applySemanticLayout() and applyStructureLayout() call. Checked after each await
+// in the async semantic path so a superseded in-flight projection bails out before
+// touching the scene, keeping the radio and layout consistent with the last action.
+let layoutRequestGen = 0
+let embeddingsCache: EmbeddingsResponse | null = null
+
+// Whether the vault has any embeddings — drives the Semantic toggle's enabled
+// state. Set by the boot-time prefetch and refreshed on each Semantic toggle.
+let embeddingsAvailable = false
+
+// Projection cache keyed by EmbeddingsResponse.signature. While the embedded
+// content is unchanged, re-entering Semantic reuses projectedCoords and skips
+// the UMAP worker entirely; the ~2s SSE re-snapshots never reproject.
+let projectedSignature: string | null = null
+let projectedCoords: Map<string, { x: number; y: number; z: number }> | null = null
 
 // groupColorsFor builds the group→color map for node colors and the legend.
 // When graph.cluster.by === "type", group === type and the colors are
@@ -37,7 +58,27 @@ async function boot(): Promise<void> {
   const panelEl = document.getElementById('panel')!
   const searchMsg = document.getElementById('search-msg')!
   const banner = document.getElementById('banner')!
+  const layoutStatus = document.getElementById('layout-status')!
   const scene = createScene(el)
+
+  // Transient layout-status overlay helpers. Shows "computing layout…" while the
+  // worker runs and surfaces hints/errors; hidden by default.
+  const showStatus = (text: string): void => {
+    layoutStatus.textContent = text
+    layoutStatus.style.display = 'block'
+  }
+  const hideStatus = (): void => {
+    layoutStatus.style.display = 'none'
+  }
+
+  // The UMAP projection runs off the main thread. Spawned once; reused for every
+  // semantic-layout request. Vite bundles the worker chunk from this new URL.
+  const layoutWorker = new Worker(new URL('./layout.worker.ts', import.meta.url), { type: 'module' })
+
+  // Re-apply the current data through the scene. This is the former inline
+  // onFilterChange body, factored out so a mode flip can re-run setGraph (which
+  // re-evaluates huddle gating + pins for the active mode).
+  const rerender = (): void => scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
 
   // Build the controls drawer once; diff-update it on each snapshot.
   const controls = createControls({
@@ -45,8 +86,148 @@ async function boot(): Promise<void> {
     getRawGraph: () => rawGraph,
     getGroupColors: () => rawGroupColors,
     facetState,
-    onFilterChange: () => scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors),
+    onFilterChange: rerender,
+    onLayoutModeChange: (mode) => {
+      if (mode === 'semantic') void applySemanticLayout()
+      else applyStructureLayout()
+    },
+    hasEmbeddings: () => embeddingsAvailable,
   })
+
+  // Prefetch embeddings to learn whether Semantic layout is available before the
+  // user opens the drawer. Only the availability boolean is used here; the cache
+  // store is omitted because applySemanticLayout() always re-fetches before
+  // reading embeddingsCache. A failure just leaves Semantic disabled.
+  fetchEmbeddings()
+    .then((resp) => {
+      embeddingsAvailable = Object.keys(resp.vectors).length > 0
+      controls.refreshLayoutAvailability()
+    })
+    .catch((err) => console.error('embeddings prefetch failed:', err))
+
+  // projectInWorker posts one request to the layout worker and resolves with its
+  // reply (or rejects on a worker-reported error). A fresh per-request listener
+  // pair is registered and torn down so replies never cross requests.
+  const projectInWorker = (
+    ids: string[],
+    vectors: number[][],
+  ): Promise<{ ids: string[]; positions: { x: number; y: number; z: number }[] }> =>
+    new Promise((resolve, reject) => {
+      const cleanup = (): void => {
+        layoutWorker.removeEventListener('message', onMessage)
+        layoutWorker.removeEventListener('error', onError)
+      }
+      const onMessage = (ev: MessageEvent): void => {
+        cleanup()
+        const data = ev.data as {
+          ids?: string[]
+          positions?: { x: number; y: number; z: number }[]
+          error?: string
+        }
+        if (data.error) {
+          reject(new Error(data.error))
+          return
+        }
+        resolve({ ids: data.ids ?? [], positions: data.positions ?? [] })
+      }
+      const onError = (ev: ErrorEvent): void => {
+        cleanup()
+        reject(new Error(ev.message || 'layout worker error'))
+      }
+      layoutWorker.addEventListener('message', onMessage)
+      layoutWorker.addEventListener('error', onError)
+      layoutWorker.postMessage({ ids, vectors })
+    })
+
+  // Single in-flight guard so repeated triggers don't stack worker runs.
+  let semanticInFlight = false
+
+  // enterSemantic pins the given coords, flips the scene to semantic mode, and
+  // reframes the camera onto the new cloud. setLayoutMode no longer reheats, so
+  // the trailing rerender() owns the single reheat; zoomToFit fits the freshly
+  // pinned (final) positions so the cloud fills the view rather than sitting
+  // off-center and tiny.
+  const enterSemantic = (coords: Map<string, { x: number; y: number; z: number }>): void => {
+    scene.setSemanticCoords(coords)
+    scene.setLayoutMode('semantic')
+    layoutMode = 'semantic'
+    rerender()
+    scene.instance.zoomToFit(600, 40)
+    hideStatus()
+  }
+
+  // applySemanticLayout: refresh embeddings, project them (or reuse a cached
+  // projection when the content signature is unchanged), pin the result, and
+  // switch the scene to semantic mode. Stays in Structure on empty embeddings or
+  // any failure.
+  async function applySemanticLayout(): Promise<void> {
+    const myGen = ++layoutRequestGen
+    if (semanticInFlight) return
+    semanticInFlight = true
+    try {
+      // Re-fetch so the signature reflects the current vault content (cheap over
+      // loopback). The signature is the projection-cache key below.
+      embeddingsCache = await fetchEmbeddings()
+      // Bail if a Structure click (or newer Semantic) superseded this request while
+      // we were waiting for the fetch. The finally block still clears semanticInFlight.
+      if (myGen !== layoutRequestGen) return
+      embeddingsAvailable = Object.keys(embeddingsCache.vectors).length > 0
+      controls.refreshLayoutAvailability()
+
+      const vectors = embeddingsCache.vectors
+      const ids = Object.keys(vectors)
+      if (ids.length === 0) {
+        controls.resetLayoutToggle()
+        showStatus('no embeddings — run reindex with an embedding provider')
+        setTimeout(hideStatus, 5000)
+        return // stay in Structure
+      }
+
+      // Cache hit: the embedded content is unchanged since the last projection,
+      // so reuse the stored coords and skip the UMAP worker — re-entering
+      // Semantic is instant. No status banner on a cache hit.
+      if (embeddingsCache.signature === projectedSignature && projectedCoords !== null) {
+        enterSemantic(projectedCoords)
+        return
+      }
+
+      // Cache miss — projection is needed. Show the computing banner only now.
+      showStatus('computing layout…')
+      const reply = await projectInWorker(
+        ids,
+        ids.map((id) => vectors[id]),
+      )
+      // Bail again after the (potentially long) worker projection — a Structure
+      // click during UMAP must not let the result overwrite the current layout.
+      if (myGen !== layoutRequestGen) return
+      const coords = new Map<string, { x: number; y: number; z: number }>()
+      reply.ids.forEach((id, i) => coords.set(id, reply.positions[i]))
+      projectedSignature = embeddingsCache.signature
+      projectedCoords = coords
+      enterSemantic(coords)
+    } catch (err) {
+      controls.resetLayoutToggle()
+      showStatus(`semantic layout failed: ${String(err)}`)
+      setTimeout(hideStatus, 5000)
+      // stay in Structure
+    } finally {
+      semanticInFlight = false
+    }
+  }
+
+  // applyStructureLayout: restore the force layout. The scene drops the pins and
+  // rerender() re-registers huddle (if enabled) via setGraph's Structure gate;
+  // zoomToFit reframes the camera back onto the force layout after the flip.
+  // Bumping layoutRequestGen cancels any in-flight semantic projection so it
+  // cannot flip the scene back to Semantic after this call returns.
+  function applyStructureLayout(): void {
+    ++layoutRequestGen
+    hideStatus()
+    scene.setLayoutMode('structure')
+    layoutMode = 'structure'
+    rerender()
+    scene.instance.zoomToFit(600, 40)
+  }
 
   // Search form — binds to #search-form / #search which live in the #controls
   // drawer header (a stable container never innerHTML-cleared). This binding

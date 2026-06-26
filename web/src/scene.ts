@@ -39,6 +39,12 @@ export interface Scene {
   /** Update edge-emphasis parameters (inter-cluster alpha + hub-fade strength)
    *  and repaint edges immediately. Partial merge; unspecified keys are kept. */
   setEdgeEmphasis(partial: { intraAlpha?: number; interAlpha?: number; hubStrength?: number }): void
+  /** Switch layout mode. 'semantic' pins nodes at coords set via setSemanticCoords
+   *  and suppresses huddle; 'structure' restores the force layout. */
+  setLayoutMode(mode: 'structure' | 'semantic'): void
+  /** Supply pinned coordinates for semantic mode (nodeId -> position). Stored and
+   *  re-applied on every setGraph so live re-snapshots keep the pins. */
+  setSemanticCoords(coords: Map<string, { x: number; y: number; z: number }>): void
   instance: ReturnType<typeof ForceGraph3D>
 }
 
@@ -105,6 +111,64 @@ export function createScene(el: HTMLElement): Scene {
   let hullEnabled = false
   let maxDegree = 0
   let groupAnchors = new Map<string, { x: number; y: number; z: number }>()
+
+  // Layout-mode state. In 'semantic' mode each embedded file node is pinned
+  // (fx/fy/fz) at its UMAP coordinate from `semanticCoords` and huddle is
+  // suppressed; 'structure' is the default force layout. carryPositions drops
+  // fx/fy/fz across snapshots, so applyPins re-applies the pins on every setGraph.
+  let layoutMode: 'structure' | 'semantic' = 'structure'
+  let semanticCoords = new Map<string, { x: number; y: number; z: number }>()
+
+  // Parking shell for Semantic mode. Nodes that have no projected coord (no
+  // embedding, or added since the last projection) are pinned to a deterministic
+  // point on a faint sphere just outside the projected cloud (half-extent ~600)
+  // so they stay visible and out of the way instead of drifting through the map.
+  // This is an interim home: a content reindex that embeds them folds them into
+  // the cloud on the next signature-changing reproject.
+  const PARK_RADIUS = 800
+
+  // parkPosition hashes a node id (FNV-1a) into a stable point on the parking
+  // sphere. The two derived angles give a roughly uniform spread, and the same
+  // id always parks at the same spot, so parked nodes hold steady across the
+  // ~2s SSE re-snapshots rather than jumping each frame.
+  function parkPosition(id: string): { x: number; y: number; z: number } {
+    let h = 0x811c9dc5
+    for (let i = 0; i < id.length; i++) {
+      h ^= id.charCodeAt(i)
+      h = Math.imul(h, 0x01000193)
+    }
+    const u = ((h >>> 0) % 100000) / 100000
+    const v = (((h >>> 13) ^ (h >>> 7)) >>> 0) % 100000 / 100000
+    const theta = u * Math.PI * 2 // azimuth
+    const phi = Math.acos(2 * v - 1) // polar; gives a uniform sphere distribution
+    return {
+      x: PARK_RADIUS * Math.sin(phi) * Math.cos(theta),
+      y: PARK_RADIUS * Math.sin(phi) * Math.sin(theta),
+      z: PARK_RADIUS * Math.cos(phi),
+    }
+  }
+
+  // applyPins pins (semantic) or clears (structure) fx/fy/fz on the live graph
+  // node objects. Must run AFTER graph.graphData({...}) so it operates on the
+  // freshly carried nodes. In semantic mode every node is pinned: embedded nodes
+  // at their UMAP coord, the rest on the parking shell (see parkPosition).
+  function applyPins(): void {
+    const nodes = (graph.graphData() as { nodes: any[] }).nodes
+    if (layoutMode === 'semantic') {
+      for (const nd of nodes) {
+        const c = semanticCoords.get(nd.id) ?? parkPosition(nd.id)
+        nd.fx = c.x
+        nd.fy = c.y
+        nd.fz = c.z
+      }
+    } else {
+      for (const nd of nodes) {
+        nd.fx = undefined
+        nd.fy = undefined
+        nd.fz = undefined
+      }
+    }
+  }
 
   // All node/link styling flows through these accessors so selection, dimming,
   // and search pulses share one source of truth (the search code used to poke
@@ -258,9 +322,10 @@ export function createScene(el: HTMLElement): Scene {
         return ANCHOR_PULL_STRENGTH
       }
 
-      if (next.cluster?.huddle) {
+      if (layoutMode === 'structure' && next.cluster?.huddle) {
         // Register/refresh the four huddle forces. Calling the setter each
-        // snapshot replaces any prior registration idempotently.
+        // snapshot replaces any prior registration idempotently. Suppressed in
+        // semantic mode — pins and huddle anchors pull in conflicting directions.
         ;(graph as any).d3Force(
           'groupX',
           forceX((nd: any) => groupAnchors.get(nd.group ?? '')?.x ?? (nd.x ?? 0)).strength(
@@ -290,6 +355,11 @@ export function createScene(el: HTMLElement): Scene {
         ;(graph as any).d3Force('collide', null)
         ;(graph as any).d3Force('charge').strength(DEFAULT_CHARGE_STRENGTH)
       }
+
+      // Pin (semantic) or clear (structure) coords on the freshly carried nodes,
+      // AFTER graphData() is set and BEFORE the reheat. Pinned nodes ignore
+      // link/charge forces, so leaving those at defaults in semantic mode is fine.
+      applyPins()
 
       // Reheat the simulation so the engine re-settles into (or out of) the
       // clustered layout rather than waiting for the next structural data change.
@@ -328,6 +398,22 @@ export function createScene(el: HTMLElement): Scene {
     setEdgeEmphasis(partial: { intraAlpha?: number; interAlpha?: number; hubStrength?: number }) {
       edgeEmphasis = { ...edgeEmphasis, ...partial }
       refresh()
+    },
+    setLayoutMode(mode: 'structure' | 'semantic') {
+      // Only flip the flag and re-pin. Huddle (de)registration is owned by
+      // setGraph's Structure-gated block; the caller follows every mode flip with
+      // a setGraph re-render, so huddle is correctly re-evaluated there. The reheat
+      // is intentionally NOT done here: the trailing rerender()'s setGraph already
+      // reheats, and reheating twice caused a one-frame jitter on the flip.
+      layoutMode = mode
+      applyPins()
+    },
+    setSemanticCoords(coords: Map<string, { x: number; y: number; z: number }>) {
+      semanticCoords = coords
+      if (layoutMode === 'semantic') {
+        applyPins()
+        ;(graph as any).d3ReheatSimulation()
+      }
     },
   }
 }
