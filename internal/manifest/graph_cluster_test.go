@@ -101,9 +101,10 @@ by = "property"
 }
 
 // TestGraphCluster_UnknownByRejected confirms that unknown by values produce a
-// clear load error. Phase 2 accepts only "type" and "property".
+// clear load error. Phase 3 accepts "type", "property", and "ancestor";
+// "community" and arbitrary values are still rejected.
 func TestGraphCluster_UnknownByRejected(test *testing.T) {
-	for _, bad := range []string{"ancestor", "community", "unknown", ""} {
+	for _, bad := range []string{"community", "unknown", ""} {
 		body := `
 [workspace]
 name = "x"
@@ -144,5 +145,102 @@ func TestGraphCluster_ValidateAcceptsPropertyWithField(test *testing.T) {
 
 	if errs := cluster.Validate(); len(errs) > 0 {
 		test.Errorf("Validate() returned errors: %v", errs)
+	}
+}
+
+// TestGraphCluster_ByAncestorRoundTrip confirms by = "ancestor" with a
+// non-empty edge round-trips through Load without error, and that edge,
+// depth, and parent-is-source are decoded correctly.
+func TestGraphCluster_ByAncestorRoundTrip(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by              = "ancestor"
+edge            = "parent"
+depth           = 2
+parent-is-source = true
+`)
+
+	got := loaded.GraphCluster
+
+	if got.By != "ancestor" {
+		test.Errorf("By = %q, want %q", got.By, "ancestor")
+	}
+
+	if got.Edge != "parent" {
+		test.Errorf("Edge = %q, want %q", got.Edge, "parent")
+	}
+
+	if got.Depth != 2 {
+		test.Errorf("Depth = %d, want 2", got.Depth)
+	}
+
+	if !got.ParentIsSource {
+		test.Errorf("ParentIsSource = false, want true")
+	}
+}
+
+// TestGraphCluster_ByAncestorDefaultDepthAndDirection confirms that absent
+// depth and parent-is-source fields default to 0 and false respectively.
+func TestGraphCluster_ByAncestorDefaultDepthAndDirection(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by   = "ancestor"
+edge = "parent"
+`)
+
+	got := loaded.GraphCluster
+
+	if got.Depth != 0 {
+		test.Errorf("Depth = %d, want 0 (default)", got.Depth)
+	}
+
+	if got.ParentIsSource {
+		test.Errorf("ParentIsSource = true, want false (default)")
+	}
+}
+
+// TestGraphCluster_ByAncestorMissingEdgeRejected confirms that by = "ancestor"
+// with no edge field is a hard error.
+func TestGraphCluster_ByAncestorMissingEdgeRejected(test *testing.T) {
+	_, loadErr := loadInlineManifestAllowError(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by = "ancestor"
+`)
+
+	if loadErr == nil {
+		test.Fatal("expected error for by=ancestor with no edge, got nil")
+	}
+
+	if !strings.Contains(loadErr.Error(), "edge") {
+		test.Errorf("error %q should mention edge", loadErr.Error())
+	}
+}
+
+// TestGraphCluster_CommunityStillRejected confirms that by = "community" is
+// still rejected in Phase 3.
+func TestGraphCluster_CommunityStillRejected(test *testing.T) {
+	_, loadErr := loadInlineManifestAllowError(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by = "community"
+`)
+
+	if loadErr == nil {
+		test.Fatal("expected error for by=community, got nil")
+	}
+
+	if !strings.Contains(loadErr.Error(), "by") {
+		test.Errorf("error %q should mention by", loadErr.Error())
 	}
 }

@@ -8,17 +8,35 @@ import (
 )
 
 // GraphCluster captures the resolved [graph.cluster] configuration block.
-// Later phases extend the struct with Edge, Depth, Huddle, CommunityEdges,
-// and Resolution — leave space by keeping scalar fields only for Phase 2.
+// Later phases extend the struct with Huddle, CommunityEdges, and Resolution.
 type GraphCluster struct {
 	// By names the active group producer. Default is "type" (today's
-	// behavior). Phase 2 accepts "type" and "property"; later phases widen
-	// the accepted set.
+	// behavior). Phase 2 accepts "type" and "property"; Phase 3 adds
+	// "ancestor"; Phase 6 adds "community".
 	By string
 
 	// Property is the frontmatter field whose value becomes the group key.
 	// Required when By == "property"; ignored otherwise.
 	Property string
+
+	// Edge is the hierarchy edge-type name to walk when By == "ancestor".
+	// Default: edge TARGET is the parent (child→parent edges such as
+	// "parent"); set ParentIsSource = true for parent→child edges instead.
+	// Required when By == "ancestor".
+	Edge string
+
+	// Depth is the ancestor depth for the walk when By == "ancestor".
+	// 0 (and any negative value) walks to the topmost reachable ancestor
+	// (root). Negative values are treated as 0 by the walker; no validation
+	// error is produced for negative Depth.
+	Depth int
+
+	// ParentIsSource controls edge-direction during the ancestor walk.
+	// false (default): the edge TARGET is the parent (child→parent edges,
+	// e.g. the built-in "parent" ref property where Source=child,
+	// Target=parent). Set to true only for parent→child edges where the
+	// Source is the parent (e.g. "contains" / "children" style edges).
+	ParentIsSource bool
 }
 
 // DefaultGraphCluster returns the spec-mandated defaults. Callers can copy
@@ -30,21 +48,25 @@ func DefaultGraphCluster() GraphCluster {
 // Validate enforces the hard rules for GraphCluster. It accumulates every
 // rule violation so callers (doctor, loader) can report the full set.
 //
-// Phase 2 accepts only "type" and "property". Phases 3 and 6 widen the
-// accepted set; using an unsupported value here produces a clear error
-// instead of being silently accepted then ignored.
+// Phase 2 accepts "type" and "property"; Phase 3 adds "ancestor". Using an
+// unsupported value produces a clear error instead of being silently accepted
+// then ignored. Phase 6 will add "community".
 func (cluster GraphCluster) Validate() []error {
 	var errs []error
 
 	switch cluster.By {
-	case "type", "property":
-		// valid Phase 2 producers
+	case "type", "property", "ancestor":
+		// valid producers
 	default:
-		errs = append(errs, fmt.Errorf("graph.cluster: by must be one of type, property (got %q)", cluster.By))
+		errs = append(errs, fmt.Errorf("graph.cluster: by must be one of type, property, ancestor (got %q)", cluster.By))
 	}
 
 	if cluster.By == "property" && cluster.Property == "" {
 		errs = append(errs, fmt.Errorf("graph.cluster: property must be non-empty when by = \"property\""))
+	}
+
+	if cluster.By == "ancestor" && cluster.Edge == "" {
+		errs = append(errs, fmt.Errorf("graph.cluster: by = \"ancestor\" requires a non-empty edge"))
 	}
 
 	return errs
@@ -54,8 +76,11 @@ func (cluster GraphCluster) Validate() []error {
 // Each scalar field uses a toml.Primitive so the resolver can distinguish
 // "absent" (fill default) from "explicit zero" (use the literal value).
 type graphClusterTOML struct {
-	By       toml.Primitive `toml:"by"`
-	Property toml.Primitive `toml:"property"`
+	By             toml.Primitive `toml:"by"`
+	Property       toml.Primitive `toml:"property"`
+	Edge           toml.Primitive `toml:"edge"`
+	Depth          toml.Primitive `toml:"depth"`
+	ParentIsSource toml.Primitive `toml:"parent-is-source"`
 }
 
 // graphSection wraps [graph] and exposes the [graph.cluster] subtable.
@@ -92,6 +117,24 @@ func resolveGraphCluster(loaded *Manifest) error {
 		if meta.IsDefined("graph", "cluster", "property") {
 			if decodeErr := meta.PrimitiveDecode(raw.Property, &resolved.Property); decodeErr != nil {
 				return fmt.Errorf("graph.cluster: property: %w", decodeErr)
+			}
+		}
+
+		if meta.IsDefined("graph", "cluster", "edge") {
+			if decodeErr := meta.PrimitiveDecode(raw.Edge, &resolved.Edge); decodeErr != nil {
+				return fmt.Errorf("graph.cluster: edge: %w", decodeErr)
+			}
+		}
+
+		if meta.IsDefined("graph", "cluster", "depth") {
+			if decodeErr := meta.PrimitiveDecode(raw.Depth, &resolved.Depth); decodeErr != nil {
+				return fmt.Errorf("graph.cluster: depth: %w", decodeErr)
+			}
+		}
+
+		if meta.IsDefined("graph", "cluster", "parent-is-source") {
+			if decodeErr := meta.PrimitiveDecode(raw.ParentIsSource, &resolved.ParentIsSource); decodeErr != nil {
+				return fmt.Errorf("graph.cluster: parent-is-source: %w", decodeErr)
 			}
 		}
 	}

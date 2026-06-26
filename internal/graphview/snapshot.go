@@ -65,12 +65,20 @@ func (srv *Server) snapshot() (Graph, error) {
 		inDegree[row.TargetID]++
 	}
 
+	// For the ancestor producer, pre-compute the group map once from the kept
+	// file-level edges so the per-node loop is a simple map lookup.
+	var ancestorGroupMap map[string]string
+
+	if cfg.By == "ancestor" {
+		ancestorGroupMap = ancestorGroups(edges, cfg.Edge, cfg.Depth, cfg.ParentIsSource)
+	}
+
 	nodes := make([]GraphNode, 0, len(fileRows))
 	for _, row := range fileRows {
 		nodes = append(nodes, GraphNode{
 			ID:       row.ID,
 			Type:     row.Type,
-			Group:    groupOf(cfg, row.Type, row.PropertiesJSON),
+			Group:    groupKey(cfg, ancestorGroupMap, row.ID, row.Type, row.PropertiesJSON),
 			Title:    row.Title,
 			Path:     row.Path,
 			Tags:     tagsFromProperties(row.PropertiesJSON),
@@ -90,13 +98,25 @@ func (srv *Server) snapshot() (Graph, error) {
 	}, nil
 }
 
-// groupOf resolves the group key for a single node according to the active
-// cluster config. Keeping all producer branches in one place means Phases 3
-// and 6 add a branch rather than restructure the function.
-func groupOf(cfg manifest.GraphCluster, nodeType, propsJSON string) string {
+// groupKey resolves the group key for a single node according to the active
+// cluster config. All producer branches live here so Phases 4 and 6 add a
+// branch rather than restructure the function.
+//
+// ancestorMap is the pre-computed id→ancestor-id map for the "ancestor"
+// producer (nil for other producers); nodeID is needed only for that branch.
+func groupKey(cfg manifest.GraphCluster, ancestorMap map[string]string, nodeID, nodeType, propsJSON string) string {
 	switch cfg.By {
 	case "property":
 		return propertyString(propsJSON, cfg.Property)
+	case "ancestor":
+		// Use the pre-computed ancestor map; fall back to own id for nodes
+		// with no matching hierarchy edge so they each get a stable,
+		// distinct singleton group rather than the neutral empty-group bucket.
+		if grp, ok := ancestorMap[nodeID]; ok {
+			return grp
+		}
+
+		return nodeID
 	default:
 		// "type" and any unrecognised value fall back to node type,
 		// reproducing today's behavior.
