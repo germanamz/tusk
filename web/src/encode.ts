@@ -71,6 +71,30 @@ export function buildTypeColors(types: string[]): Map<string, string> {
   return out
 }
 
+// buildGroupColors assigns a stable, collision-free color to each distinct
+// group value. Groups are sorted so the assignment is deterministic across
+// loads. The first BASE_PALETTE.length groups take the curated palette; any
+// beyond that get a golden-angle hue at fixed S/L so the map never wraps or
+// collides. When by = "type", group === type and the output is pixel-identical
+// to buildTypeColors.
+export function buildGroupColors(groups: string[]): Map<string, string> {
+  // Exclude the empty-string sentinel used for nodes whose property field is
+  // absent. Those nodes fall back to #888888 (neutral grey) in nodeColor via
+  // the `?? '#888888'` default; assigning them a real palette hue would waste
+  // a palette slot and make the grey fallback unreachable.
+  const distinct = [...new Set(groups)].filter((g) => g !== '').sort()
+  const out = new Map<string, string>()
+  distinct.forEach((group, i) => {
+    if (i < BASE_PALETTE.length) {
+      out.set(group, BASE_PALETTE[i])
+    } else {
+      const hue = (i * GOLDEN_ANGLE) % 360
+      out.set(group, hslToHex(hue, GENERATED_S, GENERATED_L))
+    }
+  })
+  return out
+}
+
 // Minimal #rrggbb → HSL converter. h in [0,360), s/l in [0,1]. Non-hex input
 // falls back to a neutral grey so callers never crash on bad data.
 export function hexToHsl(hex: string): [number, number, number] {

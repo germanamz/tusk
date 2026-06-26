@@ -3,6 +3,8 @@ package graphview
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 // snapshot builds the file-level graph: every file node, plus only the edges
@@ -10,12 +12,32 @@ import (
 // from the top-level view; they surface on drill-down). Degree counts those
 // kept edges.
 func (srv *Server) snapshot() (Graph, error) {
+	// Resolve the active cluster config once, before any per-node work.
+	// A nil Manifest is tolerated (tests that omit it) and resolves to the
+	// default by = "type" behavior.
+	cfg := manifest.DefaultGraphCluster()
+
+	if srv.deps.Manifest != nil {
+		cfg = srv.deps.Manifest.GraphCluster
+	}
+
+	// Resolve the change signal before the producer logic so that later
+	// producers (Phase 6 community) which key a memo on sig.Generation
+	// have it available without restructuring.
+	sig, sigErr := srv.signal()
+
+	if sigErr != nil {
+		return Graph{}, sigErr
+	}
+
 	fileRows, listErr := srv.deps.Nodes.ListFileNodes()
+
 	if listErr != nil {
 		return Graph{}, listErr
 	}
 
 	edgeRows, edgeErr := srv.deps.Edges.ListAll()
+
 	if edgeErr != nil {
 		return Graph{}, edgeErr
 	}
@@ -48,6 +70,7 @@ func (srv *Server) snapshot() (Graph, error) {
 		nodes = append(nodes, GraphNode{
 			ID:       row.ID,
 			Type:     row.Type,
+			Group:    groupOf(cfg, row.Type, row.PropertiesJSON),
 			Title:    row.Title,
 			Path:     row.Path,
 			Tags:     tagsFromProperties(row.PropertiesJSON),
@@ -56,12 +79,29 @@ func (srv *Server) snapshot() (Graph, error) {
 		})
 	}
 
-	sig, sigErr := srv.signal()
-	if sigErr != nil {
-		return Graph{}, sigErr
-	}
+	// Build Graph.Cluster exactly once at the single Graph{} construction
+	// site. Phase 4 flips Huddle and Phase 7 adds Hull at this one site.
+	return Graph{
+		Generation: sig.Generation,
+		Epoch:      sig.Epoch,
+		Nodes:      nodes,
+		Edges:      edges,
+		Cluster:    ClusterMeta{By: cfg.By, Property: cfg.Property, Huddle: false},
+	}, nil
+}
 
-	return Graph{Generation: sig.Generation, Epoch: sig.Epoch, Nodes: nodes, Edges: edges}, nil
+// groupOf resolves the group key for a single node according to the active
+// cluster config. Keeping all producer branches in one place means Phases 3
+// and 6 add a branch rather than restructure the function.
+func groupOf(cfg manifest.GraphCluster, nodeType, propsJSON string) string {
+	switch cfg.By {
+	case "property":
+		return propertyString(propsJSON, cfg.Property)
+	default:
+		// "type" and any unrecognised value fall back to node type,
+		// reproducing today's behavior.
+		return nodeType
+	}
 }
 
 // signal reads the current change signal, tolerating a nil ChangeSource (tests
@@ -90,6 +130,34 @@ func tagsFromProperties(propsJSON string) []string {
 	}
 
 	return parsed.Tags
+}
+
+// propertyString extracts a single string value from a node's raw properties
+// JSON by key. Returns "" when the key is absent, the value is not a string,
+// or the JSON is malformed. Generalizes tagsFromProperties for arbitrary keys.
+func propertyString(propsJSON, key string) string {
+	if propsJSON == "" {
+		return ""
+	}
+
+	var props map[string]json.RawMessage
+
+	if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
+		return ""
+	}
+
+	raw, ok := props[key]
+	if !ok {
+		return ""
+	}
+
+	var value string
+
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+
+	return value
 }
 
 func (srv *Server) handleGraph(writer http.ResponseWriter, _ *http.Request) {

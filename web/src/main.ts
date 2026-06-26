@@ -4,18 +4,24 @@ import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
 import { fetchNodeDetail, fetchSubunits } from './nodeapi'
 import { renderPanel } from './panel'
-import { EDGE_KIND_COLORS, buildTypeColors } from './encode'
+import { EDGE_KIND_COLORS, buildTypeColors, buildGroupColors } from './encode'
 import { runSearch } from './search'
 
-let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [] }
+let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [], cluster: { by: 'type', huddle: false } }
+let rawGroupColors: Map<string, string> = new Map()
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false }
 
-// The canonical type→color map for a graph is built from its FULL type set, so
-// that filtering (hiding a type) never shifts another type's color. Every render
-// site derives the map from rawGraph and threads the SAME map into the scene,
-// legend, and facet bar so all three stay consistent.
+// colorsFor builds the type→color map for the facet bar's type-filter swatches.
+// The facet bar filters by node type, so it always uses the type palette
+// regardless of the active cluster lens.
 const colorsFor = (g: Graph): Map<string, string> =>
   buildTypeColors([...new Set(g.nodes.map((n) => n.type))])
+
+// groupColorsFor builds the group→color map for node colors and the legend.
+// When graph.cluster.by === "type", group === type and the colors are
+// pixel-identical to the old type-based coloring.
+const groupColorsFor = (g: Graph): Map<string, string> =>
+  buildGroupColors(g.nodes.map((n) => n.group))
 
 function buildFacetBar(
   graph: Graph,
@@ -39,7 +45,7 @@ function buildFacetBar(
     cb.addEventListener('change', () => {
       if (cb.checked) facetState.hiddenTypes.delete(t)
       else facetState.hiddenTypes.add(t)
-      scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
+      scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
     })
     label.appendChild(cb)
     // A small swatch in the type's hue makes the filter bar self-documenting.
@@ -64,7 +70,7 @@ function buildFacetBar(
     cb.addEventListener('change', () => {
       if (cb.checked) facetState.hiddenKinds.delete(k)
       else facetState.hiddenKinds.add(k)
-      scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
+      scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
     })
     label.appendChild(cb)
     label.appendChild(document.createTextNode(' ' + k))
@@ -78,14 +84,14 @@ function buildFacetBar(
   orphanCb.checked = facetState.hideOrphans
   orphanCb.addEventListener('change', () => {
     facetState.hideOrphans = orphanCb.checked
-    scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
+    scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
   })
   orphanLabel.appendChild(orphanCb)
   orphanLabel.appendChild(document.createTextNode('  Hide orphans'))
   bar.appendChild(orphanLabel)
 }
 
-function buildLegend(graph: Graph, typeColors: Map<string, string>): void {
+function buildLegend(graph: Graph, groupColors: Map<string, string>): void {
   const legend = document.getElementById('legend')!
   legend.innerHTML = ''
 
@@ -95,15 +101,27 @@ function buildLegend(graph: Graph, typeColors: Map<string, string>): void {
     return swatch
   }
 
-  // Types section: one colored swatch + label per sorted type, matching the hues
-  // the scene paints. Data-driven so it tracks the current graph's type set.
-  const typesHeader = document.createElement('strong')
-  typesHeader.textContent = 'Types: '
-  legend.appendChild(typesHeader)
-  for (const type of [...new Set(graph.nodes.map((n) => n.type))].sort()) {
+  // Color section: one colored swatch + label per distinct group value, matching
+  // the hues the scene paints. The header reflects the active lens dimension so
+  // "Color (team):" appears when by = "property" and property = "team".
+  // When by = "type", this reproduces today's type legend exactly.
+  const by = graph.cluster?.by ?? 'type'
+  const colorLabel = by === 'type' ? 'Color: ' : `Color (${by === 'property' ? (graph.cluster.property ?? 'property') : by}): `
+  const colorHeader = document.createElement('strong')
+  colorHeader.textContent = colorLabel
+  legend.appendChild(colorHeader)
+  const allGroups = [...new Set(graph.nodes.map((n) => n.group))]
+  const hasUngrouped = allGroups.includes('')
+  for (const group of allGroups.filter((g) => g !== '').sort()) {
     const item = document.createElement('span')
-    item.appendChild(swatchSpan(typeColors.get(type) ?? '#888888'))
-    item.appendChild(document.createTextNode(type + '  '))
+    item.appendChild(swatchSpan(groupColors.get(group) ?? '#888888'))
+    item.appendChild(document.createTextNode(group + '  '))
+    legend.appendChild(item)
+  }
+  if (hasUngrouped) {
+    const item = document.createElement('span')
+    item.appendChild(swatchSpan('#888888'))
+    item.appendChild(document.createTextNode('(none)  '))
     legend.appendChild(item)
   }
 
@@ -211,9 +229,10 @@ async function boot(): Promise<void> {
             .then((sub) => {
               rawGraph = mergeSubunits(rawGraph, sub)
               const typeColors = colorsFor(rawGraph)
-              scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
+              rawGroupColors = groupColorsFor(rawGraph)
+              scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
               buildFacetBar(rawGraph, scene, typeColors)
-              buildLegend(rawGraph, typeColors)
+              buildLegend(rawGraph, rawGroupColors)
             })
             .catch(console.error)
         })
@@ -228,9 +247,10 @@ async function boot(): Promise<void> {
       .then((sub) => {
         rawGraph = mergeSubunits(rawGraph, sub)
         const typeColors = colorsFor(rawGraph)
-        scene.setGraph(applyFacets(rawGraph, facetState), typeColors)
+        rawGroupColors = groupColorsFor(rawGraph)
+        scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
         buildFacetBar(rawGraph, scene, typeColors)
-        buildLegend(rawGraph, typeColors)
+        buildLegend(rawGraph, rawGroupColors)
       })
       .catch(console.error)
   })
@@ -244,9 +264,10 @@ async function boot(): Promise<void> {
   function applyAndRender(graph: Graph): void {
     rawGraph = graph
     const typeColors = colorsFor(graph)
+    rawGroupColors = groupColorsFor(graph)
     buildFacetBar(graph, scene, typeColors)
-    buildLegend(graph, typeColors)
-    scene.setGraph(applyFacets(graph, facetState), typeColors)
+    buildLegend(graph, rawGroupColors)
+    scene.setGraph(applyFacets(graph, facetState), rawGroupColors)
     // Scale guardrail: warn when graph is very large but never drop nodes
     if (graph.nodes.length > 5000) {
       banner.style.display = 'block'

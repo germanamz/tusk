@@ -92,6 +92,22 @@ type Manifest struct {
 	// of the agent-retrieval-improvements Phase 3 plan wire it into the
 	// retrieval pipeline.
 	GraphExpansion GraphExpansion `toml:"-"`
+
+	// graphCluster carries the on-disk [graph.cluster] primitives captured
+	// by decodeGraphSection. Consumed and cleared by resolveGraphCluster;
+	// consumers should read GraphCluster instead.
+	graphCluster graphClusterTOML `toml:"-"`
+
+	// graphClusterMeta is the toml.MetaData produced by the secondary
+	// [graph] decode. resolveGraphCluster uses it to PrimitiveDecode each
+	// captured primitive (the outer Manifest meta is not valid for
+	// primitives captured by a separate Decode call).
+	graphClusterMeta *toml.MetaData `toml:"-"`
+
+	// GraphCluster is the resolved [graph.cluster] configuration.
+	// Populated by the loader's resolveGraphCluster finaliser; defaults
+	// match DefaultGraphCluster (by = "type") when the block is absent.
+	GraphCluster GraphCluster `toml:"-"`
 }
 
 // queryDecode is the BurntSushi/toml wrapper used by the loader to decode the

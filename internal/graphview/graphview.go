@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 // DefaultAddr is the loopback bind address for `tusk graph`. No prior
@@ -29,6 +30,7 @@ type Signal struct {
 type GraphNode struct {
 	ID       string   `json:"id"`
 	Type     string   `json:"type"`
+	Group    string   `json:"group"`
 	Title    string   `json:"title"`
 	Path     string   `json:"path"`
 	Tags     []string `json:"tags"`
@@ -46,12 +48,23 @@ type GraphEdge struct {
 	Kind   string `json:"kind"`
 }
 
+// ClusterMeta describes the active cluster lens configuration so the client
+// can label the legend, toggle layout forces, and display the active
+// dimension without guessing. Phase 2 fills By, Property, and Huddle;
+// later phases make Huddle meaningful.
+type ClusterMeta struct {
+	By       string `json:"by"`
+	Property string `json:"property,omitempty"`
+	Huddle   bool   `json:"huddle"`
+}
+
 // Graph is the /api/graph snapshot payload.
 type Graph struct {
 	Generation int64       `json:"generation"`
 	Epoch      int64       `json:"epoch"`
 	Nodes      []GraphNode `json:"nodes"`
 	Edges      []GraphEdge `json:"edges"`
+	Cluster    ClusterMeta `json:"cluster"`
 }
 
 // Neighbor is an adjacent node in a NodeDetail.
@@ -134,6 +147,7 @@ type Deps struct {
 	Render       NodeRenderer
 	Query        Querier
 	Changes      ChangeSource
-	PollInterval time.Duration // SSE change-poll cadence; defaults to 2s
-	Logger       *slog.Logger  // optional; nil silences
+	Manifest     *manifest.Manifest // optional; nil tolerates as by = "type"
+	PollInterval time.Duration      // SSE change-poll cadence; defaults to 2s
+	Logger       *slog.Logger       // optional; nil silences
 }
