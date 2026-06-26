@@ -260,11 +260,14 @@ export function createScene(el: HTMLElement): Scene {
       ;(graph as any).d3ReheatSimulation()
 
       // Hull overlay: enable/disable and trigger an immediate recompute so a
-      // snapshot that changes membership redraws without waiting for the next tick.
+      // snapshot that changes membership redraws without waiting for the next
+      // tick. Read positions from the live graph data (the carried/simulated
+      // node objects) rather than `next.nodes` — the raw payload carries no
+      // x/y/z, so using it here would drop every hull until the first tick.
       if (hullEnabled) {
         hulls.setEnabled(true)
         lastHullUpdateMs = Date.now()
-        hulls.update(next.nodes, groupColors)
+        hulls.update((graph.graphData() as { nodes: any[] }).nodes, groupColors)
       } else {
         hulls.setEnabled(false)
       }
