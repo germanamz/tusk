@@ -57,12 +57,10 @@ func (srv *Server) handleEmbeddings(writer http.ResponseWriter, _ *http.Request)
 func buildEmbeddingsResponse(rows []index.EmbeddingRow) EmbeddingsResponse {
 	resp := EmbeddingsResponse{Vectors: map[string][]float32{}}
 
-	if len(rows) == 0 {
-		return resp
+	if len(rows) > 0 {
+		resp.Model = rows[0].Model
+		resp.Dim = rows[0].Dim
 	}
-
-	resp.Model = rows[0].Model
-	resp.Dim = rows[0].Dim
 
 	// nodeEntry accumulates chunks for one node.
 	type nodeEntry struct {

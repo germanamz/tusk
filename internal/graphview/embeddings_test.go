@@ -74,7 +74,13 @@ func TestBuildEmbeddingsResponse_Empty(t *testing.T) {
 		t.Errorf("Vectors len = %d, want 0", len(resp.Vectors))
 	}
 
-	// Signature must be stable and non-panic on empty input.
+	// Signature must be sha256 of empty input per spec.
+	const wantSig = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	if resp.Signature != wantSig {
+		t.Errorf("Signature = %q, want %q (sha256 of empty)", resp.Signature, wantSig)
+	}
+
+	// Signature must be stable across two empty calls.
 	resp2 := buildEmbeddingsResponse(nil)
 	if resp.Signature != resp2.Signature {
 		t.Errorf("Signature not stable on empty: %q vs %q", resp.Signature, resp2.Signature)
