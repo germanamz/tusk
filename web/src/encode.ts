@@ -162,11 +162,50 @@ const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
 // importance normalizes a node's total degree to [0,1] against the rendered
 // set's max, on a sqrt scale so the long tail of low-degree nodes still spreads
 // out. Shared by both visual channels (size and brightness) so they stay in
-// lockstep; maxDegree of 0 is safe (returns 0 → flat minimum).
-function importance(degree: number, maxDegree: number): number {
+// lockstep; maxDegree of 0 is safe (returns 0 → flat minimum). Also used by
+// edgeAlpha to compute hub-damp.
+export function importance(degree: number, maxDegree: number): number {
   if (maxDegree <= 0) return 0
   const t = Math.sqrt(Math.max(0, degree)) / Math.sqrt(maxDegree)
   return Math.min(1, Math.max(0, t))
+}
+
+// Edge-emphasis defaults. Exposed as named exports so the drawer and scene
+// state can reference a single source of truth.
+export const INTRA_ALPHA_DEFAULT = 0.85
+export const INTER_ALPHA_DEFAULT = 0.10
+export const HUB_STRENGTH_DEFAULT = 0.75
+export const HUB_FLOOR = 0.2
+export const DIM_FACTOR = 0.15
+
+// rgba converts a #rrggbb hex color to an rgba() CSS string with the given
+// alpha. Non-#rrggbb inputs are returned unchanged so callers never crash on
+// edge-kind fallback strings like '#888'.
+export function rgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
+  if (!m) return hex
+  const r = parseInt(m[1], 16)
+  const g = parseInt(m[2], 16)
+  const b = parseInt(m[3], 16)
+  const a = Math.min(1, Math.max(0, alpha))
+  return `rgba(${r},${g},${b},${a})`
+}
+
+// edgeAlpha computes the per-edge base alpha (before selection/group-focus dim).
+//   sameGroup ? intraAlpha : interAlpha, then multiplied by a hub-damp factor:
+//   hubDamp = clamp(1 - hubStrength * importance(max(srcDeg,tgtDeg), maxDegree), HUB_FLOOR, 1)
+export function edgeAlpha(
+  sameGroup: boolean,
+  srcDeg: number,
+  tgtDeg: number,
+  maxDegree: number,
+  opts: { intraAlpha: number; interAlpha: number; hubStrength: number },
+): number {
+  const base = sameGroup ? opts.intraAlpha : opts.interAlpha
+  const maxEndpointDeg = Math.max(srcDeg, tgtDeg)
+  const imp = importance(maxEndpointDeg, maxDegree)
+  const hubDamp = Math.min(1, Math.max(HUB_FLOOR, 1 - opts.hubStrength * imp))
+  return Math.min(1, Math.max(0, base * hubDamp))
 }
 
 // importanceColor maps a type's base hue plus its total degree to a hue-

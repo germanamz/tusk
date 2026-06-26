@@ -1,7 +1,7 @@
 import type { Graph } from './api'
 import type { Scene } from './scene'
 import type { FacetState } from './facets'
-import { EDGE_KIND_COLORS, buildTypeColors } from './encode'
+import { EDGE_KIND_COLORS, buildTypeColors, INTER_ALPHA_DEFAULT, HUB_STRENGTH_DEFAULT } from './encode'
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for unit tests)
@@ -236,6 +236,59 @@ export function createControls(deps: ControlsDeps): {
     item.appendChild(document.createTextNode(kind))
     footer.appendChild(item)
   }
+
+  // ---- Edges slider group (persists across update() snapshots in closure) ----
+  // `interAlpha` and `hubStrength` are persisted here so slider positions survive
+  // diff-update snapshots that rebuild other parts of the drawer.
+  let interAlphaVal = INTER_ALPHA_DEFAULT
+  let hubStrengthVal = HUB_STRENGTH_DEFAULT
+
+  const edgesGroup = document.createElement('div')
+  edgesGroup.className = 'controls-edges-group'
+
+  const edgesLabel = document.createElement('strong')
+  edgesLabel.textContent = 'Edges'
+  edgesGroup.appendChild(edgesLabel)
+
+  const makeSliderRow = (
+    label: string,
+    min: number,
+    max: number,
+    step: number,
+    initial: number,
+    onChange: (v: number) => void,
+  ): HTMLDivElement => {
+    const row = document.createElement('div')
+    row.className = 'controls-slider-row'
+    const lbl = document.createElement('label')
+    lbl.textContent = label
+    const input = document.createElement('input')
+    input.type = 'range'
+    input.min = String(min)
+    input.max = String(max)
+    input.step = String(step)
+    input.value = String(initial)
+    input.addEventListener('input', () => onChange(parseFloat(input.value)))
+    lbl.appendChild(input)
+    row.appendChild(lbl)
+    return row
+  }
+
+  edgesGroup.appendChild(
+    makeSliderRow('Cross-cluster', 0.02, 0.6, 0.02, interAlphaVal, (v) => {
+      interAlphaVal = v
+      scene.setEdgeEmphasis({ interAlpha: v })
+    }),
+  )
+
+  edgesGroup.appendChild(
+    makeSliderRow('Hub fade', 0, 1, 0.05, hubStrengthVal, (v) => {
+      hubStrengthVal = v
+      scene.setEdgeEmphasis({ hubStrength: v })
+    }),
+  )
+
+  footer.appendChild(edgesGroup)
 
   const hintSize = document.createElement('span')
   hintSize.className = 'controls-footer-hint'
