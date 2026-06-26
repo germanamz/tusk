@@ -33,13 +33,25 @@ func newGraphCmd() *cobra.Command {
 		Long: `Serve a local, read-only 3D graph of the vault (nodes + edges) and
 keep it live as files change.
 
-Each node is colored by its type — one hue per type, listed in the
-legend. Its size and brightness both grow with its degree (its total
-number of connections, incoming plus outgoing), so the most-connected
-nodes stand out as large, bright hubs while leaf nodes recede. Use the
-facet bar to filter by type or edge kind, click a node to inspect it
-and highlight its neighbors, and drag to rotate, alt+drag to pan,
-scroll to zoom.
+Nodes are grouped by a configurable cluster lens set under [graph.cluster]
+in tusk.toml. The lens producer (by = type | property | ancestor | community)
+assigns each node a group key; an absent block defaults to by = "type",
+reproducing the original color-by-type behavior.
+
+The group drives three visual channels:
+
+  Color  — one hue per distinct group, listed in the legend.
+  Huddle — set huddle = true to pull same-group nodes toward a shared
+           anchor so clusters huddle into visible lobes.
+  Hull   — set hull = true to wrap each group in a translucent 3D
+           convex-hull boundary; groups with fewer than 4 members are
+           silently skipped.
+
+Degree (total connections, incoming plus outgoing) still drives node size
+and brightness independently of the group lens, so hubs stand out as large,
+bright nodes while leaf nodes recede. Use the facet bar to filter by type
+or edge kind, click a node to inspect it and highlight its neighbors, and
+drag to rotate, alt+drag to pan, scroll to zoom.
 
 The server binds to loopback by default. It does not open a browser
 automatically: press space in this terminal to open it, or pass --open.`,

@@ -417,3 +417,72 @@ huddle = true
 		}
 	}
 }
+
+// TestGraphCluster_HullDefaultsFalse confirms that an absent hull field resolves
+// to false so existing configs are not affected.
+func TestGraphCluster_HullDefaultsFalse(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by = "type"
+`)
+
+	if loaded.GraphCluster.Hull {
+		test.Error("Hull = true, want false (default)")
+	}
+}
+
+// TestGraphCluster_HullTrueRoundTrip confirms that hull = true round-trips
+// through Load with by = "community".
+func TestGraphCluster_HullTrueRoundTrip(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by   = "community"
+hull = true
+`)
+
+	if !loaded.GraphCluster.Hull {
+		test.Error("Hull = false, want true")
+	}
+}
+
+// TestGraphCluster_HullAcceptedWithAnyBy confirms that hull is not gated on a
+// specific producer and is accepted alongside each valid by value.
+func TestGraphCluster_HullAcceptedWithAnyBy(test *testing.T) {
+	for _, byVal := range []string{"type", "property", "ancestor", "community"} {
+		extra := ""
+
+		switch byVal {
+		case "property":
+			extra = "\nproperty = \"team\""
+		case "ancestor":
+			extra = "\nedge = \"parent\""
+		}
+
+		body := `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by   = "` + byVal + `"` + extra + `
+hull = true
+`
+
+		loaded, loadErr := loadInlineManifestAllowError(test, body)
+
+		if loadErr != nil {
+			test.Errorf("by = %q with hull = true: unexpected error: %v", byVal, loadErr)
+
+			continue
+		}
+
+		if !loaded.GraphCluster.Hull {
+			test.Errorf("by = %q: Hull = false, want true", byVal)
+		}
+	}
+}

@@ -51,11 +51,12 @@ type GraphEdge struct {
 // ClusterMeta describes the active cluster lens configuration so the client
 // can label the legend, toggle layout forces, and display the active
 // dimension without guessing. Phase 2 fills By, Property, and Huddle;
-// later phases make Huddle meaningful.
+// Phase 4 makes Huddle meaningful; Phase 7 adds Hull.
 type ClusterMeta struct {
 	By       string `json:"by"`
 	Property string `json:"property,omitempty"`
 	Huddle   bool   `json:"huddle"`
+	Hull     bool   `json:"hull"`
 }
 
 // Graph is the /api/graph snapshot payload.

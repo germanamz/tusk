@@ -42,6 +42,12 @@ type GraphCluster struct {
 	// default charge is softened so the group pull dominates. Default false.
 	Huddle bool
 
+	// Hull draws a translucent 3D convex-hull boundary around each group
+	// (Phase 7). When true, each group with at least 4 members gets a mesh;
+	// smaller groups are silently skipped. Default false; orthogonal to By
+	// (accepted with any producer).
+	Hull bool
+
 	// CommunityEdges lists edge Type or Kind names the community detector
 	// clusters on (toml: "community-edges"). Empty means all kept file-level
 	// edges are included. An edge is included when its Type OR its Kind
@@ -102,6 +108,7 @@ type graphClusterTOML struct {
 	Depth          toml.Primitive `toml:"depth"`
 	ParentIsSource toml.Primitive `toml:"parent-is-source"`
 	Huddle         toml.Primitive `toml:"huddle"`
+	Hull           toml.Primitive `toml:"hull"`
 	CommunityEdges toml.Primitive `toml:"community-edges"`
 	Resolution     toml.Primitive `toml:"resolution"`
 }
@@ -164,6 +171,12 @@ func resolveGraphCluster(loaded *Manifest) error {
 		if meta.IsDefined("graph", "cluster", "huddle") {
 			if decodeErr := meta.PrimitiveDecode(raw.Huddle, &resolved.Huddle); decodeErr != nil {
 				return fmt.Errorf("graph.cluster: huddle: %w", decodeErr)
+			}
+		}
+
+		if meta.IsDefined("graph", "cluster", "hull") {
+			if decodeErr := meta.PrimitiveDecode(raw.Hull, &resolved.Hull); decodeErr != nil {
+				return fmt.Errorf("graph.cluster: hull: %w", decodeErr)
 			}
 		}
 

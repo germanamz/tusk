@@ -16,6 +16,7 @@ import {
   DEFAULT_CHARGE_STRENGTH,
 } from './encode'
 import { carryPositions, fibonacciSphereAnchors } from './layout'
+import { createHullOverlay } from './hulls'
 
 export interface Scene {
   setGraph(graph: Graph, groupColors: Map<string, string>): void
@@ -56,6 +57,17 @@ export function createScene(el: HTMLElement): Scene {
   let pulseIds = new Set<string>()
   const isHighlighting = () => selectedId !== null
 
+  // Hull overlay: one translucent convex-hull mesh per group, recomputed on a
+  // throttled tick and once on engine stop. Created once here; setGraph drives
+  // enable/disable via next.cluster.hull.
+  const hulls = createHullOverlay(graph.scene())
+
+  // Throttle state for hull recomputes during the engine tick. The hull
+  // geometry is expensive; ~250ms between recomputes is sufficient to track
+  // a settling layout without burning the frame budget.
+  const HULL_THROTTLE_MS = 250
+  let lastHullUpdateMs = 0
+
   // Per-graph visual-encoding state. `groupColors` maps group value → base hue
   // and is supplied by the caller from the FULL group universe (never recomputed
   // from a filtered subset, or hiding one group would shift every other group's
@@ -64,6 +76,7 @@ export function createScene(el: HTMLElement): Scene {
   // positions used by the huddle forces; it is recomputed each snapshot and
   // read by the force closures registered below.
   let groupColors = new Map<string, string>()
+  let hullEnabled = false
   let maxDegree = 0
   let groupAnchors = new Map<string, { x: number; y: number; z: number }>()
 
@@ -154,12 +167,29 @@ export function createScene(el: HTMLElement): Scene {
   })
   resize.observe(el)
 
+  // Hull recompute hooks. The tick hook is throttled (~250ms) so ConvexGeometry
+  // is not rebuilt on every animation frame; the stop hook fires once when the
+  // simulation settles so the final positions always get a clean hull.
+  graph.onEngineTick(() => {
+    if (!hullEnabled) return
+    const now = Date.now()
+    if (now - lastHullUpdateMs < HULL_THROTTLE_MS) return
+    lastHullUpdateMs = now
+    hulls.update((graph.graphData() as { nodes: any[] }).nodes, groupColors)
+  })
+  graph.onEngineStop(() => {
+    if (!hullEnabled) return
+    lastHullUpdateMs = Date.now()
+    hulls.update((graph.graphData() as { nodes: any[] }).nodes, groupColors)
+  })
+
   return {
     instance: graph,
     setGraph(next: Graph, nextGroupColors: Map<string, string>) {
       // Store the caller-supplied full group→color universe and renormalize the
       // brightness/size scale to the degree range of the rendered set.
       groupColors = nextGroupColors
+      hullEnabled = next.cluster?.hull ?? false
       maxDegree = next.nodes.reduce((m, node) => Math.max(m, node.degree ?? 0), 0)
       // Carry positions forward from the current frame so d3-force-3d does not
       // re-seed known nodes into the phyllotaxis spiral on every live re-snapshot.
@@ -228,6 +258,16 @@ export function createScene(el: HTMLElement): Scene {
       // Reheat the simulation so the engine re-settles into (or out of) the
       // clustered layout rather than waiting for the next structural data change.
       ;(graph as any).d3ReheatSimulation()
+
+      // Hull overlay: enable/disable and trigger an immediate recompute so a
+      // snapshot that changes membership redraws without waiting for the next tick.
+      if (hullEnabled) {
+        hulls.setEnabled(true)
+        lastHullUpdateMs = Date.now()
+        hulls.update(next.nodes, groupColors)
+      } else {
+        hulls.setEnabled(false)
+      }
     },
     focus,
     select(id: string | null) {

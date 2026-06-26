@@ -26,7 +26,7 @@ export interface Graph {
   epoch: number
   nodes: GraphNode[]
   edges: GraphEdge[]
-  cluster: { by: string; property?: string; huddle: boolean }
+  cluster: { by: string; property?: string; huddle: boolean; hull: boolean }
 }
 
 export async function fetchGraph(signal?: AbortSignal): Promise<Graph> {
