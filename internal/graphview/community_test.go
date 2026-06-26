@@ -10,6 +10,78 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
+// TestStableLabels_BijectiveOnCollision verifies that stableLabels always
+// returns a bijection over communities even when the fallback label of one
+// community collides with a label already claimed by an earlier community.
+//
+// Scenario:
+//
+//	prev    = {"a":"x", "m":"x"}  — community {a,m} has plurality winner "x"
+//	next    = {"a":0, "m":0, "x":1, "y":1}  — community {x,y} has no prior votes,
+//	                                            fallback is "x" (smallest member)
+//	nodeIDs = []string{"a", "m", "x", "y"}
+//
+// Without the fix, both communities would receive label "x". With the fix,
+// community {a,m} receives "x" (plurality winner) and community {x,y}
+// receives a distinct label ("y", the next unclaimed member id).
+func TestStableLabels_BijectiveOnCollision(test *testing.T) {
+	prev := map[string]string{
+		"a": "x",
+		"m": "x",
+	}
+	next := map[string]int{
+		"a": 0,
+		"m": 0,
+		"x": 1,
+		"y": 1,
+	}
+	nodeIDs := []string{"a", "m", "x", "y"}
+
+	result := stableLabels(prev, next, nodeIDs)
+
+	// Both communities must have labels.
+	labelAM := result["a"]
+	if result["m"] != labelAM {
+		test.Errorf("nodes a and m must share a label: got a=%q, m=%q", labelAM, result["m"])
+	}
+
+	labelXY := result["x"]
+	if result["y"] != labelXY {
+		test.Errorf("nodes x and y must share a label: got x=%q, y=%q", labelXY, result["y"])
+	}
+
+	// The two communities must have DISTINCT labels (bijection invariant).
+	if labelAM == labelXY {
+		test.Errorf("communities {a,m} and {x,y} both received label %q — stableLabels is not bijective", labelAM)
+	}
+
+	// No label must be empty.
+	for nodeID, label := range result {
+		if label == "" {
+			test.Errorf("node %q has empty label", nodeID)
+		}
+	}
+
+	// Quick bijection check: collect the label assigned to each community index.
+	// Two distinct indices must not map to the same label.
+	commLabels := make(map[int]string)
+	for nodeID, commIdx := range next {
+		label := result[nodeID]
+		if prev, exists := commLabels[commIdx]; exists && prev != label {
+			test.Errorf("community %d has inconsistent labels: %q and %q", commIdx, prev, label)
+		}
+		commLabels[commIdx] = label
+	}
+
+	seen := make(map[string]int)
+	for commIdx, label := range commLabels {
+		if other, dup := seen[label]; dup {
+			test.Errorf("communities %d and %d both got label %q — not a bijection", other, commIdx, label)
+		}
+		seen[label] = commIdx
+	}
+}
+
 // communityDeps builds a Deps value with the given cluster config. Changes uses
 // the provided fakeChanges so tests can advance the generation between snapshots.
 func communityDeps(clusterCfg manifest.GraphCluster, nodes []index.NodeRow, edgeRows []index.EdgeRow, changes *fakeChanges) Deps {
@@ -120,16 +192,20 @@ func TestCommunity_CrossTypeGrouping(test *testing.T) {
 	}
 }
 
-// TestCommunity_StickyLabels confirms that when a new edge is added that does
-// not merge two communities, the pre-existing nodes keep their original Group
-// strings (no wholesale relabel).
+// TestCommunity_StickyLabels confirms that when the graph changes in a way that
+// does NOT merge two pre-existing communities (a new node joins one community
+// via a depends-on edge), the pre-existing nodes keep their original Group
+// strings (labels are sticky via prior-label overlap, not merely from identical
+// detector input).
 //
-// Fixture: two separate triangles as above. Generation 1: snapshot with no
-// cross-triangle edge. Generation 2: add one intra-triangle edge (which cannot
-// merge the communities since each triangle is already fully connected). Nodes
-// in each triangle must keep the same group label across the two snapshots.
+// Fixture: two separate triangles. Generation 1: snapshot — two communities
+// with distinct labels. Generation 2: a new node "az" is added to the node
+// list and connected into triangle A with a depends-on edge. This changes the
+// partition (community A grows from 3 to 4 members) without merging A and B.
+// The pre-existing 6 nodes must keep the same group label.
 func TestCommunity_StickyLabels(test *testing.T) {
-	nodes := []index.NodeRow{
+	// Triangle A nodes; triangle B nodes. "az" is the new node added in gen 2.
+	nodesGen1 := []index.NodeRow{
 		fileRow("aa", "note", "AA", ""),
 		fileRow("ab", "note", "AB", ""),
 		fileRow("ac", "note", "AC", ""),
@@ -155,16 +231,17 @@ func TestCommunity_StickyLabels(test *testing.T) {
 	}
 
 	changes := &fakeChanges{sig: Signal{Generation: 1, Epoch: 1}}
-	nodesByID := make(map[string]index.NodeRow, len(nodes))
 
-	for _, row := range nodes {
+	nodesByID := make(map[string]index.NodeRow)
+	for _, row := range nodesGen1 {
 		nodesByID[row.ID] = row
 	}
 
+	fakeNodesRepo := &fakeNodes{files: nodesGen1, byID: nodesByID}
 	fakeEdgesRepo := &fakeEdges{all: initialEdges}
 
 	deps := Deps{
-		Nodes:    &fakeNodes{files: nodes, byID: nodesByID},
+		Nodes:    fakeNodesRepo,
 		Edges:    fakeEdgesRepo,
 		Changes:  changes,
 		Manifest: &manifest.Manifest{GraphCluster: cfg},
@@ -186,10 +263,16 @@ func TestCommunity_StickyLabels(test *testing.T) {
 		test.Fatalf("gen1: triangles A and B share group %q — test fixture invalid", groups1["aa"])
 	}
 
-	// --- Generation 2: add one new edge within triangle A, bump the generation.
-	// Adding aa→ab again is a no-op structurally (it is already there), so we
-	// add a different kind to make it distinct while keeping communities intact.
-	fakeEdgesRepo.all = append(fakeEdgesRepo.all, edge("references", "aa", "ab", "direct"))
+	// --- Generation 2: add new node "az" connected into triangle A via depends-on.
+	// This causes community A to grow (partition changes), but does NOT merge A and B.
+	// We use depends-on so the edge is included by CommunityEdges — the detector
+	// input is genuinely different from gen 1, exercising the sticky-label code path.
+	newNode := fileRow("az", "note", "AZ", "")
+	nodesByID["az"] = newNode
+	fakeNodesRepo.files = append(fakeNodesRepo.files, newNode)
+	fakeNodesRepo.byID = nodesByID
+
+	fakeEdgesRepo.all = append(fakeEdgesRepo.all, edge("depends-on", "aa", "az", "direct"))
 
 	changes.setSig(Signal{Generation: 2, Epoch: 1})
 
@@ -201,10 +284,22 @@ func TestCommunity_StickyLabels(test *testing.T) {
 
 	groups2 := nodeGroupMap(graph2)
 
-	// All pre-existing nodes must keep the same group label.
+	// The new node "az" must be in the same group as triangle A.
+	if groups2["az"] != groups2["aa"] {
+		test.Errorf("gen2: new node az group = %q, want same as aa (%q)", groups2["az"], groups2["aa"])
+	}
+
+	// Triangle A and triangle B must still be in different groups.
+	if groups2["aa"] == groups2["ba"] {
+		test.Errorf("gen2: triangles A and B share group %q after az was added", groups2["aa"])
+	}
+
+	// All PRE-EXISTING nodes must keep the same group label across gen1→gen2.
+	// This proves labels are sticky via prior-label overlap (stableLabels reuses
+	// the gen-1 plurality label), not merely from an identical detector input.
 	for _, nodeID := range []string{"aa", "ab", "ac", "ba", "bb", "bc"} {
 		if groups1[nodeID] != groups2[nodeID] {
-			test.Errorf("node %q: group changed gen1→gen2: %q → %q", nodeID, groups1[nodeID], groups2[nodeID])
+			test.Errorf("node %q: group changed gen1→gen2: %q → %q (labels not sticky)", nodeID, groups1[nodeID], groups2[nodeID])
 		}
 	}
 }
