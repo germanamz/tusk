@@ -84,3 +84,32 @@ workers = 4
 3. Default: `max(1, NumCPU/2)`.
 
 The pool size is resolved once at process start; changes require a restart.
+
+### Graph cluster lens — `[graph.cluster]`
+
+The optional `[graph.cluster]` block configures how the `tusk graph` view groups nodes. The resolver is `internal/manifest/graph_cluster.go`; the resolved struct is `Manifest.GraphCluster`.
+
+An absent block defaults to `by = "type"`, reproducing the original color-by-type behavior. Every key is optional except where noted.
+
+```toml
+[graph.cluster]
+by               = "community"  # type (default) | property | ancestor | community
+community-edges  = ["depends-on", "references"]
+resolution       = 1.0
+huddle           = true
+hull             = true
+```
+
+| Key | Type | Default | Applies to | Description |
+|---|---|---|---|---|
+| `by` | string | `"type"` | all | Active producer. Accepted values: `type`, `property`, `ancestor`, `community`. |
+| `property` | string | — | `by = "property"` | Frontmatter field whose value becomes the group key. Required when `by = "property"`. |
+| `edge` | string | — | `by = "ancestor"` | Hierarchy edge-type name to walk. Required when `by = "ancestor"`. |
+| `depth` | int | `0` | `by = "ancestor"` | Ancestor walk depth. `0` walks to the topmost ancestor (root). |
+| `parent-is-source` | bool | `false` | `by = "ancestor"` | Set to `true` for parent→child edges (e.g. `contains`); leave `false` for child→parent edges (e.g. `parent`). |
+| `huddle` | bool | `false` | all | Engages a layout force that pulls same-group nodes toward a fixed per-group anchor on a Fibonacci sphere. |
+| `hull` | bool | `false` | all | Draws a translucent 3D convex-hull boundary around each group. Groups with fewer than 4 members are silently skipped. Orthogonal to `by`. |
+| `community-edges` | []string | (all edges) | `by = "community"` | Edge type or kind names the community detector clusters on. Empty means all kept file-level edges. |
+| `resolution` | float | `1.0` | `by = "community"` | Modularity gamma for the Louvain detector. Higher values favor more, smaller communities. Must be `> 0`. |
+
+See `docs/packages/graphview.md` for architecture details and worked config examples.
