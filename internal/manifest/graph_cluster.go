@@ -8,11 +8,9 @@ import (
 )
 
 // GraphCluster captures the resolved [graph.cluster] configuration block.
-// Later phases extend the struct with Huddle, CommunityEdges, and Resolution.
 type GraphCluster struct {
 	// By names the active group producer. Default is "type" (today's
-	// behavior). Phase 2 accepts "type" and "property"; Phase 3 adds
-	// "ancestor"; Phase 6 adds "community".
+	// behavior). Accepted values: "type", "property", "ancestor", "community".
 	By string
 
 	// Property is the frontmatter field whose value becomes the group key.
@@ -43,28 +41,40 @@ type GraphCluster struct {
 	// Fibonacci sphere; forceCollide keeps them from overlapping; the
 	// default charge is softened so the group pull dominates. Default false.
 	Huddle bool
+
+	// CommunityEdges lists edge Type or Kind names the community detector
+	// clusters on (toml: "community-edges"). Empty means all kept file-level
+	// edges are included. An edge is included when its Type OR its Kind
+	// appears in the list. Unknown names match nothing and are not an error.
+	CommunityEdges []string
+
+	// Resolution is the modularity gamma for the community detector
+	// (toml: "resolution"). Higher values favor more, smaller communities;
+	// lower values favor fewer, larger ones. Default 1.0; must be > 0 when
+	// By == "community".
+	Resolution float64
 }
 
 // DefaultGraphCluster returns the spec-mandated defaults. Callers can copy
 // the result and mutate fields to construct effective configurations.
 func DefaultGraphCluster() GraphCluster {
-	return GraphCluster{By: "type"}
+	return GraphCluster{By: "type", Resolution: 1.0}
 }
 
 // Validate enforces the hard rules for GraphCluster. It accumulates every
 // rule violation so callers (doctor, loader) can report the full set.
 //
-// Phase 2 accepts "type" and "property"; Phase 3 adds "ancestor". Using an
-// unsupported value produces a clear error instead of being silently accepted
-// then ignored. Phase 6 will add "community".
+// Accepted producers: "type", "property", "ancestor", "community". Using any
+// other value produces a clear error instead of being silently accepted then
+// ignored.
 func (cluster GraphCluster) Validate() []error {
 	var errs []error
 
 	switch cluster.By {
-	case "type", "property", "ancestor":
+	case "type", "property", "ancestor", "community":
 		// valid producers
 	default:
-		errs = append(errs, fmt.Errorf("graph.cluster: by must be one of type, property, ancestor (got %q)", cluster.By))
+		errs = append(errs, fmt.Errorf("graph.cluster: by must be one of type, property, ancestor, community (got %q)", cluster.By))
 	}
 
 	if cluster.By == "property" && cluster.Property == "" {
@@ -73,6 +83,10 @@ func (cluster GraphCluster) Validate() []error {
 
 	if cluster.By == "ancestor" && cluster.Edge == "" {
 		errs = append(errs, fmt.Errorf("graph.cluster: by = \"ancestor\" requires a non-empty edge"))
+	}
+
+	if cluster.By == "community" && cluster.Resolution <= 0 {
+		errs = append(errs, fmt.Errorf("graph.cluster: resolution must be > 0 (got %v)", cluster.Resolution))
 	}
 
 	return errs
@@ -88,6 +102,8 @@ type graphClusterTOML struct {
 	Depth          toml.Primitive `toml:"depth"`
 	ParentIsSource toml.Primitive `toml:"parent-is-source"`
 	Huddle         toml.Primitive `toml:"huddle"`
+	CommunityEdges toml.Primitive `toml:"community-edges"`
+	Resolution     toml.Primitive `toml:"resolution"`
 }
 
 // graphSection wraps [graph] and exposes the [graph.cluster] subtable.
@@ -148,6 +164,24 @@ func resolveGraphCluster(loaded *Manifest) error {
 		if meta.IsDefined("graph", "cluster", "huddle") {
 			if decodeErr := meta.PrimitiveDecode(raw.Huddle, &resolved.Huddle); decodeErr != nil {
 				return fmt.Errorf("graph.cluster: huddle: %w", decodeErr)
+			}
+		}
+
+		// community-edges decodes into a local and assigns only on success,
+		// mirroring the slice-valued edge-types branch in graph_expansion.go.
+		if meta.IsDefined("graph", "cluster", "community-edges") {
+			var communityEdges []string
+
+			if decodeErr := meta.PrimitiveDecode(raw.CommunityEdges, &communityEdges); decodeErr != nil {
+				return fmt.Errorf("graph.cluster: community-edges: %w", decodeErr)
+			}
+
+			resolved.CommunityEdges = communityEdges
+		}
+
+		if meta.IsDefined("graph", "cluster", "resolution") {
+			if decodeErr := meta.PrimitiveDecode(raw.Resolution, &resolved.Resolution); decodeErr != nil {
+				return fmt.Errorf("graph.cluster: resolution: %w", decodeErr)
 			}
 		}
 	}
