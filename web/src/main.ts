@@ -4,12 +4,13 @@ import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
 import { fetchNodeDetail, fetchSubunits } from './nodeapi'
 import { renderPanel } from './panel'
-import { EDGE_KIND_COLORS, buildTypeColors, buildGroupColors } from './encode'
+import { buildTypeColors, buildGroupColors } from './encode'
 import { runSearch } from './search'
+import { createControls } from './controls'
 
-let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [], cluster: { by: 'type', huddle: false } }
+let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [], cluster: { by: 'type', huddle: false, hull: false } }
 let rawGroupColors: Map<string, string> = new Map()
-let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false }
+let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false, hiddenGroups: new Set() }
 
 // colorsFor builds the type→color map for the facet bar's type-filter swatches.
 // The facet bar filters by node type, so it always uses the type palette
@@ -91,65 +92,6 @@ function buildFacetBar(
   bar.appendChild(orphanLabel)
 }
 
-function buildLegend(graph: Graph, groupColors: Map<string, string>): void {
-  const legend = document.getElementById('legend')!
-  legend.innerHTML = ''
-
-  const swatchSpan = (color: string): HTMLSpanElement => {
-    const swatch = document.createElement('span')
-    swatch.style.cssText = `display:inline-block;width:12px;height:12px;background:${color};border-radius:2px;margin-right:4px;vertical-align:middle`
-    return swatch
-  }
-
-  // Color section: one colored swatch + label per distinct group value, matching
-  // the hues the scene paints. The header reflects the active lens dimension so
-  // "Color (team):" appears when by = "property" and property = "team".
-  // When by = "type", this reproduces today's type legend exactly.
-  const by = graph.cluster?.by ?? 'type'
-  const colorLabel = by === 'type' ? 'Color: ' : `Color (${by === 'property' ? (graph.cluster.property ?? 'property') : by}): `
-  const colorHeader = document.createElement('strong')
-  colorHeader.textContent = colorLabel
-  legend.appendChild(colorHeader)
-  const allGroups = [...new Set(graph.nodes.map((n) => n.group))]
-  const hasUngrouped = allGroups.includes('')
-  for (const group of allGroups.filter((g) => g !== '').sort()) {
-    const item = document.createElement('span')
-    item.appendChild(swatchSpan(groupColors.get(group) ?? '#888888'))
-    item.appendChild(document.createTextNode(group + '  '))
-    legend.appendChild(item)
-  }
-  if (hasUngrouped) {
-    const item = document.createElement('span')
-    item.appendChild(swatchSpan('#888888'))
-    item.appendChild(document.createTextNode('(none)  '))
-    legend.appendChild(item)
-  }
-
-  // Edge kinds section (unchanged contents).
-  const kindsHeader = document.createElement('strong')
-  kindsHeader.style.cssText = 'border-left:1px solid #2a2d3a;padding-left:8px;margin-left:4px'
-  kindsHeader.textContent = 'Edge kinds: '
-  legend.appendChild(kindsHeader)
-  for (const [kind, color] of Object.entries(EDGE_KIND_COLORS)) {
-    const item = document.createElement('span')
-    item.appendChild(swatchSpan(color))
-    item.appendChild(document.createTextNode(kind + '  '))
-    legend.appendChild(item)
-  }
-
-  // Importance hint: explains the size/brightness channel.
-  const importance = document.createElement('span')
-  importance.style.cssText = 'color:#888;border-left:1px solid #2a2d3a;padding-left:8px;margin-left:4px'
-  importance.textContent = 'size & brightness = connections (in + out)'
-  legend.appendChild(importance)
-
-  // Controls hint (replaces the library's hidden nav info). Advertises the
-  // Alt+drag pan alongside the default rotate/zoom.
-  const controls = document.createElement('span')
-  controls.style.cssText = 'color:#888;border-left:1px solid #2a2d3a;padding-left:8px;margin-left:4px'
-  controls.textContent = 'drag rotate · alt+drag pan · scroll zoom'
-  legend.appendChild(controls)
-}
 
 function mergeSubunits(base: Graph, subunits: { nodes: any[]; edges: any[] }): Graph {
   const existingIds = new Set(base.nodes.map((n) => n.id))
@@ -171,6 +113,15 @@ async function boot(): Promise<void> {
   const searchMsg = document.getElementById('search-msg')!
   const banner = document.getElementById('banner')!
   const scene = createScene(el)
+
+  // Build the controls drawer once; diff-update it on each snapshot.
+  const controls = createControls({
+    scene,
+    getRawGraph: () => rawGraph,
+    getGroupColors: () => rawGroupColors,
+    facetState,
+    onFilterChange: () => scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors),
+  })
 
   // Search form
   const searchForm = document.getElementById('search-form') as HTMLFormElement
@@ -232,7 +183,7 @@ async function boot(): Promise<void> {
               rawGroupColors = groupColorsFor(rawGraph)
               scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
               buildFacetBar(rawGraph, scene, typeColors)
-              buildLegend(rawGraph, rawGroupColors)
+              controls.update(rawGraph, rawGroupColors)
             })
             .catch(console.error)
         })
@@ -250,14 +201,15 @@ async function boot(): Promise<void> {
         rawGroupColors = groupColorsFor(rawGraph)
         scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
         buildFacetBar(rawGraph, scene, typeColors)
-        buildLegend(rawGraph, rawGroupColors)
+        controls.update(rawGraph, rawGroupColors)
       })
       .catch(console.error)
   })
 
-  // Click empty space → clear the selection highlight and the panel.
+  // Click empty space → clear the selection highlight, the panel, and the group solo.
   scene.instance.onBackgroundClick(() => {
     scene.select(null)
+    controls.clearSolo()
     panelEl.innerHTML = ''
   })
 
@@ -266,7 +218,7 @@ async function boot(): Promise<void> {
     const typeColors = colorsFor(graph)
     rawGroupColors = groupColorsFor(graph)
     buildFacetBar(graph, scene, typeColors)
-    buildLegend(graph, rawGroupColors)
+    controls.update(graph, rawGroupColors)
     scene.setGraph(applyFacets(graph, facetState), rawGroupColors)
     // Scale guardrail: warn when graph is very large but never drop nodes
     if (graph.nodes.length > 5000) {

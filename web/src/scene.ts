@@ -27,6 +27,9 @@ export interface Scene {
   pulse(ids: string[]): void
   /** Drop the transient pulse emphasis. */
   clearPulse(): void
+  /** Dim every node/link whose group is not in `focus`; null clears the dimming.
+   *  Composes with select() — a node is bright only if neither layer dims it. */
+  focusGroup(focus: Set<string> | null): void
   instance: ReturnType<typeof ForceGraph3D>
 }
 
@@ -56,6 +59,11 @@ export function createScene(el: HTMLElement): Scene {
   const highlightLinks = new Set<any>()
   let pulseIds = new Set<string>()
   const isHighlighting = () => selectedId !== null
+
+  // Group-dimming state. When non-null, nodes whose group is NOT in this set
+  // are dimmed by `nodeColor`/`linkColor`. Composes with the selection layer —
+  // a node is bright only if neither the selection layer nor the group layer dims it.
+  let focusedGroups: Set<string> | null = null
 
   // Hull overlay: one translucent convex-hull mesh per group, recomputed on a
   // throttled tick and once on engine stop. Created once here; setGraph drives
@@ -87,7 +95,9 @@ export function createScene(el: HTMLElement): Scene {
     if (pulseIds.has(node.id)) return PULSE_COLOR
     if (node.id === selectedId) return SELECTED_COLOR
     const base = importanceColor(groupColors.get(node.group) ?? '#888888', node.degree ?? 0, maxDegree)
-    return isHighlighting() && !highlightNodes.has(node.id) ? dimColor(base) : base
+    const selectionDim = isHighlighting() && !highlightNodes.has(node.id)
+    const groupDim = focusedGroups !== null && !focusedGroups.has(node.group)
+    return selectionDim || groupDim ? dimColor(base) : base
   }
   const nodeVal = (node: any): number => {
     const base = sizeForDegree(node.degree ?? 0, maxDegree)
@@ -98,7 +108,11 @@ export function createScene(el: HTMLElement): Scene {
   const linkColor = (link: any): string => {
     if (highlightLinks.has(link)) return HIGHLIGHT_LINK_COLOR
     const base = EDGE_KIND_COLORS[link.kind] ?? '#888'
-    return isHighlighting() ? dimColor(base) : base
+    const selectionDim = isHighlighting()
+    const sourceGroup: string = (typeof link.source === 'object' && link.source ? link.source.group : undefined) ?? ''
+    const targetGroup: string = (typeof link.target === 'object' && link.target ? link.target.group : undefined) ?? ''
+    const groupDim = focusedGroups !== null && (!focusedGroups.has(sourceGroup) || !focusedGroups.has(targetGroup))
+    return selectionDim || groupDim ? dimColor(base) : base
   }
   // Falsy widths render as cheap distance-independent 1px lines; only the
   // highlighted edges promote to solid cylinders so they stand out.
@@ -283,6 +297,10 @@ export function createScene(el: HTMLElement): Scene {
     },
     clearPulse() {
       pulseIds = new Set()
+      refresh()
+    },
+    focusGroup(focus: Set<string> | null) {
+      focusedGroups = focus
       refresh()
     },
   }
