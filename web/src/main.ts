@@ -1,4 +1,4 @@
-import { fetchGraph, type Graph } from './api'
+import { fetchGraph, fetchEmbeddings, type Graph, type EmbeddingsResponse } from './api'
 import { createScene } from './scene'
 import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
@@ -11,6 +11,13 @@ import { createControls } from './controls'
 let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [], cluster: { by: 'type', huddle: false, hull: false } }
 let rawGroupColors: Map<string, string> = new Map()
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false, hiddenGroups: new Set() }
+
+// Layout-mode orchestration state. Structure is the default; Semantic is reached
+// via the temporary console seam below (the real UI toggle lands in Phase 3).
+// embeddingsCache holds the one-time /api/embeddings fetch (its signature keys a
+// Phase 3 cache).
+let layoutMode: 'structure' | 'semantic' = 'structure'
+let embeddingsCache: EmbeddingsResponse | null = null
 
 // groupColorsFor builds the group→color map for node colors and the legend.
 // When graph.cluster.by === "type", group === type and the colors are
@@ -37,7 +44,27 @@ async function boot(): Promise<void> {
   const panelEl = document.getElementById('panel')!
   const searchMsg = document.getElementById('search-msg')!
   const banner = document.getElementById('banner')!
+  const layoutStatus = document.getElementById('layout-status')!
   const scene = createScene(el)
+
+  // Transient layout-status overlay helpers. Shows "computing layout…" while the
+  // worker runs and surfaces hints/errors; hidden by default.
+  const showStatus = (text: string): void => {
+    layoutStatus.textContent = text
+    layoutStatus.style.display = 'block'
+  }
+  const hideStatus = (): void => {
+    layoutStatus.style.display = 'none'
+  }
+
+  // The UMAP projection runs off the main thread. Spawned once; reused for every
+  // semantic-layout request. Vite bundles the worker chunk from this new URL.
+  const layoutWorker = new Worker(new URL('./layout.worker.ts', import.meta.url), { type: 'module' })
+
+  // Re-apply the current data through the scene. This is the former inline
+  // onFilterChange body, factored out so a mode flip can re-run setGraph (which
+  // re-evaluates huddle gating + pins for the active mode).
+  const rerender = (): void => scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
 
   // Build the controls drawer once; diff-update it on each snapshot.
   const controls = createControls({
@@ -45,8 +72,89 @@ async function boot(): Promise<void> {
     getRawGraph: () => rawGraph,
     getGroupColors: () => rawGroupColors,
     facetState,
-    onFilterChange: () => scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors),
+    onFilterChange: rerender,
   })
+
+  // projectInWorker posts one request to the layout worker and resolves with its
+  // reply (or rejects on a worker-reported error). A fresh per-request listener
+  // pair is registered and torn down so replies never cross requests.
+  const projectInWorker = (
+    ids: string[],
+    vectors: number[][],
+  ): Promise<{ ids: string[]; positions: { x: number; y: number; z: number }[] }> =>
+    new Promise((resolve, reject) => {
+      const cleanup = (): void => {
+        layoutWorker.removeEventListener('message', onMessage)
+        layoutWorker.removeEventListener('error', onError)
+      }
+      const onMessage = (ev: MessageEvent): void => {
+        cleanup()
+        const data = ev.data as {
+          ids?: string[]
+          positions?: { x: number; y: number; z: number }[]
+          error?: string
+        }
+        if (data.error) {
+          reject(new Error(data.error))
+          return
+        }
+        resolve({ ids: data.ids ?? [], positions: data.positions ?? [] })
+      }
+      const onError = (ev: ErrorEvent): void => {
+        cleanup()
+        reject(new Error(ev.message || 'layout worker error'))
+      }
+      layoutWorker.addEventListener('message', onMessage)
+      layoutWorker.addEventListener('error', onError)
+      layoutWorker.postMessage({ ids, vectors })
+    })
+
+  // Single in-flight guard so repeated triggers don't stack worker runs.
+  let semanticInFlight = false
+
+  // applySemanticLayout: fetch embeddings (once), project them in the worker,
+  // pin the result, and switch the scene to semantic mode. Stays in Structure on
+  // empty embeddings or any failure.
+  async function applySemanticLayout(): Promise<void> {
+    if (semanticInFlight) return
+    semanticInFlight = true
+    showStatus('computing layout…')
+    try {
+      if (embeddingsCache === null) embeddingsCache = await fetchEmbeddings()
+      const vectors = embeddingsCache.vectors
+      const ids = Object.keys(vectors)
+      if (ids.length === 0) {
+        showStatus('no embeddings — run reindex with an embedding provider')
+        setTimeout(hideStatus, 5000)
+        return // stay in Structure
+      }
+      const reply = await projectInWorker(
+        ids,
+        ids.map((id) => vectors[id]),
+      )
+      const coords = new Map<string, { x: number; y: number; z: number }>()
+      reply.ids.forEach((id, i) => coords.set(id, reply.positions[i]))
+      scene.setSemanticCoords(coords)
+      scene.setLayoutMode('semantic')
+      layoutMode = 'semantic'
+      rerender()
+      hideStatus()
+    } catch (err) {
+      showStatus(`semantic layout failed: ${String(err)}`)
+      setTimeout(hideStatus, 5000)
+      // stay in Structure
+    } finally {
+      semanticInFlight = false
+    }
+  }
+
+  // applyStructureLayout: restore the force layout. The scene drops the pins and
+  // rerender() re-registers huddle (if enabled) via setGraph's Structure gate.
+  function applyStructureLayout(): void {
+    scene.setLayoutMode('structure')
+    layoutMode = 'structure'
+    rerender()
+  }
 
   // Search form — binds to #search-form / #search which live in the #controls
   // drawer header (a stable container never innerHTML-cleared). This binding
@@ -158,6 +266,16 @@ async function boot(): Promise<void> {
   // Playwright (read controls/accessors, project node coords, etc.).
   ;(window as unknown as { tuskScene?: unknown }).tuskScene = scene
   ;(window as unknown as { tuskGraph?: unknown }).tuskGraph = scene.instance
+
+  // Temporary debug trigger [BRIDGE — removed in Phase 3]. Lets Semantic mode be
+  // exercised from the console before the Phase 3 drawer toggle exists; Phase 3
+  // deletes both lines and drives the same two functions from the toggle.
+  ;(window as any).tuskApplySemantic = () => {
+    void applySemanticLayout()
+  }
+  ;(window as any).tuskApplyStructure = () => {
+    applyStructureLayout()
+  }
 }
 
 void boot()

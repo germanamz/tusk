@@ -35,6 +35,15 @@
         color: #f0c040; padding: 6px 16px; border-radius: 4px; font-size: 13px;
         pointer-events: none;
       }
+      /* Layout-status overlay — same centered-top style as #banner but a distinct
+         blue accent. Toggled by main.ts while the semantic-layout worker runs.
+         Separate element from #banner (which is the >5000-node scale guard). */
+      #layout-status {
+        display: none; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+        z-index: 20; background: rgba(30,33,48,0.95); border: 1px solid #4f8cff;
+        color: #4f8cff; padding: 6px 16px; border-radius: 4px; font-size: 13px;
+        pointer-events: none;
+      }
       #main-area { position: relative; display: flex; flex: 1; min-height: 0; }
       /* min-width:0 lets this flex child shrink below the canvas size so the
          320px panel keeps its place; without it the canvas pushes the panel
@@ -330,6 +339,7 @@
       </div>
       <div id="search-msg"></div>
       <div id="banner">large graph — apply a filter</div>
+      <div id="layout-status">computing layout…</div>
       <div id="graph"></div>
       <aside id="panel"></aside>
     </div>

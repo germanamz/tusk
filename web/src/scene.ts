@@ -39,6 +39,12 @@ export interface Scene {
   /** Update edge-emphasis parameters (inter-cluster alpha + hub-fade strength)
    *  and repaint edges immediately. Partial merge; unspecified keys are kept. */
   setEdgeEmphasis(partial: { intraAlpha?: number; interAlpha?: number; hubStrength?: number }): void
+  /** Switch layout mode. 'semantic' pins nodes at coords set via setSemanticCoords
+   *  and suppresses huddle; 'structure' restores the force layout. */
+  setLayoutMode(mode: 'structure' | 'semantic'): void
+  /** Supply pinned coordinates for semantic mode (nodeId -> position). Stored and
+   *  re-applied on every setGraph so live re-snapshots keep the pins. */
+  setSemanticCoords(coords: Map<string, { x: number; y: number; z: number }>): void
   instance: ReturnType<typeof ForceGraph3D>
 }
 
@@ -105,6 +111,41 @@ export function createScene(el: HTMLElement): Scene {
   let hullEnabled = false
   let maxDegree = 0
   let groupAnchors = new Map<string, { x: number; y: number; z: number }>()
+
+  // Layout-mode state. In 'semantic' mode each embedded file node is pinned
+  // (fx/fy/fz) at its UMAP coordinate from `semanticCoords` and huddle is
+  // suppressed; 'structure' is the default force layout. carryPositions drops
+  // fx/fy/fz across snapshots, so applyPins re-applies the pins on every setGraph.
+  let layoutMode: 'structure' | 'semantic' = 'structure'
+  let semanticCoords = new Map<string, { x: number; y: number; z: number }>()
+
+  // applyPins pins (semantic) or clears (structure) fx/fy/fz on the live graph
+  // node objects. Must run AFTER graph.graphData({...}) so it operates on the
+  // freshly carried nodes. Unembedded nodes float (undefined pins); Phase 3
+  // parks them deliberately.
+  function applyPins(): void {
+    const nodes = (graph.graphData() as { nodes: any[] }).nodes
+    if (layoutMode === 'semantic') {
+      for (const nd of nodes) {
+        const c = semanticCoords.get(nd.id)
+        if (c) {
+          nd.fx = c.x
+          nd.fy = c.y
+          nd.fz = c.z
+        } else {
+          nd.fx = undefined
+          nd.fy = undefined
+          nd.fz = undefined
+        }
+      }
+    } else {
+      for (const nd of nodes) {
+        nd.fx = undefined
+        nd.fy = undefined
+        nd.fz = undefined
+      }
+    }
+  }
 
   // All node/link styling flows through these accessors so selection, dimming,
   // and search pulses share one source of truth (the search code used to poke
@@ -258,9 +299,10 @@ export function createScene(el: HTMLElement): Scene {
         return ANCHOR_PULL_STRENGTH
       }
 
-      if (next.cluster?.huddle) {
+      if (layoutMode === 'structure' && next.cluster?.huddle) {
         // Register/refresh the four huddle forces. Calling the setter each
-        // snapshot replaces any prior registration idempotently.
+        // snapshot replaces any prior registration idempotently. Suppressed in
+        // semantic mode — pins and huddle anchors pull in conflicting directions.
         ;(graph as any).d3Force(
           'groupX',
           forceX((nd: any) => groupAnchors.get(nd.group ?? '')?.x ?? (nd.x ?? 0)).strength(
@@ -290,6 +332,11 @@ export function createScene(el: HTMLElement): Scene {
         ;(graph as any).d3Force('collide', null)
         ;(graph as any).d3Force('charge').strength(DEFAULT_CHARGE_STRENGTH)
       }
+
+      // Pin (semantic) or clear (structure) coords on the freshly carried nodes,
+      // AFTER graphData() is set and BEFORE the reheat. Pinned nodes ignore
+      // link/charge forces, so leaving those at defaults in semantic mode is fine.
+      applyPins()
 
       // Reheat the simulation so the engine re-settles into (or out of) the
       // clustered layout rather than waiting for the next structural data change.
@@ -328,6 +375,21 @@ export function createScene(el: HTMLElement): Scene {
     setEdgeEmphasis(partial: { intraAlpha?: number; interAlpha?: number; hubStrength?: number }) {
       edgeEmphasis = { ...edgeEmphasis, ...partial }
       refresh()
+    },
+    setLayoutMode(mode: 'structure' | 'semantic') {
+      // Only flip the flag, re-pin, and reheat. Huddle (de)registration is owned
+      // by setGraph's Structure-gated block; the caller follows every mode flip
+      // with a setGraph re-render, so huddle is correctly re-evaluated there.
+      layoutMode = mode
+      applyPins()
+      ;(graph as any).d3ReheatSimulation()
+    },
+    setSemanticCoords(coords: Map<string, { x: number; y: number; z: number }>) {
+      semanticCoords = coords
+      if (layoutMode === 'semantic') {
+        applyPins()
+        ;(graph as any).d3ReheatSimulation()
+      }
     },
   }
 }

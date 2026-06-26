@@ -22,4 +22,18 @@ export default defineConfig({
       },
     },
   },
+  // Worker bundles use their own rollup pass; without this, Vite emits a
+  // content-hashed worker filename (e.g. layout.worker-<hash>.js), which breaks
+  // the byte-reproducible dist that go:embed and the web-dist-drift hook require.
+  // Pin the worker output to fixed names, mirroring build.rollupOptions.output.
+  worker: {
+    format: 'es',
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
+      },
+    },
+  },
 })
