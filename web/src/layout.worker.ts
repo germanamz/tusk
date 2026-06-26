@@ -5,12 +5,11 @@
 // blocks while a vault's worth of vectors is projected.
 import { UMAP } from 'umap-js'
 
-// Request: ids + their embedding vectors (parallel arrays). nComponents is fixed
-// at 3 for the 3D view but accepted in the message for forward-compatibility.
+// Request: ids + their embedding vectors (parallel arrays). The projection is
+// always to 3D for the 3D view.
 export interface LayoutRequest {
   ids: string[]
   vectors: number[][]
-  nComponents?: 3
 }
 
 export interface Position {
@@ -88,8 +87,13 @@ export function project(req: LayoutRequest): LayoutReply {
   const { ids, vectors } = req
   if (vectors.length === 0) return { ids: [], positions: [] }
 
+  // UMAP needs at least two points (a single point has no neighbor and umap-js
+  // throws). With exactly one node there is nothing to lay out — place it at the
+  // origin and skip the projection.
+  if (vectors.length === 1) return { ids, positions: [{ x: 0, y: 0, z: 0 }] }
+
   // nNeighbors must stay below the sample count; UMAP's default is 15. Clamp to
-  // vectors.length - 1 for tiny inputs and keep it at least 1.
+  // vectors.length - 1 for small inputs (≥ 1, since vectors.length ≥ 2 here).
   const nNeighbors = Math.max(1, Math.min(15, vectors.length - 1))
 
   // minDist/spread are loosened from the umap-js defaults (0.1 / 1.0) to spread
@@ -107,10 +111,15 @@ export function project(req: LayoutRequest): LayoutReply {
   return { ids, positions: scaleToViewSpace(coords) }
 }
 
-// Worker message wiring. Guarded so the module can be imported by unit tests
-// (node, no worker global) without registering a handler; in a real module
-// worker `self` is always defined.
-if (typeof self !== 'undefined') {
+// WorkerGlobalScope is a worker-only global; declare it so this module
+// type-checks under the default DOM lib (which omits the WebWorker lib).
+declare const WorkerGlobalScope: unknown
+
+// Worker message wiring. Register the handler only inside a real worker. A plain
+// `typeof self !== 'undefined'` check is not enough: under Node ≥21 (e.g. vitest)
+// `globalThis.self === globalThis`, so it would install a handler on the test
+// global. WorkerGlobalScope exists only in a worker, so this stays inert in tests.
+if (typeof WorkerGlobalScope !== 'undefined' && self instanceof (WorkerGlobalScope as new () => unknown)) {
   self.onmessage = (ev: MessageEvent<LayoutRequest>): void => {
     try {
       const reply = project(ev.data)
