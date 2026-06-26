@@ -94,7 +94,7 @@ func (srv *Server) snapshot() (Graph, error) {
 		Epoch:      sig.Epoch,
 		Nodes:      nodes,
 		Edges:      edges,
-		Cluster:    ClusterMeta{By: cfg.By, Property: cfg.Property, Huddle: false},
+		Cluster:    ClusterMeta{By: cfg.By, Property: cfg.Property, Huddle: cfg.Huddle},
 	}, nil
 }
 

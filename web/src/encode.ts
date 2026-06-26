@@ -184,3 +184,13 @@ export function importanceColor(baseHex: string, degree: number, maxDegree: numb
 export function sizeForDegree(degree: number, maxDegree: number): number {
   return lerp(SIZE_MIN_VAL, SIZE_MAX_VAL, importance(degree, maxDegree))
 }
+
+// Cluster-lens layout channel (Phase 4) tunables. ANCHOR_RADIUS sets how far
+// apart group lobes sit; ANCHOR_PULL_STRENGTH is the per-group spring (0..1)
+// toward the anchor; COLLIDE_RADIUS keeps huddled nodes from overlapping; the
+// charge is softened so the group pull dominates without each lobe imploding.
+export const ANCHOR_RADIUS = 400
+export const ANCHOR_PULL_STRENGTH = 0.4
+export const COLLIDE_RADIUS = 6
+export const SOFT_CHARGE_STRENGTH = -20
+export const DEFAULT_CHARGE_STRENGTH = -30

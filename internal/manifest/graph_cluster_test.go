@@ -244,3 +244,85 @@ by = "community"
 		test.Errorf("error %q should mention by", loadErr.Error())
 	}
 }
+
+// TestGraphCluster_HuddleDefaultsFalse confirms that an absent huddle field
+// resolves to false so existing configs are not affected.
+func TestGraphCluster_HuddleDefaultsFalse(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by = "type"
+`)
+
+	if loaded.GraphCluster.Huddle {
+		test.Error("Huddle = true, want false (default)")
+	}
+}
+
+// TestGraphCluster_HuddleTrueRoundTrip confirms that huddle = true round-trips
+// through Load with any accepted by value.
+func TestGraphCluster_HuddleTrueRoundTrip(test *testing.T) {
+	for _, byVal := range []string{"type", "property", "ancestor"} {
+		extra := ""
+
+		switch byVal {
+		case "property":
+			extra = "\nproperty = \"team\""
+		case "ancestor":
+			extra = "\nedge = \"parent\""
+		}
+
+		body := `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by     = "` + byVal + `"` + extra + `
+huddle = true
+`
+
+		loaded := loadInlineManifest(test, body)
+
+		if !loaded.GraphCluster.Huddle {
+			test.Errorf("by = %q: Huddle = false, want true", byVal)
+		}
+	}
+}
+
+// TestGraphCluster_HuddleAcceptedWithAnyBy confirms that huddle is not gated
+// on a specific producer and is accepted alongside each valid by value.
+func TestGraphCluster_HuddleAcceptedWithAnyBy(test *testing.T) {
+	for _, byVal := range []string{"type", "property", "ancestor"} {
+		extra := ""
+
+		switch byVal {
+		case "property":
+			extra = "\nproperty = \"team\""
+		case "ancestor":
+			extra = "\nedge = \"parent\""
+		}
+
+		body := `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by     = "` + byVal + `"` + extra + `
+huddle = true
+`
+
+		loaded, loadErr := loadInlineManifestAllowError(test, body)
+
+		if loadErr != nil {
+			test.Errorf("by = %q with huddle = true: unexpected error: %v", byVal, loadErr)
+
+			continue
+		}
+
+		if !loaded.GraphCluster.Huddle {
+			test.Errorf("by = %q: Huddle = false, want true", byVal)
+		}
+	}
+}

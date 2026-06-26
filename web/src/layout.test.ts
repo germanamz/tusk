@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { carryPositions } from './layout'
+import { carryPositions, fibonacciSphereAnchors } from './layout'
 
 describe('carryPositions', () => {
   it('copies coordinates for ids present in prev', () => {
@@ -102,5 +102,84 @@ describe('carryPositions', () => {
       expect((nd as any).x).toBeUndefined()
       expect((nd as any).y).toBeUndefined()
     }
+  })
+})
+
+describe('fibonacciSphereAnchors', () => {
+  const RADIUS = 400
+  const EPSILON = 1e-9
+
+  it('returns an empty map for an empty input', () => {
+    const result = fibonacciSphereAnchors([], RADIUS)
+    expect(result.size).toBe(0)
+  })
+
+  it('returns one anchor for a single group with finite, non-NaN coordinates', () => {
+    const result = fibonacciSphereAnchors(['alpha'], RADIUS)
+    expect(result.size).toBe(1)
+    const anchor = result.get('alpha')!
+    expect(anchor).toBeDefined()
+    expect(isFinite(anchor.x)).toBe(true)
+    expect(isFinite(anchor.y)).toBe(true)
+    expect(isFinite(anchor.z)).toBe(true)
+    expect(isNaN(anchor.x)).toBe(false)
+    expect(isNaN(anchor.y)).toBe(false)
+    expect(isNaN(anchor.z)).toBe(false)
+  })
+
+  it('places the single-group anchor on the sphere surface (|v| ≈ radius)', () => {
+    const result = fibonacciSphereAnchors(['alpha'], RADIUS)
+    const { x, y, z } = result.get('alpha')!
+    const dist = Math.sqrt(x * x + y * y + z * z)
+    expect(Math.abs(dist - RADIUS)).toBeLessThan(EPSILON)
+  })
+
+  it('returns distinct anchors for each distinct group', () => {
+    const result = fibonacciSphereAnchors(['a', 'b', 'c'], RADIUS)
+    expect(result.size).toBe(3)
+    const anchors = [...result.values()]
+    for (let ii = 0; ii < anchors.length; ii++) {
+      for (let jj = ii + 1; jj < anchors.length; jj++) {
+        const dx = anchors[ii].x - anchors[jj].x
+        const dy = anchors[ii].y - anchors[jj].y
+        const dz = anchors[ii].z - anchors[jj].z
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        expect(dist).toBeGreaterThan(EPSILON)
+      }
+    }
+  })
+
+  it('places every anchor on the sphere surface (|v| ≈ radius)', () => {
+    const result = fibonacciSphereAnchors(['a', 'b', 'c', 'd', 'e'], RADIUS)
+    for (const { x, y, z } of result.values()) {
+      const dist = Math.sqrt(x * x + y * y + z * z)
+      expect(Math.abs(dist - RADIUS)).toBeLessThan(EPSILON)
+    }
+  })
+
+  it('is deterministic: same groups, same anchors regardless of input order', () => {
+    const forward = fibonacciSphereAnchors(['a', 'b', 'c'], RADIUS)
+    const shuffled = fibonacciSphereAnchors(['c', 'a', 'b'], RADIUS)
+    expect(shuffled.size).toBe(forward.size)
+    for (const [group, anchor] of forward) {
+      const other = shuffled.get(group)!
+      expect(other).toBeDefined()
+      expect(Math.abs(other.x - anchor.x)).toBeLessThan(EPSILON)
+      expect(Math.abs(other.y - anchor.y)).toBeLessThan(EPSILON)
+      expect(Math.abs(other.z - anchor.z)).toBeLessThan(EPSILON)
+    }
+  })
+
+  it('de-duplicates groups: duplicate inputs yield the same map size as distinct inputs', () => {
+    const withDupes = fibonacciSphereAnchors(['a', 'b', 'a', 'c', 'b'], RADIUS)
+    const distinct = fibonacciSphereAnchors(['a', 'b', 'c'], RADIUS)
+    expect(withDupes.size).toBe(distinct.size)
+  })
+
+  it('the empty-string group is treated as a valid distinct value', () => {
+    const result = fibonacciSphereAnchors(['', 'a'], RADIUS)
+    expect(result.size).toBe(2)
+    expect(result.has('')).toBe(true)
+    expect(result.has('a')).toBe(true)
   })
 })

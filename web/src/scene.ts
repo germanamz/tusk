@@ -1,4 +1,5 @@
 import ForceGraph3D from '3d-force-graph'
+import { forceX, forceY, forceZ, forceCollide } from 'd3-force-3d'
 import type { Graph } from './api'
 import {
   importanceColor,
@@ -8,8 +9,13 @@ import {
   SELECTED_COLOR,
   HIGHLIGHT_LINK_COLOR,
   PULSE_COLOR,
+  ANCHOR_RADIUS,
+  ANCHOR_PULL_STRENGTH,
+  COLLIDE_RADIUS,
+  SOFT_CHARGE_STRENGTH,
+  DEFAULT_CHARGE_STRENGTH,
 } from './encode'
-import { carryPositions } from './layout'
+import { carryPositions, fibonacciSphereAnchors } from './layout'
 
 export interface Scene {
   setGraph(graph: Graph, groupColors: Map<string, string>): void
@@ -54,9 +60,12 @@ export function createScene(el: HTMLElement): Scene {
   // and is supplied by the caller from the FULL group universe (never recomputed
   // from a filtered subset, or hiding one group would shift every other group's
   // color). `maxDegree` normalizes the brightness/size scales over the rendered
-  // set.
+  // set. `groupAnchors` holds the deterministic per-group Fibonacci sphere
+  // positions used by the huddle forces; it is recomputed each snapshot and
+  // read by the force closures registered below.
   let groupColors = new Map<string, string>()
   let maxDegree = 0
+  let groupAnchors = new Map<string, { x: number; y: number; z: number }>()
 
   // All node/link styling flows through these accessors so selection, dimming,
   // and search pulses share one source of truth (the search code used to poke
@@ -166,6 +175,59 @@ export function createScene(el: HTMLElement): Scene {
       // New data means new link objects, so the highlight set holds stale
       // references. Re-resolve the current selection against the fresh graph.
       if (selectedId !== null) highlight(selectedId)
+
+      // Recompute anchors from this snapshot's group set. The closures below
+      // read groupAnchors by reference, so updating the map here is sufficient
+      // whether or not the forces are re-registered this snapshot.
+      groupAnchors = fibonacciSphereAnchors(
+        next.nodes.map((nd) => nd.group ?? ''),
+        ANCHOR_RADIUS,
+      )
+
+      // anchorStrength returns 0 for ungrouped nodes (empty group or no anchor)
+      // so they feel no pull and float free. Grouped nodes get ANCHOR_PULL_STRENGTH.
+      const anchorStrength = (nd: any): number => {
+        const grp: string = nd.group ?? ''
+        if (grp === '' || !groupAnchors.has(grp)) return 0
+        return ANCHOR_PULL_STRENGTH
+      }
+
+      if (next.cluster?.huddle) {
+        // Register/refresh the four huddle forces. Calling the setter each
+        // snapshot replaces any prior registration idempotently.
+        ;(graph as any).d3Force(
+          'groupX',
+          forceX((nd: any) => groupAnchors.get(nd.group ?? '')?.x ?? (nd.x ?? 0)).strength(
+            (nd: any) => anchorStrength(nd),
+          ),
+        )
+        ;(graph as any).d3Force(
+          'groupY',
+          forceY((nd: any) => groupAnchors.get(nd.group ?? '')?.y ?? (nd.y ?? 0)).strength(
+            (nd: any) => anchorStrength(nd),
+          ),
+        )
+        ;(graph as any).d3Force(
+          'groupZ',
+          forceZ((nd: any) => groupAnchors.get(nd.group ?? '')?.z ?? (nd.z ?? 0)).strength(
+            (nd: any) => anchorStrength(nd),
+          ),
+        )
+        ;(graph as any).d3Force('collide', forceCollide(COLLIDE_RADIUS))
+        ;(graph as any).d3Force('charge').strength(SOFT_CHARGE_STRENGTH)
+      } else {
+        // Remove any previously registered huddle forces and restore the
+        // default charge so toggling huddle off is fully reversible.
+        ;(graph as any).d3Force('groupX', null)
+        ;(graph as any).d3Force('groupY', null)
+        ;(graph as any).d3Force('groupZ', null)
+        ;(graph as any).d3Force('collide', null)
+        ;(graph as any).d3Force('charge').strength(DEFAULT_CHARGE_STRENGTH)
+      }
+
+      // Reheat the simulation so the engine re-settles into (or out of) the
+      // clustered layout rather than waiting for the next structural data change.
+      ;(graph as any).d3ReheatSimulation()
     },
     focus,
     select(id: string | null) {

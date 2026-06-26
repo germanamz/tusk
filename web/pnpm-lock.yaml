@@ -11,6 +11,9 @@ importers:
       3d-force-graph:
         specifier: 1.73.4
         version: 1.73.4
+      d3-force-3d:
+        specifier: ^3
+        version: 3.0.6
       three:
         specifier: 0.180.0
         version: 0.180.0

@@ -37,6 +37,12 @@ type GraphCluster struct {
 	// Target=parent). Set to true only for parent→child edges where the
 	// Source is the parent (e.g. "contains" / "children" style edges).
 	ParentIsSource bool
+
+	// Huddle engages the layout cluster force (Phase 4). When true,
+	// same-group nodes are pulled toward a fixed per-group anchor on a
+	// Fibonacci sphere; forceCollide keeps them from overlapping; the
+	// default charge is softened so the group pull dominates. Default false.
+	Huddle bool
 }
 
 // DefaultGraphCluster returns the spec-mandated defaults. Callers can copy
@@ -81,6 +87,7 @@ type graphClusterTOML struct {
 	Edge           toml.Primitive `toml:"edge"`
 	Depth          toml.Primitive `toml:"depth"`
 	ParentIsSource toml.Primitive `toml:"parent-is-source"`
+	Huddle         toml.Primitive `toml:"huddle"`
 }
 
 // graphSection wraps [graph] and exposes the [graph.cluster] subtable.
@@ -135,6 +142,12 @@ func resolveGraphCluster(loaded *Manifest) error {
 		if meta.IsDefined("graph", "cluster", "parent-is-source") {
 			if decodeErr := meta.PrimitiveDecode(raw.ParentIsSource, &resolved.ParentIsSource); decodeErr != nil {
 				return fmt.Errorf("graph.cluster: parent-is-source: %w", decodeErr)
+			}
+		}
+
+		if meta.IsDefined("graph", "cluster", "huddle") {
+			if decodeErr := meta.PrimitiveDecode(raw.Huddle, &resolved.Huddle); decodeErr != nil {
+				return fmt.Errorf("graph.cluster: huddle: %w", decodeErr)
 			}
 		}
 	}
