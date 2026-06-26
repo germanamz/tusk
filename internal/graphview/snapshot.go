@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/germanamz/tusk/internal/graphcluster"
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
@@ -73,12 +74,36 @@ func (srv *Server) snapshot() (Graph, error) {
 		ancestorGroupMap = ancestorGroups(edges, cfg.Edge, cfg.Depth, cfg.ParentIsSource)
 	}
 
+	// For the community producer, pre-compute stable labels via the memo so
+	// Detect runs at most once per reindex generation even when concurrent
+	// requests race snapshot().
+	var communityLabelMap map[string]string
+
+	if cfg.By == "community" {
+		// Build the node-id slice in snapshot (deterministic) order; stableLabels
+		// relies on this ordering for tie-breaks.
+		nodeIDs := make([]string, len(fileRows))
+
+		for idx, row := range fileRows {
+			nodeIDs[idx] = row.ID
+		}
+
+		// Build the filtered edge slice for the detector.
+		clusterEdges := buildCommunityEdges(edges, cfg.CommunityEdges)
+
+		communityLabelMap = srv.communityLabelsFor(sig.Generation, func(prev map[string]string) map[string]string {
+			part := srv.detect(nodeIDs, clusterEdges, graphcluster.Options{Resolution: cfg.Resolution, Seed: communitySeed})
+
+			return stableLabels(prev, part, nodeIDs)
+		})
+	}
+
 	nodes := make([]GraphNode, 0, len(fileRows))
 	for _, row := range fileRows {
 		nodes = append(nodes, GraphNode{
 			ID:       row.ID,
 			Type:     row.Type,
-			Group:    groupKey(cfg, ancestorGroupMap, row.ID, row.Type, row.PropertiesJSON),
+			Group:    groupKey(cfg, ancestorGroupMap, communityLabelMap, row.ID, row.Type, row.PropertiesJSON),
 			Title:    row.Title,
 			Path:     row.Path,
 			Tags:     tagsFromProperties(row.PropertiesJSON),
@@ -99,12 +124,14 @@ func (srv *Server) snapshot() (Graph, error) {
 }
 
 // groupKey resolves the group key for a single node according to the active
-// cluster config. All producer branches live here so Phases 4 and 6 add a
+// cluster config. All producer branches live here so future phases add a
 // branch rather than restructure the function.
 //
 // ancestorMap is the pre-computed id→ancestor-id map for the "ancestor"
-// producer (nil for other producers); nodeID is needed only for that branch.
-func groupKey(cfg manifest.GraphCluster, ancestorMap map[string]string, nodeID, nodeType, propsJSON string) string {
+// producer (nil for other producers). communityMap is the pre-computed
+// id→stable-label map for the "community" producer (nil for other producers).
+// nodeID is needed by the ancestor and community branches.
+func groupKey(cfg manifest.GraphCluster, ancestorMap, communityMap map[string]string, nodeID, nodeType, propsJSON string) string {
 	switch cfg.By {
 	case "property":
 		return propertyString(propsJSON, cfg.Property)
@@ -117,11 +144,61 @@ func groupKey(cfg manifest.GraphCluster, ancestorMap map[string]string, nodeID, 
 		}
 
 		return nodeID
+	case "community":
+		// Use the pre-computed stable label map. A node not present in the map
+		// (degenerate: empty graph) falls back to its own id so the group is
+		// always non-empty.
+		if grp, ok := communityMap[nodeID]; ok {
+			return grp
+		}
+
+		return nodeID
 	default:
 		// "type" and any unrecognised value fall back to node type,
 		// reproducing today's behavior.
 		return nodeType
 	}
+}
+
+// buildCommunityEdges filters the kept file-level edges for the community
+// detector. If filter is empty, all edges are included. Otherwise an edge is
+// included when its Type OR its Kind appears in the filter set. Self-loops are
+// dropped defensively, though they cannot occur in the kept file-level graph.
+func buildCommunityEdges(edges []GraphEdge, filter []string) []graphcluster.Edge {
+	clusterEdges := make([]graphcluster.Edge, 0, len(edges))
+
+	if len(filter) == 0 {
+		for _, ge := range edges {
+			if ge.Source == ge.Target {
+				continue
+			}
+
+			clusterEdges = append(clusterEdges, graphcluster.Edge{Source: ge.Source, Target: ge.Target, Weight: 1})
+		}
+
+		return clusterEdges
+	}
+
+	filterSet := make(map[string]struct{}, len(filter))
+
+	for _, name := range filter {
+		filterSet[name] = struct{}{}
+	}
+
+	for _, ge := range edges {
+		if ge.Source == ge.Target {
+			continue
+		}
+
+		_, matchType := filterSet[ge.Type]
+		_, matchKind := filterSet[ge.Kind]
+
+		if matchType || matchKind {
+			clusterEdges = append(clusterEdges, graphcluster.Edge{Source: ge.Source, Target: ge.Target, Weight: 1})
+		}
+	}
+
+	return clusterEdges
 }
 
 // signal reads the current change signal, tolerating a nil ChangeSource (tests

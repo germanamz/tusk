@@ -7,9 +7,9 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
-// TestDefaultGraphCluster confirms the default is by = "type" and all other
-// fields are zero, so an absent [graph.cluster] block reproduces today's
-// type-based coloring exactly.
+// TestDefaultGraphCluster confirms the default is by = "type", Resolution = 1.0,
+// and all other fields are zero, so an absent [graph.cluster] block reproduces
+// today's type-based coloring exactly.
 func TestDefaultGraphCluster(test *testing.T) {
 	defaults := manifest.DefaultGraphCluster()
 
@@ -20,10 +20,20 @@ func TestDefaultGraphCluster(test *testing.T) {
 	if defaults.Property != "" {
 		test.Errorf("Property = %q, want empty", defaults.Property)
 	}
+
+	if defaults.Resolution != 1.0 {
+		test.Errorf("Resolution = %v, want 1.0", defaults.Resolution)
+	}
+
+	if len(defaults.CommunityEdges) != 0 {
+		test.Errorf("CommunityEdges = %v, want nil/empty", defaults.CommunityEdges)
+	}
 }
 
 // TestGraphCluster_AbsentBlockUsesDefaults confirms that a manifest with no
-// [graph.cluster] block resolves to DefaultGraphCluster.
+// [graph.cluster] block resolves to DefaultGraphCluster, including the
+// Resolution default of 1.0 (so community detection is usable without an
+// explicit resolution key).
 func TestGraphCluster_AbsentBlockUsesDefaults(test *testing.T) {
 	loaded := loadInlineManifest(test, `
 [workspace]
@@ -40,6 +50,10 @@ name = "x"
 
 	if got.Property != defaults.Property {
 		test.Errorf("Property = %q, want default %q", got.Property, defaults.Property)
+	}
+
+	if got.Resolution != 1.0 {
+		test.Errorf("Resolution = %v, want 1.0 (default)", got.Resolution)
 	}
 }
 
@@ -101,10 +115,10 @@ by = "property"
 }
 
 // TestGraphCluster_UnknownByRejected confirms that unknown by values produce a
-// clear load error. Phase 3 accepts "type", "property", and "ancestor";
-// "community" and arbitrary values are still rejected.
+// clear load error. All four accepted producers are: "type", "property",
+// "ancestor", "community". Arbitrary values are rejected.
 func TestGraphCluster_UnknownByRejected(test *testing.T) {
-	for _, bad := range []string{"community", "unknown", ""} {
+	for _, bad := range []string{"unknown", "", "colour", "group"} {
 		body := `
 [workspace]
 name = "x"
@@ -225,10 +239,10 @@ by = "ancestor"
 	}
 }
 
-// TestGraphCluster_CommunityStillRejected confirms that by = "community" is
-// still rejected in Phase 3.
-func TestGraphCluster_CommunityStillRejected(test *testing.T) {
-	_, loadErr := loadInlineManifestAllowError(test, `
+// TestGraphCluster_ByCommunityRoundTrip confirms by = "community" with the
+// default resolution (absent key → 1.0) resolves and validates correctly.
+func TestGraphCluster_ByCommunityRoundTrip(test *testing.T) {
+	loaded := loadInlineManifest(test, `
 [workspace]
 name = "x"
 
@@ -236,12 +250,89 @@ name = "x"
 by = "community"
 `)
 
-	if loadErr == nil {
-		test.Fatal("expected error for by=community, got nil")
+	got := loaded.GraphCluster
+
+	if got.By != "community" {
+		test.Errorf("By = %q, want %q", got.By, "community")
 	}
 
-	if !strings.Contains(loadErr.Error(), "by") {
-		test.Errorf("error %q should mention by", loadErr.Error())
+	if got.Resolution != 1.0 {
+		test.Errorf("Resolution = %v, want 1.0 (default)", got.Resolution)
+	}
+
+	if len(got.CommunityEdges) != 0 {
+		test.Errorf("CommunityEdges = %v, want nil/empty (absent key)", got.CommunityEdges)
+	}
+}
+
+// TestGraphCluster_ByCommunityResolutionZeroRejected confirms that an explicit
+// resolution = 0 (or negative) is rejected when by = "community".
+func TestGraphCluster_ByCommunityResolutionZeroRejected(test *testing.T) {
+	for _, resStr := range []string{"0", "0.0", "-1.0"} {
+		body := `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by         = "community"
+resolution = ` + resStr + `
+`
+
+		_, loadErr := loadInlineManifestAllowError(test, body)
+
+		if loadErr == nil {
+			test.Errorf("resolution = %s: expected error, got nil", resStr)
+
+			continue
+		}
+
+		if !strings.Contains(loadErr.Error(), "resolution") {
+			test.Errorf("resolution = %s: error %q should mention resolution", resStr, loadErr.Error())
+		}
+	}
+}
+
+// TestGraphCluster_ByCommunityEdgesRoundTrip confirms that community-edges
+// round-trips into GraphCluster.CommunityEdges as a []string.
+func TestGraphCluster_ByCommunityEdgesRoundTrip(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by               = "community"
+community-edges  = ["depends-on", "direct"]
+`)
+
+	got := loaded.GraphCluster.CommunityEdges
+
+	if len(got) != 2 {
+		test.Fatalf("CommunityEdges length = %d, want 2", len(got))
+	}
+
+	if got[0] != "depends-on" {
+		test.Errorf("CommunityEdges[0] = %q, want %q", got[0], "depends-on")
+	}
+
+	if got[1] != "direct" {
+		test.Errorf("CommunityEdges[1] = %q, want %q", got[1], "direct")
+	}
+}
+
+// TestGraphCluster_ByCommunityExplicitResolutionRoundTrip confirms that an
+// explicit resolution value round-trips through Load.
+func TestGraphCluster_ByCommunityExplicitResolutionRoundTrip(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+
+[graph.cluster]
+by         = "community"
+resolution = 0.5
+`)
+
+	if loaded.GraphCluster.Resolution != 0.5 {
+		test.Errorf("Resolution = %v, want 0.5", loaded.GraphCluster.Resolution)
 	}
 }
 
@@ -264,7 +355,7 @@ by = "type"
 // TestGraphCluster_HuddleTrueRoundTrip confirms that huddle = true round-trips
 // through Load with any accepted by value.
 func TestGraphCluster_HuddleTrueRoundTrip(test *testing.T) {
-	for _, byVal := range []string{"type", "property", "ancestor"} {
+	for _, byVal := range []string{"type", "property", "ancestor", "community"} {
 		extra := ""
 
 		switch byVal {
@@ -294,7 +385,7 @@ huddle = true
 // TestGraphCluster_HuddleAcceptedWithAnyBy confirms that huddle is not gated
 // on a specific producer and is accepted alongside each valid by value.
 func TestGraphCluster_HuddleAcceptedWithAnyBy(test *testing.T) {
-	for _, byVal := range []string{"type", "property", "ancestor"} {
+	for _, byVal := range []string{"type", "property", "ancestor", "community"} {
 		extra := ""
 
 		switch byVal {
