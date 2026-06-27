@@ -47,6 +47,15 @@ export function bulkInvert<T>(universe: T[], hidden: Set<T>): void {
   }
 }
 
+/** Show or hide a group row. Toggles inline `display` rather than the `hidden`
+ *  attribute: `.controls-row { display: flex }` (author CSS) overrides the
+ *  user-agent `[hidden] { display: none }` rule, so setting `row.hidden` leaves
+ *  the row visible. Setting inline `style.display` wins the cascade.
+ *  Exported for unit tests. */
+export function setRowVisible(row: HTMLElement, visible: boolean): void {
+  row.style.display = visible ? '' : 'none'
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -457,7 +466,7 @@ export function createControls(deps: ControlsDeps): {
     for (const [, row] of rowMap.entries()) {
       const labelEl = row.querySelector<HTMLSpanElement>('.controls-row-label')
       const label = labelEl?.textContent ?? ''
-      row.hidden = !matchesSearch(label, query)
+      setRowVisible(row, matchesSearch(label, query))
     }
   })
 
@@ -700,7 +709,7 @@ export function createControls(deps: ControlsDeps): {
         // Re-apply search filter to this row.
         const labelEl = row.querySelector<HTMLSpanElement>('.controls-row-label')
         const rowLabel = labelEl?.textContent ?? ''
-        row.hidden = !matchesSearch(rowLabel, groupSearch.value)
+        setRowVisible(row, matchesSearch(rowLabel, groupSearch.value))
       }
     }
 
