@@ -119,47 +119,25 @@ export function createScene(el: HTMLElement): Scene {
   let layoutMode: 'structure' | 'semantic' = 'structure'
   let semanticCoords = new Map<string, { x: number; y: number; z: number }>()
 
-  // Parking shell for Semantic mode. Nodes that have no projected coord (no
-  // embedding, or added since the last projection) are pinned to a deterministic
-  // point on a faint sphere just outside the projected cloud (half-extent ~600)
-  // so they stay visible and out of the way instead of drifting through the map.
-  // This is an interim home: a content reindex that embeds them folds them into
-  // the cloud on the next signature-changing reproject.
-  const PARK_RADIUS = 800
-
-  // parkPosition hashes a node id (FNV-1a) into a stable point on the parking
-  // sphere. The two derived angles give a roughly uniform spread, and the same
-  // id always parks at the same spot, so parked nodes hold steady across the
-  // ~2s SSE re-snapshots rather than jumping each frame.
-  function parkPosition(id: string): { x: number; y: number; z: number } {
-    let h = 0x811c9dc5
-    for (let i = 0; i < id.length; i++) {
-      h ^= id.charCodeAt(i)
-      h = Math.imul(h, 0x01000193)
-    }
-    const u = ((h >>> 0) % 100000) / 100000
-    const v = (((h >>> 13) ^ (h >>> 7)) >>> 0) % 100000 / 100000
-    const theta = u * Math.PI * 2 // azimuth
-    const phi = Math.acos(2 * v - 1) // polar; gives a uniform sphere distribution
-    return {
-      x: PARK_RADIUS * Math.sin(phi) * Math.cos(theta),
-      y: PARK_RADIUS * Math.sin(phi) * Math.sin(theta),
-      z: PARK_RADIUS * Math.cos(phi),
-    }
-  }
-
   // applyPins pins (semantic) or clears (structure) fx/fy/fz on the live graph
   // node objects. Must run AFTER graph.graphData({...}) so it operates on the
-  // freshly carried nodes. In semantic mode every node is pinned: embedded nodes
-  // at their UMAP coord, the rest on the parking shell (see parkPosition).
+  // freshly carried nodes.
+  //
+  // In semantic mode, a node WITH a projected coord is pinned at its UMAP
+  // position; a node WITHOUT one is left unpinned (fx/fy/fz cleared) so the force
+  // simulation places it. The coordless nodes are drill-down sub-units (embedded
+  // per sub-unit, no file-level vector) and any file added since the last
+  // projection — leaving them free lets the link force settle a sub-unit next to
+  // its pinned parent rather than freezing it far from its meaning, and a
+  // signature-changing reproject folds newly-embedded files into the cloud.
   function applyPins(): void {
     const nodes = (graph.graphData() as { nodes: any[] }).nodes
     if (layoutMode === 'semantic') {
       for (const nd of nodes) {
-        const c = semanticCoords.get(nd.id) ?? parkPosition(nd.id)
-        nd.fx = c.x
-        nd.fy = c.y
-        nd.fz = c.z
+        const c = semanticCoords.get(nd.id)
+        nd.fx = c?.x
+        nd.fy = c?.y
+        nd.fz = c?.z
       }
     } else {
       for (const nd of nodes) {

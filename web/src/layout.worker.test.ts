@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { scaleToViewSpace } from './layout.worker'
+import { scaleToViewSpace, project } from './layout.worker'
 
-// The worker module assigns self.onmessage only under `typeof self !== 'undefined'`,
+// The worker module installs self.onmessage only inside a real WorkerGlobalScope,
 // so importing it here (node, no worker global) just exposes the pure helpers.
 
 describe('scaleToViewSpace', () => {
@@ -78,5 +78,19 @@ describe('scaleToViewSpace', () => {
       expect(Number.isFinite(p.y)).toBe(true)
       expect(Number.isFinite(p.z)).toBe(true)
     }
+  })
+})
+
+describe('project (degenerate inputs)', () => {
+  it('returns empty positions for no vectors', () => {
+    expect(project({ ids: [], vectors: [] })).toEqual({ ids: [], positions: [] })
+  })
+
+  it('places a single node at the origin without running UMAP', () => {
+    // UMAP throws on one point (no neighbor); project short-circuits instead.
+    expect(project({ ids: ['only'], vectors: [[0.1, 0.2, 0.3]] })).toEqual({
+      ids: ['only'],
+      positions: [{ x: 0, y: 0, z: 0 }],
+    })
   })
 })
