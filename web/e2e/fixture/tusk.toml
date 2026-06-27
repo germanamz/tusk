@@ -8,3 +8,12 @@ ignore = []
 from        = ["note"]
 to          = ["note"]
 cardinality = "many-to-many"
+
+# A note→person edge so the fixture has a second node type (person), giving the
+# graph two type-groups for the group-filter e2e test. notes/a mentions people/d,
+# which keeps people/d at degree 1 (never the min/max degree node) so the degree
+# test's hi/lo stay same-type notes.
+[edge-types.mentions]
+from        = ["note"]
+to          = ["person"]
+cardinality = "many-to-many"

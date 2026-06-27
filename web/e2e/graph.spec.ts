@@ -32,10 +32,10 @@ test('canvas fits its container and re-fits on resize without pushing UI out of 
   const canvasBox = (await canvas.boundingBox())!
   expect(Math.abs(canvasBox.width - graphBox.width)).toBeLessThanOrEqual(2)
   expect(Math.abs(canvasBox.height - graphBox.height)).toBeLessThanOrEqual(2)
-  // The 320px panel and the facets bar mean the canvas is meaningfully smaller
-  // than the window — proves it is NOT painted at window.innerWidth/innerHeight.
+  // The 320px panel shrinks the canvas width below the window, proving it is NOT
+  // painted at window.innerWidth. (The controls drawer is an absolute overlay and
+  // the graph fills the full height, so only the width is reduced.)
   expect(canvasBox.width).toBeLessThan(win.w - 100)
-  expect(canvasBox.height).toBeLessThan(win.h - 20)
 
   // 2. The inspect panel is visible and fully inside the viewport.
   const panelBox = (await page.locator('#panel').boundingBox())!
@@ -135,60 +135,36 @@ test('pan is bound to the Alt modifier (Blender/CAD-style)', async ({ page }) =>
   // points at Alt so alt+drag pans while left-drag still orbits.
   const keys = await page.evaluate(() => (window as any).tuskGraph.controls().keys)
   expect(keys).toEqual(['', '', 'AltLeft'])
-  // The controls hint advertises the Alt+drag pan to the user.
-  await expect(page.locator('#legend')).toContainText('alt+drag pan')
+  // The controls drawer footer hint advertises the Alt+drag pan to the user.
+  await expect(page.locator('.controls-footer')).toContainText('alt+drag pan')
 })
 
-test('a wrapped (multi-row) facets bar never overlaps the graph', async ({ page }) => {
+test('the group filter visually hides non-matching group rows', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
-  await page.waitForTimeout(300)
 
-  // Real vaults have many node types / edge kinds, so the facets bar wraps to
-  // several rows. Inject enough labels to force at least two rows.
-  const facetsHeight = await page.evaluate(() => {
-    const bar = document.querySelector('#facets')!
-    const form = bar.querySelector('#search-form')
-    for (const t of ['note', 'ticket', 'spec', 'decision', 'person', 'meeting', 'project', 'epic', 'risk', 'question', 'reference', 'glossary', 'milestone', 'retro', 'adr', 'okr']) {
-      const label = document.createElement('label')
-      const cb = document.createElement('input')
-      cb.type = 'checkbox'
-      cb.checked = true
-      label.appendChild(cb)
-      label.appendChild(document.createTextNode(' ' + t))
-      bar.insertBefore(label, form)
+  // The fixture has two type-groups (note, person). Typing "person" into the
+  // group filter must VISUALLY hide the "note" row. Regression guard: a row
+  // hidden via the `hidden` attribute stays visible because
+  // `.controls-row { display: flex }` overrides the UA `[hidden] { display: none }`,
+  // so the filter must toggle inline `display` instead.
+  await expect(page.locator('.controls-row')).toHaveCount(2)
+
+  const disp = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.controls-row')] as HTMLElement[]
+    const byLabel = (l: string) => rows.find((r) => r.querySelector('.controls-row-label')?.textContent === l)
+    const search = document.querySelector('.controls-group-search') as HTMLInputElement
+    search.value = 'person'
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    const computed = (l: string) => {
+      const r = byLabel(l)
+      return r ? getComputedStyle(r).display : 'absent'
     }
-    return (bar as HTMLElement).getBoundingClientRect().height
+    return { note: computed('note'), person: computed('person') }
   })
-  // Confirm the bar actually wrapped past a single row — otherwise the test
-  // would be a false negative.
-  expect(facetsHeight).toBeGreaterThan(40)
-  await page.waitForTimeout(300)
 
-  const boxes = await page.evaluate(() => {
-    const b = (sel: string) => document.querySelector(sel)!.getBoundingClientRect()
-    return {
-      facets: b('#facets'),
-      mainArea: b('#main-area'),
-      graph: b('#graph'),
-      canvas: b('#graph canvas'),
-    }
-  })
-  // The facets bar sits entirely above the graph area — no overlap.
-  expect(boxes.facets.bottom).toBeLessThanOrEqual(boxes.mainArea.top + 1)
-  expect(boxes.graph.top).toBeGreaterThanOrEqual(boxes.facets.bottom - 1)
-  // The canvas still fits its container after the bar grew.
-  expect(Math.abs(boxes.canvas.width - boxes.graph.width)).toBeLessThanOrEqual(2)
-  expect(Math.abs(boxes.canvas.height - boxes.graph.height)).toBeLessThanOrEqual(2)
-
-  const overflow = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-    scrollHeight: document.documentElement.scrollHeight,
-    clientHeight: document.documentElement.clientHeight,
-  }))
-  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 2)
-  expect(overflow.scrollHeight).toBeLessThanOrEqual(overflow.clientHeight + 2)
+  expect(disp.person).not.toBe('none') // matching row stays visible
+  expect(disp.note).toBe('none') // non-matching row is actually hidden (the bug left it 'flex')
 })
 
 test('node size & brightness track total degree end-to-end', async ({ page }) => {

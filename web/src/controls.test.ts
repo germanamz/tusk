@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupRows, matchesSearch, bulkAll, bulkNone, bulkInvert } from './controls'
+import { groupRows, matchesSearch, bulkAll, bulkNone, bulkInvert, setRowVisible } from './controls'
 import type { Graph } from './api'
 
 // ---------------------------------------------------------------------------
@@ -83,6 +83,19 @@ describe('groupRows', () => {
 // ---------------------------------------------------------------------------
 // matchesSearch
 // ---------------------------------------------------------------------------
+
+describe('setRowVisible', () => {
+  // Regression guard for the group filter: rows must hide via inline display,
+  // NOT the `hidden` attribute (which `.controls-row { display: flex }` overrides,
+  // so the filter would silently do nothing).
+  it('hides via inline display:none and shows via empty display', () => {
+    const row = { style: {} as { display?: string } } as unknown as HTMLElement
+    setRowVisible(row, false)
+    expect(row.style.display).toBe('none')
+    setRowVisible(row, true)
+    expect(row.style.display).toBe('')
+  })
+})
 
 describe('matchesSearch', () => {
   it('returns true for empty query', () => {
