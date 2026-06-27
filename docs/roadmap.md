@@ -10,8 +10,8 @@ designs: each graduates into its own
 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` when it's time to
 brainstorm and plan it.
 
-- **Last updated:** 2026-06-21
-- **Latest release:** v1.11.0
+- **Last updated:** 2026-06-27
+- **Latest release:** v1.17.0
 - **Closed specs/plans:**
   - HTML content AST (`.html`/`.htm` files as first-class nodes + `tusk node render` / `tusk_node_render`) — shipped; design folded into [`PRODUCT.md`](../PRODUCT.md) and [`README`](../README.md).
   - Indexed checkbox todos in nodes — shipped, but delivered through the sub-unit indexing model (`internal/subunit`) rather than the originally-sketched dedicated `todos` table / `tusk todo` command. Markdown list-item sub-units carry a `checkbox` property, so open/done todos are filterable and queryable cross-source through the standard query surface. Original framing preserved in git history.
@@ -20,24 +20,23 @@ brainstorm and plan it.
   - v1.1 bug backlog (5 bugs surfaced bootstrapping the Superhuman workspace) — shipped in v1.2.0 via #397, #399, #400, #401, #402
   - Index reset and rebuild (`tusk reset` + `tusk_reset`) — shipped; design in git history.
   - Hot manifest reload (`tusk reload` + `tusk_reload`) — shipped via #535, #537–#544 + docs; a `.tusk/manifest-epoch` sentinel drives cross-process schema convergence, layered on the index-reset work. Design preserved under `docs/superpowers/` (local).
+  - Graph view (`tusk graph`, three.js) — shipped. A local HTTP server serves a self-contained page that renders the index as an interactive 3D force-directed graph over a read-only JSON endpoint (#567, v1.13.0), since enriched with degree-based sizing/coloring, a cluster lens (group color, huddle layout, hull overlays; #586–#598), and a semantic layout mode where position tracks embedding similarity via umap-js (#600–#603). The framing's open questions (2D/3D toggle, in-page query, live updates) resolved during implementation; behavior documented in [`docs/architecture/graph-view.md`](architecture/graph-view.md) and [`docs/packages/graphview.md`](packages/graphview.md).
 
 ## Forward-looking explorations
 
-Each is independent in execution. The order now leads with the next focus — an
-interactive graph view (#1) — followed by language-aware code indexing (#2–#4)
-and the earlier backlog (#5–#9), whose internal order still reflects
-dependencies and risk-adjusted payoff. Item #9 is a smaller ergonomic ask
-promoted from the Superhuman bootstrap session.
+Each is independent in execution. The order now leads with language-aware code
+indexing (#1–#3), followed by the earlier backlog (#4–#8), whose internal order
+still reflects dependencies and risk-adjusted payoff. Item #8 is a smaller
+ergonomic ask promoted from the Superhuman bootstrap session.
 
-1. [Graph view (three.js)](#1-graph-view-threejs)
-2. [Go indexer pass](#2-go-indexer-pass)
-3. [TypeScript/JavaScript indexer pass](#3-typescriptjavascript-indexer-pass)
-4. [Python indexer pass](#4-python-indexer-pass)
-5. [Native-Go embedding models](#5-native-go-embedding-models)
-6. [CI-distributed prebuilt indexes](#6-ci-distributed-prebuilt-indexes)
-7. [Paragraph indexing with local summarization](#7-paragraph-indexing-with-local-summarization)
-8. [Distributed indexing](#8-distributed-indexing)
-9. [Depth-N descendants in one query](#9-depth-n-descendants-in-one-query)
+1. [Go indexer pass](#1-go-indexer-pass)
+2. [TypeScript/JavaScript indexer pass](#2-typescriptjavascript-indexer-pass)
+3. [Python indexer pass](#3-python-indexer-pass)
+4. [Native-Go embedding models](#4-native-go-embedding-models)
+5. [CI-distributed prebuilt indexes](#5-ci-distributed-prebuilt-indexes)
+6. [Paragraph indexing with local summarization](#6-paragraph-indexing-with-local-summarization)
+7. [Distributed indexing](#7-distributed-indexing)
+8. [Depth-N descendants in one query](#8-depth-n-descendants-in-one-query)
 
 Below the focus items, the [v1 deferred backlog](#v1-deferred-backlog) lists
 work parked in the v1 spec (§3.2 / §8.2) that's still on the table but
@@ -45,41 +44,7 @@ unscheduled.
 
 ---
 
-## 1. Graph view (three.js)
-
-**Problem.** Tusk's value is the graph — nodes, sub-units, and the edges between
-them — but there's no way to *see* it. Users reason about their vault through
-query results and file listings, never the shape of the whole thing. Dense,
-highly-connected regions and orphaned nodes are invisible.
-
-**Why now.** Once the language passes (#2–#4) land, the graph gets dramatically
-richer (call/import/reference edges on top of structural and user edges) and a
-flat list stops conveying it. A visual, interactive view turns the index into
-something you can explore and navigate, and it doubles as a showcase of what the
-indexer captures.
-
-**Sketch.** A `tusk graph` (and/or `tusk serve`) command starts a local HTTP
-server that serves a single self-contained page. The page pulls nodes and edges
-from the index (a read-only JSON endpoint over the existing query surface) and
-renders them as an interactive force-directed graph with **three.js** —
-pan/zoom/rotate, click a node to see its content and neighbors, filter by
-node-type / edge-type / tag. Read-only in v1; bound to loopback by default.
-
-**Open questions.**
-- Layout at scale: force-directed is fine for hundreds of nodes; 10k-node vaults
-  need clustering, level-of-detail, or server-side layout precomputation.
-- 2D vs. 3D — three.js affords 3D, but 2D is often more legible for graphs; make
-  it a toggle?
-- How much queryability to expose in-page (free-text/semantic search box vs.
-  visualization only).
-- Live updates: poll the index, watch for changes, or static snapshot per load?
-
-**Dependencies.** Read-only over the existing query/index surface, so technically
-unblocked today — but most valuable after #2–#4 enrich the graph. A narrow,
-read-only slice of the deferred "Web UI / TUI" backlog item, promoted ahead of
-the general UI.
-
-## 2. Go indexer pass
+## 1. Go indexer pass
 
 **Problem.** Tusk indexes markdown (and now HTML) but treats a source tree as
 opaque. A vault that lives next to a Go codebase can't answer "where is
@@ -128,25 +93,25 @@ other two languages lack.
 **Dependencies.** Builds directly on the sub-unit / structural-address work
 (`internal/subunit`) and the source-parameterized Sync added for the HTML AST.
 Establishes the language-pass pattern — edge vocabulary, comment-to-sub-unit
-addressing, and the "comments-not-code" indexing model — that #3 and #4 reuse.
+addressing, and the "comments-not-code" indexing model — that #2 and #3 reuse.
 Lowest implementation risk of the three thanks to the stdlib parser, which makes
 it the right place to prove the framework.
 
-## 3. TypeScript/JavaScript indexer pass
+## 2. TypeScript/JavaScript indexer pass
 
-**Problem.** Same gap as #2, for TS/JS codebases — a vault that lives next to a
+**Problem.** Same gap as #1, for TS/JS codebases — a vault that lives next to a
 TS/JS tree can't answer "where is `parseConfig` called," "what imports this
 module," or "what does this function *mean*"; the code is invisible to retrieval
 and agents fall back to grep and full-file reads.
 
 **Why now.** TS/JS is the highest-leverage language for this work — it's where
 most agent-assisted development happens, and tree-sitter / the TypeScript
-compiler API give a mature parse surface to apply the framework #2 establishes.
+compiler API give a mature parse surface to apply the framework #1 establishes.
 
-**Sketch.** The #2 model applied to `.ts`/`.tsx`/`.js`/`.jsx` files: symbol-usage
+**Sketch.** The #1 model applied to `.ts`/`.tsx`/`.js`/`.jsx` files: symbol-usage
 edges (function/method calls, variable assignments and references,
 `import`/`export` relations, file-to-file dependencies), JSDoc/docstring
-sub-units, and plain-comment sub-units — and, as in #2, **no raw code is
+sub-units, and plain-comment sub-units — and, as in #1, **no raw code is
 embedded.** Retrieval answers "what was the author thinking here" from comments
 and "what connects to what" from the graph.
 
@@ -159,13 +124,13 @@ and "what connects to what" from the graph.
 - How comments map to sub-unit addresses so they stay stable across edits, the
   way markdown sub-units already do.
 
-**Dependencies.** #2 (reuses the language-pass framework, edge vocabulary, and
+**Dependencies.** #1 (reuses the language-pass framework, edge vocabulary, and
 "comments-not-code" indexing model), applied to the richer, messier JS/TS parse
 surface.
 
-## 4. Python indexer pass
+## 3. Python indexer pass
 
-**Problem.** Same gap as #2, for Python codebases: imports, call graphs,
+**Problem.** Same gap as #1, for Python codebases: imports, call graphs,
 references, and docstrings are invisible to the index.
 
 **Why now.** Python's first-class docstring convention (module/class/function
@@ -173,9 +138,9 @@ references, and docstrings are invisible to the index.
 share of intent is already written down in a structured place the pass can lift
 directly.
 
-**Sketch.** The same model as #2 applied to `.py` files: symbol-usage edges
+**Sketch.** The same model as #1 applied to `.py` files: symbol-usage edges
 (calls, assignments, references, `import` / `from ... import`, file relations),
-docstring sub-units, and plain-comment sub-units — and, as in #2, **no raw code
+docstring sub-units, and plain-comment sub-units — and, as in #1, **no raw code
 is embedded.** Language-specific deltas: Python docstrings are first-class AST
 nodes (not comments), so the pass reads them straight from the parse tree;
 dynamic imports and re-exports complicate the dependency graph.
@@ -187,10 +152,10 @@ dynamic imports and re-exports complicate the dependency graph.
   attempt statically before it stops being reliable.
 - Type-hint signal: index annotations as structured metadata, or ignore in v1?
 
-**Dependencies.** #2 (shares the language-pass framework, edge vocabulary, and
+**Dependencies.** #1 (shares the language-pass framework, edge vocabulary, and
 "comments-not-code" indexing model).
 
-## 5. Native-Go embedding models
+## 4. Native-Go embedding models
 
 **Problem.** Today every new user must install Ollama, pull a model, and keep
 `ollama serve` running before `tusk reindex` can produce embeddings. This is
@@ -217,10 +182,10 @@ provider switch correctly invalidates.
 - Binary size budget — current `tusk` is small; adding a model bloats it.
   Option: ship a separate `tusk-models` companion binary, or fetch on first run.
 
-**Dependencies.** None blocking. Unblocks #6 (its runtime story) and #7 (#7
+**Dependencies.** None blocking. Unblocks #5 (its runtime story) and #6 (#6
 benefits from a local model identity that survives release).
 
-## 6. CI-distributed prebuilt indexes
+## 5. CI-distributed prebuilt indexes
 
 **Problem.** Bootstrapping a new vault from a published corpus (e.g. the Tusk
 docs, a curated reference set) means re-running the full embed pipeline locally.
@@ -246,11 +211,11 @@ bootstrapped index.
 - Should the bootstrapped index be authoritative or replaceable on first
   `reindex --force`?
 
-**Dependencies.** #5 (a native embedder makes "user can open a published index"
+**Dependencies.** #4 (a native embedder makes "user can open a published index"
 not require an external model server). Could ship with Ollama-only as a first
 cut, then expand.
 
-## 7. Paragraph indexing with local summarization
+## 6. Paragraph indexing with local summarization
 
 **Problem.** Today retrieval returns whole nodes (or `MarkdownRecursive` chunks,
 shipped in #372/#376). For long nodes, the agent gets back too much text and
@@ -277,13 +242,13 @@ hash so summary-prompt or summary-model changes can re-run without re-embed.
   time (latency hit per query, no storage). Probably index-time with cache.
 - Cost / quality of small models for summarization. Gemma 2B class is plausible
   locally; smaller models often hallucinate.
-- Interaction with #5 — does the native-Go story extend to decoder inference,
+- Interaction with #4 — does the native-Go story extend to decoder inference,
   or stay encoder-only?
 
-**Dependencies.** #5 (clarifies how we run local models). Builds on existing
+**Dependencies.** #4 (clarifies how we run local models). Builds on existing
 `MarkdownRecursive` chunker.
 
-## 8. Distributed indexing
+## 7. Distributed indexing
 
 **Problem.** A single logical vault sharded across multiple machines or agents.
 Hard primarily because of **rebalancing**: as nodes are added/removed, shard
@@ -304,7 +269,7 @@ concrete user need lands.
   followers pull deltas. No central coordinator.
 - **Cross-workspace federation** (lighter cousin, already in v1 spec §3.2). Not
   a sharded vault — multiple local vaults queried in parallel. Likely the
-  first useful step toward (#8) without committing to the full distributed
+  first useful step toward (#7) without committing to the full distributed
   story.
 
 **Open questions.**
@@ -314,10 +279,10 @@ concrete user need lands.
   metadata?).
 - Failure modes — partial reads, stale shards, write conflicts.
 
-**Dependencies.** None blocking, but worth seeing #5, #6, and #7 land first
+**Dependencies.** None blocking, but worth seeing #4, #5, and #6 land first
 since they sharpen what a "shard" carries.
 
-## 9. Depth-N descendants in one query
+## 8. Depth-N descendants in one query
 
 **Problem.** Traversing a parent/child tree from the public surface requires
 N round trips, one per level. The binary already carries `descendants_%d`
@@ -359,13 +324,13 @@ the table. Reconciled against the focus items above.
 | `due-reminders` behavior pack | Local notifications when due dates approach. |
 | `recurring` behavior pack | Auto-create instances of a template node on a schedule. |
 | `vector-watcher` behavior pack | Re-embed when content drifts substantially. |
-| Cross-workspace queries | Lighter cousin of #8 (Distributed indexing). May land first as a stepping stone. |
+| Cross-workspace queries | Lighter cousin of #7 (Distributed indexing). May land first as a stepping stone. |
 | Plugin loading for behavior packs | v2+. |
-| Web UI / TUI | v2+; #1 (Graph view) is a narrow read-only slice promoted ahead of the general UI. |
+| Web UI / TUI | v2+; the shipped graph view (`tusk graph`) is a narrow read-only slice; a general editing UI remains deferred. |
 
 **Superseded:**
 
-- *Bundled local embedding model (ONNX)* → replaced by #5 (Native-Go embedding
+- *Bundled local embedding model (ONNX)* → replaced by #4 (Native-Go embedding
   models). Different bet: pure-Go runtime, no ONNX dependency.
 
 ---
