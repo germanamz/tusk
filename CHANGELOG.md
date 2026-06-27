@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.17.0](https://github.com/germanamz/tusk/compare/v1.16.0...v1.17.0) (2026-06-27)
+
+
+### Features
+
+* **graph:** add ancestor cluster-lens producer ([#590](https://github.com/germanamz/tusk/issues/590)) ([0a46ca1](https://github.com/germanamz/tusk/commit/0a46ca109fca058e6c61bdf40648f80e68d1c794))
+* **graph:** add cluster hull overlays and document the cluster lens ([#593](https://github.com/germanamz/tusk/issues/593)) ([53c73da](https://github.com/germanamz/tusk/commit/53c73daa7d7da72ed6c31437b9ecfa415a51fc31))
+* **graph:** add community-detection cluster-lens producer ([#592](https://github.com/germanamz/tusk/issues/592)) ([a663d7c](https://github.com/germanamz/tusk/commit/a663d7ceabd453372154d2a9e4c1486f29ea4928))
+* **graph:** add deterministic community-detection engine ([#589](https://github.com/germanamz/tusk/issues/589)) ([6519c1d](https://github.com/germanamz/tusk/commit/6519c1d2e210381c6005623ec88bf654fb7cd1e5))
+* **graph:** add opt-in cluster-force huddle layout ([#591](https://github.com/germanamz/tusk/issues/591)) ([2e3cabd](https://github.com/germanamz/tusk/commit/2e3cabd39eedbda372ad592dabe39a66040e75f2))
+* **graph:** cluster-lens config and color nodes by group ([#588](https://github.com/germanamz/tusk/issues/588)) ([9c8188b](https://github.com/germanamz/tusk/commit/9c8188b29b62b2d2ca1f5bd057dd60489cc8c5c8))
+* **graph:** fade cross-cluster and hub edges to declutter the graph ([#598](https://github.com/germanamz/tusk/issues/598)) ([dd33ffd](https://github.com/germanamz/tusk/commit/dd33ffd836d457d6f512be3609997c77552d4528))
+* **graph:** fold type/kind filters into drawer and fix node search ([#597](https://github.com/germanamz/tusk/issues/597)) ([d3bc98a](https://github.com/germanamz/tusk/commit/d3bc98a7738bbdff86bd2277e93da839c1811452))
+* **graph:** scrollable group legend-as-filter drawer ([#595](https://github.com/germanamz/tusk/issues/595)) ([65d8386](https://github.com/germanamz/tusk/commit/65d8386d2d22b3da4060b83d5ca5a5590ccb1fcc))
+* **graph:** semantic layout mode for the graph view ([#600](https://github.com/germanamz/tusk/issues/600)) ([2a9d8bf](https://github.com/germanamz/tusk/commit/2a9d8bf174b9d859139d82509c360678ede6dfdf))
+
+
+### Bug Fixes
+
+* **graph:** address semantic-layout review follow-ups ([#602](https://github.com/germanamz/tusk/issues/602)) ([fa0fd8c](https://github.com/germanamz/tusk/commit/fa0fd8c7b79abdde9ea9e09f69ea56f551b20f17))
+* **graph:** group filter hides non-matching group rows ([#603](https://github.com/germanamz/tusk/issues/603)) ([bceebec](https://github.com/germanamz/tusk/commit/bceebec1679c30cda3ff3dfd55a79eb3647e1b54))
+* **graph:** render group hulls immediately on re-snapshot ([#594](https://github.com/germanamz/tusk/issues/594)) ([f82c927](https://github.com/germanamz/tusk/commit/f82c92755b0bfbd9ba046687fac5299b0a4ea4f3))
+* **graph:** warm-start node positions across live re-snapshots ([#586](https://github.com/germanamz/tusk/issues/586)) ([08ac08f](https://github.com/germanamz/tusk/commit/08ac08f26ad9b564c455dd7bac440b11002608d5))
+* **node:** extract HTML &lt;a href&gt; links as references edges ([#599](https://github.com/germanamz/tusk/issues/599)) ([5c08d0f](https://github.com/germanamz/tusk/commit/5c08d0fc8dd88043ba2fecfef5b1e72488c6c6e8)), closes [#596](https://github.com/germanamz/tusk/issues/596)
+
 ## [1.16.0](https://github.com/germanamz/tusk/compare/v1.15.0...v1.16.0) (2026-06-25)
 
 
