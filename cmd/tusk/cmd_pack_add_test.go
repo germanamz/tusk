@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -547,4 +548,26 @@ func testSourceDir(test *testing.T) string {
 	}
 
 	return filepath.Dir(callerFile)
+}
+
+func TestPackAddExitCode(test *testing.T) {
+	cases := []struct {
+		err      error
+		wantCode int
+		wantOK   bool
+	}{
+		{fmt.Errorf("pack add: fetch http://x: HTTP 404"), 2, true},
+		{fmt.Errorf("pack add: invalid TOML at line 3"), 3, true},
+		{fmt.Errorf("pack add: disallowed top-level key"), 3, true},
+		{fmt.Errorf("pack add: decode pack: bad"), 3, true},
+		{fmt.Errorf("some other failure"), 0, false},
+	}
+
+	for _, testCase := range cases {
+		code, ok := packAddExitCode(testCase.err)
+
+		if code != testCase.wantCode || ok != testCase.wantOK {
+			test.Errorf("packAddExitCode(%v) = (%d, %v), want (%d, %v)", testCase.err, code, ok, testCase.wantCode, testCase.wantOK)
+		}
+	}
 }
