@@ -36,6 +36,23 @@ var ErrLeaseNotConfigured = errors.New("node: service constructed without lease;
 // would re-render it as markdown and corrupt the file.
 var ErrHTMLNodeNotEditable = errors.New("node: HTML nodes cannot be created or modified via the node service; edit the .html file directly")
 
+// ErrPathEscapesVault is returned when a write target would resolve outside the
+// workspace root (an absolute path or one containing "..").
+var ErrPathEscapesVault = errors.New("node: path escapes the workspace root")
+
+// ensureVaultLocal rejects a workspace-relative path that does not stay inside
+// the vault. It guards the write surface (Create / Rename) so neither the CLI
+// nor the MCP tools can write a file outside the workspace root — an LLM acting
+// on untrusted content must not be able to turn node_create/node_move into an
+// out-of-vault write primitive.
+func ensureVaultLocal(relPath string) error {
+	if !filepath.IsLocal(relPath) {
+		return fmt.Errorf("%w: %q", ErrPathEscapesVault, relPath)
+	}
+
+	return nil
+}
+
 // CreateInput configures Service.Create.
 type CreateInput struct {
 	RelPath    string         // workspace-relative target path including extension (e.g. "tickets/foo.md")
@@ -451,6 +468,10 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 	if IsHTMLPath(input.RelPath) {
 		return nil, ErrHTMLNodeNotEditable
+	}
+
+	if localErr := ensureVaultLocal(input.RelPath); localErr != nil {
+		return nil, localErr
 	}
 
 	absPath := filepath.Join(service.root, input.RelPath)
