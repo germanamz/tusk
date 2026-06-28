@@ -84,7 +84,9 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 	response, doErr := embedder.client.Do(request)
 
 	if doErr != nil {
-		return nil, fmt.Errorf("ollama: post: %w", doErr)
+		// Connection refused, DNS failure, timeout: Ollama is unreachable, not a
+		// fault of this payload. Mark transport so the drain backs off.
+		return nil, &TransportError{Err: fmt.Errorf("ollama: post: %w", doErr)}
 	}
 
 	defer response.Body.Close()
@@ -92,7 +94,8 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 	responseBody, readErr := io.ReadAll(response.Body)
 
 	if readErr != nil {
-		return nil, fmt.Errorf("ollama: read body: %w", readErr)
+		// A mid-read connection drop is the same class of transient trouble.
+		return nil, &TransportError{Err: fmt.Errorf("ollama: read body: %w", readErr)}
 	}
 
 	latency := time.Since(start)
@@ -114,7 +117,17 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 			)
 		}
 
-		return nil, fmt.Errorf("ollama: HTTP %d: %s", response.StatusCode, string(responseBody))
+		httpErr := fmt.Errorf("ollama: HTTP %d: %s", response.StatusCode, string(responseBody))
+
+		// 5xx is Ollama failing to serve a healthy request (overloaded,
+		// restarting) — transient, so the drain should back off and retry. A 4xx
+		// is a per-request fault (bad payload, missing model) that retrying
+		// verbatim won't fix, so it stays a plain error subject to the drop policy.
+		if response.StatusCode >= http.StatusInternalServerError {
+			return nil, &TransportError{Err: httpErr}
+		}
+
+		return nil, httpErr
 	}
 
 	var decoded struct {

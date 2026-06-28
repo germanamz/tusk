@@ -5,13 +5,43 @@
 // of the system.
 package embed
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Embedder produces a single vector per payload.
 type Embedder interface {
 	Embed(ctx context.Context, payload []byte) ([]float32, error)
 	Model() string
 	Dim() int
+}
+
+// TransportError marks an embed failure as transient infrastructure trouble —
+// the embedding backend is unreachable, timed out, dropped the connection, or
+// returned a 5xx — as opposed to a per-node/content fault (a 4xx, a dimension
+// mismatch, a parse error). DrainQueue aborts the whole drain pass on a
+// TransportError and leaves the claimed rows leased for the next tick, rather
+// than burning each node's retry budget and dropping it from semantic results
+// over a brief blip.
+type TransportError struct {
+	Err error
+}
+
+func (transportErr *TransportError) Error() string {
+	return transportErr.Err.Error()
+}
+
+func (transportErr *TransportError) Unwrap() error {
+	return transportErr.Err
+}
+
+// IsTransportError reports whether err, or any error it wraps, is a
+// TransportError.
+func IsTransportError(err error) bool {
+	var transportErr *TransportError
+
+	return errors.As(err, &transportErr)
 }
 
 // DefaultTimeoutSeconds is the user-facing default applied at construction

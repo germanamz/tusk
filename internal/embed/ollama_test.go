@@ -226,3 +226,114 @@ func TestOllamaEmbedder_RespectsConfiguredTimeout(test *testing.T) {
 		test.Errorf("Embed error = %q, want a timeout-related error", err.Error())
 	}
 }
+
+// TestOllamaEmbedder_HTTP5xxIsTransportError pins the A2 classification: a 5xx
+// means Ollama is unhealthy (overloaded, restarting), not that this node's
+// content is bad — so the drain must back off, not drop the node. The error is
+// marked transport so DrainQueue aborts the pass rather than burning attempts.
+func TestOllamaEmbedder_HTTP5xxIsTransportError(test *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Error(writer, "overloaded", http.StatusServiceUnavailable)
+	}))
+
+	defer server.Close()
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+		Endpoint: server.URL,
+		Model:    "x",
+		Dim:      3,
+	})
+
+	_, embedErr := embedder.Embed(context.Background(), []byte("hello"))
+
+	if embedErr == nil {
+		test.Fatal("expected error on 503")
+	}
+
+	if !embed.IsTransportError(embedErr) {
+		test.Errorf("503 must be a TransportError; got %v", embedErr)
+	}
+}
+
+// TestOllamaEmbedder_HTTP4xxIsNotTransportError confirms a 4xx (a bad request,
+// a missing model) is a per-node/config fault, not transient — it stays a plain
+// error so the drain's retry/drop policy still applies.
+func TestOllamaEmbedder_HTTP4xxIsNotTransportError(test *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Error(writer, "bad request", http.StatusBadRequest)
+	}))
+
+	defer server.Close()
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+		Endpoint: server.URL,
+		Model:    "x",
+		Dim:      3,
+	})
+
+	_, embedErr := embedder.Embed(context.Background(), []byte("hello"))
+
+	if embedErr == nil {
+		test.Fatal("expected error on 400")
+	}
+
+	if embed.IsTransportError(embedErr) {
+		test.Errorf("400 must NOT be a TransportError; got %v", embedErr)
+	}
+}
+
+// TestOllamaEmbedder_ConnectionRefusedIsTransportError closes the test server
+// before the call so client.Do fails to connect — the canonical "Ollama is
+// down" case. It must classify as transport so a brief outage doesn't evict
+// every queued node from semantic results.
+func TestOllamaEmbedder_ConnectionRefusedIsTransportError(test *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {}))
+	endpoint := server.URL
+	server.Close() // nothing is listening now
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+		Endpoint: endpoint,
+		Model:    "x",
+		Dim:      3,
+	})
+
+	_, embedErr := embedder.Embed(context.Background(), []byte("hello"))
+
+	if embedErr == nil {
+		test.Fatal("expected a connection error against a closed server")
+	}
+
+	if !embed.IsTransportError(embedErr) {
+		test.Errorf("connection refused must be a TransportError; got %v", embedErr)
+	}
+}
+
+// TestOllamaEmbedder_DimMismatchIsNotTransportError confirms a dimension
+// mismatch (the wrong model wired up) is a hard per-node fault, not transient —
+// retrying the same payload will never succeed, so it stays a plain error.
+func TestOllamaEmbedder_DimMismatchIsNotTransportError(test *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"embedding": []float64{0.1, 0.2}, // 2 dims, config says 3
+		})
+	}))
+
+	defer server.Close()
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{
+		Endpoint: server.URL,
+		Model:    "x",
+		Dim:      3,
+	})
+
+	_, embedErr := embedder.Embed(context.Background(), []byte("x"))
+
+	if embedErr == nil {
+		test.Fatal("expected dim-mismatch error")
+	}
+
+	if embed.IsTransportError(embedErr) {
+		test.Errorf("dim mismatch must NOT be a TransportError; got %v", embedErr)
+	}
+}
