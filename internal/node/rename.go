@@ -382,6 +382,7 @@ func rewriteEdgeReferences(absPath, oldID, newID string, edgeTypes manifest.Edge
 func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes manifest.EdgeTypes) []byte {
 	lines := strings.Split(string(content), "\n")
 	inFrontmatter := false
+	inEdgeSequence := false
 
 	for lineIdx, line := range lines {
 		if strings.TrimSpace(line) == "---" {
@@ -396,6 +397,20 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 
 		if !inFrontmatter {
 			continue
+		}
+
+		// A block sequence opened by an edge key: rewrite its "- value"
+		// continuation lines until the indentation ends (next key or dedent).
+		// This is the shape renderMarkdown emits for any 2+ target edge, so
+		// missing it left renamed multi-target edges permanently dangling.
+		if inEdgeSequence {
+			if isSequenceItem(line) {
+				lines[lineIdx] = rewriteSequenceItem(line, oldID, newID)
+
+				continue
+			}
+
+			inEdgeSequence = false
 		}
 
 		colonIdx := strings.Index(line, ":")
@@ -413,8 +428,16 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 		value := line[colonIdx+1:]
 		trimmedValue := strings.TrimSpace(value)
 
-		if trimmedValue == oldID {
-			lines[lineIdx] = line[:colonIdx+1] + " " + newID
+		// An edge key with no inline value opens a block sequence; its items
+		// follow on subsequent indented "- value" lines.
+		if trimmedValue == "" {
+			inEdgeSequence = true
+
+			continue
+		}
+
+		if matchesEdgeTarget(trimmedValue, oldID) {
+			lines[lineIdx] = line[:colonIdx+1] + " " + yamlQuoteString(newID)
 
 			continue
 		}
@@ -424,7 +447,7 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 			parts := strings.Split(inner, ",")
 
 			for partIdx, part := range parts {
-				if strings.TrimSpace(part) == oldID {
+				if matchesEdgeTarget(strings.TrimSpace(part), oldID) {
 					parts[partIdx] = " " + newID
 				}
 			}
@@ -434,4 +457,72 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 	}
 
 	return []byte(strings.Join(lines, "\n"))
+}
+
+// isSequenceItem reports whether line is a YAML block-sequence item ("- value"),
+// ignoring leading indentation.
+func isSequenceItem(line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+
+	return trimmed == "-" || strings.HasPrefix(trimmed, "- ")
+}
+
+// rewriteSequenceItem replaces a block-sequence item's value with newID when it
+// refers to oldID, preserving the line's indentation and dash.
+func rewriteSequenceItem(line, oldID, newID string) string {
+	dashIdx := strings.IndexByte(line, '-')
+
+	if dashIdx < 0 {
+		return line
+	}
+
+	itemValue := strings.TrimSpace(line[dashIdx+1:])
+
+	if !matchesEdgeTarget(itemValue, oldID) {
+		return line
+	}
+
+	return line[:dashIdx+1] + " " + yamlQuoteString(newID)
+}
+
+// matchesEdgeTarget reports whether a frontmatter value — plain or
+// YAML-double-quoted as the writer emits — refers to id.
+func matchesEdgeTarget(value, id string) bool {
+	return yamlUnquoteString(value) == id
+}
+
+// yamlUnquoteString reverses yamlQuoteString for double-quoted scalars and
+// returns plain scalars unchanged.
+func yamlUnquoteString(value string) string {
+	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+		return value
+	}
+
+	inner := value[1 : len(value)-1]
+
+	var builder strings.Builder
+
+	escaped := false
+
+	for charIndex := 0; charIndex < len(inner); charIndex++ {
+		char := inner[charIndex]
+
+		if escaped {
+			builder.WriteByte(char)
+
+			escaped = false
+
+			continue
+		}
+
+		if char == '\\' {
+			escaped = true
+
+			continue
+		}
+
+		builder.WriteByte(char)
+	}
+
+	return builder.String()
 }
