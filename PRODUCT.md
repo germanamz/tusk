@@ -111,9 +111,10 @@ Three query shapes, all over the same index:
 - **Structural** — a TaskWarrior-flavored filter grammar (property predicates,
   comparators, ranges, edge traversal, boolean composition) compiled to
   parameterized SQL. No embedding cost.
-- **Semantic** — the query is embedded (Ollama by default, with OpenAI / Voyage
-  / Anthropic as first-class fallbacks) and ranked by nearest-neighbor over the
-  embeddings table.
+- **Semantic** — the query is embedded (Ollama; OpenAI / Voyage / Anthropic are
+  reserved manifest config for a later plan, not yet wired — the loader accepts
+  `provider = "ollama"` only) and ranked by nearest-neighbor over the embeddings
+  table.
 - **Hybrid (recommended for agents)** — a structural filter narrows the
   candidate set; semantic similarity ranks within it.
 
