@@ -1012,6 +1012,45 @@ func TestTool_Reindex(test *testing.T) {
 	}
 }
 
+func TestTool_PackAdd(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	// A local pack file so the test never touches the network.
+	packPath := filepath.Join(rt.Root, "pack.toml")
+	packBody := "[node-types.gizmo]\ndescription = \"a test gizmo\"\nproperties = []\n"
+
+	if writeErr := os.WriteFile(packPath, []byte(packBody), 0o644); writeErr != nil {
+		test.Fatalf("write pack: %v", writeErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_pack_add", map[string]any{
+		"pack": "file://" + packPath,
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_pack_add: %v", callErr)
+	}
+
+	// The tool returns the tusk_reload envelope, proving it hot-reloaded.
+	if _, ok := body["manifest_epoch"]; !ok {
+		test.Errorf("expected a reload envelope with manifest_epoch, got %v", body)
+	}
+
+	// AddPack merged the pack's declaration into tusk.toml.
+	manifestBytes, readErr := os.ReadFile(filepath.Join(rt.Root, "tusk.toml"))
+
+	if readErr != nil {
+		test.Fatalf("read tusk.toml: %v", readErr)
+	}
+
+	if !strings.Contains(string(manifestBytes), "gizmo") {
+		test.Errorf("tusk.toml not merged with the pack: %s", manifestBytes)
+	}
+}
+
 // callToolRaw runs the registered handler for `name` against `args` and returns
 // the raw CallToolResult without interpreting IsError.
 func callToolRaw(test *testing.T, srv *mcp.Server, name string, args map[string]any) *mcpgo.CallToolResult {

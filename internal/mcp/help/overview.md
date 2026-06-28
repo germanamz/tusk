@@ -11,7 +11,7 @@ operates on:
 - `./.tusk/index.db` — the SQLite index. Mutating tools update it in
   the same call; external file edits require `tusk_reindex`.
 
-## The 14 tools, by purpose
+## The core tools, by purpose
 
 **Inspect:** `tusk_status`, `tusk_node_list`, `tusk_node_get`,
 `tusk_edge_list`, `tusk_query`, `tusk_context`.
@@ -28,9 +28,11 @@ property drift, embed queue).
 
 ## Schema is editable
 
-If a tool fails because a node/edge type is not declared, the fix is to
-edit `./tusk.toml`. There is no MCP tool for this — open the file
-directly. See `tusk_help(topic: "manifest")`, `node-types`, `edge-types`.
+If a tool fails because a node/edge type is not declared, you have two
+in-MCP options: call `tusk_pack_add` to merge a built-in pack's types, or
+edit `./tusk.toml` in your editor (the one task that uses a file edit, not
+the shell) and then call `tusk_reload` to pick up the change. See
+`tusk_help(topic: "manifest")`, `node-types`, `edge-types`.
 
 ## Deep dives
 

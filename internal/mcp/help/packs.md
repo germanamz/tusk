@@ -7,19 +7,16 @@ writing the schema by hand.
 
 ## Installing
 
-There is no MCP tool for pack installation — run from the shell:
-
-```
-tusk pack add <name>
-```
-
-This copies the pack's declarations into `./tusk.toml`. Re-running
-the command is safe (idempotent merge).
+Call `tusk_pack_add(pack: "<name>")`. It merges the pack's declarations
+into `./tusk.toml` and hot-reloads the schema in one step. Re-running is
+safe; pass `force: true` to replace a section that would otherwise
+collide. (The same operation is `tusk pack add <name>` from the shell.)
 
 ## After installing
 
-1. `tusk_reindex` — the new types now apply to existing files.
-2. `tusk_doctor` — surfaces any drift introduced by the merge.
+`tusk_pack_add` reindexes as part of the reload, so the new types apply
+to existing files immediately. Run `tusk_doctor` to surface any drift the
+merge introduced.
 
 ## Built-in pack types vs user-declared types
 
@@ -32,4 +29,5 @@ pack).
 
 ## Discovering packs
 
-`tusk pack --help` from the shell lists available packs.
+The built-in packs are `vault`, `tags`, and `kanban`. Pass any of those
+names to `tusk_pack_add`, or a full `http(s)://…/pack.toml` URL.
