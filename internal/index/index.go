@@ -183,7 +183,13 @@ func Open(dbPath string) (*Index, error) {
 		return nil, fmt.Errorf("index: ensure dir: %w", mkErr)
 	}
 
-	db, openErr := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)")
+	// synchronous=NORMAL: the index is a rebuildable cache (the markdown files
+	// are the source of truth), so fsyncing every commit (the FULL default)
+	// buys nothing the pipelines' thousands of tiny commits can't regenerate.
+	// In WAL mode NORMAL stays corruption-safe and fsyncs only at checkpoint;
+	// at worst the last few commits are lost on power loss, which reindex
+	// recomputes from disk.
+	db, openErr := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)")
 
 	if openErr != nil {
 		return nil, fmt.Errorf("index: open sqlite: %w", openErr)
