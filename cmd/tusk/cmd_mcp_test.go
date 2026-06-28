@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -162,6 +163,10 @@ func TestMCPCmd_VerboseSetsRuntimeLogger(test *testing.T) {
 		test.Fatal("--verbose should produce a non-nil logger")
 	}
 
+	if !logger.Enabled(context.Background(), slog.LevelDebug) {
+		test.Error("--verbose logger should be enabled at Debug level")
+	}
+
 	runtime, openErr := mcp.Open(wsDir, mcp.WithLogger(logger))
 
 	if openErr != nil {
@@ -175,15 +180,32 @@ func TestMCPCmd_VerboseSetsRuntimeLogger(test *testing.T) {
 	}
 }
 
-func TestMCPCmd_DefaultSetsNoLogger(test *testing.T) {
+// TestMCPCmd_DefaultSetsWarnLogger pins the A1 fix: the default daemon must NOT
+// be deaf. mcpLoggerFromFlags returns a non-nil Warn-level stderr logger even
+// without --verbose, so background-component failures (a dead watcher, a stuck
+// drainer) are surfaced rather than swallowed. --verbose only drops the level
+// to Debug.
+func TestMCPCmd_DefaultSetsWarnLogger(test *testing.T) {
 	rootCmd := newRootCmd()
 
 	if parseErr := rootCmd.ParseFlags(nil); parseErr != nil {
 		test.Fatalf("parse: %v", parseErr)
 	}
 
-	if logger := mcpLoggerFromFlags(rootCmd); logger != nil {
-		test.Errorf("default cmd_mcp should produce a nil logger; got %v", logger)
+	logger := mcpLoggerFromFlags(rootCmd)
+
+	if logger == nil {
+		test.Fatal("default mcp must build a non-nil logger so background-component failures reach stderr")
+	}
+
+	ctx := context.Background()
+
+	if !logger.Enabled(ctx, slog.LevelWarn) {
+		test.Error("default logger should be enabled at Warn level")
+	}
+
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		test.Error("default logger should NOT be enabled at Debug level (Debug is --verbose only)")
 	}
 }
 
