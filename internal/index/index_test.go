@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -288,5 +289,54 @@ func TestOpen_SynchronousIsNormal(test *testing.T) {
 
 	if synchronous != 1 {
 		test.Errorf("PRAGMA synchronous = %d, want 1 (NORMAL)", synchronous)
+	}
+}
+
+// TestOpen_TypeIndexServesTypeFilter asserts a bare `type = ?` filter (the most
+// common structural predicate) is served by nodes_type_idx rather than scanning
+// the table. nodes_kind_type_idx leads with the 2-value kind column, so it
+// can't serve a type-only predicate.
+func TestOpen_TypeIndexServesTypeFilter(test *testing.T) {
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	var indexName string
+
+	if scanErr := store.DB().QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='index' AND name='nodes_type_idx'`,
+	).Scan(&indexName); scanErr != nil {
+		test.Fatalf("nodes_type_idx missing: %v", scanErr)
+	}
+
+	rows, queryErr := store.DB().Query(`EXPLAIN QUERY PLAN SELECT id FROM nodes WHERE type = ?`, "note")
+
+	if queryErr != nil {
+		test.Fatalf("EXPLAIN: %v", queryErr)
+	}
+
+	defer rows.Close()
+
+	var plan strings.Builder
+
+	for rows.Next() {
+		var selectID, order, from int
+
+		var detail string
+
+		if scanErr := rows.Scan(&selectID, &order, &from, &detail); scanErr != nil {
+			test.Fatalf("scan plan: %v", scanErr)
+		}
+
+		plan.WriteString(detail)
+		plan.WriteString("\n")
+	}
+
+	if !strings.Contains(plan.String(), "nodes_type_idx") {
+		test.Errorf("type=? plan does not use nodes_type_idx:\n%s", plan.String())
 	}
 }
