@@ -84,22 +84,44 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 			metaRepo := index.NewMetaRepo(store)
 			fileStateRepo := index.NewFileStateRepo(store)
 			embedQueueRepo := index.NewEmbedQueueRepo(store)
+			workflowDriftRepo := index.NewWorkflowDriftRepo(store)
+			propertyDriftRepo := index.NewPropertyDriftRepo(store)
+
+			engine, engineErr := newBehaviorEngine(loaded)
+
+			if engineErr != nil {
+				return engineErr
+			}
+
+			// buildReindexConfig centralizes the full validating reindex config so
+			// the initial pass and every watch-triggered pass stay identical —
+			// including the workflow/property validators and their drift logs.
+			// Omitting these (the prior behavior) made `tusk watch` index content
+			// while skipping validation, so doctor drift went stale in both
+			// directions until a manual `tusk reindex`.
+			buildReindexConfig := func() reindex.Config {
+				return reindex.Config{
+					Root:            ws.Root,
+					Repo:            nodeRepo,
+					Edges:           edgeRepo,
+					EdgeTypes:       loaded.EdgeTypes,
+					WorkspaceIgnore: loaded.Workspace.Ignore,
+					EmbedQueue:      embedQueueRepo,
+					Meta:            metaRepo,
+					FileStates:      fileStateRepo,
+					Behaviors:       engine,
+					DriftLog:        workflowDriftRepo,
+					NodeTypes:       loaded.NodeTypes,
+					PropertyDrift:   propertyDriftRepo,
+					Logger:          logger,
+					Manifest:        loaded,
+					Workers:         resolveEmbedWorkers(loaded),
+				}
+			}
 
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
 
-			if _, runErr := reindex.Run(reindex.Config{
-				Root:            ws.Root,
-				Repo:            nodeRepo,
-				Edges:           edgeRepo,
-				EdgeTypes:       loaded.EdgeTypes,
-				WorkspaceIgnore: loaded.Workspace.Ignore,
-				EmbedQueue:      embedQueueRepo,
-				Meta:            metaRepo,
-				FileStates:      fileStateRepo,
-				Logger:          logger,
-				Manifest:        loaded,
-				Workers:         resolveEmbedWorkers(loaded),
-			}); runErr != nil {
+			if _, runErr := reindex.Run(buildReindexConfig()); runErr != nil {
 				return runErr
 			}
 
@@ -161,19 +183,7 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 
 				// Plan 3 ships full-tree reindex on each event for simplicity.
 				// Plan 8 polish: replace with single-file partial reindex.
-				_, runErr := reindex.Run(reindex.Config{
-					Root:            ws.Root,
-					Repo:            nodeRepo,
-					Edges:           edgeRepo,
-					EdgeTypes:       loaded.EdgeTypes,
-					WorkspaceIgnore: loaded.Workspace.Ignore,
-					EmbedQueue:      embedQueueRepo,
-					Meta:            metaRepo,
-					FileStates:      fileStateRepo,
-					Logger:          logger,
-					Manifest:        loaded,
-					Workers:         resolveEmbedWorkers(loaded),
-				})
+				_, runErr := reindex.Run(buildReindexConfig())
 
 				if runErr != nil {
 					logger.Warn("watch handler reindex failed", "path", event.Path, "err", runErr.Error())
