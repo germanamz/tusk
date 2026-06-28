@@ -3,6 +3,7 @@ package graphview
 import (
 	"context"
 	"io/fs"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -16,6 +17,11 @@ type Server struct {
 	deps    Deps
 	mux     *http.ServeMux
 	pollDur time.Duration
+
+	// allowedHosts is the Host-header allowlist beyond loopback/localhost,
+	// derived from Deps.AllowedHosts. allowAnyHost is set when "*" is present.
+	allowedHosts map[string]struct{}
+	allowAnyHost bool
 
 	// mu guards clients (the SSE hub). It is unrelated to community state.
 	mu      sync.Mutex
@@ -47,11 +53,22 @@ func New(deps Deps) *Server {
 	}
 
 	srv := &Server{
-		deps:    deps,
-		mux:     http.NewServeMux(),
-		pollDur: poll,
-		clients: make(map[chan []byte]struct{}),
-		detect:  graphcluster.Detect,
+		deps:         deps,
+		mux:          http.NewServeMux(),
+		pollDur:      poll,
+		clients:      make(map[chan []byte]struct{}),
+		detect:       graphcluster.Detect,
+		allowedHosts: make(map[string]struct{}),
+	}
+
+	for _, host := range deps.AllowedHosts {
+		if host == "*" {
+			srv.allowAnyHost = true
+
+			continue
+		}
+
+		srv.allowedHosts[host] = struct{}{}
 	}
 
 	srv.routes()
@@ -59,9 +76,49 @@ func New(deps Deps) *Server {
 	return srv
 }
 
-// Handler returns the mountable HTTP handler (API + embedded static assets).
+// Handler returns the mountable HTTP handler (API + embedded static assets),
+// wrapped in a Host-header guard. The server binds loopback by default, but a
+// browser the user already runs can rebind an attacker domain to the loopback
+// address and read vault file bodies and embeddings same-origin. Only requests
+// whose Host names a loopback address, "localhost", or an explicitly allowed
+// host are served; everything else gets 403.
 func (srv *Server) Handler() http.Handler {
-	return srv.mux
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !srv.hostAllowed(request.Host) {
+			http.Error(writer, "forbidden: untrusted Host header", http.StatusForbidden)
+
+			return
+		}
+
+		srv.mux.ServeHTTP(writer, request)
+	})
+}
+
+// hostAllowed reports whether a request's Host header may be served. Loopback
+// addresses and "localhost" always pass; other hosts must be in the configured
+// allowlist (or "*" must have disabled the guard).
+func (srv *Server) hostAllowed(hostHeader string) bool {
+	if srv.allowAnyHost {
+		return true
+	}
+
+	hostname := hostHeader
+
+	if host, _, splitErr := net.SplitHostPort(hostHeader); splitErr == nil {
+		hostname = host
+	}
+
+	if hostname == "localhost" {
+		return true
+	}
+
+	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
+		return true
+	}
+
+	_, allowed := srv.allowedHosts[hostname]
+
+	return allowed
 }
 
 // Run drives the SSE broadcast loop until ctx is cancelled.
