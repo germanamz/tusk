@@ -1405,3 +1405,69 @@ func TestDrainQueue_DefaultsTTLWhenUnset(test *testing.T) {
 		test.Errorf("leased_until_ns = %d, want in [%d, %d] (now + ~60s default)", leasedUntilNs, lowerBound, upperBound)
 	}
 }
+
+// TestDrainQueue_GCSkippedWhenNothingDrained asserts GCOrphanVectors runs only
+// after a pass actually drains work, not on every idle tick. Orphans are
+// created by content edits/deletes that flow through the queue, so an idle pass
+// has nothing to collect — and a DELETE...WHERE NOT EXISTS scan every ~2s at
+// idle is pure waste.
+func TestDrainQueue_GCSkippedWhenNothingDrained(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	// An orphan vector: a row in embeddings with no node_embeddings mapping.
+	// Insert directly (EmbeddingRepo.Upsert also writes a node-keyed mapping).
+	if _, seedErr := store.DB().Exec(
+		`INSERT INTO embeddings (content_hash, model, vector, dim) VALUES (?, ?, ?, ?)`,
+		"orphan-hash", "stub", []byte{1, 2, 3}, 3,
+	); seedErr != nil {
+		test.Fatalf("seed orphan vector: %v", seedErr)
+	}
+
+	drainCfg := embed.DrainConfig{
+		Root: root, Nodes: nodeRepo, Queue: queueRepo, Embeddings: embeddingRepo,
+		Embedder: &drainStubEmbedder{dim: 3, model: "stub"}, Chunker: embed.WholeDocument{}, BatchSize: 50,
+	}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), drainCfg)
+
+	if drainErr != nil {
+		test.Fatalf("idle DrainQueue: %v", drainErr)
+	}
+
+	if drained != 0 {
+		test.Fatalf("idle drained = %d, want 0", drained)
+	}
+
+	exists, _ := embeddingRepo.ExistsByContentHashes([]string{"orphan-hash"}, "stub")
+
+	if !exists["orphan-hash"] {
+		test.Errorf("orphan vector was GC'd on an idle pass; GC should be gated on drained > 0")
+	}
+
+	// Active pass: draining a real node lets GC run on completion.
+	createNodeFile(test, root, "notes/a.md", "hi")
+	nodeRepo.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"})
+	queueRepo.Enqueue("notes/a")
+
+	activeDrained, activeErr := embed.DrainQueue(context.Background(), drainCfg)
+
+	if activeErr != nil {
+		test.Fatalf("active DrainQueue: %v", activeErr)
+	}
+
+	if activeDrained == 0 {
+		test.Fatalf("active drained = 0, want > 0")
+	}
+
+	existsAfter, _ := embeddingRepo.ExistsByContentHashes([]string{"orphan-hash"}, "stub")
+
+	if existsAfter["orphan-hash"] {
+		test.Errorf("orphan vector should be collected after an active drain")
+	}
+}
