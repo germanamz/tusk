@@ -164,6 +164,88 @@ func TestRename_MovesFileAndRewritesReferringEdgesInFrontmatter(test *testing.T)
 	}
 }
 
+func TestRename_RewritesBlockSequenceEdgeTargets(test *testing.T) {
+	root := test.TempDir()
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	edgeTypes := manifest.EdgeTypes{
+		"blocks": manifest.EdgeType{From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToMany},
+	}
+
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, edgeTypes, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
+
+	for _, target := range []string{"tickets/a", "tickets/b"} {
+		if _, createErr := service.Create(node.CreateInput{
+			RelPath: target + ".md", Type: "ticket", Title: target,
+		}); createErr != nil {
+			test.Fatalf("create %s: %v", target, createErr)
+		}
+	}
+
+	if _, refErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/ref.md",
+		Type:       "ticket",
+		Title:      "Ref",
+		Properties: map[string]any{"blocks": []any{"tickets/a", "tickets/b"}},
+	}); refErr != nil {
+		test.Fatalf("create ref: %v", refErr)
+	}
+
+	refContent, _ := os.ReadFile(filepath.Join(root, "tickets/ref.md"))
+
+	if !strings.Contains(string(refContent), "  - tickets/a\n") {
+		test.Fatalf("precondition: ref should store blocks as a block sequence:\n%s", string(refContent))
+	}
+
+	if _, renameErr := node.Rename(
+		root, nodeRepo, edgeRepo,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+		edgeTypes, nil, "tickets/a", "tickets/a-renamed.md",
+	); renameErr != nil {
+		test.Fatalf("Rename: %v", renameErr)
+	}
+
+	rewritten, _ := os.ReadFile(filepath.Join(root, "tickets/ref.md"))
+
+	if strings.Contains(string(rewritten), "  - tickets/a\n") {
+		test.Errorf("block-sequence target left dangling at old id:\n%s", string(rewritten))
+	}
+
+	if !strings.Contains(string(rewritten), "  - tickets/a-renamed\n") {
+		test.Errorf("block-sequence target not rewritten to new id:\n%s", string(rewritten))
+	}
+
+	refEdges, _ := edgeRepo.ListBySource("tickets/ref")
+
+	var renamedFound, siblingKept bool
+
+	for _, edge := range refEdges {
+		if edge.Type != "blocks" {
+			continue
+		}
+
+		if edge.TargetID == "tickets/a-renamed" {
+			renamedFound = true
+		}
+
+		if edge.TargetID == "tickets/b" {
+			siblingKept = true
+		}
+	}
+
+	if !renamedFound || !siblingKept {
+		test.Errorf("edges after rename = %+v, want blocks→{tickets/a-renamed, tickets/b}", refEdges)
+	}
+}
+
 func TestRename_InheritsSourceExtensionWhenTargetHasNone(test *testing.T) {
 	root := test.TempDir()
 
