@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/doctor"
@@ -21,11 +22,11 @@ import (
 // test instead of a real Ollama embedder.
 type integrationStubEmbedder struct {
 	dim   int
-	calls int
+	calls atomic.Int64 // reindex now embeds nodes concurrently; keep this race-free
 }
 
 func (stub *integrationStubEmbedder) Embed(_ context.Context, payload []byte) ([]float32, error) {
-	stub.calls++
+	stub.calls.Add(1)
 
 	out := make([]float32, stub.dim)
 
@@ -231,7 +232,7 @@ func TestPhase2Integration(test *testing.T) {
 			sectionEmbeddingCount)
 	}
 
-	if embedder.calls == 0 {
+	if embedder.calls.Load() == 0 {
 		test.Errorf("stub embedder never called")
 	}
 
