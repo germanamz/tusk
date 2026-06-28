@@ -8,6 +8,10 @@ package embed
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"time"
+
+	"github.com/germanamz/tusk/internal/manifest"
 )
 
 // Embedder produces a single vector per payload.
@@ -15,6 +19,30 @@ type Embedder interface {
 	Embed(ctx context.Context, payload []byte) ([]float32, error)
 	Model() string
 	Dim() int
+}
+
+// NewFromManifest builds the Embedder and ChunkingStrategy for a workspace's
+// [embeddings] configuration, centralizing the provider guard, timeout
+// resolution, and OllamaConfig mapping that every drain/query/reindex path used
+// to repeat. It returns (nil, nil) when no supported provider is configured, so
+// callers keep their "embedder == nil disables semantic features" handling.
+// logger may be nil (silences the embedder's own debug/warn output).
+func NewFromManifest(cfg manifest.EmbeddingsSection, logger *slog.Logger) (Embedder, ChunkingStrategy) {
+	if cfg.Provider != "ollama" {
+		return nil, nil
+	}
+
+	timeout := time.Duration(ResolveTimeoutSeconds(cfg.TimeoutSeconds)) * time.Second
+
+	embedder := NewOllamaEmbedder(OllamaConfig{
+		Endpoint: cfg.Endpoint,
+		Model:    cfg.Model,
+		Dim:      cfg.Dim,
+		Logger:   logger,
+		Timeout:  timeout,
+	})
+
+	return embedder, MarkdownRecursive{}
 }
 
 // TransportError marks an embed failure as transient infrastructure trouble —

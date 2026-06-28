@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/embed"
@@ -72,18 +71,9 @@ func openStore(cmd *cobra.Command, root, indexPath string, loaded *manifest.Mani
 // nil otherwise. Shared by the alias and context dispatch paths; the query and
 // reindex commands build their embedder differently (validation / logger).
 func buildEmbedder(loaded *manifest.Manifest) embed.Embedder {
-	if loaded.Embeddings.Provider != "ollama" {
-		return nil
-	}
+	embedder, _ := embed.NewFromManifest(loaded.Embeddings, nil)
 
-	timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
-
-	return embed.NewOllamaEmbedder(embed.OllamaConfig{
-		Endpoint: loaded.Embeddings.Endpoint,
-		Model:    loaded.Embeddings.Model,
-		Dim:      loaded.Embeddings.Dim,
-		Timeout:  timeout,
-	})
+	return embedder
 }
 
 // newNodeService builds the per-call node.Service the write verbs use, wiring
