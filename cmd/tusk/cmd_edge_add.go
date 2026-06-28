@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/node"
 	"github.com/spf13/cobra"
 )
 
@@ -56,11 +54,6 @@ same graph state.`,
 			if resolveErr != nil {
 				return resolveErr
 			}
-			edgeDef, declared := loaded.EdgeTypes[edgeType]
-
-			if !declared {
-				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
-			}
 
 			store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
@@ -70,45 +63,10 @@ same graph state.`,
 
 			defer store.Close()
 
-			nodeRepo := index.NewNodeRepo(store)
+			service := newNodeService(ws, store, loaded, nil, cmd.ErrOrStderr())
 
-			sourceRow, sourceErr := nodeRepo.Get(source)
-
-			if sourceErr != nil {
-				return fmt.Errorf("source: %w", sourceErr)
-			}
-
-			if !edgeDef.AllowsSource(sourceRow.Type) {
-				return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
-			}
-
-			if targetRow, getErr := nodeRepo.Get(target); getErr == nil {
-				if !edgeDef.AllowsTarget(targetRow.Type) {
-					return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
-				}
-			}
-
-			if edgeDef.Acyclic {
-				edgeRepo := index.NewEdgeRepo(store)
-				existing, listErr := edgeRepo.ListByType(edgeType)
-
-				if listErr != nil {
-					return listErr
-				}
-
-				adjacency := buildAdjacency(existing)
-
-				if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: source, Target: target}, adjacency); cycleErr != nil {
-					return cycleErr
-				}
-			}
-
-			if writeErr := node.AddEdgeToFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
-				return writeErr
-			}
-
-			if reindexErr := node.ReindexSource(ws.Root, index.NewEdgeRepo(store), loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
-				return reindexErr
+			if addErr := service.AddEdge(edgeType, source, target); addErr != nil {
+				return addErr
 			}
 
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added edge %s: %s → %s\n", edgeType, source, target)
@@ -122,14 +80,4 @@ same graph state.`,
 	addCmd.Flags().StringVar(&target, "target", "", "target node id")
 
 	return addCmd
-}
-
-func buildAdjacency(rows []index.EdgeRow) map[string][]string {
-	adjacency := map[string][]string{}
-
-	for _, row := range rows {
-		adjacency[row.SourceID] = append(adjacency[row.SourceID], row.TargetID)
-	}
-
-	return adjacency
 }

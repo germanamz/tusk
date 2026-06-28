@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/node"
 	"github.com/spf13/cobra"
 )
 
@@ -45,9 +43,6 @@ any remaining sentinel rows on its next run.`,
 			if resolveErr != nil {
 				return resolveErr
 			}
-			if _, declared := loaded.EdgeTypes[edgeType]; !declared {
-				return fmt.Errorf("edge type %q not declared in manifest", edgeType)
-			}
 
 			store, openErr := openStore(cmd, ws.Root, ws.IndexPath, loaded)
 
@@ -57,46 +52,10 @@ any remaining sentinel rows on its next run.`,
 
 			defer store.Close()
 
-			if writeErr := node.RemoveEdgeFromFrontmatter(ws.Root, source, edgeType, target, loaded.EdgeTypes); writeErr != nil {
-				return writeErr
-			}
+			service := newNodeService(ws, store, loaded, nil, cmd.ErrOrStderr())
 
-			edgeRepo := index.NewEdgeRepo(store)
-
-			if reindexErr := node.ReindexSource(ws.Root, edgeRepo, loaded.EdgeTypes, loaded.NodeTypes, source); reindexErr != nil {
-				return reindexErr
-			}
-
-			// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
-			legacy, listErr := edgeRepo.ListBySource(source)
-
-			if listErr != nil {
-				return fmt.Errorf("edge remove: list legacy rows: %w", listErr)
-			}
-
-			var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
-
-			for _, row := range legacy {
-				matchesTriple := row.Type == edgeType && row.TargetID == target
-
-				switch row.SourcePath {
-				case index.CLISourcePath:
-					if !matchesTriple {
-						keptLegacyCLI = append(keptLegacyCLI, row)
-					}
-				case index.MCPSourcePath:
-					if !matchesTriple {
-						keptLegacyMCP = append(keptLegacyMCP, row)
-					}
-				}
-			}
-
-			if upsertErr := edgeRepo.UpsertAll(source, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
-				return upsertErr
-			}
-
-			if upsertErr := edgeRepo.UpsertAll(source, index.MCPSourcePath, keptLegacyMCP); upsertErr != nil {
-				return upsertErr
+			if removeErr := service.RemoveEdge(edgeType, source, target); removeErr != nil {
+				return removeErr
 			}
 
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed edge %s: %s → %s\n", edgeType, source, target)

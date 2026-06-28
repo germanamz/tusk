@@ -1,6 +1,7 @@
 package node
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,128 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 )
+
+// ErrEdgeTypeNotDeclared is the sentinel Service.AddEdge / Service.RemoveEdge
+// return when the edge type is absent from the manifest. Callers match it with
+// errors.Is to add context — the MCP tools append a "call tusk_reload" hint
+// because their schema is cached, while the CLI (which reloads the manifest each
+// run) surfaces it plainly.
+var ErrEdgeTypeNotDeclared = errors.New("not declared in manifest")
+
+// AddEdge validates and writes a typed edge from sourceID to targetID, then
+// reindexes the source. It owns the full edge-add pipeline — edge-type check,
+// source/target node-type allow checks, acyclic cycle detection, frontmatter
+// write, reindex — so the CLI `tusk edge add` and the `tusk_edge_add` MCP tool
+// reduce to marshal+call+format. The manifest divergence (CLI reloads, MCP
+// caches) lives at the call site: each builds a Service with its own edgeTypes /
+// nodeTypes, never reloaded here.
+func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
+	edgeDef, declared := service.edgeTypes[edgeType]
+
+	if !declared {
+		return fmt.Errorf("edge type %q %w", edgeType, ErrEdgeTypeNotDeclared)
+	}
+
+	sourceRow, sourceErr := service.repo.Get(sourceID)
+
+	if sourceErr != nil {
+		return fmt.Errorf("source: %w", sourceErr)
+	}
+
+	if !edgeDef.AllowsSource(sourceRow.Type) {
+		return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
+	}
+
+	if targetRow, getErr := service.repo.Get(targetID); getErr == nil {
+		if !edgeDef.AllowsTarget(targetRow.Type) {
+			return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
+		}
+	}
+
+	if edgeDef.Acyclic {
+		existing, listErr := service.edges.ListByType(edgeType)
+
+		if listErr != nil {
+			return listErr
+		}
+
+		if cycleErr := DetectCycle(CycleProbe{EdgeType: edgeType, Source: sourceID, Target: targetID}, edgeAdjacency(existing)); cycleErr != nil {
+			return cycleErr
+		}
+	}
+
+	if writeErr := AddEdgeToFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes); writeErr != nil {
+		return writeErr
+	}
+
+	return ReindexSource(service.root, service.edges, service.edgeTypes, service.nodeTypes, sourceID)
+}
+
+// RemoveEdge removes the (edgeType, sourceID, targetID) edge from the source's
+// frontmatter, reindexes, and sweeps any legacy __cli__/__mcp__ sentinel row for
+// the same triple. Owns the full edge-remove pipeline so both the CLI and MCP
+// handlers reduce to marshal+call+format.
+func (service *Service) RemoveEdge(edgeType, sourceID, targetID string) error {
+	if _, declared := service.edgeTypes[edgeType]; !declared {
+		return fmt.Errorf("edge type %q %w", edgeType, ErrEdgeTypeNotDeclared)
+	}
+
+	if writeErr := RemoveEdgeFromFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes); writeErr != nil {
+		return writeErr
+	}
+
+	if reindexErr := ReindexSource(service.root, service.edges, service.edgeTypes, service.nodeTypes, sourceID); reindexErr != nil {
+		return reindexErr
+	}
+
+	return service.sweepLegacyEdges(edgeType, sourceID, targetID)
+}
+
+// sweepLegacyEdges clears any pre-frontmatter __cli__/__mcp__ sentinel row that
+// matches the removed (edgeType, targetID) triple for sourceID, rewriting each
+// sentinel source-path with its surviving rows. Idempotent.
+func (service *Service) sweepLegacyEdges(edgeType, sourceID, targetID string) error {
+	legacy, listErr := service.edges.ListBySource(sourceID)
+
+	if listErr != nil {
+		return fmt.Errorf("edge remove: list legacy rows: %w", listErr)
+	}
+
+	var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
+
+	for _, row := range legacy {
+		matchesTriple := row.Type == edgeType && row.TargetID == targetID
+
+		switch row.SourcePath {
+		case index.CLISourcePath:
+			if !matchesTriple {
+				keptLegacyCLI = append(keptLegacyCLI, row)
+			}
+		case index.MCPSourcePath:
+			if !matchesTriple {
+				keptLegacyMCP = append(keptLegacyMCP, row)
+			}
+		}
+	}
+
+	if upsertErr := service.edges.UpsertAll(sourceID, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
+		return upsertErr
+	}
+
+	return service.edges.UpsertAll(sourceID, index.MCPSourcePath, keptLegacyMCP)
+}
+
+// edgeAdjacency builds a source-id → target-ids adjacency map from edge rows,
+// the shape DetectCycle consumes.
+func edgeAdjacency(rows []index.EdgeRow) map[string][]string {
+	adjacency := map[string][]string{}
+
+	for _, row := range rows {
+		adjacency[row.SourceID] = append(adjacency[row.SourceID], row.TargetID)
+	}
+
+	return adjacency
+}
 
 // AddEdgeToFrontmatter loads sourceID's markdown file under workspaceRoot,
 // inserts targetID under the edge-type key in frontmatter (respecting the
