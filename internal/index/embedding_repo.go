@@ -329,23 +329,44 @@ func (repo *EmbeddingRepo) ListByNodeIDs(nodeIDs []string) ([]EmbeddingRow, erro
 		return nil, nil
 	}
 
-	args := make([]any, len(nodeIDs))
+	var out []EmbeddingRow
 
-	for idx, nodeID := range nodeIDs {
-		args[idx] = nodeID
+	for _, chunk := range chunkStrings(nodeIDs, maxInVariables) {
+		args := make([]any, len(chunk))
+
+		for idx, nodeID := range chunk {
+			args[idx] = nodeID
+		}
+
+		query := embeddingJoinSelect + fmt.Sprintf(` WHERE ne.node_id IN (%s)`, inPlaceholders(len(chunk)))
+
+		rows, queryErr := repo.db.Query(query, args...)
+
+		if queryErr != nil {
+			return nil, fmt.Errorf("embeddingRepo: list: %w", queryErr)
+		}
+
+		scanned, scanErr := scanEmbeddings(rows)
+
+		rows.Close()
+
+		if scanErr != nil {
+			return nil, scanErr
+		}
+
+		out = append(out, scanned...)
 	}
 
-	query := embeddingJoinSelect + fmt.Sprintf(` WHERE ne.node_id IN (%s) ORDER BY ne.node_id, ne.chunk_idx`, inPlaceholders(len(nodeIDs)))
+	// Re-establish the single-query (node_id, chunk_idx) ordering across chunks.
+	sort.Slice(out, func(left, right int) bool {
+		if out[left].NodeID != out[right].NodeID {
+			return out[left].NodeID < out[right].NodeID
+		}
 
-	rows, queryErr := repo.db.Query(query, args...)
+		return out[left].ChunkIdx < out[right].ChunkIdx
+	})
 
-	if queryErr != nil {
-		return nil, fmt.Errorf("embeddingRepo: list: %w", queryErr)
-	}
-
-	defer rows.Close()
-
-	return scanEmbeddings(rows)
+	return out, nil
 }
 
 // DeleteByNodeID removes every node→content mapping for nodeID. The shared

@@ -313,6 +313,12 @@ func (repo *NodeRepo) ListSubUnitsForFile(fileID string) ([]NodeRow, error) {
 // embedding sub-unit-for-files queries.
 const maxGlobConditions = 500
 
+// maxInVariables bounds how many bind variables a single `IN (...)` clause
+// uses, kept safely under SQLite's SQLITE_MAX_VARIABLE_NUMBER (32766) so large
+// id sets are split across multiple queries instead of erroring. A var (not a
+// const) so tests can shrink it to exercise the chunking path.
+var maxInVariables = 32000
+
 // chunkStrings splits items into consecutive slices of at most size elements;
 // the final chunk may be shorter. A non-positive size yields a single chunk.
 func chunkStrings(items []string, size int) [][]string {
@@ -391,15 +397,30 @@ func (repo *NodeRepo) ListByIDs(ids []string) ([]NodeRow, error) {
 		return nil, nil
 	}
 
-	args := make([]any, len(ids))
+	var out []NodeRow
 
-	for idx, id := range ids {
-		args[idx] = id
+	for _, chunk := range chunkStrings(ids, maxInVariables) {
+		args := make([]any, len(chunk))
+
+		for idx, id := range chunk {
+			args[idx] = id
+		}
+
+		query := nodeSelectColumns + ` FROM nodes WHERE id IN (` + inPlaceholders(len(chunk)) + `)`
+
+		rows, queryErr := repo.queryNodes(query, args...)
+
+		if queryErr != nil {
+			return nil, queryErr
+		}
+
+		out = append(out, rows...)
 	}
 
-	query := nodeSelectColumns + ` FROM nodes WHERE id IN (` + inPlaceholders(len(ids)) + `) ORDER BY id ASC`
+	// Re-establish the single-query `ORDER BY id ASC` contract across chunks.
+	sort.Slice(out, func(left, right int) bool { return out[left].ID < out[right].ID })
 
-	return repo.queryNodes(query, args...)
+	return out, nil
 }
 
 // FindByTitle returns the IDs of all nodes whose title matches title.
