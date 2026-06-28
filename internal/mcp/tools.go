@@ -1315,8 +1315,8 @@ func registerEdgeRemoveTool(srv *Server) {
 
 func registerReindexTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_reindex",
-		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk."),
-		mcpgo.WithBoolean("no_embed", mcpgo.Description("Skip the embedding pass")),
+		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk — the MCP equivalent of `tusk reindex`. The embedding pass runs over Ollama and can be slow on a large vault; pass no_embed=true for a fast structural-only pass (embeddings still drain in the background). The response reports indexed/removed/skipped plus the remaining embed_queue_depth — poll tusk_status to watch it drain."),
+		mcpgo.WithBoolean("no_embed", mcpgo.Description("Skip the synchronous embedding pass and return as soon as the structural index is up to date; pending embeddings drain in the background.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -1348,11 +1348,21 @@ func registerReindexTool(srv *Server) {
 			return toolError(runErr), nil
 		}
 
-		return toolJSON(map[string]any{
+		result := map[string]any{
 			"indexed": report.Indexed,
 			"removed": report.Removed,
 			"skipped": report.Skipped,
-		})
+		}
+
+		// Surface remaining embed work so the agent can see embeddings are
+		// still pending (they drain in the background) rather than assuming the
+		// node is immediately semantically searchable. Best-effort: a depth
+		// read error is non-fatal to the reindex result.
+		if depth, depthErr := rt.EmbedQueue.Depth(); depthErr == nil {
+			result["embed_queue_depth"] = depth
+		}
+
+		return toolJSON(result)
 	}
 
 	srv.registerWrite(tool, handler)
