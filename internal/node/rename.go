@@ -114,6 +114,10 @@ func Rename(
 		}
 	}
 
+	if localErr := ensureVaultLocal(newRelPath); localErr != nil {
+		return nil, localErr
+	}
+
 	newID := strings.TrimSuffix(newRelPath, filepath.Ext(newRelPath))
 	oldPath := row.Path
 	oldAbs := filepath.Join(root, oldPath)
