@@ -12,16 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// mcpLoggerFromFlags returns a verbose logger when --verbose is set, else nil.
-// Returning nil keeps Runtime.Logger nil so existing nil-checks short-circuit.
+// mcpLoggerFromFlags builds the daemon's stderr logger: Warn level by default,
+// Debug when --verbose. It is never nil — a default daemon must surface
+// background-component failures (a dead watcher, a stuck drainer) rather than
+// run deaf. Logs go to stderr so they never corrupt the stdio JSON-RPC stream
+// on stdout.
 func mcpLoggerFromFlags(cmd *cobra.Command) *slog.Logger {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
-	if !verbose {
-		return nil
-	}
-
-	return newLogger(cmd.ErrOrStderr(), true)
+	return newLogger(cmd.ErrOrStderr(), verbose)
 }
 
 func newMCPCmd() *cobra.Command {
@@ -73,10 +72,7 @@ reindex) must keep the index fresh.`,
 
 			opts := []mcp.Option{
 				mcp.WithAliasIntrospector(buildVerbIntrospector(cmd.Root())),
-			}
-
-			if logger := mcpLoggerFromFlags(cmd); logger != nil {
-				opts = append(opts, mcp.WithLogger(logger))
+				mcp.WithLogger(mcpLoggerFromFlags(cmd)),
 			}
 
 			runtime, openErr := mcp.Open(cwd, opts...)
@@ -115,9 +111,16 @@ reindex) must keep the index fresh.`,
 
 			cancel()
 
-			<-bgDone
+			bgErr := <-bgDone
 
-			return transportErr
+			// The transport error is user-facing and takes priority; a background
+			// component failure (a dead watcher, a stuck drainer) is surfaced only
+			// when the transport itself exited cleanly so it is not masked.
+			if transportErr != nil {
+				return transportErr
+			}
+
+			return bgErr
 		},
 	}
 

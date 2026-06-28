@@ -50,6 +50,7 @@ func RunDrainer(ctx context.Context, config DrainerConfig) error {
 				Chunker:    rt.Chunker,
 				Workers:    rt.Workers,
 				TTL:        rt.LeaseTTL,
+				Logger:     config.Logger,
 			})
 
 			if drainErr != nil && config.Logger != nil {

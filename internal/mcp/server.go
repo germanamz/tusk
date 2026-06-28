@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -505,6 +506,42 @@ func (srv *Server) ServeSSE(addr string) error {
 	return sse.Start(addr)
 }
 
+// errRecorder collects the first terminal error from RunBackground's component
+// goroutines. It logs each error the moment it is recorded — so a component
+// death (a dead watcher, a stuck drainer) is visible in the daemon's stderr
+// immediately rather than only when the process finally exits — while keeping
+// the first error for RunBackground to return. A nil logger silences output but
+// still tracks the first error.
+type errRecorder struct {
+	logger *slog.Logger
+	mu     sync.Mutex
+	first  error
+}
+
+func (rec *errRecorder) record(component string, err error) {
+	if err == nil {
+		return
+	}
+
+	if rec.logger != nil {
+		rec.logger.Error("background component failed", "component", component, "err", err)
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	if rec.first == nil {
+		rec.first = err
+	}
+}
+
+func (rec *errRecorder) firstErr() error {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	return rec.first
+}
+
 // RunBackground starts the background goroutines for this daemon. The two
 // drainers and the file watcher are gated on runtime.Workers > 0 (they produce
 // and consume reindex work). The two epoch-watcher pairs (index + manifest)
@@ -512,32 +549,17 @@ func (srv *Server) ServeSSE(addr string) error {
 // read-only (Workers=0) daemon must still pick up a sibling's reset (index-epoch)
 // and reload (manifest-epoch) rather than serve a stale index or schema. The
 // epoch watchers are lightweight (a 2s poll + an fsnotify watch on .tusk/).
-// Blocks until ctx cancels, then returns the first non-nil error.
+// Each component's terminal error is logged the moment it dies; RunBackground
+// blocks until ctx cancels, then returns the first non-nil error.
 func (srv *Server) RunBackground(ctx context.Context) error {
-	var (
-		mu    sync.Mutex
-		first error
-	)
-
-	record := func(err error) {
-		if err == nil {
-			return
-		}
-
-		mu.Lock()
-		defer mu.Unlock()
-
-		if first == nil {
-			first = err
-		}
-	}
-
-	var waitGroup sync.WaitGroup
-
 	srv.mu.RLock()
 	workers := srv.runtime.Workers
 	logger := srv.runtime.Logger
 	srv.mu.RUnlock()
+
+	rec := &errRecorder{logger: logger}
+
+	var waitGroup sync.WaitGroup
 
 	// Resource-heavy passes — drainers + file watcher — require workers.
 	if workers > 0 {
@@ -545,17 +567,17 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 
 		go func() {
 			defer waitGroup.Done()
-			record(RunDrainer(ctx, DrainerConfig{Server: srv, Logger: logger}))
+			rec.record("embed drainer", RunDrainer(ctx, DrainerConfig{Server: srv, Logger: logger}))
 		}()
 
 		go func() {
 			defer waitGroup.Done()
-			record(RunReindexDrainer(ctx, ReindexDrainerConfig{Server: srv, Logger: logger}))
+			rec.record("reindex drainer", RunReindexDrainer(ctx, ReindexDrainerConfig{Server: srv, Logger: logger}))
 		}()
 
 		go func() {
 			defer waitGroup.Done()
-			record(RunWatcher(ctx, WatchConfig{Server: srv, Logger: logger}))
+			rec.record("file watcher", RunWatcher(ctx, WatchConfig{Server: srv, Logger: logger}))
 		}()
 	} else if logger != nil {
 		logger.Warn(
@@ -570,27 +592,27 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 
 	go func() {
 		defer waitGroup.Done()
-		record(RunEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+		rec.record("index epoch watcher", RunEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
 	}()
 
 	go func() {
 		defer waitGroup.Done()
-		record(RunIndexEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+		rec.record("index epoch fast watcher", RunIndexEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
 	}()
 
 	go func() {
 		defer waitGroup.Done()
-		record(RunManifestEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+		rec.record("manifest epoch watcher", RunManifestEpochWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
 	}()
 
 	go func() {
 		defer waitGroup.Done()
-		record(RunManifestEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
+		rec.record("manifest epoch fast watcher", RunManifestEpochFastWatcher(ctx, EpochWatchConfig{Server: srv, Logger: logger}))
 	}()
 
 	waitGroup.Wait()
 
-	return first
+	return rec.firstErr()
 }
 
 // MCP exposes the underlying mcp-go server (for advanced wiring/tests).
