@@ -456,7 +456,7 @@ func registerNodeRenderTool(srv *Server) {
 
 func registerNodeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_list",
-		mcpgo.WithDescription("List nodes from the index. Optional type filter narrows the result. Use include / fields to expand rows with body / edges / properties in one round-trip. Results are sorted by id ascending by default."),
+		mcpgo.WithDescription("List nodes by type from the index — a convenience wrapper. For property / edge / hierarchy / recency filters, sorting, pagination, or semantic ranking, use tusk_query instead (it does everything `tusk node list` does and more). Use include / fields to expand rows with body / edges / properties in one round-trip. Sorted by id ascending."),
 		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
 		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
