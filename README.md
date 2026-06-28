@@ -367,6 +367,7 @@ Or directly in `~/.claude.json`:
 | `tusk_reindex` | force a full walk |
 | `tusk_reload` | hot-reload `tusk.toml`: validate + swap the schema, no restart |
 | `tusk_reset` | drop and rebuild the index from files (`confirm: true`) |
+| `tusk_pack_add` | merge a built-in type pack's node/edge types into `tusk.toml` and hot-reload the schema |
 
 Workspace bootstrap (`tusk init`) and the graph viewer (`tusk graph`) stay CLI-only.
 
