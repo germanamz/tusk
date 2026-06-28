@@ -21,8 +21,9 @@ import (
 
 // serverInstructions is sent back in the MCP initialize response. Clients
 // surface this to the model at session start, so it carries the load of
-// telling agents that Tusk is local (not a remote service) and pointing at
-// the tusk_help tool for everything else. Keep it short — the deep content
+// telling agents that Tusk is local (not a remote service), that these tools
+// — not the `tusk` shell binary — are the interface to reach for, and pointing
+// at the tusk_help tool for everything else. Keep it short — the deep content
 // lives in the tusk_help topics.
 const serverInstructions = `Tusk is a LOCAL workspace indexer running over the current working directory.
 There is no remote service. Every tool operates on:
@@ -30,10 +31,25 @@ There is no remote service. Every tool operates on:
   - the schema declared in ./tusk.toml
   - the SQLite index at ./.tusk/index.db
 
-To declare new node-types or edge-types, edit ./tusk.toml directly, then call
-tusk_reload to validate and hot-swap the schema (it also kicks a reindex and
-converges any sibling daemons). tusk_reindex alone re-reads content, not the
-in-memory schema.
+These tusk_* tools are the interface for agents — prefer them over the "tusk"
+shell binary (it may also be on PATH). They run in this already-warm process
+with the index open and return structured results; each "tusk ..." shell call
+cold-starts a process and reopens the database. Reach for the shell only for
+setup that has no tool yet: "tusk init" and "tusk pack add".
+
+Everyday work maps to tools, not shell verbs:
+  - read:   tusk_query, tusk_node_get, tusk_node_render, tusk_node_list,
+            tusk_edge_list, tusk_status, tusk_context
+  - write:  tusk_node_create, tusk_node_modify, tusk_node_move,
+            tusk_node_delete, tusk_edge_add, tusk_edge_remove
+  - upkeep: tusk_reindex, tusk_doctor, tusk_reload, tusk_reset
+
+To declare new node-types or edge-types, edit ./tusk.toml in your editor (not
+the shell), then call tusk_reload to validate and hot-swap the schema (it also
+kicks a reindex and converges any sibling daemons). A write rejected with "not
+declared in manifest" right after editing tusk.toml means the daemon's cached
+schema is stale — call tusk_reload, then retry. tusk_reindex alone re-reads
+content, not the in-memory schema.
 
 If the index seems wedged or corrupt, call tusk_reset(confirm: true) to drop and
 rebuild it from your files.
