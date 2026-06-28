@@ -2,6 +2,7 @@ package behavior
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -54,15 +55,22 @@ func (registry *Registry) BuildEngineWithDeclaredKeys(loaded *manifest.Manifest,
 
 	var instances []Instance
 
-	for kindName, perInstance := range loaded.Behaviors {
+	// Resolve kinds and their instances in sorted order. Map iteration is
+	// randomized, and FireNodeWriteValidate short-circuits on the first
+	// rejection, so unsorted order made the reported Rejector (and error
+	// message) flip across tusk reload / restart when two instances govern
+	// the same type.
+	for _, kindName := range sortedKeys(loaded.Behaviors) {
+		perInstance := loaded.Behaviors[kindName]
+
 		kind, found := registry.Lookup(kindName)
 
 		if !found {
 			return nil, fmt.Errorf("behavior: manifest references unknown kind %q (registered: %v)", kindName, registry.knownKinds())
 		}
 
-		for instanceName, raw := range perInstance {
-			instance, newErr := kind.NewInstance(instanceName, raw, loaded.Meta)
+		for _, instanceName := range sortedKeys(perInstance) {
+			instance, newErr := kind.NewInstance(instanceName, perInstance[instanceName], loaded.Meta)
 
 			if newErr != nil {
 				return nil, fmt.Errorf("behavior: %s.%s: %w", kindName, instanceName, newErr)
@@ -73,6 +81,20 @@ func (registry *Registry) BuildEngineWithDeclaredKeys(loaded *manifest.Manifest,
 	}
 
 	return NewEngine(instances, declaredKeys)
+}
+
+// sortedKeys returns a map's string keys in ascending order, so behavior
+// resolution is deterministic regardless of Go's randomized map iteration.
+func sortedKeys[Value any](mapping map[string]Value) []string {
+	keys := make([]string, 0, len(mapping))
+
+	for key := range mapping {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 func (registry *Registry) knownKinds() []string {
