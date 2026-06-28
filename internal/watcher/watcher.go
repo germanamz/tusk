@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,11 +15,17 @@ import (
 	"github.com/germanamz/tusk/internal/ignore"
 )
 
+// maxLoggedWatchDirs caps how many failed-to-watch directory paths the
+// aggregated Warn lists, so an inotify-capacity blowout produces one bounded
+// log line rather than thousands.
+const maxLoggedWatchDirs = 10
+
 // Watcher wraps fsnotify and emits debounced WatchEvents.
 type Watcher struct {
 	root      string
 	fsWatcher *fsnotify.Watcher
 	matcher   ignore.Matcher
+	logger    *slog.Logger
 }
 
 // New constructs a Watcher rooted at workspaceRoot. The caller must invoke Run
@@ -29,7 +38,12 @@ type Watcher struct {
 // drops any event whose path it rejects. This prevents index writes under
 // .tusk/ from tripping the watcher into a self-sustaining reindex loop. A nil
 // matcher disables filtering (every directory is watched).
-func New(workspaceRoot string, matcher ignore.Matcher) (*Watcher, error) {
+//
+// logger (may be nil) receives a single aggregated Warn if any directory could
+// not be added to the watch set — most often because the OS inotify/kqueue
+// capacity is exhausted, which would otherwise leave subtrees silently
+// unwatched.
+func New(workspaceRoot string, matcher ignore.Matcher, logger *slog.Logger) (*Watcher, error) {
 	fsWatcher, newErr := fsnotify.NewWatcher()
 
 	if newErr != nil {
@@ -40,6 +54,8 @@ func New(workspaceRoot string, matcher ignore.Matcher) (*Watcher, error) {
 		fsWatcher.Close()
 		return nil, fmt.Errorf("watcher: add %s: %w", workspaceRoot, addErr)
 	}
+
+	var failedDirs []string
 
 	walkErr := filepath.WalkDir(workspaceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -61,7 +77,9 @@ func New(workspaceRoot string, matcher ignore.Matcher) (*Watcher, error) {
 			}
 		}
 
-		_ = fsWatcher.Add(path)
+		if addErr := fsWatcher.Add(path); addErr != nil {
+			failedDirs = append(failedDirs, path)
+		}
 
 		return nil
 	})
@@ -71,7 +89,31 @@ func New(workspaceRoot string, matcher ignore.Matcher) (*Watcher, error) {
 		return nil, fmt.Errorf("watcher: walk: %w", walkErr)
 	}
 
-	return &Watcher{root: workspaceRoot, fsWatcher: fsWatcher, matcher: matcher}, nil
+	logFailedWatchDirs(logger, failedDirs)
+
+	return &Watcher{root: workspaceRoot, fsWatcher: fsWatcher, matcher: matcher, logger: logger}, nil
+}
+
+// logFailedWatchDirs emits one bounded Warn naming the directories that could
+// not be added to the watch set. A non-empty list almost always means the OS
+// watch-descriptor limit was hit (inotify max_user_watches on Linux), in which
+// case those subtrees are unwatched and edits there go unobserved until the
+// next manual reindex — silent before this was surfaced.
+func logFailedWatchDirs(logger *slog.Logger, failedDirs []string) {
+	if logger == nil || len(failedDirs) == 0 {
+		return
+	}
+
+	sample := failedDirs
+
+	if len(sample) > maxLoggedWatchDirs {
+		sample = sample[:maxLoggedWatchDirs]
+	}
+
+	logger.Warn("watcher: some directories could not be watched (OS watch limit reached?); edits there will go unobserved until the next reindex",
+		"failed", len(failedDirs),
+		"sample", strings.Join(sample, ", "),
+	)
 }
 
 // Close releases the underlying fsnotify resources.
@@ -80,23 +122,61 @@ func (instance *Watcher) Close() error {
 }
 
 // Run blocks until ctx is cancelled, dispatching debounced events to handler.
-// The debounce window coalesces rapid-succession events on the same path into
-// a single delayed dispatch.
+// The debounce window coalesces rapid-succession events on the same path into a
+// single delayed dispatch. Handler invocations are serialized through one
+// dispatcher goroutine, so a burst of N file changes never fans out into N
+// concurrent handler runs (each of which, under `tusk watch`, is a full-vault
+// reindex). Every outstanding debounce timer is stopped before Run returns, so
+// no timer can fire — and no reindex can start — after shutdown.
 func (instance *Watcher) Run(ctx context.Context, handler EventHandler) error {
 	const debounceWindow = 500 * time.Millisecond
+
+	// runCtx is cancelled the moment Run starts returning (for ANY reason —
+	// ctx-cancel, Events/Errors close, or an fsnotify error), so the dispatcher
+	// goroutine and any timer blocked handing off an event are released.
+	runCtx, runCancel := context.WithCancel(ctx)
 
 	var (
 		mu      sync.Mutex
 		pending = map[string]*time.Timer{}
+		ready   = make(chan WatchEvent)
 	)
 
-	dispatch := func(event WatchEvent) {
+	stopPending := func() {
 		mu.Lock()
-		delete(pending, event.Path)
-		mu.Unlock()
+		defer mu.Unlock()
 
-		_ = handler(event)
+		for path, timer := range pending {
+			timer.Stop()
+			delete(pending, path)
+		}
 	}
+
+	var dispatcher sync.WaitGroup
+
+	dispatcher.Add(1)
+
+	go func() {
+		defer dispatcher.Done()
+
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case event := <-ready:
+				_ = handler(event)
+			}
+		}
+	}()
+
+	// Ordered teardown: cancel first so the dispatcher and any blocked timer
+	// hand-off unblock, stop outstanding timers so none fires post-shutdown,
+	// then wait for the dispatcher (and any in-flight handler) to finish.
+	defer func() {
+		runCancel()
+		stopPending()
+		dispatcher.Wait()
+	}()
 
 	for {
 		select {
@@ -128,6 +208,13 @@ func (instance *Watcher) Run(ctx context.Context, handler EventHandler) error {
 
 			kind := classify(raw.Op)
 
+			// Watch directories created after boot, else edits inside subtrees
+			// added to a long-running daemon are never observed (kqueue/inotify
+			// watch a single directory per Add, not recursively).
+			if kind == EventCreate {
+				instance.watchNewDir(raw.Name)
+			}
+
 			scheduled := WatchEvent{Kind: kind, Path: relPath}
 
 			mu.Lock()
@@ -136,7 +223,17 @@ func (instance *Watcher) Run(ctx context.Context, handler EventHandler) error {
 			}
 
 			pending[relPath] = time.AfterFunc(debounceWindow, func() {
-				dispatch(scheduled)
+				mu.Lock()
+				delete(pending, relPath)
+				mu.Unlock()
+
+				// Hand the event to the single dispatcher; abandon it on shutdown
+				// so this timer goroutine never leaks waiting on a stopped
+				// dispatcher.
+				select {
+				case ready <- scheduled:
+				case <-runCtx.Done():
+				}
 			})
 			mu.Unlock()
 		case watchErr, ok := <-instance.fsWatcher.Errors:
@@ -147,6 +244,40 @@ func (instance *Watcher) Run(ctx context.Context, handler EventHandler) error {
 			return fmt.Errorf("watcher: fsnotify: %w", watchErr)
 		}
 	}
+}
+
+// watchNewDir adds a directory created after boot — and every non-ignored
+// directory beneath it — to the watch set. A single create event can stand for
+// a whole moved-in subtree, and the OS watcher adds only the named directory,
+// so the subtree is walked. Non-directory creates and ignored directories are
+// skipped; per-directory Add failures are logged but not fatal.
+func (instance *Watcher) watchNewDir(absPath string) {
+	info, statErr := os.Stat(absPath)
+
+	if statErr != nil || !info.IsDir() {
+		return
+	}
+
+	_ = filepath.WalkDir(absPath, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || !entry.IsDir() {
+			return nil //nolint:nilerr // best-effort: skip unreadable entries, keep watching the rest
+		}
+
+		relPath, relErr := filepath.Rel(instance.root, path)
+
+		if relErr == nil && instance.matcher != nil && instance.matcher.Matches(filepath.ToSlash(relPath), true) {
+			return filepath.SkipDir
+		}
+
+		if addErr := instance.fsWatcher.Add(path); addErr != nil && instance.logger != nil {
+			instance.logger.Warn("watcher: failed to watch new directory",
+				"dir", filepath.ToSlash(relPath),
+				"err", addErr.Error(),
+			)
+		}
+
+		return nil
+	})
 }
 
 func classify(op fsnotify.Op) EventKind {

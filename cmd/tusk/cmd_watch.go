@@ -113,7 +113,7 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 				return matcherErr
 			}
 
-			watcherInstance, newErr := watcher.New(ws.Root, matcher)
+			watcherInstance, newErr := watcher.New(ws.Root, matcher, logger)
 
 			if newErr != nil {
 				return newErr

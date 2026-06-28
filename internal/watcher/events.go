@@ -18,5 +18,8 @@ type WatchEvent struct {
 	Path string // workspace-relative
 }
 
-// EventHandler is invoked synchronously by Watcher for each debounced event.
+// EventHandler is invoked by Watcher for each debounced event. Invocations are
+// serialized — at most one handler runs at a time, so a burst of file changes
+// never fans out into concurrent handler runs — but they run on the watcher's
+// own dispatcher goroutine, not the caller's.
 type EventHandler func(event WatchEvent) error
