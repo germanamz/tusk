@@ -3,6 +3,7 @@ package behavior_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -230,5 +231,49 @@ func TestRegistry_BuildEngine_CollisionDetected(test *testing.T) {
 
 	if !strings.Contains(buildErr.Error(), "ticket") || !strings.Contains(buildErr.Error(), "status") {
 		test.Errorf("BuildEngine error = %v, want collision mentioning ticket/status", buildErr)
+	}
+}
+
+// TestRegistry_BuildEngine_DeterministicInstanceOrder asserts instances are
+// resolved in sorted order. Unsorted map iteration made the hook chain order
+// (and therefore the reported Rejector on the first short-circuiting rejection)
+// flip across tusk reload / restart.
+func TestRegistry_BuildEngine_DeterministicInstanceOrder(test *testing.T) {
+	var order []string
+
+	reg := behavior.NewRegistry()
+
+	if registerErr := reg.Register(&fakeKind{
+		name: "workflow",
+		produced: func(instanceName string) *fakePack {
+			order = append(order, instanceName)
+
+			return &fakePack{name: instanceName, kind: "workflow"}
+		},
+	}); registerErr != nil {
+		test.Fatalf("Register: %v", registerErr)
+	}
+
+	loaded := &manifest.Manifest{
+		Behaviors: map[string]map[string]toml.Primitive{
+			"workflow": {
+				"echo":    toml.Primitive{},
+				"alpha":   toml.Primitive{},
+				"foxtrot": toml.Primitive{},
+				"charlie": toml.Primitive{},
+				"bravo":   toml.Primitive{},
+				"delta":   toml.Primitive{},
+			},
+		},
+	}
+
+	if _, buildErr := reg.BuildEngine(loaded); buildErr != nil {
+		test.Fatalf("BuildEngine: %v", buildErr)
+	}
+
+	want := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot"}
+
+	if !slices.Equal(order, want) {
+		test.Errorf("NewInstance order = %v, want sorted %v", order, want)
 	}
 }
