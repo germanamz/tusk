@@ -128,10 +128,6 @@ CREATE TABLE IF NOT EXISTS file_state (
 	updated_at_ns     INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_file_state_lease
-	ON file_state(leased_until_ns)
-	WHERE leased_by IS NOT NULL;
-
 CREATE INDEX IF NOT EXISTS idx_file_state_seen
 	ON file_state(last_seen_gen);
 
@@ -176,6 +172,12 @@ const migrations = `
 -- warnings and embed errors are surfaced live by doctor, not persisted).
 DROP TABLE IF EXISTS manifest_snapshot;
 DROP TABLE IF EXISTS warnings;
+-- Drop the never-read idx_file_state_lease partial index. It was added for a
+-- file_state lease-sweeper that was never built; no query filters file_state on
+-- leased_until_ns WHERE leased_by IS NOT NULL (Claim uses leased_by IS NULL),
+-- so the index only cost write maintenance. Its bootstrap CREATE is gone too;
+-- this drop reclaims it from databases created before that removal.
+DROP INDEX IF EXISTS idx_file_state_lease;
 `
 
 // Open opens (and bootstraps if needed) the index at dbPath. The parent

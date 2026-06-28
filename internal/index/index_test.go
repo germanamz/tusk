@@ -294,6 +294,86 @@ func TestOpen_SynchronousIsNormal(test *testing.T) {
 
 // TestOpen_TypeIndexServesTypeFilter asserts a bare `type = ?` filter (the most
 // common structural predicate) is served by nodes_type_idx rather than scanning
+// TestOpen_DropsUnusedFileStateLease pins B3: the never-read
+// idx_file_state_lease partial index (its sweeper was never built) is dropped
+// by the migration on every Open. The still-used idx_file_state_seen must
+// survive.
+func TestOpen_DropsUnusedFileStateLease(test *testing.T) {
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	var leaseCount int
+
+	if scanErr := store.DB().QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_file_state_lease'`,
+	).Scan(&leaseCount); scanErr != nil {
+		test.Fatalf("query sqlite_master: %v", scanErr)
+	}
+
+	if leaseCount != 0 {
+		test.Errorf("idx_file_state_lease should be dropped by migration; found %d", leaseCount)
+	}
+
+	var seenCount int
+
+	if scanErr := store.DB().QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_file_state_seen'`,
+	).Scan(&seenCount); scanErr != nil {
+		test.Fatalf("query sqlite_master: %v", scanErr)
+	}
+
+	if seenCount != 1 {
+		test.Errorf("idx_file_state_seen must survive (it is used by the orphan reaper); found %d", seenCount)
+	}
+}
+
+// TestOpen_DropsExistingFileStateLeaseOnUpgrade simulates a database created
+// before B3 (the index present) and confirms re-opening with the migration
+// reclaims it — the real-world upgrade path, not just a fresh open.
+func TestOpen_DropsExistingFileStateLeaseOnUpgrade(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	first, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	// Recreate the legacy index as a pre-B3 database would have it.
+	if _, execErr := first.DB().Exec(
+		`CREATE INDEX IF NOT EXISTS idx_file_state_lease ON file_state(leased_until_ns) WHERE leased_by IS NOT NULL`,
+	); execErr != nil {
+		test.Fatalf("recreate legacy index: %v", execErr)
+	}
+
+	first.Close()
+
+	reopened, reopenErr := index.Open(dbPath)
+
+	if reopenErr != nil {
+		test.Fatalf("reopen: %v", reopenErr)
+	}
+
+	defer reopened.Close()
+
+	var leaseCount int
+
+	if scanErr := reopened.DB().QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_file_state_lease'`,
+	).Scan(&leaseCount); scanErr != nil {
+		test.Fatalf("query sqlite_master: %v", scanErr)
+	}
+
+	if leaseCount != 0 {
+		test.Errorf("re-open must drop a pre-existing idx_file_state_lease; found %d", leaseCount)
+	}
+}
+
 // the table. nodes_kind_type_idx leads with the 2-value kind column, so it
 // can't serve a type-only predicate.
 func TestOpen_TypeIndexServesTypeFilter(test *testing.T) {
