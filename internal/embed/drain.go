@@ -38,9 +38,15 @@ type DrainConfig struct {
 	Embedder   Embedder              // when nil, DrainQueue is a no-op
 	Chunker    ChunkingStrategy      // required when Embedder is set
 	BatchSize  int                   // queue rows pulled per drain iteration; defaults to 50
-	Workers    int                   // concurrent embed calls per node; defaults to 1 (serial)
-	TTL        time.Duration         // lease window applied per Drain claim; defaults to 60s when <= 0
-	Logger     *slog.Logger          // optional; nil silences output
+	Workers    int                   // concurrent embed calls per node (chunks); defaults to 1 (serial)
+	// EmbedConcurrency caps how many NODES embed concurrently within a batch —
+	// distinct from Workers, which parallelizes chunks within one node. With
+	// sub-unit indexing each node is a single chunk, so Workers gives no
+	// parallelism there; EmbedConcurrency is what keeps an Ollama backend with
+	// OLLAMA_NUM_PARALLEL>1 busy. Defaults to 1 (serial across nodes) when <= 0.
+	EmbedConcurrency int
+	TTL              time.Duration // lease window applied per Drain claim; defaults to 60s when <= 0
+	Logger           *slog.Logger  // optional; nil silences output
 }
 
 // isSubUnit reports whether a node row represents a sub-unit (paragraph,
@@ -197,27 +203,12 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			return drained, nil
 		}
 
-		var (
-			batchSucceeded int
-			batchFailed    int
-		)
+		batchSucceeded, batchFailed, batchErr := drainBatch(ctx, config, workerID, batch)
 
-		for _, queued := range batch {
-			outcome, nodeErr := embedNode(ctx, config, workerID, queued)
+		drained += batchSucceeded
 
-			if nodeErr != nil {
-				return drained, nodeErr
-			}
-
-			switch outcome {
-			case outcomeSucceeded:
-				drained++
-				batchSucceeded++
-			case outcomeFailed:
-				batchFailed++
-			case outcomeSkipped:
-				// Dropped without retry; neither a success nor a failure.
-			}
+		if batchErr != nil {
+			return drained, batchErr
 		}
 
 		if config.Logger != nil {
@@ -228,6 +219,140 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 			)
 		}
 	}
+}
+
+// drainBatch processes one claimed batch, either serially or — when
+// config.EmbedConcurrency > 1 — across a bounded pool so multiple nodes embed
+// at once (the cross-node concurrency that keeps a parallel Ollama backend busy
+// for single-chunk sub-units). It returns the per-batch succeeded/failed counts
+// and the first fatal error (a transport abort or an upsert failure), which
+// aborts the whole drain exactly as the serial path did.
+func drainBatch(ctx context.Context, config DrainConfig, workerID string, batch []index.QueueRow) (int, int, error) {
+	concurrency := config.EmbedConcurrency
+
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	concurrency = min(concurrency, len(batch))
+
+	if concurrency == 1 {
+		return drainBatchSerial(ctx, config, workerID, batch)
+	}
+
+	return drainBatchConcurrent(ctx, config, workerID, batch, concurrency)
+}
+
+// drainBatchSerial is the original one-node-at-a-time path: the first fatal
+// error aborts immediately.
+func drainBatchSerial(ctx context.Context, config DrainConfig, workerID string, batch []index.QueueRow) (int, int, error) {
+	var (
+		succeeded int
+		failed    int
+	)
+
+	for _, queued := range batch {
+		outcome, nodeErr := embedNode(ctx, config, workerID, queued)
+
+		if nodeErr != nil {
+			return succeeded, failed, nodeErr
+		}
+
+		switch outcome {
+		case outcomeSucceeded:
+			succeeded++
+		case outcomeFailed:
+			failed++
+		case outcomeSkipped:
+			// Dropped without retry; neither a success nor a failure.
+		}
+	}
+
+	return succeeded, failed, nil
+}
+
+// drainBatchConcurrent runs the batch through a bounded pool of `concurrency`
+// workers, each running the unchanged per-node embedNode state machine (its
+// node id is unique, so its repo writes never collide with a sibling's). On the
+// first fatal error it stops feeding new rows but lets in-flight nodes finish —
+// a transport outage makes each of them abort cleanly on its own (leased, not
+// retried), and an upsert failure is per-node — so no node's retry budget is
+// burned by a sibling's failure. embedNode receives the original ctx; only a
+// genuine parent cancellation stops in-flight work.
+func drainBatchConcurrent(ctx context.Context, config DrainConfig, workerID string, batch []index.QueueRow, concurrency int) (int, int, error) {
+	type nodeResult struct {
+		outcome nodeOutcome
+		err     error
+	}
+
+	feedCtx, stopFeed := context.WithCancel(ctx)
+	defer stopFeed()
+
+	jobs := make(chan index.QueueRow)
+	results := make(chan nodeResult, len(batch))
+
+	var workers sync.WaitGroup
+
+	for worker := 0; worker < concurrency; worker++ {
+		workers.Add(1)
+
+		go func() {
+			defer workers.Done()
+
+			for queued := range jobs {
+				outcome, nodeErr := embedNode(ctx, config, workerID, queued)
+				results <- nodeResult{outcome: outcome, err: nodeErr}
+
+				if nodeErr != nil {
+					stopFeed() // a fatal error: stop handing out new rows
+				}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+
+		for _, queued := range batch {
+			select {
+			case jobs <- queued:
+			case <-feedCtx.Done():
+				return
+			}
+		}
+	}()
+
+	go func() {
+		workers.Wait()
+		close(results)
+	}()
+
+	var (
+		succeeded int
+		failed    int
+		firstErr  error
+	)
+
+	for res := range results {
+		if res.err != nil {
+			if firstErr == nil {
+				firstErr = res.err
+			}
+
+			continue
+		}
+
+		switch res.outcome {
+		case outcomeSucceeded:
+			succeeded++
+		case outcomeFailed:
+			failed++
+		case outcomeSkipped:
+			// Dropped without retry; neither a success nor a failure.
+		}
+	}
+
+	return succeeded, failed, firstErr
 }
 
 // nodeOutcome is the verdict embedNode returns for one queued row. A non-nil
