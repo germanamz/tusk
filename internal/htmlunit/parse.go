@@ -23,18 +23,9 @@ func Parse(source []byte) ([]subunit.Unit, error) {
 	ctx := subunit.NewWalkCtx()
 
 	emit := func(unit subunit.Unit) int {
-		unit.Ordinal = len(units)
-		unit.ParentAddress = ctx.CurrentAddress()
-		if unit.EmbedPayload == "" {
-			unit.EmbedPayload = unit.Text
-		}
-		unit.Title = makeTitle(unit.Text)
-		unit.Hash = subunit.ComputeHash(unit)
-		unit.ContentHash = subunit.ContentHashFor(unit)
-		if unit.Address == "" {
-			unit.Address = ctx.LeafAddress(unit.Kind)
-		}
+		unit = subunit.FinalizeUnit(unit, ctx, len(units))
 		units = append(units, unit)
+
 		return unit.Ordinal
 	}
 
@@ -170,10 +161,7 @@ func walkTable(
 			if col < len(headers) {
 				colHeader = headers[col]
 			}
-			payload := txt
-			if colHeader != "" {
-				payload = colHeader + ": " + txt
-			}
+			payload := subunit.TableCellPayload(colHeader, txt)
 			emit(subunit.Unit{
 				Kind:         subunit.KindTableCell,
 				Address:      subunit.TableCellAddress(path, tableIdx, rowIndex, col),

@@ -6,10 +6,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-// titleMaxLen caps the single-line title excerpt, matching
-// subunit.titleMaxLen so HTML and markdown titles render identically.
-const titleMaxLen = 120
-
 // elementText returns the collapsed inline text of an element subtree:
 // all descendant text nodes concatenated in document order with
 // whitespace runs collapsed to single spaces and the result trimmed.
@@ -47,22 +43,4 @@ func collectTextPruning(node *html.Node, builder *strings.Builder, prune func(*h
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		collectTextPruning(child, builder, prune)
 	}
-}
-
-// makeTitle returns a single-line excerpt of body for the nodes.title
-// column. Mirrors subunit.makeTitle (parse.go:462).
-func makeTitle(body string) string {
-	trimmed := strings.TrimSpace(body)
-	if trimmed == "" {
-		return ""
-	}
-	if idx := strings.IndexByte(trimmed, '\n'); idx >= 0 {
-		trimmed = trimmed[:idx]
-	}
-	trimmed = strings.Join(strings.Fields(trimmed), " ")
-	runes := []rune(trimmed)
-	if len(runes) <= titleMaxLen {
-		return trimmed
-	}
-	return string(runes[:titleMaxLen-1]) + "…"
 }

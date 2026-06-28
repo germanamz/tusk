@@ -43,23 +43,15 @@ func Parse(source []byte) ([]Unit, error) {
 	// through the walk.
 	ctx := NewWalkCtx()
 
-	// emit appends a unit, assigns its ordinal, parent links, hashes, and
-	// structural address, then returns its slice index. Sections and table
-	// cells pre-set Address before calling emit; other leaves get their
-	// address from the deepest frame's per-kind counter here.
+	// emit finalizes a unit (ordinal, parent links, hashes, structural
+	// address — shared with the HTML walker via FinalizeUnit) and appends it,
+	// returning its slice index. Sections and table cells pre-set Address
+	// before calling emit; other leaves get their address from the deepest
+	// frame's per-kind counter inside FinalizeUnit.
 	emit := func(unit Unit) int {
-		unit.Ordinal = len(units)
-		unit.ParentAddress = ctx.CurrentAddress()
-		if unit.EmbedPayload == "" {
-			unit.EmbedPayload = unit.Text
-		}
-		unit.Title = makeTitle(unit.Text)
-		unit.Hash = ComputeHash(unit)
-		unit.ContentHash = ContentHashFor(unit)
-		if unit.Address == "" {
-			unit.Address = ctx.LeafAddress(unit.Kind)
-		}
+		unit = FinalizeUnit(unit, ctx, len(units))
 		units = append(units, unit)
+
 		return unit.Ordinal
 	}
 
@@ -281,10 +273,7 @@ func walkTable(
 				if col < len(headers) {
 					colHeader = headers[col]
 				}
-				payload := txt
-				if colHeader != "" {
-					payload = colHeader + ": " + txt
-				}
+				payload := TableCellPayload(colHeader, txt)
 				emit(Unit{
 					Kind:         KindTableCell,
 					Address:      TableCellAddress(path, tableIdx, rowIndex, col),
