@@ -40,6 +40,43 @@ func TestNodeCreate_PropertyTypeMismatchRejected(test *testing.T) {
 	}
 }
 
+// TestNodeCreate_FloatPropertyRoundTrip pins C1: a float property given on the
+// CLI is typed as a number, accepted by validation, and rendered back as a YAML
+// number rather than rejected as a string.
+func TestNodeCreate_FloatPropertyRoundTrip(test *testing.T) {
+	root := test.TempDir()
+
+	manifestBody := `
+[workspace]
+name = "test"
+
+[node-types.expense]
+properties = [
+    { name = "cost", type = "float" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	_, stderr, ok := runCLISplit(root, "node", "create", "--type", "expense", "--prop", "cost=3.14", "--path", "expenses/lunch.md")
+
+	if !ok {
+		test.Fatalf("create failed: %s", stderr.String())
+	}
+
+	body, readErr := os.ReadFile(filepath.Join(root, "expenses/lunch.md"))
+
+	if readErr != nil {
+		test.Fatalf("read: %v", readErr)
+	}
+
+	if !strings.Contains(string(body), "cost: 3.14") {
+		test.Errorf("frontmatter missing float prop; got:\n%s", string(body))
+	}
+}
+
 // newWorkspaceWithNodeTypes seeds a workspace with a tusk.toml that declares
 // node-types.ticket. Returns the workspace root.
 func newWorkspaceWithNodeTypes(test *testing.T) string {

@@ -22,7 +22,7 @@ func newNodeModifyCmd() *cobra.Command {
 
 Use --prop key=value (repeatable) to set values and --unset key
 (repeatable) to remove them. Values are typed the same way as in
-"node create": int, then bool, then string.
+"node create": int, then bool, then float, then string.
 
 The operation coordinates with concurrent watchers and other tusk
 processes via a per-file lease, so safe interleaving is preserved
@@ -83,8 +83,10 @@ without holding a workspace-wide lock.`,
 	return modifyCmd
 }
 
-// parseSetFlags converts ["k=v", "n=42", "b=true"] into a map[string]any with
-// best-effort scalar typing (int, bool, then string).
+// parseSetFlags converts ["k=v", "n=42", "b=true", "x=3.14"] into a
+// map[string]any with best-effort scalar typing (int, bool, float, then
+// string). Whole numbers stay int; a non-whole decimal like "3.14" becomes a
+// float64 so a declared float property validates and renders as a number.
 func parseSetFlags(flags []string) (map[string]any, error) {
 	props := map[string]any{}
 
@@ -106,6 +108,12 @@ func parseSetFlags(flags []string) (map[string]any, error) {
 
 		if boolValue, parseErr := strconv.ParseBool(value); parseErr == nil {
 			props[key] = boolValue
+
+			continue
+		}
+
+		if floatValue, parseErr := strconv.ParseFloat(value, 64); parseErr == nil {
+			props[key] = floatValue
 
 			continue
 		}

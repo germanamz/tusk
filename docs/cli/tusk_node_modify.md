@@ -12,7 +12,7 @@ Modify a node's frontmatter properties without touching its body.
 
 Use --prop key=value (repeatable) to set values and --unset key
 (repeatable) to remove them. Values are typed the same way as in
-"node create": int, then bool, then string.
+"node create": int, then bool, then float, then string.
 
 The operation coordinates with concurrent watchers and other tusk
 processes via a per-file lease, so safe interleaving is preserved

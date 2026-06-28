@@ -57,6 +57,76 @@ func TestNodeModify_UnsetProperty(test *testing.T) {
 // are existing helpers used by other cmd_*_test.go files.
 var _ = bytes.Buffer{} // keep import alive when only one helper uses it
 
+// TestParseSetFlags_Float pins C1: a non-whole decimal is typed as float64
+// (tried between bool and string), while whole numbers stay int and
+// bools/strings are unchanged.
+func TestParseSetFlags_Float(test *testing.T) {
+	props, err := parseSetFlags([]string{"cost=3.14", "qty=2", "ratio=-1.5", "flag=true", "name=hello"})
+
+	if err != nil {
+		test.Fatalf("parseSetFlags: %v", err)
+	}
+
+	if cost, ok := props["cost"].(float64); !ok || cost != 3.14 {
+		test.Errorf("cost = %#v, want float64(3.14)", props["cost"])
+	}
+
+	if _, ok := props["qty"].(int); !ok {
+		test.Errorf("qty = %#v, want int (whole numbers stay int)", props["qty"])
+	}
+
+	if ratio, ok := props["ratio"].(float64); !ok || ratio != -1.5 {
+		test.Errorf("ratio = %#v, want float64(-1.5)", props["ratio"])
+	}
+
+	if _, ok := props["flag"].(bool); !ok {
+		test.Errorf("flag = %#v, want bool", props["flag"])
+	}
+
+	if _, ok := props["name"].(string); !ok {
+		test.Errorf("name = %#v, want string", props["name"])
+	}
+}
+
+// TestNodeModify_FloatPropertyRoundTrip pins C1 end-to-end via the CLI: a float
+// property declared in the manifest is set, validated, and rendered back as a
+// YAML number.
+func TestNodeModify_FloatPropertyRoundTrip(test *testing.T) {
+	root := test.TempDir()
+
+	manifestBody := `
+[workspace]
+name = "test"
+
+[node-types.expense]
+properties = [
+    { name = "cost", type = "float" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	mustCreateNode(test, root, "expenses/lunch", "expense", nil)
+
+	_, stderr, ok := runCLISplit(root, "node", "modify", "expenses/lunch", "--prop", "cost=3.14")
+
+	if !ok {
+		test.Fatalf("modify failed: %s", stderr.String())
+	}
+
+	body, readErr := os.ReadFile(filepath.Join(root, "expenses/lunch.md"))
+
+	if readErr != nil {
+		test.Fatalf("read: %v", readErr)
+	}
+
+	if !strings.Contains(string(body), "cost: 3.14") {
+		test.Errorf("frontmatter missing float prop; got:\n%s", string(body))
+	}
+}
+
 // runCLISplit executes the CLI and returns separate stdout and stderr buffers
 // plus a boolean indicating whether the command succeeded (exit 0).
 // When the command fails, the error message is written to stderr.
