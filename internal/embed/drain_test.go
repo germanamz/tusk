@@ -355,6 +355,93 @@ func TestDrainQueue_GivesUpAfterMaxAttempts(test *testing.T) {
 	}
 }
 
+// TestDrainQueue_TransportErrorAbortsAndKeepsQueue pins the A2 fix: a transport
+// failure (Ollama down / 5xx) must abort the whole drain pass and leave the row
+// queued and untouched — NOT burn its retry budget and drop it. Before A2, a
+// 1-2s outage would cycle a node through MaxEmbedAttempts in a single pass and
+// silently evict it from semantic results.
+func TestDrainQueue_TransportErrorAbortsAndKeepsQueue(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "doc.md", "body")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "doc", Type: "note", Path: "doc.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("doc"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	failing := &drainStubEmbedder{
+		dim:     3,
+		model:   "fake",
+		failure: &embed.TransportError{Err: fmt.Errorf("connection refused")},
+	}
+
+	// Short lease so we can re-claim the row below and prove its attempts were
+	// not incremented.
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   failing,
+		Chunker:    embed.WholeDocument{},
+		TTL:        time.Millisecond,
+	})
+
+	if drainErr == nil {
+		test.Fatal("transport failure must abort the drain pass with an error")
+	}
+
+	if !embed.IsTransportError(drainErr) {
+		test.Errorf("DrainQueue error should wrap a TransportError; got %v", drainErr)
+	}
+
+	if drained != 0 {
+		test.Errorf("drained = %d, want 0", drained)
+	}
+
+	if failing.calls != 1 {
+		test.Errorf("embedder.calls = %d, want 1 (abort after first failure, not %d retries)", failing.calls, embed.MaxEmbedAttempts)
+	}
+
+	depth, depthErr := queueRepo.Depth()
+
+	if depthErr != nil {
+		test.Fatalf("Depth: %v", depthErr)
+	}
+
+	if depth != 1 {
+		test.Errorf("queue depth after transport abort = %d, want 1 (row must NOT be dropped)", depth)
+	}
+
+	// Re-claim after the short lease expires and confirm the retry budget was
+	// preserved (a Nack would have bumped attempts to 1).
+	time.Sleep(5 * time.Millisecond)
+
+	reclaimed, reclaimErr := queueRepo.DrainEmbed("other-worker", 10, time.Minute)
+
+	if reclaimErr != nil {
+		test.Fatalf("DrainEmbed: %v", reclaimErr)
+	}
+
+	if len(reclaimed) != 1 {
+		test.Fatalf("re-claimed rows = %d, want 1 (row should be re-leasable)", len(reclaimed))
+	}
+
+	if reclaimed[0].Attempts != 0 {
+		test.Errorf("re-claimed attempts = %d, want 0 (transport abort must not burn the retry budget)", reclaimed[0].Attempts)
+	}
+}
+
 func TestDrainQueue_EmbedsEveryChunkOfMultiChunkNode(test *testing.T) {
 	root := test.TempDir()
 	store := openIndex(test, root)

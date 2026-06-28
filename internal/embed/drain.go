@@ -550,6 +550,16 @@ func embedChunks(ctx context.Context, config DrainConfig, workerID string, queue
 			)
 		}
 
+		// A transport failure (Ollama down / 5xx / connection refused) is not this
+		// node's fault: abort the whole drain pass and return without acking,
+		// nacking, or dropping. The row stays leased and is retried on a later
+		// tick once the lease expires — by which point the backend may be back —
+		// instead of burning the retry budget and silently evicting the node from
+		// semantic results over a transient blip.
+		if IsTransportError(firstErr) {
+			return outcomeFailed, fmt.Errorf("embed: aborting drain on transport error: %w", firstErr)
+		}
+
 		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, firstErr)
 
 		return outcomeFailed, nil
