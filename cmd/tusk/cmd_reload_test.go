@@ -214,3 +214,44 @@ id = "n1"
 		}
 	}
 }
+
+// TestReload_WithReindexFlag_FailsLoudlyWhenIndexUnopenable asserts that an
+// explicit --reindex that cannot complete returns a non-zero error instead of
+// exiting 0, so `tusk reload --reindex && deploy` does not proceed on a stale
+// index. The index is made unopenable by placing a directory where the db file
+// belongs.
+func TestReload_WithReindexFlag_FailsLoudlyWhenIndexUnopenable(test *testing.T) {
+	root := test.TempDir()
+
+	if mkErr := os.MkdirAll(filepath.Join(root, ".tusk", "index.db"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir index.db dir: %v", mkErr)
+	}
+
+	manifestContent := `
+[workspace]
+name = "test-reindex-fail"
+
+[node-types.note]
+properties = []
+`
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestContent), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	cmd := newReloadCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	oldCwd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(oldCwd) }()
+
+	if cdErr := os.Chdir(root); cdErr != nil {
+		test.Fatalf("chdir: %v", cdErr)
+	}
+
+	cmd.SetArgs([]string{"--reindex"})
+
+	if runErr := cmd.Execute(); runErr == nil {
+		test.Fatalf("reload --reindex should fail when the index cannot be opened, got nil")
+	}
+}

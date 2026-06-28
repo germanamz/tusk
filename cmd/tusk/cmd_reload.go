@@ -179,9 +179,10 @@ reported as warnings while the swap still proceeds.`,
 				store, openErr := index.Open(ws.IndexPath)
 
 				if openErr != nil {
-					logger.Warn("index open for reindex", "err", openErr)
-					// Continue; index may not exist yet
-					return nil
+					// index.Open auto-bootstraps a missing index, so an error
+					// here is always real. --reindex was requested explicitly,
+					// so fail loudly instead of exiting 0 with a stale index.
+					return fmt.Errorf("reload --reindex: open index (manifest reloaded, index NOT reindexed): %w", openErr)
 				}
 
 				defer func() { _ = store.Close() }()
@@ -216,9 +217,10 @@ reported as warnings while the swap still proceeds.`,
 				report, runErr := reindex.Run(cfg)
 
 				if runErr != nil {
-					logger.Warn("reindex failed", "err", runErr)
-					// Log but do not fail the whole reload; epoch was already bumped
-					return nil
+					// The manifest swap + epoch bump already succeeded; only the
+					// reindex failed. --reindex was explicit, so surface it so
+					// `tusk reload --reindex && deploy` does not proceed.
+					return fmt.Errorf("reload --reindex: reindex failed (manifest reloaded, but the index is stale): %w", runErr)
 				}
 
 				logger.Info("reindex completed",
