@@ -59,6 +59,52 @@ func TestEmbedQueueRepo_EnqueueIsIdempotent(test *testing.T) {
 	}
 }
 
+// TestEmbedQueueRepo_EnqueueMany pins B4: a batch enqueue inserts every id in a
+// single transaction and is idempotent (ON CONFLICT DO NOTHING), matching the
+// per-id Enqueue's final state in one commit instead of O(n).
+func TestEmbedQueueRepo_EnqueueMany(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.EnqueueMany([]string{"a", "b", "c"}); enqErr != nil {
+		test.Fatalf("EnqueueMany: %v", enqErr)
+	}
+
+	depth, depthErr := repo.Depth()
+
+	if depthErr != nil {
+		test.Fatalf("Depth: %v", depthErr)
+	}
+
+	if depth != 3 {
+		test.Errorf("Depth = %d, want 3", depth)
+	}
+
+	// Already-queued ids and in-batch duplicates are skipped.
+	if enqErr := repo.EnqueueMany([]string{"a", "b", "c", "d", "d"}); enqErr != nil {
+		test.Fatalf("second EnqueueMany: %v", enqErr)
+	}
+
+	depth, _ = repo.Depth()
+
+	if depth != 4 {
+		test.Errorf("Depth = %d, want 4 (only d is new; duplicates ignored)", depth)
+	}
+}
+
+func TestEmbedQueueRepo_EnqueueManyEmptyIsNoop(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.EnqueueMany(nil); enqErr != nil {
+		test.Fatalf("EnqueueMany(nil): %v", enqErr)
+	}
+
+	depth, _ := repo.Depth()
+
+	if depth != 0 {
+		test.Errorf("Depth = %d, want 0", depth)
+	}
+}
+
 func TestEmbedQueueRepo_DrainEmptyReturnsEmpty(test *testing.T) {
 	repo := newTestEmbedQueueRepo(test)
 

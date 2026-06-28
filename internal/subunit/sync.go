@@ -227,16 +227,21 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 		result.Deleted = len(deleteIDs)
 	}
 
-	// Re-derive outbound wikilink edges for newly inserted units.
+	// Re-derive outbound wikilink edges for newly inserted units, batched into
+	// one transaction (delete-then-insert per sub-unit) instead of one commit
+	// per sub-unit.
 	wikilinkEdgeNames := wikilinkEdgeTypeNames(sync.Manifest)
+
+	var edgeBatches []index.EdgeBatch
 
 	for _, unit := range insertedUnits {
 		subunitID := subunitRowID(fileRow.ID, unitAddress(unit))
 		edges := buildOutboundEdges(unit, subunitID, fileRow.Path, wikilinkEdgeNames)
+		edgeBatches = append(edgeBatches, index.EdgeBatch{SourceID: subunitID, SourcePath: fileRow.Path, Edges: edges})
+	}
 
-		if upsertErr := sync.EdgeRepo.UpsertAll(subunitID, fileRow.Path, edges); upsertErr != nil {
-			return nil, fmt.Errorf("subunit sync: write edges for %s: %w", subunitID, upsertErr)
-		}
+	if upsertErr := sync.EdgeRepo.UpsertAllMany(edgeBatches); upsertErr != nil {
+		return nil, fmt.Errorf("subunit sync: write edges for %s: %w", fileRow.ID, upsertErr)
 	}
 
 	// Replace the file's contains edges with the current sub-unit set.
@@ -256,16 +261,18 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 	// an incorrect (but non-crashing) embedding. Tests that exercise
 	// the drainer against sub-units are added with Task 4.
 	if sync.EmbedQ != nil {
+		var leafIDs []string
+
 		for _, unit := range insertedUnits {
 			if unit.Kind == KindSection {
 				continue
 			}
 
-			subunitID := subunitRowID(fileRow.ID, unitAddress(unit))
+			leafIDs = append(leafIDs, subunitRowID(fileRow.ID, unitAddress(unit)))
+		}
 
-			if enqueueErr := sync.EmbedQ.Enqueue(subunitID); enqueueErr != nil {
-				return nil, fmt.Errorf("subunit sync: enqueue %s: %w", subunitID, enqueueErr)
-			}
+		if enqueueErr := sync.EmbedQ.EnqueueMany(leafIDs); enqueueErr != nil {
+			return nil, fmt.Errorf("subunit sync: enqueue %s: %w", fileRow.ID, enqueueErr)
 		}
 	}
 

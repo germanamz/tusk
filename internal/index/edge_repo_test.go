@@ -113,6 +113,66 @@ func TestEdgeRepo_UpsertAllReplacesExistingEdgesForSource(test *testing.T) {
 	}
 }
 
+// TestEdgeRepo_UpsertAllManyReplacesPerSource pins B4: UpsertAllMany applies
+// several per-source replacements in one transaction with the same
+// delete-then-insert contract as UpsertAll (so stale edges are removed, not
+// orphaned), and leaves sources absent from the batch untouched.
+func TestEdgeRepo_UpsertAllManyReplacesPerSource(test *testing.T) {
+	repo := newTestEdgeRepo(test, "a", "b")
+
+	first := []index.EdgeBatch{
+		{SourceID: "a", SourcePath: "a.md", Edges: []index.EdgeRow{
+			{Type: "blocks", SourceID: "a", TargetID: "y", SourcePath: "a.md", Kind: "direct"},
+			{Type: "blocks", SourceID: "a", TargetID: "z", SourcePath: "a.md", Kind: "direct"},
+		}},
+		{SourceID: "b", SourcePath: "b.md", Edges: []index.EdgeRow{
+			{Type: "blocks", SourceID: "b", TargetID: "y", SourcePath: "b.md", Kind: "direct"},
+		}},
+	}
+
+	if upsertErr := repo.UpsertAllMany(first); upsertErr != nil {
+		test.Fatalf("UpsertAllMany: %v", upsertErr)
+	}
+
+	aEdges, _ := repo.ListBySource("a")
+	bEdges, _ := repo.ListBySource("b")
+
+	if len(aEdges) != 2 || len(bEdges) != 1 {
+		test.Fatalf("after first batch: a=%d (want 2), b=%d (want 1)", len(aEdges), len(bEdges))
+	}
+
+	// Replace a's edge set; omit b this round.
+	second := []index.EdgeBatch{
+		{SourceID: "a", SourcePath: "a.md", Edges: []index.EdgeRow{
+			{Type: "blocks", SourceID: "a", TargetID: "w", SourcePath: "a.md", Kind: "direct"},
+		}},
+	}
+
+	if upsertErr := repo.UpsertAllMany(second); upsertErr != nil {
+		test.Fatalf("second UpsertAllMany: %v", upsertErr)
+	}
+
+	aEdges, _ = repo.ListBySource("a")
+
+	if len(aEdges) != 1 || aEdges[0].TargetID != "w" {
+		test.Errorf("a edges after replace = %+v, want exactly [a->w] (delete+insert, no orphans)", aEdges)
+	}
+
+	bEdges, _ = repo.ListBySource("b")
+
+	if len(bEdges) != 1 || bEdges[0].TargetID != "y" {
+		test.Errorf("b edges (absent from second batch) should be untouched = %+v", bEdges)
+	}
+}
+
+func TestEdgeRepo_UpsertAllManyEmptyIsNoop(test *testing.T) {
+	repo := newTestEdgeRepo(test)
+
+	if upsertErr := repo.UpsertAllMany(nil); upsertErr != nil {
+		test.Fatalf("UpsertAllMany(nil): %v", upsertErr)
+	}
+}
+
 func TestEdgeRepo_ListByTarget(test *testing.T) {
 	repo := newTestEdgeRepo(test, "a", "b")
 
