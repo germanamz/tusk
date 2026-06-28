@@ -66,6 +66,21 @@ func TestResolveWorkers_EnvUnsetManifestZero_HonorsZero(test *testing.T) {
 	}
 }
 
+// TestResolveWorkers_EnvUnsetManifestNegative_FallsThroughToDefault pins the C2
+// defensive guard: a negative manifest value (which Load already rejects, but
+// could reach a hand-built config) must not be returned as-is — it falls
+// through to the default rather than reading downstream as "opt out".
+func TestResolveWorkers_EnvUnsetManifestNegative_FallsThroughToDefault(test *testing.T) {
+	unsetEnv(test)
+
+	got := embedconfig.ResolveWorkers(intPtr(-1))
+	want := max(1, runtime.NumCPU()/2)
+
+	if got != want {
+		test.Errorf("ResolveWorkers(*-1) = %d, want default %d", got, want)
+	}
+}
+
 func TestResolveWorkers_EnvSetOverridesManifest(test *testing.T) {
 	test.Setenv(embedconfig.EnvVar, "8")
 

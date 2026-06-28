@@ -783,13 +783,18 @@ func validate(loaded *Manifest) error {
 			return fmt.Errorf("manifest: embeddings.model must be set when embeddings.provider is configured")
 		}
 
-		if loaded.Embeddings.Workers != nil && *loaded.Embeddings.Workers < 0 {
-			return fmt.Errorf("manifest: embeddings.workers must be >= 0 (got %d); absent uses the default, 0 opts out of the worker pool in this instance", *loaded.Embeddings.Workers)
-		}
-
 		if loaded.Embeddings.TimeoutSeconds < 0 {
 			return fmt.Errorf("manifest: embeddings.timeout-seconds must be >= 0 (got %d); zero or absent uses the default", loaded.Embeddings.TimeoutSeconds)
 		}
+	}
+
+	// Workers is validated independently of the provider: the embed/reindex
+	// worker pool runs even with no provider configured (a workers-only instance
+	// draining a sibling's queue), and a negative value silently disables
+	// indexing downstream (DrainReindexQueue treats <= 0 as opt-out). Reject it
+	// at Load regardless of provider; 0 stays valid (the intentional opt-out).
+	if loaded.Embeddings.Workers != nil && *loaded.Embeddings.Workers < 0 {
+		return fmt.Errorf("manifest: embeddings.workers must be >= 0 (got %d); absent uses the default, 0 opts out of the worker pool in this instance", *loaded.Embeddings.Workers)
 	}
 
 	return nil

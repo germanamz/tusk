@@ -54,7 +54,17 @@ func ResolveWorkers(manifestWorkers *int) int {
 	}
 
 	if manifestWorkers != nil {
-		return *manifestWorkers
+		// Defense in depth: manifest.Load already rejects a negative worker count,
+		// but if one reaches here (a hand-built config, a future caller) treat it
+		// like a malformed env value — warn and fall through to the default rather
+		// than returning a negative that downstream reads as "opt out".
+		if *manifestWorkers < 0 {
+			slog.Warn("embedconfig: manifest workers must be >= 0; falling back to default",
+				"value", *manifestWorkers,
+			)
+		} else {
+			return *manifestWorkers
+		}
 	}
 
 	return max(1, runtime.NumCPU()/2)

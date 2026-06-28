@@ -324,6 +324,64 @@ workers  = 0
 	}
 }
 
+// TestLoad_RejectsNegativeWorkersWithoutProvider pins C2: the worker pool is
+// provider-independent, so a negative worker count must be rejected at Load even
+// when no embeddings provider is configured. Otherwise it slips through and
+// DrainReindexQueue silently treats <= 0 as "opt out", stopping indexing.
+func TestLoad_RejectsNegativeWorkersWithoutProvider(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+workers = -1
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+
+	if loadErr == nil {
+		test.Fatal("Load accepted workers = -1 without a provider; want a validation error")
+	}
+
+	if !strings.Contains(loadErr.Error(), "workers") {
+		test.Errorf("error %q does not mention workers", loadErr.Error())
+	}
+}
+
+// TestLoad_AcceptsZeroWorkersWithoutProvider confirms 0 (the intentional
+// opt-out) stays valid even without a provider — only negative is rejected.
+func TestLoad_AcceptsZeroWorkersWithoutProvider(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+workers = 0
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("Load rejected workers = 0 (opt-out should be valid): %v", loadErr)
+	}
+
+	if loaded.Embeddings.Workers == nil || *loaded.Embeddings.Workers != 0 {
+		test.Errorf("Workers = %v, want 0", loaded.Embeddings.Workers)
+	}
+}
+
 func TestLoad_ParsesEmbeddingsTimeoutSeconds(test *testing.T) {
 	tmpDir := test.TempDir()
 	manifestPath := filepath.Join(tmpDir, "tusk.toml")
