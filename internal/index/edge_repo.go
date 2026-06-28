@@ -73,6 +73,58 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 	return nil
 }
 
+// EdgeBatch is one (source_id, source_path) replacement for UpsertAllMany.
+type EdgeBatch struct {
+	SourceID   string
+	SourcePath string
+	Edges      []EdgeRow
+}
+
+// UpsertAllMany applies several UpsertAll replacements in a SINGLE transaction.
+// For each batch it deletes the edges where source_id = SourceID AND
+// source_path = SourcePath, then inserts that batch's edges — the same
+// delete-then-insert contract as UpsertAll, so stale edges are removed rather
+// than orphaned (an additive insert-or-ignore would leave them behind). It
+// collapses the O(batches) commits of calling UpsertAll in a loop into one,
+// which is what the sub-unit sync uses to write a whole file's edges at once.
+// An empty slice is a no-op.
+func (repo *EdgeRepo) UpsertAllMany(batches []EdgeBatch) error {
+	if len(batches) == 0 {
+		return nil
+	}
+
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("edgeRepo: upsert-all-many begin: %w", beginErr)
+	}
+
+	for _, batch := range batches {
+		if _, deleteErr := tx.Exec(`DELETE FROM edges WHERE source_id = ? AND source_path = ?`, batch.SourceID, batch.SourcePath); deleteErr != nil {
+			_ = tx.Rollback()
+
+			return fmt.Errorf("edgeRepo: upsert-all-many delete %s: %w", batch.SourceID, deleteErr)
+		}
+
+		for _, edge := range batch.Edges {
+			if _, insertErr := tx.Exec(`
+				INSERT INTO edges (`+edgeColumns+`)
+				VALUES (?, ?, ?, ?, ?, ?)
+			`, edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source); insertErr != nil {
+				_ = tx.Rollback()
+
+				return fmt.Errorf("edgeRepo: upsert-all-many insert %s→%s: %w", edge.SourceID, edge.TargetID, insertErr)
+			}
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("edgeRepo: upsert-all-many commit: %w", commitErr)
+	}
+
+	return nil
+}
+
 // ListBySource returns all edges where source_id = sourceID, ordered by type then target_id.
 func (repo *EdgeRepo) ListBySource(sourceID string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_id = ? ORDER BY type, target_id`, sourceID)

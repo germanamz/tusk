@@ -54,6 +54,43 @@ func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
 	return nil
 }
 
+// EnqueueMany enqueues every nodeID in a single transaction, sharing one
+// enqueued_at timestamp. Like Enqueue it is idempotent (ON CONFLICT DO
+// NOTHING), so already-queued ids and in-batch duplicates are skipped. Callers
+// that enqueue a whole file's sub-units use this to collapse O(sub-units)
+// commits into one. An empty slice is a no-op.
+func (repo *EmbedQueueRepo) EnqueueMany(nodeIDs []string) error {
+	if len(nodeIDs) == 0 {
+		return nil
+	}
+
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("embedQueueRepo: enqueue-many begin: %w", beginErr)
+	}
+
+	now := time.Now().UnixNano()
+
+	for _, nodeID := range nodeIDs {
+		if _, execErr := tx.Exec(`
+			INSERT INTO embed_queue (node_id, enqueued_at, attempts)
+			VALUES (?, ?, 0)
+			ON CONFLICT(node_id) DO NOTHING
+		`, nodeID, now); execErr != nil {
+			_ = tx.Rollback()
+
+			return fmt.Errorf("embedQueueRepo: enqueue-many %s: %w", nodeID, execErr)
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("embedQueueRepo: enqueue-many commit: %w", commitErr)
+	}
+
+	return nil
+}
+
 // EnqueueReindex inserts a kind='reindex' row keyed by ReindexNodeIDPrefix+path.
 // Idempotent: ON CONFLICT(node_id) DO NOTHING handles two concurrent walks of
 // the same file. Returns an error when path itself begins with the reserved
