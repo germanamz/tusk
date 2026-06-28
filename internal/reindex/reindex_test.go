@@ -63,6 +63,168 @@ func TestRun_IndexesAllMarkdownNodes(test *testing.T) {
 	}
 }
 
+// TestRun_UnchangedFileSkippedOnSecondPass pins the B1 optimization: a file
+// whose mtime AND size are unchanged since the last pass is not re-read,
+// re-hashed, or re-enqueued — so the per-file worker never reprocesses it
+// (report.Indexed == 0) — but its file_state row is stamped with the new
+// generation so the orphan reaper leaves it alone.
+func TestRun_UnchangedFileSkippedOnSecondPass(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/auth.md", "type: note\ntitle: Auth\n", "Body.\n")
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	first, firstErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
+
+	if firstErr != nil {
+		test.Fatalf("first Run: %v", firstErr)
+	}
+
+	if first.Indexed != 1 {
+		test.Fatalf("first pass Indexed = %d, want 1", first.Indexed)
+	}
+
+	second, secondErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
+
+	if secondErr != nil {
+		test.Fatalf("second Run: %v", secondErr)
+	}
+
+	if second.Indexed != 0 {
+		test.Errorf("second pass Indexed = %d, want 0 (unchanged file must be skipped)", second.Indexed)
+	}
+
+	// The unchanged node must NOT have been reaped — its file_state row was
+	// stamped with the new generation by the skip path.
+	loaded, listErr := repo.List(index.ListFilter{})
+
+	if listErr != nil {
+		test.Fatalf("List: %v", listErr)
+	}
+
+	if len(loaded) != 1 {
+		test.Errorf("node count after unchanged second pass = %d, want 1 (must not be reaped)", len(loaded))
+	}
+}
+
+// TestRun_ForceReprocessesUnchangedFile confirms --force (Config.Force) bypasses
+// the mtime/size skip and re-processes everything.
+func TestRun_ForceReprocessesUnchangedFile(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/auth.md", "type: note\ntitle: Auth\n", "Body.\n")
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	if _, firstErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo})); firstErr != nil {
+		test.Fatalf("first Run: %v", firstErr)
+	}
+
+	second, secondErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo, Force: true}))
+
+	if secondErr != nil {
+		test.Fatalf("forced Run: %v", secondErr)
+	}
+
+	if second.Indexed != 1 {
+		test.Errorf("forced pass Indexed = %d, want 1 (--force must re-process unchanged files)", second.Indexed)
+	}
+}
+
+// TestRun_ChangedSizeReprocessed confirms a content change that alters the file
+// size is still picked up on the next pass.
+func TestRun_ChangedSizeReprocessed(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/auth.md", "type: note\ntitle: Auth\n", "Body.\n")
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	if _, firstErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo})); firstErr != nil {
+		test.Fatalf("first Run: %v", firstErr)
+	}
+
+	// Rewrite with a clearly different size.
+	writeNode(test, root, "notes/auth.md", "type: note\ntitle: Auth\n", "A much longer body than before, definitely a different size.\n")
+
+	second, secondErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
+
+	if secondErr != nil {
+		test.Fatalf("second Run: %v", secondErr)
+	}
+
+	if second.Indexed != 1 {
+		test.Errorf("changed-size pass Indexed = %d, want 1 (size change must re-process)", second.Indexed)
+	}
+}
+
+// TestRun_ChangedMtimeReprocessed confirms a same-size content change is still
+// picked up via the mtime half of the skip condition (set explicitly via
+// Chtimes so the test does not depend on filesystem mtime resolution).
+func TestRun_ChangedMtimeReprocessed(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/auth.md", "type: note\ntitle: Auth\n", "AAAA\n")
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	if _, firstErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo})); firstErr != nil {
+		test.Fatalf("first Run: %v", firstErr)
+	}
+
+	// Same byte length, different content + an explicitly bumped mtime.
+	writeNode(test, root, "notes/auth.md", "type: note\ntitle: Auth\n", "BBBB\n")
+
+	future := time.Now().Add(2 * time.Hour)
+
+	if chErr := os.Chtimes(filepath.Join(root, "notes/auth.md"), future, future); chErr != nil {
+		test.Fatalf("chtimes: %v", chErr)
+	}
+
+	second, secondErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
+
+	if secondErr != nil {
+		test.Fatalf("second Run: %v", secondErr)
+	}
+
+	if second.Indexed != 1 {
+		test.Errorf("changed-mtime pass Indexed = %d, want 1 (mtime change must re-process)", second.Indexed)
+	}
+}
+
 func TestRun_SkipsTuskInternalDir(test *testing.T) {
 	root := test.TempDir()
 

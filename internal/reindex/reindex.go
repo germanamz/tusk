@@ -112,6 +112,14 @@ type Config struct {
 	// long-lived background worker pool (watch/MCP runtime) so Run returns
 	// as soon as the walk completes.
 	Async bool
+
+	// Force disables the unchanged-file skip: when true, every file is re-read,
+	// re-hashed, and re-enqueued even if its mtime+size match the last pass.
+	// Default (false) skips files whose mtime AND size are unchanged — a large
+	// speedup on incremental reindex. The skip is a performance trade-off, not a
+	// correctness guarantee (a content change that preserves both mtime and size
+	// would be missed); Force is the escape hatch.
+	Force bool
 }
 
 // RebuildConfig fills the repo-and-manifest fields a from-scratch index
@@ -261,16 +269,43 @@ func Run(config Config) (*Report, error) {
 			return nil
 		}
 
-		content, readErr := os.ReadFile(path)
-
-		if readErr != nil {
-			return fmt.Errorf("reindex: read %s: %w", path, readErr)
-		}
-
 		stat, statErr := entry.Info()
 
 		if statErr != nil {
 			return fmt.Errorf("reindex: stat %s: %w", path, statErr)
+		}
+
+		// Incremental skip: a live file whose mtime AND size are unchanged since
+		// the last pass keeps the same content hash and index rows, so there is
+		// nothing to re-read, re-hash, or re-enqueue. Stamp the current
+		// generation (so the orphan reaper, which reaps rows with an older
+		// last_seen_gen, leaves it alone) and move on. Force bypasses this. The
+		// skip trades correctness-under-clock-games for speed: a content change
+		// that preserves both mtime and size would be missed — use --force then.
+		if !config.Force {
+			if existing, getErr := config.FileStates.Get(relPath); getErr == nil &&
+				existing.State == index.FileStateLive &&
+				existing.MtimeNs == stat.ModTime().UnixNano() &&
+				existing.Size == stat.Size() {
+				if upsertErr := config.FileStates.Upsert(index.FileStateRow{
+					Path:        relPath,
+					ContentHash: existing.ContentHash,
+					MtimeNs:     existing.MtimeNs,
+					Size:        existing.Size,
+					State:       index.FileStateLive,
+					LastSeenGen: gen,
+				}); upsertErr != nil {
+					return upsertErr
+				}
+
+				return nil
+			}
+		}
+
+		content, readErr := os.ReadFile(path)
+
+		if readErr != nil {
+			return fmt.Errorf("reindex: read %s: %w", path, readErr)
 		}
 
 		checksum := sha256.Sum256(content)

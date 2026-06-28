@@ -10,8 +10,9 @@ Walk the workspace and bring the index up to date with disk
 
 Walk the workspace and bring the SQLite index up to date with disk.
 
-Reindex compares each file's mtime, size, and checksum against the index
-and re-parses only changed files. Embedding refreshes for changed nodes
+Reindex skips any file whose mtime and size are unchanged since the last
+pass and re-parses only the rest. Pass --force to re-read, re-hash, and
+re-process every file regardless. Embedding refreshes for changed nodes
 happen lazily — run "tusk watch" alongside, or in the background, to
 drain the embedding queue.
 
@@ -51,7 +52,8 @@ tusk reindex [flags]
 ### Options
 
 ```
-  -h, --help   help for reindex
+      --force   re-process every file even if its mtime and size are unchanged
+  -h, --help    help for reindex
 ```
 
 ### Options inherited from parent commands
