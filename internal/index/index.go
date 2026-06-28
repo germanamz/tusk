@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 
 CREATE INDEX IF NOT EXISTS nodes_kind_type_idx ON nodes(kind, type);
+-- type-leading index for bare "type = ?" filters: nodes_kind_type_idx leads
+-- with the 2-value kind column, so it cannot serve a type-only predicate
+-- (the most common structural filter), which otherwise scans the table.
+CREATE INDEX IF NOT EXISTS nodes_type_idx ON nodes(type);
 CREATE INDEX IF NOT EXISTS nodes_parent_id_ordinal ON nodes(parent_id, ordinal);
 -- Partial UNIQUE index on path (file rows only): sub-units inherit their
 -- parent file's path, so a table-level UNIQUE(path) would block them.
