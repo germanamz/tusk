@@ -71,16 +71,36 @@ type compileState struct {
 	defaultOrderBy string
 }
 
-// recursiveDescendantsCTE returns the recursive-CTE body that walks `type` edges
-// from a seed node down to depth 5. name is injected into all five positions.
-// ShortcutTree and the ShortcutRoot ascendants pass share this verbatim; the
-// root descendants body has a different seed and is built separately.
-func recursiveDescendantsCTE(name string) string {
+// recursiveAncestorsCTE returns the recursive-CTE body that walks `type` edges
+// from a seed node UP to its ancestors, to depth 5. Hierarchy edges are
+// child→parent (the property lives on the child, e.g. `parent: <id>`, so the
+// edge points from the child source to the parent target), so following
+// source→target climbs toward the root. The seed's parent is its edge target;
+// each recursion joins the next parent on source_id. ShortcutRoot uses this to
+// find a node's topmost ancestor. Result column: target_id (the ancestor ids).
+func recursiveAncestorsCTE(name string) string {
 	return fmt.Sprintf(`%s AS (
     SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = ?
     UNION ALL
     SELECT edges.target_id, %s.depth + 1 FROM %s
         JOIN edges ON edges.source_id = %s.target_id
+        WHERE edges.type = ? AND %s.depth < 5
+)`, name, name, name, name, name)
+}
+
+// recursiveDescendantsCTE returns the recursive-CTE body that walks `type` edges
+// from a seed node DOWN to its descendants, to depth 5. For child→parent
+// hierarchy edges, a node's children are the edge sources whose target is that
+// node, so descending follows target→source: the seed's children are the
+// sources of edges whose target is the seed, and each recursion joins the next
+// generation on target_id. ShortcutTree uses this. Result column: node_id (the
+// descendant ids).
+func recursiveDescendantsCTE(name string) string {
+	return fmt.Sprintf(`%s AS (
+    SELECT source_id AS node_id, 1 AS depth FROM edges WHERE target_id = ? AND type = ?
+    UNION ALL
+    SELECT edges.source_id, %s.depth + 1 FROM %s
+        JOIN edges ON edges.target_id = %s.node_id
         WHERE edges.type = ? AND %s.depth < 5
 )`, name, name, name, name, name)
 }
@@ -429,25 +449,28 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string,
 		cteName := fmt.Sprintf("descendants_%d", counter)
 		cteBody := recursiveDescendantsCTE(cteName)
 
-		whereClause := fmt.Sprintf("nodes.id IN (SELECT target_id FROM %s)", cteName)
+		whereClause := fmt.Sprintf("nodes.id IN (SELECT node_id FROM %s)", cteName)
 
 		return whereClause, []string{cteBody}, []any{shortcut.NodeID, edge, edge}, nil
 	case ShortcutRoot:
 		ascendantsName := fmt.Sprintf("ascendants_%d", counter)
 		descendantsName := fmt.Sprintf("from_root_%d", counter)
-		ascendantsBody := recursiveDescendantsCTE(ascendantsName)
+		ascendantsBody := recursiveAncestorsCTE(ascendantsName)
 
+		// Seed from the seed node's topmost ancestor (deepest ascendant) — or
+		// the seed itself when it is already a root — then descend the whole
+		// tree from there (target→source, matching recursiveDescendantsCTE).
 		descendantsBody := fmt.Sprintf(`%s AS (
-    SELECT id AS target_id, 1 AS depth FROM nodes
+    SELECT id AS node_id, 1 AS depth FROM nodes
         WHERE id IN (SELECT target_id FROM %s ORDER BY depth DESC LIMIT 1)
             OR id = ?
     UNION ALL
-    SELECT edges.target_id, %s.depth + 1 FROM %s
-        JOIN edges ON edges.source_id = %s.target_id
+    SELECT edges.source_id, %s.depth + 1 FROM %s
+        JOIN edges ON edges.target_id = %s.node_id
         WHERE edges.type = ? AND %s.depth < 5
 )`, descendantsName, ascendantsName, descendantsName, descendantsName, descendantsName, descendantsName)
 
-		whereClause := fmt.Sprintf("nodes.id IN (SELECT target_id FROM %s)", descendantsName)
+		whereClause := fmt.Sprintf("nodes.id IN (SELECT node_id FROM %s)", descendantsName)
 
 		return whereClause, []string{ascendantsBody, descendantsBody}, []any{shortcut.NodeID, edge, edge, shortcut.NodeID, edge}, nil
 	}
