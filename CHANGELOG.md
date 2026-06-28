@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.18.0](https://github.com/germanamz/tusk/compare/v1.17.0...v1.18.0) (2026-06-28)
+
+
+### Features
+
+* **mcp:** add tusk_pack_add and stop telling agents to use the shell ([#612](https://github.com/germanamz/tusk/issues/612)) ([e626c04](https://github.com/germanamz/tusk/commit/e626c04abc46c2e7f08ba7ab773aaacb07d8241c))
+* **mcp:** let tusk_node_modify replace the node body ([#610](https://github.com/germanamz/tusk/issues/610)) ([f941961](https://github.com/germanamz/tusk/commit/f9419612aee10cdd263d3dfd36be8a4986f945d0))
+* **mcp:** surface embed-queue depth and set expectations on tusk_reindex ([#611](https://github.com/germanamz/tusk/issues/611)) ([45131c5](https://github.com/germanamz/tusk/commit/45131c56dec4a3a01138a4a1851c9a68374a9bfb))
+
+
+### Bug Fixes
+
+* **mcp:** hint at tusk_reload when an edge type is not declared ([#609](https://github.com/germanamz/tusk/issues/609)) ([0b91fc8](https://github.com/germanamz/tusk/commit/0b91fc86205426441861e332f2615bfb0f79d76a))
+
 ## [1.17.0](https://github.com/germanamz/tusk/compare/v1.16.0...v1.17.0) (2026-06-27)
 
 
