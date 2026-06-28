@@ -266,3 +266,27 @@ func TestOpen_CascadeDeleteEdgesAndEmbeddingMappings(test *testing.T) {
 		test.Errorf("expected shared vector to survive cascade; remaining = %d", vecCount)
 	}
 }
+
+// TestOpen_SynchronousIsNormal asserts the index opens with
+// synchronous=NORMAL (1). The index is a rebuildable cache, so NORMAL (which
+// in WAL mode fsyncs only at checkpoint) is the right durability/throughput
+// trade — FULL (2) fsyncs every one of the pipelines' many tiny commits.
+func TestOpen_SynchronousIsNormal(test *testing.T) {
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	var synchronous int
+
+	if queryErr := store.DB().QueryRow("PRAGMA synchronous").Scan(&synchronous); queryErr != nil {
+		test.Fatalf("PRAGMA synchronous: %v", queryErr)
+	}
+
+	if synchronous != 1 {
+		test.Errorf("PRAGMA synchronous = %d, want 1 (NORMAL)", synchronous)
+	}
+}
