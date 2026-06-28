@@ -37,7 +37,11 @@ func newMCPCmd() *cobra.Command {
 
 Transports:
   stdio   reads JSON-RPC over stdin, writes over stdout (default)
-  sse     listens for SSE clients on --addr (default :8765)
+  sse     listens for SSE clients on --addr (default 127.0.0.1:8765, loopback)
+
+The SSE transport exposes the full write surface (node/edge create, modify,
+delete, and reset) with no authentication, so it binds loopback by default.
+Binding a non-loopback address requires interactive confirmation.
 
 The server holds the workspace open for the lifetime of the session, drains
 the embed queue in the background, and watches the workspace for external
@@ -57,6 +61,10 @@ reindex) must keep the index fresh.`,
   # Verify the workspace is healthy first
   tusk doctor && tusk mcp`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if guardErr := guardMCPBind(cmd, transport, addr); guardErr != nil {
+				return guardErr
+			}
+
 			cwd, cwdErr := os.Getwd()
 
 			if cwdErr != nil {
@@ -114,7 +122,36 @@ reindex) must keep the index fresh.`,
 	}
 
 	mcpCmd.Flags().StringVar(&transport, "transport", "stdio", "transport: stdio | sse")
-	mcpCmd.Flags().StringVar(&addr, "addr", ":8765", "SSE listen address (only used when --transport sse)")
+	mcpCmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8765", "SSE listen address (loopback by default; only used when --transport sse)")
 
 	return mcpCmd
+}
+
+// guardMCPBind refuses to start the SSE transport on a non-loopback address
+// without explicit confirmation. The SSE transport exposes the full write
+// surface (node/edge create, modify, delete, and reset) with no authentication,
+// so an all-interfaces bind would hand write access to anyone who can reach the
+// port. stdio and loopback binds pass through untouched.
+func guardMCPBind(cmd *cobra.Command, transport, addr string) error {
+	if transport != "sse" {
+		return nil
+	}
+
+	if isLoopbackAddr(addr) {
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+		"warning: %q is not loopback; the MCP SSE server is unauthenticated and exposes write tools (node/edge create, modify, delete, and reset) to anyone who can reach it.\nProceed? [y/N] ",
+		addr)
+
+	var answer string
+
+	_, _ = fmt.Fscanln(cmd.InOrStdin(), &answer)
+
+	if answer != "y" && answer != "Y" {
+		return fmt.Errorf("mcp: refusing to bind non-loopback address %q without confirmation", addr)
+	}
+
+	return nil
 }

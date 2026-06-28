@@ -15,7 +15,12 @@ Run the Tusk MCP server.
 .PP
 Transports:
   stdio   reads JSON-RPC over stdin, writes over stdout (default)
-  sse     listens for SSE clients on --addr (default :8765)
+  sse     listens for SSE clients on --addr (default 127.0.0.1:8765, loopback)
+
+.PP
+The SSE transport exposes the full write surface (node/edge create, modify,
+delete, and reset) with no authentication, so it binds loopback by default.
+Binding a non-loopback address requires interactive confirmation.
 
 .PP
 The server holds the workspace open for the lifetime of the session, drains
@@ -31,8 +36,8 @@ reindex) must keep the index fresh.
 
 
 .SH OPTIONS
-\fB--addr\fP=":8765"
-	SSE listen address (only used when --transport sse)
+\fB--addr\fP="127.0.0.1:8765"
+	SSE listen address (loopback by default; only used when --transport sse)
 
 .PP
 \fB-h\fP, \fB--help\fP[=false]

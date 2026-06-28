@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -11,7 +12,49 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/mcp"
+	"github.com/spf13/cobra"
 )
+
+func TestMCP_DefaultAddrIsLoopback(test *testing.T) {
+	addrFlag := newMCPCmd().Flags().Lookup("addr")
+
+	if addrFlag == nil {
+		test.Fatal("mcp command has no --addr flag")
+	}
+
+	if !isLoopbackAddr(addrFlag.DefValue) {
+		test.Errorf("default --addr = %q, want a loopback address", addrFlag.DefValue)
+	}
+}
+
+func TestGuardMCPBind(test *testing.T) {
+	cases := []struct {
+		name      string
+		transport string
+		addr      string
+		stdin     string
+		wantErr   bool
+	}{
+		{"stdio skips the check", "stdio", ":8765", "", false},
+		{"sse loopback passes", "sse", "127.0.0.1:8765", "", false},
+		{"sse non-loopback declined", "sse", "0.0.0.0:8765", "n\n", true},
+		{"sse non-loopback confirmed", "sse", "0.0.0.0:8765", "y\n", false},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(subtest *testing.T) {
+			cmd := &cobra.Command{}
+			cmd.SetIn(strings.NewReader(testCase.stdin))
+			cmd.SetErr(io.Discard)
+
+			guardErr := guardMCPBind(cmd, testCase.transport, testCase.addr)
+
+			if (guardErr != nil) != testCase.wantErr {
+				subtest.Errorf("guardMCPBind(%q, %q) err = %v, wantErr %v", testCase.transport, testCase.addr, guardErr, testCase.wantErr)
+			}
+		})
+	}
+}
 
 func TestMCP_ParsesTransportFlag(test *testing.T) {
 	cmd := newRootCmd()
