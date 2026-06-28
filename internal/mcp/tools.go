@@ -1187,7 +1187,7 @@ func registerEdgeAddTool(srv *Server) {
 		edgeDef, declared := srv.runtime.Manifest.EdgeTypes[edgeType]
 
 		if !declared {
-			return toolError(fmt.Errorf("edge type %q not declared in manifest", edgeType)), nil
+			return toolError(fmt.Errorf("edge type %q not declared in manifest — if you just edited tusk.toml, the daemon's cached schema is stale; call tusk_reload, then retry", edgeType)), nil
 		}
 
 		sourceRow, sourceErr := srv.runtime.Nodes.Get(sourceID)
@@ -1260,7 +1260,7 @@ func registerEdgeRemoveTool(srv *Server) {
 		edgeType, sourceID, targetID := required[0], required[1], required[2]
 
 		if _, declared := srv.runtime.Manifest.EdgeTypes[edgeType]; !declared {
-			return toolError(fmt.Errorf("edge type %q not declared in manifest", edgeType)), nil
+			return toolError(fmt.Errorf("edge type %q not declared in manifest — if you just edited tusk.toml, the daemon's cached schema is stale; call tusk_reload, then retry", edgeType)), nil
 		}
 
 		if writeErr := node.RemoveEdgeFromFrontmatter(srv.runtime.Root, sourceID, edgeType, targetID, srv.runtime.Manifest.EdgeTypes); writeErr != nil {
