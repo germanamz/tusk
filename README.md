@@ -18,7 +18,7 @@ markdown vault  ──▶  tusk indexer  ──▶  SQLite graph + embeddings
 - **Schema-validated.** Node and edge types are declared in `tusk.toml`. Off-schema content is warned, never rejected.
 - **Structural + semantic.** A compact filter grammar for the graph (`key=value` / `key:value`, ranges, edge traversal, boolean composition), Ollama-backed embeddings for similarity, and a hybrid mode that filters then ranks.
 - **External edits are first-class.** Vim, Obsidian, an LLM piping markdown — they all work; the watcher keeps the index live.
-- **One engine, two surfaces.** Every CLI verb has a 1:1 MCP tool.
+- **One engine, two surfaces.** Every read/write graph verb has a 1:1 MCP tool; workspace bootstrap (`tusk init`) and the graph viewer (`tusk graph`) stay CLI-only.
 
 ---
 
@@ -322,7 +322,7 @@ tusk query 'type=decision' --semantic "storage backend" --top 3 --json
 
 ## MCP server (Claude Code, Cursor, …)
 
-`tusk mcp` runs an MCP server that exposes every CLI verb as a tool. Stdio is the default transport; SSE is available on a port.
+`tusk mcp` runs an MCP server backed by the same indexing engine as the CLI, exposing the graph verbs as tools. Agents should prefer these tools over shelling out to `tusk` — they run in the warm daemon with the index already open. Stdio is the default transport; SSE is available on a port.
 
 ```bash
 tusk mcp                      # stdio (for Claude Code / Cursor / Codex)
@@ -362,9 +362,13 @@ Or directly in `~/.claude.json`:
 | `tusk_node_create` / `tusk_node_modify` / `tusk_node_move` / `tusk_node_delete` | write |
 | `tusk_edge_add` / `tusk_edge_remove` / `tusk_edge_list` | edge CRUD |
 | `tusk_query` | structural + optional `semantic` ranking |
+| `tusk_context` | composed warm-context digest (pinned nodes, recent activity, aliases) |
+| `tusk_run` | invoke a manifest-declared alias by name |
 | `tusk_reindex` | force a full walk |
+| `tusk_reload` | hot-reload `tusk.toml`: validate + swap the schema, no restart |
+| `tusk_reset` | drop and rebuild the index from files (`confirm: true`) |
 
-Workspace-config commands (`tusk pack add`) stay CLI-only in v1.
+Workspace bootstrap (`tusk init`) and the graph viewer (`tusk graph`) stay CLI-only.
 
 ---
 

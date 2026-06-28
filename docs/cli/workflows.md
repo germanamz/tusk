@@ -100,7 +100,24 @@ project README):
 
 Most read/write CLI verbs have a 1:1 MCP tool of the same shape
 (`tusk_node_create`, `tusk_query`, …). Workspace-bootstrap commands
-(`tusk init`, `tusk pack`, `tusk watch`) are CLI-only.
+(`tusk init`, `tusk watch`) are CLI-only.
+
+### The agent retrieval loop (use the tools, not the shell)
+
+Once wired, an agent should work through the MCP tools rather than `tusk …`
+in a shell — the tools run in the warm daemon with the index already open,
+where each `tusk …` shell call cold-starts a process and reopens the database:
+
+1. `tusk_context` — pull the workspace's warm digest (pinned nodes, recent
+   activity, named aliases) to orient.
+2. `tusk_query` — structural + semantic retrieval; expand rows with
+   `include: ["body", "edges"]` to avoid follow-up round-trips.
+3. `tusk_node_get` — fetch a specific node by id when you need its full body.
+4. `tusk_node_create` / `tusk_node_modify` / `tusk_edge_add` — write findings
+   back as nodes and typed edges.
+
+Reach for the shell only to bootstrap a workspace (`tusk init`) or open the
+graph viewer (`tusk graph`).
 
 ---
 
