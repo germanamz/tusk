@@ -1169,10 +1169,10 @@ func registerNodeDeleteTool(srv *Server) {
 
 func registerEdgeAddTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_edge_add",
-		mcpgo.WithDescription("Add a typed edge from source_id to target_id."),
-		mcpgo.WithString("type", mcpgo.Required()),
-		mcpgo.WithString("source_id", mcpgo.Required()),
-		mcpgo.WithString("target_id", mcpgo.Required()),
+		mcpgo.WithDescription("Add a typed edge from source_id to target_id — the MCP equivalent of `tusk edge add` (no shell needed). The edge type must be declared in tusk.toml under [edge-types.<name>]; the source and target node types must satisfy its from/to lists; acyclic edge types reject cycles at write time; re-adding the same edge is a no-op. The edge is written to the source node's frontmatter (the file stays the source of truth) and the index is brought into line. See tusk_help(topic: \"edge-types\")."),
+		mcpgo.WithString("type", mcpgo.Required(), mcpgo.Description("Edge type — must be declared in tusk.toml under [edge-types.<name>].")),
+		mcpgo.WithString("source_id", mcpgo.Required(), mcpgo.Description("Source node id: a workspace-relative path without extension (e.g. tickets/T-001).")),
+		mcpgo.WithString("target_id", mcpgo.Required(), mcpgo.Description("Target node id: a workspace-relative path without extension (e.g. tickets/auth-epic).")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -1244,10 +1244,10 @@ func registerEdgeAddTool(srv *Server) {
 
 func registerEdgeRemoveTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_edge_remove",
-		mcpgo.WithDescription("Remove an edge from the source node's frontmatter; the index is updated to match."),
-		mcpgo.WithString("type", mcpgo.Required()),
-		mcpgo.WithString("source_id", mcpgo.Required()),
-		mcpgo.WithString("target_id", mcpgo.Required()),
+		mcpgo.WithDescription("Remove a typed edge from the source node's frontmatter — the MCP equivalent of `tusk edge remove` (no shell needed). The index is updated to match; removing an edge that is not present is a no-op. See tusk_help(topic: \"edge-types\")."),
+		mcpgo.WithString("type", mcpgo.Required(), mcpgo.Description("Edge type — must be declared in tusk.toml under [edge-types.<name>].")),
+		mcpgo.WithString("source_id", mcpgo.Required(), mcpgo.Description("Source node id: a workspace-relative path without extension (e.g. tickets/T-001).")),
+		mcpgo.WithString("target_id", mcpgo.Required(), mcpgo.Description("Target node id: a workspace-relative path without extension (e.g. tickets/auth-epic).")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
