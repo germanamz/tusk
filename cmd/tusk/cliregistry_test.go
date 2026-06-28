@@ -67,8 +67,11 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 }
 
 // TestRegistry_ToolNamesMatchMCPRegistrations boots a real *mcp.Server and
-// asserts every cliregistry.ReadOnly[*].Tool name matches a registered MCP
-// tool. A renamed MCP tool or a stale registry entry would fail this test.
+// asserts every cliregistry.ReadOnly[*].Tool AND cliregistry.Write[*].Tool
+// names a registered MCP tool (and that none is empty). A renamed MCP tool, a
+// stale registry entry, or a new write verb shipped without an MCP counterpart
+// would fail this test — so CLI<->MCP parity is enforced for writes too, not
+// just reads.
 func TestRegistry_ToolNamesMatchMCPRegistrations(test *testing.T) {
 	tmpDir := test.TempDir()
 
@@ -93,9 +96,20 @@ func TestRegistry_ToolNamesMatchMCPRegistrations(test *testing.T) {
 		registered[name] = struct{}{}
 	}
 
-	for verb, spec := range cliregistry.ReadOnly {
-		if _, found := registered[spec.Tool]; !found {
-			test.Errorf("cliregistry.ReadOnly[%q].Tool = %q is not a registered MCP tool", verb, spec.Tool)
+	for label, specs := range map[string]map[string]cliregistry.VerbSpec{
+		"ReadOnly": cliregistry.ReadOnly,
+		"Write":    cliregistry.Write,
+	} {
+		for verb, spec := range specs {
+			if spec.Tool == "" {
+				test.Errorf("cliregistry.%s[%q].Tool is empty; every read/write verb must name its MCP tool counterpart", label, verb)
+
+				continue
+			}
+
+			if _, found := registered[spec.Tool]; !found {
+				test.Errorf("cliregistry.%s[%q].Tool = %q is not a registered MCP tool", label, verb, spec.Tool)
+			}
 		}
 	}
 }
