@@ -179,15 +179,19 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 		}
 
 		if len(batch) == 0 {
-			// Queue is drained: reclaim any vectors no node references any
-			// more (orphaned by content edits or deletes). Safe here because
-			// no drain work is in flight.
-			if removed, gcErr := config.Embeddings.GCOrphanVectors(); gcErr != nil {
-				if config.Logger != nil {
-					config.Logger.Warn("embed gc failed", "err", gcErr.Error())
+			// Queue is drained. Reclaim any vectors no node references any more
+			// (orphaned by content edits or deletes), but only when this pass
+			// actually drained work — orphans are created by queue traffic, so
+			// an idle pass has nothing to collect, and a DELETE...WHERE NOT
+			// EXISTS scan on every ~2s drainer tick at idle is pure waste.
+			if drained > 0 {
+				if removed, gcErr := config.Embeddings.GCOrphanVectors(); gcErr != nil {
+					if config.Logger != nil {
+						config.Logger.Warn("embed gc failed", "err", gcErr.Error())
+					}
+				} else if removed > 0 && config.Logger != nil {
+					config.Logger.Debug("embed gc orphan vectors", "removed", removed)
 				}
-			} else if removed > 0 && config.Logger != nil {
-				config.Logger.Debug("embed gc orphan vectors", "removed", removed)
 			}
 
 			return drained, nil
