@@ -5,6 +5,7 @@ package query
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/germanamz/tusk/internal/embed"
@@ -12,6 +13,12 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 )
+
+// ErrSemanticUnavailable is returned by Run when a semantic/hybrid query is
+// requested but no embedder is configured. It is a sentinel so callers (e.g.
+// the graph-view HTTP server) can classify "semantic ranking can't run" via
+// errors.Is rather than matching the message text.
+var ErrSemanticUnavailable = errors.New("semantic ranking requires [embeddings] in tusk.toml")
 
 // Request configures Run. Filter is the structural filter expression and is
 // required (empty string is rejected by the CLI; MCP enforces "filter" as a
@@ -258,7 +265,7 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 	}
 
 	if deps.Embedder == nil {
-		return nil, fmt.Errorf("semantic ranking requires [embeddings] in tusk.toml")
+		return nil, ErrSemanticUnavailable
 	}
 
 	queryVector, embedErr := deps.Embedder.Embed(ctx, []byte(req.Semantic))

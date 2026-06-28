@@ -2,8 +2,11 @@ package graphview
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
-	"strings"
+
+	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/query"
 )
 
 const defaultQueryLimit = 50
@@ -42,11 +45,11 @@ func (srv *Server) handleQuery(writer http.ResponseWriter, request *http.Request
 }
 
 // isSemanticUnavailable reports whether err indicates the embedder is missing
-// or unreachable (so semantic ranking can't run), distinguishing it from a real
-// index fault. Matches the query layer's "requires [embeddings]" message and
-// the embedder's "ollama:" wrapped errors.
+// (query.ErrSemanticUnavailable) or unreachable (embed.TransportError: the
+// backend is down, timed out, or returned a 5xx) — so semantic ranking can't
+// run, as distinct from a real index fault or a caller-fixable embedder error
+// (a 4xx, a dimension mismatch). Matched by error identity rather than message
+// text so a reworded error never silently changes the HTTP status.
 func isSemanticUnavailable(err error) bool {
-	msg := err.Error()
-
-	return strings.Contains(msg, "requires [embeddings]") || strings.Contains(msg, "ollama:")
+	return errors.Is(err, query.ErrSemanticUnavailable) || embed.IsTransportError(err)
 }
