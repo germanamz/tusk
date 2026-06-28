@@ -44,20 +44,37 @@ are removed before the pack is appended.`,
 				return nil
 			}
 
-			msg := addErr.Error()
+			// Print the failure before any os.Exit: SilenceErrors is set on
+			// root and main.go prints only on the normal return path, which
+			// os.Exit bypasses — without this the user gets a bare exit code
+			// and no message.
+			if code, ok := packAddExitCode(addErr); ok {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), addErr)
 
-			switch {
-			case strings.Contains(msg, "fetch"):
-				os.Exit(2)
-			case strings.Contains(msg, "invalid TOML"), strings.Contains(msg, "disallowed top-level"), strings.Contains(msg, "decode pack"):
-				os.Exit(3)
+				os.Exit(code)
 			}
 
-			return addErr // cobra exits with 1
+			return addErr // cobra exits with 1 (printed by main.go)
 		},
 	}
 
 	addCmd.Flags().BoolVar(&force, "force", false, "remove colliding sections from tusk.toml before appending the pack")
 
 	return addCmd
+}
+
+// packAddExitCode maps a pack-add failure to a distinct process exit code for
+// scripting: 2 for fetch/network failures, 3 for TOML/validation failures. The
+// bool is false for every other error, which cobra reports as exit code 1.
+func packAddExitCode(addErr error) (int, bool) {
+	msg := addErr.Error()
+
+	switch {
+	case strings.Contains(msg, "fetch"):
+		return 2, true
+	case strings.Contains(msg, "invalid TOML"), strings.Contains(msg, "disallowed top-level"), strings.Contains(msg, "decode pack"):
+		return 3, true
+	}
+
+	return 0, false
 }
