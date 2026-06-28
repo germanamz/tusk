@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -352,6 +353,204 @@ func TestDrainQueue_GivesUpAfterMaxAttempts(test *testing.T) {
 
 	if depth != 0 {
 		test.Errorf("queue depth after give-up = %d, want 0", depth)
+	}
+}
+
+// concurrencyProbeEmbedder records the high-water mark of concurrent Embed
+// calls, so a test can prove (or disprove) cross-node parallelism. Goroutine-safe.
+type concurrencyProbeEmbedder struct {
+	dim      int
+	model    string
+	hold     time.Duration
+	inFlight atomic.Int32
+	maxSeen  atomic.Int32
+	calls    atomic.Int64
+}
+
+func (stub *concurrencyProbeEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	current := stub.inFlight.Add(1)
+
+	for {
+		prev := stub.maxSeen.Load()
+
+		if current <= prev || stub.maxSeen.CompareAndSwap(prev, current) {
+			break
+		}
+	}
+
+	time.Sleep(stub.hold)
+	stub.inFlight.Add(-1)
+	stub.calls.Add(1)
+
+	out := make([]float32, stub.dim)
+
+	for idx := range out {
+		out[idx] = 0.1
+	}
+
+	return out, nil
+}
+
+func (stub *concurrencyProbeEmbedder) Model() string { return stub.model }
+func (stub *concurrencyProbeEmbedder) Dim() int      { return stub.dim }
+
+// transportFailEmbedder always fails with a TransportError and holds no mutable
+// state, so it is safe to call concurrently.
+type transportFailEmbedder struct {
+	dim   int
+	model string
+}
+
+func (stub *transportFailEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	return nil, &embed.TransportError{Err: fmt.Errorf("connection refused")}
+}
+
+func (stub *transportFailEmbedder) Model() string { return stub.model }
+func (stub *transportFailEmbedder) Dim() int      { return stub.dim }
+
+func enqueueSingleChunkNodes(test *testing.T, root string, nodeRepo *index.NodeRepo, queueRepo *index.EmbedQueueRepo, count int) {
+	test.Helper()
+
+	for idx := 0; idx < count; idx++ {
+		id := fmt.Sprintf("notes/n%d", idx)
+		createNodeFile(test, root, id+".md", fmt.Sprintf("body %d", idx))
+
+		if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: id, Type: "note", Path: id + ".md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+			test.Fatalf("upsert %s: %v", id, upsertErr)
+		}
+
+		if enqErr := queueRepo.Enqueue(id); enqErr != nil {
+			test.Fatalf("enqueue %s: %v", id, enqErr)
+		}
+	}
+}
+
+// TestDrainQueue_CrossNodeConcurrencyRunsNodesInParallel pins B2: with
+// EmbedConcurrency > 1, multiple single-chunk nodes embed at once (the per-node
+// chunk pool gives no parallelism when each node is one chunk). All nodes are
+// still embedded and the queue drains.
+func TestDrainQueue_CrossNodeConcurrencyRunsNodesInParallel(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	const nodes = 8
+
+	enqueueSingleChunkNodes(test, root, nodeRepo, queueRepo, nodes)
+
+	probe := &concurrencyProbeEmbedder{dim: 3, model: "stub", hold: 25 * time.Millisecond}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:             root,
+		Nodes:            nodeRepo,
+		Queue:            queueRepo,
+		Embeddings:       embeddingRepo,
+		Embedder:         probe,
+		Chunker:          embed.WholeDocument{},
+		EmbedConcurrency: 4,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != nodes {
+		test.Errorf("drained = %d, want %d", drained, nodes)
+	}
+
+	if max := probe.maxSeen.Load(); max < 2 {
+		test.Errorf("max concurrent embeds = %d, want > 1 (cross-node pool must parallelize)", max)
+	}
+
+	if max := probe.maxSeen.Load(); max > 4 {
+		test.Errorf("max concurrent embeds = %d, want <= 4 (pool must stay bounded)", max)
+	}
+
+	depth, _ := queueRepo.Depth()
+
+	if depth != 0 {
+		test.Errorf("queue depth after drain = %d, want 0", depth)
+	}
+}
+
+// TestDrainQueue_SerialWhenConcurrencyOne confirms the default (EmbedConcurrency
+// unset / 1) keeps the original one-node-at-a-time behavior.
+func TestDrainQueue_SerialWhenConcurrencyOne(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	enqueueSingleChunkNodes(test, root, nodeRepo, queueRepo, 6)
+
+	probe := &concurrencyProbeEmbedder{dim: 3, model: "stub", hold: 10 * time.Millisecond}
+
+	if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   probe,
+		Chunker:    embed.WholeDocument{},
+		// EmbedConcurrency unset -> serial.
+	}); drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if max := probe.maxSeen.Load(); max != 1 {
+		test.Errorf("max concurrent embeds = %d, want 1 (default must stay serial)", max)
+	}
+}
+
+// TestDrainQueue_CrossNodeConcurrencyTransportAbortKeepsQueue confirms a
+// transport failure under the concurrent pool still aborts the pass and leaves
+// every row queued — no node is dropped or has its retry budget burned by a
+// sibling's failure.
+func TestDrainQueue_CrossNodeConcurrencyTransportAbortKeepsQueue(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	const nodes = 6
+
+	enqueueSingleChunkNodes(test, root, nodeRepo, queueRepo, nodes)
+
+	failing := &transportFailEmbedder{dim: 3, model: "fake"}
+
+	_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:             root,
+		Nodes:            nodeRepo,
+		Queue:            queueRepo,
+		Embeddings:       embeddingRepo,
+		Embedder:         failing,
+		Chunker:          embed.WholeDocument{},
+		EmbedConcurrency: 4,
+		TTL:              time.Minute,
+	})
+
+	if drainErr == nil || !embed.IsTransportError(drainErr) {
+		test.Fatalf("DrainQueue err = %v, want a TransportError", drainErr)
+	}
+
+	depth, depthErr := queueRepo.Depth()
+
+	if depthErr != nil {
+		test.Fatalf("Depth: %v", depthErr)
+	}
+
+	if depth != nodes {
+		test.Errorf("queue depth after transport abort = %d, want %d (no row dropped)", depth, nodes)
 	}
 }
 

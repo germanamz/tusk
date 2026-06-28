@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -489,11 +490,11 @@ func TestRun_RespectsWorkspaceIgnore(test *testing.T) {
 type stubEmbedder struct {
 	model string
 	dim   int
-	calls int
+	calls atomic.Int64 // embedding now runs concurrently across nodes; keep this race-free
 }
 
 func (stub *stubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
-	stub.calls++
+	stub.calls.Add(1)
 
 	return make([]float32, stub.dim), nil
 }
@@ -537,8 +538,8 @@ func TestRun_DrainsEmbedQueue(test *testing.T) {
 		test.Errorf("Indexed = %d, want 2", report.Indexed)
 	}
 
-	if embedder.calls != 2 {
-		test.Errorf("embedder calls = %d, want 2", embedder.calls)
+	if embedder.calls.Load() != 2 {
+		test.Errorf("embedder calls = %d, want 2", embedder.calls.Load())
 	}
 
 	embedDepth, _ := queueRepo.DepthByKind("embed")

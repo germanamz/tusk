@@ -42,15 +42,16 @@ func RunDrainer(ctx context.Context, config DrainerConfig) error {
 			}
 
 			drained, drainErr := embed.DrainQueue(ctx, embed.DrainConfig{
-				Root:       rt.Root,
-				Nodes:      rt.Nodes,
-				Queue:      rt.EmbedQueue,
-				Embeddings: rt.Embeddings,
-				Embedder:   rt.Embedder,
-				Chunker:    rt.Chunker,
-				Workers:    rt.Workers,
-				TTL:        rt.LeaseTTL,
-				Logger:     config.Logger,
+				Root:             rt.Root,
+				Nodes:            rt.Nodes,
+				Queue:            rt.EmbedQueue,
+				Embeddings:       rt.Embeddings,
+				Embedder:         rt.Embedder,
+				Chunker:          rt.Chunker,
+				Workers:          rt.Workers,
+				EmbedConcurrency: rt.Workers,
+				TTL:              rt.LeaseTTL,
+				Logger:           config.Logger,
 			})
 
 			if drainErr != nil && config.Logger != nil {

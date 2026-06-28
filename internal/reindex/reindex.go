@@ -479,15 +479,16 @@ func Run(config Config) (*Report, error) {
 
 	if config.Embedder != nil && config.Workers > 0 {
 		if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
-			Root:       config.Root,
-			Nodes:      config.Repo,
-			Queue:      config.EmbedQueue,
-			Embeddings: config.EmbeddingRepo,
-			Embedder:   config.Embedder,
-			Chunker:    config.Chunker,
-			Workers:    config.Workers,
-			TTL:        leaseTTL,
-			Logger:     config.Logger,
+			Root:             config.Root,
+			Nodes:            config.Repo,
+			Queue:            config.EmbedQueue,
+			Embeddings:       config.EmbeddingRepo,
+			Embedder:         config.Embedder,
+			Chunker:          config.Chunker,
+			Workers:          config.Workers,
+			EmbedConcurrency: config.Workers,
+			TTL:              leaseTTL,
+			Logger:           config.Logger,
 		}); drainErr != nil {
 			return nil, drainErr
 		}
