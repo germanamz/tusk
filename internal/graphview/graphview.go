@@ -158,4 +158,10 @@ type Deps struct {
 	Embeddings   EmbeddingSource    // optional; nil disables /api/embeddings (returns empty)
 	PollInterval time.Duration      // SSE change-poll cadence; defaults to 2s
 	Logger       *slog.Logger       // optional; nil silences
+
+	// AllowedHosts extends the Host-header guard beyond loopback and
+	// "localhost". A confirmed non-loopback bind passes the bound hostname
+	// here so the intended access path works; a single "*" entry disables the
+	// guard (the user accepted network exposure). Empty means loopback-only.
+	AllowedHosts []string
 }

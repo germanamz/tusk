@@ -4,9 +4,30 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 )
+
+func TestGraphAllowedHosts(test *testing.T) {
+	cases := []struct {
+		addr string
+		want []string
+	}{
+		{"127.0.0.1:7373", nil},
+		{"localhost:7373", nil},
+		{"[::1]:7373", nil},
+		{":7373", []string{"*"}},
+		{"0.0.0.0:7373", []string{"*"}},
+		{"192.168.1.5:7373", []string{"192.168.1.5"}},
+	}
+
+	for _, testCase := range cases {
+		if got := graphAllowedHosts(testCase.addr); !slices.Equal(got, testCase.want) {
+			test.Errorf("graphAllowedHosts(%q) = %v, want %v", testCase.addr, got, testCase.want)
+		}
+	}
+}
 
 func TestIsLoopbackAddr(t *testing.T) {
 	cases := map[string]bool{

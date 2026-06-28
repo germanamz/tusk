@@ -107,15 +107,16 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 	defer runtime.Close()
 
 	deps := graphview.Deps{
-		Root:       runtime.Root,
-		Nodes:      runtime.Nodes,
-		Edges:      runtime.Edges,
-		Render:     graphview.NewRenderer(runtime.Root, runtime.Nodes),
-		Query:      graphview.NewQuerier(runtime.Index.DB(), runtime.Manifest, runtime.Embedder, runtime.Embeddings, runtime.Nodes, runtime.Edges, runtime.Root),
-		Changes:    graphview.NewChangeSource(runtime.Root, runtime.Meta),
-		Manifest:   runtime.Manifest,
-		Embeddings: runtime.Embeddings,
-		Logger:     mcpLoggerFromFlags(cmd),
+		Root:         runtime.Root,
+		Nodes:        runtime.Nodes,
+		Edges:        runtime.Edges,
+		Render:       graphview.NewRenderer(runtime.Root, runtime.Nodes),
+		Query:        graphview.NewQuerier(runtime.Index.DB(), runtime.Manifest, runtime.Embedder, runtime.Embeddings, runtime.Nodes, runtime.Edges, runtime.Root),
+		Changes:      graphview.NewChangeSource(runtime.Root, runtime.Meta),
+		Manifest:     runtime.Manifest,
+		Embeddings:   runtime.Embeddings,
+		Logger:       mcpLoggerFromFlags(cmd),
+		AllowedHosts: graphAllowedHosts(cfg.addr),
 	}
 
 	viewServer := graphview.New(deps)
@@ -167,6 +168,30 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 	}
 
 	return nil
+}
+
+// graphAllowedHosts derives the graph server's Host-header allowlist from the
+// bound address. Loopback binds stay strict (loopback Host only), which is what
+// DNS-rebinding protection needs. A specific non-loopback bind — already
+// confirmed by the user — allows that host so the intended access path works;
+// an all-interfaces bind can't enumerate the access host, so the guard is
+// disabled with "*" since the user has accepted network exposure.
+func graphAllowedHosts(addr string) []string {
+	if isLoopbackAddr(addr) {
+		return nil
+	}
+
+	host, _, splitErr := net.SplitHostPort(addr)
+
+	if splitErr != nil {
+		host = addr
+	}
+
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return []string{"*"}
+	}
+
+	return []string{host}
 }
 
 // isLoopbackAddr reports whether addr binds only the loopback interface.
