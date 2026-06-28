@@ -33,7 +33,7 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 		return matcherErr
 	}
 
-	instance, newErr := watcher.New(root, matcher)
+	instance, newErr := watcher.New(root, matcher, config.Logger)
 
 	if newErr != nil {
 		return newErr
