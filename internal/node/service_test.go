@@ -360,6 +360,80 @@ func TestService_CreateMaterializesWikilinksAsReferencesEdges(test *testing.T) {
 	}
 }
 
+func TestService_ModifyReplacesBodyAndMaterializesWikilinks(test *testing.T) {
+	service, root := newTestServiceWithManifest(test, plan2EdgeRegistry())
+
+	if _, targetErr := service.Create(node.CreateInput{
+		RelPath: "notes/target.md", Type: "note", Title: "Target",
+	}); targetErr != nil {
+		test.Fatalf("Create target: %v", targetErr)
+	}
+
+	if _, srcErr := service.Create(node.CreateInput{
+		RelPath: "notes/source.md", Type: "note", Title: "Source",
+		Body: []byte("Original body, no links.\n"),
+	}); srcErr != nil {
+		test.Fatalf("Create source: %v", srcErr)
+	}
+
+	modified, modifyErr := service.Modify(node.ModifyInput{
+		ID:   "notes/source",
+		Body: []byte("Rewritten. See [[notes/target]] for context.\n"),
+	})
+
+	if modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	if !strings.Contains(string(modified.Body), "Rewritten.") {
+		test.Errorf("modified.Body = %q, want it replaced", string(modified.Body))
+	}
+
+	if !reflect.DeepEqual(modified.Edges["references"], []string{"notes/target"}) {
+		test.Errorf("Edges[references] = %v, want [notes/target]", modified.Edges["references"])
+	}
+
+	onDisk, readErr := os.ReadFile(filepath.Join(root, "notes/source.md"))
+
+	if readErr != nil {
+		test.Fatalf("read back: %v", readErr)
+	}
+
+	if !strings.Contains(string(onDisk), "[[notes/target]]") {
+		test.Errorf("on-disk body missing the new wikilink: %s", onDisk)
+	}
+}
+
+func TestService_ModifyWithoutBodyLeavesBodyUntouched(test *testing.T) {
+	service, root := newTestServiceWithManifest(test, plan2EdgeRegistry())
+
+	if _, srcErr := service.Create(node.CreateInput{
+		RelPath: "notes/keep.md", Type: "note", Title: "Keep",
+		Body: []byte("Keep this body verbatim.\n"),
+	}); srcErr != nil {
+		test.Fatalf("Create: %v", srcErr)
+	}
+
+	modified, modifyErr := service.Modify(node.ModifyInput{
+		ID:       "notes/keep",
+		SetProps: map[string]any{"title": "Keep Renamed"},
+	})
+
+	if modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	if !strings.Contains(string(modified.Body), "Keep this body verbatim.") {
+		test.Errorf("frontmatter-only modify changed the body: %q", string(modified.Body))
+	}
+
+	onDisk, _ := os.ReadFile(filepath.Join(root, "notes/keep.md"))
+
+	if !strings.Contains(string(onDisk), "Keep this body verbatim.") {
+		test.Errorf("on-disk body lost after frontmatter-only modify: %s", onDisk)
+	}
+}
+
 func TestService_CreateRejectsBlocksCycle(test *testing.T) {
 	service, _ := newTestServiceWithManifest(test, plan2EdgeRegistry())
 

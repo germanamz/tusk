@@ -1033,10 +1033,11 @@ func registerNodeCreateTool(srv *Server) {
 
 func registerNodeModifyTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_modify",
-		mcpgo.WithDescription("Modify a node's frontmatter properties (set or unset). Cannot change type. Body changes are made by writing to the file directly; the watcher reindexes."),
+		mcpgo.WithDescription("Modify a node's frontmatter properties (set/unset) and/or replace its body — no file edit needed. Cannot change type. Pass body to overwrite the markdown after the frontmatter (body wikilinks materialize into edges, as in tusk_node_create); omit body to leave it untouched."),
 		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id")),
 		mcpgo.WithObject("set", mcpgo.Description("Properties to upsert (key→value)")),
 		mcpgo.WithArray("unset", mcpgo.Description("Property keys to remove"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("body", mcpgo.Description("Replace the markdown body (everything after the frontmatter). Omit to leave the body unchanged; pass an empty string to clear it.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -1053,6 +1054,14 @@ func registerNodeModifyTool(srv *Server) {
 			ID:        nodeID,
 			SetProps:  setProps,
 			UnsetKeys: unsetKeys,
+		}
+
+		// Distinguish an absent body (leave it untouched) from a present-but-empty
+		// body (clear it): only set input.Body when the caller supplied the key.
+		if rawBody, present := request.GetArguments()["body"]; present {
+			if bodyStr, ok := rawBody.(string); ok {
+				input.Body = []byte(bodyStr)
+			}
 		}
 
 		// Derive a per-call Service so recovery warnings flow into our local

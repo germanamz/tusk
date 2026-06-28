@@ -513,6 +513,43 @@ func TestTool_NodeModify(test *testing.T) {
 	}
 }
 
+func TestTool_NodeModify_ReplacesBody(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "notes/doc.md",
+		Type:    "note",
+		Body:    []byte("Original body.\n"),
+	}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	if _, callErr := callTool(test, srv, "tusk_node_modify", map[string]any{
+		"id":   "notes/doc",
+		"body": "Rewritten body via the tool.\n",
+	}); callErr != nil {
+		test.Fatalf("tusk_node_modify: %v", callErr)
+	}
+
+	got, getErr := callTool(test, srv, "tusk_node_get", map[string]any{
+		"id":      "notes/doc",
+		"include": []any{"body"},
+	})
+
+	if getErr != nil {
+		test.Fatalf("tusk_node_get: %v", getErr)
+	}
+
+	bodyText, _ := got["body"].(string)
+
+	if !strings.Contains(bodyText, "Rewritten body via the tool.") {
+		test.Errorf("body = %q, want it rewritten", bodyText)
+	}
+}
+
 func TestTool_NodeMove(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

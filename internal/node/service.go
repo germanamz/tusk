@@ -50,6 +50,7 @@ type ModifyInput struct {
 	ID        string         // required; node id (path without extension)
 	SetProps  map[string]any // properties to upsert (excluding "type"; modify rejects type changes)
 	UnsetKeys []string       // top-level frontmatter keys to remove
+	Body      []byte         // optional; when non-nil, replaces the markdown body (nil leaves the body untouched)
 }
 
 // ListFilter narrows Service.List. Plan 1b supports type only.
@@ -567,10 +568,11 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 	return parsed, nil
 }
 
-// Modify reads a node from disk, applies SetProps/UnsetKeys, validates
-// against the manifest, atomically rewrites the file, and updates index rows.
-// Modify enqueues the node for re-embedding when the service has an EmbedQueue.
-// Body changes are out of scope: write to the file directly and let the watcher reindex.
+// Modify reads a node from disk, applies SetProps/UnsetKeys, optionally
+// replaces the body (input.Body != nil), validates against the manifest,
+// atomically rewrites the file, and updates index rows. Modify enqueues the
+// node for re-embedding when the service has an EmbedQueue. When the body is
+// replaced, body wikilinks are materialized into edges as in Create.
 //
 // Phase 4 (T4.3): the file write routes through WriteWithLease. The
 // read+parse+apply+render+validate pipeline runs inside the Mutator so
@@ -640,6 +642,13 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 			parsed.Properties[key] = value
 		}
 
+		// Optional body overwrite. A nil Body leaves the existing body in place
+		// (the common frontmatter-only modify); a non-nil Body (including empty)
+		// replaces it.
+		if input.Body != nil {
+			parsed.Body = input.Body
+		}
+
 		newRendered, renderErr := renderMarkdown(parsed.Properties, parsed.Body)
 
 		if renderErr != nil {
@@ -652,11 +661,12 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 			return Mutation{}, reparseErr
 		}
 
-		// Shared resolve+validate pipeline. Modify does NOT materialize body
-		// wikilinks (false) — body changes are out of scope for Modify. The
-		// op-specific HardErrors handling (ErrRequiredMissing suppression +
-		// required-unset check) stays below.
-		propResult, validateErr := service.resolveAndValidate(newParsed, "modify", false)
+		// Shared resolve+validate pipeline. Body wikilinks are materialized into
+		// edges only when this modify replaces the body (input.Body != nil),
+		// matching Create; a frontmatter-only modify passes false so its edge set
+		// is untouched. The op-specific HardErrors handling (ErrRequiredMissing
+		// suppression + required-unset check) stays below.
+		propResult, validateErr := service.resolveAndValidate(newParsed, "modify", input.Body != nil)
 
 		if validateErr != nil {
 			return Mutation{}, validateErr
