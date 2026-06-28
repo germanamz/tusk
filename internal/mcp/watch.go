@@ -50,6 +50,13 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 
 		// Serialize the reindex walk/enqueue against an originating reload's reindex
 		// (a later phase) so generation stamping never interleaves old and new schema.
+		//
+		// Async: true means this pass only walks and enqueues reindex jobs; it does
+		// NOT drain them inline. The workflow/property validators (and their drift
+		// logs) run in the per-file drain, which here is RunReindexDrainer — and that
+		// path DOES set Behaviors/DriftLog/NodeTypes/PropertyDrift. So validation and
+		// doctor-drift upkeep happen for daemon-observed edits; adding those fields to
+		// this Async config would be dead weight (the inline drain never runs).
 		config.Server.reindexMu.Lock()
 		_, runErr := reindex.Run(reindex.Config{
 			Root:            rt.Root,
