@@ -44,6 +44,15 @@
         color: #4f8cff; padding: 6px 16px; border-radius: 4px; font-size: 13px;
         pointer-events: none;
       }
+      /* Connection-status pill — same overlay style as #banner/#layout-status but
+         pinned bottom-center with a RED accent so an SSE drop reads as an alert and
+         never collides with the top-center pills. Toggled by main.ts. */
+      #conn-status {
+        display: none; position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+        z-index: 20; background: rgba(30,33,48,0.95); border: 1px solid #f04438;
+        color: #f04438; padding: 6px 16px; border-radius: 4px; font-size: 13px;
+        pointer-events: none;
+      }
       #main-area { position: relative; display: flex; flex: 1; min-height: 0; }
       /* min-width:0 lets this flex child shrink below the canvas size so the
          320px panel keeps its place; without it the canvas pushes the panel
@@ -364,6 +373,7 @@
       <div id="search-msg"></div>
       <div id="banner">large graph — apply a filter</div>
       <div id="layout-status">computing layout…</div>
+      <div id="conn-status"></div>
       <div id="graph"></div>
       <aside id="panel"></aside>
     </div>

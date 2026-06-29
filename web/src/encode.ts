@@ -53,22 +53,31 @@ const GENERATED_L = 0.6
 // type keeps generated colors maximally far apart for ANY number of types.
 const GOLDEN_ANGLE = 137.508
 
+// assignPalette is the shared dedup→sort→assign body behind buildTypeColors and
+// buildGroupColors. Values are deduped and sorted so the assignment is
+// deterministic across loads; the first BASE_PALETTE.length distinct values take
+// the curated palette and any beyond that get a golden-angle hue at fixed S/L so
+// the map never wraps or collides.
+function assignPalette(values: string[]): Map<string, string> {
+  const distinct = [...new Set(values)].sort()
+  const out = new Map<string, string>()
+  distinct.forEach((value, i) => {
+    if (i < BASE_PALETTE.length) {
+      out.set(value, BASE_PALETTE[i])
+    } else {
+      const hue = (i * GOLDEN_ANGLE) % 360
+      out.set(value, hslToHex(hue, GENERATED_S, GENERATED_L))
+    }
+  })
+  return out
+}
+
 // buildTypeColors assigns a stable, collision-free color to each distinct node
 // type. Types are sorted so the assignment is deterministic across loads. The
 // first BASE_PALETTE.length types take the curated palette; any beyond that get
 // a golden-angle hue at fixed S/L so the map never wraps or collides.
 export function buildTypeColors(types: string[]): Map<string, string> {
-  const distinct = [...new Set(types)].sort()
-  const out = new Map<string, string>()
-  distinct.forEach((type, i) => {
-    if (i < BASE_PALETTE.length) {
-      out.set(type, BASE_PALETTE[i])
-    } else {
-      const hue = (i * GOLDEN_ANGLE) % 360
-      out.set(type, hslToHex(hue, GENERATED_S, GENERATED_L))
-    }
-  })
-  return out
+  return assignPalette(types)
 }
 
 // buildGroupColors assigns a stable, collision-free color to each distinct
@@ -82,17 +91,7 @@ export function buildGroupColors(groups: string[]): Map<string, string> {
   // absent. Those nodes fall back to #888888 (neutral grey) in nodeColor via
   // the `?? '#888888'` default; assigning them a real palette hue would waste
   // a palette slot and make the grey fallback unreachable.
-  const distinct = [...new Set(groups)].filter((g) => g !== '').sort()
-  const out = new Map<string, string>()
-  distinct.forEach((group, i) => {
-    if (i < BASE_PALETTE.length) {
-      out.set(group, BASE_PALETTE[i])
-    } else {
-      const hue = (i * GOLDEN_ANGLE) % 360
-      out.set(group, hslToHex(hue, GENERATED_S, GENERATED_L))
-    }
-  })
-  return out
+  return assignPalette(groups.filter((g) => g !== ''))
 }
 
 // Minimal #rrggbb → HSL converter. h in [0,360), s/l in [0,1]. Non-hex input

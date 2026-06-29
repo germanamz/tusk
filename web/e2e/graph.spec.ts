@@ -167,6 +167,30 @@ test('the group filter visually hides non-matching group rows', async ({ page })
   expect(disp.note).toBe('none') // non-matching row is actually hidden (the bug left it 'flex')
 })
 
+test('neighbor navigation recurses across hops (A→B→A→C)', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
+
+  // Seed the first detail panel deterministically via the debug seam (the same
+  // navigate() the node-click handler routes through). notes/a relates to b and c
+  // and mentions people/d, so its panel exposes outbound neighbor buttons.
+  await page.evaluate(() => (window as { tuskNavigate?: (id: string) => void }).tuskNavigate?.('notes/a'))
+  await expect(page.locator('#panel h2')).toHaveText('A')
+
+  // Hop to neighbor B (outbound "relates").
+  await page.locator('#panel button', { hasText: /→ B \[/ }).click()
+  await expect(page.locator('#panel h2')).toHaveText('B')
+
+  // From B, hop BACK to A via its inbound "relates" neighbor. This is the
+  // regression: under the old no-op onNeighbor the B panel's buttons were dead.
+  await page.locator('#panel button', { hasText: /← A \[/ }).click()
+  await expect(page.locator('#panel h2')).toHaveText('A')
+
+  // From A again, hop to C — proves navigated-to panels are themselves navigable.
+  await page.locator('#panel button', { hasText: /→ C \[/ }).click()
+  await expect(page.locator('#panel h2')).toHaveText('C')
+})
+
 test('node size & brightness track total degree end-to-end', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
