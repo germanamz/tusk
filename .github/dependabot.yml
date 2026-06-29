@@ -1,0 +1,40 @@
+version: 2
+
+# Weekly dependency updates across the three ecosystems Tusk ships. Each is
+# grouped into a single PR to keep CI runs and review noise down. The
+# commit-message prefix MUST be a conventional-commit type that both the
+# pr-title check (amannn) and commitlint (config-conventional) accept —
+# `deps` is NOT in either type-enum, so Go/npm bumps use `build` and
+# action bumps use `ci`.
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-deps:
+        patterns: ["*"]
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: npm
+    directory: "/web"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      web-deps:
+        patterns: ["*"]
+    commit-message:
+      prefix: build
