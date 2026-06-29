@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-)
 
-// fakeQuerier + the error stub are defined here (first use), not in fakes_test.go,
-// so they aren't flagged unused at the earlier-task commits.
-var errSemanticUnavailableStub = errors.New("semantic ranking requires [embeddings] in tusk.toml")
+	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/query"
+)
 
 type fakeQuerier struct {
 	matches []Match
@@ -51,7 +51,7 @@ func TestQuery_ReturnsMatches(t *testing.T) {
 }
 
 func TestQuery_SemanticUnavailable(t *testing.T) {
-	srv := New(Deps{Query: &fakeQuerier{err: errSemanticUnavailableStub}})
+	srv := New(Deps{Query: &fakeQuerier{err: query.ErrSemanticUnavailable}})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -67,15 +67,23 @@ func TestQuery_SemanticUnavailable(t *testing.T) {
 }
 
 func TestIsSemanticUnavailable(t *testing.T) {
-	cases := map[string]bool{
-		"semantic ranking requires [embeddings] in tusk.toml": true,
-		"ollama: post: connection refused":                    true,
-		"index: disk i/o error":                               false,
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"missing embedder sentinel", query.ErrSemanticUnavailable, true},
+		{"wrapped sentinel", fmt.Errorf("query: %w", query.ErrSemanticUnavailable), true},
+		{"transport error (backend down)", &embed.TransportError{Err: errors.New("ollama: post: connection refused")}, true},
+		// A non-transport ollama error (a 4xx / dim mismatch) is caller-fixable,
+		// not "unavailable" — it must NOT be downgraded to 422.
+		{"non-transport ollama error", errors.New("ollama: returned 2 dims, expected 768"), false},
+		{"real index fault", errors.New("index: disk i/o error"), false},
 	}
 
-	for msg, want := range cases {
-		if got := isSemanticUnavailable(errors.New(msg)); got != want {
-			t.Errorf("isSemanticUnavailable(%q) = %v, want %v", msg, got, want)
+	for _, testCase := range cases {
+		if got := isSemanticUnavailable(testCase.err); got != testCase.want {
+			t.Errorf("%s: isSemanticUnavailable = %v, want %v", testCase.name, got, testCase.want)
 		}
 	}
 }
