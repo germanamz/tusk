@@ -324,21 +324,19 @@ func buildCLIEmbedder(loaded *manifest.Manifest, semanticQuery string) (embed.Em
 }
 
 // renderQueryStructural emits the structural-result rendering. The JSON
-// branch emits the rows as a JSON array; the compact branch falls back to
-// the legacy tab-aligned table when no include / fields are set so existing
-// scripts keep working.
+// branch emits the matching rows as a JSON array; the compact branch falls
+// back to the legacy tab-aligned table when no include / fields are set so
+// existing scripts keep working.
 func renderQueryStructural(cmd *cobra.Command, rows []query.Row, format outputFormat, fields []string) error {
 	switch format {
 	case formatJSON:
-		// Preserve the legacy contract: emit `[]\n` when no rows carry
-		// expansion data and no fields projection is set. The structural
-		// JSON branch used to always emit `[]\n` regardless of content;
-		// we tighten that only when the caller asked for expansions so
-		// scripts depending on the sentinel still work.
-		if len(fields) == 0 && !rowsHaveExpansions(rows) {
-			_, _ = cmd.OutOrStdout().Write([]byte("[]\n"))
-
-			return nil
+		// Emit the matching rows as a JSON array. Each row carries at least
+		// id/type/path/title (plus any requested expansions). A genuinely
+		// empty result is an empty array `[]`, not the legacy sentinel that
+		// emitted `[]` even when rows matched — which made agents read a
+		// matching query as "no results".
+		if rows == nil {
+			rows = []query.Row{}
 		}
 
 		return writeJSON(cmd.OutOrStdout(), rows)
@@ -356,18 +354,6 @@ func renderQueryStructural(cmd *cobra.Command, rows []query.Row, format outputFo
 	}
 
 	return tab.Flush()
-}
-
-// rowsHaveExpansions returns true when any row carries body / properties /
-// edges populated.
-func rowsHaveExpansions(rows []query.Row) bool {
-	for _, row := range rows {
-		if row.Body != "" || len(row.Properties) > 0 || len(row.Edges) > 0 {
-			return true
-		}
-	}
-
-	return false
 }
 
 func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) error {
