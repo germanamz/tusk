@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"text/tabwriter"
-	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/filter"
@@ -319,14 +318,9 @@ func buildCLIEmbedder(loaded *manifest.Manifest, semanticQuery string) (embed.Em
 		return nil, fmt.Errorf("--semantic: unsupported provider %q (Plan 5 supports ollama only)", loaded.Embeddings.Provider)
 	}
 
-	timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
+	embedder, _ := embed.NewFromManifest(loaded.Embeddings, nil)
 
-	return embed.NewOllamaEmbedder(embed.OllamaConfig{
-		Endpoint: loaded.Embeddings.Endpoint,
-		Model:    loaded.Embeddings.Model,
-		Dim:      loaded.Embeddings.Dim,
-		Timeout:  timeout,
-	}), nil
+	return embedder, nil
 }
 
 // renderQueryStructural emits the structural-result rendering. The JSON

@@ -168,21 +168,7 @@ func (rt *Runtime) buildFromStore(store *index.Index, loaded *manifest.Manifest)
 		manifest.ValidateContext(loaded, rt.aliasIntrospector)
 	}
 
-	if loaded.Embeddings.Provider == "ollama" {
-		timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
-
-		rt.Embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
-			Endpoint: loaded.Embeddings.Endpoint,
-			Model:    loaded.Embeddings.Model,
-			Dim:      loaded.Embeddings.Dim,
-			Logger:   rt.Logger,
-			Timeout:  timeout,
-		})
-		rt.Chunker = embed.MarkdownRecursive{}
-	} else {
-		rt.Embedder = nil
-		rt.Chunker = nil
-	}
+	rt.Embedder, rt.Chunker = embed.NewFromManifest(loaded.Embeddings, rt.Logger)
 
 	// Resolve worker count regardless of provider — the reindex worker pool
 	// processes workflow/property/edge/sub-unit work even when no embedder

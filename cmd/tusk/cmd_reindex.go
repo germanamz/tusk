@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
@@ -92,23 +91,13 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 			edgeRepo := index.NewEdgeRepo(store)
 			driftRepo := index.NewWorkflowDriftRepo(store)
 
-			var embedder embed.Embedder
-			var chunker embed.ChunkingStrategy
-			var embeddingRepo *index.EmbeddingRepo
-
 			embedQueue := index.NewEmbedQueueRepo(store)
 
-			if loaded.Embeddings.Provider == "ollama" {
-				timeout := time.Duration(embed.ResolveTimeoutSeconds(loaded.Embeddings.TimeoutSeconds)) * time.Second
+			embedder, chunker := embed.NewFromManifest(loaded.Embeddings, logger)
 
-				embedder = embed.NewOllamaEmbedder(embed.OllamaConfig{
-					Endpoint: loaded.Embeddings.Endpoint,
-					Model:    loaded.Embeddings.Model,
-					Dim:      loaded.Embeddings.Dim,
-					Logger:   logger,
-					Timeout:  timeout,
-				})
-				chunker = embed.MarkdownRecursive{}
+			var embeddingRepo *index.EmbeddingRepo
+
+			if embedder != nil {
 				embeddingRepo = index.NewEmbeddingRepo(store)
 			}
 
