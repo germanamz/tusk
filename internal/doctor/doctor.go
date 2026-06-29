@@ -37,6 +37,14 @@ const (
 	IssueEmbedLargeChunk = "embed-large-chunk"
 	IssueEmbedNoChunks   = "embed-no-chunks"
 
+	// IssueEmbeddingDrift surfaces embedding model/dim drift: the workspace's
+	// configured embeddings.model / embeddings.dim no longer match the model
+	// or dim of the vectors stored in the index. Because the vector store is
+	// keyed (content_hash, model) and CosineSimilarity returns 0 on a dim
+	// mismatch, the stale vectors silently vanish from query results. Doctor
+	// does NOT auto-rebuild; the user must run `tusk reset` to re-embed.
+	IssueEmbeddingDrift = "embedding-drift"
+
 	IssueLegacyCLIEdge = "legacy-cli-edge"
 	IssueLegacyMCPEdge = "legacy-mcp-edge"
 
@@ -195,6 +203,7 @@ func Run(config Config) (*Report, error) {
 		checkDanglingEdges,
 		checkWorkflowDrift,
 		checkPropertyDrift,
+		checkEmbeddingDrift,
 	} {
 		issues, checkErr := check(config)
 
@@ -279,6 +288,46 @@ func checkPropertyDrift(config Config) ([]Issue, error) {
 			Kind:    row.Kind,
 			NodeID:  row.NodeID,
 			Message: renderPropertyDriftMessage(row),
+		})
+	}
+
+	return issues, nil
+}
+
+// checkEmbeddingDrift flags embedding model/dim drift: stored vectors whose
+// model or dim differs from the workspace's configured embeddings.model /
+// embeddings.dim. Editing either setting silently splits the (content_hash,
+// model)-keyed vector store — old vectors keep their original key and drop
+// out of query results, and CosineSimilarity returns 0 on a dim mismatch —
+// so semantic recall becomes quietly incomplete with no rebuild trigger.
+// The check is read-only and never rebuilds; it advises `tusk reset`. No-op
+// when no embeddings repo is configured or [embeddings] is absent from the
+// manifest (Provider == ""): there is nothing to compare against.
+func checkEmbeddingDrift(config Config) ([]Issue, error) {
+	if config.Embeddings == nil || config.Manifest == nil || config.Manifest.Embeddings.Provider == "" {
+		return nil, nil
+	}
+
+	stored, distinctErr := config.Embeddings.DistinctModelDims()
+
+	if distinctErr != nil {
+		return nil, fmt.Errorf("doctor: distinct embedding model/dims: %w", distinctErr)
+	}
+
+	configuredModel := config.Manifest.Embeddings.Model
+	configuredDim := config.Manifest.Embeddings.Dim
+
+	var issues []Issue
+
+	for _, pair := range stored {
+		if pair.Model == configuredModel && pair.Dim == configuredDim {
+			continue
+		}
+
+		issues = append(issues, Issue{
+			Kind: IssueEmbeddingDrift,
+			Message: fmt.Sprintf("stored embeddings use model %q (dim %d) but the workspace is configured for model %q (dim %d); the configured embedder no longer matches the stored vectors, so semantic results are silently incomplete — run `tusk reset` (`tusk_reset`) to drop and re-embed.",
+				pair.Model, pair.Dim, configuredModel, configuredDim),
 		})
 	}
 

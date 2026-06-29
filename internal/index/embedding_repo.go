@@ -407,6 +407,41 @@ func (repo *EmbeddingRepo) ListNodeIDs() ([]string, error) {
 	return ids, rows.Err()
 }
 
+// ModelDim pairs an embedding's model with its stored vector dimension.
+type ModelDim struct {
+	Model string
+	Dim   int
+}
+
+// DistinctModelDims returns the distinct (model, dim) pairs present in the
+// content-addressed embeddings table, sorted by model then dim. tusk doctor
+// uses it to detect embedding drift: stored vectors whose model or dim no
+// longer match the workspace's configured embeddings.model / embeddings.dim.
+// Returns an empty slice for an empty store.
+func (repo *EmbeddingRepo) DistinctModelDims() ([]ModelDim, error) {
+	rows, queryErr := repo.db.Query(`SELECT DISTINCT model, dim FROM embeddings ORDER BY model, dim`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("embeddingRepo: distinct model/dims: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var results []ModelDim
+
+	for rows.Next() {
+		var pair ModelDim
+
+		if scanErr := rows.Scan(&pair.Model, &pair.Dim); scanErr != nil {
+			return nil, fmt.Errorf("embeddingRepo: distinct model/dims scan: %w", scanErr)
+		}
+
+		results = append(results, pair)
+	}
+
+	return results, rows.Err()
+}
+
 // EmbeddingStats aggregates the embeddings table for tusk doctor.
 type EmbeddingStats struct {
 	TotalNodes   int
