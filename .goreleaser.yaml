@@ -42,6 +42,34 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# One SPDX-JSON SBOM per archive (syft). Lands in dist/ as
+# <archive>.sbom.json and is uploaded to the release alongside the archives.
+sboms:
+  - artifacts: archive
+
+# Keyless cosign signature over checksums.txt. checksums.txt enumerates every
+# archive + SBOM hash, so one transparency-logged signature transitively
+# protects all artifacts. Keyless uses the publish job's GitHub OIDC token
+# (Fulcio/Rekor public-good infra) — no private key to manage, but the signing
+# identity is recorded in the public Rekor transparency log. Verify with:
+#   cosign verify-blob --certificate checksums.txt.pem \
+#     --signature checksums.txt.sig \
+#     --certificate-identity-regexp 'https://github.com/germanamz/tusk/.*' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     checksums.txt
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+
 changelog:
   sort: asc
   filters:

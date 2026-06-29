@@ -41,6 +41,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Keyless cosign signing (goreleaser signs:) and GitHub-native build
+      # provenance both mint a short-lived OIDC token.
+      id-token: write
+      # actions/attest-build-provenance writes the attestation to the repo.
+      attestations: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -50,6 +55,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      # cosign signs checksums.txt (keyless); syft generates the per-archive
+      # SBOMs. Both are invoked by goreleaser, so they must be on PATH first.
+      - uses: sigstore/cosign-installer@v3
+      - uses: anchore/sbom-action/download-syft@v0
 
       # release-please created the GitHub release as a draft, so the git tag
       # does not exist yet. Recreate it locally so goreleaser can derive the
@@ -64,6 +74,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # SLSA build provenance for the release archives, verifiable with
+      # `gh attestation verify <archive> --repo germanamz/tusk`.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/tusk_*.tar.gz,dist/tusk_*.zip"
+
       # Attach binaries to the draft, then publish. We address the release by the
       # id embedded in upload_url rather than by tag: a draft release has no git
       # tag yet, and gh's tag-based lookups can't find it (cli/cli#5252).
@@ -77,10 +93,13 @@ jobs:
           set -euo pipefail
           upload_base="${UPLOAD_URL%\{*}"
           release_id="$(printf '%s' "$upload_base" | sed -E 's#.*/releases/([0-9]+)/assets#\1#')"
-          for f in dist/tusk_*.tar.gz dist/tusk_*.zip dist/checksums.txt; do
+          for f in dist/tusk_*.tar.gz dist/tusk_*.zip dist/checksums.txt \
+                   dist/checksums.txt.sig dist/checksums.txt.pem dist/*.sbom.json; do
             case "$f" in
               *.zip) ct=application/zip ;;
               *.tar.gz) ct=application/gzip ;;
+              *.sbom.json) ct=application/json ;;
+              *.sig|*.pem) ct=application/octet-stream ;;
               *) ct=text/plain ;;
             esac
             gh api --method POST "${upload_base}?name=$(basename "$f")" \
