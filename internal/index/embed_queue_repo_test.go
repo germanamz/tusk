@@ -894,18 +894,32 @@ func TestEmbedQueueRepo_ConcurrentDistinctWorkersDisjointAndGuarded(test *testin
 		}
 	}
 
-	// Stale-Ack guard: expire one row that worker A holds, let worker B reclaim
-	// it, then have worker A (the prior holder) Ack — a no-op because the lease
-	// has moved on.
-	if len(claimedA) == 0 {
-		test.Fatal("worker A claimed nothing; cannot exercise the stale-Ack guard")
+	// Stale-Ack guard — kept deterministic so it never depends on how the
+	// concurrent claims above happened to partition (a worker can legitimately
+	// win zero rows when the other drains the whole queue first). The 60 rows
+	// stay leased under the long TTL, so a freshly enqueued probe is the only
+	// claimable row: worker A claims it, worker B reclaims it after the lease is
+	// expired, then worker A — the prior holder — Acks. The Ack must be a no-op
+	// because the lease has moved on to worker B.
+	const probeID = "stale-ack-probe"
+
+	if enqErr := repoA.Enqueue(probeID); enqErr != nil {
+		test.Fatalf("enqueue probe: %v", enqErr)
 	}
 
-	reclaimTarget := claimedA[0]
+	claimedProbe, claimErr := repoA.DrainEmbed(testWorkerA, 10, testTTL)
+
+	if claimErr != nil {
+		test.Fatalf("worker A claim probe: %v", claimErr)
+	}
+
+	if len(claimedProbe) != 1 || claimedProbe[0].NodeID != probeID {
+		test.Fatalf("worker A claimed %+v, want exactly [%s]", claimedProbe, probeID)
+	}
 
 	if _, execErr := storeA.DB().Exec(
 		`UPDATE embed_queue SET leased_until_ns = 0 WHERE node_id = ?`,
-		reclaimTarget,
+		probeID,
 	); execErr != nil {
 		test.Fatalf("expire lease: %v", execErr)
 	}
@@ -916,13 +930,13 @@ func TestEmbedQueueRepo_ConcurrentDistinctWorkersDisjointAndGuarded(test *testin
 		test.Fatalf("reclaim: %v", reclaimErr)
 	}
 
-	if len(reclaimed) != 1 || reclaimed[0].NodeID != reclaimTarget {
-		test.Fatalf("reclaimed = %+v, want exactly [%s]", reclaimed, reclaimTarget)
+	if len(reclaimed) != 1 || reclaimed[0].NodeID != probeID {
+		test.Fatalf("reclaimed = %+v, want exactly [%s]", reclaimed, probeID)
 	}
 
 	depthBefore, _ := repoA.Depth()
 
-	if ackErr := repoA.Ack(reclaimTarget, testWorkerA); ackErr != nil {
+	if ackErr := repoA.Ack(probeID, testWorkerA); ackErr != nil {
 		test.Fatalf("stale Ack: %v", ackErr)
 	}
 
@@ -936,7 +950,7 @@ func TestEmbedQueueRepo_ConcurrentDistinctWorkersDisjointAndGuarded(test *testin
 
 	if scanErr := storeA.DB().QueryRow(
 		`SELECT leased_by FROM embed_queue WHERE node_id = ?`,
-		reclaimTarget,
+		probeID,
 	).Scan(&leasedBy); scanErr != nil {
 		test.Fatalf("inspect reclaimed row: %v", scanErr)
 	}
