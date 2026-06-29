@@ -63,8 +63,9 @@ func semanticFixture(test *testing.T, root string) {
 	reindexWorkspace(test, root)
 }
 
-// TestGoldenCLI_Query pins structural query output (the [] sentinel, the --json
-// envelope, the legacy table) and the semantic/filter/graph-expansion error paths.
+// TestGoldenCLI_Query pins structural query output (the empty-result [], the
+// --json rows envelope, the legacy table) and the semantic/filter/graph-expansion
+// error paths.
 func TestGoldenCLI_Query(test *testing.T) {
 	runGoldenCLICases(test, []goldenCLICase{
 		{
@@ -74,13 +75,29 @@ func TestGoldenCLI_Query(test *testing.T) {
 			wantStdout: "[]\n",
 		},
 		{
-			// Legacy contract: --json emits the [] sentinel even WITH matches
-			// when no rows carry expansions and no fields are projected.
-			name:       "structural --json emits the sentinel without expansions",
-			manifest:   queryManifest,
-			setup:      queryFixture,
-			args:       []string{"query", "type=note", "--json"},
-			wantStdout: "[]\n",
+			// J1: --json emits the matching rows (each carrying id/type/path/
+			// title) even without expansions, instead of the legacy [] sentinel
+			// that made an agent think a matching query had no results. An empty
+			// result is still [] (the case above).
+			name:     "structural --json emits rows without expansions",
+			manifest: queryManifest,
+			setup:    queryFixture,
+			args:     []string{"query", "type=note", "--json"},
+			wantStdout: `[
+  {
+    "id": "notes/a",
+    "type": "note",
+    "path": "notes/a.md",
+    "title": "A"
+  },
+  {
+    "id": "notes/b",
+    "type": "note",
+    "path": "notes/b.md",
+    "title": "B"
+  }
+]
+`,
 		},
 		{
 			name:     "structural --include body --json returns rows",
