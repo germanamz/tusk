@@ -180,7 +180,7 @@ func (repo *NodeRepo) BulkUpsert(rows []NodeRow, source string) error {
 }
 
 // BulkDelete removes every row whose id is in ids in a single transaction.
-// FK cascades drop the matching `edges.source_id` and `embeddings.node_id`
+// FK cascades drop the matching `edges.source_id` and `node_embeddings.node_id`
 // rows automatically (P2 schema). A partial failure rolls back all deletes.
 func (repo *NodeRepo) BulkDelete(ids []string) error {
 	if len(ids) == 0 {
@@ -259,7 +259,7 @@ func (repo *NodeRepo) ListFileNodes() ([]NodeRow, error) {
 
 // CountFileNodes returns the number of file-level nodes (parent_id IS NULL).
 // Used by the graph snapshot to report total size and drive the scale
-// guardrail. EdgeRepo has no count helper; edge totals come from len(ListAll()).
+// guardrail. The edge-count counterpart is EdgeRepo.Count.
 func (repo *NodeRepo) CountFileNodes() (int, error) {
 	var count int
 
@@ -532,8 +532,11 @@ func (repo *NodeRepo) CountDedupedSubUnits() (int, error) {
 }
 
 // CountOrphanedSubUnits returns the number of sub-unit rows whose
-// parent_id does not resolve to any nodes.id. FK cascades should keep
-// this at zero; a non-zero count indicates an indexer bug.
+// parent_id does not resolve to any nodes.id. parent_id has no foreign
+// key, so the schema does not enforce this; the reindex/sub-unit sync
+// pipeline keeps it at zero (sub-units share the parent file's path, so
+// DeleteByPath reaps them with the file). A non-zero count indicates an
+// indexer bug.
 func (repo *NodeRepo) CountOrphanedSubUnits() (int, error) {
 	var count int
 
@@ -576,7 +579,10 @@ func (repo *NodeRepo) CountOversizeSubUnitPayloads(maxBytes int) (int, error) {
 	return count, nil
 }
 
-// DeleteByPath removes the node row whose path equals filePath.
+// DeleteByPath removes every node row whose path equals filePath: the file
+// row plus all of its sub-unit rows, which inherit the parent file's path.
+// The edges.source_id and node_embeddings.node_id FK cascades drop each
+// deleted node's edges and embedding mappings.
 func (repo *NodeRepo) DeleteByPath(filePath string) error {
 	_, execErr := repo.db.Exec(`DELETE FROM nodes WHERE path = ?`, filePath)
 

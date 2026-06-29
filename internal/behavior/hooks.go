@@ -1,8 +1,8 @@
 // Package behavior defines the hook surface that v1 behavior packs compose
-// against. The surface is fixed: four primitives (NodeWrite, NodeRead,
-// EdgeAdd, EdgeRemove) each with two phases (Validate, After), totaling
-// eight registration slots. Future behavior packs register handlers on
-// these slots without changing the engine.
+// against. The surface is fixed: three write primitives (NodeWrite, EdgeAdd,
+// EdgeRemove) each with two phases (Validate, After), totaling six
+// registration slots. Future behavior packs register handlers on these
+// slots without changing the engine.
 package behavior
 
 import (
