@@ -45,11 +45,13 @@ export interface Scene {
   /** Supply pinned coordinates for semantic mode (nodeId -> position). Stored and
    *  re-applied on every setGraph so live re-snapshots keep the pins. */
   setSemanticCoords(coords: Map<string, { x: number; y: number; z: number }>): void
-  instance: ReturnType<typeof ForceGraph3D>
+  instance: InstanceType<typeof ForceGraph3D>
 }
 
 export function createScene(el: HTMLElement): Scene {
-  const graph = ForceGraph3D()(el)
+  // 3d-force-graph 1.77+ moved from the factory form `ForceGraph3D()(el)` to a
+  // constructor: `new ForceGraph3D(el)`.
+  const graph = new ForceGraph3D(el)
     // Size the canvas to its container, not the window. 3d-force-graph defaults
     // width/height to window.innerWidth/innerHeight and never reflows on its own,
     // so without this the WebGL canvas spills past #graph and shoves the rest of
