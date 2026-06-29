@@ -173,12 +173,9 @@ jobs:
         # Audits the vendored frontend deps (bundled into the Go binary via
         # internal/graphview/dist). Reads the lockfile only — no install needed.
         #
-        # REPORT-ONLY (continue-on-error) for now: the current lockfile already
-        # carries high+critical advisories whose fixes need a major vite bump, so
-        # gating here would red-line every PR. Dependabot (.github/dependabot.yml)
-        # opens the upgrade PRs; once the tree is clean, drop continue-on-error to
-        # make this blocking.
-        continue-on-error: true
+        # BLOCKING: high+critical advisories fail the build (moderate/low are
+        # surfaced in the log but non-blocking). The lockfile is clean as of the
+        # web-deps bump; Dependabot keeps it current.
         run: pnpm audit --audit-level high
 
   pr-title:
