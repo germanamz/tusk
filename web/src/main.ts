@@ -3,6 +3,7 @@ import { createScene } from './scene'
 import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
 import { fetchNodeDetail, fetchSubunits } from './nodeapi'
+import { mergeSubunits, reapplyExpanded } from './subunits'
 import { renderPanel } from './panel'
 import { buildGroupColors } from './encode'
 import { runSearch } from './search'
@@ -12,15 +13,17 @@ let rawGraph: Graph = { generation: 0, epoch: 0, nodes: [], edges: [], cluster: 
 let rawGroupColors: Map<string, string> = new Map()
 let facetState: FacetState = { hiddenTypes: new Set(), hiddenKinds: new Set(), hideOrphans: false, hiddenGroups: new Set() }
 
-// Layout-mode orchestration state. Structure is the default; Semantic is reached
-// via the Layout toggle in the controls drawer. embeddingsCache holds the latest
-// /api/embeddings fetch.
-let layoutMode: 'structure' | 'semantic' = 'structure'
+// Sub-unit expansions, keyed by the expanded parent's node id. SSE snapshots
+// never carry sub-units, so applyAndRender re-folds these into each fresh
+// snapshot (reapplyExpanded) to keep expansions visible across pushes.
+const expandedSubunits = new Map<string, SubunitGraph>()
+
 // Generation counter for layout requests. Incremented at the start of every
 // applySemanticLayout() and applyStructureLayout() call. Checked after each await
 // in the async semantic path so a superseded in-flight projection bails out before
 // touching the scene, keeping the radio and layout consistent with the last action.
 let layoutRequestGen = 0
+// embeddingsCache holds the latest /api/embeddings fetch.
 let embeddingsCache: EmbeddingsResponse | null = null
 
 // Whether the vault has any embeddings — drives the Semantic toggle's enabled
@@ -39,26 +42,13 @@ let projectedCoords: Map<string, { x: number; y: number; z: number }> | null = n
 const groupColorsFor = (g: Graph): Map<string, string> =>
   buildGroupColors(g.nodes.map((n) => n.group))
 
-function mergeSubunits(base: Graph, subunits: SubunitGraph): Graph {
-  const existingIds = new Set(base.nodes.map((n) => n.id))
-  const newNodes = subunits.nodes.filter((n) => !existingIds.has(n.id))
-  const existingEdgeKeys = new Set(base.edges.map((e) => `${e.source}|${e.target}|${e.type}`))
-  const newEdges = subunits.edges.filter(
-    (e) => !existingEdgeKeys.has(`${e.source}|${e.target}|${e.type}`),
-  )
-  return {
-    ...base,
-    nodes: [...base.nodes, ...newNodes],
-    edges: [...base.edges, ...newEdges],
-  }
-}
-
 async function boot(): Promise<void> {
   const el = document.getElementById('graph')!
   const panelEl = document.getElementById('panel')!
   const searchMsg = document.getElementById('search-msg')!
   const banner = document.getElementById('banner')!
   const layoutStatus = document.getElementById('layout-status')!
+  const connStatus = document.getElementById('conn-status')!
   const scene = createScene(el)
 
   // Transient layout-status overlay helpers. Shows "computing layout…" while the
@@ -69,6 +59,17 @@ async function boot(): Promise<void> {
   }
   const hideStatus = (): void => {
     layoutStatus.style.display = 'none'
+  }
+
+  // Connection-status overlay helpers — mirror showStatus/hideStatus but drive the
+  // bottom-center #conn-status pill. Surface when the SSE stream drops so a stale
+  // graph isn't mistaken for a live one; hidden once the stream (re)connects.
+  const showConn = (text: string): void => {
+    connStatus.textContent = text
+    connStatus.style.display = 'block'
+  }
+  const hideConn = (): void => {
+    connStatus.style.display = 'none'
   }
 
   // The UMAP projection runs off the main thread. Spawned once; reused for every
@@ -150,7 +151,6 @@ async function boot(): Promise<void> {
   const enterSemantic = (coords: Map<string, { x: number; y: number; z: number }>): void => {
     scene.setSemanticCoords(coords)
     scene.setLayoutMode('semantic')
-    layoutMode = 'semantic'
     rerender()
     scene.instance.zoomToFit(600, 40)
     hideStatus()
@@ -224,7 +224,6 @@ async function boot(): Promise<void> {
     ++layoutRequestGen
     hideStatus()
     scene.setLayoutMode('structure')
-    layoutMode = 'structure'
     rerender()
     scene.instance.zoomToFit(600, 40)
   }
@@ -264,28 +263,26 @@ async function boot(): Promise<void> {
       })
   })
 
-  // Node click → select (highlight node + its edges, fly the camera in) and
-  // render its detail panel.
-  scene.instance.onNodeClick((node: any) => {
-    scene.select(node.id)
-    fetchNodeDetail(node.id)
+  // navigate selects a node (highlight + camera fly-in) and renders its detail
+  // panel. The neighbor buttons are wired back to navigate itself so neighbor
+  // hops recurse indefinitely — the old handler rendered the next panel with a
+  // no-op onNeighbor and dead-ended after one hop. The expand-sub-units button is
+  // re-added on every panel (keyed on the current id) so it is reachable from any
+  // node, not just the first click.
+  function navigate(id: string): void {
+    scene.select(id)
+    fetchNodeDetail(id)
       .then((detail) => {
-        renderPanel(panelEl, detail, (neighborId) => {
-          // Navigate to neighbor: select it (re-highlights + focuses) and
-          // fetch its detail.
-          scene.select(neighborId)
-          fetchNodeDetail(neighborId)
-            .then((nd) => renderPanel(panelEl, nd, () => {}))
-            .catch(console.error)
-        })
+        renderPanel(panelEl, detail, navigate)
 
         // Add expand button for sub-units
         const expandBtn = document.createElement('button')
         expandBtn.textContent = 'Expand sub-units'
         expandBtn.style.cssText = 'margin-top:8px;display:block'
         expandBtn.addEventListener('click', () => {
-          fetchSubunits(node.id)
+          fetchSubunits(id)
             .then((sub) => {
+              expandedSubunits.set(id, sub)
               rawGraph = mergeSubunits(rawGraph, sub)
               rawGroupColors = groupColorsFor(rawGraph)
               scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
@@ -296,12 +293,16 @@ async function boot(): Promise<void> {
         panelEl.appendChild(expandBtn)
       })
       .catch(console.error)
-  })
+  }
+
+  // Node click → navigate to it (select + render detail panel).
+  scene.instance.onNodeClick((node: any) => navigate(node.id))
 
   // Right-click → expand sub-units inline
   scene.instance.onNodeRightClick((node: any) => {
     fetchSubunits(node.id)
       .then((sub) => {
+        expandedSubunits.set(node.id, sub)
         rawGraph = mergeSubunits(rawGraph, sub)
         rawGroupColors = groupColorsFor(rawGraph)
         scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
@@ -318,12 +319,14 @@ async function boot(): Promise<void> {
   })
 
   function applyAndRender(graph: Graph): void {
-    rawGraph = graph
-    rawGroupColors = groupColorsFor(graph)
-    controls.update(graph, rawGroupColors)
-    scene.setGraph(applyFacets(graph, facetState), rawGroupColors)
+    // Re-fold any cached sub-unit expansions back in — SSE snapshots never carry
+    // sub-units, so without this each push would wipe the user's expansions.
+    rawGraph = reapplyExpanded(graph, expandedSubunits)
+    rawGroupColors = groupColorsFor(rawGraph)
+    controls.update(rawGraph, rawGroupColors)
+    scene.setGraph(applyFacets(rawGraph, facetState), rawGroupColors)
     // Scale guardrail: warn when graph is very large but never drop nodes
-    if (graph.nodes.length > 5000) {
+    if (rawGraph.nodes.length > 5000) {
       banner.style.display = 'block'
     } else {
       banner.style.display = 'none'
@@ -331,7 +334,11 @@ async function boot(): Promise<void> {
   }
 
   applyAndRender(await fetchGraph())
-  subscribeGraph((graph) => applyAndRender(graph))
+  subscribeGraph((graph) => applyAndRender(graph), {
+    onConnect: hideConn,
+    onDisconnect: (closed) =>
+      showConn(closed ? 'disconnected from tusk graph' : 'connection lost — reconnecting…'),
+  })
 
   // Debug/e2e seam: the scene wraps a WebGL canvas, so interactions and styling
   // can't be asserted through the DOM. Expose the live graph + scene so the
@@ -339,6 +346,7 @@ async function boot(): Promise<void> {
   // Playwright (read controls/accessors, project node coords, etc.).
   ;(window as unknown as { tuskScene?: unknown }).tuskScene = scene
   ;(window as unknown as { tuskGraph?: unknown }).tuskGraph = scene.instance
+  ;(window as unknown as { tuskNavigate?: (id: string) => void }).tuskNavigate = navigate
 }
 
 void boot()

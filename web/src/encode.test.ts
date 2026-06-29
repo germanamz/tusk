@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildTypeColors,
+  buildGroupColors,
   importanceColor,
   hexToHsl,
   sizeForDegree,
@@ -38,6 +39,52 @@ describe('encode', () => {
       const values = [...colors.values()]
       expect(new Set(values).size).toBe(values.length)
       for (const v of values) expect(v).toMatch(HEX)
+    })
+  })
+
+  // Golden lock: pins the EXACT hex assignment so the assignPalette refactor
+  // stays byte-for-byte identical. Inputs cover dedup (repeated values),
+  // out-of-order sort, the curated base-palette slots, golden-angle overflow
+  // (>BASE_PALETTE.length distinct values), and the empty-string group sentinel.
+  describe('palette golden lock', () => {
+    it('buildTypeColors is byte-stable across dedup, sort, base slots, and golden-angle overflow', () => {
+      // 14 distinct values, shuffled, with three duplicates (alpha, zeta, mu).
+      const types = [
+        'zeta', 'alpha', 'mu', 'alpha', 'beta', 'gamma', 'delta', 'epsilon',
+        'zeta', 'eta', 'theta', 'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi',
+      ]
+      expect(Object.fromEntries(buildTypeColors(types))).toMatchInlineSnapshot(`
+        {
+          "alpha": "#4f8cff",
+          "beta": "#ff6b6b",
+          "delta": "#51cf66",
+          "epsilon": "#ffd43b",
+          "eta": "#cc5de8",
+          "gamma": "#22b8cf",
+          "iota": "#ff922b",
+          "kappa": "#94d82d",
+          "lambda": "#f06595",
+          "mu": "#20c997",
+          "nu": "#a78bfa",
+          "theta": "#fab005",
+          "xi": "#5a99d8",
+          "zeta": "#d85a74",
+        }
+      `)
+    })
+
+    it('buildGroupColors drops the empty-string sentinel and otherwise matches the type palette', () => {
+      const groups = ['', 'zeta', 'alpha', '', 'beta', 'gamma']
+      const out = buildGroupColors(groups)
+      expect(out.has('')).toBe(false)
+      expect(Object.fromEntries(out)).toMatchInlineSnapshot(`
+        {
+          "alpha": "#4f8cff",
+          "beta": "#ff6b6b",
+          "gamma": "#51cf66",
+          "zeta": "#ffd43b",
+        }
+      `)
     })
   })
 
