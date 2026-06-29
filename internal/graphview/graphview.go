@@ -89,7 +89,7 @@ type NodeDetail struct {
 	Neighbors  []Neighbor      `json:"neighbors"`
 }
 
-// SubunitGraph is the /api/node/{id}/subunits drill-down payload.
+// SubunitGraph is the /api/subunits/{id...} drill-down payload.
 type SubunitGraph struct {
 	Nodes []GraphNode `json:"nodes"`
 	Edges []GraphEdge `json:"edges"`

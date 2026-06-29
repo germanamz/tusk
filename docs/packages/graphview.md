@@ -21,7 +21,7 @@ Serves a read-only, live-updating 3D graph of the vault over a loopback HTTP ser
   - `GraphEdge` — one file-level edge: `Source`, `Target`, `Type`, `Kind`.
   - `ClusterMeta` — the active cluster lens state: `By`, `Property`, `Huddle`, `Hull`.
   - `NodeDetail` — the `/api/node/{id}` inspect payload (properties + rendered HTML + neighbors).
-  - `SubunitGraph` — the `/api/node/{id}/subunits` drill-down payload.
+  - `SubunitGraph` — the `/api/subunits/{id...}` drill-down payload.
   - `EmbeddingsResponse` — the `/api/embeddings` payload (one vector per file node): `Model`, `Dim`, `Signature`, `Vectors map[string][]float32`. Drives the semantic layout (see below).
 - **Dependency interfaces** (satisfied by `*index` repos): `NodeSource`, `EdgeSource`, `NodeRenderer`, `Querier`, `ChangeSource`, `EmbeddingSource`.
 - `NewQuerier`, `NewRenderer`, `NewChangeSource` — concrete implementations wired from `cmd/tusk/cmd_graph.go`.

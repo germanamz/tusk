@@ -29,6 +29,13 @@ export interface Graph {
   cluster: { by: string; property?: string; huddle: boolean; hull: boolean }
 }
 
+// SubunitGraph mirrors the Go graphview.SubunitGraph struct: the drill-down
+// payload returned by GET /api/subunits/{id...}.
+export interface SubunitGraph {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
 export async function fetchGraph(signal?: AbortSignal): Promise<Graph> {
   const resp = await fetch('./api/graph', { signal })
   if (!resp.ok) throw new Error(`GET /api/graph failed: ${resp.status}`)

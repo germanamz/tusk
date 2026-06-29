@@ -5,24 +5,22 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
 )
 
-// handleNode dispatches /api/node/{id} and /api/node/{id}/subunits. The id may
-// contain slashes, so the wildcard captures the rest of the path and we branch
-// on a trailing /subunits segment.
-func (srv *Server) handleNode(writer http.ResponseWriter, request *http.Request) {
-	rest := request.PathValue("id")
+// handleNodeDetail serves GET /api/node/{id...}. The id may contain slashes, so
+// the wildcard captures the rest of the path; PathValue unescapes each segment.
+func (srv *Server) handleNodeDetail(writer http.ResponseWriter, request *http.Request) {
+	srv.respondDetail(writer, request.PathValue("id"))
+}
 
-	if trimmed := strings.TrimSuffix(rest, "/subunits"); trimmed != rest {
-		srv.respondSubunits(writer, trimmed)
-
-		return
-	}
-
-	srv.respondDetail(writer, rest)
+// handleSubunits serves GET /api/subunits/{id...}. A separate top-level prefix
+// (rather than a /subunits suffix on the node route) keeps a node whose id ends
+// in /subunits reachable for detail, and Go's ServeMux requires the {id...}
+// wildcard to be the final path element.
+func (srv *Server) handleSubunits(writer http.ResponseWriter, request *http.Request) {
+	srv.respondSubunits(writer, request.PathValue("id"))
 }
 
 func (srv *Server) respondDetail(writer http.ResponseWriter, nodeID string) {

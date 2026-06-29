@@ -1,4 +1,4 @@
-import { fetchGraph, fetchEmbeddings, type Graph, type EmbeddingsResponse } from './api'
+import { fetchGraph, fetchEmbeddings, type Graph, type EmbeddingsResponse, type SubunitGraph } from './api'
 import { createScene } from './scene'
 import { subscribeGraph } from './stream'
 import { applyFacets, type FacetState } from './facets'
@@ -39,7 +39,7 @@ let projectedCoords: Map<string, { x: number; y: number; z: number }> | null = n
 const groupColorsFor = (g: Graph): Map<string, string> =>
   buildGroupColors(g.nodes.map((n) => n.group))
 
-function mergeSubunits(base: Graph, subunits: { nodes: any[]; edges: any[] }): Graph {
+function mergeSubunits(base: Graph, subunits: SubunitGraph): Graph {
   const existingIds = new Set(base.nodes.map((n) => n.id))
   const newNodes = subunits.nodes.filter((n) => !existingIds.has(n.id))
   const existingEdgeKeys = new Set(base.edges.map((e) => `${e.source}|${e.target}|${e.type}`))
