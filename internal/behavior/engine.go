@@ -26,7 +26,7 @@ type Engine struct {
 }
 
 // entry pairs a hook context with its handler. One generic type replaces the
-// eight per-(primitive, phase) entry structs the engine used to declare.
+// six per-(primitive, phase) entry structs the engine used to declare.
 type entry[Fn any] struct {
 	ctx HookContext
 	fn  Fn
