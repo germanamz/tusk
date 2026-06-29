@@ -1165,6 +1165,12 @@ func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
 			builder.WriteString(key)
 			builder.WriteString(": ")
 			fmt.Fprintf(&builder, "%t\n", typed)
+		case float64:
+			builder.WriteString(key)
+			builder.WriteString(": ")
+			// %g renders 3.14 as "3.14" and a whole 2.0 as "2" (the YAML parser
+			// re-reads that as an int, matching normalizeYAMLNumbers).
+			fmt.Fprintf(&builder, "%g\n", typed)
 		case []any:
 			builder.WriteString(key)
 			builder.WriteString(":\n")
@@ -1178,7 +1184,7 @@ func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
 				builder.WriteString("\n")
 			}
 		default:
-			return nil, fmt.Errorf("node: unsupported frontmatter type for %s: %T (Plan 1b supports string/int/bool only)", key, value)
+			return nil, fmt.Errorf("node: unsupported frontmatter type for %s: %T (supports string/int/bool/float and string sequences)", key, value)
 		}
 	}
 

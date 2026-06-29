@@ -96,6 +96,52 @@ name = "x"
 	return rt
 }
 
+// TestTool_NodeCreate_FloatPropertyRoundTrip pins C1 on the MCP path: a float
+// property (non-whole, so normalizeProps keeps it a float64) round-trips through
+// tusk_node_create into the rendered frontmatter.
+func TestTool_NodeCreate_FloatPropertyRoundTrip(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+
+[node-types.expense]
+properties = [
+    { name = "cost", type = "float" },
+]
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	if _, createErr := callTool(test, srv, "tusk_node_create", map[string]any{
+		"type":       "expense",
+		"path":       "expenses/lunch.md",
+		"properties": map[string]any{"cost": 3.14},
+	}); createErr != nil {
+		test.Fatalf("tusk_node_create: %v", createErr)
+	}
+
+	body, readErr := os.ReadFile(filepath.Join(root, "expenses/lunch.md"))
+
+	if readErr != nil {
+		test.Fatalf("read: %v", readErr)
+	}
+
+	if !strings.Contains(string(body), "cost: 3.14") {
+		test.Errorf("frontmatter missing float prop; got:\n%s", string(body))
+	}
+}
+
 func TestTool_Status(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

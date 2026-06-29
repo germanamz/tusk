@@ -27,8 +27,8 @@ path, validates the declared type against tusk.toml, and inserts the node
 into the index in a single locked transaction. Body content can be piped on
 stdin; if stdin is a terminal, the body is empty.
 
-Property values from --prop are parsed as int, then bool, then string. Use
---prop key=value to set multiple values (repeatable).
+Property values from --prop are parsed as int, then bool, then float, then
+string. Use --prop key=value to set multiple values (repeatable).
 
 Edges are set the same way as properties: pass --prop <edge-name>=<target-id>
 or write the key directly in the frontmatter of the file you supply. The
