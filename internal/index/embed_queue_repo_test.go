@@ -1,8 +1,11 @@
 package index_test
 
 import (
+	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -782,6 +785,164 @@ func TestEmbedQueueRepo_DrainReindexLeasesAndReclaimsExpired(test *testing.T) {
 
 	if secondBatch[0].LeasedBy == nil || *secondBatch[0].LeasedBy != testWorkerB {
 		test.Errorf("LeasedBy = %v, want %q", secondBatch[0].LeasedBy, testWorkerB)
+	}
+}
+
+// TestEmbedQueueRepo_ConcurrentDistinctWorkersDisjointAndGuarded drives two
+// workers draining one 60-row queue through two handles on the same DB file.
+// The atomic claim (UPDATE ... RETURNING WHERE leased_by IS NULL OR expired)
+// must partition the rows: the union of both workers' claims is all 60 and no
+// row is claimed by both. busy_timeout(5000) must absorb the write contention
+// so neither worker sees "database is locked". Finally, a stale Ack from the
+// prior holder — after its lease expired and another worker reclaimed the row —
+// is a no-op guarded by `leased_by = ?`.
+func TestEmbedQueueRepo_ConcurrentDistinctWorkersDisjointAndGuarded(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	storeA, openAErr := index.Open(dbPath)
+
+	if openAErr != nil {
+		test.Fatalf("open A: %v", openAErr)
+	}
+
+	test.Cleanup(func() { storeA.Close() })
+
+	storeB, openBErr := index.Open(dbPath)
+
+	if openBErr != nil {
+		test.Fatalf("open B: %v", openBErr)
+	}
+
+	test.Cleanup(func() { storeB.Close() })
+
+	repoA := index.NewEmbedQueueRepo(storeA)
+	repoB := index.NewEmbedQueueRepo(storeB)
+
+	const rowCount = 60
+
+	for idx := 0; idx < rowCount; idx++ {
+		if enqErr := repoA.Enqueue(fmt.Sprintf("n%d", idx)); enqErr != nil {
+			test.Fatalf("enqueue n%d: %v", idx, enqErr)
+		}
+	}
+
+	// Each worker drains in small batches until the queue yields nothing more.
+	// With a long TTL a claimed row stays leased, so the two workers can never
+	// both claim the same row. claimed is goroutine-local (one slice per worker)
+	// and read only after the WaitGroup join, so no shared mutation occurs.
+	drainAll := func(repo *index.EmbedQueueRepo, worker string, claimed *[]string) error {
+		for {
+			batch, drainErr := repo.DrainEmbed(worker, 7, testTTL)
+
+			if drainErr != nil {
+				return drainErr
+			}
+
+			if len(batch) == 0 {
+				return nil
+			}
+
+			for _, row := range batch {
+				*claimed = append(*claimed, row.NodeID)
+			}
+		}
+	}
+
+	var (
+		claimedA []string
+		claimedB []string
+		workers  sync.WaitGroup
+		errA     error
+		errB     error
+	)
+
+	workers.Add(2)
+
+	go func() {
+		defer workers.Done()
+		errA = drainAll(repoA, testWorkerA, &claimedA)
+	}()
+
+	go func() {
+		defer workers.Done()
+		errB = drainAll(repoB, testWorkerB, &claimedB)
+	}()
+
+	workers.Wait()
+
+	if errA != nil || errB != nil {
+		test.Fatalf("drain errors: A=%v B=%v (busy_timeout must absorb contention)", errA, errB)
+	}
+
+	claimCount := make(map[string]int, rowCount)
+
+	for _, id := range claimedA {
+		claimCount[id]++
+	}
+
+	for _, id := range claimedB {
+		claimCount[id]++
+	}
+
+	if len(claimCount) != rowCount {
+		test.Errorf("distinct claimed ids = %d, want %d (every row claimed)", len(claimCount), rowCount)
+	}
+
+	for id, count := range claimCount {
+		if count != 1 {
+			test.Errorf("node %s claimed %d times, want 1 (claims must be disjoint)", id, count)
+		}
+	}
+
+	// Stale-Ack guard: expire one row that worker A holds, let worker B reclaim
+	// it, then have worker A (the prior holder) Ack — a no-op because the lease
+	// has moved on.
+	if len(claimedA) == 0 {
+		test.Fatal("worker A claimed nothing; cannot exercise the stale-Ack guard")
+	}
+
+	reclaimTarget := claimedA[0]
+
+	if _, execErr := storeA.DB().Exec(
+		`UPDATE embed_queue SET leased_until_ns = 0 WHERE node_id = ?`,
+		reclaimTarget,
+	); execErr != nil {
+		test.Fatalf("expire lease: %v", execErr)
+	}
+
+	reclaimed, reclaimErr := repoB.DrainEmbed(testWorkerB, 10, testTTL)
+
+	if reclaimErr != nil {
+		test.Fatalf("reclaim: %v", reclaimErr)
+	}
+
+	if len(reclaimed) != 1 || reclaimed[0].NodeID != reclaimTarget {
+		test.Fatalf("reclaimed = %+v, want exactly [%s]", reclaimed, reclaimTarget)
+	}
+
+	depthBefore, _ := repoA.Depth()
+
+	if ackErr := repoA.Ack(reclaimTarget, testWorkerA); ackErr != nil {
+		test.Fatalf("stale Ack: %v", ackErr)
+	}
+
+	depthAfter, _ := repoA.Depth()
+
+	if depthAfter != depthBefore {
+		test.Errorf("depth changed after stale Ack: before=%d after=%d (stale Ack must be a no-op)", depthBefore, depthAfter)
+	}
+
+	var leasedBy *string
+
+	if scanErr := storeA.DB().QueryRow(
+		`SELECT leased_by FROM embed_queue WHERE node_id = ?`,
+		reclaimTarget,
+	).Scan(&leasedBy); scanErr != nil {
+		test.Fatalf("inspect reclaimed row: %v", scanErr)
+	}
+
+	if leasedBy == nil || *leasedBy != testWorkerB {
+		test.Errorf("leased_by after stale Ack = %v, want %q (row still held by reclaimer)", leasedBy, testWorkerB)
 	}
 }
 
