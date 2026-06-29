@@ -515,6 +515,146 @@ func TestRun_EmbedStatsNilWithoutEmbeddingsConfig(test *testing.T) {
 	}
 }
 
+// seedDriftNode upserts a file node and one embedding for it under the given
+// model/dim, so the embedding-drift check has a stored vector to compare
+// against the manifest's configured embeddings.model / embeddings.dim.
+func seedDriftNode(test *testing.T, nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, model string, dim int) {
+	test.Helper()
+
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "a", Type: "note", Title: "A", Path: "a.md", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert node: %v", upsertErr)
+	}
+
+	vector := make([]float32, dim)
+
+	if upsertErr := embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "a", ChunkIdx: 0, Model: model, ContentHash: "h",
+		Vector: vector, Dim: dim, Body: "body",
+	}); upsertErr != nil {
+		test.Fatalf("upsert embedding: %v", upsertErr)
+	}
+}
+
+func countDriftIssues(report *doctor.Report) int {
+	count := 0
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueEmbeddingDrift {
+			count++
+		}
+	}
+
+	return count
+}
+
+func TestRun_FlagsEmbeddingModelDrift(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	// Stored under an old model; manifest now configures a different one.
+	seedDriftNode(test, nodes, embeddings, "old-model", 768)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      nodes,
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Embeddings: embeddings,
+		Manifest:   &manifest.Manifest{Embeddings: manifest.EmbeddingsSection{Provider: "ollama", Model: "new-model", Dim: 768}},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if countDriftIssues(report) != 1 {
+		test.Fatalf("expected 1 embedding-drift issue, got %d: %+v", countDriftIssues(report), report.Issues)
+	}
+}
+
+func TestRun_FlagsEmbeddingDimDrift(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	// Stored at dim 512; manifest now configures dim 768 (same model).
+	seedDriftNode(test, nodes, embeddings, "same-model", 512)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      nodes,
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Embeddings: embeddings,
+		Manifest:   &manifest.Manifest{Embeddings: manifest.EmbeddingsSection{Provider: "ollama", Model: "same-model", Dim: 768}},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if countDriftIssues(report) != 1 {
+		test.Fatalf("expected 1 embedding-drift issue, got %d: %+v", countDriftIssues(report), report.Issues)
+	}
+}
+
+func TestRun_NoEmbeddingDriftWhenModelAndDimMatch(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	seedDriftNode(test, nodes, embeddings, "current-model", 768)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      nodes,
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Embeddings: embeddings,
+		Manifest:   &manifest.Manifest{Embeddings: manifest.EmbeddingsSection{Provider: "ollama", Model: "current-model", Dim: 768}},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if countDriftIssues(report) != 0 {
+		test.Errorf("expected 0 embedding-drift issues on a matching store, got %d: %+v", countDriftIssues(report), report.Issues)
+	}
+}
+
+func TestRun_NoEmbeddingDriftWhenEmbeddingsUnconfigured(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	// Vectors exist in the index, but [embeddings] is absent from the
+	// manifest (Provider == ""), so there is nothing to compare against.
+	seedDriftNode(test, nodes, embeddings, "some-model", 768)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      nodes,
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Embeddings: embeddings,
+		Manifest:   &manifest.Manifest{},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if countDriftIssues(report) != 0 {
+		test.Errorf("expected 0 embedding-drift issues when [embeddings] unconfigured, got %d: %+v", countDriftIssues(report), report.Issues)
+	}
+}
+
 // TestRun_GraphExpansionPaneAbsentWithoutManifest confirms the typed
 // pane stays nil when no manifest is supplied (e.g., the fresh-index
 // fixtures used elsewhere in this file).
