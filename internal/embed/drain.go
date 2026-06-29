@@ -47,6 +47,13 @@ type DrainConfig struct {
 	EmbedConcurrency int
 	TTL              time.Duration // lease window applied per Drain claim; defaults to 60s when <= 0
 	Logger           *slog.Logger  // optional; nil silences output
+	// WorkerID overrides the daemon identity used as the embed_queue lease
+	// token (`leased_by`). When empty (the default), DrainQueue falls back to
+	// the process-global index.WorkerID(). Production callers leave this unset;
+	// it exists so a test can model two DISTINCT daemons sharing one DB file —
+	// index.WorkerID() caches a single UUID per process, so two in-process
+	// drainers would otherwise share one identity and never contend for leases.
+	WorkerID string
 }
 
 // isSubUnit reports whether a node row represents a sub-unit (paragraph,
@@ -163,7 +170,11 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 		limit = 50
 	}
 
-	workerID := index.WorkerID()
+	workerID := config.WorkerID
+
+	if workerID == "" {
+		workerID = index.WorkerID()
+	}
 
 	leaseTTL := config.TTL
 

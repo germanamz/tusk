@@ -1757,3 +1757,367 @@ func TestDrainQueue_GCSkippedWhenNothingDrained(test *testing.T) {
 		test.Errorf("orphan vector should be collected after an active drain")
 	}
 }
+
+// TestDrainQueue_ReclaimsCrashedLeaseExactlyOnce models a worker that claimed a
+// row, wrote a partial (now stale) embedding, and crashed without acking —
+// leaving an expired lease behind. A fresh DrainQueue must reclaim the
+// expired-lease row, reconcile the stale vectors via delete-before-insert, and
+// leave exactly ONE node_embeddings row (no duplicate from the crashed pass).
+// The crashed pass wrote a 2-chunk embedding; the re-embed of the tiny body
+// produces a single chunk, so the trailing stale chunk (idx 1) is precisely
+// what delete-before-insert must reclaim.
+//
+// Red→green: temporarily removing the `DeleteByNodeID` call in drain.go makes
+// the "exactly one node_embeddings row" assertion fail — the trailing stale
+// chunk survives the re-embed and the node ends with two mappings.
+func TestDrainQueue_ReclaimsCrashedLeaseExactlyOnce(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "notes/a.md", "tiny body")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert node: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("notes/a"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	// Simulate the crashed worker: claim the row with an already-expired lease
+	// (negative TTL) and never ack it.
+	crashed, claimErr := queueRepo.DrainEmbed("crashed-daemon", 10, -time.Second)
+
+	if claimErr != nil {
+		test.Fatalf("crashed claim: %v", claimErr)
+	}
+
+	if len(crashed) != 1 {
+		test.Fatalf("crashed claim = %d rows, want 1", len(crashed))
+	}
+
+	// The crashed pass left two stale chunk mappings (idx 0 and 1) pointing at a
+	// STALE content hash.
+	for chunkIdx := 0; chunkIdx < 2; chunkIdx++ {
+		if seedErr := embeddingRepo.Upsert(index.EmbeddingRow{
+			NodeID:      "notes/a",
+			ChunkIdx:    chunkIdx,
+			Model:       "stub",
+			ContentHash: "STALE",
+			Vector:      []float32{0.9, 0.9, 0.9},
+			Dim:         3,
+		}); seedErr != nil {
+			test.Fatalf("seed stale chunk %d: %v", chunkIdx, seedErr)
+		}
+	}
+
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   &drainStubEmbedder{dim: 3, model: "stub"},
+		Chunker:    embed.WholeDocument{},
+		TTL:        time.Minute,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("DrainQueue: %v", drainErr)
+	}
+
+	if drained != 1 {
+		test.Errorf("drained = %d, want 1 (expired lease reclaimed)", drained)
+	}
+
+	depth, depthErr := queueRepo.Depth()
+
+	if depthErr != nil {
+		test.Fatalf("Depth: %v", depthErr)
+	}
+
+	if depth != 0 {
+		test.Errorf("queue depth after reclaim = %d, want 0 (row acked)", depth)
+	}
+
+	var mappingCount int
+
+	if scanErr := store.DB().QueryRow(
+		`SELECT COUNT(*) FROM node_embeddings WHERE node_id = ?`,
+		"notes/a",
+	).Scan(&mappingCount); scanErr != nil {
+		test.Fatalf("count node_embeddings: %v", scanErr)
+	}
+
+	if mappingCount != 1 {
+		test.Errorf("node_embeddings rows for notes/a = %d, want 1 (stale reclaimed, no duplicate)", mappingCount)
+	}
+
+	rows, getErr := embeddingRepo.GetByNodeID("notes/a")
+
+	if getErr != nil {
+		test.Fatalf("GetByNodeID: %v", getErr)
+	}
+
+	if len(rows) != 1 {
+		test.Fatalf("resolved embeddings for notes/a = %d, want 1", len(rows))
+	}
+
+	if rows[0].ContentHash == "STALE" {
+		test.Errorf("stale vector survived the reclaim: %+v", rows[0])
+	}
+}
+
+// TestDrainQueue_CtxCancelMidEmbedReclaimsThenDrainsOnce cancels a drain while a
+// lease is in-flight (the embedder is blocked mid-Embed). The cancelled pass
+// must nack the row — clearing the lease and bumping attempts — WITHOUT writing
+// a vector; a fresh pass then reclaims the row and produces exactly one vector.
+// This proves a mid-flight crash leaves no partial state and no duplicate. The
+// gate channel (not time.Sleep) makes the ordering deterministic.
+func TestDrainQueue_CtxCancelMidEmbedReclaimsThenDrainsOnce(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "notes/a.md", "tiny body")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert: %v", upsertErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("notes/a"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	gate := &gateStubEmbedder{
+		dim:     3,
+		model:   "stub",
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	type drainOutcome struct {
+		drained int
+		err     error
+	}
+
+	done := make(chan drainOutcome, 1)
+
+	go func() {
+		drained, drainErr := embed.DrainQueue(ctx, embed.DrainConfig{
+			Root:       root,
+			Nodes:      nodeRepo,
+			Queue:      queueRepo,
+			Embeddings: embeddingRepo,
+			Embedder:   gate,
+			Chunker:    embed.WholeDocument{},
+			TTL:        time.Minute,
+		})
+		done <- drainOutcome{drained: drained, err: drainErr}
+	}()
+
+	select {
+	case <-gate.started:
+	case <-time.After(2 * time.Second):
+		cancel()
+		<-done
+		test.Fatal("embedder never started — DrainQueue did not lease the row")
+	}
+
+	cancel()
+
+	outcome := <-done
+
+	if outcome.err != nil {
+		test.Fatalf("cancelled DrainQueue err = %v, want nil (cancellation is graceful)", outcome.err)
+	}
+
+	if outcome.drained != 0 {
+		test.Errorf("drained on cancel = %d, want 0 (no vector written)", outcome.drained)
+	}
+
+	// The cancelled pass nacked the row: it is back in the queue, and nothing
+	// was written to the embeddings store.
+	depth, _ := queueRepo.Depth()
+
+	if depth != 1 {
+		test.Errorf("queue depth after cancel = %d, want 1 (row re-enqueued)", depth)
+	}
+
+	rowsAfterCancel, _ := embeddingRepo.GetByNodeID("notes/a")
+
+	if len(rowsAfterCancel) != 0 {
+		test.Errorf("embeddings after cancel = %d, want 0 (nothing written mid-flight)", len(rowsAfterCancel))
+	}
+
+	// A fresh pass with a working embedder reclaims the row and writes exactly
+	// one vector.
+	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   &drainStubEmbedder{dim: 3, model: "stub"},
+		Chunker:    embed.WholeDocument{},
+		TTL:        time.Minute,
+	})
+
+	if drainErr != nil {
+		test.Fatalf("fresh DrainQueue: %v", drainErr)
+	}
+
+	if drained != 1 {
+		test.Errorf("fresh drained = %d, want 1", drained)
+	}
+
+	rows, _ := embeddingRepo.GetByNodeID("notes/a")
+
+	if len(rows) != 1 {
+		test.Errorf("embeddings after reclaim = %d, want 1", len(rows))
+	}
+}
+
+// TestDrainQueue_TwoDaemonsOneDBExactlyOnce models two DISTINCT daemons (set via
+// DrainConfig.WorkerID) draining ONE database file through two handles. Without
+// the WorkerID override they would share index.WorkerID()'s single per-process
+// UUID and never contend; with distinct ids the lease claim partitions the work.
+// Every one of the 60 nodes must be embedded exactly once (no loss, no
+// duplicate), the queue must fully drain, and busy_timeout must absorb the
+// cross-handle write contention (no "database is locked").
+func TestDrainQueue_TwoDaemonsOneDBExactlyOnce(test *testing.T) {
+	root := test.TempDir()
+	dbPath := filepath.Join(root, "index.db")
+
+	storeA, openAErr := index.Open(dbPath)
+
+	if openAErr != nil {
+		test.Fatalf("open A: %v", openAErr)
+	}
+
+	defer storeA.Close()
+
+	storeB, openBErr := index.Open(dbPath)
+
+	if openBErr != nil {
+		test.Fatalf("open B: %v", openBErr)
+	}
+
+	defer storeB.Close()
+
+	nodeRepoA := index.NewNodeRepo(storeA)
+	queueRepoA := index.NewEmbedQueueRepo(storeA)
+	embeddingRepoA := index.NewEmbeddingRepo(storeA)
+
+	nodeRepoB := index.NewNodeRepo(storeB)
+	queueRepoB := index.NewEmbedQueueRepo(storeB)
+	embeddingRepoB := index.NewEmbeddingRepo(storeB)
+
+	const nodes = 60
+
+	// Seed all 60 distinct single-chunk nodes through storeA.
+	enqueueSingleChunkNodes(test, root, nodeRepoA, queueRepoA, nodes)
+
+	// One probe embedder shared by both daemons; its counters are atomic so the
+	// -race detector stays quiet across the two drainers.
+	probe := &concurrencyProbeEmbedder{dim: 3, model: "stub", hold: time.Millisecond}
+
+	type drainOutcome struct {
+		drained int
+		err     error
+	}
+
+	results := make(chan drainOutcome, 2)
+
+	var daemons sync.WaitGroup
+
+	daemons.Add(2)
+
+	go func() {
+		defer daemons.Done()
+
+		drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+			Root:             root,
+			Nodes:            nodeRepoA,
+			Queue:            queueRepoA,
+			Embeddings:       embeddingRepoA,
+			Embedder:         probe,
+			Chunker:          embed.WholeDocument{},
+			EmbedConcurrency: 4,
+			TTL:              time.Minute,
+			WorkerID:         "daemon-a",
+		})
+		results <- drainOutcome{drained: drained, err: drainErr}
+	}()
+
+	go func() {
+		defer daemons.Done()
+
+		drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+			Root:             root,
+			Nodes:            nodeRepoB,
+			Queue:            queueRepoB,
+			Embeddings:       embeddingRepoB,
+			Embedder:         probe,
+			Chunker:          embed.WholeDocument{},
+			EmbedConcurrency: 4,
+			TTL:              time.Minute,
+			WorkerID:         "daemon-b",
+		})
+		results <- drainOutcome{drained: drained, err: drainErr}
+	}()
+
+	daemons.Wait()
+	close(results)
+
+	totalDrained := 0
+
+	for outcome := range results {
+		if outcome.err != nil {
+			test.Fatalf("daemon DrainQueue err = %v, want nil (busy_timeout must absorb contention)", outcome.err)
+		}
+
+		totalDrained += outcome.drained
+	}
+
+	if totalDrained != nodes {
+		test.Errorf("totalDrained = %d, want %d (no node lost or double-counted)", totalDrained, nodes)
+	}
+
+	depth, depthErr := queueRepoA.Depth()
+
+	if depthErr != nil {
+		test.Fatalf("Depth: %v", depthErr)
+	}
+
+	if depth != 0 {
+		test.Errorf("queue depth after both daemons drained = %d, want 0", depth)
+	}
+
+	if calls := probe.calls.Load(); calls != nodes {
+		test.Errorf("embedder calls = %d, want %d (each unique content embedded exactly once)", calls, nodes)
+	}
+
+	for idx := 0; idx < nodes; idx++ {
+		nodeID := fmt.Sprintf("notes/n%d", idx)
+
+		rows, getErr := embeddingRepoA.GetByNodeID(nodeID)
+
+		if getErr != nil {
+			test.Fatalf("GetByNodeID %s: %v", nodeID, getErr)
+		}
+
+		if len(rows) != 1 {
+			test.Errorf("embeddings for %s = %d, want 1", nodeID, len(rows))
+		}
+	}
+}
