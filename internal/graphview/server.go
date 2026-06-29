@@ -136,7 +136,9 @@ func (srv *Server) routes() {
 
 	srv.mux.HandleFunc("GET /api/graph/stream", srv.handleStream)
 
-	srv.mux.HandleFunc("GET /api/node/{id...}", srv.handleNode)
+	srv.mux.HandleFunc("GET /api/node/{id...}", srv.handleNodeDetail)
+
+	srv.mux.HandleFunc("GET /api/subunits/{id...}", srv.handleSubunits)
 
 	srv.mux.HandleFunc("POST /api/query", srv.handleQuery)
 
