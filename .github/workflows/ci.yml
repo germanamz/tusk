@@ -9,6 +9,12 @@ permissions:
   contents: read
   pull-requests: read
 
+# Pin the linter to a concrete release so a floating `latest` can't change
+# findings (or break) with no code change. Must be a golangci-lint v2.x to
+# match .golangci.yml's `version: "2"`. Bump here in one place.
+env:
+  GOLANGCI_LINT_VERSION: v2.10.1
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -46,8 +52,12 @@ jobs:
       - name: Run linter
         uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
 
+  # Kept as a standalone job named `unit-tests` (NOT a matrix) because the branch
+  # ruleset requires a status check by that exact name — a matrix would rename it
+  # to `unit-tests (ubuntu-latest)` and the required check would never report.
+  # macOS runs as the separate unit-tests-macos job below.
   unit-tests:
     runs-on: ubuntu-latest
     steps:
@@ -56,19 +66,49 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: false
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            go-${{ runner.os }}-
+          cache: true
 
       - name: Run unit tests
         run: go test -race ./internal/... ./cmd/...
+
+  # macOS leg: exercises the OS-specific paths (flock advisory locking, fsnotify,
+  # case-insensitive filesystem, the path-containment guard) that ubuntu-only CI
+  # never ran. Not required by the ruleset yet — add `unit-tests-macos` to the
+  # main ruleset's required checks to make it blocking.
+  #
+  # windows-latest is intentionally absent: adding it surfaced ~15 pre-existing
+  # cross-platform failures (SQLite TempDir handle cleanup / "file in use" on
+  # os.RemoveAll, file:// URL parsing of Windows paths where `C:` is read as
+  # host:port, CRLF content-hash drift, an exec test missing the .exe suffix)
+  # that need a dedicated Windows-hardening pass first.
+  unit-tests-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: go test -race ./internal/... ./cmd/...
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+
+      - name: Run govulncheck
+        run: govulncheck ./...
 
   docs-drift:
     runs-on: ubuntu-latest
@@ -118,6 +158,28 @@ jobs:
             git --no-pager diff -- internal/graphview/dist
             exit 1
           fi
+
+  web-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.12.0 --activate
+      - name: Audit web dependencies
+        working-directory: web
+        # Audits the vendored frontend deps (bundled into the Go binary via
+        # internal/graphview/dist). Reads the lockfile only — no install needed.
+        #
+        # REPORT-ONLY (continue-on-error) for now: the current lockfile already
+        # carries high+critical advisories whose fixes need a major vite bump, so
+        # gating here would red-line every PR. Dependabot (.github/dependabot.yml)
+        # opens the upgrade PRs; once the tree is clean, drop continue-on-error to
+        # make this blocking.
+        continue-on-error: true
+        run: pnpm audit --audit-level high
 
   pr-title:
     runs-on: ubuntu-latest
