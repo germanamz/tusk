@@ -458,10 +458,12 @@ func registerNodeRenderTool(srv *Server) {
 
 func registerNodeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_list",
-		mcpgo.WithDescription("List nodes by type from the index — a convenience wrapper. For property / edge / hierarchy / recency filters, sorting, pagination, or semantic ranking, use tusk_query instead (it does everything `tusk node list` does and more). Use include / fields to expand rows with body / edges / properties in one round-trip. Sorted by id ascending."),
+		mcpgo.WithDescription("List nodes by type from the index — a convenience wrapper. For property / edge / hierarchy / recency filters, sorting, or semantic ranking, use tusk_query instead (it does everything `tusk node list` does and more). Use include / fields to expand rows with body / edges / properties in one round-trip. Sorted by id ascending. Returns up to 50 rows by default — raise take (with skip) to page through more."),
 		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
 		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50)")),
+		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
 
@@ -487,9 +489,14 @@ func registerNodeListTool(srv *Server) {
 		result, runErr := query.ListRun(srv.runtime.Index.DB(), srv.runtime.Manifest, query.ListRequest{
 			Filter:        filterExpr,
 			Sort:          "+id",
+			Take:          argIntOptional(request, "take", 0),
+			Skip:          argIntOptional(request, "skip", 0),
 			Include:       includeRaw,
 			Fields:        fields,
 			WorkspaceRoot: srv.runtime.Root,
+			// Bound tool output by default; the CLI `tusk node list` stays
+			// uncapped. Raising take past 50 pages through more.
+			StructuralDefaultTake: 50,
 		})
 
 		if runErr != nil {
@@ -619,10 +626,10 @@ func registerEdgeListTool(srv *Server) {
 
 func registerQueryTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date). Add semantic=\"...\" to rank by cosine similarity (semantic results default to 10 rows — raise take for more). Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
+		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date). Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 10 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression, e.g. 'type=ticket AND priority>=2 AND modified-since:7d'. Empty string matches everything (useful as a semantic pre-filter). See the tool description for the grammar.")),
 		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
-		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows")),
+		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50 structural, 10 semantic)")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
 		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum similarity score to include in semantic results (default 0.5). Lower this when an initial query misses. When graph expansion is active, this filters the blended final score, not the bare cosine.")),
@@ -670,13 +677,15 @@ func registerQueryTool(srv *Server) {
 			Semantic: argStringOptional(request, "semantic"),
 			MinScore: argFloatOptional(request, "min_score", 0.5),
 			// MCP keeps tool responses bounded by defaulting semantic page
-			// size to 10 when take is unset (CLI returns all ranked rows).
-			SemanticDefaultTake: 10,
-			Include:             includeRaw,
-			Fields:              fields,
-			WorkspaceRoot:       srv.runtime.Root,
-			GraphExpansion:      graphExpansion,
-			Explain:             explain,
+			// size to 10 and structural reads to 50 when take is unset (the CLI
+			// leaves both uncapped and returns every matching row).
+			SemanticDefaultTake:   10,
+			StructuralDefaultTake: 50,
+			Include:               includeRaw,
+			Fields:                fields,
+			WorkspaceRoot:         srv.runtime.Root,
+			GraphExpansion:        graphExpansion,
+			Explain:               explain,
 		})
 
 		if runErr != nil {

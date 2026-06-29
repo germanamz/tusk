@@ -261,6 +261,127 @@ func TestTool_NodeListStableOrder(test *testing.T) {
 	}
 }
 
+// seedManyNotes upserts count note rows with zero-padded ids (note-00, note-01,
+// …) so the id-ASC ordering is deterministic for pagination assertions.
+func seedManyNotes(test *testing.T, rt *mcp.Runtime, count int) {
+	test.Helper()
+
+	for offset := 0; offset < count; offset++ {
+		id := fmt.Sprintf("notes/note-%02d", offset)
+
+		if upsertErr := rt.Nodes.Upsert(index.NodeRow{ID: id, Type: "note", Path: id + ".md", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+			test.Fatalf("upsert %s: %v", id, upsertErr)
+		}
+	}
+}
+
+// TestTool_Query_StructuralDefaultTakeIs50 pins E8: MCP structural reads are
+// bounded to 50 rows by default (semantic already caps at 10). Without the cap
+// this returned all 60 rows.
+func TestTool_Query_StructuralDefaultTakeIs50(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	seedManyNotes(test, rt, 60)
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{"filter": "type=note"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 50 {
+		test.Errorf("len(results) = %d, want 50 (structural default cap)", len(results))
+	}
+}
+
+// TestTool_NodeList_DefaultTakeIs50 pins E8 for the convenience wrapper: an
+// unbounded list of 60 nodes is capped to 50.
+func TestTool_NodeList_DefaultTakeIs50(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	seedManyNotes(test, rt, 60)
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_list", map[string]any{"type": "note"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 50 {
+		test.Errorf("len(results) = %d, want 50 (default cap)", len(results))
+	}
+}
+
+// TestTool_NodeList_HonorsTakeSkip pins the new take/skip params on
+// tusk_node_list: paging returns the requested slice in id order.
+func TestTool_NodeList_HonorsTakeSkip(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	seedManyNotes(test, rt, 60)
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_list", map[string]any{"type": "note", "take": 5, "skip": 5})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 5 {
+		test.Fatalf("len(results) = %d, want 5", len(results))
+	}
+
+	first, _ := results[0].(map[string]any)
+
+	if first["id"] != "notes/note-05" {
+		test.Errorf("results[0].id = %v, want notes/note-05 (skip 5)", first["id"])
+	}
+}
+
+// TestTool_NodeList_SkipPagesAgainstDefault confirms that on the MCP path skip
+// is meaningful without an explicit take: the 50-row default supplies the
+// effective take, so skip pages against it rather than erroring (the
+// skip-requires-take error is reserved for the uncapped CLI path).
+func TestTool_NodeList_SkipPagesAgainstDefault(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	seedManyNotes(test, rt, 60)
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_node_list", map[string]any{"type": "note", "skip": 10})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_list: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 50 {
+		test.Fatalf("len(results) = %d, want 50 (default cap after skip)", len(results))
+	}
+
+	first, _ := results[0].(map[string]any)
+
+	if first["id"] != "notes/note-10" {
+		test.Errorf("results[0].id = %v, want notes/note-10 (skipped 10)", first["id"])
+	}
+}
+
 func TestTool_EdgeList(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

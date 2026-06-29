@@ -1,12 +1,19 @@
 package filter
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/germanamz/tusk/internal/typeref"
 )
+
+// ErrSkipRequiresTake is returned by Compile when Skip is set without an
+// effective Take. Exported as a sentinel so the semantic query path — which
+// windows after ranking and never reaches this compiler with the user's skip —
+// can enforce the same contract via errors.Is.
+var ErrSkipRequiresTake = errors.New("compile: --skip requires --take")
 
 // CompileOptions configures Compile.
 type CompileOptions struct {
@@ -18,7 +25,7 @@ type CompileOptions struct {
 // Compile turns an AST + options into parameterized SQL against the nodes table.
 func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 	if opts.Skip > 0 && opts.Take == 0 {
-		return "", nil, fmt.Errorf("compile: --skip requires --take")
+		return "", nil, ErrSkipRequiresTake
 	}
 
 	state := &compileState{}

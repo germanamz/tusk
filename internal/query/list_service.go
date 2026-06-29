@@ -30,6 +30,11 @@ type ListRequest struct {
 	Include       []string
 	Fields        []string
 	WorkspaceRoot string
+
+	// StructuralDefaultTake caps the result when Take is 0. The CLI leaves it
+	// at 0 (no cap, matching `tusk node list`'s historical "return all rows");
+	// the MCP handler sets it to bound tool responses. Ignored when Take > 0.
+	StructuralDefaultTake int
 }
 
 // ListResult is the typed payload returned by ListRun.
@@ -65,7 +70,13 @@ type ListRow struct {
 // Lives in internal/query rather than internal/node so that `node` does not
 // pull in the filter package (which imports embed → node, creating a cycle).
 func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListRequest) (*ListResult, error) {
-	rows, compileErr := compileAndQuery(database, loadedManifest, req.Filter, req.Sort, req.Take, req.Skip)
+	effectiveTake := req.Take
+
+	if effectiveTake <= 0 {
+		effectiveTake = req.StructuralDefaultTake
+	}
+
+	rows, compileErr := compileAndQuery(database, loadedManifest, req.Filter, req.Sort, effectiveTake, req.Skip)
 
 	if compileErr != nil {
 		return nil, compileErr
