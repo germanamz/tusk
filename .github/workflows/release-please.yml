@@ -22,12 +22,12 @@ jobs:
       sha: ${{ steps.release.outputs.sha }}
       upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -47,12 +47,12 @@ jobs:
       # actions/attest-build-provenance writes the attestation to the repo.
       attestations: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.create-release.outputs.sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -67,7 +67,7 @@ jobs:
       - name: Recreate release tag locally
         run: git tag "${{ needs.create-release.outputs.tag_name }}" "${{ needs.create-release.outputs.sha }}"
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --clean --skip=publish
@@ -76,7 +76,7 @@ jobs:
 
       # SLSA build provenance for the release archives, verifiable with
       # `gh attestation verify <archive> --repo germanamz/tusk`.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: "dist/tusk_*.tar.gz,dist/tusk_*.zip"
 
@@ -117,12 +117,12 @@ jobs:
     if: ${{ always() && needs.create-release.result == 'success' && needs.publish.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         with:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
