@@ -43,6 +43,13 @@ type Request struct {
 	// responses bounded. Ignored when Take > 0.
 	SemanticDefaultTake int
 
+	// StructuralDefaultTake is the row cap applied on the structural (non-
+	// semantic) path when Take is 0. The CLI leaves this at 0 (no cap —
+	// preserving the legacy "return every matching row" contract and the
+	// `--format json` empty-array sentinel); the MCP handler sets it to bound
+	// tool responses. Ignored when Take > 0.
+	StructuralDefaultTake int
+
 	Include       []string
 	Fields        []string
 	WorkspaceRoot string
@@ -176,6 +183,25 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	if req.Semantic != "" {
 		structTake, structSkip = 0, 0
+
+		// Semantic re-windows after ranking, so the structural compiler never
+		// sees the user's skip and cannot enforce the --skip-requires-take
+		// contract. Enforce it here against the effective semantic take so the
+		// semantic path errors uniformly (it previously dropped skip silently).
+		effectiveSemTake := req.Take
+
+		if effectiveSemTake <= 0 {
+			effectiveSemTake = req.SemanticDefaultTake
+		}
+
+		if req.Skip > 0 && effectiveSemTake <= 0 {
+			return nil, filter.ErrSkipRequiresTake
+		}
+	} else if structTake <= 0 {
+		// Structural-only path: SQL-level Take/Skip is the final window, so
+		// apply the caller's default page size. MCP bounds tool output; the CLI
+		// leaves StructuralDefaultTake 0 to keep returning every matching row.
+		structTake = req.StructuralDefaultTake
 	}
 
 	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, req.Sort, structTake, structSkip)
