@@ -1,6 +1,7 @@
 package node_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,36 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
+
+// TestServiceAddEdge_UndeclaredReturnsSentinel pins the C3 contract that the MCP
+// reload hint depends on: AddEdge rejects an undeclared edge type with the
+// ErrEdgeTypeNotDeclared sentinel (matchable via errors.Is), and the message
+// still names the type. The declared-type check happens before any repo access,
+// so a minimal service suffices.
+func TestServiceAddEdge_UndeclaredReturnsSentinel(test *testing.T) {
+	service := node.NewServiceWithManifest(test.TempDir(), nil, nil, manifest.EdgeTypes{})
+
+	addErr := service.AddEdge("blocks", "tickets/a", "tickets/b")
+
+	if !errors.Is(addErr, node.ErrEdgeTypeNotDeclared) {
+		test.Fatalf("AddEdge err = %v, want wrap of ErrEdgeTypeNotDeclared", addErr)
+	}
+
+	if got := addErr.Error(); got != `edge type "blocks" not declared in manifest` {
+		test.Errorf("AddEdge err = %q, want it to name the edge type", got)
+	}
+}
+
+// TestServiceRemoveEdge_UndeclaredReturnsSentinel mirrors the above for RemoveEdge.
+func TestServiceRemoveEdge_UndeclaredReturnsSentinel(test *testing.T) {
+	service := node.NewServiceWithManifest(test.TempDir(), nil, nil, manifest.EdgeTypes{})
+
+	removeErr := service.RemoveEdge("blocks", "tickets/a", "tickets/b")
+
+	if !errors.Is(removeErr, node.ErrEdgeTypeNotDeclared) {
+		test.Fatalf("RemoveEdge err = %v, want wrap of ErrEdgeTypeNotDeclared", removeErr)
+	}
+}
 
 func TestAddEdgeToFrontmatter_AddsKeyToScalar(test *testing.T) {
 	dir := test.TempDir()

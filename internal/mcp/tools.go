@@ -1195,52 +1195,8 @@ func registerEdgeAddTool(srv *Server) {
 
 		edgeType, sourceID, targetID := required[0], required[1], required[2]
 
-		edgeDef, declared := srv.runtime.Manifest.EdgeTypes[edgeType]
-
-		if !declared {
-			return toolError(fmt.Errorf("edge type %q not declared in manifest — if you just edited tusk.toml, the daemon's cached schema is stale; call tusk_reload, then retry", edgeType)), nil
-		}
-
-		sourceRow, sourceErr := srv.runtime.Nodes.Get(sourceID)
-
-		if sourceErr != nil {
-			return toolError(fmt.Errorf("source: %w", sourceErr)), nil
-		}
-
-		if !edgeDef.AllowsSource(sourceRow.Type) {
-			return toolError(fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)), nil
-		}
-
-		if targetRow, getErr := srv.runtime.Nodes.Get(targetID); getErr == nil {
-			if !edgeDef.AllowsTarget(targetRow.Type) {
-				return toolError(fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)), nil
-			}
-		}
-
-		if edgeDef.Acyclic {
-			existing, listErr := srv.runtime.Edges.ListByType(edgeType)
-
-			if listErr != nil {
-				return toolError(listErr), nil
-			}
-
-			adjacency := map[string][]string{}
-
-			for _, row := range existing {
-				adjacency[row.SourceID] = append(adjacency[row.SourceID], row.TargetID)
-			}
-
-			if cycleErr := node.DetectCycle(node.CycleProbe{EdgeType: edgeType, Source: sourceID, Target: targetID}, adjacency); cycleErr != nil {
-				return toolError(cycleErr), nil
-			}
-		}
-
-		if writeErr := node.AddEdgeToFrontmatter(srv.runtime.Root, sourceID, edgeType, targetID, srv.runtime.Manifest.EdgeTypes); writeErr != nil {
-			return toolError(writeErr), nil
-		}
-
-		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, srv.runtime.Manifest.NodeTypes, sourceID); reindexErr != nil {
-			return toolError(reindexErr), nil
+		if addErr := srv.runtime.NodeService.AddEdge(edgeType, sourceID, targetID); addErr != nil {
+			return toolError(edgeStaleSchemaHint(addErr)), nil
 		}
 
 		return toolJSON(map[string]any{
@@ -1251,6 +1207,18 @@ func registerEdgeAddTool(srv *Server) {
 	}
 
 	srv.register(tool, handler)
+}
+
+// edgeStaleSchemaHint augments a "not declared" edge error with the MCP-specific
+// nudge that the daemon's cached schema may be stale — the CLI reloads the
+// manifest each run, but the daemon must be told to tusk_reload. Other errors
+// pass through unchanged.
+func edgeStaleSchemaHint(err error) error {
+	if errors.Is(err, node.ErrEdgeTypeNotDeclared) {
+		return fmt.Errorf("%w — if you just edited tusk.toml, the daemon's cached schema is stale; call tusk_reload, then retry", err)
+	}
+
+	return err
 }
 
 func registerEdgeRemoveTool(srv *Server) {
@@ -1270,48 +1238,8 @@ func registerEdgeRemoveTool(srv *Server) {
 
 		edgeType, sourceID, targetID := required[0], required[1], required[2]
 
-		if _, declared := srv.runtime.Manifest.EdgeTypes[edgeType]; !declared {
-			return toolError(fmt.Errorf("edge type %q not declared in manifest — if you just edited tusk.toml, the daemon's cached schema is stale; call tusk_reload, then retry", edgeType)), nil
-		}
-
-		if writeErr := node.RemoveEdgeFromFrontmatter(srv.runtime.Root, sourceID, edgeType, targetID, srv.runtime.Manifest.EdgeTypes); writeErr != nil {
-			return toolError(writeErr), nil
-		}
-
-		if reindexErr := node.ReindexSource(srv.runtime.Root, srv.runtime.Edges, srv.runtime.Manifest.EdgeTypes, srv.runtime.Manifest.NodeTypes, sourceID); reindexErr != nil {
-			return toolError(reindexErr), nil
-		}
-
-		// Back-compat: also clear any legacy __cli__/__mcp__ row for this triple.
-		legacy, listErr := srv.runtime.Edges.ListBySource(sourceID)
-
-		if listErr != nil {
-			return toolError(fmt.Errorf("edge remove: list legacy rows: %w", listErr)), nil
-		}
-
-		var keptLegacyCLI, keptLegacyMCP []index.EdgeRow
-
-		for _, row := range legacy {
-			matchesTriple := row.Type == edgeType && row.TargetID == targetID
-
-			switch row.SourcePath {
-			case index.CLISourcePath:
-				if !matchesTriple {
-					keptLegacyCLI = append(keptLegacyCLI, row)
-				}
-			case index.MCPSourcePath:
-				if !matchesTriple {
-					keptLegacyMCP = append(keptLegacyMCP, row)
-				}
-			}
-		}
-
-		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.CLISourcePath, keptLegacyCLI); upsertErr != nil {
-			return toolError(upsertErr), nil
-		}
-
-		if upsertErr := srv.runtime.Edges.UpsertAll(sourceID, index.MCPSourcePath, keptLegacyMCP); upsertErr != nil {
-			return toolError(upsertErr), nil
+		if removeErr := srv.runtime.NodeService.RemoveEdge(edgeType, sourceID, targetID); removeErr != nil {
+			return toolError(edgeStaleSchemaHint(removeErr)), nil
 		}
 
 		return toolJSON(map[string]any{
