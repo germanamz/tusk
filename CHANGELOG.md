@@ -1,5 +1,59 @@
 # Changelog
 
+## [2.0.0](https://github.com/germanamz/tusk/compare/v1.18.0...v2.0.0) (2026-06-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** query --format json emits rows, not the [] sentinel ([#649](https://github.com/germanamz/tusk/issues/649))
+
+### Features
+
+* **doctor:** detect embedding model/dim drift ([#652](https://github.com/germanamz/tusk/issues/652)) ([40c4ae2](https://github.com/germanamz/tusk/commit/40c4ae2fb7e9949c60f9bf415a924b153d70daa8))
+* **web:** SSE disconnect pill, recursive nav, and persist expanded sub-units ([#655](https://github.com/germanamz/tusk/issues/655)) ([79f8445](https://github.com/germanamz/tusk/commit/79f8445b78ab9392b79896b568157c91f8e8702e))
+
+
+### Bug Fixes
+
+* **behavior:** resolve hook instances in deterministic sorted order ([#626](https://github.com/germanamz/tusk/issues/626)) ([643c703](https://github.com/germanamz/tusk/commit/643c7038c0b5d7a9f4b1f5f60fa2ba5010badb41))
+* **cli:** fail loudly when reload --reindex cannot reindex ([#624](https://github.com/germanamz/tusk/issues/624)) ([fd76608](https://github.com/germanamz/tusk/commit/fd766082f64a0e14a2ae596a20e9ff2c9acc86f5))
+* **cli:** print the error before pack add exits with a code ([#623](https://github.com/germanamz/tusk/issues/623)) ([cf57441](https://github.com/germanamz/tusk/commit/cf57441b02c4c45d20736864ce9df7919cc539d5))
+* **cli:** query --format json emits rows, not the [] sentinel ([#649](https://github.com/germanamz/tusk/issues/649)) ([6854c22](https://github.com/germanamz/tusk/commit/6854c220a847fc0c087938dc2ad6ef610d27c714))
+* **embed:** abort drain on transport errors instead of dropping nodes ([#634](https://github.com/germanamz/tusk/issues/634)) ([165abd4](https://github.com/germanamz/tusk/commit/165abd428237af4abc195105efc3f91cca4e60e6))
+* **filter:** walk hierarchy shortcuts in the correct edge direction ([#619](https://github.com/germanamz/tusk/issues/619)) ([f374eb0](https://github.com/germanamz/tusk/commit/f374eb005f2173c9275de2cbce93a129dbd72647))
+* **graphview:** encode node ids and split the subunits route ([#654](https://github.com/germanamz/tusk/issues/654)) ([186aad8](https://github.com/germanamz/tusk/commit/186aad8a6bfe539a94ad11fded66929dbae0aed7))
+* **graphview:** reject untrusted Host headers (DNS-rebinding guard) ([#621](https://github.com/germanamz/tusk/issues/621)) ([bbf673a](https://github.com/germanamz/tusk/commit/bbf673afeaee46e3510b7e1bcefb44bb2c28c0cf))
+* **index:** chunk unbounded IN(...) clauses under the SQLite variable cap ([#629](https://github.com/germanamz/tusk/issues/629)) ([9e0e6af](https://github.com/germanamz/tusk/commit/9e0e6af53a21437809a301facce4bc25f36fad26))
+* **manifest:** reject negative embeddings.workers regardless of provider ([#642](https://github.com/germanamz/tusk/issues/642)) ([a4c8b1c](https://github.com/germanamz/tusk/commit/a4c8b1c5653bfb5dd41a4067e7f565b5a78943b4))
+* **mcp:** default the SSE transport to loopback, guard non-loopback binds ([#620](https://github.com/germanamz/tusk/issues/620)) ([d75cb20](https://github.com/germanamz/tusk/commit/d75cb20b31e3a980222e0fbdb6663a50e97b4a23))
+* **mcp:** surface background daemon errors instead of running deaf ([#633](https://github.com/germanamz/tusk/issues/633)) ([44b8341](https://github.com/germanamz/tusk/commit/44b8341176855e5ee094a53adc7f7b888b426959))
+* **node:** reject Create/Rename paths that escape the workspace root ([#622](https://github.com/germanamz/tusk/issues/622)) ([80c97e3](https://github.com/germanamz/tusk/commit/80c97e35de6042f7b93b23d0ab532a97cb5a02af))
+* **node:** rewrite block-sequence edge targets on rename ([#618](https://github.com/germanamz/tusk/issues/618)) ([ddc7dd0](https://github.com/germanamz/tusk/commit/ddc7dd0de8348e82a286cf464764d2929c3cba89))
+* **node:** support float properties end-to-end ([#641](https://github.com/germanamz/tusk/issues/641)) ([dfa498a](https://github.com/germanamz/tusk/commit/dfa498a4fc0dcd81c0b26dee592351a67bfab1a7))
+* **query:** unify retrieval read defaults ([#648](https://github.com/germanamz/tusk/issues/648)) ([e690a30](https://github.com/germanamz/tusk/commit/e690a303444d316641c9b43fec7bc6539f855ef7))
+* **watcher:** stop timer leak, serialize handlers, watch new dirs ([#635](https://github.com/germanamz/tusk/issues/635)) ([b7767a0](https://github.com/germanamz/tusk/commit/b7767a0bc727c9103ac842c927c2094221d153ad))
+* **watch:** run workflow/property validation in tusk watch ([#636](https://github.com/germanamz/tusk/issues/636)) ([f9bbd0c](https://github.com/germanamz/tusk/commit/f9bbd0c76beff9410f324200edcdcb77878eb38d))
+
+
+### Performance Improvements
+
+* **embed:** embed nodes concurrently across a batch ([#640](https://github.com/germanamz/tusk/issues/640)) ([aeeef8d](https://github.com/germanamz/tusk/commit/aeeef8d80ebe9ce6cd84b56785ade33b4f7b39b6))
+* **embed:** only GC orphan vectors after a pass drained work ([#627](https://github.com/germanamz/tusk/issues/627)) ([2c822c7](https://github.com/germanamz/tusk/commit/2c822c71397959ae276de8178b9093459762046c))
+* **index:** add nodes_type_idx for bare type= filters ([#630](https://github.com/germanamz/tusk/issues/630)) ([0a0d31a](https://github.com/germanamz/tusk/commit/0a0d31a5e8c1ac16fc6a422342976f520f6c75f6))
+* **index:** drop the never-read idx_file_state_lease index ([#638](https://github.com/germanamz/tusk/issues/638)) ([9530543](https://github.com/germanamz/tusk/commit/9530543c577805ef5d354c131f4504b255d1ca8e))
+* **index:** open SQLite with synchronous=NORMAL ([#625](https://github.com/germanamz/tusk/issues/625)) ([f6e299c](https://github.com/germanamz/tusk/commit/f6e299c421c752cabd0a3a538d247b49584e72ad))
+* **node:** hoist ExtractWikilinks out of the edge-type loop ([#628](https://github.com/germanamz/tusk/issues/628)) ([18d3f69](https://github.com/germanamz/tusk/commit/18d3f6910c9163beb4bdfafc8321828d2bc94ef5))
+* **reindex:** skip unchanged files by mtime+size ([#637](https://github.com/germanamz/tusk/issues/637)) ([42601e3](https://github.com/germanamz/tusk/commit/42601e31284ad6478db8253d54d2c7e57d84f947))
+* **subunit:** batch sub-unit edge writes and embed enqueues ([#639](https://github.com/germanamz/tusk/issues/639)) ([9f0ba65](https://github.com/germanamz/tusk/commit/9f0ba65bfeef31b753b66f63e6a00437d6ac3bed))
+
+
+### Code Refactoring
+
+* **embed:** centralize embedder construction in NewFromManifest ([#643](https://github.com/germanamz/tusk/issues/643)) ([51cb51a](https://github.com/germanamz/tusk/commit/51cb51a9cc5addac0870675f9b7f57220042d87a))
+* **graphview:** classify semantic-unavailable by typed error ([#644](https://github.com/germanamz/tusk/issues/644)) ([36c3f91](https://github.com/germanamz/tusk/commit/36c3f9198aee731d9128ffe1a1a4da2cbea760fd))
+* **node:** own the edge add/remove pipeline in node.Service ([#646](https://github.com/germanamz/tusk/issues/646)) ([23327f0](https://github.com/germanamz/tusk/commit/23327f07cfec4b11e7d4b463eeb9cb300037bf44))
+* **subunit:** lift shared unit finalization out of the two parsers ([#645](https://github.com/germanamz/tusk/issues/645)) ([49c7eb0](https://github.com/germanamz/tusk/commit/49c7eb06dcdf0d56a37a7790cec347ae8bc4edb6))
+
 ## [1.18.0](https://github.com/germanamz/tusk/compare/v1.17.0...v1.18.0) (2026-06-28)
 
 
