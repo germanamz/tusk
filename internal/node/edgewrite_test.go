@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/manifest"
@@ -40,6 +41,44 @@ func TestServiceRemoveEdge_UndeclaredReturnsSentinel(test *testing.T) {
 	}
 }
 
+// TestAddEdgeToFrontmatter_CanonicalizesUnquotedDate guards the leak found in
+// review: a node hand-authored with an unquoted date (`due: 2026-06-11`, which
+// yaml parses to a time.Time) must not make edge add fail in renderMarkdown.
+// The edge is written and the date is re-emitted quoted.
+func TestAddEdgeToFrontmatter_CanonicalizesUnquotedDate(test *testing.T) {
+	dir := test.TempDir()
+	sourcePath := filepath.Join(dir, "src.md")
+
+	if writeErr := os.WriteFile(sourcePath, []byte("---\ntype: ticket\ndue: 2026-06-11\n---\nbody\n"), 0o644); writeErr != nil {
+		test.Fatalf("seed: %v", writeErr)
+	}
+
+	edgeTypes := manifest.EdgeTypes{
+		"blocks": manifest.EdgeType{
+			From: []string{"ticket"}, To: []string{"ticket"},
+			Cardinality: manifest.CardinalityManyToMany,
+		},
+	}
+
+	nodeTypes := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "due", Type: "date"}}},
+	}
+
+	if err := node.AddEdgeToFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes, nodeTypes); err != nil {
+		test.Fatalf("AddEdgeToFrontmatter on unquoted-date node: %v", err)
+	}
+
+	body, _ := os.ReadFile(sourcePath)
+
+	if !strings.Contains(string(body), `due: "2026-06-11"`) {
+		test.Errorf("date should be re-emitted quoted; got:\n%s", body)
+	}
+
+	if !strings.Contains(string(body), "blocks:") {
+		test.Errorf("edge not written; got:\n%s", body)
+	}
+}
+
 func TestAddEdgeToFrontmatter_AddsKeyToScalar(test *testing.T) {
 	dir := test.TempDir()
 	sourcePath := filepath.Join(dir, "src.md")
@@ -55,7 +94,7 @@ func TestAddEdgeToFrontmatter_AddsKeyToScalar(test *testing.T) {
 		},
 	}
 
-	if err := node.AddEdgeToFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes); err != nil {
+	if err := node.AddEdgeToFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes, nil); err != nil {
 		test.Fatalf("AddEdgeToFrontmatter: %v", err)
 	}
 
@@ -88,7 +127,7 @@ func TestAddEdgeToFrontmatter_AppendsToListWhenMultiTarget(test *testing.T) {
 		},
 	}
 
-	if err := node.AddEdgeToFrontmatter(dir, "src", "blocks", "tickets/y", edgeTypes); err != nil {
+	if err := node.AddEdgeToFrontmatter(dir, "src", "blocks", "tickets/y", edgeTypes, nil); err != nil {
 		test.Fatalf("AddEdgeToFrontmatter: %v", err)
 	}
 
@@ -121,7 +160,7 @@ func TestAddEdgeToFrontmatter_NoOpWhenTargetAlreadyPresent(test *testing.T) {
 		},
 	}
 
-	if err := node.AddEdgeToFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes); err != nil {
+	if err := node.AddEdgeToFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes, nil); err != nil {
 		test.Errorf("idempotent re-add should be a no-op, got: %v", err)
 	}
 }
@@ -141,7 +180,7 @@ func TestAddEdgeToFrontmatter_RejectsConflictingSingleTarget(test *testing.T) {
 		},
 	}
 
-	err := node.AddEdgeToFrontmatter(dir, "src", "parent", "parents/b", edgeTypes)
+	err := node.AddEdgeToFrontmatter(dir, "src", "parent", "parents/b", edgeTypes, nil)
 
 	if err == nil {
 		test.Fatalf("expected error: single-target conflict")
@@ -157,7 +196,7 @@ func TestAddEdgeToFrontmatter_RejectsMissingSourceFile(test *testing.T) {
 		},
 	}
 
-	if err := node.AddEdgeToFrontmatter(dir, "missing", "blocks", "tickets/x", edgeTypes); err == nil {
+	if err := node.AddEdgeToFrontmatter(dir, "missing", "blocks", "tickets/x", edgeTypes, nil); err == nil {
 		test.Fatalf("expected error: source file does not exist")
 	}
 }
@@ -177,7 +216,7 @@ func TestRemoveEdgeFromFrontmatter_RemovesFromList(test *testing.T) {
 		},
 	}
 
-	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes); err != nil {
+	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes, nil); err != nil {
 		test.Fatalf("RemoveEdgeFromFrontmatter: %v", err)
 	}
 
@@ -210,7 +249,7 @@ func TestRemoveEdgeFromFrontmatter_RemovesKeyWhenLastTarget(test *testing.T) {
 		},
 	}
 
-	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes); err != nil {
+	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes, nil); err != nil {
 		test.Fatalf("RemoveEdgeFromFrontmatter: %v", err)
 	}
 
@@ -237,7 +276,7 @@ func TestRemoveEdgeFromFrontmatter_NoOpWhenAbsent(test *testing.T) {
 		},
 	}
 
-	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes); err != nil {
+	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "blocks", "tickets/x", edgeTypes, nil); err != nil {
 		test.Errorf("idempotent no-op should not error: %v", err)
 	}
 }

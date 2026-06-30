@@ -59,6 +59,7 @@ func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 				Logger:        config.Logger,
 				Workers:       rt.Workers,
 				TTL:           rt.LeaseTTL,
+				WorkerID:      rt.WorkerID,
 				Generation:    gen,
 			})
 

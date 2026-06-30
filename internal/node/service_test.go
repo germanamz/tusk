@@ -515,6 +515,62 @@ func TestService_Modify_UpdatesProperty(test *testing.T) {
 	}
 }
 
+// TestService_Modify_CanonicalizesUnquotedDateOnDisk pins the lenient-read side
+// of issue #662's follow-up: a node whose date is authored unquoted on disk
+// (`due: 2026-06-11`, which yaml parses to a time.Time) must still be
+// modifiable. Before canonicalization this hard-errored in renderMarkdown with
+// "unsupported frontmatter type ... time.Time".
+func TestService_Modify_CanonicalizesUnquotedDateOnDisk(test *testing.T) {
+	root := test.TempDir()
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	defer store.Close()
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{
+			{Name: "due", Type: "date"},
+			{Name: "priority", Type: "int"},
+		}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
+		manifest.EdgeTypes{}, index.NewEmbedQueueRepo(store),
+		decls, index.NewPropertyDriftRepo(store),
+		nil, nil, io.Discard, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
+
+	// Seed the index row via Create, then overwrite the file with an UNQUOTED
+	// date — the state a hand-edit or an older tusk would leave behind.
+	if _, createErr := service.Create(node.CreateInput{RelPath: "tickets/foo.md", Type: "ticket"}); createErr != nil {
+		test.Fatalf("Create: %v", createErr)
+	}
+
+	unquoted := []byte("---\ntype: ticket\ndue: 2026-06-11\n---\n\nbody\n")
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tickets/foo.md"), unquoted, 0o644); writeErr != nil {
+		test.Fatalf("overwrite: %v", writeErr)
+	}
+
+	if _, modifyErr := service.Modify(node.ModifyInput{
+		ID:       "tickets/foo",
+		SetProps: map[string]any{"priority": 3},
+	}); modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	body, _ := os.ReadFile(filepath.Join(root, "tickets/foo.md"))
+
+	if !strings.Contains(string(body), `due: "2026-06-11"`) {
+		test.Errorf("date should be re-emitted quoted; got:\n%s", body)
+	}
+
+	if !strings.Contains(string(body), "priority: 3") {
+		test.Errorf("priority not applied:\n%s", body)
+	}
+}
+
 func TestService_Modify_UnsetRemovesProperty(test *testing.T) {
 	root := test.TempDir()
 	store := openTempIndex(test, root)

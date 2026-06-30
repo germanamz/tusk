@@ -467,6 +467,7 @@ func Run(config Config) (*Report, error) {
 			Logger:        config.Logger,
 			Workers:       config.Workers,
 			TTL:           leaseTTL,
+			WorkerID:      workerID,
 			Generation:    gen,
 		})
 

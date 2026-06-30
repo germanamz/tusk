@@ -59,7 +59,7 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 		}
 	}
 
-	if writeErr := AddEdgeToFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes); writeErr != nil {
+	if writeErr := AddEdgeToFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes, service.nodeTypes); writeErr != nil {
 		return writeErr
 	}
 
@@ -75,7 +75,7 @@ func (service *Service) RemoveEdge(edgeType, sourceID, targetID string) error {
 		return fmt.Errorf("edge type %q %w", edgeType, ErrEdgeTypeNotDeclared)
 	}
 
-	if writeErr := RemoveEdgeFromFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes); writeErr != nil {
+	if writeErr := RemoveEdgeFromFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes, service.nodeTypes); writeErr != nil {
 		return writeErr
 	}
 
@@ -173,6 +173,7 @@ func setEdgeTargets(props map[string]any, edgeName string, targets []string) {
 func AddEdgeToFrontmatter(
 	workspaceRoot, sourceID, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
+	nodeTypes map[string]manifest.NodeType,
 ) error {
 	edgeDef, declared := edgeTypes[edgeName]
 
@@ -193,6 +194,12 @@ func AddEdgeToFrontmatter(
 	if parseErr != nil {
 		return fmt.Errorf("edgewrite: parse %s: %w", sourcePath, parseErr)
 	}
+
+	// Canonicalize any date the parser produced as a time.Time (an unquoted
+	// on-disk date) before re-rendering; renderMarkdown cannot serialize a
+	// time.Time, so without this an edge add on a node with a hand-authored
+	// unquoted date would hard-fail.
+	CanonicalizeDates(parsed, nodeTypes)
 
 	existing, present := parsed.Properties[edgeName]
 
@@ -251,6 +258,7 @@ func AddEdgeToFrontmatter(
 func RemoveEdgeFromFrontmatter(
 	workspaceRoot, sourceID, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
+	nodeTypes map[string]manifest.NodeType,
 ) error {
 	if _, declared := edgeTypes[edgeName]; !declared {
 		return fmt.Errorf("edgewrite: edge type %q not declared in manifest", edgeName)
@@ -269,6 +277,11 @@ func RemoveEdgeFromFrontmatter(
 	if parseErr != nil {
 		return fmt.Errorf("edgewrite: parse %s: %w", sourcePath, parseErr)
 	}
+
+	// Canonicalize any unquoted-date time.Time before re-rendering (see
+	// AddEdgeToFrontmatter) so an edge remove on a node with a hand-authored
+	// unquoted date does not hard-fail in renderMarkdown.
+	CanonicalizeDates(parsed, nodeTypes)
 
 	existing, present := parsed.Properties[edgeName]
 
