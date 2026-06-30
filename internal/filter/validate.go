@@ -33,10 +33,15 @@ func Validate(expr Expr, loaded manifest.Manifest) []ValidationError {
 	}
 
 	collector := &validationCollector{manifest: loaded}
-	collector.walk(expr)
+	collector.walk(expr, nil)
 
 	return collector.errors
 }
+
+// typeScope is the set of node-type names a predicate is conjunctively
+// constrained to by sibling `type=` equalities. Empty means "any type" —
+// resolution then scans every declared node type.
+type typeScope map[string]struct{}
 
 type validationCollector struct {
 	manifest manifest.Manifest
@@ -49,18 +54,23 @@ func (collector *validationCollector) add(pos int, message, hint string) {
 	collector.errors = append(collector.errors, ValidationError{Pos: pos, Message: message, Hint: hint})
 }
 
-func (collector *validationCollector) walk(expr Expr) {
+func (collector *validationCollector) walk(expr Expr, scope typeScope) {
 	switch typed := expr.(type) {
 	case *OrExpr:
-		collector.walk(typed.Left)
-		collector.walk(typed.Right)
+		// Branches inherit the incoming scope; a `type=` inside one branch does
+		// not constrain its sibling, so nothing is added here.
+		collector.walk(typed.Left, scope)
+		collector.walk(typed.Right, scope)
 	case *AndExpr:
-		collector.walk(typed.Left)
-		collector.walk(typed.Right)
+		// Every node matching this AND must satisfy each conjunct, so the
+		// `type=` equalities at this conjunctive level constrain both children.
+		inner := unionScope(scope, conjunctiveTypes(typed))
+		collector.walk(typed.Left, inner)
+		collector.walk(typed.Right, inner)
 	case *NotExpr:
-		collector.walk(typed.Inner)
+		collector.walk(typed.Inner, scope)
 	case *PropertyPredicate:
-		// Properties are not validated against the manifest in Plan 4 (see spec §5.2).
+		collector.resolveProperty(typed, scope)
 	case *EdgePredicate:
 		ref, parseErr := typeref.Parse(typed.EdgeType)
 
@@ -71,13 +81,245 @@ func (collector *validationCollector) walk(expr Expr) {
 		}
 
 		if typed.Inner != nil {
-			collector.walk(typed.Inner)
+			// The inner predicate constrains the edge's target node, a different
+			// node-type context, so the outer scope does not carry into it.
+			collector.walk(typed.Inner, nil)
 		}
 	case *TraversalShortcut:
 		collector.resolveShortcut(typed)
 	case *ModifiedSincePredicate:
 		collector.resolveModifiedSince(typed)
 	}
+}
+
+// conjunctiveTypes collects the node-type names named by `type=<name>`
+// equalities at the top conjunctive level of expr, flattening nested AndExprs
+// and stopping at OrExpr / NotExpr / EdgePredicate boundaries (those do not
+// positively constrain the conjunction).
+func conjunctiveTypes(expr Expr) typeScope {
+	scope := typeScope{}
+	collectConjunctiveTypes(expr, scope)
+
+	return scope
+}
+
+func collectConjunctiveTypes(expr Expr, scope typeScope) {
+	switch typed := expr.(type) {
+	case *AndExpr:
+		collectConjunctiveTypes(typed.Left, scope)
+		collectConjunctiveTypes(typed.Right, scope)
+	case *PropertyPredicate:
+		if typed.Property != "type" || typed.Op != OpEQ {
+			return
+		}
+
+		if stringValue, ok := typed.Value.(StringValue); ok {
+			if ref, parseErr := typeref.Parse(stringValue.V); parseErr == nil {
+				scope[ref.Type] = struct{}{}
+			}
+		}
+	}
+}
+
+// unionScope returns a new scope containing every name from base and extra.
+// base may be nil (the root call passes nil).
+func unionScope(base, extra typeScope) typeScope {
+	merged := typeScope{}
+
+	for name := range base {
+		merged[name] = struct{}{}
+	}
+
+	for name := range extra {
+		merged[name] = struct{}{}
+	}
+
+	return merged
+}
+
+// resolveProperty resolves a property predicate's declared type from the
+// manifest within its conjunctive type scope and stamps ResolvedType (plus
+// EnumValues for enums) so the compiler can choose a type-aware comparison.
+// It also surfaces validation errors for ordering/range operators: an invalid
+// enum value/index, an unparseable date/datetime, or an ambiguous property
+// declared on multiple node types without a disambiguating `type=`.
+//
+// Core columns (id/type/path/title) and undeclared properties are left
+// unresolved — the compiler falls back to its legacy behaviour, preserving
+// ad-hoc property queries.
+func (collector *validationCollector) resolveProperty(pred *PropertyPredicate, scope typeScope) {
+	if _, core := coreColumns[pred.Property]; core {
+		return
+	}
+
+	decls := collector.lookupPropertyDecls(pred.Property, scope)
+
+	switch len(decls) {
+	case 0:
+		return
+	case 1:
+		// resolved below
+	default:
+		if isOrderingOrRange(pred.Op) {
+			collector.add(
+				pred.Pos,
+				fmt.Sprintf("property %q is declared on multiple node types with different definitions", pred.Property),
+				"add type=<node-type> to disambiguate",
+			)
+		}
+
+		return
+	}
+
+	decl := decls[0]
+	pred.ResolvedType = decl.Type
+
+	if decl.Type == "enum" {
+		pred.EnumValues = decl.Values
+	}
+
+	if isOrderingOrRange(pred.Op) {
+		collector.checkTypedComparison(pred, decl)
+	}
+}
+
+// lookupPropertyDecls returns the distinct declarations of property name within
+// scope (or across every node type when scope is empty). Two declarations are
+// the same when their type and enum value list match; more than one distinct
+// declaration means the name is ambiguous.
+func (collector *validationCollector) lookupPropertyDecls(name string, scope typeScope) []manifest.PropertyDecl {
+	var distinct []manifest.PropertyDecl
+
+	consider := func(nodeType manifest.NodeType) {
+		for _, decl := range nodeType.Properties {
+			if decl.Name != name {
+				continue
+			}
+
+			if !containsEquivalentDecl(distinct, decl) {
+				distinct = append(distinct, decl)
+			}
+		}
+	}
+
+	if len(scope) > 0 {
+		for typeName := range scope {
+			if nodeType, ok := collector.manifest.NodeTypes[typeName]; ok {
+				consider(nodeType)
+			}
+		}
+
+		return distinct
+	}
+
+	for _, nodeType := range collector.manifest.NodeTypes {
+		consider(nodeType)
+	}
+
+	return distinct
+}
+
+// checkTypedComparison validates the right-hand value(s) of an ordering/range
+// predicate against the resolved type, and normalizes date/datetime bounds to
+// their canonical form so they sort lexically against the stored values.
+func (collector *validationCollector) checkTypedComparison(pred *PropertyPredicate, decl manifest.PropertyDecl) {
+	switch decl.Type {
+	case "enum":
+		for _, token := range comparisonTokens(pred) {
+			if _, ok := resolveEnumIndex(decl.Values, token); !ok {
+				collector.add(
+					pred.Pos,
+					fmt.Sprintf("%q is not a value or 0-based index of enum property %q", token, pred.Property),
+					"valid values: "+strings.Join(decl.Values, ", "),
+				)
+			}
+		}
+	case "date":
+		collector.normalizeTemporal(pred, time.DateOnly, "ISO date (YYYY-MM-DD)")
+	case "datetime":
+		collector.normalizeTemporal(pred, time.RFC3339, "RFC3339 datetime")
+	}
+}
+
+// normalizeTemporal parses each comparison bound with layout, reporting a
+// validation error on failure, and rewrites the predicate's value(s) to the
+// canonical re-formatted form on success.
+func (collector *validationCollector) normalizeTemporal(pred *PropertyPredicate, layout, expected string) {
+	normalize := func(raw string) (string, bool) {
+		parsed, parseErr := time.Parse(layout, raw)
+
+		if parseErr != nil {
+			collector.add(
+				pred.Pos,
+				fmt.Sprintf("%q is not a valid value for %q", raw, pred.Property),
+				"expected "+expected,
+			)
+
+			return "", false
+		}
+
+		return parsed.Format(layout), true
+	}
+
+	switch value := pred.Value.(type) {
+	case StringValue:
+		if normalized, ok := normalize(value.V); ok {
+			pred.Value = StringValue{V: normalized, Bareword: value.Bareword}
+		}
+	case RangeValue:
+		normMin, okMin := normalize(value.Min)
+		normMax, okMax := normalize(value.Max)
+
+		if okMin && okMax {
+			pred.Value = RangeValue{Min: normMin, Max: normMax}
+		}
+	}
+}
+
+// comparisonTokens returns the raw right-hand value tokens of a predicate: one
+// for a scalar comparison, two for a range.
+func comparisonTokens(pred *PropertyPredicate) []string {
+	switch value := pred.Value.(type) {
+	case StringValue:
+		return []string{value.V}
+	case RangeValue:
+		return []string{value.Min, value.Max}
+	}
+
+	return nil
+}
+
+// containsEquivalentDecl reports whether decls already holds a declaration with
+// the same type and enum value list as candidate.
+func containsEquivalentDecl(decls []manifest.PropertyDecl, candidate manifest.PropertyDecl) bool {
+	for _, existing := range decls {
+		if existing.Type == candidate.Type && equalStrings(existing.Values, candidate.Values) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isOrderingOrRange reports whether op is an ordering comparison (`<`, `<=`,
+// `>`, `>=`) or the inclusive range form — the operators whose comparison
+// strategy depends on the property's declared type.
+func isOrderingOrRange(op Op) bool {
+	return isNumericOp(op) || op == OpRange
 }
 
 // resolveModifiedSince parses pred.Raw into either a duration or an

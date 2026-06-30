@@ -11,9 +11,21 @@ Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk n
 
 ## Public surface
 
-- `Parse(input string) (*Node, error)` — string → AST.
-- `Compile(*Node, manifest) (string, []any, error)` — AST → parameterized SQL.
+- `NewParser(input string).Parse() (Expr, []ParseError)` — string → AST.
+- `Validate(Expr, manifest.Manifest) []ValidationError` — resolves each property
+  predicate's declared type against the manifest (within its conjunctive `type=`
+  scope) and stamps `ResolvedType`/`EnumValues` onto the AST for the compiler.
+- `Compile(Expr, CompileOptions) (string, []any, error)` — AST → parameterized SQL.
 - `Lexer`, token kinds, AST node types — internal but exposed for tests.
+
+Ordering (`<`, `<=`, `>`, `>=`) and range (`lo..hi`) operators are type-aware:
+`int` compares numerically (integer affinity), `date`/`datetime` lexically (ISO
+strings sort chronologically), and `enum` by declared order — the compiler
+expands the operator into an `IN (...)` set over the satisfying member names,
+accepting either a value name or a 0-based index as the bound. Resolution needs
+the declared type, so the comparison falls back to integer affinity for an
+undeclared property and errors when a name is declared on multiple node types
+without a disambiguating `type=`.
 
 ## Notes
 

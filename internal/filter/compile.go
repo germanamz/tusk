@@ -3,6 +3,7 @@ package filter
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,6 +268,13 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 			return columnPrefix + column + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
 		}
 
+		switch {
+		case isTextComparedType(predicate.ResolvedType):
+			return quotedExtract(columnPrefix, predicate.Property) + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
+		case predicate.ResolvedType == "enum":
+			return compileEnumRange(predicate, columnPrefix, rangeValue)
+		}
+
 		extract := fmt.Sprintf(`CAST(json_extract(%sproperties_json, '$.%s') AS INTEGER)`, columnPrefix, predicate.Property)
 
 		return extract + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
@@ -293,10 +301,139 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 	}
 
 	if isNumericOp(predicate.Op) {
+		switch {
+		case isTextComparedType(predicate.ResolvedType):
+			return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
+		case predicate.ResolvedType == "enum":
+			return compileEnumOrdering(predicate, columnPrefix, stringValue.V)
+		}
+
 		return fmt.Sprintf(`CAST(json_extract(%sproperties_json, '$.%s') AS INTEGER) %s ?`, columnPrefix, predicate.Property, sqlOp), []any{stringValue.V}, nil
 	}
 
 	return fmt.Sprintf(`json_extract(%sproperties_json, '$.%s') %s ?`, columnPrefix, predicate.Property, sqlOp), []any{stringValue.V}, nil
+}
+
+// isTextComparedType reports whether a resolved property type compares
+// lexically. date (YYYY-MM-DD) and datetime (RFC3339) are stored as ISO
+// strings that sort chronologically, so ordering/range operators compare them
+// as TEXT rather than coercing to integer.
+func isTextComparedType(resolvedType string) bool {
+	return resolvedType == "date" || resolvedType == "datetime"
+}
+
+// quotedExtract builds a json_extract over a quoted JSON path key. Quoting the
+// key keeps property names with hyphens, dots, or other path metacharacters
+// unambiguous; the new typed-comparison paths use it uniformly.
+func quotedExtract(columnPrefix, property string) string {
+	return fmt.Sprintf(`json_extract(%sproperties_json, '$."%s"')`, columnPrefix, property)
+}
+
+// compileEnumOrdering expands an ordering operator (`<`, `<=`, `>`, `>=`) on an
+// enum property into an IN-set over the member names that satisfy it, comparing
+// the stored name strings directly. raw may be a declared value name or a
+// 0-based index into EnumValues.
+func compileEnumOrdering(predicate *PropertyPredicate, columnPrefix, raw string) (string, []any, error) {
+	idx, ok := resolveEnumIndex(predicate.EnumValues, raw)
+
+	if !ok {
+		return "", nil, fmt.Errorf("compile: %q is not a value or index of enum property %q", raw, predicate.Property)
+	}
+
+	sql, params := compileInSet(columnPrefix, predicate.Property, enumSatisfyingNames(predicate.EnumValues, predicate.Op, idx))
+
+	return sql, params, nil
+}
+
+// compileEnumRange expands an inclusive `lo..hi` range on an enum property into
+// an IN-set over the member names between the two bounds (by declared order).
+// A reversed range (lo after hi) yields the empty set, matching BETWEEN.
+func compileEnumRange(predicate *PropertyPredicate, columnPrefix string, rangeValue RangeValue) (string, []any, error) {
+	loIdx, okLo := resolveEnumIndex(predicate.EnumValues, rangeValue.Min)
+	hiIdx, okHi := resolveEnumIndex(predicate.EnumValues, rangeValue.Max)
+
+	if !okLo {
+		return "", nil, fmt.Errorf("compile: %q is not a value or index of enum property %q", rangeValue.Min, predicate.Property)
+	}
+
+	if !okHi {
+		return "", nil, fmt.Errorf("compile: %q is not a value or index of enum property %q", rangeValue.Max, predicate.Property)
+	}
+
+	var names []string
+
+	for index := loIdx; index <= hiIdx; index++ {
+		names = append(names, predicate.EnumValues[index])
+	}
+
+	sql, params := compileInSet(columnPrefix, predicate.Property, names)
+
+	return sql, params, nil
+}
+
+// compileInSet renders `json_extract(...) IN (?, ...)` over the given member
+// names, or the constant-false predicate `0 = 1` when the set is empty (a
+// legitimately empty satisfying set matches nothing, which is correct — not a
+// silent failure).
+func compileInSet(columnPrefix, property string, names []string) (string, []any) {
+	if len(names) == 0 {
+		return "0 = 1", nil
+	}
+
+	placeholders := strings.Repeat("?, ", len(names)-1) + "?"
+	params := make([]any, len(names))
+
+	for index, name := range names {
+		params[index] = name
+	}
+
+	return quotedExtract(columnPrefix, property) + " IN (" + placeholders + ")", params
+}
+
+// resolveEnumIndex maps a raw comparison token to its 0-based position in
+// values. The token may be a declared value name or a numeric index; ok is
+// false when it is neither (an out-of-range index or an undeclared name). Both
+// Validate (validity check) and Compile (IN-set expansion) route through this
+// helper so they never disagree.
+func resolveEnumIndex(values []string, raw string) (int, bool) {
+	for index, value := range values {
+		if value == raw {
+			return index, true
+		}
+	}
+
+	if numeric, convErr := strconv.Atoi(raw); convErr == nil && numeric >= 0 && numeric < len(values) {
+		return numeric, true
+	}
+
+	return 0, false
+}
+
+// enumSatisfyingNames returns the member names whose index satisfies `index op
+// threshold`, in ascending declared order.
+func enumSatisfyingNames(values []string, op Op, threshold int) []string {
+	var names []string
+
+	for index, value := range values {
+		keep := false
+
+		switch op {
+		case OpLT:
+			keep = index < threshold
+		case OpLE:
+			keep = index <= threshold
+		case OpGT:
+			keep = index > threshold
+		case OpGE:
+			keep = index >= threshold
+		}
+
+		if keep {
+			names = append(names, value)
+		}
+	}
+
+	return names
 }
 
 // boolLiteralAsInt returns (1/0, true) when value is a bareword

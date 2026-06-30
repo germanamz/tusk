@@ -29,7 +29,10 @@ func newNodeListCmd() *cobra.Command {
 The filter is a property and edge-traversal expression. Property
 predicates use comparison operators (key=value, key:value, key!=value,
 key<value, key<=value, key>value, key>=value); ranges use key=lo..hi.
-Edge traversal uses edge-type-> or edge-type<- and may chain multi-hop.
+Ordering and range operators compare by the property's declared type: int
+numerically, date/datetime chronologically, enum by declared order (a value
+name or a 0-based index). Edge traversal uses edge-type-> or edge-type<- and
+may chain multi-hop.
 Traversal shortcuts: tree=id, parent=id, root=id (qualified: tree:<alias>=id,
 parent:<alias>=id, root:<alias>=id, where <alias> is set via hierarchy on an
 edge type in tusk.toml). Recency shortcut: modified-since:<duration|ISO-date>
