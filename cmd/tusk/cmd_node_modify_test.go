@@ -194,6 +194,81 @@ transitions = [
 	}
 }
 
+// TestReindex_SelfHealsUnquotedDate pins the auto-self-heal behavior: a ticket
+// whose date is unquoted on disk (yaml parses it to a time.Time) is rewritten to
+// canonical quoted form by reindex, becomes exact-match queryable, leaves doctor
+// clean, and a second reindex is a byte-identical no-op (converges).
+func TestReindex_SelfHealsUnquotedDate(test *testing.T) {
+	root := test.TempDir()
+
+	manifestBody := `
+[workspace]
+name = "test"
+
+[node-types.ticket]
+properties = [
+    { name = "due", type = "date" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(root, "tickets"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	// Unquoted date, written directly to disk (no reindex yet so we observe the
+	// heal). yaml resolves `due: 2026-06-11` to a time.Time.
+	unquoted := "---\ntype: ticket\ndue: 2026-06-11\n---\n\nbody\n"
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tickets/foo.md"), []byte(unquoted), 0o644); writeErr != nil {
+		test.Fatalf("write node: %v", writeErr)
+	}
+
+	if _, stderr, ok := runCLISplit(root, "reindex"); !ok {
+		test.Fatalf("reindex: %s", stderr.String())
+	}
+
+	body, _ := os.ReadFile(filepath.Join(root, "tickets/foo.md"))
+
+	if !strings.Contains(string(body), `due: "2026-06-11"`) {
+		test.Errorf("reindex should self-heal the unquoted date; got:\n%s", body)
+	}
+
+	// Formerly-unquoted date is now exact-match queryable.
+	stdout, _, ok := runCLISplit(root, "query", "due=2026-06-11", "--json")
+
+	if !ok {
+		test.Fatalf("query failed")
+	}
+
+	if !strings.Contains(stdout.String(), "tickets/foo") {
+		test.Errorf("date should be exact-match queryable; got:\n%s", stdout.String())
+	}
+
+	// Doctor reports no date type-mismatch.
+	doctorOut, _, _ := runCLISplit(root, "doctor")
+
+	if strings.Contains(doctorOut.String(), "type-mismatch") {
+		test.Errorf("doctor should be clean; got:\n%s", doctorOut.String())
+	}
+
+	// Convergence: a second reindex leaves the file byte-identical.
+	before, _ := os.ReadFile(filepath.Join(root, "tickets/foo.md"))
+
+	if _, stderr, ok := runCLISplit(root, "reindex"); !ok {
+		test.Fatalf("second reindex: %s", stderr.String())
+	}
+
+	after, _ := os.ReadFile(filepath.Join(root, "tickets/foo.md"))
+
+	if !bytes.Equal(before, after) {
+		test.Errorf("second reindex must be a no-op (converged):\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
 // runCLISplit executes the CLI and returns separate stdout and stderr buffers
 // plus a boolean indicating whether the command succeeded (exit 0).
 // When the command fails, the error message is written to stderr.

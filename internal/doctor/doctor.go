@@ -790,7 +790,7 @@ func Migrate(config Config) (*MigrationReport, error) {
 		})
 
 		for _, row := range rows {
-			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, row.Type, row.TargetID, config.Manifest.EdgeTypes); writeErr != nil {
+			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, row.Type, row.TargetID, config.Manifest.EdgeTypes, config.Manifest.NodeTypes); writeErr != nil {
 				return nil, fmt.Errorf("doctor: migrate %s %s→%s: %w", row.Type, row.SourceID, row.TargetID, writeErr)
 			}
 

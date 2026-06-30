@@ -637,6 +637,13 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 			return Mutation{}, parseBeforeErr
 		}
 
+		// Canonicalize any date the YAML parser produced as a time.Time (an
+		// unquoted on-disk date) into its string form before cloning, rendering,
+		// or validating — renderMarkdown cannot serialize a time.Time, and the
+		// date validator expects a string. Lets a modify succeed on a node whose
+		// date was authored unquoted, and re-emits it quoted.
+		CanonicalizeDates(parsedBefore, service.nodeTypes)
+
 		// Resolve edges on the before-node so the diff against the after-node
 		// is well-defined.
 		if resolveErr := ResolveEdges(parsedBefore, service.edgeTypes); resolveErr != nil {

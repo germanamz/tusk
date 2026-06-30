@@ -60,6 +60,11 @@ type WorkerConfig struct {
 	// to leaseconfig-resolved value at the caller; pass through verbatim.
 	TTL time.Duration
 
+	// WorkerID identifies this worker when it claims a file_state lease to
+	// self-heal an unquoted date back to canonical quoted form. Empty disables
+	// self-heal (the worker still canonicalizes in memory for the index).
+	WorkerID string
+
 	// Generation is the current reindex_gen; used to stamp file_state rows
 	// after a worker successfully processes a file.
 	Generation int64
@@ -274,6 +279,16 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 
 	if parseErr != nil {
 		return errSkipFile
+	}
+
+	// Canonicalize any date the YAML parser produced as a time.Time (an unquoted
+	// on-disk date) into its string form so the indexed JSON and the property
+	// validator see one consistent representation — making the value exact-match
+	// queryable and keeping doctor free of spurious date type-mismatch drift.
+	// A time.Time present here also means the markdown file can be rewritten to
+	// its quoted canonical form (self-heal), reflected in the returned bytes.
+	if node.CanonicalizeDates(parsed, cfg.NodeTypes) {
+		content, stat = selfHealDate(cfg, relPath, absPath, content, stat)
 	}
 
 	if resolveErr := node.ResolveEdges(parsed, cfg.EdgeTypes); resolveErr != nil {
@@ -529,4 +544,50 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	report.Indexed++
 
 	return nil
+}
+
+// selfHealDate rewrites relPath's markdown to canonical quoted dates when the
+// caller's parse produced a time.Time (an unquoted on-disk date), returning the
+// post-write content and stat so the caller indexes the rewritten bytes. It is
+// a no-op — returning content and stat unchanged — when self-heal is disabled
+// (no WorkerID or FileStateRepo), the node is HTML (not editable), the lease is
+// busy (a concurrent writer holds it; the file heals on a later pass), or the
+// rewrite otherwise fails. Self-heal is best-effort: indexing must not block on
+// it, so non-ErrBusy errors are logged and swallowed.
+func selfHealDate(cfg WorkerConfig, relPath, absPath string, content []byte, stat os.FileInfo) ([]byte, os.FileInfo) {
+	if cfg.WorkerID == "" || cfg.FileStates == nil || isHTMLPath(relPath) {
+		return content, stat
+	}
+
+	healed, healErr := node.CanonicalizeFileOnDisk(
+		context.Background(), cfg.Root, cfg.FileStates, cfg.WorkerID, cfg.TTL, relPath, cfg.NodeTypes,
+	)
+
+	switch {
+	case healErr != nil:
+		if !errors.Is(healErr, index.ErrBusy) && cfg.Logger != nil {
+			cfg.Logger.Warn("reindex self-heal failed", "path", relPath, "err", healErr)
+		}
+	case healed:
+		// Re-read so the caller's index row and file_state stamp reflect the
+		// rewritten (quoted) bytes rather than the pre-write content. Update both
+		// or neither: a partial update would pair post-write content with a
+		// pre-write stat. A failure here is benign — the next reindex pass
+		// self-corrects via the mtime check — but is logged so it is not silent.
+		reread, rereadErr := os.ReadFile(absPath)
+		restat, restatErr := os.Stat(absPath)
+
+		if rereadErr != nil || restatErr != nil {
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("reindex self-heal re-read failed",
+					"path", relPath, "read_err", rereadErr, "stat_err", restatErr)
+			}
+
+			return content, stat
+		}
+
+		content, stat = reread, restat
+	}
+
+	return content, stat
 }
