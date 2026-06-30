@@ -18,6 +18,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
+	"gopkg.in/yaml.v3"
 )
 
 // ErrAlreadyExists is returned by Create when the target file already exists.
@@ -1256,6 +1257,22 @@ func yamlNeedsQuoting(str string) bool {
 	// Anything a YAML parser would decode as a number must be quoted to keep
 	// it a string.
 	if _, parseErr := strconv.ParseFloat(str, 64); parseErr == nil {
+		return true
+	}
+
+	// Final safety net: defer to the real YAML parser for the forms the rules
+	// above can't enumerate. A plain scalar resolves to a non-string for
+	// date/timestamp strings ("2026-06-11" -> time.Time, issue #662), hex and
+	// octal ints ("0x1F", "0o17"), and infinities (".inf"/".nan"). Quote
+	// whenever the bare scalar would not decode back to this exact Go string,
+	// honoring the round-trip guarantee this function promises.
+	var decoded any
+
+	if unmarshalErr := yaml.Unmarshal([]byte(str), &decoded); unmarshalErr != nil {
+		return true
+	}
+
+	if decodedStr, isString := decoded.(string); !isString || decodedStr != str {
 		return true
 	}
 

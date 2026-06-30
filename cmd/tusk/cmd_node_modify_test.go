@@ -127,6 +127,73 @@ properties = [
 	}
 }
 
+// TestNodeModify_DatedTicketAdvancesStatus reproduces issue #662: advancing the
+// kanban status of a ticket that carries a correctly quoted date property must
+// succeed. The modify render path previously re-emitted the date unquoted, so
+// the re-parse resolved it to a time.Time and the validator rejected its own
+// round-trip.
+func TestNodeModify_DatedTicketAdvancesStatus(test *testing.T) {
+	root := test.TempDir()
+
+	manifestBody := `
+[workspace]
+name = "test"
+
+[node-types.ticket]
+properties = [
+    { name = "due", type = "date" },
+]
+
+[behaviors.workflow.tickets]
+applies-to = ["ticket"]
+states = [
+  { name = "pending", initial = true },
+  { name = "active" },
+  { name = "completed", terminal = true, done = true },
+]
+transitions = [
+  { from = "pending", to = "active" },
+  { from = "active", to = "completed" },
+]
+`
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	// Quoted ISO date, exactly as a hand-authored / reindexed file carries it.
+	mustCreateNode(test, root, "tickets/foo", "ticket", map[string]string{
+		"status": "pending",
+		"due":    `"2026-06-11"`,
+	})
+
+	stdout, stderr, ok := runCLISplit(root, "node", "modify", "tickets/foo", "--prop", "status=active")
+
+	if !ok {
+		test.Fatalf("modify failed: %s", stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Modified tickets/foo") {
+		test.Errorf("stdout = %q, want success line", stdout.String())
+	}
+
+	body, readErr := os.ReadFile(filepath.Join(root, "tickets/foo.md"))
+
+	if readErr != nil {
+		test.Fatalf("read: %v", readErr)
+	}
+
+	if !strings.Contains(string(body), "status: active") {
+		test.Errorf("frontmatter should show advanced status; got:\n%s", body)
+	}
+
+	// The date must remain a quoted string on disk so the next parse keeps it a
+	// string (and exact-match queries keep working).
+	if !strings.Contains(string(body), `due: "2026-06-11"`) {
+		test.Errorf("date should stay quoted; got:\n%s", body)
+	}
+}
+
 // runCLISplit executes the CLI and returns separate stdout and stderr buffers
 // plus a boolean indicating whether the command succeeded (exit 0).
 // When the command fails, the error message is written to stderr.
