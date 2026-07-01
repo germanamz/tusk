@@ -130,7 +130,9 @@ func TestService_CreateQuotesYAMLDangerousTitle(test *testing.T) {
 
 	onDisk, _ := os.ReadFile(filepath.Join(root, "tickets/colon.md"))
 
-	if !contains(string(onDisk), `title: "Spec: Example"`) {
+	// The title must be quoted so the colon does not break YAML decoding; the
+	// serializer (yaml.v3) may pick either quote style — both round-trip.
+	if !contains(string(onDisk), `title: "Spec: Example"`) && !contains(string(onDisk), `title: 'Spec: Example'`) {
 		test.Errorf("expected quoted title on disk, got:\n%s", string(onDisk))
 	}
 }

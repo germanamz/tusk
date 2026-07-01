@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -644,8 +645,16 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		// date was authored unquoted, and re-emits it quoted.
 		CanonicalizeDates(parsedBefore, service.nodeTypes)
 
-		// Resolve edges on the before-node so the diff against the after-node
-		// is well-defined.
+		// Clone the after-node BEFORE resolving edges on the before-node. Edge
+		// resolution moves edge-type keys out of Properties (edges.go), so
+		// cloning first keeps those keys in the clone's Properties — the
+		// re-render then re-emits them and an unrelated set/unset no longer
+		// deletes the node's relationships (#670). Set/Unset targeting an edge
+		// key still works: it mutates the clone's Properties directly.
+		parsed := parsedBefore.Clone()
+
+		// Resolve edges on the before-node (mutating it) so the diff against the
+		// after-node is well-defined; the clone above is untouched by this.
 		if resolveErr := ResolveEdges(parsedBefore, service.edgeTypes); resolveErr != nil {
 			return Mutation{}, resolveErr
 		}
@@ -653,7 +662,6 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		beforeNode = parsedBefore
 
 		// Apply Set/Unset to produce after-node.
-		parsed := parsedBefore.Clone()
 
 		for _, key := range input.UnsetKeys {
 			if key == "type" {
@@ -1133,77 +1141,107 @@ func (service *Service) List(filter ListFilter) ([]Node, error) {
 	return results, nil
 }
 
-// renderMarkdown serializes properties as YAML frontmatter and concatenates body.
+// renderMarkdown serializes properties as YAML frontmatter and concatenates the
+// body. `type` is emitted first and `title` second (when present and not an
+// empty string); every other key follows in sorted order, so repeated renders
+// of the same node are byte-identical (diff-friendly).
+//
+// Values are serialized through yaml.v3, which is the single source of truth for
+// how a frontmatter value becomes YAML. Every shape a node file can legally hold
+// — nested maps, nulls, empty lists, multi-line strings, mixed-type sequences —
+// round-trips losslessly, and any string a YAML parser would otherwise resolve
+// to a non-string (a date like "2026-06-11", "true", "500") stays quoted. The
+// list indent is pinned to two spaces to match the historical output.
 func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
-	var builder strings.Builder
+	root := &yaml.Node{Kind: yaml.MappingNode}
 
-	builder.WriteString("---\n")
+	appendPair := func(key string, value any) error {
+		valueNode := &yaml.Node{}
 
-	// Render `type` first, then `title`, then remaining keys in insertion order
-	// for stable output. We rely on the small property set in v1; a sorted-by-key
-	// pass is added if/when ordering becomes meaningful for diffs.
-	if typeValue, hasType := properties["type"].(string); hasType {
-		builder.WriteString("type: ")
-		builder.WriteString(yamlQuoteString(typeValue))
-		builder.WriteString("\n")
+		if encodeErr := valueNode.Encode(value); encodeErr != nil {
+			return fmt.Errorf("node: encode frontmatter key %q: %w", key, encodeErr)
+		}
+
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			valueNode,
+		)
+
+		return nil
 	}
 
-	if titleValue, hasTitle := properties["title"].(string); hasTitle && titleValue != "" {
-		builder.WriteString("title: ")
-		builder.WriteString(yamlQuoteString(titleValue))
-		builder.WriteString("\n")
+	if typeValue, hasType := properties["type"]; hasType {
+		if appendErr := appendPair("type", typeValue); appendErr != nil {
+			return nil, appendErr
+		}
 	}
 
-	for key, value := range properties {
+	// A non-string title is preserved (emitted via yaml), not dropped; only an
+	// absent or empty-string title is skipped, matching the historical behavior.
+	if titleValue, hasTitle := properties["title"]; hasTitle && !isEmptyTitle(titleValue) {
+		if appendErr := appendPair("title", titleValue); appendErr != nil {
+			return nil, appendErr
+		}
+	}
+
+	rest := make([]string, 0, len(properties))
+
+	for key := range properties {
 		if key == "type" || key == "title" {
 			continue
 		}
 
-		switch typed := value.(type) {
-		case string:
-			builder.WriteString(key)
-			builder.WriteString(": ")
-			builder.WriteString(yamlQuoteString(typed))
-			builder.WriteString("\n")
-		case int:
-			builder.WriteString(key)
-			builder.WriteString(": ")
-			fmt.Fprintf(&builder, "%d\n", typed)
-		case bool:
-			builder.WriteString(key)
-			builder.WriteString(": ")
-			fmt.Fprintf(&builder, "%t\n", typed)
-		case float64:
-			builder.WriteString(key)
-			builder.WriteString(": ")
-			// %g renders 3.14 as "3.14" and a whole 2.0 as "2" (the YAML parser
-			// re-reads that as an int, matching normalizeYAMLNumbers).
-			fmt.Fprintf(&builder, "%g\n", typed)
-		case []any:
-			builder.WriteString(key)
-			builder.WriteString(":\n")
-			for _, element := range typed {
-				elementString, isString := element.(string)
-				if !isString {
-					return nil, fmt.Errorf("node: unsupported sequence element type for %s: %T", key, element)
-				}
-				builder.WriteString("  - ")
-				builder.WriteString(yamlQuoteString(elementString))
-				builder.WriteString("\n")
-			}
-		default:
-			return nil, fmt.Errorf("node: unsupported frontmatter type for %s: %T (supports string/int/bool/float and string sequences)", key, value)
+		rest = append(rest, key)
+	}
+
+	sort.Strings(rest)
+
+	for _, key := range rest {
+		if appendErr := appendPair(key, properties[key]); appendErr != nil {
+			return nil, appendErr
 		}
 	}
 
-	builder.WriteString("---\n\n")
-	builder.Write(body)
+	var frontmatter bytes.Buffer
 
-	if !strings.HasSuffix(string(body), "\n") {
-		builder.WriteString("\n")
+	if len(root.Content) > 0 {
+		encoder := yaml.NewEncoder(&frontmatter)
+		encoder.SetIndent(2)
+
+		if encodeErr := encoder.Encode(root); encodeErr != nil {
+			return nil, fmt.Errorf("node: render frontmatter: %w", encodeErr)
+		}
+
+		if closeErr := encoder.Close(); closeErr != nil {
+			return nil, fmt.Errorf("node: render frontmatter: %w", closeErr)
+		}
 	}
 
-	return []byte(builder.String()), nil
+	var out bytes.Buffer
+
+	out.WriteString("---\n")
+	out.Write(frontmatter.Bytes())
+	out.WriteString("---\n\n")
+	out.Write(body)
+
+	if !bytes.HasSuffix(body, []byte("\n")) {
+		out.WriteString("\n")
+	}
+
+	return out.Bytes(), nil
+}
+
+// isEmptyTitle reports whether a title value should be omitted from rendered
+// frontmatter: an absent (nil) or empty-string title. Any other value —
+// including a non-string one — is emitted so it is never silently dropped.
+func isEmptyTitle(value any) bool {
+	if value == nil {
+		return true
+	}
+
+	str, isString := value.(string)
+
+	return isString && str == ""
 }
 
 func sha256Hex(content []byte) string {
