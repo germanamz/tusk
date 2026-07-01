@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.1.0](https://github.com/germanamz/tusk/compare/v2.0.0...v2.1.0) (2026-07-01)
+
+
+### Features
+
+* **node:** full date handling — lenient parse, quoted write, reindex self-heal ([#663](https://github.com/germanamz/tusk/issues/663)) ([9c9906e](https://github.com/germanamz/tusk/commit/9c9906e20c133bdb478e6dbff0c72497e986205d))
+
+
+### Bug Fixes
+
+* **filter:** type-aware comparison for int/float/string and enum sort ([#668](https://github.com/germanamz/tusk/issues/668)) ([54474ca](https://github.com/germanamz/tusk/commit/54474ca6e9b6043b475880704318b0309c84c542))
+* **filter:** type-aware ordering/range operators on date and enum properties ([#665](https://github.com/germanamz/tusk/issues/665)) ([093a9ff](https://github.com/germanamz/tusk/commit/093a9ff07a8f90869a30df93f6bcfe99207a3f38)), closes [#661](https://github.com/germanamz/tusk/issues/661)
+
+
+### Code Refactoring
+
+* **filter:** quote JSON-path keys uniformly in the compiler ([#667](https://github.com/germanamz/tusk/issues/667)) ([e74c6db](https://github.com/germanamz/tusk/commit/e74c6dba6000532e949f6c65708a947259df4b90)), closes [#666](https://github.com/germanamz/tusk/issues/666)
+
 ## [2.0.0](https://github.com/germanamz/tusk/compare/v1.18.0...v2.0.0) (2026-06-29)
 
 
