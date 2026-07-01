@@ -11,7 +11,7 @@ Add a typed edge from one node to another
 Add a typed edge from one node to another by writing the edge into the
 source node's frontmatter.
 
-The edge kind must be declared in tusk.toml's [edge-types.<name>]. The
+The edge kind must be declared in tusk.toml's `[edge-types.<name>]`. The
 source's node type must be in the edge's "from" list, and the target's
 node type must be in the edge's "to" list.
 

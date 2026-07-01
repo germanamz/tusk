@@ -1,5 +1,5 @@
 .nh
-.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
 
 .SH NAME
 tusk-edge-add - Add a typed edge from one node to another
@@ -14,7 +14,7 @@ Add a typed edge from one node to another by writing the edge into the
 source node's frontmatter.
 
 .PP
-The edge kind must be declared in tusk.toml's [edge-types.]. The
+The edge kind must be declared in tusk.toml's \fB[edge-types.<name>]\fR\&. The
 source's node type must be in the edge's "from" list, and the target's
 node type must be in the edge's "to" list.
 

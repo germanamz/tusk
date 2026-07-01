@@ -39,7 +39,7 @@ tusk doctor [flags]
 
 ```
   # Health snapshot after a manifest change
-  tusk pack add gtd
+  tusk pack add kanban
   tusk doctor
 
   # Quick check before starting an MCP session

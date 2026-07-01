@@ -133,7 +133,7 @@ number of content groups shared by two or more sub-units (embedded once, then
 shared). Sections are aggregated from their descendants, never embedded, so
 they are not flagged as missing embeddings.`,
 		Example: `  # Health snapshot after a manifest change
-  tusk pack add gtd
+  tusk pack add kanban
   tusk doctor
 
   # Quick check before starting an MCP session

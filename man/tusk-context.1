@@ -1,5 +1,5 @@
 .nh
-.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
 
 .SH NAME
 tusk-context - Compose a warm-context digest from the manifest [context] block
@@ -18,21 +18,22 @@ of issuing three to five exploratory list/get/query calls. It returns:
 .IP \(bu 2
 Pinned nodes ([context.pinned]) with body + edges expanded by default.
 .IP \(bu 2
-Recent activity ([context.recent] or recent = ""): one alias
-result, typically a node list filtered with modified-since:d.
+Recent activity ([context.recent] or \fBrecent = "<alias>"\fR): one
+alias result, typically a node list filtered with \fBmodified-since:<N>d\fR\&.
 .IP \(bu 2
 Aliases ([context.include]): a fan-out over named, manifest-declared
 aliases; each result is folded under its alias name.
 
 .PP
 Use --include to override the per-node expansion set for the pinned and
-recent sections (default: body,edges). Use --format / --json to override
-the output format (default: compact at TTY, JSON when piped).
+recent sections (default: body,edges). By default the digest prints in
+its compact form; pass --json (or --format json) to emit JSON for piping
+into another tool.
 
 
 .SH OPTIONS
 \fB--format\fP=""
-	output format: compact|json (default: compact at TTY, JSON when piped)
+	output format: compact|json (default: compact digest; use --json to emit JSON)
 
 .PP
 \fB-h\fP, \fB--help\fP[=false]

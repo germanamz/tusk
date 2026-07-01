@@ -26,8 +26,8 @@ Edit the help strings, then run `make docs`.
     - [`tusk node modify`](tusk_node_modify.md) — Modify a node's frontmatter properties
     - [`tusk node move`](tusk_node_move.md) — Atomically rename a node and rewrite all referring edges
     - [`tusk node render`](tusk_node_render.md) — Render a node's content as plain text (tags / markup stripped)
-  - [`tusk pack`](tusk_pack.md) — Install and manage built-in type packs
-    - [`tusk pack add`](tusk_pack_add.md) — Copy a built-in type pack's declarations into tusk.toml
+  - [`tusk pack`](tusk_pack.md) — Install and manage type packs
+    - [`tusk pack add`](tusk_pack_add.md) — Copy a type pack's declarations into tusk.toml
   - [`tusk query`](tusk_query.md) — Run a structural, semantic, or hybrid query against the index
   - [`tusk reindex`](tusk_reindex.md) — Walk the workspace and bring the index up to date with disk
   - [`tusk reload`](tusk_reload.md) — Hot-reload the manifest (tusk.toml) without restarting the daemon
