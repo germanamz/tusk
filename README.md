@@ -281,7 +281,7 @@ the operators below.
 ```bash
 # Property predicates (`=` and `:` are equivalent)
 tusk query 'type=ticket status=active priority=high'
-tusk query 'type:note created>=2026-04-01'
+tusk query 'type:plan shipped-at>=2026-04-01'   # date ordering, chronological
 
 # Edge traversal: -> outgoing, <- incoming
 tusk query 'type=ticket blocks->type=ticket'        # tickets that block other tickets

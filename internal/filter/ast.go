@@ -96,11 +96,32 @@ func (notExpr *NotExpr) exprNode()     {}
 func (notExpr *NotExpr) Position() int { return notExpr.Pos }
 
 // PropertyPredicate represents a property comparison predicate.
+//
+// ResolvedType and EnumValues are populated by Validate from the manifest,
+// mirroring how TraversalShortcut.EdgeType and ModifiedSincePredicate.Since
+// are resolved by the validator and read by the compiler. They let the
+// compiler choose a type-aware comparison strategy for ordering (`<`, `<=`,
+// `>`, `>=`) and range (`lo..hi`) operators: TEXT comparison for date/datetime
+// (ISO strings already sort chronologically) and an IN-set over the satisfying
+// member names for enum (compared by declared order). A zero ResolvedType — the
+// case for a hand-built AST or a Compile call that skipped Validate — falls
+// back to the legacy integer-affinity behaviour, so existing callers are
+// unaffected.
 type PropertyPredicate struct {
 	Property string
 	Op       Op
 	Value    Value
 	Pos      int
+
+	// ResolvedType is the declared property type ("int", "date", "datetime",
+	// "enum", ...) resolved within the predicate's conjunctive type scope.
+	// Empty when the property is undeclared in scope or its type is ambiguous.
+	ResolvedType string
+
+	// EnumValues carries the ordered enum members when ResolvedType == "enum",
+	// so the compiler can expand ordering/range operators into an IN-set over
+	// the satisfying value names. Nil otherwise.
+	EnumValues []string
 }
 
 func (pred *PropertyPredicate) exprNode()     {}

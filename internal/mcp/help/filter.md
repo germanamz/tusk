@@ -20,6 +20,21 @@ key=lo..hi            # range, inclusive
 Examples: `type=ticket`, `priority>=2`, `estimate=1..5`,
 `status!=done`.
 
+## Typed comparisons
+
+Ordering (`<`, `<=`, `>`, `>=`) and range (`lo..hi`) compare by the
+property's declared type:
+
+- `int` — numeric.
+- `date` / `datetime` — chronological (ISO values already sort that way).
+- `enum` — by declared order. The bound is a value name or a 0-based
+  index, so `priority>=medium` and `priority>=2` mean the same thing.
+
+These resolve the property against its declared type, so add
+`type=<node-type>` when a name is declared on more than one type
+(e.g. `type=plan status>=shipped`). An out-of-range value or an
+unparseable date errors rather than silently matching nothing.
+
 ## Boolean composition
 
 `AND`, `OR`, `NOT`, parentheses. Examples:
@@ -66,5 +81,6 @@ modified-since:2026-05-23        # absolute ISO date
 ## Reference
 
 The package docs live at `internal/filter` in the repository; the
-public surface is `Parse(input) (*Node, error)` and
-`Compile(*Node, manifest) (string, []any, error)`.
+public surface is `NewParser(input).Parse() (Expr, []ParseError)`,
+`Validate(Expr, manifest) []ValidationError`, and
+`Compile(Expr, CompileOptions) (string, []any, error)`.
