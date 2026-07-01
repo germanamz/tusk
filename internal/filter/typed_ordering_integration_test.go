@@ -29,13 +29,14 @@ func TestTypedOrdering_EndToEndAgainstIndex(test *testing.T) {
 	repo := index.NewNodeRepo(store)
 
 	// priority is the stored enum NAME; due is the canonical YYYY-MM-DD string;
-	// order is a bare JSON number — matching how the indexer writes each type.
+	// order is a bare JSON number; score is a bare JSON float; code is a string —
+	// matching how the indexer writes each declared type.
 	fixtures := []index.NodeRow{
-		{ID: "t/a", Type: "ticket", Path: "t/a.md", Title: "A", PropertiesJSON: `{"priority":"high","due":"2026-08-10","order":3}`, LastChecksum: "a"},
-		{ID: "t/b", Type: "ticket", Path: "t/b.md", Title: "B", PropertiesJSON: `{"priority":"medium","due":"2026-09-09","order":1}`, LastChecksum: "b"},
-		{ID: "t/c", Type: "ticket", Path: "t/c.md", Title: "C", PropertiesJSON: `{"priority":"low","due":"2026-11-09","order":10}`, LastChecksum: "c"},
-		{ID: "t/d", Type: "ticket", Path: "t/d.md", Title: "D", PropertiesJSON: `{"priority":"high","due":"2026-12-08","order":2}`, LastChecksum: "d"},
-		{ID: "t/e", Type: "ticket", Path: "t/e.md", Title: "E", PropertiesJSON: `{"priority":"low","due":"2026-01-15","order":5}`, LastChecksum: "e"},
+		{ID: "t/a", Type: "ticket", Path: "t/a.md", Title: "A", PropertiesJSON: `{"priority":"high","due":"2026-08-10","order":3,"score":9.9,"code":"apple"}`, LastChecksum: "a"},
+		{ID: "t/b", Type: "ticket", Path: "t/b.md", Title: "B", PropertiesJSON: `{"priority":"medium","due":"2026-09-09","order":1,"score":10.1,"code":"banana"}`, LastChecksum: "b"},
+		{ID: "t/c", Type: "ticket", Path: "t/c.md", Title: "C", PropertiesJSON: `{"priority":"low","due":"2026-11-09","order":10,"score":10.0,"code":"cherry"}`, LastChecksum: "c"},
+		{ID: "t/d", Type: "ticket", Path: "t/d.md", Title: "D", PropertiesJSON: `{"priority":"high","due":"2026-12-08","order":2,"score":2.5,"code":"date"}`, LastChecksum: "d"},
+		{ID: "t/e", Type: "ticket", Path: "t/e.md", Title: "E", PropertiesJSON: `{"priority":"low","due":"2026-01-15","order":5,"score":0.5,"code":"elder"}`, LastChecksum: "e"},
 	}
 
 	for _, row := range fixtures {
@@ -50,6 +51,8 @@ func TestTypedOrdering_EndToEndAgainstIndex(test *testing.T) {
 				{Name: "priority", Type: "enum", Values: []string{"low", "medium", "high"}},
 				{Name: "due", Type: "date"},
 				{Name: "order", Type: "int"},
+				{Name: "score", Type: "float"},
+				{Name: "code", Type: "string"},
 			}},
 		},
 	}
@@ -77,8 +80,22 @@ func TestTypedOrdering_EndToEndAgainstIndex(test *testing.T) {
 		// enum exact still matches by name
 		{"enum_eq", "type=ticket priority=high", []string{"t/a", "t/d"}},
 
-		// int sanity check — unchanged behaviour
+		// int ordering — unchanged behaviour
 		{"int_ge", "type=ticket order>=2", []string{"t/a", "t/c", "t/d", "t/e"}},
+		// int EXACT equality — was silently zero rows before the H1 fix
+		{"int_eq", "type=ticket order=2", []string{"t/d"}},
+		{"int_ne", "type=ticket order!=2", []string{"t/a", "t/b", "t/c", "t/e"}},
+
+		// float — integer coercion used to truncate the fractional part
+		{"float_gt", "type=ticket score>9.5", []string{"t/a", "t/b", "t/c"}},
+		{"float_gt_boundary", "type=ticket score>10", []string{"t/b"}},
+		{"float_eq", "type=ticket score=2.5", []string{"t/d"}},
+		{"float_range", "type=ticket score=0.5..9.9", []string{"t/a", "t/d", "t/e"}},
+
+		// string — integer coercion used to collapse every value to 0
+		{"string_lt", "type=ticket code<cherry", []string{"t/a", "t/b"}},
+		{"string_ge", "type=ticket code>=cherry", []string{"t/c", "t/d", "t/e"}},
+		{"string_eq", "type=ticket code=apple", []string{"t/a"}},
 	}
 
 	for _, testCase := range cases {
@@ -135,6 +152,107 @@ func TestTypedOrdering_EndToEndAgainstIndex(test *testing.T) {
 					testCase.input, gotIDs, testCase.wantIDs, sqlQuery, params)
 			}
 		})
+	}
+}
+
+// TestTypedSort_EnumByDeclaredOrder_EndToEnd proves that `--sort` on an enum
+// property orders by the manifest's declared order (low < medium < high), not
+// lexically by the stored name (which would give medium < low < high). It runs
+// the full parse → validate → ParseSort → ResolveSortKeys → compile → query
+// path against a real index — issue #664 audit M3.
+func TestTypedSort_EnumByDeclaredOrder_EndToEnd(test *testing.T) {
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("index.Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	fixtures := []index.NodeRow{
+		{ID: "t/a", Type: "ticket", Path: "t/a.md", Title: "A", PropertiesJSON: `{"priority":"high"}`, LastChecksum: "a"},
+		{ID: "t/b", Type: "ticket", Path: "t/b.md", Title: "B", PropertiesJSON: `{"priority":"medium"}`, LastChecksum: "b"},
+		{ID: "t/c", Type: "ticket", Path: "t/c.md", Title: "C", PropertiesJSON: `{"priority":"low"}`, LastChecksum: "c"},
+		{ID: "t/d", Type: "ticket", Path: "t/d.md", Title: "D", PropertiesJSON: `{"priority":"high"}`, LastChecksum: "d"},
+		{ID: "t/e", Type: "ticket", Path: "t/e.md", Title: "E", PropertiesJSON: `{"priority":"low"}`, LastChecksum: "e"},
+	}
+
+	for _, row := range fixtures {
+		if err := repo.Upsert(row); err != nil {
+			test.Fatalf("Upsert %s: %v", row.ID, err)
+		}
+	}
+
+	loaded := manifest.Manifest{
+		NodeTypes: map[string]manifest.NodeType{
+			"ticket": {Properties: []manifest.PropertyDecl{
+				{Name: "priority", Type: "enum", Values: []string{"low", "medium", "high"}},
+			}},
+		},
+	}
+
+	expr, parseErrs := filter.NewParser("type=ticket").Parse()
+
+	if len(parseErrs) != 0 {
+		test.Fatalf("parse: %+v", parseErrs)
+	}
+
+	if validateErrs := filter.Validate(expr, loaded); len(validateErrs) != 0 {
+		test.Fatalf("validate: %+v", validateErrs)
+	}
+
+	// `-priority` desc by declared order (high first); `+id` breaks ties so the
+	// expected sequence is deterministic.
+	sortKeys, sortErr := filter.ParseSort("-priority,+id")
+
+	if sortErr != nil {
+		test.Fatalf("ParseSort: %v", sortErr)
+	}
+
+	filter.ResolveSortKeys(expr, loaded, sortKeys)
+
+	sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{SortKeys: sortKeys})
+
+	if compileErr != nil {
+		test.Fatalf("compile: %v", compileErr)
+	}
+
+	rows, queryErr := store.DB().Query(sqlQuery, params...)
+
+	if queryErr != nil {
+		test.Fatalf("query: %v\nsql=%s", queryErr, sqlQuery)
+	}
+
+	defer rows.Close()
+
+	var gotIDs []string
+
+	for rows.Next() {
+		var (
+			id, nodeType, path, title, propertiesJSON, lastChecksum string
+			lastMtime, lastSize                                     int64
+			parentID                                                sql.NullString
+		)
+
+		if scanErr := rows.Scan(&id, &nodeType, &path, &title, &propertiesJSON, &lastMtime, &lastSize, &lastChecksum, &parentID); scanErr != nil {
+			test.Fatalf("scan: %v", scanErr)
+		}
+
+		gotIDs = append(gotIDs, id)
+	}
+
+	if rowsErr := rows.Err(); rowsErr != nil {
+		test.Fatalf("rows iteration: %v", rowsErr)
+	}
+
+	// Declared order high(2) > medium(1) > low(0): t/a,t/d (high), t/b (medium),
+	// t/c,t/e (low). A lexical name sort would wrongly put medium before low.
+	want := []string{"t/a", "t/d", "t/b", "t/c", "t/e"}
+
+	if !equalStringSlices(gotIDs, want) {
+		test.Errorf("enum sort order\n got = %v\nwant = %v\nsql = %s", gotIDs, want, sqlQuery)
 	}
 }
 

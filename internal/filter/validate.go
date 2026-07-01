@@ -38,6 +38,46 @@ func Validate(expr Expr, loaded manifest.Manifest) []ValidationError {
 	return collector.errors
 }
 
+// ResolveSortKeys stamps ResolvedType (and EnumValues for enums) onto each sort
+// key by resolving its property against the manifest within the query's
+// top-level conjunctive `type=` scope — the same resolution predicates use. The
+// compiler reads these so ORDER BY sorts an enum property by declared order
+// (low < medium < high) instead of by its stored name. A core column, an
+// undeclared property, or one that is ambiguous across the scope is left
+// unresolved, and the compiler falls back to ordering on the stored value, so
+// ad-hoc sorts are unaffected. Keys are stamped in place.
+func ResolveSortKeys(expr Expr, loaded manifest.Manifest, keys []SortKey) {
+	if len(keys) == 0 {
+		return
+	}
+
+	scope := typeScope{}
+
+	if expr != nil {
+		scope = conjunctiveTypes(expr)
+	}
+
+	collector := &validationCollector{manifest: loaded}
+
+	for index := range keys {
+		if _, core := coreColumns[keys[index].Property]; core {
+			continue
+		}
+
+		decls := collector.lookupPropertyDecls(keys[index].Property, scope)
+
+		if len(decls) != 1 {
+			continue
+		}
+
+		keys[index].ResolvedType = decls[0].Type
+
+		if decls[0].Type == "enum" {
+			keys[index].EnumValues = decls[0].Values
+		}
+	}
+}
+
 // typeScope is the set of node-type names a predicate is conjunctively
 // constrained to by sibling `type=` equalities. Empty means "any type" —
 // resolution then scans every declared node type.

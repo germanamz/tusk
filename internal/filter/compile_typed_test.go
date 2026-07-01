@@ -187,6 +187,145 @@ func TestCompile_EnumEqualityUnchanged(test *testing.T) {
 	}
 }
 
+// Int equality now casts to INTEGER so a bound string matches an integer-stored
+// value (previously it TEXT-compared and never matched — issue #664 audit H1).
+func TestCompile_IntEqualityCastsToInteger(test *testing.T) {
+	expr := &filter.PropertyPredicate{
+		Property:     "order",
+		Op:           filter.OpEQ,
+		Value:        filter.StringValue{V: "2"},
+		ResolvedType: "int",
+	}
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	if !strings.Contains(sql, `CAST(json_extract(properties_json, '$."order"') AS INTEGER) = ?`) {
+		test.Errorf("expected integer-affinity equality: %s", sql)
+	}
+
+	if !reflect.DeepEqual(params, []any{"2"}) {
+		test.Errorf("params = %v, want [2]", params)
+	}
+}
+
+func TestCompile_FloatOrderingCastsToReal(test *testing.T) {
+	expr := &filter.PropertyPredicate{
+		Property:     "score",
+		Op:           filter.OpGT,
+		Value:        filter.StringValue{V: "9.5"},
+		ResolvedType: "float",
+	}
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	if !strings.Contains(sql, `CAST(json_extract(properties_json, '$."score"') AS REAL) > ?`) {
+		test.Errorf("expected REAL-affinity ordering (no fractional truncation): %s", sql)
+	}
+
+	if !reflect.DeepEqual(params, []any{"9.5"}) {
+		test.Errorf("params = %v, want [9.5]", params)
+	}
+}
+
+func TestCompile_FloatRangeCastsToReal(test *testing.T) {
+	expr := &filter.PropertyPredicate{
+		Property:     "score",
+		Op:           filter.OpRange,
+		Value:        filter.RangeValue{Min: "1.5", Max: "2.5"},
+		ResolvedType: "float",
+	}
+
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	if !strings.Contains(sql, `CAST(json_extract(properties_json, '$."score"') AS REAL) BETWEEN ? AND ?`) {
+		test.Errorf("expected REAL-affinity BETWEEN: %s", sql)
+	}
+
+	if !reflect.DeepEqual(params, []any{"1.5", "2.5"}) {
+		test.Errorf("params = %v, want [1.5 2.5]", params)
+	}
+}
+
+// String ordering compares lexically as TEXT, never integer-coerced (which would
+// collapse every string to 0 and match everything — issue #664 audit M2).
+func TestCompile_StringOrderingComparesAsText(test *testing.T) {
+	expr := &filter.PropertyPredicate{
+		Property:     "code",
+		Op:           filter.OpLT,
+		Value:        filter.StringValue{V: "m"},
+		ResolvedType: "string",
+	}
+
+	sql, _, err := filter.Compile(expr, filter.CompileOptions{})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	if strings.Contains(sql, "CAST(") {
+		test.Errorf("string ordering must not CAST: %s", sql)
+	}
+
+	if !strings.Contains(sql, `json_extract(properties_json, '$."code"') < ?`) {
+		test.Errorf("expected lexical text comparison: %s", sql)
+	}
+}
+
+// A resolved enum sort key orders by declared position (a CASE over the member
+// names), not lexically by stored name — issue #664 audit M3.
+func TestCompile_EnumSortOrdersByDeclaredPosition(test *testing.T) {
+	sql, _, err := filter.Compile(nil, filter.CompileOptions{
+		SortKeys: []filter.SortKey{{
+			Property:     "priority",
+			Descending:   true,
+			ResolvedType: "enum",
+			EnumValues:   []string{"low", "medium", "high"},
+		}},
+	})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	want := `CASE json_extract(properties_json, '$."priority"') WHEN 'low' THEN 0 WHEN 'medium' THEN 1 WHEN 'high' THEN 2 ELSE 3 END DESC`
+
+	if !strings.Contains(sql, want) {
+		test.Errorf("expected declared-order CASE sort, got: %s", sql)
+	}
+}
+
+// An unresolved sort key (no manifest resolution) keeps the legacy lexical
+// ORDER BY, so ad-hoc sorts and callers that never resolve are unaffected.
+func TestCompile_UnresolvedEnumSortStaysLexical(test *testing.T) {
+	sql, _, err := filter.Compile(nil, filter.CompileOptions{
+		SortKeys: []filter.SortKey{{Property: "priority", Descending: true}},
+	})
+
+	if err != nil {
+		test.Fatalf("Compile: %v", err)
+	}
+
+	if strings.Contains(sql, "CASE") {
+		test.Errorf("unresolved sort must not emit a CASE: %s", sql)
+	}
+
+	if !strings.Contains(sql, `json_extract(properties_json, '$."priority"') DESC`) {
+		test.Errorf("expected lexical json_extract sort: %s", sql)
+	}
+}
+
 // Datetime ordering compares as text, like date.
 func TestCompile_DatetimeOrderingComparesAsText(test *testing.T) {
 	expr := &filter.PropertyPredicate{

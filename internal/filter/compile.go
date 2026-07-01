@@ -269,12 +269,15 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 		}
 
 		switch {
-		case isTextComparedType(predicate.ResolvedType):
+		case isTextComparedType(predicate.ResolvedType), predicate.ResolvedType == "string":
 			return quotedExtract(columnPrefix, predicate.Property) + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
 		case predicate.ResolvedType == "enum":
 			return compileEnumRange(predicate, columnPrefix, rangeValue)
+		case predicate.ResolvedType == "float":
+			return "CAST(" + quotedExtract(columnPrefix, predicate.Property) + " AS REAL) BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
 		}
 
+		// int and undeclared properties keep integer affinity.
 		extract := "CAST(" + quotedExtract(columnPrefix, predicate.Property) + " AS INTEGER)"
 
 		return extract + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
@@ -300,14 +303,35 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 		return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{intValue}, nil
 	}
 
-	if isNumericOp(predicate.Op) {
-		switch {
-		case isTextComparedType(predicate.ResolvedType):
-			return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
-		case predicate.ResolvedType == "enum":
+	// Choose the comparison affinity from the property's declared type so that
+	// equality AND ordering both compare in the property's own domain:
+	//   int            -> CAST(... AS INTEGER)  (fixes exact `=`, which previously
+	//                     TEXT-compared a bound string against an integer-stored
+	//                     value and never matched)
+	//   float          -> CAST(... AS REAL)     (no truncation of the fractional part)
+	//   date/datetime  -> TEXT                  (ISO strings sort chronologically)
+	//   string         -> TEXT                  (lexical, not integer-coerced)
+	//   enum ordering  -> IN-set by declared order; enum equality stays a name match
+	// An undeclared property keeps the legacy behaviour — integer affinity for the
+	// ordering operators, TEXT for equality — so ad-hoc property queries are
+	// unaffected.
+	switch {
+	case isTextComparedType(predicate.ResolvedType), predicate.ResolvedType == "string":
+		return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
+	case predicate.ResolvedType == "enum":
+		if isNumericOp(predicate.Op) {
 			return compileEnumOrdering(predicate, columnPrefix, stringValue.V)
 		}
 
+		return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
+	case predicate.ResolvedType == "float":
+		return "CAST(" + quotedExtract(columnPrefix, predicate.Property) + " AS REAL) " + sqlOp + " ?", []any{stringValue.V}, nil
+	case predicate.ResolvedType == "int":
+		return "CAST(" + quotedExtract(columnPrefix, predicate.Property) + " AS INTEGER) " + sqlOp + " ?", []any{stringValue.V}, nil
+	}
+
+	// Undeclared property: legacy affinity — integer for ordering, TEXT for equality.
+	if isNumericOp(predicate.Op) {
 		return "CAST(" + quotedExtract(columnPrefix, predicate.Property) + " AS INTEGER) " + sqlOp + " ?", []any{stringValue.V}, nil
 	}
 
@@ -505,7 +529,11 @@ func compileOrderBy(keys []SortKey) string {
 		expression := column
 
 		if !isCore {
-			expression = quotedExtract("", key.Property)
+			if key.ResolvedType == "enum" && len(key.EnumValues) > 0 {
+				expression = enumOrderExpression(key.Property, key.EnumValues)
+			} else {
+				expression = quotedExtract("", key.Property)
+			}
 		}
 
 		direction := "ASC"
@@ -518,6 +546,27 @@ func compileOrderBy(keys []SortKey) string {
 	}
 
 	return strings.Join(parts, ", ")
+}
+
+// enumOrderExpression maps an enum property's stored NAME to its 0-based declared
+// position, so ORDER BY sorts by declared order (low < medium < high) instead of
+// lexically by name. A stored value absent from the enum sorts last. Enum values
+// come from the trusted manifest but are not charset-constrained, so any single
+// quote is doubled to keep the inlined CASE literal well-formed (mirroring how
+// quotedExtract inlines the equally-trusted property name).
+func enumOrderExpression(property string, values []string) string {
+	var builder strings.Builder
+
+	builder.WriteString("CASE ")
+	builder.WriteString(quotedExtract("", property))
+
+	for index, value := range values {
+		fmt.Fprintf(&builder, " WHEN '%s' THEN %d", strings.ReplaceAll(value, "'", "''"), index)
+	}
+
+	fmt.Fprintf(&builder, " ELSE %d END", len(values))
+
+	return builder.String()
 }
 
 func compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, error) {

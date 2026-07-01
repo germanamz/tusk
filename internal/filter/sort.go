@@ -9,6 +9,14 @@ import (
 type SortKey struct {
 	Property   string
 	Descending bool
+
+	// ResolvedType and EnumValues are populated by ResolveSortKeys from the
+	// manifest so the compiler can order an enum property by its declared order
+	// rather than lexically by stored name. They are empty when the property is
+	// a core column, undeclared, or ambiguous across the query's type scope, in
+	// which case ORDER BY falls back to the stored value.
+	ResolvedType string
+	EnumValues   []string
 }
 
 // ParseSort parses a --sort spec like "+priority,-due,+modified".

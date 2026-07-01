@@ -145,6 +145,10 @@ func compileAndQuery(database *sql.DB, loadedManifest *manifest.Manifest, filter
 		return nil, sortErr
 	}
 
+	// Resolve each sort key's declared type so ORDER BY compares an enum
+	// property by declared order rather than lexically by its stored name.
+	filter.ResolveSortKeys(expr, *loadedManifest, sortKeys)
+
 	sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{
 		SortKeys: sortKeys,
 		Take:     take,
