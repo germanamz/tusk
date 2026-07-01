@@ -15,19 +15,23 @@ func newPackAddCmd() *cobra.Command {
 
 	addCmd := &cobra.Command{
 		Use:   "add <name-or-url>",
-		Short: "Copy a built-in type pack's declarations into tusk.toml",
-		Long: `Copy a built-in type pack's node and edge type declarations into
-tusk.toml.
+		Short: "Copy a type pack's declarations into tusk.toml",
+		Long: `Copy a type pack's node and edge type declarations into tusk.toml.
+
+The pack is a built-in name (kanban, tags, vault) or a URL. Built-in
+names are fetched over the network from the project's published packs, so
+adding one by name needs connectivity; pass a full URL (or a file:// URL)
+to install from elsewhere.
 
 Idempotent for a given pack: re-running with the same pack is a no-op
 unless --force is set, in which case any colliding sections in tusk.toml
 are removed before the pack is appended.`,
-		Example: `  # Add the gtd pack and verify the manifest is still valid
-  tusk pack add gtd
+		Example: `  # Add the kanban pack and verify the manifest is still valid
+  tusk pack add kanban
   tusk doctor
 
   # Re-add a pack that already exists, replacing collisions
-  tusk pack add gtd --force`,
+  tusk pack add kanban --force`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, getCwdErr := os.Getwd()

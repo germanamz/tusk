@@ -178,7 +178,10 @@ id = "n1"
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
 
-	cmd := newReloadCmd()
+	// reload reads --verbose from the root's persistent flags (it no longer
+	// declares its own), so drive it through the root command as production
+	// does rather than the subcommand in isolation.
+	cmd := newRootCmd()
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
 
@@ -190,7 +193,7 @@ id = "n1"
 
 	// --verbose drops the logger to Debug so the Info-level "reindex completed"
 	// line (which carries the counts) is emitted to stderr.
-	cmd.SetArgs([]string{"--reindex", "--verbose"})
+	cmd.SetArgs([]string{"reload", "--reindex", "--verbose"})
 	runErr := cmd.Execute()
 
 	if runErr != nil {

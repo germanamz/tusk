@@ -1,8 +1,8 @@
 .nh
-.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
 
 .SH NAME
-tusk-pack-add - Copy a built-in type pack's declarations into tusk.toml
+tusk-pack-add - Copy a type pack's declarations into tusk.toml
 
 
 .SH SYNOPSIS
@@ -10,8 +10,13 @@ tusk-pack-add - Copy a built-in type pack's declarations into tusk.toml
 
 
 .SH DESCRIPTION
-Copy a built-in type pack's node and edge type declarations into
-tusk.toml.
+Copy a type pack's node and edge type declarations into tusk.toml.
+
+.PP
+The pack is a built-in name (kanban, tags, vault) or a URL. Built-in
+names are fetched over the network from the project's published packs, so
+adding one by name needs connectivity; pass a full URL (or a file:// URL)
+to install from elsewhere.
 
 .PP
 Idempotent for a given pack: re-running with the same pack is a no-op
@@ -35,12 +40,12 @@ are removed before the pack is appended.
 
 .SH EXAMPLE
 .EX
-  # Add the gtd pack and verify the manifest is still valid
-  tusk pack add gtd
+  # Add the kanban pack and verify the manifest is still valid
+  tusk pack add kanban
   tusk doctor
 
   # Re-add a pack that already exists, replacing collisions
-  tusk pack add gtd --force
+  tusk pack add kanban --force
 .EE
 
 

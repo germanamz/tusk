@@ -233,7 +233,9 @@ reported as warnings while the swap still proceeds.`,
 		},
 	}
 
-	reloadCmd.Flags().BoolP("verbose", "v", false, "emit debug-level logs to stderr")
+	// --verbose is the root's persistent flag (RunE reads it via
+	// cmd.Flags().GetBool). Do not redeclare it locally, or it renders under
+	// this command's own "Flags:" instead of the shared "Global Flags:".
 	reloadCmd.Flags().Bool("reindex", false, "synchronously reindex after reloading the manifest")
 
 	return reloadCmd

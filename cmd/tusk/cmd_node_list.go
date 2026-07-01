@@ -27,25 +27,27 @@ func newNodeListCmd() *cobra.Command {
 		Long: `List nodes from the index, optionally filtering by expression.
 
 The filter is a property and edge-traversal expression. Property
-predicates use comparison operators (key=value, key:value, key!=value,
-key<value, key<=value, key>value, key>=value); ranges use key=lo..hi.
-Ordering and range operators compare by the property's declared type: int
-numerically, date/datetime chronologically, enum by declared order (a value
-name or a 0-based index). Edge traversal uses edge-type-> or edge-type<- and
-may chain multi-hop.
-Traversal shortcuts: tree=id, parent=id, root=id (qualified: tree:<alias>=id,
-parent:<alias>=id, root:<alias>=id, where <alias> is set via hierarchy on an
-edge type in tusk.toml). Recency shortcut: modified-since:<duration|ISO-date>
-(e.g. modified-since:7d, modified-since:2026-05-23). Combine with AND, OR,
-NOT, and parens. (Both : and = bind property comparisons; pick whichever
-reads better.) Output is a tab-aligned table of id, type, title, path.
+predicates use comparison operators — = and : (equal), != (not equal),
+< <= > >= (ordering) — written directly after the key (e.g. status=open,
+priority>=2); ranges use key=lo..hi. Ordering and range operators compare
+by the property's declared type: int numerically, date/datetime
+chronologically, enum by declared order (a value name or a 0-based index).
+Edge traversal uses edge-type-> (outgoing) or edge-type<- (incoming) and
+may chain multi-hop. Traversal shortcuts: tree=id, parent=id, root=id,
+each optionally qualified by a hierarchy alias (e.g. tree:wbs=id) set via
+hierarchy on an edge type in tusk.toml. Recency shortcut: modified-since:
+a duration or ISO date (e.g. modified-since:7d, modified-since:2026-05-23).
+Combine with AND, OR, NOT, and parens. (Both : and = bind property
+comparisons; pick whichever reads better.) Output is a tab-aligned table
+of id, type, title, path.
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit,
 and --skip M to paginate. Use --include to expand each row with body, edges,
 or properties (comma-separated). Use --fields to project the rendered shape.
-Use --format to pick compact or JSON output (default: compact for TTY, JSON
-otherwise); --json is sugar for --format json. For structural-and-semantic
-ranking, use "tusk query" with --semantic.`,
+Use --format to pick compact or JSON output: the bare default is the
+tab-aligned table above, and once --include/--fields is set it is compact
+at a TTY and JSON when piped. --json (or --format json) forces JSON. For
+structural-and-semantic ranking, use "tusk query" with --semantic.`,
 		Example: `  # All open tickets, highest priority first
   tusk node list 'type=ticket AND status=open' --sort '-priority'
 
@@ -127,7 +129,7 @@ ranking, use "tusk query" with --semantic.`,
 	listCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
 	listCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties (comma-separated)")
 	listCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
-	listCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
+	listCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)")
 	listCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 
 	return listCmd

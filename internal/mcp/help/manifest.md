@@ -50,9 +50,9 @@ args    = ["type=ticket AND modified-since:7d"]
 ## Packs
 
 A "type pack" is a bundle of node-type + edge-type declarations
-shipped with Tusk (e.g. a `gtd` pack with task / project types).
-Install via the CLI: `tusk pack add gtd`. See
-`tusk_help(topic: "packs")`.
+(e.g. the `kanban` pack with a ticket workflow). Built-in names
+(kanban, tags, vault) are fetched over the network. Install via the
+CLI: `tusk pack add kanban`. See `tusk_help(topic: "packs")`.
 
 ## After editing
 

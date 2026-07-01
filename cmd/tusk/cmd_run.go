@@ -33,7 +33,7 @@ func newRunCmd() *cobra.Command {
 	runCmd := &cobra.Command{
 		Use:   "run [alias]",
 		Short: "Run a manifest-declared alias by name",
-		Long: `Invoke an alias declared under [alias.<name>] in tusk.toml.
+		Long: `Invoke an alias declared under ` + "`[alias.<name>]`" + ` in tusk.toml.
 
 Aliases are reusable, read-only verb invocations. They bind a command (one
 of node list, node get, query, edge list, doctor, status) to a fixed set of

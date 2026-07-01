@@ -1,5 +1,5 @@
 .nh
-.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
 
 .SH NAME
 tusk-node - Manage individual nodes (create, get, render, list, modify, move, delete)
@@ -41,9 +41,9 @@ Top-level frontmatter keys split into two namespaces, enforced by the
 manifest at load time:
 .IP \(bu 2
 Property keys (e.g. priority, title) — declared in
-[node-types.].properties in tusk.toml.
+\fB[node-types.<type>].properties\fR in tusk.toml.
 .IP \(bu 2
-Edge keys (e.g. blocks) — names that match an [edge-types.]
+Edge keys (e.g. blocks) — names that match an \fB[edge-types.<name>]\fR
 declaration in tusk.toml. The value is a target node id (scalar) or
 list of target ids; reindex turns each into an indexed edge.
 

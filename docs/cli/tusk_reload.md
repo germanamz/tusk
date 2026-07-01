@@ -46,6 +46,11 @@ tusk reload [flags]
 ```
   -h, --help      help for reload
       --reindex   synchronously reindex after reloading the manifest
+```
+
+### Options inherited from parent commands
+
+```
   -v, --verbose   emit debug-level logs to stderr
 ```
 

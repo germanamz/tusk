@@ -1,5 +1,5 @@
 .nh
-.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
 
 .SH NAME
 tusk-edge - Manage edges between nodes (add, remove, list)
@@ -13,7 +13,7 @@ tusk-edge - Manage edges between nodes (add, remove, list)
 Manage edges between nodes.
 
 .PP
-An edge has a typed kind (declared in tusk.toml under [edge-types.]),
+An edge has a typed kind (declared in tusk.toml under \fB[edge-types.<name>]\fR),
 a source node, and a target node.
 
 .PP
@@ -52,7 +52,7 @@ symmetric operation. The file remains the source of truth — a clean
 "git pull && tusk reindex" reproduces the full edge graph from disk.
 
 .PP
-Edges of an edge type whose declaration includes ordered = "" sort
+Edges of an edge type whose declaration includes \fBordered = "<prop>"\fR sort
 by the named property on each source node. Example:
 
 .PP

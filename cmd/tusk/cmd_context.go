@@ -34,14 +34,15 @@ The digest is the single entry point an agent calls at session start instead
 of issuing three to five exploratory list/get/query calls. It returns:
 
   * Pinned nodes ([context.pinned]) with body + edges expanded by default.
-  * Recent activity ([context.recent] or recent = "<alias>"): one alias
-    result, typically a node list filtered with modified-since:<N>d.
+  * Recent activity ([context.recent] or ` + "`recent = \"<alias>\"`" + `): one
+    alias result, typically a node list filtered with ` + "`modified-since:<N>d`" + `.
   * Aliases ([context.include]): a fan-out over named, manifest-declared
     aliases; each result is folded under its alias name.
 
 Use --include to override the per-node expansion set for the pinned and
-recent sections (default: body,edges). Use --format / --json to override
-the output format (default: compact at TTY, JSON when piped).`,
+recent sections (default: body,edges). By default the digest prints in
+its compact form; pass --json (or --format json) to emit JSON for piping
+into another tool.`,
 		Example: `  # Pull the digest at session start
   tusk context
 
@@ -99,7 +100,7 @@ the output format (default: compact at TTY, JSON when piped).`,
 		},
 	}
 
-	contextCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact at TTY, JSON when piped)")
+	contextCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact digest; use --json to emit JSON)")
 	contextCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	contextCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "per-node include set for pinned + recent (default body,edges)")
 

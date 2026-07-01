@@ -14,19 +14,19 @@ Three modes, all driven by the same command:
 
   * Structural (default): the filter argument is a property and
     edge-traversal expression. Property predicates use comparison
-    operators (key=value, key:value, key!=value, key<value, key<=value,
-    key>value, key>=value); ranges use key=lo..hi. Ordering and range
-    operators compare by the property's declared type: int numerically,
-    date/datetime chronologically, enum by declared order (a value name
-    or a 0-based index). Edge traversal uses edge-type-> or edge-type<-
-    and may chain multi-hop. Traversal
-    shortcuts: tree=id, parent=id, root=id (qualified: tree:<alias>=id,
-    parent:<alias>=id, root:<alias>=id, where <alias> is set via
-    hierarchy on an edge type in tusk.toml). Recency shortcut:
-    modified-since:<duration|ISO-date> (e.g. modified-since:7d,
-    modified-since:2026-05-23). Combine with AND, OR, NOT, and parens.
-    (Both : and = bind property comparisons; pick whichever reads
-    better.)
+    operators — = and : (equal), != (not equal), < <= > >= (ordering) —
+    written directly after the key (e.g. status=open, priority>=2);
+    ranges use key=lo..hi. Ordering and range operators compare by the
+    property's declared type: int numerically, date/datetime
+    chronologically, enum by declared order (a value name or a 0-based
+    index). Edge traversal uses edge-type-> (outgoing) or edge-type<-
+    (incoming) and may chain multi-hop. Traversal shortcuts: tree=id,
+    parent=id, root=id, each optionally qualified by a hierarchy alias
+    (e.g. tree:wbs=id) set via hierarchy on an edge type in tusk.toml.
+    Recency shortcut: modified-since: a duration or ISO date (e.g.
+    modified-since:7d, modified-since:2026-05-23). Combine with AND, OR,
+    NOT, and parens. (Both : and = bind property comparisons; pick
+    whichever reads better.)
   * Semantic (--semantic STRING): nearest-neighbor search over
     Ollama embeddings. The positional filter still applies as a
     pre-filter; pass a permissive filter like 'type=note' to search
@@ -38,8 +38,10 @@ Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
 body, edges, or properties (comma-separated; for semantic results body
 is the best-matching chunk). Use --fields to project the rendered shape.
-Use --format to pick compact or JSON output (default: compact for TTY,
-JSON otherwise); --json is sugar for --format json.
+Use --format to pick compact or JSON output: with no --include/--fields
+the default is the tab-aligned table, and once a shape flag is set it is
+compact at a TTY and JSON when piped. --json (or --format json) forces
+JSON regardless.
 
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
 id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
@@ -76,12 +78,12 @@ tusk query <filter> [flags]
 ```
       --explain               include a per-row score-contribution trace (cosine/graph/final/distance) in the response when graph expansion is active
       --fields strings        project rendered rows to these fields (comma-separated)
-      --format string         output format: compact|json (default: compact for TTY, json otherwise)
+      --format string         output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
       --graph-edges strings   comma-separated edge-type names used by the graph expander; omit to inherit manifest
       --graph-expand          enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)
-      --graph-weight float    per-hop weight applied to expanded candidates ([0,1]; <0 = inherit manifest) (default -1)
+      --graph-weight float    per-hop weight applied to expanded candidates in [0,1]; omit to inherit manifest (default inherit)
   -h, --help                  help for query
-      --hops int              graph-expansion BFS depth (1 or 2; 0 = inherit manifest)
+      --hops int              graph-expansion BFS depth (1 or 2; omit to inherit manifest)
       --include strings       expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)
       --json                  emit structured JSON (sugar for --format json)
       --min-score float       drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.

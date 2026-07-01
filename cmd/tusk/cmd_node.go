@@ -35,8 +35,8 @@ Top-level frontmatter keys split into two namespaces, enforced by the
 manifest at load time:
 
   * Property keys (e.g. priority, title) — declared in
-    [node-types.<type>].properties in tusk.toml.
-  * Edge keys (e.g. blocks) — names that match an [edge-types.<name>]
+    ` + "`[node-types.<type>].properties`" + ` in tusk.toml.
+  * Edge keys (e.g. blocks) — names that match an ` + "`[edge-types.<name>]`" + `
     declaration in tusk.toml. The value is a target node id (scalar) or
     list of target ids; reindex turns each into an indexed edge.
 

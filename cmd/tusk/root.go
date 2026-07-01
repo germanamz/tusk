@@ -45,13 +45,17 @@ CONFIGURATION
 
     [workspace]              name, ignore globs, sub-units (default true)
     [node-types.<name>]      typed properties a node may/must set
-    [edge-types.<name>]      from / to / cardinality / inverse / acyclic /
-                             hierarchy / wikilinks for typed relationships
+    [edge-types.<name>]      from / to / cardinality / ordered / inverse /
+                             acyclic / hierarchy / hierarchy-default /
+                             wikilinks for typed relationships
     [embeddings]             provider = "ollama", model, endpoint, dim,
                              api-key, workers, timeout-seconds — enables
                              semantic search
     [query.graph-expansion]  enabled, hops (1|2), edge-types, weight,
                              candidate-multiplier — tunes graphrag retrieval
+    [graph.cluster]          by (type|property|ancestor|community), huddle,
+                             hull, community-edges, resolution — cluster lens
+                             for "tusk graph"
     [context]                pinned, recent, include — shape the warm-context
                              digest produced by "tusk context"
     [lease]                  ttl_seconds (default 60) for multi-instance

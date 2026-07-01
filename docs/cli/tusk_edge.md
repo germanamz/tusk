@@ -10,7 +10,7 @@ Manage edges between nodes (add, remove, list)
 
 Manage edges between nodes.
 
-An edge has a typed kind (declared in tusk.toml under [edge-types.<name>]),
+An edge has a typed kind (declared in tusk.toml under `[edge-types.<name>]`),
 a source node, and a target node.
 
 Edges live in the source node's frontmatter. Any top-level frontmatter key
@@ -38,7 +38,7 @@ then refreshes the index for that file. "tusk edge remove" is the
 symmetric operation. The file remains the source of truth — a clean
 "git pull && tusk reindex" reproduces the full edge graph from disk.
 
-Edges of an edge type whose declaration includes ordered = "<prop>" sort
+Edges of an edge type whose declaration includes `ordered = "<prop>"` sort
 by the named property on each source node. Example:
 
   [edge-types.wbs-parent]

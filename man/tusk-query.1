@@ -1,5 +1,5 @@
 .nh
-.TH "TUSK" "1" "May 2026" "Tusk v1.0.0-dev" "Tusk Manual"
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
 
 .SH NAME
 tusk-query - Run a structural, semantic, or hybrid query against the index
@@ -17,18 +17,19 @@ Three modes, all driven by the same command:
 .IP \(bu 2
 Structural (default): the filter argument is a property and
 edge-traversal expression. Property predicates use comparison
-operators (key=value, key:value, key!=value, keyvalue, key>=value); ranges use key=lo..hi. Ordering and range
-operators compare by the property's declared type: int numerically,
-date/datetime chronologically, enum by declared order (a value name
-or a 0-based index). Edge traversal uses edge-type-> or edge-type<-
-and may chain multi-hop. Traversal
-shortcuts: tree=id, parent=id, root=id (qualified: tree:=id,
-parent:=id, root:=id, where  is set via
-hierarchy on an edge type in tusk.toml). Recency shortcut:
-modified-since: (e.g. modified-since:7d,
-modified-since:2026-05-23). Combine with AND, OR, NOT, and parens.
-(Both : and = bind property comparisons; pick whichever reads
-better.)
+operators — = and : (equal), != (not equal), < <= > >= (ordering) —
+written directly after the key (e.g. status=open, priority>=2);
+ranges use key=lo..hi. Ordering and range operators compare by the
+property's declared type: int numerically, date/datetime
+chronologically, enum by declared order (a value name or a 0-based
+index). Edge traversal uses edge-type-> (outgoing) or edge-type<-
+(incoming) and may chain multi-hop. Traversal shortcuts: tree=id,
+parent=id, root=id, each optionally qualified by a hierarchy alias
+(e.g. tree:wbs=id) set via hierarchy on an edge type in tusk.toml.
+Recency shortcut: modified-since: a duration or ISO date (e.g.
+modified-since:7d, modified-since:2026-05-23). Combine with AND, OR,
+NOT, and parens. (Both : and = bind property comparisons; pick
+whichever reads better.)
 .IP \(bu 2
 Semantic (--semantic STRING): nearest-neighbor search over
 Ollama embeddings. The positional filter still applies as a
@@ -43,8 +44,10 @@ Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
 body, edges, or properties (comma-separated; for semantic results body
 is the best-matching chunk). Use --fields to project the rendered shape.
-Use --format to pick compact or JSON output (default: compact for TTY,
-JSON otherwise); --json is sugar for --format json.
+Use --format to pick compact or JSON output: with no --include/--fields
+the default is the tab-aligned table, and once a shape flag is set it is
+compact at a TTY and JSON when piped. --json (or --format json) forces
+JSON regardless.
 
 .PP
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
@@ -63,7 +66,7 @@ the document is restructured.
 
 .PP
 \fB--format\fP=""
-	output format: compact|json (default: compact for TTY, json otherwise)
+	output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
 
 .PP
 \fB--graph-edges\fP=[]
@@ -74,8 +77,8 @@ the document is restructured.
 	enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)
 
 .PP
-\fB--graph-weight\fP=-1
-	per-hop weight applied to expanded candidates ([0,1];  = inherit manifest)
+\fB--graph-weight\fP=inherit
+	per-hop weight applied to expanded candidates in [0,1]; omit to inherit manifest
 
 .PP
 \fB-h\fP, \fB--help\fP[=false]
@@ -83,7 +86,7 @@ the document is restructured.
 
 .PP
 \fB--hops\fP=0
-	graph-expansion BFS depth (1 or 2; 0 = inherit manifest)
+	graph-expansion BFS depth (1 or 2; omit to inherit manifest)
 
 .PP
 \fB--include\fP=[]

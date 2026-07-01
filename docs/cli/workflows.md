@@ -16,8 +16,8 @@ sensible schema.
 # Create tusk.toml and .tusk/
 tusk init --name my-brain
 
-# Seed it with a built-in type pack (here: gtd)
-tusk pack add gtd
+# Seed it with a type pack (here: kanban; fetched over the network)
+tusk pack add kanban
 
 # Confirm the manifest is valid and the index is healthy
 tusk doctor
@@ -144,7 +144,7 @@ You want to add a built-in schema bundle.
 
 ```bash
 # Copy the pack's node/edge type declarations into tusk.toml
-tusk pack add gtd
+tusk pack add kanban
 
 # Inspect the manifest diff in your editor
 git diff tusk.toml
@@ -157,5 +157,5 @@ If the pack collides with existing declarations:
 
 ```bash
 # Force-overwrite the colliding sections
-tusk pack add gtd --force
+tusk pack add kanban --force
 ```
