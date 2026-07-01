@@ -33,7 +33,7 @@ func TestCompile_NonCorePropertyUsesJSONExtract(test *testing.T) {
 
 	sql, params, _ := filter.Compile(expr, filter.CompileOptions{})
 
-	if !strings.Contains(sql, `json_extract(properties_json, '$.priority')`) {
+	if !strings.Contains(sql, `json_extract(properties_json, '$."priority"')`) {
 		test.Errorf("sql missing json_extract: %s", sql)
 	}
 
@@ -116,8 +116,11 @@ func TestCompile_SortKeysAppendOrderBy(test *testing.T) {
 		test.Errorf("sql missing ORDER BY: %s", sql)
 	}
 
-	if !strings.Contains(sql, "DESC") {
-		test.Errorf("sql missing DESC: %s", sql)
+	// A non-core sort key extracts through the quoted json-path form, so this
+	// pins the quoting rather than a bare "DESC" substring that the old
+	// unquoted form would also satisfy.
+	if !strings.Contains(sql, `json_extract(properties_json, '$."priority"') DESC`) {
+		test.Errorf("sql missing quoted priority sort extract: %s", sql)
 	}
 }
 
@@ -162,6 +165,13 @@ func TestCompile_EdgePredicate(test *testing.T) {
 
 	if !strings.Contains(sql, "JOIN nodes") {
 		test.Errorf("expected JOIN nodes for edge predicate: %s", sql)
+	}
+
+	// The inner property on the aliased node is the only path that reaches
+	// quotedExtract with a non-empty column prefix, so pin the alias-qualified
+	// quoted extract to lock both the prefix and the key quoting.
+	if !strings.Contains(sql, `json_extract(n0.properties_json, '$."status"')`) {
+		test.Errorf("expected alias-qualified quoted extract on status: %s", sql)
 	}
 
 	wantParams := []any{"blocks", "active"}
@@ -770,7 +780,7 @@ func TestCompile_BoolLiteralCoercedToInt(test *testing.T) {
 				test.Fatalf("compile: %v", compileErr)
 			}
 
-			if !strings.Contains(sqlText, "json_extract(properties_json, '$.checkbox')") {
+			if !strings.Contains(sqlText, `json_extract(properties_json, '$."checkbox"')`) {
 				test.Errorf("missing json_extract on checkbox: %s", sqlText)
 			}
 
@@ -831,8 +841,8 @@ func TestCompile_BoolLiteralOnlyForEqualityOps(test *testing.T) {
 
 // TestCompile_HeadingLevelPredicate covers the kebab-case heading-level
 // property used by section sub-units. SQLite's JSON1 accepts both
-// `$.heading-level` and `$."heading-level"`; the compiler emits the
-// unquoted form, which works in modern SQLite.
+// `$.heading-level` and `$."heading-level"`; the compiler emits the quoted
+// form uniformly (via quotedExtract), so the hyphen needs no lenient parsing.
 func TestCompile_HeadingLevelPredicate(test *testing.T) {
 	expr, parseErrs := filter.NewParser("type=section AND heading-level<=2").Parse()
 
@@ -850,12 +860,8 @@ func TestCompile_HeadingLevelPredicate(test *testing.T) {
 		test.Errorf("missing type predicate: %s", sqlText)
 	}
 
-	if !strings.Contains(sqlText, "heading-level") {
-		test.Errorf("missing heading-level extract: %s", sqlText)
-	}
-
-	if !strings.Contains(sqlText, "<= ?") {
-		test.Errorf("missing <= operator: %s", sqlText)
+	if !strings.Contains(sqlText, `CAST(json_extract(properties_json, '$."heading-level"') AS INTEGER) <= ?`) {
+		test.Errorf("missing quoted heading-level extract: %s", sqlText)
 	}
 }
 

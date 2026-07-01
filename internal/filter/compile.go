@@ -275,7 +275,7 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 			return compileEnumRange(predicate, columnPrefix, rangeValue)
 		}
 
-		extract := fmt.Sprintf(`CAST(json_extract(%sproperties_json, '$.%s') AS INTEGER)`, columnPrefix, predicate.Property)
+		extract := "CAST(" + quotedExtract(columnPrefix, predicate.Property) + " AS INTEGER)"
 
 		return extract + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
 	}
@@ -297,7 +297,7 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 	}
 
 	if intValue, isBool := boolLiteralAsInt(stringValue, predicate.Op); isBool {
-		return fmt.Sprintf(`json_extract(%sproperties_json, '$.%s') %s ?`, columnPrefix, predicate.Property, sqlOp), []any{intValue}, nil
+		return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{intValue}, nil
 	}
 
 	if isNumericOp(predicate.Op) {
@@ -308,10 +308,10 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 			return compileEnumOrdering(predicate, columnPrefix, stringValue.V)
 		}
 
-		return fmt.Sprintf(`CAST(json_extract(%sproperties_json, '$.%s') AS INTEGER) %s ?`, columnPrefix, predicate.Property, sqlOp), []any{stringValue.V}, nil
+		return "CAST(" + quotedExtract(columnPrefix, predicate.Property) + " AS INTEGER) " + sqlOp + " ?", []any{stringValue.V}, nil
 	}
 
-	return fmt.Sprintf(`json_extract(%sproperties_json, '$.%s') %s ?`, columnPrefix, predicate.Property, sqlOp), []any{stringValue.V}, nil
+	return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
 }
 
 // isTextComparedType reports whether a resolved property type compares
@@ -324,7 +324,14 @@ func isTextComparedType(resolvedType string) bool {
 
 // quotedExtract builds a json_extract over a quoted JSON path key. Quoting the
 // key keeps property names with hyphens, dots, or other path metacharacters
-// unambiguous; the new typed-comparison paths use it uniformly.
+// unambiguous, so every property extract in this compiler routes through it.
+//
+// Precondition: property must not contain a `"`. The key is embedded between
+// double quotes without escaping, so an embedded quote would malform the path.
+// Every caller's property name originates from the filter lexer
+// (isIdentStart/isIdentContinue) or SortKey validation (isIdentifier), both of
+// which constrain names to [A-Za-z_][A-Za-z0-9_-]*, so a quote can never reach
+// here — no escaping machinery is needed for inputs the charset can't produce.
 func quotedExtract(columnPrefix, property string) string {
 	return fmt.Sprintf(`json_extract(%sproperties_json, '$."%s"')`, columnPrefix, property)
 }
@@ -498,7 +505,7 @@ func compileOrderBy(keys []SortKey) string {
 		expression := column
 
 		if !isCore {
-			expression = fmt.Sprintf(`json_extract(properties_json, '$.%s')`, key.Property)
+			expression = quotedExtract("", key.Property)
 		}
 
 		direction := "ASC"
