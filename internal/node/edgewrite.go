@@ -1,6 +1,7 @@
 package node
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -63,7 +64,7 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 		return writeErr
 	}
 
-	return ReindexSource(service.root, service.edges, service.edgeTypes, service.nodeTypes, sourceID)
+	return ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID)
 }
 
 // RemoveEdge removes the (edgeType, sourceID, targetID) edge from the source's
@@ -79,7 +80,7 @@ func (service *Service) RemoveEdge(edgeType, sourceID, targetID string) error {
 		return writeErr
 	}
 
-	if reindexErr := ReindexSource(service.root, service.edges, service.edgeTypes, service.nodeTypes, sourceID); reindexErr != nil {
+	if reindexErr := ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID); reindexErr != nil {
 		return reindexErr
 	}
 
@@ -321,17 +322,70 @@ func RemoveEdgeFromFrontmatter(
 	return nil
 }
 
-// ReindexSource re-reads sourceID's markdown file under workspaceRoot,
-// parses + resolves edges, and upserts the resulting edge rows into the
-// index under the source's real path. Designed for callers that just
-// rewrote the source file via AddEdgeToFrontmatter / RemoveEdgeFromFrontmatter
-// and need the index to reflect the new edges before the call returns.
+// materializeReadEdges resolves a parsed markdown node's edges the way the
+// reindexer does: frontmatter edge-type keys, then body [[wikilinks]], then
+// ref-property resolution (bare titles / wikilinks -> resolved node IDs). Edges
+// for refs that fail to resolve are dropped rather than persisted with their raw
+// value, and a successfully-resolved ref REPLACES the raw target the edge pass
+// captured. This mirrors internal/reindex/worker.go's read-path resolution so an
+// edge-write reindex produces the same edge set a full reindex would — without
+// it, `edge add`/`edge remove` on a node carrying a bare-title ref clobbered the
+// resolved edge row with the raw title (#670 audit, D2). refs may be nil to skip
+// ref resolution (e.g. a workspace with ref resolution disabled).
+func materializeReadEdges(
+	parsed *Node,
+	edgeTypes manifest.EdgeTypes,
+	nodeTypes map[string]manifest.NodeType,
+	refs RefLookup,
+) error {
+	if resolveErr := ResolveEdges(parsed, edgeTypes); resolveErr != nil {
+		return resolveErr
+	}
+
+	MaterializeWikilinks(parsed, edgeTypes)
+
+	if refs == nil {
+		return nil
+	}
+
+	refResult := ResolveRefs(parsed, nodeTypes, refs)
+
+	for _, refErr := range refResult.HardErrors {
+		delete(parsed.Edges, refErr.Property)
+	}
+
+	resolvedByProp := map[string][]string{}
+
+	for _, edge := range refResult.Edges {
+		resolvedByProp[edge.EdgeType] = appendUnique(resolvedByProp[edge.EdgeType], edge.TargetID)
+	}
+
+	for propName, targets := range resolvedByProp {
+		parsed.Edges[propName] = targets
+	}
+
+	return nil
+}
+
+// ReindexSource re-reads sourceID's markdown file under workspaceRoot, parses +
+// fully resolves its edges (frontmatter edges, wikilinks, and ref properties via
+// refs), and upserts the resulting node row and edge rows into the index under
+// the source's real path. Designed for callers that just rewrote the source file
+// via AddEdgeToFrontmatter / RemoveEdgeFromFrontmatter and need the index to
+// reflect the new content before the call returns.
 //
-// Callers MUST hold the workspace lock; this performs I/O and an index
-// write that overlap with the lock contract of the calling command.
+// The node row is re-persisted (checksum/mtime/size) so it does not go stale
+// against the rewritten file, and ref properties are resolved so ref-derived
+// edges keep their resolved node ID rather than a raw title (#670 audit, D2/C2).
+// nodes and refs may be nil to skip node-row persistence / ref resolution.
+//
+// Callers MUST hold the workspace lock; this performs I/O and index writes that
+// overlap with the lock contract of the calling command.
 func ReindexSource(
 	workspaceRoot string,
+	nodes *index.NodeRepo,
 	edges *index.EdgeRepo,
+	refs RefLookup,
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
 	sourceID string,
@@ -351,12 +405,48 @@ func ReindexSource(
 		return fmt.Errorf("edgewrite: parse %s: %w", relPath, parseErr)
 	}
 
-	if resolveErr := ResolveEdges(parsed, edgeTypes); resolveErr != nil {
+	// Canonicalize any date the YAML parser produced as a time.Time (an unquoted
+	// on-disk date) before marshaling the node row, mirroring the full-reindex
+	// worker. Without this an idempotent edge op re-persists a declared date as
+	// json.Marshal's RFC3339 timestamp instead of the canonical date-only string,
+	// diverging from what a full reindex stores and breaking date filters.
+	CanonicalizeDates(parsed, nodeTypes)
+
+	if resolveErr := materializeReadEdges(parsed, edgeTypes, nodeTypes, refs); resolveErr != nil {
 		return fmt.Errorf("edgewrite: resolve %s: %w", relPath, resolveErr)
 	}
 
-	if upsertErr := edges.UpsertAll(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
-		return fmt.Errorf("edgewrite: upsert %s: %w", relPath, upsertErr)
+	if nodes != nil {
+		stat, statErr := os.Stat(absPath)
+
+		if statErr != nil {
+			return fmt.Errorf("edgewrite: stat %s: %w", relPath, statErr)
+		}
+
+		propertiesJSON, marshalErr := json.Marshal(parsed.Properties)
+
+		if marshalErr != nil {
+			return fmt.Errorf("edgewrite: marshal %s: %w", relPath, marshalErr)
+		}
+
+		if upsertErr := nodes.Upsert(index.NodeRow{
+			ID:             parsed.ID,
+			Type:           parsed.Type,
+			Path:           parsed.Path,
+			Title:          parsed.Title,
+			PropertiesJSON: string(propertiesJSON),
+			LastMtime:      stat.ModTime().UnixNano(),
+			LastSize:       stat.Size(),
+			LastChecksum:   sha256Hex(content),
+		}); upsertErr != nil {
+			return fmt.Errorf("edgewrite: upsert node %s: %w", relPath, upsertErr)
+		}
+	}
+
+	if edges != nil {
+		if upsertErr := edges.UpsertAll(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
+			return fmt.Errorf("edgewrite: upsert %s: %w", relPath, upsertErr)
+		}
 	}
 
 	return nil

@@ -495,9 +495,16 @@ func matchesEdgeTarget(value, id string) bool {
 	return yamlUnquoteString(value) == id
 }
 
-// yamlUnquoteString reverses yamlQuoteString for double-quoted scalars and
-// returns plain scalars unchanged.
+// yamlUnquoteString reverses the quoting a frontmatter edge value can carry:
+// yamlQuoteString's double-quoted scalars and yaml.v3's single-quoted scalars
+// (renderMarkdown emits single quotes for a value that leads with a YAML
+// indicator character, e.g. '@scope/foo'). Plain scalars are returned unchanged.
 func yamlUnquoteString(value string) string {
+	if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
+		// Single-quoted YAML: the sole escape is a doubled quote ('' -> ').
+		return strings.ReplaceAll(value[1:len(value)-1], "''", "'")
+	}
+
 	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
 		return value
 	}
