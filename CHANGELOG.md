@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/germanamz/tusk/compare/v2.1.0...v2.1.1) (2026-07-01)
+
+
+### Bug Fixes
+
+* **node:** preserve edges and frontmatter fidelity on re-render ([#670](https://github.com/germanamz/tusk/issues/670)) ([#671](https://github.com/germanamz/tusk/issues/671)) ([0f2dac7](https://github.com/germanamz/tusk/commit/0f2dac75a2a3f2cecbbe1099d7b8d13553ab045f))
+
 ## [2.1.0](https://github.com/germanamz/tusk/compare/v2.0.0...v2.1.0) (2026-07-01)
 
 
