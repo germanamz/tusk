@@ -237,3 +237,64 @@ func TestValidate_OrOfTypedConjunctsResolvesEachBranch(test *testing.T) {
 		test.Errorf("each typed conjunct should resolve without error: %+v", errs)
 	}
 }
+
+// TestResolveSortKeys stamps the declared type onto sort keys so the compiler
+// can order an enum by declared position. Core columns, undeclared properties,
+// and names that are ambiguous across the query's type scope are left bare —
+// issue #664 audit M3.
+func TestResolveSortKeys(test *testing.T) {
+	loaded := typedManifest()
+
+	// enum in a single-type scope resolves with its member list.
+	keys := []filter.SortKey{{Property: "priority", Descending: true}}
+	filter.ResolveSortKeys(mustParse(test, "type=ticket"), loaded, keys)
+
+	if keys[0].ResolvedType != "enum" {
+		test.Errorf("priority ResolvedType = %q, want enum", keys[0].ResolvedType)
+	}
+
+	if !reflect.DeepEqual(keys[0].EnumValues, []string{"low", "medium", "high"}) {
+		test.Errorf("priority EnumValues = %v, want [low medium high]", keys[0].EnumValues)
+	}
+
+	// int resolves its type but carries no enum values.
+	intKeys := []filter.SortKey{{Property: "order"}}
+	filter.ResolveSortKeys(mustParse(test, "type=ticket"), loaded, intKeys)
+
+	if intKeys[0].ResolvedType != "int" || intKeys[0].EnumValues != nil {
+		test.Errorf("order = {%q, %v}, want {int, []}", intKeys[0].ResolvedType, intKeys[0].EnumValues)
+	}
+
+	// a core column is never resolved.
+	coreKeys := []filter.SortKey{{Property: "id"}}
+	filter.ResolveSortKeys(mustParse(test, "type=ticket"), loaded, coreKeys)
+
+	if coreKeys[0].ResolvedType != "" {
+		test.Errorf("core column id ResolvedType = %q, want empty", coreKeys[0].ResolvedType)
+	}
+
+	// an undeclared property is left bare (legacy lexical sort).
+	adhocKeys := []filter.SortKey{{Property: "whatever"}}
+	filter.ResolveSortKeys(mustParse(test, "type=ticket"), loaded, adhocKeys)
+
+	if adhocKeys[0].ResolvedType != "" {
+		test.Errorf("undeclared whatever ResolvedType = %q, want empty", adhocKeys[0].ResolvedType)
+	}
+
+	// `status` is a divergent enum on plan and package; with no type scope it is
+	// ambiguous and must be left bare rather than picking one arbitrarily.
+	ambiguousKeys := []filter.SortKey{{Property: "status", Descending: true}}
+	filter.ResolveSortKeys(mustParse(test, ""), loaded, ambiguousKeys)
+
+	if ambiguousKeys[0].ResolvedType != "" {
+		test.Errorf("ambiguous status ResolvedType = %q, want empty", ambiguousKeys[0].ResolvedType)
+	}
+
+	// narrowing the scope to one type resolves it unambiguously.
+	scopedKeys := []filter.SortKey{{Property: "status", Descending: true}}
+	filter.ResolveSortKeys(mustParse(test, "type=plan"), loaded, scopedKeys)
+
+	if !reflect.DeepEqual(scopedKeys[0].EnumValues, []string{"draft", "in-progress", "shipped", "abandoned"}) {
+		test.Errorf("plan status EnumValues = %v, want plan's ordering", scopedKeys[0].EnumValues)
+	}
+}
