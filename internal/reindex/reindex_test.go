@@ -2571,3 +2571,175 @@ func TestRun_HTMLDataSignalsIndexedAndDriftExempt(test *testing.T) {
 		}
 	}
 }
+
+// Full move loop: reindex → node.Rename → reindex must converge the whole
+// graph — the moved file's sub-unit rows rebuilt under the new id, every
+// referring file's sub-unit-sourced edges retargeted, and no edge anywhere
+// still pointing at the old id. Regression test for the stale sub-unit
+// edges bug: rename left sub-unit-sourced rows dangling forever and dropped
+// the moved file's own sub-units until a forced reindex.
+func TestRun_AfterRename_ConvergesSubUnitEdges(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/target.md", "type: note\ntitle: Target\n",
+		"# Target\n\nI am the target.\n")
+	writeNode(test, root, "notes/referrer.md", "type: note\ntitle: Referrer\n",
+		"# Section one\n\nIntro.\n\n## Nested\n\nsee [[notes/target]] here\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+			Wikilinks:   true,
+		},
+	}
+	loaded := &manifest.Manifest{EdgeTypes: edgeTypes}
+
+	cfg := withGen(store, reindex.Config{
+		Root:      root,
+		Repo:      repo,
+		Edges:     edgeRepo,
+		EdgeTypes: edgeTypes,
+		Manifest:  loaded,
+	})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// Seed check: the nested section carries the wikilink edge.
+	seedEdges, _ := edgeRepo.ListBySource("notes/referrer#S1.1")
+
+	if len(seedEdges) == 0 {
+		test.Fatalf("seed state: no edges from notes/referrer#S1.1")
+	}
+
+	if _, renameErr := node.Rename(
+		root, repo, edgeRepo, index.NewFileStateRepo(store),
+		"test-worker", time.Minute, edgeTypes, nil,
+		"notes/target", "notes/renamed.md",
+	); renameErr != nil {
+		test.Fatalf("Rename: %v", renameErr)
+	}
+
+	cfg = withGen(store, cfg)
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	// The moved file's sub-unit rows must exist under the new id.
+	movedRows, _ := repo.ListSubUnitsForFile("notes/renamed")
+
+	if len(movedRows) == 0 {
+		test.Errorf("moved file has no sub-unit rows under the new id")
+	}
+
+	// No edge anywhere may still point at the old id.
+	if stale, _ := edgeRepo.ListByTarget("notes/target"); len(stale) != 0 {
+		test.Errorf("edges still target the old id: %+v", stale)
+	}
+
+	// Every sub-unit of the referrer that carried the link must now point
+	// at the new id — sections included.
+	for _, sourceID := range []string{"notes/referrer#S1", "notes/referrer#S1.1", "notes/referrer#S1.1P1"} {
+		listed, _ := edgeRepo.ListBySource(sourceID)
+
+		var referencesTargets []string
+
+		for _, edge := range listed {
+			if edge.Type == "references" {
+				referencesTargets = append(referencesTargets, edge.TargetID)
+			}
+		}
+
+		if len(referencesTargets) != 1 || referencesTargets[0] != "notes/renamed" {
+			test.Errorf("%s references = %v, want [notes/renamed]", sourceID, referencesTargets)
+		}
+	}
+}
+
+// A vault indexed by a pre-fix binary carries fossilized section-sourced
+// edges, heading-only section content hashes, and file_state rows that match
+// disk — so the incremental skip would never re-parse anything and the
+// fossils would outlive the upgrade. Run must detect the derivation-version
+// marker mismatch and force one full re-process pass.
+func TestRun_HealsPreUpgradeSectionEdgesViaDerivationMarker(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/target.md", "type: note\ntitle: Target\n", "# T\n\nbody\n")
+	writeNode(test, root, "notes/referrer.md", "type: note\ntitle: Referrer\n",
+		"# Section\n\nsee [[notes/target]]\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+			Wikilinks:   true,
+		},
+	}
+	loaded := &manifest.Manifest{EdgeTypes: edgeTypes}
+
+	cfg := withGen(store, reindex.Config{
+		Root:      root,
+		Repo:      repo,
+		Edges:     edgeRepo,
+		EdgeTypes: edgeTypes,
+		Manifest:  loaded,
+	})
+
+	if _, runErr := reindex.Run(cfg); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// Rewind the index to its pre-upgrade shape: a fossil edge on the
+	// section row, an old-format (heading-only) content hash so the sync
+	// diff sees the section as unchanged, and no derivation marker.
+	mutations := []string{
+		`UPDATE edges SET target_id = 'notes/ghost' WHERE source_id = 'notes/referrer#S1'`,
+		`UPDATE nodes SET content_hash = 'legacy-heading-only-hash' WHERE id = 'notes/referrer#S1'`,
+		`DELETE FROM meta WHERE key = 'edge_derivation_version'`,
+	}
+
+	for _, mutation := range mutations {
+		if _, execErr := store.DB().Exec(mutation); execErr != nil {
+			test.Fatalf("simulate pre-upgrade state: %v", execErr)
+		}
+	}
+
+	// A plain (non-forced) pass must still heal the fossil.
+	if _, runErr := reindex.Run(withGen(store, cfg)); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	listed, _ := edgeRepo.ListBySource("notes/referrer#S1")
+
+	var referencesTargets []string
+
+	for _, edge := range listed {
+		if edge.Type == "references" {
+			referencesTargets = append(referencesTargets, edge.TargetID)
+		}
+	}
+
+	if len(referencesTargets) != 1 || referencesTargets[0] != "notes/target" {
+		test.Errorf("section references = %v, want [notes/target] (fossil not healed)", referencesTargets)
+	}
+
+	// The marker must be stamped so the NEXT pass goes back to incremental.
+	marker, _ := index.NewMetaRepo(store).Get("edge_derivation_version")
+
+	if marker == "" {
+		test.Errorf("edge_derivation_version marker not stamped after successful pass")
+	}
+}

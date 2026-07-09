@@ -135,9 +135,80 @@ func (repo *EdgeRepo) ListByTarget(targetID string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE target_id = ? ORDER BY type, source_id`, targetID)
 }
 
+// ListByTargetOrSubUnits returns all edges targeting nodeID or any sub-unit
+// id under it ("<nodeID>#..."), ordered by type then source_id. Rename uses
+// it to find every referring file, including ones that deep-link a section
+// or paragraph of the moved node.
+//
+// The prefix length is measured SQL-side with length(?): SQLite's substr and
+// length count UTF-8 characters, not bytes, so binding Go's len() here would
+// silently skip every id containing a multi-byte character.
+func (repo *EdgeRepo) ListByTargetOrSubUnits(nodeID string) ([]EdgeRow, error) {
+	prefix := nodeID + "#"
+
+	return repo.queryEdges(
+		`SELECT `+edgeColumns+` FROM edges WHERE target_id = ? OR substr(target_id, 1, length(?)) = ? ORDER BY type, source_id`,
+		nodeID, prefix, prefix,
+	)
+}
+
 // ListByType returns all edges where type = edgeType, ordered by source_id then target_id.
 func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE type = ? ORDER BY source_id, target_id`, edgeType)
+}
+
+// RetargetEdges rewrites the target of every edge pointing at oldID — or at
+// a sub-unit id under it ("<oldID>#...") — to the same address under newID,
+// regardless of the edge's source. This is the rename fix-up for incoming
+// rows the per-file re-derive cannot reach: edges sourced from other files'
+// sub-units, and edges targeting the moved file's sub-unit ids.
+//
+// All offsets are measured SQL-side (length(?)) because SQLite's substr and
+// length count UTF-8 characters while Go's len() counts bytes — binding byte
+// lengths would skip or corrupt every id with a multi-byte character.
+//
+// OR REPLACE resolves collisions with an already-existing edge at the new
+// target, but SQLite's UNIQUE treats NULL `source` values as distinct, so a
+// direct/derived duplicate survives the UPDATE — the follow-up DELETE
+// removes those, keeping the oldest row per identity.
+func (repo *EdgeRepo) RetargetEdges(oldID, newID string) error {
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("edgeRepo: retarget begin: %w", beginErr)
+	}
+
+	prefix := oldID + "#"
+
+	if _, execErr := tx.Exec(`
+		UPDATE OR REPLACE edges
+		SET target_id = ?1 || substr(target_id, length(?2) + 1)
+		WHERE target_id = ?2 OR substr(target_id, 1, length(?3)) = ?3`,
+		newID, oldID, prefix,
+	); execErr != nil {
+		_ = tx.Rollback()
+
+		return fmt.Errorf("edgeRepo: retarget %s -> %s: %w", oldID, newID, execErr)
+	}
+
+	if _, execErr := tx.Exec(`
+		DELETE FROM edges WHERE (target_id = ?1 OR substr(target_id, 1, length(?2)) = ?2) AND id NOT IN (
+			SELECT MIN(id) FROM edges
+			WHERE target_id = ?1 OR substr(target_id, 1, length(?2)) = ?2
+			GROUP BY type, source_id, target_id, source_path, kind, COALESCE(source, '')
+		)`,
+		newID, newID+"#",
+	); execErr != nil {
+		_ = tx.Rollback()
+
+		return fmt.Errorf("edgeRepo: retarget dedupe %s: %w", newID, execErr)
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("edgeRepo: retarget commit: %w", commitErr)
+	}
+
+	return nil
 }
 
 // Count returns the total number of edges in the index.
@@ -349,8 +420,8 @@ func (repo *EdgeRepo) DeleteBySource(sourceID string) error {
 	return nil
 }
 
-func (repo *EdgeRepo) queryEdges(query, arg string) ([]EdgeRow, error) {
-	rows, queryErr := repo.db.Query(query, arg)
+func (repo *EdgeRepo) queryEdges(query string, args ...any) ([]EdgeRow, error) {
+	rows, queryErr := repo.db.Query(query, args...)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("edgeRepo: query: %w", queryErr)

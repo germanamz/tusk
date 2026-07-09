@@ -608,3 +608,94 @@ func TestSync_EmptyUnitsDeletesAllRowsAndContains(test *testing.T) {
 		}
 	}
 }
+
+// listReferences returns the "references" targets of one source id.
+func listReferences(test *testing.T, edges *index.EdgeRepo, sourceID string) []string {
+	test.Helper()
+
+	listed, listErr := edges.ListBySource(sourceID)
+
+	if listErr != nil {
+		test.Fatalf("ListBySource(%s): %v", sourceID, listErr)
+	}
+
+	var targets []string
+
+	for _, edge := range listed {
+		if edge.Type == "references" {
+			targets = append(targets, edge.TargetID)
+		}
+	}
+
+	return targets
+}
+
+// Re-parsing a file whose body wikilinks changed under an unchanged heading
+// must replace the edge set of every surviving sub-unit — sections included.
+// Regression test for the fossil-edge bug: section rows kept their day-one
+// targets forever because the sync diff treated a body-only edit as
+// "unchanged" (heading-only content hash) and excluded sections from edge
+// re-derivation even when it did notice a change.
+func TestSync_ReparseReplacesSectionSourcedEdges(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := referencesManifest(test)
+	sync, nodes, edges, _ := newSync(store, loaded)
+
+	parent := seedFileRow(test, nodes, "notes/src", "notes/src.md")
+	seedFileRow(test, nodes, "notes/old-target", "notes/old-target.md")
+	seedFileRow(test, nodes, "notes/new-target", "notes/new-target.md")
+
+	before, _ := subunit.Parse([]byte("# Top\n\nsee [[notes/old-target]]\n"))
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, before); applyErr != nil {
+		test.Fatalf("first ApplyFile: %v", applyErr)
+	}
+
+	if targets := listReferences(test, edges, "notes/src#S1"); len(targets) != 1 || targets[0] != "notes/old-target" {
+		test.Fatalf("seed state: section targets = %v, want [notes/old-target]", targets)
+	}
+
+	// Same heading, same structure — only the paragraph's wikilink changes.
+	after, _ := subunit.Parse([]byte("# Top\n\nsee [[notes/new-target]]\n"))
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, after); applyErr != nil {
+		test.Fatalf("second ApplyFile: %v", applyErr)
+	}
+
+	for _, sourceID := range []string{"notes/src#S1", "notes/src#S1P1"} {
+		targets := listReferences(test, edges, sourceID)
+
+		if len(targets) != 1 || targets[0] != "notes/new-target" {
+			test.Errorf("%s targets = %v, want [notes/new-target]", sourceID, targets)
+		}
+	}
+}
+
+// Removing the only wikilink from a section's body must delete the
+// section-sourced edge, not just the paragraph-sourced one.
+func TestSync_ReparseDropsRemovedSectionSourcedEdges(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := referencesManifest(test)
+	sync, nodes, edges, _ := newSync(store, loaded)
+
+	parent := seedFileRow(test, nodes, "notes/src", "notes/src.md")
+	seedFileRow(test, nodes, "notes/old-target", "notes/old-target.md")
+
+	before, _ := subunit.Parse([]byte("# Top\n\n## Nested\n\nsee [[notes/old-target]]\n"))
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, before); applyErr != nil {
+		test.Fatalf("first ApplyFile: %v", applyErr)
+	}
+
+	after, _ := subunit.Parse([]byte("# Top\n\n## Nested\n\nsee plain text now\n"))
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, after); applyErr != nil {
+		test.Fatalf("second ApplyFile: %v", applyErr)
+	}
+
+	for _, sourceID := range []string{"notes/src#S1", "notes/src#S1.1", "notes/src#S1.1P1"} {
+		if targets := listReferences(test, edges, sourceID); len(targets) != 0 {
+			test.Errorf("%s targets = %v, want none", sourceID, targets)
+		}
+	}
+}

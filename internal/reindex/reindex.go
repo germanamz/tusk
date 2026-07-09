@@ -33,6 +33,19 @@ var indexableExts = map[string]bool{
 	".htm":  true,
 }
 
+// edgeDerivationVersion tags the edge-derivation semantics baked into this
+// binary, stored in meta under edgeDerivationVersionKey. When the stored
+// value differs (older binary, or the key predates the mechanism), Run
+// forces one full re-process pass so every file's edges converge on the
+// current semantics — the incremental mtime+size skip would otherwise
+// preserve stale edges indefinitely. Content-addressed embeddings make the
+// forced pass cheap: unchanged content re-parses but never re-embeds. Bump
+// the value whenever edge derivation changes meaning.
+const (
+	edgeDerivationVersionKey = "edge_derivation_version"
+	edgeDerivationVersion    = "2026-07-09-section-subtree-edges"
+)
+
 // nodeIDForPath derives a node id from a workspace-relative path. Markdown
 // keeps its historical bare-stem id (strips ".md"); every other indexable
 // kind retains its full filename so same-stem files (foo.md / foo.html) never
@@ -222,6 +235,29 @@ func Run(config Config) (*Report, error) {
 	}
 
 	report.Generation = gen
+
+	// A derivation-version mismatch means this index was written by a
+	// binary with different edge-derivation semantics (e.g. the pre-fix
+	// binary that never re-derived section-sourced edges and stamped
+	// heading-only section hashes). The incremental mtime+size skip would
+	// preserve those fossils forever, so force one full re-process pass;
+	// the marker is stamped after the pass succeeds.
+	derivationMarker, markerErr := config.Meta.Get(edgeDerivationVersionKey)
+
+	if markerErr != nil {
+		return nil, fmt.Errorf("reindex: read %s: %w", edgeDerivationVersionKey, markerErr)
+	}
+
+	if derivationMarker != edgeDerivationVersion {
+		config.Force = true
+
+		if config.Logger != nil {
+			config.Logger.Info("reindex: edge-derivation version changed; forcing full re-process",
+				"stored", derivationMarker,
+				"current", edgeDerivationVersion,
+			)
+		}
+	}
 
 	if config.Logger != nil {
 		config.Logger.Info("reindex walk start",
@@ -497,6 +533,10 @@ func Run(config Config) (*Report, error) {
 
 	if setErr := config.Meta.Set("last_reindex_at", fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
 		return nil, fmt.Errorf("reindex: record last_reindex_at: %w", setErr)
+	}
+
+	if setErr := config.Meta.Set(edgeDerivationVersionKey, edgeDerivationVersion); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", edgeDerivationVersionKey, setErr)
 	}
 
 	if config.Logger != nil {

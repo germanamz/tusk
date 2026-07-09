@@ -298,3 +298,64 @@ func TestEdgeRepo_DeleteBySource(test *testing.T) {
 		test.Errorf("len = %d, want 0", len(listed))
 	}
 }
+
+// RetargetEdges and ListByTargetOrSubUnits must treat the sub-unit prefix in
+// characters SQLite understands: node ids are user paths and routinely carry
+// multi-byte characters (accents, CJK). Regression test: byte lengths were
+// bound into SQLite substr(), which counts UTF-8 characters, so every
+// non-ASCII id silently escaped both the selection and the retarget.
+func TestEdgeRepo_RetargetEdges_MultibyteIDs(test *testing.T) {
+	store := openTestIndex(test)
+	seedNodes(test, store, "notas/reunión", "notas/otro")
+	repo := index.NewEdgeRepo(store)
+
+	insertEdge(test, store, "references", "notas/otro", "notas/reunión", "notas/otro.md", "direct", nil)
+	insertEdge(test, store, "references", "notas/otro", "notas/reunión#S1", "notas/otro.md", "direct", nil)
+
+	listed, listErr := repo.ListByTargetOrSubUnits("notas/reunión")
+
+	if listErr != nil {
+		test.Fatalf("ListByTargetOrSubUnits: %v", listErr)
+	}
+
+	if len(listed) != 2 {
+		test.Fatalf("ListByTargetOrSubUnits = %d rows, want 2 (sub-unit-targeted row missed)", len(listed))
+	}
+
+	if retargetErr := repo.RetargetEdges("notas/reunión", "notas/plan"); retargetErr != nil {
+		test.Fatalf("RetargetEdges: %v", retargetErr)
+	}
+
+	if stale, _ := repo.ListByTarget("notas/reunión#S1"); len(stale) != 0 {
+		test.Errorf("sub-unit-targeted edge still points at old id: %+v", stale)
+	}
+
+	moved, _ := repo.ListByTarget("notas/plan#S1")
+
+	if len(moved) != 1 {
+		test.Errorf("edge not retargeted to notas/plan#S1: %+v", moved)
+	}
+}
+
+// When the referrer already carries an edge to BOTH the old and the new id,
+// retargeting must not leave two identical rows behind: SQLite's UNIQUE
+// treats NULL `source` values as distinct, so OR REPLACE alone never fires
+// for direct/derived edges.
+func TestEdgeRepo_RetargetEdges_DedupesNullSourceDuplicates(test *testing.T) {
+	store := openTestIndex(test)
+	seedNodes(test, store, "notes/old", "notes/new", "notes/ref")
+	repo := index.NewEdgeRepo(store)
+
+	insertEdge(test, store, "references", "notes/ref", "notes/old", "notes/ref.md", "direct", nil)
+	insertEdge(test, store, "references", "notes/ref", "notes/new", "notes/ref.md", "direct", nil)
+
+	if retargetErr := repo.RetargetEdges("notes/old", "notes/new"); retargetErr != nil {
+		test.Fatalf("RetargetEdges: %v", retargetErr)
+	}
+
+	listed, _ := repo.ListByTarget("notes/new")
+
+	if len(listed) != 1 {
+		test.Errorf("expected a single deduped edge, got %+v", listed)
+	}
+}
