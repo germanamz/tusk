@@ -127,6 +127,93 @@ func expandAndBlend(ctx context.Context, deps Deps, req Request, ranked []filter
 	return newRanked, blendedByID, nil
 }
 
+// expandAndBlendFileLevel runs graph expansion for the sub-unit semantic path.
+// User-declared edges (wikilink, ref-derived, direct frontmatter) join FILE
+// node ids, while the sub-unit path's cosine rank carries `file#hash` leaf
+// ids — walking the leaf ids directly can never match those edges, which left
+// expansion inert on the default path (graph_score = 0 on every row). This
+// wrapper aggregates the leaf rank to per-file seeds (file cosine = max leaf
+// cosine, the same max-aggregation the file ordering uses downstream), reuses
+// expandAndBlend at the file level, and returns the per-FILE trace map. The
+// caller maps each file's graph term back onto its leaves and surfaces
+// walked-in neighbor files. Returns nil when expansion is inactive.
+func expandAndBlendFileLevel(ctx context.Context, deps Deps, req Request, leafRanked []filter.ScoredResult) (map[string]blendedTrace, error) {
+	if req.GraphExpansion == nil || !req.GraphExpansion.Enabled {
+		return nil, nil
+	}
+
+	// leafRanked is sorted by score desc, so the first leaf seen per file
+	// carries the file's max cosine and the aggregated slice stays sorted.
+	seen := make(map[string]struct{}, len(leafRanked))
+	fileRanked := make([]filter.ScoredResult, 0, len(leafRanked))
+
+	for _, leaf := range leafRanked {
+		fileID := fileIDFromSubUnit(leaf.NodeID)
+
+		if _, dupe := seen[fileID]; dupe {
+			continue
+		}
+
+		seen[fileID] = struct{}{}
+		fileRanked = append(fileRanked, filter.ScoredResult{NodeID: fileID, Score: leaf.Score})
+	}
+
+	_, fileBlend, blendErr := expandAndBlend(ctx, deps, req, fileRanked)
+
+	if blendErr != nil {
+		return nil, blendErr
+	}
+
+	mergeSubUnitTraces(fileBlend)
+
+	return fileBlend, nil
+}
+
+// mergeSubUnitTraces re-attributes walked-in sub-unit candidates to their
+// parent FILE id, in place. The walk reaches `file#hash` ids two ways:
+// structural `contains` edges from a seed file to its own sub-units (parent
+// already traced — the sub-unit entry is simply dropped), and cross-file
+// edges that target another file's sub-unit (wikilinks like [[b#S1P3]] or
+// agent-added edges). For the cross-file case the parent inherits the
+// sub-unit's graph-derived trace — strongest Final wins across several
+// walked-in sub-units — so the file surfaces as the result row; rows on this
+// path never carry '#' ids.
+func mergeSubUnitTraces(fileBlend map[string]blendedTrace) {
+	for id, trace := range fileBlend {
+		parentID := fileIDFromSubUnit(id)
+
+		if parentID == id {
+			continue
+		}
+
+		delete(fileBlend, id)
+
+		// A parent with its own seed trace keeps it; a parent walked in with
+		// a weaker signal is upgraded to the strongest sub-unit trace.
+		if existing, exists := fileBlend[parentID]; exists {
+			if existing.Distance == 0 || existing.Final >= trace.Final {
+				continue
+			}
+		}
+
+		fileBlend[parentID] = trace
+	}
+}
+
+// clipUnitScore clamps a cosine to [0, 1], mirroring graphexpand's blender
+// clip so leaf-level blends stay comparable to file-level FinalScores.
+func clipUnitScore(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+
+	if value > 1 {
+		return 1
+	}
+
+	return value
+}
+
 // applyMinScore drops candidates scoring below minScore, returning the kept
 // slice and the count dropped. minScore <= 0 is a no-op. The filter reuses the
 // input's backing array in place (ranked[:0]) exactly as the two semantic
