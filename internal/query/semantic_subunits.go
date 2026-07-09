@@ -130,15 +130,69 @@ func runSemanticSubUnits(
 
 	ranked := filter.SemanticRank(candidates, queryVector)
 
-	// Graph expansion at the leaf level. The walker uses leaf ids as seeds;
-	// the default edge-types list includes `contains` so sub-unit edges
-	// naturally extend the seed set with sibling leaves and parent sections.
-	// The blender's FinalScore replaces the leaf's bare cosine for both
-	// MinScore filtering and the section-aggregation pass below.
-	ranked, blendedByID, blendErr := expandAndBlend(ctx, deps, req, ranked)
+	// Graph expansion runs at the FILE level: user-declared edges (wikilink,
+	// ref-derived, direct frontmatter) join file ids, so seeding the walker
+	// with `file#hash` leaf ids can never match them. The per-file blend is
+	// mapped back onto each leaf here — final = (1-w)*leaf_cosine +
+	// w*parent_file_graph_score — so MinScore filtering and the section
+	// aggregation below operate on blended scores; walked-in neighbor files
+	// (dist > 0 with no ranked leaves) surface as bare rows after the hit
+	// bucketing.
+	fileBlend, blendErr := expandAndBlendFileLevel(ctx, deps, req, ranked)
 
 	if blendErr != nil {
 		return nil, blendErr
+	}
+
+	var (
+		blendedByID           map[string]blendedTrace
+		filesWithRankedLeaves map[string]struct{}
+	)
+
+	if fileBlend != nil {
+		weight := req.GraphExpansion.Weight
+		blendedByID = make(map[string]blendedTrace, len(ranked))
+		filesWithRankedLeaves = make(map[string]struct{}, len(ranked))
+		kept := ranked[:0]
+
+		for _, leaf := range ranked {
+			fileID := fileIDFromSubUnit(leaf.NodeID)
+			trace, inPool := fileBlend[fileID]
+
+			if !inPool {
+				// The parent file fell outside the seed pool (take *
+				// candidate-multiplier) and was not walked in — the same
+				// truncation the file-level path applies to its rank tail.
+				continue
+			}
+
+			filesWithRankedLeaves[fileID] = struct{}{}
+
+			cosine := clipUnitScore(leaf.Score)
+
+			// Parity with the file-level path: a file outside the seed pool
+			// holds its position on graph merit alone — the walker zeroes
+			// non-seed cosines, so its leaves must not smuggle their cosine
+			// back into the blend (that would let rank-tail files leapfrog
+			// seeds and contradict the row's own FinalScore trace).
+			if trace.Distance > 0 {
+				cosine = 0
+			}
+
+			final := (1-weight)*cosine + weight*trace.Graph
+
+			leaf.Score = final
+			kept = append(kept, leaf)
+
+			blendedByID[leaf.NodeID] = blendedTrace{
+				Cosine:   cosine,
+				Graph:    trace.Graph,
+				Final:    final,
+				Distance: trace.Distance,
+			}
+		}
+
+		ranked = kept
 	}
 
 	// Apply MinScore at the leaf level so sections only aggregate over
@@ -290,6 +344,34 @@ func runSemanticSubUnits(
 		rememberHit(fileID, unit)
 	}
 
+	// Surface walked-in neighbor FILES (dist > 0) that produced no leaf hits
+	// of their own — nodes with no embeddings, or files outside the
+	// structural pre-filter — as bare rows scored by the file-level blend,
+	// mirroring the file-level path (spec §6.5). Sub-unit walk candidates
+	// were already folded onto their parent file by mergeSubUnitTraces.
+	for fileID, trace := range fileBlend {
+		if trace.Distance == 0 {
+			continue
+		}
+
+		if _, hasHits := hitsByFile[fileID]; hasHits {
+			continue
+		}
+
+		if req.MinScore > 0 && trace.Final < req.MinScore {
+			// A walked-in file whose ranked leaves were all MinScore-dropped
+			// was already counted per leaf by applyMinScore; counting its
+			// bare row again would overstate the recoverable hits.
+			if _, counted := filesWithRankedLeaves[fileID]; !counted {
+				filteredBelowMinScore++
+			}
+
+			continue
+		}
+
+		hitsByFile[fileID] = &fileHit{maxScore: trace.Final}
+	}
+
 	// Order files by max score, then by id for determinism. Files that
 	// have no hits drop out.
 	type fileEntry struct {
@@ -319,7 +401,25 @@ func runSemanticSubUnits(
 	scoredRows := make([]ScoredRow, 0, len(ordered))
 
 	for _, entry := range ordered {
-		meta := fileMeta[entry.fileID]
+		meta, hasMeta := fileMeta[entry.fileID]
+
+		// Walked-in neighbors may sit outside the structural pre-filter, so
+		// fileMeta has no row for them. Fall back to a lazy NodeRepo lookup
+		// (spec §6.5) so the rendered row still carries title/type/path,
+		// mirroring the file-level path's fallback.
+		if !hasMeta && fileBlend != nil {
+			nodeRow, getErr := nodes.Get(entry.fileID)
+
+			if getErr == nil && nodeRow != nil {
+				meta = Row{
+					ID:            nodeRow.ID,
+					Type:          nodeRow.Type,
+					Path:          nodeRow.Path,
+					Title:         nodeRow.Title,
+					PropertiesRaw: nodeRow.PropertiesJSON,
+				}
+			}
+		}
 
 		sort.SliceStable(entry.hit.matched, func(left, right int) bool {
 			if entry.hit.matched[left].Score != entry.hit.matched[right].Score {
@@ -378,6 +478,18 @@ func runSemanticSubUnits(
 			}
 
 			row.Properties = properties
+		}
+
+		// Row-level explain trace from the file-level blend: seeds carry
+		// their aggregated cosine at dist 0; walked-in neighbors show the
+		// hop distance and graph-derived score that admitted them.
+		if req.Explain && fileBlend != nil {
+			if trace, ok := fileBlend[entry.fileID]; ok {
+				row.CosineScore = trace.Cosine
+				row.GraphScore = trace.Graph
+				row.FinalScore = trace.Final
+				row.Distance = trace.Distance
+			}
 		}
 
 		row.MatchedUnits = entry.hit.matched
