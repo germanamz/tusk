@@ -126,6 +126,84 @@ func TestPropertyDriftRepo_CountAll(test *testing.T) {
 	}
 }
 
+func TestPropertyDriftRepo_ListRefKinds(test *testing.T) {
+	store, closer := newTestIndexForPropertyDrift(test)
+	defer closer()
+
+	repo := index.NewPropertyDriftRepo(store)
+
+	rows := []index.PropertyDriftRow{
+		{NodeID: "tickets/foo", NodeType: "ticket", Kind: "ref_dangling", Property: "assignee", ObservedAt: 1},
+		{NodeID: "tickets/foo", NodeType: "ticket", Kind: "undeclared-property", Property: "x", ObservedAt: 2},
+		{NodeID: "tickets/bar", NodeType: "ticket", Kind: "ref_ambiguous", Property: "epic", ObservedAt: 3},
+		{NodeID: "tickets/baz", NodeType: "ticket", Kind: "ref_type_mismatch", Property: "epic", ObservedAt: 4},
+		{NodeID: "tickets/qux", NodeType: "ticket", Kind: "ref_cycle", Property: "parent", ObservedAt: 5},
+		{NodeID: "tickets/quo", NodeType: "ticket", Kind: "type-mismatch", Property: "y", ObservedAt: 6},
+	}
+
+	for _, row := range rows {
+		if appendErr := repo.Append(row); appendErr != nil {
+			test.Fatalf("Append: %v", appendErr)
+		}
+	}
+
+	refRows, listErr := repo.ListRefKinds()
+
+	if listErr != nil {
+		test.Fatalf("ListRefKinds: %v", listErr)
+	}
+
+	if len(refRows) != 4 {
+		test.Fatalf("ListRefKinds returned %d rows, want the 4 ref kinds: %+v", len(refRows), refRows)
+	}
+
+	for _, row := range refRows {
+		if row.Kind == "undeclared-property" || row.Kind == "type-mismatch" {
+			test.Errorf("non-ref kind leaked into ListRefKinds: %+v", row)
+		}
+	}
+}
+
+func TestPropertyDriftRepo_ClearRefKindsForNode(test *testing.T) {
+	store, closer := newTestIndexForPropertyDrift(test)
+	defer closer()
+
+	repo := index.NewPropertyDriftRepo(store)
+
+	rows := []index.PropertyDriftRow{
+		{NodeID: "tickets/foo", NodeType: "ticket", Kind: "ref_dangling", Property: "assignee", ObservedAt: 1},
+		{NodeID: "tickets/foo", NodeType: "ticket", Kind: "ref_cycle", Property: "parent", ObservedAt: 2},
+		{NodeID: "tickets/foo", NodeType: "ticket", Kind: "undeclared-property", Property: "x", ObservedAt: 3},
+		{NodeID: "tickets/bar", NodeType: "ticket", Kind: "ref_dangling", Property: "assignee", ObservedAt: 4},
+	}
+
+	for _, row := range rows {
+		if appendErr := repo.Append(row); appendErr != nil {
+			test.Fatalf("Append: %v", appendErr)
+		}
+	}
+
+	if clearErr := repo.ClearRefKindsForNode("tickets/foo"); clearErr != nil {
+		test.Fatalf("ClearRefKindsForNode: %v", clearErr)
+	}
+
+	remaining, _ := repo.ListAll()
+
+	if len(remaining) != 2 {
+		test.Fatalf("remaining = %+v, want foo's undeclared-property and bar's ref_dangling", remaining)
+	}
+
+	for _, row := range remaining {
+		if row.NodeID == "tickets/foo" && row.Kind != "undeclared-property" {
+			test.Errorf("foo kept a ref kind: %+v", row)
+		}
+
+		if row.NodeID == "tickets/bar" && row.Kind != "ref_dangling" {
+			test.Errorf("bar's ref row was wrongly cleared: %+v", row)
+		}
+	}
+}
+
 func newTestIndexForPropertyDrift(test *testing.T) (*index.Index, func()) {
 	test.Helper()
 

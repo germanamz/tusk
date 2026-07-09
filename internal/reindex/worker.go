@@ -421,6 +421,12 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 				refResult := node.ResolveRefs(parsed, cfg.NodeTypes, refLookup)
 				refNow := time.Now().UnixNano()
 
+				// Clear-then-append: resolution just re-derived the node's ref
+				// errors from scratch, so stale rows (a ref that now resolves)
+				// must go even when unrelated property drift keeps the
+				// clean-pass ClearForNode above from firing.
+				_ = cfg.PropertyDrift.ClearRefKindsForNode(parsed.ID)
+
 				refErrorProps := map[string]struct{}{}
 
 				for _, refErr := range refResult.HardErrors {

@@ -55,8 +55,11 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 		// NOT drain them inline. The workflow/property validators (and their drift
 		// logs) run in the per-file drain, which here is RunReindexDrainer — and that
 		// path DOES set Behaviors/DriftLog/NodeTypes/PropertyDrift. So validation and
-		// doctor-drift upkeep happen for daemon-observed edits; adding those fields to
-		// this Async config would be dead weight (the inline drain never runs).
+		// doctor-drift upkeep happen for daemon-observed edits; those fields would be
+		// dead weight on this Async config (the inline drain never runs) — EXCEPT
+		// PropertyDrift, which the Async walk itself reads to hand recorded ref
+		// drift to the drainer for retry (issue #677: a deletion or unrelated edit
+		// must wake refs waiting on the changed node set).
 		config.Server.reindexMu.Lock()
 		_, runErr := reindex.Run(reindex.Config{
 			Root:            rt.Root,
@@ -70,6 +73,7 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 			Chunker:         rt.Chunker,
 			Meta:            rt.Meta,
 			FileStates:      rt.FileState,
+			PropertyDrift:   rt.PropertyDrift,
 			Logger:          config.Logger,
 			Async:           true,
 		})

@@ -89,6 +89,73 @@ func (repo *PropertyDriftRepo) ClearForNode(nodeID string) error {
 	return nil
 }
 
+// refDriftKinds are the drift kinds produced by ref resolution. They depend on
+// the state of OTHER nodes (a target appearing, an ambiguous candidate
+// vanishing), so unlike per-file validation drift they can become stale
+// without the drifted file itself changing; the reindex heal pass re-resolves
+// them after every sweep.
+var refDriftKinds = []string{"ref_dangling", "ref_ambiguous", "ref_type_mismatch", "ref_cycle"}
+
+// refKindsPlaceholders is the SQL "(?, ?, ...)" list matching refDriftKinds.
+const refKindsPlaceholders = "(?, ?, ?, ?)"
+
+func refKindsArgs(prefix ...any) []any {
+	args := prefix
+
+	for _, kind := range refDriftKinds {
+		args = append(args, kind)
+	}
+
+	return args
+}
+
+// ListRefKinds returns every drift row whose kind came from ref resolution,
+// sorted like ListAll. The reindex heal pass re-enqueues these rows' files.
+func (repo *PropertyDriftRepo) ListRefKinds() ([]PropertyDriftRow, error) {
+	rows, queryErr := repo.db.Query(`
+		SELECT node_id, node_type, kind, property, details, observed_at
+		FROM property_drift
+		WHERE kind IN `+refKindsPlaceholders+`
+		ORDER BY node_id, kind, property
+	`, refKindsArgs()...)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("propertyDriftRepo: list ref kinds: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var results []PropertyDriftRow
+
+	for rows.Next() {
+		var row PropertyDriftRow
+
+		if scanErr := rows.Scan(&row.NodeID, &row.NodeType, &row.Kind, &row.Property, &row.Details, &row.ObservedAt); scanErr != nil {
+			return nil, fmt.Errorf("propertyDriftRepo: scan ref kinds: %w", scanErr)
+		}
+
+		results = append(results, row)
+	}
+
+	return results, rows.Err()
+}
+
+// ClearRefKindsForNode removes nodeID's ref-resolution drift rows, leaving
+// other kinds (undeclared-property, type-mismatch, ...) untouched. Ref
+// resolution clears-then-appends via this so a healed ref drops its row even
+// while unrelated drift keeps the full ClearForNode from firing.
+func (repo *PropertyDriftRepo) ClearRefKindsForNode(nodeID string) error {
+	_, execErr := repo.db.Exec(
+		`DELETE FROM property_drift WHERE node_id = ? AND kind IN `+refKindsPlaceholders,
+		refKindsArgs(nodeID)...)
+
+	if execErr != nil {
+		return fmt.Errorf("propertyDriftRepo: clear ref kinds %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
 // CountAll returns the total number of drift rows. Used by reindex's
 // summary line.
 func (repo *PropertyDriftRepo) CountAll() (int, error) {

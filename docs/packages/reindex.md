@@ -13,8 +13,9 @@ Walks the workspace tree, parses every markdown file, validates against the mani
 
 - `Run(ctx, Config) (*Report, error)` — single entry point.
 - `Config` — repos, manifest, behaviors, optional drainer hookup.
-- `Report` — `Indexed`, `Removed`, `Skipped`, `WorkflowViolations`, `PropertyViolations`, `RefDangling`, `RefAmbiguous`, `RefTypeMismatch`, `RefCycle`.
+- `Report` — `Indexed`, `Removed`, `Skipped`, `WorkflowViolations`, `PropertyViolations`, `RefDangling`, `RefAmbiguous`, `RefTypeMismatch`, `RefCycle`, `RefHealed`.
+- `HealRefDrift(ctx, WorkerConfig) (HealReport, error)` — re-resolves recorded ref drift after a sweep; the MCP drainer calls it after productive ticks.
 
 ## Notes
 
-Cross-tree title-based ref resolution (a plan referencing a spec via bare title) requires **two reindex passes**: the first populates the spec table; the second resolves the plan's ref. Single-pass reindex leaves stale `ref_dangling` drift on plans whose target isn't yet in the DB. Symptom encountered during the workspace bootstrap migration. Worth a follow-up to either two-pass internally or topologically sort the walk by node type.
+Ref resolution runs per file against the live index, so a file processed before its target has a node row records `ref_dangling` drift instead of an edge. The **ref-drift heal pass** makes this converge: after the sweep's drain, `Run` re-enqueues the file behind every ref-kind drift row and drains once more — by then every live file has a node row, so refs that dangled only for ordering reasons (fresh index) or because their target was created after the referencing file was last indexed resolve, write their edges, and clear their drift. Genuinely broken refs re-record drift and stay in the report. Async walks instead enqueue the drifted files for the background drainer, which heals after any tick that indexed something. Report ref counters reflect the post-heal end state of the pass.

@@ -335,6 +335,7 @@ func (srv *Server) siblingReopen(ctx context.Context, lockTTL time.Duration) err
 			EmbedQueue:      fresh.EmbedQueue,
 			Meta:            fresh.Meta,
 			FileStates:      fresh.FileState,
+			PropertyDrift:   fresh.PropertyDrift,
 			Workers:         fresh.Workers,
 			Async:           true,
 		}); runErr != nil {
