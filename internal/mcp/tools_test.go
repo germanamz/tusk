@@ -1216,6 +1216,82 @@ func TestTool_Reindex(test *testing.T) {
 	}
 }
 
+// TestTool_Reindex_ResolvesForwardRefs pins issue #677 on the MCP path: the
+// tool drains inline, so its config must carry NodeTypes/PropertyDrift for
+// ref resolution — and the heal pass — to run at all. The referencing file
+// sorts before its target ("aref/" < "zref/"), so without the heal the ref
+// would dangle on a fresh index.
+func TestTool_Reindex_ResolvesForwardRefs(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "assignee", type = "ref", to = "person" },
+]
+`), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	for path, content := range map[string]string{
+		"aref/auth.md":  "---\ntype: ticket\ntitle: Auth\nassignee: alice\n---\n\nbody\n",
+		"zref/alice.md": "---\ntype: person\ntitle: alice\nname: Alice\n---\n\nbio\n",
+	} {
+		if mkErr := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755); mkErr != nil {
+			test.Fatalf("mkdir: %v", mkErr)
+		}
+
+		if writeErr := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); writeErr != nil {
+			test.Fatalf("write %s: %v", path, writeErr)
+		}
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_reindex", map[string]any{"no_embed": true})
+
+	if callErr != nil {
+		test.Fatalf("tusk_reindex: %v", callErr)
+	}
+
+	if _, hasHealed := body["ref_healed"]; !hasHealed {
+		test.Errorf("reindex result missing ref_healed: %v", body)
+	}
+
+	edges, edgesErr := callTool(test, srv, "tusk_edge_list", map[string]any{"to": "zref/alice"})
+
+	if edgesErr != nil {
+		test.Fatalf("tusk_edge_list: %v", edgesErr)
+	}
+
+	results := edges["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("edges to zref/alice = %v, want the healed assignee edge", edges)
+	}
+
+	edge := results[0].(map[string]any)
+
+	if edge["source_id"] != "aref/auth" || edge["type"] != "assignee" {
+		test.Errorf("edge = %v, want aref/auth -[assignee]-> zref/alice", edge)
+	}
+}
+
 func TestTool_PackAdd(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

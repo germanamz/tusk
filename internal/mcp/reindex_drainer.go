@@ -44,7 +44,7 @@ func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 				gen, _ = strconv.ParseInt(stored, 10, 64)
 			}
 
-			report, drainErr := reindex.DrainReindexQueue(ctx, reindex.WorkerConfig{
+			workerCfg := reindex.WorkerConfig{
 				Root:          rt.Root,
 				Repo:          rt.Nodes,
 				Edges:         rt.Edges,
@@ -61,7 +61,9 @@ func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 				TTL:           rt.LeaseTTL,
 				WorkerID:      rt.WorkerID,
 				Generation:    gen,
-			})
+			}
+
+			report, drainErr := reindex.DrainReindexQueue(ctx, workerCfg)
 
 			if drainErr != nil && config.Logger != nil {
 				config.Logger.Warn("reindex drainer error", "err", drainErr)
@@ -72,6 +74,24 @@ func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 					"indexed", report.Indexed,
 					"skipped", report.Skipped,
 				)
+			}
+
+			// A productive tick may have added the node a recorded ref-drift
+			// row was waiting for; retry those rows now. Idle ticks skip the
+			// heal so genuinely broken refs don't re-process every interval.
+			if report.Indexed > 0 {
+				healReport, healErr := reindex.HealRefDrift(ctx, workerCfg)
+
+				if healErr != nil && config.Logger != nil {
+					config.Logger.Warn("reindex drainer heal error", "err", healErr)
+				}
+
+				if healReport.Healed > 0 && config.Logger != nil {
+					config.Logger.Info("reindex drainer ref heal",
+						"attempted", healReport.Attempted,
+						"healed", healReport.Healed,
+					)
+				}
 			}
 		}
 	}

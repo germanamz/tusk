@@ -1272,6 +1272,11 @@ func registerReindexTool(srv *Server) {
 
 		rt := srv.snapshotRuntime() // run the (long) reindex off the read-lock
 
+		// Unlike the Async walks (watch, reload), this tool drains inline, so
+		// its config must carry the full per-file set — validators, drift
+		// repos, manifest — or the rows it claims are processed with weaker
+		// semantics than the background drainer's (no ref resolution, no
+		// sub-unit sync) and recorded ref drift is never retried.
 		config := reindex.Config{
 			Root:            rt.Root,
 			Repo:            rt.Nodes,
@@ -1282,6 +1287,11 @@ func registerReindexTool(srv *Server) {
 			Meta:            rt.Meta,
 			FileStates:      rt.FileState,
 			Workers:         rt.Workers,
+			Manifest:        rt.Manifest,
+			Behaviors:       rt.BehaviorEngine,
+			DriftLog:        rt.WorkflowDrift,
+			NodeTypes:       rt.Manifest.NodeTypes,
+			PropertyDrift:   rt.PropertyDrift,
 		}
 
 		if !noEmbed && rt.Embedder != nil {
@@ -1297,9 +1307,10 @@ func registerReindexTool(srv *Server) {
 		}
 
 		result := map[string]any{
-			"indexed": report.Indexed,
-			"removed": report.Removed,
-			"skipped": report.Skipped,
+			"indexed":    report.Indexed,
+			"removed":    report.Removed,
+			"skipped":    report.Skipped,
+			"ref_healed": report.RefHealed,
 		}
 
 		// Surface remaining embed work so the agent can see embeddings are
@@ -1403,6 +1414,7 @@ func registerResetTool(srv *Server) {
 			EmbedQueue:      fresh.EmbedQueue,
 			Meta:            fresh.Meta,
 			FileStates:      fresh.FileState,
+			PropertyDrift:   fresh.PropertyDrift,
 			Workers:         fresh.Workers,
 			Async:           true,
 		})

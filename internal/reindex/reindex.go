@@ -166,6 +166,7 @@ type Report struct {
 	RefAmbiguous       int // number of ref_ambiguous issues surfaced
 	RefTypeMismatch    int // number of ref_type_mismatch issues surfaced
 	RefCycle           int // number of ref_cycle issues surfaced
+	RefHealed          int // number of previously drifted refs that resolved in this pass's heal step
 
 	// Sub-unit pipeline counters (Plan 2 Task 3). All zero when the
 	// workspace's `sub-units` flag is false or when Config.Manifest is
@@ -478,7 +479,16 @@ func Run(config Config) (*Report, error) {
 		}
 	}
 
-	if !config.Async {
+	if config.Async {
+		// The background drainer owns the queue; hand it the files behind any
+		// recorded ref drift so their refs are re-resolved against the node
+		// set this walk just refreshed (see HealRefDrift for the sync twin).
+		if config.PropertyDrift != nil && config.Repo != nil {
+			if _, enqErr := enqueueRefDrift(config.PropertyDrift, config.Repo, config.EmbedQueue); enqErr != nil {
+				return nil, enqErr
+			}
+		}
+	} else {
 		if config.Workers <= 0 {
 			if config.Logger != nil {
 				config.Logger.Info("reindex: workers=0; sync drain skipped, queue retained",
@@ -488,7 +498,7 @@ func Run(config Config) (*Report, error) {
 			}
 		}
 
-		drainReport, drainErr := DrainReindexQueue(context.Background(), WorkerConfig{
+		workerCfg := WorkerConfig{
 			Root:          config.Root,
 			Repo:          config.Repo,
 			Edges:         config.Edges,
@@ -505,13 +515,42 @@ func Run(config Config) (*Report, error) {
 			TTL:           leaseTTL,
 			WorkerID:      workerID,
 			Generation:    gen,
-		})
+		}
+
+		drainReport, drainErr := DrainReindexQueue(context.Background(), workerCfg)
 
 		if drainErr != nil {
 			return nil, fmt.Errorf("reindex: drain reindex queue: %w", drainErr)
 		}
 
 		report.mergeDrain(drainReport)
+
+		healReport, healErr := HealRefDrift(context.Background(), workerCfg)
+
+		if healErr != nil {
+			return nil, healErr
+		}
+
+		if healReport.Attempted > 0 {
+			// The heal retried every file that had ref drift — carried-over
+			// rows included — so the drift rows still standing after it ARE
+			// the pass's end state; the sweep's counts of since-healed refs
+			// are stale. (Standing rows, not this drain's counters: a sibling
+			// drainer may have claimed the heal's queue rows.)
+			report.RefHealed = healReport.Healed
+			report.RefDangling = healReport.RemainingDangling
+			report.RefAmbiguous = healReport.RemainingAmbiguous
+			report.RefTypeMismatch = healReport.RemainingTypeMismatch
+			report.RefCycle = healReport.RemainingCycle
+
+			if config.Logger != nil {
+				config.Logger.Info("reindex: ref drift heal",
+					"attempted", healReport.Attempted,
+					"healed", healReport.Healed,
+					"generation", gen,
+				)
+			}
+		}
 	}
 
 	if config.Embedder != nil && config.Workers > 0 {
