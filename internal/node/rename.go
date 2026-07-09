@@ -1,11 +1,13 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -191,13 +193,20 @@ func Rename(
 
 	newHash := sha256Hex(srcBytes)
 
+	// MtimeNs is deliberately NOT the on-disk mtime: the moved file's
+	// sub-unit rows are dropped with the old id below (DeleteByPath), and
+	// only a re-parse rebuilds them under the new id. The incremental
+	// reindex walk skips files whose recorded mtime+size match disk, so
+	// recording the real mtime here would leave the moved file without
+	// sub-units until its content next changes. A zero mtime guarantees
+	// the next pass re-observes it.
 	if releaseErr := fileState.Release(index.ReleaseContext{
 		Path:        newRelPath,
 		WorkerID:    workerID,
 		Success:     true,
 		State:       index.FileStateLive,
 		ContentHash: newHash,
-		MtimeNs:     dstStat.ModTime().UnixNano(),
+		MtimeNs:     0,
 		Size:        dstStat.Size(),
 	}); releaseErr != nil {
 		return nil, fmt.Errorf("node: rename: release destination %s: %w", newRelPath, releaseErr)
@@ -215,20 +224,50 @@ func Rename(
 		return nil, fmt.Errorf("node: rename: release source %s: %w", oldPath, releaseErr)
 	}
 
-	referring, listErr := edgeRepo.ListByTarget(oldID)
+	referring, listErr := edgeRepo.ListByTargetOrSubUnits(oldID)
 
 	if listErr != nil {
 		return nil, listErr
 	}
 
-	affectedFiles := uniqueSourcePaths(referring)
+	// Structural rows — the moved file's own `contains` edges to its
+	// sub-units — never carry rewritable text; without this filter the
+	// moved file would count itself as a referrer.
+	contentReferring := referring[:0:0]
+
+	for _, edge := range referring {
+		if edge.Kind != "structural" {
+			contentReferring = append(contentReferring, edge)
+		}
+	}
+
+	affectedFiles := uniqueSourcePaths(contentReferring)
+
+	// A self-referencing note records oldPath as its edge's source_path,
+	// but the file already lives at the new path by this point.
+	currentPath := func(sourceFile string) string {
+		if sourceFile == oldPath {
+			return newRelPath
+		}
+
+		return sourceFile
+	}
 
 	for _, sourceFile := range affectedFiles {
-		absSource := filepath.Join(root, sourceFile)
+		absSource := filepath.Join(root, currentPath(sourceFile))
 
 		if rewriteErr := rewriteEdgeReferences(absSource, oldID, newID, edgeTypes); rewriteErr != nil {
 			return nil, rewriteErr
 		}
+	}
+
+	// Capture the outgoing edges BEFORE the node rows go away: DeleteByPath
+	// cascades every edge sourced from the file (and from its sub-units),
+	// so listing afterwards would find nothing to re-base.
+	outgoing, listOutErr := edgeRepo.ListBySource(oldID)
+
+	if listOutErr != nil {
+		return nil, listOutErr
 	}
 
 	// Update node index: delete-old → insert-new (NodeRepo.Upsert is keyed on
@@ -245,17 +284,18 @@ func Rename(
 		return nil, upsertErr
 	}
 
-	// Re-base outgoing edges of the renamed node from oldID/oldPath to
-	// newID/newRelPath.
-	outgoing, listOutErr := edgeRepo.ListBySource(oldID)
-
-	if listOutErr != nil {
-		return nil, listOutErr
-	}
-
 	rebased := make([]index.EdgeRow, 0, len(outgoing))
 
 	for _, edge := range outgoing {
+		// Structural contains edges stay behind: their sub-unit target
+		// rows were dropped with the old path and only the next re-parse
+		// recreates them (the destination file_state is released with a
+		// stale mtime for exactly that reason) — a re-based contains edge
+		// would dangle at a not-yet-existing sub-unit id until then.
+		if edge.Kind == "structural" {
+			continue
+		}
+
 		rebased = append(rebased, index.EdgeRow{
 			Type:       edge.Type,
 			SourceID:   newID,
@@ -274,16 +314,30 @@ func Rename(
 		return nil, deleteOldEdgesErr
 	}
 
-	// Re-derive each affected file's edges from its (now-rewritten) frontmatter
-	// so the index reflects the new target id.
+	// Retarget every remaining incoming edge in one statement — including
+	// rows sourced from other files' sub-units and rows targeting the moved
+	// file's sub-unit ids. The per-file re-derive below replaces file-level
+	// rows only, so without this the sub-unit-sourced rows would keep the
+	// old target until their file's next re-parse.
+	if retargetErr := edgeRepo.RetargetEdges(oldID, newID); retargetErr != nil {
+		return nil, retargetErr
+	}
+
+	// Re-derive each affected file's file-level edges from its rewritten
+	// content — frontmatter refs and body wikilinks alike — so the index
+	// reflects the new target id.
 	for _, sourceFile := range affectedFiles {
-		content, readErr := os.ReadFile(filepath.Join(root, sourceFile))
+		relPath := currentPath(sourceFile)
+		content, readErr := os.ReadFile(filepath.Join(root, relPath))
 
 		if readErr != nil {
-			return nil, fmt.Errorf("node: re-read %s: %w", sourceFile, readErr)
+			return nil, fmt.Errorf("node: re-read %s: %w", relPath, readErr)
 		}
 
-		parsed, parseErr := ParseFile(sourceFile, content)
+		// ParseContentFile dispatches markdown vs HTML the same way the
+		// reindex worker does — an HTML referrer has no frontmatter and
+		// would abort the whole rename through plain ParseFile.
+		parsed, parseErr := ParseContentFile(relPath, content)
 
 		if parseErr != nil {
 			return nil, parseErr
@@ -293,9 +347,25 @@ func Rename(
 			return nil, resolveErr
 		}
 
+		// The reindex worker materializes body wikilinks and HTML links
+		// into edges after resolving frontmatter refs; mirror it here or
+		// the re-derive would erase every link-sourced file-level edge of
+		// the referrer.
+		MaterializeWikilinks(parsed, edgeTypes)
+		MaterializeHTMLLinks(parsed, edgeTypes)
+
 		if upsertErr := edgeRepo.UpsertAll(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
+	}
+
+	// Report where each touched file lives now — for a self-referencing
+	// note the recorded source_path is the old, no-longer-existing path.
+	// Stays nil when no files were touched (the MCP envelope pins null).
+	var reportedFiles []string
+
+	for _, sourceFile := range affectedFiles {
+		reportedFiles = append(reportedFiles, currentPath(sourceFile))
 	}
 
 	return &RenamePlan{
@@ -303,7 +373,7 @@ func Rename(
 		NewID:         newID,
 		OldPath:       oldPath,
 		NewPath:       newRelPath,
-		AffectedFiles: affectedFiles,
+		AffectedFiles: reportedFiles,
 	}, nil
 }
 
@@ -358,9 +428,10 @@ func uniqueSourcePaths(edges []index.EdgeRow) []string {
 	return ordered
 }
 
-// rewriteEdgeReferences reads the YAML frontmatter at absPath, replaces every
+// rewriteEdgeReferences reads the file at absPath, replaces every frontmatter
 // scalar / sequence value matching oldID under any declared edge-type key with
-// newID, and writes the file back atomically.
+// newID, rewrites body [[wikilinks]] targeting oldID, and writes the file back
+// atomically.
 func rewriteEdgeReferences(absPath, oldID, newID string, edgeTypes manifest.EdgeTypes) error {
 	content, readErr := os.ReadFile(absPath)
 
@@ -369,12 +440,70 @@ func rewriteEdgeReferences(absPath, oldID, newID string, edgeTypes manifest.Edge
 	}
 
 	rewritten := rewriteFrontmatterEdgeValues(content, oldID, newID, edgeTypes)
+	rewritten = rewriteBodyWikilinks(rewritten, oldID, newID)
+
+	// Skip the write when nothing changed (e.g. an HTML referrer whose
+	// <a href> links are not rewritten) — a byte-identical rewrite would
+	// still bump the mtime and wake the watcher for nothing.
+	if bytes.Equal(rewritten, content) {
+		return nil
+	}
 
 	if writeErr := os.WriteFile(absPath, rewritten, 0o644); writeErr != nil {
 		return fmt.Errorf("node: write %s: %w", absPath, writeErr)
 	}
 
 	return nil
+}
+
+// rewriteBodyWikilinks replaces `[[oldID]]` (and sub-unit deep links,
+// `[[oldID#S1]]`) with the same link under newID in the markdown body — the
+// region after the closing frontmatter delimiter. Fenced code blocks are
+// rewritten too: file-level extraction skips fences, but the sub-unit
+// pipeline derives edges from code-block content (fence markers are absent
+// from unit text), so a `[[oldID]]` left inside a fence would flip the
+// code-block and enclosing-section edges back to the dead id on the next
+// re-parse.
+func rewriteBodyWikilinks(content []byte, oldID, newID string) []byte {
+	offset := bodyOffset(content)
+	pattern := regexp.MustCompile(`\[\[\s*` + regexp.QuoteMeta(oldID) + `(#[^\[\]|]*)?\s*\]\]`)
+
+	// ReplaceAllFunc rather than a $1 template: ids come from user paths,
+	// so newID must be inserted verbatim, never expanded.
+	replaceLink := func(match []byte) []byte {
+		suffix := pattern.FindSubmatch(match)[1]
+
+		return []byte("[[" + newID + string(suffix) + "]]")
+	}
+
+	var out bytes.Buffer
+
+	out.Write(content[:offset])
+	out.Write(pattern.ReplaceAllFunc(content[offset:], replaceLink))
+
+	return out.Bytes()
+}
+
+// bodyOffset returns the byte offset where the markdown body begins: just
+// past the closing frontmatter delimiter when the content carries a
+// frontmatter block, else 0. Mirrors splitFrontmatter's delimiter handling
+// without reassembling the content.
+func bodyOffset(content []byte) int {
+	trimmed := bytes.TrimLeft(content, " \t\r\n")
+	lead := len(content) - len(trimmed)
+
+	if !bytes.HasPrefix(trimmed, frontmatterDelimiter) {
+		return 0
+	}
+
+	afterOpen := trimmed[len(frontmatterDelimiter):]
+	closingIndex := bytes.Index(afterOpen, append([]byte("\n"), frontmatterDelimiter...))
+
+	if closingIndex < 0 {
+		return 0
+	}
+
+	return lead + len(frontmatterDelimiter) + closingIndex + len("\n") + len(frontmatterDelimiter)
 }
 
 // rewriteFrontmatterEdgeValues is a line-oriented rewriter. It only touches
@@ -440,8 +569,8 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 			continue
 		}
 
-		if matchesEdgeTarget(trimmedValue, oldID) {
-			lines[lineIdx] = line[:colonIdx+1] + " " + yamlQuoteString(newID)
+		if retargeted, matched := retargetEdgeValue(trimmedValue, oldID, newID); matched {
+			lines[lineIdx] = line[:colonIdx+1] + " " + yamlQuoteString(retargeted)
 
 			continue
 		}
@@ -451,8 +580,8 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 			parts := strings.Split(inner, ",")
 
 			for partIdx, part := range parts {
-				if matchesEdgeTarget(strings.TrimSpace(part), oldID) {
-					parts[partIdx] = " " + newID
+				if retargeted, matched := retargetEdgeValue(strings.TrimSpace(part), oldID, newID); matched {
+					parts[partIdx] = " " + retargeted
 				}
 			}
 
@@ -463,6 +592,24 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 	return []byte(strings.Join(lines, "\n"))
 }
 
+// retargetEdgeValue returns the rewritten frontmatter value when value — plain
+// or quoted — refers to oldID or to a sub-unit id under it ("<oldID>#..."),
+// preserving the sub-unit suffix. The second return reports whether the value
+// matched.
+func retargetEdgeValue(value, oldID, newID string) (string, bool) {
+	unquoted := yamlUnquoteString(value)
+
+	if unquoted == oldID {
+		return newID, true
+	}
+
+	if strings.HasPrefix(unquoted, oldID+"#") {
+		return newID + unquoted[len(oldID):], true
+	}
+
+	return "", false
+}
+
 // isSequenceItem reports whether line is a YAML block-sequence item ("- value"),
 // ignoring leading indentation.
 func isSequenceItem(line string) bool {
@@ -471,8 +618,8 @@ func isSequenceItem(line string) bool {
 	return trimmed == "-" || strings.HasPrefix(trimmed, "- ")
 }
 
-// rewriteSequenceItem replaces a block-sequence item's value with newID when it
-// refers to oldID, preserving the line's indentation and dash.
+// rewriteSequenceItem replaces a block-sequence item's value when it refers to
+// oldID (or a sub-unit id under it), preserving the line's indentation and dash.
 func rewriteSequenceItem(line, oldID, newID string) string {
 	dashIdx := strings.IndexByte(line, '-')
 
@@ -481,18 +628,13 @@ func rewriteSequenceItem(line, oldID, newID string) string {
 	}
 
 	itemValue := strings.TrimSpace(line[dashIdx+1:])
+	retargeted, matched := retargetEdgeValue(itemValue, oldID, newID)
 
-	if !matchesEdgeTarget(itemValue, oldID) {
+	if !matched {
 		return line
 	}
 
-	return line[:dashIdx+1] + " " + yamlQuoteString(newID)
-}
-
-// matchesEdgeTarget reports whether a frontmatter value — plain or
-// YAML-double-quoted as the writer emits — refers to id.
-func matchesEdgeTarget(value, id string) bool {
-	return yamlUnquoteString(value) == id
+	return line[:dashIdx+1] + " " + yamlQuoteString(retargeted)
 }
 
 // yamlUnquoteString reverses the quoting a frontmatter edge value can carry:

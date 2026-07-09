@@ -15,8 +15,9 @@ import (
 // file. It diffs the new hash set against the existing sub-unit rows for
 // the file, inserts the new ones, deletes the missing ones, updates the
 // ordinal on units that moved, re-derives outbound wikilink edges for
-// inserted units, replaces the file's `contains` edges, and enqueues
-// embedding work for inserted leaves.
+// inserted and content-changed units, replaces the file's `contains`
+// edges, and enqueues embedding work for inserted or content-changed
+// leaves.
 //
 // All four repositories are required; the manifest is required so the
 // sync can discover which edge types opt into wikilinks. Logger is
@@ -178,10 +179,13 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 
 		// The address still resolves but ordinal and/or content moved.
 		// Upsert the row (new ordinal/content_hash); when the content
-		// changed, re-derive edges and re-enqueue the embed for leaves.
+		// changed, re-derive edges (all kinds — a unit's edge set derives
+		// from the same Text its content hash covers, so a hash turnover
+		// is exactly an edge-set turnover) and re-enqueue the embed for
+		// leaves (the enqueue loop below skips sections itself).
 		reorderRows = append(reorderRows, row)
 
-		if !sameContent && unit.Kind != KindSection {
+		if !sameContent {
 			insertedUnits = append(insertedUnits, unit)
 		}
 	}

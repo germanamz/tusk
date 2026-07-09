@@ -6,9 +6,12 @@ package subunit
 // for leaves that did not pre-set one — the per-kind leaf address from ctx.
 //
 // It is shared by the markdown walker (internal/subunit) and the HTML walker
-// (internal/htmlunit) so their finalization stays byte-identical: ContentHashFor
-// feeds the content-addressed dedup, so any drift between the two parsers would
-// split or collide vectors. ordinal is the unit's position in the output slice
+// (internal/htmlunit) so LEAF finalization stays byte-identical: leaf
+// ContentHashFor feeds the content-addressed vector dedup, so any drift
+// between the two parsers would split or collide vectors. Sections are never
+// embedded and their Text differs by walker (markdown supplies the full
+// subtree, HTML the heading only), so section hashes carry no cross-format
+// contract. ordinal is the unit's position in the output slice
 // (its slice index before appending); ctx supplies the section stack and the
 // per-kind leaf-address counters (LeafAddress mutates those counters, so this
 // must be called exactly once per emitted unit, in document order).

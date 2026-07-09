@@ -48,9 +48,14 @@ structural address:
 
 ## Notes
 
-- Content-addressing matches `subunit`: leaf `ContentHash` is
-  `sha256(EmbedPayload)`; section `ContentHash` is
-  `sha256("section\x00<level>\x00<heading-text>")`. Byte-identical
-  payloads reuse vectors; positional shifts keep the hash.
+- Content-addressing matches `subunit` for leaves: leaf `ContentHash` is
+  `sha256(EmbedPayload)`. Byte-identical payloads reuse vectors; positional
+  shifts keep the hash. Section `ContentHash` is
+  `sha256("section\x00<level>\x00<heading-text>")` here — heading-only,
+  because the HTML walker sets a section's `Text` to the heading element's
+  text (body blocks are DOM siblings). The markdown walker hashes the full
+  subtree instead; sections are never embedded, so the divergence carries no
+  vector cost, and HTML section edges derive from the same heading-only text,
+  keeping hash and edge set in lockstep on this path too.
 - Dead code as of Phase 1 — wired into the reindex pipeline in later
   phases. No pipeline, no index, no flag dependency here.
