@@ -543,6 +543,45 @@ func (rec *errRecorder) firstErr() error {
 	return rec.first
 }
 
+// reindexOnBoot runs one reindex pass at daemon startup so an upgraded binary
+// heals a pre-upgrade index — mcp.Open opens a healthy index WITHOUT reindexing
+// (indexopen rebuilds only on a schema mismatch), and the file watcher reacts to
+// events, not to what is already on disk, so nothing else runs reindex.Run's
+// edge-derivation marker check at boot. That check forces a full re-derivation
+// when the stored marker predates this build; on a current index it is a cheap
+// incremental walk, which also picks up edits made while the daemon was down.
+//
+// Async mirrors the file watcher and the recreator path: this pass only walks
+// and enqueues — the reindex drainer (started by RunBackground alongside it)
+// re-derives edges off the queue. The config matches RunWatcher's so boot and
+// per-event passes stay identical, including handing recorded ref drift to the
+// drainer for retry (#677).
+func (srv *Server) reindexOnBoot(logger *slog.Logger) error {
+	rt := srv.snapshotRuntime()
+
+	srv.reindexMu.Lock()
+	defer srv.reindexMu.Unlock()
+
+	_, runErr := reindex.Run(reindex.Config{
+		Root:            rt.Root,
+		Repo:            rt.Nodes,
+		Edges:           rt.Edges,
+		EdgeTypes:       rt.Manifest.EdgeTypes,
+		WorkspaceIgnore: rt.Manifest.Workspace.Ignore,
+		EmbedQueue:      rt.EmbedQueue,
+		EmbeddingRepo:   rt.Embeddings,
+		Embedder:        rt.Embedder,
+		Chunker:         rt.Chunker,
+		Meta:            rt.Meta,
+		FileStates:      rt.FileState,
+		PropertyDrift:   rt.PropertyDrift,
+		Logger:          logger,
+		Async:           true,
+	})
+
+	return runErr
+}
+
 // RunBackground starts the background goroutines for this daemon. The two
 // drainers and the file watcher are gated on runtime.Workers > 0 (they produce
 // and consume reindex work). The two epoch-watcher pairs (index + manifest)
@@ -564,6 +603,17 @@ func (srv *Server) RunBackground(ctx context.Context) error {
 
 	// Resource-heavy passes — drainers + file watcher — require workers.
 	if workers > 0 {
+		// Heal a pre-upgrade index at boot (#681-5): reindex.Run's
+		// edge-derivation marker check fires here, not only on the first
+		// filesystem event, so an upgraded binary re-derives fossil edges (and
+		// picks up any content that changed while the daemon was down) without a
+		// manual step — parity with `tusk watch`, which reindexes at boot. Errors
+		// are logged, not fatal: a transient failure self-heals on the next event
+		// and the drainers/watcher must still start.
+		if bootErr := srv.reindexOnBoot(logger); bootErr != nil && logger != nil {
+			logger.Warn("boot reindex failed; index will heal on the next file event", "err", bootErr)
+		}
+
 		waitGroup.Add(3)
 
 		go func() {
