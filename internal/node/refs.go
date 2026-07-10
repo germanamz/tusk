@@ -167,6 +167,38 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 	return result
 }
 
+// resolveRefEdges resolves parsed's ref-typed properties against lookup and
+// folds the outcome into parsed.Edges: a property that hits a hard error is
+// dropped (its raw value must never persist as an edge target), and a property
+// that resolves has its edge targets replaced with the resolved node ids. This
+// is the drop-on-error / replace-on-success contract every re-derive path
+// shares (reindex worker, edge-write reindex, rename). lookup nil, or a type
+// with no ref properties, leaves parsed.Edges untouched. The RefResolutionResult
+// is returned so callers that persist ref drift can read its HardErrors.
+func resolveRefEdges(parsed *Node, decls map[string]manifest.NodeType, lookup RefLookup) RefResolutionResult {
+	if lookup == nil {
+		return RefResolutionResult{}
+	}
+
+	refResult := ResolveRefs(parsed, decls, lookup)
+
+	for _, refErr := range refResult.HardErrors {
+		delete(parsed.Edges, refErr.Property)
+	}
+
+	resolvedByProp := map[string][]string{}
+
+	for _, edge := range refResult.Edges {
+		resolvedByProp[edge.EdgeType] = appendUnique(resolvedByProp[edge.EdgeType], edge.TargetID)
+	}
+
+	for propName, targets := range resolvedByProp {
+		parsed.Edges[propName] = targets
+	}
+
+	return refResult
+}
+
 // resolveOneValue resolves a single string value for a ref property.
 // Returns a RefEdge on success, a RefError on failure, or (nil, nil) when the
 // value is empty (skip).

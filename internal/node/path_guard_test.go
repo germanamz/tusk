@@ -64,7 +64,7 @@ func TestRename_RejectsPathEscapingVault(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, "notes/a", "../escape",
+		manifest.EdgeTypes{}, nil, nil, "notes/a", "../escape",
 	); renameErr == nil {
 		test.Errorf("Rename to a traversal path = nil error, want rejection")
 	}

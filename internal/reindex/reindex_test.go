@@ -2621,7 +2621,7 @@ func TestRun_AfterRename_ConvergesSubUnitEdges(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, repo, edgeRepo, index.NewFileStateRepo(store),
-		"test-worker", time.Minute, edgeTypes, nil,
+		"test-worker", time.Minute, edgeTypes, nil, nil,
 		"notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)

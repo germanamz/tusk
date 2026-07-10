@@ -53,6 +53,7 @@ state.`,
 				leaseconfig.Resolve(loaded.Lease.TTLSeconds),
 				loaded.EdgeTypes,
 				loaded.NodeTypes,
+				index.NewPropertyDriftRepo(store),
 				args[0],
 				args[1],
 			)

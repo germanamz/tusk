@@ -73,6 +73,48 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 	return nil
 }
 
+// UpsertContentEdges replaces a source's file-level content edges — those with
+// kind IN ('direct','derived') — while leaving its kind='structural' rows
+// untouched. Structural `contains` edges are written by a different pipeline
+// (internal/subunit) that no re-derive re-supplies, so the blanket
+// (source_id, source_path) delete UpsertAll performs would drop them for good
+// on any path that re-derives a file's content edges without re-running the
+// sub-unit sync (rename's referrer re-derive, #680). The replacement is
+// transactional, mirroring UpsertAll.
+func (repo *EdgeRepo) UpsertContentEdges(sourceID, sourcePath string, edges []EdgeRow) error {
+	tx, beginErr := repo.db.Begin()
+
+	if beginErr != nil {
+		return fmt.Errorf("edgeRepo: content begin: %w", beginErr)
+	}
+
+	if _, deleteErr := tx.Exec(
+		`DELETE FROM edges WHERE source_id = ? AND source_path = ? AND kind IN ('direct', 'derived')`,
+		sourceID, sourcePath,
+	); deleteErr != nil {
+		_ = tx.Rollback()
+
+		return fmt.Errorf("edgeRepo: content delete %s: %w", sourceID, deleteErr)
+	}
+
+	for _, edge := range edges {
+		if _, insertErr := tx.Exec(`
+			INSERT INTO edges (`+edgeColumns+`)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source); insertErr != nil {
+			_ = tx.Rollback()
+
+			return fmt.Errorf("edgeRepo: content insert %s→%s: %w", edge.SourceID, edge.TargetID, insertErr)
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("edgeRepo: content commit: %w", commitErr)
+	}
+
+	return nil
+}
+
 // EdgeBatch is one (source_id, source_path) replacement for UpsertAllMany.
 type EdgeBatch struct {
 	SourceID   string

@@ -1,6 +1,7 @@
 package node_test
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"sort"
@@ -92,6 +93,68 @@ func TestServiceModify_PreservesFrontmatterEdges(test *testing.T) {
 	}
 	if !strings.Contains(string(onDisk), "priority: high") {
 		test.Errorf("modified property not written:\n%s", onDisk)
+	}
+}
+
+// #680: modifying a sub-unit-bearing file must not drop its structural
+// `contains` edges. Modify runs no sub-unit sync and records the new mtime
+// through the lease, so a wiped contains set is never rebuilt by an incremental
+// reindex — it must survive the edge re-derive in place.
+func TestServiceModify_PreservesStructuralContainsEdges(test *testing.T) {
+	dir := test.TempDir()
+	idx, _ := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+	defer idx.Close()
+
+	repo := index.NewNodeRepo(idx)
+	edgeRepo := index.NewEdgeRepo(idx)
+
+	nodeTypes := map[string]manifest.NodeType{
+		"doc": {Properties: []manifest.PropertyDecl{{Name: "status", Type: "string"}}},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		dir, repo, edgeRepo, manifest.EdgeTypes{}, nil,
+		nodeTypes, nil, nil, nil, nil,
+		node.NewIndexRefLookup(repo),
+		index.NewFileStateRepo(idx), "test-worker", time.Minute,
+	)
+
+	if _, err := service.Create(node.CreateInput{
+		RelPath: "docs/note.md", Type: "doc", Title: "Note",
+		Body: []byte("## Section one\n\nBody.\n"),
+	}); err != nil {
+		test.Fatalf("create note: %v", err)
+	}
+
+	// Seed the structural contains edge the sub-unit pipeline would produce;
+	// Service.Create does not run sub-unit sync.
+	if err := edgeRepo.InsertIgnore([]index.EdgeRow{{
+		Type: "contains", SourceID: "docs/note", TargetID: "docs/note#S1",
+		SourcePath: "docs/note.md", Kind: "structural",
+		Source: sql.NullString{String: "markdown", Valid: true},
+	}}); err != nil {
+		test.Fatalf("seed structural edge: %v", err)
+	}
+
+	if _, err := service.Modify(node.ModifyInput{
+		ID:       "docs/note",
+		SetProps: map[string]any{"status": "active"},
+	}); err != nil {
+		test.Fatalf("Modify: %v", err)
+	}
+
+	rows, _ := edgeRepo.ListBySource("docs/note")
+
+	haveStructural := false
+
+	for _, row := range rows {
+		if row.Kind == "structural" && row.TargetID == "docs/note#S1" {
+			haveStructural = true
+		}
+	}
+
+	if !haveStructural {
+		test.Errorf("structural contains edge dropped by Modify: %+v", rows)
 	}
 }
 

@@ -821,7 +821,13 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	}
 
 	if service.edges != nil {
-		if upsertErr := service.edges.UpsertAll(reparsed.ID, reparsed.Path, flattenEdges(reparsed, service.nodeTypes)); upsertErr != nil {
+		// UpsertContentEdges, not UpsertAll: Modify re-derives only the file's
+		// own frontmatter/body edges and runs no sub-unit sync, so its
+		// kind='structural' contains rows must be preserved. A blanket delete
+		// dropped them permanently — Modify writes through the lease, so
+		// file_state records the new mtime and the incremental reindex that
+		// would otherwise re-sync them always skips the file (#680).
+		if upsertErr := service.edges.UpsertContentEdges(reparsed.ID, reparsed.Path, flattenEdges(reparsed, service.nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
 	}
@@ -1261,7 +1267,12 @@ func yamlQuoteString(str string) string {
 		return str
 	}
 
-	// Escape backslashes and double-quotes in the string content, then wrap.
+	return yamlDoubleQuote(str)
+}
+
+// yamlDoubleQuote wraps str in a YAML double-quoted scalar, escaping the two
+// characters that would otherwise end or re-interpret it.
+func yamlDoubleQuote(str string) string {
 	escaped := strings.ReplaceAll(str, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 

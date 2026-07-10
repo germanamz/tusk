@@ -1136,6 +1136,7 @@ func registerNodeMoveTool(srv *Server) {
 			srv.runtime.LeaseTTL,
 			srv.runtime.Manifest.EdgeTypes,
 			srv.runtime.Manifest.NodeTypes,
+			srv.runtime.PropertyDrift,
 			nodeID,
 			newPath,
 		)
