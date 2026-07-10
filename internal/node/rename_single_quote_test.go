@@ -24,7 +24,7 @@ func TestRewriteFrontmatterEdgeValues_SingleQuotedIndicatorTarget(test *testing.
 		test.Fatalf("expected single-quoted target in render:\n%s", rendered)
 	}
 
-	out := rewriteFrontmatterEdgeValues(rendered, "@scope/old", "@scope/new", edgeTypes)
+	out := rewriteFrontmatterEdgeValues(rendered, "@scope/old", "@scope/new", edgeTypes, nil)
 
 	reparsed, parseErr := ParseFile("x/n.md", out)
 

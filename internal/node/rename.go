@@ -3,16 +3,20 @@ package node
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"gopkg.in/yaml.v3"
 )
 
 // Delete removes the file for the given node id, deletes the node row and
@@ -102,6 +106,7 @@ func Rename(
 	leaseTTL time.Duration,
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
+	propertyDrift *index.PropertyDriftRepo,
 	oldID, newRelPath string,
 ) (*RenamePlan, error) {
 	row, getErr := nodeRepo.Get(oldID)
@@ -256,7 +261,7 @@ func Rename(
 	for _, sourceFile := range affectedFiles {
 		absSource := filepath.Join(root, currentPath(sourceFile))
 
-		if rewriteErr := rewriteEdgeReferences(absSource, oldID, newID, edgeTypes); rewriteErr != nil {
+		if rewriteErr := rewriteEdgeReferences(absSource, oldID, newID, edgeTypes, nodeTypes); rewriteErr != nil {
 			return nil, rewriteErr
 		}
 	}
@@ -326,6 +331,8 @@ func Rename(
 	// Re-derive each affected file's file-level edges from its rewritten
 	// content — frontmatter refs and body wikilinks alike — so the index
 	// reflects the new target id.
+	refLookup := NewIndexRefLookup(nodeRepo)
+
 	for _, sourceFile := range affectedFiles {
 		relPath := currentPath(sourceFile)
 		content, readErr := os.ReadFile(filepath.Join(root, relPath))
@@ -354,7 +361,28 @@ func Rename(
 		MaterializeWikilinks(parsed, edgeTypes)
 		MaterializeHTMLLinks(parsed, edgeTypes)
 
-		if upsertErr := edgeRepo.UpsertAll(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
+		// Resolve ref-typed properties (bare titles / wikilinks) to node ids,
+		// exactly as every other derivation path does (worker.go, service.go,
+		// edgewrite.go). Without this the re-derive wrote a referrer's raw
+		// frontmatter value as the edge target, clobbering the resolved row
+		// RetargetEdges had just written (#680). nodeTypes is nil only in unit
+		// tests that declare no ref properties, so ResolveRefs is a no-op there.
+		refResult := resolveRefEdges(parsed, nodeTypes, refLookup)
+
+		// Record ref drift for this referrer the way the reindex worker does.
+		// The re-derive drops a ref that no longer resolves; without a drift
+		// row a pre-existing broken ref on a byte-unchanged referrer would go
+		// invisible to `tusk doctor` and to the #679 heal pass. Recording it
+		// also lets the heal pass converge the one transient case — a ref to a
+		// sub-unit of the moved node, not re-indexed until the moved file's
+		// next re-parse — on the next plain reindex.
+		recordRefDrift(propertyDrift, parsed, refResult)
+
+		// UpsertContentEdges, not UpsertAll: the referrer's kind='structural'
+		// `contains` edges are supplied by the sub-unit pipeline, which does
+		// not run on this path — a blanket delete would drop them until the
+		// referrer's bytes next change (#680).
+		if upsertErr := edgeRepo.UpsertContentEdges(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
 	}
@@ -375,6 +403,41 @@ func Rename(
 		NewPath:       newRelPath,
 		AffectedFiles: reportedFiles,
 	}, nil
+}
+
+// recordRefDrift refreshes a re-derived referrer's ref-resolution drift rows
+// from refResult, mirroring the reindex worker's clear-then-append: every
+// ref-kind drift row for the node is cleared, then one row per current
+// HardError is appended. A ref that now resolves drops its stale row; a
+// still-broken ref stays visible to `tusk doctor` and the reindex heal pass
+// (#679). driftRepo is nil on the read-only/test paths that pass no drift
+// store, in which case recording is skipped.
+func recordRefDrift(driftRepo *index.PropertyDriftRepo, parsed *Node, refResult RefResolutionResult) {
+	if driftRepo == nil {
+		return
+	}
+
+	_ = driftRepo.ClearRefKindsForNode(parsed.ID)
+
+	observedAt := time.Now().UnixNano()
+
+	for _, refErr := range refResult.HardErrors {
+		details, _ := json.Marshal(map[string]any{
+			"value":       refErr.Value,
+			"to":          refErr.To,
+			"candidates":  refErr.Candidates,
+			"actual_type": refErr.ActualType,
+		})
+
+		_ = driftRepo.Append(index.PropertyDriftRow{
+			NodeID:     parsed.ID,
+			NodeType:   parsed.Type,
+			Kind:       string(refErr.Kind),
+			Property:   refErr.Property,
+			Details:    string(details),
+			ObservedAt: observedAt,
+		})
+	}
 }
 
 // releaseAbandon clears a single held lease on the abandon path so
@@ -431,15 +494,16 @@ func uniqueSourcePaths(edges []index.EdgeRow) []string {
 // rewriteEdgeReferences reads the file at absPath, replaces every frontmatter
 // scalar / sequence value matching oldID under any declared edge-type key with
 // newID, rewrites body [[wikilinks]] targeting oldID, and writes the file back
-// atomically.
-func rewriteEdgeReferences(absPath, oldID, newID string, edgeTypes manifest.EdgeTypes) error {
+// atomically. nodeTypes lets the frontmatter rewriter tell a title-resolved ref
+// property from an id-resolved edge type.
+func rewriteEdgeReferences(absPath, oldID, newID string, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) error {
 	content, readErr := os.ReadFile(absPath)
 
 	if readErr != nil {
 		return fmt.Errorf("node: read %s: %w", absPath, readErr)
 	}
 
-	rewritten := rewriteFrontmatterEdgeValues(content, oldID, newID, edgeTypes)
+	rewritten := rewriteFrontmatterEdgeValues(content, oldID, newID, edgeTypes, nodeTypes)
 	rewritten = rewriteBodyWikilinks(rewritten, oldID, newID)
 
 	// Skip the write when nothing changed (e.g. an HTML referrer whose
@@ -506,176 +570,331 @@ func bodyOffset(content []byte) int {
 	return lead + len(frontmatterDelimiter) + closingIndex + len("\n") + len(frontmatterDelimiter)
 }
 
-// rewriteFrontmatterEdgeValues is a line-oriented rewriter. It only touches
-// frontmatter lines that start with one of edgeTypes' keys (e.g., "parent: x"
-// or "blocks: [a, b]") and only replaces the value when it matches oldID.
+// frontmatterEdit is one byte range of the frontmatter to replace with text.
+type frontmatterEdit struct {
+	start int
+	end   int
+	text  string
+}
+
+// rewriteFrontmatterEdgeValues replaces every frontmatter value under a declared
+// edge-type key that names oldID — directly, as a sub-unit id beneath it
+// ("<oldID>#S1"), or through a wikilink ("[[<oldID>]]") — with the same
+// reference under newID.
 //
-// Targeted approach (not full YAML round-trip) preserves the user's
-// frontmatter formatting.
-func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes manifest.EdgeTypes) []byte {
-	lines := strings.Split(string(content), "\n")
-	inFrontmatter := false
-	inEdgeSequence := false
+// The frontmatter is parsed into a yaml.Node tree only to LOCATE those values:
+// every scalar carries the line/column its token starts at, so the matching
+// tokens are spliced out of the original bytes and everything else — key order,
+// indentation, quoting style, comments, blank lines — survives untouched. The
+// line-oriented rewriter this replaced could not see YAML structure, so it
+// silently skipped every value that did not sit on a line of the exact shape it
+// expected: a comment or blank line inside a block sequence, an inline trailing
+// comment, a multi-line flow sequence, a wikilink-form ref (#680).
+//
+// Content with no frontmatter, or whose frontmatter does not parse, is returned
+// unchanged. nodeTypes classifies each edge key as a ref property (bare value is
+// a move-stable title, left alone) or an explicit edge type (bare value is a
+// node id, rewritten); see retargetEdgeValue.
+func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) []byte {
+	start, end, hasFrontmatter := frontmatterSpan(content)
 
-	for lineIdx, line := range lines {
-		if strings.TrimSpace(line) == "---" {
-			if inFrontmatter {
-				break
-			}
+	if !hasFrontmatter {
+		return content
+	}
 
-			inFrontmatter = true
+	yamlText := content[start:end]
 
-			continue
-		}
+	var root yaml.Node
 
-		if !inFrontmatter {
-			continue
-		}
+	if unmarshalErr := yaml.Unmarshal(yamlText, &root); unmarshalErr != nil {
+		return content
+	}
 
-		// A block sequence opened by an edge key: rewrite its "- value"
-		// continuation lines until the indentation ends (next key or dedent).
-		// This is the shape renderMarkdown emits for any 2+ target edge, so
-		// missing it left renamed multi-target edges permanently dangling.
-		if inEdgeSequence {
-			if isSequenceItem(line) {
-				lines[lineIdx] = rewriteSequenceItem(line, oldID, newID)
+	if len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return content
+	}
 
-				continue
-			}
+	var edits []frontmatterEdit
 
-			inEdgeSequence = false
-		}
+	mapping := root.Content[0].Content
 
-		colonIdx := strings.Index(line, ":")
+	// A ref property's bare frontmatter value is a title (resolved by lookup),
+	// not an id; the referrer's declared type decides which keys those are.
+	refProps := refPropertyNamesForType(mappingScalarValue(mapping, "type"), nodeTypes)
 
-		if colonIdx < 0 {
-			continue
-		}
-
-		key := strings.TrimSpace(line[:colonIdx])
+	for pairIdx := 0; pairIdx+1 < len(mapping); pairIdx += 2 {
+		key := mapping[pairIdx].Value
 
 		if _, isEdge := edgeTypes[key]; !isEdge {
 			continue
 		}
 
-		value := line[colonIdx+1:]
-		trimmedValue := strings.TrimSpace(value)
+		_, isRefProperty := refProps[key]
+		bareIsID := !isRefProperty
 
-		// An edge key with no inline value opens a block sequence; its items
-		// follow on subsequent indented "- value" lines.
-		if trimmedValue == "" {
-			inEdgeSequence = true
+		for _, scalar := range collectEdgeScalars(mapping[pairIdx+1], false) {
+			retargeted, matched := retargetEdgeValue(scalar.node.Value, oldID, newID, bareIsID)
 
-			continue
-		}
-
-		if retargeted, matched := retargetEdgeValue(trimmedValue, oldID, newID); matched {
-			lines[lineIdx] = line[:colonIdx+1] + " " + yamlQuoteString(retargeted)
-
-			continue
-		}
-
-		if strings.HasPrefix(trimmedValue, "[") && strings.HasSuffix(trimmedValue, "]") {
-			inner := trimmedValue[1 : len(trimmedValue)-1]
-			parts := strings.Split(inner, ",")
-
-			for partIdx, part := range parts {
-				if retargeted, matched := retargetEdgeValue(strings.TrimSpace(part), oldID, newID); matched {
-					parts[partIdx] = " " + retargeted
-				}
+			if !matched {
+				continue
 			}
 
-			lines[lineIdx] = line[:colonIdx+1] + " [" + strings.Join(parts, ",") + "]"
+			tokenStart, tokenEnd, located := scalarSpan(yamlText, scalar.node)
+
+			if !located {
+				continue
+			}
+
+			edits = append(edits, frontmatterEdit{
+				start: start + tokenStart,
+				end:   start + tokenEnd,
+				text:  yamlQuoteEdgeValue(retargeted, scalar.inFlow),
+			})
 		}
 	}
 
-	return []byte(strings.Join(lines, "\n"))
+	if len(edits) == 0 {
+		return content
+	}
+
+	// Splice back-to-front so each edit's offsets stay valid.
+	sort.Slice(edits, func(left, right int) bool { return edits[left].start > edits[right].start })
+
+	rewritten := content
+
+	for _, edit := range edits {
+		var buffer bytes.Buffer
+
+		buffer.Write(rewritten[:edit.start])
+		buffer.WriteString(edit.text)
+		buffer.Write(rewritten[edit.end:])
+
+		rewritten = buffer.Bytes()
+	}
+
+	return rewritten
 }
 
-// retargetEdgeValue returns the rewritten frontmatter value when value — plain
-// or quoted — refers to oldID or to a sub-unit id under it ("<oldID>#..."),
-// preserving the sub-unit suffix. The second return reports whether the value
-// matched.
-func retargetEdgeValue(value, oldID, newID string) (string, bool) {
-	unquoted := yamlUnquoteString(value)
+// flowScalar is a frontmatter scalar plus whether it sits inside a flow
+// sequence, where a plain value must not contain a flow indicator.
+type flowScalar struct {
+	node   *yaml.Node
+	inFlow bool
+}
 
-	if unquoted == oldID {
+// mappingScalarValue returns the scalar value stored under key in a YAML mapping
+// node's flattened [key, value, ...] content, or "" when the key is absent or
+// non-scalar. Used to read the referrer's declared `type`.
+func mappingScalarValue(mapping []*yaml.Node, key string) string {
+	for pairIdx := 0; pairIdx+1 < len(mapping); pairIdx += 2 {
+		if mapping[pairIdx].Value == key && mapping[pairIdx+1].Kind == yaml.ScalarNode {
+			return mapping[pairIdx+1].Value
+		}
+	}
+
+	return ""
+}
+
+// collectEdgeScalars returns the scalar leaves of an edge key's value: the value
+// itself when it is a scalar, or the (possibly nested) items of a sequence.
+// Mappings and aliases are skipped — neither is an edge-target shape.
+func collectEdgeScalars(value *yaml.Node, inFlow bool) []flowScalar {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		return []flowScalar{{node: value, inFlow: inFlow}}
+	case yaml.SequenceNode:
+		nested := inFlow || value.Style&yaml.FlowStyle != 0
+
+		var scalars []flowScalar
+
+		for _, item := range value.Content {
+			scalars = append(scalars, collectEdgeScalars(item, nested)...)
+		}
+
+		return scalars
+	default:
+		return nil
+	}
+}
+
+// retargetEdgeValue returns the rewritten value when value refers to oldID, to a
+// sub-unit id beneath it ("<oldID>#..."), or to either through a wikilink. The
+// wikilink form is matched with the pattern ResolveRefs itself accepts, so
+// exactly the values the resolver can resolve are the values a move rewrites —
+// an aliased "[[oldID|Label]]" resolves nowhere and is left alone.
+//
+// bareIsID says whether a bare (non-wikilink) value under this key names a node
+// id. It is true for an explicit edge type (frontmatter value = raw id) and
+// false for a ref property, whose bare value is a TITLE resolved by lookup. A
+// title is invariant under a move, so a bare title that merely coincides with
+// the old id ("title: foo" on foo.md) must be left alone — rewriting it to the
+// new id would break a reference that still resolves correctly (#680 review). A
+// wikilink value is always an id and is rewritten regardless. The second return
+// reports whether the value matched.
+func retargetEdgeValue(value, oldID, newID string, bareIsID bool) (string, bool) {
+	if wikilink := refWikilinkPattern.FindStringSubmatch(value); len(wikilink) == 2 {
+		retargeted, matched := retargetNodeID(wikilink[1], oldID, newID)
+
+		if !matched {
+			return "", false
+		}
+
+		return "[[" + retargeted + "]]", true
+	}
+
+	if !bareIsID {
+		return "", false
+	}
+
+	return retargetNodeID(value, oldID, newID)
+}
+
+// retargetNodeID rewrites a bare node id — oldID itself or a sub-unit id under
+// it — to the same address under newID, preserving any sub-unit suffix.
+func retargetNodeID(value, oldID, newID string) (string, bool) {
+	if value == oldID {
 		return newID, true
 	}
 
-	if strings.HasPrefix(unquoted, oldID+"#") {
-		return newID + unquoted[len(oldID):], true
+	if strings.HasPrefix(value, oldID+"#") {
+		return newID + value[len(oldID):], true
 	}
 
 	return "", false
 }
 
-// isSequenceItem reports whether line is a YAML block-sequence item ("- value"),
-// ignoring leading indentation.
-func isSequenceItem(line string) bool {
-	trimmed := strings.TrimLeft(line, " \t")
+// yamlQuoteEdgeValue quotes a rewritten edge value for the context it sits in.
+// yamlQuoteString covers block context; inside a flow sequence a plain scalar
+// must additionally carry no flow indicator, which would end the item early.
+func yamlQuoteEdgeValue(value string, inFlow bool) string {
+	quoted := yamlQuoteString(value)
 
-	return trimmed == "-" || strings.HasPrefix(trimmed, "- ")
+	if !inFlow || strings.HasPrefix(quoted, `"`) || !strings.ContainsAny(quoted, ",[]{}") {
+		return quoted
+	}
+
+	return yamlDoubleQuote(value)
 }
 
-// rewriteSequenceItem replaces a block-sequence item's value when it refers to
-// oldID (or a sub-unit id under it), preserving the line's indentation and dash.
-func rewriteSequenceItem(line, oldID, newID string) string {
-	dashIdx := strings.IndexByte(line, '-')
+// frontmatterSpan returns the byte range of the YAML frontmatter within content
+// — the same slice splitFrontmatter hands the YAML decoder — so a yaml.Node's
+// line/column addresses can be resolved against the original bytes.
+func frontmatterSpan(content []byte) (int, int, bool) {
+	trimmed := bytes.TrimLeft(content, " \t\r\n")
+	lead := len(content) - len(trimmed)
 
-	if dashIdx < 0 {
-		return line
+	if !bytes.HasPrefix(trimmed, frontmatterDelimiter) {
+		return 0, 0, false
 	}
 
-	itemValue := strings.TrimSpace(line[dashIdx+1:])
-	retargeted, matched := retargetEdgeValue(itemValue, oldID, newID)
+	afterOpen := trimmed[len(frontmatterDelimiter):]
+	beforeNewlines := len(afterOpen)
+	afterOpen = bytes.TrimLeft(afterOpen, "\r\n")
 
-	if !matched {
-		return line
+	closingIndex := bytes.Index(afterOpen, append([]byte("\n"), frontmatterDelimiter...))
+
+	if closingIndex < 0 {
+		return 0, 0, false
 	}
 
-	return line[:dashIdx+1] + " " + yamlQuoteString(retargeted)
+	start := lead + len(frontmatterDelimiter) + (beforeNewlines - len(afterOpen))
+
+	return start, start + closingIndex, true
 }
 
-// yamlUnquoteString reverses the quoting a frontmatter edge value can carry:
-// yamlQuoteString's double-quoted scalars and yaml.v3's single-quoted scalars
-// (renderMarkdown emits single quotes for a value that leads with a YAML
-// indicator character, e.g. '@scope/foo'). Plain scalars are returned unchanged.
-func yamlUnquoteString(value string) string {
-	if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
-		// Single-quoted YAML: the sole escape is a doubled quote ('' -> ').
-		return strings.ReplaceAll(value[1:len(value)-1], "''", "'")
+// scalarSpan returns the byte range the scalar's token occupies in yamlText.
+// A scalar's recorded position is where its token STARTS; the end depends on how
+// it was written, so each style is measured on its own terms. Literal and folded
+// blocks are rejected: a node id is never written as one, and their token has no
+// single-line extent to splice.
+func scalarSpan(yamlText []byte, scalar *yaml.Node) (int, int, bool) {
+	start, located := byteOffsetAt(yamlText, scalar.Line, scalar.Column)
+
+	if !located {
+		return 0, 0, false
 	}
 
-	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
-		return value
+	switch scalar.Style & (yaml.DoubleQuotedStyle | yaml.SingleQuotedStyle | yaml.LiteralStyle | yaml.FoldedStyle) {
+	case yaml.DoubleQuotedStyle:
+		return quotedScalarSpan(yamlText, start, '"', true)
+	case yaml.SingleQuotedStyle:
+		return quotedScalarSpan(yamlText, start, '\'', false)
+	case 0:
+		// A plain scalar's source text is its value verbatim — unless YAML
+		// folded it across lines, which the equality check rejects.
+		end := start + len(scalar.Value)
+
+		if end > len(yamlText) || string(yamlText[start:end]) != scalar.Value {
+			return 0, 0, false
+		}
+
+		return start, end, true
+	default:
+		return 0, 0, false
+	}
+}
+
+// quotedScalarSpan returns the byte range of the quoted scalar opening at start,
+// including both quote characters. Double-quoted scalars escape with a
+// backslash; single-quoted scalars escape a quote by doubling it.
+func quotedScalarSpan(yamlText []byte, start int, quote byte, backslashEscapes bool) (int, int, bool) {
+	if start >= len(yamlText) || yamlText[start] != quote {
+		return 0, 0, false
 	}
 
-	inner := value[1 : len(value)-1]
+	for index := start + 1; index < len(yamlText); index++ {
+		char := yamlText[index]
 
-	var builder strings.Builder
-
-	escaped := false
-
-	for charIndex := 0; charIndex < len(inner); charIndex++ {
-		char := inner[charIndex]
-
-		if escaped {
-			builder.WriteByte(char)
-
-			escaped = false
+		if backslashEscapes && char == '\\' {
+			index++
 
 			continue
 		}
 
-		if char == '\\' {
-			escaped = true
+		if char != quote {
+			continue
+		}
+
+		if !backslashEscapes && index+1 < len(yamlText) && yamlText[index+1] == quote {
+			index++
 
 			continue
 		}
 
-		builder.WriteByte(char)
+		return start, index + 1, true
 	}
 
-	return builder.String()
+	return 0, 0, false
+}
+
+// byteOffsetAt converts a yaml.Node's 1-based line and column into a byte offset
+// into yamlText. Columns count runes, not bytes, so a line carrying multi-byte
+// characters before the token must be walked rune by rune.
+func byteOffsetAt(yamlText []byte, line, column int) (int, bool) {
+	if line < 1 || column < 1 {
+		return 0, false
+	}
+
+	offset := 0
+
+	for current := 1; current < line; current++ {
+		lineEnd := bytes.IndexByte(yamlText[offset:], '\n')
+
+		if lineEnd < 0 {
+			return 0, false
+		}
+
+		offset += lineEnd + 1
+	}
+
+	for remaining := column - 1; remaining > 0; remaining-- {
+		if offset >= len(yamlText) || yamlText[offset] == '\n' {
+			return 0, false
+		}
+
+		_, size := utf8.DecodeRune(yamlText[offset:])
+		offset += size
+	}
+
+	return offset, true
 }

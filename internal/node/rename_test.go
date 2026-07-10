@@ -121,7 +121,7 @@ func TestRename_MovesFileAndRewritesReferringEdgesInFrontmatter(test *testing.T)
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, "tickets/old-parent", "tickets/new-parent.md",
+		edgeTypes, nil, nil, "tickets/old-parent", "tickets/new-parent.md",
 	)
 
 	if renameErr != nil {
@@ -209,7 +209,7 @@ func TestRename_RewritesBlockSequenceEdgeTargets(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, "tickets/a", "tickets/a-renamed.md",
+		edgeTypes, nil, nil, "tickets/a", "tickets/a-renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -268,7 +268,7 @@ func TestRename_InheritsSourceExtensionWhenTargetHasNone(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, "notes/foo", "notes/bar",
+		manifest.EdgeTypes{}, nil, nil, "notes/foo", "notes/bar",
 	)
 
 	if renameErr != nil {
@@ -313,7 +313,7 @@ func TestRename_HonorsExplicitTargetExtension(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, "notes/foo", "notes/bar.md",
+		manifest.EdgeTypes{}, nil, nil, "notes/foo", "notes/bar.md",
 	)
 
 	if renameErr != nil {
@@ -345,7 +345,7 @@ func TestRename_ReturnsErrorWhenTargetExists(test *testing.T) {
 	_, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, "a", "b.md",
+		manifest.EdgeTypes{}, nil, nil, "a", "b.md",
 	)
 
 	if renameErr == nil {
@@ -411,7 +411,7 @@ func TestRename_RewritesBodyWikilinksOnDisk(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, "notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -520,7 +520,7 @@ func TestRename_RetargetsSubUnitSourcedIncomingEdges(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, "notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -585,7 +585,7 @@ func TestRename_LeavesDestinationStaleSoReindexRebuildsSubUnits(test *testing.T)
 
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, "notes/moved", "notes/dest.md",
+		manifest.EdgeTypes{}, nil, nil, "notes/moved", "notes/dest.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -643,7 +643,7 @@ func TestRename_RewritesSelfReferenceInMovedFileBody(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, "notes/self", "notes/renamed-self.md",
+		edgeTypes, nil, nil, "notes/self", "notes/renamed-self.md",
 	)
 
 	if renameErr != nil {
@@ -703,7 +703,7 @@ func TestRename_KeepsMovedFilesOutgoingEdges(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, "tickets/child", "tickets/renamed-child.md",
+		edgeTypes, nil, nil, "tickets/child", "tickets/renamed-child.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -764,7 +764,7 @@ func TestRename_DoesNotRebaseStructuralContainsEdges(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, "notes/moved", "notes/dest.md",
+		edgeTypes, nil, nil, "notes/moved", "notes/dest.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}

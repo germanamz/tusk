@@ -113,6 +113,58 @@ func TestEdgeRepo_UpsertAllReplacesExistingEdgesForSource(test *testing.T) {
 	}
 }
 
+// TestEdgeRepo_UpsertContentEdgesPreservesStructural pins #680: replacing a
+// source's file-level content edges must leave its kind='structural' rows in
+// place — those are written by the sub-unit pipeline, which no re-derive
+// re-supplies, so a blanket delete would drop them permanently.
+func TestEdgeRepo_UpsertContentEdgesPreservesStructural(test *testing.T) {
+	store := openTestIndex(test)
+	seedNodes(test, store, "notes/a", "notes/a#sec")
+
+	repo := index.NewEdgeRepo(store)
+
+	insertEdge(test, store, "contains", "notes/a", "notes/a#sec", "notes/a.md", "structural", strptr("markdown"))
+	insertEdge(test, store, "parent", "notes/a", "notes/old", "notes/a.md", "direct", nil)
+
+	replacement := []index.EdgeRow{
+		{Type: "parent", SourceID: "notes/a", TargetID: "notes/new", SourcePath: "notes/a.md", Kind: "direct"},
+	}
+
+	if upsertErr := repo.UpsertContentEdges("notes/a", "notes/a.md", replacement); upsertErr != nil {
+		test.Fatalf("UpsertContentEdges: %v", upsertErr)
+	}
+
+	listed, listErr := repo.ListBySource("notes/a")
+
+	if listErr != nil {
+		test.Fatalf("ListBySource: %v", listErr)
+	}
+
+	var (
+		haveStructural bool
+		parentTarget   string
+		directCount    int
+	)
+
+	for _, row := range listed {
+		switch {
+		case row.Kind == "structural" && row.TargetID == "notes/a#sec":
+			haveStructural = true
+		case row.Type == "parent":
+			parentTarget = row.TargetID
+			directCount++
+		}
+	}
+
+	if !haveStructural {
+		test.Errorf("structural contains edge was dropped: %+v", listed)
+	}
+
+	if directCount != 1 || parentTarget != "notes/new" {
+		test.Errorf("content edge not replaced: parent=%q count=%d, want notes/new x1", parentTarget, directCount)
+	}
+}
+
 // TestEdgeRepo_UpsertAllManyReplacesPerSource pins B4: UpsertAllMany applies
 // several per-source replacements in one transaction with the same
 // delete-then-insert contract as UpsertAll (so stale edges are removed, not

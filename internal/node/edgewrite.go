@@ -344,25 +344,7 @@ func materializeReadEdges(
 
 	MaterializeWikilinks(parsed, edgeTypes)
 
-	if refs == nil {
-		return nil
-	}
-
-	refResult := ResolveRefs(parsed, nodeTypes, refs)
-
-	for _, refErr := range refResult.HardErrors {
-		delete(parsed.Edges, refErr.Property)
-	}
-
-	resolvedByProp := map[string][]string{}
-
-	for _, edge := range refResult.Edges {
-		resolvedByProp[edge.EdgeType] = appendUnique(resolvedByProp[edge.EdgeType], edge.TargetID)
-	}
-
-	for propName, targets := range resolvedByProp {
-		parsed.Edges[propName] = targets
-	}
+	resolveRefEdges(parsed, nodeTypes, refs)
 
 	return nil
 }
@@ -444,7 +426,11 @@ func ReindexSource(
 	}
 
 	if edges != nil {
-		if upsertErr := edges.UpsertAll(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
+		// UpsertContentEdges, not UpsertAll: this re-derive rewrites only the
+		// file's own content edges and runs no sub-unit sync, so its
+		// kind='structural' contains rows must survive rather than be wiped
+		// until the next full re-parse (#680).
+		if upsertErr := edges.UpsertContentEdges(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
 			return fmt.Errorf("edgewrite: upsert %s: %w", relPath, upsertErr)
 		}
 	}
