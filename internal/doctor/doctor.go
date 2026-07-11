@@ -66,6 +66,20 @@ const (
 	// feature is on but contributes nothing to the blended score —
 	// almost certainly a config bug.
 	IssueGraphExpansionWeightZero = "graph-expansion-weight-zero"
+
+	// IssueGraphExpansionInvalidEdge surfaces an entry in
+	// [query.graph-expansion] edge-types that is not a valid type
+	// reference under the typeref grammar (e.g. "Refs"). The query path
+	// parses the same list with typeref.ParseMany, so a malformed entry
+	// makes EVERY `--semantic` query hard-fail — this is not a
+	// silently-skipped unknown edge, it is a hard misconfiguration.
+	IssueGraphExpansionInvalidEdge = "graph-expansion-invalid-edge"
+
+	// IssueGraphExpansionNoEdges surfaces the no-op configuration where
+	// [query.graph-expansion] enabled=true but edge-types is an explicit
+	// empty list. The walker adds no neighbors, so the feature contributes
+	// nothing — the sibling of the weight=0 no-op.
+	IssueGraphExpansionNoEdges = "graph-expansion-no-edges"
 )
 
 // Issue is a single problem the doctor surfaced.
@@ -204,6 +218,7 @@ func Run(config Config) (*Report, error) {
 		checkWorkflowDrift,
 		checkPropertyDrift,
 		checkEmbeddingDrift,
+		checkEmbedRetries,
 	} {
 		issues, checkErr := check(config)
 
@@ -242,8 +257,40 @@ func checkDanglingEdges(config Config) ([]Issue, error) {
 	return findDanglingEdges(config.Nodes, config.Edges)
 }
 
+// liveNodeIDs returns the subset of ids that resolve to a node row, so drift
+// checks can skip rows orphaned by a delete or rename. When the node repo is
+// absent the second return is false: callers keep every row rather than drop
+// all of them (there is nothing to check existence against).
+//
+// Drift is only ever recorded while validating a live node, so a row whose
+// node has since been deleted or renamed away is an orphan with no repair path
+// — pointing users at ghost ids "forever" is exactly the noise #685 flags.
+// Reindex sweeps these rows (DeleteOrphans), but `tusk node delete` does not
+// reindex and files can vanish out of band, so doctor filters them at read
+// time too rather than trust that a sweep has already run.
+func liveNodeIDs(nodes *index.NodeRepo, ids []string) (map[string]struct{}, bool, error) {
+	if nodes == nil {
+		return nil, false, nil
+	}
+
+	rows, listErr := nodes.ListByIDs(ids)
+
+	if listErr != nil {
+		return nil, false, listErr
+	}
+
+	live := make(map[string]struct{}, len(rows))
+
+	for _, row := range rows {
+		live[row.ID] = struct{}{}
+	}
+
+	return live, true, nil
+}
+
 // checkWorkflowDrift surfaces one workflow-violation Issue per persisted drift
-// row. No-op when the drift repo is absent.
+// row whose node still exists. No-op when the drift repo is absent; orphaned
+// rows are skipped (see liveNodeIDs).
 func checkWorkflowDrift(config Config) ([]Issue, error) {
 	if config.WorkflowDrift == nil {
 		return nil, nil
@@ -255,9 +302,27 @@ func checkWorkflowDrift(config Config) ([]Issue, error) {
 		return nil, listErr
 	}
 
+	ids := make([]string, 0, len(drift))
+
+	for _, row := range drift {
+		ids = append(ids, row.NodeID)
+	}
+
+	live, filterOrphans, liveErr := liveNodeIDs(config.Nodes, ids)
+
+	if liveErr != nil {
+		return nil, liveErr
+	}
+
 	issues := make([]Issue, 0, len(drift))
 
 	for _, row := range drift {
+		if filterOrphans {
+			if _, ok := live[row.NodeID]; !ok {
+				continue
+			}
+		}
+
 		issues = append(issues, Issue{
 			Kind:    IssueWorkflowViolation,
 			NodeID:  row.NodeID,
@@ -268,8 +333,9 @@ func checkWorkflowDrift(config Config) ([]Issue, error) {
 	return issues, nil
 }
 
-// checkPropertyDrift surfaces one Issue per persisted property-drift row,
-// carrying the row's own Kind. No-op when the drift repo is absent.
+// checkPropertyDrift surfaces one Issue per persisted property-drift row whose
+// node still exists, carrying the row's own Kind. No-op when the drift repo is
+// absent; orphaned rows are skipped (see liveNodeIDs).
 func checkPropertyDrift(config Config) ([]Issue, error) {
 	if config.PropertyDrift == nil {
 		return nil, nil
@@ -281,9 +347,27 @@ func checkPropertyDrift(config Config) ([]Issue, error) {
 		return nil, listErr
 	}
 
+	ids := make([]string, 0, len(propDrift))
+
+	for _, row := range propDrift {
+		ids = append(ids, row.NodeID)
+	}
+
+	live, filterOrphans, liveErr := liveNodeIDs(config.Nodes, ids)
+
+	if liveErr != nil {
+		return nil, liveErr
+	}
+
 	issues := make([]Issue, 0, len(propDrift))
 
 	for _, row := range propDrift {
+		if filterOrphans {
+			if _, ok := live[row.NodeID]; !ok {
+				continue
+			}
+		}
+
 		issues = append(issues, Issue{
 			Kind:    row.Kind,
 			NodeID:  row.NodeID,
@@ -328,6 +412,44 @@ func checkEmbeddingDrift(config Config) ([]Issue, error) {
 			Kind: IssueEmbeddingDrift,
 			Message: fmt.Sprintf("stored embeddings use model %q (dim %d) but the workspace is configured for model %q (dim %d); the configured embedder no longer matches the stored vectors, so semantic results are silently incomplete — run `tusk reset` (`tusk_reset`) to drop and re-embed.",
 				pair.Model, pair.Dim, configuredModel, configuredDim),
+		})
+	}
+
+	return issues, nil
+}
+
+// checkEmbedRetries surfaces embed-queue rows that have failed at least once
+// (attempts > 0) with their attempt count and last error. Without this, a
+// persistently failing embedder (wrong endpoint, 404 model, transport abort)
+// is invisible to doctor: the row looks like an ordinary pending job, and once
+// the attempts cap drops it the failure survives only as a generic
+// embed-no-chunks with no cause. Emits the declared IssueEmbedRetry kind that
+// the MCP tusk_doctor tool advertises ("embed-queue retries") but that no code
+// path wrote before. No-op when the queue repo is absent.
+func checkEmbedRetries(config Config) ([]Issue, error) {
+	if config.EmbedQueue == nil {
+		return nil, nil
+	}
+
+	retrying, listErr := config.EmbedQueue.ListRetrying()
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	issues := make([]Issue, 0, len(retrying))
+
+	for _, row := range retrying {
+		message := fmt.Sprintf("embed queue row has failed %d attempt(s) and is still pending", row.Attempts)
+
+		if row.LastError != "" {
+			message += fmt.Sprintf("; last error: %s", row.LastError)
+		}
+
+		issues = append(issues, Issue{
+			Kind:    IssueEmbedRetry,
+			NodeID:  row.NodeID,
+			Message: message,
 		})
 	}
 
@@ -744,11 +866,20 @@ func Migrate(config Config) (*MigrationReport, error) {
 		return nil, fmt.Errorf("doctor: list edges: %w", listErr)
 	}
 
-	// Group legacy rows by source ID only. A single source may carry rows
-	// under both sentinels (some edges from `tusk edge add`, others from the
-	// MCP `tusk_edge_add` tool); we want to write the markdown and reindex
+	// Partition legacy rows by source ID, splitting migratable rows from ones
+	// whose edge type is no longer declared in the manifest. A single source
+	// may carry rows under both sentinels (some from `tusk edge add`, others
+	// from the MCP `tusk_edge_add` tool); we write the markdown and reindex
 	// once per source, then clear each sentinel path that actually had rows.
-	groups := map[string][]index.EdgeRow{}
+	//
+	// An un-migratable row (undeclared edge type) CANNOT be written to
+	// frontmatter — frontmatter edges must be declared — so migrating it is
+	// impossible. Previously such a row aborted the entire diagnostic run with
+	// a hard error and produced NO report at all, dying on exactly the drift
+	// doctor exists to surface (#685). Instead, record it as skipped, leave it
+	// in the index, and migrate everything else.
+	migratable := map[string][]index.EdgeRow{}
+	unmigratable := map[string][]index.EdgeRow{}
 	sourcePaths := map[string]map[string]struct{}{}
 
 	for _, row := range all {
@@ -756,7 +887,13 @@ func Migrate(config Config) (*MigrationReport, error) {
 			continue
 		}
 
-		groups[row.SourceID] = append(groups[row.SourceID], row)
+		if _, declared := config.Manifest.EdgeTypes[row.Type]; !declared {
+			unmigratable[row.SourceID] = append(unmigratable[row.SourceID], row)
+
+			continue
+		}
+
+		migratable[row.SourceID] = append(migratable[row.SourceID], row)
 
 		if sourcePaths[row.SourceID] == nil {
 			sourcePaths[row.SourceID] = map[string]struct{}{}
@@ -765,21 +902,25 @@ func Migrate(config Config) (*MigrationReport, error) {
 		sourcePaths[row.SourceID][row.SourcePath] = struct{}{}
 	}
 
-	if len(groups) == 0 {
+	// Surface every un-migratable row as skipped, in a deterministic order.
+	// These rows stay in the index untouched.
+	report.Skipped = append(report.Skipped, unmigratableSkips(unmigratable)...)
+
+	if len(migratable) == 0 {
 		return report, nil
 	}
 
 	// Stable ordering so the report is deterministic across runs.
-	orderedSourceIDs := make([]string, 0, len(groups))
+	orderedSourceIDs := make([]string, 0, len(migratable))
 
-	for sourceID := range groups {
+	for sourceID := range migratable {
 		orderedSourceIDs = append(orderedSourceIDs, sourceID)
 	}
 
 	sort.Strings(orderedSourceIDs)
 
 	for _, sourceID := range orderedSourceIDs {
-		rows := groups[sourceID]
+		rows := migratable[sourceID]
 		sourcePath := filepath.Join(config.Root, sourceID+".md")
 
 		if _, statErr := os.Stat(sourcePath); statErr != nil {
@@ -800,9 +941,24 @@ func Migrate(config Config) (*MigrationReport, error) {
 			return edgeRowLess(rows[left], rows[right])
 		})
 
+		// keepByPath holds rows that must survive the sentinel-path clear
+		// below: un-migratable rows for this source, plus any migratable row
+		// whose frontmatter write failed (e.g. a cardinality conflict). Without
+		// this, a mixed path would silently drop the rows we could not migrate.
+		keepByPath := map[string][]index.EdgeRow{}
+
+		for _, row := range unmigratable[sourceID] {
+			keepByPath[row.SourcePath] = append(keepByPath[row.SourcePath], row)
+		}
+
 		for _, row := range rows {
 			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, row.Type, row.TargetID, config.Manifest.EdgeTypes, config.Manifest.NodeTypes); writeErr != nil {
-				return nil, fmt.Errorf("doctor: migrate %s %s→%s: %w", row.Type, row.SourceID, row.TargetID, writeErr)
+				report.Skipped = append(report.Skipped,
+					fmt.Sprintf("%s [%s]: %s → %s (cannot migrate: %v)",
+						row.Type, row.SourcePath, row.SourceID, row.TargetID, writeErr))
+				keepByPath[row.SourcePath] = append(keepByPath[row.SourcePath], row)
+
+				continue
 			}
 
 			report.Migrated = append(report.Migrated,
@@ -813,8 +969,9 @@ func Migrate(config Config) (*MigrationReport, error) {
 			return nil, fmt.Errorf("doctor: reindex %s: %w", sourceID, reindexErr)
 		}
 
-		// Clear each sentinel path that actually had rows for this source.
-		// Sort for deterministic output ordering on errors.
+		// Clear each sentinel path that actually had migratable rows for this
+		// source, re-inserting the rows we must preserve. Sort for
+		// deterministic output ordering on errors.
 		seenPaths := make([]string, 0, len(sourcePaths[sourceID]))
 
 		for path := range sourcePaths[sourceID] {
@@ -824,13 +981,44 @@ func Migrate(config Config) (*MigrationReport, error) {
 		sort.Strings(seenPaths)
 
 		for _, path := range seenPaths {
-			if clearErr := config.Edges.UpsertAll(sourceID, path, nil); clearErr != nil {
+			if clearErr := config.Edges.UpsertAll(sourceID, path, keepByPath[path]); clearErr != nil {
 				return nil, fmt.Errorf("doctor: clear legacy %s rows for %s: %w", path, sourceID, clearErr)
 			}
 		}
 	}
 
 	return report, nil
+}
+
+// unmigratableSkips renders one deterministic skipped line per legacy edge row
+// whose type is no longer declared in the manifest. Such rows cannot be written
+// to frontmatter (frontmatter edges must be declared), so they are surfaced and
+// left in place — the user declares the type in tusk.toml or removes the row
+// with `tusk edge remove`.
+func unmigratableSkips(unmigratable map[string][]index.EdgeRow) []string {
+	rows := make([]index.EdgeRow, 0)
+
+	for _, group := range unmigratable {
+		rows = append(rows, group...)
+	}
+
+	sort.Slice(rows, func(left, right int) bool {
+		if rows[left].SourceID != rows[right].SourceID {
+			return rows[left].SourceID < rows[right].SourceID
+		}
+
+		return edgeRowLess(rows[left], rows[right])
+	})
+
+	skips := make([]string, 0, len(rows))
+
+	for _, row := range rows {
+		skips = append(skips,
+			fmt.Sprintf("%s [%s]: %s → %s (edge type %q not declared in manifest; declare it in tusk.toml or run `tusk edge remove` to clear it)",
+				row.Type, row.SourcePath, row.SourceID, row.TargetID, row.Type))
+	}
+
+	return skips
 }
 
 // LegacyDrift returns one Issue per legacy CLI/MCP edge row currently in the
@@ -882,11 +1070,22 @@ func LegacyDrift(config Config) ([]Issue, error) {
 			continue
 		}
 
+		// A row whose edge type is no longer declared cannot be migrated into
+		// frontmatter, so the default "run doctor to migrate" advice would send
+		// the user in a circle (the migrate pass skips it). Point them at the
+		// real fix instead.
+		hint := "run `tusk doctor` without --no-migrate to migrate into source frontmatter"
+
+		if config.Manifest != nil {
+			if _, declared := config.Manifest.EdgeTypes[row.Type]; !declared {
+				hint = fmt.Sprintf("edge type %q not declared in manifest; declare it in tusk.toml or run `tusk edge remove` to clear it", row.Type)
+			}
+		}
+
 		issues = append(issues, Issue{
-			Kind:   kind,
-			NodeID: row.SourceID,
-			Message: fmt.Sprintf("%s: %s → %s (run `tusk doctor` without --no-migrate to migrate into source frontmatter)",
-				row.Type, row.SourceID, row.TargetID),
+			Kind:    kind,
+			NodeID:  row.SourceID,
+			Message: fmt.Sprintf("%s: %s → %s (%s)", row.Type, row.SourceID, row.TargetID, hint),
 		})
 	}
 

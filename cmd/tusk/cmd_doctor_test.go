@@ -480,6 +480,93 @@ func TestDoctor_AutoMigrateSkipsRowsWithMissingSourceFile(test *testing.T) {
 	}
 }
 
+// TestDoctor_SkipsUndeclaredEdgeTypeAndStillReports pins finding #685 item 1:
+// a legacy row whose edge type was removed from the manifest cannot be written
+// to frontmatter, but it must NOT abort the whole diagnostic run. Doctor should
+// report it as skipped, migrate every declared row on the same source, preserve
+// the un-migratable row in the index, and still print the full health report.
+func TestDoctor_SkipsUndeclaredEdgeTypeAndStillReports(test *testing.T) {
+	dir := initWorkspaceWithManifest(test, edgeManifestBody())
+
+	createNode(test, dir, "tickets/a.md", "ticket", "A", "")
+	createNode(test, dir, "tickets/b.md", "ticket", "B", "")
+
+	store, openErr := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open: %v", openErr)
+	}
+
+	edgeRepo := index.NewEdgeRepo(store)
+
+	// Same source, same sentinel path, two rows: one declared (blocks) that
+	// migrates, one undeclared (ghosttype) that cannot — the harder mixed case
+	// where clearing the path must preserve the un-migratable row.
+	if upsertErr := edgeRepo.UpsertAll("tickets/a", index.CLISourcePath, []index.EdgeRow{
+		{Type: "blocks", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
+		{Type: "ghosttype", SourceID: "tickets/a", TargetID: "tickets/b", SourcePath: index.CLISourcePath, Kind: "direct"},
+	}); upsertErr != nil {
+		test.Fatalf("seed __cli__: %v", upsertErr)
+	}
+
+	store.Close()
+
+	stdout, stderr, ok := runCLISplit(dir, "doctor")
+
+	if !ok {
+		test.Fatalf("doctor exited non-zero, want 0; stderr:\n%s", stderr.String())
+	}
+
+	out := stdout.String()
+
+	// A full report must still print — the bug produced NO report at all.
+	if !strings.Contains(out, "embed queue depth:") {
+		test.Errorf("doctor should still print the health report; got:\n%s", out)
+	}
+
+	// The un-migratable row is surfaced as a skip mentioning the edge type.
+	if !strings.Contains(out, "skipped") || !strings.Contains(out, "ghosttype") {
+		test.Errorf("doctor should report the undeclared edge type as skipped; got:\n%s", out)
+	}
+
+	// The declared row migrated into frontmatter.
+	body, _ := os.ReadFile(filepath.Join(dir, "tickets/a.md"))
+
+	if !strings.Contains(string(body), "blocks: tickets/b") {
+		test.Errorf("doctor should migrate the declared blocks edge; got:\n%s", body)
+	}
+
+	// The undeclared row stays in the index — no silent data loss — while the
+	// declared row's legacy sentinel row is gone.
+	store2, _ := index.Open(filepath.Join(dir, ".tusk", "index.db"))
+	defer store2.Close()
+
+	rows, _ := index.NewEdgeRepo(store2).ListBySource("tickets/a")
+
+	var sawGhost, sawLegacyBlocks bool
+
+	for _, row := range rows {
+		if row.SourcePath != index.CLISourcePath {
+			continue
+		}
+
+		switch row.Type {
+		case "ghosttype":
+			sawGhost = true
+		case "blocks":
+			sawLegacyBlocks = true
+		}
+	}
+
+	if !sawGhost {
+		test.Errorf("doctor should preserve the un-migratable legacy row; rows: %+v", rows)
+	}
+
+	if sawLegacyBlocks {
+		test.Errorf("doctor should have cleared the migrated blocks legacy row; rows: %+v", rows)
+	}
+}
+
 func TestDoctor_AutoMigrateIsIdempotent(test *testing.T) {
 	dir := initWorkspaceWithManifest(test, edgeManifestBody())
 

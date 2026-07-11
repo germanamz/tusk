@@ -515,6 +515,16 @@ func Run(config Config) (*Report, error) {
 		}
 	}
 
+	// Sweep drift rows whose node was reaped above, renamed away by `tusk node
+	// move`, or deleted by `tusk node delete` (neither clears drift) — or that
+	// vanished out of band. Drift is only ever written for a live node, so a
+	// row without a node is an orphan doctor would otherwise re-report forever
+	// (#685). This runs before the async/sync drain so a freshly-enqueued file
+	// (no drift row yet) is never mistaken for an orphan.
+	if sweepErr := sweepOrphanDrift(config); sweepErr != nil {
+		return nil, sweepErr
+	}
+
 	if config.Async {
 		// The background drainer owns the queue; hand it the files behind any
 		// recorded ref drift so their refs are re-resolved against the node

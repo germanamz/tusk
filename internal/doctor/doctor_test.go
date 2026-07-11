@@ -90,6 +90,14 @@ func TestRun_SurfacesWorkflowViolation(test *testing.T) {
 	store, closer := newTempIndex(test)
 	defer closer()
 
+	nodeRepo := index.NewNodeRepo(store)
+
+	// Drift is only ever recorded for a live node; give the drift row a real
+	// node so doctor's orphan filter keeps it (an orphaned row is swept, #685).
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "tickets/foo", Type: "ticket", Path: "tickets/foo.md", Title: "Foo", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert node: %v", upsertErr)
+	}
+
 	driftRepo := index.NewWorkflowDriftRepo(store)
 
 	if appendErr := driftRepo.Append(index.WorkflowDriftRow{
@@ -100,7 +108,7 @@ func TestRun_SurfacesWorkflowViolation(test *testing.T) {
 	}
 
 	report, runErr := doctor.Run(doctor.Config{
-		Nodes:         index.NewNodeRepo(store),
+		Nodes:         nodeRepo,
 		WorkflowDrift: driftRepo,
 	})
 
@@ -129,6 +137,12 @@ func TestRun_WorkflowViolationUsesPersistedDetail(test *testing.T) {
 	store, closer := newTempIndex(test)
 	defer closer()
 
+	nodeRepo := index.NewNodeRepo(store)
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "tickets/foo", Type: "ticket", Path: "tickets/foo.md", Title: "Foo", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert node: %v", upsertErr)
+	}
+
 	driftRepo := index.NewWorkflowDriftRepo(store)
 
 	const detail = "workflow \"tickets\": cannot transition status \"active\" → \"completed\"\n  valid targets from \"active\": done"
@@ -142,7 +156,7 @@ func TestRun_WorkflowViolationUsesPersistedDetail(test *testing.T) {
 	}
 
 	report, runErr := doctor.Run(doctor.Config{
-		Nodes:         index.NewNodeRepo(store),
+		Nodes:         nodeRepo,
 		WorkflowDrift: driftRepo,
 	})
 
@@ -171,6 +185,8 @@ func TestRun_SurfacesPropertyDrift(test *testing.T) {
 	store, closer := newTempIndex(test)
 	defer closer()
 
+	nodeRepo := index.NewNodeRepo(store)
+
 	driftRepo := index.NewPropertyDriftRepo(store)
 
 	rows := []index.PropertyDriftRow{
@@ -181,13 +197,19 @@ func TestRun_SurfacesPropertyDrift(test *testing.T) {
 	}
 
 	for _, row := range rows {
+		// Each drift row must belong to a live node or doctor's orphan filter
+		// (#685) drops it as an orphan with no repair path.
+		if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: row.NodeID, Type: "ticket", Path: row.NodeID + ".md", Title: row.NodeID, PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+			test.Fatalf("upsert node %s: %v", row.NodeID, upsertErr)
+		}
+
 		if appendErr := driftRepo.Append(row); appendErr != nil {
 			test.Fatalf("Append: %v", appendErr)
 		}
 	}
 
 	report, runErr := doctor.Run(doctor.Config{
-		Nodes:         index.NewNodeRepo(store),
+		Nodes:         nodeRepo,
 		PropertyDrift: driftRepo,
 	})
 
@@ -317,6 +339,68 @@ func TestRun_SurfacesRefCycle(test *testing.T) {
 	}
 }
 
+// TestRun_SkipsOrphanedDriftRows pins finding #2: a property/workflow drift
+// row whose node was deleted or renamed away must NOT be reported — it is an
+// orphan with no repair path. Only the live node's drift survives.
+func TestRun_SkipsOrphanedDriftRows(test *testing.T) {
+	store, closer := newTempIndex(test)
+	defer closer()
+
+	nodeRepo := index.NewNodeRepo(store)
+	propDrift := index.NewPropertyDriftRepo(store)
+	wfDrift := index.NewWorkflowDriftRepo(store)
+
+	// Only tickets/live still exists; tickets/dead and tickets/ghost were
+	// deleted/renamed away but their drift rows were never cleared.
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "tickets/live", Type: "ticket", Path: "tickets/live.md", Title: "Live", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert live: %v", upsertErr)
+	}
+
+	for _, row := range []index.PropertyDriftRow{
+		{NodeID: "tickets/live", NodeType: "ticket", Kind: "enum-violation", Property: "status", Details: "value \"x\" not in [open, done]", ObservedAt: 100},
+		{NodeID: "tickets/dead", NodeType: "ticket", Kind: "enum-violation", Property: "status", Details: "value \"y\" not in [open, done]", ObservedAt: 200},
+	} {
+		if appendErr := propDrift.Append(row); appendErr != nil {
+			test.Fatalf("append prop drift: %v", appendErr)
+		}
+	}
+
+	if appendErr := wfDrift.Append(index.WorkflowDriftRow{
+		NodeID: "tickets/ghost", PackInstance: "kanban", PackKind: "workflow",
+		ObservedStatus: "bogus", Property: "status", ObservedAt: 300,
+	}); appendErr != nil {
+		test.Fatalf("append wf drift: %v", appendErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:         nodeRepo,
+		PropertyDrift: propDrift,
+		WorkflowDrift: wfDrift,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	for _, issue := range report.Issues {
+		if issue.NodeID == "tickets/dead" || issue.NodeID == "tickets/ghost" {
+			test.Errorf("orphaned drift for %s reported; want it skipped: %+v", issue.NodeID, issue)
+		}
+	}
+
+	var liveReported bool
+
+	for _, issue := range report.Issues {
+		if issue.NodeID == "tickets/live" {
+			liveReported = true
+		}
+	}
+
+	if !liveReported {
+		test.Errorf("live node's drift was dropped; want it kept. Issues: %+v", report.Issues)
+	}
+}
+
 func newTempIndex(test *testing.T) (*index.Index, func()) {
 	test.Helper()
 
@@ -421,6 +505,88 @@ func TestRun_EmbedStatsAndIssues(test *testing.T) {
 
 	if !sawNoChunks {
 		test.Errorf("missing embed-no-chunks for node c: %+v", report.Issues)
+	}
+}
+
+// TestRun_SurfacesEmbedRetry pins finding #3: an embed-queue row that has
+// failed at least once (attempts > 0) with a recorded last_error must surface
+// as the declared IssueEmbedRetry kind — previously dead code no path emitted,
+// leaving a persistently failing embedder invisible behind the generic queue
+// depth counter.
+func TestRun_SurfacesEmbedRetry(test *testing.T) {
+	store, closer := newTempIndex(test)
+	defer closer()
+
+	queue := index.NewEmbedQueueRepo(store)
+
+	// Simulate a row mid-retry: enqueued, drained, embed failed, released with
+	// attempts bumped and last_error recorded (the Nack lifecycle).
+	if _, execErr := store.DB().Exec(
+		`INSERT INTO embed_queue (node_id, enqueued_at, attempts, last_error, kind) VALUES (?, ?, ?, ?, 'embed')`,
+		"notes/a", 1, 2, "ollama: HTTP 404: model not found",
+	); execErr != nil {
+		test.Fatalf("seed embed_queue: %v", execErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: queue,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	var found bool
+
+	for _, issue := range report.Issues {
+		if issue.Kind != doctor.IssueEmbedRetry {
+			continue
+		}
+
+		found = true
+
+		if issue.NodeID != "notes/a" {
+			test.Errorf("Issue.NodeID = %q, want notes/a", issue.NodeID)
+		}
+
+		if !strings.Contains(issue.Message, "2") || !strings.Contains(issue.Message, "404") {
+			test.Errorf("Issue.Message = %q, want attempt count and last error", issue.Message)
+		}
+	}
+
+	if !found {
+		test.Fatalf("expected IssueEmbedRetry for notes/a; got %+v", report.Issues)
+	}
+}
+
+// TestRun_NoEmbedRetryForFreshRows guards against noise: a freshly enqueued
+// row (attempts = 0) is a normal backlog entry, not a retry, and must not be
+// flagged.
+func TestRun_NoEmbedRetryForFreshRows(test *testing.T) {
+	store, closer := newTempIndex(test)
+	defer closer()
+
+	queue := index.NewEmbedQueueRepo(store)
+
+	if enqErr := queue.Enqueue("notes/fresh"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		EmbedQueue: queue,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueEmbedRetry {
+			test.Errorf("unexpected IssueEmbedRetry for a fresh (attempts=0) row: %+v", issue)
+		}
 	}
 }
 
@@ -1030,6 +1196,221 @@ edge-types = ["made-up-edge"]
 	for _, issue := range report.Issues {
 		if issue.Kind == doctor.IssueGraphExpansionUnknownEdge || issue.Kind == doctor.IssueGraphExpansionWeightZero {
 			test.Errorf("expected no graph-expansion Issues when Enabled=false; got %+v", issue)
+		}
+	}
+}
+
+// TestRun_GraphExpansionScopedRefIsNotUnknown pins finding #4 (half 1): a
+// typeref-scoped entry like ":references" whose bare type IS declared resolves
+// and walks at query time, so doctor must NOT flag it as an unknown edge the
+// walker "silently skips". The plain map-key lookup this replaced flagged it
+// because the map is keyed by bare type name, not by the scoped notation.
+func TestRun_GraphExpansionScopedRefIsNotUnknown(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[edge-types.references]
+from = ["*"]
+to = ["*"]
+cardinality = "many-to-many"
+
+[query.graph-expansion]
+enabled = true
+edge-types = [":references"]
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated")
+	}
+
+	if len(pane.UnknownEdgeTypes) != 0 {
+		test.Errorf("UnknownEdgeTypes = %v, want empty (:references type is declared)", pane.UnknownEdgeTypes)
+	}
+
+	if len(pane.InvalidEdgeTypes) != 0 {
+		test.Errorf("InvalidEdgeTypes = %v, want empty (:references is a valid typeref)", pane.InvalidEdgeTypes)
+	}
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionUnknownEdge || issue.Kind == doctor.IssueGraphExpansionInvalidEdge {
+			test.Errorf("expected no unknown/invalid edge Issue for a declared scoped ref; got %+v", issue)
+		}
+	}
+}
+
+// TestRun_GraphExpansionMalformedRefIsInvalidNotUnknown pins finding #4
+// (half 2): a malformed entry like "Refs" is rejected by typeref.ParseMany on
+// the query path, so every `--semantic` query hard-fails. Doctor must surface
+// it as a hard invalid-edge issue, not the softer "walker silently skips it"
+// unknown-edge wording that understates a query-breaking config.
+func TestRun_GraphExpansionMalformedRefIsInvalidNotUnknown(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[query.graph-expansion]
+enabled = true
+edge-types = ["Refs"]
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated")
+	}
+
+	if len(pane.InvalidEdgeTypes) != 1 || pane.InvalidEdgeTypes[0] != "Refs" {
+		test.Errorf("InvalidEdgeTypes = %v, want [Refs]", pane.InvalidEdgeTypes)
+	}
+
+	if len(pane.UnknownEdgeTypes) != 0 {
+		test.Errorf("UnknownEdgeTypes = %v, want empty (Refs is invalid, not merely unknown)", pane.UnknownEdgeTypes)
+	}
+
+	var invalidIssues, unknownIssues int
+
+	for _, issue := range report.Issues {
+		switch issue.Kind {
+		case doctor.IssueGraphExpansionInvalidEdge:
+			invalidIssues++
+
+			if issue.NodeID != "Refs" {
+				test.Errorf("Issue.NodeID = %q, want \"Refs\"", issue.NodeID)
+			}
+
+			if !strings.Contains(issue.Message, "semantic") {
+				test.Errorf("Issue.Message = %q, want mention of query breakage", issue.Message)
+			}
+		case doctor.IssueGraphExpansionUnknownEdge:
+			unknownIssues++
+		}
+	}
+
+	if invalidIssues != 1 {
+		test.Errorf("IssueGraphExpansionInvalidEdge count = %d, want 1", invalidIssues)
+	}
+
+	if unknownIssues != 0 {
+		test.Errorf("IssueGraphExpansionUnknownEdge count = %d, want 0 (Refs is invalid, not unknown)", unknownIssues)
+	}
+}
+
+// TestRun_GraphExpansionEnabledEmptyEdgeTypesIsNoOp pins finding #5:
+// enabled=true with an explicit empty edge-types list is a total no-op (the
+// walker adds no neighbors), yet doctor previously reported "no issues". It
+// must be flagged like the sibling weight=0 no-op. An absent block resolves to
+// the non-empty default set, so this fires only for the explicit empty list.
+func TestRun_GraphExpansionEnabledEmptyEdgeTypesIsNoOp(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[query.graph-expansion]
+enabled = true
+edge-types = []
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	pane := report.GraphExpansion
+
+	if pane == nil {
+		test.Fatalf("GraphExpansion = nil, want populated")
+	}
+
+	if !pane.EmptyEdgeTypesNoOp {
+		test.Errorf("EmptyEdgeTypesNoOp = false, want true for enabled + edge-types=[]")
+	}
+
+	var noEdgesIssues int
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionNoEdges {
+			noEdgesIssues++
+		}
+	}
+
+	if noEdgesIssues != 1 {
+		test.Errorf("IssueGraphExpansionNoEdges count = %d, want 1", noEdgesIssues)
+	}
+}
+
+// TestRun_GraphExpansionDefaultEdgeTypesNotFlaggedEmpty guards the #5 fix
+// against a false positive: an enabled block with NO edge-types key resolves
+// to the non-empty default set, so EmptyEdgeTypesNoOp must stay false.
+func TestRun_GraphExpansionDefaultEdgeTypesNotFlaggedEmpty(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	loaded := loadGraphExpansionManifest(test, `
+[workspace]
+name = "x"
+
+[query.graph-expansion]
+enabled = true
+`)
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest:   loaded,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if report.GraphExpansion.EmptyEdgeTypesNoOp {
+		test.Errorf("EmptyEdgeTypesNoOp = true, want false when edge-types defaults to the non-empty set")
+	}
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueGraphExpansionNoEdges {
+			test.Errorf("unexpected no-edges Issue for default edge-types: %+v", issue)
 		}
 	}
 }

@@ -76,6 +76,28 @@ func enqueueRefDriftRows(rows []index.PropertyDriftRow, drift *index.PropertyDri
 	return enqueued, orphaned, nil
 }
 
+// sweepOrphanDrift deletes property- and workflow-drift rows whose node no
+// longer resolves to a node row. Both repos are optional; a nil repo is
+// skipped. Called once per reindex, after the orphan reap and before the
+// drain, so a delete/rename that left drift behind — or an out-of-band file
+// removal — stops being reported by doctor (#685) instead of lingering until a
+// `tusk reset`.
+func sweepOrphanDrift(config Config) error {
+	if config.PropertyDrift != nil {
+		if _, sweepErr := config.PropertyDrift.DeleteOrphans(); sweepErr != nil {
+			return fmt.Errorf("reindex: sweep orphan property drift: %w", sweepErr)
+		}
+	}
+
+	if config.DriftLog != nil {
+		if _, sweepErr := config.DriftLog.DeleteOrphans(); sweepErr != nil {
+			return fmt.Errorf("reindex: sweep orphan workflow drift: %w", sweepErr)
+		}
+	}
+
+	return nil
+}
+
 // enqueueRefDrift lists the current ref-kind drift rows and enqueues their
 // files. The async reindex path uses this to hand retry work to the
 // background drainer; the sync path retries inline via HealRefDrift.
