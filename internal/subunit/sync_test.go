@@ -3,7 +3,9 @@ package subunit_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -509,6 +511,79 @@ func TestSync_LeavesEnqueuedSectionsSkipped(test *testing.T) {
 			if !present {
 				test.Errorf("leaf %q (%s) was not enqueued", subunitID, unit.Kind)
 			}
+		}
+	}
+}
+
+// TestSync_ForceReenqueuesUnchangedLeaves pins #684 finding 3: a `reindex
+// --force` must re-embed sub-unit leaves even when their content is unchanged,
+// so a stale-model store converges. Without Force, an unchanged leaf is never
+// re-enqueued (that is the bug — the model swap leaves the vector stale forever
+// short of `tusk reset`).
+func TestSync_ForceReenqueuesUnchangedLeaves(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := referencesManifest(test)
+	sync, nodes, _, queue := newSync(store, loaded)
+
+	parent := seedFileRow(test, nodes, "notes/force", "notes/force.md")
+	units, parseErr := subunit.Parse([]byte("# Heading\n\nbody paragraph\n"))
+
+	if parseErr != nil {
+		test.Fatalf("Parse: %v", parseErr)
+	}
+
+	// First apply enqueues the leaf; drain the queue so it starts empty.
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+		test.Fatalf("ApplyFile: %v", applyErr)
+	}
+
+	drainEmbedQueue(test, queue)
+
+	// Control: an unchanged re-apply WITHOUT force must not re-enqueue.
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+		test.Fatalf("ApplyFile (no force): %v", applyErr)
+	}
+
+	if depth, _ := queue.Depth(); depth != 0 {
+		test.Fatalf("unchanged re-apply enqueued %d rows without force; want 0", depth)
+	}
+
+	// With Force, the unchanged leaf must be re-enqueued.
+	sync.Force = true
+
+	if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+		test.Fatalf("ApplyFile (force): %v", applyErr)
+	}
+
+	ids, _ := queue.ListNodeIDs()
+
+	leafFound := false
+
+	for _, id := range ids {
+		if strings.HasPrefix(id, parent.ID+"#") {
+			leafFound = true
+		}
+	}
+
+	if !leafFound {
+		test.Errorf("force re-apply did not re-enqueue the unchanged leaf; queued=%v", ids)
+	}
+}
+
+// drainEmbedQueue claims and acks every embed row so the queue is empty,
+// modelling a completed drain pass before a subsequent ApplyFile.
+func drainEmbedQueue(test *testing.T, queue *index.EmbedQueueRepo) {
+	test.Helper()
+
+	rows, drainErr := queue.DrainEmbed("test-worker", 1000, time.Minute)
+
+	if drainErr != nil {
+		test.Fatalf("DrainEmbed: %v", drainErr)
+	}
+
+	for _, row := range rows {
+		if ackErr := queue.Ack(row.NodeID, "test-worker"); ackErr != nil {
+			test.Fatalf("Ack %s: %v", row.NodeID, ackErr)
 		}
 	}
 }

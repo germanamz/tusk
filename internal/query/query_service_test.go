@@ -510,6 +510,159 @@ func TestQueryRun_SemanticSubUnitFilterRanksAllCandidates(test *testing.T) {
 	}
 }
 
+// TestQueryRun_SemanticFileLevelFallbackWhenNoSubUnitLeaves pins #684 finding 2:
+// on the sub-unit-aware semantic path, a file that has NO sub-unit leaf
+// embeddings (its leaves are pending, were evicted, or never existed) must still
+// rank via its own file-level vector — it must not vanish just because another
+// file in the result set does have sub-unit leaves.
+func TestQueryRun_SemanticFileLevelFallbackWhenNoSubUnitLeaves(test *testing.T) {
+	store := openTestStore(test)
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	// kitchen: file + section + leaf, WITH a leaf embedding (orthogonal to the
+	// query so it scores 0). Its presence flips the vault-wide sub-unit gate on.
+	if err := nodes.Upsert(index.NodeRow{ID: "kitchen", Type: "note", Path: "kitchen.md", Title: "Kitchen", PropertiesJSON: "{}", LastChecksum: "x"}); err != nil {
+		test.Fatalf("kitchen upsert: %v", err)
+	}
+
+	if err := nodes.BulkUpsert([]index.NodeRow{
+		{ID: "kitchen#s", Type: "section", Path: "kitchen.md", PropertiesJSON: `{"heading-level":1}`, LastChecksum: "x", ParentID: sql.NullString{String: "kitchen", Valid: true}, Ordinal: sql.NullInt64{Int64: 0, Valid: true}, EmbedPayload: sql.NullString{String: "kitchen heading", Valid: true}},
+		{ID: "kitchen#s_p", Type: "paragraph", Path: "kitchen.md", PropertiesJSON: "{}", LastChecksum: "x", ParentID: sql.NullString{String: "kitchen#s", Valid: true}, Ordinal: sql.NullInt64{Int64: 1, Valid: true}, EmbedPayload: sql.NullString{String: "meal prep rotation", Valid: true}},
+	}, "markdown"); err != nil {
+		test.Fatalf("kitchen sub-units: %v", err)
+	}
+
+	if err := embeddings.Upsert(index.EmbeddingRow{NodeID: "kitchen#s_p", ChunkIdx: 0, Model: "stub", ContentHash: "hk", Vector: []float32{0, 1, 0}, Dim: 3, Body: "meal prep rotation"}); err != nil {
+		test.Fatalf("kitchen leaf embed: %v", err)
+	}
+
+	// orbit: file only, WITH a file-level vector (perfect match), NO sub-unit
+	// leaf embeddings — the exact partial-drain shape from the repro.
+	if err := nodes.Upsert(index.NodeRow{ID: "orbit", Type: "note", Path: "orbit.md", Title: "Orbit", PropertiesJSON: "{}", LastChecksum: "x"}); err != nil {
+		test.Fatalf("orbit upsert: %v", err)
+	}
+
+	if err := embeddings.Upsert(index.EmbeddingRow{NodeID: "orbit", ChunkIdx: 0, Model: "stub", ContentHash: "ho", Vector: []float32{1, 0, 0}, Dim: 3, Body: "satellite orbital insertion burn"}); err != nil {
+		test.Fatalf("orbit file-level embed: %v", err)
+	}
+
+	deps := query.Deps{
+		Database:   store.DB(),
+		Manifest:   loadManifestWithSubUnits(test),
+		Nodes:      nodes,
+		Embedder:   stubEmbedder{vector: []float32{1, 0, 0}},
+		Embeddings: embeddings,
+	}
+
+	result, runErr := query.Run(context.Background(), deps, query.Request{
+		Filter:   "type=note",
+		Semantic: "satellite orbital insertion burn",
+		MinScore: 0,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if result.Semantic == nil {
+		test.Fatalf("expected Semantic result")
+	}
+
+	var orbit *query.ScoredRow
+
+	for idx := range result.Semantic.Ranked {
+		if result.Semantic.Ranked[idx].ID == "orbit" {
+			orbit = &result.Semantic.Ranked[idx]
+		}
+	}
+
+	if orbit == nil {
+		ids := make([]string, 0, len(result.Semantic.Ranked))
+		for _, row := range result.Semantic.Ranked {
+			ids = append(ids, row.ID)
+		}
+
+		test.Fatalf("orbit vanished; ranked = %v (file-level fallback missing)", ids)
+	}
+
+	if orbit.Score < 0.9 {
+		test.Errorf("orbit score = %f, want ~1.0 from its file-level vector", orbit.Score)
+	}
+}
+
+// TestQueryRun_SemanticSkipsStaleModelVectors pins #684 finding 3 (query side):
+// a sub-unit leaf whose stored model differs from the configured embedder's must
+// NOT rank — cross-model cosine is meaningless. The stale file has no other
+// vector, so it drops out of results entirely (matching doctor's stated
+// assumption), while the live-model file still ranks.
+func TestQueryRun_SemanticSkipsStaleModelVectors(test *testing.T) {
+	store := openTestStore(test)
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	seed := func(fileID, model string) {
+		if err := nodes.Upsert(index.NodeRow{ID: fileID, Type: "note", Path: fileID + ".md", Title: fileID, PropertiesJSON: "{}", LastChecksum: "x"}); err != nil {
+			test.Fatalf("%s upsert: %v", fileID, err)
+		}
+
+		if err := nodes.BulkUpsert([]index.NodeRow{
+			{ID: fileID + "#s", Type: "section", Path: fileID + ".md", PropertiesJSON: `{"heading-level":1}`, LastChecksum: "x", ParentID: sql.NullString{String: fileID, Valid: true}, Ordinal: sql.NullInt64{Int64: 0, Valid: true}, EmbedPayload: sql.NullString{String: fileID + " heading", Valid: true}},
+			{ID: fileID + "#s_p", Type: "paragraph", Path: fileID + ".md", PropertiesJSON: "{}", LastChecksum: "x", ParentID: sql.NullString{String: fileID + "#s", Valid: true}, Ordinal: sql.NullInt64{Int64: 1, Valid: true}, EmbedPayload: sql.NullString{String: fileID + " body", Valid: true}},
+		}, "markdown"); err != nil {
+			test.Fatalf("%s sub-units: %v", fileID, err)
+		}
+
+		// Both leaves are a perfect match to the query; only the model differs.
+		if err := embeddings.Upsert(index.EmbeddingRow{NodeID: fileID + "#s_p", ChunkIdx: 0, Model: model, ContentHash: "h_" + fileID, Vector: []float32{1, 0, 0}, Dim: 3, Body: fileID + " body"}); err != nil {
+			test.Fatalf("%s leaf embed: %v", fileID, err)
+		}
+	}
+
+	seed("live", "stub")
+	seed("stale", "ancient-model")
+
+	deps := query.Deps{
+		Database:   store.DB(),
+		Manifest:   loadManifestWithSubUnits(test),
+		Nodes:      nodes,
+		Embedder:   stubEmbedder{vector: []float32{1, 0, 0}},
+		Embeddings: embeddings,
+	}
+
+	result, runErr := query.Run(context.Background(), deps, query.Request{
+		Filter:   "type=note",
+		Semantic: "anything",
+		MinScore: 0.1,
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if result.Semantic == nil {
+		test.Fatalf("expected Semantic result")
+	}
+
+	for _, row := range result.Semantic.Ranked {
+		if row.ID == "stale" {
+			test.Errorf("stale-model file ranked at %f; cross-model vectors must not rank", row.Score)
+		}
+	}
+
+	liveFound := false
+
+	for _, row := range result.Semantic.Ranked {
+		if row.ID == "live" {
+			liveFound = true
+		}
+	}
+
+	if !liveFound {
+		test.Errorf("live-model file dropped; configured-model vectors must still rank")
+	}
+}
+
 // TestQueryRun_SemanticLeakedSubUnitNormalizesToParentFile covers #560's
 // secondary defect: when a sub-unit row enters the semantic path for a file
 // whose own file row is NOT in the structural result (here cooking matches only

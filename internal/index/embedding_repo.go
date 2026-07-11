@@ -384,6 +384,23 @@ func (repo *EmbeddingRepo) DeleteByNodeID(nodeID string) error {
 	return nil
 }
 
+// DeleteChunksFrom removes the node→content mappings for nodeID whose chunk_idx
+// is >= minChunkIdx, leaving the lower-indexed chunks intact. The drain uses it
+// to prune the stale tail after an embed-then-swap: chunks 0..N-1 are upserted
+// in place (ON CONFLICT overwrites), then any leftover higher-indexed rows from
+// a prior, longer version of the node are dropped. minChunkIdx == 0 removes
+// every mapping (the DeleteByNodeID equivalent). The shared vectors stay until
+// GCOrphanVectors sweeps any that no mapping references.
+func (repo *EmbeddingRepo) DeleteChunksFrom(nodeID string, minChunkIdx int) error {
+	_, execErr := repo.db.Exec(`DELETE FROM node_embeddings WHERE node_id = ? AND chunk_idx >= ?`, nodeID, minChunkIdx)
+
+	if execErr != nil {
+		return fmt.Errorf("embeddingRepo: delete chunks-from %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
 // ListNodeIDs returns every distinct node_id that has at least one embedding
 // mapping, sorted ascending.
 func (repo *EmbeddingRepo) ListNodeIDs() ([]string, error) {

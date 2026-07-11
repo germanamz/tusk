@@ -164,6 +164,43 @@ func TestEmbeddingRepo_DeleteByNodeID(test *testing.T) {
 	}
 }
 
+func TestEmbeddingRepo_DeleteChunksFrom(test *testing.T) {
+	repo := newTestEmbeddingRepo(test, "shrinking")
+
+	for idx := 0; idx < 5; idx++ {
+		repo.Upsert(index.EmbeddingRow{
+			NodeID: "shrinking", ChunkIdx: idx, Model: "m", ContentHash: "h",
+			Vector: []float32{0.1}, Dim: 1,
+		})
+	}
+
+	// Prune the tail: keep chunks 0..1, drop chunk_idx >= 2.
+	if delErr := repo.DeleteChunksFrom("shrinking", 2); delErr != nil {
+		test.Fatalf("DeleteChunksFrom: %v", delErr)
+	}
+
+	loaded, _ := repo.GetByNodeID("shrinking")
+
+	if len(loaded) != 2 {
+		test.Fatalf("len = %d, want 2 (chunks 0..1 kept)", len(loaded))
+	}
+
+	for _, row := range loaded {
+		if row.ChunkIdx >= 2 {
+			test.Errorf("chunk_idx %d survived the prune", row.ChunkIdx)
+		}
+	}
+
+	// Pruning from 0 removes everything (equivalent to DeleteByNodeID).
+	if delErr := repo.DeleteChunksFrom("shrinking", 0); delErr != nil {
+		test.Fatalf("DeleteChunksFrom(0): %v", delErr)
+	}
+
+	if remaining, _ := repo.GetByNodeID("shrinking"); len(remaining) != 0 {
+		test.Errorf("len = %d, want 0 after prune-from-0", len(remaining))
+	}
+}
+
 func TestEmbeddingRepo_BodyRoundTrip(test *testing.T) {
 	repo := newTestEmbeddingRepo(test, "tickets/foo")
 

@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -781,6 +782,22 @@ func validate(loaded *Manifest) error {
 
 		if loaded.Embeddings.Model == "" {
 			return fmt.Errorf("manifest: embeddings.model must be set when embeddings.provider is configured")
+		}
+
+		// An unset or empty endpoint validated cleanly before the fix, then
+		// concatenated into a malformed request URL ("/api/embeddings") that
+		// every embed call rejected as `unsupported protocol scheme ""` — a
+		// transport error the drain aborts on, so the embed queue never
+		// converged and reindex still exited 0 (#684). Reject it here with an
+		// actionable message, the way provider/model/dim are validated.
+		if strings.TrimSpace(loaded.Embeddings.Endpoint) == "" {
+			return fmt.Errorf("manifest: embeddings.endpoint must be set when embeddings.provider is configured (e.g. http://localhost:11434)")
+		}
+
+		parsedEndpoint, endpointErr := url.Parse(loaded.Embeddings.Endpoint)
+
+		if endpointErr != nil || parsedEndpoint.Scheme == "" || parsedEndpoint.Host == "" {
+			return fmt.Errorf("manifest: embeddings.endpoint = %q must be an absolute URL with a scheme and host (e.g. http://localhost:11434)", loaded.Embeddings.Endpoint)
 		}
 
 		if loaded.Embeddings.TimeoutSeconds < 0 {

@@ -641,6 +641,79 @@ func TestDrainQueue_TransportErrorAbortsAndKeepsQueue(test *testing.T) {
 	}
 }
 
+// TestDrainQueue_TransportAbortKeepsExistingVectors pins #684 finding 1: when a
+// CHANGED node (embeddingsMatch is false) is re-embedded and the embed call
+// fails with a transport error, the node's previously stored vectors must
+// survive — the replacement is embed-then-swap, so nothing is deleted until the
+// new vectors are in hand. Before the fix, DeleteByNodeID ran before the failing
+// embed, fully evicting the node from semantic results over a transient blip.
+func TestDrainQueue_TransportAbortKeepsExistingVectors(test *testing.T) {
+	root := test.TempDir()
+	store := openIndex(test, root)
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	embeddingRepo := index.NewEmbeddingRepo(store)
+
+	createNodeFile(test, root, "alpha.md", "the lighthouse keeper logs the tide tables every morning")
+
+	if upsertErr := nodeRepo.Upsert(index.NodeRow{ID: "alpha", Type: "note", Path: "alpha.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert node: %v", upsertErr)
+	}
+
+	// Seed a prior vector whose content hash does NOT match the current file
+	// body, so embeddingsMatch is false and the drain proceeds to re-embed.
+	if upErr := embeddingRepo.Upsert(index.EmbeddingRow{
+		NodeID:      "alpha",
+		ChunkIdx:    0,
+		Model:       "stub",
+		ContentHash: "stale-but-present",
+		Vector:      []float32{0.4, 0.5, 0.6},
+		Dim:         3,
+	}); upErr != nil {
+		test.Fatalf("seed vector: %v", upErr)
+	}
+
+	if enqErr := queueRepo.Enqueue("alpha"); enqErr != nil {
+		test.Fatalf("enqueue: %v", enqErr)
+	}
+
+	failing := &drainStubEmbedder{
+		dim:     3,
+		model:   "stub",
+		failure: &embed.TransportError{Err: fmt.Errorf("connection refused")},
+	}
+
+	_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		Root:       root,
+		Nodes:      nodeRepo,
+		Queue:      queueRepo,
+		Embeddings: embeddingRepo,
+		Embedder:   failing,
+		Chunker:    embed.WholeDocument{},
+		TTL:        time.Millisecond,
+	})
+
+	if drainErr == nil || !embed.IsTransportError(drainErr) {
+		test.Fatalf("DrainQueue err = %v, want a TransportError", drainErr)
+	}
+
+	rows, getErr := embeddingRepo.GetByNodeID("alpha")
+
+	if getErr != nil {
+		test.Fatalf("GetByNodeID: %v", getErr)
+	}
+
+	if len(rows) != 1 {
+		test.Fatalf("node evicted by a transport blip: got %d vectors, want 1 (existing vector must survive)", len(rows))
+	}
+
+	if rows[0].ContentHash != "stale-but-present" {
+		test.Errorf("surviving vector = %q, want the pre-existing %q", rows[0].ContentHash, "stale-but-present")
+	}
+}
+
 func TestDrainQueue_EmbedsEveryChunkOfMultiChunkNode(test *testing.T) {
 	root := test.TempDir()
 	store := openIndex(test, root)
@@ -699,7 +772,11 @@ func TestDrainQueue_EmbedsEveryChunkOfMultiChunkNode(test *testing.T) {
 	}
 }
 
-func TestDrainQueue_DeletesStaleChunksBeforeReembedding(test *testing.T) {
+// TestDrainQueue_PrunesStaleChunksAfterReembedding covers the shrink case of
+// embed-then-swap: a node that had 5 chunks and now re-embeds to 1 must end with
+// exactly 1 mapping — chunk 0 overwritten in place, the stale tail (chunk_idx
+// 1..4) pruned after the new vector is written.
+func TestDrainQueue_PrunesStaleChunksAfterReembedding(test *testing.T) {
 	root := test.TempDir()
 	store := openIndex(test, root)
 	defer store.Close()
@@ -796,9 +873,9 @@ func TestDrainQueue_NodeFailureReenqueuesAndCleansOnRetry(test *testing.T) {
 		test.Fatalf("DrainQueue: %v", drainErr)
 	}
 
-	// After the retry cap is hit, the node is dropped. Partial state from
-	// any successful retry's DeleteByNodeID + Upsert sequence must not
-	// leave duplicated chunks.
+	// After the retry cap is hit, the node is dropped. The embed-then-swap
+	// write path (upsert chunks in place, prune the tail) must not leave
+	// duplicated chunk_idx rows across a successful retry.
 	rows, _ := embeddingRepo.GetByNodeID("flaky")
 
 	chunkIdxs := make(map[int]struct{}, len(rows))

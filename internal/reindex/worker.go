@@ -68,6 +68,12 @@ type WorkerConfig struct {
 	// Generation is the current reindex_gen; used to stamp file_state rows
 	// after a worker successfully processes a file.
 	Generation int64
+
+	// Force mirrors reindex.Config.Force. When true, the sub-unit sync
+	// re-enqueues an embed for every leaf (not just inserted/content-changed
+	// ones) so `tusk reindex --force` converges sub-unit vectors left stale by
+	// an [embeddings].model / dim swap (#684 finding 3).
+	Force bool
 }
 
 // DrainReport aggregates per-file counters across workers. Mirrors the
@@ -523,6 +529,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 			Manifest: cfg.Manifest,
 			Logger:   cfg.Logger,
 			Source:   subSource,
+			Force:    cfg.Force,
 		}
 
 		syncResult, syncErr := sync.ApplyFile(context.Background(), fileRow, units)

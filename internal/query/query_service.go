@@ -337,9 +337,21 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		return nil, loadErr
 	}
 
+	// Only rank vectors stored under the configured model. A vector left behind
+	// by a previous [embeddings].model (same dim) would otherwise produce a
+	// meaningless cross-model cosine and rank at full confidence; a different
+	// dim is dropped by SemanticRank but still silently vanishes the node. Both
+	// cases now "drop out of query results" as doctor already assumes, and a
+	// reindex --force / reset re-embeds them under the live model (#684).
+	queryModel := deps.Embedder.Model()
+
 	candidates := make([]filter.SemanticCandidate, 0, len(loaded))
 
 	for _, embeddingRow := range loaded {
+		if embeddingRow.Model != queryModel {
+			continue
+		}
+
 		candidates = append(candidates, filter.SemanticCandidate{
 			NodeID: embeddingRow.NodeID,
 			Vector: embeddingRow.Vector,
