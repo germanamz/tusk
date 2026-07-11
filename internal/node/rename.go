@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -142,7 +143,12 @@ func Rename(
 		return nil, ignoredErr
 	}
 
-	newID := strings.TrimSuffix(newRelPath, filepath.Ext(newRelPath))
+	// Derive the new id the way ParseContentFile will when the moved file is
+	// next re-parsed: HTML keeps its extension, markdown strips it. Stripping
+	// unconditionally minted a phantom row (id "docs/b", path "docs/b.html")
+	// that corrupted referrer links and wedged reindex on a UNIQUE nodes.path
+	// constraint forever (#687).
+	newID := nodeIDForPath(newRelPath)
 	oldPath := row.Path
 	oldAbs := filepath.Join(root, oldPath)
 	newAbs := filepath.Join(root, newRelPath)
@@ -287,9 +293,10 @@ func Rename(
 	}
 
 	for _, sourceFile := range affectedFiles {
-		absSource := filepath.Join(root, currentPath(sourceFile))
+		relSource := currentPath(sourceFile)
+		absSource := filepath.Join(root, relSource)
 
-		if rewriteErr := rewriteEdgeReferences(absSource, oldID, newID, edgeTypes, nodeTypes); rewriteErr != nil {
+		if rewriteErr := rewriteEdgeReferences(absSource, relSource, oldID, newID, edgeTypes, nodeTypes); rewriteErr != nil {
 			return nil, rewriteErr
 		}
 	}
@@ -519,24 +526,38 @@ func uniqueSourcePaths(edges []index.EdgeRow) []string {
 	return ordered
 }
 
-// rewriteEdgeReferences reads the file at absPath, replaces every frontmatter
-// scalar / sequence value matching oldID under any declared edge-type key with
-// newID, rewrites body [[wikilinks]] targeting oldID, and writes the file back
-// atomically. nodeTypes lets the frontmatter rewriter tell a title-resolved ref
-// property from an id-resolved edge type.
-func rewriteEdgeReferences(absPath, oldID, newID string, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) error {
+// rewriteEdgeReferences reads the referrer at absPath (whose workspace-relative
+// path is relPath) and rewrites every reference to oldID as one to newID, then
+// writes the file back atomically. A markdown referrer's references live in
+// frontmatter edge values and body [[wikilinks]]; an HTML referrer's live in
+// <a href> values, which resolve to node ids the same way the edge derivation
+// does — so the two content kinds take disjoint rewriters. nodeTypes lets the
+// frontmatter rewriter tell a title-resolved ref property from an id-resolved
+// edge type.
+func rewriteEdgeReferences(absPath, relPath, oldID, newID string, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) error {
 	content, readErr := os.ReadFile(absPath)
 
 	if readErr != nil {
 		return fmt.Errorf("node: read %s: %w", absPath, readErr)
 	}
 
-	rewritten := rewriteFrontmatterEdgeValues(content, oldID, newID, edgeTypes, nodeTypes)
-	rewritten = rewriteBodyWikilinks(rewritten, oldID, newID)
+	var rewritten []byte
 
-	// Skip the write when nothing changed (e.g. an HTML referrer whose
-	// <a href> links are not rewritten) — a byte-identical rewrite would
-	// still bump the mtime and wake the watcher for nothing.
+	if IsHTMLPath(relPath) {
+		// HTML referrers carry no YAML frontmatter and no [[wikilinks]] — their
+		// only references are <a href> values. Rewriting the href on disk keeps
+		// the reference following the move, the HTML counterpart of the markdown
+		// wikilink rewrite below; without it the re-derive loop re-parses the
+		// stale href and reverts the retargeted edge to the dead id (#687).
+		rewritten = rewriteHTMLHrefs(content, relPath, oldID, newID)
+	} else {
+		rewritten = rewriteFrontmatterEdgeValues(content, oldID, newID, edgeTypes, nodeTypes)
+		rewritten = rewriteBodyWikilinks(rewritten, oldID, newID)
+	}
+
+	// Skip the write when nothing changed (e.g. an HTML referrer whose only
+	// <a href> points elsewhere) — a byte-identical rewrite would still bump
+	// the mtime and wake the watcher for nothing.
 	if bytes.Equal(rewritten, content) {
 		return nil
 	}
@@ -546,6 +567,122 @@ func rewriteEdgeReferences(absPath, oldID, newID string, edgeTypes manifest.Edge
 	}
 
 	return nil
+}
+
+// htmlAnchorTagPattern matches an anchor open tag; htmlHrefAttrPattern matches
+// a space-delimited href attribute (with its leading whitespace, so it never
+// straddles a data-href / other-href attribute) and captures the assignment and
+// the value token separately. Both are case-insensitive and dot-matches-newline
+// so a multi-line <a> tag is still one match.
+var (
+	htmlAnchorTagPattern = regexp.MustCompile(`(?is)<a\b[^>]*>`)
+	htmlHrefAttrPattern  = regexp.MustCompile(`(?is)(\shref\s*=\s*)("[^"]*"|'[^']*'|[^\s"'>]+)`)
+)
+
+// rewriteHTMLHrefs rewrites every <a href> value that resolves to oldID so it
+// resolves to newID instead, editing the raw bytes in place. Only href
+// attributes on anchor elements are touched — the same set collectHrefs turns
+// into edges — so a coincidental href on another element is left alone. Quote
+// style, attribute whitespace, and any ?query / #fragment are preserved; a
+// value that does not resolve to oldID is untouched.
+func rewriteHTMLHrefs(content []byte, sourcePath, oldID, newID string) []byte {
+	return htmlAnchorTagPattern.ReplaceAllFunc(content, func(tag []byte) []byte {
+		return htmlHrefAttrPattern.ReplaceAllFunc(tag, func(attr []byte) []byte {
+			groups := htmlHrefAttrPattern.FindSubmatch(attr)
+			assign, valueToken := groups[1], groups[2]
+
+			rawValue, quote := unquoteAttrValue(valueToken)
+
+			retargeted, changed := retargetHref(rawValue, sourcePath, oldID, newID)
+
+			if !changed {
+				return attr
+			}
+
+			return []byte(string(assign) + requoteAttrValue(retargeted, quote))
+		})
+	})
+}
+
+// retargetHref rewrites a single href value that resolves to oldID into the
+// value resolving to newID, preserving any ?query / #fragment verbatim and the
+// dir-relative vs root-relative style. The second return reports whether the
+// value matched (anything ResolveHTMLLinks drops — external, in-page anchor,
+// vault-escape — never matches and is left alone).
+func retargetHref(rawValue, sourcePath, oldID, newID string) (string, bool) {
+	// Split off ?query / #fragment so only the path portion is retargeted and
+	// the remainder survives byte-for-byte (no URL re-encoding round-trip).
+	pathPart := rawValue
+	suffix := ""
+
+	if cut := strings.IndexAny(rawValue, "?#"); cut >= 0 {
+		pathPart, suffix = rawValue[:cut], rawValue[cut:]
+	}
+
+	// Reuse the exact resolver the edge derivation uses: an href names oldID
+	// iff ResolveHTMLLinks returns it for this source.
+	resolved := ResolveHTMLLinks(sourcePath, []string{pathPart})
+
+	if len(resolved) != 1 || resolved[0] != oldID {
+		return "", false
+	}
+
+	return relativeHref(sourcePath, newID, strings.HasPrefix(strings.TrimSpace(pathPart), "/")) + suffix, true
+}
+
+// relativeHref renders target id as an <a href> path from sourcePath's
+// directory. A root-relative original href ("/notes/x") stays root-relative;
+// otherwise the result is a "../"-style path relative to the source file's
+// directory. Forward slashes throughout — these are URL paths, not OS paths, so
+// path (not filepath) computes the directory.
+func relativeHref(sourcePath, targetID string, rootRelative bool) string {
+	if rootRelative {
+		return "/" + targetID
+	}
+
+	fromDir := path.Dir(sourcePath)
+
+	if fromDir == "." {
+		return targetID
+	}
+
+	fromSegments := strings.Split(fromDir, "/")
+	targetSegments := strings.Split(targetID, "/")
+
+	common := 0
+
+	for common < len(fromSegments) && common < len(targetSegments) && fromSegments[common] == targetSegments[common] {
+		common++
+	}
+
+	var segments []string
+
+	for depth := common; depth < len(fromSegments); depth++ {
+		segments = append(segments, "..")
+	}
+
+	segments = append(segments, targetSegments[common:]...)
+
+	return strings.Join(segments, "/")
+}
+
+// unquoteAttrValue splits an attribute value token into its inner value and the
+// quote byte that wrapped it (0 for an unquoted value).
+func unquoteAttrValue(token []byte) (string, byte) {
+	if len(token) >= 2 && (token[0] == '"' || token[0] == '\'') && token[len(token)-1] == token[0] {
+		return string(token[1 : len(token)-1]), token[0]
+	}
+
+	return string(token), 0
+}
+
+// requoteAttrValue re-wraps value in the quote style it was read with.
+func requoteAttrValue(value string, quote byte) string {
+	if quote == 0 {
+		return value
+	}
+
+	return string(quote) + value + string(quote)
 }
 
 // rewriteBodyWikilinks replaces `[[oldID]]` (and sub-unit deep links,
