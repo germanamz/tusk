@@ -16,18 +16,23 @@ Run health checks against the workspace and index.
 Doctor reports:
   * Off-schema nodes (type not declared in tusk.toml).
   * Property drift (frontmatter values whose type does not match the
-    manifest declaration).
+    manifest declaration). Drift for a deleted or renamed node is not
+    reported — it is an orphan with no repair path.
   * Dangling edges (edges whose target node no longer exists).
-  * Embedding queue depth and last-reindex timestamp.
+  * Embedding queue depth, and embed-retry rows (a failing embedder that
+    keeps re-enqueueing) with their attempt count and last error.
   * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
   * Graph-expansion pane: the resolved [query.graph-expansion] settings,
-    unknown edge types referenced from the block, and a no-op warning
-    when the feature is enabled with weight=0.
+    unknown edge types (valid but undeclared — the walker skips them),
+    invalid edge types (malformed refs that break every --semantic query),
+    and no-op warnings when the feature is enabled with weight=0 or an
+    empty edge-types list.
 
 .PP
 Doctor also auto-migrates any legacy "\fBcli\fP" / "\fBmcp\fP" edge rows in the
 index back into the source node's markdown frontmatter — pass --no-migrate
-for a diagnostic-only run.
+for a diagnostic-only run. A legacy row whose edge type is no longer declared
+in tusk.toml cannot be migrated; it is reported as skipped and left in place.
 
 .PP
 Sub-unit addresses: sub-units are indexed under structural addresses appended

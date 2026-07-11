@@ -273,6 +273,42 @@ func (repo *EmbedQueueRepo) DepthByKind(kind string) (int, error) {
 	return depth, nil
 }
 
+// ListRetrying returns every pending kind='embed' row that has failed at
+// least once (attempts > 0), carrying its attempt count and last_error. A
+// persistently failing embedder is otherwise indistinguishable from a healthy
+// backlog: the row sits leased-and-released in the queue until the attempts cap
+// drops it, and doctor sees only a generic embed-no-chunks with no cause. This
+// feeds doctor's IssueEmbedRetry check. Rows are returned oldest-first
+// (enqueued_at asc, then node_id) for stable output.
+func (repo *EmbedQueueRepo) ListRetrying() ([]QueueRow, error) {
+	rows, queryErr := repo.db.Query(`
+		SELECT node_id, enqueued_at, attempts, COALESCE(last_error, ''), kind
+		FROM embed_queue
+		WHERE kind = 'embed' AND attempts > 0
+		ORDER BY enqueued_at ASC, node_id ASC
+	`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("embedQueueRepo: list retrying: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var retrying []QueueRow
+
+	for rows.Next() {
+		var row QueueRow
+
+		if scanErr := rows.Scan(&row.NodeID, &row.EnqueuedAt, &row.Attempts, &row.LastError, &row.Kind); scanErr != nil {
+			return nil, fmt.Errorf("embedQueueRepo: list retrying scan: %w", scanErr)
+		}
+
+		retrying = append(retrying, row)
+	}
+
+	return retrying, rows.Err()
+}
+
 // ListNodeIDs returns every pending kind='embed' node_id, sorted ascending.
 // Reindex rows are excluded — callers wanting reindex jobs should query
 // directly or use a kind-filtered helper.

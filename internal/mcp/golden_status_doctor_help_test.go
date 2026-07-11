@@ -61,6 +61,19 @@ func TestGoldenMCP_DoctorWorkflowViolation(test *testing.T) {
 		{
 			name: "doctor renders a workflow drift row's persisted detail",
 			setup: func(test *testing.T, rt *mcp.Runtime) {
+				// Drift belongs to a live node; without the node row doctor's
+				// orphan filter (#685) would (correctly) drop the row.
+				if upsertErr := rt.Nodes.Upsert(index.NodeRow{
+					ID:             "tickets/demo",
+					Type:           "ticket",
+					Path:           "tickets/demo.md",
+					Title:          "Demo",
+					PropertiesJSON: "{}",
+					LastChecksum:   "x",
+				}); upsertErr != nil {
+					test.Fatalf("seed node: %v", upsertErr)
+				}
+
 				if appendErr := rt.WorkflowDrift.Append(index.WorkflowDriftRow{
 					NodeID:         "tickets/demo",
 					PackInstance:   "kanban",
@@ -87,13 +100,13 @@ func TestGoldenMCP_DoctorWorkflowViolation(test *testing.T) {
 // carrying the seeded workflow-violation row. The message is the validator's
 // fully-rendered detail (escaped \n + "declared states:" continuation) — the
 // structured MCP form of the #497 fix. Captured from a real run.
-const goldenMCPDoctorWorkflowViolation = `{"embed_queue_depth":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"enabled":false,"hops":1,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[{"kind":"workflow-violation","message":"workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n  declared states: active, completed, pending","node_id":"tickets/demo"}],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"skipped":null,"skipped_count":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0}}`
+const goldenMCPDoctorWorkflowViolation = `{"embed_queue_depth":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"empty_edge_types_no_op":false,"enabled":false,"hops":1,"invalid_edge_types":null,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[{"kind":"workflow-violation","message":"workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n  declared states: active, completed, pending","node_id":"tickets/demo"}],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"skipped":null,"skipped_count":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0}}`
 
 // goldenMCPDoctorClean is tusk_doctor's clean-workspace envelope. Note mcp.Open
 // merges the builtin pack, so graph_expansion carries the same default edge
 // types as the CLI; nil slices marshal to null (migrated/skipped) and empty maps
 // to {} (count_by_kind) — captured from a real run, not fabricated.
-const goldenMCPDoctorClean = `{"embed_queue_depth":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"enabled":false,"hops":1,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"skipped":null,"skipped_count":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0}}`
+const goldenMCPDoctorClean = `{"embed_queue_depth":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"empty_edge_types_no_op":false,"enabled":false,"hops":1,"invalid_edge_types":null,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"skipped":null,"skipped_count":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0}}`
 
 // TestGoldenMCP_Help pins the small, deterministic help surface: the unknown
 // topic path, which always succeeds with plain text and the sorted index.

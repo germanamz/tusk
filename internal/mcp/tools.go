@@ -959,13 +959,15 @@ func registerDoctorTool(srv *Server) {
 			pane := report.GraphExpansion
 
 			response["graph_expansion"] = map[string]any{
-				"enabled":              pane.Enabled,
-				"hops":                 pane.Hops,
-				"weight":               pane.Weight,
-				"candidate_multiplier": pane.CandidateMultiplier,
-				"edge_types":           pane.EdgeTypes,
-				"unknown_edge_types":   pane.UnknownEdgeTypes,
-				"weight_zero_no_op":    pane.WeightZeroNoOp,
+				"enabled":                pane.Enabled,
+				"hops":                   pane.Hops,
+				"weight":                 pane.Weight,
+				"candidate_multiplier":   pane.CandidateMultiplier,
+				"edge_types":             pane.EdgeTypes,
+				"unknown_edge_types":     pane.UnknownEdgeTypes,
+				"invalid_edge_types":     pane.InvalidEdgeTypes,
+				"weight_zero_no_op":      pane.WeightZeroNoOp,
+				"empty_edge_types_no_op": pane.EmptyEdgeTypesNoOp,
 			}
 		}
 

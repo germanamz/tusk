@@ -97,6 +97,30 @@ func (repo *WorkflowDriftRepo) ClearForNode(nodeID string) error {
 	return nil
 }
 
+// DeleteOrphans removes every workflow-drift row whose node_id no longer
+// resolves to a node row. Drift is only ever written while validating a live
+// node, so a row without a node is an orphan left behind by a delete or rename
+// (neither clears drift). Without this sweep the row is re-reported by every
+// `tusk doctor` run forever (#685). Returns the number of rows swept.
+func (repo *WorkflowDriftRepo) DeleteOrphans() (int, error) {
+	result, execErr := repo.db.Exec(`
+		DELETE FROM workflow_drift
+		WHERE node_id NOT IN (SELECT id FROM nodes)
+	`)
+
+	if execErr != nil {
+		return 0, fmt.Errorf("workflowDriftRepo: delete orphans: %w", execErr)
+	}
+
+	affected, affectedErr := result.RowsAffected()
+
+	if affectedErr != nil {
+		return 0, fmt.Errorf("workflowDriftRepo: delete orphans rows-affected: %w", affectedErr)
+	}
+
+	return int(affected), nil
+}
+
 // CountAll returns the total number of drift rows. Used by reindex's
 // summary line.
 func (repo *WorkflowDriftRepo) CountAll() (int, error) {

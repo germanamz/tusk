@@ -89,12 +89,24 @@ func renderGraphExpansionPane(out io.Writer, pane *doctor.GraphExpansionPane) {
 		}
 	}
 
+	if len(pane.InvalidEdgeTypes) > 0 {
+		_, _ = fmt.Fprintln(out, "  invalid edge types:")
+
+		for _, name := range pane.InvalidEdgeTypes {
+			_, _ = fmt.Fprintf(out, "    %s (not a valid type reference; breaks every --semantic query)\n", name)
+		}
+	}
+
 	if len(pane.UnknownEdgeTypes) > 0 {
 		_, _ = fmt.Fprintln(out, "  unknown edge types:")
 
 		for _, name := range pane.UnknownEdgeTypes {
 			_, _ = fmt.Fprintf(out, "    %s (not declared in manifest; walker will skip it)\n", name)
 		}
+	}
+
+	if pane.EmptyEdgeTypesNoOp {
+		_, _ = fmt.Fprintln(out, "  warning: enabled but edge-types is empty — feature is a no-op")
 	}
 
 	if pane.WeightZeroNoOp {
@@ -115,17 +127,22 @@ func newDoctorCmd() *cobra.Command {
 Doctor reports:
   * Off-schema nodes (type not declared in tusk.toml).
   * Property drift (frontmatter values whose type does not match the
-    manifest declaration).
+    manifest declaration). Drift for a deleted or renamed node is not
+    reported — it is an orphan with no repair path.
   * Dangling edges (edges whose target node no longer exists).
-  * Embedding queue depth and last-reindex timestamp.
+  * Embedding queue depth, and embed-retry rows (a failing embedder that
+    keeps re-enqueueing) with their attempt count and last error.
   * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
   * Graph-expansion pane: the resolved [query.graph-expansion] settings,
-    unknown edge types referenced from the block, and a no-op warning
-    when the feature is enabled with weight=0.
+    unknown edge types (valid but undeclared — the walker skips them),
+    invalid edge types (malformed refs that break every --semantic query),
+    and no-op warnings when the feature is enabled with weight=0 or an
+    empty edge-types list.
 
 Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
 index back into the source node's markdown frontmatter — pass --no-migrate
-for a diagnostic-only run.
+for a diagnostic-only run. A legacy row whose edge type is no longer declared
+in tusk.toml cannot be migrated; it is reported as skipped and left in place.
 
 Sub-unit addresses: sub-units are indexed under structural addresses appended
 to the file id, e.g. notes/doc#S1.2P3. The "deduped sub-units" count is the

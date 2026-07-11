@@ -304,6 +304,70 @@ func TestReindex_OrphanedRefDriftIsSweptNotHealed(test *testing.T) {
 	}
 }
 
+// TestReindex_SweepsOrphanNonRefDrift pins finding #685 item 2: a reindex must
+// clear property- and workflow-drift rows whose node no longer exists — not
+// only the ref-kind property drift the heal pass already sweeps. Enum/type and
+// workflow drift left behind by `tusk node delete`/`move` otherwise lingers and
+// doctor reports the ghost id forever.
+func TestReindex_SweepsOrphanNonRefDrift(test *testing.T) {
+	root := test.TempDir()
+
+	// One live file so the walk has a node to index.
+	writeNode(test, root, "aref/live.md", "type: ticket\ntitle: Live\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	firstConfig := refHealConfig(test, root, store)
+	firstConfig.DriftLog = index.NewWorkflowDriftRepo(store)
+
+	if _, runErr := reindex.Run(firstConfig); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// Seed orphan drift for nodes that do not exist — non-ref kinds the heal
+	// pass never touches — simulating a delete/rename that left drift behind.
+	propDrift := index.NewPropertyDriftRepo(store)
+
+	if appendErr := propDrift.Append(index.PropertyDriftRow{
+		NodeID: "aref/dead", NodeType: "ticket", Kind: doctor.IssueEnumViolation,
+		Property: "status", Details: "value \"x\" not in [open, done]", ObservedAt: 1,
+	}); appendErr != nil {
+		test.Fatalf("append property drift: %v", appendErr)
+	}
+
+	wfDrift := index.NewWorkflowDriftRepo(store)
+
+	if appendErr := wfDrift.Append(index.WorkflowDriftRow{
+		NodeID: "aref/ghost", PackInstance: "kanban", PackKind: "workflow",
+		ObservedStatus: "bogus", Property: "status", ObservedAt: 1,
+	}); appendErr != nil {
+		test.Fatalf("append workflow drift: %v", appendErr)
+	}
+
+	// A no-op reindex (no file changes) must still sweep the orphans.
+	secondConfig := refHealConfig(test, root, store)
+	secondConfig.DriftLog = index.NewWorkflowDriftRepo(store)
+
+	if _, runErr := reindex.Run(secondConfig); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	propRows, _ := propDrift.ListAll()
+
+	for _, row := range propRows {
+		if row.NodeID == "aref/dead" {
+			test.Errorf("orphan property drift for aref/dead not swept: %+v", row)
+		}
+	}
+
+	wfRows, _ := wfDrift.ListAll()
+
+	if len(wfRows) != 0 {
+		test.Errorf("orphan workflow drift not swept: %+v", wfRows)
+	}
+}
+
 func TestRun_AsyncEnqueuesRefDriftedPaths(test *testing.T) {
 	root := test.TempDir()
 

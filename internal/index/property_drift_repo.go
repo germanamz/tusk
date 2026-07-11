@@ -89,6 +89,30 @@ func (repo *PropertyDriftRepo) ClearForNode(nodeID string) error {
 	return nil
 }
 
+// DeleteOrphans removes every property-drift row whose node_id no longer
+// resolves to a node row. Drift is only ever written while validating a live
+// node, so a row without a node is an orphan left behind by a delete or rename
+// (neither clears drift). Without this sweep the row is re-reported by every
+// `tusk doctor` run forever (#685). Returns the number of rows swept.
+func (repo *PropertyDriftRepo) DeleteOrphans() (int, error) {
+	result, execErr := repo.db.Exec(`
+		DELETE FROM property_drift
+		WHERE node_id NOT IN (SELECT id FROM nodes)
+	`)
+
+	if execErr != nil {
+		return 0, fmt.Errorf("propertyDriftRepo: delete orphans: %w", execErr)
+	}
+
+	affected, affectedErr := result.RowsAffected()
+
+	if affectedErr != nil {
+		return 0, fmt.Errorf("propertyDriftRepo: delete orphans rows-affected: %w", affectedErr)
+	}
+
+	return int(affected), nil
+}
+
 // refDriftKinds are the drift kinds produced by ref resolution. They depend on
 // the state of OTHER nodes (a target appearing, an ambiguous candidate
 // vanishing), so unlike per-file validation drift they can become stale
