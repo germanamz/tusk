@@ -1,6 +1,9 @@
 package node
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // ParseContentFile parses a workspace file into a *Node, dispatching by file
 // extension: .html/.htm files go through ParseHTMLFile (their id retains the
@@ -25,4 +28,19 @@ func IsHTMLPath(relPath string) bool {
 	default:
 		return false
 	}
+}
+
+// nodeIDForPath derives a node id from a workspace-relative path using the same
+// convention ParseContentFile embeds: an HTML file RETAINS its extension
+// (foo.html -> "foo.html") so it never collides with a same-stem markdown note,
+// while markdown strips it (foo.md -> "foo"). Keeping this in lockstep with the
+// parse dispatch is what lets a rename mint an id the reindex re-parse will
+// re-derive identically — computing it any other way (e.g. stripping the
+// extension unconditionally) mints a phantom row whose id and path disagree.
+func nodeIDForPath(relPath string) string {
+	if IsHTMLPath(relPath) {
+		return relPath
+	}
+
+	return strings.TrimSuffix(relPath, filepath.Ext(relPath))
 }
