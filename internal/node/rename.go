@@ -125,6 +125,10 @@ func Rename(
 		return nil, localErr
 	}
 
+	if reservedErr := ensureIndexableID(newRelPath); reservedErr != nil {
+		return nil, reservedErr
+	}
+
 	newID := strings.TrimSuffix(newRelPath, filepath.Ext(newRelPath))
 	oldPath := row.Path
 	oldAbs := filepath.Join(root, oldPath)

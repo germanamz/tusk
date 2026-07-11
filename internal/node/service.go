@@ -42,6 +42,12 @@ var ErrHTMLNodeNotEditable = errors.New("node: HTML nodes cannot be created or m
 // workspace root (an absolute path or one containing "..").
 var ErrPathEscapesVault = errors.New("node: path escapes the workspace root")
 
+// ErrReservedID is returned when a write target's derived node id would collide
+// with tusk's reserved id syntax (a '#' aliases the sub-unit separator; a
+// "reindex:" prefix collides with the embed-queue key namespace). Such a file
+// could never be indexed, so the write surface refuses to create it (#683).
+var ErrReservedID = errors.New("node: path is not indexable")
+
 // ensureVaultLocal rejects a workspace-relative path that does not stay inside
 // the vault. It guards the write surface (Create / Rename) so neither the CLI
 // nor the MCP tools can write a file outside the workspace root — an LLM acting
@@ -50,6 +56,18 @@ var ErrPathEscapesVault = errors.New("node: path escapes the workspace root")
 func ensureVaultLocal(relPath string) error {
 	if !filepath.IsLocal(relPath) {
 		return fmt.Errorf("%w: %q", ErrPathEscapesVault, relPath)
+	}
+
+	return nil
+}
+
+// ensureIndexableID rejects a write target whose derived node id would collide
+// with tusk's reserved id syntax. It guards Create and Rename so tusk cannot
+// author a file the indexer would then have to silently skip — the same
+// collisions the reindex walk refuses to enqueue.
+func ensureIndexableID(relPath string) error {
+	if reason := index.ReservedIDReason(relPath); reason != "" {
+		return fmt.Errorf("%w: %s", ErrReservedID, reason)
 	}
 
 	return nil
@@ -474,6 +492,10 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 	if localErr := ensureVaultLocal(input.RelPath); localErr != nil {
 		return nil, localErr
+	}
+
+	if reservedErr := ensureIndexableID(input.RelPath); reservedErr != nil {
+		return nil, reservedErr
 	}
 
 	absPath := filepath.Join(service.root, input.RelPath)

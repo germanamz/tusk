@@ -369,6 +369,52 @@ func TestEmbeddingRepo_ListSubUnitsForFiles_UnderscoreNoLeakage(test *testing.T)
 	}
 }
 
+// TestEmbeddingRepo_SubUnitsForFiles_BracketNoLeakage pins #683 on the
+// embedding side: a file id containing `[` must still load its own sub-unit
+// vectors. Under SQLite GLOB, `notes/x[1]#*` is a character class that matches
+// the sibling `notes/x1#...` while missing `notes/x[1]#...`, so the bracket
+// file silently vanishes from semantic results. The id range predicate matches
+// the literal prefix.
+func TestEmbeddingRepo_SubUnitsForFiles_BracketNoLeakage(test *testing.T) {
+	repo := newTestEmbeddingRepo(test,
+		"notes/x[1]",
+		"notes/x1",
+		"notes/x[1]#aaa",
+		"notes/x1#bbb",
+	)
+
+	rows := []index.EmbeddingRow{
+		{NodeID: "notes/x[1]#aaa", ChunkIdx: 0, Model: "m", ContentHash: "h1", Vector: []float32{0.1}, Dim: 1},
+		{NodeID: "notes/x1#bbb", ChunkIdx: 0, Model: "m", ContentHash: "h2", Vector: []float32{0.2}, Dim: 1},
+	}
+
+	for _, row := range rows {
+		if upsertErr := repo.Upsert(row); upsertErr != nil {
+			test.Fatalf("Upsert %s: %v", row.NodeID, upsertErr)
+		}
+	}
+
+	loaded, listErr := repo.ListSubUnitsForFiles([]string{"notes/x[1]"})
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles notes/x[1]: %v", listErr)
+	}
+
+	if len(loaded) != 1 || loaded[0].NodeID != "notes/x[1]#aaa" {
+		test.Fatalf("notes/x[1] embeddings = %+v, want exactly [notes/x[1]#aaa]", loaded)
+	}
+
+	exists, existsErr := repo.ExistsSubUnitsForFiles([]string{"notes/x[1]"})
+
+	if existsErr != nil {
+		test.Fatalf("ExistsSubUnitsForFiles notes/x[1]: %v", existsErr)
+	}
+
+	if !exists {
+		test.Fatalf("ExistsSubUnitsForFiles notes/x[1] = false, want true (bracket file has a sub-unit vector)")
+	}
+}
+
 // TestEmbeddingRepo_ListSubUnitsForFiles_LargeBatch pins the #564 regression:
 // a hybrid semantic query whose structural filter matches > 1000 ids reaches
 // here with that many file ids. The old implementation OR'd one GLOB per id
