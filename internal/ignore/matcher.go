@@ -31,6 +31,22 @@ var builtinIgnores = []string{
 	".git/",
 }
 
+// builtinPatterns matches ONLY the always-on built-in ignores, with no
+// .gitignore or workspace patterns layered on. It backs WithinBuiltinIgnore.
+var builtinPatterns = gitignore.CompileIgnoreLines(builtinIgnores...)
+
+// WithinBuiltinIgnore reports whether relPath (workspace-relative, forward
+// slash) falls inside a directory tusk always ignores — its internal state dir
+// (.tusk/) or the VCS dir (.git/). It is the write-surface guard for node
+// Create / Rename: a file authored there can never be indexed (the reindex walk
+// skips the whole tree) yet the write surface would still mint a row for it,
+// leaving a phantom the orphan reaper cannot see (#686). Only the built-ins are
+// consulted — user .gitignore / workspace patterns are advisory for the walk,
+// not a hard write barrier.
+func WithinBuiltinIgnore(relPath string) bool {
+	return builtinPatterns.MatchesPath(relPath)
+}
+
 // matcher is the standard Matcher implementation.
 type matcher struct {
 	patterns *gitignore.GitIgnore

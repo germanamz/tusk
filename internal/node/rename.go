@@ -121,12 +121,25 @@ func Rename(
 		}
 	}
 
+	// The destination must stay in the source's node class. Rename derives the
+	// new id by stripping the extension, so a cross-extension move (notes/x.md
+	// → notes/b.txt) would mint an id that hijacks a sibling markdown node or,
+	// for a non-indexable extension, an id the reindex walk never re-derives —
+	// silently freezing the moved node out of the index (#686).
+	if newExt, srcExt := filepath.Ext(newRelPath), filepath.Ext(row.Path); newExt != srcExt {
+		return nil, fmt.Errorf("%w: source has %q, destination %q", ErrExtensionMismatch, srcExt, newExt)
+	}
+
 	if localErr := ensureVaultLocal(newRelPath); localErr != nil {
 		return nil, localErr
 	}
 
 	if reservedErr := ensureIndexableID(newRelPath); reservedErr != nil {
 		return nil, reservedErr
+	}
+
+	if ignoredErr := ensureNotIgnored(newRelPath); ignoredErr != nil {
+		return nil, ignoredErr
 	}
 
 	newID := strings.TrimSuffix(newRelPath, filepath.Ext(newRelPath))
@@ -164,9 +177,20 @@ func Rename(
 
 	// Re-check destination-exists INSIDE the held leases so a concurrent
 	// Create can't sneak a file in between the check and os.Rename.
-	if _, statErr := os.Stat(newAbs); statErr == nil {
-		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
-			fmt.Errorf("node: rename target %s already exists", newRelPath))
+	//
+	// A case-only rename on a case-insensitive filesystem (APFS/NTFS) resolves
+	// this stat to the SOURCE file itself — os.Stat("notes/Foo.md") returns
+	// notes/foo.md's info — which the bare existence test misread as an
+	// already-exists collision, making case-only renames impossible. os.Rename
+	// performs the case change correctly, so treat "destination is the source"
+	// as free rather than a collision (#686).
+	if dstInfo, statErr := os.Stat(newAbs); statErr == nil {
+		srcInfo, srcStatErr := os.Stat(oldAbs)
+
+		if srcStatErr != nil || !os.SameFile(srcInfo, dstInfo) {
+			return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
+				fmt.Errorf("node: rename target %s already exists", newRelPath))
+		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return nil, abandonRenameLeases(fileState, loPath, hiPath, workerID,
 			fmt.Errorf("node: stat %s: %w", newRelPath, statErr))
