@@ -24,15 +24,6 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
-// indexableExts is the single source of truth for which file extensions the
-// reindex pipeline treats as content nodes. Consulted by the walk gate, the
-// tombstone derivation, and the parse dispatch so the set is declared once.
-var indexableExts = map[string]bool{
-	".md":   true,
-	".html": true,
-	".htm":  true,
-}
-
 // edgeDerivationVersion tags the edge-derivation and sub-unit content
 // semantics baked into this binary, stored in meta under
 // edgeDerivationVersionKey. When the stored value differs (older binary, or the
@@ -59,6 +50,53 @@ func nodeIDForPath(path string) string {
 	}
 
 	return path
+}
+
+// existsWithExactCase reports whether relPath names an entry on disk whose case
+// matches every recorded path segment. It exists because os.Stat is
+// case-insensitive on APFS/NTFS — it would resolve notes/foo.md to an on-disk
+// notes/Foo.md and report the stale-case path as present. Walking each
+// directory's listing and matching the segment byte for byte distinguishes a
+// real file from a case-folded alias on every platform: a case-sensitive
+// filesystem always matches when the file truly exists, so the reaper's
+// behavior there is unchanged (#686).
+func existsWithExactCase(root, relPath string) bool {
+	dir := root
+
+	for _, segment := range strings.Split(filepath.ToSlash(relPath), "/") {
+		if segment == "" || segment == "." {
+			return false
+		}
+
+		entries, readErr := os.ReadDir(dir)
+
+		if readErr != nil {
+			// The caller only consults this after os.Stat already resolved the
+			// full path, so every component exists and is traversable — a
+			// ReadDir failure here is an unreadable directory, not a missing
+			// one. We cannot prove a case mismatch, so assume present rather
+			// than risk falsely tombstoning a live node (the pre-fix behavior).
+			return true
+		}
+
+		found := false
+
+		for _, entry := range entries {
+			if entry.Name() == segment {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return false
+		}
+
+		dir = filepath.Join(dir, segment)
+	}
+
+	return true
 }
 
 // Config configures Run.
@@ -305,7 +343,7 @@ func Run(config Config) (*Report, error) {
 			return nil
 		}
 
-		if !indexableExts[filepath.Ext(path)] {
+		if !index.IsIndexableExt(path) {
 			return nil
 		}
 
@@ -446,8 +484,19 @@ func Run(config Config) (*Report, error) {
 		statPath := filepath.Join(config.Root, candidate.Path)
 		_, statErr := os.Stat(statPath)
 
+		// On a case-insensitive filesystem (APFS/NTFS) os.Stat resolves a
+		// stale-case path to the real file that now lives under a
+		// different-case name — an fs-level `mv notes/foo.md notes/Foo.md`
+		// leaves a file_state row for notes/foo.md that still stats
+		// successfully. Confirm the recorded case exists verbatim on disk;
+		// when only a case alias survives, the renamed file already owns its
+		// own current-gen row and this stale-case row must be reaped like a
+		// deleted file, or it re-stamps itself live forever, minting a
+		// permanent phantom duplicate node (#686).
+		existsExactCase := statErr == nil && existsWithExactCase(config.Root, candidate.Path)
+
 		switch {
-		case statErr == nil:
+		case existsExactCase:
 			// File still exists — another process recreated it between
 			// the previous walk and this one (or this walk simply
 			// skipped it via the ignore matcher). Stamp last_seen_gen
@@ -468,7 +517,11 @@ func Run(config Config) (*Report, error) {
 				return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
 			}
 
-		case errors.Is(statErr, fs.ErrNotExist):
+		case statErr == nil || errors.Is(statErr, fs.ErrNotExist):
+			// The file is gone, or only a case-insensitive alias of it
+			// survives on disk (statErr == nil but the recorded case is
+			// absent). Either way this row no longer names a live file, so
+			// tombstone it and drop its node/edges (#686).
 			if tombstoneErr := config.FileStates.Tombstone(candidate.Path); tombstoneErr != nil {
 				_ = release()
 				return nil, fmt.Errorf("reindex: tombstone %s: %w", candidate.Path, tombstoneErr)

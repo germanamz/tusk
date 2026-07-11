@@ -1,17 +1,21 @@
 package reindex
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/germanamz/tusk/internal/index"
+)
 
 func TestIndexableExts_CoversMarkdownAndHTML(test *testing.T) {
-	for _, ext := range []string{".md", ".html", ".htm"} {
-		if !indexableExts[ext] {
-			test.Errorf("indexableExts[%q] = false, want true", ext)
+	for _, name := range []string{"a.md", "a.html", "a.htm"} {
+		if !index.IsIndexableExt(name) {
+			test.Errorf("IsIndexableExt(%q) = false, want true", name)
 		}
 	}
 
-	for _, ext := range []string{".txt", ".markdown", ".xhtml", ""} {
-		if indexableExts[ext] {
-			test.Errorf("indexableExts[%q] = true, want false", ext)
+	for _, name := range []string{"a.txt", "a.markdown", "a.xhtml", "a"} {
+		if index.IsIndexableExt(name) {
+			test.Errorf("IsIndexableExt(%q) = true, want false", name)
 		}
 	}
 }

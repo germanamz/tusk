@@ -14,6 +14,24 @@ import (
 // file's sub-unit sync — #683).
 const SubUnitIDSeparator = "#"
 
+// indexableExts is the single source of truth for which file extensions tusk
+// treats as content nodes. It lives here — at the indexing boundary, beside
+// ReservedIDReason — so both the reindex walk and the node write surface
+// (Create / Rename) gate on the same set: a file the walk would never pick up
+// must not be authored as a node, or its index row becomes a permanent phantom
+// (#686).
+var indexableExts = map[string]bool{
+	".md":   true,
+	".html": true,
+	".htm":  true,
+}
+
+// IsIndexableExt reports whether relPath carries an extension tusk indexes as a
+// content node (.md, .html, .htm).
+func IsIndexableExt(relPath string) bool {
+	return indexableExts[filepath.Ext(relPath)]
+}
+
 // ReservedIDReason reports why a workspace-relative markdown/HTML path cannot be
 // indexed as a node because its derived id would collide with tusk's reserved
 // id syntax, or "" when the path is safe to index. The node id is the path with

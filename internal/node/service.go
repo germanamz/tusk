@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -48,6 +49,25 @@ var ErrPathEscapesVault = errors.New("node: path escapes the workspace root")
 // could never be indexed, so the write surface refuses to create it (#683).
 var ErrReservedID = errors.New("node: path is not indexable")
 
+// ErrNotIndexableExt is returned when a Create target's extension is not one
+// tusk indexes as a content node (.md, .html, .htm). The reindex walk would
+// never pick such a file up, so the row Create mints for it would be a
+// permanent phantom the orphan reaper cannot see (#686).
+var ErrNotIndexableExt = errors.New("node: path extension is not indexable")
+
+// ErrDestinationIgnored is returned when a write target falls inside a
+// built-in-ignored directory (.tusk/, .git/). The reindex walk skips those
+// trees, so a node authored there diverges from the index forever (#686).
+var ErrDestinationIgnored = errors.New("node: path is inside an ignored directory")
+
+// ErrExtensionMismatch is returned when a move's destination extension differs
+// from the source's. A move must keep the file in its node class: the id tusk
+// derives from a path depends on the extension (markdown strips ".md"; HTML
+// keeps its full name), so a cross-extension move would mint an id disagreeing
+// with what the reindex walk derives — hijacking a sibling's row or silently
+// orphaning the moved node (#686).
+var ErrExtensionMismatch = errors.New("node: move destination extension must match the source")
+
 // ensureVaultLocal rejects a workspace-relative path that does not stay inside
 // the vault. It guards the write surface (Create / Rename) so neither the CLI
 // nor the MCP tools can write a file outside the workspace root — an LLM acting
@@ -68,6 +88,29 @@ func ensureVaultLocal(relPath string) error {
 func ensureIndexableID(relPath string) error {
 	if reason := index.ReservedIDReason(relPath); reason != "" {
 		return fmt.Errorf("%w: %s", ErrReservedID, reason)
+	}
+
+	return nil
+}
+
+// ensureIndexableExt rejects a Create target whose extension the reindex walk
+// would skip (anything but .md / .html / .htm). Sharing index.IsIndexableExt
+// with the walk keeps the write surface and the indexer on one definition of
+// "indexable" (#686).
+func ensureIndexableExt(relPath string) error {
+	if !index.IsIndexableExt(relPath) {
+		return fmt.Errorf("%w: %q", ErrNotIndexableExt, relPath)
+	}
+
+	return nil
+}
+
+// ensureNotIgnored rejects a write target inside a built-in-ignored directory
+// (.tusk/, .git/) — a tree the reindex walk never descends, so a node authored
+// there would diverge from the index permanently (#686).
+func ensureNotIgnored(relPath string) error {
+	if ignore.WithinBuiltinIgnore(filepath.ToSlash(relPath)) {
+		return fmt.Errorf("%w: %q", ErrDestinationIgnored, relPath)
 	}
 
 	return nil
@@ -490,12 +533,28 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, ErrHTMLNodeNotEditable
 	}
 
+	// Default a missing extension to markdown. Create only mints markdown nodes
+	// (HTML is rejected above), and a bare, extensionless path would otherwise be
+	// written as a file the reindex walk never picks up, leaving a phantom row
+	// (#686). Mirrors Rename's source-extension inheritance.
+	if filepath.Ext(input.RelPath) == "" {
+		input.RelPath += ".md"
+	}
+
 	if localErr := ensureVaultLocal(input.RelPath); localErr != nil {
 		return nil, localErr
 	}
 
 	if reservedErr := ensureIndexableID(input.RelPath); reservedErr != nil {
 		return nil, reservedErr
+	}
+
+	if extErr := ensureIndexableExt(input.RelPath); extErr != nil {
+		return nil, extErr
+	}
+
+	if ignoredErr := ensureNotIgnored(input.RelPath); ignoredErr != nil {
+		return nil, ignoredErr
 	}
 
 	absPath := filepath.Join(service.root, input.RelPath)
