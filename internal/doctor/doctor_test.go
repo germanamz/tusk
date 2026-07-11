@@ -442,19 +442,21 @@ func TestRun_EmbedNoChunks_SkipsSectionsFlagsMissingLeaf(test *testing.T) {
 		test.Fatalf("embed file: %v", upsertErr)
 	}
 
-	sub := func(id, typ, hash string) index.NodeRow {
+	sub := func(id, typ, hash, payload string) index.NodeRow {
 		return index.NodeRow{
 			ID: id, Type: typ, Title: id, Path: "notes/f.md", PropertiesJSON: "{}", LastChecksum: "x",
-			ParentID:    sql.NullString{String: "notes/f", Valid: true},
-			Ordinal:     sql.NullInt64{Int64: 0, Valid: true},
-			ContentHash: sql.NullString{String: hash, Valid: hash != ""},
+			ParentID:     sql.NullString{String: "notes/f", Valid: true},
+			Ordinal:      sql.NullInt64{Int64: 0, Valid: true},
+			EmbedPayload: sql.NullString{String: payload, Valid: payload != ""},
+			ContentHash:  sql.NullString{String: hash, Valid: hash != ""},
 		}
 	}
 
 	if upsertErr := nodes.BulkUpsert([]index.NodeRow{
-		sub("notes/f#S1", "section", ""),          // never embedded → must NOT flag
-		sub("notes/f#S1P1", "paragraph", "hp"),    // embedded below → must NOT flag
-		sub("notes/f#S1P2", "paragraph", "hmiss"), // no embedding, not pending → must flag
+		sub("notes/f#S1", "section", "", "heading"),           // never embedded → must NOT flag
+		sub("notes/f#S1P1", "paragraph", "hp", "para one"),    // embedded below → must NOT flag
+		sub("notes/f#S1P2", "paragraph", "hmiss", "para two"), // real content, no embedding → must flag
+		sub("notes/f#S1L1", "list-item", "hempty", ""),        // empty payload, can't embed → must NOT flag (#682)
 	}, "markdown"); upsertErr != nil {
 		test.Fatalf("bulk upsert subs: %v", upsertErr)
 	}
@@ -493,6 +495,10 @@ func TestRun_EmbedNoChunks_SkipsSectionsFlagsMissingLeaf(test *testing.T) {
 
 	if !flagged["notes/f#S1P2"] {
 		test.Error("genuinely missing leaf notes/f#S1P2 must still be flagged")
+	}
+
+	if flagged["notes/f#S1L1"] {
+		test.Error("empty-payload sub-unit notes/f#S1L1 must not be flagged embed-no-chunks (#682)")
 	}
 }
 

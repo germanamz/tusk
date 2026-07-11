@@ -35,6 +35,7 @@ var markdownParser = goldmark.New(
 // Hash collisions within the file are resolved before returning, so
 // every Unit.Hash is unique within the result.
 func Parse(source []byte) ([]Unit, error) {
+	source = normalizeLineEndings(source)
 	doc := markdownParser.Parser().Parse(text.NewReader(source))
 
 	var units []Unit
@@ -192,16 +193,25 @@ func walkListItem(
 	checked, hasCheckbox := extractCheckbox(item)
 	itemText := extractListItemText(source, item)
 
-	props := map[string]any{}
-	if hasCheckbox {
-		props["checkbox"] = checked
-	}
+	// A bare bullet ("- ") is pure authoring scaffolding: no queryable or
+	// embeddable content. Emitting a node for it would embed an empty payload
+	// (which can never succeed) and trip doctor's embed-no-chunks flag forever,
+	// so skip the unit. A text-less task item ("- [ ]") still carries a
+	// queryable checkbox property, so it stays a node. Either way we still walk
+	// nested blocks below — a scaffolding bullet can wrap a sub-list or code
+	// block that carries its own content.
+	if itemText != "" || hasCheckbox {
+		props := map[string]any{}
+		if hasCheckbox {
+			props["checkbox"] = checked
+		}
 
-	emit(Unit{
-		Kind:       KindListItem,
-		Text:       itemText,
-		Properties: props,
-	})
+		emit(Unit{
+			Kind:       KindListItem,
+			Text:       itemText,
+			Properties: props,
+		})
+	}
 
 	// Walk nested block children (sub-lists, code blocks,
 	// blockquotes) as their own units. The list-item is the
@@ -418,30 +428,62 @@ func extractCheckbox(item *ast.ListItem) (bool, bool) {
 	return false, false
 }
 
-// extractListItemText returns the item's own text (the first
-// paragraph or text block) excluding nested sub-lists and excluding
-// the TaskCheckBox marker itself. Nested blocks are walked
-// separately by walkListItem.
+// extractListItemText returns the item's own text: every direct paragraph and
+// text-block child, excluding nested sub-lists/code/blockquotes (walked
+// separately by walkListItem) and the TaskCheckBox marker itself. A loose list
+// item carries its continuation prose in a second paragraph child, so reading
+// only the first block would strand that content in no leaf — unembedded and
+// unsearchable (#682 item 4). Blocks are joined with a newline.
 func extractListItemText(source []byte, item *ast.ListItem) string {
-	first := item.FirstChild()
-	if first == nil {
-		return ""
-	}
+	var blocks []string
 
-	// Walk inline children of the first block, skipping the
-	// TaskCheckBox marker; concatenate everything else.
-	var buf bytes.Buffer
-	for child := first.FirstChild(); child != nil; child = child.NextSibling() {
-		if _, ok := child.(*extast.TaskCheckBox); ok {
+	for block := item.FirstChild(); block != nil; block = block.NextSibling() {
+		switch block.(type) {
+		case *ast.Paragraph, *ast.TextBlock:
+		default:
+			// Nested lists, code blocks, and blockquotes are emitted as
+			// their own units by walkListItem — never folded into the
+			// item's text.
 			continue
 		}
-		buf.Write(child.Text(source)) //nolint:staticcheck // see normalizedText.
-		if sb, ok := child.(interface{ SoftLineBreak() bool }); ok && sb.SoftLineBreak() {
-			buf.WriteByte('\n')
+
+		// Walk inline children of the block, skipping the TaskCheckBox
+		// marker; concatenate everything else.
+		var buf bytes.Buffer
+		for child := block.FirstChild(); child != nil; child = child.NextSibling() {
+			if _, ok := child.(*extast.TaskCheckBox); ok {
+				continue
+			}
+			buf.Write(child.Text(source)) //nolint:staticcheck // see normalizedText.
+			if sb, ok := child.(interface{ SoftLineBreak() bool }); ok && sb.SoftLineBreak() {
+				buf.WriteByte('\n')
+			}
+		}
+
+		if text := strings.TrimSpace(buf.String()); text != "" {
+			blocks = append(blocks, text)
 		}
 	}
 
-	return strings.TrimSpace(buf.String())
+	return strings.Join(blocks, "\n")
+}
+
+// normalizeLineEndings rewrites CRLF and lone CR line endings to LF before the
+// markdown source is parsed. goldmark's text segments and Lines() return raw
+// source bytes, so without this a CRLF file would leak carriage returns into
+// every unit payload (sending raw \r to the embedder) and produce a different
+// content hash than the equivalent LF file — breaking the CRLF/LF-stability
+// contract documented in hash.go (#682 item 3). Returns source unchanged when
+// it holds no carriage return, so the common LF-only path allocates nothing.
+func normalizeLineEndings(source []byte) []byte {
+	if !bytes.ContainsRune(source, '\r') {
+		return source
+	}
+
+	out := bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))
+	out = bytes.ReplaceAll(out, []byte("\r"), []byte("\n"))
+
+	return out
 }
 
 // makeTitle returns a single-line excerpt of body suitable for the

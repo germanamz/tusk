@@ -74,15 +74,26 @@ func walk(
 			})
 			return
 		case "li":
-			props := map[string]any{}
-			if checked, ok := listItemCheckbox(node); ok {
-				props["checkbox"] = checked
+			ownText := listItemOwnText(node)
+			checked, hasCheckbox := listItemCheckbox(node)
+
+			// An empty <li> is authoring scaffolding: no queryable or
+			// embeddable content, so skip the unit rather than emit a
+			// permanent empty-payload row that trips doctor's
+			// embed-no-chunks. A text-less checkbox item still carries a
+			// queryable checkbox property, so it stays a node. Mirrors
+			// subunit.walkListItem (#682 item 5).
+			if ownText != "" || hasCheckbox {
+				props := map[string]any{}
+				if hasCheckbox {
+					props["checkbox"] = checked
+				}
+				emit(subunit.Unit{
+					Kind:       subunit.KindListItem,
+					Text:       ownText,
+					Properties: props,
+				})
 			}
-			emit(subunit.Unit{
-				Kind:       subunit.KindListItem,
-				Text:       listItemOwnText(node),
-				Properties: props,
-			})
 			// Nested lists emit their items as peers under the
 			// enclosing section, continuing the L counter in
 			// document order — the same flatten-as-peers rule as
