@@ -281,6 +281,26 @@ func (repo *NodeRepo) ListByParent(parentID string) ([]NodeRow, error) {
 	)
 }
 
+// subUnitIDRange returns the half-open id range [lo, hi) that contains exactly
+// the sub-unit ids of fileID. Sub-unit ids have the form
+// "<fileID>#<address>" (SubUnitIDSeparator), so lo is "<fileID>#" and hi is lo
+// with its final byte incremented — the smallest string strictly greater than
+// every id sharing the "<fileID>#" prefix. Compared against the id column's
+// default BINARY collation this is a case-sensitive, metacharacter-free prefix
+// match that the primary-key index serves as a range scan.
+//
+// Unlike GLOB or LIKE, a range comparison treats every byte literally, so it is
+// immune to `[`, `]`, `_`, `%`, `?` and `*` appearing in a workspace file id.
+// The earlier GLOB form matched `notes/x[1]#*` as a character class, silently
+// aliasing the sibling `notes/x1` while missing the bracket file itself (#683).
+func subUnitIDRange(fileID string) (lo, hi string) {
+	lo = fileID + SubUnitIDSeparator
+	last := lo[len(lo)-1] + 1
+	hi = lo[:len(lo)-1] + string([]byte{last})
+
+	return lo, hi
+}
+
 // ListSubUnitsForFile returns every sub-unit row belonging to a file,
 // regardless of how deeply nested in the document's section tree. The
 // match is on the row id prefix `fileID#`, which mirrors the id format
@@ -288,30 +308,29 @@ func (repo *NodeRepo) ListByParent(parentID string) ([]NodeRow, error) {
 // ordered by ordinal ASC so callers walking the slice see depth-first
 // document order.
 //
-// We use GLOB rather than LIKE because LIKE treats `_` as a wildcard,
-// which would silently alias sibling files (e.g. `notes/foo_a` matching
-// `notes/foo b`'s sub-units). GLOB's wildcards are `*` and `?`, neither
-// of which can appear in a workspace file id.
+// Sub-units live in the half-open id range [`fileID#`, next-prefix); see
+// subUnitIDRange for why a BINARY range beats GLOB/LIKE here (case-sensitive,
+// metacharacter-free, index-served).
 //
 // Use this for whole-file sub-unit diffs (sync, doctor); use ListByParent
 // when you only need the immediate children of a single parent.
 func (repo *NodeRepo) ListSubUnitsForFile(fileID string) ([]NodeRow, error) {
-	pattern := fileID + "#*"
+	lo, hi := subUnitIDRange(fileID)
 
 	return repo.queryNodes(
-		nodeSelectColumns+` FROM nodes WHERE id GLOB ? ORDER BY ordinal ASC`,
-		pattern,
+		nodeSelectColumns+` FROM nodes WHERE id >= ? AND id < ? ORDER BY ordinal ASC`,
+		lo, hi,
 	)
 }
 
-// maxGlobConditions caps how many `col GLOB ?` predicates are OR'd into a
-// single WHERE clause. SQLite parses an OR-chain into a binary tree whose
-// depth grows with the term count; past SQLITE_MAX_EXPR_DEPTH (default 1000)
-// the parser aborts with "Expression tree is too large". Batching ids in
-// chunks well under that ceiling keeps the per-query tree shallow regardless
-// of how many files a hybrid filter matches (#564). Shared by the node and
-// embedding sub-unit-for-files queries.
-const maxGlobConditions = 500
+// maxSubUnitPredicates caps how many `(id >= ? AND id < ?)` prefix-range
+// predicates are OR'd into a single WHERE clause. SQLite parses an OR-chain
+// into a binary tree whose depth grows with the term count; past
+// SQLITE_MAX_EXPR_DEPTH (default 1000) the parser aborts with "Expression tree
+// is too large". Batching ids in chunks well under that ceiling keeps the
+// per-query tree shallow regardless of how many files a hybrid filter matches
+// (#564). Shared by the node and embedding sub-unit-for-files queries.
+const maxSubUnitPredicates = 500
 
 // maxInVariables bounds how many bind variables a single `IN (...)` clause
 // uses, kept safely under SQLite's SQLITE_MAX_VARIABLE_NUMBER (32766) so large
@@ -338,8 +357,8 @@ func chunkStrings(items []string, size int) [][]string {
 }
 
 // ListSubUnitsForFiles is the batched form of ListSubUnitsForFile. It OR's one
-// GLOB predicate per file id, splitting the ids into chunks of
-// maxGlobConditions so the OR-chain never exceeds SQLite's expression-depth
+// prefix-range predicate per file id, splitting the ids into chunks of
+// maxSubUnitPredicates so the OR-chain never exceeds SQLite's expression-depth
 // ceiling (#564). Returns rows ordered by id, then ordinal ASC; callers that
 // need per-file grouping should bucket by `fileIDFromSubUnit` (the query
 // layer's helper). Used by the sub-unit-aware semantic ranker to avoid an N+1
@@ -353,13 +372,14 @@ func (repo *NodeRepo) ListSubUnitsForFiles(fileIDs []string) ([]NodeRow, error) 
 
 	var results []NodeRow
 
-	for _, chunk := range chunkStrings(fileIDs, maxGlobConditions) {
+	for _, chunk := range chunkStrings(fileIDs, maxSubUnitPredicates) {
 		conditions := make([]string, 0, len(chunk))
-		args := make([]any, 0, len(chunk))
+		args := make([]any, 0, len(chunk)*2)
 
 		for _, fileID := range chunk {
-			conditions = append(conditions, "id GLOB ?")
-			args = append(args, fileID+"#*")
+			lo, hi := subUnitIDRange(fileID)
+			conditions = append(conditions, "(id >= ? AND id < ?)")
+			args = append(args, lo, hi)
 		}
 
 		query := nodeSelectColumns + ` FROM nodes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY id ASC, ordinal ASC`

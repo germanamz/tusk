@@ -603,6 +603,69 @@ func TestNodeRepo_ListSubUnitsForFile_UnderscoreNoLeakage(test *testing.T) {
 	}
 }
 
+// TestNodeRepo_ListSubUnitsForFile_BracketNoLeakage pins #683: a file id
+// containing `[` must still find its own sub-units and only its own. SQLite
+// GLOB treats `[1]` as a character class, so `notes/x[1]#*` matches
+// `notes/x1#...` (the sibling) while missing `notes/x[1]#...` (itself) — the
+// bracket file's deleted sub-units become immortal and it vanishes from
+// semantic results. The BINARY-collation id range predicate has no
+// metacharacters, so it matches the literal prefix exactly.
+func TestNodeRepo_ListSubUnitsForFile_BracketNoLeakage(test *testing.T) {
+	store := openTestIndex(test)
+	repo := index.NewNodeRepo(store)
+
+	parents := []index.NodeRow{
+		{ID: "notes/x[1]", Type: "note", Path: "notes/x[1].md", Title: "bracket", PropertiesJSON: `{}`, LastChecksum: "h"},
+		{ID: "notes/x1", Type: "note", Path: "notes/x1.md", Title: "sibling", PropertiesJSON: `{}`, LastChecksum: "h"},
+	}
+
+	for _, parent := range parents {
+		if upsertErr := repo.Upsert(parent); upsertErr != nil {
+			test.Fatalf("Upsert parent %s: %v", parent.ID, upsertErr)
+		}
+	}
+
+	subUnits := []index.NodeRow{
+		{
+			ID: "notes/x[1]#aaa", Type: "paragraph", Path: "notes/x[1].md",
+			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/x[1]", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+		{
+			ID: "notes/x1#bbb", Type: "paragraph", Path: "notes/x1.md",
+			PropertiesJSON: `{}`, LastChecksum: "h",
+			ParentID: sql.NullString{String: "notes/x1", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+		},
+	}
+
+	if bulkErr := repo.BulkUpsert(subUnits, "markdown"); bulkErr != nil {
+		test.Fatalf("BulkUpsert sub-units: %v", bulkErr)
+	}
+
+	bracket, listErr := repo.ListSubUnitsForFile("notes/x[1]")
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFile notes/x[1]: %v", listErr)
+	}
+
+	if len(bracket) != 1 || bracket[0].ID != "notes/x[1]#aaa" {
+		test.Fatalf("notes/x[1] sub-units = %+v, want exactly [notes/x[1]#aaa] (no sibling leak, no self miss)", bracket)
+	}
+
+	// The batched form must agree.
+	batched, listErr := repo.ListSubUnitsForFiles([]string{"notes/x[1]"})
+
+	if listErr != nil {
+		test.Fatalf("ListSubUnitsForFiles notes/x[1]: %v", listErr)
+	}
+
+	if len(batched) != 1 || batched[0].ID != "notes/x[1]#aaa" {
+		test.Fatalf("batched notes/x[1] sub-units = %+v, want exactly [notes/x[1]#aaa]", batched)
+	}
+}
+
 // TestNodeRepo_ListSubUnitsForFiles batches multiple file ids in a single
 // query and must produce the same union ListSubUnitsForFile would over each
 // id, with no LIKE-style underscore aliasing.

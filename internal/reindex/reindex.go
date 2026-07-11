@@ -46,7 +46,7 @@ var indexableExts = map[string]bool{
 // next reindex.
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-07-11-subunit-content-pipeline"
+	edgeDerivationVersion    = "2026-07-11-special-char-file-ids"
 )
 
 // nodeIDForPath derives a node id from a workspace-relative path. Markdown
@@ -361,6 +361,24 @@ func Run(config Config) (*Report, error) {
 			return upsertErr
 		}
 
+		// Reserved-id gate: a path whose derived node id would collide with
+		// tusk's reserved id syntax cannot be indexed. A '#' aliases the
+		// sub-unit separator (the file node would be swept away by a sibling's
+		// sub-unit sync); a "reindex:" prefix collides with the embed_queue's
+		// reserved key namespace and EnqueueReindex below would abort the whole
+		// walk. Skip such files with a named warning and count them under
+		// Skipped, exactly like an unparseable file — the file_state stamp above
+		// keeps the incremental skip and orphan reaper consistent. (#683)
+		if reason := index.ReservedIDReason(relPath); reason != "" {
+			if config.Logger != nil {
+				config.Logger.Warn("reindex skip: reserved id", "path", relPath, "reason", reason)
+			}
+
+			report.Skipped++
+
+			return nil
+		}
+
 		if enqErr := config.EmbedQueue.EnqueueReindex(relPath); enqErr != nil {
 			return enqErr
 		}
@@ -454,6 +472,21 @@ func Run(config Config) (*Report, error) {
 			if tombstoneErr := config.FileStates.Tombstone(candidate.Path); tombstoneErr != nil {
 				_ = release()
 				return nil, fmt.Errorf("reindex: tombstone %s: %w", candidate.Path, tombstoneErr)
+			}
+
+			// A reserved-id path never owned a node row (the walk skips it), and
+			// nodeIDForPath would derive an id that aliases a sibling file's
+			// sub-unit — e.g. "notes/y#S1.md" → "notes/y#S1", the sub-unit id of
+			// notes/y.md. Running DeleteByPath/DeleteBySource for it would clobber
+			// that healthy sibling's rows (silent edge loss), so clear only the
+			// file_state tombstone and skip the node/edge deletes. Nothing was
+			// indexed, so this is not a Removed. (#683)
+			if index.ReservedIDReason(candidate.Path) != "" {
+				if releaseErr := release(); releaseErr != nil {
+					return nil, fmt.Errorf("reindex: release %s: %w", candidate.Path, releaseErr)
+				}
+
+				continue
 			}
 
 			nodeID := nodeIDForPath(candidate.Path)

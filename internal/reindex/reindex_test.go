@@ -3,7 +3,9 @@ package reindex_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -61,6 +63,196 @@ func TestRun_IndexesAllMarkdownNodes(test *testing.T) {
 
 	if len(loaded) != 2 {
 		test.Errorf("len = %d, want 2", len(loaded))
+	}
+}
+
+// TestRun_ReservedIDFilesSkippedNotWedged pins #683 findings 3 and 4: a file
+// whose derived node id would collide with reserved id syntax ('#' aliases the
+// sub-unit separator; a "reindex:" prefix collides with the embed-queue key
+// namespace) is skipped with the walk still succeeding — it must not become a
+// node and must not wedge the pass. A sibling normal file indexes as usual, and
+// --force (which re-enqueues every file) must not fail on the reserved file.
+func TestRun_ReservedIDFilesSkippedNotWedged(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/y.md", "type: note\n", "Body.\n")
+	writeNode(test, root, "notes/y#S1.md", "type: note\n", "Hash-named standalone file.\n")
+	writeNode(test, root, "reindex:notes.md", "type: note\n", "Reserved-prefix file.\n")
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+
+	report, runErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo}))
+
+	if runErr != nil {
+		test.Fatalf("Run wedged on a reserved-id file: %v", runErr)
+	}
+
+	if report.Indexed != 1 {
+		test.Errorf("Indexed = %d, want 1 (only notes/y)", report.Indexed)
+	}
+
+	if report.Skipped < 2 {
+		test.Errorf("Skipped = %d, want >= 2 (notes/y#S1.md and reindex:notes.md)", report.Skipped)
+	}
+
+	if _, getErr := repo.Get("notes/y"); getErr != nil {
+		test.Errorf("notes/y should be indexed: %v", getErr)
+	}
+
+	for _, reservedID := range []string{"notes/y#S1", "reindex:notes"} {
+		if _, getErr := repo.Get(reservedID); !errors.Is(getErr, index.ErrNodeNotFound) {
+			test.Errorf("Get(%q) err = %v, want ErrNodeNotFound (file must not be indexed)", reservedID, getErr)
+		}
+	}
+
+	// --force re-enqueues every file; the reserved file must not abort it.
+	forced, forceErr := reindex.Run(withGen(store, reindex.Config{Root: root, Repo: repo, Force: true}))
+
+	if forceErr != nil {
+		test.Fatalf("Run --force wedged on a reserved-id file: %v", forceErr)
+	}
+
+	if forced.Skipped < 2 {
+		test.Errorf("forced Skipped = %d, want >= 2", forced.Skipped)
+	}
+}
+
+// TestRun_HealsImmortalBracketSubUnitViaDerivationMarker pins the #683 upgrade
+// path: a vault indexed by the pre-fix binary can carry an immortal bracket
+// sub-unit row (the old GLOB `notes/x[1]#*` was a character class that matched
+// nothing, so a deleted section under a bracket file was never reaped). A plain
+// (non-forced) reindex after the upgrade must heal it — the bumped
+// edgeDerivationVersion trips the marker-mismatch gate, forcing a full re-parse
+// whose now-fixed ListSubUnitsForFile enumerates and deletes the stale row.
+func TestRun_HealsImmortalBracketSubUnitViaDerivationMarker(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/x[1].md", "type: note\ntitle: Bracket\n", "# Alpha\n\nlive paragraph.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	loaded := &manifest.Manifest{}
+
+	// Sub-unit sync (which reaps stale sub-unit rows) runs only when Edges is
+	// wired — the real rebuild config always wires it.
+	cfg := func() reindex.Config {
+		return withGen(store, reindex.Config{Root: root, Repo: repo, Edges: edgeRepo, Manifest: loaded})
+	}
+
+	if _, runErr := reindex.Run(cfg()); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// Simulate the pre-fix fossil: an immortal sub-unit row with no matching
+	// content, plus a rewound derivation marker (an older binary's value).
+	if bulkErr := repo.BulkUpsert([]index.NodeRow{{
+		ID: "notes/x[1]#S9", Type: "paragraph", Path: "notes/x[1].md",
+		PropertiesJSON: `{}`, LastChecksum: "h",
+		ParentID: sql.NullString{String: "notes/x[1]", Valid: true},
+		Ordinal:  sql.NullInt64{Int64: 99, Valid: true},
+	}}, "markdown"); bulkErr != nil {
+		test.Fatalf("inject fossil sub-unit: %v", bulkErr)
+	}
+
+	// Rewind the marker to the PRIOR (#682) derivation version, simulating a
+	// vault last indexed by that binary. This pins the bump specifically: only
+	// because the current version differs does the mismatch gate force a heal.
+	if setErr := index.NewMetaRepo(store).Set("edge_derivation_version", "2026-07-11-subunit-content-pipeline"); setErr != nil {
+		test.Fatalf("rewind derivation marker: %v", setErr)
+	}
+
+	if _, getErr := repo.Get("notes/x[1]#S9"); getErr != nil {
+		test.Fatalf("setup: fossil row not present: %v", getErr)
+	}
+
+	// A plain (non-forced) pass must heal it via the forced re-process.
+	if _, runErr := reindex.Run(cfg()); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	if _, getErr := repo.Get("notes/x[1]#S9"); !errors.Is(getErr, index.ErrNodeNotFound) {
+		test.Errorf("fossil notes/x[1]#S9 err = %v, want ErrNodeNotFound (immortal sub-unit not healed on upgrade)", getErr)
+	}
+
+	// The bracket file's live sub-units must remain.
+	live, _ := repo.ListSubUnitsForFile("notes/x[1]")
+
+	if len(live) == 0 {
+		test.Errorf("bracket file lost all sub-units after heal, want live rows retained")
+	}
+}
+
+// TestRun_ReservedIDDeletionKeepsSiblingSubUnitEdges pins the #683 orphan-reaper
+// hazard: deleting a reserved-id file (e.g. notes/y#S1.md) must not clobber the
+// edges of the sibling sub-unit whose id it aliases. nodeIDForPath strips ".md",
+// so the reaper derives "notes/y#S1" — exactly the section sub-unit id of
+// notes/y.md — and a naive DeleteBySource would delete that healthy sub-unit's
+// outbound edges. notes/y.md is unchanged (incremental skip), so those edges
+// would never be re-derived. The reaper must skip the destructive delete for a
+// reserved candidate path.
+func TestRun_ReservedIDDeletionKeepsSiblingSubUnitEdges(test *testing.T) {
+	root := test.TempDir()
+
+	// A section whose heading carries a wikilink sources a `references` edge
+	// from the section sub-unit id notes/y#S1 (the id the reserved file aliases).
+	writeNode(test, root, "notes/y.md", "type: note\ntitle: Y\n", "# See [[notes/target]]\n\nBody paragraph.\n")
+	writeNode(test, root, "notes/target.md", "type: note\ntitle: Target\n", "Target body.\n")
+	writeNode(test, root, "notes/y#S1.md", "type: note\ntitle: Reserved\n", "Reserved sibling file.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := manifest.EdgeTypes{
+		"references": manifest.EdgeType{
+			From: []string{"*"}, To: []string{"*"},
+			Cardinality: manifest.CardinalityManyToMany,
+			Wikilinks:   true,
+		},
+	}
+	loaded := &manifest.Manifest{EdgeTypes: edgeTypes}
+
+	newCfg := func() reindex.Config {
+		return withGen(store, reindex.Config{
+			Root: root, Repo: repo, Edges: edgeRepo, EdgeTypes: edgeTypes, Manifest: loaded,
+		})
+	}
+
+	if _, runErr := reindex.Run(newCfg()); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	edgesBefore, _ := edgeRepo.ListBySource("notes/y#S1")
+
+	if len(edgesBefore) == 0 {
+		test.Fatalf("setup: notes/y#S1 has no outbound edges; the test cannot detect the clobber")
+	}
+
+	// Delete only the reserved sibling. notes/y.md is untouched.
+	if rmErr := os.Remove(filepath.Join(root, "notes/y#S1.md")); rmErr != nil {
+		test.Fatalf("remove reserved file: %v", rmErr)
+	}
+
+	if _, runErr := reindex.Run(newCfg()); runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	edgesAfter, _ := edgeRepo.ListBySource("notes/y#S1")
+
+	if len(edgesAfter) != len(edgesBefore) {
+		test.Errorf("notes/y#S1 edges after deleting reserved sibling = %d, want %d (sibling sub-unit edges clobbered)", len(edgesAfter), len(edgesBefore))
 	}
 }
 

@@ -203,22 +203,23 @@ func (repo *EmbeddingRepo) GetByNodeID(nodeID string) ([]EmbeddingRow, error) {
 	return scanEmbeddings(rows)
 }
 
-// ListSubUnitsForFiles returns every embedding whose node_id matches the
-// composite sub-unit pattern `<fileID>#*` for any fileID in the input. Used
-// by the query layer's sub-unit-aware semantic path: the structural filter
+// ListSubUnitsForFiles returns every embedding whose node_id falls in the
+// sub-unit id range `[<fileID>#, next-prefix)` for any fileID in the input.
+// Used by the query layer's sub-unit-aware semantic path: the structural filter
 // returns file ids, and the semantic ranker pulls every sub-unit embedding
 // owned by those files in a single batched query.
 //
-// We use GLOB rather than LIKE because LIKE treats `_` as a wildcard, which
-// would silently alias sibling files (e.g. `notes/foo_a` matching
-// `notes/foo b`'s sub-units). GLOB's wildcards are `*` and `?`, neither of
-// which can appear in a workspace file id.
+// The match is a BINARY prefix range (see index.subUnitIDRange), not GLOB or
+// LIKE: it is case-sensitive so it never aliases a sibling (the reason GLOB was
+// once preferred over LIKE's `_` wildcard) and treats every byte literally, so
+// a `[` in a file id no longer reads as a character class and silently drops
+// the file from semantic results (#683).
 //
 // Returns an empty slice when no rows match. Caller is responsible for
 // stitching the embedding rows back to their parent file via the
 // `<fileID>#<hash>` id format.
 //
-// The ids are chunked into batches of maxGlobConditions so the OR-chain never
+// The ids are chunked into batches of maxSubUnitPredicates so the OR-chain never
 // exceeds SQLite's expression-depth ceiling (#564): a hybrid filter matching
 // thousands of sub-units reaches this path with thousands of ids.
 func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRow, error) {
@@ -228,13 +229,14 @@ func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRo
 
 	var results []EmbeddingRow
 
-	for _, chunk := range chunkStrings(fileIDs, maxGlobConditions) {
+	for _, chunk := range chunkStrings(fileIDs, maxSubUnitPredicates) {
 		conditions := make([]string, 0, len(chunk))
-		args := make([]any, 0, len(chunk))
+		args := make([]any, 0, len(chunk)*2)
 
 		for _, fileID := range chunk {
-			conditions = append(conditions, "ne.node_id GLOB ?")
-			args = append(args, fileID+"#*")
+			lo, hi := subUnitIDRange(fileID)
+			conditions = append(conditions, "(ne.node_id >= ? AND ne.node_id < ?)")
+			args = append(args, lo, hi)
 		}
 
 		query := embeddingJoinSelect + ` WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY ne.node_id, ne.chunk_idx`
@@ -263,27 +265,28 @@ func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRo
 }
 
 // ExistsSubUnitsForFiles reports whether any sub-unit embedding exists for any
-// fileID in the input, using the same `<fileID>#*` GLOB match and the same
-// inner join to the shared vector as ListSubUnitsForFiles. It is the cheap
-// existence-only probe for that heavier loader: it returns a boolean without
-// decoding any vector or body payload, so the query service can test "are
-// there sub-unit embeddings for these files?" without materializing them.
+// fileID in the input, using the same `[<fileID>#, next-prefix)` range match and
+// the same inner join to the shared vector as ListSubUnitsForFiles. It is the
+// cheap existence-only probe for that heavier loader: it returns a boolean
+// without decoding any vector or body payload, so the query service can test
+// "are there sub-unit embeddings for these files?" without materializing them.
 //
 // Returns false for empty input. The ids are chunked into batches of
-// maxGlobConditions like ListSubUnitsForFiles; it short-circuits and returns
+// maxSubUnitPredicates like ListSubUnitsForFiles; it short-circuits and returns
 // true on the first chunk that matches a row.
 func (repo *EmbeddingRepo) ExistsSubUnitsForFiles(fileIDs []string) (bool, error) {
 	if len(fileIDs) == 0 {
 		return false, nil
 	}
 
-	for _, chunk := range chunkStrings(fileIDs, maxGlobConditions) {
+	for _, chunk := range chunkStrings(fileIDs, maxSubUnitPredicates) {
 		conditions := make([]string, 0, len(chunk))
-		args := make([]any, 0, len(chunk))
+		args := make([]any, 0, len(chunk)*2)
 
 		for _, fileID := range chunk {
-			conditions = append(conditions, "ne.node_id GLOB ?")
-			args = append(args, fileID+"#*")
+			lo, hi := subUnitIDRange(fileID)
+			conditions = append(conditions, "(ne.node_id >= ? AND ne.node_id < ?)")
+			args = append(args, lo, hi)
 		}
 
 		query := `SELECT 1
