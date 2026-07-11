@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -93,12 +93,28 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 				return engineErr
 			}
 
+			// Build the embedder so every watch-triggered reindex drains the
+			// embedding queue inline (reindex.Run only drains when Embedder is set
+			// and Workers > 0). Omitting it — the prior behavior — left `tusk watch`
+			// enqueuing embeddings it never processed, so semantic search stayed
+			// blind to watched content despite the --help promise (and the
+			// workers=0 refusal that exists precisely because "the watcher needs a
+			// drainer"). Mirrors cmd_reindex.go's wiring.
+			embedder, chunker := embed.NewFromManifest(loaded.Embeddings, logger)
+
+			var embeddingRepo *index.EmbeddingRepo
+
+			if embedder != nil {
+				embeddingRepo = index.NewEmbeddingRepo(store)
+			}
+
 			// buildReindexConfig centralizes the full validating reindex config so
 			// the initial pass and every watch-triggered pass stay identical —
-			// including the workflow/property validators and their drift logs.
-			// Omitting these (the prior behavior) made `tusk watch` index content
-			// while skipping validation, so doctor drift went stale in both
-			// directions until a manual `tusk reindex`.
+			// including the workflow/property validators, their drift logs, and the
+			// embedding pipeline. Omitting these (the prior behavior) made
+			// `tusk watch` index content while skipping validation and embedding, so
+			// doctor drift and semantic results went stale until a manual
+			// `tusk reindex`.
 			buildReindexConfig := func() reindex.Config {
 				return reindex.Config{
 					Root:            ws.Root,
@@ -107,6 +123,9 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 					EdgeTypes:       loaded.EdgeTypes,
 					WorkspaceIgnore: loaded.Workspace.Ignore,
 					EmbedQueue:      embedQueueRepo,
+					EmbeddingRepo:   embeddingRepo,
+					Embedder:        embedder,
+					Chunker:         chunker,
 					Meta:            metaRepo,
 					FileStates:      fileStateRepo,
 					Behaviors:       engine,
@@ -122,7 +141,21 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
 
 			if _, runErr := reindex.Run(buildReindexConfig()); runErr != nil {
-				return runErr
+				// A transport error means only the embedding backend was
+				// unreachable at startup — the node/edge index and validation
+				// already committed. Don't let a down backend stop the watcher from
+				// starting: its per-event reindex (and a manual `tusk reindex`) will
+				// drain the queued embeddings once the backend returns, matching the
+				// resilient MCP daemon. Any other error is a real failure and stays
+				// fatal. (Pre-#681 no embedder was wired, so boot never touched the
+				// backend; wiring the drainer must not make the backend a hard
+				// startup dependency.)
+				if !embed.IsTransportError(runErr) {
+					return runErr
+				}
+
+				logger.Warn("initial reindex: embedding backend unreachable; starting watcher anyway, embeddings will drain when it returns",
+					"err", runErr.Error())
 			}
 
 			logger.Info("watch started", "root", ws.Root)
@@ -161,31 +194,22 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 
 				logger.Debug("watch fs event", "kind", kindLabel(event.Kind), "path", event.Path)
 
-				if event.Kind == watcher.EventDelete {
-					if delErr := nodeRepo.DeleteByPath(event.Path); delErr != nil {
-						return delErr
-					}
-
-					return nil
-				}
-
-				absPath := filepath.Join(ws.Root, event.Path)
-
-				stat, statErr := os.Stat(absPath)
-
-				if statErr != nil {
-					return nil // file already gone or unreadable
-				}
-
-				if stat.IsDir() {
-					return nil
-				}
-
-				// Plan 3 ships full-tree reindex on each event for simplicity.
+				// Re-run the full reindex pass on EVERY event — create, modify,
+				// rename, delete, and directory-level move alike. reindex.Run
+				// reconciles the whole tree against disk (it ignores event.Path), so
+				// it indexes files that arrive inside a moved-in directory; reaps
+				// files moved or deleted out, which tombstones their file_state row
+				// and deletes their node and edges; re-heals recorded ref drift; and
+				// re-derives edges. This mirrors the MCP watcher
+				// (internal/mcp/watch.go), which has always reindexed on every event.
+				// The hand-rolled delete branch and stat/IsDir gate that used to live
+				// here bypassed reindex.Run for exactly those cases, so watch-only
+				// vaults silently missed dir move-ins/outs (#681-2), lost
+				// delete-then-restore nodes to a stale file_state row (#681-3), and
+				// skipped the #677 ref-drift heal on deletes (#681-4).
+				//
 				// Plan 8 polish: replace with single-file partial reindex.
-				_, runErr := reindex.Run(buildReindexConfig())
-
-				if runErr != nil {
+				if _, runErr := reindex.Run(buildReindexConfig()); runErr != nil {
 					logger.Warn("watch handler reindex failed", "path", event.Path, "err", runErr.Error())
 
 					return runErr
