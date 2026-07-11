@@ -115,17 +115,68 @@ func runSemanticSubUnits(
 		return nil, embedErr
 	}
 
+	// Only rank vectors stored under the configured model. A leaf left behind by
+	// a previous [embeddings].model would otherwise rank on a meaningless
+	// cross-model cosine (#684 finding 3); a reindex --force / reset re-embeds it
+	// under the live model.
+	queryModel := deps.Embedder.Model()
+
 	// Build the candidate pool from the leaf embeddings only — sections
 	// aren't embedded (spec §5.7). The id format `<fileID>#<hash>` lets
-	// us bucket later.
+	// us bucket later. Track which files contributed a live leaf so a file with
+	// none can fall back to its file-level vector below.
 	candidates := make([]filter.SemanticCandidate, 0, len(embeddings))
+	filesWithLiveLeaves := make(map[string]struct{}, len(fileIDs))
 
 	for _, embeddingRow := range embeddings {
+		if embeddingRow.Model != queryModel {
+			continue
+		}
+
 		candidates = append(candidates, filter.SemanticCandidate{
 			NodeID: embeddingRow.NodeID,
 			Vector: embeddingRow.Vector,
 			Body:   embeddingRow.Body,
 		})
+		filesWithLiveLeaves[fileIDFromSubUnit(embeddingRow.NodeID)] = struct{}{}
+	}
+
+	// Per-file fallback (#684 finding 2): a file whose sub-unit leaves are all
+	// missing (still draining, evicted) or stale-model still ranks via its own
+	// file-level vector, instead of vanishing just because OTHER files in the
+	// result set have live leaves. The gate that routed us here is vault-wide;
+	// this restores the per-file behavior. Fallback ids carry no '#', so
+	// fileIDFromSubUnit maps them to themselves and the bucketing below records a
+	// bare file hit (mirroring the legacy file-level semantic path).
+	fileLevelCandidateIDs := make(map[string]struct{})
+
+	var fallbackFileIDs []string
+
+	for _, fileID := range fileIDs {
+		if _, live := filesWithLiveLeaves[fileID]; !live {
+			fallbackFileIDs = append(fallbackFileIDs, fileID)
+		}
+	}
+
+	if len(fallbackFileIDs) > 0 {
+		fileLevel, fileLevelErr := deps.Embeddings.ListByNodeIDs(fallbackFileIDs)
+
+		if fileLevelErr != nil {
+			return nil, fileLevelErr
+		}
+
+		for _, embeddingRow := range fileLevel {
+			if embeddingRow.Model != queryModel {
+				continue
+			}
+
+			candidates = append(candidates, filter.SemanticCandidate{
+				NodeID: embeddingRow.NodeID,
+				Vector: embeddingRow.Vector,
+				Body:   embeddingRow.Body,
+			})
+			fileLevelCandidateIDs[embeddingRow.NodeID] = struct{}{}
+		}
 	}
 
 	ranked := filter.SemanticRank(candidates, queryVector)
@@ -226,6 +277,12 @@ func runSemanticSubUnits(
 	type fileHit struct {
 		matched  []MatchedUnit
 		maxScore float64
+		// File-level fallback (#684 finding 2): set when the file ranked via its
+		// own file-level vector because it had no live sub-unit leaves. Carries
+		// the snippet/body of the best file-level chunk; no matched sub-units.
+		hasFileLevel     bool
+		fileLevelSnippet string
+		fileLevelBody    string
 	}
 
 	hitsByFile := make(map[string]*fileHit, len(fileIDs))
@@ -245,8 +302,32 @@ func runSemanticSubUnits(
 		}
 	}
 
-	// Leaf hits.
+	// Leaf + file-level fallback hits.
 	for _, scored := range ranked {
+		if _, isFileLevel := fileLevelCandidateIDs[scored.NodeID]; isFileLevel {
+			// File-level fallback candidate: its id is the file id itself, so
+			// record a bare file hit scored by the file-level vector (no matched
+			// sub-units), mirroring the legacy file-level path (#684 finding 2).
+			fileID := scored.NodeID
+
+			bucket, present := hitsByFile[fileID]
+
+			if !present {
+				bucket = &fileHit{}
+				hitsByFile[fileID] = bucket
+			}
+
+			bucket.hasFileLevel = true
+			bucket.fileLevelBody = scored.BestChunkBody
+			bucket.fileLevelSnippet = filter.RenderSnippetForQuery(scored.BestChunkBody, req.Semantic, 200)
+
+			if scored.Score > bucket.maxScore {
+				bucket.maxScore = scored.Score
+			}
+
+			continue
+		}
+
 		row, ok := subIndex.rowsByID[scored.NodeID]
 
 		if !ok {
@@ -430,30 +511,40 @@ func runSemanticSubUnits(
 		})
 
 		// File-level snippet: first matched unit's snippet (descending
-		// score) so the agent sees the strongest hit at a glance.
+		// score) so the agent sees the strongest hit at a glance. A file that
+		// ranked via its file-level vector (no sub-units) uses that vector's
+		// snippet instead (#684 finding 2).
 		topSnippet := ""
 		topBody := ""
 
 		if len(entry.hit.matched) > 0 {
 			topSnippet = entry.hit.matched[0].Snippet
+		} else if entry.hit.hasFileLevel {
+			topSnippet = entry.hit.fileLevelSnippet
 		}
 
 		// include=body for file rows mirrors today's behavior: the
 		// best chunk's body wins. For sub-unit rows we serve the best
-		// matched leaf's embed_payload.
-		if includeSet.Body && len(entry.hit.matched) > 0 {
-			topUnitID := entry.hit.matched[0].ID
+		// matched leaf's embed_payload; for a file-level fallback we serve the
+		// file-level chunk body.
+		if includeSet.Body {
+			switch {
+			case len(entry.hit.matched) > 0:
+				topUnitID := entry.hit.matched[0].ID
 
-			if topUnitID != "" {
-				if scored, ok := leafBest[topUnitID]; ok {
-					topBody = scored.BestChunkBody
-				} else if row, ok := subIndex.rowsByID[topUnitID]; ok {
-					// Intentional fallback: when the top matched unit
-					// is a section (not a leaf), it has no embedding
-					// row in leafBest, so we serve the section's own
-					// embed_payload (the heading text) as the body.
-					topBody = row.EmbedPayload.String
+				if topUnitID != "" {
+					if scored, ok := leafBest[topUnitID]; ok {
+						topBody = scored.BestChunkBody
+					} else if row, ok := subIndex.rowsByID[topUnitID]; ok {
+						// Intentional fallback: when the top matched unit
+						// is a section (not a leaf), it has no embedding
+						// row in leafBest, so we serve the section's own
+						// embed_payload (the heading text) as the body.
+						topBody = row.EmbedPayload.String
+					}
 				}
+			case entry.hit.hasFileLevel:
+				topBody = entry.hit.fileLevelBody
 			}
 		}
 

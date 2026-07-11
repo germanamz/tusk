@@ -448,24 +448,42 @@ func embedNode(ctx context.Context, config DrainConfig, workerID string, queued 
 		return outcomeSucceeded, nil
 	}
 
-	if delErr := config.Embeddings.DeleteByNodeID(queued.NodeID); delErr != nil {
-		if config.Logger != nil {
-			config.Logger.Warn("embed delete-before-insert failed",
-				"node_id", queued.NodeID,
-				"err", delErr.Error(),
-			)
-		}
-
-		_ = config.Queue.Drop(queued.NodeID, workerID)
-
-		return outcomeFailed, nil
-	}
-
+	// Embed-then-swap: do NOT delete the node's existing vectors here. tryReuse
+	// and embedChunks write chunks 0..len(chunkHashes)-1 in place (the mapping
+	// upsert's ON CONFLICT(node_id, chunk_idx) overwrites each), then prune the
+	// stale tail (chunk_idx >= len) only after the write succeeds. A transport
+	// failure therefore aborts before anything is deleted, leaving the node's
+	// prior vectors intact instead of evicting it from semantic results over a
+	// transient backend blip (#684 finding 1).
 	if reused := tryReuse(config, workerID, queued, chunkHashes); reused != outcomeSkipped {
 		return reused, nil
 	}
 
 	return embedChunks(ctx, config, workerID, queued, header, chunkPayloads, chunkHashes)
+}
+
+// pruneStaleTail drops any node_embeddings mappings left over from a longer
+// prior version of the node — chunk_idx >= keepCount — after chunks
+// 0..keepCount-1 have been written in place. It runs only on the embed-then-swap
+// success path, so the node's prior vectors are never removed before the
+// replacements exist (#684). A DB failure is treated as a per-node retry (not a
+// drain-fatal abort): the row is nacked/dropped via the retry policy and the
+// next pass re-converges. Returns true when the prune succeeded.
+func pruneStaleTail(config DrainConfig, workerID string, queued index.QueueRow, keepCount int) bool {
+	if delErr := config.Embeddings.DeleteChunksFrom(queued.NodeID, keepCount); delErr != nil {
+		if config.Logger != nil {
+			config.Logger.Warn("embed prune stale tail failed",
+				"node_id", queued.NodeID,
+				"err", delErr.Error(),
+			)
+		}
+
+		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, delErr)
+
+		return false
+	}
+
+	return true
 }
 
 // buildChunkPayloads resolves a queued row into the embed header and body
@@ -561,6 +579,11 @@ func tryReuse(config DrainConfig, workerID string, queued index.QueueRow, chunkH
 
 			return outcomeFailed
 		}
+	}
+
+	// Prune any stale higher-indexed chunks now that 0..len-1 are mapped.
+	if !pruneStaleTail(config, workerID, queued, len(chunkHashes)) {
+		return outcomeFailed
 	}
 
 	if config.Logger != nil {
@@ -728,6 +751,12 @@ func embedChunks(ctx context.Context, config DrainConfig, workerID string, queue
 				"payload_bytes", res.payloadBytes,
 			)
 		}
+	}
+
+	// The replacement vectors are written (chunks 0..len-1); drop any stale tail
+	// from a longer prior version of this node.
+	if !pruneStaleTail(config, workerID, queued, len(chunkPayloads)) {
+		return outcomeFailed, nil
 	}
 
 	ackNode(config, workerID, queued.NodeID)

@@ -30,7 +30,8 @@ wikilinks   = true           # optional; [[wikilinks]] in body produce this edge
 [embeddings]                  # required for semantic queries
 provider = "ollama"
 model    = "nomic-embed-text"
-url      = "http://localhost:11434"
+endpoint = "http://localhost:11434"
+dim      = 768
 
 [query.graph-expansion]       # default knobs for tusk_query
 enabled    = true

@@ -551,6 +551,7 @@ func Run(config Config) (*Report, error) {
 			TTL:           leaseTTL,
 			WorkerID:      workerID,
 			Generation:    gen,
+			Force:         config.Force,
 		}
 
 		drainReport, drainErr := DrainReindexQueue(context.Background(), workerCfg)

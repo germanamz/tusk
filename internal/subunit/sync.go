@@ -54,6 +54,15 @@ type Sync struct {
 	// existing markdown callers need no change. The HTML pipeline sets
 	// it to "html"; the value must match a built-in typepack Source().
 	Source string
+	// Force mirrors reindex.Config.Force: when true, ApplyFile re-enqueues
+	// an embed for EVERY leaf, not just inserted/content-changed ones. A
+	// model/dim swap leaves unchanged sub-unit vectors stale under the old
+	// model — content is identical, so the normal diff never re-enqueues them
+	// and they would rank with meaningless cross-model scores forever short of
+	// `tusk reset`. `tusk reindex --force` threads this flag so the drain's own
+	// model check (embeddingsMatch) re-embeds exactly the stale leaves and skips
+	// the rest (#684 finding 3).
+	Force bool
 }
 
 // SyncResult summarizes the work ApplyFile performed for one file. The
@@ -278,7 +287,18 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 	if sync.EmbedQ != nil {
 		var leafIDs []string
 
-		for _, unit := range insertedUnits {
+		// Normally only inserted/content-changed leaves re-embed. Under Force
+		// (`reindex --force`), re-enqueue every leaf so a stale-model store
+		// converges: the drain's embeddingsMatch check re-embeds only the leaves
+		// whose stored model/content no longer matches and skip-acks the rest,
+		// so the extra queue rows cost queue churn, not embed calls (#684).
+		enqueueUnits := insertedUnits
+
+		if sync.Force {
+			enqueueUnits = units
+		}
+
+		for _, unit := range enqueueUnits {
 			if unit.Kind == KindSection {
 				continue
 			}

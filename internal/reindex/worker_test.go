@@ -386,6 +386,85 @@ func itoa(value int) string {
 	return string(digits)
 }
 
+// TestDrainReindexQueue_ForceReenqueuesSubUnitEmbeds pins the plumbing half of
+// #684 finding 3: WorkerConfig.Force (fed by reindex.Config.Force, i.e. `tusk
+// reindex --force`) must reach subunit.Sync so an unchanged file's leaves are
+// re-enqueued for embed. Without it, a model swap leaves sub-unit vectors stale
+// forever short of `tusk reset`.
+func TestDrainReindexQueue_ForceReenqueuesSubUnitEmbeds(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "notes/keep.md", "type: note\ntitle: Keep\n", "# Heading\n\nA paragraph worth embedding.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	repo := index.NewNodeRepo(store)
+	edges := index.NewEdgeRepo(store)
+	queueRepo := index.NewEmbedQueueRepo(store)
+	fileStates := index.NewFileStateRepo(store)
+	meta := index.NewMetaRepo(store)
+
+	loaded := &manifest.Manifest{}
+	manifest.MergeBuiltinPacks(loaded)
+
+	drainReindex := func(force bool, gen int64) {
+		test.Helper()
+
+		if _, drainErr := reindex.DrainReindexQueue(context.Background(), reindex.WorkerConfig{
+			Root: root, Repo: repo, Edges: edges, EmbedQueue: queueRepo,
+			FileStates: fileStates, Manifest: loaded, NodeTypes: loaded.NodeTypes,
+			EdgeTypes: loaded.EdgeTypes, Workers: 1, TTL: time.Minute,
+			Generation: gen, Force: force,
+		}); drainErr != nil {
+			test.Fatalf("DrainReindexQueue: %v", drainErr)
+		}
+	}
+
+	// First pass: index the file and enqueue its leaf embed.
+	firstReport, runErr := reindex.Run(reindex.Config{
+		Root: root, Repo: repo, EmbedQueue: queueRepo, Meta: meta,
+		FileStates: fileStates, Async: true,
+	})
+
+	if runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	drainReindex(false, firstReport.Generation)
+
+	// Simulate the leaf embeds being drained (queue empties).
+	claimed, _ := queueRepo.DrainEmbed("test-worker", 1000, time.Minute)
+
+	for _, row := range claimed {
+		if ackErr := queueRepo.Ack(row.NodeID, "test-worker"); ackErr != nil {
+			test.Fatalf("Ack %s: %v", row.NodeID, ackErr)
+		}
+	}
+
+	if depth, _ := queueRepo.DepthByKind("embed"); depth != 0 {
+		test.Fatalf("embed queue depth after drain = %d, want 0", depth)
+	}
+
+	// Forced pass over the unchanged file: the leaf embed must come back.
+	forcedReport, forcedErr := reindex.Run(reindex.Config{
+		Root: root, Repo: repo, EmbedQueue: queueRepo, Meta: meta,
+		FileStates: fileStates, Async: true, Force: true,
+	})
+
+	if forcedErr != nil {
+		test.Fatalf("forced Run: %v", forcedErr)
+	}
+
+	drainReindex(true, forcedReport.Generation)
+
+	depth, _ := queueRepo.DepthByKind("embed")
+
+	if depth == 0 {
+		test.Errorf("forced reindex did not re-enqueue any sub-unit embed; embed queue is empty")
+	}
+}
+
 func TestDrainReindexQueue_HTMLEmitsHTMLSubUnits(test *testing.T) {
 	root := test.TempDir()
 

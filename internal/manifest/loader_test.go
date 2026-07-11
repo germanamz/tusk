@@ -522,6 +522,90 @@ dim = 0
 	}
 }
 
+func TestLoad_RejectsMissingEmbeddingsEndpoint(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	// A configured provider with no endpoint key at all validated cleanly
+	// before the fix, then failed at drain time with an eternal transport
+	// error ("unsupported protocol scheme") that never converged (#684).
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model = "nomic-embed-text"
+dim = 768
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+
+	if loadErr == nil {
+		test.Fatalf("expected error for missing embeddings.endpoint")
+	}
+
+	if !strings.Contains(loadErr.Error(), "endpoint") {
+		test.Errorf("error should name embeddings.endpoint: %v", loadErr)
+	}
+}
+
+func TestLoad_RejectsEmptyEmbeddingsEndpoint(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	// An explicit endpoint = "" behaves identically to the missing key.
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model = "nomic-embed-text"
+endpoint = ""
+dim = 768
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+
+	if loadErr == nil {
+		test.Fatalf("expected error for empty embeddings.endpoint")
+	}
+}
+
+func TestLoad_RejectsRelativeEmbeddingsEndpoint(test *testing.T) {
+	tmpDir := test.TempDir()
+	manifestPath := filepath.Join(tmpDir, "tusk.toml")
+
+	// A scheme-less / hostless value would concatenate into a malformed
+	// request URL; require an absolute http(s) URL.
+	body := `[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model = "nomic-embed-text"
+endpoint = "localhost:11434"
+dim = 768
+`
+
+	if writeErr := os.WriteFile(manifestPath, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	_, loadErr := manifest.Load(manifestPath)
+
+	if loadErr == nil {
+		test.Fatalf("expected error for relative embeddings.endpoint")
+	}
+}
+
 func TestLoad_AcceptsAbsentEmbeddings(test *testing.T) {
 	tmpDir := test.TempDir()
 	manifestPath := filepath.Join(tmpDir, "tusk.toml")
