@@ -278,6 +278,14 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	parsed, parseErr := node.ParseContentFile(relPath, content)
 
 	if parseErr != nil {
+		// A parse failure drops the file from the index and is counted only as
+		// an anonymous "skipped" in the report. Name it so the omission is not
+		// silent — a file that never appears in any query is otherwise invisible
+		// (#682 item 2).
+		if cfg.Logger != nil {
+			cfg.Logger.Warn("reindex skip: unparseable file", "path", relPath, "err", parseErr.Error())
+		}
+
 		return errSkipFile
 	}
 

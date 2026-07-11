@@ -655,10 +655,21 @@ func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, qu
 	var issues []Issue
 
 	for _, row := range indexed {
-		// Sub-unit rows with a non-embeddable kind (sections) are never
-		// embedded by design — skip them so they aren't false positives.
-		if row.ParentID.Valid && !isEmbeddableSubUnit(row.Type) {
-			continue
+		if row.ParentID.Valid {
+			// Sub-unit rows with a non-embeddable kind (sections) are never
+			// embedded by design — skip them so they aren't false positives.
+			if !isEmbeddableSubUnit(row.Type) {
+				continue
+			}
+
+			// A sub-unit with an empty embed payload (e.g. a text-less "- [ ]"
+			// task item) can never embed — the drain drops it by design. It
+			// carries no content to embed, so a missing embedding is not a
+			// failure; flagging it turns embed-no-chunks into a permanent false
+			// positive that a healthy vault can never clear (#682 item 5).
+			if row.EmbedPayload.String == "" {
+				continue
+			}
 		}
 
 		if _, embedded := embeddedSet[row.ID]; embedded {

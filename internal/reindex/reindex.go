@@ -33,17 +33,20 @@ var indexableExts = map[string]bool{
 	".htm":  true,
 }
 
-// edgeDerivationVersion tags the edge-derivation semantics baked into this
-// binary, stored in meta under edgeDerivationVersionKey. When the stored
-// value differs (older binary, or the key predates the mechanism), Run
-// forces one full re-process pass so every file's edges converge on the
-// current semantics — the incremental mtime+size skip would otherwise
-// preserve stale edges indefinitely. Content-addressed embeddings make the
-// forced pass cheap: unchanged content re-parses but never re-embeds. Bump
-// the value whenever edge derivation changes meaning.
+// edgeDerivationVersion tags the edge-derivation and sub-unit content
+// semantics baked into this binary, stored in meta under
+// edgeDerivationVersionKey. When the stored value differs (older binary, or the
+// key predates the mechanism), Run forces one full re-process pass so every
+// file converges on the current semantics — the incremental mtime+size skip
+// would otherwise preserve stale rows indefinitely. Content-addressed
+// embeddings make the forced pass cheap: unchanged content re-parses but never
+// re-embeds. Bump the value whenever edge derivation OR sub-unit parse/hash
+// meaning changes (e.g. a BOM/CRLF normalization, a property-in-diff turnover,
+// or a change to which units a document emits) so existing vaults heal on the
+// next reindex.
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-07-09-section-subtree-edges"
+	edgeDerivationVersion    = "2026-07-11-subunit-content-pipeline"
 )
 
 // nodeIDForPath derives a node id from a workspace-relative path. Markdown

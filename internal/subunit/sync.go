@@ -170,19 +170,30 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 
 		sameOrdinal := prior.Ordinal.Valid && prior.Ordinal.Int64 == int64(unit.Ordinal)
 		sameContent := prior.ContentHash.String == unit.ContentHash
+		// The leaf content hash is sha256 of the embed payload, which excludes
+		// the bits stored in properties (a task checkbox marker, a code-fence
+		// language). A property-only edit therefore leaves content_hash
+		// unchanged, so without this comparison the row would never turn over
+		// and would serve stale properties forever (#682 item 1). Both strings
+		// come from the same json.Marshal path (deterministic key order), so a
+		// byte comparison is a reliable equality test.
+		sameProps := prior.PropertiesJSON == row.PropertiesJSON
 
-		if sameOrdinal && sameContent {
-			// Address, ordinal, and content all unchanged — leave the
-			// row untouched.
+		if sameOrdinal && sameContent && sameProps {
+			// Address, ordinal, content, and properties all unchanged —
+			// leave the row untouched.
 			continue
 		}
 
-		// The address still resolves but ordinal and/or content moved.
-		// Upsert the row (new ordinal/content_hash); when the content
-		// changed, re-derive edges (all kinds — a unit's edge set derives
-		// from the same Text its content hash covers, so a hash turnover
-		// is exactly an edge-set turnover) and re-enqueue the embed for
-		// leaves (the enqueue loop below skips sections itself).
+		// The address still resolves but ordinal, content, and/or properties
+		// moved. Upsert the row (new ordinal / content_hash / properties_json);
+		// when the content changed, re-derive edges (all kinds — a unit's edge
+		// set derives from the same Text its content hash covers, so a hash
+		// turnover is exactly an edge-set turnover) and re-enqueue the embed for
+		// leaves (the enqueue loop below skips sections itself). A property-only
+		// change re-upserts the row without re-embedding or re-deriving edges:
+		// the payload and Text are byte-identical, so the vector and edge set
+		// still hold.
 		reorderRows = append(reorderRows, row)
 
 		if !sameContent {
@@ -269,6 +280,14 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 
 		for _, unit := range insertedUnits {
 			if unit.Kind == KindSection {
+				continue
+			}
+
+			// A leaf with an empty embed payload can never embed — the drain
+			// drops it with a WARN it would re-log on every pass. Skip the
+			// enqueue so a text-less scaffolding leaf (e.g. an empty "- [ ]"
+			// task item) stays quiet (#682 item 5).
+			if unit.EmbedPayload == "" {
 				continue
 			}
 
