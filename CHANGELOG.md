@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.1.2](https://github.com/germanamz/tusk/compare/v2.1.1...v2.1.2) (2026-07-12)
+
+
+### Bug Fixes
+
+* **doctor:** close five doctor blind spots and noise sources ([#685](https://github.com/germanamz/tusk/issues/685)) ([#697](https://github.com/germanamz/tusk/issues/697)) ([a03260d](https://github.com/germanamz/tusk/commit/a03260dd74fdbf41ffff77965987deaadd1612ef))
+* **embed:** close four embedding-lifecycle gaps ([#684](https://github.com/germanamz/tusk/issues/684)) ([#696](https://github.com/germanamz/tusk/issues/696)) ([59f7195](https://github.com/germanamz/tusk/commit/59f7195eeabab9ff223a5988193037443969b86c))
+* **index:** make file ids with special characters safe ([#683](https://github.com/germanamz/tusk/issues/683)) ([#695](https://github.com/germanamz/tusk/issues/695)) ([ec192c0](https://github.com/germanamz/tusk/commit/ec192c060d2e7819041afd1341825db89d73ab83))
+* **node:** close node move/create destination-validation gaps ([#686](https://github.com/germanamz/tusk/issues/686)) ([#698](https://github.com/germanamz/tusk/issues/698)) ([5bcfe5c](https://github.com/germanamz/tusk/commit/5bcfe5cc69b9cf30ee0ec9c444068bdb6be52ab2))
+* **node:** derive and rewrite aliased wikilinks [[id|alias]] ([#690](https://github.com/germanamz/tusk/issues/690)) ([#702](https://github.com/germanamz/tusk/issues/702)) ([f0fc034](https://github.com/germanamz/tusk/commit/f0fc034b23a47ff035905d4e44c767d570ec1afe))
+* **node:** keep HTML id extension and rewrite HTML referrer hrefs on move ([#699](https://github.com/germanamz/tusk/issues/699)) ([d890489](https://github.com/germanamz/tusk/commit/d89048956ca13f59dc5672784c433b17ee427e5d))
+* **node:** keep referrers' ref-property edges healthy across a move ([#680](https://github.com/germanamz/tusk/issues/680)) ([#691](https://github.com/germanamz/tusk/issues/691)) ([b541a4b](https://github.com/germanamz/tusk/commit/b541a4b778e5292d2d40e39bf72db9ee78ac4e88))
+* **node:** resolve unquoted [[id]] frontmatter wikilinks ([#692](https://github.com/germanamz/tusk/issues/692)) ([#703](https://github.com/germanamz/tusk/issues/703)) ([3272b80](https://github.com/germanamz/tusk/commit/3272b8051189583cc350159a2fbe79ad877ce6ea))
+* **query:** close graph-expansion residuals after [#674](https://github.com/germanamz/tusk/issues/674) ([#688](https://github.com/germanamz/tusk/issues/688)) ([#700](https://github.com/germanamz/tusk/issues/700)) ([6fa853e](https://github.com/germanamz/tusk/commit/6fa853e373ec9f46fb0909632ff3a62e753fa21b))
+* **query:** run graph expansion at file level on the sub-unit semantic path ([#674](https://github.com/germanamz/tusk/issues/674)) ([8a06828](https://github.com/germanamz/tusk/commit/8a0682886426dc36e79c53661eecdb984e099021))
+* **reindex:** retry recorded ref drift after every sweep so refs converge ([#677](https://github.com/germanamz/tusk/issues/677)) ([#679](https://github.com/germanamz/tusk/issues/679)) ([11f3a25](https://github.com/germanamz/tusk/commit/11f3a250eed79a4856da766a28601fc492b6e245))
+* **reindex:** wake ref referrers on target removal and key drift per value ([#689](https://github.com/germanamz/tusk/issues/689)) ([#701](https://github.com/germanamz/tusk/issues/701)) ([3327bf6](https://github.com/germanamz/tusk/commit/3327bf61fb86ef01b10f648123647e0a9049bcea))
+* **subunit:** close five sub-unit content pipeline gaps ([#682](https://github.com/germanamz/tusk/issues/682)) ([#694](https://github.com/germanamz/tusk/issues/694)) ([8f38d04](https://github.com/germanamz/tusk/commit/8f38d046773b132768be915b3c300d06e6f1da0e))
+* **subunit:** re-derive section edges on re-parse and retarget sub-unit edges on move ([#678](https://github.com/germanamz/tusk/issues/678)) ([6227a4e](https://github.com/germanamz/tusk/commit/6227a4efe7d2c0b602a77042b80e66b51a9695bb))
+* **watch:** keep the CLI watcher and MCP daemon on the reindex.Run path ([#693](https://github.com/germanamz/tusk/issues/693)) ([783b1bd](https://github.com/germanamz/tusk/commit/783b1bded1bedae2d58220216fea568793e8cad5)), closes [#681](https://github.com/germanamz/tusk/issues/681)
+
 ## [2.1.1](https://github.com/germanamz/tusk/compare/v2.1.0...v2.1.1) (2026-07-01)
 
 
