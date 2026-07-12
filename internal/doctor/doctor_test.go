@@ -63,6 +63,66 @@ func TestRun_FlagsDanglingEdges(test *testing.T) {
 	}
 }
 
+func TestRun_FlagsDerivedEdgeTypeMismatch(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	// people/alice was retyped person -> note in place; its assignee referrer
+	// was never re-resolved, so a derived edge (declared to="person") still
+	// points at a note. checkDanglingEdges sees a live target and stays silent,
+	// so only the type check catches the schema violation (#689). people/bob
+	// stays a person: its edge is correctly typed and must NOT be flagged.
+	for _, row := range []index.NodeRow{
+		{ID: "people/alice", Type: "note", Path: "people/alice.md", Title: "Alice", PropertiesJSON: "{}", LastChecksum: "x"},
+		{ID: "people/bob", Type: "person", Path: "people/bob.md", Title: "Bob", PropertiesJSON: "{}", LastChecksum: "x"},
+		{ID: "tickets/auth", Type: "ticket", Path: "tickets/auth.md", Title: "Auth", PropertiesJSON: "{}", LastChecksum: "x"},
+		{ID: "tickets/ops", Type: "ticket", Path: "tickets/ops.md", Title: "Ops", PropertiesJSON: "{}", LastChecksum: "x"},
+	} {
+		if upsertErr := nodeRepo.Upsert(row); upsertErr != nil {
+			test.Fatalf("upsert %s: %v", row.ID, upsertErr)
+		}
+	}
+
+	edgeRepo.UpsertAll("tickets/auth", "tickets/auth.md", []index.EdgeRow{
+		{Type: "assignee", SourceID: "tickets/auth", TargetID: "people/alice", SourcePath: "tickets/auth.md", Kind: "derived"},
+	})
+	edgeRepo.UpsertAll("tickets/ops", "tickets/ops.md", []index.EdgeRow{
+		{Type: "assignee", SourceID: "tickets/ops", TargetID: "people/bob", SourcePath: "tickets/ops.md", Kind: "derived"},
+	})
+
+	report, runErr := doctor.Run(doctor.Config{
+		Nodes:      nodeRepo,
+		Edges:      edgeRepo,
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest: &manifest.Manifest{
+			NodeTypes: map[string]manifest.NodeType{
+				"note":   {},
+				"person": {},
+				"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+			},
+		},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	var mismatches []doctor.Issue
+
+	for _, issue := range report.Issues {
+		if issue.Kind == doctor.IssueRefTypeMismatch {
+			mismatches = append(mismatches, issue)
+		}
+	}
+
+	if len(mismatches) != 1 || mismatches[0].NodeID != "tickets/auth" {
+		test.Errorf("ref_type_mismatch issues = %+v, want exactly one for tickets/auth", mismatches)
+	}
+}
+
 func TestRun_ReportsQueueDepth(test *testing.T) {
 	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
 	defer store.Close()

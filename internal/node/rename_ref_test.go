@@ -333,7 +333,7 @@ func TestRename_RecordsRefDriftForBrokenReferrerRef(test *testing.T) {
 	// leaves the incoming edge dangling and records NO drift, so the broken
 	// reviewer ref is exactly the pre-existing-but-undriften state the move
 	// must not silently swallow.
-	if deleteErr := node.Delete(root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute, "people/ghost"); deleteErr != nil {
+	if deleteErr := node.Delete(root, nodeRepo, edgeRepo, fileState, nil, "test-worker", time.Minute, "people/ghost"); deleteErr != nil {
 		test.Fatalf("delete ghost: %v", deleteErr)
 	}
 
@@ -367,6 +367,86 @@ func TestRename_RecordsRefDriftForBrokenReferrerRef(test *testing.T) {
 // so a bare value that merely coincides with the moved node's OLD id must be
 // left untouched on disk — otherwise the reference (still valid by title) is
 // rewritten into a broken one. Regression for the sole confirmed review finding.
+// TestDelete_EnqueuesDerivedReferrers pins #689 finding 1 for the direct
+// `tusk node delete` path: deleting a ref target must enqueue the files whose
+// derived edge pointed at it, so a later reindex re-resolves them instead of
+// leaving the edge frozen at the dead id until `reindex --force`.
+func TestDelete_EnqueuesDerivedReferrers(test *testing.T) {
+	root := test.TempDir()
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	fileState := index.NewFileStateRepo(store)
+	queue := index.NewEmbedQueueRepo(store)
+
+	nodeTypes := map[string]manifest.NodeType{
+		"person": {},
+		"task": {Properties: []manifest.PropertyDecl{
+			{Name: "assignee", Type: "ref", To: "person"},
+		}},
+	}
+	edgeTypes := manifest.EdgeTypes{
+		"assignee": {From: []string{"task"}, To: []string{"person"}, Cardinality: manifest.CardinalityManyToOne},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		root, nodeRepo, edgeRepo, edgeTypes, nil,
+		nodeTypes, index.NewPropertyDriftRepo(store), nil, nil, nil,
+		node.NewIndexRefLookup(nodeRepo),
+		fileState, "test-worker", time.Minute,
+	)
+
+	if _, createErr := service.Create(node.CreateInput{RelPath: "people/jane.md", Type: "person", Title: "Jane Doe"}); createErr != nil {
+		test.Fatalf("create person: %v", createErr)
+	}
+
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "tasks/auth.md", Type: "task", Title: "Auth",
+		Properties: map[string]any{"assignee": "Jane Doe"},
+	}); createErr != nil {
+		test.Fatalf("create task: %v", createErr)
+	}
+
+	if edges, _ := edgeRepo.ListByTarget("people/jane"); len(edges) != 1 || edges[0].SourceID != "tasks/auth" || edges[0].Kind != "derived" {
+		test.Fatalf("precondition: want derived assignee edge tasks/auth -> people/jane, got %+v", edges)
+	}
+
+	if deleteErr := node.Delete(root, nodeRepo, edgeRepo, fileState, queue, "test-worker", time.Minute, "people/jane"); deleteErr != nil {
+		test.Fatalf("delete: %v", deleteErr)
+	}
+
+	rows, queryErr := store.DB().Query(`SELECT node_id FROM embed_queue WHERE kind = 'reindex'`)
+
+	if queryErr != nil {
+		test.Fatalf("query embed_queue: %v", queryErr)
+	}
+
+	defer rows.Close()
+
+	enqueued := map[string]bool{}
+
+	for rows.Next() {
+		var id string
+
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			test.Fatalf("scan: %v", scanErr)
+		}
+
+		enqueued[id] = true
+	}
+
+	if !enqueued["reindex:tasks/auth.md"] {
+		test.Errorf("node delete must enqueue the derived referrer for re-resolution; queue = %v", enqueued)
+	}
+}
+
 func TestRename_LeavesBareTitleRefWhenTitleEqualsOldID(test *testing.T) {
 	root := test.TempDir()
 	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))

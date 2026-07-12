@@ -155,9 +155,10 @@ CREATE TABLE IF NOT EXISTS property_drift (
 	node_type    TEXT NOT NULL,
 	kind         TEXT NOT NULL,
 	property     TEXT NOT NULL,
+	value        TEXT NOT NULL DEFAULT '', -- the offending property value; '' for per-property (non-ref) kinds
 	details      TEXT,
 	observed_at  INTEGER NOT NULL,
-	PRIMARY KEY (node_id, kind, property)
+	PRIMARY KEY (node_id, kind, property, value)
 );
 
 CREATE INDEX IF NOT EXISTS property_drift_node_idx ON property_drift(node_id);
@@ -213,6 +214,11 @@ func Open(dbPath string) (*Index, error) {
 		return nil, fmt.Errorf("index: run migrations: %w", execErr)
 	}
 
+	if migrateErr := migratePropertyDriftValue(ctx, db); migrateErr != nil {
+		db.Close()
+		return nil, migrateErr
+	}
+
 	idx := &Index{db: db, path: dbPath}
 
 	metaRepo := NewMetaRepo(idx)
@@ -239,6 +245,43 @@ func Open(dbPath string) (*Index, error) {
 	}
 
 	return idx, nil
+}
+
+// migratePropertyDriftValue recreates a pre-#689 property_drift table that
+// lacks the `value` column. The old primary key (node_id, kind, property)
+// collapsed every broken value of one list-of(ref) property into a single row
+// (last write won), under-representing the drift and mis-counting heals. The
+// new key includes `value`, so each broken value gets its own row.
+//
+// property_drift is a rebuildable cache — every reindex re-derives it — so the
+// migration simply drops the stale-shaped table and lets the bootstrap schema
+// (already run above, with the new definition) recreate it. No re-embed, no
+// SchemaVersion bump. Idempotent: once the column exists it is a no-op.
+func migratePropertyDriftValue(ctx context.Context, db *sql.DB) error {
+	var hasValue int
+
+	if scanErr := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info('property_drift') WHERE name = 'value'`,
+	).Scan(&hasValue); scanErr != nil {
+		return fmt.Errorf("index: inspect property_drift schema: %w", scanErr)
+	}
+
+	if hasValue > 0 {
+		return nil
+	}
+
+	if _, execErr := db.ExecContext(ctx, `DROP TABLE property_drift`); execErr != nil {
+		return fmt.Errorf("index: migrate property_drift: drop legacy table: %w", execErr)
+	}
+
+	// Re-running the whole bootstrap schema recreates property_drift with the
+	// new shape; every other CREATE is IF NOT EXISTS, so this is a no-op for
+	// the tables that already exist.
+	if _, execErr := db.ExecContext(ctx, schema); execErr != nil {
+		return fmt.Errorf("index: migrate property_drift: recreate table: %w", execErr)
+	}
+
+	return nil
 }
 
 // Close releases the underlying database handle.

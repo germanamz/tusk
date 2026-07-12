@@ -175,6 +175,85 @@ func TestOpen_CreatesPropertyDriftTable(test *testing.T) {
 	}
 }
 
+// TestOpen_MigratesLegacyPropertyDriftValueColumn pins #689: a pre-value
+// property_drift table (PK node_id,kind,property) is dropped and recreated with
+// the value column (PK node_id,kind,property,value) on reopen. property_drift is
+// a rebuildable cache, so losing its rows in the migration is fine — reindex
+// re-derives them.
+func TestOpen_MigratesLegacyPropertyDriftValueColumn(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	first, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	// Recreate property_drift exactly as a pre-#689 database had it: no value
+	// column, three-column primary key. Seed a row so we can confirm the cache
+	// is dropped (not migrated in place).
+	if _, execErr := first.DB().Exec(`
+		DROP TABLE property_drift;
+		CREATE TABLE property_drift (
+			node_id     TEXT NOT NULL,
+			node_type   TEXT NOT NULL,
+			kind        TEXT NOT NULL,
+			property    TEXT NOT NULL,
+			details     TEXT,
+			observed_at INTEGER NOT NULL,
+			PRIMARY KEY (node_id, kind, property)
+		);
+		INSERT INTO property_drift VALUES ('tickets/foo', 'ticket', 'ref_dangling', 'reviewers', '{}', 1);
+	`); execErr != nil {
+		test.Fatalf("recreate legacy property_drift: %v", execErr)
+	}
+
+	first.Close()
+
+	reopened, reopenErr := index.Open(dbPath)
+
+	if reopenErr != nil {
+		test.Fatalf("reopen: %v", reopenErr)
+	}
+
+	defer reopened.Close()
+
+	var hasValue int
+
+	if scanErr := reopened.DB().QueryRow(
+		`SELECT count(*) FROM pragma_table_info('property_drift') WHERE name = 'value'`,
+	).Scan(&hasValue); scanErr != nil {
+		test.Fatalf("inspect property_drift: %v", scanErr)
+	}
+
+	if hasValue != 1 {
+		test.Errorf("re-open must add the value column to a legacy property_drift; found %d", hasValue)
+	}
+
+	// The legacy row is gone (cache dropped and recreated), and appending two
+	// values of one property now yields two rows instead of collapsing.
+	repo := index.NewPropertyDriftRepo(reopened)
+
+	for _, value := range []string{"ghost1", "ghost2"} {
+		if appendErr := repo.Append(index.PropertyDriftRow{
+			NodeID: "tickets/bar", NodeType: "ticket", Kind: "ref_dangling",
+			Property: "reviewers", Value: value, Details: "{}", ObservedAt: 1,
+		}); appendErr != nil {
+			test.Fatalf("Append %s: %v", value, appendErr)
+		}
+	}
+
+	rows, listErr := repo.ListAll()
+
+	if listErr != nil {
+		test.Fatalf("ListAll: %v", listErr)
+	}
+
+	if len(rows) != 2 {
+		test.Errorf("after migration: ListAll = %+v, want exactly the two per-value rows", rows)
+	}
+}
+
 func contains(haystack []string, needle string) bool {
 	for _, item := range haystack {
 		if item == needle {

@@ -42,7 +42,7 @@ func TestDelete_TombstonesFileStateRow(test *testing.T) {
 	}
 
 	if deleteErr := node.Delete(
-		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute, "tickets/doomed",
+		root, nodeRepo, edgeRepo, fileState, nil, "test-worker", time.Minute, "tickets/doomed",
 	); deleteErr != nil {
 		test.Fatalf("Delete: %v", deleteErr)
 	}
@@ -108,7 +108,7 @@ func TestDelete_AlreadyMissingFileSucceeds(test *testing.T) {
 	}
 
 	if deleteErr := node.Delete(
-		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute, "tickets/ghost",
+		root, nodeRepo, edgeRepo, fileState, nil, "test-worker", time.Minute, "tickets/ghost",
 	); deleteErr != nil {
 		test.Fatalf("Delete on missing file: %v", deleteErr)
 	}
@@ -191,7 +191,7 @@ func TestDelete_ConcurrentWithModifySerializesViaLease(test *testing.T) {
 		go func() {
 			defer wg.Done()
 			errs[1] = node.Delete(
-				root, nodeRepo, edgeRepo, fileState, "worker-delete", time.Minute, "tickets/race",
+				root, nodeRepo, edgeRepo, fileState, nil, "worker-delete", time.Minute, "tickets/race",
 			)
 		}()
 
@@ -217,7 +217,7 @@ func TestDelete_ConcurrentWithModifySerializesViaLease(test *testing.T) {
 		if errors.Is(errs[0], index.ErrBusy) || errors.Is(errs[1], index.ErrBusy) {
 			// Clean up before next attempt: ensure node row + file are gone.
 			_ = node.Delete(
-				root, nodeRepo, edgeRepo, fileState, "cleanup", time.Minute, "tickets/race",
+				root, nodeRepo, edgeRepo, fileState, nil, "cleanup", time.Minute, "tickets/race",
 			)
 
 			continue

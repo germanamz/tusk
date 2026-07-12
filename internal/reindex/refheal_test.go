@@ -55,6 +55,48 @@ func refHealConfig(test *testing.T, root string, store *index.Index) reindex.Con
 	})
 }
 
+// listRefHealManifest declares a ticket whose reviewers is a list-of(ref) to
+// person, so a single property can carry several broken values at once.
+const listRefHealManifest = `
+[workspace]
+name = "test"
+
+[node-types.person]
+properties = [
+    { name = "name", type = "string", required = true },
+]
+
+[node-types.ticket]
+properties = [
+    { name = "reviewers", type = "list-of", item-type = "ref", to = "person" },
+]
+`
+
+func listRefHealConfig(test *testing.T, root string, store *index.Index) reindex.Config {
+	test.Helper()
+
+	manifestPath := filepath.Join(root, "tusk.toml")
+
+	if writeErr := os.WriteFile(manifestPath, []byte(listRefHealManifest), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(manifestPath)
+
+	if loadErr != nil {
+		test.Fatalf("load manifest: %v", loadErr)
+	}
+
+	return withGen(store, reindex.Config{
+		Root:          root,
+		Repo:          index.NewNodeRepo(store),
+		Edges:         index.NewEdgeRepo(store),
+		EdgeTypes:     loaded.EdgeTypes,
+		NodeTypes:     loaded.NodeTypes,
+		PropertyDrift: index.NewPropertyDriftRepo(store),
+	})
+}
+
 func refDriftRows(test *testing.T, store *index.Index) []index.PropertyDriftRow {
 	test.Helper()
 
@@ -264,6 +306,182 @@ func TestReindex_PartialHealCountsPerRow(test *testing.T) {
 
 	if len(rows) != 1 || rows[0].Property != "reviewer" {
 		test.Errorf("ref drift rows = %+v, want only reviewer's", rows)
+	}
+}
+
+// TestReindex_ListOfRefHealCountsPerValue pins #689 finding 2: two broken
+// values of ONE list-of(ref) property are recorded, counted, and healed
+// per value — not collapsed into a single drift row that miscounts partial
+// progress as zero.
+func TestReindex_ListOfRefHealCountsPerValue(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "aref/auth.md",
+		"type: ticket\ntitle: Auth\nreviewers: [ghost1, ghost2]\n", "Body.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	first, firstErr := reindex.Run(listRefHealConfig(test, root, store))
+
+	if firstErr != nil {
+		test.Fatalf("first Run: %v", firstErr)
+	}
+
+	if first.RefDangling != 2 {
+		test.Errorf("first RefDangling = %d, want 2 (both broken values)", first.RefDangling)
+	}
+
+	if rows := refDriftRows(test, store); len(rows) != 2 {
+		test.Errorf("ref drift rows = %+v, want two per-value rows", rows)
+	}
+
+	// One reviewer appears: a partial heal must report exactly one healed value
+	// and leave the other dangling — the pre-#689 collapse reported zero.
+	writeNode(test, root, "zref/ghost1.md", "type: person\ntitle: ghost1\nname: G1\n", "Bio.\n")
+
+	second, secondErr := reindex.Run(listRefHealConfig(test, root, store))
+
+	if secondErr != nil {
+		test.Fatalf("second Run: %v", secondErr)
+	}
+
+	if second.RefHealed != 1 {
+		test.Errorf("second RefHealed = %d, want 1 (ghost1 only)", second.RefHealed)
+	}
+
+	if second.RefDangling != 1 {
+		test.Errorf("second RefDangling = %d, want 1 (ghost2)", second.RefDangling)
+	}
+
+	rows := refDriftRows(test, store)
+
+	if len(rows) != 1 || rows[0].Value != "ghost2" {
+		test.Errorf("ref drift rows = %+v, want only ghost2's", rows)
+	}
+
+	edges, _ := index.NewEdgeRepo(store).ListBySource("aref/auth")
+
+	if len(edges) != 1 || edges[0].TargetID != "zref/ghost1" {
+		test.Errorf("edges = %+v, want reviewers -> zref/ghost1", edges)
+	}
+
+	// The second reviewer appears: full heal.
+	writeNode(test, root, "zref/ghost2.md", "type: person\ntitle: ghost2\nname: G2\n", "Bio.\n")
+
+	third, thirdErr := reindex.Run(listRefHealConfig(test, root, store))
+
+	if thirdErr != nil {
+		test.Fatalf("third Run: %v", thirdErr)
+	}
+
+	if third.RefHealed != 1 {
+		test.Errorf("third RefHealed = %d, want 1 (ghost2)", third.RefHealed)
+	}
+
+	if third.RefDangling != 0 {
+		test.Errorf("third RefDangling = %d, want 0", third.RefDangling)
+	}
+
+	if rows := refDriftRows(test, store); len(rows) != 0 {
+		test.Errorf("ref drift rows = %+v, want none", rows)
+	}
+
+	if edges, _ := index.NewEdgeRepo(store).ListBySource("aref/auth"); len(edges) != 2 {
+		test.Errorf("edges = %+v, want both reviewer edges", edges)
+	}
+}
+
+// TestReindex_DeletingRefTargetDropsEdgeAndRecordsDrift pins #689 finding 1:
+// deleting a resolved ref target must wake the (byte-unchanged, walk-skipped)
+// referrer so its now-stale derived edge is dropped and a ref_dangling drift row
+// recorded — not left frozen at the dead id with no drift, invisible to the heal
+// loop until a `reindex --force`.
+func TestReindex_DeletingRefTargetDropsEdgeAndRecordsDrift(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "aref/auth.md", "type: ticket\ntitle: Auth\nassignee: alice\n", "Body.\n")
+	writeNode(test, root, "zref/alice.md", "type: person\ntitle: alice\nname: Alice\n", "Bio.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	if _, runErr := reindex.Run(refHealConfig(test, root, store)); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	if edges, _ := index.NewEdgeRepo(store).ListBySource("aref/auth"); len(edges) != 1 || edges[0].TargetID != "zref/alice" {
+		test.Fatalf("precondition: want assignee -> zref/alice, got %+v", edges)
+	}
+
+	if removeErr := os.Remove(filepath.Join(root, "zref/alice.md")); removeErr != nil {
+		test.Fatalf("remove: %v", removeErr)
+	}
+
+	report, runErr := reindex.Run(refHealConfig(test, root, store))
+
+	if runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	if edges, _ := index.NewEdgeRepo(store).ListBySource("aref/auth"); len(edges) != 0 {
+		test.Errorf("edge must be dropped after the target is deleted, got %+v", edges)
+	}
+
+	if report.RefDangling != 1 {
+		test.Errorf("RefDangling = %d, want 1", report.RefDangling)
+	}
+
+	rows := refDriftRows(test, store)
+
+	if len(rows) != 1 || rows[0].NodeID != "aref/auth" || rows[0].Kind != doctor.IssueRefDangling {
+		test.Errorf("want a ref_dangling drift row for aref/auth, got %+v", rows)
+	}
+}
+
+// TestReindex_FsRenamingRefTargetRetargetsReferrer pins #689 finding 1's mv
+// variant: a bare `mv` of a title-form ref target (delete old id, create new
+// with the same title) must retarget the referrer's derived edge on the next
+// plain reindex — pre-#689 the edge stayed at the dead id until `reindex
+// --force`.
+func TestReindex_FsRenamingRefTargetRetargetsReferrer(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "aref/auth.md", "type: ticket\ntitle: Auth\nassignee: alice\n", "Body.\n")
+	writeNode(test, root, "zref/alice.md", "type: person\ntitle: alice\nname: Alice\n", "Bio.\n")
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	if _, runErr := reindex.Run(refHealConfig(test, root, store)); runErr != nil {
+		test.Fatalf("first Run: %v", runErr)
+	}
+
+	// Bare fs rename: the title "alice" now lives at a new id.
+	if removeErr := os.Remove(filepath.Join(root, "zref/alice.md")); removeErr != nil {
+		test.Fatalf("remove: %v", removeErr)
+	}
+
+	writeNode(test, root, "zref/alicia.md", "type: person\ntitle: alice\nname: Alice\n", "Bio.\n")
+
+	report, runErr := reindex.Run(refHealConfig(test, root, store))
+
+	if runErr != nil {
+		test.Fatalf("second Run: %v", runErr)
+	}
+
+	edges, _ := index.NewEdgeRepo(store).ListBySource("aref/auth")
+
+	if len(edges) != 1 || edges[0].TargetID != "zref/alicia" {
+		test.Errorf("edge must retarget to zref/alicia on a plain reindex, got %+v", edges)
+	}
+
+	if report.RefDangling != 0 {
+		test.Errorf("RefDangling = %d, want 0", report.RefDangling)
+	}
+
+	if rows := refDriftRows(test, store); len(rows) != 0 {
+		test.Errorf("want no ref drift after retarget, got %+v", rows)
 	}
 }
 

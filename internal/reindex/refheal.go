@@ -114,8 +114,10 @@ func enqueueRefDrift(drift *index.PropertyDriftRepo, repo *index.NodeRepo, queue
 }
 
 // driftRowKey identifies a drift row by its primary key for set membership.
+// Value is part of the key so a list-of(ref) property whose values resolve one
+// at a time counts each resolved value as its own heal (#689).
 func driftRowKey(row index.PropertyDriftRow) string {
-	return row.NodeID + "\x00" + row.Kind + "\x00" + row.Property
+	return row.NodeID + "\x00" + row.Kind + "\x00" + row.Property + "\x00" + row.Value
 }
 
 // HealRefDrift retries every recorded ref-drift row by re-enqueueing its file
