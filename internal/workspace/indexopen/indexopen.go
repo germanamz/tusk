@@ -28,14 +28,16 @@ type Config struct {
 }
 
 // OpenOrRebuild opens the index at cfg.IndexPath. If the open trips
-// index.ErrSchemaIncompatible, the on-disk file is deleted, the
-// index is re-opened (which writes the current SchemaVersion to a
-// fresh database), and reindex.Run repopulates it from source files
-// using the Config returned by cfg.ReindexFactory.
+// index.ErrSchemaIncompatible, the index is rebuilt: a fresh database is
+// built and repopulated at a sibling temp path (via reindex.Run with the
+// Config returned by cfg.ReindexFactory), then atomically rename-swapped
+// over the live file. The live index is never deleted up front, so a slow
+// or interrupted rebuild leaves the previous index intact and re-openable
+// rather than an empty, unqueryable file (#705 Defect A).
 //
-// On success the returned *index.Index is open and ready for use;
-// the caller is responsible for closing it. On error nothing is
-// open.
+// On success the returned *index.Index is open and ready for use; the
+// caller is responsible for closing it. On error nothing is open and the
+// prior on-disk index is untouched.
 func OpenOrRebuild(cfg Config) (*index.Index, error) {
 	if cfg.IndexPath == "" {
 		return nil, errors.New("indexopen: IndexPath is required")
@@ -57,20 +59,61 @@ func OpenOrRebuild(cfg Config) (*index.Index, error) {
 		cfg.Logger("index schema changed in this version, rebuilding…")
 	}
 
-	if _, removeErr := index.RemoveArtifacts(cfg.IndexPath); removeErr != nil {
-		return nil, fmt.Errorf("indexopen: delete stale index at %s: %w", cfg.IndexPath, removeErr)
+	return rebuildAtomically(cfg)
+}
+
+// rebuildAtomically builds a fresh index at a sibling temp path, repopulates it,
+// and rename-swaps it over cfg.IndexPath on success. On any failure the temp is
+// removed and the live index at cfg.IndexPath is left untouched.
+func rebuildAtomically(cfg Config) (*index.Index, error) {
+	tmpPath := cfg.IndexPath + ".rebuild"
+
+	// Clear any temp orphaned by a previously crashed rebuild so we start clean.
+	if _, removeErr := index.RemoveArtifacts(tmpPath); removeErr != nil {
+		return nil, fmt.Errorf("indexopen: clear stale rebuild temp at %s: %w", tmpPath, removeErr)
 	}
 
-	fresh, freshErr := index.Open(cfg.IndexPath)
+	fresh, freshErr := index.Open(tmpPath)
 	if freshErr != nil {
-		return nil, fmt.Errorf("indexopen: reopen after delete: %w", freshErr)
+		return nil, fmt.Errorf("indexopen: open rebuild temp: %w", freshErr)
+	}
+
+	// On any failure past this point, drop the half-built temp (handle + files)
+	// and leave the live index untouched.
+	abandon := func(wrapErr error) (*index.Index, error) {
+		fresh.Close()
+		_, _ = index.RemoveArtifacts(tmpPath)
+
+		return nil, wrapErr
 	}
 
 	reindexCfg := cfg.ReindexFactory(fresh)
 	if _, runErr := reindex.Run(reindexCfg); runErr != nil {
-		fresh.Close()
-		return nil, fmt.Errorf("indexopen: reindex during rebuild: %w", runErr)
+		return abandon(fmt.Errorf("indexopen: reindex during rebuild: %w", runErr))
 	}
 
-	return fresh, nil
+	// Fold the WAL into the main temp file so the rename moves a self-contained
+	// database, then close before swapping (the rename replaces the live file).
+	if cpErr := fresh.Checkpoint(); cpErr != nil {
+		return abandon(fmt.Errorf("indexopen: checkpoint rebuild temp: %w", cpErr))
+	}
+
+	if closeErr := fresh.Close(); closeErr != nil {
+		_, _ = index.RemoveArtifacts(tmpPath)
+
+		return nil, fmt.Errorf("indexopen: close rebuild temp: %w", closeErr)
+	}
+
+	if swapErr := index.SwapInPlace(tmpPath, cfg.IndexPath); swapErr != nil {
+		_, _ = index.RemoveArtifacts(tmpPath)
+
+		return nil, fmt.Errorf("indexopen: swap rebuilt index into place: %w", swapErr)
+	}
+
+	store, reopenErr := index.Open(cfg.IndexPath)
+	if reopenErr != nil {
+		return nil, fmt.Errorf("indexopen: reopen after swap: %w", reopenErr)
+	}
+
+	return store, nil
 }

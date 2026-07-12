@@ -32,3 +32,31 @@ func RemoveArtifacts(dbPath string) ([]string, error) {
 
 	return removed, nil
 }
+
+// SwapInPlace atomically replaces the index at dstDB with the freshly built one
+// at srcDB. It first drops srcDB's own -wal/-shm sidecars (a cleanly-closed WAL
+// database has none, but be defensive so a stale one is not renamed-orphaned),
+// then removes dstDB together with its -wal/-shm (so no stale WAL is replayed
+// onto the swapped-in DB), then renames srcDB → dstDB — a single rename syscall,
+// atomic on a POSIX filesystem, so a crash mid-swap leaves either the old or the
+// new complete index, never a partial one. srcDB must be a checkpointed, closed
+// database on the SAME filesystem as dstDB; a cross-device rename would fail.
+// Used by OpenOrRebuild so a slow or interrupted rebuild never takes the live
+// index offline (#705 Defect A).
+func SwapInPlace(srcDB, dstDB string) error {
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if rmErr := os.Remove(srcDB + suffix); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return fmt.Errorf("index: clear src sidecar %s: %w", srcDB+suffix, rmErr)
+		}
+	}
+
+	if _, rmErr := RemoveArtifacts(dstDB); rmErr != nil {
+		return fmt.Errorf("index: clear dst artifacts: %w", rmErr)
+	}
+
+	if renameErr := os.Rename(srcDB, dstDB); renameErr != nil {
+		return fmt.Errorf("index: swap %s -> %s: %w", srcDB, dstDB, renameErr)
+	}
+
+	return nil
+}

@@ -1307,6 +1307,40 @@ func registerEdgeRemoveTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+// reindexToolConfig builds the inline-drain reindex config for the tusk_reindex
+// tool from a runtime snapshot. Unlike the Async walks (watch, reload), this
+// tool drains inline, so its config carries the full per-file set — validators,
+// drift repos, manifest — or the rows it claims are processed with weaker
+// semantics than the background drainer's (no ref resolution, no sub-unit sync)
+// and recorded ref drift is never retried. Extracted so the #705 self-heal
+// retry can rebuild the config against the reopened runtime.
+func reindexToolConfig(rt *Runtime, noEmbed bool) reindex.Config {
+	config := reindex.Config{
+		Root:            rt.Root,
+		Repo:            rt.Nodes,
+		Edges:           rt.Edges,
+		EdgeTypes:       rt.Manifest.EdgeTypes,
+		WorkspaceIgnore: rt.Manifest.Workspace.Ignore,
+		EmbedQueue:      rt.EmbedQueue,
+		Meta:            rt.Meta,
+		FileStates:      rt.FileState,
+		Workers:         rt.Workers,
+		Manifest:        rt.Manifest,
+		Behaviors:       rt.BehaviorEngine,
+		DriftLog:        rt.WorkflowDrift,
+		NodeTypes:       rt.Manifest.NodeTypes,
+		PropertyDrift:   rt.PropertyDrift,
+	}
+
+	if !noEmbed && rt.Embedder != nil {
+		config.EmbeddingRepo = rt.Embeddings
+		config.Embedder = rt.Embedder
+		config.Chunker = rt.Chunker
+	}
+
+	return config
+}
+
 func registerReindexTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_reindex",
 		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk — the MCP equivalent of `tusk reindex`. The embedding pass runs over Ollama and can be slow on a large vault; pass no_embed=true for a fast structural-only pass (embeddings still drain in the background). The response reports indexed/removed/skipped plus the remaining embed_queue_depth — poll tusk_status to watch it drain."),
@@ -1318,35 +1352,30 @@ func registerReindexTool(srv *Server) {
 
 		rt := srv.snapshotRuntime() // run the (long) reindex off the read-lock
 
-		// Unlike the Async walks (watch, reload), this tool drains inline, so
-		// its config must carry the full per-file set — validators, drift
-		// repos, manifest — or the rows it claims are processed with weaker
-		// semantics than the background drainer's (no ref resolution, no
-		// sub-unit sync) and recorded ref drift is never retried.
-		config := reindex.Config{
-			Root:            rt.Root,
-			Repo:            rt.Nodes,
-			Edges:           rt.Edges,
-			EdgeTypes:       rt.Manifest.EdgeTypes,
-			WorkspaceIgnore: rt.Manifest.Workspace.Ignore,
-			EmbedQueue:      rt.EmbedQueue,
-			Meta:            rt.Meta,
-			FileStates:      rt.FileState,
-			Workers:         rt.Workers,
-			Manifest:        rt.Manifest,
-			Behaviors:       rt.BehaviorEngine,
-			DriftLog:        rt.WorkflowDrift,
-			NodeTypes:       rt.Manifest.NodeTypes,
-			PropertyDrift:   rt.PropertyDrift,
-		}
+		report, runErr := reindex.Run(reindexToolConfig(rt, noEmbed))
 
-		if !noEmbed && rt.Embedder != nil {
-			config.EmbeddingRepo = rt.Embeddings
-			config.Embedder = rt.Embedder
-			config.Chunker = rt.Chunker
-		}
+		// Self-heal a stranded handle. If the on-disk index was wiped
+		// table-less out of band (#705), reindex.Run fails at reindex_gen's bump
+		// with a raw "no such table: meta" and the daemon can't recover — the
+		// long-lived handle keeps serving a dead DB. Reopen (index.Open
+		// re-bootstraps the schema, exactly like the CLI's fresh open), then
+		// retry once against the healed handle, so recovery no longer requires
+		// the destructive tusk_reset. reopenInPlace takes the write-lock; this
+		// handler is registered via registerWrite (no read-lock held), so there
+		// is no upgrade deadlock.
+		if runErr != nil && rt.Index.SchemaMissing() {
+			if reopenErr := srv.reopenInPlace(); reopenErr != nil {
+				return toolError(fmt.Errorf("index appears wiped (%w); recovery reopen failed: %v; run tusk_reset(confirm:true)", runErr, reopenErr)), nil
+			}
 
-		report, runErr := reindex.Run(config)
+			rt = srv.snapshotRuntime()
+
+			if rt.Logger != nil {
+				rt.Logger.Warn("tusk_reindex: index was wiped table-less; reopened and rebuilt the schema")
+			}
+
+			report, runErr = reindex.Run(reindexToolConfig(rt, noEmbed))
+		}
 
 		if runErr != nil {
 			return toolError(runErr), nil
