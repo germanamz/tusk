@@ -456,6 +456,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 						NodeType:   parsed.Type,
 						Kind:       string(refErr.Kind),
 						Property:   refErr.Property,
+						Value:      refErr.Value,
 						Details:    string(details),
 						ObservedAt: refNow,
 					})

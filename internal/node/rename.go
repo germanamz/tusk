@@ -21,17 +21,23 @@ import (
 )
 
 // Delete removes the file for the given node id, deletes the node row and
-// outgoing edges from the index, and leaves incoming edges as dangling
-// references (surfaced by tusk doctor in Plan 8).
+// outgoing edges from the index, and enqueues every file whose derived edge
+// pointed at the deleted node so a later reindex re-resolves it (#689). Incoming
+// direct edges are left as dangling references (surfaced by tusk doctor).
 //
 // The file removal goes through WriteWithLease so concurrent writers
 // serialize on file_state and the row transitions to state='tombstone'
 // as a soft-delete audit record.
+//
+// queue may be nil (referrer wake-up is then skipped): the reindex reap wakes
+// the same referrers, so callers without a queue simply defer convergence to
+// the next reindex.
 func Delete(
 	root string,
 	nodeRepo *index.NodeRepo,
 	edgeRepo *index.EdgeRepo,
 	fileState *index.FileStateRepo,
+	queue *index.EmbedQueueRepo,
 	workerID string,
 	leaseTTL time.Duration,
 	nodeID string,
@@ -56,12 +62,59 @@ func Delete(
 		return writeErr
 	}
 
+	// Capture the referrers whose derived edge pointed here BEFORE dropping the
+	// node row (DeleteBySource only removes rows sourced FROM nodeID; the
+	// incoming rows survive), then wake them so the next drain re-resolves.
+	if enqErr := EnqueueDerivedReferrers(edgeRepo, queue, nodeID); enqErr != nil {
+		return enqErr
+	}
+
 	if deleteEdgesErr := edgeRepo.DeleteBySource(nodeID); deleteEdgesErr != nil {
 		return deleteEdgesErr
 	}
 
 	if deletePathErr := nodeRepo.DeleteByPath(row.Path); deletePathErr != nil {
 		return deletePathErr
+	}
+
+	return nil
+}
+
+// EnqueueDerivedReferrers re-enqueues every file whose DERIVED edge resolved to
+// targetID so a later drain re-derives its refs. Call it when targetID's node is
+// removed (reindex reap, `node delete`): the referrer is otherwise byte-unchanged
+// and walk-skipped, and no drift row was recorded, so nothing wakes it — its
+// derived edge stays frozen at the dead id until a `reindex --force` (#689).
+// Re-resolution retargets the edge when the ref's title now resolves to a
+// renamed file, or drops it and records ref drift when the target is gone (or
+// reappeared as a different type).
+//
+// Only derived edges are woken: direct and structural edges are not ref-property
+// resolved, and their dangling is surfaced by doctor as designed. A nil queue or
+// edges repo is a no-op.
+func EnqueueDerivedReferrers(edgeRepo *index.EdgeRepo, queue *index.EmbedQueueRepo, targetID string) error {
+	if edgeRepo == nil || queue == nil {
+		return nil
+	}
+
+	incoming, listErr := edgeRepo.ListByTarget(targetID)
+
+	if listErr != nil {
+		return fmt.Errorf("node: list referrers of %s: %w", targetID, listErr)
+	}
+
+	enqueued := map[string]bool{}
+
+	for _, edge := range incoming {
+		if edge.Kind != "derived" || enqueued[edge.SourcePath] {
+			continue
+		}
+
+		enqueued[edge.SourcePath] = true
+
+		if enqErr := queue.EnqueueReindex(edge.SourcePath); enqErr != nil {
+			return fmt.Errorf("node: enqueue referrer %s: %w", edge.SourcePath, enqErr)
+		}
 	}
 
 	return nil
@@ -469,6 +522,7 @@ func recordRefDrift(driftRepo *index.PropertyDriftRepo, parsed *Node, refResult 
 			NodeType:   parsed.Type,
 			Kind:       string(refErr.Kind),
 			Property:   refErr.Property,
+			Value:      refErr.Value,
 			Details:    string(details),
 			ObservedAt: observedAt,
 		})

@@ -1219,6 +1219,7 @@ func registerNodeDeleteTool(srv *Server) {
 			srv.runtime.Nodes,
 			srv.runtime.Edges,
 			srv.runtime.FileState,
+			srv.runtime.EmbedQueue,
 			srv.runtime.WorkerID,
 			srv.runtime.LeaseTTL,
 			nodeID,

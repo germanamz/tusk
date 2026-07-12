@@ -47,7 +47,7 @@ func TestDelete_RemovesFileAndEdges(test *testing.T) {
 	}
 
 	if deleteErr := node.Delete(
-		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), "test-worker", time.Minute, "tickets/child",
+		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), nil, "test-worker", time.Minute, "tickets/child",
 	); deleteErr != nil {
 		test.Fatalf("Delete: %v", deleteErr)
 	}
@@ -77,7 +77,7 @@ func TestDelete_ReturnsErrorWhenNodeNotFound(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	deleteErr := node.Delete(
-		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), "test-worker", time.Minute, "tickets/missing",
+		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), nil, "test-worker", time.Minute, "tickets/missing",
 	)
 
 	if deleteErr == nil {

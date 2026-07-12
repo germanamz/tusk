@@ -6,13 +6,20 @@ import (
 )
 
 // PropertyDriftRow is one observed property-validation drift event. The
-// primary key (node_id, kind, property) collapses repeated observations of
-// the same drift into a single row with the most recent observed_at.
+// primary key (node_id, kind, property, value) collapses repeated observations
+// of the same drift into a single row with the most recent observed_at.
+//
+// Value is the offending property value. It distinguishes multiple broken
+// values of one list-of(ref) property (each becomes its own row); per-property
+// kinds — undeclared-property, type-mismatch, required-missing, enum-violation
+// — leave it empty, so they still collapse to one row per (node, kind,
+// property) exactly as before (#689).
 type PropertyDriftRow struct {
 	NodeID     string
 	NodeType   string
 	Kind       string // "undeclared-property" | "type-mismatch" | "required-missing" | "enum-violation"
 	Property   string
+	Value      string
 	Details    string
 	ObservedAt int64
 }
@@ -32,13 +39,13 @@ func NewPropertyDriftRepo(idx *Index) *PropertyDriftRepo {
 // observed_at wins alongside the updated node_type and details.
 func (repo *PropertyDriftRepo) Append(row PropertyDriftRow) error {
 	_, execErr := repo.db.Exec(`
-		INSERT INTO property_drift (node_id, node_type, kind, property, details, observed_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(node_id, kind, property) DO UPDATE SET
+		INSERT INTO property_drift (node_id, node_type, kind, property, value, details, observed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(node_id, kind, property, value) DO UPDATE SET
 			node_type   = excluded.node_type,
 			details     = excluded.details,
 			observed_at = excluded.observed_at
-	`, row.NodeID, row.NodeType, row.Kind, row.Property, row.Details, row.ObservedAt)
+	`, row.NodeID, row.NodeType, row.Kind, row.Property, row.Value, row.Details, row.ObservedAt)
 
 	if execErr != nil {
 		return fmt.Errorf("propertyDriftRepo: append: %w", execErr)
@@ -51,7 +58,7 @@ func (repo *PropertyDriftRepo) Append(row PropertyDriftRow) error {
 // for stable doctor rendering.
 func (repo *PropertyDriftRepo) ListAll() ([]PropertyDriftRow, error) {
 	rows, queryErr := repo.db.Query(`
-		SELECT node_id, node_type, kind, property, details, observed_at
+		SELECT node_id, node_type, kind, property, value, details, observed_at
 		FROM property_drift
 		ORDER BY node_id, kind, property
 	`)
@@ -67,7 +74,7 @@ func (repo *PropertyDriftRepo) ListAll() ([]PropertyDriftRow, error) {
 	for rows.Next() {
 		var row PropertyDriftRow
 
-		if scanErr := rows.Scan(&row.NodeID, &row.NodeType, &row.Kind, &row.Property, &row.Details, &row.ObservedAt); scanErr != nil {
+		if scanErr := rows.Scan(&row.NodeID, &row.NodeType, &row.Kind, &row.Property, &row.Value, &row.Details, &row.ObservedAt); scanErr != nil {
 			return nil, fmt.Errorf("propertyDriftRepo: scan: %w", scanErr)
 		}
 
@@ -137,7 +144,7 @@ func refKindsArgs(prefix ...any) []any {
 // sorted like ListAll. The reindex heal pass re-enqueues these rows' files.
 func (repo *PropertyDriftRepo) ListRefKinds() ([]PropertyDriftRow, error) {
 	rows, queryErr := repo.db.Query(`
-		SELECT node_id, node_type, kind, property, details, observed_at
+		SELECT node_id, node_type, kind, property, value, details, observed_at
 		FROM property_drift
 		WHERE kind IN `+refKindsPlaceholders+`
 		ORDER BY node_id, kind, property
@@ -154,7 +161,7 @@ func (repo *PropertyDriftRepo) ListRefKinds() ([]PropertyDriftRow, error) {
 	for rows.Next() {
 		var row PropertyDriftRow
 
-		if scanErr := rows.Scan(&row.NodeID, &row.NodeType, &row.Kind, &row.Property, &row.Details, &row.ObservedAt); scanErr != nil {
+		if scanErr := rows.Scan(&row.NodeID, &row.NodeType, &row.Kind, &row.Property, &row.Value, &row.Details, &row.ObservedAt); scanErr != nil {
 			return nil, fmt.Errorf("propertyDriftRepo: scan ref kinds: %w", scanErr)
 		}
 

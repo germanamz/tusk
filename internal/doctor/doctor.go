@@ -215,6 +215,7 @@ func Run(config Config) (*Report, error) {
 	// among them is cosmetic (it fixes the Issue listing order).
 	for _, check := range []func(Config) ([]Issue, error){
 		checkDanglingEdges,
+		checkDerivedEdgeTypes,
 		checkWorkflowDrift,
 		checkPropertyDrift,
 		checkEmbeddingDrift,
@@ -255,6 +256,117 @@ func checkDanglingEdges(config Config) ([]Issue, error) {
 	}
 
 	return findDanglingEdges(config.Nodes, config.Edges)
+}
+
+// checkDerivedEdgeTypes flags a derived edge whose target node exists but whose
+// type violates the declared `to` of the ref property that produced it (#689).
+// checkDanglingEdges only checks target EXISTENCE, so when a ref target is
+// deleted and its id reoccupied by a different-typed node — or its `type:` is
+// edited in place without touching the referrer — the resulting
+// schema-violating derived edge would otherwise be blessed as 'no issues'. This
+// is doctor's read-time safety net for the retype case the reindex reap's
+// referrer wake-up cannot reach (an in-place retype triggers no reap).
+//
+// No-op when the manifest or either repo is absent.
+func checkDerivedEdgeTypes(config Config) ([]Issue, error) {
+	if config.Edges == nil || config.Nodes == nil || config.Manifest == nil {
+		return nil, nil
+	}
+
+	allEdges, listErr := config.Edges.ListAll()
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	// Batch-resolve the type of every node touched by a derived edge — source
+	// (to find the ref property's declared `to`) and target (to compare) — in
+	// one lookup rather than a Get per edge.
+	ids := make([]string, 0, len(allEdges))
+	seen := map[string]struct{}{}
+
+	for _, edge := range allEdges {
+		if edge.Kind != "derived" {
+			continue
+		}
+
+		for _, id := range []string{edge.SourceID, edge.TargetID} {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	rows, byIDErr := config.Nodes.ListByIDs(ids)
+
+	if byIDErr != nil {
+		return nil, byIDErr
+	}
+
+	typeByID := make(map[string]string, len(rows))
+
+	for _, row := range rows {
+		typeByID[row.ID] = row.Type
+	}
+
+	var issues []Issue
+
+	for _, edge := range allEdges {
+		if edge.Kind != "derived" {
+			continue
+		}
+
+		sourceType, sourceLive := typeByID[edge.SourceID]
+		targetType, targetLive := typeByID[edge.TargetID]
+
+		// A missing target is a dangling edge (checkDanglingEdges owns it); a
+		// missing source cannot be type-checked. Only a live-to-live edge can
+		// violate the declared target type.
+		if !sourceLive || !targetLive {
+			continue
+		}
+
+		declared, ok := config.Manifest.NodeTypes[sourceType]
+
+		if !ok {
+			continue
+		}
+
+		to, isRef := refPropertyTarget(declared, edge.Type)
+
+		// "*" (and an unset target) impose no type constraint.
+		if !isRef || to == "" || to == "*" || targetType == to {
+			continue
+		}
+
+		issues = append(issues, Issue{
+			Kind:   IssueRefTypeMismatch,
+			NodeID: edge.SourceID,
+			Message: fmt.Sprintf("derived edge %q -> %q: target type %q does not match required %q",
+				edge.Type, edge.TargetID, targetType, to),
+		})
+	}
+
+	return issues, nil
+}
+
+// refPropertyTarget returns the declared `to` of the ref property named propName
+// on nodeType, and whether such a ref property exists.
+func refPropertyTarget(nodeType manifest.NodeType, propName string) (string, bool) {
+	for _, prop := range nodeType.Properties {
+		if prop.Name == propName && manifest.IsRefProperty(prop) {
+			return prop.To, true
+		}
+	}
+
+	return "", false
 }
 
 // liveNodeIDs returns the subset of ids that resolve to a node row, so drift

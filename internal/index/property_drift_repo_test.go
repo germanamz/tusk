@@ -71,6 +71,57 @@ func TestPropertyDriftRepo_AppendIdempotentOnPK(test *testing.T) {
 	}
 }
 
+func TestPropertyDriftRepo_RefValuesGetSeparateRows(test *testing.T) {
+	store, closer := newTestIndexForPropertyDrift(test)
+	defer closer()
+
+	repo := index.NewPropertyDriftRepo(store)
+
+	// Two broken values of ONE list-of(ref) property must not collapse into a
+	// single row (#689): the value is part of the primary key.
+	for _, value := range []string{"ghost1", "ghost2"} {
+		if appendErr := repo.Append(index.PropertyDriftRow{
+			NodeID: "tickets/auth", NodeType: "ticket", Kind: "ref_dangling",
+			Property: "reviewers", Value: value, Details: "{}", ObservedAt: 1,
+		}); appendErr != nil {
+			test.Fatalf("Append %s: %v", value, appendErr)
+		}
+	}
+
+	// A per-property (non-ref) kind carries the empty value and still collapses
+	// on repeated observation exactly as before.
+	for _, observedAt := range []int64{1, 2} {
+		if appendErr := repo.Append(index.PropertyDriftRow{
+			NodeID: "tickets/auth", NodeType: "ticket", Kind: "undeclared-property",
+			Property: "bogus", Details: "not declared", ObservedAt: observedAt,
+		}); appendErr != nil {
+			test.Fatalf("Append undeclared: %v", appendErr)
+		}
+	}
+
+	rows, listErr := repo.ListAll()
+
+	if listErr != nil {
+		test.Fatalf("ListAll: %v", listErr)
+	}
+
+	if len(rows) != 3 {
+		test.Fatalf("ListAll = %+v, want 2 per-value ref rows + 1 collapsed undeclared row", rows)
+	}
+
+	values := map[string]bool{}
+
+	for _, row := range rows {
+		if row.Kind == "ref_dangling" {
+			values[row.Value] = true
+		}
+	}
+
+	if !values["ghost1"] || !values["ghost2"] {
+		test.Errorf("both ref values must survive as distinct rows, got %v", values)
+	}
+}
+
 func TestPropertyDriftRepo_ClearForNode(test *testing.T) {
 	store, closer := newTestIndexForPropertyDrift(test)
 	defer closer()

@@ -554,6 +554,17 @@ func Run(config Config) (*Report, error) {
 					_ = release()
 					return nil, fmt.Errorf("reindex: delete edges %s: %w", nodeID, deleteErr)
 				}
+
+				// Wake referrers whose derived edge pointed at this now-deleted
+				// node so the drain re-resolves them: retarget if the ref's
+				// title now resolves elsewhere (a bare fs rename), or drop the
+				// edge and record ref drift if the target is gone (#689). The
+				// incoming edges themselves survive DeleteBySource (which only
+				// removes rows sourced FROM nodeID), so this reads them first.
+				if enqErr := node.EnqueueDerivedReferrers(config.Edges, config.EmbedQueue, nodeID); enqErr != nil {
+					_ = release()
+					return nil, enqErr
+				}
 			}
 
 			if releaseErr := release(); releaseErr != nil {
