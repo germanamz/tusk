@@ -518,6 +518,126 @@ func TestQueryRun_GraphExpansion_SubUnitPath_CrossFileSubUnitTarget(test *testin
 	}
 }
 
+// TestQueryRun_GraphExpansion_SubUnitPath_SectionAnchoredCrossFileEdge covers
+// #688 finding 2: a cross-file wikilink with a SECTION anchor
+// ([[bbb/other#S1]]) between two seed files must lift both files at the file
+// level, exactly like the file-level link [[bbb/other]] does. The edge target
+// carries a raw '#' sub-unit id; folding it to its parent file is what makes
+// the graph signal flow in both directions.
+//
+//	aaa/top (leaf cosine 1.0) -[references]-> bbb/other#P1   (both are seeds)
+//
+// Expected (w=0.3, file-level parity): graph(top) = 0.6 (other's cosine),
+// graph(other) = 1.0 (top's cosine), final(top) = 0.7*1.0 + 0.3*0.6 = 0.88,
+// final(other) = 0.7*0.6 + 0.3*1.0 = 0.72. Before the fix both graph_scores
+// were 0 and the edge was inert in both directions.
+func TestQueryRun_GraphExpansion_SubUnitPath_SectionAnchoredCrossFileEdge(test *testing.T) {
+	store := openTestStore(test)
+
+	seedSubUnitFile(test, store, "aaa/top", "note", "Top", []float32{1, 0})
+	seedSubUnitFile(test, store, "bbb/other", "note", "Other", []float32{0.6, 0.8})
+
+	edges := index.NewEdgeRepo(store)
+
+	if err := edges.UpsertAll("aaa/top", "aaa/top.md", []index.EdgeRow{
+		{Type: "references", SourceID: "aaa/top", TargetID: "bbb/other#P1", SourcePath: "aaa/top.md", Kind: "direct"},
+	}); err != nil {
+		test.Fatalf("edge upsert: %v", err)
+	}
+
+	result, runErr := query.Run(context.Background(), subUnitDeps(store), query.Request{
+		Filter:   "",
+		Semantic: "anything",
+		Explain:  true,
+		GraphExpansion: &manifest.GraphExpansion{
+			Enabled:             true,
+			Hops:                1,
+			EdgeTypes:           []string{"references"},
+			Weight:              0.3,
+			CandidateMultiplier: 5,
+		},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	rows := rowsByID(test, result)
+
+	top, hasTop := rows["aaa/top"]
+
+	if !hasTop {
+		test.Fatalf("aaa/top missing from ranked: %+v", result.Semantic.Ranked)
+	}
+
+	other, hasOther := rows["bbb/other"]
+
+	if !hasOther {
+		test.Fatalf("bbb/other missing from ranked: %+v", result.Semantic.Ranked)
+	}
+
+	// Both seed files must be lifted by the section-anchored edge (parity with
+	// the plain file-level link fixture BlendsFileLevelEdges).
+	assertScore(test, "top graph_score", top.GraphScore, 0.6)
+	assertScore(test, "top score", top.Score, 0.88)
+	assertScore(test, "other graph_score", other.GraphScore, 1.0)
+	assertScore(test, "other score", other.Score, 0.72)
+
+	if top.Distance != 0 || other.Distance != 0 {
+		test.Errorf("distances = (%d, %d), want (0, 0)", top.Distance, other.Distance)
+	}
+}
+
+// TestQueryRun_GraphExpansion_SubUnitPath_DanglingTargetExcluded covers #688
+// finding 3: a wikilink to a note that does not exist ([[does/not-exist]])
+// must NOT surface as a scored ghost row with empty type/path/title. The walk
+// admits the edge endpoint, but a candidate with no live nodes row is dropped
+// before ranking.
+func TestQueryRun_GraphExpansion_SubUnitPath_DanglingTargetExcluded(test *testing.T) {
+	store := openTestStore(test)
+
+	seedSubUnitFile(test, store, "notes/alpha", "note", "Alpha", []float32{1, 0})
+
+	edges := index.NewEdgeRepo(store)
+
+	if err := edges.UpsertAll("notes/alpha", "notes/alpha.md", []index.EdgeRow{
+		{Type: "references", SourceID: "notes/alpha", TargetID: "does/not-exist", SourcePath: "notes/alpha.md", Kind: "direct"},
+	}); err != nil {
+		test.Fatalf("edge upsert: %v", err)
+	}
+
+	result, runErr := query.Run(context.Background(), subUnitDeps(store), query.Request{
+		Filter:   "",
+		Semantic: "anything",
+		Explain:  true,
+		GraphExpansion: &manifest.GraphExpansion{
+			Enabled:             true,
+			Hops:                1,
+			EdgeTypes:           []string{"references"},
+			Weight:              0.5,
+			CandidateMultiplier: 5,
+		},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	for _, row := range result.Semantic.Ranked {
+		if row.ID == "does/not-exist" {
+			test.Fatalf("dangling target surfaced as a ghost row: %+v", row)
+		}
+
+		if row.Type == "" || row.Path == "" {
+			test.Errorf("row %q has empty metadata (type=%q path=%q) — ghost row leak", row.ID, row.Type, row.Path)
+		}
+	}
+
+	if _, ok := rowsByID(test, result)["notes/alpha"]; !ok {
+		test.Fatalf("notes/alpha missing from ranked: %+v", result.Semantic.Ranked)
+	}
+}
+
 // TestQueryRun_GraphExpansion_SubUnitPath_NoDoubleCountBelowMinScore pins the
 // FilteredBelowMinScore accounting for a walked-in file whose ranked leaves
 // were all MinScore-dropped: the file counts once (per dropped leaf), not

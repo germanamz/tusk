@@ -566,6 +566,64 @@ func TestTool_Query_OmitsExplainFieldsWhenFlagOff(test *testing.T) {
 	}
 }
 
+// TestTool_Query_KeepsExplainTraceOnAllZeroRow covers #688: with explain=true
+// AND graph expansion active, an all-zero row (a seed orthogonal to the query,
+// no graph neighbors → cosine/graph/final all 0) must still carry the full
+// trace, including `distance`. The old all-scores-non-zero gate stripped it,
+// hiding exactly the rows a caller needs to explain.
+func TestTool_Query_KeepsExplainTraceOnAllZeroRow(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "A",
+		PropertiesJSON: "{}", LastChecksum: "x",
+	})
+
+	// Orthogonal to the stub query vector {1,0,0} → cosine 0; no edges → graph
+	// 0; so every score is exactly 0.
+	if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "notes/a", ChunkIdx: 0, Model: "stub", ContentHash: "h",
+		Vector: []float32{0, 1, 0}, Dim: 3, Body: "a body",
+	}); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":       "type=note",
+		"semantic":     "anything",
+		"graph_expand": true,
+		"explain":      true,
+		"min_score":    0, // the row scores 0; keep it past the default 0.5 filter.
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("len(results) = %d, want 1: %v", len(results), body)
+	}
+
+	first := results[0].(map[string]any)
+
+	if score, _ := first["final_score"].(float64); score != 0 {
+		test.Fatalf("fixture broken: final_score = %v, want 0 (all-zero row)", score)
+	}
+
+	for _, key := range []string{"cosine_score", "graph_score", "final_score", "distance"} {
+		if _, present := first[key]; !present {
+			test.Errorf("explain field %q stripped from all-zero row: %v", key, first)
+		}
+	}
+}
+
 // TestTool_Query_RejectsInvalidHops asserts hops outside {1,2} surfaces a
 // tool error, mirroring the CLI behaviour.
 func TestTool_Query_RejectsInvalidHops(test *testing.T) {
@@ -599,6 +657,46 @@ func TestTool_Query_RejectsInvalidGraphWeight(test *testing.T) {
 
 	if callErr == nil {
 		test.Fatalf("expected error for graph_weight=1.5, got body=%v", body)
+	}
+}
+
+// TestTool_Query_RejectsNonNumericMinScore asserts a min_score passed as a
+// string surfaces a type error instead of silently falling back to the 0.5
+// default (#688 finding 4) — matching the strictness hops already applies.
+func TestTool_Query_RejectsNonNumericMinScore(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":    "type=ticket",
+		"min_score": "0",
+	})
+
+	if callErr == nil {
+		test.Fatalf("expected error for min_score=\"0\" (string), got body=%v", body)
+	}
+}
+
+// TestTool_Query_RejectsNonNumericTakeSkip asserts take/skip passed as strings
+// surface a type error rather than silently degrading to their defaults (#688
+// finding 4).
+func TestTool_Query_RejectsNonNumericTakeSkip(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	for _, key := range []string{"take", "skip"} {
+		body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+			"filter": "type=ticket",
+			key:      "2",
+		})
+
+		if callErr == nil {
+			test.Fatalf("expected error for %s=\"2\" (string), got body=%v", key, body)
+		}
 	}
 }
 

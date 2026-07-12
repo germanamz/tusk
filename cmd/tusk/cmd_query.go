@@ -420,6 +420,21 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 	// formatLegacy: tab-aligned id/score/snippet table.
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
+	// --explain widens the default table with the graph-expansion score
+	// breakdown so the trace the docs point at is visible at a TTY, not only
+	// in --format json / compact (where it previously hid). Columns read 0
+	// for rows graph expansion did not touch.
+	if explain {
+		_, _ = fmt.Fprintln(tab, "ID\tSCORE\tCOSINE\tGRAPH\tFINAL\tDIST\tSNIPPET")
+
+		for _, scored := range semantic.Ranked {
+			_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%.4f\t%.4f\t%.4f\t%d\t%s\n",
+				scored.ID, scored.Score, scored.CosineScore, scored.GraphScore, scored.FinalScore, scored.Distance, scored.Snippet)
+		}
+
+		return tab.Flush()
+	}
+
 	_, _ = fmt.Fprintln(tab, "ID\tSCORE\tSNIPPET")
 
 	for _, scored := range semantic.Ranked {

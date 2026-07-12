@@ -184,3 +184,79 @@ dim = 3
 		test.Errorf("output missing snippet content:\n%s", out.String())
 	}
 }
+
+// TestQueryCmd_SemanticExplainRendersTraceColumns covers #688: --explain on the
+// default table output was a silent no-op (the trace lived only in JSON /
+// compact). It must now widen the table with the score-breakdown columns.
+func TestQueryCmd_SemanticExplainRendersTraceColumns(test *testing.T) {
+	tmpDir := initWorkspace(test)
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": []float64{1, 0, 0}})
+	}))
+
+	defer server.Close()
+
+	manifestBody := `[workspace]
+name = "test"
+
+[embeddings]
+provider = "ollama"
+model = "test-model"
+endpoint = "` + server.URL + `"
+dim = 3
+`
+
+	if writeErr := os.WriteFile(filepath.Join(tmpDir, "tusk.toml"), []byte(manifestBody), 0o644); writeErr != nil {
+		test.Fatalf("write manifest: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(tmpDir, "notes"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(tmpDir, "notes/one.md"), []byte("---\ntype: note\ntitle: One\n---\n\nAuthentication flow notes.\n"), 0o644); writeErr != nil {
+		test.Fatalf("write node: %v", writeErr)
+	}
+
+	reindexCmd := newRootCmd()
+	reindexCmd.SetArgs([]string{"reindex"})
+
+	if execErr := reindexCmd.Execute(); execErr != nil {
+		test.Fatalf("reindex: %v", execErr)
+	}
+
+	// --- without --explain: the default header has no trace columns ---
+
+	plain := &bytes.Buffer{}
+	plainCmd := newRootCmd()
+	plainCmd.SetOut(plain)
+	plainCmd.SetErr(plain)
+	plainCmd.SetArgs([]string{"query", "type=note", "--semantic", "authentication"})
+
+	if execErr := plainCmd.Execute(); execErr != nil {
+		test.Fatalf("query (plain): %v\nout:\n%s", execErr, plain.String())
+	}
+
+	if strings.Contains(plain.String(), "GRAPH") {
+		test.Errorf("plain output unexpectedly has trace columns:\n%s", plain.String())
+	}
+
+	// --- with --explain: the header gains the score-breakdown columns ---
+
+	out := &bytes.Buffer{}
+	queryCmd := newRootCmd()
+	queryCmd.SetOut(out)
+	queryCmd.SetErr(out)
+	queryCmd.SetArgs([]string{"query", "type=note", "--semantic", "authentication", "--explain"})
+
+	if execErr := queryCmd.Execute(); execErr != nil {
+		test.Fatalf("query (explain): %v\nout:\n%s", execErr, out.String())
+	}
+
+	for _, column := range []string{"COSINE", "GRAPH", "FINAL", "DIST"} {
+		if !strings.Contains(out.String(), column) {
+			test.Errorf("--explain output missing %q column:\n%s", column, out.String())
+		}
+	}
+}

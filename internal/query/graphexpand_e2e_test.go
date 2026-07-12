@@ -460,3 +460,72 @@ func TestQueryRun_GraphExpansion_OmitsExplainFieldsWhenDisabled(test *testing.T)
 		test.Errorf("explain fields populated without Request.Explain: %+v", row)
 	}
 }
+
+// TestQueryRun_GraphExpansion_FileLevelPath_DanglingTargetExcluded covers #688
+// finding 3 on the file-level (non-sub-unit) semantic path: a wikilink to a
+// note that does not exist must not surface as a scored ghost row with empty
+// type/path/title.
+func TestQueryRun_GraphExpansion_FileLevelPath_DanglingTargetExcluded(test *testing.T) {
+	store := openTestStore(test)
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+	edges := index.NewEdgeRepo(store)
+
+	if err := nodes.Upsert(index.NodeRow{
+		ID: "alpha", Type: "note", Path: "alpha.md", Title: "Alpha",
+		PropertiesJSON: "{}", LastChecksum: "x",
+	}); err != nil {
+		test.Fatal(err)
+	}
+
+	if err := embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "alpha", ChunkIdx: 0, Model: "stub", ContentHash: "h",
+		Vector: []float32{1, 0}, Dim: 2, Body: "alpha body",
+	}); err != nil {
+		test.Fatal(err)
+	}
+
+	if err := edges.UpsertAll("alpha", "alpha.md", []index.EdgeRow{
+		{Type: "references", SourceID: "alpha", TargetID: "does/not-exist", SourcePath: "alpha.md", Kind: "direct"},
+	}); err != nil {
+		test.Fatalf("edge upsert: %v", err)
+	}
+
+	loaded := &manifest.Manifest{}
+	manifest.MergeBuiltinPacks(loaded)
+
+	deps := query.Deps{
+		Database:   store.DB(),
+		Manifest:   loaded,
+		Embedder:   stubEmbedder{vector: []float32{1, 0}},
+		Embeddings: embeddings,
+		Nodes:      nodes,
+		Edges:      edges,
+	}
+
+	result, err := query.Run(context.Background(), deps, query.Request{
+		Filter:   "type=note",
+		Semantic: "anything",
+		Explain:  true,
+		GraphExpansion: &manifest.GraphExpansion{
+			Enabled: true, Hops: 1,
+			EdgeTypes: []string{"references"}, Weight: 0.5,
+			CandidateMultiplier: 5,
+		},
+	})
+
+	if err != nil {
+		test.Fatalf("Run: %v", err)
+	}
+
+	for _, row := range result.Semantic.Ranked {
+		if row.ID == "does/not-exist" {
+			test.Fatalf("dangling target surfaced as a ghost row: %+v", row)
+		}
+
+		if row.Type == "" || row.Path == "" {
+			test.Errorf("row %q has empty metadata (type=%q path=%q) — ghost row leak", row.ID, row.Type, row.Path)
+		}
+	}
+}
