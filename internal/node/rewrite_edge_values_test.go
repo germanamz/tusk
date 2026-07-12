@@ -117,11 +117,86 @@ func TestRewriteFrontmatterEdgeValues(test *testing.T) {
 			input: "---\nparent: \"[[tickets/old#S1|Old Ticket]]\"\n---\n\nbody\n",
 			want:  "---\nparent: \"[[tickets/new#S1|Old Ticket]]\"\n---\n\nbody\n",
 		},
+		{
+			// #692: an unquoted wikilink `parent: [[tickets/old]]` parses as a
+			// nested flow sequence, but the `[[` `]]` brackets are the sequence
+			// delimiters on disk — so retargeting only the inner scalar keeps
+			// them intact and the link stays unquoted.
+			name:  "bare unquoted wikilink sequence",
+			input: "---\nparent: [[tickets/old]]\n---\n\nbody\n",
+			want:  "---\nparent: [[tickets/new]]\n---\n\nbody\n",
+		},
+		{
+			// #692: the alias suffix rides along on the inner scalar, so an
+			// unquoted aliased wikilink keeps its label under a move.
+			name:  "aliased unquoted wikilink sequence",
+			input: "---\nparent: [[tickets/old|Old Ticket]]\n---\n\nbody\n",
+			want:  "---\nparent: [[tickets/new|Old Ticket]]\n---\n\nbody\n",
+		},
+		{
+			// #692: a sub-unit fragment on an unquoted wikilink is preserved
+			// like every other wikilink branch.
+			name:  "unquoted wikilink sequence sub-unit deep link",
+			input: "---\nparent: [[tickets/old#S1]]\n---\n\nbody\n",
+			want:  "---\nparent: [[tickets/new#S1]]\n---\n\nbody\n",
+		},
 	}
 
 	for _, testCase := range cases {
 		test.Run(testCase.name, func(subtest *testing.T) {
 			got := string(rewriteFrontmatterEdgeValues([]byte(testCase.input), "tickets/old", "tickets/new", edgeTypes, nil))
+
+			if got != testCase.want {
+				subtest.Errorf("rewrite:\n got: %q\nwant: %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+// #692: on a REF property the bare frontmatter value is a title, so a bare
+// scalar that merely equals the old id is left alone (bareIsID=false). An
+// unquoted wikilink is still an id though — the nested-sequence shape must be
+// retargeted on move regardless, or a ref like `assignee: [[people/jane]]`
+// would be orphaned to a dead id after `tusk node move`.
+func TestRewriteFrontmatterEdgeValues_RefPropertyWikilinkSequence(test *testing.T) {
+	edgeTypes := manifest.EdgeTypes{
+		"assignee": manifest.EdgeType{To: []string{"person"}},
+	}
+	nodeTypes := map[string]manifest.NodeType{
+		"ticket": {
+			Properties: []manifest.PropertyDecl{
+				{Name: "assignee", Type: "ref", To: "person"},
+			},
+		},
+	}
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "bare unquoted ref wikilink retargets",
+			input: "---\ntype: ticket\nassignee: [[people/old]]\n---\n\nbody\n",
+			want:  "---\ntype: ticket\nassignee: [[people/new]]\n---\n\nbody\n",
+		},
+		{
+			name:  "aliased unquoted ref wikilink keeps label",
+			input: "---\ntype: ticket\nassignee: [[people/old|Janey]]\n---\n\nbody\n",
+			want:  "---\ntype: ticket\nassignee: [[people/new|Janey]]\n---\n\nbody\n",
+		},
+		{
+			// A bare ref title that merely coincides with the old id is NOT a
+			// wikilink and must stay put (#680 invariant preserved).
+			name:  "bare ref title coinciding with id is untouched",
+			input: "---\ntype: ticket\nassignee: people/old\n---\n\nbody\n",
+			want:  "---\ntype: ticket\nassignee: people/old\n---\n\nbody\n",
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(subtest *testing.T) {
+			got := string(rewriteFrontmatterEdgeValues([]byte(testCase.input), "people/old", "people/new", edgeTypes, nodeTypes))
 
 			if got != testCase.want {
 				subtest.Errorf("rewrite:\n got: %q\nwant: %q", got, testCase.want)

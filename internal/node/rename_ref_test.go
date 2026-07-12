@@ -176,6 +176,63 @@ func TestRename_RewritesWikilinkFormRefInFrontmatter(test *testing.T) {
 	}
 }
 
+// #692: an UNQUOTED frontmatter wikilink `assignee: [[people/jane]]` decodes to
+// a nested YAML sequence, but the `[[` `]]` are the wikilink's own brackets. A
+// move must rewrite only the inner id on disk (keeping the link unquoted) and
+// the re-derive must re-resolve it — the whole point being that the unquoted
+// form now resolves and stays in sync exactly like its quoted twin.
+func TestRename_RewritesUnquotedWikilinkRefInFrontmatter(test *testing.T) {
+	fixture := newRefRenameFixture(test)
+
+	if _, createErr := fixture.service.Create(node.CreateInput{
+		RelPath: "people/jane.md", Type: "person", Title: "Jane Doe",
+	}); createErr != nil {
+		test.Fatalf("create person: %v", createErr)
+	}
+
+	// Create seeds the assignee edge in the index (via the quoted string form),
+	// then overwrite the file on disk with the UNQUOTED wikilink a human would
+	// hand-write — the form the rewriter and re-derive must handle.
+	if _, createErr := fixture.service.Create(node.CreateInput{
+		RelPath: "tasks/auth.md", Type: "task", Title: "Auth",
+		Properties: map[string]any{"assignee": "[[people/jane]]"},
+	}); createErr != nil {
+		test.Fatalf("create task: %v", createErr)
+	}
+
+	taskPath := filepath.Join(fixture.root, "tasks/auth.md")
+	unquoted := "---\ntype: task\ntitle: Auth\nassignee: [[people/jane]]\n---\n\nbody\n"
+
+	if writeErr := os.WriteFile(taskPath, []byte(unquoted), 0o644); writeErr != nil {
+		test.Fatalf("overwrite task with unquoted wikilink: %v", writeErr)
+	}
+
+	if got := fixture.assigneeTarget(test, "tasks/auth"); got != "people/jane" {
+		test.Fatalf("assignee edge before move = %q, want people/jane", got)
+	}
+
+	fixture.rename(test, "people/jane", "people/renamed.md")
+
+	content, readErr := os.ReadFile(taskPath)
+
+	if readErr != nil {
+		test.Fatalf("read task: %v", readErr)
+	}
+
+	// The link stays unquoted with brackets intact, retargeted to the new id.
+	if !strings.Contains(string(content), "assignee: [[people/renamed]]") {
+		test.Errorf("unquoted wikilink not retargeted in place on disk:\n%s", content)
+	}
+
+	if strings.Contains(string(content), "people/jane]]") {
+		test.Errorf("old id still present on disk:\n%s", content)
+	}
+
+	if got := fixture.assigneeTarget(test, "tasks/auth"); got != "people/renamed" {
+		test.Errorf("assignee edge after move = %q, want people/renamed", got)
+	}
+}
+
 // #680 F3: a chained move A->B->C keeps tracking a bare-title referrer at every
 // hop — the first move must not corrupt the edge target and drop the referrer
 // from the second move's affected set.

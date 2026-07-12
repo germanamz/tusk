@@ -11,7 +11,7 @@ Heart of the data layer. Parses markdown frontmatter, validates properties again
 
 ## Public surface
 
-- `ParseFile(relPath, content) (*Node, error)` — frontmatter → `Node` shape; ID is the relPath sans extension.
+- `ParseFile(relPath, content) (*Node, error)` — frontmatter → `Node` shape; ID is the relPath sans extension. An unquoted frontmatter wikilink (`assignee: [[people/jane]]`) decodes in YAML to a nested flow sequence, not a string; since no property type nests lists, `ParseFile` normalizes that exact `[[id]]` / `[[id|alias]]` shape back to the scalar string so it resolves like its quoted twin instead of dropping the whole file from the index (#692).
 - `Service` — `Create`, `Modify`, `Move`, `Delete`; serialized via the workspace lock.
 - `ValidateProperties(*Node, NodeTypes) PropertyResult` — type / required / drift checks.
 - `ResolveEdges(*Node, EdgeTypes) error` — frontmatter edge values → typed edges.

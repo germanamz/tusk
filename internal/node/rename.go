@@ -851,10 +851,41 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 			continue
 		}
 
+		value := mapping[pairIdx+1]
+
+		// An unquoted frontmatter wikilink `key: [[id]]` decodes to two nested
+		// flow sequences whose brackets are the wikilink's own (#692). Retarget
+		// only the inner scalar so the `[[` `]]` stay put and the value is never
+		// re-quoted. The scalar is always an id (a wikilink is), so bareIsID does
+		// not gate it — an unquoted ref wikilink retargets like an edge one.
+		if scalar, isWikilink := nestedWikilinkScalar(value); isWikilink {
+			target, alias := splitWikilinkAlias(scalar.Value)
+
+			retargeted, matched := retargetNodeID(target, oldID, newID)
+
+			if !matched {
+				continue
+			}
+
+			tokenStart, tokenEnd, located := scalarSpan(yamlText, scalar)
+
+			if !located {
+				continue
+			}
+
+			edits = append(edits, frontmatterEdit{
+				start: start + tokenStart,
+				end:   start + tokenEnd,
+				text:  retargeted + alias,
+			})
+
+			continue
+		}
+
 		_, isRefProperty := refProps[key]
 		bareIsID := !isRefProperty
 
-		for _, scalar := range collectEdgeScalars(mapping[pairIdx+1], false) {
+		for _, scalar := range collectEdgeScalars(value, false) {
 			retargeted, matched := retargetEdgeValue(scalar.node.Value, oldID, newID, bareIsID)
 
 			if !matched {
@@ -915,6 +946,32 @@ func mappingScalarValue(mapping []*yaml.Node, key string) string {
 	}
 
 	return ""
+}
+
+// nestedWikilinkScalar returns the lone scalar of a value shaped as an unquoted
+// `[[id]]` wikilink — a single-item flow sequence whose single item is a
+// single-item flow sequence holding one scalar — and false for any other shape.
+// The outer and inner `[` `]` are the wikilink's own brackets, so the scalar
+// carries the target id plus any `|alias` suffix; rewriting just that scalar
+// leaves the brackets (and thus the wikilink) intact (#692).
+func nestedWikilinkScalar(value *yaml.Node) (*yaml.Node, bool) {
+	if value.Kind != yaml.SequenceNode || len(value.Content) != 1 {
+		return nil, false
+	}
+
+	inner := value.Content[0]
+
+	if inner.Kind != yaml.SequenceNode || len(inner.Content) != 1 {
+		return nil, false
+	}
+
+	scalar := inner.Content[0]
+
+	if scalar.Kind != yaml.ScalarNode {
+		return nil, false
+	}
+
+	return scalar, true
 }
 
 // collectEdgeScalars returns the scalar leaves of an edge key's value: the value
