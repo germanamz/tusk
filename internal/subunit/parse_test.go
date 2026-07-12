@@ -424,6 +424,33 @@ func TestDeriveEdges_WikilinksInParagraph(test *testing.T) {
 	}
 }
 
+// #690: aliased wikilinks `[[id|display]]` in a paragraph derive edges to the
+// target id, dropping the display suffix — the same rule the file-level
+// extractor uses (both share node.ExtractWikilinks).
+func TestDeriveEdges_AliasedWikilinksInParagraph(test *testing.T) {
+	src := readFixture(test, "wikilinks-aliased.md")
+	units, err := Parse(src)
+	if err != nil {
+		test.Fatalf("parse: %v", err)
+	}
+
+	if len(units) != 1 {
+		test.Fatalf("want 1 unit, got %d", len(units))
+	}
+
+	edges := DeriveEdges(units[0], []string{"links-to"})
+	if len(edges) != 2 {
+		test.Fatalf("want 2 edges, got %d (%+v)", len(edges), edges)
+	}
+
+	if edges[0].EdgeType != "links-to" || edges[0].TargetID != "notes/auth-rfc" {
+		test.Errorf("edge[0]: want links-to->notes/auth-rfc, got %+v", edges[0])
+	}
+	if edges[1].EdgeType != "links-to" || edges[1].TargetID != "design/oauth-pkce" {
+		test.Errorf("edge[1]: want links-to->design/oauth-pkce, got %+v", edges[1])
+	}
+}
+
 func TestDeriveEdges_MultipleEdgeTypesCrossProduct(test *testing.T) {
 	src := readFixture(test, "wikilinks-in-paragraph.md")
 	units, _ := Parse(src)

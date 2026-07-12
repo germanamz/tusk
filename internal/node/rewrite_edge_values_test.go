@@ -102,10 +102,20 @@ func TestRewriteFrontmatterEdgeValues(test *testing.T) {
 			want:  "---\nblocks: [\n  tickets/new,\n  tickets/keep,\n]\n---\n\nbody\n",
 		},
 		{
-			// An aliased wikilink resolves nowhere, so a move leaves it alone.
-			name:  "aliased wikilink is left untouched",
+			// #690: an aliased wikilink now resolves to its id (the display
+			// suffix is dropped for resolution), so a move retargets the id and
+			// preserves the "|Old Ticket" label. Re-quoted to double like every
+			// wikilink branch (the value carries a leading `[` indicator).
+			name:  "aliased wikilink retargets id and keeps alias",
 			input: "---\nparent: '[[tickets/old|Old Ticket]]'\n---\n\nbody\n",
-			want:  "---\nparent: '[[tickets/old|Old Ticket]]'\n---\n\nbody\n",
+			want:  "---\nparent: \"[[tickets/new|Old Ticket]]\"\n---\n\nbody\n",
+		},
+		{
+			// #690: an aliased deep link keeps both its sub-unit fragment and
+			// its display suffix; only the id ahead of them is retargeted.
+			name:  "aliased wikilink sub-unit deep link",
+			input: "---\nparent: \"[[tickets/old#S1|Old Ticket]]\"\n---\n\nbody\n",
+			want:  "---\nparent: \"[[tickets/new#S1|Old Ticket]]\"\n---\n\nbody\n",
 		},
 	}
 

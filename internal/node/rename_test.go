@@ -445,6 +445,83 @@ func TestRename_RewritesBodyWikilinksOnDisk(test *testing.T) {
 	}
 }
 
+// #690: Rename must rewrite an Obsidian aliased body wikilink
+// `[[old|display]]` on disk — retargeting the id while preserving the display
+// text — and keep the referrer's derived file-level edge. Regression test: the
+// alias form matched neither the extractor nor the rewriter, so the link
+// derived no edge (the referrer never appeared in affected files) and was left
+// as a dead link on disk after the target moved.
+func TestRename_RewritesAliasedBodyWikilinkOnDisk(test *testing.T) {
+	root := test.TempDir()
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := wikilinkEdgeTypes()
+
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, edgeTypes, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
+
+	if _, targetErr := service.Create(node.CreateInput{
+		RelPath: "notes/target.md", Type: "note", Title: "Target",
+	}); targetErr != nil {
+		test.Fatalf("create target: %v", targetErr)
+	}
+
+	if _, refErr := service.Create(node.CreateInput{
+		RelPath: "notes/referrer.md", Type: "note", Title: "Referrer",
+		Body: []byte("see [[notes/target|the target]] for context\n"),
+	}); refErr != nil {
+		test.Fatalf("create referrer: %v", refErr)
+	}
+
+	// Seed the aliased-wikilink-derived file-level edge the way the reindex
+	// worker (now alias-aware) would have written it.
+	if upsertErr := edgeRepo.UpsertAll("notes/referrer", "notes/referrer.md", []index.EdgeRow{{
+		Type: "references", SourceID: "notes/referrer", TargetID: "notes/target",
+		SourcePath: "notes/referrer.md", Kind: "direct",
+	}}); upsertErr != nil {
+		test.Fatalf("seed referrer edge: %v", upsertErr)
+	}
+
+	plan, renameErr := node.Rename(
+		root, nodeRepo, edgeRepo,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+		edgeTypes, nil, nil, "notes/target", "notes/renamed.md",
+	)
+	if renameErr != nil {
+		test.Fatalf("Rename: %v", renameErr)
+	}
+
+	if len(plan.AffectedFiles) != 1 || plan.AffectedFiles[0] != "notes/referrer.md" {
+		test.Errorf("AffectedFiles = %v, want [notes/referrer.md]", plan.AffectedFiles)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(root, "notes/referrer.md"))
+
+	if !strings.Contains(string(content), "see [[notes/renamed|the target]] for context") {
+		test.Errorf("aliased body wikilink not rewritten:\n%s", string(content))
+	}
+
+	referrerEdges, _ := edgeRepo.ListBySource("notes/referrer")
+
+	var referencesTargets []string
+
+	for _, edge := range referrerEdges {
+		if edge.Type == "references" {
+			referencesTargets = append(referencesTargets, edge.TargetID)
+		}
+	}
+
+	if len(referencesTargets) != 1 || referencesTargets[0] != "notes/renamed" {
+		test.Errorf("referrer file-level references = %v, want [notes/renamed]", referencesTargets)
+	}
+}
+
 // Rename must retarget incoming edges whose SOURCE is a sub-unit of another
 // file, and incoming edges that TARGET a sub-unit id of the moved file.
 // Regression test: only file-level rows were re-derived; sub-unit-sourced

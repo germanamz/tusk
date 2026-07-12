@@ -739,24 +739,27 @@ func requoteAttrValue(value string, quote byte) string {
 	return string(quote) + value + string(quote)
 }
 
-// rewriteBodyWikilinks replaces `[[oldID]]` (and sub-unit deep links,
-// `[[oldID#S1]]`) with the same link under newID in the markdown body — the
-// region after the closing frontmatter delimiter. Fenced code blocks are
-// rewritten too: file-level extraction skips fences, but the sub-unit
-// pipeline derives edges from code-block content (fence markers are absent
-// from unit text), so a `[[oldID]]` left inside a fence would flip the
-// code-block and enclosing-section edges back to the dead id on the next
-// re-parse.
+// rewriteBodyWikilinks replaces `[[oldID]]`, sub-unit deep links
+// (`[[oldID#S1]]`), and the Obsidian aliased forms (`[[oldID|Label]]`,
+// `[[oldID#S1|Label]]`) with the same link under newID in the markdown body —
+// the region after the closing frontmatter delimiter. The `#fragment` (group 1)
+// and any `|Label` display suffix (group 2) are preserved verbatim, so a rename
+// retargets the id without disturbing the deep-link address or the display text
+// (#690). Fenced code blocks are rewritten too: file-level extraction skips
+// fences, but the sub-unit pipeline derives edges from code-block content
+// (fence markers are absent from unit text), so a `[[oldID]]` left inside a
+// fence would flip the code-block and enclosing-section edges back to the dead
+// id on the next re-parse.
 func rewriteBodyWikilinks(content []byte, oldID, newID string) []byte {
 	offset := bodyOffset(content)
-	pattern := regexp.MustCompile(`\[\[\s*` + regexp.QuoteMeta(oldID) + `(#[^\[\]|]*)?\s*\]\]`)
+	pattern := regexp.MustCompile(`\[\[\s*` + regexp.QuoteMeta(oldID) + `(#[^\[\]|]*)?\s*(\|[^\[\]]*)?\s*\]\]`)
 
 	// ReplaceAllFunc rather than a $1 template: ids come from user paths,
 	// so newID must be inserted verbatim, never expanded.
 	replaceLink := func(match []byte) []byte {
-		suffix := pattern.FindSubmatch(match)[1]
+		groups := pattern.FindSubmatch(match)
 
-		return []byte("[[" + newID + string(suffix) + "]]")
+		return []byte("[[" + newID + string(groups[1]) + string(groups[2]) + "]]")
 	}
 
 	var out bytes.Buffer
@@ -937,10 +940,12 @@ func collectEdgeScalars(value *yaml.Node, inFlow bool) []flowScalar {
 }
 
 // retargetEdgeValue returns the rewritten value when value refers to oldID, to a
-// sub-unit id beneath it ("<oldID>#..."), or to either through a wikilink. The
-// wikilink form is matched with the pattern ResolveRefs itself accepts, so
-// exactly the values the resolver can resolve are the values a move rewrites —
-// an aliased "[[oldID|Label]]" resolves nowhere and is left alone.
+// sub-unit id beneath it ("<oldID>#..."), or to either through a wikilink —
+// including the Obsidian aliased form "[[oldID|Label]]". The wikilink is matched
+// with the pattern ResolveRefs itself accepts and split on the alias the same
+// way (#690), so exactly the values the resolver resolves are the values a move
+// rewrites; the "|Label" display suffix is preserved and only the id ahead of it
+// is retargeted.
 //
 // bareIsID says whether a bare (non-wikilink) value under this key names a node
 // id. It is true for an explicit edge type (frontmatter value = raw id) and
@@ -952,13 +957,15 @@ func collectEdgeScalars(value *yaml.Node, inFlow bool) []flowScalar {
 // reports whether the value matched.
 func retargetEdgeValue(value, oldID, newID string, bareIsID bool) (string, bool) {
 	if wikilink := refWikilinkPattern.FindStringSubmatch(value); len(wikilink) == 2 {
-		retargeted, matched := retargetNodeID(wikilink[1], oldID, newID)
+		target, alias := splitWikilinkAlias(wikilink[1])
+
+		retargeted, matched := retargetNodeID(target, oldID, newID)
 
 		if !matched {
 			return "", false
 		}
 
-		return "[[" + retargeted + "]]", true
+		return "[[" + retargeted + alias + "]]", true
 	}
 
 	if !bareIsID {
