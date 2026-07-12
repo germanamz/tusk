@@ -1,6 +1,7 @@
 package indexopen_test
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -59,6 +60,67 @@ func TestOpenOrRebuildOpensFreshIndex(test *testing.T) {
 
 	if _, statErr := os.Stat(indexPath); statErr != nil {
 		test.Fatalf("expected index file at %s, got %v", indexPath, statErr)
+	}
+}
+
+// TestOpenOrRebuild_FailedRebuildLeavesPriorIndexIntact pins #705 Defect A: a
+// rebuild must build into a temp DB and rename-swap only on success, never
+// delete the live index up front. So when the rebuild's reindex fails (a slow
+// re-embed interrupted, a crash, a bad config) the previous on-disk index is
+// left byte-for-byte intact and re-openable, not replaced by an empty file.
+func TestOpenOrRebuild_FailedRebuildLeavesPriorIndexIntact(test *testing.T) {
+	test.Parallel()
+
+	root, indexPath := fixtureWorkspace(test)
+
+	// Seed an index whose schema_version this binary rejects, so the next
+	// OpenOrRebuild takes the rebuild path.
+	seed, openErr := index.Open(indexPath)
+	if openErr != nil {
+		test.Fatalf("seed open: %v", openErr)
+	}
+
+	if setErr := index.NewMetaRepo(seed).Set(index.MetaSchemaVersionKey, "old-incompatible"); setErr != nil {
+		test.Fatalf("seed mismatch: %v", setErr)
+	}
+
+	if closeErr := seed.Close(); closeErr != nil {
+		test.Fatalf("close seed: %v", closeErr)
+	}
+
+	original, readErr := os.ReadFile(indexPath)
+	if readErr != nil {
+		test.Fatalf("read seeded index: %v", readErr)
+	}
+
+	// A ReindexFactory that yields a failing reindex.Run (missing the required
+	// EmbedQueue) stands in for a rebuild that dies partway through.
+	_, rebuildErr := indexopen.OpenOrRebuild(indexopen.Config{
+		IndexPath: indexPath,
+		ReindexFactory: func(store *index.Index) reindex.Config {
+			return reindex.Config{
+				Root:       root,
+				Repo:       index.NewNodeRepo(store),
+				Meta:       index.NewMetaRepo(store),
+				FileStates: index.NewFileStateRepo(store),
+				// EmbedQueue intentionally omitted -> reindex.Run fails fast.
+			}
+		},
+	})
+
+	if rebuildErr == nil {
+		test.Fatal("expected OpenOrRebuild to surface the rebuild failure")
+	}
+
+	// The prior index must survive untouched — byte-for-byte identical, not
+	// deleted and not silently replaced by a fresh empty index.
+	after, readErr := os.ReadFile(indexPath)
+	if readErr != nil {
+		test.Fatalf("live index gone after a failed rebuild: %v", readErr)
+	}
+
+	if !bytes.Equal(original, after) {
+		test.Fatalf("failed rebuild altered the live index: %d bytes before, %d after", len(original), len(after))
 	}
 }
 

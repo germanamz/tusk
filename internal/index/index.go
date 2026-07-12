@@ -285,6 +285,19 @@ func migratePropertyDriftValue(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// Checkpoint flushes the WAL fully into the main database file and truncates the
+// WAL to zero, leaving the main file self-contained. Callers use it before an
+// atomic rename-swap of a freshly built index (OpenOrRebuild), where only the
+// main file is renamed — an un-checkpointed WAL would otherwise strand committed
+// rows in a sidecar that the rename leaves behind.
+func (idx *Index) Checkpoint() error {
+	if _, execErr := idx.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); execErr != nil {
+		return fmt.Errorf("index: wal checkpoint: %w", execErr)
+	}
+
+	return nil
+}
+
 // Close releases the underlying database handle.
 func (idx *Index) Close() error {
 	return idx.db.Close()
