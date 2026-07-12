@@ -31,11 +31,18 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 
 	state := &compileState{}
 
-	whereClause, params, whereErr := state.compileWhere(expr)
+	whereClause, whereParams, whereErr := state.compileWhere(expr)
 
 	if whereErr != nil {
 		return "", nil, whereErr
 	}
+
+	// Bind params in the order their placeholders appear in the assembled SQL:
+	// the CTE bodies (prepended below as `WITH RECURSIVE …`) come first, then the
+	// WHERE clause. Prepending state.cteParams here — rather than binding in
+	// AST-traversal order — is what keeps tree=/root= shortcuts correct when they
+	// are not the leftmost param-contributing leaf.
+	params := append(append([]any{}, state.cteParams...), whereParams...)
 
 	var builder strings.Builder
 
@@ -68,7 +75,17 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 }
 
 type compileState struct {
-	ctes       []string
+	ctes []string
+	// cteParams holds the bind params for the CTE bodies collected in ctes, in
+	// the same order the CTEs are emitted. Because Compile prepends the CTE
+	// definitions ahead of the SELECT (`WITH RECURSIVE <ctes> SELECT … WHERE`),
+	// their `?` placeholders are positionally first in the assembled statement.
+	// Keeping their params in a dedicated slice — instead of interleaving them
+	// with WHERE-clause params in AST-traversal order — lets Compile prepend
+	// them so positional binding matches the string order regardless of where
+	// the emitting shortcut sits in the expression (the regression for tree=/
+	// root= misbinding when they were not the leftmost leaf).
+	cteParams  []any
 	cteCounter int
 	// defaultOrderBy captures the first non-empty OrderedBy seen during
 	// compileWhere's recursive descent. When two or more traversal shortcuts
@@ -158,13 +175,18 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 		return compileEdgePredicate(typed, 0)
 	case *TraversalShortcut:
 		state.cteCounter++
-		whereClause, ctes, traversalParams, traversalErr := compileTraversalShortcut(typed, state.cteCounter)
+		whereClause, ctes, cteParams, whereParams, traversalErr := compileTraversalShortcut(typed, state.cteCounter)
 
 		if traversalErr != nil {
 			return "", nil, traversalErr
 		}
 
+		// CTE definitions and their params are collected on the state so Compile
+		// can prepend both, in emission order, ahead of the WHERE clause. Only
+		// whereParams belong to the fragment returned here (the placeholders that
+		// sit inline in whereClause); the CTE params travel separately.
 		state.ctes = append(state.ctes, ctes...)
+		state.cteParams = append(state.cteParams, cteParams...)
 
 		if typed.OrderedBy != "" && state.defaultOrderBy == "" {
 			state.defaultOrderBy = fmt.Sprintf(
@@ -173,7 +195,7 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 			)
 		}
 
-		return whereClause, traversalParams, nil
+		return whereClause, whereParams, nil
 	}
 
 	return "", nil, fmt.Errorf("compile: unknown AST node type %T", expr)
@@ -626,16 +648,25 @@ func compileInnerOnAlias(inner Expr, alias string, depth int) (string, []any, er
 }
 
 // compileTraversalShortcut returns a WHERE-clause fragment, a slice of CTE
-// definition strings, and params. The caller stitches the CTE definitions
-// into a single WITH RECURSIVE clause prepended to the SELECT.
+// definition strings, the CTE bodies' bind params, and the WHERE fragment's own
+// bind params. The caller stitches the CTE definitions into a single WITH
+// RECURSIVE clause prepended to the SELECT and binds cteParams ahead of
+// whereParams to match that string order.
+//
+// The two param slices are kept distinct because the CTE placeholders sit at the
+// front of the assembled statement while the WHERE-fragment placeholders sit
+// inline: the recursive shortcuts (ShortcutTree, ShortcutRoot) put all their
+// params in the CTE bodies (whereParams nil), while the inline ShortcutParentOf
+// has no CTE (cteParams nil). Interleaving them in AST-traversal order is what
+// misbound the recursive shortcuts when they were not the leftmost leaf.
 //
 // The edge type is supplied by shortcut.EdgeType, populated by the
 // validator from the manifest. If empty, the validator did not run or the
 // AST was hand-constructed without resolution — return an error rather
 // than emit ambiguous SQL.
-func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string, []string, []any, error) {
+func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (whereClause string, ctes []string, cteParams []any, whereParams []any, err error) {
 	if shortcut.EdgeType == "" {
-		return "", nil, nil, fmt.Errorf("compile: traversal shortcut has unresolved edge type (validator must run before compile)")
+		return "", nil, nil, nil, fmt.Errorf("compile: traversal shortcut has unresolved edge type (validator must run before compile)")
 	}
 
 	edge := shortcut.EdgeType
@@ -644,14 +675,14 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string,
 	case ShortcutParentOf:
 		whereClause := "EXISTS (SELECT 1 FROM edges WHERE source_id = nodes.id AND type = ? AND target_id = ?)"
 
-		return whereClause, nil, []any{edge, shortcut.NodeID}, nil
+		return whereClause, nil, nil, []any{edge, shortcut.NodeID}, nil
 	case ShortcutTree:
 		cteName := fmt.Sprintf("descendants_%d", counter)
 		cteBody := recursiveDescendantsCTE(cteName)
 
 		whereClause := fmt.Sprintf("nodes.id IN (SELECT node_id FROM %s)", cteName)
 
-		return whereClause, []string{cteBody}, []any{shortcut.NodeID, edge, edge}, nil
+		return whereClause, []string{cteBody}, []any{shortcut.NodeID, edge, edge}, nil, nil
 	case ShortcutRoot:
 		ascendantsName := fmt.Sprintf("ascendants_%d", counter)
 		descendantsName := fmt.Sprintf("from_root_%d", counter)
@@ -672,8 +703,8 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (string,
 
 		whereClause := fmt.Sprintf("nodes.id IN (SELECT node_id FROM %s)", descendantsName)
 
-		return whereClause, []string{ascendantsBody, descendantsBody}, []any{shortcut.NodeID, edge, edge, shortcut.NodeID, edge}, nil
+		return whereClause, []string{ascendantsBody, descendantsBody}, []any{shortcut.NodeID, edge, edge, shortcut.NodeID, edge}, nil, nil
 	}
 
-	return "", nil, nil, fmt.Errorf("compile: unknown traversal shortcut kind %v", shortcut.Kind)
+	return "", nil, nil, nil, fmt.Errorf("compile: unknown traversal shortcut kind %v", shortcut.Kind)
 }
