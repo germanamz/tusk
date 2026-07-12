@@ -187,14 +187,66 @@ func TestDispatcher_NodeGet(test *testing.T) {
 		test.Errorf("Kind = %q, want %q", result.Kind, aliasdispatch.KindNodeGet)
 	}
 
-	getResult, ok := result.Result.(*node.GetResult)
+	wrapped, ok := result.Result.(*aliasdispatch.NodeGetResult)
 
 	if !ok {
-		test.Fatalf("Result type = %T, want *node.GetResult", result.Result)
+		test.Fatalf("Result type = %T, want *aliasdispatch.NodeGetResult", result.Result)
 	}
 
-	if getResult.Node.ID != "notes/hello" {
-		test.Errorf("Node.ID = %q, want notes/hello", getResult.Node.ID)
+	if wrapped.Result.Node.ID != "notes/hello" {
+		test.Errorf("Node.ID = %q, want notes/hello", wrapped.Result.Node.ID)
+	}
+}
+
+// TestDispatcher_NodeGet_IncludeEdges locks in issue #706 on the alias surface
+// (tusk run / tusk context): node get with include:["edges"] hydrates the
+// node's edges from the index, and ResultPayload projects them onto "edges".
+func TestDispatcher_NodeGet_IncludeEdges(test *testing.T) {
+	deps := setupWorkspace(test)
+
+	if err := deps.Edges.UpsertAll("notes/hello", "notes/hello.md", []index.EdgeRow{
+		{Type: "links", SourceID: "notes/hello", TargetID: "notes/other", SourcePath: "notes/hello.md", Kind: "direct"},
+	}); err != nil {
+		test.Fatalf("seed edge: %v", err)
+	}
+
+	dispatcher := aliasdispatch.NewDispatcher(deps)
+
+	alias := validatedAlias(test, "node get", map[string]any{
+		"id":      "notes/hello",
+		"include": []any{"edges"},
+	})
+
+	result, runErr := dispatcher.Run(context.Background(), alias)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	wrapped, ok := result.Result.(*aliasdispatch.NodeGetResult)
+
+	if !ok {
+		test.Fatalf("Result type = %T, want *aliasdispatch.NodeGetResult", result.Result)
+	}
+
+	if len(wrapped.Edges) != 1 || wrapped.Edges[0].Direction != "out" || wrapped.Edges[0].TargetID != "notes/other" {
+		test.Fatalf("wrapped.Edges = %+v, want one out edge to notes/other", wrapped.Edges)
+	}
+
+	envelope, ok := aliasdispatch.ResultPayload(result).(map[string]any)
+
+	if !ok {
+		test.Fatalf("ResultPayload type = %T, want map[string]any", aliasdispatch.ResultPayload(result))
+	}
+
+	edges, ok := envelope["edges"].([]query.EdgeRef)
+
+	if !ok {
+		test.Fatalf("envelope[edges] = %T, want []query.EdgeRef", envelope["edges"])
+	}
+
+	if len(edges) != 1 || edges[0].TargetID != "notes/other" {
+		test.Errorf("envelope edges = %+v, want one edge to notes/other", edges)
 	}
 }
 

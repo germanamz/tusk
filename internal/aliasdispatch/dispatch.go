@@ -233,6 +233,17 @@ func buildNodeGetRequest(args map[string]any, _ Deps) (any, error) {
 	return req, nil
 }
 
+// NodeGetResult pairs a node.GetResult with edges hydrated from the index.
+// node.GetRun reads only the nodes table (its edges map is always nil on an
+// index read) and the node package cannot import query to project them — an
+// embed→node→query import cycle — so the adapter hydrates edges here, the same
+// both-direction shape `query --include edges` returns. ResultPayload projects
+// Edges onto the "edges" envelope key.
+type NodeGetResult struct {
+	Result *node.GetResult
+	Edges  []query.EdgeRef
+}
+
 func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
 	typedRequest, ok := request.(node.GetRequest)
 
@@ -244,7 +255,29 @@ func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
 		return nil, fmt.Errorf("node get adapter: Deps.NodeService is nil")
 	}
 
-	return node.GetRun(deps.NodeService, typedRequest)
+	result, runErr := node.GetRun(deps.NodeService, typedRequest)
+
+	if runErr != nil {
+		return nil, runErr
+	}
+
+	wrapped := &NodeGetResult{Result: result}
+
+	if result.IncludeEdges {
+		if deps.Database == nil {
+			return nil, fmt.Errorf("node get adapter: Deps.Database is nil")
+		}
+
+		edges, edgeErr := query.LoadEdgesForNode(deps.Database, result.Node.ID)
+
+		if edgeErr != nil {
+			return nil, edgeErr
+		}
+
+		wrapped.Edges = edges
+	}
+
+	return wrapped, nil
 }
 
 // --- query adapter ---

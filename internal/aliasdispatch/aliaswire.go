@@ -4,7 +4,6 @@ import (
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/status"
 )
@@ -35,24 +34,27 @@ func ResultPayload(result *DispatchResult) any {
 			"count": len(typed.Rows),
 		}
 
-	case *node.GetResult:
+	case *NodeGetResult:
+		getResult := typed.Result
 		envelope := map[string]any{
-			"id":    typed.Node.ID,
-			"type":  typed.Node.Type,
-			"path":  typed.Node.Path,
-			"title": typed.Node.Title,
+			"id":    getResult.Node.ID,
+			"type":  getResult.Node.Type,
+			"path":  getResult.Node.Path,
+			"title": getResult.Node.Title,
 		}
 
-		if typed.IncludeProperties {
-			envelope["properties"] = typed.Node.Properties
+		if getResult.IncludeProperties {
+			envelope["properties"] = getResult.Node.Properties
 		}
 
-		if typed.IncludeEdges {
-			envelope["edges"] = typed.Node.Edges
+		// Edges are hydrated from the index by runNodeGet (both directions,
+		// with titles); node.GetResult.Node.Edges is always nil on a read.
+		if getResult.IncludeEdges {
+			envelope["edges"] = typed.Edges
 		}
 
-		if typed.IncludeBody {
-			envelope["body"] = string(typed.Node.Body)
+		if getResult.IncludeBody {
+			envelope["body"] = string(getResult.Node.Body)
 		}
 
 		return envelope

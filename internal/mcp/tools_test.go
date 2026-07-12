@@ -197,6 +197,95 @@ func TestTool_NodeGet(test *testing.T) {
 	}
 }
 
+// TestTool_NodeGet_IncludeEdges reproduces issue #706 on the MCP path:
+// tusk_node_get with include:["edges"] must hydrate edges from the index
+// instead of returning null.
+func TestTool_NodeGet_IncludeEdges(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+
+[edge-types.blocks]
+from = ["ticket"]
+to = ["ticket"]
+cardinality = "many-to-many"
+acyclic = true
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	for _, spec := range []struct{ path, title string }{
+		{"tickets/foo.md", "Foo"},
+		{"tickets/bar.md", "Bar"},
+	} {
+		if _, createErr := rt.NodeService.Create(node.CreateInput{
+			RelPath: spec.path,
+			Type:    "ticket",
+			Title:   spec.title,
+		}); createErr != nil {
+			test.Fatalf("create %s: %v", spec.path, createErr)
+		}
+	}
+
+	if _, addErr := callTool(test, srv, "tusk_edge_add", map[string]any{
+		"type":      "blocks",
+		"source_id": "tickets/foo",
+		"target_id": "tickets/bar",
+	}); addErr != nil {
+		test.Fatalf("tusk_edge_add: %v", addErr)
+	}
+
+	body, callErr := callTool(test, srv, "tusk_node_get", map[string]any{
+		"id":      "tickets/foo",
+		"include": []any{"edges"},
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_get: %v", callErr)
+	}
+
+	edgesRaw, present := body["edges"]
+
+	if !present {
+		test.Fatalf("tusk_node_get did not emit an edges key: %v", body)
+	}
+
+	if edgesRaw == nil {
+		test.Fatalf("tusk_node_get returned edges:null despite an existing blocks edge (issue #706): %v", body)
+	}
+
+	edges, ok := edgesRaw.([]any)
+
+	if !ok {
+		test.Fatalf("edges is %T, want a JSON array of edge refs: %v", edgesRaw, body)
+	}
+
+	var found bool
+
+	for _, entry := range edges {
+		edge, _ := entry.(map[string]any)
+
+		if edge["type"] == "blocks" && edge["direction"] == "out" && edge["target_id"] == "tickets/bar" {
+			found = true
+		}
+	}
+
+	if !found {
+		test.Errorf("expected an out blocks edge to tickets/bar, got: %v", edges)
+	}
+}
+
 func TestTool_NodeList(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

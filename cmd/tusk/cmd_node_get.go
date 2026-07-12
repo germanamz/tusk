@@ -94,6 +94,19 @@ structured output instead (compact for TTY, JSON otherwise).`,
 
 			payload := buildNodeGetPayload(result)
 
+			// node.GetRun reads only the nodes table, so hydrate edges from the
+			// edges table the way `query --include edges` does (both directions,
+			// with titles) rather than emitting the always-nil parse-path map.
+			if result.IncludeEdges {
+				edges, edgeErr := query.LoadEdgesForNode(store.DB(), result.Node.ID)
+
+				if edgeErr != nil {
+					return edgeErr
+				}
+
+				payload.Edges = edges
+			}
+
 			if format == formatJSON {
 				return writeJSON(cmd.OutOrStdout(), payload)
 			}
@@ -125,7 +138,7 @@ type nodeGetPayload struct {
 	Title      string
 	Body       string
 	Properties map[string]any
-	Edges      map[string][]string
+	Edges      []query.EdgeRef
 
 	includeBody       bool
 	includeEdges      bool
@@ -159,6 +172,9 @@ func (payload nodeGetPayload) MarshalJSON() ([]byte, error) {
 
 // buildNodeGetPayload converts node.GetResult to nodeGetPayload, honoring the
 // IncludeBody / IncludeEdges / IncludeProperties flags computed by GetRun.
+// Edges are left empty here — node.GetRun reads only the nodes table, so the
+// caller hydrates them from the edges table (query.LoadEdgesForNode) when
+// requested, mirroring `query --include edges`.
 func buildNodeGetPayload(result *node.GetResult) nodeGetPayload {
 	loaded := result.Node
 
@@ -169,7 +185,6 @@ func buildNodeGetPayload(result *node.GetResult) nodeGetPayload {
 		Title:             loaded.Title,
 		Body:              string(loaded.Body),
 		Properties:        loaded.Properties,
-		Edges:             loaded.Edges,
 		includeBody:       result.IncludeBody,
 		includeEdges:      result.IncludeEdges,
 		includeProperties: result.IncludeProperties,
@@ -177,31 +192,20 @@ func buildNodeGetPayload(result *node.GetResult) nodeGetPayload {
 }
 
 // renderNodeGetCompact emits a compact single-row view of a node-get result.
-// Reuses the shared compact renderer; edges are flattened to []EdgeRef with
-// direction="out" so the §4.4 form (`  → <type> <target>`) renders.
+// Reuses the shared compact renderer; edges carry their in/out direction so the
+// §4.4 form (`  → <type> <target>` / `  ← <type> <source>`) renders both sides.
 // Body / Properties / Edges are dropped from the rendered row when the
 // caller's Include filter excluded them — keeps `--include body` from
 // silently bringing back edges and properties.
 func renderNodeGetCompact(out io.Writer, payload nodeGetPayload, fields []string) error {
-	var edgeRefs []query.EdgeRef
-
-	if payload.includeEdges {
-		for edgeType, targets := range payload.Edges {
-			for _, target := range targets {
-				edgeRefs = append(edgeRefs, query.EdgeRef{
-					Type:      edgeType,
-					Direction: "out",
-					TargetID:  target,
-				})
-			}
-		}
-	}
-
 	row := render.CompactRow{
 		ID:    payload.ID,
 		Type:  payload.Type,
 		Title: payload.Title,
-		Edges: edgeRefs,
+	}
+
+	if payload.includeEdges {
+		row.Edges = payload.Edges
 	}
 
 	if payload.includeBody {

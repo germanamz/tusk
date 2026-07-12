@@ -228,6 +228,42 @@ func unmarshalProperties(raw, id string) (map[string]any, error) {
 	return properties, nil
 }
 
+// singleEdgeRow adapts a bare node id to rowLike so LoadEdgesForNode can reuse
+// loadEdgesForRows' both-direction projection. Only rowID and setEdges are
+// exercised; the body/properties setters are inert.
+type singleEdgeRow struct {
+	id    string
+	edges []EdgeRef
+}
+
+func (row *singleEdgeRow) rowID() string                { return row.id }
+func (row *singleEdgeRow) rowPath() string              { return "" }
+func (row *singleEdgeRow) rowPropertiesRaw() string     { return "" }
+func (row *singleEdgeRow) setBody(string)               {}
+func (row *singleEdgeRow) setProperties(map[string]any) {}
+func (row *singleEdgeRow) setEdges(value []EdgeRef)     { row.edges = value }
+
+// LoadEdgesForNode returns the both-direction edges attached to a single node
+// id, using the same edges-table projection as `tusk_query --include edges`
+// (EdgeRef with in/out direction and target titles). It exists so the
+// `node get` verb — whose service reads only the nodes table and cannot import
+// this package (an embed→node→query cycle) — can hydrate edges the way the
+// query path already does. Returns an empty slice when the node has no edges;
+// db must be non-nil.
+func LoadEdgesForNode(db *sql.DB, nodeID string) ([]EdgeRef, error) {
+	if db == nil {
+		return nil, fmt.Errorf("query: LoadEdgesForNode requires a non-nil db")
+	}
+
+	row := &singleEdgeRow{id: nodeID}
+
+	if loadErr := loadEdgesForRows([]rowLike{row}, db); loadErr != nil {
+		return nil, loadErr
+	}
+
+	return row.edges, nil
+}
+
 // loadEdgesForRows fetches outgoing and incoming edges for every row in a
 // single SQL query, then stitches them onto each row.
 func loadEdgesForRows(rows []rowLike, db *sql.DB) error {
