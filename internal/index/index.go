@@ -4,6 +4,7 @@ package index
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -317,4 +318,23 @@ func (idx *Index) ListTables() ([]string, error) {
 	}
 
 	return names, rows.Err()
+}
+
+// SchemaMissing reports whether this handle is stranded on a wiped, table-less
+// database — the `meta` table is absent. Every bootstrapped index has `meta`,
+// and reindex.Run's very first write (bumping `reindex_gen`) touches it, so its
+// absence is exactly the state behind the #705 incident: index.db was replaced
+// with an empty file out of band while the long-running daemon kept serving off
+// its open handle. Callers reopen (index.Open re-bootstraps the schema) on a
+// true result rather than surface a raw "no such table". A probe error (a truly
+// broken handle) reports false so callers return the original failure rather
+// than mask it behind a reopen that would not help.
+func (idx *Index) SchemaMissing() bool {
+	var name string
+
+	queryErr := idx.db.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='meta'`,
+	).Scan(&name)
+
+	return errors.Is(queryErr, sql.ErrNoRows)
 }
