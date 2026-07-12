@@ -14,7 +14,6 @@ import (
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
-	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/render"
 	"github.com/germanamz/tusk/internal/status"
@@ -195,7 +194,7 @@ func renderAliasResult(out io.Writer, result *aliasdispatch.DispatchResult, form
 		return renderAliasNodeList(out, typed, format)
 	case *query.Result:
 		return renderAliasQuery(out, typed, format)
-	case *node.GetResult:
+	case *aliasdispatch.NodeGetResult:
 		return renderAliasNodeGet(out, typed, format)
 	case *index.EdgeListResult:
 		return renderAliasEdgeList(out, typed, format)
@@ -270,34 +269,27 @@ func renderAliasQuery(out io.Writer, result *query.Result, _ outputFormat) error
 	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
 }
 
-func renderAliasNodeGet(out io.Writer, result *node.GetResult, _ outputFormat) error {
-	var edgeRefs []query.EdgeRef
-
-	if result.IncludeEdges {
-		for edgeType, targets := range result.Node.Edges {
-			for _, target := range targets {
-				edgeRefs = append(edgeRefs, query.EdgeRef{
-					Type:      edgeType,
-					Direction: "out",
-					TargetID:  target,
-				})
-			}
-		}
-	}
+func renderAliasNodeGet(out io.Writer, result *aliasdispatch.NodeGetResult, _ outputFormat) error {
+	getResult := result.Result
 
 	row := render.CompactRow{
-		ID:    result.Node.ID,
-		Type:  result.Node.Type,
-		Title: result.Node.Title,
-		Edges: edgeRefs,
+		ID:    getResult.Node.ID,
+		Type:  getResult.Node.Type,
+		Title: getResult.Node.Title,
 	}
 
-	if result.IncludeBody {
-		row.Body = string(result.Node.Body)
+	// Edges are hydrated from the index by runNodeGet (both directions, with
+	// titles); getResult.Node.Edges is always nil on an index read.
+	if getResult.IncludeEdges {
+		row.Edges = result.Edges
 	}
 
-	if result.IncludeProperties {
-		row.Properties = result.Node.Properties
+	if getResult.IncludeBody {
+		row.Body = string(getResult.Node.Body)
+	}
+
+	if getResult.IncludeProperties {
+		row.Properties = getResult.Node.Properties
 	}
 
 	return render.CompactNodeRows(out, []render.CompactRow{row}, render.CompactOpts{})

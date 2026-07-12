@@ -381,6 +381,22 @@ func registerNodeGetTool(srv *Server) {
 		}
 
 		loaded := result.Node
+
+		// node.GetRun reads only the nodes table (loaded.Edges is always nil on
+		// an index read), so hydrate edges from the edges table the same way
+		// `tusk_query --include edges` does — both directions, with titles.
+		var edges []query.EdgeRef
+
+		if result.IncludeEdges {
+			hydrated, edgeErr := query.LoadEdgesForNode(srv.runtime.Index.DB(), loaded.ID)
+
+			if edgeErr != nil {
+				return toolError(edgeErr), nil
+			}
+
+			edges = hydrated
+		}
+
 		payload := map[string]any{
 			"id":    loaded.ID,
 			"type":  loaded.Type,
@@ -393,7 +409,7 @@ func registerNodeGetTool(srv *Server) {
 		}
 
 		if result.IncludeEdges {
-			payload["edges"] = loaded.Edges
+			payload["edges"] = edges
 		}
 
 		if result.IncludeBody {
@@ -401,25 +417,11 @@ func registerNodeGetTool(srv *Server) {
 		}
 
 		if format == "compact" {
-			var edgeRefs []query.EdgeRef
-
-			if result.IncludeEdges {
-				for edgeType, targets := range loaded.Edges {
-					for _, target := range targets {
-						edgeRefs = append(edgeRefs, query.EdgeRef{
-							Type:      edgeType,
-							Direction: "out",
-							TargetID:  target,
-						})
-					}
-				}
-			}
-
 			row := render.CompactRow{
 				ID:    loaded.ID,
 				Type:  loaded.Type,
 				Title: loaded.Title,
-				Edges: edgeRefs,
+				Edges: edges,
 			}
 
 			if result.IncludeBody {

@@ -174,3 +174,72 @@ func TestExpandListRows_Edges(test *testing.T) {
 		test.Errorf("row[b] edges: %+v", rows[1].Edges)
 	}
 }
+
+func TestLoadEdgesForNode(test *testing.T) {
+	tmp := test.TempDir()
+	store, openErr := index.Open(filepath.Join(tmp, "idx.db"))
+
+	if openErr != nil {
+		test.Fatal(openErr)
+	}
+
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	edges := index.NewEdgeRepo(store)
+
+	if err := nodes.Upsert(index.NodeRow{ID: "a", Type: "note", Path: "a.md", Title: "Alpha"}); err != nil {
+		test.Fatal(err)
+	}
+
+	if err := nodes.Upsert(index.NodeRow{ID: "b", Type: "note", Path: "b.md", Title: "Beta"}); err != nil {
+		test.Fatal(err)
+	}
+
+	if err := edges.UpsertAll("a", "a.md", []index.EdgeRow{{Type: "links", SourceID: "a", TargetID: "b", SourcePath: "a.md", Kind: "direct"}}); err != nil {
+		test.Fatal(err)
+	}
+
+	// Source side: one outgoing edge to b, titled.
+	outEdges, outErr := LoadEdgesForNode(store.DB(), "a")
+
+	if outErr != nil {
+		test.Fatalf("LoadEdgesForNode(a): %v", outErr)
+	}
+
+	if len(outEdges) != 1 || outEdges[0].Direction != "out" || outEdges[0].TargetID != "b" || outEdges[0].TargetTitle != "Beta" {
+		test.Errorf("a edges: %+v", outEdges)
+	}
+
+	// Target side: the same edge surfaces as an incoming edge — both directions
+	// are hydrated (parity with `tusk_query --include edges`).
+	inEdges, inErr := LoadEdgesForNode(store.DB(), "b")
+
+	if inErr != nil {
+		test.Fatalf("LoadEdgesForNode(b): %v", inErr)
+	}
+
+	if len(inEdges) != 1 || inEdges[0].Direction != "in" || inEdges[0].TargetID != "a" || inEdges[0].TargetTitle != "Alpha" {
+		test.Errorf("b edges: %+v", inEdges)
+	}
+
+	// An edgeless node returns no edges (not an error).
+	if err := nodes.Upsert(index.NodeRow{ID: "c", Type: "note", Path: "c.md", Title: "Gamma"}); err != nil {
+		test.Fatal(err)
+	}
+
+	noEdges, noErr := LoadEdgesForNode(store.DB(), "c")
+
+	if noErr != nil {
+		test.Fatalf("LoadEdgesForNode(c): %v", noErr)
+	}
+
+	if len(noEdges) != 0 {
+		test.Errorf("c edges: want none, got %+v", noEdges)
+	}
+
+	// A nil db is a programmer error, surfaced explicitly.
+	if _, nilErr := LoadEdgesForNode(nil, "a"); nilErr == nil {
+		test.Errorf("expected an error for a nil db")
+	}
+}
