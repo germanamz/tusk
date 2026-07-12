@@ -48,6 +48,7 @@ func ParseFile(relPath string, content []byte) (*Node, error) {
 	title, _ := properties["title"].(string)
 
 	properties = normalizeYAMLNumbers(properties)
+	properties = normalizeWikilinkSequences(properties)
 
 	return &Node{
 		ID:         strings.TrimSuffix(relPath, filepath.Ext(relPath)),
@@ -109,4 +110,44 @@ func normalizeYAMLNumbers(values map[string]any) map[string]any {
 	}
 
 	return values
+}
+
+// normalizeWikilinkSequences reconstructs the one YAML shape an unquoted
+// frontmatter wikilink collapses to. `key: [[id]]` is not a string to the YAML
+// parser — the doubled brackets are two nested flow sequences, so it decodes to
+// []any{[]any{"id"}}. Tusk has no nested-list property type (list-of cannot
+// nest), so that shape is never a legitimate value; left in place ResolveEdges
+// rejects it and the reindex worker drops the whole file from the index (#692).
+// Rewrite the exact single-item-inside-single-item shape back to the "[[id]]"
+// scalar the human wrote so the wikilink resolves like its quoted twin. Any
+// wider or deeper nesting matches no wikilink and is left untouched to surface
+// as a shape error.
+func normalizeWikilinkSequences(values map[string]any) map[string]any {
+	for key, value := range values {
+		if inner, ok := singleNestedString(value); ok {
+			values[key] = "[[" + inner + "]]"
+		}
+	}
+
+	return values
+}
+
+// singleNestedString returns the lone string in a []any{[]any{s}} value — the
+// decoded form of an unquoted `[[s]]` wikilink — and false for any other shape.
+func singleNestedString(value any) (string, bool) {
+	outer, isOuter := value.([]any)
+
+	if !isOuter || len(outer) != 1 {
+		return "", false
+	}
+
+	inner, isInner := outer[0].([]any)
+
+	if !isInner || len(inner) != 1 {
+		return "", false
+	}
+
+	str, isString := inner[0].(string)
+
+	return str, isString
 }
