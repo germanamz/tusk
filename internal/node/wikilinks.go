@@ -8,9 +8,26 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
-// wikilinkPattern matches `[[target]]` where target is one or more characters
-// that do not include `[`, `]`, or pipe `|`.
-var wikilinkPattern = regexp.MustCompile(`\[\[([^\[\]|]+)\]\]`)
+// wikilinkPattern matches `[[target]]` and the Obsidian aliased form
+// `[[target|display]]`. The captured group is the whole inner text (target plus
+// any `|display` suffix); splitWikilinkAlias separates the two. `[` and `]` still
+// terminate the class so a link can never span brackets or run past its `]]`.
+var wikilinkPattern = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
+
+// splitWikilinkAlias splits a wikilink's inner text (the run between `[[` and
+// `]]`) into its link target and Obsidian-style `|alias` display suffix. The
+// target — everything before the first `|` — is trimmed; the alias is returned
+// verbatim with its leading `|` (empty when the link carries no alias), so a
+// rewrite can substitute a new target and keep the display text byte-for-byte.
+// `[[id|Label]]` links to `id`; the label is presentation only and is never
+// resolved. A sub-unit fragment (`[[id#S1|Label]]`) stays with the target.
+func splitWikilinkAlias(inner string) (target, alias string) {
+	if pipe := strings.IndexByte(inner, '|'); pipe >= 0 {
+		return strings.TrimSpace(inner[:pipe]), inner[pipe:]
+	}
+
+	return strings.TrimSpace(inner), ""
+}
 
 // ExtractWikilinks returns the unique list of wikilink targets from body,
 // in first-seen order, ignoring fenced code blocks (```…```).
@@ -22,7 +39,7 @@ func ExtractWikilinks(body []byte) []string {
 	var ordered []string
 
 	for _, match := range matches {
-		target := strings.TrimSpace(string(match[1]))
+		target, _ := splitWikilinkAlias(string(match[1]))
 
 		if target == "" {
 			continue

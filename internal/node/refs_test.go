@@ -93,6 +93,31 @@ func TestResolveRefs_WikilinkResolvesToNodeID(test *testing.T) {
 	}
 }
 
+// #690: an aliased wikilink `[[id|display]]` in a ref-property value resolves
+// to id, dropping the display suffix — the same rule the body extractor uses.
+func TestResolveRefs_AliasedWikilinkResolvesToNodeID(test *testing.T) {
+	parsed := newParsedNode("tickets/auth", "ticket", map[string]any{"assignee": "[[people/alice|Alice A.]]"})
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "assignee", Type: "ref", To: "person"}}},
+	}
+
+	lookup := &fakeRefLookup{
+		titles: map[string]map[string][]string{},
+		ids:    map[string]string{"people/alice": "person"},
+	}
+
+	result := node.ResolveRefs(parsed, decls, lookup)
+
+	if len(result.HardErrors) > 0 {
+		test.Fatalf("HardErrors = %v", result.HardErrors)
+	}
+
+	if len(result.Edges) != 1 || result.Edges[0].TargetID != "people/alice" {
+		test.Fatalf("Edges = %+v", result.Edges)
+	}
+}
+
 func TestResolveRefs_DanglingTitleHardErrors(test *testing.T) {
 	parsed := newParsedNode("tickets/auth", "ticket", map[string]any{"assignee": "missing"})
 

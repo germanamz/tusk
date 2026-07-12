@@ -210,8 +210,10 @@ func resolveOneValue(propName, value, targetType string, lookup RefLookup) (*Ref
 
 	matches := refWikilinkPattern.FindStringSubmatch(trimmed)
 	if len(matches) == 2 {
-		// Wikilink branch: resolve by node ID.
-		nodeID := matches[1]
+		// Wikilink branch: resolve by node ID, dropping any `|alias` display
+		// suffix so `[[id|Label]]` resolves to id exactly like a bare `[[id]]`
+		// (#690). The raw value is still reported in diagnostics below.
+		nodeID, _ := splitWikilinkAlias(matches[1])
 		foundType, found := lookup.FindByID(nodeID)
 
 		if !found {
