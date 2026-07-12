@@ -3,6 +3,7 @@ package filter_test
 import (
 	"database/sql"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"testing"
 
@@ -135,6 +136,98 @@ func TestCompile_HierarchyShortcutsReturnCorrectRows(test *testing.T) {
 				if got[pos] != testCase.want[pos] {
 					subtest.Fatalf("ids = %v, want %v", got, testCase.want)
 				}
+			}
+		})
+	}
+}
+
+// TestCompile_HierarchyShortcutOrderIndependentRows pins the AND-commutativity of
+// tree=/root= shortcuts: a recursive-CTE shortcut must return the same rows
+// regardless of whether it is the leftmost leaf of the expression. It is the
+// regression for the bind-param bug where CTE placeholders (positionally first in
+// the assembled `WITH RECURSIVE … SELECT`) were bound against AST-order params, so
+// `type=ticket AND tree=root` seeded the walk from the bogus node id "ticket" and
+// silently returned 0 rows while `tree=root AND type=ticket` worked.
+//
+//	root
+//	├── a   (parent: root)
+//	│   └── a1 (parent: a)
+//	└── b   (parent: root)
+func TestCompile_HierarchyShortcutOrderIndependentRows(test *testing.T) {
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+	edges := index.NewEdgeRepo(store)
+
+	for _, id := range []string{"root", "a", "a1", "b"} {
+		if upsertErr := nodes.Upsert(index.NodeRow{ID: id, Type: "ticket", Path: id + ".md", Title: id}); upsertErr != nil {
+			test.Fatalf("upsert %s: %v", id, upsertErr)
+		}
+	}
+
+	links := []struct {
+		child, parent string
+	}{
+		{"a", "root"},
+		{"a1", "a"},
+		{"b", "root"},
+	}
+
+	for _, link := range links {
+		if upsertErr := edges.UpsertAll(link.child, link.child+".md", []index.EdgeRow{
+			{Type: "parent", SourceID: link.child, TargetID: link.parent, SourcePath: link.child + ".md", Kind: "direct"},
+		}); upsertErr != nil {
+			test.Fatalf("edge %s→%s: %v", link.child, link.parent, upsertErr)
+		}
+	}
+
+	typeTicket := func() filter.Expr {
+		return &filter.PropertyPredicate{Property: "type", Op: filter.OpEQ, Value: filter.StringValue{V: "ticket"}}
+	}
+	tree := func(id string) filter.Expr {
+		return &filter.TraversalShortcut{Kind: filter.ShortcutTree, NodeID: id, EdgeType: "parent"}
+	}
+	root := func(id string) filter.Expr {
+		return &filter.TraversalShortcut{Kind: filter.ShortcutRoot, NodeID: id, EdgeType: "parent"}
+	}
+
+	cases := []struct {
+		name          string
+		shortcutFirst filter.Expr
+		shortcutLast  filter.Expr
+		want          []string
+	}{
+		{
+			name:          "tree=root",
+			shortcutFirst: &filter.AndExpr{Left: tree("root"), Right: typeTicket()},
+			shortcutLast:  &filter.AndExpr{Left: typeTicket(), Right: tree("root")},
+			want:          []string{"a", "a1", "b"},
+		},
+		{
+			name:          "root=a1",
+			shortcutFirst: &filter.AndExpr{Left: root("a1"), Right: typeTicket()},
+			shortcutLast:  &filter.AndExpr{Left: typeTicket(), Right: root("a1")},
+			want:          []string{"a", "a1", "b", "root"},
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(subtest *testing.T) {
+			gotFirst := runHierarchyFilter(subtest, store, testCase.shortcutFirst)
+			gotLast := runHierarchyFilter(subtest, store, testCase.shortcutLast)
+
+			if !reflect.DeepEqual(gotFirst, testCase.want) {
+				subtest.Errorf("shortcut-first ids = %v, want %v", gotFirst, testCase.want)
+			}
+
+			if !reflect.DeepEqual(gotLast, testCase.want) {
+				subtest.Errorf("shortcut-last ids = %v, want %v (AND must be commutative)", gotLast, testCase.want)
 			}
 		})
 	}
