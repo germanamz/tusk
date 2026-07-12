@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.3](https://github.com/germanamz/tusk/compare/v2.1.2...v2.1.3) (2026-07-12)
+
+
+### Bug Fixes
+
+* **filter:** bind recursive-CTE params ahead of WHERE params ([#707](https://github.com/germanamz/tusk/issues/707)) ([c8bf267](https://github.com/germanamz/tusk/commit/c8bf267b9480d640178d3640eff55c15d2c170f7)), closes [#704](https://github.com/germanamz/tusk/issues/704)
+* **index:** recover a wiped index and rebuild schema atomically ([#709](https://github.com/germanamz/tusk/issues/709)) ([a81897e](https://github.com/germanamz/tusk/commit/a81897ef071c11bb153615c797bde8ba4ea3fb39))
+* **node:** hydrate edges on node get --include edges ([#706](https://github.com/germanamz/tusk/issues/706)) ([#710](https://github.com/germanamz/tusk/issues/710)) ([d8196a3](https://github.com/germanamz/tusk/commit/d8196a3d5e5727f28075ee4d6b0a28257e077fc0))
+
 ## [2.1.2](https://github.com/germanamz/tusk/compare/v2.1.1...v2.1.2) (2026-07-12)
 
 
