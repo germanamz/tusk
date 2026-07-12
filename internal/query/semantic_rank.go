@@ -6,6 +6,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/graphexpand"
+	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/typeref"
 )
 
@@ -26,7 +27,13 @@ type blendedTrace struct {
 // inactive it returns (ranked, nil, nil) unchanged, so callers gate Explain
 // output on a non-nil trace map. Used by both the file-level (query_service.go)
 // and leaf-level (semantic_subunits.go) semantic ranking paths.
-func expandAndBlend(ctx context.Context, deps Deps, req Request, ranked []filter.ScoredResult) ([]filter.ScoredResult, map[string]blendedTrace, error) {
+//
+// collapse, when non-nil, is applied to every walked candidate id and edge
+// endpoint after the walk and before the blend. The sub-unit file-level path
+// passes fileIDFromSubUnit so section-anchored cross-file edges ([[other#S1]])
+// fold to their parent file and lift it like a plain file-level link (#688
+// finding 2); the file-level path passes nil (its ids are already files).
+func expandAndBlend(ctx context.Context, deps Deps, req Request, ranked []filter.ScoredResult, collapse func(string) string) ([]filter.ScoredResult, map[string]blendedTrace, error) {
 	if req.GraphExpansion == nil || !req.GraphExpansion.Enabled {
 		return ranked, nil, nil
 	}
@@ -84,6 +91,23 @@ func expandAndBlend(ctx context.Context, deps Deps, req Request, ranked []filter
 
 	if walkErr != nil {
 		return nil, nil, fmt.Errorf("query: graph expansion walk: %w", walkErr)
+	}
+
+	if collapse != nil {
+		walkedCandidates, walkedEdges = collapseWalkToFileLevel(walkedCandidates, walkedEdges, collapse)
+	}
+
+	// Drop walked-in candidates (never seeds) that have no live nodes row so
+	// dangling wikilink targets ([[does/not-exist]]) don't surface as ghost
+	// result rows with empty type/path/title (#688 finding 3). Seeds are real
+	// by construction (they carry embeddings / came from the structural
+	// pre-filter), so they are always kept.
+	if deps.Nodes != nil {
+		walkedCandidates, walkedEdges, walkErr = dropDanglingCandidates(walkedCandidates, walkedEdges, seedScores, deps.Nodes)
+
+		if walkErr != nil {
+			return nil, nil, fmt.Errorf("query: graph expansion existence check: %w", walkErr)
+		}
 	}
 
 	blender := graphexpand.Blender{Weight: req.GraphExpansion.Weight}
@@ -158,46 +182,161 @@ func expandAndBlendFileLevel(ctx context.Context, deps Deps, req Request, leafRa
 		fileRanked = append(fileRanked, filter.ScoredResult{NodeID: fileID, Score: leaf.Score})
 	}
 
-	_, fileBlend, blendErr := expandAndBlend(ctx, deps, req, fileRanked)
+	// Collapse walked candidate ids and edge endpoints to their parent file
+	// (fileIDFromSubUnit) before blending: seed files already join at file
+	// level, so a cross-file edge whose endpoint is a sub-unit id
+	// ([[other#S1]], structural `contains` targets) must fold to its file to
+	// contribute graph signal — and folded candidates never surface as '#'
+	// rows (#688 finding 2, subsuming the old per-trace re-attribution).
+	_, fileBlend, blendErr := expandAndBlend(ctx, deps, req, fileRanked, fileIDFromSubUnit)
 
 	if blendErr != nil {
 		return nil, blendErr
 	}
 
-	mergeSubUnitTraces(fileBlend)
-
 	return fileBlend, nil
 }
 
-// mergeSubUnitTraces re-attributes walked-in sub-unit candidates to their
-// parent FILE id, in place. The walk reaches `file#hash` ids two ways:
-// structural `contains` edges from a seed file to its own sub-units (parent
-// already traced — the sub-unit entry is simply dropped), and cross-file
-// edges that target another file's sub-unit (wikilinks like [[b#S1P3]] or
-// agent-added edges). For the cross-file case the parent inherits the
-// sub-unit's graph-derived trace — strongest Final wins across several
-// walked-in sub-units — so the file surfaces as the result row; rows on this
-// path never carry '#' ids.
-func mergeSubUnitTraces(fileBlend map[string]blendedTrace) {
-	for id, trace := range fileBlend {
-		parentID := fileIDFromSubUnit(id)
+// collapseWalkToFileLevel rewrites every walked candidate id and edge endpoint
+// through collapse (fileIDFromSubUnit for the sub-unit path), so a walk that
+// reached a sub-unit id ([[other#S1]], structural `contains` targets) is scored
+// at file granularity. Candidates mapping to the same id merge — the smallest
+// distance and largest cosine win, matching the file seed aggregation — and
+// edges that collapse to a self-loop (a file's own `contains` edge) are dropped.
+func collapseWalkToFileLevel(
+	candidates []graphexpand.Candidate,
+	edges []graphexpand.NeighborEdge,
+	collapse func(string) string,
+) ([]graphexpand.Candidate, []graphexpand.NeighborEdge) {
+	merged := make(map[string]graphexpand.Candidate, len(candidates))
+	order := make([]string, 0, len(candidates))
 
-		if parentID == id {
+	for _, candidate := range candidates {
+		id := collapse(candidate.NodeID)
+
+		existing, seen := merged[id]
+
+		if !seen {
+			merged[id] = graphexpand.Candidate{
+				NodeID:      id,
+				CosineScore: candidate.CosineScore,
+				Distance:    candidate.Distance,
+			}
+			order = append(order, id)
+
 			continue
 		}
 
-		delete(fileBlend, id)
+		existing.Distance = min(existing.Distance, candidate.Distance)
+		existing.CosineScore = max(existing.CosineScore, candidate.CosineScore)
 
-		// A parent with its own seed trace keeps it; a parent walked in with
-		// a weaker signal is upgraded to the strongest sub-unit trace.
-		if existing, exists := fileBlend[parentID]; exists {
-			if existing.Distance == 0 || existing.Final >= trace.Final {
-				continue
-			}
+		merged[id] = existing
+	}
+
+	collapsedCandidates := make([]graphexpand.Candidate, 0, len(order))
+
+	for _, id := range order {
+		collapsedCandidates = append(collapsedCandidates, merged[id])
+	}
+
+	seenEdge := make(map[string]struct{}, len(edges))
+	collapsedEdges := make([]graphexpand.NeighborEdge, 0, len(edges))
+
+	for _, edge := range edges {
+		source, target := collapse(edge.Source), collapse(edge.Target)
+
+		if source == target {
+			continue
 		}
 
-		fileBlend[parentID] = trace
+		first, second := source, target
+
+		if first > second {
+			first, second = second, first
+		}
+
+		key := edge.Type + "|" + first + "|" + second
+
+		if _, dupe := seenEdge[key]; dupe {
+			continue
+		}
+
+		seenEdge[key] = struct{}{}
+		collapsedEdges = append(collapsedEdges, graphexpand.NeighborEdge{
+			Source: source,
+			Target: target,
+			Type:   edge.Type,
+		})
 	}
+
+	return collapsedCandidates, collapsedEdges
+}
+
+// dropDanglingCandidates removes walked-in candidates (non-seeds) whose id has
+// no live nodes row and prunes any edge touching one, so a wikilink to a note
+// that does not exist ([[does/not-exist]]) never becomes a scored ghost row
+// with empty type/path/title (#688 finding 3). A dangling target is never a
+// seed, so this can only ever lower noise — real nodes' graph scores are
+// unaffected.
+func dropDanglingCandidates(
+	candidates []graphexpand.Candidate,
+	edges []graphexpand.NeighborEdge,
+	seedScores map[string]float64,
+	nodes *index.NodeRepo,
+) ([]graphexpand.Candidate, []graphexpand.NeighborEdge, error) {
+	toCheck := make([]string, 0, len(candidates))
+
+	for _, candidate := range candidates {
+		if _, isSeed := seedScores[candidate.NodeID]; isSeed {
+			continue
+		}
+
+		toCheck = append(toCheck, candidate.NodeID)
+	}
+
+	if len(toCheck) == 0 {
+		return candidates, edges, nil
+	}
+
+	rows, listErr := nodes.ListByIDs(toCheck)
+
+	if listErr != nil {
+		return nil, nil, listErr
+	}
+
+	live := make(map[string]struct{}, len(rows))
+
+	for _, row := range rows {
+		live[row.ID] = struct{}{}
+	}
+
+	keep := func(id string) bool {
+		if _, isSeed := seedScores[id]; isSeed {
+			return true
+		}
+
+		_, exists := live[id]
+
+		return exists
+	}
+
+	keptCandidates := make([]graphexpand.Candidate, 0, len(candidates))
+
+	for _, candidate := range candidates {
+		if keep(candidate.NodeID) {
+			keptCandidates = append(keptCandidates, candidate)
+		}
+	}
+
+	keptEdges := make([]graphexpand.NeighborEdge, 0, len(edges))
+
+	for _, edge := range edges {
+		if keep(edge.Source) && keep(edge.Target) {
+			keptEdges = append(keptEdges, edge)
+		}
+	}
+
+	return keptCandidates, keptEdges, nil
 }
 
 // clipUnitScore clamps a cosine to [0, 1], mirroring graphexpand's blender

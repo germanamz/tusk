@@ -365,7 +365,9 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 	// fallback for walked-in neighbors (spec §6.5), so keep it in scope here.
 	graphExpansionActive := req.GraphExpansion != nil && req.GraphExpansion.Enabled
 
-	ranked, blendedByID, blendErr := expandAndBlend(ctx, deps, req, ranked)
+	// File-level path: ranked ids are already file/node ids, so no collapse
+	// is needed (nil).
+	ranked, blendedByID, blendErr := expandAndBlend(ctx, deps, req, ranked, nil)
 
 	if blendErr != nil {
 		return nil, blendErr

@@ -151,6 +151,45 @@ func argIntOptional(request mcpgo.CallToolRequest, key string, defaultValue int)
 	return defaultValue
 }
 
+// argIntOptionalStrict extracts an optional numeric argument as an int. Absent
+// keys yield defaultValue with no error; a present-but-non-numeric value (e.g.
+// the JSON string "2") is a hard error rather than a silent fallback, so the
+// caller learns its argument was rejected instead of a different value being
+// applied (#688 finding 4).
+func argIntOptionalStrict(request mcpgo.CallToolRequest, key string, defaultValue int) (int, error) {
+	raw, present := request.GetArguments()[key]
+
+	if !present {
+		return defaultValue, nil
+	}
+
+	value, ok := coerceMCPInt(raw)
+
+	if !ok {
+		return 0, fmt.Errorf("%s: must be a number (got %T)", key, raw)
+	}
+
+	return value, nil
+}
+
+// argFloatOptionalStrict is the float64 twin of argIntOptionalStrict: absent →
+// default, present-and-numeric → value, present-but-non-numeric → error.
+func argFloatOptionalStrict(request mcpgo.CallToolRequest, key string, defaultValue float64) (float64, error) {
+	raw, present := request.GetArguments()[key]
+
+	if !present {
+		return defaultValue, nil
+	}
+
+	value, ok := coerceMCPFloat(raw)
+
+	if !ok {
+		return 0, fmt.Errorf("%s: must be a number (got %T)", key, raw)
+	}
+
+	return value, nil
+}
+
 // argBoolOptional extracts an optional boolean argument from the request.
 // Returns defaultValue when the key is absent or not a bool.
 func argBoolOptional(request mcpgo.CallToolRequest, key string, defaultValue bool) bool {
@@ -265,23 +304,6 @@ func coerceMCPFloat(raw any) (float64, bool) {
 	}
 
 	return 0, false
-}
-
-// argFloatOptional extracts an optional numeric argument from the request as a
-// float64. Returns defaultValue when the key is absent or not numeric.
-func argFloatOptional(request mcpgo.CallToolRequest, key string, defaultValue float64) float64 {
-	args := request.GetArguments()
-
-	raw, ok := args[key]
-	if !ok {
-		return defaultValue
-	}
-
-	if value, coerced := coerceMCPFloat(raw); coerced {
-		return value
-	}
-
-	return defaultValue
 }
 
 // argMap extracts an optional map argument from the request.
@@ -662,6 +684,24 @@ func registerQueryTool(srv *Server) {
 
 		explain := argBoolOptional(request, "explain", false)
 
+		take, takeErr := argIntOptionalStrict(request, "take", 0)
+
+		if takeErr != nil {
+			return toolError(takeErr), nil
+		}
+
+		skip, skipErr := argIntOptionalStrict(request, "skip", 0)
+
+		if skipErr != nil {
+			return toolError(skipErr), nil
+		}
+
+		minScore, minScoreErr := argFloatOptionalStrict(request, "min_score", 0.5)
+
+		if minScoreErr != nil {
+			return toolError(minScoreErr), nil
+		}
+
 		result, runErr := query.Run(ctx, query.Deps{
 			Database:   srv.runtime.Index.DB(),
 			Manifest:   srv.runtime.Manifest,
@@ -672,10 +712,10 @@ func registerQueryTool(srv *Server) {
 		}, query.Request{
 			Filter:   filterText,
 			Sort:     argStringOptional(request, "sort"),
-			Take:     argIntOptional(request, "take", 0),
-			Skip:     argIntOptional(request, "skip", 0),
+			Take:     take,
+			Skip:     skip,
 			Semantic: argStringOptional(request, "semantic"),
-			MinScore: argFloatOptional(request, "min_score", 0.5),
+			MinScore: minScore,
 			// MCP keeps tool responses bounded by defaulting semantic page
 			// size to 10 and structural reads to 50 when take is unset (the CLI
 			// leaves both uncapped and returns every matching row).
@@ -810,14 +850,16 @@ func registerQueryTool(srv *Server) {
 				entry["matched_units"] = scored.MatchedUnits
 			}
 
-			// Explain-trace fields are surfaced only when the caller
-			// asked for them (Request.Explain) AND graph expansion
-			// actually populated a breakdown. The query service zeroes
-			// the four fields when Explain is off, so the inner
-			// non-zero guard suppresses the all-zero breakdown that
-			// would otherwise appear when Explain is on without graph
-			// expansion — emitting it would serve no purpose.
-			if explain && (scored.FinalScore != 0 || scored.CosineScore != 0 || scored.GraphScore != 0) {
+			// Explain-trace fields are surfaced when the caller asked for
+			// them (Request.Explain) AND graph expansion actually ran — the
+			// only mode that populates a per-row breakdown. Gating on
+			// expansion-active (not on the scores being non-zero) keeps the
+			// trace, including `distance`, on all-zero rows such as a hop-2
+			// neighbor that blends toward zero — precisely the rows a caller
+			// most needs to explain (#688). When Explain is on without
+			// expansion the query service leaves the fields zero and this
+			// gate stays closed.
+			if explain && graphExpansion != nil && graphExpansion.Enabled {
 				entry["cosine_score"] = scored.CosineScore
 				entry["graph_score"] = scored.GraphScore
 				entry["final_score"] = scored.FinalScore

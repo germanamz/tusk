@@ -23,12 +23,21 @@ type Blender struct {
 	Weight float64 // [0, 1]
 }
 
-// Score blends cosine and graph scores per spec §6.1:
+// Score blends cosine and graph scores per spec §6.1, extended with per-hop
+// decay for distance > 1:
 //
-//	graph_score(c) = avg of cosine scores of c's neighbors that are in the
-//	                 seed set (the top-K cosine candidates), 0 if c has no
-//	                 such neighbors.
+//	graph_score(c) at distance <= 1 = avg of cosine scores of c's neighbors
+//	                 that are in the seed set (the top-K cosine candidates),
+//	                 0 if c has no such neighbors.
+//	graph_score(c) at distance d >= 2 = Weight * avg of graph_score over c's
+//	                 neighbors one hop closer to the seed set (distance d-1).
 //	final_score(c) = (1 - Weight) * cosine + Weight * graph_score
+//
+// The distance>=2 rule is what makes Weight the "per-hop attenuation" the
+// manifest documents: a hop-2 neighbor of a strong seed surfaces with a
+// Weight^2-style non-zero score instead of bottoming out at exactly 0. BFS
+// guarantees every distance-d node has at least one distance-(d-1) neighbor,
+// so the graph signal always has a path to decay along (#688 finding 1).
 //
 // Cosine clip: embed.CosineSimilarity returns the mathematical cosine in
 // [-1, 1]. nomic-embed-text rarely produces negative similarities for natural
@@ -43,7 +52,7 @@ type Blender struct {
 //	            walked neighbors carry CosineScore=0 and Distance > 0.
 //	edges:      walker's neighbor edges, already deduped (undirected).
 //	seedScores: the original cosine top-K, keyed by NodeID. Only seeds
-//	            contribute to a candidate's graph_score.
+//	            contribute to a distance<=1 candidate's graph_score.
 //
 // Output: one Scored per candidate, sorted by FinalScore desc, ties broken
 // by (Distance asc, NodeID asc).
@@ -76,12 +85,43 @@ func (blender *Blender) Score(
 		clippedSeeds[nodeID] = clipUnit(score)
 	}
 
-	out := make([]Scored, 0, len(candidates))
+	// Per-hop decay reads the already-computed graph_score of nodes one hop
+	// closer to the seeds, so process candidates in ascending-distance order
+	// and remember each node's distance + graph_score as we go. A stable copy
+	// keeps the caller's slice untouched.
+	distanceByID := make(map[string]int, len(candidates))
 
 	for _, candidate := range candidates {
+		distanceByID[candidate.NodeID] = candidate.Distance
+	}
+
+	ordered := make([]Candidate, len(candidates))
+	copy(ordered, candidates)
+	sort.SliceStable(ordered, func(left, right int) bool {
+		return ordered[left].Distance < ordered[right].Distance
+	})
+
+	graphByID := make(map[string]float64, len(ordered))
+	out := make([]Scored, 0, len(ordered))
+
+	for _, candidate := range ordered {
 		cosine := clipUnit(candidate.CosineScore)
 
-		graphScore := computeGraphScore(candidate.NodeID, neighborsByNode[candidate.NodeID], clippedSeeds)
+		var graphScore float64
+
+		if candidate.Distance <= 1 {
+			graphScore = computeGraphScore(candidate.NodeID, neighborsByNode[candidate.NodeID], clippedSeeds)
+		} else {
+			graphScore = blender.Weight * propagateGraphScore(
+				candidate.NodeID,
+				candidate.Distance,
+				neighborsByNode[candidate.NodeID],
+				distanceByID,
+				graphByID,
+			)
+		}
+
+		graphByID[candidate.NodeID] = graphScore
 
 		final := (1-blender.Weight)*cosine + blender.Weight*graphScore
 
@@ -145,6 +185,54 @@ func computeGraphScore(nodeID string, neighbors []string, seedScores map[string]
 		}
 
 		total += score
+		count++
+	}
+
+	if count == 0 {
+		return 0
+	}
+
+	return total / float64(count)
+}
+
+// propagateGraphScore returns the average graph_score of nodeID's neighbors
+// that sit one hop closer to the seed set (distance == nodeDistance-1). The
+// caller multiplies the result by Weight, so a distance-d node's graph signal
+// is the decayed share of the strongest layer that reached it. Neighbors at
+// the same or greater distance are ignored — they carry no fresher seed
+// signal — and a node is never its own neighbor. Returns 0 when no closer
+// neighbor exists (BFS makes that impossible for a genuine distance-d node,
+// but a pruned/orphaned candidate degrades cleanly to 0).
+func propagateGraphScore(
+	nodeID string,
+	nodeDistance int,
+	neighbors []string,
+	distanceByID map[string]int,
+	graphByID map[string]float64,
+) float64 {
+	var (
+		total float64
+		count int
+	)
+
+	seen := make(map[string]struct{}, len(neighbors))
+
+	for _, neighborID := range neighbors {
+		if neighborID == nodeID {
+			continue
+		}
+
+		if _, dupe := seen[neighborID]; dupe {
+			continue
+		}
+
+		seen[neighborID] = struct{}{}
+
+		if distanceByID[neighborID] != nodeDistance-1 {
+			continue
+		}
+
+		total += graphByID[neighborID]
 		count++
 	}
 

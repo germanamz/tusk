@@ -139,6 +139,49 @@ func TestBlender_Hop1NeighborGraphScoreAvgOfSeedNeighbors(test *testing.T) {
 	}
 }
 
+func TestBlender_Hop2NeighborDecaysFromHop1GraphScore(test *testing.T) {
+	// Seed a (0.8). n reached at hop 1 (a-n), m reached at hop 2 (n-m). m has
+	// no seed neighbor, so under the seed-neighbor-only rule its graph_score
+	// would be exactly 0 and hops=2 would add only a zero-scored noise row
+	// (#688 finding 1). With per-hop decay m instead inherits an attenuated
+	// share of its hop-1 neighbor's graph_score:
+	//
+	//	graph(n) = avg seed-neighbor cosine   = 0.8
+	//	graph(m) = weight * avg(graph of dist-1 neighbors) = 0.5 * 0.8 = 0.4
+	//	final(m) = (1-0.5)*0 + 0.5*0.4        = 0.2   (> 0, was 0)
+	candidates := []graphexpand.Candidate{
+		{NodeID: "a", CosineScore: 0.8, Distance: 0},
+		{NodeID: "n", CosineScore: 0, Distance: 1},
+		{NodeID: "m", CosineScore: 0, Distance: 2},
+	}
+	edges := []graphexpand.NeighborEdge{
+		{Source: "a", Target: "n", Type: "references"},
+		{Source: "n", Target: "m", Type: "references"},
+	}
+	seedScores := map[string]float64{"a": 0.8}
+
+	blender := graphexpand.Blender{Weight: 0.5}
+	out := blender.Score(candidates, edges, seedScores)
+
+	scored := make(map[string]graphexpand.Scored, len(out))
+
+	for _, row := range out {
+		scored[row.NodeID] = row
+	}
+
+	if !approxEqual(scored["n"].GraphScore, 0.8) {
+		test.Errorf("n graph_score = %v, want 0.8", scored["n"].GraphScore)
+	}
+
+	if !approxEqual(scored["m"].GraphScore, 0.4) {
+		test.Errorf("m graph_score = %v, want 0.4 (0.5 * hop-1 graph)", scored["m"].GraphScore)
+	}
+
+	if !approxEqual(scored["m"].FinalScore, 0.2) {
+		test.Errorf("m final = %v, want 0.2 (attenuated, not 0)", scored["m"].FinalScore)
+	}
+}
+
 func TestBlender_SeedWithoutSeedNeighborsGetsZeroGraphScore(test *testing.T) {
 	// a is a seed; its only neighbor n is NOT in the seed set. graph_score(a)
 	// is 0 because only seeds contribute to graph_score.
