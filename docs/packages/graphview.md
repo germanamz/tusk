@@ -94,6 +94,6 @@ GET /api/embeddings ──▶ {nodeId: unit-vector[768]}      server: mean-pool 
 
 ## Notes
 
-- The embedded client bundle lives in `dist/` (built by `make web`); it is `//go:embed`-ed into the binary and served as static assets. Never edit `dist/` by hand; run `make web` to rebuild.
+- The embedded client bundle lives in `dist/` (built by `make web`); it is `//go:embed`-ed into the binary and served as static assets. Never edit `dist/` by hand; run `make web` to rebuild. Dependabot web-deps PRs get their `dist/` rebuilt and pushed automatically by `.github/workflows/dependabot-web-dist.yml`.
 - Hull meshes are built by `web/src/hulls.ts` using `ConvexGeometry` from `three@0.180.0`. The overlay is throttled (~250 ms between recomputes during engine ticks) and rebuilt once when the simulation settles. Groups with fewer than 4 members are skipped (a convex hull is undefined below 4 non-coplanar points).
 - `make docs` must be re-run after editing the `Long` help string in `cmd/tusk/cmd_graph.go`; the pre-push docs-drift hook rejects stale `docs/cli/` or `man/` trees.

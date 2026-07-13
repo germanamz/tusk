@@ -140,6 +140,9 @@ jobs:
             exit 1
           fi
 
+  # Dependabot web-deps PRs arrive stale here by construction (the bot can't
+  # run `make web`); .github/workflows/dependabot-web-dist.yml rebuilds and
+  # pushes the bundle onto those PR branches automatically.
   dist-drift:
     runs-on: ubuntu-latest
     steps:
@@ -153,8 +156,11 @@ jobs:
         run: make web
       - name: Fail on drift
         run: |
-          if ! git diff --quiet -- internal/graphview/dist; then
+          # status --porcelain, not diff: a rebuild can ADD files, which
+          # `git diff` (worktree vs index) never sees.
+          if [ -n "$(git status --porcelain -- internal/graphview/dist)" ]; then
             echo "::error::internal/graphview/dist is stale. Run 'make web' and commit."
+            git status --porcelain -- internal/graphview/dist
             git --no-pager diff -- internal/graphview/dist
             exit 1
           fi

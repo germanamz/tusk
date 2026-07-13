@@ -1,0 +1,188 @@
+name: dependabot-web-dist
+
+# Dependabot bumps web/package.json + web/pnpm-lock.yaml but cannot run
+# `make web`, so the committed bundle at internal/graphview/dist is stale on
+# every web-deps PR and the dist-drift check fails by construction. This
+# workflow closes that gap: on dependabot PRs that touch the web manifests it
+# rebuilds the bundle and pushes the result back to the PR branch.
+#
+# Two jobs on purpose. `pnpm install` executes lifecycle scripts of the
+# freshly-bumped packages — untrusted code that could poison the runner
+# (GITHUB_PATH/GITHUB_ENV) to steal any secret a later step holds. So the
+# build job runs with no secrets and hands the bundle over as an artifact,
+# and the push job runs on a fresh runner, never executes package code, and
+# refuses anything in the artifact that is not a plain file under dist/.
+#
+# The push authenticates with a write deploy key (Dependabot secret
+# DIST_DEPLOY_KEY) instead of GITHUB_TOKEN on purpose: pull_request runs for
+# a GITHUB_TOKEN push are created in an approval-required state (a human
+# click per bump), while a deploy-key push fires normal synchronize runs and
+# the full CI suite re-runs on the new head unattended. Deploy-key pushes
+# still go through the branch ruleset, so the key cannot land anything on
+# main outside a PR. Rotation: generate a new ed25519 keypair, register the
+# public half as a write deploy key, store the private half as the
+# Dependabot secret (gh secret set DIST_DEPLOY_KEY --app dependabot), then
+# delete the old deploy key. A GitHub App installation token (short-lived,
+# contents:write only) is the upgrade path if tighter scoping is ever wanted.
+#
+# Known residuals, both self-healing or human-signaled:
+#   - Human pushes and the "Update branch" button do not re-trigger this
+#     workflow (wrong actor — and only dependabot-triggered runs can read
+#     Dependabot secrets anyway). Comment `@dependabot rebase` to hand the
+#     branch back to dependabot, which re-fires the rebuild.
+#   - If the build itself breaks under the bumped deps (a real migration,
+#     like the vite 8 scene.ts constructor change), the build job fails red —
+#     that is the signal a human needs to port the frontend, not a bug here.
+
+on:
+  pull_request:
+    paths:
+      - "web/package.json"
+      - "web/pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+# Queue, don't cancel: the rebuild's own push synchronizes the PR, which
+# re-enters this group (the paths filter sees the PR's full file list, not
+# just the pushed commit) and would cancel the just-succeeded run
+# mid-teardown; the follow-up run skips on the actor gate instead.
+concurrency:
+  group: dependabot-web-dist-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Actor-gated: only dependabot-triggered runs execute (those are also the
+    # only runs that can read the Dependabot secrets store, where
+    # DIST_DEPLOY_KEY lives). The same-repo guard is belt-and-suspenders —
+    # dependabot branches always live in this repo. The synchronize event from
+    # this workflow's own push has a different actor, so it cannot re-trigger
+    # itself; even if it did, a clean drift check would end the run early.
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.drift.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The head branch, not the default merge ref — the rebuilt dist is
+          # committed and pushed back to the PR branch itself.
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: web/.nvmrc
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.12.0 --activate
+
+      - name: Rebuild frontend
+        run: make web
+
+      - name: Detect drift
+        id: drift
+        run: |
+          # status --porcelain, not diff: a rebuild can ADD files, which
+          # `git diff` (worktree vs index) never sees.
+          if [ -z "$(git status --porcelain -- internal/graphview/dist)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "dist is already current; nothing to push"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            # Tar keeps deletions observable: the push job replaces the whole
+            # directory with this snapshot instead of overlaying files.
+            tar -C internal/graphview -cf dist.tar dist
+          fi
+
+      - if: steps.drift.outputs.changed == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: graphview-dist-${{ github.event.pull_request.number }}
+          path: dist.tar
+          retention-days: 1
+          # Artifacts are immutable per run; without this, "Re-run all jobs"
+          # dies at the upload because attempt 1's artifact still exists.
+          overwrite: true
+
+  push:
+    needs: build
+    # Re-assert the actor gate at the point the secret is consumed, not only
+    # via the needs edge.
+    if: needs.build.outputs.changed == 'true' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: graphview-dist-${{ github.event.pull_request.number }}
+
+      - name: Commit and push rebuilt dist
+        env:
+          DEPLOY_KEY: ${{ secrets.DIST_DEPLOY_KEY }}
+          # Via env, not inline interpolation — branch names are
+          # attacker-controlled in the general case (script injection).
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -o pipefail
+
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::DIST_DEPLOY_KEY is not set (Dependabot secrets). Cannot push the rebuilt dist."
+            exit 1
+          fi
+
+          # The archive crossed the trust boundary from the build job: refuse
+          # links and any path outside dist/ before extracting.
+          escapes=$(tar -tf dist.tar | grep -vE '^dist(/|$)' || true)
+          if [ -n "$escapes" ]; then
+            echo "::error::dist artifact contains paths outside dist/"
+            printf '%s\n' "$escapes"
+            exit 1
+          fi
+          links=$(tar -tvf dist.tar | grep -E '^[hl]' || true)
+          if [ -n "$links" ]; then
+            echo "::error::dist artifact contains link entries"
+            printf '%s\n' "$links"
+            exit 1
+          fi
+
+          rm -rf internal/graphview/dist
+          tar -C internal/graphview -xf dist.tar
+          rm dist.tar
+
+          if [ -z "$(git status --porcelain -- internal/graphview/dist)" ]; then
+            echo "dist is already current; nothing to push"
+            exit 0
+          fi
+
+          # SSH auth for the deploy key, with GitHub's host keys pinned from
+          # the API rather than trusted on first use.
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/dist_deploy_key
+          chmod 600 ~/.ssh/dist_deploy_key
+          curl -fsS https://api.github.com/meta \
+            | jq -r '.ssh_keys[] | "github.com \(.)"' > ~/.ssh/known_hosts_github
+          test -s ~/.ssh/known_hosts_github
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/graphview/dist
+          # The [dependabot skip] body line keeps dependabot willing to
+          # rebase/recreate this branch over our commit — without it, the
+          # first push here permanently stops dependabot from resolving
+          # future conflicts on the PR. Hooks stay disabled while the key is
+          # on disk (nothing untrusted ran here, but the checkout is not ours).
+          git -c core.hooksPath=/dev/null commit \
+            -m "build(web): rebuild graphview dist" \
+            -m "[dependabot skip]"
+
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/dist_deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts_github -o IdentitiesOnly=yes" \
+            git -c core.hooksPath=/dev/null push "git@github.com:$REPO.git" "HEAD:$HEAD_REF"
+
+          rm -f ~/.ssh/dist_deploy_key

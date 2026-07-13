@@ -12,6 +12,10 @@ pre-commit:
         if [ "$branch" = "main" ] || [ "$branch" = "v1" ]; then
           exit 0
         fi
+        # Machine-generated branch names (dependabot uses underscores) are
+        # exempt — the convention exists for human branches. Needed when
+        # committing a dist rebuild onto a checked-out dependabot PR.
+        case "$branch" in dependabot/*) exit 0 ;; esac
         if ! echo "$branch" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)/[a-z0-9]+(-[a-z0-9]+)*$'; then
           echo "Branch name '$branch' does not match required pattern: <type>/<kebab-case-description>"
           echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
@@ -56,10 +60,12 @@ pre-push:
           exit 1
         fi
     web-dist-drift:
+      # status --porcelain, not diff: a rebuild can ADD files, which
+      # `git diff` (worktree vs index) never sees.
       run: |
         make web
-        if ! git diff --quiet -- internal/graphview/dist; then
+        if [ -n "$(git status --porcelain -- internal/graphview/dist)" ]; then
           echo "internal/graphview/dist is stale. Run 'make web' and commit it."
-          git --no-pager diff --stat -- internal/graphview/dist
+          git status --porcelain -- internal/graphview/dist
           exit 1
         fi
