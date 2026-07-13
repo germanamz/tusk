@@ -61,7 +61,8 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 		// drift to the drainer for retry (issue #677: a deletion or unrelated edit
 		// must wake refs waiting on the changed node set).
 		config.Server.reindexMu.Lock()
-		_, runErr := reindex.Run(reindex.Config{
+		rt.WalkStatus.Begin()
+		report, runErr := reindex.Run(reindex.Config{
 			Root:            rt.Root,
 			Repo:            rt.Nodes,
 			Edges:           rt.Edges,
@@ -77,6 +78,7 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 			Logger:          config.Logger,
 			Async:           true,
 		})
+		rt.WalkStatus.End(report, runErr)
 		config.Server.reindexMu.Unlock()
 
 		if runErr != nil && config.Logger != nil {

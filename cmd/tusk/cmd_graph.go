@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -94,9 +95,20 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 		return cwdErr
 	}
 
-	opts := []mcp.Option{mcp.WithAliasIntrospector(buildVerbIntrospector(cmd.Root()))}
-	if logger := mcpLoggerFromFlags(cmd); logger != nil {
-		opts = append(opts, mcp.WithLogger(logger))
+	// footer coordinates the interactive status footer with the background logs
+	// so a -v log line never glues onto the footer. It wraps stderr (where the
+	// logs already go) and stays a transparent passthrough until runConsole
+	// activates it on an interactive terminal. Building one logger over it and
+	// sharing it between the runtime and the view server keeps every background
+	// component's output flowing through the same coordinator.
+	footer := newFooterWriter(cmd.ErrOrStderr())
+
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	logger := newLogger(footer, verbose)
+
+	opts := []mcp.Option{
+		mcp.WithAliasIntrospector(buildVerbIntrospector(cmd.Root())),
+		mcp.WithLogger(logger),
 	}
 
 	runtime, openErr := mcp.Open(cwd, opts...)
@@ -115,7 +127,7 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 		Changes:      graphview.NewChangeSource(runtime.Root, runtime.Meta),
 		Manifest:     runtime.Manifest,
 		Embeddings:   runtime.Embeddings,
-		Logger:       mcpLoggerFromFlags(cmd),
+		Logger:       logger,
 		AllowedHosts: graphAllowedHosts(cfg.addr),
 	}
 
@@ -143,7 +155,14 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 		cfg.ready(listener.Addr().String())
 	}
 
-	httpServer := &http.Server{Handler: viewServer.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	// Route the HTTP server's own error log through the footer coordinator too,
+	// so a stray net/http error line (default destination: os.Stderr) does not
+	// glue onto the interactive footer either.
+	httpServer := &http.Server{
+		Handler:           viewServer.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ErrorLog:          log.New(footer, "", 0),
+	}
 
 	serveErrCh := make(chan error, 1)
 	go func() { serveErrCh <- httpServer.Serve(listener) }()
@@ -153,7 +172,7 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 	}
 
 	// Tilt-style foreground console (status line + keypress loop).
-	runConsole(ctx, cancel, cmd, viewServer, runtime, boundURL)
+	runConsole(ctx, cancel, cmd, viewServer, runtime, boundURL, footer)
 
 	cancel() // unblock RunBackground + viewServer.Run before draining
 

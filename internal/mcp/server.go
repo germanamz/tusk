@@ -154,6 +154,7 @@ func (srv *Server) installStoreLocked(store *index.Index, manifestOverride *mani
 		IndexPath:         old.IndexPath,
 		Logger:            old.Logger,
 		aliasIntrospector: old.aliasIntrospector,
+		WalkStatus:        old.WalkStatus,
 	}
 
 	if buildErr := fresh.buildFromStore(store, manifestOverride); buildErr != nil {
@@ -562,7 +563,9 @@ func (srv *Server) reindexOnBoot(logger *slog.Logger) error {
 	srv.reindexMu.Lock()
 	defer srv.reindexMu.Unlock()
 
-	_, runErr := reindex.Run(reindex.Config{
+	rt.WalkStatus.Begin()
+
+	report, runErr := reindex.Run(reindex.Config{
 		Root:            rt.Root,
 		Repo:            rt.Nodes,
 		Edges:           rt.Edges,
@@ -578,6 +581,8 @@ func (srv *Server) reindexOnBoot(logger *slog.Logger) error {
 		Logger:          logger,
 		Async:           true,
 	})
+
+	rt.WalkStatus.End(report, runErr)
 
 	return runErr
 }

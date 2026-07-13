@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/germanamz/tusk/internal/mcp"
 )
 
 func TestGraphAllowedHosts(test *testing.T) {
@@ -83,6 +85,72 @@ func TestServeGraph_Integration(t *testing.T) {
 	}
 }
 
+func TestFormatStatus(test *testing.T) {
+	cases := []struct {
+		name         string
+		snap         mcp.WalkStatusSnapshot
+		wantContains []string
+		wantAbsent   []string
+	}{
+		{
+			name:         "walking shows an active indicator",
+			snap:         mcp.WalkStatusSnapshot{Walking: true},
+			wantContains: []string{"indexing…", "2 nodes", "3 edges", "1 clients"},
+			wantAbsent:   []string{"synced", "index gen", "last walk"},
+		},
+		{
+			name: "idle synced with a completed no-op walk",
+			snap: mcp.WalkStatusSnapshot{
+				EverWalked: true,
+				Last:       mcp.WalkSummary{DurationMs: 2},
+			},
+			wantContains: []string{"synced", "last walk 2ms (0 changed)"},
+			wantAbsent:   []string{"indexing", "index gen", "walk error"},
+		},
+		{
+			name: "idle synced summarizes real changes",
+			snap: mcp.WalkStatusSnapshot{
+				EverWalked: true,
+				Last:       mcp.WalkSummary{Indexed: 3, Removed: 1, DurationMs: 12},
+			},
+			wantContains: []string{"synced", "last walk 12ms (4 changed)"},
+		},
+		{
+			name: "failed walk is not reported as synced",
+			snap: mcp.WalkStatusSnapshot{
+				EverWalked: true,
+				Last:       mcp.WalkSummary{Err: "read error"},
+			},
+			wantContains: []string{"walk error"},
+			wantAbsent:   []string{"synced", "last walk"},
+		},
+		{
+			name:         "before the first walk it is not stuck",
+			snap:         mcp.WalkStatusSnapshot{},
+			wantContains: []string{"synced"},
+			wantAbsent:   []string{"index gen", "last walk", "indexing"},
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(subtest *testing.T) {
+			got := formatStatus(testCase.snap, 2, 3, 1)
+
+			for _, want := range testCase.wantContains {
+				if !strings.Contains(got, want) {
+					subtest.Errorf("formatStatus = %q, want it to contain %q", got, want)
+				}
+			}
+
+			for _, absent := range testCase.wantAbsent {
+				if strings.Contains(got, absent) {
+					subtest.Errorf("formatStatus = %q, want it to NOT contain %q", got, absent)
+				}
+			}
+		})
+	}
+}
+
 func TestConsoleLoop_QuitKeyCancels(test *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -93,7 +161,7 @@ func TestConsoleLoop_QuitKeyCancels(test *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		consoleLoop(ctx, func() { cancelled = true }, io.Discard, keys, func() {}, func() {})
+		consoleLoop(ctx, func() { cancelled = true }, keys, func() {}, func() {})
 		close(done)
 	}()
 
@@ -114,7 +182,7 @@ func TestConsoleLoop_CtxDoneReturns(test *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		consoleLoop(ctx, cancel, io.Discard, keys, func() {}, func() {})
+		consoleLoop(ctx, cancel, keys, func() {}, func() {})
 		close(done)
 	}()
 
@@ -136,7 +204,7 @@ func TestConsoleLoop_SpaceOpens(test *testing.T) {
 	keys <- ' '
 	keys <- 'q'
 
-	consoleLoop(ctx, cancel, io.Discard, keys, func() {}, func() { opened++ })
+	consoleLoop(ctx, cancel, keys, func() {}, func() { opened++ })
 
 	if opened != 1 {
 		test.Fatalf("openURL called %d times, want 1", opened)
