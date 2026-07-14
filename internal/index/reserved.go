@@ -22,14 +22,57 @@ const SubUnitIDSeparator = "#"
 // (#686).
 var indexableExts = map[string]bool{
 	".md":   true,
+	".mdx":  true,
 	".html": true,
 	".htm":  true,
 }
 
 // IsIndexableExt reports whether relPath carries an extension tusk indexes as a
-// content node (.md, .html, .htm).
+// content node (.md, .mdx, .html, .htm).
 func IsIndexableExt(relPath string) bool {
 	return indexableExts[filepath.Ext(relPath)]
+}
+
+// NodeIDForPath derives a content node's id from its workspace-relative path.
+// Only ".md" is a bare-stem kind (foo.md -> "foo"); every other indexable
+// extension is retained (foo.html -> "foo.html", foo.mdx -> "foo.mdx") so
+// same-stem files never collide on the nodes.id PRIMARY KEY (Decision #12).
+//
+// This is the single source of truth the reindex walk, the parse dispatch, and
+// the node write surface all derive ids through — keeping them in lockstep is
+// what lets a rename mint an id the reindex re-parse re-derives identically;
+// deriving it any other way (e.g. stripping every extension) mints a phantom
+// row whose id and path disagree (#686/#687).
+func NodeIDForPath(relPath string) string {
+	if filepath.Ext(relPath) == ".md" {
+		return strings.TrimSuffix(relPath, ".md")
+	}
+
+	return relPath
+}
+
+// FilePathForID reverses NodeIDForPath: it reconstructs the workspace-relative
+// file path a node id maps to. An id already carrying a RETAINED extension
+// (.mdx/.html/.htm) IS its own path; every other id is a markdown bare stem that
+// regains ".md". Callers that historically hardcoded `id + ".md"` route through
+// this so retained-extension kinds reconstruct to the right file.
+//
+// The ".md" case is deliberately NOT treated as "already a path": ".md" is the
+// one stripped kind, so an id ending in ".md" cannot be a retained path — it can
+// only be the bare stem NodeIDForPath produced from a "*.md.md" file (e.g. id
+// "changelog.md" from "changelog.md.md"), so it regains ".md" like any other
+// stem. Handling it via IsIndexableExt would have mis-reconstructed that file.
+//
+// The one pathological input this cannot disambiguate is a markdown file
+// literally named "x.mdx.md"/"x.html.md" (id "x.mdx"/"x.html" collides with a
+// real x.mdx/x.html node): the same pre-existing stem ambiguity ".html" already
+// carries, and out of scope here.
+func FilePathForID(id string) string {
+	if IsIndexableExt(id) && filepath.Ext(id) != ".md" {
+		return id
+	}
+
+	return id + ".md"
 }
 
 // ReservedIDReason reports why a workspace-relative markdown/HTML path cannot be

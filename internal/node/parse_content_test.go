@@ -8,10 +8,11 @@ import (
 
 func TestIsHTMLPath(test *testing.T) {
 	cases := map[string]bool{
-		"page.html":      true,
-		"a/b/page.htm":   true,
-		"notes/hello.md": false,
-		"noext":          false,
+		"page.html":       true,
+		"a/b/page.htm":    true,
+		"notes/hello.md":  false,
+		"notes/guide.mdx": false,
+		"noext":           false,
 	}
 
 	for path, want := range cases {
@@ -37,6 +38,29 @@ func TestParseContentFile_DispatchesByExtension(test *testing.T) {
 
 	if mdNode.Type != "note" {
 		test.Errorf("markdown Type = %q, want note", mdNode.Type)
+	}
+
+	// MDX is a markdown twin: it routes to ParseFile (frontmatter + prose), but
+	// its id RETAINS the ".mdx" extension so a same-stem notes/hello.md never
+	// collides with it on the nodes.id primary key.
+	mdxSrc := []byte("---\ntype: note\ntitle: MDX\n---\n<Callout>hi</Callout>\n\nbody\n")
+
+	mdxNode, mdxErr := node.ParseContentFile("notes/hello.mdx", mdxSrc)
+
+	if mdxErr != nil {
+		test.Fatalf("mdx: %v", mdxErr)
+	}
+
+	if mdxNode.ID != "notes/hello.mdx" {
+		test.Errorf("mdx ID = %q, want notes/hello.mdx (extension retained)", mdxNode.ID)
+	}
+
+	if mdxNode.Type != "note" {
+		test.Errorf("mdx Type = %q, want note", mdxNode.Type)
+	}
+
+	if mdxNode.Title != "MDX" {
+		test.Errorf("mdx Title = %q, want MDX", mdxNode.Title)
 	}
 
 	// HTML routes to ParseHTMLFile: id retains the extension and data-* signals

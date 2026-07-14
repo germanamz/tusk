@@ -1,8 +1,10 @@
 # Node types
 
-A node is one markdown file with YAML frontmatter declaring its `type`
-and properties (or an `.html`/`.htm` file declaring its `type` via
-`<meta name="tusk:type">`). Every type must be declared in `./tusk.toml`
+A node is one markdown file (`.md` or `.mdx`) with YAML frontmatter
+declaring its `type` and properties (or an `.html`/`.htm` file declaring
+its `type` via `<meta name="tusk:type">`). An `.mdx` file is indexed as a
+markdown twin — its id keeps the `.mdx` extension so it never collides
+with a same-stem `.md` note. Every type must be declared in `./tusk.toml`
 under `[node-types.<type>]` before `tusk_node_create` (or a manual file
 write + `tusk_reindex`) will accept it.
 

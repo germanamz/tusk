@@ -50,8 +50,8 @@ var ErrPathEscapesVault = errors.New("node: path escapes the workspace root")
 var ErrReservedID = errors.New("node: path is not indexable")
 
 // ErrNotIndexableExt is returned when a Create target's extension is not one
-// tusk indexes as a content node (.md, .html, .htm). The reindex walk would
-// never pick such a file up, so the row Create mints for it would be a
+// tusk indexes as a content node (.md, .mdx, .html, .htm). The reindex walk
+// would never pick such a file up, so the row Create mints for it would be a
 // permanent phantom the orphan reaper cannot see (#686).
 var ErrNotIndexableExt = errors.New("node: path extension is not indexable")
 
@@ -62,10 +62,10 @@ var ErrDestinationIgnored = errors.New("node: path is inside an ignored director
 
 // ErrExtensionMismatch is returned when a move's destination extension differs
 // from the source's. A move must keep the file in its node class: the id tusk
-// derives from a path depends on the extension (markdown strips ".md"; HTML
-// keeps its full name), so a cross-extension move would mint an id disagreeing
-// with what the reindex walk derives — hijacking a sibling's row or silently
-// orphaning the moved node (#686).
+// derives from a path depends on the extension (markdown strips ".md"; a
+// retained-extension kind like .html or .mdx keeps its full name), so a
+// cross-extension move would mint an id disagreeing with what the reindex walk
+// derives — hijacking a sibling's row or silently orphaning the moved node (#686).
 var ErrExtensionMismatch = errors.New("node: move destination extension must match the source")
 
 // ensureVaultLocal rejects a workspace-relative path that does not stay inside
@@ -94,9 +94,9 @@ func ensureIndexableID(relPath string) error {
 }
 
 // ensureIndexableExt rejects a Create target whose extension the reindex walk
-// would skip (anything but .md / .html / .htm). Sharing index.IsIndexableExt
-// with the walk keeps the write surface and the indexer on one definition of
-// "indexable" (#686).
+// would skip (anything but .md / .mdx / .html / .htm). Sharing
+// index.IsIndexableExt with the walk keeps the write surface and the indexer on
+// one definition of "indexable" (#686).
 func ensureIndexableExt(relPath string) error {
 	if !index.IsIndexableExt(relPath) {
 		return fmt.Errorf("%w: %q", ErrNotIndexableExt, relPath)

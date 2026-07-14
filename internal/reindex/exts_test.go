@@ -6,8 +6,8 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 )
 
-func TestIndexableExts_CoversMarkdownAndHTML(test *testing.T) {
-	for _, name := range []string{"a.md", "a.html", "a.htm"} {
+func TestIndexableExts_CoversMarkdownMDXAndHTML(test *testing.T) {
+	for _, name := range []string{"a.md", "a.mdx", "a.html", "a.htm"} {
 		if !index.IsIndexableExt(name) {
 			test.Errorf("IsIndexableExt(%q) = false, want true", name)
 		}
@@ -25,6 +25,7 @@ func TestNodeIDForPath_StripsOnlyMarkdown(test *testing.T) {
 		"notes/auth.md":   "notes/auth",
 		"notes/page.html": "notes/page.html",
 		"notes/page.htm":  "notes/page.htm",
+		"notes/guide.mdx": "notes/guide.mdx",
 		"README.md":       "README",
 	}
 

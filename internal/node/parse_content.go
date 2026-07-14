@@ -2,7 +2,8 @@ package node
 
 import (
 	"path/filepath"
-	"strings"
+
+	"github.com/germanamz/tusk/internal/index"
 )
 
 // ParseContentFile parses a workspace file into a *Node, dispatching by file
@@ -30,17 +31,15 @@ func IsHTMLPath(relPath string) bool {
 	}
 }
 
-// nodeIDForPath derives a node id from a workspace-relative path using the same
-// convention ParseContentFile embeds: an HTML file RETAINS its extension
-// (foo.html -> "foo.html") so it never collides with a same-stem markdown note,
-// while markdown strips it (foo.md -> "foo"). Keeping this in lockstep with the
-// parse dispatch is what lets a rename mint an id the reindex re-parse will
-// re-derive identically — computing it any other way (e.g. stripping the
-// extension unconditionally) mints a phantom row whose id and path disagree.
+// nodeIDForPath derives a node id from a workspace-relative path, delegating to
+// index.NodeIDForPath — the single id rule shared with the reindex walk and the
+// parse dispatch. A retained-extension kind (HTML, MDX) keeps its extension
+// (foo.html -> "foo.html", foo.mdx -> "foo.mdx") so it never collides with a
+// same-stem markdown note, while markdown strips it (foo.md -> "foo"). Keeping
+// this in lockstep with the parse dispatch is what lets a rename mint an id the
+// reindex re-parse re-derives identically — computing it any other way (e.g.
+// stripping the extension unconditionally) mints a phantom row whose id and
+// path disagree.
 func nodeIDForPath(relPath string) string {
-	if IsHTMLPath(relPath) {
-		return relPath
-	}
-
-	return strings.TrimSuffix(relPath, filepath.Ext(relPath))
+	return index.NodeIDForPath(relPath)
 }

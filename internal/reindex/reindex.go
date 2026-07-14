@@ -40,16 +40,13 @@ const (
 	edgeDerivationVersion    = "2026-07-11-special-char-file-ids"
 )
 
-// nodeIDForPath derives a node id from a workspace-relative path. Markdown
-// keeps its historical bare-stem id (strips ".md"); every other indexable
-// kind retains its full filename so same-stem files (foo.md / foo.html) never
-// collide on the nodes.id PRIMARY KEY (design Decision #12).
+// nodeIDForPath derives a node id from a workspace-relative path, delegating to
+// index.NodeIDForPath — the single id rule shared with the node parse dispatch.
+// Markdown keeps its historical bare-stem id (strips ".md"); every other
+// indexable kind (.html/.htm/.mdx) retains its full filename so same-stem files
+// (foo.md / foo.mdx) never collide on the nodes.id PRIMARY KEY (Decision #12).
 func nodeIDForPath(path string) string {
-	if filepath.Ext(path) == ".md" {
-		return strings.TrimSuffix(path, ".md")
-	}
-
-	return path
+	return index.NodeIDForPath(path)
 }
 
 // existsWithExactCase reports whether relPath names an entry on disk whose case
@@ -239,7 +236,7 @@ func (rep *Report) mergeDrain(other DrainReport) {
 	rep.SubUnitsReordered += other.SubUnitsReordered
 }
 
-// Run walks Root, parses every *.md file with valid frontmatter and every
+// Run walks Root, parses every *.md/*.mdx file with valid frontmatter and every
 // *.html/*.htm file with a tusk:type meta directive, and upserts or removes
 // index rows so the index matches what is on disk. When Edges and EdgeTypes
 // are configured, edges are written and removed alongside nodes.
