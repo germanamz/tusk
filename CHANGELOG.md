@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/germanamz/tusk/compare/v2.1.4...v2.2.0) (2026-07-14)
+
+
+### Features
+
+* **index:** index .mdx files as markdown-twin content nodes ([#716](https://github.com/germanamz/tusk/issues/716)) ([d112ce2](https://github.com/germanamz/tusk/commit/d112ce27e0c7e69a87a266bc18c4fa67f8097d74))
+
 ## [2.1.4](https://github.com/germanamz/tusk/compare/v2.1.3...v2.1.4) (2026-07-14)
 
 
