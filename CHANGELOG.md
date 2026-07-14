@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.4](https://github.com/germanamz/tusk/compare/v2.1.3...v2.1.4) (2026-07-14)
+
+
+### Bug Fixes
+
+* **graph:** resolve status-footer stuck-progress, log clobbering, and rewalk loop ([#714](https://github.com/germanamz/tusk/issues/714)) ([364e678](https://github.com/germanamz/tusk/commit/364e678d7bf2e72447ed9b36609c5d8112782fb8))
+
 ## [2.1.3](https://github.com/germanamz/tusk/compare/v2.1.2...v2.1.3) (2026-07-12)
 
 
