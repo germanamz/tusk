@@ -1033,14 +1033,15 @@ func Migrate(config Config) (*MigrationReport, error) {
 
 	for _, sourceID := range orderedSourceIDs {
 		rows := migratable[sourceID]
-		sourcePath := filepath.Join(config.Root, sourceID+".md")
+		sourceRel := index.FilePathForID(sourceID)
+		sourcePath := filepath.Join(config.Root, sourceRel)
 
 		if _, statErr := os.Stat(sourcePath); statErr != nil {
 			if errors.Is(statErr, fs.ErrNotExist) {
 				for _, row := range rows {
 					report.Skipped = append(report.Skipped,
-						fmt.Sprintf("%s [%s]: %s → %s (source file %s.md not found)",
-							row.Type, row.SourcePath, row.SourceID, row.TargetID, row.SourceID))
+						fmt.Sprintf("%s [%s]: %s → %s (source file %s not found)",
+							row.Type, row.SourcePath, row.SourceID, row.TargetID, sourceRel))
 				}
 
 				continue

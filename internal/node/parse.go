@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +23,8 @@ var frontmatterDelimiter = []byte("---")
 var utf8BOM = []byte("\xef\xbb\xbf")
 
 // ParseFile parses content as a Tusk node file. relPath is the workspace-relative
-// path (with extension); the canonical id is relPath stripped of its extension.
+// path (with extension); the canonical id is derived via nodeIDForPath (markdown
+// strips ".md"; a retained-extension kind like .mdx keeps it).
 func ParseFile(relPath string, content []byte) (*Node, error) {
 	frontmatterBytes, body, splitErr := splitFrontmatter(content)
 
@@ -51,7 +50,7 @@ func ParseFile(relPath string, content []byte) (*Node, error) {
 	properties = normalizeWikilinkSequences(properties)
 
 	return &Node{
-		ID:         strings.TrimSuffix(relPath, filepath.Ext(relPath)),
+		ID:         nodeIDForPath(relPath),
 		Path:       relPath,
 		Type:       typeValue,
 		Title:      title,

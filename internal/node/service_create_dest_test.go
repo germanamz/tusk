@@ -27,6 +27,32 @@ func TestCreate_RejectsNonIndexableExtension(test *testing.T) {
 	}
 }
 
+// TestCreate_AcceptsMDXAndRetainsExtension pins the create-side of .mdx support:
+// an .mdx target is accepted (it is not HTML, so not rejected as read-only) and
+// its id RETAINS the ".mdx" extension so it never collides with a same-stem .md
+// note. The complement of TestCreate_RejectsNonIndexableExtension.
+func TestCreate_AcceptsMDXAndRetainsExtension(test *testing.T) {
+	service, _, _, root := newLeaseTestService(test, "test-worker")
+
+	created, createErr := service.Create(node.CreateInput{RelPath: "notes/guide.mdx", Type: "note"})
+
+	if createErr != nil {
+		test.Fatalf("Create notes/guide.mdx err = %v, want nil", createErr)
+	}
+
+	if created.ID != "notes/guide.mdx" {
+		test.Errorf("created ID = %q, want notes/guide.mdx (extension retained)", created.ID)
+	}
+
+	if created.Path != "notes/guide.mdx" {
+		test.Errorf("created Path = %q, want notes/guide.mdx", created.Path)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "notes/guide.mdx")); statErr != nil {
+		test.Errorf("notes/guide.mdx should exist on disk after Create: %v", statErr)
+	}
+}
+
 // TestCreate_RejectsDestinationInIgnoredDir pins #686 (create-side twin): a
 // node created inside a built-in-ignored directory (.tusk/) must be refused.
 func TestCreate_RejectsDestinationInIgnoredDir(test *testing.T) {

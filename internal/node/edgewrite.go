@@ -182,7 +182,7 @@ func AddEdgeToFrontmatter(
 		return fmt.Errorf("edgewrite: edge type %q not declared in manifest", edgeName)
 	}
 
-	sourcePath := filepath.Join(workspaceRoot, sourceID+".md")
+	sourcePath := filepath.Join(workspaceRoot, index.FilePathForID(sourceID))
 
 	content, readErr := os.ReadFile(sourcePath)
 
@@ -190,7 +190,7 @@ func AddEdgeToFrontmatter(
 		return fmt.Errorf("edgewrite: read %s: %w", sourcePath, readErr)
 	}
 
-	parsed, parseErr := ParseFile(sourceID+".md", content)
+	parsed, parseErr := ParseFile(index.FilePathForID(sourceID), content)
 
 	if parseErr != nil {
 		return fmt.Errorf("edgewrite: parse %s: %w", sourcePath, parseErr)
@@ -265,7 +265,7 @@ func RemoveEdgeFromFrontmatter(
 		return fmt.Errorf("edgewrite: edge type %q not declared in manifest", edgeName)
 	}
 
-	sourcePath := filepath.Join(workspaceRoot, sourceID+".md")
+	sourcePath := filepath.Join(workspaceRoot, index.FilePathForID(sourceID))
 
 	content, readErr := os.ReadFile(sourcePath)
 
@@ -273,7 +273,7 @@ func RemoveEdgeFromFrontmatter(
 		return fmt.Errorf("edgewrite: read %s: %w", sourcePath, readErr)
 	}
 
-	parsed, parseErr := ParseFile(sourceID+".md", content)
+	parsed, parseErr := ParseFile(index.FilePathForID(sourceID), content)
 
 	if parseErr != nil {
 		return fmt.Errorf("edgewrite: parse %s: %w", sourcePath, parseErr)
@@ -372,7 +372,7 @@ func ReindexSource(
 	nodeTypes map[string]manifest.NodeType,
 	sourceID string,
 ) error {
-	relPath := sourceID + ".md"
+	relPath := index.FilePathForID(sourceID)
 	absPath := filepath.Join(workspaceRoot, relPath)
 
 	content, readErr := os.ReadFile(absPath)

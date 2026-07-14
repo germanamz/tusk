@@ -297,7 +297,7 @@ func (instance *Watcher) watchNewDir(absPath string) {
 
 // triggersReindex reports whether a filesystem event should schedule a reindex
 // walk. Only paths that can affect the index qualify: node files
-// (.md/.html/.htm), the manifest (tusk.toml), and directories — whose
+// (.md/.mdx/.html/.htm), the manifest (tusk.toml), and directories — whose
 // create/rename/delete can move whole subtrees of nodes in or out. Any other
 // existing regular file (a redirected .log, a .txt, an image, an extensionless
 // Makefile) can never become a node, so its events are dropped; this closes the

@@ -103,6 +103,62 @@ func TestRename_RejectsCrossExtensionDestination(test *testing.T) {
 	}
 }
 
+// TestRename_MDXKeepsExtensionInID pins the .mdx move path: an .mdx node is a
+// markdown twin whose id retains its extension, so a move mints an id that still
+// carries ".mdx" (path == id) and the reindex re-parse re-derives it identically.
+func TestRename_MDXKeepsExtensionInID(test *testing.T) {
+	service, nodeRepo, edgeRepo, fileState, root := newRenameDestService(test)
+
+	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/guide.mdx", Type: "note"}); createErr != nil {
+		test.Fatalf("create guide.mdx: %v", createErr)
+	}
+
+	plan, renameErr := node.Rename(
+		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
+		manifest.EdgeTypes{}, nil, nil, "notes/guide.mdx", "notes/manual.mdx",
+	)
+
+	if renameErr != nil {
+		test.Fatalf("mdx Rename: %v", renameErr)
+	}
+
+	if plan.NewID != "notes/manual.mdx" || plan.NewPath != "notes/manual.mdx" {
+		test.Errorf("plan = %+v, want NewID=NewPath=notes/manual.mdx", plan)
+	}
+
+	if _, getErr := nodeRepo.Get("notes/manual.mdx"); getErr != nil {
+		test.Errorf("notes/manual.mdx should be indexed after rename: %v", getErr)
+	}
+
+	if _, getErr := nodeRepo.Get("notes/guide.mdx"); !errors.Is(getErr, index.ErrNodeNotFound) {
+		test.Errorf("old id notes/guide.mdx should be gone, Get err = %v", getErr)
+	}
+}
+
+// TestRename_RejectsMDXToMarkdownCrossExtension pins that an .mdx -> .md move is
+// a cross-class move and must be refused: the two kinds derive ids differently
+// (".mdx" retained vs ".md" stripped), so the move would orphan or hijack a row.
+func TestRename_RejectsMDXToMarkdownCrossExtension(test *testing.T) {
+	service, nodeRepo, edgeRepo, fileState, root := newRenameDestService(test)
+
+	if _, createErr := service.Create(node.CreateInput{RelPath: "notes/x.mdx", Type: "note"}); createErr != nil {
+		test.Fatalf("create x.mdx: %v", createErr)
+	}
+
+	_, renameErr := node.Rename(
+		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
+		manifest.EdgeTypes{}, nil, nil, "notes/x.mdx", "notes/x.md",
+	)
+
+	if !errors.Is(renameErr, node.ErrExtensionMismatch) {
+		test.Fatalf("Rename .mdx -> .md err = %v, want ErrExtensionMismatch", renameErr)
+	}
+
+	if _, getErr := nodeRepo.Get("notes/x.mdx"); getErr != nil {
+		test.Errorf("notes/x.mdx should be intact after a rejected move: %v", getErr)
+	}
+}
+
 // TestRename_RejectsDestinationInIgnoredDir pins #686 finding 2: moving a node
 // into a built-in-ignored directory (.tusk/) must be refused — the reindex walk
 // skips that tree, so the node row would diverge from disk forever.
