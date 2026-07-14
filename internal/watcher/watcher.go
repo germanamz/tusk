@@ -13,6 +13,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/germanamz/tusk/internal/ignore"
+	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/workspace"
 )
 
 // maxLoggedWatchDirs caps how many failed-to-watch directory paths the
@@ -210,9 +212,22 @@ func (instance *Watcher) Run(ctx context.Context, handler EventHandler) error {
 
 			// Watch directories created after boot, else edits inside subtrees
 			// added to a long-running daemon are never observed (kqueue/inotify
-			// watch a single directory per Add, not recursively).
+			// watch a single directory per Add, not recursively). This runs before
+			// the reindex-relevance filter below so a moved-in subtree of nodes is
+			// still watched even though the create event names the (extensionless)
+			// directory.
 			if kind == EventCreate {
 				instance.watchNewDir(raw.Name)
+			}
+
+			// Drop events on paths that can never change the index — a redirected
+			// .log, a .txt, an image. Scheduling a reindex for them is wasted work
+			// at best and, when the write lands inside the watched tree (e.g.
+			// `tusk graph -v > graph.log`), a self-sustaining walk loop at worst:
+			// each walk's own log line is a MODIFY that would schedule the next
+			// walk. Node files, the manifest, and directories still pass.
+			if !triggersReindex(raw.Name, relPath) {
+				continue
 			}
 
 			scheduled := WatchEvent{Kind: kind, Path: relPath}
@@ -278,6 +293,35 @@ func (instance *Watcher) watchNewDir(absPath string) {
 
 		return nil
 	})
+}
+
+// triggersReindex reports whether a filesystem event should schedule a reindex
+// walk. Only paths that can affect the index qualify: node files
+// (.md/.html/.htm), the manifest (tusk.toml), and directories — whose
+// create/rename/delete can move whole subtrees of nodes in or out. Any other
+// existing regular file (a redirected .log, a .txt, an image, an extensionless
+// Makefile) can never become a node, so its events are dropped; this closes the
+// self-sustaining reindex loop a redirected log inside the tree would otherwise
+// arm (each walk's own log write is a MODIFY that would schedule the next walk).
+//
+// The file-vs-directory split is decided by os.Stat rather than the extension so
+// a directory whose name contains a dot ("archive.v2") is not mistaken for a
+// foreign file. A vanished path (a delete or a rename's source) cannot be
+// stat'd; those reindex conservatively so an orphaned subtree is reaped — and
+// they can never loop, since a read-only walk never deletes or renames a vault
+// file, so no delete/rename event is ever self-caused.
+func triggersReindex(absPath, relPath string) bool {
+	if relPath == workspace.ManifestFilename || index.IsIndexableExt(relPath) {
+		return true
+	}
+
+	info, statErr := os.Stat(absPath)
+
+	if statErr != nil {
+		return true
+	}
+
+	return info.IsDir()
 }
 
 func classify(op fsnotify.Op) EventKind {

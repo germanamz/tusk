@@ -54,6 +54,13 @@ type Runtime struct {
 	aliasIntrospector manifest.VerbIntrospector
 
 	Logger *slog.Logger // optional; nil silences output
+
+	// WalkStatus records reindex-walk activity for the `tusk graph` status
+	// footer. It is a shared pointer carried across runtime swaps (like Logger),
+	// so a console holding the original runtime keeps observing live walk state
+	// after a reset or reload swaps srv.runtime underneath it. May be nil (tests
+	// that build a Runtime by hand); the walk sites and console tolerate nil.
+	WalkStatus *WalkStatus
 }
 
 // Option mutates a Runtime during Open.
@@ -94,7 +101,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 
 	manifest.MergeBuiltinPacks(loaded)
 
-	rt := &Runtime{}
+	rt := &Runtime{WalkStatus: NewWalkStatus()}
 
 	for _, opt := range opts {
 		opt(rt)
@@ -214,6 +221,7 @@ func (rt *Runtime) buildReloaded() (*Runtime, *ManifestDiff, error) {
 		IndexPath:         rt.IndexPath,
 		Logger:            rt.Logger,
 		aliasIntrospector: rt.aliasIntrospector,
+		WalkStatus:        rt.WalkStatus,
 	}
 
 	if buildErr := fresh.buildFromStore(rt.Index, loaded); buildErr != nil {

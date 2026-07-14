@@ -165,6 +165,159 @@ func TestWatcher_SkipsIgnoredPaths(test *testing.T) {
 	}
 }
 
+// TestWatcher_DropsNonNodeFileEvents pins the fix for the redirect-into-tree
+// rewalk loop: a write to a file whose extension can never be a node (a
+// redirected .log, a .txt, an image) must NOT be delivered — otherwise
+// `tusk graph -v > graph.log` inside the workspace arms a self-sustaining loop
+// (each walk's log line is a MODIFY that schedules the next walk). Node files
+// (.md/.html), the manifest (tusk.toml), and directory creates must still flow.
+func TestWatcher_DropsNonNodeFileEvents(test *testing.T) {
+	root := test.TempDir()
+
+	watcherInstance, newErr := watcher.New(root, newMatcher(test, root), nil)
+
+	if newErr != nil {
+		test.Fatalf("New: %v", newErr)
+	}
+
+	defer watcherInstance.Close()
+
+	var (
+		mu     sync.Mutex
+		events []watcher.WatchEvent
+	)
+
+	handler := func(event watcher.WatchEvent) error {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	go func() {
+		_ = watcherInstance.Run(ctx, handler)
+	}()
+
+	time.Sleep(100 * time.Millisecond) // let watcher start
+
+	// The loop trigger: a log redirected into the watched tree. A .log file can
+	// never become a node, so this MODIFY must be dropped.
+	if writeErr := os.WriteFile(filepath.Join(root, "graph.log"), []byte("walk complete\n"), 0o644); writeErr != nil {
+		test.Fatalf("write graph.log: %v", writeErr)
+	}
+
+	// A manifest edit must still schedule a walk.
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte("[workspace]\nname = \"x\"\n"), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	// A real markdown edit must still flow — this also serves as the sync barrier.
+	if writeErr := os.WriteFile(filepath.Join(root, "notes.md"), []byte("hi"), 0o644); writeErr != nil {
+		test.Fatalf("write notes.md: %v", writeErr)
+	}
+
+	time.Sleep(700 * time.Millisecond) // > debounce window
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	sawNotes, sawManifest := false, false
+
+	for _, evt := range events {
+		if evt.Path == "graph.log" {
+			test.Errorf("watcher delivered non-node file %q (would self-trigger reindex loop)", evt.Path)
+		}
+
+		if evt.Path == "notes.md" {
+			sawNotes = true
+		}
+
+		if evt.Path == "tusk.toml" {
+			sawManifest = true
+		}
+	}
+
+	if !sawNotes {
+		test.Errorf("expected event for notes.md, got %+v", events)
+	}
+
+	if !sawManifest {
+		test.Errorf("expected event for tusk.toml (manifest edits must reindex), got %+v", events)
+	}
+}
+
+// TestWatcher_ReindexesOnDottedNameDirCreate pins the fix for a regression the
+// extension-only filter would introduce: a directory whose NAME contains a dot
+// ("archive.v2", or a hidden ".notes") must still schedule a reindex — its
+// create/rename can move a whole subtree of nodes in or out, and that directory
+// event is the only signal for pre-existing contents moved in wholesale. An
+// extension heuristic reads "archive.v2" as a ".v2" file and drops it; os.Stat
+// classifies the directory correctly.
+func TestWatcher_ReindexesOnDottedNameDirCreate(test *testing.T) {
+	root := test.TempDir()
+
+	watcherInstance, newErr := watcher.New(root, newMatcher(test, root), nil)
+
+	if newErr != nil {
+		test.Fatalf("New: %v", newErr)
+	}
+
+	defer watcherInstance.Close()
+
+	var (
+		mu     sync.Mutex
+		events []watcher.WatchEvent
+	)
+
+	handler := func(event watcher.WatchEvent) error {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	go func() {
+		_ = watcherInstance.Run(ctx, handler)
+	}()
+
+	time.Sleep(100 * time.Millisecond) // let watcher start
+
+	// A directory with a dot in its name — the extension-only trap.
+	if mkErr := os.Mkdir(filepath.Join(root, "archive.v2"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir archive.v2: %v", mkErr)
+	}
+
+	// A real markdown edit as the sync barrier.
+	if writeErr := os.WriteFile(filepath.Join(root, "real.md"), []byte("hi"), 0o644); writeErr != nil {
+		test.Fatalf("write real.md: %v", writeErr)
+	}
+
+	time.Sleep(700 * time.Millisecond) // > debounce window
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	sawArchive := false
+
+	for _, evt := range events {
+		if evt.Path == "archive.v2" {
+			sawArchive = true
+		}
+	}
+
+	if !sawArchive {
+		test.Errorf("expected a reindex-triggering event for the dotted-name dir archive.v2, got %+v", events)
+	}
+}
+
 // TestWatcher_StopsTimersOnShutdown pins the A3 leak fix: a debounce timer
 // scheduled before shutdown must NOT fire afterwards. Before A3 the AfterFunc
 // timers were never stopped, so a cancelled watcher could still run a full
