@@ -1,6 +1,9 @@
 package bookview
 
 import (
+	"strings"
+
+	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
 )
 
@@ -69,15 +72,13 @@ func (srv *Server) resolveWikilinks(body []byte) (map[string]WikilinkTarget, err
 			continue
 		}
 
-		// Ids come back ordered by id ASC and the title may be ambiguous. The
-		// first is a stable, arbitrary pick — and the ordering quietly favours
-		// the right one: a file sorts before its own sub-units ("c" < "c#S1").
-		matchedIDs = append(matchedIDs, ids[0])
-		titleMatches[target] = ids[0]
+		matchedID := titleMatchID(ids)
+		matchedIDs = append(matchedIDs, matchedID)
+		titleMatches[target] = matchedID
 	}
 
-	// FindByTitle has no parent_id filter, so a title match can be a sub-unit.
-	// Roll those up exactly as the id path does, or a section titled like a note
+	// A match that is still a sub-unit here is one no file bore the title for.
+	// Roll it up exactly as the id path does, or a section titled like a note
 	// would resolve to an id whose payload contradicts itself.
 	byTitle, titleErr := srv.fileRowsFor(matchedIDs)
 
@@ -100,4 +101,44 @@ func (srv *Server) resolveWikilinks(body []byte) (map[string]WikilinkTarget, err
 	}
 
 	return resolved, nil
+}
+
+// titleMatchID picks which of a title's matching ids the reader should land on.
+// It must be called with a non-empty list — an unmatched title is a dead link,
+// which is the caller's case to answer, not a pick between candidates.
+//
+// FindByTitle runs no parent_id filter, so its ids include sub-unit rows: a
+// section heading titled "Introduction" matches alongside a file titled
+// "Introduction". A file row is the stronger match by far — its OWN title is
+// what the reader typed. A sub-unit match only ever reaches the file CONTAINING
+// it, whose title is something else entirely, so preferring the file is what
+// keeps [[Introduction]] landing on the note actually called Introduction.
+//
+// Id-ASC ordering does not do this on its own, which is the trap this replaces.
+// A file does sort before its OWN sub-units ("c" < "c#S1"), but that is not the
+// ambiguity that bites. The collision is CROSS-file, and there the order runs
+// the other way: '#' (0x23) < '-' (0x2D), so the sub-unit "alpha#S2" sorts ahead
+// of the file "zeta" that genuinely bears the title — and ahead of "c-notes".
+// Taking ids[0] there rolled up to an unrelated note and rendered it live.
+//
+// Rolling up a sub-unit match is still right when NO file bears the title:
+// [[Some Section Heading]] reaching the note that contains it is the useful
+// reading of that link. This reorders the preference; it never drops a match.
+//
+// Both branches take the first id of an id-ASC list, so an ambiguity WITHIN a
+// kind stays a stable, arbitrary pick. Core refuses instead (RefErrAmbiguous,
+// node/refs.go) and a read view cannot error at a reader mid-page — but it must
+// not do WORSE than the write path, which for an ambiguous title creates no edge
+// rather than an edge to the wrong note.
+func titleMatchID(ids []string) string {
+	for _, id := range ids {
+		// No separator means a file id: sub-unit ids are "<fileID>#<address>",
+		// and a file id can never contain "#" (index.ReservedIDReason rejects it
+		// at every write boundary, which is what links.go's fileIDOf leans on).
+		if !strings.Contains(id, index.SubUnitIDSeparator) {
+			return id
+		}
+	}
+
+	return ids[0]
 }

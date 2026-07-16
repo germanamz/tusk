@@ -172,6 +172,60 @@ func TestNodeWikilinksResolveByTitle(test *testing.T) {
 	}
 }
 
+// TestNodeWikilinksTitlePrefersFileOverSubUnit pins the cross-file title
+// collision, which is routine once sub-units are indexed: headings like
+// "Introduction" / "Overview" / "Notes" collide with real note titles all the
+// time. FindByTitle has no parent_id filter, so it returns the section row
+// alongside the file — and id-ASC puts the section FIRST here ('#' 0x23 sorts
+// under '-' and every letter), so "alpha#S2" leads and rolls up to file alpha.
+// That handed the reader a live link to a note not even called "Introduction",
+// while zeta — the only node bearing the title — was unreachable. Silent.
+func TestNodeWikilinksTitlePrefersFileOverSubUnit(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[Introduction]]\n")
+
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "alpha", Type: "note", Title: "Alpha", Path: "alpha.md"},
+			{ID: "zeta", Type: "note", Title: "Introduction", Path: "zeta.md"},
+		},
+		sub: []index.NodeRow{subUnit("alpha#S2", "alpha", "note", "Introduction", "alpha.md")},
+	}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	// zeta's OWN title is what the reader typed; alpha merely contains a section
+	// with that heading. The file match wins.
+	if got["Introduction"] != (WikilinkTarget{ID: "zeta", Title: "Introduction", Exists: true}) {
+		test.Fatalf("wikilinks[Introduction]=%+v want file zeta, not a section rolled up to another note", got["Introduction"])
+	}
+}
+
+// TestNodeWikilinksTitleFallsBackToSubUnitFile is the counterweight: preferring
+// file rows must not COST the sub-unit fallback. When no file bears the title,
+// [[Some Heading]] reaching the note that contains that heading is the useful
+// reading of the link, and dropping it would render every section-title link
+// dead.
+func TestNodeWikilinksTitleFallsBackToSubUnitFile(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[Some Heading]]\n")
+
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "c", Type: "spec", Title: "C", Path: "c.md"},
+		},
+		sub: []index.NodeRow{subUnit("c#S1", "c", "spec", "Some Heading", "c.md")},
+	}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	if got["Some Heading"] != (WikilinkTarget{ID: "c", Title: "C", Exists: true}) {
+		test.Fatalf("wikilinks[Some Heading]=%+v want the containing file c", got["Some Heading"])
+	}
+}
+
 // TestNodeWikilinksKeyOnAliasTarget pins the alias form: [[b|Bee]] links to b
 // and displays "Bee". The label is presentation and is never resolved, so the
 // map must key on "b" — the target segment, which is what the client keys on
@@ -217,8 +271,9 @@ func TestNodeWikilinksRollUpFragmentTarget(test *testing.T) {
 
 	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
 
-	// The sub-unit row exists and Get would resolve it — resolving to it is the
-	// live failure this pins, not a hypothetical.
+	// The sub-unit row exists and a by-id lookup finds it (the path is
+	// fileRowsFor → ListByIDs), so resolving to it is the live failure this
+	// pins, not a hypothetical.
 	if got["c#S1"] != (WikilinkTarget{ID: "c", Title: "C", Exists: true}) {
 		test.Fatalf("wikilinks[c#S1]=%+v want the fragment rolled up to file c", got["c#S1"])
 	}
@@ -263,8 +318,13 @@ func TestNodeWikilinksFragmentOfMissingFileUnresolved(test *testing.T) {
 
 	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
 
-	if got["gone#S1"].Exists {
-		test.Fatalf("wikilinks[gone#S1]=%+v want unresolved", got["gone#S1"])
+	// Present AND unresolved, both asserted: reading .Exists off the map alone
+	// passes on a nil map and on an implementation that omits the entry, neither
+	// of which is the contract — the client needs the key to mark the link dead.
+	gone, present := got["gone#S1"]
+
+	if !present || gone.Exists {
+		test.Fatalf("wikilinks[gone#S1]=%+v present=%v want a present, unresolved entry", gone, present)
 	}
 }
 
