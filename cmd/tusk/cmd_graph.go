@@ -3,25 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/germanamz/tusk/internal/graphview"
 	"github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/internal/webui"
 	"github.com/spf13/cobra"
 )
-
-type graphConfig struct {
-	addr     string
-	autoOpen bool
-	ready    func(addr string) // optional; called once listening (tests)
-}
 
 func newGraphCmd() *cobra.Command {
 	var (
@@ -75,7 +65,7 @@ automatically: press space in this terminal to open it, or pass --open.`,
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 
-			return serveGraph(ctx, cmd, graphConfig{addr: addr, autoOpen: autoOpen})
+			return serveWebUI(ctx, cmd, graphWebUIConfig(addr, autoOpen))
 		},
 	}
 
@@ -85,156 +75,29 @@ automatically: press space in this terminal to open it, or pass --open.`,
 	return graphCmd
 }
 
-// serveGraph opens the runtime, starts background maintenance, serves the graph
-// handler, and runs the foreground console until ctx is cancelled.
-func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	cwd, cwdErr := os.Getwd()
-	if cwdErr != nil {
-		return cwdErr
+// graphWebUIConfig describes the graph view to the shared serveWebUI spine: how
+// to build the graph server once the runtime is open, and how to render its
+// status line. Tests reach for it directly so they can add a ready hook.
+func graphWebUIConfig(addr string, autoOpen bool) webUIConfig {
+	return webUIConfig{
+		Name:     "graph",
+		Addr:     addr,
+		AutoOpen: autoOpen,
+		Title:    "tusk graph",
+		BuildServer: func(rt *mcp.Runtime) webViewServer {
+			return graphview.New(graphview.Deps{
+				Root:         rt.Root,
+				Nodes:        rt.Nodes,
+				Edges:        rt.Edges,
+				Render:       graphview.NewRenderer(rt.Root, rt.Nodes),
+				Query:        graphview.NewQuerier(rt.Index.DB(), rt.Manifest, rt.Embedder, rt.Embeddings, rt.Nodes, rt.Edges, rt.Root),
+				Changes:      webui.NewChangeSource(rt.Root, rt.Meta),
+				Manifest:     rt.Manifest,
+				Embeddings:   rt.Embeddings,
+				Logger:       rt.Logger,
+				AllowedHosts: deriveAllowedHosts(addr),
+			})
+		},
+		StatusLine: statusLine,
 	}
-
-	// footer coordinates the interactive status footer with the background logs
-	// so a -v log line never glues onto the footer. It wraps stderr (where the
-	// logs already go) and stays a transparent passthrough until runConsole
-	// activates it on an interactive terminal. Building one logger over it and
-	// sharing it between the runtime and the view server keeps every background
-	// component's output flowing through the same coordinator.
-	footer := newFooterWriter(cmd.ErrOrStderr())
-
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	logger := newLogger(footer, verbose)
-
-	opts := []mcp.Option{
-		mcp.WithAliasIntrospector(buildVerbIntrospector(cmd.Root())),
-		mcp.WithLogger(logger),
-	}
-
-	runtime, openErr := mcp.Open(cwd, opts...)
-	if openErr != nil {
-		return openErr
-	}
-
-	defer runtime.Close()
-
-	deps := graphview.Deps{
-		Root:         runtime.Root,
-		Nodes:        runtime.Nodes,
-		Edges:        runtime.Edges,
-		Render:       graphview.NewRenderer(runtime.Root, runtime.Nodes),
-		Query:        graphview.NewQuerier(runtime.Index.DB(), runtime.Manifest, runtime.Embedder, runtime.Embeddings, runtime.Nodes, runtime.Edges, runtime.Root),
-		Changes:      webui.NewChangeSource(runtime.Root, runtime.Meta),
-		Manifest:     runtime.Manifest,
-		Embeddings:   runtime.Embeddings,
-		Logger:       logger,
-		AllowedHosts: graphAllowedHosts(cfg.addr),
-	}
-
-	viewServer := graphview.New(deps)
-
-	// Background maintenance (watcher + drainers) and the SSE hub.
-	bgServer := mcp.NewServer(runtime)
-
-	bgDone := make(chan error, 1)
-	go func() { bgDone <- bgServer.RunBackground(ctx) }()
-
-	go viewServer.Run(ctx)
-
-	listener, listenErr := net.Listen("tcp", cfg.addr)
-	if listenErr != nil {
-		cancel()
-		<-bgDone
-
-		return fmt.Errorf("graph: listen %s: %w", cfg.addr, listenErr)
-	}
-
-	boundURL := "http://" + listener.Addr().String()
-
-	if cfg.ready != nil {
-		cfg.ready(listener.Addr().String())
-	}
-
-	// Route the HTTP server's own error log through the footer coordinator too,
-	// so a stray net/http error line (default destination: os.Stderr) does not
-	// glue onto the interactive footer either.
-	httpServer := &http.Server{
-		Handler:           viewServer.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog:          log.New(footer, "", 0),
-	}
-
-	serveErrCh := make(chan error, 1)
-	go func() { serveErrCh <- httpServer.Serve(listener) }()
-
-	if cfg.autoOpen {
-		_ = openBrowser(boundURL)
-	}
-
-	// Tilt-style foreground console (status line + keypress loop).
-	runConsole(ctx, cancel, cmd, viewServer, runtime, boundURL, footer)
-
-	cancel() // unblock RunBackground + viewServer.Run before draining
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-	_ = httpServer.Shutdown(shutdownCtx)
-
-	<-bgDone
-
-	if serveErr := <-serveErrCh; serveErr != nil && serveErr != http.ErrServerClosed {
-		return serveErr
-	}
-
-	return nil
-}
-
-// graphAllowedHosts derives the graph server's Host-header allowlist from the
-// bound address. Loopback binds stay strict (loopback Host only), which is what
-// DNS-rebinding protection needs. A specific non-loopback bind — already
-// confirmed by the user — allows that host so the intended access path works;
-// an all-interfaces bind can't enumerate the access host, so the guard is
-// disabled with "*" since the user has accepted network exposure.
-func graphAllowedHosts(addr string) []string {
-	if isLoopbackAddr(addr) {
-		return nil
-	}
-
-	host, _, splitErr := net.SplitHostPort(addr)
-
-	if splitErr != nil {
-		host = addr
-	}
-
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		return []string{"*"}
-	}
-
-	return []string{host}
-}
-
-// isLoopbackAddr reports whether addr binds only the loopback interface.
-func isLoopbackAddr(addr string) bool {
-	host, _, splitErr := net.SplitHostPort(addr)
-	if splitErr != nil {
-		return false
-	}
-
-	if host == "localhost" {
-		return true
-	}
-
-	ip := net.ParseIP(host)
-
-	return ip != nil && ip.IsLoopback()
-}
-
-func confirmNonLoopback(cmd *cobra.Command, addr string) bool {
-	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %q is not loopback; the graph server is unauthenticated and read-only but would be reachable from your network.\nProceed? [y/N] ", addr)
-
-	var answer string
-	_, _ = fmt.Fscanln(cmd.InOrStdin(), &answer)
-
-	return answer == "y" || answer == "Y"
 }
