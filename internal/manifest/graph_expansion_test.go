@@ -335,3 +335,294 @@ func intToString(value int) string {
 
 	return string(digits)
 }
+
+// ptrTo returns a pointer to value. MergeGraphExpansion's overrides are
+// optionals, so the tests need addressable literals.
+func ptrTo[T any](value T) *T {
+	return &value
+}
+
+// TestMergeGraphExpansion_NoOverridesPreservesBase confirms the merger returns
+// the manifest defaults verbatim when no per-call override is set.
+func TestMergeGraphExpansion_NoOverridesPreservesBase(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+
+	got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{})
+
+	if mergeErr != nil {
+		test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+	}
+
+	if got == nil {
+		test.Fatalf("MergeGraphExpansion: nil result")
+	}
+
+	if got.Enabled != base.Enabled {
+		test.Errorf("Enabled = %v, want %v", got.Enabled, base.Enabled)
+	}
+
+	if got.Hops != base.Hops {
+		test.Errorf("Hops = %d, want %d", got.Hops, base.Hops)
+	}
+
+	if got.Weight != base.Weight {
+		test.Errorf("Weight = %v, want %v", got.Weight, base.Weight)
+	}
+}
+
+// TestMergeGraphExpansion_EnabledTrueBeatsWorkspaceDisabled confirms an
+// explicit Enabled=true turns the feature on even when the workspace ships with
+// enabled=false. Drives what the CLI's --graph-expand resolves to.
+func TestMergeGraphExpansion_EnabledTrueBeatsWorkspaceDisabled(test *testing.T) {
+	base := manifest.DefaultGraphExpansion() // Enabled = false.
+
+	got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+		Enabled: ptrTo(true),
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+	}
+
+	if !got.Enabled {
+		test.Errorf("Enabled = false, want true (an explicit true should enable)")
+	}
+}
+
+// TestMergeGraphExpansion_EnabledFalseBeatsWorkspaceEnabled confirms an
+// explicit Enabled=false disables the feature even when the workspace manifest
+// enables it. An earlier CLI switch arm only ran when the value was true,
+// silently dropping the user's explicit false.
+func TestMergeGraphExpansion_EnabledFalseBeatsWorkspaceEnabled(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+	base.Enabled = true // Workspace ships with enabled = true.
+
+	got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+		Enabled: ptrTo(false),
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+	}
+
+	if got.Enabled {
+		test.Errorf("Enabled = true, want false (an explicit false must beat workspace enabled=true)")
+	}
+}
+
+// TestMergeGraphExpansion_AbsentEnabledInheritsWorkspace pins the erratum that
+// prompted this extraction: a nil Enabled override must inherit the workspace
+// value, never force expansion on.
+func TestMergeGraphExpansion_AbsentEnabledInheritsWorkspace(test *testing.T) {
+	for _, workspaceEnabled := range []bool{true, false} {
+		base := manifest.DefaultGraphExpansion()
+		base.Enabled = workspaceEnabled
+
+		got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+			Hops: ptrTo(2),
+		})
+
+		if mergeErr != nil {
+			test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+		}
+
+		if got.Enabled != workspaceEnabled {
+			test.Errorf("Enabled = %v, want %v (absent override must inherit)", got.Enabled, workspaceEnabled)
+		}
+	}
+}
+
+// TestMergeGraphExpansion_EdgeTypesNotAliased confirms the resolved
+// GraphExpansion does not share the backing array of its base.EdgeTypes slice.
+// The MCP server fans requests out across goroutines, so an aliased slice would
+// race once a future caller mutates it.
+func TestMergeGraphExpansion_EdgeTypesNotAliased(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+
+	if len(base.EdgeTypes) == 0 {
+		test.Fatalf("default EdgeTypes unexpectedly empty")
+	}
+
+	got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{})
+
+	if mergeErr != nil {
+		test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+	}
+
+	if &got.EdgeTypes[0] == &base.EdgeTypes[0] {
+		test.Errorf("resolved EdgeTypes shares backing array with base; want clone")
+	}
+}
+
+// TestMergeGraphExpansion_EdgeTypesOverrideNotAliased confirms an overriding
+// slice is cloned too, so the caller's slice (cobra-owned, or JSON-decoder
+// owned for MCP) is not shared with the resolved configuration.
+func TestMergeGraphExpansion_EdgeTypesOverrideNotAliased(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+	supplied := []string{"references"}
+
+	got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+		EdgeTypes: &supplied,
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+	}
+
+	if !reflect.DeepEqual(got.EdgeTypes, []string{"references"}) {
+		test.Fatalf("EdgeTypes = %v, want [references]", got.EdgeTypes)
+	}
+
+	if &got.EdgeTypes[0] == &supplied[0] {
+		test.Errorf("resolved EdgeTypes shares backing array with the override; want clone")
+	}
+}
+
+// TestMergeGraphExpansion_EmptyEdgeTypesOverrideIsHonored confirms a non-nil,
+// len-0 override is a legitimate "follow no edge types" instruction rather than
+// an absent one, and that it does not fall back to the base.
+func TestMergeGraphExpansion_EmptyEdgeTypesOverrideIsHonored(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+	empty := []string{}
+
+	got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+		EdgeTypes: &empty,
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+	}
+
+	if len(got.EdgeTypes) != 0 {
+		test.Errorf("EdgeTypes = %v, want empty (an explicit empty override must be honored)", got.EdgeTypes)
+	}
+
+	if got.EdgeTypes == nil {
+		test.Errorf("EdgeTypes = nil, want a non-nil empty slice")
+	}
+}
+
+// TestMergeGraphExpansion_ExplicitZeroHopsRejected pins a case the old
+// out-of-band presence flags could not express: hops=0 is a real, invalid
+// override and must error rather than be silently read as "absent".
+func TestMergeGraphExpansion_ExplicitZeroHopsRejected(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+
+	_, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+		Hops: ptrTo(0),
+	})
+
+	if mergeErr == nil {
+		test.Fatalf("expected an error for an explicit hops=0")
+	}
+
+	if !strings.Contains(mergeErr.Error(), "must be 1 or 2") {
+		test.Errorf("error %q should explain the hops range", mergeErr.Error())
+	}
+}
+
+// TestMergeGraphExpansion_ExplicitZeroWeightHonored pins the counterpart: an
+// explicit weight=0 is in range, so it must land as 0 rather than inherit the
+// base's 0.2. This is the whole reason the overrides are optionals.
+func TestMergeGraphExpansion_ExplicitZeroWeightHonored(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+
+	if base.Weight == 0 {
+		test.Fatalf("default Weight unexpectedly 0; the test cannot distinguish")
+	}
+
+	got, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+		Weight: ptrTo(0.0),
+	})
+
+	if mergeErr != nil {
+		test.Fatalf("MergeGraphExpansion: %v", mergeErr)
+	}
+
+	if got.Weight != 0 {
+		test.Errorf("Weight = %v, want 0 (an explicit zero must be honored)", got.Weight)
+	}
+}
+
+// TestMergeGraphExpansion_HopsValidatedBeforeWeight pins the order both callers
+// shipped: a call passing two out-of-range values surfaces the hops error.
+func TestMergeGraphExpansion_HopsValidatedBeforeWeight(test *testing.T) {
+	base := manifest.DefaultGraphExpansion()
+
+	_, mergeErr := manifest.MergeGraphExpansion(base, manifest.GraphExpansionOverrides{
+		Hops:   ptrTo(9),
+		Weight: ptrTo(5.0),
+	})
+
+	if mergeErr == nil {
+		test.Fatalf("expected an error")
+	}
+
+	if !strings.Contains(mergeErr.Error(), "1 or 2") {
+		test.Errorf("error %q should be the hops error; hops is validated first", mergeErr.Error())
+	}
+}
+
+// TestMergeGraphExpansion_LabelsNameTheCallersKnob pins the per-caller wording.
+// The CLI's message is pinned byte-for-byte by a golden test, and MCP's labels
+// carry a trailing colon deliberately, so both callers keep their exact strings.
+func TestMergeGraphExpansion_LabelsNameTheCallersKnob(test *testing.T) {
+	cases := []struct {
+		name     string
+		labels   manifest.GraphExpansionLabels
+		over     manifest.GraphExpansionOverrides
+		wantText string
+	}{
+		{
+			name:     "cli hops",
+			labels:   manifest.GraphExpansionLabels{Hops: "--hops", Weight: "--graph-weight"},
+			over:     manifest.GraphExpansionOverrides{Hops: ptrTo(3)},
+			wantText: "--hops must be 1 or 2 (got 3)",
+		},
+		{
+			name:     "cli weight",
+			labels:   manifest.GraphExpansionLabels{Hops: "--hops", Weight: "--graph-weight"},
+			over:     manifest.GraphExpansionOverrides{Weight: ptrTo(1.5)},
+			wantText: "--graph-weight must be in [0.0, 1.0] (got 1.5)",
+		},
+		{
+			name:     "mcp hops keeps its colon",
+			labels:   manifest.GraphExpansionLabels{Hops: "hops:", Weight: "graph_weight:"},
+			over:     manifest.GraphExpansionOverrides{Hops: ptrTo(5)},
+			wantText: "hops: must be 1 or 2 (got 5)",
+		},
+		{
+			name:     "mcp weight keeps its colon",
+			labels:   manifest.GraphExpansionLabels{Hops: "hops:", Weight: "graph_weight:"},
+			over:     manifest.GraphExpansionOverrides{Weight: ptrTo(2.0)},
+			wantText: "graph_weight: must be in [0.0, 1.0] (got 2)",
+		},
+		{
+			name:     "unset labels fall back to the bare key",
+			over:     manifest.GraphExpansionOverrides{Hops: ptrTo(7)},
+			wantText: "hops must be 1 or 2 (got 7)",
+		},
+		{
+			name:     "unset weight label falls back to the bare key",
+			over:     manifest.GraphExpansionOverrides{Weight: ptrTo(-1.0)},
+			wantText: "weight must be in [0.0, 1.0] (got -1)",
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			over := testCase.over
+			over.Labels = testCase.labels
+
+			_, mergeErr := manifest.MergeGraphExpansion(manifest.DefaultGraphExpansion(), over)
+
+			if mergeErr == nil {
+				test.Fatalf("expected an error")
+			}
+
+			if mergeErr.Error() != testCase.wantText {
+				test.Errorf("error = %q, want %q", mergeErr.Error(), testCase.wantText)
+			}
+		})
+	}
+}
