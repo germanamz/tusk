@@ -138,7 +138,7 @@ func TestNeighbors_OrdersByListAllGlobalOrder(test *testing.T) {
 		edgeRow("references", "notes/zzz", "notes/mid", "direct"),
 		edgeRow("references", "notes/mid", "notes/bbb", "direct"),
 		edgeRow("references", "notes/aaa", "notes/mid", "direct"),
-		edgeRow("mentions", "notes/aaa", "notes/mid", "derived"),
+		edgeRow("mentions", "notes/zzz", "notes/mid", "derived"),
 		edgeRow("references", "notes/mid", "notes/aaa", "direct"),
 	}}
 
@@ -155,11 +155,11 @@ func TestNeighbors_OrdersByListAllGlobalOrder(test *testing.T) {
 	}
 
 	want := []step{
-		{farID: "notes/aaa", edgeType: "mentions", direction: "in"},    // source notes/aaa, type mentions
 		{farID: "notes/aaa", edgeType: "references", direction: "in"},  // source notes/aaa, type references
 		{farID: "notes/aaa", edgeType: "references", direction: "out"}, // source notes/mid, target notes/aaa
 		{farID: "notes/bbb", edgeType: "references", direction: "out"}, // source notes/mid, target notes/bbb
-		{farID: "notes/zzz", edgeType: "references", direction: "in"},  // source notes/zzz
+		{farID: "notes/zzz", edgeType: "mentions", direction: "in"},    // source notes/zzz, type mentions
+		{farID: "notes/zzz", edgeType: "references", direction: "in"},  // source notes/zzz, type references
 	}
 
 	if len(got) != len(want) {

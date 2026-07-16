@@ -51,6 +51,10 @@ type adjacentEdge struct {
 // Self-loops are emitted once, as "out". Sub-unit and dangling far ends are
 // dropped. The result is ordered by ListAll's global (SourceID, Type,
 // TargetID), and is an empty, non-nil slice when the node has no neighbors.
+//
+// An unknown nodeID yields an empty slice and no error — this traverses edges
+// and does not verify the focus node exists. Callers needing a 404 should
+// verify the node with NodeRepo.Get first.
 func Neighbors(nodes NodeLister, edges EdgeLister, nodeID string) ([]Neighbor, error) {
 	outEdges, outErr := edges.ListBySource(nodeID)
 
