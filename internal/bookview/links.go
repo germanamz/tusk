@@ -2,6 +2,7 @@ package bookview
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
 )
@@ -59,15 +60,16 @@ func (rail *linkRail) add(ref LinkRef) {
 // reports an empty Backlinks rail while looking like it worked. A reading UI
 // cannot under-report "what links here".
 //
-// Instead each sub-unit far end is rolled up to its parent file: a link
-// authored in c#S1 is a link from note c, so it surfaces as c, navigable and
-// reading the way a person expects. Rolling up makes duplicates possible where
-// the file-level rule made them unreachable (three sections of c linking to a
-// are three edges but one link from c), so each rail de-duplicates.
+// Instead each sub-unit far end is rolled up to the file it belongs to: a link
+// authored in c#S1 — or in a paragraph nested under it, c#S1P1 — is a link from
+// note c, so it surfaces as c, navigable and reading the way a person expects.
+// Rolling up makes duplicates possible where the file-level rule made them
+// unreachable (three sections of c linking to a are three edges but one link
+// from c), so each rail de-duplicates.
 //
 // The behaviors webui.Neighbors guaranteed are preserved here and pinned by
 // this package's tests: only incident edges are fetched (never a full scan), far
-// ends resolve in batched ListByIDs lookups rather than one Get per edge,
+// ends resolve in one batched ListByIDs lookup rather than a Get per edge,
 // self-loops are emitted once as "out", dangling far ends are skipped, and the
 // order reproduces ListAll's global (source_id, type, target_id).
 //
@@ -189,90 +191,81 @@ func (srv *Server) adjacentEdges(nodeID string) ([]adjacentEdge, error) {
 	return adjacent, nil
 }
 
+// fileIDOf projects any node id onto the id of the file it belongs to. A
+// sub-unit id is "<fileID>#<address>", so everything before the first separator
+// is the file; a file id has no separator to cut on and comes back unchanged.
+// That is guaranteed rather than incidental — index.ReservedIDReason rejects "#"
+// in a file id at both the reindex walk and the node write surface, precisely so
+// a file id can never be mistaken for a sub-unit of another file (#683).
+//
+// This lands on the file in ONE step at ANY nesting depth, which is why the
+// rails do not walk parent_id. Hopping parent_id is what the first cut of this
+// code did, on the theory that the schema pins a sub-unit's parent to a file
+// row. It does not: nodes' CHECK constrains only whether parent_id is NULL, never
+// what it points at, and subunit sync sets a nested unit's parent to its
+// enclosing SECTION, not to its file (parentRowID, internal/subunit/sync.go —
+// it returns the file id only for units at the document root). A paragraph under
+// a heading has parent_id "<file>#<section>", so one hop lands on another
+// sub-unit; deeper nesting is further still. Since prose lives under headings,
+// that is where most real links are authored.
+//
+// internal/subunit's addressFromID is the exact inverse of this cut, which is
+// what makes it the established way to read a sub-unit id rather than a new
+// assumption about the id format.
+func fileIDOf(nodeID string) string {
+	fileID, _, _ := strings.Cut(nodeID, index.SubUnitIDSeparator)
+
+	return fileID
+}
+
 // resolveFarFiles maps each distinct far-end id to the file-level node row the
-// rails should show for it: the row itself when it is already a file, its parent
-// file when it is a sub-unit.
+// rails should show for it: the row itself when it is already a file, the file it
+// belongs to when it is a sub-unit at any depth.
 //
-// It costs two batched ListByIDs calls regardless of edge count — one for the
-// far ends, one for the parents of whichever of those turned out to be
-// sub-units — rather than a Get per edge. The second call runs no query at all
-// when no far end is a sub-unit (ListByIDs short-circuits empty input), so a
-// vault without sub-unit indexing pays nothing for the rollup.
+// It costs one batched ListByIDs call regardless of edge count, rather than a Get
+// per edge: the far ends' file ids come from their ids alone (see fileIDOf), so
+// there is no need to fetch a sub-unit row just to read a parent pointer off it.
 //
-// An id absent from the returned map is one the rails must skip: either the edge
-// is dangling (ListByIDs silently omits ids with no row) or the far end is a
-// sub-unit whose parent file row is missing from the index. Both would otherwise
-// render as a dead rail entry — a zero-value LinkRef with an empty title
-// pointing at an id that 404s — so neither is emitted.
+// An id absent from the returned map is one the rails must skip: the file behind
+// it has no row, so the edge is dangling (ListByIDs silently omits ids with no
+// row rather than erroring). Emitting it would render a dead rail entry — a
+// zero-value LinkRef with an empty title pointing at an id that 404s.
 func (srv *Server) resolveFarFiles(adjacent []adjacentEdge) (map[string]index.NodeRow, error) {
-	farRows, farErr := srv.deps.Nodes.ListByIDs(distinctFarIDs(adjacent))
+	farFileIDs := make(map[string]string, len(adjacent))
+	fileIDs := make([]string, 0, len(adjacent))
+	seen := make(map[string]struct{}, len(adjacent))
 
-	if farErr != nil {
-		return nil, farErr
-	}
+	for _, adj := range adjacent {
+		fileID := fileIDOf(adj.farID)
+		farFileIDs[adj.farID] = fileID
 
-	parentIDs := make([]string, 0, len(farRows))
-	seen := make(map[string]struct{}, len(farRows))
-
-	for _, far := range farRows {
-		if !far.ParentID.Valid {
-			continue
+		if _, ok := seen[fileID]; ok {
+			continue // asked for already: the batched lookup wants each id once
 		}
 
-		if _, ok := seen[far.ParentID.String]; ok {
-			continue
-		}
-
-		seen[far.ParentID.String] = struct{}{}
-		parentIDs = append(parentIDs, far.ParentID.String)
+		seen[fileID] = struct{}{}
+		fileIDs = append(fileIDs, fileID)
 	}
 
-	parentRows, parentErr := srv.deps.Nodes.ListByIDs(parentIDs)
+	fileRows, fileErr := srv.deps.Nodes.ListByIDs(fileIDs)
 
-	if parentErr != nil {
-		return nil, parentErr
+	if fileErr != nil {
+		return nil, fileErr
 	}
 
-	// The schema pins a sub-unit's parent to a file row (nodes' CHECK allows
-	// parent_id only on kind='subunit', and requires it to be NULL on
-	// kind='file'), so one hop always lands on a file and this needs no loop.
-	byID := make(map[string]index.NodeRow, len(parentRows))
+	byID := make(map[string]index.NodeRow, len(fileRows))
 
-	for _, row := range parentRows {
+	for _, row := range fileRows {
 		byID[row.ID] = row
 	}
 
-	resolved := make(map[string]index.NodeRow, len(farRows))
+	resolved := make(map[string]index.NodeRow, len(farFileIDs))
 
-	for _, far := range farRows {
-		if !far.ParentID.Valid {
-			resolved[far.ID] = far
-
-			continue
-		}
-
-		if parent, found := byID[far.ParentID.String]; found {
-			resolved[far.ID] = parent
+	for farID, fileID := range farFileIDs {
+		if row, found := byID[fileID]; found {
+			resolved[farID] = row
 		}
 	}
 
 	return resolved, nil
-}
-
-// distinctFarIDs lists each far-end id once, in first-seen order, so the
-// batched lookup asks for no id twice.
-func distinctFarIDs(adjacent []adjacentEdge) []string {
-	ids := make([]string, 0, len(adjacent))
-	seen := make(map[string]struct{}, len(adjacent))
-
-	for _, adj := range adjacent {
-		if _, ok := seen[adj.farID]; ok {
-			continue
-		}
-
-		seen[adj.farID] = struct{}{}
-		ids = append(ids, adj.farID)
-	}
-
-	return ids
 }

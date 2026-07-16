@@ -9,8 +9,20 @@ import (
 )
 
 // subUnit builds a sub-unit NodeRow under parentID, the shape subunit sync
-// writes: the id is "<parent>#<address>" and Path is the parent file's, because
-// a section has no file of its own.
+// writes: the id is "<fileID>#<address>" and Path is the file's, because a
+// section has no file of its own.
+//
+// parentID is the ENCLOSING row, and it is the file id only for units at the
+// document root. A unit nested inside a section carries that section's id
+// instead — subunit sync's parentRowID returns the file id only when the unit's
+// ParentAddress is empty, and internal/subunit/ast.go states the rule outright:
+// "Sub-units of sub-units (paragraphs under a section, an H3 section under an H2)
+// reference the closest enclosing section."
+//
+// So "c#S1" is a legitimate parentID here, and it is the common one: prose lives
+// under headings. Fixtures that only ever pass a file id model the document-root
+// case and nothing else. That gap is what hid the nested-rollup bug these tests
+// now cover — the doubles agreed with the code instead of with the indexer.
 func subUnit(id, parentID, nodeType, title, path string) index.NodeRow {
 	return index.NodeRow{
 		ID:       id,
@@ -81,6 +93,149 @@ func TestLinksRollUpSubUnitSource(test *testing.T) {
 
 	if len(links.out) != 0 {
 		test.Fatalf("links.out=%+v want none", links.out)
+	}
+}
+
+// TestLinksRollUpNestedSubUnitSource is the ruling's motivating scenario, and
+// the case the first cut of the rollup got wrong: the link is authored in a
+// PARAGRAPH under a section, not in the section itself. That paragraph's
+// parent_id is "c#S1" — another sub-unit — so resolving one parent hop lands on
+// the section and stops there, surfacing "c#S1": not the file the ruling
+// requires, not navigable, and not de-duplicable against c's other sections.
+//
+// This is the common shape, not an exotic one. Prose lives under headings, so
+// most real backlinks arrive through a nested unit.
+func TestLinksRollUpNestedSubUnitSource(test *testing.T) {
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "c", Type: "spec", Title: "C", Path: "c.md"},
+		},
+		sub: []index.NodeRow{
+			subUnit("c#S1", "c", "spec", "Section 1", "c.md"),
+			// The paragraph's parent is the SECTION, not the file.
+			subUnit("c#S1P1", "c#S1", "spec", "", "c.md"),
+		},
+	}
+
+	edges := fakeEdges{all: []index.EdgeRow{
+		containsEdge("c", "c#S1", "c.md"),
+		containsEdge("c#S1", "c#S1P1", "c.md"),
+		{Type: "references", SourceID: "c#S1P1", TargetID: "a", SourcePath: "c.md", Kind: "direct"},
+	}}
+
+	links := linksFor(test, New(Deps{Nodes: nodes, Edges: edges}), "a")
+
+	want := []LinkRef{{ID: "c", Title: "C", Type: "spec", EdgeType: "references"}}
+
+	if !reflect.DeepEqual(links.in, want) {
+		test.Fatalf("links.in=%+v want %+v — a nested sub-unit must roll up to its FILE, not to its enclosing section", links.in, want)
+	}
+}
+
+// TestLinksRollUpDeeplyNestedSubUnit pins that the rollup has no depth limit. A
+// paragraph under an H3 under an H2 is three rows from its file, so any
+// fixed-depth resolution (one hop, or two) surfaces an intermediate section for
+// some real document. Projecting the id rather than walking parent_id is what
+// makes depth irrelevant.
+func TestLinksRollUpDeeplyNestedSubUnit(test *testing.T) {
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "c", Type: "spec", Title: "C", Path: "c.md"},
+		},
+		// The full chain, as subunit sync would write it: each row's parent is
+		// the closest enclosing section, and only the outermost points at c.
+		sub: []index.NodeRow{
+			subUnit("c#S1", "c", "spec", "Section 1", "c.md"),
+			subUnit("c#S1S2", "c#S1", "spec", "Subsection 2", "c.md"),
+			subUnit("c#S1S2P3", "c#S1S2", "spec", "", "c.md"),
+		},
+	}
+
+	edges := fakeEdges{all: []index.EdgeRow{
+		{Type: "references", SourceID: "c#S1S2P3", TargetID: "a", SourcePath: "c.md", Kind: "direct"},
+	}}
+
+	links := linksFor(test, New(Deps{Nodes: nodes, Edges: edges}), "a")
+
+	want := []LinkRef{{ID: "c", Title: "C", Type: "spec", EdgeType: "references"}}
+
+	if !reflect.DeepEqual(links.in, want) {
+		test.Fatalf("links.in=%+v want %+v — rollup must reach the file from any nesting depth", links.in, want)
+	}
+}
+
+// TestLinksDeduplicateNestedSubUnitsAcrossSections pins de-duplication where it
+// actually has to work. The existing dedup test links from the sections
+// themselves, whose parents are all c, so a one-hop rollup collapses them
+// correctly by accident. Here the links come from paragraphs in two DIFFERENT
+// sections: one hop lands them on c#S1 and c#S2 — two distinct refs, no
+// collision, two rail entries. Only a rollup that reaches the file gives the one
+// c entry the ruling requires.
+func TestLinksDeduplicateNestedSubUnitsAcrossSections(test *testing.T) {
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "c", Type: "spec", Title: "C", Path: "c.md"},
+		},
+		sub: []index.NodeRow{
+			subUnit("c#S1", "c", "spec", "Section 1", "c.md"),
+			subUnit("c#S1P1", "c#S1", "spec", "", "c.md"),
+			subUnit("c#S2", "c", "spec", "Section 2", "c.md"),
+			subUnit("c#S2P1", "c#S2", "spec", "", "c.md"),
+		},
+	}
+
+	edges := fakeEdges{all: []index.EdgeRow{
+		{Type: "references", SourceID: "c#S1P1", TargetID: "a", SourcePath: "c.md", Kind: "direct"},
+		{Type: "references", SourceID: "c#S2P1", TargetID: "a", SourcePath: "c.md", Kind: "direct"},
+	}}
+
+	links := linksFor(test, New(Deps{Nodes: nodes, Edges: edges}), "a")
+
+	want := []LinkRef{{ID: "c", Title: "C", Type: "spec", EdgeType: "references"}}
+
+	if !reflect.DeepEqual(links.in, want) {
+		test.Fatalf("links.in=%+v want exactly one entry, %+v — paragraphs in two sections are still one link from c", links.in, want)
+	}
+}
+
+// TestLinksSkipRolledUpNestedSelfReference pins the self-reference skip against
+// the nested shape, which is the one that defeats it when rollup stops short. The
+// focus's own paragraph a#S1P1 links back to a; rolled up to the file it equals
+// the focus and the guard drops it. Resolved one hop it becomes a#S1 — not equal
+// to the focus, so the guard misses and a's own section appears in a's own rail,
+// which the ruling puts explicitly out of scope.
+func TestLinksSkipRolledUpNestedSelfReference(test *testing.T) {
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "b", Type: "note", Title: "B", Path: "b.md"},
+		},
+		sub: []index.NodeRow{
+			subUnit("a#S1", "a", "note", "Section 1", "a.md"),
+			subUnit("a#S1P1", "a#S1", "note", "", "a.md"),
+		},
+	}
+
+	edges := fakeEdges{all: []index.EdgeRow{
+		// A paragraph inside a section of a references a itself.
+		{Type: "references", SourceID: "a#S1P1", TargetID: "a", SourcePath: "a.md", Kind: "direct"},
+		// A real outbound link, to prove the skip is targeted.
+		{Type: "references", SourceID: "a", TargetID: "b", SourcePath: "a.md", Kind: "derived"},
+	}}
+
+	links := linksFor(test, New(Deps{Nodes: nodes, Edges: edges}), "a")
+
+	if len(links.in) != 0 {
+		test.Fatalf("links.in=%+v want a's own nested sub-unit not rolled up into a self-backlink", links.in)
+	}
+
+	want := []LinkRef{{ID: "b", Title: "B", Type: "note", EdgeType: "references"}}
+
+	if !reflect.DeepEqual(links.out, want) {
+		test.Fatalf("links.out=%+v want %+v", links.out, want)
 	}
 }
 
@@ -304,6 +459,11 @@ func TestLinksKeepUserAuthoredContains(test *testing.T) {
 // sub-unit whose file row is gone from the index has nothing navigable behind
 // it, so it is skipped. Emitting it would put a zero-value entry in the rail —
 // a blank title linking to an id that 404s — which is worse than the omission.
+//
+// The rails detect this by looking up the file id the sub-unit id names ("c" for
+// "c#S1") and finding no row, rather than by chasing a parent pointer. The
+// observable contract is the same and this test still pins it; what changed is
+// that the check now costs nothing beyond the lookup the rollup already makes.
 func TestLinksSkipSubUnitWithMissingParent(test *testing.T) {
 	nodes := fakeNodes{
 		file: []index.NodeRow{{ID: "a", Type: "note", Title: "A", Path: "a.md"}},
