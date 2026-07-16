@@ -1,0 +1,86 @@
+package bookview
+
+import (
+	"github.com/germanamz/tusk/internal/index"
+)
+
+// fakeNodes is a NodeSource test double over a fixed set of file-level rows.
+// Every method has a value receiver, so a bare literal (fakeNodes{file: ...})
+// satisfies NodeSource without needing to be constructed behind a pointer —
+// there is no mutable state to guard, so this stays goroutine-safe by
+// construction.
+type fakeNodes struct {
+	file []index.NodeRow
+}
+
+// ListFileNodes returns the fixture verbatim, mirroring *index.NodeRepo's
+// contract of already being filtered and ordered by the caller (or, here, the
+// test) rather than re-deriving that in the fake.
+func (fake fakeNodes) ListFileNodes() ([]index.NodeRow, error) {
+	return fake.file, nil
+}
+
+// Get mirrors *index.NodeRepo.Get: ErrNodeNotFound, the bare sentinel, for a
+// missing id.
+func (fake fakeNodes) Get(nodeID string) (*index.NodeRow, error) {
+	for _, row := range fake.file {
+		if row.ID == nodeID {
+			found := row
+
+			return &found, nil
+		}
+	}
+
+	return nil, index.ErrNodeNotFound
+}
+
+// ListByIDs mirrors *index.NodeRepo.ListByIDs: empty input returns (nil, nil),
+// and ids with no matching row are silently omitted rather than erroring.
+func (fake fakeNodes) ListByIDs(ids []string) ([]index.NodeRow, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	byID := make(map[string]index.NodeRow, len(fake.file))
+
+	for _, row := range fake.file {
+		byID[row.ID] = row
+	}
+
+	out := make([]index.NodeRow, 0, len(ids))
+
+	for _, id := range ids {
+		if row, ok := byID[id]; ok {
+			out = append(out, row)
+		}
+	}
+
+	return out, nil
+}
+
+// FindByTitle mirrors *index.NodeRepo.FindByTitle: an absent title returns
+// (nil, nil), never an error, and targetType "*" matches any type.
+func (fake fakeNodes) FindByTitle(targetType, title string) ([]string, error) {
+	var ids []string
+
+	for _, row := range fake.file {
+		if row.Title != title {
+			continue
+		}
+
+		if targetType != "*" && row.Type != targetType {
+			continue
+		}
+
+		ids = append(ids, row.ID)
+	}
+
+	return ids, nil
+}
+
+// fakeEdges (an EdgeSource test double) is intentionally NOT defined here yet.
+// Deps.Edges has no reader anywhere in bookview until handleNode lands
+// (Task 2.3): golangci-lint's unused check flags any fakeEdges method with no
+// call site across the whole build, and a fabricated no-op call site to
+// silence it would be worse than deferring the type. Add it in the same
+// commit that starts reading srv.deps.Edges.

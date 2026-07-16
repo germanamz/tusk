@@ -1,6 +1,8 @@
 package bookview
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/epoch"
 )
@@ -122,6 +125,94 @@ func TestChangePayloadPropagatesError(test *testing.T) {
 
 	if !errors.Is(payloadErr, wantErr) {
 		test.Fatalf("changePayload err=%v want %v", payloadErr, wantErr)
+	}
+}
+
+// TestStreamEmitsChangeEvent pins the SSE event name "change" end-to-end
+// through GET /api/stream. server.go wires webui.Hub with EventName: "change"
+// (graph's hub broadcasts "graph"); nothing else in this package asserts that
+// literal, and a Phase 5 TypeScript EventSource is coded against it verbatim —
+// a copy-paste regression here would silently stop the frontend from ever
+// updating.
+//
+// This also demonstrates TestChangePayloadWithoutMeta's stated premise for
+// real: that test only calls changePayload() directly. webui.Hub calls
+// Payload on every connecting client with no nil guard on the ChangeSource, so
+// the actual risk is a real client hitting /api/stream against a Deps with no
+// MetaReader. This test drives that exact path instead of the payload
+// function in isolation.
+func TestStreamEmitsChangeEvent(test *testing.T) {
+	srv := New(Deps{Root: test.TempDir()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go srv.Run(ctx)
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+
+	resp, getErr := http.Get(server.URL + "/api/stream")
+
+	if getErr != nil {
+		test.Fatalf("get /api/stream: %v", getErr)
+	}
+
+	defer resp.Body.Close()
+
+	frame := readSSEFrame(test, bufio.NewReader(resp.Body))
+
+	if !strings.Contains(frame, "event: change") {
+		test.Fatalf("frame missing event name: %q", frame)
+	}
+}
+
+// readSSEFrame reads one SSE frame (lines up to and including the blank line
+// that terminates it) from reader. The read runs in a goroutine raced against
+// a deadline so a frame that never arrives fails the test with a clear
+// message instead of hanging the suite.
+func readSSEFrame(test *testing.T, reader *bufio.Reader) string {
+	test.Helper()
+
+	type readResult struct {
+		frame string
+		err   error
+	}
+
+	resultCh := make(chan readResult, 1)
+
+	go func() {
+		var frame strings.Builder
+
+		for {
+			line, readErr := reader.ReadString('\n')
+			frame.WriteString(line)
+
+			if readErr != nil {
+				resultCh <- readResult{frame: frame.String(), err: readErr}
+
+				return
+			}
+
+			if line == "\n" {
+				resultCh <- readResult{frame: frame.String()}
+
+				return
+			}
+		}
+	}()
+
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			test.Fatalf("readSSEFrame: %v (partial frame: %q)", result.err, result.frame)
+		}
+
+		return result.frame
+	case <-time.After(5 * time.Second):
+		test.Fatal("readSSEFrame: timed out waiting for an SSE frame")
+
+		return ""
 	}
 }
 
