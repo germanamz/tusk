@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestHostGuardAllowed(t *testing.T) {
+func TestHostGuardAllowed(test *testing.T) {
 	cases := []struct {
 		name    string
 		allowed []string
@@ -17,11 +17,12 @@ func TestHostGuardAllowed(t *testing.T) {
 		{"localhost", nil, "localhost:7373", true},
 		{"ipv6 loopback", nil, "[::1]:7373", true},
 		{"unknown host blocked", nil, "evil.example.com", false},
+		{"lan ip blocked by default", nil, "192.168.1.5:7373", false},
 		{"explicit allow", []string{"host.docker.internal"}, "host.docker.internal:7373", true},
 		{"wildcard allows any", []string{"*"}, "evil.example.com", true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(test *testing.T) {
+		test.Run(tc.name, func(test *testing.T) {
 			guard := NewHostGuard(tc.allowed)
 			if got := guard.Allowed(tc.host); got != tc.want {
 				test.Fatalf("Allowed(%q)=%v want %v", tc.host, got, tc.want)

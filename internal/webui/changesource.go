@@ -7,7 +7,7 @@ import (
 )
 
 // Signal is the current vault state for change-detection: the reindex
-// generation (from manifest) and the index epoch (from .tusk/epoch).
+// generation (from the SQLite meta key "reindex_gen") and the index epoch (from .tusk/epoch).
 type Signal struct {
 	Generation int64 `json:"generation"`
 	Epoch      int64 `json:"epoch"`
@@ -37,20 +37,22 @@ func NewChangeSource(root string, meta MetaReader) ChangeSource {
 func (source *changeSource) Signal() (Signal, error) {
 	var sig Signal
 
-	gen, err := source.meta.Get("reindex_gen")
-	if err != nil {
-		return sig, err
+	gen, getErr := source.meta.Get("reindex_gen")
+
+	if getErr != nil {
+		return sig, getErr
 	}
 
 	if gen != "" {
-		if parsed, perr := strconv.ParseInt(gen, 10, 64); perr == nil {
+		if parsed, parseErr := strconv.ParseInt(gen, 10, 64); parseErr == nil {
 			sig.Generation = parsed
 		}
 	}
 
-	epochValue, eerr := epoch.Index.Read(source.root)
-	if eerr != nil {
-		return sig, eerr
+	epochValue, epochErr := epoch.Index.Read(source.root)
+
+	if epochErr != nil {
+		return sig, epochErr
 	}
 
 	sig.Epoch = epochValue
