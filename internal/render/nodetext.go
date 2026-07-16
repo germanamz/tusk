@@ -101,6 +101,15 @@ func blockText(node ast.Node, source []byte) string {
 	return out.String()
 }
 
+// StripFrontmatter removes a leading YAML frontmatter block ("---" … "---")
+// from a markdown body. Bodies without a frontmatter block are returned
+// unchanged.
+//
+// Unlike NodeText, which expects the raw whole file and returns plain prose,
+// this leaves the markup intact — callers that render the markdown themselves
+// (the book view hands it to the browser) need the body verbatim.
+func StripFrontmatter(body []byte) []byte { return stripFrontmatter(body) }
+
 // stripFrontmatter removes a leading YAML frontmatter block ("---" … "---")
 // from a markdown body so node metadata never appears in the rendered prose.
 // Bodies without a frontmatter block are returned unchanged.

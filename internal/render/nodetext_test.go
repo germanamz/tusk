@@ -65,3 +65,50 @@ func indexOf(haystack, needle string) int {
 
 	return -1
 }
+
+// TestStripFrontmatter pins the exported wrapper's contract: the leading YAML
+// block is removed and everything after it — markup included — survives
+// verbatim. Callers that render the markdown themselves (the book view hands it
+// to the browser) depend on the markup surviving, which is what separates this
+// from NodeText.
+func TestStripFrontmatter(test *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "strips frontmatter and keeps markup",
+			body: "---\ntitle: A\ntype: note\n---\n# Heading\n\n*emphasis*\n",
+			want: "# Heading\n\n*emphasis*\n",
+		},
+		{
+			name: "body without frontmatter is unchanged",
+			body: "# Heading\n\nNo frontmatter here.\n",
+			want: "# Heading\n\nNo frontmatter here.\n",
+		},
+		{
+			name: "crlf frontmatter",
+			body: "---\r\ntitle: A\r\n---\r\n# Heading\r\n",
+			want: "# Heading\r\n",
+		},
+		{
+			name: "unterminated frontmatter is returned unchanged",
+			body: "---\ntitle: A\n\n# Heading\n",
+			want: "---\ntitle: A\n\n# Heading\n",
+		},
+		{
+			name: "empty body",
+			body: "",
+			want: "",
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			if got := string(StripFrontmatter([]byte(testCase.body))); got != testCase.want {
+				test.Fatalf("StripFrontmatter(%q) = %q, want %q", testCase.body, got, testCase.want)
+			}
+		})
+	}
+}

@@ -87,9 +87,62 @@ func (fake fakeNodes) FindByTitle(targetType, title string) ([]string, error) {
 	return ids, nil
 }
 
-// fakeEdges (an EdgeSource test double) is intentionally NOT defined here yet.
-// Deps.Edges has no reader anywhere in bookview until handleNode lands
-// (Task 2.3): golangci-lint's unused check flags any fakeEdges method with no
-// call site across the whole build, and a fabricated no-op call site to
-// silence it would be worse than deferring the type. Add it in the same
-// commit that starts reading srv.deps.Edges.
+// fakeEdges is an EdgeSource test double over a fixed edge set. Like fakeNodes
+// it uses value receivers, so a bare literal satisfies EdgeSource and there is
+// no mutable state to guard.
+//
+// It reproduces *index.EdgeRepo's per-method ordering rather than returning the
+// fixture verbatim: ListBySource orders by (type, target_id) and ListByTarget by
+// (type, source_id) (edge_repo.go:172,177). Neither is ListAll's global
+// (source_id, type, target_id) order, which is what webui.Neighbors re-sorts to
+// — a fake that returned rows in fixture order would let a caller depending on
+// that re-sort pass here and reorder in production.
+type fakeEdges struct {
+	all []index.EdgeRow
+}
+
+// ListBySource mirrors *index.EdgeRepo.ListBySource: every edge whose source_id
+// matches, ordered by type then target_id. It does not filter by Kind —
+// structural contains rows come back alongside direct and derived ones.
+func (fake fakeEdges) ListBySource(sourceID string) ([]index.EdgeRow, error) {
+	out := make([]index.EdgeRow, 0)
+
+	for _, row := range fake.all {
+		if row.SourceID == sourceID {
+			out = append(out, row)
+		}
+	}
+
+	sort.SliceStable(out, func(left, right int) bool {
+		if out[left].Type != out[right].Type {
+			return out[left].Type < out[right].Type
+		}
+
+		return out[left].TargetID < out[right].TargetID
+	})
+
+	return out, nil
+}
+
+// ListByTarget mirrors *index.EdgeRepo.ListByTarget: every edge whose target_id
+// matches, ordered by type then source_id. Like ListBySource it does not filter
+// by Kind.
+func (fake fakeEdges) ListByTarget(targetID string) ([]index.EdgeRow, error) {
+	out := make([]index.EdgeRow, 0)
+
+	for _, row := range fake.all {
+		if row.TargetID == targetID {
+			out = append(out, row)
+		}
+	}
+
+	sort.SliceStable(out, func(left, right int) bool {
+		if out[left].Type != out[right].Type {
+			return out[left].Type < out[right].Type
+		}
+
+		return out[left].SourceID < out[right].SourceID
+	})
+
+	return out, nil
+}
