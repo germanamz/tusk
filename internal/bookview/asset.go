@@ -66,8 +66,11 @@ func (srv *Server) handleAsset(writer http.ResponseWriter, request *http.Request
 
 // resolveVaultAsset maps a request-supplied, vault-relative asset path to the
 // absolute on-disk path to serve, reporting ok=false for anything this server
-// will not answer: a path that escapes the vault, names a dotfile or
-// dot-directory (.tusk, .git), or resolves to nothing.
+// will not answer: a path that escapes the vault, one that names OR RESOLVES TO
+// a dotfile or dot-directory (.tusk, .git), or one that resolves to nothing.
+//
+// "names or resolves to" is why the dot rule is checked twice, against two
+// different inputs. See the second scan, at the bottom.
 //
 // It fails closed. Every error path — including one that merely means "this
 // file is not there" — returns ok=false, because the only caller is an HTTP
@@ -112,6 +115,10 @@ func resolveVaultAsset(root, rel string) (string, bool) {
 	// and filepath.EvalSymlinks does not canonicalize case — a check against the
 	// literal ".tusk", before or after resolution, would miss it. "." has no
 	// case variant, so a dot prefix cannot be shouted past.
+	//
+	// This scan sees only what the request SPELLS. It cannot see a dot segment a
+	// symlink introduces, so it is necessary but not sufficient — the same rule is
+	// re-applied to the resolved path at the bottom of this function.
 	for _, segment := range strings.Split(clean, string(filepath.Separator)) {
 		if strings.HasPrefix(segment, ".") {
 			return "", false
@@ -155,6 +162,47 @@ func resolveVaultAsset(root, rel string) (string, bool) {
 	// symlink can point back at it); the caller's IsRegular check refuses it.
 	if resolved != rootResolved && !strings.HasPrefix(resolved, rootResolved+string(filepath.Separator)) {
 		return "", false
+	}
+
+	// Apply the dot rule a SECOND time, now to the resolved path. This is not a
+	// duplicate of the scan above, and deleting either one opens a hole the other
+	// does not cover.
+	//
+	// The scan above reads the REQUEST path, and a request path cannot see through
+	// a symlink. "innocent.png" names no dot segment, so it passes that scan; if it
+	// is a symlink to "<root>/.tusk/index.db", EvalSymlinks lands on the index,
+	// which IS inside the vault — so containment above is satisfied too, and the
+	// index gets served. Nothing has escaped the vault; the dot rule has simply
+	// been walked around, because it was checked against the string the caller
+	// asked for rather than the file the kernel would open. The rule is about the
+	// file, so it has to be re-asked of the path that names it. A symlinked
+	// dot-DIRECTORY ("linkdot" -> ".git", then "linkdot/config") is the same hole
+	// with the dot segment in the middle.
+	//
+	// The two scans are split by input, and each is the only one that can catch its
+	// own case: the request scan runs pre-resolution, the sole point where ".." is
+	// still visible as authored (Clean and EvalSymlinks both fold it away), and
+	// this one runs post-resolution, the sole point where a link's target is
+	// visible at all.
+	//
+	// Rel, not TrimPrefix: only the segments BELOW the root are the request's to
+	// name. The root itself may legitimately sit inside a dot-directory — a vault
+	// at "~/.local/share/notes" is ordinary — and scanning the absolute path would
+	// refuse every asset in it.
+	relResolved, relErr := filepath.Rel(rootResolved, resolved)
+
+	if relErr != nil {
+		return "", false
+	}
+
+	// Rel spells "the root itself" as ".", which is the resolved == rootResolved
+	// arm admitted above (a symlink pointing back at the root). That "." is Rel's
+	// notation, not a dot segment the request named, so it must not be refused
+	// here — the caller's IsRegular check is what turns the root away.
+	for _, segment := range strings.Split(relResolved, string(filepath.Separator)) {
+		if strings.HasPrefix(segment, ".") && segment != "." {
+			return "", false
+		}
 	}
 
 	return resolved, true

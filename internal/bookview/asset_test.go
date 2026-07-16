@@ -28,7 +28,10 @@ const secretBody = "SECRET-MUST-NEVER-BE-SERVED"
 //	<base>/vault/inside.png    -> img/x.png            symlink that does NOT escape: allowed
 //	<base>/vault/escape.txt    -> <base>/outside/...   symlink escape: denied
 //	<base>/vault/sneaky.txt    -> <base>/vault-secrets/...  the prefix trap: denied
+//	<base>/vault/innocent.png  -> <base>/vault/.tusk/index.db  dot trap, file: denied
+//	<base>/vault/linkdot       -> <base>/vault/.git    dot trap, directory: denied
 //	<base>/vault/.tusk/index.db         the index — denied
+//	<base>/vault/.git/config            a git config (tokens live here) — denied
 //	<base>/vault/.hidden                a dotfile — denied
 //	<base>/vault-secrets/creds.txt      sibling whose path has "<base>/vault" as a
 //	                                    STRING prefix but is not inside the vault
@@ -38,6 +41,12 @@ const secretBody = "SECRET-MUST-NEVER-BE-SERVED"
 // alone cannot produce two directories where one's path is a string prefix of
 // the other's, which is exactly the geometry that separates a correct
 // containment check from a naive strings.HasPrefix.
+//
+// "innocent.png" and "linkdot" are the geometry for the other axis. Both stay
+// INSIDE the vault, so containment cannot refuse them; both name no dot segment
+// in the request, so the request-path scan cannot refuse them either. Only a
+// scan of the RESOLVED path denies them. They are the fixtures that separate a
+// dot rule about the file actually opened from one about the string asked for.
 func assetVault(test *testing.T) string {
 	test.Helper()
 
@@ -71,12 +80,14 @@ func assetVault(test *testing.T) string {
 	mkdir(filepath.Join(root, "img"))
 	mkdir(filepath.Join(root, "sub"))
 	mkdir(filepath.Join(root, ".tusk"))
+	mkdir(filepath.Join(root, ".git"))
 	mkdir(filepath.Join(base, "vault-secrets"))
 	mkdir(filepath.Join(base, "outside"))
 
 	write(filepath.Join(root, "img", "x.png"), "PNG")
 	write(filepath.Join(root, "index.html"), "<b>vault asset</b>")
 	write(filepath.Join(root, ".tusk", "index.db"), secretBody)
+	write(filepath.Join(root, ".git", "config"), secretBody)
 	write(filepath.Join(root, ".hidden"), secretBody)
 	write(filepath.Join(base, "vault-secrets", "creds.txt"), secretBody)
 	write(filepath.Join(base, "outside", "secret.txt"), secretBody)
@@ -84,6 +95,8 @@ func assetVault(test *testing.T) string {
 	link(filepath.Join(root, "img", "x.png"), filepath.Join(root, "inside.png"))
 	link(filepath.Join(base, "outside", "secret.txt"), filepath.Join(root, "escape.txt"))
 	link(filepath.Join(base, "vault-secrets", "creds.txt"), filepath.Join(root, "sneaky.txt"))
+	link(filepath.Join(root, ".tusk", "index.db"), filepath.Join(root, "innocent.png"))
+	link(filepath.Join(root, ".git"), filepath.Join(root, "linkdot"))
 
 	return root
 }
@@ -261,6 +274,25 @@ func TestAssetBlocksTraversal(test *testing.T) {
 			want:   http.StatusForbidden,
 		},
 		{
+			// The dot trap. Nothing about the REQUEST is dot-prefixed, and the
+			// resolved target is genuinely inside the vault, so neither the
+			// request-path scan nor the containment check refuses this one — only
+			// the scan of the resolved path does. Without it this case answers 200
+			// with the index database's bytes.
+			name:   "a symlink whose target is inside a dot directory is refused",
+			target: "/api/asset/innocent.png",
+			want:   http.StatusForbidden,
+		},
+		{
+			// Same hole reached through a symlinked dot-DIRECTORY rather than a
+			// file: the dot segment is contributed by the link's target, so it
+			// appears only after resolution. .git/config is the payload that makes
+			// this worth a Critical — it carries credentials in a cloned vault.
+			name:   "a path through a symlink to a dot directory is refused",
+			target: "/api/asset/linkdot/config",
+			want:   http.StatusForbidden,
+		},
+		{
 			name:   "a directory is not an asset",
 			target: "/api/asset/sub",
 			want:   http.StatusNotFound,
@@ -283,6 +315,16 @@ func TestAssetBlocksTraversal(test *testing.T) {
 
 			if code != testCase.want {
 				test.Fatalf("GET %s: code=%d want %d (body %q)", testCase.target, code, testCase.want, body)
+			}
+
+			// A 403 on this route has two possible authors: the asset guard's
+			// http.Error(writer, "forbidden", …) and the host guard's
+			// "forbidden: untrusted Host header". assetServer keeps Host at
+			// 127.0.0.1 so the latter cannot fire — asserting the body makes that
+			// structural rather than a comment, and it is what would catch a future
+			// change that made the host guard start answering these.
+			if testCase.want == http.StatusForbidden && body != "forbidden\n" {
+				test.Fatalf("GET %s: 403 body=%q want %q — this denial is not the asset guard's", testCase.target, body, "forbidden\n")
 			}
 
 			if strings.Contains(body, secretBody) {
@@ -347,6 +389,20 @@ func TestResolveVaultAssetContainment(test *testing.T) {
 		{name: "a dotfile is refused", rel: ".hidden", want: false},
 		{name: "a symlink escape is refused", rel: "escape.txt", want: false},
 		{name: "a sibling sharing the root's name prefix is refused", rel: "sneaky.txt", want: false},
+		{
+			// Refused for a dot segment the REQUEST never names — it arrives from
+			// the symlink's target, so only the post-resolution scan can see it.
+			// Note this one stays inside the root, so the containment assertion
+			// below would be satisfied: containment is not what refuses it.
+			name: "a symlink into a dot directory is refused",
+			rel:  "innocent.png",
+			want: false,
+		},
+		{
+			name: "a path through a symlink to a dot directory is refused",
+			rel:  "linkdot/config",
+			want: false,
+		},
 		{name: "a missing file is refused", rel: "img/nope.png", want: false},
 	}
 
