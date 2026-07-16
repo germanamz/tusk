@@ -12,11 +12,21 @@ import (
 // demand — for the initial frame sent to each new client and for every
 // broadcast. Changes reports the vault's change signal; Run polls it and
 // broadcasts a fresh Payload() whenever it advances.
+//
+// Payload and Changes are REQUIRED: the Hub dereferences them without a nil
+// check, so omitting either panics at use (ServeStream calls Payload on every
+// connect; Run calls both). A caller whose change source may legitimately be
+// absent should pass an adapter that reports a constant signal rather than nil.
+//
+// Payload MUST be safe to call from multiple goroutines: it is invoked
+// concurrently from every ServeStream goroutine (once per connecting client)
+// and from Run's poll loop, with no lock held by the Hub. A Payload closure
+// over mutable state must do its own synchronization.
 type HubOptions struct {
 	EventName    string
-	Payload      func() ([]byte, error)
-	Changes      ChangeSource
-	PollInterval time.Duration
+	Payload      func() ([]byte, error) // required; must be goroutine-safe
+	Changes      ChangeSource           // required
+	PollInterval time.Duration          // defaults to 2s when <= 0
 }
 
 // Hub is a generic SSE broadcast hub: it fans a byte payload out to every

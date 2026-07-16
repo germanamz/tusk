@@ -201,6 +201,20 @@ func buildCommunityEdges(edges []GraphEdge, filter []string) []graphcluster.Edge
 	return clusterEdges
 }
 
+// snapshotBytes marshals the current snapshot. It is the hub's Payload: called
+// from every SSE client goroutine and from the hub's poll loop, so it must stay
+// safe for concurrent use (snapshot() reads deps and takes communityMu; it
+// mutates no Server field outside that lock).
+func (srv *Server) snapshotBytes() ([]byte, error) {
+	graph, err := srv.snapshot()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(graph)
+}
+
 // signal reads the current change signal, tolerating a nil ChangeSource (tests
 // that don't care pass none).
 func (srv *Server) signal() (Signal, error) {

@@ -54,6 +54,91 @@ func TestHubStreamsInitialAndBroadcast(test *testing.T) {
 	}
 }
 
+// TestHubBroadcastDropsFramesForSlowClient pins the drop-not-block contract:
+// a client that never drains its channel must not wedge the broadcaster. The
+// per-client buffer is 8, so the 9th and later frames have nowhere to go and
+// must be dropped via the select's default arm. Without that arm the send
+// blocks forever while holding hub.mu, freezing every other client and the
+// poll loop — so this asserts Broadcast RETURNS, and separately that the slow
+// client kept exactly the first 8 frames.
+func TestHubBroadcastDropsFramesForSlowClient(test *testing.T) {
+	hub := NewHub(HubOptions{
+		EventName: "change",
+		Payload:   func() ([]byte, error) { return []byte("{}"), nil },
+		Changes:   &stubChanges{},
+	})
+
+	stalled := make(chan []byte, 8) // never drained: mirrors ServeStream's buffer
+	hub.register(stalled)
+
+	const frames = 20
+
+	for i := 0; i < frames; i++ {
+		broadcastWithin(test, hub, []byte(itoa(int64(i))))
+	}
+
+	if got := len(stalled); got != 8 {
+		test.Fatalf("buffered frames = %d, want 8 (the buffer fills, then frames drop)", got)
+	}
+
+	for i := 0; i < 8; i++ {
+		if got := string(<-stalled); got != itoa(int64(i)) {
+			test.Fatalf("buffered frame %d = %q, want %q (the FIRST 8 frames are kept; later ones drop)", i, got, itoa(int64(i)))
+		}
+	}
+}
+
+// TestHubBroadcastSkipsOnlyTheSlowClient verifies the drop is per-client: a
+// stalled client must not cost a healthy one its frame.
+func TestHubBroadcastSkipsOnlyTheSlowClient(test *testing.T) {
+	hub := NewHub(HubOptions{
+		EventName: "change",
+		Payload:   func() ([]byte, error) { return []byte("{}"), nil },
+		Changes:   &stubChanges{},
+	})
+
+	stalled := make(chan []byte, 1)
+	healthy := make(chan []byte, 8)
+
+	hub.register(stalled)
+	hub.register(healthy)
+
+	stalled <- []byte("prefill") // stalled has no room for the broadcast below
+
+	broadcastWithin(test, hub, []byte("live"))
+
+	if len(healthy) != 1 {
+		test.Fatalf("healthy client got %d frames, want 1: a full client must not cost a healthy one its frame", len(healthy))
+	}
+
+	if got := string(<-healthy); got != "live" {
+		test.Fatalf("healthy client frame = %q, want %q", got, "live")
+	}
+}
+
+// broadcastWithin calls hub.Broadcast and fails the test with a clear message
+// if it has not returned within a generous deadline. A blocking send on a full
+// client channel would otherwise deadlock the caller while holding hub.mu, and
+// the suite would hang until go test's global timeout dumps every goroutine —
+// a far worse signal than a named assertion.
+func broadcastWithin(test *testing.T, hub *Hub, payload []byte) {
+	test.Helper()
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		hub.Broadcast(payload)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		test.Fatalf("Broadcast(%q) did not return within 5s: a client whose buffer is full must have its frame DROPPED (the select's default arm), never block the hub", payload)
+	}
+}
+
 // itoa formats an int64 as a base-10 string; the test payload builds its own
 // tiny JSON body without pulling in encoding/json for a single field.
 func itoa(value int64) string {

@@ -5,57 +5,13 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/germanamz/tusk/internal/embed"
-	"github.com/germanamz/tusk/internal/epoch"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/render"
 )
-
-// metaReader is the subset of *index.MetaRepo the change source needs.
-type metaReader interface {
-	Get(key string) (string, error)
-}
-
-// --- ChangeSource ---
-
-type changeSource struct {
-	root string
-	meta metaReader
-}
-
-// NewChangeSource builds a ChangeSource from the workspace root and meta repo.
-func NewChangeSource(root string, meta metaReader) ChangeSource {
-	return &changeSource{root: root, meta: meta}
-}
-
-func (cs *changeSource) Signal() (Signal, error) {
-	var sig Signal
-
-	gen, getErr := cs.meta.Get("reindex_gen")
-	if getErr != nil {
-		return sig, getErr
-	}
-
-	if gen != "" {
-		parsed, parseErr := strconv.ParseInt(gen, 10, 64)
-		if parseErr == nil {
-			sig.Generation = parsed
-		}
-	}
-
-	epochValue, epochErr := epoch.Index.Read(cs.root)
-	if epochErr != nil {
-		return sig, epochErr
-	}
-
-	sig.Epoch = epochValue
-
-	return sig, nil
-}
 
 // --- NodeRenderer ---
 

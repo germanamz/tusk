@@ -13,6 +13,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/graphview"
 	"github.com/germanamz/tusk/internal/mcp"
+	"github.com/germanamz/tusk/internal/webui"
 	"github.com/spf13/cobra"
 )
 
@@ -124,7 +125,7 @@ func serveGraph(ctx context.Context, cmd *cobra.Command, cfg graphConfig) error 
 		Edges:        runtime.Edges,
 		Render:       graphview.NewRenderer(runtime.Root, runtime.Nodes),
 		Query:        graphview.NewQuerier(runtime.Index.DB(), runtime.Manifest, runtime.Embedder, runtime.Embeddings, runtime.Nodes, runtime.Edges, runtime.Root),
-		Changes:      graphview.NewChangeSource(runtime.Root, runtime.Meta),
+		Changes:      webui.NewChangeSource(runtime.Root, runtime.Meta),
 		Manifest:     runtime.Manifest,
 		Embeddings:   runtime.Embeddings,
 		Logger:       logger,
