@@ -7,14 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/spf13/pflag"
 )
-
-// manifestDefaultGraphExpansion is a tiny test-only shim so the assertions
-// can read like "from default" without typing the package name three times.
-func manifestDefaultGraphExpansion() manifest.GraphExpansion {
-	return manifest.DefaultGraphExpansion()
-}
 
 func TestQueryCmd_FiltersByType(test *testing.T) {
 	initWorkspace(test)
@@ -259,113 +253,76 @@ func TestQueryCmd_RejectsInvalidGraphWeight(test *testing.T) {
 	}
 }
 
-// TestMergeGraphExpansion_NoOverridesPreservesBase confirms the merger
-// returns the manifest defaults verbatim when no per-call flags are set.
-func TestMergeGraphExpansion_NoOverridesPreservesBase(test *testing.T) {
-	base := manifestDefaultGraphExpansion()
-
-	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{})
-
-	if mergeErr != nil {
-		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
+// TestGraphExpandOverride_NoExpandBeatsExpand asserts the tri-state precedence:
+// --no-graph-expand overrides --graph-expand and the workspace default. The
+// merge itself now lives in manifest.MergeGraphExpansion; this flag precedence
+// is what stayed behind in the CLI, so it is tested where it lives.
+func TestGraphExpandOverride_NoExpandBeatsExpand(test *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want *bool
+	}{
+		{
+			name: "no flags inherits the workspace",
+			args: nil,
+			want: nil,
+		},
+		{
+			name: "no-graph-expand beats graph-expand",
+			args: []string{"--graph-expand", "--no-graph-expand"},
+			want: boolPtr(false),
+		},
+		{
+			// Passing --no-graph-expand at all disables expansion, whatever
+			// value it carries.
+			name: "no-graph-expand=false still disables",
+			args: []string{"--no-graph-expand=false"},
+			want: boolPtr(false),
+		},
+		{
+			name: "graph-expand enables",
+			args: []string{"--graph-expand"},
+			want: boolPtr(true),
+		},
+		{
+			name: "graph-expand=false disables",
+			args: []string{"--graph-expand=false"},
+			want: boolPtr(false),
+		},
 	}
 
-	if got == nil {
-		test.Fatalf("mergeGraphExpansion: nil result")
-	}
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			var (
+				graphExpand   bool
+				graphNoExpand bool
+			)
 
-	if got.Enabled != base.Enabled {
-		test.Errorf("Enabled = %v, want %v", got.Enabled, base.Enabled)
-	}
+			flags := pflag.NewFlagSet("query", pflag.ContinueOnError)
+			flags.BoolVar(&graphExpand, "graph-expand", false, "")
+			flags.BoolVar(&graphNoExpand, "no-graph-expand", false, "")
 
-	if got.Hops != base.Hops {
-		test.Errorf("Hops = %d, want %d", got.Hops, base.Hops)
-	}
-}
+			if parseErr := flags.Parse(testCase.args); parseErr != nil {
+				test.Fatalf("parse %v: %v", testCase.args, parseErr)
+			}
 
-// TestMergeGraphExpansion_NoExpandBeatsExpand asserts the tri-state
-// precedence: --no-graph-expand overrides --graph-expand and the workspace
-// default.
-func TestMergeGraphExpansion_NoExpandBeatsExpand(test *testing.T) {
-	base := manifestDefaultGraphExpansion()
-	base.Enabled = true
+			got := graphExpandOverride(flags, graphExpand)
 
-	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{
-		ExpandSet:   true,
-		ExpandValue: true,
-		NoExpandSet: true,
-		NoExpand:    true,
-	})
-
-	if mergeErr != nil {
-		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
-	}
-
-	if got.Enabled {
-		test.Errorf("Enabled = true, want false (--no-graph-expand must beat --graph-expand)")
-	}
-}
-
-// TestMergeGraphExpansion_ExpandFlagBeatsWorkspaceDisabled confirms that
-// --graph-expand turns the feature on even when the workspace ships with
-// enabled=false.
-func TestMergeGraphExpansion_ExpandFlagBeatsWorkspaceDisabled(test *testing.T) {
-	base := manifestDefaultGraphExpansion() // Enabled = false
-
-	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{
-		ExpandSet:   true,
-		ExpandValue: true,
-	})
-
-	if mergeErr != nil {
-		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
-	}
-
-	if !got.Enabled {
-		test.Errorf("Enabled = false, want true (--graph-expand should enable)")
-	}
-}
-
-// TestMergeGraphExpansion_ExpandFalseBeatsWorkspaceEnabled confirms an
-// explicit --graph-expand=false disables the feature even when the workspace
-// manifest enables it. The previous switch arm only ran when ExpandValue was
-// true, silently dropping the user's explicit false.
-func TestMergeGraphExpansion_ExpandFalseBeatsWorkspaceEnabled(test *testing.T) {
-	base := manifestDefaultGraphExpansion()
-	base.Enabled = true // Workspace ships with enabled = true.
-
-	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{
-		ExpandSet:   true,
-		ExpandValue: false,
-	})
-
-	if mergeErr != nil {
-		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
-	}
-
-	if got.Enabled {
-		test.Errorf("Enabled = true, want false (--graph-expand=false must beat workspace enabled=true)")
+			switch {
+			case testCase.want == nil && got != nil:
+				test.Fatalf("override = %v, want nil (the manifest must survive)", *got)
+			case testCase.want != nil && got == nil:
+				test.Fatalf("override = nil, want %v", *testCase.want)
+			case testCase.want != nil && *got != *testCase.want:
+				test.Errorf("override = %v, want %v", *got, *testCase.want)
+			}
+		})
 	}
 }
 
-// TestMergeGraphExpansion_EdgeTypesNotAliased confirms the resolved
-// GraphExpansion does not share the backing array of its base.EdgeTypes
-// slice. The MCP server fans requests out across goroutines, so an aliased
-// slice would race once a future caller mutates it.
-func TestMergeGraphExpansion_EdgeTypesNotAliased(test *testing.T) {
-	base := manifestDefaultGraphExpansion()
-
-	if len(base.EdgeTypes) == 0 {
-		test.Fatalf("default EdgeTypes unexpectedly empty")
-	}
-
-	got, mergeErr := mergeGraphExpansion(base, graphExpansionOverrides{})
-
-	if mergeErr != nil {
-		test.Fatalf("mergeGraphExpansion: %v", mergeErr)
-	}
-
-	if &got.EdgeTypes[0] == &base.EdgeTypes[0] {
-		test.Errorf("resolved EdgeTypes shares backing array with base; want clone")
-	}
+// boolPtr returns a pointer to value, so the table above can express an
+// expected optional.
+func boolPtr(value bool) *bool {
+	return &value
 }

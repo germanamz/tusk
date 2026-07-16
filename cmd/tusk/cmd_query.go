@@ -14,6 +14,7 @@ import (
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/render"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func newQueryCmd() *cobra.Command {
@@ -131,18 +132,26 @@ the document is restructured.`,
 				Edges:      index.NewEdgeRepo(store),
 			}
 
-			graphExpansion, mergeErr := mergeGraphExpansion(loaded.GraphExpansion, graphExpansionOverrides{
-				ExpandSet:   cmd.Flags().Changed("graph-expand"),
-				ExpandValue: graphExpand,
-				NoExpandSet: cmd.Flags().Changed("no-graph-expand"),
-				NoExpand:    graphNoExpand,
-				HopsSet:     cmd.Flags().Changed("hops"),
-				HopsValue:   hops,
-				WeightSet:   cmd.Flags().Changed("graph-weight"),
-				WeightValue: graphWeight,
-				EdgesSet:    cmd.Flags().Changed("graph-edges"),
-				EdgesValue:  graphEdges,
-			})
+			over := manifest.GraphExpansionOverrides{
+				Enabled: graphExpandOverride(cmd.Flags(), graphExpand),
+				Labels:  manifest.GraphExpansionLabels{Hops: "--hops", Weight: "--graph-weight"},
+			}
+
+			// cobra's Changed is the presence signal for each knob: an omitted
+			// flag leaves the override nil so the manifest's value survives.
+			if cmd.Flags().Changed("hops") {
+				over.Hops = &hops
+			}
+
+			if cmd.Flags().Changed("graph-weight") {
+				over.Weight = &graphWeight
+			}
+
+			if cmd.Flags().Changed("graph-edges") {
+				over.EdgeTypes = &graphEdges
+			}
+
+			graphExpansion, mergeErr := manifest.MergeGraphExpansion(loaded.GraphExpansion, over)
 
 			if mergeErr != nil {
 				return mergeErr
@@ -207,81 +216,26 @@ the document is restructured.`,
 	return queryCmd
 }
 
-// graphExpansionOverrides captures the per-call CLI flag state for graph
-// expansion. Each "Set" boolean is true when cobra reports the flag changed
-// from its default; the corresponding value field carries the user input.
-type graphExpansionOverrides struct {
-	ExpandSet   bool
-	ExpandValue bool
-
-	NoExpandSet bool
-	NoExpand    bool
-
-	HopsSet   bool
-	HopsValue int
-
-	WeightSet   bool
-	WeightValue float64
-
-	EdgesSet   bool
-	EdgesValue []string
-}
-
-// mergeGraphExpansion folds the workspace manifest configuration and the
-// per-call CLI overrides into a single resolved GraphExpansion. Precedence
-// (high to low): --no-graph-expand → --graph-expand → manifest enabled flag.
-// Returns nil only on invalid input (e.g. --graph-weight outside [0,1]).
+// graphExpandOverride resolves the tri-state --graph-expand/--no-graph-expand
+// precedence into an optional Enabled override for manifest.MergeGraphExpansion.
+// Precedence (high to low): --no-graph-expand → --graph-expand → the manifest's
+// own flag, which nil preserves.
 //
-// The returned pointer is never nil on success: subsequent tasks read the
-// struct directly off Request.GraphExpansion.
-func mergeGraphExpansion(base manifest.GraphExpansion, override graphExpansionOverrides) (*manifest.GraphExpansion, error) {
-	resolved := base
-
-	// Struct copy aliases the EdgeTypes slice header; clone the backing
-	// array so per-call mutations cannot leak into the shared manifest
-	// configuration (matters for MCP, harmless but cheap for CLI).
-	if len(base.EdgeTypes) > 0 {
-		cloned := make([]string, len(base.EdgeTypes))
-		copy(cloned, base.EdgeTypes)
-		resolved.EdgeTypes = cloned
-	}
-
-	if override.HopsSet {
-		if override.HopsValue != 1 && override.HopsValue != 2 {
-			return nil, fmt.Errorf("--hops must be 1 or 2 (got %d)", override.HopsValue)
-		}
-
-		resolved.Hops = override.HopsValue
-	}
-
-	if override.WeightSet {
-		if override.WeightValue < 0 || override.WeightValue > 1 {
-			return nil, fmt.Errorf("--graph-weight must be in [0.0, 1.0] (got %v)", override.WeightValue)
-		}
-
-		resolved.Weight = override.WeightValue
-	}
-
-	if override.EdgesSet {
-		// Copy to avoid sharing the cobra-owned slice with the manifest.
-		edges := make([]string, len(override.EdgesValue))
-		copy(edges, override.EdgesValue)
-
-		resolved.EdgeTypes = edges
-	}
-
-	// Tri-state precedence: --no-graph-expand beats --graph-expand beats the
-	// manifest default. An explicit --graph-expand=false must also override
-	// the manifest, so we honor ExpandValue directly when ExpandSet is true
-	// instead of gating on the value being true.
+// --no-graph-expand forces false regardless of the flag's value: passing it at
+// all disables expansion, so `--no-graph-expand=false` still disables. An
+// explicit --graph-expand=false must likewise beat a workspace enabled=true, so
+// the second arm honors expand directly instead of gating on it being true.
+func graphExpandOverride(flags *pflag.FlagSet, expand bool) *bool {
 	switch {
-	case override.NoExpandSet:
-		resolved.Enabled = false
-	case override.ExpandSet:
-		resolved.Enabled = override.ExpandValue
+	case flags.Changed("no-graph-expand"):
+		disabled := false
+
+		return &disabled
+	case flags.Changed("graph-expand"):
+		return &expand
 	}
 
-	return &resolved, nil
+	return nil
 }
 
 // validateQueryFilter runs the same parse + validate the service does, so the

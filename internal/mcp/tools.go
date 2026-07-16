@@ -223,24 +223,20 @@ func argBoolTriState(request mcpgo.CallToolRequest, key string) *bool {
 // GraphExpansion with per-call MCP overrides. Precedence (high to low):
 // graph_expand=false → graph_expand=true → workspace enabled flag. Returns
 // nil only on invalid input (e.g. weight outside [0,1]).
+//
+// This is the presence-detection adapter: it decides which arguments the caller
+// actually supplied and coerces their types, then hands already-resolved
+// optionals to manifest.MergeGraphExpansion, which owns the merge and the range
+// checks. The type-coercion errors stay here because the wire shape is MCP's
+// concern. The labels reproduce this tool's historical wording verbatim,
+// trailing colon included.
 func mergeGraphExpansionFromRequest(request mcpgo.CallToolRequest, base manifest.GraphExpansion) (*manifest.GraphExpansion, error) {
-	resolved := base
-
-	// Struct copy aliases the EdgeTypes slice header. The MCP server fans
-	// requests out to multiple goroutines that share the runtime manifest;
-	// clone the backing array so a future mutation cannot race with another
-	// in-flight request reading the same slice.
-	if len(base.EdgeTypes) > 0 {
-		cloned := make([]string, len(base.EdgeTypes))
-		copy(cloned, base.EdgeTypes)
-		resolved.EdgeTypes = cloned
-	}
-
-	if expand := argBoolTriState(request, "graph_expand"); expand != nil {
-		resolved.Enabled = *expand
-	}
-
 	args := request.GetArguments()
+
+	over := manifest.GraphExpansionOverrides{
+		Enabled: argBoolTriState(request, "graph_expand"),
+		Labels:  manifest.GraphExpansionLabels{Hops: "hops:", Weight: "graph_weight:"},
+	}
 
 	if raw, present := args["hops"]; present {
 		hops, ok := coerceMCPInt(raw)
@@ -249,11 +245,7 @@ func mergeGraphExpansionFromRequest(request mcpgo.CallToolRequest, base manifest
 			return nil, fmt.Errorf("hops: must be a number (got %T)", raw)
 		}
 
-		if hops != 1 && hops != 2 {
-			return nil, fmt.Errorf("hops: must be 1 or 2 (got %d)", hops)
-		}
-
-		resolved.Hops = hops
+		over.Hops = &hops
 	}
 
 	if raw, present := args["graph_weight"]; present {
@@ -263,23 +255,15 @@ func mergeGraphExpansionFromRequest(request mcpgo.CallToolRequest, base manifest
 			return nil, fmt.Errorf("graph_weight: must be a number (got %T)", raw)
 		}
 
-		if weight < 0 || weight > 1 {
-			return nil, fmt.Errorf("graph_weight: must be in [0.0, 1.0] (got %v)", weight)
-		}
-
-		resolved.Weight = weight
+		over.Weight = &weight
 	}
 
 	if _, present := args["graph_edge_types"]; present {
 		edges := argStringSlice(request, "graph_edge_types")
-		// Materialise a copy so we don't share storage with caller-provided
-		// state through the JSON decoder.
-		copied := make([]string, len(edges))
-		copy(copied, edges)
-		resolved.EdgeTypes = copied
+		over.EdgeTypes = &edges
 	}
 
-	return &resolved, nil
+	return manifest.MergeGraphExpansion(base, over)
 }
 
 // coerceMCPInt converts a JSON-decoded number argument to int.
