@@ -101,6 +101,215 @@ func TestNodeReadPayload(test *testing.T) {
 	}
 }
 
+// wikilinksFor drives handleNode for nodeID and returns the resolved wikilink
+// map. The map is the projection under test here; node_test.go's other cases
+// pin the surrounding payload.
+func wikilinksFor(test *testing.T, srv *Server, nodeID string) map[string]WikilinkTarget {
+	test.Helper()
+
+	rec := getNode(srv, nodeID)
+
+	if rec.Code != http.StatusOK {
+		test.Fatalf("code=%d want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	var got NodeReadPayload
+
+	if unmarshalErr := json.Unmarshal(rec.Body.Bytes(), &got); unmarshalErr != nil {
+		test.Fatalf("unmarshal %q: %v", rec.Body.Bytes(), unmarshalErr)
+	}
+
+	return got.Wikilinks
+}
+
+// TestNodeWikilinks pins the core of the reading UI's link rewriting: every
+// [[target]] in the body arrives pre-resolved, so the frontend rewrites each
+// one into an in-app link or a dead-link marker without a round trip per link.
+// A target naming a real id resolves to it; one naming nothing resolves to
+// Exists false rather than being absent from the map, so the client can tell
+// "unresolved" from "not a link I asked about".
+func TestNodeWikilinks(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[b]] and [[Ghost]]\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{
+		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+		{ID: "b", Type: "note", Title: "B", Path: "b.md"},
+	}}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	if got["b"] != (WikilinkTarget{ID: "b", Title: "B", Exists: true}) {
+		test.Fatalf("wikilinks[b]=%+v want the id resolved with its title", got["b"])
+	}
+
+	ghost, present := got["Ghost"]
+
+	if !present || ghost.Exists || ghost.ID != "" {
+		test.Fatalf("wikilinks[Ghost]=%+v present=%v want a present, unresolved entry", ghost, present)
+	}
+}
+
+// TestNodeWikilinksResolveByTitle pins the other form a wikilink takes: a
+// target that names no id at all, but matches a node's title ([[Some Note]]
+// rather than [[some-note]]). Without the title fallback every human-written
+// link would render dead.
+func TestNodeWikilinksResolveByTitle(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[Bee Note]]\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{
+		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+		{ID: "notes/bee", Type: "note", Title: "Bee Note", Path: "notes/bee.md"},
+	}}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	// Keyed on the raw target the client cuts out of the body, resolved to the
+	// id it must navigate to — the two differ on this path, which is the point.
+	if got["Bee Note"] != (WikilinkTarget{ID: "notes/bee", Title: "Bee Note", Exists: true}) {
+		test.Fatalf("wikilinks[Bee Note]=%+v want the title resolved to its id", got["Bee Note"])
+	}
+}
+
+// TestNodeWikilinksKeyOnAliasTarget pins the alias form: [[b|Bee]] links to b
+// and displays "Bee". The label is presentation and is never resolved, so the
+// map must key on "b" — the target segment, which is what the client keys on
+// when it rewrites. Keying on the whole inner text would miss every aliased
+// link and render it dead.
+func TestNodeWikilinksKeyOnAliasTarget(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[b|Bee]]\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{
+		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+		{ID: "b", Type: "note", Title: "B", Path: "b.md"},
+	}}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	if got["b"] != (WikilinkTarget{ID: "b", Title: "B", Exists: true}) {
+		test.Fatalf("wikilinks[b]=%+v want the alias stripped from the key", got["b"])
+	}
+
+	if _, present := got["b|Bee"]; present {
+		test.Fatalf("wikilinks=%+v keyed on the alias suffix", got)
+	}
+}
+
+// TestNodeWikilinksRollUpFragmentTarget pins the fragment ruling: [[c#S1]]
+// resolves to the FILE c, not to the sub-unit row c#S1, matching the rails'
+// rollup of sub-unit link ends. A sub-unit row carries its file's Path, so
+// /api/node/c#S1 serves c's whole body under the section's title — a payload
+// whose metadata contradicts its content. Rolling up loses nothing: the map is
+// keyed on the raw target, so the client still holds "#S1" to anchor on.
+func TestNodeWikilinksRollUpFragmentTarget(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[c#S1]] and [[c#S1|Section One]]\n")
+
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "c", Type: "spec", Title: "C", Path: "c.md"},
+		},
+		sub: []index.NodeRow{subUnit("c#S1", "c", "spec", "Section 1", "c.md")},
+	}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	// The sub-unit row exists and Get would resolve it — resolving to it is the
+	// live failure this pins, not a hypothetical.
+	if got["c#S1"] != (WikilinkTarget{ID: "c", Title: "C", Exists: true}) {
+		test.Fatalf("wikilinks[c#S1]=%+v want the fragment rolled up to file c", got["c#S1"])
+	}
+
+	// Both spellings are the same target, so they collapse to the one key.
+	if len(got) != 1 {
+		test.Fatalf("wikilinks=%+v want one entry", got)
+	}
+}
+
+// TestNodeWikilinksFragmentResolvesWithoutSubUnitRow pins why the rollup keys
+// resolution on the file rather than the sub-unit row: a workspace that does
+// not index sub-units has no c#S1 row to find, and a workspace that does can be
+// mid-reindex. [[c#S1]] is still a live link into a note that exists, so
+// verifying the sub-unit row would render every fragment link dead in the
+// former and flicker in the latter.
+func TestNodeWikilinksFragmentResolvesWithoutSubUnitRow(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[c#S1]]\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{
+		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+		{ID: "c", Type: "spec", Title: "C", Path: "c.md"},
+	}}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	if got["c#S1"] != (WikilinkTarget{ID: "c", Title: "C", Exists: true}) {
+		test.Fatalf("wikilinks[c#S1]=%+v want file c, resolved without a sub-unit row", got["c#S1"])
+	}
+}
+
+// TestNodeWikilinksFragmentOfMissingFileUnresolved is the counterweight to the
+// two rollup cases: rolling up must not resolve a fragment whose FILE is gone.
+// Without this the rollup could pass by returning Exists true for anything with
+// a "#" in it.
+func TestNodeWikilinksFragmentOfMissingFileUnresolved(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nsee [[gone#S1]]\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{{ID: "a", Type: "note", Title: "A", Path: "a.md"}}}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	if got["gone#S1"].Exists {
+		test.Fatalf("wikilinks[gone#S1]=%+v want unresolved", got["gone#S1"])
+	}
+}
+
+// TestNodeWikilinksScopedToRenderedBody pins the extraction's scope: the map
+// describes the Markdown field the client rewrites, and frontmatter is stripped
+// out of that field. A frontmatter ref is a link the reader never sees as text,
+// and it already reaches them through the links rails, so an entry for it could
+// only be an unrewritable key.
+func TestNodeWikilinksScopedToRenderedBody(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\nassignee: \"[[b]]\"\n---\nNo body links.\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{
+		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+		{ID: "b", Type: "note", Title: "B", Path: "b.md"},
+	}}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}}), "a")
+
+	if len(got) != 0 {
+		test.Fatalf("wikilinks=%+v want none: the frontmatter ref is not in the rendered body", got)
+	}
+}
+
+// TestNodeWikilinksMarshalEmptyObject guards the nil-map trap at the wire-byte
+// level: a body with no links must marshal to {} rather than null. This is the
+// live path, not a hypothetical — ExtractWikilinks returns a nil slice when a
+// body has no links, and a nil map marshals to null, which would force every
+// consumer to null-check before indexing. A JSON decode cannot tell {} from
+// null, so only the raw bytes can pin it.
+func TestNodeWikilinksMarshalEmptyObject(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\nNo links here.\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{{ID: "a", Type: "note", Title: "A", Path: "a.md"}}}
+
+	srv := New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}})
+
+	body := getNode(srv, "a").Body.String()
+
+	if !strings.Contains(body, `"wikilinks":{}`) {
+		test.Fatalf("body=%s want wikilinks as {}", body)
+	}
+}
+
 // TestNodeRouteServesSlashedID drives the real mux over HTTP rather than
 // calling the handler directly. Node ids are path-derived, so a nested file's id
 // contains slashes — the {id...} wildcard must capture the rest of the path and

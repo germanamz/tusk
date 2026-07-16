@@ -89,6 +89,19 @@ func (srv *Server) handleNode(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 
+	// Resolved against the stripped body rather than the raw one, because this
+	// is the text the client rewrites: a frontmatter ref never appears in it, so
+	// an entry for one could only be a key nothing matches.
+	markdown := render.StripFrontmatter(body)
+
+	wikilinks, wikilinksErr := srv.resolveWikilinks(markdown)
+
+	if wikilinksErr != nil {
+		http.Error(writer, wikilinksErr.Error(), http.StatusServiceUnavailable)
+
+		return
+	}
+
 	// PropertiesJSON is a plain string: an unset column would emit a bare
 	// "properties": and invalidate the whole payload, not just the field.
 	properties := json.RawMessage(row.PropertiesJSON)
@@ -103,7 +116,8 @@ func (srv *Server) handleNode(writer http.ResponseWriter, request *http.Request)
 		Title:      row.Title,
 		Path:       row.Path,
 		Properties: properties,
-		Markdown:   string(render.StripFrontmatter(body)),
+		Markdown:   string(markdown),
+		Wikilinks:  wikilinks,
 	}
 
 	payload.Links.Out = links.out

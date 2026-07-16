@@ -483,6 +483,44 @@ func TestLinksSkipSubUnitWithMissingParent(test *testing.T) {
 	}
 }
 
+// TestLinksRollUpSourceWithoutSubUnitRow pins the authority question nothing
+// else in this file covers: the rollup verifies the far end's FILE row, never
+// the far SUB-UNIT row. A stale "c#S1 → a" whose c#S1 row was reaped but whose
+// file c survives still emits c.
+//
+// That is deliberate, and the inverse of TestLinksSkipSubUnitWithMissingParent:
+// there the file was gone, leaving nothing navigable behind the link. Here the
+// edge row is the authority for "a link was authored", and c is navigable and
+// carries a title, so the entry is not the dead, zero-value one that test
+// guards against. It is also what keeps the rails correct where sub-unit rows
+// do not exist to verify at all — a workspace with sub-unit indexing off.
+//
+// The state is unreachable in a consistent index (subunit sync rewrites rows
+// and derived edges in one pass), which is precisely why it needs pinning:
+// nothing else here would catch a change to it.
+func TestLinksRollUpSourceWithoutSubUnitRow(test *testing.T) {
+	nodes := fakeNodes{
+		file: []index.NodeRow{
+			{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+			{ID: "c", Type: "spec", Title: "C", Path: "c.md"},
+		},
+		// No c#S1 row: reaped, or never written because the workspace does not
+		// index sub-units.
+	}
+
+	edges := fakeEdges{all: []index.EdgeRow{
+		{Type: "references", SourceID: "c#S1", TargetID: "a", SourcePath: "c.md", Kind: "direct"},
+	}}
+
+	links := linksFor(test, New(Deps{Nodes: nodes, Edges: edges}), "a")
+
+	want := []LinkRef{{ID: "c", Title: "C", Type: "spec", EdgeType: "references"}}
+
+	if !reflect.DeepEqual(links.in, want) {
+		test.Fatalf("links.in=%+v want %+v — the rollup verifies the far FILE row, not the far sub-unit row", links.in, want)
+	}
+}
+
 // TestLinksSkipDanglingFarEnd re-pins a contract the traversal inherited: an
 // edge whose far end has no row at all is skipped. ListByIDs omits missing ids
 // silently rather than erroring, so nothing but this check stands between a

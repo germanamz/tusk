@@ -222,22 +222,47 @@ func fileIDOf(nodeID string) string {
 // rails should show for it: the row itself when it is already a file, the file it
 // belongs to when it is a sub-unit at any depth.
 //
-// It costs one batched ListByIDs call regardless of edge count, rather than a Get
-// per edge: the far ends' file ids come from their ids alone (see fileIDOf), so
-// there is no need to fetch a sub-unit row just to read a parent pointer off it.
-//
 // An id absent from the returned map is one the rails must skip: the file behind
 // it has no row, so the edge is dangling (ListByIDs silently omits ids with no
 // row rather than erroring). Emitting it would render a dead rail entry — a
 // zero-value LinkRef with an empty title pointing at an id that 404s.
 func (srv *Server) resolveFarFiles(adjacent []adjacentEdge) (map[string]index.NodeRow, error) {
-	farFileIDs := make(map[string]string, len(adjacent))
-	fileIDs := make([]string, 0, len(adjacent))
-	seen := make(map[string]struct{}, len(adjacent))
+	farIDs := make([]string, 0, len(adjacent))
 
 	for _, adj := range adjacent {
-		fileID := fileIDOf(adj.farID)
-		farFileIDs[adj.farID] = fileID
+		farIDs = append(farIDs, adj.farID)
+	}
+
+	return srv.fileRowsFor(farIDs)
+}
+
+// fileRowsFor maps each id in ids to the file-level node row it belongs to: the
+// row itself when the id already names a file, the file it belongs to when it
+// names a sub-unit at any depth (see fileIDOf). Ids are de-duplicated, so
+// repeats cost nothing and callers need not pre-filter.
+//
+// It costs one batched ListByIDs call regardless of how many ids are asked for,
+// rather than a Get per id: an id's file id comes from the id alone, so there is
+// never a need to fetch a sub-unit row just to read a parent pointer off it.
+//
+// An id whose file has no row is ABSENT from the result rather than mapped to a
+// zero row — ListByIDs silently omits ids it cannot find rather than erroring,
+// so this is the only signal a caller gets that nothing navigable stands behind
+// the id. Note what is deliberately NOT verified: the sub-unit row itself. The
+// file is the authority, which is what lets a link authored in c#S1 resolve in a
+// workspace that does not index sub-units at all.
+//
+// Shared by the reading rails (far-end projection) and the body's wikilink
+// resolution, which roll up by the same rule and must agree: a rail entry and an
+// inline link pointing at the same section have to reach the same note.
+func (srv *Server) fileRowsFor(ids []string) (map[string]index.NodeRow, error) {
+	fileIDByID := make(map[string]string, len(ids))
+	fileIDs := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+
+	for _, id := range ids {
+		fileID := fileIDOf(id)
+		fileIDByID[id] = fileID
 
 		if _, ok := seen[fileID]; ok {
 			continue // asked for already: the batched lookup wants each id once
@@ -259,11 +284,11 @@ func (srv *Server) resolveFarFiles(adjacent []adjacentEdge) (map[string]index.No
 		byID[row.ID] = row
 	}
 
-	resolved := make(map[string]index.NodeRow, len(farFileIDs))
+	resolved := make(map[string]index.NodeRow, len(fileIDByID))
 
-	for farID, fileID := range farFileIDs {
+	for id, fileID := range fileIDByID {
 		if row, found := byID[fileID]; found {
-			resolved[farID] = row
+			resolved[id] = row
 		}
 	}
 
