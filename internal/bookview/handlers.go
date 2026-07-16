@@ -125,9 +125,3 @@ func (srv *Server) handleNode(writer http.ResponseWriter, request *http.Request)
 
 	writeJSON(writer, payload)
 }
-
-// handleAsset serves a vault-relative asset (images referenced from node
-// bodies).
-func (srv *Server) handleAsset(writer http.ResponseWriter, _ *http.Request) {
-	http.Error(writer, "not implemented", http.StatusNotImplemented)
-}
