@@ -1,7 +1,6 @@
 package bookview
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -10,12 +9,14 @@ import (
 )
 
 // TestIndexListsFileNodes pins GET /api/index's payload: every file-level row
-// from NodeSource.ListFileNodes, each carrying its ParentID through as Parent
-// (empty when NULL) so the client can offer hierarchy grouping among files.
+// from NodeSource.ListFileNodes, with id/type/title/path round-tripping
+// verbatim. There is no Parent field — every row ListFileNodes returns has a
+// NULL parent_id by construction, so the Contents pane derives its tree from
+// Path instead.
 func TestIndexListsFileNodes(test *testing.T) {
 	nodes := fakeNodes{file: []index.NodeRow{
 		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
-		{ID: "b", Type: "spec", Title: "B", Path: "b.md", ParentID: sql.NullString{String: "a", Valid: true}},
+		{ID: "b", Type: "spec", Title: "B", Path: "specs/b.md"},
 	}}
 
 	srv := New(Deps{Root: test.TempDir(), Nodes: nodes})
@@ -33,12 +34,15 @@ func TestIndexListsFileNodes(test *testing.T) {
 		test.Fatalf("got %d nodes, want 2: %+v", len(got.Nodes), got.Nodes)
 	}
 
-	if got.Nodes[0].ID != "a" || got.Nodes[0].Parent != "" {
-		test.Fatalf("root node = %+v, want id=a parent=\"\"", got.Nodes[0])
+	want := []IndexNode{
+		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
+		{ID: "b", Type: "spec", Title: "B", Path: "specs/b.md"},
 	}
 
-	if got.Nodes[1].ID != "b" || got.Nodes[1].Parent != "a" {
-		test.Fatalf("child node = %+v, want id=b parent=a", got.Nodes[1])
+	for idx, node := range want {
+		if got.Nodes[idx] != node {
+			test.Fatalf("node[%d] = %+v, want %+v", idx, got.Nodes[idx], node)
+		}
 	}
 }
 

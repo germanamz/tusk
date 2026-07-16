@@ -1,6 +1,8 @@
 package bookview
 
 import (
+	"sort"
+
 	"github.com/germanamz/tusk/internal/index"
 )
 
@@ -34,8 +36,10 @@ func (fake fakeNodes) Get(nodeID string) (*index.NodeRow, error) {
 	return nil, index.ErrNodeNotFound
 }
 
-// ListByIDs mirrors *index.NodeRepo.ListByIDs: empty input returns (nil, nil),
-// and ids with no matching row are silently omitted rather than erroring.
+// ListByIDs mirrors *index.NodeRepo.ListByIDs: empty input returns (nil, nil)
+// with no lookup performed, ids with no matching row are silently omitted
+// rather than erroring, and the result is ordered by id ASC regardless of the
+// order ids were requested in.
 func (fake fakeNodes) ListByIDs(ids []string) ([]index.NodeRow, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -55,11 +59,14 @@ func (fake fakeNodes) ListByIDs(ids []string) ([]index.NodeRow, error) {
 		}
 	}
 
+	sort.Slice(out, func(left, right int) bool { return out[left].ID < out[right].ID })
+
 	return out, nil
 }
 
 // FindByTitle mirrors *index.NodeRepo.FindByTitle: an absent title returns
-// (nil, nil), never an error, and targetType "*" matches any type.
+// (nil, nil), never an error, targetType "*" matches any type, and the result
+// is ordered by id ASC.
 func (fake fakeNodes) FindByTitle(targetType, title string) ([]string, error) {
 	var ids []string
 
@@ -74,6 +81,8 @@ func (fake fakeNodes) FindByTitle(targetType, title string) ([]string, error) {
 
 		ids = append(ids, row.ID)
 	}
+
+	sort.Strings(ids)
 
 	return ids, nil
 }

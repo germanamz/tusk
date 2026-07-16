@@ -8,11 +8,7 @@ import "net/http"
 
 // handleIndex serves the Contents pane's node index: every file-level node
 // (NodeSource.ListFileNodes already excludes sub-units, filtering on
-// parent_id IS NULL), each carrying Parent from its ParentID. Parent exists so
-// the client can offer hierarchy grouping among files; in the current schema
-// a file-level row's parent_id is always NULL (the nodes table's CHECK
-// constraint forbids otherwise), so Parent is empty in practice today, but the
-// mapping is still applied generically rather than hardcoded to "".
+// parent_id IS NULL).
 func (srv *Server) handleIndex(writer http.ResponseWriter, _ *http.Request) {
 	rows, listErr := srv.deps.Nodes.ListFileNodes()
 
@@ -25,18 +21,11 @@ func (srv *Server) handleIndex(writer http.ResponseWriter, _ *http.Request) {
 	out := IndexResponse{Nodes: make([]IndexNode, 0, len(rows))}
 
 	for _, row := range rows {
-		parent := ""
-
-		if row.ParentID.Valid {
-			parent = row.ParentID.String
-		}
-
 		out.Nodes = append(out.Nodes, IndexNode{
-			ID:     row.ID,
-			Type:   row.Type,
-			Title:  row.Title,
-			Path:   row.Path,
-			Parent: parent,
+			ID:    row.ID,
+			Type:  row.Type,
+			Title: row.Title,
+			Path:  row.Path,
 		})
 	}
 

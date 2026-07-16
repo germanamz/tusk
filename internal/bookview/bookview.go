@@ -82,14 +82,16 @@ type Deps struct {
 	PollInterval time.Duration // SSE change-poll cadence; defaults to 2s
 }
 
-// IndexNode is one entry in the table-of-contents index. Parent is empty for a
-// file node and holds the owning file's id for a sub-unit.
+// IndexNode is one entry in the table-of-contents index: a single file-level
+// node. The Contents pane derives its tree from Path (e.g. "specs/x.md" nests
+// under "specs/"), not from any parent relationship — every row ListFileNodes
+// returns has a NULL parent_id by construction, so a Parent field would always
+// be empty.
 type IndexNode struct {
-	ID     string `json:"id"`
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Path   string `json:"path"`
-	Parent string `json:"parent"`
+	ID    string `json:"id"`
+	Type  string `json:"type"`
+	Title string `json:"title"`
+	Path  string `json:"path"`
 }
 
 // IndexResponse is the GET /api/index payload.
