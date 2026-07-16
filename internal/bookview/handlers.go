@@ -9,7 +9,6 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/render"
-	"github.com/germanamz/tusk/internal/webui"
 )
 
 // The handlers below are registered by routes() so the route table is complete,
@@ -46,6 +45,9 @@ func (srv *Server) handleIndex(writer http.ResponseWriter, _ *http.Request) {
 // plus the raw markdown body, read fresh from disk (node bodies are never stored
 // in the index) with only the frontmatter stripped. Rendering it to HTML is the
 // frontend's job, so the markup survives verbatim.
+//
+// The reading rails come from linksOf, which projects links to file level: a
+// link authored in a section of another note surfaces as that note.
 //
 // The id may contain slashes, so the route captures the rest of the path;
 // PathValue unescapes each segment.
@@ -108,61 +110,6 @@ func (srv *Server) handleNode(writer http.ResponseWriter, request *http.Request)
 	payload.Links.In = links.in
 
 	writeJSON(writer, payload)
-}
-
-// nodeLinks holds one node's reading rails, split by direction.
-type nodeLinks struct {
-	out []LinkRef
-	in  []LinkRef
-}
-
-// linksOf returns the file-level links of nodeID, projecting the shared webui
-// traversal (incident-edge lookup, batched far-end resolution,
-// self-loop-once-as-out, sub-unit and dangling skips, ListAll ordering) into the
-// reading rails. The graph view projects the same traversal into its own
-// neighbor payload; only the emitted struct and the policy below differ.
-//
-// Structural ("contains") edges are excluded: they are index plumbing rather
-// than a link a reader follows. webui.Neighbors applies no view policy, and for
-// a file focus its sub-unit skip already drops them — but a sub-unit focus sees
-// its parent file arrive as an incoming "contains", and containment is what the
-// Contents pane expresses, not the rails. Filtering here keeps that policy
-// consistent from both ends instead of leaving it an accident of which side is a
-// sub-unit. graphview deliberately keeps these edges, which is why the filter
-// lives in bookview and not in webui.Neighbors.
-func (srv *Server) linksOf(nodeID string) (nodeLinks, error) {
-	adjacent, adjErr := webui.Neighbors(srv.deps.Nodes, srv.deps.Edges, nodeID)
-
-	if adjErr != nil {
-		return nodeLinks{}, adjErr
-	}
-
-	// Non-nil so an isolated node's rails marshal to [] rather than null, which
-	// would force every frontend consumer to null-check before iterating.
-	links := nodeLinks{out: make([]LinkRef, 0), in: make([]LinkRef, 0)}
-
-	for _, adj := range adjacent {
-		if adj.Edge.Kind == "structural" {
-			continue
-		}
-
-		ref := LinkRef{
-			ID:       adj.Node.ID,
-			Title:    adj.Node.Title,
-			Type:     adj.Node.Type,
-			EdgeType: adj.Edge.Type,
-		}
-
-		if adj.Direction == "out" {
-			links.out = append(links.out, ref)
-
-			continue
-		}
-
-		links.in = append(links.in, ref)
-	}
-
-	return links, nil
 }
 
 // handleAsset serves a vault-relative asset (images referenced from node

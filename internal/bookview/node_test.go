@@ -1,7 +1,6 @@
 package bookview
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -147,9 +146,9 @@ func TestNodeRouteServesSlashedID(test *testing.T) {
 }
 
 // TestNodeNotFound pins the 404: an id with no index row is a missing document,
-// not an empty one. webui.Neighbors would happily return zero links for an
-// unknown id, so without the Get check a typo'd id would render as a valid,
-// blank page.
+// not an empty one. The links traversal walks edges and never verifies the focus
+// node exists, so it would happily return zero links for an unknown id — without
+// the Get check a typo'd id would render as a valid, blank page.
 func TestNodeNotFound(test *testing.T) {
 	srv := New(Deps{Root: test.TempDir(), Nodes: fakeNodes{}, Edges: fakeEdges{}})
 
@@ -216,69 +215,5 @@ func TestNodeEmptyPropertiesMarshalObject(test *testing.T) {
 	// A body with no frontmatter block is returned unchanged.
 	if got.Markdown != "Body only\n" {
 		test.Fatalf("markdown=%q want %q", got.Markdown, "Body only\n")
-	}
-}
-
-// TestNodeExcludesStructuralLinks pins the view policy: a structural "contains"
-// edge is index plumbing, not a link a reader follows. webui.Neighbors applies
-// no view policy and already drops the sub-unit far end of a file's own contains
-// edges, so the case that reaches bookview is the sub-unit focus — where the
-// parent file arrives as an incoming "contains". The reading rails exclude it.
-func TestNodeExcludesStructuralLinks(test *testing.T) {
-	root := test.TempDir()
-	writeNodeFile(test, root, "a.md", "---\ntitle: A\n---\n## Section\n\nBody\n")
-
-	nodes := fakeNodes{file: []index.NodeRow{
-		{ID: "a", Type: "note", Title: "A", Path: "a.md"},
-		{
-			ID:       "a#section",
-			Type:     "note",
-			Title:    "Section",
-			Path:     "a.md",
-			ParentID: sql.NullString{String: "a", Valid: true},
-		},
-		{ID: "b", Type: "note", Title: "B", Path: "b.md"},
-	}}
-
-	edges := fakeEdges{all: []index.EdgeRow{
-		{
-			Type:       "contains",
-			SourceID:   "a",
-			TargetID:   "a#section",
-			SourcePath: "a.md",
-			Kind:       "structural",
-			Source:     sql.NullString{String: "markdown", Valid: true},
-		},
-		{Type: "references", SourceID: "a#section", TargetID: "b", SourcePath: "a.md", Kind: "derived"},
-	}}
-
-	srv := New(Deps{Root: root, Nodes: nodes, Edges: edges})
-
-	// The file focus: its contains edge points at a sub-unit, which Neighbors
-	// already drops — no structural link either way.
-	var fileGot NodeReadPayload
-
-	if unmarshalErr := json.Unmarshal(getNode(srv, "a").Body.Bytes(), &fileGot); unmarshalErr != nil {
-		test.Fatalf("unmarshal file payload: %v", unmarshalErr)
-	}
-
-	if len(fileGot.Links.Out) != 0 || len(fileGot.Links.In) != 0 {
-		test.Fatalf("file links out=%+v in=%+v, want none", fileGot.Links.Out, fileGot.Links.In)
-	}
-
-	// The sub-unit focus: the parent's contains edge resolves to a file-level
-	// far end, so only bookview's Kind filter keeps it out of the rails.
-	var unitGot NodeReadPayload
-
-	if unmarshalErr := json.Unmarshal(getNode(srv, "a#section").Body.Bytes(), &unitGot); unmarshalErr != nil {
-		test.Fatalf("unmarshal sub-unit payload: %v", unmarshalErr)
-	}
-
-	if len(unitGot.Links.In) != 0 {
-		test.Fatalf("sub-unit links.in=%+v, want the structural contains excluded", unitGot.Links.In)
-	}
-
-	if len(unitGot.Links.Out) != 1 || unitGot.Links.Out[0].ID != "b" {
-		test.Fatalf("sub-unit links.out=%+v, want the derived reference kept", unitGot.Links.Out)
 	}
 }
