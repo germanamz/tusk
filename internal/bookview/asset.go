@@ -153,14 +153,10 @@ func resolveVaultAsset(root, rel string) (string, bool) {
 		return "", false
 	}
 
-	// Containment, checked on the resolved paths. The separator is what makes
-	// this correct: a bare strings.HasPrefix(resolved, rootResolved) serves
-	// "/vault-secrets/creds.txt" to a vault rooted at "/vault", because "/vault"
-	// is a string prefix of "/vault-secrets" — while "/vault/" is not.
-	//
-	// The resolved == rootResolved arm admits the root directory itself (a
-	// symlink can point back at it); the caller's IsRegular check refuses it.
-	if resolved != rootResolved && !strings.HasPrefix(resolved, rootResolved+string(filepath.Separator)) {
+	// Containment, checked on the resolved paths. Extracted because it cannot be
+	// falsified through this function — see containedIn's own comment and
+	// TestContainedIn, which is where its separator arm is actually held.
+	if !containedIn(rootResolved, resolved) {
 		return "", false
 	}
 
@@ -189,21 +185,76 @@ func resolveVaultAsset(root, rel string) (string, bool) {
 	// name. The root itself may legitimately sit inside a dot-directory — a vault
 	// at "~/.local/share/notes" is ordinary — and scanning the absolute path would
 	// refuse every asset in it.
+	//
+	// Known bound, not an oversight: the dot rule is a rule about PATHS. A HARD
+	// link at "<root>/hard.png" pointing at "<root>/.tusk/index.db" is served —
+	// EvalSymlinks cannot see through a hard link, so the resolved path names no
+	// dot segment and there is nothing here to catch. This is inherent to any
+	// path-based rule (os.Root would not close it either), and it is bounded: it
+	// needs local write access inside the vault, and unlike symlinks, git and
+	// most sync tools do not carry hard links, so the "cloned vault" vector — the
+	// one that makes .git/config worth a Critical — does not reach it.
 	relResolved, relErr := filepath.Rel(rootResolved, resolved)
 
 	if relErr != nil {
 		return "", false
 	}
 
-	// Rel spells "the root itself" as ".", which is the resolved == rootResolved
-	// arm admitted above (a symlink pointing back at the root). That "." is Rel's
-	// notation, not a dot segment the request named, so it must not be refused
-	// here — the caller's IsRegular check is what turns the root away.
 	for _, segment := range strings.Split(relResolved, string(filepath.Separator)) {
+		// Unreachable while containment stands: Rel spells "not under the root"
+		// with a leading "..", and containedIn refused every such path above.
+		// Written out anyway, and it must stay — deleting it is not a cleanup.
+		//
+		// The dot rule below would otherwise swallow ".." by pure coincidence,
+		// since ".." happens to start with ".". That coincidence is nobody's
+		// intent, and leaving it implicit is what let this arm rot once already:
+		// it makes containment a no-op through this function, so a reviewer who
+		// deletes containment "as redundant" sees green, and a reviewer who then
+		// simplifies the dot rule to skip ".." — reasonable on its face, since
+		// ".." is not a dotfile and the pre-Clean scan already refused it as
+		// AUTHORED — sees green too. Each edit is green alone; together they
+		// restore the "/vault" vs "/vault-secrets" hole. Answering the two
+		// questions separately is what keeps either edit from being quiet.
+		if segment == ".." {
+			return "", false
+		}
+
+		// Rel spells "the root itself" as ".", which is the resolved ==
+		// rootResolved arm containedIn admits (a symlink pointing back at the
+		// root). That "." is Rel's notation, not a dot segment the request named,
+		// so it must not be refused here — the caller's IsRegular check is what
+		// turns the root away.
 		if strings.HasPrefix(segment, ".") && segment != "." {
 			return "", false
 		}
 	}
 
 	return resolved, true
+}
+
+// containedIn reports whether resolved names the vault root itself or something
+// beneath it. Both arguments must already be absolute and symlink-resolved —
+// this is a string rule, and it is only meaningful over paths the kernel would
+// actually open.
+//
+// The separator is the entire content of this function. A bare
+// strings.HasPrefix(resolved, rootResolved) serves "<base>/vault-secrets/creds.txt"
+// to a vault rooted at "<base>/vault", because "<base>/vault" is a string prefix
+// of "<base>/vault-secrets" — while "<base>/vault/" is not.
+//
+// It is a free function with its own table test for a reason worth stating,
+// because the reason is not obvious and the last round lost to it. This
+// predicate cannot be falsified through resolveVaultAsset: filepath.Rel returns
+// a ".."-prefixed path for anything outside the root, and the resolved-path scan
+// refuses "..", so every input this check would deny is already denied one step
+// later — weaken the separator, or delete the call site outright, and
+// resolveVaultAsset's behavior does not move. That redundancy is deliberate
+// (defence in depth on the one route that touches request-supplied paths), but
+// it means a test driving resolveVaultAsset can never hold this rule. Only a
+// test that calls this function can. TestContainedIn is that test.
+//
+// The resolved == rootResolved arm admits the root directory itself, which a
+// symlink can point back at; the caller's IsRegular check is what refuses it.
+func containedIn(rootResolved, resolved string) bool {
+	return resolved == rootResolved || strings.HasPrefix(resolved, rootResolved+string(filepath.Separator))
 }

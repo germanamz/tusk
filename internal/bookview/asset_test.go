@@ -355,6 +355,97 @@ func TestAssetIndexHTMLRedirects(test *testing.T) {
 	}
 }
 
+// TestContainedIn holds the containment rule at the only level where it can be
+// held at all.
+//
+// Every other test in this file drives resolveVaultAsset, and none of them can
+// fail when containment breaks: filepath.Rel answers "outside the root" with a
+// ".."-prefixed path, and the resolved-path scan refuses "..", so containment
+// and the scan deny exactly the same set. Weakening the separator here, or
+// deleting the call site entirely, leaves resolveVaultAsset's behavior
+// unchanged — both mutations passed the whole suite before this test existed.
+// The redundancy is intentional and stays; what it costs is falsifiability
+// through the front door, and this test is what buys that back.
+//
+// The geometry is the fixture's, spelled out as strings: "<base>/vault" as the
+// root and "<base>/vault-secrets" as the sibling whose path carries the root as
+// a STRING prefix while living outside it. That pair is the separator arm, and
+// the "sibling sharing the root's name prefix" case below is the one that goes
+// red for strings.HasPrefix(resolved, rootResolved).
+//
+// No filesystem here on purpose: this is a rule about strings, and the paths it
+// must judge correctly include ones no TempDir would hand out.
+func TestContainedIn(test *testing.T) {
+	root := filepath.Join("/base", "vault")
+
+	cases := []struct {
+		name     string
+		resolved string
+		want     bool
+	}{
+		{
+			// A symlink can point back at the root, so the predicate admits it;
+			// the caller's IsRegular check is what turns a directory away.
+			name:     "the root itself is contained",
+			resolved: root,
+			want:     true,
+		},
+		{
+			name:     "a file directly under the root is contained",
+			resolved: filepath.Join(root, "index.html"),
+			want:     true,
+		},
+		{
+			name:     "a nested file is contained",
+			resolved: filepath.Join(root, "img", "x.png"),
+			want:     true,
+		},
+		{
+			// THE case. "/base/vault" is a string prefix of
+			// "/base/vault-secrets", so a separator-less HasPrefix reports this
+			// file as contained and the guard serves someone else's credentials.
+			// If this test is green under such a check, it has stopped doing its
+			// job.
+			name:     "a sibling sharing the root's name prefix is not contained",
+			resolved: filepath.Join("/base", "vault-secrets", "creds.txt"),
+			want:     false,
+		},
+		{
+			// Same trap without a separator anywhere after the root — a sibling
+			// FILE rather than a directory, in case a future check reaches for
+			// the last separator instead of the root's own boundary.
+			name:     "a sibling file sharing the root's name prefix is not contained",
+			resolved: filepath.Join("/base", "vaultx"),
+			want:     false,
+		},
+		{
+			name:     "an unrelated absolute path is not contained",
+			resolved: filepath.Join("/etc", "passwd"),
+			want:     false,
+		},
+		{
+			name:     "the root's parent is not contained",
+			resolved: "/base",
+			want:     false,
+		},
+		{
+			// The root's spelling appearing DEEPER in the path is not
+			// containment: prefix, not substring.
+			name:     "the root's path appearing as an inner substring is not contained",
+			resolved: filepath.Join("/elsewhere", "base", "vault", "img", "x.png"),
+			want:     false,
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			if got := containedIn(root, testCase.resolved); got != testCase.want {
+				test.Fatalf("containedIn(%q, %q) = %v want %v", root, testCase.resolved, got, testCase.want)
+			}
+		})
+	}
+}
+
 // TestResolveVaultAssetContainment exercises the guard directly, below the mux.
 // The mux redirects some inputs before a handler ever runs (see the literal ".."
 // case above), which means those inputs cannot be tested for containment over
