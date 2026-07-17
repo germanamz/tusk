@@ -2,12 +2,28 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, edited, reopened, synchronize]
+    # `edited` is intentionally absent. It fires on PR title/body edits, which
+    # do NOT move the head commit, so re-running the heavy jobs here (macOS
+    # tests, node builds, govulncheck) would burn minutes to reproduce results
+    # that already stand for the unchanged SHA. The semantic-title check that
+    # genuinely needs `edited` lives in its own lightweight pr-title.yml.
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
 
+# Supersede an in-flight run when a PR gets new commits: the older run's results
+# no longer apply to the new head. Keyed on PR number, with the ref as a
+# workflow_dispatch fallback, so runs across different PRs never cancel each
+# other. Safe for required checks — cancellation only affects the stale head's
+# runs; the new head gets a fresh, complete set.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: every job below only reads the checkout. The one job that
+# needed pull-requests:read (the semantic PR-title check) now lives in
+# pr-title.yml with its own scoped permissions.
 permissions:
   contents: read
-  pull-requests: read
 
 # Pin the linter to a concrete release so a floating `latest` can't change
 # findings (or break) with no code change. Must be a golangci-lint v2.x to
@@ -19,23 +35,18 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: false
-
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            go-${{ runner.os }}-
+          # setup-go's built-in cache (keyed on go.sum) already covers
+          # ~/go/pkg/mod and ~/.cache/go-build — the same paths a hand-rolled
+          # actions/cache step used to manage. One source of caching, not two.
+          cache: true
 
       - name: Check formatting
         run: |
@@ -50,7 +61,7 @@ jobs:
         run: go vet ./...
 
       - name: Run linter
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
 
@@ -61,9 +72,11 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -84,9 +97,11 @@ jobs:
   unit-tests-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -97,9 +112,11 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -113,21 +130,14 @@ jobs:
   docs-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: false
-
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            go-${{ runner.os }}-
+          cache: true
 
       - name: Regenerate CLI docs
         run: go run ./cmd/tusk docgen man docs/cli
@@ -141,14 +151,15 @@ jobs:
           fi
 
   # Dependabot web-deps PRs arrive stale here by construction (the bot can't
-  # run `make frontend`); .github/workflows/dependabot-web-dist.yml rebuilds
-  # and pushes the bundle onto those PR branches automatically (graph only —
-  # book-web-deps bot PRs need a hand rebuild, see dependabot.yml's comment).
+  # run `make frontend`); .github/workflows/dependabot-frontend-dist.yml
+  # rebuilds and pushes the bundle onto those PR branches automatically.
   dist-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: web/.nvmrc
       - name: Enable pnpm
@@ -175,20 +186,27 @@ jobs:
   web-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: web/.nvmrc
       - name: Enable pnpm
         run: corepack enable && corepack prepare pnpm@9.12.0 --activate
-      - name: Audit web dependencies
+      # Audits BOTH vendored frontends — web (bundled into
+      # internal/graphview/dist) and web-book (internal/bookview/dist). Reads
+      # the lockfile only; no install needed.
+      #
+      # BLOCKING: high+critical advisories fail the build (moderate/low are
+      # surfaced in the log but non-blocking). Both lockfiles are clean as of
+      # this change; Dependabot's web-deps and book-web-deps groups keep them
+      # current.
+      - name: Audit web (graph) dependencies
         working-directory: web
-        # Audits the vendored frontend deps (bundled into the Go binary via
-        # internal/graphview/dist). Reads the lockfile only — no install needed.
-        #
-        # BLOCKING: high+critical advisories fail the build (moderate/low are
-        # surfaced in the log but non-blocking). The lockfile is clean as of the
-        # web-deps bump; Dependabot keeps it current.
+        run: pnpm audit --audit-level high
+      - name: Audit web-book dependencies
+        working-directory: web-book
         run: pnpm audit --audit-level high
 
   # Gates web-book's vitest suite. web/ has no equivalent job — the graph
@@ -201,8 +219,10 @@ jobs:
   web-book-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: web-book/.nvmrc
       - name: Enable pnpm
@@ -213,23 +233,3 @@ jobs:
       - name: Run vitest
         working-directory: web-book
         run: pnpm test
-
-  pr-title:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: amannn/action-semantic-pull-request@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          types: |
-            feat
-            fix
-            docs
-            style
-            refactor
-            perf
-            test
-            build
-            ci
-            chore
-            revert

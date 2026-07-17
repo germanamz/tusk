@@ -1,0 +1,47 @@
+name: pr-title
+
+# The semantic-PR-title check, split out of ci.yml so it can listen for the
+# `edited` event (PR title/body changes) WITHOUT dragging the heavy build and
+# test jobs along — those only re-run on new commits (see ci.yml).
+#
+# `synchronize` and `reopened` are kept alongside `opened`/`edited` on purpose:
+# required status checks are keyed to the head commit SHA, so the check must
+# re-report on every new head or the PR would block with a missing `pr-title`.
+#
+# The job id stays exactly `pr-title` because the branch ruleset requires a
+# status check by that context name. Do not rename it.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+# amannn/action-semantic-pull-request reads the PR title from the event payload
+# (falling back to the PR via the API) and reports through the job's own check
+# conclusion. It reads the PR and nothing else — no checkout, no writes.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
