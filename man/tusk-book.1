@@ -1,0 +1,54 @@
+.nh
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
+
+.SH NAME
+tusk-book - Serve a read-only reading view of the vault
+
+
+.SH SYNOPSIS
+\fBtusk book [flags]\fP
+
+
+.SH DESCRIPTION
+Serve a local, read-only reading UI for the vault: rendered node
+documents (with math, mermaid diagrams, and images), semantic search, and
+graph-expansion navigation, kept live as files change.
+
+.PP
+The server binds to loopback by default. It does not open a browser
+automatically: press space in this terminal to open it, or pass --open.
+
+
+.SH OPTIONS
+\fB--addr\fP="127.0.0.1:7474"
+	loopback listen address
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for book
+
+.PP
+\fB--open\fP[=false]
+	open the browser automatically at startup
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Serve on 127.0.0.1:7474 and press space to open
+  tusk book
+
+  # Open the browser automatically
+  tusk book --open
+
+  # Bind a specific loopback port
+  tusk book --addr 127.0.0.1:9001
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP
