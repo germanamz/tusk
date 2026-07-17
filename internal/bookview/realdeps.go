@@ -5,9 +5,11 @@ import (
 	"database/sql"
 
 	"github.com/germanamz/tusk/internal/embed"
+	"github.com/germanamz/tusk/internal/graphexpand"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
+	"github.com/germanamz/tusk/internal/typeref"
 )
 
 // searchGraphExpansionLabels names the search endpoint's graph-expansion knobs
@@ -184,4 +186,127 @@ func searchResponseFrom(req SearchRequest, qreq query.Request, result *query.Res
 	}
 
 	return SearchResponse{Matches: matches}
+}
+
+// relatedGraphExpansionLabels names the related endpoint's graph-expansion
+// knobs in manifest.MergeGraphExpansion's validation messages, matching the
+// wire contract's own query-param names ("hops", "weight") — the wording an
+// HTTP JSON API consumer sees verbatim in a rejected request.
+var relatedGraphExpansionLabels = manifest.GraphExpansionLabels{Hops: "hops", Weight: "weight"}
+
+// related adapts internal/graphexpand to the RelatedSource interface: a
+// node-seeded graph walk with no embedder anywhere in the loop — the Related
+// rail's spec property that it keeps working when Ollama is down. Built by
+// NewRelated in the command layer, over an already-open workspace's
+// dependencies.
+type related struct {
+	edges     *index.EdgeRepo
+	workspace *manifest.Manifest
+	nodes     *index.NodeRepo
+}
+
+// NewRelated builds the real RelatedSource, wrapping internal/graphexpand
+// over an already-open workspace's edges, nodes, and manifest. workspaceManifest
+// supplies both the [query.graph-expansion] default that per-call
+// hops/edgeTypes/weight overrides merge onto.
+func NewRelated(edges *index.EdgeRepo, workspaceManifest *manifest.Manifest, nodes *index.NodeRepo) RelatedSource {
+	return &related{edges: edges, workspace: workspaceManifest, nodes: nodes}
+}
+
+// Related implements RelatedSource. It seeds a graphexpand.Walker at nodeID
+// with CosineScore 1.0 — the rail has no query embedding to seed with, it is
+// a pure structural neighborhood rather than a ranked search, and a 0-cosine
+// seed would blend every neighbor's score down to 0 — walks outward, blends
+// the result with graphexpand.Blender, drops the seed (Expand's returned
+// candidates include it at Distance 0), and resolves the remaining ids'
+// titles/types with one batched nodes.ListByIDs call rather than one Get per
+// node.
+//
+// hops and weight are presence-aware pointers forwarded straight into
+// manifest.GraphExpansionOverrides: nil means "inherit the manifest's
+// [query.graph-expansion] default", never "override with 0" — a bare 0
+// weight would silently flatten every distance-2 graph term.
+func (adapter *related) Related(ctx context.Context, nodeID string, hops *int, edgeTypes []string, weight *float64) (RelatedResponse, error) {
+	over := manifest.GraphExpansionOverrides{
+		Hops:   hops,
+		Weight: weight,
+		Labels: relatedGraphExpansionLabels,
+	}
+
+	if edgeTypes != nil {
+		over.EdgeTypes = &edgeTypes
+	}
+
+	cfg, mergeErr := manifest.MergeGraphExpansion(adapter.workspace.GraphExpansion, over)
+
+	if mergeErr != nil {
+		return RelatedResponse{}, mergeErr
+	}
+
+	refs, parseErr := typeref.ParseMany(cfg.EdgeTypes)
+
+	if parseErr != nil {
+		return RelatedResponse{}, parseErr
+	}
+
+	walker := graphexpand.NewWalker(adapter.edges, refs, cfg.Hops)
+
+	seeds := []graphexpand.Candidate{{NodeID: nodeID, CosineScore: 1.0, Distance: 0}}
+
+	candidates, neighborEdges, expandErr := walker.Expand(ctx, seeds)
+
+	if expandErr != nil {
+		return RelatedResponse{}, expandErr
+	}
+
+	blender := graphexpand.Blender{Weight: cfg.Weight}
+	scored := blender.Score(candidates, neighborEdges, map[string]float64{nodeID: 1.0})
+
+	// scored includes the seed at Distance 0 (Expand's contract) — collect
+	// only the neighbor ids so ListByIDs never looks up the seed itself.
+	ids := make([]string, 0, len(scored))
+
+	for _, entry := range scored {
+		if entry.Distance == 0 {
+			continue
+		}
+
+		ids = append(ids, entry.NodeID)
+	}
+
+	rows, listErr := adapter.nodes.ListByIDs(ids)
+
+	if listErr != nil {
+		return RelatedResponse{}, listErr
+	}
+
+	rowByID := make(map[string]index.NodeRow, len(rows))
+
+	for _, row := range rows {
+		rowByID[row.ID] = row
+	}
+
+	out := RelatedResponse{Related: make([]RelatedNode, 0, len(ids))}
+
+	for _, entry := range scored {
+		if entry.Distance == 0 {
+			continue // drop the seed
+		}
+
+		row, found := rowByID[entry.NodeID]
+
+		if !found || row.ParentID.Valid {
+			continue // skip dangling ids (ListByIDs silently omits misses) and sub-unit rows
+		}
+
+		out.Related = append(out.Related, RelatedNode{
+			ID:         row.ID,
+			Title:      row.Title,
+			Type:       row.Type,
+			GraphScore: entry.GraphScore,
+			Distance:   entry.Distance,
+		})
+	}
+
+	return out, nil
 }
