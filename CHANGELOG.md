@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/germanamz/tusk/compare/v2.2.0...v2.3.0) (2026-07-17)
+
+
+### Features
+
+* **book:** add tusk book, a read-only reading web UI ([#718](https://github.com/germanamz/tusk/issues/718)) ([d39744b](https://github.com/germanamz/tusk/commit/d39744b344a634ff09349966c232dc11ef60261d))
+
 ## [2.2.0](https://github.com/germanamz/tusk/compare/v2.1.4...v2.2.0) (2026-07-14)
 
 
