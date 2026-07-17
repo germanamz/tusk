@@ -179,8 +179,8 @@ func isLoopbackAddr(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func confirmNonLoopback(cmd *cobra.Command, addr string) bool {
-	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %q is not loopback; the graph server is unauthenticated and read-only but would be reachable from your network.\nProceed? [y/N] ", addr)
+func confirmNonLoopback(cmd *cobra.Command, addr, noun string) bool {
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %q is not loopback; the %s server is unauthenticated and read-only but would be reachable from your network.\nProceed? [y/N] ", addr, noun)
 
 	var answer string
 	_, _ = fmt.Fscanln(cmd.InOrStdin(), &answer)

@@ -57,7 +57,7 @@ automatically: press space in this terminal to open it, or pass --open.`,
   tusk graph --addr 127.0.0.1:9000`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isLoopbackAddr(addr) {
-				if !confirmNonLoopback(cmd, addr) {
+				if !confirmNonLoopback(cmd, addr, "graph") {
 					return fmt.Errorf("graph: refusing to bind non-loopback address %q without confirmation", addr)
 				}
 			}

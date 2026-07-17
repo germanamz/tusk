@@ -114,6 +114,7 @@ CONFIGURATION
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newMCPCmd())
 	rootCmd.AddCommand(newGraphCmd())
+	rootCmd.AddCommand(newBookCmd())
 	rootCmd.AddCommand(newPackCmd())
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newContextCmd())

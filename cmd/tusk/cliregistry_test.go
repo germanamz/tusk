@@ -48,6 +48,9 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		// `graph` serves a read-only HTTP graph view; it is a long-running
 		// serve command, not part of the alias dispatcher.
 		"graph": {},
+		// `book` serves a read-only HTTP reading view; it is a long-running
+		// serve command, not part of the alias dispatcher.
+		"book": {},
 	}
 
 	leaves := collectLeafVerbs(rootCmd, "")
