@@ -1,0 +1,69 @@
+.nh
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
+
+.SH NAME
+tusk-web - Serve the unified web app: 3D graph + reading views
+
+
+.SH SYNOPSIS
+\fBtusk web [flags]\fP
+
+
+.SH DESCRIPTION
+Serve a local, read-only web app for the vault, combining the 3D graph
+view and the reading view behind one server, and keep it live as files change.
+
+.PP
+Switch between the two views from the top bar, or deep-link a view directly:
+"/" opens the graph, "/read" opens the reader. A light/dark theme toggle in the
+header follows your system by default and remembers your choice.
+
+.PP
+The graph view groups nodes by a configurable cluster lens (set under
+[graph.cluster] in tusk.toml), sizes and brightens them by degree, and lets you
+filter by type or edge kind, inspect neighbors, and walk sub-units. The reading
+view renders node documents (math, mermaid diagrams, images), offers semantic
+search, and surfaces graph-expansion neighbors.
+
+.PP
+The server binds to loopback by default. It does not open a browser
+automatically: press space in this terminal to open it, or pass --open.
+
+
+.SH OPTIONS
+\fB--addr\fP="127.0.0.1:7373"
+	loopback listen address
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for web
+
+.PP
+\fB--open\fP[=false]
+	open the browser automatically at startup
+
+.PP
+\fB--view\fP="graph"
+	initial view to open: graph|read
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Serve on 127.0.0.1:7373 and press space to open
+  tusk web
+
+  # Open the browser automatically on the reading view
+  tusk web --open --view read
+
+  # Bind a specific loopback port
+  tusk web --addr 127.0.0.1:9000
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP

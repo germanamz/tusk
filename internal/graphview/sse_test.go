@@ -22,7 +22,7 @@ func TestSSE_PushesOnSignalAdvance(t *testing.T) {
 
 	go srv.Run(ctx)
 
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/graph/stream", nil)

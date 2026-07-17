@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race vet lint fmt help docs web web-book frontend \
+.PHONY: all build clean test test-race vet lint fmt help docs web frontend \
         devcontainer-up devcontainer-rebuild devcontainer-shell \
         devcontainer-stop devcontainer-down devcontainer-nuke
 
@@ -46,13 +46,10 @@ fmt:
 web:
 	cd web && pnpm install --frozen-lockfile && pnpm build
 
-web-book:
-	cd web-book && pnpm install --frozen-lockfile && pnpm build
-
 # Aggregate target: builds every committed frontend dist. Drift guards
 # (lefthook pre-push, CI's dist-drift job) call this instead of the
-# individual targets so adding a third frontend only means adding it here.
-frontend: web web-book
+# individual targets so adding another frontend only means adding it here.
+frontend: web
 
 docs: build
 	$(BUILD_DIR)/$(BINARY_NAME) docgen man docs/cli
@@ -67,9 +64,8 @@ help:
 	@echo "  fmt               — run gofmt across the tree"
 	@echo "  docs              — regenerate man pages and markdown CLI reference"
 	@echo "  clean             — remove build artifacts"
-	@echo "  web               — build the graph-view frontend into internal/graphview/dist"
-	@echo "  web-book          — build the book frontend into internal/bookview/dist"
-	@echo "  frontend          — build all committed frontend dists (web + web-book)"
+	@echo "  web               — build the unified web frontend into internal/webapp/dist"
+	@echo "  frontend          — build all committed frontend dists (web)"
 	@echo "  devcontainer-up      — build and start the dev container (uses BuildKit cache)"
 	@echo "  devcontainer-rebuild — build and start the dev container from scratch (no cache)"
 	@echo "  devcontainer-shell   — open an interactive zsh inside the running dev container"

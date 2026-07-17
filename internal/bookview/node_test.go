@@ -31,7 +31,7 @@ func writeNodeFile(test *testing.T, root, relPath, body string) {
 // registers {id...}, so the id arrives via PathValue rather than the URL alone.
 func getNode(srv *Server, nodeID string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/node/"+nodeID, nil)
+	req := httptest.NewRequest("GET", "/api/read/node/"+nodeID, nil)
 	req.SetPathValue("id", nodeID)
 
 	srv.handleNode(rec, req)
@@ -254,7 +254,7 @@ func TestNodeWikilinksKeyOnAliasTarget(test *testing.T) {
 // TestNodeWikilinksRollUpFragmentTarget pins the fragment ruling: [[c#S1]]
 // resolves to the FILE c, not to the sub-unit row c#S1, matching the rails'
 // rollup of sub-unit link ends. A sub-unit row carries its file's Path, so
-// /api/node/c#S1 serves c's whole body under the section's title — a payload
+// /api/read/node/c#S1 serves c's whole body under the section's title — a payload
 // whose metadata contradicts its content. Rolling up loses nothing: the map is
 // keyed on the raw target, so the client still holds "#S1" to anchor on.
 func TestNodeWikilinksRollUpFragmentTarget(test *testing.T) {
@@ -384,10 +384,10 @@ func TestNodeRouteServesSlashedID(test *testing.T) {
 
 	srv := New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/node/specs/deep/b")
+	resp, getErr := http.Get(server.URL + "/api/read/node/specs/deep/b")
 
 	if getErr != nil {
 		test.Fatalf("get: %v", getErr)

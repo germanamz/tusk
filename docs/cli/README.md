@@ -9,14 +9,12 @@ Edit the help strings, then run `make docs`.
 ## Commands
 
 - [`tusk`](tusk.md) — Local-first memory for agents: index a markdown + HTML vault into a graph
-  - [`tusk book`](tusk_book.md) — Serve a read-only reading view of the vault
   - [`tusk context`](tusk_context.md) — Compose a warm-context digest from the manifest [context] block
   - [`tusk doctor`](tusk_doctor.md) — Surface validation warnings, dangling edges, and index health issues
   - [`tusk edge`](tusk_edge.md) — Manage edges between nodes (add, remove, list)
     - [`tusk edge add`](tusk_edge_add.md) — Add a typed edge from one node to another
     - [`tusk edge list`](tusk_edge_list.md) — List edges, optionally filtered by source, target, or kind
     - [`tusk edge remove`](tusk_edge_remove.md) — Remove a specific edge by source, kind, and target
-  - [`tusk graph`](tusk_graph.md) — Serve an interactive 3D graph view of the vault
   - [`tusk init`](tusk_init.md) — Initialize a Tusk workspace in the current directory
   - [`tusk mcp`](tusk_mcp.md) — Run the long-running MCP server (stdio or SSE)
   - [`tusk node`](tusk_node.md) — Manage individual nodes (create, get, render, list, modify, move, delete)
@@ -36,3 +34,4 @@ Edit the help strings, then run `make docs`.
   - [`tusk run`](tusk_run.md) — Run a manifest-declared alias by name
   - [`tusk status`](tusk_status.md) — Print a one-screen workspace summary
   - [`tusk watch`](tusk_watch.md) — Watch the workspace for external edits and keep the index in sync
+  - [`tusk web`](tusk_web.md) — Serve the unified web app: 3D graph + reading views

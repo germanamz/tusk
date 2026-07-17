@@ -101,23 +101,22 @@ func assetVault(test *testing.T) string {
 	return root
 }
 
-// assetServer starts the real server over the fixture vault and returns a
-// client that does not follow redirects, so a 3xx is observed rather than
-// chased into some other route's answer.
+// assetServer starts a real listener over the fixture vault — mounting the read
+// API under APIBase via testHandler — and returns a client that does not follow
+// redirects, so a 3xx is observed rather than chased into some other route's
+// answer.
 //
-// It deliberately drives srv.Handler() — the real mux — rather than calling
-// handleAsset with req.SetPathValue. The whole security posture of this route
-// runs through the {path...} wildcard and net/http's unescaping of it, and a
-// SetPathValue test hand-feeds the value that machinery would have produced,
-// so it cannot observe either. It also cannot observe the host guard, which
-// matters here for the opposite reason: httptest.NewRequest defaults Host to
-// "example.com", which the loopback guard 403s — the exact code these denial
-// tests expect. Driving a real listener keeps Host at 127.0.0.1 so a 403 can
-// only have come from the asset guard.
+// It deliberately drives the real mux rather than calling handleAsset with
+// req.SetPathValue. The whole security posture of this route runs through the
+// {path...} wildcard and net/http's unescaping of it, and a SetPathValue test
+// hand-feeds the value that machinery would have produced, so it cannot observe
+// either. The Host-header guard now lives in the parent server rather than this
+// package, so every 403 these denial tests see can only have come from the
+// asset guard itself.
 func assetServer(test *testing.T) (*httptest.Server, *http.Client) {
 	test.Helper()
 
-	server := httptest.NewServer(New(Deps{Root: assetVault(test)}).Handler())
+	server := httptest.NewServer(testHandler(New(Deps{Root: assetVault(test)})))
 	test.Cleanup(server.Close)
 
 	client := &http.Client{
@@ -158,7 +157,7 @@ func getAsset(test *testing.T, server *httptest.Server, client *http.Client, tar
 func TestAssetServesRegularFile(test *testing.T) {
 	server, client := assetServer(test)
 
-	resp, getErr := client.Get(server.URL + "/api/asset/img/x.png")
+	resp, getErr := client.Get(server.URL + "/api/read/asset/img/x.png")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -193,7 +192,7 @@ func TestAssetServesRegularFile(test *testing.T) {
 func TestAssetAllowsSymlinkInsideVault(test *testing.T) {
 	server, client := assetServer(test)
 
-	code, body := getAsset(test, server, client, "/api/asset/inside.png")
+	code, body := getAsset(test, server, client, "/api/read/asset/inside.png")
 
 	if code != http.StatusOK || body != "PNG" {
 		test.Fatalf("in-vault symlink: code=%d body=%q want 200/PNG", code, body)
@@ -221,7 +220,7 @@ func TestAssetBlocksTraversal(test *testing.T) {
 			// this case would start exercising the guard and the code would move
 			// to 403 — either is safe, but the test should say which is happening.
 			name:   "literal .. is redirected by the mux before the guard",
-			target: "/api/asset/../secret.txt",
+			target: "/api/read/asset/../secret.txt",
 			want:   http.StatusTemporaryRedirect,
 		},
 		{
@@ -229,19 +228,19 @@ func TestAssetBlocksTraversal(test *testing.T) {
 			// (which reads EscapedPath), then PathValue unescapes it, so ".."
 			// arrives at the guard intact.
 			name:   "percent-encoded ..%2F reaches the guard and is refused",
-			target: "/api/asset/..%2Fsecret.txt",
+			target: "/api/read/asset/..%2Fsecret.txt",
 			want:   http.StatusForbidden,
 		},
 		{
 			// Same equivalence class, different encoding: %2e%2e unescapes to
 			// ".." after the redirect check has already passed.
 			name:   "percent-encoded %2e%2e reaches the guard and is refused",
-			target: "/api/asset/%2e%2e/secret.txt",
+			target: "/api/read/asset/%2e%2e/secret.txt",
 			want:   http.StatusForbidden,
 		},
 		{
 			name:   "the index database is not an asset",
-			target: "/api/asset/.tusk/index.db",
+			target: "/api/read/asset/.tusk/index.db",
 			want:   http.StatusForbidden,
 		},
 		{
@@ -251,17 +250,17 @@ func TestAssetBlocksTraversal(test *testing.T) {
 			// real file on this host, so a guard matching the literal ".tusk"
 			// would be bypassed by shouting.
 			name:   "the index database is not an asset in any case",
-			target: "/api/asset/.TUSK/index.db",
+			target: "/api/read/asset/.TUSK/index.db",
 			want:   http.StatusForbidden,
 		},
 		{
 			name:   "dotfiles are not assets",
-			target: "/api/asset/.hidden",
+			target: "/api/read/asset/.hidden",
 			want:   http.StatusForbidden,
 		},
 		{
 			name:   "a symlink out of the vault is refused",
-			target: "/api/asset/escape.txt",
+			target: "/api/read/asset/escape.txt",
 			want:   http.StatusForbidden,
 		},
 		{
@@ -270,7 +269,7 @@ func TestAssetBlocksTraversal(test *testing.T) {
 			// string prefix but is not inside it. A naive
 			// strings.HasPrefix(resolved, rootResolved) serves this file.
 			name:   "a symlink to a sibling sharing the root's name prefix is refused",
-			target: "/api/asset/sneaky.txt",
+			target: "/api/read/asset/sneaky.txt",
 			want:   http.StatusForbidden,
 		},
 		{
@@ -280,7 +279,7 @@ func TestAssetBlocksTraversal(test *testing.T) {
 			// the scan of the resolved path does. Without it this case answers 200
 			// with the index database's bytes.
 			name:   "a symlink whose target is inside a dot directory is refused",
-			target: "/api/asset/innocent.png",
+			target: "/api/read/asset/innocent.png",
 			want:   http.StatusForbidden,
 		},
 		{
@@ -289,22 +288,22 @@ func TestAssetBlocksTraversal(test *testing.T) {
 			// appears only after resolution. .git/config is the payload that makes
 			// this worth a Critical — it carries credentials in a cloned vault.
 			name:   "a path through a symlink to a dot directory is refused",
-			target: "/api/asset/linkdot/config",
+			target: "/api/read/asset/linkdot/config",
 			want:   http.StatusForbidden,
 		},
 		{
 			name:   "a directory is not an asset",
-			target: "/api/asset/sub",
+			target: "/api/read/asset/sub",
 			want:   http.StatusNotFound,
 		},
 		{
 			name:   "the vault root itself is not an asset",
-			target: "/api/asset/",
+			target: "/api/read/asset/",
 			want:   http.StatusForbidden,
 		},
 		{
 			name:   "a missing asset is refused",
-			target: "/api/asset/img/nope.png",
+			target: "/api/read/asset/img/nope.png",
 			want:   http.StatusForbidden,
 		},
 	}
@@ -317,12 +316,11 @@ func TestAssetBlocksTraversal(test *testing.T) {
 				test.Fatalf("GET %s: code=%d want %d (body %q)", testCase.target, code, testCase.want, body)
 			}
 
-			// A 403 on this route has two possible authors: the asset guard's
-			// http.Error(writer, "forbidden", …) and the host guard's
-			// "forbidden: untrusted Host header". assetServer keeps Host at
-			// 127.0.0.1 so the latter cannot fire — asserting the body makes that
-			// structural rather than a comment, and it is what would catch a future
-			// change that made the host guard start answering these.
+			// The only author of a 403 on this route is the asset guard's
+			// http.Error(writer, "forbidden", …); the Host-header guard now lives
+			// in the parent server, not here. Asserting the body pins that the
+			// denial is the asset guard's rather than some other 403, and it is
+			// what would catch a future change that let another layer answer these.
 			if testCase.want == http.StatusForbidden && body != "forbidden\n" {
 				test.Fatalf("GET %s: 403 body=%q want %q — this denial is not the asset guard's", testCase.target, body, "forbidden\n")
 			}
@@ -343,12 +341,12 @@ func TestAssetBlocksTraversal(test *testing.T) {
 // does no path handling of its own.
 //
 // Accepted as-is: ".html" is an indexable extension, so a vault's index.html is
-// a node served by /api/node, not an asset. Note the guard runs first and
+// a node served by /api/read/node, not an asset. Note the guard runs first and
 // allows it — this is ServeFile's behavior, not a denial.
 func TestAssetIndexHTMLRedirects(test *testing.T) {
 	server, client := assetServer(test)
 
-	code, body := getAsset(test, server, client, "/api/asset/index.html")
+	code, body := getAsset(test, server, client, "/api/read/asset/index.html")
 
 	if code != http.StatusMovedPermanently {
 		test.Fatalf("index.html: code=%d want 301 (body %q)", code, body)

@@ -33,6 +33,12 @@ type webUIConfig struct {
 	AutoOpen bool
 	Title    string
 
+	// OpenPath is appended to the bound URL when opening the browser (via --open
+	// or the space key) and in the console's "serving on" line. It lets a view
+	// deep-link its initial route — the reading view opens "/read" — while the
+	// empty default opens the app root.
+	OpenPath string
+
 	// BuildServer constructs the view server once the runtime is open.
 	BuildServer func(rt *mcp.Runtime) webViewServer
 
@@ -98,6 +104,7 @@ func serveWebUI(ctx context.Context, cmd *cobra.Command, cfg webUIConfig) error 
 	}
 
 	boundURL := "http://" + listener.Addr().String()
+	openTarget := boundURL + cfg.OpenPath
 
 	if cfg.ready != nil {
 		cfg.ready(listener.Addr().String())
@@ -116,13 +123,13 @@ func serveWebUI(ctx context.Context, cmd *cobra.Command, cfg webUIConfig) error 
 	go func() { serveErrCh <- httpServer.Serve(listener) }()
 
 	if cfg.AutoOpen {
-		_ = openBrowser(boundURL)
+		_ = openBrowser(openTarget)
 	}
 
 	// Tilt-style foreground console (status line + keypress loop).
 	status := func() string { return cfg.StatusLine(runtime, viewServer) }
 
-	runConsole(ctx, cancel, cmd, cfg.Title, status, boundURL, footer)
+	runConsole(ctx, cancel, cmd, cfg.Title, status, openTarget, footer)
 
 	cancel() // unblock RunBackground + viewServer.Run before draining
 

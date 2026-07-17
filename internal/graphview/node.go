@@ -9,13 +9,13 @@ import (
 	"github.com/germanamz/tusk/internal/webui"
 )
 
-// handleNodeDetail serves GET /api/node/{id...}. The id may contain slashes, so
+// handleNodeDetail serves GET /api/graph/node/{id...}. The id may contain slashes, so
 // the wildcard captures the rest of the path; PathValue unescapes each segment.
 func (srv *Server) handleNodeDetail(writer http.ResponseWriter, request *http.Request) {
 	srv.respondDetail(writer, request.PathValue("id"))
 }
 
-// handleSubunits serves GET /api/subunits/{id...}. A separate top-level prefix
+// handleSubunits serves GET /api/graph/subunits/{id...}. A separate top-level prefix
 // (rather than a /subunits suffix on the node route) keeps a node whose id ends
 // in /subunits reachable for detail, and Go's ServeMux requires the {id...}
 // wildcard to be the final path element.

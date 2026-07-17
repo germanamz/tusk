@@ -11,7 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 )
 
-// EmbeddingsResponse is the GET /api/embeddings payload: one mean-pooled,
+// EmbeddingsResponse is the GET /api/graph/embeddings payload: one mean-pooled,
 // L2-normalized vector per file node that has an embedding.
 type EmbeddingsResponse struct {
 	Model     string               `json:"model"`     // e.g. "nomic-embed-text"; "" when empty

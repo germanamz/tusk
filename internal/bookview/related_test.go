@@ -11,7 +11,7 @@ import (
 )
 
 // TestRelatedHandlerOK pins the happy path end to end through the real mux:
-// GET /api/related/{id} returns 200 and the fixed RelatedResponse the fake
+// GET /api/read/related/{id} returns 200 and the fixed RelatedResponse the fake
 // echoes.
 func TestRelatedHandlerOK(test *testing.T) {
 	fake := &fakeRelated{resp: RelatedResponse{
@@ -20,10 +20,10 @@ func TestRelatedHandlerOK(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -53,10 +53,10 @@ func TestRelatedHandlerOK(test *testing.T) {
 func TestRelatedHandlerNilSourceEmpty(test *testing.T) {
 	srv := New(Deps{Root: test.TempDir()})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -88,10 +88,10 @@ func TestRelatedHandlerMatchesMarshalEmptyArray(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -120,10 +120,10 @@ func TestRelatedHandlerAbsentParamsForwardNil(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -159,10 +159,10 @@ func TestRelatedHandlerWeightZeroForwardsNonNilPointer(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a?weight=0")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a?weight=0")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -193,10 +193,10 @@ func TestRelatedHandlerHopsPresentForwardsPointer(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a?hops=2")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a?hops=2")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -222,10 +222,10 @@ func TestRelatedHandlerEdgeTypesParses(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a?edge_types=a,b")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a?edge_types=a,b")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -254,10 +254,10 @@ func TestRelatedHandlerSlashedID(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/specs/nested/note.md")
+	resp, getErr := http.Get(server.URL + "/api/read/related/specs/nested/note.md")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -285,10 +285,10 @@ func TestRelatedHandlerMalformedHopsBadRequest(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a?hops=abc")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a?hops=abc")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -312,10 +312,10 @@ func TestRelatedHandlerMalformedWeightBadRequest(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/a?weight=notanumber")
+	resp, getErr := http.Get(server.URL + "/api/read/related/a?weight=notanumber")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)
@@ -341,10 +341,10 @@ func TestRelatedHandlerSourceErrorUnavailable(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Related: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, getErr := http.Get(server.URL + "/api/related/broken")
+	resp, getErr := http.Get(server.URL + "/api/read/related/broken")
 
 	if getErr != nil {
 		test.Fatalf("GET: %v", getErr)

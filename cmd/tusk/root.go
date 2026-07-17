@@ -55,7 +55,7 @@ CONFIGURATION
                              candidate-multiplier — tunes graphrag retrieval
     [graph.cluster]          by (type|property|ancestor|community), huddle,
                              hull, community-edges, resolution — cluster lens
-                             for "tusk graph"
+                             for the "tusk web" graph view
     [context]                pinned, recent, include — shape the warm-context
                              digest produced by "tusk context"
     [lease]                  ttl_seconds (default 60) for multi-instance
@@ -113,6 +113,7 @@ CONFIGURATION
 	rootCmd.AddCommand(newDoctorCmd())
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newMCPCmd())
+	rootCmd.AddCommand(newWebCmd())
 	rootCmd.AddCommand(newGraphCmd())
 	rootCmd.AddCommand(newBookCmd())
 	rootCmd.AddCommand(newPackCmd())

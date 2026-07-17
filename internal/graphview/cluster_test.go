@@ -39,7 +39,7 @@ func decodeGraphFromServer(test *testing.T, deps Deps) Graph {
 	test.Helper()
 
 	srv := New(deps)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 
 	defer ts.Close()
 

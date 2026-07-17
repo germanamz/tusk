@@ -19,7 +19,7 @@ func TestServeGraph_Integration(test *testing.T) {
 	rootCmd := newRootCmd()
 	graphCmd, _, _ := rootCmd.Find([]string{"graph"})
 
-	cfg := graphWebUIConfig("127.0.0.1:0", false)
+	cfg := webWebUIConfig("127.0.0.1:0", false, "graph")
 	cfg.ready = func(addr string) { addrCh <- addr }
 
 	errCh := make(chan error, 1)

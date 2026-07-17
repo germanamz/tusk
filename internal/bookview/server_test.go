@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,49 +30,15 @@ func (meta fakeMeta) Get(key string) (string, error) {
 	return meta.values[key], nil
 }
 
-func TestHealthzAndStatic(test *testing.T) {
-	srv := New(Deps{Root: test.TempDir()})
+// testHandler mounts the read API under APIBase on a fresh mux, standing in for
+// the parent server that owns the guard, headers, static frontend, and healthz.
+// Tests that used to drive srv.Handler() drive this instead.
+func testHandler(srv *Server) http.Handler {
+	mux := http.NewServeMux()
 
-	server := httptest.NewServer(srv.Handler())
-	defer server.Close()
+	srv.RegisterRoutes(mux, APIBase)
 
-	healthResp, healthErr := http.Get(server.URL + "/healthz")
-
-	if healthErr != nil {
-		test.Fatalf("healthz: %v", healthErr)
-	}
-
-	defer healthResp.Body.Close()
-
-	if healthResp.StatusCode != http.StatusOK {
-		test.Fatalf("healthz code=%d want 200", healthResp.StatusCode)
-	}
-
-	healthBody, readErr := io.ReadAll(healthResp.Body)
-
-	if readErr != nil {
-		test.Fatalf("healthz body: %v", readErr)
-	}
-
-	if string(healthBody) != "ok" {
-		test.Fatalf("healthz body=%q want %q", healthBody, "ok")
-	}
-
-	indexResp, indexErr := http.Get(server.URL + "/")
-
-	if indexErr != nil {
-		test.Fatalf("static index: %v", indexErr)
-	}
-
-	defer indexResp.Body.Close()
-
-	if indexResp.StatusCode != http.StatusOK {
-		test.Fatalf("static index code=%d want 200", indexResp.StatusCode)
-	}
-
-	if csp := indexResp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
-		test.Fatalf("missing/loose CSP: %q", csp)
-	}
+	return mux
 }
 
 // TestChangePayload pins the SSE frame body the frontend's EventSource parses.
@@ -129,7 +94,7 @@ func TestChangePayloadPropagatesError(test *testing.T) {
 }
 
 // TestStreamEmitsChangeEvent pins the SSE event name "change" end-to-end
-// through GET /api/stream. server.go wires webui.Hub with EventName: "change"
+// through GET /api/read/stream. server.go wires webui.Hub with EventName: "change"
 // (graph's hub broadcasts "graph"); nothing else in this package asserts that
 // literal, and a Phase 5 TypeScript EventSource is coded against it verbatim —
 // a copy-paste regression here would silently stop the frontend from ever
@@ -138,7 +103,7 @@ func TestChangePayloadPropagatesError(test *testing.T) {
 // This also demonstrates TestChangePayloadWithoutMeta's stated premise for
 // real: that test only calls changePayload() directly. webui.Hub calls
 // Payload on every connecting client with no nil guard on the ChangeSource, so
-// the actual risk is a real client hitting /api/stream against a Deps with no
+// the actual risk is a real client hitting /api/read/stream against a Deps with no
 // MetaReader. This test drives that exact path instead of the payload
 // function in isolation.
 func TestStreamEmitsChangeEvent(test *testing.T) {
@@ -149,13 +114,13 @@ func TestStreamEmitsChangeEvent(test *testing.T) {
 
 	go srv.Run(ctx)
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	defer server.Close()
 
-	resp, getErr := http.Get(server.URL + "/api/stream")
+	resp, getErr := http.Get(server.URL + "/api/read/stream")
 
 	if getErr != nil {
-		test.Fatalf("get /api/stream: %v", getErr)
+		test.Fatalf("get /api/read/stream: %v", getErr)
 	}
 
 	defer resp.Body.Close()

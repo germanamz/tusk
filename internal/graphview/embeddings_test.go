@@ -263,12 +263,12 @@ func TestHandleEmbeddings_NilSource(t *testing.T) {
 	// Deps.Embeddings == nil → handler returns before calling ListFileNodes, so
 	// no node rows are needed. Asserts a valid empty payload is returned.
 	srv := New(Deps{Nodes: &fakeNodes{}, Edges: &fakeEdges{}})
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/embeddings")
+	resp, err := http.Get(ts.URL + "/api/graph/embeddings")
 	if err != nil {
-		t.Fatalf("GET /api/embeddings: %v", err)
+		t.Fatalf("GET /api/graph/embeddings: %v", err)
 	}
 
 	defer resp.Body.Close()
@@ -302,12 +302,12 @@ func TestHandleEmbeddings_PopulatedSource(t *testing.T) {
 	}
 
 	srv := New(Deps{Nodes: nodes, Edges: &fakeEdges{}, Embeddings: embs})
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/embeddings")
+	resp, err := http.Get(ts.URL + "/api/graph/embeddings")
 	if err != nil {
-		t.Fatalf("GET /api/embeddings: %v", err)
+		t.Fatalf("GET /api/graph/embeddings: %v", err)
 	}
 
 	defer resp.Body.Close()

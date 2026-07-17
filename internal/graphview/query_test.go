@@ -25,10 +25,10 @@ func (fake *fakeQuerier) Run(_ context.Context, _ QueryInput) ([]Match, error) {
 
 func TestQuery_ReturnsMatches(t *testing.T) {
 	srv := New(Deps{Query: &fakeQuerier{matches: []Match{{ID: "notes/a", Score: 0.9}}}})
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/api/query", "application/json", strings.NewReader(`{"q":"auth keys","limit":10}`))
+	resp, err := http.Post(ts.URL+"/api/graph/query", "application/json", strings.NewReader(`{"q":"auth keys","limit":10}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -52,10 +52,10 @@ func TestQuery_ReturnsMatches(t *testing.T) {
 
 func TestQuery_SemanticUnavailable(t *testing.T) {
 	srv := New(Deps{Query: &fakeQuerier{err: query.ErrSemanticUnavailable}})
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/api/query", "application/json", strings.NewReader(`{"q":"x"}`))
+	resp, err := http.Post(ts.URL+"/api/graph/query", "application/json", strings.NewReader(`{"q":"x"}`))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
