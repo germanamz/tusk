@@ -603,6 +603,18 @@ a {
   color: var(--ink-soft);
 }
 
+.results-stale-banner {
+  margin: 0 0.4rem 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 980px) {

@@ -7,6 +7,7 @@ import { encodeId } from './encode'
 import { renderContents } from './contents'
 import { renderReader } from './reader'
 import { renderResults, renderSearchBanner, runSearch, type SearchOptions } from './search'
+import { subscribeChanges } from './stream'
 
 const NODE_HASH_PREFIX = '#/node/'
 
@@ -145,6 +146,15 @@ export async function boot(): Promise<void> {
     return
   }
 
+  // mode tracks what the left pane currently shows, so a live-reload change
+  // event (below) knows whether it's safe to repaint Contents or whether
+  // doing so would clobber a point-in-time search result. currentNodeId
+  // tracks the node the hash route currently points at (regardless of
+  // whether its fetch actually succeeded) so a change event knows whether
+  // there is an open node to refetch.
+  let mode: 'contents' | 'results' = 'contents'
+  let currentNodeId: string | null = null
+
   function onSelect(id: string): void {
     location.hash = buildNodeHash(id)
   }
@@ -171,6 +181,7 @@ export async function boot(): Promise<void> {
   // (a result list or a banner) was there before. Search results are
   // point-in-time (spec) — there is nothing to preserve or refresh here.
   function showContents(): void {
+    mode = 'contents'
     renderContents(contents, index, onSelect)
   }
 
@@ -191,6 +202,7 @@ export async function boot(): Promise<void> {
   }
 
   function showResults(resp: Awaited<ReturnType<typeof runSearch>>): void {
+    mode = 'results'
     contents.innerHTML = ''
     contents.appendChild(resultsBar())
 
@@ -205,6 +217,7 @@ export async function boot(): Promise<void> {
   // not an error treatment. Anything else (400 bad request, 503 a real
   // backend failure) is a genuine failure and gets the 'error' variant.
   function showSearchBanner(err: unknown): void {
+    mode = 'results'
     contents.innerHTML = ''
     contents.appendChild(resultsBar())
 
@@ -244,11 +257,60 @@ export async function boot(): Promise<void> {
 
   async function route(): Promise<void> {
     const id = parseNodeHash(location.hash)
+    currentNodeId = id
     if (id) await showNode(reader, rails, id, onSelect, currentRelatedOptions())
   }
 
   window.addEventListener('hashchange', () => {
     void route()
+  })
+
+  // markResultsStale is the "vault changed — re-run search" affordance
+  // (spec §7): Results mode is point-in-time by design, so a live-reload
+  // change event must never silently re-run the search or repaint over the
+  // existing result list — it only prompts. Idempotent: a second change
+  // event while the banner is already showing is a no-op rather than a pile
+  // of duplicate banners.
+  function markResultsStale(): void {
+    if (contents.querySelector('.results-stale-banner')) return
+
+    const notice = document.createElement('p')
+    notice.className = 'results-stale-banner'
+    notice.textContent = 'Vault changed — re-run search.'
+
+    const bar = contents.querySelector('.results-bar')
+    if (bar) bar.after(notice)
+    else contents.prepend(notice)
+  }
+
+  // handleChange responds to a live-reload signal from the SSE stream
+  // (stream.ts). Contents is refetched and repainted only when it is
+  // actually the visible mode — refetching (let alone repainting) while
+  // Results mode is showing would be exactly the "silently re-running or
+  // clobbering" spec §7 forbids, hence the stale-banner branch instead,
+  // which touches neither the network nor the existing result list. The
+  // open node (if any) is refetched unconditionally: that's the reader
+  // pane, independent of what the left pane is currently showing.
+  async function handleChange(): Promise<void> {
+    if (mode === 'contents') {
+      try {
+        index = await fetchIndex()
+        showContents()
+      } catch {
+        // A transient failure on a live-reload signal shouldn't wipe out
+        // whatever Contents state is already on screen.
+      }
+    } else {
+      markResultsStale()
+    }
+
+    if (currentNodeId) {
+      await showNode(reader, rails, currentNodeId, onSelect, currentRelatedOptions())
+    }
+  }
+
+  subscribeChanges(() => {
+    void handleChange()
   })
 
   await route()

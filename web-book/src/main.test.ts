@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // A sub-unit-shaped id ("<fileID>#<address>") nested under a folder, so the
 // round-trip test exercises both traps at once: a literal "/" that must
@@ -11,8 +11,25 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 // closes over. A plain const would still be in its temporal dead zone when
 // `./main`'s top-level boot() calls the mocked fetchIndex during module
 // evaluation, one line before this const would otherwise have run.
-const { trickyId, sampleIndex, sampleNode } = vi.hoisted(() => {
+// jsdom has no real EventSource implementation (see stream.test.ts), and
+// main.ts's module-level `boot()` (── `export const ready = boot()` ──)
+// subscribes to it immediately at import time. The fake below must exist
+// before `./main` is imported, same reasoning as sampleIndex/sampleNode:
+// built inside vi.hoisted() so it runs ahead of the import, not in a plain
+// top-level const that would still be in its temporal dead zone. It also
+// captures the registered 'change' handler in `sseListeners` so tests below
+// can simulate a live-reload signal by invoking it directly.
+const { trickyId, sampleIndex, sampleNode, sseListeners } = vi.hoisted(() => {
   const trickyId = 'notes/c#S1P1'
+  const sseListeners: Record<string, (event: { data: string }) => void> = {}
+
+  ;(globalThis as unknown as { EventSource: unknown }).EventSource = class {
+    addEventListener(type: string, handler: (event: { data: string }) => void) {
+      sseListeners[type] = handler
+    }
+    close() {}
+  }
+
   return {
     trickyId,
     sampleIndex: { nodes: [{ id: trickyId, type: 'note', title: 'C', path: 'notes/c.md' }] },
@@ -26,8 +43,13 @@ const { trickyId, sampleIndex, sampleNode } = vi.hoisted(() => {
       links: { out: [], in: [] },
       wikilinks: {},
     },
+    sseListeners,
   }
 })
+
+function fireChange(): void {
+  sseListeners['change']?.({ data: '{"generation":1,"epoch":1}' })
+}
 
 // postSearch and SearchUnavailableError are kept real (via importActual)
 // rather than stubbed: the search describe block below drives them
@@ -47,7 +69,32 @@ vi.mock('./api', async (importOriginal) => {
   }
 })
 
+import { fetchIndex, fetchNode } from './api'
 import { buildNodeHash, parseNodeHash, ready } from './main'
+
+// Shared by both the 'search' and 'live reload' describe blocks below.
+function stubFetch(impl: (...args: unknown[]) => unknown) {
+  const fetchMock = vi.fn(impl)
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+function submitQuery(q: string, expand = false): void {
+  const form = document.getElementById('search-form') as HTMLFormElement
+  ;(form.querySelector('input[name="q"]') as HTMLInputElement).value = q
+  ;(form.querySelector('input[name="expand"]') as HTMLInputElement).checked = expand
+  form.dispatchEvent(new Event('submit', { cancelable: true }))
+}
+
+async function flush(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('hash routing', () => {
   beforeAll(async () => {
@@ -98,29 +145,6 @@ describe('hash routing', () => {
 })
 
 describe('search', () => {
-  function stubFetch(impl: (...args: unknown[]) => unknown) {
-    const fetchMock = vi.fn(impl)
-    vi.stubGlobal('fetch', fetchMock)
-    return fetchMock
-  }
-
-  function submitQuery(q: string, expand = false): void {
-    const form = document.getElementById('search-form') as HTMLFormElement
-    ;(form.querySelector('input[name="q"]') as HTMLInputElement).value = q
-    ;(form.querySelector('input[name="expand"]') as HTMLInputElement).checked = expand
-    form.dispatchEvent(new Event('submit', { cancelable: true }))
-  }
-
-  async function flush(): Promise<void> {
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
-  }
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
   it('toggling Expand reveals the hops/weight fields', () => {
     const expandBox = document.getElementById('search-expand-toggle') as HTMLInputElement
     const fields = document.getElementById('search-expand-fields') as HTMLElement
@@ -217,5 +241,86 @@ describe('search', () => {
     await flush()
 
     expect(document.querySelector('.results-banner-error')).not.toBeNull()
+  })
+})
+
+describe('live reload', () => {
+  // Force the left pane back into Contents mode before each test, undoing
+  // whatever mode a prior test in this file left behind (both this describe
+  // block and 'search' above share the one boot() instance).
+  beforeEach(() => {
+    document.querySelector<HTMLButtonElement>('.results-back')?.click()
+  })
+
+  it('a change event while Contents is showing refetches the index and re-renders it', async () => {
+    const callsBefore = vi.mocked(fetchIndex).mock.calls.length
+
+    fireChange()
+    await flush()
+
+    expect(vi.mocked(fetchIndex).mock.calls.length).toBe(callsBefore + 1)
+    expect(document.querySelector('.contents-tree')).not.toBeNull()
+  })
+
+  it('Results mode is NOT clobbered by a change event — a re-run affordance shows instead', async () => {
+    stubFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        matches: [{ id: trickyId, title: 'C Section', type: 'note', score: 0.9 }],
+        model: 'm',
+      }),
+    }))
+
+    submitQuery('hello')
+    await flush()
+    expect(document.querySelector(`.results-list [data-id="${trickyId}"]`)).not.toBeNull()
+
+    const callsBefore = vi.mocked(fetchIndex).mock.calls.length
+
+    fireChange()
+    await flush()
+
+    // The result list is untouched — not silently re-run, not replaced by
+    // the Contents tree — and the index was never refetched to repaint over
+    // it (that refetch only happens in the Contents-mode branch above).
+    expect(document.querySelector(`.results-list [data-id="${trickyId}"]`)).not.toBeNull()
+    expect(document.querySelector('.contents-tree')).toBeNull()
+    expect(vi.mocked(fetchIndex).mock.calls.length).toBe(callsBefore)
+
+    const notice = document.querySelector('.results-stale-banner')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('re-run search')
+  })
+
+  it('a second change event while the notice is already showing does not duplicate it', async () => {
+    stubFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ matches: [], model: 'm' }),
+    }))
+
+    submitQuery('hello')
+    await flush()
+
+    fireChange()
+    await flush()
+    fireChange()
+    await flush()
+
+    expect(document.querySelectorAll('.results-stale-banner')).toHaveLength(1)
+  })
+
+  it('a change event refetches the currently open node', async () => {
+    location.hash = buildNodeHash(trickyId)
+    window.dispatchEvent(new Event('hashchange'))
+    await flush()
+
+    const callsBefore = vi.mocked(fetchNode).mock.calls.length
+
+    fireChange()
+    await flush()
+
+    expect(vi.mocked(fetchNode).mock.calls.length).toBe(callsBefore + 1)
   })
 })
