@@ -11,10 +11,6 @@ import (
 	"github.com/germanamz/tusk/internal/render"
 )
 
-// The handlers below are registered by routes() so the route table is complete,
-// but their bodies land with the tasks that own them. Each reports 501 until
-// then.
-
 // handleIndex serves the Contents pane's node index: every file-level node
 // (NodeSource.ListFileNodes already excludes sub-units, filtering on
 // parent_id IS NULL).
