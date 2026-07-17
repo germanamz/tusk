@@ -225,6 +225,66 @@ func (fake *fakeSearcher) callCount() int {
 	return fake.calls
 }
 
+// fakeRelated is a RelatedSource test double: it echoes a fixed response,
+// except for a node id present in errFor, which returns the mapped error
+// instead — letting a test drive handleRelated's error-mapping path without a
+// real graphexpand adapter in the loop.
+//
+// It also records the last request it received, including the raw hops/weight
+// *pointers* rather than their dereferenced values, so a test can distinguish
+// "handler forwarded nil" from "handler forwarded a pointer to 0" — the exact
+// presence distinction the handler exists to preserve. Related is called from
+// the handler's own goroutine, but a test's assertion runs on the test
+// goroutine, so the recorded state is guarded by a mutex to stay race-clean.
+type fakeRelated struct {
+	resp   RelatedResponse
+	errFor map[string]error
+
+	mu            sync.Mutex
+	lastNodeID    string
+	lastHops      *int
+	lastEdgeTypes []string
+	lastWeight    *float64
+	calls         int
+}
+
+// Related implements RelatedSource.
+func (fake *fakeRelated) Related(
+	_ context.Context, nodeID string, hops *int, edgeTypes []string, weight *float64,
+) (RelatedResponse, error) {
+	fake.mu.Lock()
+	fake.lastNodeID = nodeID
+	fake.lastHops = hops
+	fake.lastEdgeTypes = edgeTypes
+	fake.lastWeight = weight
+	fake.calls++
+	fake.mu.Unlock()
+
+	if relatedErr, ok := fake.errFor[nodeID]; ok {
+		return RelatedResponse{}, relatedErr
+	}
+
+	return fake.resp, nil
+}
+
+// lastRequest returns the most recent request Related saw. The returned hops
+// and weight pointers are the exact ones the handler passed — nil stays nil —
+// so a test can assert on presence, not just value.
+func (fake *fakeRelated) lastRequest() (nodeID string, hops *int, edgeTypes []string, weight *float64) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	return fake.lastNodeID, fake.lastHops, fake.lastEdgeTypes, fake.lastWeight
+}
+
+// callCount reports how many times Related was invoked.
+func (fake *fakeRelated) callCount() int {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	return fake.calls
+}
+
 // postJSON JSON-encodes body, POSTs it to url, and returns the raw response
 // for the caller to inspect, read, and close. Marshal/request failures are
 // fatal — they indicate a broken test fixture, not the behavior under test.
