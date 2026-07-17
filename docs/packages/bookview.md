@@ -38,9 +38,9 @@ and navigable wikilinks, and sanitizes the result.
   | `GET /healthz` | plain liveness check |
   | `GET /api/index` | the Contents pane's node index — every file-level node |
   | `GET /api/node/{id...}` | one node's reading payload: metadata, stripped markdown, links, resolved wikilinks |
+  | `GET /api/asset/{path...}` | one vault file served verbatim (images, etc.), guarded against traversal |
   | `POST /api/search` | structural / semantic / graph-expanded search over `query.Run` |
   | `GET /api/related/{id...}` | the embedder-free Related rail |
-  | `GET /api/asset/{path...}` | one vault file served verbatim (images, etc.), guarded against traversal |
   | `GET /api/stream` | SSE change stream (`event: change`) |
   | `GET /` | the embedded frontend bundle |
 
@@ -127,8 +127,10 @@ discriminate further within a distance band.
   same-origin via `/api/asset`, so node content can't silently phone home
   through a remote image), `base-uri 'none'`, `object-src 'none'`.
 - The serving scaffold — Host-header guard, SSE hub, change source,
-  static handler, neighbor projection — is shared with `tusk graph` via
-  `internal/webui`; the routes, payloads, and CSP above are bookview's
+  static handler — is shared with `tusk graph` via `internal/webui`. The
+  neighbor projection (`webui.Neighbors`) is not: graphview is its sole
+  caller, and bookview re-implements its own incident-edge walk instead
+  (see "Links" above). The routes, payloads, and CSP above are bookview's
   own.
 
 Backs `tusk book`.

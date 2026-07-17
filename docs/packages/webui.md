@@ -13,7 +13,8 @@ receives an already-open handle through its own `Deps` and builds on this
 package for the parts that don't vary between them: a DNS-rebinding
 Host-header guard, a generic SSE broadcast hub, the reindex/epoch change
 signal, an embedded-static-asset handler, and the file-level neighbor
-projection both views' node-detail payloads are built from.
+projection graphview's node-detail payload is built from (bookview
+re-implements its own instead — see Notes below).
 
 ## Public surface
 
@@ -48,16 +49,16 @@ projection both views' node-detail payloads are built from.
   mount their `//go:embed`-ed `dist/` through it.
 - `NodeLister` / `EdgeLister` / `Neighbor` /
   `Neighbors(nodes NodeLister, edges EdgeLister, nodeID string) ([]Neighbor, error)`
-  — the shared file-level neighbor projection. It fetches only the edges
-  incident to `nodeID` (`ListBySource` + `ListByTarget`, never a full
-  scan), resolves every distinct far end in one batched `ListByIDs`, emits
-  a self-loop once as `"out"`, drops sub-unit and dangling far ends, and
-  orders the result to match `ListAll`'s global `(SourceID, Type,
-  TargetID)`. `Neighbor{Node, Edge, Direction}` carries the raw index rows
-  rather than a view shape — each caller projects it into its own payload
-  (graphview's `Neighbor`, bookview's `LinkRef`). Returns an empty, non-nil
-  slice for a node with no neighbors, and an empty slice (not an error) for
-  an unknown node id.
+  — the file-level neighbor projection graphview uses for its node-detail
+  payload. It fetches only the edges incident to `nodeID` (`ListBySource` +
+  `ListByTarget`, never a full scan), resolves every distinct far end in one
+  batched `ListByIDs`, emits a self-loop once as `"out"`, drops sub-unit and
+  dangling far ends, and orders the result to match `ListAll`'s global
+  `(SourceID, Type, TargetID)`. `Neighbor{Node, Edge, Direction}` carries the
+  raw index rows rather than a view shape — graphview is the sole caller,
+  projecting the result into its own `Neighbor` payload. Returns an empty,
+  non-nil slice for a node with no neighbors, and an empty slice (not an
+  error) for an unknown node id.
 
 ## Notes
 
@@ -72,9 +73,12 @@ projection both views' node-detail payloads are built from.
 - `Neighbors` applies exactly one rule — a structural edge to a sub-unit
   far end is skipped, the file-level rule graphview has always used — and
   leaves everything else to the caller. graphview keeps structural edges
-  to file nodes and stops there; bookview goes further, rolling a sub-unit
-  far end up to its parent file and dropping structural edges from the
-  reading rails entirely. Both policies live in the view packages, not
-  here.
+  to file nodes and stops there. bookview does not call `Neighbors` at
+  all: it re-implements the same incident-edge walk itself (`linksOf` in
+  `internal/bookview/links.go`) so it can roll a sub-unit far end up to
+  its parent file — a rollup `Neighbors` cannot support, because it drops
+  sub-unit far ends before returning, so by the time a caller holds the
+  `[]Neighbor` slice the sub-unit identity the rollup needs is already
+  gone. Both policies live in the view packages, not here.
 
 Backs `tusk graph` and `tusk book`.
