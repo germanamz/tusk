@@ -1,7 +1,13 @@
 package bookview
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
 	"sort"
+	"sync"
+	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
 )
@@ -167,4 +173,75 @@ func (fake fakeEdges) ListByTarget(targetID string) ([]index.EdgeRow, error) {
 	})
 
 	return out, nil
+}
+
+// fakeSearcher is a Searcher test double: it echoes a fixed response, except
+// for a query text present in errFor, which returns the mapped error instead —
+// letting a test drive handleSearch's degradation paths (semantic-unavailable,
+// transport-error, and any other query error) without a real embedder in the
+// loop.
+//
+// It also records the last request it received, so a test can assert the
+// handler forwarded fields (Limit, Expand, Explain, ...) through unchanged
+// rather than dropping or silently reshaping them. Search is called from the
+// handler's own goroutine, but a test's assertion runs on the test goroutine,
+// so the recorded state is guarded by a mutex to stay race-clean.
+type fakeSearcher struct {
+	resp   SearchResponse
+	errFor map[string]error
+
+	mu      sync.Mutex
+	lastReq SearchRequest
+	calls   int
+}
+
+// Search implements Searcher.
+func (fake *fakeSearcher) Search(_ context.Context, req SearchRequest) (SearchResponse, error) {
+	fake.mu.Lock()
+	fake.lastReq = req
+	fake.calls++
+	fake.mu.Unlock()
+
+	if searchErr, ok := fake.errFor[req.Q]; ok {
+		return SearchResponse{}, searchErr
+	}
+
+	return fake.resp, nil
+}
+
+// lastRequest returns the most recent request Search saw.
+func (fake *fakeSearcher) lastRequest() SearchRequest {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	return fake.lastReq
+}
+
+// callCount reports how many times Search was invoked.
+func (fake *fakeSearcher) callCount() int {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	return fake.calls
+}
+
+// postJSON JSON-encodes body, POSTs it to url, and returns the raw response
+// for the caller to inspect, read, and close. Marshal/request failures are
+// fatal — they indicate a broken test fixture, not the behavior under test.
+func postJSON(test *testing.T, url string, body any) *http.Response {
+	test.Helper()
+
+	payload, marshalErr := json.Marshal(body)
+
+	if marshalErr != nil {
+		test.Fatalf("marshal %+v: %v", body, marshalErr)
+	}
+
+	resp, postErr := http.Post(url, "application/json", bytes.NewReader(payload))
+
+	if postErr != nil {
+		test.Fatalf("POST %s: %v", url, postErr)
+	}
+
+	return resp
 }

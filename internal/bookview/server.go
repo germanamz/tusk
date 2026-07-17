@@ -140,11 +140,13 @@ func (srv *Server) routes() {
 
 	srv.mux.HandleFunc("GET /api/asset/{path...}", srv.handleAsset)
 
+	srv.mux.HandleFunc("POST /api/search", srv.handleSearch)
+
 	srv.mux.HandleFunc("GET /api/stream", srv.hub.ServeStream)
 
 	srv.mux.Handle("GET /", webui.StaticHandler(distFS, "dist"))
 
-	// POST /api/search and GET /api/related/{id...} are registered in Phase 3.
+	// GET /api/related/{id...} is registered in Phase 3 (Tasks 3.3/3.4).
 }
 
 // changePayload builds the SSE frame body: the current change signal, as
