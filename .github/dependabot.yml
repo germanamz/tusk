@@ -41,11 +41,11 @@ updates:
 
   # web-book's frontend deps, tracked separately from web/ (different
   # lockfile, different dist: internal/bookview/dist). Group key must be
-  # unique — reusing `web-deps` is invalid. The dependabot-web-dist rebuild
-  # workflow only handles web/ today, so book-web-deps bot PRs arrive with a
-  # stale internal/bookview/dist and need a hand rebuild (`make web-book`)
-  # before dist-drift will pass, same as web-deps PRs would without that
-  # workflow.
+  # unique — reusing `web-deps` is invalid. The dependabot-frontend-dist
+  # rebuild workflow rebuilds both committed dists (internal/graphview/dist
+  # and internal/bookview/dist) and pushes the result back, so book-web-deps
+  # and web-deps bot PRs self-heal the dist-drift check without a hand
+  # rebuild (as long as DIST_DEPLOY_KEY is registered).
   - package-ecosystem: npm
     directory: "/web-book"
     schedule:
