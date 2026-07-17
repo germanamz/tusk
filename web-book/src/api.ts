@@ -54,12 +54,21 @@ export interface NodeReadPayload {
   wikilinks: Record<string, WikilinkTarget>
 }
 
+// edge_types is optional here (unlike Go's `EdgeTypes []string`, which has no
+// omitempty and is always present in a decoded struct) so a caller building a
+// request can leave the KEY OUT of the JSON body entirely. That distinction
+// matters: an explicit `edge_types: []` decodes on the Go side to a non-nil,
+// zero-length slice, which manifest.MergeGraphExpansion treats as "no edge
+// types" — a real override that disables graph-expansion traversal, not an
+// "unset" signal. Only an absent key decodes to nil (= inherit the manifest
+// default). search.ts's runSearch relies on this to build a request with no
+// edge-type control at all.
 export interface SearchRequest {
   q: string
   filter: string
   expand: boolean
   hops: number
-  edge_types: string[]
+  edge_types?: string[]
   weight: number
   limit: number
   explain: boolean

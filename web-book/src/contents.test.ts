@@ -13,6 +13,18 @@ const index: IndexResponse = {
   ],
 }
 
+// A separate fixture for the two-level nesting test below: specs/sub/y.md
+// puts a sub/ folder INSIDE specs/, alongside specs/x.md sitting directly in
+// specs/ itself — the shape that actually exercises buildFolderTree's/
+// renderFolderNode's recursion (a one-level-only fixture, like the one
+// above, would pass even if the recursive call were silently dropped).
+const nestedIndex: IndexResponse = {
+  nodes: [
+    { id: 'specs/x', type: 'spec', title: 'X Spec', path: 'specs/x.md' },
+    { id: 'specs/sub/y', type: 'spec', title: 'Y Spec', path: 'specs/sub/y.md' },
+  ],
+}
+
 describe('by-type grouping (default)', () => {
   it('groups entries into type buckets', () => {
     const el = document.createElement('div')
@@ -32,7 +44,10 @@ describe('by-type grouping (default)', () => {
     const el = document.createElement('div')
     renderContents(el, index, () => {})
     const typeBtn = el.querySelector('[role="tab"]')
-    expect(typeBtn?.getAttribute('aria-pressed')).toBe('true')
+    // role="tab" pairs with aria-selected (the tablist/tab/aria-selected
+    // pattern), not aria-pressed — aria-pressed belongs to toggle buttons,
+    // a distinct ARIA widget.
+    expect(typeBtn?.getAttribute('aria-selected')).toBe('true')
     expect(typeBtn?.textContent).toBe('By type')
   })
 })
@@ -73,6 +88,33 @@ describe('by-folder grouping', () => {
     expect(notesFolder).not.toBeNull()
     expect(notesFolder?.querySelector('button[data-id="notes/a"]')).not.toBeNull()
     expect(specsFolder?.querySelector('button[data-id="notes/a"]')).toBeNull()
+  })
+
+  it('nests specs/sub/y.md two levels deep, composing data-folder to "specs/sub"', () => {
+    const el = document.createElement('div')
+    renderContents(el, nestedIndex, () => {})
+
+    el.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click()
+
+    const tree = el.querySelector('.contents-tree')
+    const specsFolder = tree?.querySelector('li.contents-folder[data-folder="specs"]')
+    expect(specsFolder).not.toBeNull()
+
+    // specs/x.md sits directly in specs/'s own entry list...
+    expect(specsFolder?.querySelector(':scope > ul.contents-list > li > button[data-id="specs/x"]')).not.toBeNull()
+
+    // ...while specs/sub/y.md is one level further down, inside a nested
+    // sub/ folder whose data-folder composes the full "specs/sub" path
+    // (not just "sub") — the assertion a single-level trie would fail.
+    const subFolder = specsFolder?.querySelector('li.contents-folder[data-folder="specs/sub"]')
+    expect(subFolder).not.toBeNull()
+    expect(subFolder?.querySelector('.contents-folder-label')?.textContent).toBe('sub/')
+    expect(subFolder?.querySelector('button[data-id="specs/sub/y"]')).not.toBeNull()
+
+    // specs/sub/y.md is NOT a direct child of specs/'s own entry list.
+    expect(
+      specsFolder?.querySelector(':scope > ul.contents-list > li > button[data-id="specs/sub/y"]'),
+    ).toBeNull()
   })
 
   it('re-renders when the toggle is clicked back to type grouping', () => {

@@ -138,8 +138,15 @@ a {
   max-width: 32rem;
 }
 
+.search-form {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 0.45rem 0.75rem;
   border: 1px solid var(--rule);
   border-radius: 4px;
@@ -156,6 +163,65 @@ a {
 .search-input:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.search-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.search-expand-fields {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.search-number {
+  width: 3.4rem;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.search-submit {
+  flex: none;
+  padding: 0.44rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--paper-raised);
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.search-submit:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 /* ---------- panes, shared ---------- */
@@ -282,6 +348,65 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------- results pane (search) ----------
+ * Results mode reuses .contents-entry/-stamp/-title (a search result IS a
+ * contents entry, plus a trailing score) rather than a parallel set of
+ * rules, so the two lists always look identical outside of the score badge
+ * and never drift into a second visual language.
+ */
+
+.results-bar {
+  display: flex;
+  align-items: center;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.results-back {
+  padding: 0.32rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.results-back:hover {
+  background: var(--accent-soft);
+}
+
+.results-entry-score {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+}
+
+.results-empty {
+  margin: 0.5rem 0.4rem;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.results-banner {
+  margin: 0 0.4rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.results-banner-error {
+  border-color: var(--dead);
+  color: var(--dead);
 }
 
 /* ---------- reader pane ---------- */
@@ -445,6 +570,20 @@ a {
       'header'
       'contents'
       'reader';
+  }
+
+  .shell-header {
+    flex-wrap: wrap;
+  }
+
+  .search-slot {
+    max-width: none;
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .search-form {
+    flex-wrap: wrap;
   }
 
   .pane-contents {

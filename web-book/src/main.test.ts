@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // A sub-unit-shaped id ("<fileID>#<address>") nested under a folder, so the
 // round-trip test exercises both traps at once: a literal "/" that must
@@ -29,13 +29,23 @@ const { trickyId, sampleIndex, sampleNode } = vi.hoisted(() => {
   }
 })
 
-vi.mock('./api', () => ({
-  fetchIndex: vi.fn(async () => sampleIndex),
-  fetchNode: vi.fn(async (id: string) => {
-    if (id !== trickyId) throw new Error(`unexpected id: ${id}`)
-    return sampleNode
-  }),
-}))
+// postSearch and SearchUnavailableError are kept real (via importActual)
+// rather than stubbed: the search describe block below drives them
+// end-to-end by stubbing the global `fetch` instead (same technique
+// api.test.ts uses), so it exercises main.ts's actual wiring of
+// runSearch/renderResults/renderSearchBanner rather than a second, separate
+// fake of that wiring.
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api')>()
+  return {
+    ...actual,
+    fetchIndex: vi.fn(async () => sampleIndex),
+    fetchNode: vi.fn(async (id: string) => {
+      if (id !== trickyId) throw new Error(`unexpected id: ${id}`)
+      return sampleNode
+    }),
+  }
+})
 
 import { buildNodeHash, parseNodeHash, ready } from './main'
 
@@ -84,5 +94,128 @@ describe('hash routing', () => {
     await Promise.resolve()
 
     expect(document.getElementById('reader')?.textContent).toContain('C Section')
+  })
+})
+
+describe('search', () => {
+  function stubFetch(impl: (...args: unknown[]) => unknown) {
+    const fetchMock = vi.fn(impl)
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  function submitQuery(q: string, expand = false): void {
+    const form = document.getElementById('search-form') as HTMLFormElement
+    ;(form.querySelector('input[name="q"]') as HTMLInputElement).value = q
+    ;(form.querySelector('input[name="expand"]') as HTMLInputElement).checked = expand
+    form.dispatchEvent(new Event('submit', { cancelable: true }))
+  }
+
+  async function flush(): Promise<void> {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('toggling Expand reveals the hops/weight fields', () => {
+    const expandBox = document.getElementById('search-expand-toggle') as HTMLInputElement
+    const fields = document.getElementById('search-expand-fields') as HTMLElement
+    expect(fields.hidden).toBe(true)
+
+    expandBox.checked = true
+    expandBox.dispatchEvent(new Event('change'))
+    expect(fields.hidden).toBe(false)
+
+    expandBox.checked = false
+    expandBox.dispatchEvent(new Event('change'))
+    expect(fields.hidden).toBe(true)
+  })
+
+  it('an empty query does not submit a search', () => {
+    const fetchMock = stubFetch(async () => ({ ok: true, status: 200, json: async () => ({ matches: [] }) }))
+    submitQuery('   ')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('submitting a query swaps the left pane into Results mode, and "Contents" restores the browse list', async () => {
+    stubFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        matches: [{ id: trickyId, title: 'C Section', type: 'note', score: 0.9 }],
+        model: 'm',
+      }),
+    }))
+
+    submitQuery('hello')
+    await flush()
+
+    expect(document.querySelector('.contents-tree')).toBeNull()
+    expect(document.querySelector('.results-back')).not.toBeNull()
+
+    const resultEntry = document.querySelector<HTMLButtonElement>(`.results-list [data-id="${trickyId}"]`)
+    expect(resultEntry).not.toBeNull()
+    expect(resultEntry?.textContent).toContain('C Section')
+
+    document.querySelector<HTMLButtonElement>('.results-back')?.click()
+
+    expect(document.querySelector('.contents-tree')).not.toBeNull()
+    expect(document.querySelector('.results-back')).toBeNull()
+  })
+
+  it('clicking a result routes to it, the same way a Contents entry does', async () => {
+    stubFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        matches: [{ id: trickyId, title: 'C Section', type: 'note', score: 0.9 }],
+        model: 'm',
+      }),
+    }))
+
+    submitQuery('hello')
+    await flush()
+
+    document.querySelector<HTMLButtonElement>(`.results-list [data-id="${trickyId}"]`)?.click()
+    expect(location.hash).toBe(buildNodeHash(trickyId))
+
+    window.dispatchEvent(new Event('hashchange'))
+    await flush()
+
+    expect(document.getElementById('reader')?.textContent).toContain('C Section')
+  })
+
+  it('a 422 (embedder down) renders a notice banner, not an error state', async () => {
+    stubFetch(async () => ({ ok: false, status: 422, text: async () => 'embedder unavailable' }))
+
+    submitQuery('hello')
+    await flush()
+
+    const banner = document.querySelector('.results-banner')
+    expect(banner).not.toBeNull()
+    expect(banner?.classList.contains('results-banner-error')).toBe(false)
+    expect(document.querySelector('.results-back')).not.toBeNull()
+  })
+
+  it('a 503 (real failure) renders the distinct error banner variant', async () => {
+    stubFetch(async () => ({ ok: false, status: 503, text: async () => 'index corrupt' }))
+
+    submitQuery('hello')
+    await flush()
+
+    expect(document.querySelector('.results-banner-error')).not.toBeNull()
+  })
+
+  it('a 400 (bad request) also renders the error banner variant, not the notice', async () => {
+    stubFetch(async () => ({ ok: false, status: 400, text: async () => 'bad request body' }))
+
+    submitQuery('hello')
+    await flush()
+
+    expect(document.querySelector('.results-banner-error')).not.toBeNull()
   })
 })

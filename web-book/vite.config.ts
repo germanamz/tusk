@@ -18,9 +18,11 @@ export default defineConfig({
     // The CSP (internal/bookview/server.go) has no font-src, so fonts fall
     // back to default-src 'self' — which does not include `data:`. Vite's
     // default assetsInlineLimit (4KB) would otherwise inline small assets
-    // (KaTeX_Size3's woff2 is under the threshold) as `data:` URIs straight
+    // (KaTeX_Size3's woff2 was under that threshold) as `data:` URIs straight
     // into the CSS, and the browser blocks loading them under this CSP.
-    // Disabling inlining keeps every font/asset a same-origin file.
+    // Setting this to 0 disables size-based inlining entirely — there is no
+    // 4KB (or any other) size line to worry about for future assets; every
+    // font/asset, whatever its size, stays a same-origin file.
     assetsInlineLimit: 0,
     rollupOptions: {
       output: {

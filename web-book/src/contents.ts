@@ -179,7 +179,7 @@ function renderToggle(active: Grouping, onChange: (next: Grouping) => void): HTM
     button.className = 'contents-toggle-btn'
     if (value === active) button.classList.add('is-active')
     button.setAttribute('role', 'tab')
-    button.setAttribute('aria-pressed', String(value === active))
+    button.setAttribute('aria-selected', String(value === active))
     button.textContent = label
     button.addEventListener('click', () => onChange(value))
     wrap.appendChild(button)
