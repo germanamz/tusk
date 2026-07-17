@@ -1,0 +1,175 @@
+/* tusk web — mission-control design tokens.
+ *
+ * Direction: a flight console. The vault is a live instrument — a graph of
+ * typed notes plus a reading room — watched from a deck that is calm at rest
+ * and legible under load. Two themes: "day ops" (light) and "night ops"
+ * (dark). Signal colors follow aviation telemetry convention — cyan for the
+ * primary instrument accent, amber for attention, green for nominal/synced,
+ * red for alert.
+ *
+ * No remote fonts and no CDN are reachable under this app's CSP
+ * (default-src 'self'), so every typeface is a system stack. Monospace with
+ * wide tracking carries the telemetry personality; a clean grotesk runs the
+ * general UI; the reading column keeps a book serif.
+ *
+ * The theme controller (theme.ts) always stamps an explicit data-theme on
+ * <html>; the prefers-color-scheme block below is only the pre-JS flash guard
+ * for first paint. Graph tokens (--graph-*) are read from JS by the WebGL
+ * scene so it recolors on theme change. Legacy reading-view token names
+ * (--paper, --ink-soft, --accent-strong, …) are aliased onto the unified
+ * palette so the ported reading styles need no rewrite.
+ */
+
+:root {
+  --font-ui:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+  --font-read:
+    Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino,
+    serif;
+
+  /* Day ops (light) — the default. */
+  --bg: #e9edf3;
+  --surface: #f4f7fb;
+  --surface-raised: #ffffff;
+  --rule: #d3dae4;
+  --rule-strong: #b9c3d1;
+  --ink: #16202f;
+  --ink-dim: #55617a;
+  --ink-faint: #8592a6;
+  --accent: #0b8fa6;
+  --accent-bright: #12b4cf;
+  --accent-contrast: #ffffff;
+  --signal: #b06a00;
+  --nominal: #1a8a5a;
+  --alert: #c33a30;
+  --selection: rgba(11, 143, 166, 0.14);
+  --shadow: rgba(20, 32, 48, 0.1);
+
+  /* Graph scene (light). */
+  --graph-bg: #e9edf3;
+  --graph-edge-direct: #3b6fd4;
+  --graph-edge-derived: #7d54c9;
+  --graph-edge-structural: #9aa6bd;
+  --graph-node-fallback: #7c8696;
+  --graph-selected: #12202f;
+  --graph-highlight: #d99b12;
+  --graph-pulse: #e07b1a;
+
+  /* Reading-view compatibility aliases (see header). */
+  --paper: var(--surface);
+  --paper-raised: var(--surface-raised);
+  --ink-soft: var(--ink-dim);
+  --accent-strong: var(--accent-bright);
+  --accent-soft: var(--selection);
+  --dead: var(--alert);
+}
+
+/* Pre-JS flash guard: match the system preference until theme.ts stamps an
+   explicit data-theme. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0e15;
+    --surface: #10151f;
+    --surface-raised: #171d2a;
+    --rule: #232c3b;
+    --rule-strong: #313d54;
+    --ink: #d9e2f0;
+    --ink-dim: #8b98ad;
+    --ink-faint: #5c6980;
+    --accent: #2fd0e6;
+    --accent-bright: #63e2f2;
+    --accent-contrast: #04121a;
+    --signal: #f5a623;
+    --nominal: #3ecf8e;
+    --alert: #f0544c;
+    --selection: rgba(47, 208, 230, 0.16);
+    --shadow: rgba(0, 0, 0, 0.45);
+
+    --graph-bg: #0a0e15;
+    --graph-edge-direct: #7aa2f7;
+    --graph-edge-derived: #9d7cd8;
+    --graph-edge-structural: #565f89;
+    --graph-node-fallback: #8891a6;
+    --graph-selected: #ffffff;
+    --graph-highlight: #f5d76e;
+    --graph-pulse: #f5a623;
+  }
+}
+
+:root[data-theme='light'] {
+  --bg: #e9edf3;
+  --surface: #f4f7fb;
+  --surface-raised: #ffffff;
+  --rule: #d3dae4;
+  --rule-strong: #b9c3d1;
+  --ink: #16202f;
+  --ink-dim: #55617a;
+  --ink-faint: #8592a6;
+  --accent: #0b8fa6;
+  --accent-bright: #12b4cf;
+  --accent-contrast: #ffffff;
+  --signal: #b06a00;
+  --nominal: #1a8a5a;
+  --alert: #c33a30;
+  --selection: rgba(11, 143, 166, 0.14);
+  --shadow: rgba(20, 32, 48, 0.1);
+
+  --graph-bg: #e9edf3;
+  --graph-edge-direct: #3b6fd4;
+  --graph-edge-derived: #7d54c9;
+  --graph-edge-structural: #9aa6bd;
+  --graph-node-fallback: #7c8696;
+  --graph-selected: #12202f;
+  --graph-highlight: #d99b12;
+  --graph-pulse: #e07b1a;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0a0e15;
+  --surface: #10151f;
+  --surface-raised: #171d2a;
+  --rule: #232c3b;
+  --rule-strong: #313d54;
+  --ink: #d9e2f0;
+  --ink-dim: #8b98ad;
+  --ink-faint: #5c6980;
+  --accent: #2fd0e6;
+  --accent-bright: #63e2f2;
+  --accent-contrast: #04121a;
+  --signal: #f5a623;
+  --nominal: #3ecf8e;
+  --alert: #f0544c;
+  --selection: rgba(47, 208, 230, 0.16);
+  --shadow: rgba(0, 0, 0, 0.45);
+
+  --graph-bg: #0a0e15;
+  --graph-edge-direct: #7aa2f7;
+  --graph-edge-derived: #9d7cd8;
+  --graph-edge-structural: #565f89;
+  --graph-node-fallback: #8891a6;
+  --graph-selected: #ffffff;
+  --graph-highlight: #f5d76e;
+  --graph-pulse: #f5a623;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}

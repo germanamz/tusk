@@ -2,7 +2,10 @@ package webapp
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/bookview"
 	"github.com/germanamz/tusk/internal/graphview"
@@ -45,7 +48,56 @@ func (srv *Server) routes() {
 	srv.graph.RegisterRoutes(srv.mux, graphview.APIBase)
 	srv.book.RegisterRoutes(srv.mux, bookview.APIBase)
 
-	srv.mux.Handle("GET /", webui.StaticHandler(distFS, "dist"))
+	srv.mux.Handle("GET /", frontendHandler())
+}
+
+// frontendHandler serves the embedded single-page app with history fallback: a
+// request for an existing file (index.html, the hashed /assets/* bundles) is
+// served as-is, and every other non-asset path falls back to index.html so the
+// client router can resolve deep links like /read. A missing /assets/* file
+// still 404s rather than masquerading as the app, which keeps a broken bundle
+// reference visible instead of silently returning HTML.
+func frontendHandler() http.Handler {
+	sub, subErr := fs.Sub(distFS, "dist")
+	if subErr != nil {
+		return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			http.Error(writer, "static assets unavailable", http.StatusInternalServerError)
+		})
+	}
+
+	fileServer := http.FileServerFS(sub)
+
+	serveIndex := func(writer http.ResponseWriter, request *http.Request) {
+		indexRequest := request.Clone(request.Context())
+		indexRequest.URL.Path = "/"
+		fileServer.ServeHTTP(writer, indexRequest)
+	}
+
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		clean := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
+
+		if clean == "" {
+			serveIndex(writer, request)
+
+			return
+		}
+
+		if info, statErr := fs.Stat(sub, clean); statErr == nil && !info.IsDir() {
+			fileServer.ServeHTTP(writer, request)
+
+			return
+		}
+
+		// A missing asset is a real 404; any other unmatched path is a client
+		// route, so boot the app and let it route in the browser.
+		if strings.HasPrefix(clean, "assets/") {
+			http.NotFound(writer, request)
+
+			return
+		}
+
+		serveIndex(writer, request)
+	})
 }
 
 // Handler returns the mountable HTTP handler: the composed API + embedded

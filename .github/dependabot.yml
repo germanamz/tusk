@@ -28,6 +28,10 @@ updates:
     commit-message:
       prefix: ci
 
+  # The unified frontend's deps. The dependabot-frontend-dist rebuild workflow
+  # rebuilds the committed dist (internal/webapp/dist) and pushes the result
+  # back, so web-deps bot PRs self-heal the dist-drift check without a hand
+  # rebuild (as long as DIST_DEPLOY_KEY is registered).
   - package-ecosystem: npm
     directory: "/web"
     schedule:
@@ -35,24 +39,6 @@ updates:
     open-pull-requests-limit: 5
     groups:
       web-deps:
-        patterns: ["*"]
-    commit-message:
-      prefix: build
-
-  # web-book's frontend deps, tracked separately from web/ (different
-  # lockfile, different dist: internal/bookview/dist). Group key must be
-  # unique — reusing `web-deps` is invalid. The dependabot-frontend-dist
-  # rebuild workflow rebuilds both committed dists (internal/graphview/dist
-  # and internal/bookview/dist) and pushes the result back, so book-web-deps
-  # and web-deps bot PRs self-heal the dist-drift check without a hand
-  # rebuild (as long as DIST_DEPLOY_KEY is registered).
-  - package-ecosystem: npm
-    directory: "/web-book"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      book-web-deps:
         patterns: ["*"]
     commit-message:
       prefix: build

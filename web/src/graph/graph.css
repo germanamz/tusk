@@ -1,0 +1,529 @@
+/* graph.css — chrome for the 3D graph view.
+ *
+ * Ported from the standalone graph page's inline <style>, with every hardcoded
+ * dark color swapped for the shared theme tokens (tokens.css) so the drawer,
+ * panel, and overlays follow light/dark. The WebGL scene background is NOT set
+ * here — scene.ts reads --graph-bg from JS and paints the canvas itself.
+ *
+ * #main-area now lives inside the shell's #viewport (position:relative, already
+ * sized), so it fills its parent rather than the whole document. #graph fills
+ * the remaining row so the canvas sizes to it. */
+
+#main-area {
+  position: relative;
+  display: flex;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+#search-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+#search {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#search::placeholder {
+  color: var(--ink-faint);
+}
+
+#search-form button {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#search-form button:hover {
+  background: var(--selection);
+}
+
+/* Alert overlays float over the graph area. */
+#search-msg {
+  display: none;
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 20;
+  background: var(--surface-raised);
+  border: 1px solid var(--signal);
+  color: var(--signal);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  max-width: 360px;
+}
+
+#banner {
+  display: none;
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: var(--surface-raised);
+  border: 1px solid var(--signal);
+  color: var(--signal);
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* Layout-status overlay — same centered-top style as #banner but the accent
+   color. Toggled by the boot code while the semantic-layout worker runs.
+   Separate element from #banner (which is the >5000-node scale guard). */
+#layout-status {
+  display: none;
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: var(--surface-raised);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* Connection-status pill — same overlay style as #banner/#layout-status but
+   pinned bottom-center with the alert accent so an SSE drop reads as an alert
+   and never collides with the top-center pills. */
+#conn-status {
+  display: none;
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: var(--surface-raised);
+  border: 1px solid var(--alert);
+  color: var(--alert);
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* min-width:0 lets this flex child shrink below the canvas size so the 320px
+   panel keeps its place; without it the canvas pushes the panel off-screen
+   (flex items default to min-width:auto). Height comes from the flex row, so
+   the canvas (sized to this element) tracks it exactly. */
+#graph {
+  flex: 1;
+  min-width: 0;
+}
+
+#panel {
+  width: 320px;
+  flex-shrink: 0;
+  overflow: hidden auto;
+  background: var(--surface);
+  border-left: 1px solid var(--rule);
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+#panel h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+#panel h3 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+#panel pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+#panel button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 2px 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#panel button:hover {
+  background: var(--selection);
+}
+
+/* ------------------------------------------------------------------ */
+/* #controls — collapsible left drawer                                 */
+/* ------------------------------------------------------------------ */
+#controls {
+  /* Anchored inside #main-area (position:relative). Overlays the left edge of
+     the canvas. A translucent themed surface lets the graph read through. */
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 220px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  border-right: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink);
+  transition: width 0.15s ease;
+}
+
+/* Collapsed: shrink to a thin tab showing only the ≡ toggle button */
+#controls.collapsed {
+  width: 28px;
+  overflow: hidden;
+}
+
+#controls.collapsed .controls-body,
+#controls.collapsed .controls-footer,
+#controls.collapsed #search-form {
+  display: none;
+}
+
+#controls.collapsed .controls-collapse-btn {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 8px 4px;
+  width: 28px;
+  height: auto;
+  border-radius: 0;
+}
+
+.controls-header {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--rule);
+}
+
+.controls-collapse-btn {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.controls-collapse-btn:hover {
+  background: var(--selection);
+}
+
+/* Body: fills available vertical space, contains the scrollable list */
+.controls-body {
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.controls-group-header {
+  flex: 0 0 auto;
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--rule);
+}
+
+.controls-group-search {
+  flex: 0 0 auto;
+  margin: 6px 8px 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: calc(100% - 16px);
+  box-sizing: border-box;
+}
+
+.controls-group-search::placeholder {
+  color: var(--ink-faint);
+}
+
+.controls-bulk {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.controls-bulk button {
+  flex: 1;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 2px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.controls-bulk button:hover {
+  background: var(--selection);
+}
+
+/* Scrollable group list */
+.controls-group-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.controls-group-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.controls-group-list::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 2px;
+}
+
+/* Individual group row */
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.controls-row:hover {
+  background: var(--selection);
+}
+
+.controls-row input[type='checkbox'] {
+  flex: 0 0 auto;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.controls-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.controls-row-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.controls-row-count {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font-size: 11px;
+  min-width: 24px;
+  text-align: right;
+}
+
+.controls-solo-btn {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.controls-solo-btn:hover {
+  color: var(--ink);
+  background: var(--selection);
+}
+
+/* Filters disclosure section */
+.controls-filters-section {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--rule);
+}
+
+.controls-filters-toggle {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--ink-dim);
+  font-size: 11px;
+  padding: 5px 10px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.controls-filters-toggle:hover {
+  background: var(--selection);
+  color: var(--ink);
+}
+
+.controls-filters-body {
+  padding: 2px 0 4px;
+}
+
+.controls-filter-subheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 8px 2px;
+  font-size: 10px;
+  color: var(--ink-faint);
+  border-top: 1px solid var(--rule);
+}
+
+.controls-filter-subheader:first-child {
+  border-top: none;
+}
+
+.controls-filter-bulk {
+  display: flex;
+  gap: 3px;
+}
+
+.controls-filter-bulk button {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.controls-filter-bulk button:hover {
+  background: var(--selection);
+}
+
+.controls-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.controls-filter-row:hover {
+  background: var(--selection);
+}
+
+.controls-filter-row input[type='checkbox'] {
+  flex: 0 0 auto;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* Footer: fixed below the scroll list, never scrolls away */
+.controls-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--rule);
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.controls-footer strong {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.controls-footer-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.controls-footer-hint {
+  color: var(--ink-faint);
+  display: block;
+}
+
+/* Layout toggle (Structure / Semantic) — a small segmented radio group in the
+   footer, set off from the content above by a thin divider. */
+.controls-layout-group {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+
+.controls-layout-options {
+  display: flex;
+  gap: 12px;
+  margin: 2px 0;
+}
+
+.controls-layout-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.controls-layout-option input[type='radio'] {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.controls-layout-option.disabled {
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.controls-layout-option.disabled input[type='radio'] {
+  cursor: not-allowed;
+}

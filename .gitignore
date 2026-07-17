@@ -51,9 +51,9 @@ Thumbs.db
 web/node_modules/
 web/test-results/
 web/playwright-report/
-web-book/node_modules/
-web-book/test-results/
-web-book/playwright-report/
+
+# Playwright MCP scratch (screenshots + snapshots)
+.playwright-mcp/
 
 # Go build/module cache (devcontainer fallback location)
 .go-cache/

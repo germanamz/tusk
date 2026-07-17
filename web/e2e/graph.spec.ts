@@ -1,5 +1,36 @@
 import { test, expect } from '@playwright/test'
 
+// The graph now lives inside the unified `tusk web` shell, whose theme controls
+// the WebGL scene colors. Pin dark mode before each load so the color
+// assertions below (e.g. a selected node burns to --graph-selected, #ffffff in
+// dark) are deterministic regardless of the runner's OS preference.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('tusk.theme', 'dark'))
+})
+
+// The graph loads its snapshot asynchronously after the lazy view chunk mounts
+// and the canvas appears, so tests that read the live scene data must wait for
+// the first paint to populate graphData rather than racing the fetch.
+async function waitForGraphData(page: import('@playwright/test').Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const graph = (window as unknown as { tuskGraph?: { graphData(): { nodes: unknown[] } } }).tuskGraph
+      return !!graph && graph.graphData().nodes.length > 0
+    },
+    undefined,
+    { timeout: 15000 },
+  )
+}
+
+// normHex expands a CSS #rgb shorthand to #rrggbb and lowercases it, so a color
+// compare survives the production build minifying #ffffff down to #fff.
+function normHex(color: string): string {
+  const lower = color.trim().toLowerCase()
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(lower)
+
+  return short ? `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}` : lower
+}
+
 test('renders the graph and opens an inspect panel', async ({ page }) => {
   await page.goto('/')
 
@@ -7,12 +38,12 @@ test('renders the graph and opens an inspect panel', async ({ page }) => {
   await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
 
   // The snapshot API returns the fixture's nodes.
-  const graph = await page.evaluate(async () => (await fetch('./api/graph').then((r) => r.json())))
+  const graph = await page.evaluate(async () => (await fetch('/api/graph').then((r) => r.json())))
   expect(graph.nodes.length).toBeGreaterThanOrEqual(2)
 
   // Search endpoint responds (structural filter; no embedder needed).
   const result = await page.evaluate(async () =>
-    (await fetch('./api/query', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filter: 'type:note' }) }).then((r) => r.json())),
+    (await fetch('/api/graph/query', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filter: 'type:note' }) }).then((r) => r.json())),
   )
   expect(result.matches.length).toBeGreaterThanOrEqual(2)
 })
@@ -68,6 +99,7 @@ test('canvas fits its container and re-fits on resize without pushing UI out of 
 test('selecting a node highlights it + its edges and focuses the camera; deselecting clears it', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
+  await waitForGraphData(page)
 
   // Pick a connected node. (Driving scene.select directly — instead of a canvas
   // click — keeps this off the flaky raycast-against-a-moving-node path while
@@ -104,7 +136,9 @@ test('selecting a node highlights it + its edges and focuses the camera; deselec
     }
   }, sel!)
   // Selected node burns white; its incident edge promotes to a real (cylinder) width.
-  expect(after.nodeColor.toLowerCase()).toBe('#ffffff')
+  // normHex expands the CSS shorthand the production build minifies the theme
+  // token into (--graph-selected: #ffffff -> #fff) so the compare is exact.
+  expect(normHex(after.nodeColor)).toBe('#ffffff')
   expect(after.incidentWidth).toBeGreaterThan(0)
   expect(after.otherWidth).toBe(0)
 
@@ -124,7 +158,7 @@ test('selecting a node highlights it + its edges and focuses the camera; deselec
     const node = g.graphData().nodes.find((n: any) => n.id === selId)
     return g.nodeColor()(node)
   }, sel!)
-  expect(cleared.toLowerCase()).not.toBe('#ffffff')
+  expect(normHex(cleared)).not.toBe('#ffffff')
   expect(cleared.toLowerCase()).toBe(before.color.toLowerCase())
 })
 
@@ -194,6 +228,7 @@ test('neighbor navigation recurses across hops (A→B→A→C)', async ({ page }
 test('node size & brightness track total degree end-to-end', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('#graph canvas')).toBeVisible({ timeout: 15000 })
+  await waitForGraphData(page)
 
   // Drive the live scene accessors over the fixture (notes/a is a degree-2 hub
   // relating to b and c; b and c are degree-1 leaves). This is the only check

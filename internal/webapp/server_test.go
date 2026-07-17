@@ -101,6 +101,42 @@ func TestServesStaticIndex(test *testing.T) {
 	}
 }
 
+// TestSPAFallback pins the single-page-app history fallback: a client route
+// like /read serves the app shell (so a deep link or refresh boots and routes
+// in the browser), while a missing asset is still a real 404.
+func TestSPAFallback(test *testing.T) {
+	server := httptest.NewServer(New(Deps{}).Handler())
+	defer server.Close()
+
+	routeResp, routeErr := http.Get(server.URL + "/read")
+
+	if routeErr != nil {
+		test.Fatalf("GET /read: %v", routeErr)
+	}
+
+	defer routeResp.Body.Close()
+
+	if routeResp.StatusCode != http.StatusOK {
+		test.Fatalf("GET /read status = %d, want 200", routeResp.StatusCode)
+	}
+
+	if contentType := routeResp.Header.Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+		test.Errorf("GET /read content-type = %q, want text/html", contentType)
+	}
+
+	assetResp, assetErr := http.Get(server.URL + "/assets/does-not-exist.js")
+
+	if assetErr != nil {
+		test.Fatalf("GET /assets/does-not-exist.js: %v", assetErr)
+	}
+
+	defer assetResp.Body.Close()
+
+	if assetResp.StatusCode != http.StatusNotFound {
+		test.Fatalf("missing asset status = %d, want 404", assetResp.StatusCode)
+	}
+}
+
 // TestUnifiedCSP pins the single security policy that covers both views: the
 // worker-src directive the graph's layout worker needs and the 'unsafe-inline'
 // style the reading view's KaTeX/mermaid injection needs must both be present,

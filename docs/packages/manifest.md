@@ -87,7 +87,7 @@ The pool size is resolved once at process start; changes require a restart.
 
 ### Graph cluster lens — `[graph.cluster]`
 
-The optional `[graph.cluster]` block configures how the `tusk graph` view groups nodes. The resolver is `internal/manifest/graph_cluster.go`; the resolved struct is `Manifest.GraphCluster`.
+The optional `[graph.cluster]` block configures how the `tusk web` graph view groups nodes. The resolver is `internal/manifest/graph_cluster.go`; the resolved struct is `Manifest.GraphCluster`.
 
 An absent block defaults to `by = "type"`, reproducing the original color-by-type behavior. Every key is optional except where noted.
 

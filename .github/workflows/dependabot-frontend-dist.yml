@@ -1,26 +1,23 @@
 name: dependabot-frontend-dist
 
-# Dependabot bumps the frontend manifests (web/ and web-book/) but cannot run
-# `make frontend`, so the committed bundles at internal/graphview/dist and
-# internal/bookview/dist are stale on every web-deps / book-web-deps PR and the
-# dist-drift check fails by construction. This workflow closes that gap: on
-# dependabot PRs that touch either frontend's manifests it rebuilds both
-# bundles and pushes whatever changed back to the PR branch.
+# Dependabot bumps the frontend manifest (web/) but cannot run `make frontend`,
+# so the committed bundle at internal/webapp/dist is stale on every web-deps PR
+# and the dist-drift check fails by construction. This workflow closes that gap:
+# on dependabot PRs that touch the frontend's manifests it rebuilds the bundle
+# and pushes whatever changed back to the PR branch.
 #
-# Both frontends are rebuilt every run (via the aggregate `make frontend`
-# target) even when only one manifest moved. The unchanged bundle is
-# byte-identical, so it drops out at the `git add` stage — the commit only ever
-# carries the dist that actually moved. Building both keeps this workflow
-# symmetric with the dist-drift gate (which also checks both) and means adding
-# a third frontend is a one-line change in the Makefile, not here.
+# The bundle is rebuilt every run via the aggregate `make frontend` target; if
+# nothing moved it is byte-identical and drops out at the `git add` stage, so
+# the commit only ever carries real drift. The aggregate target means adding
+# another frontend is a one-line change in the Makefile, not here.
 #
 # Two jobs on purpose. `pnpm install` executes lifecycle scripts of the
 # freshly-bumped packages — untrusted code that could poison the runner
 # (GITHUB_PATH/GITHUB_ENV) to steal any secret a later step holds. So the
-# build job runs with no secrets and hands the bundles over as an artifact,
+# build job runs with no secrets and hands the bundle over as an artifact,
 # and the push job runs on a fresh runner, never executes package code, and
-# refuses anything in the artifact that is not a plain file under one of the
-# two committed dist/ directories.
+# refuses anything in the artifact that is not a plain file under the committed
+# dist/ directory.
 #
 # The push authenticates with a write deploy key (Dependabot secret
 # DIST_DEPLOY_KEY) instead of GITHUB_TOKEN on purpose: pull_request runs for
@@ -48,8 +45,6 @@ on:
     paths:
       - "web/package.json"
       - "web/pnpm-lock.yaml"
-      - "web-book/package.json"
-      - "web-book/pnpm-lock.yaml"
 
 permissions:
   contents: read
@@ -84,14 +79,12 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          # web/ and web-book/ pin the same Node line, so either .nvmrc drives
-          # the toolchain for both `make web` and `make web-book`.
           node-version-file: web/.nvmrc
 
       - name: Enable pnpm
         run: corepack enable && corepack prepare pnpm@9.12.0 --activate
 
-      - name: Rebuild frontends
+      - name: Rebuild frontend
         run: make frontend
 
       - name: Detect drift
@@ -99,16 +92,14 @@ jobs:
         run: |
           # status --porcelain, not diff: a rebuild can ADD files, which
           # `git diff` (worktree vs index) never sees.
-          if [ -z "$(git status --porcelain -- internal/graphview/dist internal/bookview/dist)" ]; then
+          if [ -z "$(git status --porcelain -- internal/webapp/dist)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "dists are already current; nothing to push"
+            echo "dist is already current; nothing to push"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
             # Tar keeps deletions observable: the push job replaces the whole
-            # directories with this snapshot instead of overlaying files. Both
-            # dirs go in — the unchanged one is byte-identical and drops out at
-            # `git add` on the push side, so the commit only carries real drift.
-            tar -cf dist.tar internal/graphview/dist internal/bookview/dist
+            # directory with this snapshot instead of overlaying files.
+            tar -cf dist.tar internal/webapp/dist
           fi
 
       - if: steps.drift.outputs.changed == 'true'
@@ -153,11 +144,10 @@ jobs:
           fi
 
           # The archive crossed the trust boundary from the build job: refuse
-          # links and any path outside the two committed dist dirs before
-          # extracting.
-          escapes=$(tar -tf dist.tar | grep -vE '^internal/(graphview|bookview)/dist(/|$)' || true)
+          # links and any path outside the committed dist dir before extracting.
+          escapes=$(tar -tf dist.tar | grep -vE '^internal/webapp/dist(/|$)' || true)
           if [ -n "$escapes" ]; then
-            echo "::error::dist artifact contains paths outside internal/{graphview,bookview}/dist"
+            echo "::error::dist artifact contains paths outside internal/webapp/dist"
             printf '%s\n' "$escapes"
             exit 1
           fi
@@ -168,12 +158,12 @@ jobs:
             exit 1
           fi
 
-          rm -rf internal/graphview/dist internal/bookview/dist
+          rm -rf internal/webapp/dist
           tar -xf dist.tar
           rm dist.tar
 
-          if [ -z "$(git status --porcelain -- internal/graphview/dist internal/bookview/dist)" ]; then
-            echo "dists are already current; nothing to push"
+          if [ -z "$(git status --porcelain -- internal/webapp/dist)" ]; then
+            echo "dist is already current; nothing to push"
             exit 0
           fi
 
@@ -188,7 +178,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add internal/graphview/dist internal/bookview/dist
+          git add internal/webapp/dist
           # The [dependabot skip] body line keeps dependabot willing to
           # rebase/recreate this branch over our commit — without it, the
           # first push here permanently stops dependabot from resolving
