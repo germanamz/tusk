@@ -13,7 +13,8 @@
 // keeping it DOM-built is the "skip the problem" option the task brief
 // calls out explicitly, rather than hand-rolling a second escaper.
 import { renderMarkdown, hydrate, type RenderContext } from './render'
-import type { NodeReadPayload } from './api'
+import { renderRails } from './related'
+import { fetchRelated, type NodeReadPayload, type RelatedNode, type RelatedOptions } from './api'
 
 // Keep the properties header modest (a glance, not a property editor) —
 // the brief is explicit that a full editor is out of scope.
@@ -50,7 +51,20 @@ function nodeDirOf(path: string): string {
   return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
 }
 
-export async function renderReader(el: HTMLElement, node: NodeReadPayload): Promise<void> {
+// renderReader paints one node's header + body into `el`. When a rails host
+// element and an onSelect callback are also supplied, it fetches this node's
+// graph-walk neighbors (fetchRelated) after the body renders and hands them,
+// plus the payload's own links, to renderRails — the right rail always
+// reflects the node currently open in the reader. Both are omitted by
+// existing reader.test.ts call sites, which only care about the body; rails
+// wiring is covered separately by related.test.ts.
+export async function renderReader(
+  el: HTMLElement,
+  node: NodeReadPayload,
+  railsEl?: HTMLElement,
+  onSelect?: (id: string) => void,
+  relatedOptions: RelatedOptions = {},
+): Promise<void> {
   const ctx: RenderContext = { nodeDir: nodeDirOf(node.path), wikilinks: node.wikilinks }
 
   el.innerHTML = ''
@@ -78,4 +92,29 @@ export async function renderReader(el: HTMLElement, node: NodeReadPayload): Prom
   el.append(header, article)
 
   await hydrate(article, ctx)
+
+  if (railsEl && onSelect) {
+    await renderNodeRails(railsEl, node, onSelect, relatedOptions)
+  }
+}
+
+// renderNodeRails fetches this node's graph-walk neighbors and paints both
+// rail sections. A fetchRelated failure degrades to an empty Related section
+// rather than losing the whole reader pane — the body above has already
+// rendered successfully by the time this runs.
+async function renderNodeRails(
+  railsEl: HTMLElement,
+  node: NodeReadPayload,
+  onSelect: (id: string) => void,
+  relatedOptions: RelatedOptions,
+): Promise<void> {
+  let related: RelatedNode[] = []
+
+  try {
+    related = (await fetchRelated(node.id, relatedOptions)).related
+  } catch {
+    related = []
+  }
+
+  renderRails(railsEl, node, related, onSelect)
 }

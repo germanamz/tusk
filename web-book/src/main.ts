@@ -2,7 +2,7 @@
 // rails) plus hash routing on `#/node/<id>`.
 import './styles.css'
 import 'katex/dist/katex.min.css'
-import { fetchIndex, fetchNode, SearchUnavailableError, type IndexResponse } from './api'
+import { fetchIndex, fetchNode, SearchUnavailableError, type IndexResponse, type RelatedOptions } from './api'
 import { encodeId } from './encode'
 import { renderContents } from './contents'
 import { renderReader } from './reader'
@@ -73,14 +73,7 @@ function renderShell(): Shell {
         <p class="reader-empty">Select something from Contents to start reading.</p>
       </main>
       <aside id="rails" class="pane pane-rails" aria-label="Related">
-        <section class="rail-section">
-          <h3 class="rail-heading">Links</h3>
-          <p class="rail-empty">Nothing linked yet.</p>
-        </section>
-        <section class="rail-section">
-          <h3 class="rail-heading">Related</h3>
-          <p class="rail-empty">Nothing related yet.</p>
-        </section>
+        <p class="rail-empty">Select something from Contents to see related notes and links.</p>
       </aside>
     </div>
   `
@@ -106,20 +99,27 @@ function showError(reader: HTMLElement, id: string, err: unknown): void {
   reader.appendChild(message)
 }
 
-async function showNode(reader: HTMLElement, id: string): Promise<void> {
+async function showNode(
+  reader: HTMLElement,
+  rails: HTMLElement,
+  id: string,
+  onSelect: (id: string) => void,
+  relatedOptions: RelatedOptions,
+): Promise<void> {
   try {
     const node = await fetchNode(id)
-    await renderReader(reader, node)
+    await renderReader(reader, node, rails, onSelect, relatedOptions)
   } catch (err) {
     showError(reader, id, err)
   }
 }
 
 // parseOptionalFormNumber reads one of the hops/weight form fields: a blank
-// input means the user never touched it, which must reach runSearch as
-// `undefined` — never as `0` — so runSearch (not this function) is the one
-// place that decides what "unset" becomes on the wire.
-function parseOptionalFormNumber(value: FormDataEntryValue | null): number | undefined {
+// input means the user never touched it, which must reach runSearch (or
+// fetchRelated, for the rails) as `undefined` — never as `0` — so the caller
+// (not this function) is the one place that decides what "unset" becomes on
+// the wire.
+function parseOptionalFormNumber(value: string | FormDataEntryValue | null): number | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   if (trimmed === '') return undefined
@@ -133,7 +133,8 @@ function parseOptionalFormNumber(value: FormDataEntryValue | null): number | und
 // exposed as `ready` below, purely so tests can await the initial async
 // chain deterministically instead of polling.
 export async function boot(): Promise<void> {
-  const { contents, reader, searchForm, expandToggle, expandFields } = renderShell()
+  const { contents, reader, rails, searchForm, expandToggle, expandFields, hopsInput, weightInput } =
+    renderShell()
 
   let index: IndexResponse
 
@@ -146,6 +147,23 @@ export async function boot(): Promise<void> {
 
   function onSelect(id: string): void {
     location.hash = buildNodeHash(id)
+  }
+
+  // currentRelatedOptions carries the search controls' hops/weight into the
+  // Related rail's fetchRelated call, but only when genuinely set — a blank
+  // field must reach fetchRelated as `undefined` (omit the query param
+  // entirely), never as a literal `0`, or an unset weight would silently
+  // zero out every distance-2 graph score (RelatedOptions' own contract,
+  // api.ts). This is independent of whether the Expand toggle is currently
+  // checked: the rail is not itself a search, it just reuses whatever
+  // graph-expansion knobs the user has already dialed in.
+  function currentRelatedOptions(): RelatedOptions {
+    const opts: RelatedOptions = {}
+    const hops = parseOptionalFormNumber(hopsInput.value)
+    const weight = parseOptionalFormNumber(weightInput.value)
+    if (hops !== undefined) opts.hops = hops
+    if (weight !== undefined) opts.weight = weight
+    return opts
   }
 
   // showContents is the "Contents" affordance's target: it repaints the left
@@ -226,7 +244,7 @@ export async function boot(): Promise<void> {
 
   async function route(): Promise<void> {
     const id = parseNodeHash(location.hash)
-    if (id) await showNode(reader, id)
+    if (id) await showNode(reader, rails, id, onSelect, currentRelatedOptions())
   }
 
   window.addEventListener('hashchange', () => {
