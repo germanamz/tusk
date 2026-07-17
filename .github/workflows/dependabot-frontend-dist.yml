@@ -82,7 +82,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           # web/ and web-book/ pin the same Node line, so either .nvmrc drives
           # the toolchain for both `make web` and `make web-book`.
@@ -112,7 +112,7 @@ jobs:
           fi
 
       - if: steps.drift.outputs.changed == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist-${{ github.event.pull_request.number }}
           path: dist.tar
@@ -133,7 +133,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           persist-credentials: false
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-dist-${{ github.event.pull_request.number }}
 
