@@ -45,6 +45,28 @@ test('read a node with math, mermaid, image and wikilink; search; follow related
   const violations = await page.evaluate(() => (window as unknown as { __cspViolations: string[] }).__cspViolations)
   expect(violations).toEqual([])
 
+  // 2b. The diagram is zoomable in place. Drive the zoom-in control and confirm
+  // the diagram's transform actually changed, then reset. Re-check CSP after:
+  // the pan/zoom library is bundled same-origin and transform-based, so it must
+  // run under the shipped `script-src 'self'` (no unsafe-eval) with no violations.
+  const diagram = reader.locator('pre.zoomable-diagram')
+  await expect(diagram).toBeVisible()
+  const diagramSvg = diagram.locator('svg')
+  const transformBefore = await diagramSvg.evaluate((node) => node.style.transform)
+
+  await diagram.hover()
+  await diagram.getByRole('button', { name: 'Zoom in' }).click()
+  await expect
+    .poll(async () => diagramSvg.evaluate((node) => node.style.transform))
+    .not.toBe(transformBefore)
+
+  await diagram.getByRole('button', { name: 'Reset zoom' }).click()
+
+  const afterZoomViolations = await page.evaluate(
+    () => (window as unknown as { __cspViolations: string[] }).__cspViolations,
+  )
+  expect(afterZoomViolations).toEqual([])
+
   // 3. Follow the rendered wikilink ([[b]]) to node B.
   await reader.locator('.node-body a[href^="#/node/"]').click()
   await expect(page).toHaveURL(/#\/node\/b$/)

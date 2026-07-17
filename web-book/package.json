@@ -13,6 +13,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@panzoom/panzoom": "4.6.2",
     "dompurify": "3.4.12",
     "katex": "0.16.47",
     "markdown-it": "14.3.0",

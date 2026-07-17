@@ -502,6 +502,60 @@ a {
   overflow-x: auto;
 }
 
+/* A rendered mermaid diagram made pinch/pan/zoom in place. The <pre> is the
+   viewport: it clips the zoomed <svg> (overriding the base pre's overflow-x:auto)
+   and anchors the control cluster. At rest (scale 1) it reads the same as before. */
+.node-body pre.zoomable-diagram {
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.node-body pre.zoomable-diagram:active {
+  cursor: grabbing;
+}
+
+.diagram-zoom-controls {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border-radius: 6px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  box-shadow: 0 1px 2px var(--shadow);
+  /* Discoverability hint without clutter: fade in on hover or keyboard focus. */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.zoomable-diagram:hover .diagram-zoom-controls,
+.diagram-zoom-controls:focus-within {
+  opacity: 1;
+}
+
+.diagram-zoom-controls button {
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  line-height: 1;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--ink-soft);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+}
+
+.diagram-zoom-controls button:hover {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
 .node-body img {
   max-width: 100%;
 }

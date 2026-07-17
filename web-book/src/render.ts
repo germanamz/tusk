@@ -21,6 +21,7 @@ import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import DOMPurify from 'dompurify'
 import { encodeId } from './encode'
+import { applyDiagramZoom } from './diagramzoom'
 import type { WikilinkTarget } from './api'
 
 export type RenderContext = {
@@ -230,6 +231,11 @@ export async function hydrate(container: HTMLElement, ctx: RenderContext): Promi
     }
   })
 
+  // Tear down zoom instances wired for the previously-rendered node before this
+  // one's DOM (already swapped in by renderReader) gets its own — so Panzoom
+  // instances never accumulate across navigations.
+  teardownPreviousDiagramZooms()
+
   const mermaidBlocks = container.querySelectorAll<HTMLElement>('pre.mermaid')
 
   if (mermaidBlocks.length > 0) {
@@ -238,9 +244,25 @@ export async function hydrate(container: HTMLElement, ctx: RenderContext): Promi
 
     try {
       await mermaid.run({ nodes: Array.from(mermaidBlocks) })
+      // Each diagram now holds an <svg>; make it pinch/pan/zoom in place.
+      mermaidBlocks.forEach((block) => {
+        activeZoomTeardowns.push(applyDiagramZoom(block))
+      })
     } catch {
       // Leave the raw diagram source visible on a parse error rather than
       // throwing out of hydrate() and losing the rest of the rendered node.
     }
   }
+}
+
+// activeZoomTeardowns holds the teardown for every diagram made zoomable in the
+// last hydrate() pass, so the next pass can destroy them — Panzoom instances must
+// not accumulate across navigations. Rapid re-navigation can briefly overlap two
+// hydrate() calls; whichever renderReader swapped the DOM in last wins, and a
+// stale pass's teardown is swept by the following navigation.
+let activeZoomTeardowns: Array<() => void> = []
+
+function teardownPreviousDiagramZooms(): void {
+  activeZoomTeardowns.forEach((teardown) => teardown())
+  activeZoomTeardowns = []
 }
