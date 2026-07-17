@@ -284,25 +284,25 @@ export async function boot(): Promise<void> {
   }
 
   // handleChange responds to a live-reload signal from the SSE stream
-  // (stream.ts). Contents is refetched and repainted only when it is
-  // actually the visible mode — refetching (let alone repainting) while
-  // Results mode is showing would be exactly the "silently re-running or
-  // clobbering" spec §7 forbids, hence the stale-banner branch instead,
-  // which touches neither the network nor the existing result list. The
-  // open node (if any) is refetched unconditionally: that's the reader
-  // pane, independent of what the left pane is currently showing.
+  // (stream.ts). The underlying index data is always refreshed, regardless
+  // of which pane is showing, so that a later "← Contents" repaints with
+  // current data rather than whatever snapshot was last fetched. Only the
+  // *repaint* is gated on mode: repainting Contents while Results mode is
+  // showing would be exactly the "silently re-running or clobbering" spec
+  // §7 forbids, hence the stale-banner branch instead, which touches
+  // neither the network nor the existing result list. The open node (if
+  // any) is refetched unconditionally: that's the reader pane, independent
+  // of what the left pane is currently showing.
   async function handleChange(): Promise<void> {
-    if (mode === 'contents') {
-      try {
-        index = await fetchIndex()
-        showContents()
-      } catch {
-        // A transient failure on a live-reload signal shouldn't wipe out
-        // whatever Contents state is already on screen.
-      }
-    } else {
-      markResultsStale()
+    try {
+      index = await fetchIndex()
+      if (mode === 'contents') showContents()
+    } catch {
+      // A transient failure on a live-reload signal shouldn't wipe out
+      // whatever Contents/Results state is already on screen.
     }
+
+    if (mode === 'results') markResultsStale()
 
     if (currentNodeId) {
       await showNode(reader, rails, currentNodeId, onSelect, currentRelatedOptions())

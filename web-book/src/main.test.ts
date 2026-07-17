@@ -262,7 +262,7 @@ describe('live reload', () => {
     expect(document.querySelector('.contents-tree')).not.toBeNull()
   })
 
-  it('Results mode is NOT clobbered by a change event — a re-run affordance shows instead', async () => {
+  it('Results mode is NOT clobbered by a change event — a re-run affordance shows instead, but the index data is still refreshed underneath', async () => {
     stubFetch(async () => ({
       ok: true,
       status: 200,
@@ -281,16 +281,57 @@ describe('live reload', () => {
     fireChange()
     await flush()
 
-    // The result list is untouched — not silently re-run, not replaced by
-    // the Contents tree — and the index was never refetched to repaint over
-    // it (that refetch only happens in the Contents-mode branch above).
+    // The result list — and the whole Results-mode DOM — is untouched: not
+    // silently re-run, not replaced by the Contents tree. This is the part
+    // spec §7 actually protects: the repaint, not the data fetch.
     expect(document.querySelector(`.results-list [data-id="${trickyId}"]`)).not.toBeNull()
     expect(document.querySelector('.contents-tree')).toBeNull()
-    expect(vi.mocked(fetchIndex).mock.calls.length).toBe(callsBefore)
+
+    // The underlying index data IS refreshed even in Results mode, so a
+    // later "← Contents" has current data to repaint from rather than a
+    // stale snapshot from before the change event.
+    expect(vi.mocked(fetchIndex).mock.calls.length).toBe(callsBefore + 1)
 
     const notice = document.querySelector('.results-stale-banner')
     expect(notice).not.toBeNull()
     expect(notice?.textContent).toContain('re-run search')
+  })
+
+  it('after a change event in Results mode, "← Contents" repaints with the freshly fetched index, not the stale snapshot from before the change', async () => {
+    stubFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        matches: [{ id: trickyId, title: 'C Section', type: 'note', score: 0.9 }],
+        model: 'm',
+      }),
+    }))
+
+    submitQuery('hello')
+    await flush()
+    expect(document.querySelector('.contents-tree')).toBeNull()
+
+    const newId = 'notes/brand-new'
+    vi.mocked(fetchIndex).mockResolvedValueOnce({
+      nodes: [...sampleIndex.nodes, { id: newId, type: 'note', title: 'Brand New', path: 'notes/brand-new.md' }],
+    })
+
+    fireChange()
+    await flush()
+
+    // Still parked in Results mode — untouched, per spec §7.
+    expect(document.querySelector(`.results-list [data-id="${trickyId}"]`)).not.toBeNull()
+    expect(document.querySelector('.contents-tree')).toBeNull()
+
+    document.querySelector<HTMLButtonElement>('.results-back')?.click()
+
+    // The freshly fetched index (containing the node that arrived during
+    // the change event) is what renders — not the snapshot fetched at boot,
+    // before the user ever left Contents. Against the old code (which only
+    // called fetchIndex inside the mode === 'contents' branch), the mocked
+    // fetchIndex would never have been re-invoked in Results mode, so this
+    // node would be absent here.
+    expect(document.querySelector(`.contents-tree [data-id="${newId}"]`)).not.toBeNull()
   })
 
   it('a second change event while the notice is already showing does not duplicate it', async () => {
