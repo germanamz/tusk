@@ -729,6 +729,13 @@ func TestTool_Query_RejectsInvalidHops(test *testing.T) {
 	if callErr == nil {
 		test.Fatalf("expected error for hops=5, got body=%v", body)
 	}
+
+	// The range check lives in manifest.MergeGraphExpansion, which names the
+	// knob from the labels this tool passes. Pin the wording so the shared
+	// merge cannot silently restyle a user-facing message.
+	if !strings.Contains(callErr.Error(), "hops: must be 1 or 2 (got 5)") {
+		test.Errorf("error %q should carry the tool's hops wording", callErr.Error())
+	}
 }
 
 // TestTool_Query_RejectsInvalidGraphWeight asserts weights outside [0,1]
@@ -746,6 +753,10 @@ func TestTool_Query_RejectsInvalidGraphWeight(test *testing.T) {
 
 	if callErr == nil {
 		test.Fatalf("expected error for graph_weight=1.5, got body=%v", body)
+	}
+
+	if !strings.Contains(callErr.Error(), "graph_weight: must be in [0.0, 1.0] (got 1.5)") {
+		test.Errorf("error %q should carry the tool's graph_weight wording", callErr.Error())
 	}
 }
 

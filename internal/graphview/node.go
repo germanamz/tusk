@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"sort"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/webui"
 )
 
 // handleNodeDetail serves GET /api/node/{id...}. The id may contain slashes, so
@@ -65,112 +65,30 @@ func (srv *Server) respondDetail(writer http.ResponseWriter, nodeID string) {
 	})
 }
 
-// adjacentEdge pairs an edge touching the focus node with the direction the
-// far end sits in ("out" when the focus is the source, "in" when it's the
-// target). Collected from ListBySource/ListByTarget and re-sorted into the
-// global ListAll order before neighbors are emitted.
-type adjacentEdge struct {
-	edge      index.EdgeRow
-	farID     string
-	direction string
-}
-
-// neighborsOf returns the file-level neighbors of nodeID. It fetches only the
-// edges incident to nodeID (ListBySource + ListByTarget) instead of scanning
-// every edge, then resolves all distinct far-end nodes in a single batched
-// ListByIDs lookup rather than one Get per edge.
+// neighborsOf returns the file-level neighbors of nodeID, projecting the
+// shared webui traversal (incident-edge lookup, batched far-end resolution,
+// self-loop-once-as-out, sub-unit and dangling skips, ListAll ordering) into
+// the graph view's own Neighbor payload. The book view projects the same
+// traversal into its link shape; only the emitted struct differs.
 func (srv *Server) neighborsOf(nodeID string) ([]Neighbor, error) {
-	outEdges, outErr := srv.deps.Edges.ListBySource(nodeID)
-	if outErr != nil {
-		return nil, outErr
+	adjacent, adjErr := webui.Neighbors(srv.deps.Nodes, srv.deps.Edges, nodeID)
+
+	if adjErr != nil {
+		return nil, adjErr
 	}
 
-	inEdges, inErr := srv.deps.Edges.ListByTarget(nodeID)
-	if inErr != nil {
-		return nil, inErr
-	}
-
-	adjacent := make([]adjacentEdge, 0, len(outEdges)+len(inEdges))
-
-	for _, row := range outEdges {
-		adjacent = append(adjacent, adjacentEdge{edge: row, farID: row.TargetID, direction: "out"})
-	}
-
-	for _, row := range inEdges {
-		// A self-loop (source_id == target_id == nodeID) is returned by both
-		// ListBySource and ListByTarget; ListAll yields it once, classified as
-		// "out" (the source case wins). Skip it here to avoid a double count.
-		if row.SourceID == nodeID {
-			continue
-		}
-
-		adjacent = append(adjacent, adjacentEdge{edge: row, farID: row.SourceID, direction: "in"})
-	}
-
-	// Reproduce ListAll's global ordering (source_id, type, target_id) so the
-	// emitted neighbor order is byte-identical to the prior full-scan path.
-	sort.SliceStable(adjacent, func(left, right int) bool {
-		lhs, rhs := adjacent[left].edge, adjacent[right].edge
-
-		if lhs.SourceID != rhs.SourceID {
-			return lhs.SourceID < rhs.SourceID
-		}
-
-		if lhs.Type != rhs.Type {
-			return lhs.Type < rhs.Type
-		}
-
-		return lhs.TargetID < rhs.TargetID
-	})
-
-	// Resolve the distinct far-end node rows in one batched lookup, preserving
-	// first-seen order only for the (unused) request order; the map is what the
-	// emit loop consults.
-	farIDs := make([]string, 0, len(adjacent))
-	seen := make(map[string]struct{}, len(adjacent))
+	// Non-nil so NodeDetail.Neighbors marshals to [] rather than null for a
+	// node with no neighbors.
+	neighbors := make([]Neighbor, 0, len(adjacent))
 
 	for _, adj := range adjacent {
-		if _, ok := seen[adj.farID]; ok {
-			continue
-		}
-
-		seen[adj.farID] = struct{}{}
-		farIDs = append(farIDs, adj.farID)
-	}
-
-	farRows, listErr := srv.deps.Nodes.ListByIDs(farIDs)
-	if listErr != nil {
-		return nil, listErr
-	}
-
-	byID := make(map[string]index.NodeRow, len(farRows))
-
-	for _, far := range farRows {
-		byID[far.ID] = far
-	}
-
-	neighbors := make([]Neighbor, 0)
-
-	for _, adj := range adjacent {
-		far, found := byID[adj.farID]
-		if !found {
-			continue // dangling edge target; skip
-		}
-
-		// ListByIDs resolves sub-unit rows too (it queries all nodes by id),
-		// so we cannot rely on a not-found to exclude them. A "contains" edge's
-		// target is a sub-unit (ParentID set); the file-level view excludes it.
-		if far.ParentID.Valid {
-			continue
-		}
-
 		neighbors = append(neighbors, Neighbor{
-			ID:        far.ID,
-			Type:      far.Type,
-			Title:     far.Title,
-			EdgeType:  adj.edge.Type,
-			Kind:      adj.edge.Kind,
-			Direction: adj.direction,
+			ID:        adj.Node.ID,
+			Type:      adj.Node.Type,
+			Title:     adj.Node.Title,
+			EdgeType:  adj.Edge.Type,
+			Kind:      adj.Edge.Kind,
+			Direction: adj.Direction,
 		})
 	}
 

@@ -3,8 +3,10 @@ package graphview
 import (
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -67,6 +69,40 @@ func TestNodeDetail(t *testing.T) {
 
 	if len(detail.Neighbors) != 1 || detail.Neighbors[0].ID != "notes/b" || detail.Neighbors[0].Direction != "out" {
 		t.Fatalf("neighbors = %+v", detail.Neighbors)
+	}
+}
+
+// TestNodeDetail_IsolatedNodeNeighborsMarshalToEmptyArray pins the wire bytes
+// for a node with no neighbors: "neighbors":[], never "neighbors":null. The
+// projection depends on a non-nil empty slice surviving out of webui.Neighbors;
+// a nil slice would marshal to null and change the payload with every other
+// test still green. Asserted on the raw body because a decode into
+// []Neighbor cannot tell [] from null.
+func TestNodeDetail_IsolatedNodeNeighborsMarshalToEmptyArray(test *testing.T) {
+	nodes := &fakeNodes{byID: map[string]index.NodeRow{
+		"notes/lonely": fileRow("notes/lonely", "note", "Lonely", ""),
+	}}
+	srv := New(Deps{Nodes: nodes, Edges: &fakeEdges{}, Render: &fakeRenderer{}})
+	server := httptest.NewServer(srv.Handler())
+
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/node/notes/lonely")
+
+	if err != nil {
+		test.Fatalf("GET detail: %v", err)
+	}
+
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+
+	if readErr != nil {
+		test.Fatalf("read body: %v", readErr)
+	}
+
+	if !strings.Contains(string(body), `"neighbors":[]`) {
+		test.Fatalf("body = %s, want neighbors marshalled as []", body)
 	}
 }
 

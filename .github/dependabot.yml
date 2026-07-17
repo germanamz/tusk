@@ -38,3 +38,21 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: build
+
+  # web-book's frontend deps, tracked separately from web/ (different
+  # lockfile, different dist: internal/bookview/dist). Group key must be
+  # unique — reusing `web-deps` is invalid. The dependabot-web-dist rebuild
+  # workflow only handles web/ today, so book-web-deps bot PRs arrive with a
+  # stale internal/bookview/dist and need a hand rebuild (`make web-book`)
+  # before dist-drift will pass, same as web-deps PRs would without that
+  # workflow.
+  - package-ecosystem: npm
+    directory: "/web-book"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      book-web-deps:
+        patterns: ["*"]
+    commit-message:
+      prefix: build

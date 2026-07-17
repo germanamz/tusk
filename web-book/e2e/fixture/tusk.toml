@@ -1,0 +1,15 @@
+[workspace]
+name = "book-e2e"
+ignore = []
+
+# A note->note edge type, flagged wikilinks=true, so both a frontmatter
+# `references:` property AND a body [[wikilink]] materialize into edges of
+# this one type. Naming it "references" (rather than something bespoke)
+# matters: it is one of manifest.DefaultGraphExpansion's built-in edge types,
+# so the Related rail's graph walk picks these edges up with no
+# [query.graph-expansion] block needed in this fixture.
+[edge-types.references]
+from        = ["note"]
+to          = ["note"]
+cardinality = "many-to-many"
+wikilinks   = true

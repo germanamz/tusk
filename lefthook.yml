@@ -59,13 +59,23 @@ pre-push:
           git --no-pager diff --stat -- man docs/cli
           exit 1
         fi
-    web-dist-drift:
+    frontend-dist-drift:
       # status --porcelain, not diff: a rebuild can ADD files, which
       # `git diff` (worktree vs index) never sees.
+      #
+      # No `glob:` here — this hook has none, so it runs on every push
+      # regardless of what changed. `make frontend` builds every committed
+      # frontend dist (web + web-book) in one shot, so both are checked
+      # here rather than adding a second hook.
       run: |
-        make web
+        make frontend
         if [ -n "$(git status --porcelain -- internal/graphview/dist)" ]; then
           echo "internal/graphview/dist is stale. Run 'make web' and commit it."
           git status --porcelain -- internal/graphview/dist
+          exit 1
+        fi
+        if [ -n "$(git status --porcelain -- internal/bookview/dist)" ]; then
+          echo "internal/bookview/dist is stale. Run 'make web-book' and commit it."
+          git status --porcelain -- internal/bookview/dist
           exit 1
         fi

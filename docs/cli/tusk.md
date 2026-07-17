@@ -109,6 +109,7 @@ CONFIGURATION
 
 ### SEE ALSO
 
+* [tusk book](tusk_book.md)	 - Serve a read-only reading view of the vault
 * [tusk context](tusk_context.md)	 - Compose a warm-context digest from the manifest [context] block
 * [tusk doctor](tusk_doctor.md)	 - Surface validation warnings, dangling edges, and index health issues
 * [tusk edge](tusk_edge.md)	 - Manage edges between nodes (add, remove, list)

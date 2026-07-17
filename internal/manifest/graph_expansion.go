@@ -71,6 +71,105 @@ func (config GraphExpansion) Validate() []error {
 	return errs
 }
 
+// GraphExpansionLabels names the caller's knobs in validation messages, so the
+// CLI can say "--hops" where MCP says "hops:". An empty field falls back to the
+// bare key name.
+type GraphExpansionLabels struct {
+	Hops   string
+	Weight string
+}
+
+// hopsLabel returns the caller's name for the hops knob, defaulting to the bare
+// key when the caller left it unset.
+func (labels GraphExpansionLabels) hopsLabel() string {
+	if labels.Hops == "" {
+		return "hops"
+	}
+
+	return labels.Hops
+}
+
+// weightLabel returns the caller's name for the weight knob, defaulting to the
+// bare key when the caller left it unset.
+func (labels GraphExpansionLabels) weightLabel() string {
+	if labels.Weight == "" {
+		return "weight"
+	}
+
+	return labels.Weight
+}
+
+// GraphExpansionOverrides carries per-call overrides for MergeGraphExpansion.
+// A nil pointer means "not specified — inherit the base". This is what makes an
+// explicit hops=0 / weight=0 distinguishable from an absent one; callers do
+// their own presence detection (raw-args lookup, cobra Changed, query-param
+// presence) and hand over an already-resolved optional.
+type GraphExpansionOverrides struct {
+	Enabled   *bool
+	Hops      *int
+	Weight    *float64
+	EdgeTypes *[]string
+
+	Labels GraphExpansionLabels
+}
+
+// cloneEdgeTypes returns a fresh backing array for edges. A len-0 input yields a
+// non-nil empty slice, which is a legitimate "no edge types" value rather than
+// an absent one.
+func cloneEdgeTypes(edges []string) []string {
+	cloned := make([]string, len(edges))
+	copy(cloned, edges)
+
+	return cloned
+}
+
+// MergeGraphExpansion folds per-call overrides onto a workspace base. The
+// returned pointer is never nil on success. EdgeTypes is always cloned: a bare
+// struct copy aliases the base's slice header, and the MCP server fans requests
+// out to goroutines sharing the runtime manifest.
+//
+// It deliberately does NOT call Validate. The per-field guards below enforce the
+// same hops/weight rules on the only values a caller can override, using the
+// caller's own wording. Validating the whole struct would reject a hand-built
+// (zero-value) base that callers legitimately merge onto today.
+func MergeGraphExpansion(base GraphExpansion, over GraphExpansionOverrides) (*GraphExpansion, error) {
+	resolved := base
+
+	// Struct copy aliases the EdgeTypes slice header; clone the backing array so
+	// per-call mutations cannot leak into the shared manifest configuration.
+	if len(base.EdgeTypes) > 0 {
+		resolved.EdgeTypes = cloneEdgeTypes(base.EdgeTypes)
+	}
+
+	if over.Enabled != nil {
+		resolved.Enabled = *over.Enabled
+	}
+
+	// Hops is validated before Weight: a call passing both out of range must
+	// surface the hops error, as both callers did before this was shared.
+	if over.Hops != nil {
+		if *over.Hops != 1 && *over.Hops != 2 {
+			return nil, fmt.Errorf("%s must be 1 or 2 (got %d)", over.Labels.hopsLabel(), *over.Hops)
+		}
+
+		resolved.Hops = *over.Hops
+	}
+
+	if over.Weight != nil {
+		if *over.Weight < 0 || *over.Weight > 1 {
+			return nil, fmt.Errorf("%s must be in [0.0, 1.0] (got %v)", over.Labels.weightLabel(), *over.Weight)
+		}
+
+		resolved.Weight = *over.Weight
+	}
+
+	if over.EdgeTypes != nil {
+		resolved.EdgeTypes = cloneEdgeTypes(*over.EdgeTypes)
+	}
+
+	return &resolved, nil
+}
+
 // graphExpansionTOML is the on-disk shape decoded from [query.graph-expansion].
 // Each scalar field uses a toml.Primitive so the resolver can distinguish
 // "absent" (fill default) from "explicit zero" (use the literal value).

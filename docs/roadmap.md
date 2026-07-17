@@ -10,8 +10,8 @@ designs: each graduates into its own
 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` when it's time to
 brainstorm and plan it.
 
-- **Last updated:** 2026-06-27
-- **Latest release:** v1.17.0
+- **Last updated:** 2026-07-17
+- **Latest release:** v2.1.4
 - **Closed specs/plans:**
   - HTML content AST (`.html`/`.htm` files as first-class nodes + `tusk node render` / `tusk_node_render`) — shipped; design folded into [`PRODUCT.md`](../PRODUCT.md) and [`README`](../README.md).
   - Indexed checkbox todos in nodes — shipped, but delivered through the sub-unit indexing model (`internal/subunit`) rather than the originally-sketched dedicated `todos` table / `tusk todo` command. Markdown list-item sub-units carry a `checkbox` property, so open/done todos are filterable and queryable cross-source through the standard query surface. Original framing preserved in git history.
@@ -21,6 +21,7 @@ brainstorm and plan it.
   - Index reset and rebuild (`tusk reset` + `tusk_reset`) — shipped; design in git history.
   - Hot manifest reload (`tusk reload` + `tusk_reload`) — shipped via #535, #537–#544 + docs; a `.tusk/manifest-epoch` sentinel drives cross-process schema convergence, layered on the index-reset work. Design preserved under `docs/superpowers/` (local).
   - Graph view (`tusk graph`, three.js) — shipped. A local HTTP server serves a self-contained page that renders the index as an interactive 3D force-directed graph over a read-only JSON endpoint (#567, v1.13.0), since enriched with degree-based sizing/coloring, a cluster lens (group color, huddle layout, hull overlays; #586–#598), and a semantic layout mode where position tracks embedding similarity via umap-js (#600–#603). The framing's open questions (2D/3D toggle, in-page query, live updates) resolved during implementation; behavior documented in [`docs/architecture/graph-view.md`](architecture/graph-view.md) and [`docs/packages/graphview.md`](packages/graphview.md).
+  - Reading UI (`tusk book`) — shipped. A second local HTTP server (`internal/bookview`) renders vault nodes as formatted documents — math (KaTeX), diagrams (mermaid), navigable wikilinks — with structural/semantic/graph-expanded search, an embedder-free Related rail, a links rail that rolls sub-unit link ends up to their file, and SSE live reload as files change. It shares its Host-guard/SSE-hub/change-source/neighbor-projection scaffold with `tusk graph` through a new `internal/webui` package, extracted from graphview in the same effort. Design in `docs/superpowers/specs/2026-07-15-tusk-book-reading-ui-design.md` and plan in `docs/superpowers/plans/2026-07-15-tusk-book.md` (local); behavior documented in [`docs/packages/bookview.md`](packages/bookview.md) and [`docs/packages/webui.md`](packages/webui.md).
 
 ## Forward-looking explorations
 
@@ -326,7 +327,7 @@ the table. Reconciled against the focus items above.
 | `vector-watcher` behavior pack | Re-embed when content drifts substantially. |
 | Cross-workspace queries | Lighter cousin of #7 (Distributed indexing). May land first as a stepping stone. |
 | Plugin loading for behavior packs | v2+. |
-| Web UI / TUI | v2+; the shipped graph view (`tusk graph`) is a narrow read-only slice; a general editing UI remains deferred. |
+| Web UI / TUI | v2+; the shipped graph view (`tusk graph`) and reading UI (`tusk book`) are both narrow read-only slices; a general editing UI remains deferred. |
 
 **Superseded:**
 

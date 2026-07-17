@@ -9,6 +9,8 @@ status: stable
 
 Serves a read-only, live-updating 3D graph of the vault over a loopback HTTP server. Receives an open workspace handle via `Deps` and never opens the workspace itself. Snapshots are streamed to the browser over SSE; the client (embedded Vite bundle in `dist/`) renders them with `3d-force-graph` and three.js.
 
+The serving scaffold — the Host-header guard, the SSE hub, and the reindex/epoch change source — now lives in `internal/webui` and is shared with `tusk book`. The file-level neighbor projection behind `/api/node`'s neighbor list is not shared, despite living in the same package: `webui.Neighbors` has graphview as its sole caller (bookview re-implements its own incident-edge walk instead, since `Neighbors` drops sub-unit far ends — see `docs/packages/webui.md`). What's left here is graph-specific: the snapshot/cluster/semantic-layout machinery below, plus a thin projection of `webui.Neighbors` into graphview's own `Neighbor` payload (see `neighborsOf` in `node.go`).
+
 ## Public surface
 
 - `New(deps Deps) *Server` — constructs the server; does not bind a port.
@@ -24,7 +26,7 @@ Serves a read-only, live-updating 3D graph of the vault over a loopback HTTP ser
   - `SubunitGraph` — the `/api/subunits/{id...}` drill-down payload.
   - `EmbeddingsResponse` — the `/api/embeddings` payload (one vector per file node): `Model`, `Dim`, `Signature`, `Vectors map[string][]float32`. Drives the semantic layout (see below).
 - **Dependency interfaces** (satisfied by `*index` repos): `NodeSource`, `EdgeSource`, `NodeRenderer`, `Querier`, `ChangeSource`, `EmbeddingSource`.
-- `NewQuerier`, `NewRenderer`, `NewChangeSource` — concrete implementations wired from `cmd/tusk/cmd_graph.go`.
+- `NewQuerier`, `NewRenderer` — concrete implementations wired from `cmd/tusk/cmd_graph.go`. `ChangeSource` and `Signal` are aliases of `webui.ChangeSource`/`webui.Signal`; the change source itself is built with `webui.NewChangeSource`, not a graphview constructor.
 
 ## Cluster lens architecture
 

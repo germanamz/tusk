@@ -141,8 +141,9 @@ jobs:
           fi
 
   # Dependabot web-deps PRs arrive stale here by construction (the bot can't
-  # run `make web`); .github/workflows/dependabot-web-dist.yml rebuilds and
-  # pushes the bundle onto those PR branches automatically.
+  # run `make frontend`); .github/workflows/dependabot-web-dist.yml rebuilds
+  # and pushes the bundle onto those PR branches automatically (graph only —
+  # book-web-deps bot PRs need a hand rebuild, see dependabot.yml's comment).
   dist-drift:
     runs-on: ubuntu-latest
     steps:
@@ -153,7 +154,7 @@ jobs:
       - name: Enable pnpm
         run: corepack enable && corepack prepare pnpm@9.12.0 --activate
       - name: Build frontend
-        run: make web
+        run: make frontend
       - name: Fail on drift
         run: |
           # status --porcelain, not diff: a rebuild can ADD files, which
@@ -162,6 +163,12 @@ jobs:
             echo "::error::internal/graphview/dist is stale. Run 'make web' and commit."
             git status --porcelain -- internal/graphview/dist
             git --no-pager diff -- internal/graphview/dist
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain -- internal/bookview/dist)" ]; then
+            echo "::error::internal/bookview/dist is stale. Run 'make web-book' and commit."
+            git status --porcelain -- internal/bookview/dist
+            git --no-pager diff -- internal/bookview/dist
             exit 1
           fi
 
@@ -183,6 +190,29 @@ jobs:
         # surfaced in the log but non-blocking). The lockfile is clean as of the
         # web-deps bump; Dependabot keeps it current.
         run: pnpm audit --audit-level high
+
+  # Gates web-book's vitest suite. web/ has no equivalent job — the graph
+  # frontend's only CI gates are dist-drift (a build) and web-audit (a lockfile
+  # audit), so this is the first job in the repo that runs frontend tests.
+  #
+  # Playwright e2e (web-book/e2e, `pnpm e2e`) is deliberately NOT run here: it
+  # needs a built Go binary, a fixture vault, and a browser download. It stays a
+  # local gate.
+  web-book-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: web-book/.nvmrc
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.12.0 --activate
+      - name: Install dependencies
+        working-directory: web-book
+        run: pnpm install --frozen-lockfile
+      - name: Run vitest
+        working-directory: web-book
+        run: pnpm test
 
   pr-title:
     runs-on: ubuntu-latest

@@ -2,36 +2,33 @@ package graphview
 
 import (
 	"context"
-	"io/fs"
-	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/germanamz/tusk/internal/graphcluster"
+	"github.com/germanamz/tusk/internal/webui"
 )
 
 // Server hosts the graph-view HTTP API and embedded frontend. Construct with
 // New, mount Handler(), and run Run(ctx) for the SSE broadcast loop.
 type Server struct {
-	deps    Deps
-	mux     *http.ServeMux
-	pollDur time.Duration
+	deps Deps
+	mux  *http.ServeMux
 
-	// allowedHosts is the Host-header allowlist beyond loopback/localhost,
-	// derived from Deps.AllowedHosts. allowAnyHost is set when "*" is present.
-	allowedHosts map[string]struct{}
-	allowAnyHost bool
+	// guard is the Host-header allowlist, built from Deps.AllowedHosts.
+	guard *webui.HostGuard
 
-	// mu guards clients (the SSE hub). It is unrelated to community state.
-	mu      sync.Mutex
-	clients map[chan []byte]struct{}
+	// hub is the SSE broadcast hub: it serves /api/graph/stream and, driven by
+	// Run, pushes a fresh snapshot to every client whenever the change signal
+	// advances.
+	hub *webui.Hub
 
 	// communityMu guards the four community-memo fields below. It is
-	// intentionally separate from mu so the SSE broadcast loop (which holds
-	// mu across the entire fan-out) does not block snapshot() from reading
-	// community state, and vice-versa. communityLabelsFor holds communityMu
-	// for its entire body — no other method may read or write these fields.
+	// intentionally separate from the hub's internal client lock so the SSE
+	// broadcast fan-out (which holds that lock across the entire fan-out) does
+	// not block snapshot() from reading community state, and vice-versa.
+	// communityLabelsFor holds communityMu for its entire body — no other
+	// method may read or write these fields.
 	communityMu     sync.Mutex
 	prevCommunities map[string]string // nodeID -> last stable label, carried across generations
 	communityGen    int64             // generation the memo was computed for
@@ -45,36 +42,35 @@ type Server struct {
 }
 
 // New builds a Server. Handlers are registered immediately; Run(ctx) drives
-// the SSE broadcast loop (added in a later task).
+// the SSE broadcast loop.
 func New(deps Deps) *Server {
-	poll := deps.PollInterval
-	if poll <= 0 {
-		poll = 2 * time.Second
-	}
-
 	srv := &Server{
-		deps:         deps,
-		mux:          http.NewServeMux(),
-		pollDur:      poll,
-		clients:      make(map[chan []byte]struct{}),
-		detect:       graphcluster.Detect,
-		allowedHosts: make(map[string]struct{}),
+		deps:   deps,
+		mux:    http.NewServeMux(),
+		detect: graphcluster.Detect,
+		guard:  webui.NewHostGuard(deps.AllowedHosts),
 	}
 
-	for _, host := range deps.AllowedHosts {
-		if host == "*" {
-			srv.allowAnyHost = true
-
-			continue
-		}
-
-		srv.allowedHosts[host] = struct{}{}
-	}
+	// Poll through srv.signal rather than deps.Changes directly: signal
+	// tolerates a nil ChangeSource (tests that don't care pass none), so such a
+	// Server keeps polling harmlessly instead of panicking in Run. NewHub
+	// applies the 2s PollInterval default.
+	srv.hub = webui.NewHub(webui.HubOptions{
+		EventName:    "graph",
+		Payload:      srv.snapshotBytes,
+		Changes:      signalFunc(srv.signal),
+		PollInterval: deps.PollInterval,
+	})
 
 	srv.routes()
 
 	return srv
 }
+
+// signalFunc adapts a Signal-returning func to webui.ChangeSource.
+type signalFunc func() (Signal, error)
+
+func (fn signalFunc) Signal() (Signal, error) { return fn() }
 
 // Handler returns the mountable HTTP handler (API + embedded static assets),
 // wrapped in a Host-header guard. The server binds loopback by default, but a
@@ -83,47 +79,17 @@ func New(deps Deps) *Server {
 // whose Host names a loopback address, "localhost", or an explicitly allowed
 // host are served; everything else gets 403.
 func (srv *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !srv.hostAllowed(request.Host) {
-			http.Error(writer, "forbidden: untrusted Host header", http.StatusForbidden)
-
-			return
-		}
-
-		srv.mux.ServeHTTP(writer, request)
-	})
-}
-
-// hostAllowed reports whether a request's Host header may be served. Loopback
-// addresses and "localhost" always pass; other hosts must be in the configured
-// allowlist (or "*" must have disabled the guard).
-func (srv *Server) hostAllowed(hostHeader string) bool {
-	if srv.allowAnyHost {
-		return true
-	}
-
-	hostname := hostHeader
-
-	if host, _, splitErr := net.SplitHostPort(hostHeader); splitErr == nil {
-		hostname = host
-	}
-
-	if hostname == "localhost" {
-		return true
-	}
-
-	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
-		return true
-	}
-
-	_, allowed := srv.allowedHosts[hostname]
-
-	return allowed
+	return srv.guard.Wrap(srv.mux)
 }
 
 // Run drives the SSE broadcast loop until ctx is cancelled.
 func (srv *Server) Run(ctx context.Context) {
-	srv.runHub(ctx)
+	srv.hub.Run(ctx)
+}
+
+// ClientCount reports connected SSE clients (for the CLI status line).
+func (srv *Server) ClientCount() int {
+	return srv.hub.ClientCount()
 }
 
 func (srv *Server) routes() {
@@ -134,7 +100,7 @@ func (srv *Server) routes() {
 
 	srv.mux.HandleFunc("GET /api/graph", srv.handleGraph)
 
-	srv.mux.HandleFunc("GET /api/graph/stream", srv.handleStream)
+	srv.mux.HandleFunc("GET /api/graph/stream", srv.hub.ServeStream)
 
 	srv.mux.HandleFunc("GET /api/node/{id...}", srv.handleNodeDetail)
 
@@ -144,7 +110,7 @@ func (srv *Server) routes() {
 
 	srv.mux.HandleFunc("GET /api/embeddings", srv.handleEmbeddings)
 
-	srv.mux.Handle("GET /", srv.staticHandler())
+	srv.mux.Handle("GET /", webui.StaticHandler(distFS, "dist"))
 }
 
 // communityLabelsFor returns the stable community labels for the given reindex
@@ -174,16 +140,4 @@ func (srv *Server) communityLabelsFor(gen int64, compute func(prev map[string]st
 	srv.communityGenSet = true
 
 	return labels
-}
-
-func (srv *Server) staticHandler() http.Handler {
-	sub, subErr := fs.Sub(distFS, "dist")
-	if subErr != nil {
-		// embed.FS with a known subdir never fails; fall back to 500.
-		return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			http.Error(writer, "static assets unavailable", http.StatusInternalServerError)
-		})
-	}
-
-	return http.FileServerFS(sub)
 }

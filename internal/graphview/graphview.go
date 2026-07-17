@@ -11,6 +11,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/webui"
 )
 
 // DefaultAddr is the loopback bind address for `tusk graph`. No prior
@@ -21,10 +22,10 @@ const DefaultAddr = "127.0.0.1:7373"
 // Signal is the dual change signal that drives live updates. Generation comes
 // from the SQLite meta key "reindex_gen" (advances on every content reindex);
 // Epoch comes from .tusk/epoch (advances only on reset/rebuild).
-type Signal struct {
-	Generation int64 `json:"generation"`
-	Epoch      int64 `json:"epoch"`
-}
+//
+// It is an alias for webui.Signal: change detection is shared with the other
+// local web views, so a graph Deps feeds webui's hub without conversion.
+type Signal = webui.Signal
 
 // GraphNode is one file-level node in the snapshot.
 type GraphNode struct {
@@ -139,14 +140,13 @@ type Querier interface {
 	Run(ctx context.Context, in QueryInput) ([]Match, error)
 }
 
-// ChangeSource reports the current dual change signal.
-type ChangeSource interface {
-	Signal() (Signal, error)
-}
+// ChangeSource reports the current dual change signal. An alias for
+// webui.ChangeSource; build one with webui.NewChangeSource.
+type ChangeSource = webui.ChangeSource
 
 // Deps bundles everything the server needs. The command layer builds the
-// concrete implementations (see graphview.NewQuerier / NewRenderer /
-// NewChangeSource and the *index repos) from an open runtime.
+// concrete implementations (see graphview.NewQuerier / NewRenderer,
+// webui.NewChangeSource, and the *index repos) from an open runtime.
 type Deps struct {
 	Root         string
 	Nodes        NodeSource
