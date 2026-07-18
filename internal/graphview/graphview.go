@@ -1,6 +1,8 @@
-// Package graphview serves a read-only 3D graph view of the vault over a
-// loopback HTTP server. It receives an already-open workspace handle via Deps
-// and never opens the workspace or imports internal/mcp itself.
+// Package graphview provides the read-only 3D graph-view API and SSE stream for
+// the vault. It is a pure API/SSE provider: a parent server mounts its routes
+// with RegisterRoutes and owns the host guard, CSP, healthz, and static
+// frontend. It receives an already-open workspace handle via Deps and never
+// opens the workspace or imports internal/mcp itself.
 package graphview
 
 import (
@@ -79,7 +81,7 @@ type Neighbor struct {
 	Direction string `json:"direction"` // "out" (id is source) or "in" (id is target)
 }
 
-// NodeDetail is the /api/node/{id} inspect payload.
+// NodeDetail is the /api/graph/node/{id} inspect payload.
 type NodeDetail struct {
 	ID         string          `json:"id"`
 	Type       string          `json:"type"`
@@ -90,13 +92,13 @@ type NodeDetail struct {
 	Neighbors  []Neighbor      `json:"neighbors"`
 }
 
-// SubunitGraph is the /api/subunits/{id...} drill-down payload.
+// SubunitGraph is the /api/graph/subunits/{id...} drill-down payload.
 type SubunitGraph struct {
 	Nodes []GraphNode `json:"nodes"`
 	Edges []GraphEdge `json:"edges"`
 }
 
-// QueryInput is the /api/query request.
+// QueryInput is the /api/graph/query request.
 type QueryInput struct {
 	Filter   string `json:"filter"`
 	Semantic string `json:"q"`
@@ -125,7 +127,7 @@ type EdgeSource interface {
 }
 
 // EmbeddingSource fetches stored embedding vectors for nodes. Satisfied by
-// *index.EmbeddingRepo. Used by the /api/embeddings endpoint (semantic layout).
+// *index.EmbeddingRepo. Used by the /api/graph/embeddings endpoint (semantic layout).
 type EmbeddingSource interface {
 	ListByNodeIDs(nodeIDs []string) ([]index.EmbeddingRow, error)
 }
@@ -155,13 +157,7 @@ type Deps struct {
 	Query        Querier
 	Changes      ChangeSource
 	Manifest     *manifest.Manifest // optional; nil tolerates as by = "type"
-	Embeddings   EmbeddingSource    // optional; nil disables /api/embeddings (returns empty)
+	Embeddings   EmbeddingSource    // optional; nil disables /api/graph/embeddings (returns empty)
 	PollInterval time.Duration      // SSE change-poll cadence; defaults to 2s
 	Logger       *slog.Logger       // optional; nil silences
-
-	// AllowedHosts extends the Host-header guard beyond loopback and
-	// "localhost". A confirmed non-loopback bind passes the bound hostname
-	// here so the intended access path works; a single "*" entry disables the
-	// guard (the user accepted network exposure). Empty means loopback-only.
-	AllowedHosts []string
 }

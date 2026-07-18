@@ -117,7 +117,7 @@ where each `tusk …` shell call cold-starts a process and reopens the database:
    back as nodes and typed edges.
 
 Reach for the shell only to bootstrap a workspace (`tusk init`) or open the
-graph viewer (`tusk graph`).
+web app (`tusk web`, the local graph + reading views).
 
 ---
 

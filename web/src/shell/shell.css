@@ -1,0 +1,263 @@
+/* shell.css — the mission-control chrome around the swappable viewport.
+ *
+ * A three-band console: a telemetry top bar, a slim view rail, and a status
+ * strip, framing #viewport where the graph or reading view mounts. Everything
+ * here is disciplined and quiet so the viewport (and each view's own panels)
+ * carries the detail; the one bit of personality is the wide-tracked monospace
+ * telemetry type. */
+
+#app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 46px 1fr 26px;
+  overflow: hidden;
+}
+
+/* ---- Telemetry top bar --------------------------------------------------- */
+
+.tbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+
+.tbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.tbar-brand .mark {
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.tbar-rule {
+  width: 1px;
+  align-self: stretch;
+  margin: 10px 0;
+  background: var(--rule);
+}
+
+.tbar-view {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+
+.tbar-spacer {
+  flex: 1 1 auto;
+}
+
+/* Live mission status: a state dot, a label, and the reindex generation. */
+.tbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex: 0 0 auto;
+  transition: background 0.2s ease;
+}
+
+.tbar-status[data-state='synced'] .status-dot {
+  background: var(--nominal);
+  box-shadow: 0 0 6px var(--nominal);
+}
+
+.tbar-status[data-state='indexing'] .status-dot {
+  background: var(--signal);
+  box-shadow: 0 0 6px var(--signal);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.tbar-status[data-state='offline'] .status-dot {
+  background: var(--alert);
+  box-shadow: 0 0 6px var(--alert);
+}
+
+.status-label {
+  color: var(--ink);
+}
+
+.status-gen {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Theme toggle: a compact segmented control of monospace micro-labels. */
+.theme-toggle {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.theme-toggle button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  padding: 4px 8px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.theme-toggle button:hover {
+  color: var(--ink-dim);
+}
+
+.theme-toggle button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.theme-toggle button:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: -2px;
+}
+
+/* ---- Deck (rail + viewport) --------------------------------------------- */
+
+.deck {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  min-height: 0;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  background: var(--surface);
+  border-right: 1px solid var(--rule);
+}
+
+.rail-spacer {
+  flex: 1 1 auto;
+}
+
+.rail-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  padding: 0;
+}
+
+.rail-btn:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.rail-btn[aria-current='page'] {
+  color: var(--accent);
+  border-color: var(--rule);
+  background: var(--bg);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.rail-btn:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 1px;
+}
+
+.rail-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+#viewport {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* ---- Status strip -------------------------------------------------------- */
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+}
+
+.strip-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-dim);
+}
+
+.strip-host {
+  color: var(--ink-dim);
+}
+
+.strip-badge {
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--ink-faint);
+  letter-spacing: 0.16em;
+}
+
+.strip-spacer {
+  flex: 1 1 auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tbar-status[data-state='indexing'] .status-dot {
+    animation: none;
+  }
+}

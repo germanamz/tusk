@@ -15,7 +15,7 @@ import (
 )
 
 // TestSearchHandlerOK pins the happy path end to end through the real mux:
-// POST /api/search returns 200 and the fixed SearchResponse the fake echoes.
+// POST /api/read/search returns 200 and the fixed SearchResponse the fake echoes.
 func TestSearchHandlerOK(test *testing.T) {
 	fake := &fakeSearcher{resp: SearchResponse{
 		Matches: []Match{{ID: "a", Title: "A", Score: 0.9}},
@@ -24,10 +24,10 @@ func TestSearchHandlerOK(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp := postJSON(test, server.URL+"/api/search", SearchRequest{Q: "ok"})
+	resp := postJSON(test, server.URL+"/api/read/search", SearchRequest{Q: "ok"})
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -53,10 +53,10 @@ func TestSearchHandlerSemanticUnavailable(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp := postJSON(test, server.URL+"/api/search", SearchRequest{Q: "down"})
+	resp := postJSON(test, server.URL+"/api/read/search", SearchRequest{Q: "down"})
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusUnprocessableEntity {
@@ -75,10 +75,10 @@ func TestSearchHandlerTransportErrorUnavailable(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp := postJSON(test, server.URL+"/api/search", SearchRequest{Q: "unreachable"})
+	resp := postJSON(test, server.URL+"/api/read/search", SearchRequest{Q: "unreachable"})
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusUnprocessableEntity {
@@ -95,10 +95,10 @@ func TestSearchHandlerOtherErrorUnavailable(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp := postJSON(test, server.URL+"/api/search", SearchRequest{Q: "boom"})
+	resp := postJSON(test, server.URL+"/api/read/search", SearchRequest{Q: "boom"})
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusServiceUnavailable {
@@ -112,10 +112,10 @@ func TestSearchHandlerOtherErrorUnavailable(test *testing.T) {
 func TestSearchHandlerNilSearcherUnavailable(test *testing.T) {
 	srv := New(Deps{Root: test.TempDir()})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp := postJSON(test, server.URL+"/api/search", SearchRequest{Q: "ok"})
+	resp := postJSON(test, server.URL+"/api/read/search", SearchRequest{Q: "ok"})
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusServiceUnavailable {
@@ -130,10 +130,10 @@ func TestSearchHandlerBadBody(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp, postErr := http.Post(server.URL+"/api/search", "application/json", strings.NewReader("{not json"))
+	resp, postErr := http.Post(server.URL+"/api/read/search", "application/json", strings.NewReader("{not json"))
 
 	if postErr != nil {
 		test.Fatalf("POST: %v", postErr)
@@ -160,10 +160,10 @@ func TestSearchHandlerMatchesMarshalEmptyArray(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp := postJSON(test, server.URL+"/api/search", SearchRequest{Q: "nothing"})
+	resp := postJSON(test, server.URL+"/api/read/search", SearchRequest{Q: "nothing"})
 	defer resp.Body.Close()
 
 	body, readErr := io.ReadAll(resp.Body)
@@ -186,7 +186,7 @@ func TestSearchHandlerForwardsRequestFields(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
 	req := SearchRequest{
@@ -200,7 +200,7 @@ func TestSearchHandlerForwardsRequestFields(test *testing.T) {
 		Explain:   true,
 	}
 
-	resp := postJSON(test, server.URL+"/api/search", req)
+	resp := postJSON(test, server.URL+"/api/read/search", req)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -220,10 +220,10 @@ func TestSearchHandlerDefaultsNonPositiveLimit(test *testing.T) {
 
 	srv := New(Deps{Root: test.TempDir(), Search: fake})
 
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 	test.Cleanup(server.Close)
 
-	resp := postJSON(test, server.URL+"/api/search", SearchRequest{Q: "ok", Limit: -1})
+	resp := postJSON(test, server.URL+"/api/read/search", SearchRequest{Q: "ok", Limit: -1})
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

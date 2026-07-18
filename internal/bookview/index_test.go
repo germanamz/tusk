@@ -8,7 +8,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 )
 
-// TestIndexListsFileNodes pins GET /api/index's payload: every file-level row
+// TestIndexListsFileNodes pins GET /api/read/index's payload: every file-level row
 // from NodeSource.ListFileNodes, with id/type/title/path round-tripping
 // verbatim. There is no Parent field — every row ListFileNodes returns has a
 // NULL parent_id by construction, so the Contents pane derives its tree from
@@ -22,7 +22,7 @@ func TestIndexListsFileNodes(test *testing.T) {
 	srv := New(Deps{Root: test.TempDir(), Nodes: nodes})
 
 	rec := httptest.NewRecorder()
-	srv.handleIndex(rec, httptest.NewRequest("GET", "/api/index", nil))
+	srv.handleIndex(rec, httptest.NewRequest("GET", "/api/read/index", nil))
 
 	var got IndexResponse
 
@@ -54,7 +54,7 @@ func TestIndexEmptyVaultMarshalsEmptyArray(test *testing.T) {
 	srv := New(Deps{Root: test.TempDir(), Nodes: fakeNodes{}})
 
 	rec := httptest.NewRecorder()
-	srv.handleIndex(rec, httptest.NewRequest("GET", "/api/index", nil))
+	srv.handleIndex(rec, httptest.NewRequest("GET", "/api/read/index", nil))
 
 	if got := rec.Body.String(); got != `{"nodes":[]}`+"\n" {
 		test.Fatalf("body=%q want %q", got, `{"nodes":[]}`+"\n")

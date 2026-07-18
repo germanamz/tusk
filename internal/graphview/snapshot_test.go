@@ -69,7 +69,7 @@ func getGraph(test *testing.T, deps Deps) Graph {
 	test.Helper()
 
 	srv := New(deps)
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 
 	test.Cleanup(ts.Close)
 
@@ -171,7 +171,7 @@ func TestSnapshot_TypeProducer_Regression(test *testing.T) {
 
 func TestSnapshot_FileLevelOnly(test *testing.T) {
 	srv := New(newGraphFixtureDeps())
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
 	resp, respErr := http.Get(ts.URL + "/api/graph")

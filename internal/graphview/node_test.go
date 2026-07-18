@@ -45,10 +45,10 @@ func newNodeFixtureDeps() Deps {
 
 func TestNodeDetail(t *testing.T) {
 	srv := New(newNodeFixtureDeps())
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/node/notes/a")
+	resp, err := http.Get(ts.URL + "/api/graph/node/notes/a")
 	if err != nil {
 		t.Fatalf("GET detail: %v", err)
 	}
@@ -83,11 +83,11 @@ func TestNodeDetail_IsolatedNodeNeighborsMarshalToEmptyArray(test *testing.T) {
 		"notes/lonely": fileRow("notes/lonely", "note", "Lonely", ""),
 	}}
 	srv := New(Deps{Nodes: nodes, Edges: &fakeEdges{}, Render: &fakeRenderer{}})
-	server := httptest.NewServer(srv.Handler())
+	server := httptest.NewServer(testHandler(srv))
 
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/node/notes/lonely")
+	resp, err := http.Get(server.URL + "/api/graph/node/notes/lonely")
 
 	if err != nil {
 		test.Fatalf("GET detail: %v", err)
@@ -108,10 +108,10 @@ func TestNodeDetail_IsolatedNodeNeighborsMarshalToEmptyArray(test *testing.T) {
 
 func TestNodeDetail_NotFound(t *testing.T) {
 	srv := New(newNodeFixtureDeps())
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/node/notes/missing")
+	resp, err := http.Get(ts.URL + "/api/graph/node/notes/missing")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestNodeDetail_NotFound(t *testing.T) {
 // newSubunitsIDFixtureDeps builds a FILE node whose id ends in "/subunits"
 // (notes/subunits) with one child, so the detail route and the subunits route
 // can be exercised against the same id. Before E9 split the routes, a GET on
-// /api/node/notes/subunits was read as "subunits of notes" and never returned
+// /api/graph/node/notes/subunits was read as "subunits of notes" and never returned
 // the file's detail.
 func newSubunitsIDFixtureDeps() Deps {
 	nodes := &fakeNodes{
@@ -147,10 +147,10 @@ func newSubunitsIDFixtureDeps() Deps {
 
 func TestNodeDetail_IdEndingInSubunits(t *testing.T) {
 	srv := New(newSubunitsIDFixtureDeps())
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	detailResp, detailErr := http.Get(ts.URL + "/api/node/notes/subunits")
+	detailResp, detailErr := http.Get(ts.URL + "/api/graph/node/notes/subunits")
 	if detailErr != nil {
 		t.Fatalf("GET detail: %v", detailErr)
 	}
@@ -169,7 +169,7 @@ func TestNodeDetail_IdEndingInSubunits(t *testing.T) {
 		t.Fatalf("detail.ID = %q, want notes/subunits", detail.ID)
 	}
 
-	subResp, subErr := http.Get(ts.URL + "/api/subunits/notes/subunits")
+	subResp, subErr := http.Get(ts.URL + "/api/graph/subunits/notes/subunits")
 	if subErr != nil {
 		t.Fatalf("GET subunits: %v", subErr)
 	}
@@ -187,10 +187,10 @@ func TestNodeDetail_IdEndingInSubunits(t *testing.T) {
 
 func TestNodeSubunits(t *testing.T) {
 	srv := New(newNodeFixtureDeps())
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/subunits/notes/a")
+	resp, err := http.Get(ts.URL + "/api/graph/subunits/notes/a")
 	if err != nil {
 		t.Fatalf("GET subunits: %v", err)
 	}
@@ -249,10 +249,10 @@ func newSubunitDegreeFixtureDeps() Deps {
 
 func TestNodeSubunits_Degree(t *testing.T) {
 	srv := New(newSubunitDegreeFixtureDeps())
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(testHandler(srv))
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/subunits/notes/p")
+	resp, err := http.Get(ts.URL + "/api/graph/subunits/notes/p")
 	if err != nil {
 		t.Fatalf("GET subunits: %v", err)
 	}

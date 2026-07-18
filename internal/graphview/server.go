@@ -9,14 +9,16 @@ import (
 	"github.com/germanamz/tusk/internal/webui"
 )
 
-// Server hosts the graph-view HTTP API and embedded frontend. Construct with
-// New, mount Handler(), and run Run(ctx) for the SSE broadcast loop.
+// APIBase is the conventional mount prefix for the graph-view API. The parent
+// server passes it (or another prefix) to RegisterRoutes.
+const APIBase = "/api/graph"
+
+// Server hosts the graph-view HTTP API. Construct with New, register its routes
+// on a parent mux with RegisterRoutes, and run Run(ctx) for the SSE broadcast
+// loop. The parent server owns the host guard, CSP, healthz, and static
+// frontend; this server is a pure API/SSE provider.
 type Server struct {
 	deps Deps
-	mux  *http.ServeMux
-
-	// guard is the Host-header allowlist, built from Deps.AllowedHosts.
-	guard *webui.HostGuard
 
 	// hub is the SSE broadcast hub: it serves /api/graph/stream and, driven by
 	// Run, pushes a fresh snapshot to every client whenever the change signal
@@ -41,14 +43,12 @@ type Server struct {
 	detect func(nodeIDs []string, edges []graphcluster.Edge, opts graphcluster.Options) map[string]int
 }
 
-// New builds a Server. Handlers are registered immediately; Run(ctx) drives
-// the SSE broadcast loop.
+// New builds a Server. Register its routes on a parent mux with RegisterRoutes;
+// Run(ctx) drives the SSE broadcast loop.
 func New(deps Deps) *Server {
 	srv := &Server{
 		deps:   deps,
-		mux:    http.NewServeMux(),
 		detect: graphcluster.Detect,
-		guard:  webui.NewHostGuard(deps.AllowedHosts),
 	}
 
 	// Poll through srv.signal rather than deps.Changes directly: signal
@@ -62,8 +62,6 @@ func New(deps Deps) *Server {
 		PollInterval: deps.PollInterval,
 	})
 
-	srv.routes()
-
 	return srv
 }
 
@@ -71,16 +69,6 @@ func New(deps Deps) *Server {
 type signalFunc func() (Signal, error)
 
 func (fn signalFunc) Signal() (Signal, error) { return fn() }
-
-// Handler returns the mountable HTTP handler (API + embedded static assets),
-// wrapped in a Host-header guard. The server binds loopback by default, but a
-// browser the user already runs can rebind an attacker domain to the loopback
-// address and read vault file bodies and embeddings same-origin. Only requests
-// whose Host names a loopback address, "localhost", or an explicitly allowed
-// host are served; everything else gets 403.
-func (srv *Server) Handler() http.Handler {
-	return srv.guard.Wrap(srv.mux)
-}
 
 // Run drives the SSE broadcast loop until ctx is cancelled.
 func (srv *Server) Run(ctx context.Context) {
@@ -92,25 +80,22 @@ func (srv *Server) ClientCount() int {
 	return srv.hub.ClientCount()
 }
 
-func (srv *Server) routes() {
-	srv.mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
-		writer.WriteHeader(http.StatusOK)
-		_, _ = writer.Write([]byte("ok"))
-	})
+// RegisterRoutes registers the six graph-view API routes on mux under base
+// (base carries no trailing slash, e.g. APIBase == "/api/graph"). It
+// deliberately omits /healthz and the static frontend: the parent server owns
+// the host guard, CSP, healthz, and static assets.
+func (srv *Server) RegisterRoutes(mux *http.ServeMux, base string) {
+	mux.HandleFunc("GET "+base, srv.handleGraph)
 
-	srv.mux.HandleFunc("GET /api/graph", srv.handleGraph)
+	mux.HandleFunc("GET "+base+"/stream", srv.hub.ServeStream)
 
-	srv.mux.HandleFunc("GET /api/graph/stream", srv.hub.ServeStream)
+	mux.HandleFunc("GET "+base+"/node/{id...}", srv.handleNodeDetail)
 
-	srv.mux.HandleFunc("GET /api/node/{id...}", srv.handleNodeDetail)
+	mux.HandleFunc("GET "+base+"/subunits/{id...}", srv.handleSubunits)
 
-	srv.mux.HandleFunc("GET /api/subunits/{id...}", srv.handleSubunits)
+	mux.HandleFunc("POST "+base+"/query", srv.handleQuery)
 
-	srv.mux.HandleFunc("POST /api/query", srv.handleQuery)
-
-	srv.mux.HandleFunc("GET /api/embeddings", srv.handleEmbeddings)
-
-	srv.mux.Handle("GET /", webui.StaticHandler(distFS, "dist"))
+	mux.HandleFunc("GET "+base+"/embeddings", srv.handleEmbeddings)
 }
 
 // communityLabelsFor returns the stable community labels for the given reindex

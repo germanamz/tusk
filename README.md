@@ -18,7 +18,7 @@ markdown vault  ──▶  tusk indexer  ──▶  SQLite graph + embeddings
 - **Schema-validated.** Node and edge types are declared in `tusk.toml`. Off-schema content is warned, never rejected.
 - **Structural + semantic.** A compact filter grammar for the graph (`key=value` / `key:value`, ranges, edge traversal, boolean composition), Ollama-backed embeddings for similarity, and a hybrid mode that filters then ranks.
 - **External edits are first-class.** Vim, Obsidian, an LLM piping markdown — they all work; the watcher keeps the index live.
-- **One engine, two surfaces.** Every read/write graph verb has a 1:1 MCP tool; workspace bootstrap (`tusk init`) and the graph viewer (`tusk graph`) stay CLI-only.
+- **One engine, two surfaces.** Every read/write graph verb has a 1:1 MCP tool; workspace bootstrap (`tusk init`) and the web app (`tusk web`, graph + reading views) stay CLI-only.
 
 ---
 
@@ -369,7 +369,7 @@ Or directly in `~/.claude.json`:
 | `tusk_reset` | drop and rebuild the index from files (`confirm: true`) |
 | `tusk_pack_add` | merge a built-in type pack's node/edge types into `tusk.toml` and hot-reload the schema |
 
-Workspace bootstrap (`tusk init`) and the graph viewer (`tusk graph`) stay CLI-only.
+Workspace bootstrap (`tusk init`) and the web app (`tusk web`, graph + reading views) stay CLI-only.
 
 ---
 

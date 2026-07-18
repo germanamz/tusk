@@ -1,57 +1,67 @@
 ---
 type: package
-title: internal/bookview — read-only reading UI server
+title: internal/bookview — read-only reading UI API provider
 import-path: github.com/germanamz/tusk/internal/bookview
 status: stable
 ---
 
 # internal/bookview
 
-Serves `tusk book`: a read-only, live-updating reading UI over a loopback
-HTTP server. Receives an open workspace handle via `Deps` and never opens
-the workspace itself. Every route is a read — `POST /api/search` carries a
+Provides the read-only, live-updating reading UI as a set of read routes,
+mounted by `internal/webapp` under `/api/read/*` (`const APIBase =
+"/api/read"`). It is no longer a standalone server: `internal/webapp` owns
+the loopback bind, the single Host-header guard, the unified CSP, the
+embedded frontend, one healthz, and the SPA history fallback, and calls
+`RegisterRoutes(mux, base)` to graft bookview's routes onto the shared mux.
+bookview receives an open workspace handle via `Deps` and never opens the
+workspace itself. Every route is a read — `POST /api/read/search` carries a
 query body, not a mutation. Rendering markdown to HTML is the frontend's
-job: the API returns the raw body (frontmatter stripped) and the browser
-(embedded Vite bundle in `dist/`) renders math (KaTeX), diagrams (mermaid),
-and navigable wikilinks, and sanitizes the result.
+job: the API returns the raw body (frontmatter stripped) and the browser —
+the reading modules of the one unified Vite SPA, under `web/src/read/` —
+renders math (KaTeX), diagrams (mermaid), and navigable wikilinks, and
+sanitizes the result.
 
 ## Public surface
 
-- `New(deps Deps) *Server` — constructs the server; does not bind a port.
+- `New(deps Deps) *Server` — constructs the API provider; does not bind a
+  port.
 - `(*Server).Run(ctx context.Context)` — starts the SSE change-detection
   loop.
-- `(*Server).Handler() http.Handler` — the HTTP mux, wrapped in the
-  Host-header guard and a CSP.
-- `(*Server).ClientCount() int` — connected SSE clients, for the CLI
-  status line.
-- `DefaultAddr string` — the default loopback bind address
-  (`127.0.0.1:7474`).
-- `Deps` — bundles everything the server needs: `Root`, `Nodes`
+- `(*Server).RegisterRoutes(mux *http.ServeMux, base string)` — grafts
+  bookview's routes onto a caller-supplied mux under `base`
+  (`internal/webapp` passes `APIBase`). Replaces the old `Handler()`;
+  bookview no longer builds its own mux, Host guard, or CSP —
+  `internal/webapp` owns all three.
+- `(*Server).ClientCount() int` — connected SSE clients; `internal/webapp`
+  aggregates it with graphview's for the CLI status line.
+- `APIBase = "/api/read"` — the mount prefix `internal/webapp` grafts
+  bookview under.
+- `Deps` — bundles everything the provider needs: `Root`, `Nodes`
   (`NodeSource`), `Edges` (`EdgeSource`), `Search` (`Searcher`; nil makes
-  `/api/search` report 503), `Related` (`RelatedSource`; nil makes the
+  `/api/read/search` report 503), `Related` (`RelatedSource`; nil makes the
   rail come back empty), `Meta` (`webui.MetaReader`; nil reports a
-  constant zero change signal), `Logger`, `AllowedHosts`, `PollInterval`.
-- **Routes:**
+  constant zero change signal), `Logger`, `PollInterval`. The Host
+  allowlist moved up to `internal/webapp` along with the guard.
+- **Routes** (registered under `APIBase`; healthz, the embedded frontend,
+  and the SPA history fallback are served by `internal/webapp`, not here):
 
   | Route | Behavior |
   |---|---|
-  | `GET /healthz` | plain liveness check |
-  | `GET /api/index` | the Contents pane's node index — every file-level node |
-  | `GET /api/node/{id...}` | one node's reading payload: metadata, stripped markdown, links, resolved wikilinks |
-  | `GET /api/asset/{path...}` | one vault file served verbatim (images, etc.), guarded against traversal |
-  | `POST /api/search` | structural / semantic / graph-expanded search over `query.Run` |
-  | `GET /api/related/{id...}` | the embedder-free Related rail |
-  | `GET /api/stream` | SSE change stream (`event: change`) |
-  | `GET /` | the embedded frontend bundle |
+  | `GET /api/read/index` | the Contents pane's node index — every file-level node |
+  | `GET /api/read/node/{id...}` | one node's reading payload: metadata, stripped markdown, links, resolved wikilinks |
+  | `GET /api/read/asset/{path...}` | one vault file served verbatim (images, etc.), guarded against traversal |
+  | `POST /api/read/search` | structural / semantic / graph-expanded search over `query.Run` |
+  | `GET /api/read/related/{id...}` | the embedder-free Related rail |
+  | `GET /api/read/stream` | SSE change stream (`event: change`) |
 
 - **Payload types:**
   - `IndexNode{ID, Type, Title, Path}` / `IndexResponse{Nodes}` — the
-    `/api/index` payload. There is no `Parent` field: every row
+    `/api/read/index` payload. There is no `Parent` field: every row
     `ListFileNodes` returns has `parent_id` NULL by construction, so a
     `Parent` field would always be empty. The Contents pane derives its
     tree from `Path` instead (`specs/x.md` nests under `specs/`).
   - `NodeReadPayload{ID, Type, Title, Path, Properties, Markdown,
-    Links{Out, In}, Wikilinks}` — the `/api/node/{id}` payload. `Markdown`
+    Links{Out, In}, Wikilinks}` — the `/api/read/node/{id}` payload. `Markdown`
     is the raw body with frontmatter stripped
     (`render.StripFrontmatter`). `Wikilinks` maps every raw `[[target]]`
     found in the body to its resolution (`WikilinkTarget{ID, Title,
@@ -69,7 +79,8 @@ and navigable wikilinks, and sanitizes the result.
   (satisfied by the adapters below).
 - `NewSearcher(db, workspaceManifest, embedder, embeddings, nodes, edges, root) Searcher`
   and `NewRelated(edges, workspaceManifest, nodes) RelatedSource` —
-  concrete implementations wired from `cmd/tusk/cmd_book.go`.
+  concrete implementations wired when `tusk web` composes the reading API
+  provider (`internal/webapp`).
 
 ## Links: sub-unit far ends roll up to their file
 
@@ -120,17 +131,22 @@ discriminate further within a distance band.
   vault root, so a `/vault` vs `/vault-secrets` prefix collision can't
   leak a sibling directory.
 - The reading UI renders untrusted vault content — arbitrary markdown,
-  including raw HTML — as the browser's own DOM, so `Handler()` sets a
-  restrictive CSP as the backstop behind client-side sanitization: strict
-  `script-src 'self'` (KaTeX and mermaid need `'unsafe-inline'` style, but
-  never inline script), `img-src 'self' data:` (vault images load
-  same-origin via `/api/asset`, so node content can't silently phone home
-  through a remote image), `base-uri 'none'`, `object-src 'none'`.
-- The serving scaffold — Host-header guard, SSE hub, change source,
-  static handler — is shared with `tusk graph` via `internal/webui`. The
-  neighbor projection (`webui.Neighbors`) is not: graphview is its sole
-  caller, and bookview re-implements its own incident-edge walk instead
-  (see "Links" above). The routes, payloads, and CSP above are bookview's
-  own.
+  including raw HTML — as the browser's own DOM, so a restrictive CSP is
+  essential as the backstop behind client-side sanitization. bookview no
+  longer sets it: the CSP is now the single unified policy in
+  `internal/webapp`, covering both views (strict `script-src 'self'` —
+  KaTeX and mermaid need `'unsafe-inline'` style, but never inline script;
+  `img-src 'self' data:`, so vault images load same-origin via
+  `/api/read/asset` and node content can't silently phone home through a
+  remote image; `base-uri 'none'`, `object-src 'none'`). See
+  `docs/packages/webapp.md` for the full directive list.
+- bookview still builds on `internal/webui` for the SSE hub and the change
+  source. The Host-header guard, the static handler, and the CSP no longer
+  live here — `internal/webapp` owns them and shares them across both views
+  (see `docs/packages/webapp.md`). The neighbor projection
+  (`webui.Neighbors`) is graphview's, not bookview's: bookview
+  re-implements its own incident-edge walk instead (see "Links" above). The
+  routes and payloads above are bookview's own.
 
-Backs `tusk book`.
+Backs the reading view of `tusk web` (`/read`), reachable through the
+deprecated `tusk book` alias.

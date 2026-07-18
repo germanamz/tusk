@@ -16,7 +16,7 @@ func TestBookServesHealthz(test *testing.T) {
 	rootCmd := newRootCmd()
 	bookCmd, _, _ := rootCmd.Find([]string{"book"})
 
-	cfg := bookWebUIConfig("127.0.0.1:0", false)
+	cfg := webWebUIConfig("127.0.0.1:0", false, "read")
 	cfg.ready = func(addr string) { addrCh <- addr }
 
 	errCh := make(chan error, 1)
@@ -36,14 +36,14 @@ func TestBookServesHealthz(test *testing.T) {
 		test.Fatalf("GET /healthz status = %d, want 200", healthzResp.StatusCode)
 	}
 
-	indexResp, indexErr := http.Get("http://" + addr + "/api/index")
+	indexResp, indexErr := http.Get("http://" + addr + "/api/read/index")
 	if indexErr != nil {
-		test.Fatalf("GET /api/index: %v", indexErr)
+		test.Fatalf("GET /api/read/index: %v", indexErr)
 	}
 	_ = indexResp.Body.Close()
 
 	if indexResp.StatusCode != http.StatusOK {
-		test.Fatalf("GET /api/index status = %d, want 200", indexResp.StatusCode)
+		test.Fatalf("GET /api/read/index status = %d, want 200", indexResp.StatusCode)
 	}
 
 	cancel()

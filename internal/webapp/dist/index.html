@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tusk web</title>
+    <script type="module" crossorigin src="/assets/app.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-QTnfLwEv.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-D6obrrYz.css">
+  </head>
+  <body>
+    <div id="app">
+      <header class="tbar">
+        <span class="tbar-brand"><span class="mark">▣</span>TUSK</span>
+        <span class="tbar-rule"></span>
+        <span class="tbar-view" id="view-name">GRAPH</span>
+        <span class="tbar-spacer"></span>
+        <span class="tbar-status" id="mission-status" data-state="connecting">
+          <span class="status-dot"></span>
+          <span class="status-label" id="status-label">LINK</span>
+          <span class="status-gen" id="status-gen"></span>
+        </span>
+        <div class="theme-toggle" id="theme-toggle" role="group" aria-label="Theme">
+          <button data-mode="system" type="button">SYS</button>
+          <button data-mode="light" type="button">LIGHT</button>
+          <button data-mode="dark" type="button">DARK</button>
+        </div>
+      </header>
+
+      <main class="deck">
+        <nav class="rail" aria-label="Views">
+          <button class="rail-btn" data-view="graph" type="button" title="Graph view" aria-label="Graph view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="5" cy="6" r="2" /><circle cx="18" cy="8" r="2" /><circle cx="12" cy="18" r="2" />
+              <path d="M7 6.6l9 1.2M6.4 7.8l5 8.4M16.8 9.6l-3.6 6.6" />
+            </svg>
+          </button>
+          <button class="rail-btn" data-view="read" type="button" title="Reading view" aria-label="Reading view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 3h9l3 3v15H6z" /><path d="M9 8h6M9 12h6M9 16h4" />
+            </svg>
+          </button>
+          <span class="rail-spacer"></span>
+        </nav>
+
+        <section id="viewport" aria-live="polite"></section>
+      </main>
+
+      <footer class="strip">
+        <span class="strip-conn" id="conn">
+          <span class="status-dot"></span>
+          <span id="conn-label">CONNECTING</span>
+        </span>
+        <span class="strip-host" id="host"></span>
+        <span class="strip-badge" id="loopback" hidden>LOOPBACK</span>
+        <span class="strip-spacer"></span>
+      </footer>
+    </div>
+
+  </body>
+</html>

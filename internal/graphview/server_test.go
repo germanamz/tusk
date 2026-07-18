@@ -1,39 +1,15 @@
 package graphview
 
-import (
-	"net/http"
-	"net/http/httptest"
-	"testing"
-)
+import "net/http"
 
-func TestServer_ServesStaticIndex(t *testing.T) {
-	srv := New(Deps{})
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
+// testHandler builds an http.Handler that serves the graph-view API by
+// registering the server's routes on a fresh mux under APIBase. Tests use it in
+// place of the retired standalone Handler(); the parent webapp owns the host
+// guard, healthz, and static frontend in production.
+func testHandler(srv *Server) http.Handler {
+	mux := http.NewServeMux()
 
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
+	srv.RegisterRoutes(mux, APIBase)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET / status = %d, want 200", resp.StatusCode)
-	}
-}
-
-func TestServer_Healthz(t *testing.T) {
-	srv := New(Deps{})
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/healthz")
-	if err != nil {
-		t.Fatalf("GET /healthz: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /healthz status = %d, want 200", resp.StatusCode)
-	}
+	return mux
 }

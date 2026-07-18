@@ -7,14 +7,17 @@ status: stable
 
 # internal/webui
 
-Shared serving scaffold behind the local, read-only vault view commands —
-`tusk graph` and `tusk book`. Neither view opens the workspace itself; each
-receives an already-open handle through its own `Deps` and builds on this
-package for the parts that don't vary between them: a DNS-rebinding
-Host-header guard, a generic SSE broadcast hub, the reindex/epoch change
-signal, an embedded-static-asset handler, and the file-level neighbor
-projection graphview's node-detail payload is built from (bookview
-re-implements its own instead — see Notes below).
+Shared serving scaffold behind `tusk web`, the local, read-only vault web
+app. `internal/webapp` composes the two view providers (`internal/graphview`
++ `internal/bookview`) behind one loopback server and builds on this package
+for the parts that don't vary: a DNS-rebinding Host-header guard, a generic
+SSE broadcast hub, the reindex/epoch change signal, and the file-level
+neighbor projection graphview's node-detail payload is built from (bookview
+re-implements its own instead — see Notes below). Neither view opens the
+workspace itself; each receives an already-open handle through its own
+`Deps`. The guard is now driven by `internal/webapp` (which serves the
+embedded frontend through its own SPA handler); the SSE hub and change
+source stay per-view.
 
 ## Public surface
 
@@ -44,9 +47,6 @@ re-implements its own instead — see Notes below).
   change-detection contract. `Signal{Generation, Epoch}` pairs the SQLite
   `reindex_gen` meta key with the `.tusk/epoch` sentinel, so a poller
   notices both an ordinary reindex and a reset/rebuild.
-- `StaticHandler(fsys fs.FS, subdir string) http.Handler` — serves an
-  embedded frontend bundle rooted at `subdir` within `fsys`. Both views
-  mount their `//go:embed`-ed `dist/` through it.
 - `NodeLister` / `EdgeLister` / `Neighbor` /
   `Neighbors(nodes NodeLister, edges EdgeLister, nodeID string) ([]Neighbor, error)`
   — the file-level neighbor projection graphview uses for its node-detail
@@ -63,13 +63,14 @@ re-implements its own instead — see Notes below).
 ## Notes
 
 - The Host guard is the package's core security control, and it's what
-  lets both view commands default to loopback while still working when a
-  user deliberately exposes one on the LAN. Each view's `Deps.AllowedHosts`
-  is empty by default (loopback + `localhost` only); a confirmed
-  non-loopback `--addr` adds the bound hostname, or `"*"` if the interface
-  is `0.0.0.0`/`::`. Beyond that, this package sets no security headers —
-  that call belongs to each view: bookview adds a CSP because it renders
-  untrusted vault content as DOM, graphview sets none.
+  lets `tusk web` default to loopback while still working when a user
+  deliberately exposes it on the LAN. `internal/webapp` wraps the whole
+  server in one guard: its allowlist is empty by default (loopback +
+  `localhost` only); a confirmed non-loopback `--addr` adds the bound
+  hostname, or `"*"` if the interface is `0.0.0.0`/`::`. Beyond the guard,
+  this package sets no security headers — the single unified CSP lives in
+  `internal/webapp` (needed because the reading view renders untrusted
+  vault content as DOM), not here.
 - `Neighbors` applies exactly one rule — a structural edge to a sub-unit
   far end is skipped, the file-level rule graphview has always used — and
   leaves everything else to the caller. graphview keeps structural edges
@@ -81,4 +82,4 @@ re-implements its own instead — see Notes below).
   `[]Neighbor` slice the sub-unit identity the rollup needs is already
   gone. Both policies live in the view packages, not here.
 
-Backs `tusk graph` and `tusk book`.
+Backs `tusk web` (the graph and reading views), through `internal/webapp`.

@@ -1,17 +1,17 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/germanamz/tusk/internal/bookview"
-	"github.com/germanamz/tusk/internal/mcp"
 	"github.com/spf13/cobra"
 )
 
+// newBookCmd is the deprecated alias for `tusk web`. The graph and book views
+// were merged into one app; `tusk book` now prints a deprecation notice and
+// launches the unified app on the reading view, keeping its historical loopback
+// port so existing scripts and muscle memory keep working. It is hidden from
+// help and the generated docs.
 func newBookCmd() *cobra.Command {
 	var (
 		addr     string
@@ -19,33 +19,13 @@ func newBookCmd() *cobra.Command {
 	)
 
 	bookCmd := &cobra.Command{
-		Use:   "book",
-		Short: "Serve a read-only reading view of the vault",
-		Long: `Serve a local, read-only reading UI for the vault: rendered node
-documents (with math, mermaid diagrams, and images), semantic search, and
-graph-expansion navigation, kept live as files change.
-
-The server binds to loopback by default. It does not open a browser
-automatically: press space in this terminal to open it, or pass --open.`,
-		Example: `  # Serve on 127.0.0.1:7474 and press space to open
-  tusk book
-
-  # Open the browser automatically
-  tusk book --open
-
-  # Bind a specific loopback port
-  tusk book --addr 127.0.0.1:9001`,
+		Use:    "book",
+		Short:  `Deprecated: use "tusk web" (opens the reading view)`,
+		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !isLoopbackAddr(addr) {
-				if !confirmNonLoopback(cmd, addr, "book") {
-					return fmt.Errorf("book: refusing to bind non-loopback address %q without confirmation", addr)
-				}
-			}
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), `warning: "tusk book" is deprecated; use "tusk web". Launching the unified app on the reading view.`)
 
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-
-			return serveWebUI(ctx, cmd, bookWebUIConfig(addr, autoOpen))
+			return runWeb(cmd, addr, autoOpen, "read")
 		},
 	}
 
@@ -53,29 +33,4 @@ automatically: press space in this terminal to open it, or pass --open.`,
 	bookCmd.Flags().BoolVar(&autoOpen, "open", false, "open the browser automatically at startup")
 
 	return bookCmd
-}
-
-// bookWebUIConfig describes the book view to the shared serveWebUI spine: how
-// to build the book server once the runtime is open, and how to render its
-// status line. Tests reach for it directly so they can add a ready hook.
-func bookWebUIConfig(addr string, autoOpen bool) webUIConfig {
-	return webUIConfig{
-		Name:     "book",
-		Addr:     addr,
-		AutoOpen: autoOpen,
-		Title:    "tusk book",
-		BuildServer: func(rt *mcp.Runtime) webViewServer {
-			return bookview.New(bookview.Deps{
-				Root:         rt.Root,
-				Nodes:        rt.Nodes,
-				Edges:        rt.Edges,
-				Search:       bookview.NewSearcher(rt.Index.DB(), rt.Manifest, rt.Embedder, rt.Embeddings, rt.Nodes, rt.Edges, rt.Root),
-				Related:      bookview.NewRelated(rt.Edges, rt.Manifest, rt.Nodes),
-				Meta:         rt.Meta,
-				Logger:       rt.Logger,
-				AllowedHosts: deriveAllowedHosts(addr),
-			})
-		},
-		StatusLine: statusLine,
-	}
 }

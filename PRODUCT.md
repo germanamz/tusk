@@ -97,10 +97,11 @@ SQLite + vectors).
 One engine, two surfaces, with type-pack ergonomics on top:
 
 - **CLI** — `tusk init`, `tusk reindex`, `tusk reload`, `tusk doctor`,
-  `tusk status`, `tusk node …`, `tusk edge …`, `tusk query …`, plus pack
-  shortcuts (`tusk ticket open`, `tusk note new`).
+  `tusk status`, `tusk node …`, `tusk edge …`, `tusk query …`, `tusk web`
+  (the local graph + reading web app), plus pack shortcuts (`tusk ticket open`,
+  `tusk note new`).
 - **MCP server** — every read/write graph verb maps 1:1 to a `tusk_<noun>_<verb>`
-  tool over stdio or SSE (workspace bootstrap and the graph viewer stay CLI-only),
+  tool over stdio or SSE (workspace bootstrap and the web app stay CLI-only),
   so any MCP-compatible agent (Claude Code, Cursor, …) shares the same engine.
   Agents should prefer the tools over shelling out to `tusk`.
 
