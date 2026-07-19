@@ -62,20 +62,31 @@ tusk --version
 
 ### Updating
 
-Tusk has no self-update command — re-run whichever install method you used and the binary gets overwritten in place. Your workspace and `.tusk/` index are untouched.
+If you installed a prebuilt binary, `tusk update` replaces it in place. Your workspace and `.tusk/` index are untouched.
 
 ```bash
-# Prebuilt binary — same one-liner; defaults to the latest release
-curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+tusk update              # latest release
+tusk update v1.2.0       # pin a version (or roll back to one)
+tusk update --check      # report what's available, change nothing
+```
 
-# Pin a specific version
-curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | TUSK_VERSION=v1.2.0 sh
+The archive is verified against the release checksums before anything is extracted, and the previous binary is kept aside until the replacement is in place, so a failed swap rolls back rather than leaving you with no binary. Man pages are refreshed alongside it.
 
+A binary managed by Homebrew, installed with `go install`, or built from source is owned by that tool, so `tusk update` refuses it and prints the right command instead (`--force` overrides):
+
+```bash
 # From source
 cd tusk && git pull && make build && install bin/tusk /usr/local/bin/tusk
 
 # go install
 go install github.com/germanamz/tusk/cmd/tusk@latest
+```
+
+Re-running the install one-liner also still works, and remains the way to bootstrap a machine that has no `tusk` yet:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | TUSK_VERSION=v1.2.0 sh
 ```
 
 After a major upgrade, run `tusk reindex` to pick up any indexer changes, then `tusk doctor` to confirm the workspace is healthy.

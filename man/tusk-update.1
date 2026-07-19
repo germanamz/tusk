@@ -1,0 +1,99 @@
+.nh
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
+
+.SH NAME
+tusk-update - Replace the running tusk binary with a published release
+
+
+.SH SYNOPSIS
+\fBtusk update [version] [flags]\fP
+
+
+.SH DESCRIPTION
+Replace the running tusk binary with a build from GitHub Releases.
+
+.PP
+With no argument, or with "latest", the newest published release is
+installed. Pass a tag to pin a specific version; a bare "2.3.0" is
+normalized to "v2.3.0". Installing an older version than the one running
+is allowed and reported as a downgrade.
+
+.PP
+The archive is verified against the release checksums file before anything
+is extracted, and the previous binary is kept aside until the replacement
+is in place, so a failed swap rolls back rather than leaving no binary.
+
+.PP
+Man pages ship in the release archive and are installed alongside the
+binary, following the same layout as install.sh: a binary in /bin
+puts its man pages in /share/man. Set MAN_DIR to override. Man-page
+installation is best-effort — a read-only directory prints a note and does
+not fail an update that already succeeded.
+
+.PP
+INSTALL METHOD
+  A binary managed by Homebrew, installed with "go install", or built from
+  source is owned by that tool, and replacing it in place would leave the
+  tool's records inconsistent. Those are refused with the correct upgrade
+  command for that method; pass --force to replace the binary anyway.
+  "--check" predicts the refusal rather than reporting an update that the
+  real run would reject.
+
+.PP
+--force also permits reinstalling the version already running, which
+  repairs a corrupted binary in place.
+
+.PP
+Your workspace and its .tusk/ index are never touched by an update.
+
+.PP
+EXIT CODES
+  0  success, including --check whatever it found
+  1  generic failure
+  2  network, release-resolution, or invalid-version failure
+  3  checksum verification failure
+  4  install-method refusal
+  5  permission or swap failure
+
+
+.SH OPTIONS
+\fB--check\fP[=false]
+	report the available version without installing anything
+
+.PP
+\fB--force\fP[=false]
+	replace the binary even when another tool manages it, or reinstall the current version
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for update
+
+.PP
+\fB--json\fP[=false]
+	emit machine-readable JSON
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Update to the latest release
+  tusk update
+
+  # Pin a specific version (or roll back to one)
+  tusk update v2.3.0
+
+  # Report what an update would do, without changing anything
+  tusk update --check
+  tusk update --check --json
+
+  # Replace a Homebrew- or go-install-managed binary anyway
+  tusk update --force
+.EE
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP
