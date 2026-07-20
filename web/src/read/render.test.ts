@@ -57,6 +57,23 @@ describe('mermaid fences are deferred, not executed at render time', () => {
   })
 })
 
+describe('tables', () => {
+  const table = '| a | b |\n| --- | --- |\n| 1 | 2 |'
+
+  test('a table is wrapped in a scroll container', () => {
+    const html = renderMarkdown(table, ctx)
+    expect(html).toContain('<div class="table-scroll"><table>')
+    expect(html).toContain('</table></div>')
+  })
+
+  test('the wrapper does not disturb the table body', () => {
+    const html = renderMarkdown(table, ctx)
+    expect(html).toContain('<thead>')
+    expect(html).toContain('<th>a</th>')
+    expect(html).toContain('<td>1</td>')
+  })
+})
+
 describe('wikilinks', () => {
   test('a resolved target becomes a node link', () => {
     const html = renderMarkdown('see [[b]]', ctx)

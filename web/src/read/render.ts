@@ -66,6 +66,15 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return defaultFenceRule(tokens, idx, options, env, self)
 }
 
+// Tables are wrapped in a scroll container. markdown-it emits a bare <table>,
+// and the reader's body is a capped 42rem measure: a table wider than that
+// would otherwise squeeze its columns until cell text collides with its
+// neighbours. The wrapper (styled as .table-scroll) lets such a table scroll
+// horizontally inside the measure instead; a table that already fits looks
+// exactly the same either way.
+md.renderer.rules.table_open = () => '<div class="table-scroll"><table>'
+md.renderer.rules.table_close = () => '</table></div>'
+
 // Task lists: markdown-it's CommonMark core has no notion of `- [ ] item` —
 // GFM task-list checkboxes are a sugar on top that markdown-it does not ship,
 // and this project has no markdown-it-task-lists dependency, so it is

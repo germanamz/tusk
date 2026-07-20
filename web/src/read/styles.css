@@ -174,6 +174,9 @@
 .pane-reader {
   grid-area: reader;
   padding: 2.25rem 2rem 4rem;
+  /* Lets .node-body's tables size against the pane's real width (100cqi) when
+     they break out of the capped prose measure. */
+  container-type: inline-size;
 }
 
 .pane-rails {
@@ -493,6 +496,63 @@
 .node-body img {
   max-width: 100%;
 }
+
+/* Markdown tables. The browser's default table has no rules at all, which in a
+   prose-heavy vault reads as four columns of text run together — so every cell
+   gets a visible boundary, the header gets a heavier one under it, and rows
+   alternate on the raised paper tone so the eye can track a long row across.
+   Cells are top-aligned because a row's columns are rarely the same height
+   (a one-word id beside a paragraph), and the header follows the same compact
+   uppercase grotesk idiom as the rails and property labels so it reads as
+   chrome rather than as another line of body copy. */
+/* A table is read column-wise, so the 42rem prose measure starves it in a way
+   it does not starve body copy. Break out of the measure symmetrically, up to
+   the reader pane's own width (100cqi, from the container-type on .pane-reader)
+   — on a pane narrower than the measure this collapses back to a plain
+   full-width table with no negative margin, so it can never spill the pane. */
+.node-body .table-scroll {
+  --table-width: min(58rem, 100cqi);
+  width: max(100%, var(--table-width));
+  margin: 1.4rem 0;
+  margin-inline: min(0px, calc((100% - var(--table-width)) / 2));
+  overflow-x: auto;
+}
+
+.node-body table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.94em;
+  line-height: 1.55;
+}
+
+.node-body th,
+.node-body td {
+  border: 1px solid var(--rule);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+  /* Break only a word that cannot fit its column on its own — unlike `anywhere`,
+     this leaves the column's min-content width intact, so an ordinary word like
+     "property" is never split down the middle to make a column narrower. */
+  overflow-wrap: break-word;
+}
+
+.node-body thead th {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border-bottom: 2px solid var(--rule-strong);
+  white-space: nowrap;
+}
+
+.node-body tbody tr:nth-child(even) {
+  background: var(--paper-raised);
+}
+
 
 .node-body a.remote-image {
   display: inline-block;
