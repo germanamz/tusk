@@ -17,7 +17,7 @@
     "@panzoom/panzoom": "4.6.2",
     "d3-force-3d": "^3",
     "dompurify": "3.4.12",
-    "katex": "0.18.0",
+    "katex": "0.18.1",
     "markdown-it": "14.3.0",
     "markdown-it-texmath": "1.0.0",
     "mermaid": "11.16.0",
