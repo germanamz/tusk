@@ -39,6 +39,11 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		"mcp":      {},
 		"pack add": {},
 		"docgen":   {},
+		// `update` replaces the tusk binary itself. It operates on the
+		// installation, not on any workspace graph, and is deliberately
+		// absent from MCP: letting an agent swap the binary it is running
+		// under is not a capability worth exposing.
+		"update": {},
 		// `run` is the dispatcher entry point itself; it invokes other
 		// verbs by name rather than being one.
 		"run": {},

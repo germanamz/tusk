@@ -122,6 +122,7 @@ CONFIGURATION
 * [tusk reset](tusk_reset.md)	 - Drop the local index and rebuild it from source files
 * [tusk run](tusk_run.md)	 - Run a manifest-declared alias by name
 * [tusk status](tusk_status.md)	 - Print a one-screen workspace summary
+* [tusk update](tusk_update.md)	 - Replace the running tusk binary with a published release
 * [tusk watch](tusk_watch.md)	 - Watch the workspace for external edits and keep the index in sync
 * [tusk web](tusk_web.md)	 - Serve the unified web app: 3D graph + reading views
 
