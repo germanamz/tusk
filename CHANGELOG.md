@@ -1,12 +1,5 @@
 # Changelog
 
-## [2.4.0](https://github.com/germanamz/tusk/compare/v2.3.0...v2.4.0) (2026-07-18)
-
-
-### Features
-
-* **web:** consolidate graph + book into a unified `tusk web` app with theming ([#726](https://github.com/germanamz/tusk/issues/726)) ([8acd7e0](https://github.com/germanamz/tusk/commit/8acd7e09470fef72be57790d9cd99870d27f998b))
-
 ## [2.3.0](https://github.com/germanamz/tusk/compare/v2.2.0...v2.3.0) (2026-07-17)
 
 

@@ -102,12 +102,11 @@ jobs:
           upload_base="${UPLOAD_URL%\{*}"
           release_id="$(printf '%s' "$upload_base" | sed -E 's#.*/releases/([0-9]+)/assets#\1#')"
           for f in dist/tusk_*.tar.gz dist/tusk_*.zip dist/checksums.txt \
-                   dist/checksums.txt.sig dist/checksums.txt.pem dist/*.sbom.json; do
+                   dist/checksums.txt.sigstore.json dist/*.sbom.json; do
             case "$f" in
               *.zip) ct=application/zip ;;
               *.tar.gz) ct=application/gzip ;;
-              *.sbom.json) ct=application/json ;;
-              *.sig|*.pem) ct=application/octet-stream ;;
+              *.sbom.json|*.sigstore.json) ct=application/json ;;
               *) ct=text/plain ;;
             esac
             gh api --method POST "${upload_base}?name=$(basename "$f")" \

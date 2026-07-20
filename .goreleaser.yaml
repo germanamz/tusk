@@ -51,9 +51,11 @@ sboms:
 # archive + SBOM hash, so one transparency-logged signature transitively
 # protects all artifacts. Keyless uses the publish job's GitHub OIDC token
 # (Fulcio/Rekor public-good infra) — no private key to manage, but the signing
-# identity is recorded in the public Rekor transparency log. Verify with:
-#   cosign verify-blob --certificate checksums.txt.pem \
-#     --signature checksums.txt.sig \
+# identity is recorded in the public Rekor transparency log. The signature,
+# certificate and Rekor inclusion proof all live in one Sigstore bundle —
+# cosign v3 deprecated the split --output-signature/--output-certificate pair.
+# Verify with:
+#   cosign verify-blob --bundle checksums.txt.sigstore.json \
 #     --certificate-identity-regexp 'https://github.com/germanamz/tusk/.*' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     checksums.txt
@@ -61,13 +63,11 @@ signs:
   - cmd: cosign
     artifacts: checksum
     output: true
-    signature: "${artifact}.sig"
-    certificate: "${artifact}.pem"
+    signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
       - "--yes"
-      - "--output-signature=${signature}"
-      - "--output-certificate=${certificate}"
+      - "--bundle=${signature}"
       - "${artifact}"
 
 changelog:
