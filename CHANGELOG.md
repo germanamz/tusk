@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.0](https://github.com/germanamz/tusk/compare/v2.3.0...v2.4.0) (2026-07-20)
+
+
+### Features
+
+* **cli:** add `tusk update` to self-update the installed binary ([#729](https://github.com/germanamz/tusk/issues/729)) ([f2a556a](https://github.com/germanamz/tusk/commit/f2a556ad03c5f18ed6dffdb845cba2d1c87a73e4))
+* **web:** consolidate graph + book into a unified `tusk web` app with theming ([#726](https://github.com/germanamz/tusk/issues/726)) ([8acd7e0](https://github.com/germanamz/tusk/commit/8acd7e09470fef72be57790d9cd99870d27f998b))
+
 ## [2.3.0](https://github.com/germanamz/tusk/compare/v2.2.0...v2.3.0) (2026-07-17)
 
 
