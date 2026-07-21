@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.1](https://github.com/germanamz/tusk/compare/v2.4.0...v2.4.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **web:** give rendered markdown tables visible boundaries ([#733](https://github.com/germanamz/tusk/issues/733)) ([9ce4916](https://github.com/germanamz/tusk/commit/9ce4916986c2449dacf8f184fe1c5650f9b7c28d))
+
 ## [2.4.0](https://github.com/germanamz/tusk/compare/v2.3.0...v2.4.0) (2026-07-20)
 
 
