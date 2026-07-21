@@ -30,10 +30,14 @@ jobs:
       sha: ${{ steps.release.outputs.sha }}
       upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
+      # `client-id` supersedes the now-deprecated `app-id` input (v3). We keep
+      # feeding it the numeric App ID secret: GitHub accepts either the App ID or
+      # the Client ID as the app-JWT issuer, so this is a pure rename — same token
+      # minted, no new secret to provision.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: app-token
         with:
-          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
@@ -124,10 +128,14 @@ jobs:
     if: ${{ always() && needs.create-release.result == 'success' && needs.publish.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
+      # `client-id` supersedes the now-deprecated `app-id` input (v3). We keep
+      # feeding it the numeric App ID secret: GitHub accepts either the App ID or
+      # the Client ID as the app-JWT issuer, so this is a pure rename — same token
+      # minted, no new secret to provision.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: app-token
         with:
-          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         with:
