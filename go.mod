@@ -7,8 +7,8 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gofrs/flock v0.13.0
 	github.com/google/uuid v1.6.0
-	github.com/mark3labs/mcp-go v0.56.0
-	github.com/mattn/go-isatty v0.0.23
+	github.com/mark3labs/mcp-go v0.57.0
+	github.com/mattn/go-isatty v0.0.24
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
