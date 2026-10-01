@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/germanamz/tusk/compare/v2.4.1...v2.5.0) (2026-10-01)
+
+
+### Features
+
+* **cli:** add tusk claude to give Claude Code sessions vault context ([#751](https://github.com/germanamz/tusk/issues/751)) ([78c2cc0](https://github.com/germanamz/tusk/commit/78c2cc03f923072cb819b373fc6901bfdb63c2e7))
+
 ## [2.4.1](https://github.com/germanamz/tusk/compare/v2.4.0...v2.4.1) (2026-07-20)
 
 
