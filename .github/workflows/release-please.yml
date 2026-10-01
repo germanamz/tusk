@@ -59,7 +59,7 @@ jobs:
       # actions/attest-build-provenance writes the attestation to the repo.
       attestations: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.create-release.outputs.sha }}
           fetch-depth: 0
@@ -71,7 +71,7 @@ jobs:
       # cosign signs checksums.txt (keyless); syft generates the per-archive
       # SBOMs. Both are invoked by goreleaser, so they must be on PATH first.
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
 
       # release-please created the GitHub release as a draft, so the git tag
       # does not exist yet. Recreate it locally so goreleaser can derive the
@@ -88,7 +88,7 @@ jobs:
 
       # SLSA build provenance for the release archives, verifiable with
       # `gh attestation verify <archive> --repo germanamz/tusk`.
-      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: "dist/tusk_*.tar.gz,dist/tusk_*.zip"
 
