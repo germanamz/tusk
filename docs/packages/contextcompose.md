@@ -36,3 +36,4 @@ The digest is built in three steps:
 
 - `cmd/tusk/cmd_context.go` — the `tusk context` CLI command.
 - `internal/mcp/tools.go::registerContextTool` — the `tusk_context` MCP tool.
+- `cmd/tusk/cmd_claude.go` — `tusk claude context`, which budgets the digest into the block the Claude Code plugin adds to a session.

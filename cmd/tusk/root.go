@@ -57,7 +57,8 @@ CONFIGURATION
                              hull, community-edges, resolution — cluster lens
                              for the "tusk web" graph view
     [context]                pinned, recent, include — shape the warm-context
-                             digest produced by "tusk context"
+                             digest produced by "tusk context"; max-bytes caps
+                             the block "tusk claude" hands Claude Code
     [lease]                  ttl_seconds (default 60) for multi-instance
                              indexing
     [behaviors.<kind>]       manifest-declared behaviors
@@ -94,6 +95,9 @@ CONFIGURATION
   # Serve the graph to an MCP agent (Claude Code, Cursor, Zed)
   tusk mcp
 
+  # Give Claude Code sessions in this vault its digest and tools
+  tusk claude install
+
   # Run a read-only MCP instance that never drains the index
   TUSK_EMBED_WORKERS=0 tusk mcp`,
 		Version:       version.Current,
@@ -119,6 +123,7 @@ CONFIGURATION
 	rootCmd.AddCommand(newPackCmd())
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newContextCmd())
+	rootCmd.AddCommand(newClaudeCmd())
 	rootCmd.AddCommand(newReloadCmd()) // NEW: hot manifest reload
 	rootCmd.AddCommand(newDocgenCmd())
 	rootCmd.AddCommand(newUpdateCmd())

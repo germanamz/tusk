@@ -31,6 +31,11 @@ type Context struct {
 	// Include lists named aliases (must resolve against Manifest.Aliases)
 	// whose results are folded into the digest under their alias name.
 	Include []string
+
+	// MaxBytes caps the digest `tusk claude context` hands a Claude Code
+	// session. Zero means the composer's default; ValidateContext rejects
+	// negative values (recording a ContextError) and resets them to zero.
+	MaxBytes int
 }
 
 // ContextError is a per-context validation failure surfaced through doctor.
@@ -46,9 +51,10 @@ type ContextError struct {
 // pre-stripped (the inline block is removed) and a ContextError is recorded;
 // the reference form takes precedence so the decoded Primitive is a string.
 type contextTOML struct {
-	Pinned  []string       `toml:"pinned"`
-	Recent  toml.Primitive `toml:"recent"`
-	Include []string       `toml:"include"`
+	Pinned   []string       `toml:"pinned"`
+	Recent   toml.Primitive `toml:"recent"`
+	Include  []string       `toml:"include"`
+	MaxBytes int            `toml:"max-bytes"`
 }
 
 // decodeContext performs a secondary decode of the [context] table and
@@ -78,8 +84,9 @@ func decodeContext(body string, loaded *Manifest) error {
 	}
 
 	loaded.Context = &Context{
-		Pinned:  append([]string(nil), wrapper.Context.Pinned...),
-		Include: append([]string(nil), wrapper.Context.Include...),
+		Pinned:   append([]string(nil), wrapper.Context.Pinned...),
+		Include:  append([]string(nil), wrapper.Context.Include...),
+		MaxBytes: wrapper.Context.MaxBytes,
 	}
 
 	loaded.contextRecentPrimitive = wrapper.Context.Recent
@@ -131,6 +138,13 @@ func ValidateContext(loaded *Manifest, introspect VerbIntrospector) {
 		}
 
 		ctx.Include = validInclude
+	}
+
+	if ctx.MaxBytes < 0 {
+		loaded.ContextErrors = append(loaded.ContextErrors, ContextError{
+			Message: fmt.Sprintf("context.max-bytes: %d is negative; the default budget applies", ctx.MaxBytes),
+		})
+		ctx.MaxBytes = 0
 	}
 
 	// Drop the raw pieces; they are not needed past validation.

@@ -9,6 +9,11 @@ Edit the help strings, then run `make docs`.
 ## Commands
 
 - [`tusk`](tusk.md) — Local-first memory for agents: index a markdown + HTML vault into a graph
+  - [`tusk claude`](tusk_claude.md) — Install and inspect the Claude Code plugin for this workspace
+    - [`tusk claude context`](tusk_claude_context.md) — Print the context block the Claude Code plugin adds to a session
+    - [`tusk claude install`](tusk_claude_install.md) — Install the Claude Code plugin into this workspace
+    - [`tusk claude status`](tusk_claude_status.md) — Report the Claude Code plugin installed in this workspace
+    - [`tusk claude uninstall`](tusk_claude_uninstall.md) — Remove the Claude Code plugin from this workspace
   - [`tusk context`](tusk_context.md) — Compose a warm-context digest from the manifest [context] block
   - [`tusk doctor`](tusk_doctor.md) — Surface validation warnings, dangling edges, and index health issues
   - [`tusk edge`](tusk_edge.md) — Manage edges between nodes (add, remove, list)

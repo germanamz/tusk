@@ -63,7 +63,8 @@ CONFIGURATION
                          hull, community-edges, resolution — cluster lens
                          for the "tusk web" graph view
 [context]                pinned, recent, include — shape the warm-context
-                         digest produced by "tusk context"
+                         digest produced by "tusk context"; max-bytes caps
+                         the block "tusk claude" hands Claude Code
 [lease]                  ttl_seconds (default 60) for multi-instance
                          indexing
 [behaviors.<kind>]       manifest-declared behaviors
@@ -116,10 +117,13 @@ See "tusk  --help" for per-command flags and detail.
   # Serve the graph to an MCP agent (Claude Code, Cursor, Zed)
   tusk mcp
 
+  # Give Claude Code sessions in this vault its digest and tools
+  tusk claude install
+
   # Run a read-only MCP instance that never drains the index
   TUSK_EMBED_WORKERS=0 tusk mcp
 .EE
 
 
 .SH SEE ALSO
-\fBtusk-context(1)\fP, \fBtusk-doctor(1)\fP, \fBtusk-edge(1)\fP, \fBtusk-init(1)\fP, \fBtusk-mcp(1)\fP, \fBtusk-node(1)\fP, \fBtusk-pack(1)\fP, \fBtusk-query(1)\fP, \fBtusk-reindex(1)\fP, \fBtusk-reload(1)\fP, \fBtusk-reset(1)\fP, \fBtusk-run(1)\fP, \fBtusk-status(1)\fP, \fBtusk-update(1)\fP, \fBtusk-watch(1)\fP, \fBtusk-web(1)\fP
+\fBtusk-claude(1)\fP, \fBtusk-context(1)\fP, \fBtusk-doctor(1)\fP, \fBtusk-edge(1)\fP, \fBtusk-init(1)\fP, \fBtusk-mcp(1)\fP, \fBtusk-node(1)\fP, \fBtusk-pack(1)\fP, \fBtusk-query(1)\fP, \fBtusk-reindex(1)\fP, \fBtusk-reload(1)\fP, \fBtusk-reset(1)\fP, \fBtusk-run(1)\fP, \fBtusk-status(1)\fP, \fBtusk-update(1)\fP, \fBtusk-watch(1)\fP, \fBtusk-web(1)\fP

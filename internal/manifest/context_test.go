@@ -322,3 +322,57 @@ func contextErrorsContain(errs []manifest.ContextError, needle string) bool {
 
 	return false
 }
+
+func TestLoad_ParsesContextMaxBytes(test *testing.T) {
+	body := `[workspace]
+name = "brain"
+
+[context]
+max-bytes = 4096
+`
+
+	loaded, loadErr := manifest.Load(writeContextManifest(test, body))
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	manifest.ValidateContext(loaded, fixtureIntrospector(defaultFixtureFlags()))
+
+	if loaded.Context == nil {
+		test.Fatalf("Context is nil")
+	}
+
+	if got, want := loaded.Context.MaxBytes, 4096; got != want {
+		test.Errorf("MaxBytes = %d, want %d", got, want)
+	}
+
+	if len(loaded.ContextErrors) != 0 {
+		test.Errorf("ContextErrors = %v, want none", loaded.ContextErrors)
+	}
+}
+
+func TestValidateContext_RejectsNegativeMaxBytes(test *testing.T) {
+	body := `[workspace]
+name = "brain"
+
+[context]
+max-bytes = -1
+`
+
+	loaded, loadErr := manifest.Load(writeContextManifest(test, body))
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	manifest.ValidateContext(loaded, fixtureIntrospector(defaultFixtureFlags()))
+
+	if got := loaded.Context.MaxBytes; got != 0 {
+		test.Errorf("MaxBytes = %d, want 0 after rejection", got)
+	}
+
+	if len(loaded.ContextErrors) != 1 || !strings.Contains(loaded.ContextErrors[0].Message, "context.max-bytes") {
+		test.Errorf("ContextErrors = %v, want one context.max-bytes error", loaded.ContextErrors)
+	}
+}

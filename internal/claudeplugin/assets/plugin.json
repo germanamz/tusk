@@ -1,0 +1,13 @@
+{
+  "name": "tusk",
+  "version": __TUSK_PLUGIN_VERSION__,
+  "description": "Tusk vault context and tools for Claude Code sessions",
+  "author": { "name": "Tusk" },
+  "homepage": "https://github.com/germanamz/tusk",
+  "mcpServers": {
+    "tusk": {
+      "command": __TUSK_BIN__,
+      "args": ["mcp"]
+    }
+  }
+}

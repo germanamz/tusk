@@ -39,6 +39,15 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		"mcp":      {},
 		"pack add": {},
 		"docgen":   {},
+		// The `claude` verbs install the Claude Code plugin into the
+		// workspace and render the block it hands a session. They act on
+		// the session's own configuration, which is not a capability worth
+		// giving the agent running in that session; agents read the same
+		// digest through tusk_context.
+		"claude install":   {},
+		"claude uninstall": {},
+		"claude status":    {},
+		"claude context":   {},
 		// `update` replaces the tusk binary itself. It operates on the
 		// installation, not on any workspace graph, and is deliberately
 		// absent from MCP: letting an agent swap the binary it is running

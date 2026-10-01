@@ -344,6 +344,21 @@ It holds the workspace open for the lifetime of the session: a single SQLite han
 
 ### Wiring it into Claude Code
 
+Run this once in the workspace root (or pass `--claude` to `tusk init`):
+
+```bash
+tusk claude install
+```
+
+It writes a Claude Code plugin to `.claude/skills/tusk/`, which Claude Code loads for any session started in that folder. The plugin does two things:
+
+- It runs the tusk MCP server, so the agent has the `tusk_*` tools. Claude Code holds a project plugin's server until each user approves it, so install approves it for you in `.claude/settings.local.json`, your uncommitted per-user settings. If `.mcp.json` already runs a tusk server, install removes that entry so the tools aren't registered twice.
+- When a conversation starts, it adds a `tusk` block to the first message, next to CLAUDE.md. The block opens with a short orientation (the declared node types with counts, edge types, aliases, whether the index is current), followed by the `[context]` digest when `tusk.toml` declares one. `/clear` and compaction read it again. It's capped at `[context] max-bytes` (16384 by default); over that, alias sections go first, then recent nodes, then pinned ones. Run `tusk claude context` to see exactly what a session gets.
+
+The plugin folder can be committed, so teammates get it on clone if they have `tusk` on their PATH. Each of them approves the MCP server once, by running `tusk claude install` or in `/mcp`. Run `tusk claude install` again after upgrading tusk, because sessions warn when the plugin is older than the binary. `tusk claude status` reports what's installed, and `tusk claude uninstall` removes it.
+
+To wire up only the MCP server by hand:
+
 ```bash
 claude mcp add tusk -- /usr/local/bin/tusk mcp
 ```
@@ -380,7 +395,7 @@ Or directly in `~/.claude.json`:
 | `tusk_reset` | drop and rebuild the index from files (`confirm: true`) |
 | `tusk_pack_add` | merge a built-in type pack's node/edge types into `tusk.toml` and hot-reload the schema |
 
-Workspace bootstrap (`tusk init`) and the web app (`tusk web`, graph + reading views) stay CLI-only.
+Workspace bootstrap (`tusk init`), the Claude Code plugin (`tusk claude …`) and the web app (`tusk web`, graph + reading views) stay CLI-only.
 
 ---
 
