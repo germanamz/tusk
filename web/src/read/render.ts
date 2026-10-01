@@ -40,7 +40,7 @@ export type RenderContext = {
 // not per-render work. Per-render data (the wikilinks map) rides through
 // markdown-it's own `env` parameter instead of a closure, so this singleton
 // never goes stale across nodes with different wikilink maps.
-const md: MarkdownIt = new MarkdownIt({ html: true, linkify: true, breaks: false })
+const md = new MarkdownIt({ html: true, linkify: true, breaks: false })
 
 // Math: $…$ inline, $$…$$ block, both -> KaTeX. throwOnError: false means a
 // malformed expression renders as flagged source text instead of throwing;
@@ -126,7 +126,9 @@ md.core.ruler.push('task_lists', (state) => {
 // wikilink can never span brackets or run past its closing `]]`.
 const WIKILINK = /^\[\[([^[\]]+)\]\]/
 
-interface WikilinkMeta {
+// A type alias, not an interface: markdown-it types Token.meta as
+// Record<string, unknown>, which only a type alias satisfies implicitly.
+type WikilinkMeta = {
   target: string
   alias: string | null
 }

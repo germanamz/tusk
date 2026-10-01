@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import Panzoom from '@panzoom/panzoom'
 import { applyDiagramZoom } from './diagramzoom'
 
@@ -26,7 +26,9 @@ function renderedBlock(): HTMLElement {
   const dom = new JSDOM('<!doctype html><body></body>')
   const doc = dom.window.document
   // Make WheelEvent / the document globally available for the module under test.
-  ;(globalThis as unknown as { document: Document }).document = doc as unknown as Document
+  // The jsdom environment defines `document` getter-only, so stub it rather than
+  // assigning.
+  vi.stubGlobal('document', doc)
   const block = doc.createElement('pre')
   block.className = 'mermaid'
   block.appendChild(doc.createElementNS('http://www.w3.org/2000/svg', 'svg'))
@@ -40,6 +42,10 @@ function lastInstance() {
 
 beforeEach(() => {
   PanzoomMock.mockClear()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('applyDiagramZoom', () => {
@@ -127,7 +133,7 @@ describe('applyDiagramZoom', () => {
 
   test('a block with no rendered svg is a no-op', () => {
     const dom = new JSDOM('<!doctype html><body></body>')
-    ;(globalThis as unknown as { document: Document }).document = dom.window.document as unknown as Document
+    vi.stubGlobal('document', dom.window.document)
     const block = dom.window.document.createElement('pre')
     block.className = 'mermaid'
 
