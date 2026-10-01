@@ -1,0 +1,41 @@
+.nh
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
+
+.SH NAME
+tusk-claude - Install and inspect the Claude Code plugin for this workspace
+
+
+.SH SYNOPSIS
+\fBtusk claude [flags]\fP
+
+
+.SH DESCRIPTION
+Manage the Claude Code plugin tusk ships for this workspace.
+
+.PP
+The plugin lives at /.claude/skills/tusk/ and Claude Code loads it
+for any session started in the workspace root. It carries two things:
+.IP \(bu 2
+The tusk MCP server ("tusk mcp"), so the agent has the tusk_* tools.
+.IP \(bu 2
+A hook that runs "tusk claude context" when a conversation starts and adds
+its output (a short orientation plus the [context] digest) to the first
+message, the way CLAUDE.md is added. /clear and compaction re-read it.
+
+.PP
+Run "tusk claude install" once per workspace (or "tusk init --claude"), and
+again after upgrading tusk to refresh the plugin.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for claude
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH SEE ALSO
+\fBtusk(1)\fP, \fBtusk-claude-context(1)\fP, \fBtusk-claude-install(1)\fP, \fBtusk-claude-status(1)\fP, \fBtusk-claude-uninstall(1)\fP

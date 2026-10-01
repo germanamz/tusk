@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/germanamz/tusk/internal/claudeplugin"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/version"
 	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +20,10 @@ ignore = []
 const defaultGitignoreEntries = "\n# Tusk local index\n.tusk/\n"
 
 func newInitCmd() *cobra.Command {
-	var name string
+	var (
+		name       string
+		withClaude bool
+	)
 
 	initCmd := &cobra.Command{
 		Use:   "init",
@@ -29,12 +34,18 @@ Creates tusk.toml (the manifest declaring node types and edge types) with a
 minimal default schema, bootstraps the SQLite index under .tusk/, and appends
 a .tusk/ ignore stanza to .gitignore if one is present.
 
+With --claude it also installs the Claude Code plugin, as "tusk claude
+install" does.
+
 Safe to run only once per directory: it refuses to overwrite an existing
 tusk.toml. After init, edit tusk.toml to declare your node/edge types, then
 add content with "tusk node create" or by writing markdown files directly
 and running "tusk reindex".`,
 		Example: `  # Create a workspace named "my-brain" in the current directory
   tusk init --name my-brain
+
+  # Create it and set up Claude Code sessions for it
+  tusk init --name my-brain --claude
 
   # Verify the workspace is healthy
   tusk doctor`,
@@ -79,11 +90,20 @@ and running "tusk reindex".`,
 
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Initialized Tusk workspace at %s\n", cwd)
 
-			return nil
+			if !withClaude {
+				return nil
+			}
+
+			return runClaudeInstall(cmd.OutOrStdout(), claudeplugin.InstallOptions{
+				Root:    cwd,
+				Bin:     claudeplugin.DefaultBin,
+				Version: version.Current,
+			})
 		},
 	}
 
 	initCmd.Flags().StringVar(&name, "name", "my-brain", "workspace name written into tusk.toml")
+	initCmd.Flags().BoolVar(&withClaude, "claude", false, "also install the Claude Code plugin (see tusk claude install)")
 
 	return initCmd
 }

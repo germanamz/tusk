@@ -1,0 +1,68 @@
+.nh
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
+
+.SH NAME
+tusk-claude-install - Install the Claude Code plugin into this workspace
+
+
+.SH SYNOPSIS
+\fBtusk claude install [flags]\fP
+
+
+.SH DESCRIPTION
+Write the tusk plugin to /.claude/skills/tusk/.
+
+.PP
+Install also approves the plugin's MCP server for you: Claude Code holds a
+project plugin's MCP server until each user approves it, so install adds
+"plugin:tusk:tusk" to enabledMcpjsonServers in .claude/settings.local.json
+(your per-user, uncommitted settings).
+
+.PP
+If .mcp.json runs its own "tusk mcp" server, install removes that entry
+(and the file, when it held nothing else) so the tools are not registered
+twice. Pass --keep-mcp-json to leave it.
+
+.PP
+Re-running install is safe: it rewrites the files it owns. It refuses a
+\&.claude/skills/tusk folder it did not write unless you pass --force.
+
+.PP
+The plugin runs the binary named by --bin, "tusk" on PATH by default. A
+relative path resolves against the workspace root, where sessions start.
+
+
+.SH OPTIONS
+\fB--bin\fP="tusk"
+	tusk binary the plugin runs
+
+.PP
+\fB--force\fP[=false]
+	replace a .claude/skills/tusk folder tusk did not write
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for install
+
+.PP
+\fB--keep-mcp-json\fP[=false]
+	leave a .mcp.json tusk server in place
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Install for this workspace
+  tusk claude install
+
+  # Point the plugin at a locally built binary
+  tusk claude install --bin ./bin/tusk
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-claude(1)\fP

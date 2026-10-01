@@ -1,0 +1,54 @@
+.nh
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
+
+.SH NAME
+tusk-claude-context - Print the context block the Claude Code plugin adds to a session
+
+
+.SH SYNOPSIS
+\fBtusk claude context [flags]\fP
+
+
+.SH DESCRIPTION
+Print the block the plugin adds to the first message of a Claude Code
+conversation: a short orientation (the vault's declared node types with
+counts, edge types, aliases, index state), then the [context] digest
+("tusk context") when tusk.toml declares one.
+
+.PP
+The block stays within [context] max-bytes (default 16384). Over budget, it
+drops alias sections first, then recent nodes, then pinned nodes, a whole node
+at a time, and says so in its last line. The orientation is never cut.
+
+.PP
+It never fails a session: outside a workspace it prints nothing, a broken
+tusk.toml prints a one-line notice, and a missing index prints the
+orientation alone. It always exits 0.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for context
+
+.PP
+\fB--max-bytes\fP=0
+	override the block's byte budget ([context] max-bytes, default 16384)
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH EXAMPLE
+.EX
+  # Preview what a Claude Code session sees
+  tusk claude context
+
+  # Preview with a tighter budget
+  tusk claude context --max-bytes 4096
+.EE
+
+
+.SH SEE ALSO
+\fBtusk-claude(1)\fP

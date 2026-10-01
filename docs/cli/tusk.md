@@ -55,7 +55,8 @@ CONFIGURATION
                              hull, community-edges, resolution — cluster lens
                              for the "tusk web" graph view
     [context]                pinned, recent, include — shape the warm-context
-                             digest produced by "tusk context"
+                             digest produced by "tusk context"; max-bytes caps
+                             the block "tusk claude" hands Claude Code
     [lease]                  ttl_seconds (default 60) for multi-instance
                              indexing
     [behaviors.<kind>]       manifest-declared behaviors
@@ -96,6 +97,9 @@ CONFIGURATION
   # Serve the graph to an MCP agent (Claude Code, Cursor, Zed)
   tusk mcp
 
+  # Give Claude Code sessions in this vault its digest and tools
+  tusk claude install
+
   # Run a read-only MCP instance that never drains the index
   TUSK_EMBED_WORKERS=0 tusk mcp
 ```
@@ -109,6 +113,7 @@ CONFIGURATION
 
 ### SEE ALSO
 
+* [tusk claude](tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
 * [tusk context](tusk_context.md)	 - Compose a warm-context digest from the manifest [context] block
 * [tusk doctor](tusk_doctor.md)	 - Surface validation warnings, dangling edges, and index health issues
 * [tusk edge](tusk_edge.md)	 - Manage edges between nodes (add, remove, list)

@@ -1,0 +1,32 @@
+.nh
+.TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
+
+.SH NAME
+tusk-claude-uninstall - Remove the Claude Code plugin from this workspace
+
+
+.SH SYNOPSIS
+\fBtusk claude uninstall [flags]\fP
+
+
+.SH DESCRIPTION
+Remove /.claude/skills/tusk/ and the plugin's MCP approval from
+\&.claude/settings.local.json. A .mcp.json entry install migrated is not
+restored; re-add it with:
+
+.PP
+claude mcp add --scope project tusk -- tusk mcp
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for uninstall
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-v\fP, \fB--verbose\fP[=false]
+	emit debug-level logs to stderr
+
+
+.SH SEE ALSO
+\fBtusk-claude(1)\fP

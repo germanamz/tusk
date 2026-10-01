@@ -3,7 +3,7 @@ BUILD_DIR := bin
 GO := go
 GOFLAGS := -v
 
-.PHONY: all build clean test test-race vet lint fmt help docs web frontend \
+.PHONY: all build clean test test-race vet lint fmt help docs web frontend claude-plugin-check \
         devcontainer-up devcontainer-rebuild devcontainer-shell \
         devcontainer-stop devcontainer-down devcontainer-nuke
 
@@ -54,6 +54,19 @@ frontend: web
 docs: build
 	$(BUILD_DIR)/$(BINARY_NAME) docgen man docs/cli
 
+# Local-only check of the Claude Code plugin `tusk claude install` writes:
+# installs it into a scratch vault, copies its tests beside it, then runs
+# Claude Code's validator and test runner. Needs the `claude` CLI, which CI
+# does not have; the Go tests cover everything else.
+claude-plugin-check: build
+	@command -v claude >/dev/null || { echo "claude CLI not installed"; exit 1; }
+	@scratch=$$(mktemp -d) && plugin=$$scratch/.claude/skills/tusk && \
+	  ( cd $$scratch && $(CURDIR)/$(BUILD_DIR)/$(BINARY_NAME) init --name plugin-check >/dev/null && \
+	    $(CURDIR)/$(BUILD_DIR)/$(BINARY_NAME) claude install --bin $(CURDIR)/$(BUILD_DIR)/$(BINARY_NAME) >/dev/null ) && \
+	  mkdir -p $$plugin/tests && cp internal/claudeplugin/testdata/register.test.ts $$plugin/tests/ && \
+	  claude plugin validate $$plugin && claude plugin test $$plugin; \
+	  status=$$?; rm -rf $$scratch; exit $$status
+
 help:
 	@echo "v1 Make targets:"
 	@echo "  build             — compile the tusk binary (stub until Plan 1b)"
@@ -63,6 +76,7 @@ help:
 	@echo "  lint              — run golangci-lint"
 	@echo "  fmt               — run gofmt across the tree"
 	@echo "  docs              — regenerate man pages and markdown CLI reference"
+	@echo "  claude-plugin-check — validate and test the Claude Code plugin (needs the claude CLI)"
 	@echo "  clean             — remove build artifacts"
 	@echo "  web               — build the unified web frontend into internal/webapp/dist"
 	@echo "  frontend          — build all committed frontend dists (web)"

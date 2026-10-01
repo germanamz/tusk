@@ -17,7 +17,7 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `IsRefProperty(PropertyDecl) bool` — used by `internal/node/refs.go` to drive ref resolution.
 - `Alias`, `AliasError`, `FlagSpec`, `VerbIntrospector` — types covering manifest-declared aliases.
 - `ValidateAliases(*Manifest, VerbIntrospector)` — secondary pass that resolves each alias's verb against `internal/cliregistry` and stamps invalid aliases into `Manifest.AliasErrors`. Never returns an error; failures are surfaced through `internal/doctor`.
-- `Context`, `ContextError` — types covering the `[context]` block consumed by `internal/contextcompose`.
+- `Context`, `ContextError` — types covering the `[context]` block consumed by `internal/contextcompose`. `Context.MaxBytes` (`max-bytes`) caps the block `tusk claude context` hands Claude Code; a negative value is a `ContextError` and falls back to the default.
 - `ValidateContext(*Manifest, VerbIntrospector)` — tertiary pass run after `ValidateAliases` that resolves `recent = "<name>"`, parses `[context.recent]` inline aliases, and prunes unknown `include` names. Surfaces problems via `Manifest.ContextErrors`; never fails.
 
 ## Notes
