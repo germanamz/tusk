@@ -92,12 +92,13 @@ RUN --mount=type=cache,target=/var/cache/ollama,sharing=locked \
 RUN ARCH=$(dpkg --print-architecture) \
     && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
 
-# Node.js 20 (for claude-code CLI) — copied from the official image to sidestep
-# the "invalid signature" apt flake on ports.ubuntu.com inside Docker Desktop's
-# build VM. node:20-slim is Debian bookworm (glibc 2.36); Node binaries built
+# Node.js 24 (for claude-code CLI and the web/ toolchain, whose jsdom needs
+# >= 24.15) — copied from the official image to sidestep the "invalid
+# signature" apt flake on ports.ubuntu.com inside Docker Desktop's build VM.
+# node:24-bookworm-slim is Debian bookworm (glibc 2.36); Node binaries built
 # against older glibc run fine on Ubuntu 24.04 (glibc 2.39).
-COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/node
-COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
