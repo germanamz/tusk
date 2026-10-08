@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/germanamz/tusk/compare/v2.5.0...v2.6.0) (2026-10-08)
+
+
+### Features
+
+* **embed:** configurable embedding model settings in [embeddings] ([#767](https://github.com/germanamz/tusk/issues/767)) ([e7beb31](https://github.com/germanamz/tusk/commit/e7beb315269ad45a5c707aa4d7231e77255e8aae))
+
 ## [2.5.0](https://github.com/germanamz/tusk/compare/v2.4.1...v2.5.0) (2026-10-01)
 
 
