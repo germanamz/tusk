@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/germanamz/tusk/internal/embed"
@@ -31,6 +32,11 @@ converge via the manifest-epoch sentinel (no need to restart).
 By default no local reindex runs — a running daemon converges via the
 manifest-epoch sentinel and owns the reindex. Pass --reindex to run a
 synchronous reindex pass in this process (for the no-daemon scenario).
+
+Changed [embeddings] document settings (model, num-ctx, document-prefix,
+document-header, chunk sizes) are applied either way: reload records them
+and queues every note for re-embedding, which a running daemon's drainer
+then does under the new settings ("embed_settings_requeued" in the output).
 
 Validation matches boot semantics: a TOML parse/structural error or
 behavior-engine build failure aborts the reload (exit non-zero, no epoch
@@ -155,6 +161,20 @@ reported as warnings while the swap still proceeds.`,
 				warnings = append(warnings, fmt.Sprintf("context: %s", contextErr.Message))
 			}
 
+			// Record changed [embeddings] settings and queue the re-embed here,
+			// even without --reindex: a converging daemon swaps in the new
+			// settings but never reindexes, and its drainer waits for them to
+			// be recorded.
+			if loaded.Embeddings.Provider != "" {
+				requeued, applyErr := applyEmbeddingSettings(ws.Root, ws.IndexPath, loaded, logger)
+
+				if applyErr != nil {
+					warnings = append(warnings, fmt.Sprintf("embeddings: %v (run `tusk reindex` to apply the new [embeddings] settings)", applyErr))
+				}
+
+				response["embed_settings_requeued"] = requeued
+			}
+
 			if len(warnings) > 0 {
 				response["warnings"] = warnings
 			}
@@ -208,9 +228,9 @@ reported as warnings while the swap still proceeds.`,
 					Async:           false, // CLI blocks until reindex completes
 				}
 
-				if embedder := buildEmbedder(loaded); embedder != nil {
+				if embedder, chunker := embed.NewFromManifest(loaded.Embeddings, nil); embedder != nil {
 					cfg.Embedder = embedder
-					cfg.Chunker = embed.MarkdownRecursive{}
+					cfg.Chunker = chunker
 					cfg.EmbeddingRepo = index.NewEmbeddingRepo(store)
 				}
 
@@ -239,4 +259,32 @@ reported as warnings while the swap still proceeds.`,
 	reloadCmd.Flags().Bool("reindex", false, "synchronously reindex after reloading the manifest")
 
 	return reloadCmd
+}
+
+// applyEmbeddingSettings opens the index and runs reindex.ApplyEmbeddingSettings
+// against the freshly loaded manifest, returning how many nodes it re-queued.
+func applyEmbeddingSettings(root, indexPath string, loaded *manifest.Manifest, logger *slog.Logger) (int, error) {
+	embedder, _ := embed.NewFromManifest(loaded.Embeddings, nil)
+
+	if embedder == nil {
+		return 0, nil
+	}
+
+	store, openErr := index.Open(indexPath)
+
+	if openErr != nil {
+		return 0, fmt.Errorf("open index: %w", openErr)
+	}
+
+	defer func() { _ = store.Close() }()
+
+	return reindex.ApplyEmbeddingSettings(reindex.Config{
+		Root:          root,
+		Manifest:      loaded,
+		Embedder:      embedder,
+		EmbedQueue:    index.NewEmbedQueueRepo(store),
+		EmbeddingRepo: index.NewEmbeddingRepo(store),
+		Meta:          index.NewMetaRepo(store),
+		Logger:        logger,
+	})
 }

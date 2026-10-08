@@ -1368,10 +1368,11 @@ func registerReindexTool(srv *Server) {
 		}
 
 		result := map[string]any{
-			"indexed":    report.Indexed,
-			"removed":    report.Removed,
-			"skipped":    report.Skipped,
-			"ref_healed": report.RefHealed,
+			"indexed":                 report.Indexed,
+			"removed":                 report.Removed,
+			"skipped":                 report.Skipped,
+			"ref_healed":              report.RefHealed,
+			"embed_settings_requeued": report.EmbedSettingsRequeued,
 		}
 
 		// Surface remaining embed work so the agent can see embeddings are
@@ -1913,9 +1914,13 @@ func reloadToolHandler(ctx context.Context, request mcpgo.CallToolRequest, srv *
 			DriftLog:        fresh.WorkflowDrift,
 			NodeTypes:       fresh.Manifest.NodeTypes,
 			PropertyDrift:   fresh.PropertyDrift,
-			Workers:         fresh.Workers,
 			Logger:          fresh.Logger,
-			Async:           true,
+			Manifest:        fresh.Manifest, // [embeddings] settings-change re-embed check
+			// Workers stays unset, like the watcher's and boot's async walks:
+			// Run drains the embed queue inline whenever Workers > 0, and after
+			// an [embeddings] change that queue is the whole vault. The
+			// background drainer does that work off reindexMu.
+			Async: true,
 		}
 
 		if !noEmbed && fresh.Embedder != nil {
@@ -1936,17 +1941,18 @@ func reloadToolHandler(ctx context.Context, request mcpgo.CallToolRequest, srv *
 			}
 		} else {
 			reindexReport = map[string]any{
-				"kicked":              true,
-				"async":               true,
-				"indexed":             report.Indexed,
-				"removed":             report.Removed,
-				"skipped":             report.Skipped,
-				"workflow_violations": report.WorkflowViolations,
-				"property_violations": report.PropertyViolations,
-				"ref_dangling":        report.RefDangling,
-				"ref_ambiguous":       report.RefAmbiguous,
-				"ref_type_mismatch":   report.RefTypeMismatch,
-				"ref_cycle":           report.RefCycle,
+				"kicked":                  true,
+				"async":                   true,
+				"indexed":                 report.Indexed,
+				"removed":                 report.Removed,
+				"skipped":                 report.Skipped,
+				"workflow_violations":     report.WorkflowViolations,
+				"property_violations":     report.PropertyViolations,
+				"ref_dangling":            report.RefDangling,
+				"ref_ambiguous":           report.RefAmbiguous,
+				"ref_type_mismatch":       report.RefTypeMismatch,
+				"ref_cycle":               report.RefCycle,
+				"embed_settings_requeued": report.EmbedSettingsRequeued,
 			}
 		}
 	}
@@ -1985,17 +1991,18 @@ func emptyManifestDiff() map[string]any {
 // emptyReindexReport returns a zero-valued reindex report envelope.
 func emptyReindexReport() map[string]any {
 	return map[string]any{
-		"kicked":              false,
-		"async":               true,
-		"indexed":             0,
-		"removed":             0,
-		"skipped":             0,
-		"workflow_violations": 0,
-		"property_violations": 0,
-		"ref_dangling":        0,
-		"ref_ambiguous":       0,
-		"ref_type_mismatch":   0,
-		"ref_cycle":           0,
+		"kicked":                  false,
+		"async":                   true,
+		"indexed":                 0,
+		"removed":                 0,
+		"skipped":                 0,
+		"workflow_violations":     0,
+		"property_violations":     0,
+		"ref_dangling":            0,
+		"ref_ambiguous":           0,
+		"ref_type_mismatch":       0,
+		"ref_cycle":               0,
+		"embed_settings_requeued": 0,
 	}
 }
 

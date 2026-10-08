@@ -346,3 +346,15 @@ func TestHandleEmbeddings_PopulatedSource(t *testing.T) {
 		t.Error("Signature should be non-empty")
 	}
 }
+
+func TestBuildEmbeddingsResponse_ReportsDisplayModel(t *testing.T) {
+	// Rows stored under a num-ctx vector key report the bare model name.
+	row := embRow("notes/a", 0, "hash-a0", []float32{3, 4, 0})
+	row.Model = "nomic-embed-text#num-ctx=8192"
+
+	resp := buildEmbeddingsResponse([]index.EmbeddingRow{row})
+
+	if resp.Model != "nomic-embed-text" {
+		t.Errorf("Model = %q, want nomic-embed-text", resp.Model)
+	}
+}

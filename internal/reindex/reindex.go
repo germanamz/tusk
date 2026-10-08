@@ -206,6 +206,11 @@ type Report struct {
 	RefCycle           int // number of ref_cycle issues surfaced
 	RefHealed          int // number of previously drifted refs that resolved in this pass's heal step
 
+	// EmbedSettingsRequeued is the number of nodes this pass re-queued for
+	// embedding because the [embeddings] document settings changed (zero when
+	// they didn't). The drain re-embeds them under the new settings.
+	EmbedSettingsRequeued int
+
 	// Sub-unit pipeline counters (Plan 2 Task 3). All zero when the
 	// workspace's `sub-units` flag is false or when Config.Manifest is
 	// nil.
@@ -586,6 +591,17 @@ func Run(config Config) (*Report, error) {
 		return nil, sweepErr
 	}
 
+	// Runs after the walk and orphan reap (so the re-embed covers exactly the
+	// live node set) and before the async/sync split (so both the CLI's
+	// in-process drain and the daemon's background drainer pick it up).
+	requeued, settingsErr := reembedOnSettingsChange(config)
+
+	if settingsErr != nil {
+		return nil, settingsErr
+	}
+
+	report.EmbedSettingsRequeued = requeued
+
 	if config.Async {
 		// The background drainer owns the queue; hand it the files behind any
 		// recorded ref drift so their refs are re-resolved against the node
@@ -673,7 +689,15 @@ func Run(config Config) (*Report, error) {
 			EmbedConcurrency: config.Workers,
 			TTL:              leaseTTL,
 			Logger:           config.Logger,
-		}); drainErr != nil {
+			Meta:             config.Meta,
+			Fingerprint:      drainFingerprint(config),
+		}); errors.Is(drainErr, embed.ErrSettingsSuperseded) {
+			// This process's [embeddings] settings are stale; the walk itself
+			// succeeded and the queued work waits for an up-to-date process.
+			if config.Logger != nil {
+				config.Logger.Warn(drainErr.Error())
+			}
+		} else if drainErr != nil {
 			return nil, drainErr
 		}
 	}

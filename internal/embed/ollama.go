@@ -18,6 +18,8 @@ type OllamaConfig struct {
 	Dim      int
 	Logger   *slog.Logger  // optional; nil silences output
 	Timeout  time.Duration // optional; zero falls back to 30s
+	NumCtx   int           // optional; > 0 is sent as options.num_ctx
+	Format   Format        // optional; zero is no prefixes and the full header
 }
 
 // OllamaEmbedder calls Ollama's POST /api/embeddings to embed payloads.
@@ -47,14 +49,28 @@ func NewOllamaEmbedder(config OllamaConfig) *OllamaEmbedder {
 
 const ollamaBodyLogLimit = 512
 
+// ollamaRequest is the /api/embeddings request body. Options is omitted when
+// nil, so a request without num-ctx is byte-identical to one sent before the
+// field existed.
+type ollamaRequest struct {
+	Model   string         `json:"model"`
+	Prompt  string         `json:"prompt"`
+	Options *ollamaOptions `json:"options,omitempty"`
+}
+
+type ollamaOptions struct {
+	NumCtx int `json:"num_ctx"`
+}
+
 // Embed implements Embedder.
-func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
-	body := struct {
-		Model  string `json:"model"`
-		Prompt string `json:"prompt"`
-	}{
+func (embedder *OllamaEmbedder) Embed(ctx context.Context, text []byte) ([]float32, error) {
+	body := ollamaRequest{
 		Model:  embedder.config.Model,
-		Prompt: string(payload),
+		Prompt: string(text),
+	}
+
+	if embedder.config.NumCtx > 0 {
+		body.Options = &ollamaOptions{NumCtx: embedder.config.NumCtx}
 	}
 
 	encoded, marshalErr := json.Marshal(body)
@@ -164,6 +180,16 @@ func (embedder *OllamaEmbedder) Embed(ctx context.Context, payload []byte) ([]fl
 // Model implements Embedder.
 func (embedder *OllamaEmbedder) Model() string {
 	return embedder.config.Model
+}
+
+// VectorKey implements Embedder.
+func (embedder *OllamaEmbedder) VectorKey() string {
+	return VectorKey(embedder.config.Model, embedder.config.NumCtx)
+}
+
+// Format implements Embedder.
+func (embedder *OllamaEmbedder) Format() Format {
+	return embedder.config.Format
 }
 
 // Dim implements Embedder.

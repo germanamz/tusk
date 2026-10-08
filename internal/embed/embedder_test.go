@@ -17,8 +17,10 @@ func (stub stubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, 
 	return make([]float32, stub.dim), nil
 }
 
-func (stub stubEmbedder) Model() string { return stub.model }
-func (stub stubEmbedder) Dim() int      { return stub.dim }
+func (stub stubEmbedder) Model() string        { return stub.model }
+func (stub stubEmbedder) VectorKey() string    { return stub.model }
+func (stub stubEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub stubEmbedder) Dim() int             { return stub.dim }
 
 func TestEmbedder_InterfaceContract(test *testing.T) {
 	var implementer embed.Embedder = stubEmbedder{model: "test", dim: 3}

@@ -115,11 +115,11 @@ func runSemanticSubUnits(
 		return nil, embedErr
 	}
 
-	// Only rank vectors stored under the configured model. A leaf left behind by
-	// a previous [embeddings].model would otherwise rank on a meaningless
-	// cross-model cosine (#684 finding 3); a reindex --force / reset re-embeds it
-	// under the live model.
-	queryModel := deps.Embedder.Model()
+	// Only rank vectors stored under the configured vector key. A leaf left
+	// behind by a previous [embeddings].model or num-ctx would otherwise rank on
+	// a meaningless cross-model cosine (#684 finding 3); the next reindex
+	// detects the settings change and re-embeds it under the live key.
+	queryModel := deps.Embedder.VectorKey()
 
 	// Build the candidate pool from the leaf embeddings only — sections
 	// aren't embedded (spec §5.7). The id format `<fileID>#<hash>` lets

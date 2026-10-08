@@ -1,6 +1,10 @@
 package embed
 
-import "bytes"
+import (
+	"bytes"
+
+	"github.com/germanamz/tusk/internal/manifest"
+)
 
 // ChunkingStrategy splits a body payload into one or more chunks; each chunk
 // is embedded independently. The drain loop prepends a per-node header to
@@ -53,12 +57,11 @@ type MarkdownRecursive struct {
 }
 
 const (
-	defaultTargetBytes = 1600
-	// DefaultMaxBytes is the chunker's hard upper bound for a single chunk's
-	// byte length. Doctor diagnostics use this to flag chunks that approach
-	// the cap.
-	DefaultMaxBytes     = 4000
-	defaultOverlapBytes = 200
+	defaultTargetBytes = manifest.DefaultChunkTargetBytes
+	// DefaultMaxBytes is the chunker's default hard upper bound for a single
+	// chunk's byte length, used when [embeddings] chunk-max-bytes is unset.
+	DefaultMaxBytes     = manifest.DefaultChunkMaxBytes
+	defaultOverlapBytes = manifest.DefaultChunkOverlapBytes
 )
 
 var markdownSeparators = []string{

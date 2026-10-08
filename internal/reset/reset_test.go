@@ -193,8 +193,10 @@ func (stub *gatingEmbedder) Embed(ctx context.Context, payload []byte) ([]float3
 	return out, nil
 }
 
-func (stub *gatingEmbedder) Model() string { return stub.model }
-func (stub *gatingEmbedder) Dim() int      { return stub.dim }
+func (stub *gatingEmbedder) Model() string        { return stub.model }
+func (stub *gatingEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *gatingEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *gatingEmbedder) Dim() int             { return stub.dim }
 
 // writeNodeFile writes a minimal markdown node file with frontmatter, creating
 // parent directories as needed.

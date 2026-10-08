@@ -124,9 +124,9 @@ model. It requires confirmation; pass --yes to skip the prompt.`,
 				Async:           false,
 			}
 
-			if embedder := buildEmbedder(loaded); embedder != nil {
+			if embedder, chunker := embed.NewFromManifest(loaded.Embeddings, nil); embedder != nil {
 				cfg.Embedder = embedder
-				cfg.Chunker = embed.MarkdownRecursive{}
+				cfg.Chunker = chunker
 				cfg.EmbeddingRepo = index.NewEmbeddingRepo(result.Store)
 			}
 

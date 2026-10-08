@@ -14,10 +14,19 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
-// Embedder produces a single vector per payload.
+// Embedder produces a single vector per text. Embed sends text exactly as
+// given; callers shape it first with Format (Format.Document in the drain,
+// EmbedQuery for semantic queries), so the drain can hash the exact bytes the
+// model sees.
+//
+// Model is the configured model name, for display. VectorKey is the identity
+// stored vectors are keyed on: the model plus any request options that change
+// its output (see VectorKey).
 type Embedder interface {
-	Embed(ctx context.Context, payload []byte) ([]float32, error)
+	Embed(ctx context.Context, text []byte) ([]float32, error)
 	Model() string
+	VectorKey() string
+	Format() Format
 	Dim() int
 }
 
@@ -40,9 +49,17 @@ func NewFromManifest(cfg manifest.EmbeddingsSection, logger *slog.Logger) (Embed
 		Dim:      cfg.Dim,
 		Logger:   logger,
 		Timeout:  timeout,
+		NumCtx:   cfg.NumCtx,
+		Format: Format{
+			QueryPrefix:    cfg.QueryPrefix,
+			DocumentPrefix: cfg.DocumentPrefix,
+			HeaderMode:     HeaderMode(cfg.ResolvedDocumentHeader()),
+		},
 	})
 
-	return embedder, MarkdownRecursive{}
+	target, maxBytes, overlap := cfg.ChunkSizes()
+
+	return embedder, MarkdownRecursive{TargetBytes: target, MaxBytes: maxBytes, OverlapBytes: overlap}
 }
 
 // TransportError marks an embed failure as transient infrastructure trouble —

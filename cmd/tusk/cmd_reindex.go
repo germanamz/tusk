@@ -161,20 +161,25 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 					fmt.Sprintf("%d ref-cycle", report.RefCycle))
 			}
 
-			healedPart := ""
+			summaryExtras := ""
 
 			if report.RefHealed > 0 {
-				healedPart = fmt.Sprintf(", %d ref%s healed", report.RefHealed, plural(report.RefHealed))
+				summaryExtras = fmt.Sprintf(", %d ref%s healed", report.RefHealed, plural(report.RefHealed))
+			}
+
+			if report.EmbedSettingsRequeued > 0 {
+				summaryExtras += fmt.Sprintf(", %d node%s re-queued for new [embeddings] settings",
+					report.EmbedSettingsRequeued, plural(report.EmbedSettingsRequeued))
 			}
 
 			if len(violationParts) > 0 {
 				_, _ = fmt.Fprintf(out,
 					"Reindex done: %d indexed, %d removed, %d skipped%s (%s)\nRun `tusk doctor` to inspect violations\n",
-					report.Indexed, report.Removed, report.Skipped, healedPart,
+					report.Indexed, report.Removed, report.Skipped, summaryExtras,
 					strings.Join(violationParts, ", "))
 			} else {
 				_, _ = fmt.Fprintf(out, "Reindex done: %d indexed, %d removed, %d skipped%s\n",
-					report.Indexed, report.Removed, report.Skipped, healedPart)
+					report.Indexed, report.Removed, report.Skipped, summaryExtras)
 			}
 
 			return nil

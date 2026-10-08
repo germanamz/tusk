@@ -46,8 +46,10 @@ func (stub *integrationStubEmbedder) Embed(_ context.Context, payload []byte) ([
 	return out, nil
 }
 
-func (stub *integrationStubEmbedder) Model() string { return "integration-stub" }
-func (stub *integrationStubEmbedder) Dim() int      { return stub.dim }
+func (stub *integrationStubEmbedder) Model() string        { return "integration-stub" }
+func (stub *integrationStubEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *integrationStubEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *integrationStubEmbedder) Dim() int             { return stub.dim }
 
 // TestPhase2Integration is the Phase 2 acceptance test (plan Task 6).
 // It exercises the full sub-unit-aware pipeline end to end: reindex with

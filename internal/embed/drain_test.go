@@ -41,8 +41,10 @@ func (stub *drainStubEmbedder) Embed(ctx context.Context, payload []byte) ([]flo
 	return out, nil
 }
 
-func (stub *drainStubEmbedder) Model() string { return stub.model }
-func (stub *drainStubEmbedder) Dim() int      { return stub.dim }
+func (stub *drainStubEmbedder) Model() string        { return stub.model }
+func (stub *drainStubEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *drainStubEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *drainStubEmbedder) Dim() int             { return stub.dim }
 
 func TestDrainQueue_DrainsToEmpty(test *testing.T) {
 	root := test.TempDir()
@@ -391,8 +393,10 @@ func (stub *concurrencyProbeEmbedder) Embed(ctx context.Context, payload []byte)
 	return out, nil
 }
 
-func (stub *concurrencyProbeEmbedder) Model() string { return stub.model }
-func (stub *concurrencyProbeEmbedder) Dim() int      { return stub.dim }
+func (stub *concurrencyProbeEmbedder) Model() string        { return stub.model }
+func (stub *concurrencyProbeEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *concurrencyProbeEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *concurrencyProbeEmbedder) Dim() int             { return stub.dim }
 
 // transportFailEmbedder always fails with a TransportError and holds no mutable
 // state, so it is safe to call concurrently.
@@ -405,8 +409,10 @@ func (stub *transportFailEmbedder) Embed(ctx context.Context, payload []byte) ([
 	return nil, &embed.TransportError{Err: fmt.Errorf("connection refused")}
 }
 
-func (stub *transportFailEmbedder) Model() string { return stub.model }
-func (stub *transportFailEmbedder) Dim() int      { return stub.dim }
+func (stub *transportFailEmbedder) Model() string        { return stub.model }
+func (stub *transportFailEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *transportFailEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *transportFailEmbedder) Dim() int             { return stub.dim }
 
 func enqueueSingleChunkNodes(test *testing.T, root string, nodeRepo *index.NodeRepo, queueRepo *index.EmbedQueueRepo, count int) {
 	test.Helper()
@@ -912,8 +918,10 @@ func (stub *midStreamFailEmbedder) Embed(ctx context.Context, payload []byte) ([
 	return out, nil
 }
 
-func (stub *midStreamFailEmbedder) Model() string { return stub.model }
-func (stub *midStreamFailEmbedder) Dim() int      { return stub.dim }
+func (stub *midStreamFailEmbedder) Model() string        { return stub.model }
+func (stub *midStreamFailEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *midStreamFailEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *midStreamFailEmbedder) Dim() int             { return stub.dim }
 
 func TestDrainQueue_StoresChunkBody(test *testing.T) {
 	root := test.TempDir()
@@ -999,8 +1007,10 @@ func (stub *sleepStubEmbedder) Embed(ctx context.Context, payload []byte) ([]flo
 	return out, nil
 }
 
-func (stub *sleepStubEmbedder) Model() string { return stub.model }
-func (stub *sleepStubEmbedder) Dim() int      { return stub.dim }
+func (stub *sleepStubEmbedder) Model() string        { return stub.model }
+func (stub *sleepStubEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *sleepStubEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *sleepStubEmbedder) Dim() int             { return stub.dim }
 
 func TestDrainQueue_WorkersConcurrencySpeedup(test *testing.T) {
 	root := test.TempDir()
@@ -1120,8 +1130,10 @@ func (stub *alwaysFailingSleepStubEmbedder) Embed(ctx context.Context, payload [
 	return nil, fmt.Errorf("stub: forced failure")
 }
 
-func (stub *alwaysFailingSleepStubEmbedder) Model() string { return stub.model }
-func (stub *alwaysFailingSleepStubEmbedder) Dim() int      { return stub.dim }
+func (stub *alwaysFailingSleepStubEmbedder) Model() string        { return stub.model }
+func (stub *alwaysFailingSleepStubEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *alwaysFailingSleepStubEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *alwaysFailingSleepStubEmbedder) Dim() int             { return stub.dim }
 
 func TestDrainQueue_SkipsEmbedWhenContentUnchanged(test *testing.T) {
 	root := test.TempDir()
@@ -1311,10 +1323,12 @@ func TestDrainQueue_WorkersDefaultParityWithSerial(test *testing.T) {
 // drainer tests can assert "the embedder saw exactly this byte slice"
 // without parsing logs.
 type recordingEmbedder struct {
-	mu       sync.Mutex
-	payloads [][]byte
-	dim      int
-	model    string
+	mu        sync.Mutex
+	payloads  [][]byte
+	dim       int
+	model     string
+	vectorKey string // optional; defaults to model
+	format    embed.Format
 }
 
 func (stub *recordingEmbedder) Embed(_ context.Context, payload []byte) ([]float32, error) {
@@ -1334,7 +1348,15 @@ func (stub *recordingEmbedder) Embed(_ context.Context, payload []byte) ([]float
 }
 
 func (stub *recordingEmbedder) Model() string { return stub.model }
-func (stub *recordingEmbedder) Dim() int      { return stub.dim }
+func (stub *recordingEmbedder) VectorKey() string {
+	if stub.vectorKey != "" {
+		return stub.vectorKey
+	}
+
+	return stub.model
+}
+func (stub *recordingEmbedder) Format() embed.Format { return stub.format }
+func (stub *recordingEmbedder) Dim() int             { return stub.dim }
 
 func TestDrainQueue_SubUnitEmbedsEmbedPayloadDirectly(test *testing.T) {
 	root := test.TempDir()
@@ -1609,8 +1631,10 @@ func (stub *gateStubEmbedder) Embed(ctx context.Context, payload []byte) ([]floa
 	}
 }
 
-func (stub *gateStubEmbedder) Model() string { return stub.model }
-func (stub *gateStubEmbedder) Dim() int      { return stub.dim }
+func (stub *gateStubEmbedder) Model() string        { return stub.model }
+func (stub *gateStubEmbedder) VectorKey() string    { return stub.Model() }
+func (stub *gateStubEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub *gateStubEmbedder) Dim() int             { return stub.dim }
 
 // TestDrainQueue_HonorsConfiguredTTL confirms that DrainConfig.TTL flows
 // through to the EmbedQueueRepo.Drain claim. The test gates the embedder so

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 )
@@ -22,8 +23,10 @@ func (stub stubEmbedder) Embed(_ context.Context, _ []byte) ([]float32, error) {
 	return stub.vector, nil
 }
 
-func (stub stubEmbedder) Model() string { return "stub" }
-func (stub stubEmbedder) Dim() int      { return len(stub.vector) }
+func (stub stubEmbedder) Model() string        { return "stub" }
+func (stub stubEmbedder) VectorKey() string    { return stub.Model() }
+func (stub stubEmbedder) Format() embed.Format { return embed.Format{} }
+func (stub stubEmbedder) Dim() int             { return len(stub.vector) }
 
 // openTestStore opens a fresh index db for a test. Verbatim pattern from
 // internal/query/query_service_test.go:30-42.

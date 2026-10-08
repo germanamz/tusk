@@ -313,6 +313,32 @@ Requires `[embeddings]` configured (Ollama by default). Embedding runs asynchron
 tusk query 'type=*' --semantic "auth bug in password reset flow" --take 5
 ```
 
+#### Matching the embedding model
+
+Many embedding models are trained with an instruction prefix on each side, one for queries and another for documents. Ollama adds neither, so tusk lets you set them under `[embeddings]`, along with the chunk sizes and context window that suit the model:
+
+```toml
+[embeddings]
+provider        = "ollama"
+endpoint        = "http://localhost:11434"
+model           = "nomic-embed-text"
+dim             = 768
+query-prefix    = "search_query: "
+document-prefix = "search_document: "
+```
+
+| Model | `query-prefix` | `document-prefix` | Context window |
+| --- | --- | --- | --- |
+| `nomic-embed-text` | `search_query: ` | `search_document: ` | 2K in Ollama |
+| `embeddinggemma` | `task: search result \| query: ` | `title: {title} \| text: ` | 2K |
+| `mxbai-embed-large` | `Represent this sentence for searching relevant passages: ` | none | 512 |
+| `snowflake-arctic-embed` (v1) | `Represent this sentence for searching relevant passages: ` | none | 512 |
+| `snowflake-arctic-embed2` | `query: ` | none | 8K |
+
+Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title (`none` for sub-units). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`).
+
+Which settings work best depends on the model and on your notes, so try a few semantic queries before and after a change. Changing `query-prefix` takes effect on the next query. Changing any other key re-embeds every note. Apply the change with `tusk reload` (or `tusk_reload` from an agent) so a running MCP server picks up the new settings too; `tusk reindex` also applies it, but a server that hasn't reloaded stops embedding until it does, rather than embed with the old settings. `tusk doctor` suggests the prefixes when it recognizes one of the models above with them unset, and names the missing one when only one of a two-sided pair is set. If you've tried a prefix and decided against it, set it explicitly to `""` (for example `document-prefix = ""`) and doctor stops suggesting it.
+
 ### Hybrid (recommended for agents)
 
 Structural filter narrows the candidate set; semantic similarity ranks within it.

@@ -38,12 +38,19 @@ const (
 	IssueEmbedNoChunks   = "embed-no-chunks"
 
 	// IssueEmbeddingDrift surfaces embedding model/dim drift: the workspace's
-	// configured embeddings.model / embeddings.dim no longer match the model
-	// or dim of the vectors stored in the index. Because the vector store is
-	// keyed (content_hash, model) and CosineSimilarity returns 0 on a dim
-	// mismatch, the stale vectors silently vanish from query results. Doctor
-	// does NOT auto-rebuild; the user must run `tusk reset` to re-embed.
+	// configured vector key (embeddings.model plus num-ctx; see
+	// embed.VectorKey) or embeddings.dim no longer match the vectors stored in
+	// the index. Because the vector store is keyed (content_hash, vector key)
+	// and CosineSimilarity returns 0 on a dim mismatch, the stale vectors
+	// silently vanish from query results. Doctor does NOT rebuild; the next
+	// reindex re-embeds after a model or num-ctx change, and `tusk reindex
+	// --force` / `tusk reset` converge anything left over.
 	IssueEmbeddingDrift = "embedding-drift"
+
+	// IssueEmbeddingPrefixHint is advice, not a fault: the configured model
+	// belongs to a family trained with instruction prefixes, and the prefix it
+	// expects is unset. The message names the strings from the model card.
+	IssueEmbeddingPrefixHint = "embedding-prefix-hint"
 
 	IssueLegacyCLIEdge = "legacy-cli-edge"
 	IssueLegacyMCPEdge = "legacy-mcp-edge"
@@ -144,9 +151,10 @@ type SubUnitPane struct {
 	// embed queue (queued id contains `#`).
 	EmbedQueueSubUnits int
 	// OversizeEmbedPayloads is the number of sub-unit rows whose
-	// embed_payload byte length exceeds embed.DefaultMaxBytes. The
-	// chunker normally keeps payloads under this bound; a non-zero
-	// count indicates the AST emitted a single leaf exceeding the cap.
+	// embed_payload byte length exceeds the configured chunk-max-bytes
+	// (embed.DefaultMaxBytes when unset). Sub-unit leaves are never split,
+	// so a non-zero count means the AST emitted a leaf larger than the cap
+	// the workspace sized for its model.
 	OversizeEmbedPayloads int
 }
 
@@ -219,6 +227,7 @@ func Run(config Config) (*Report, error) {
 		checkWorkflowDrift,
 		checkPropertyDrift,
 		checkEmbeddingDrift,
+		checkEmbeddingPrefixHint,
 		checkEmbedRetries,
 	} {
 		issues, checkErr := check(config)
@@ -491,14 +500,15 @@ func checkPropertyDrift(config Config) ([]Issue, error) {
 }
 
 // checkEmbeddingDrift flags embedding model/dim drift: stored vectors whose
-// model or dim differs from the workspace's configured embeddings.model /
-// embeddings.dim. Editing either setting silently splits the (content_hash,
-// model)-keyed vector store — old vectors keep their original key and drop
-// out of query results, and CosineSimilarity returns 0 on a dim mismatch —
-// so semantic recall becomes quietly incomplete with no rebuild trigger.
-// The check is read-only and never rebuilds; it advises `tusk reset`. No-op
-// when no embeddings repo is configured or [embeddings] is absent from the
-// manifest (Provider == ""): there is nothing to compare against.
+// vector key (model plus num-ctx) or dim differs from the workspace's
+// configured ones. Old vectors keep their original key and drop out of query
+// results, and CosineSimilarity returns 0 on a dim mismatch, so semantic
+// recall is incomplete until they are re-embedded. The next reindex re-embeds
+// after a model or num-ctx change, so the drift is normally transient; one
+// that persists points at a failed drain or a dim set wrong for the model.
+// The check is read-only and never rebuilds. No-op when no embeddings repo is
+// configured or [embeddings] is absent from the manifest (Provider == ""):
+// there is nothing to compare against.
 func checkEmbeddingDrift(config Config) ([]Issue, error) {
 	if config.Embeddings == nil || config.Manifest == nil || config.Manifest.Embeddings.Provider == "" {
 		return nil, nil
@@ -510,7 +520,7 @@ func checkEmbeddingDrift(config Config) ([]Issue, error) {
 		return nil, fmt.Errorf("doctor: distinct embedding model/dims: %w", distinctErr)
 	}
 
-	configuredModel := config.Manifest.Embeddings.Model
+	configuredModel := embed.VectorKeyFor(config.Manifest.Embeddings)
 	configuredDim := config.Manifest.Embeddings.Dim
 
 	var issues []Issue
@@ -522,7 +532,7 @@ func checkEmbeddingDrift(config Config) ([]Issue, error) {
 
 		issues = append(issues, Issue{
 			Kind: IssueEmbeddingDrift,
-			Message: fmt.Sprintf("stored embeddings use model %q (dim %d) but the workspace is configured for model %q (dim %d); the configured embedder no longer matches the stored vectors, so semantic results are silently incomplete — run `tusk reset` (`tusk_reset`) to drop and re-embed.",
+			Message: fmt.Sprintf("stored embeddings use model %q (dim %d) but the workspace is configured for model %q (dim %d); the configured embedder no longer matches the stored vectors, so semantic results are silently incomplete — the next `tusk reindex` (`tusk_reindex`) re-embeds after a model or num-ctx change; if this persists, run `tusk reindex --force` or `tusk reset` (`tusk_reset`).",
 				pair.Model, pair.Dim, configuredModel, configuredDim),
 		})
 	}
@@ -594,6 +604,18 @@ func populateQueueDepths(config Config, report *Report) error {
 	return nil
 }
 
+// chunkMaxBytes is the chunk cap the oversize checks measure against: the
+// configured [embeddings] chunk-max-bytes, or embed.DefaultMaxBytes.
+func chunkMaxBytes(config Config) int {
+	if config.Manifest == nil {
+		return embed.DefaultMaxBytes
+	}
+
+	_, maxBytes, _ := config.Manifest.Embeddings.ChunkSizes()
+
+	return maxBytes
+}
+
 // populateEmbedStats fills report.EmbedStats and appends the large-chunk /
 // no-chunk Issues. No-op unless an embeddings repo and an embedding provider
 // are both configured.
@@ -602,7 +624,8 @@ func populateEmbedStats(config Config, report *Report) error {
 		return nil
 	}
 
-	threshold := int(0.9 * float64(embed.DefaultMaxBytes))
+	maxBytes := chunkMaxBytes(config)
+	threshold := int(0.9 * float64(maxBytes))
 
 	stats, statsErr := config.Embeddings.Stats(threshold)
 
@@ -623,7 +646,7 @@ func populateEmbedStats(config Config, report *Report) error {
 		report.Issues = append(report.Issues, Issue{
 			Kind:    IssueEmbedLargeChunk,
 			NodeID:  info.NodeID,
-			Message: fmt.Sprintf("chunk %d body is %d bytes (>= %d threshold, chunker MaxBytes %d)", info.ChunkIdx, info.BodyLen, threshold, embed.DefaultMaxBytes),
+			Message: fmt.Sprintf("chunk %d body is %d bytes (>= %d threshold, chunker MaxBytes %d)", info.ChunkIdx, info.BodyLen, threshold, maxBytes),
 		})
 	}
 
@@ -717,7 +740,7 @@ func computeSubUnitPane(config Config) (*SubUnitPane, error) {
 
 	pane.OrphanedSubUnits = orphans
 
-	oversize, oversizeErr := config.Nodes.CountOversizeSubUnitPayloads(embed.DefaultMaxBytes)
+	oversize, oversizeErr := config.Nodes.CountOversizeSubUnitPayloads(chunkMaxBytes(config))
 
 	if oversizeErr != nil {
 		return nil, oversizeErr

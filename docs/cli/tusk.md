@@ -48,7 +48,12 @@ CONFIGURATION
                              wikilinks for typed relationships
     [embeddings]             provider = "ollama", model, endpoint, dim,
                              api-key, workers, timeout-seconds — enables
-                             semantic search
+                             semantic search; query-prefix, document-prefix,
+                             document-header, chunk-target-bytes,
+                             chunk-max-bytes, chunk-overlap-bytes, num-ctx
+                             match tusk to the embedding model (e.g.
+                             nomic-embed-text: query-prefix "search_query: ",
+                             document-prefix "search_document: ")
     [query.graph-expansion]  enabled, hops (1|2), edge-types, weight,
                              candidate-multiplier — tunes graphrag retrieval
     [graph.cluster]          by (type|property|ancestor|community), huddle,
