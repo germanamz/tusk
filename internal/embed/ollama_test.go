@@ -337,3 +337,43 @@ func TestOllamaEmbedder_DimMismatchIsNotTransportError(test *testing.T) {
 		test.Errorf("dim mismatch must NOT be a TransportError; got %v", embedErr)
 	}
 }
+
+// TestOllamaEmbedder_RequestBody pins the wire bytes: with num-ctx unset the
+// body must match the pre-num-ctx request exactly (no "options" key), so an
+// upgrade leaves Ollama's output, and therefore every stored vector, as is.
+func TestOllamaEmbedder_RequestBody(test *testing.T) {
+	cases := []struct {
+		name   string
+		numCtx int
+		want   string
+	}{
+		{name: "num-ctx unset", numCtx: 0, want: `{"model":"m","prompt":"hello"}`},
+		{name: "num-ctx set", numCtx: 512, want: `{"model":"m","prompt":"hello","options":{"num_ctx":512}}`},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			var received []byte
+
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				buffer := new(bytes.Buffer)
+				_, _ = buffer.ReadFrom(request.Body)
+				received = buffer.Bytes()
+
+				_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": []float64{0.1}})
+			}))
+
+			defer server.Close()
+
+			embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{Endpoint: server.URL, Model: "m", Dim: 1, NumCtx: testCase.numCtx})
+
+			if _, embedErr := embedder.Embed(context.Background(), []byte("hello")); embedErr != nil {
+				test.Fatalf("Embed: %v", embedErr)
+			}
+
+			if string(received) != testCase.want {
+				test.Errorf("body = %s, want %s", received, testCase.want)
+			}
+		})
+	}
+}

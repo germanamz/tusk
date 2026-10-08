@@ -1,9 +1,11 @@
 package index_test
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -965,3 +967,122 @@ type boomErr struct{}
 func (boomErr) Error() string { return "boom" }
 
 func errBoom() error { return boomErr{} }
+
+// TestEmbedQueueRepo_EnqueueAllEmbeddable: every node the drain can embed is
+// queued (file rows and sub-unit leaves with a payload), and nothing it would
+// drop or never embeds (sections, empty-payload leaves) is.
+func TestEmbedQueueRepo_EnqueueAllEmbeddable(test *testing.T) {
+	store := openTestIndex(test)
+	nodes := index.NewNodeRepo(store)
+	queue := index.NewEmbedQueueRepo(store)
+
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert file: %v", upsertErr)
+	}
+
+	parent := sql.NullString{String: "notes/a", Valid: true}
+
+	if bulkErr := nodes.BulkUpsert([]index.NodeRow{
+		{ID: "notes/a#S1", Type: "section", Path: "notes/a.md", PropertiesJSON: "{}", LastChecksum: "x", ParentID: parent, Ordinal: sql.NullInt64{Int64: 0, Valid: true}, EmbedPayload: sql.NullString{String: "Heading", Valid: true}},
+		{ID: "notes/a#S1P1", Type: "paragraph", Path: "notes/a.md", PropertiesJSON: "{}", LastChecksum: "x", ParentID: parent, Ordinal: sql.NullInt64{Int64: 1, Valid: true}, EmbedPayload: sql.NullString{String: "text", Valid: true}},
+		{ID: "notes/a#S1T1", Type: "task", Path: "notes/a.md", PropertiesJSON: "{}", LastChecksum: "x", ParentID: parent, Ordinal: sql.NullInt64{Int64: 2, Valid: true}, EmbedPayload: sql.NullString{String: "", Valid: true}},
+	}, "markdown"); bulkErr != nil {
+		test.Fatalf("upsert sub-units: %v", bulkErr)
+	}
+
+	queued, enqErr := queue.EnqueueAllEmbeddable()
+
+	if enqErr != nil {
+		test.Fatalf("EnqueueAllEmbeddable: %v", enqErr)
+	}
+
+	if queued != 2 {
+		test.Errorf("queued = %d, want 2", queued)
+	}
+
+	ids, listErr := queue.ListNodeIDs()
+
+	if listErr != nil {
+		test.Fatalf("ListNodeIDs: %v", listErr)
+	}
+
+	sort.Strings(ids)
+
+	if want := []string{"notes/a", "notes/a#S1P1"}; !reflect.DeepEqual(ids, want) {
+		test.Errorf("queued = %v, want %v", ids, want)
+	}
+}
+
+// TestEmbedQueueRepo_EnqueueAllEmbeddableRevokesLeases: a row a drainer
+// already holds is re-queued with its lease cleared, so that drainer (which
+// may be embedding under settings that just changed) can no longer ack it,
+// and another drainer can claim it.
+func TestEmbedQueueRepo_EnqueueAllEmbeddableRevokesLeases(test *testing.T) {
+	store := openTestIndex(test)
+	nodes := index.NewNodeRepo(store)
+	queue := index.NewEmbedQueueRepo(store)
+
+	if upsertErr := nodes.Upsert(index.NodeRow{ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "A", PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+		test.Fatalf("upsert file: %v", upsertErr)
+	}
+
+	if enqErr := queue.Enqueue("notes/a"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	if claimed, _ := queue.DrainEmbed(testWorkerA, 10, testTTL); len(claimed) != 1 {
+		test.Fatalf("setup: worker A claimed %d rows, want 1", len(claimed))
+	}
+
+	if _, enqErr := queue.EnqueueAllEmbeddable(); enqErr != nil {
+		test.Fatalf("EnqueueAllEmbeddable: %v", enqErr)
+	}
+
+	if ackErr := queue.Ack("notes/a", testWorkerA); ackErr != nil {
+		test.Fatalf("Ack: %v", ackErr)
+	}
+
+	if depth, _ := queue.Depth(); depth != 1 {
+		test.Fatalf("depth = %d after the revoked worker acked, want 1 (row still queued)", depth)
+	}
+
+	if claimed, _ := queue.DrainEmbed(testWorkerB, 10, testTTL); len(claimed) != 1 {
+		test.Errorf("worker B claimed %d rows, want 1", len(claimed))
+	}
+}
+
+// TestEmbedQueueRepo_Release: releasing a held row returns it to the queue
+// unleased without spending an attempt; another worker's release is a no-op.
+func TestEmbedQueueRepo_Release(test *testing.T) {
+	repo := newTestEmbedQueueRepo(test)
+
+	if enqErr := repo.Enqueue("a"); enqErr != nil {
+		test.Fatalf("Enqueue: %v", enqErr)
+	}
+
+	if claimed, _ := repo.DrainEmbed(testWorkerA, 10, testTTL); len(claimed) != 1 {
+		test.Fatalf("setup: claimed %d rows, want 1", len(claimed))
+	}
+
+	if releaseErr := repo.Release("a", testWorkerB); releaseErr != nil {
+		test.Fatalf("Release by B: %v", releaseErr)
+	}
+
+	if claimed, _ := repo.DrainEmbed(testWorkerB, 10, testTTL); len(claimed) != 0 {
+		test.Fatalf("worker B's release freed A's lease")
+	}
+
+	if releaseErr := repo.Release("a", testWorkerA); releaseErr != nil {
+		test.Fatalf("Release by A: %v", releaseErr)
+	}
+
+	claimed, _ := repo.DrainEmbed(testWorkerB, 10, testTTL)
+
+	if len(claimed) != 1 {
+		test.Fatalf("after A released, B claimed %d rows, want 1", len(claimed))
+	}
+
+	if claimed[0].Attempts != 0 {
+		test.Errorf("Attempts = %d after a release, want 0", claimed[0].Attempts)
+	}
+}

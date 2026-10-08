@@ -165,14 +165,75 @@ type WorkspaceSection struct {
 // Workers is a pointer so the loader can distinguish "absent" (defaults
 // applied at resolution time) from "explicit 0" (opt out of the worker
 // pool in this instance). See internal/embedconfig.
+//
+// The remaining fields shape what the model sees, and all default to the
+// behavior tusk had before they existed. QueryPrefix and DocumentPrefix are
+// the instruction prefixes asymmetric models are trained with (DocumentPrefix
+// may contain {title}). DocumentHeader picks the block prepended to each file
+// chunk (DocumentHeaderFull/Title/None). The Chunk* sizes configure
+// file-level chunking (zero = default; see ChunkSizes). NumCtx is sent to
+// Ollama as options.num_ctx when > 0.
 type EmbeddingsSection struct {
-	Provider       string `toml:"provider"`
-	Model          string `toml:"model"`
-	Endpoint       string `toml:"endpoint"`
-	Dim            int    `toml:"dim"`
-	APIKey         string `toml:"api-key"`
-	Workers        *int   `toml:"workers"`
-	TimeoutSeconds int    `toml:"timeout-seconds"`
+	Provider          string `toml:"provider"`
+	Model             string `toml:"model"`
+	Endpoint          string `toml:"endpoint"`
+	Dim               int    `toml:"dim"`
+	APIKey            string `toml:"api-key"`
+	Workers           *int   `toml:"workers"`
+	TimeoutSeconds    int    `toml:"timeout-seconds"`
+	QueryPrefix       string `toml:"query-prefix"`
+	DocumentPrefix    string `toml:"document-prefix"`
+	DocumentHeader    string `toml:"document-header"`
+	ChunkTargetBytes  int    `toml:"chunk-target-bytes"`
+	ChunkMaxBytes     int    `toml:"chunk-max-bytes"`
+	ChunkOverlapBytes int    `toml:"chunk-overlap-bytes"`
+	NumCtx            int    `toml:"num-ctx"`
+}
+
+// Document header modes for EmbeddingsSection.DocumentHeader. An empty value
+// resolves to DocumentHeaderFull.
+const (
+	DocumentHeaderFull  = "full"
+	DocumentHeaderTitle = "title"
+	DocumentHeaderNone  = "none"
+)
+
+// Default file-level chunk sizes, tuned for nomic-embed-text's 2048-token
+// window: ~400-token chunks with ~50 tokens of overlap, and a hard cap sized
+// for ~2 bytes/token so code-dense chunks stay under 2048 tokens.
+const (
+	DefaultChunkTargetBytes  = 1600
+	DefaultChunkMaxBytes     = 4000
+	DefaultChunkOverlapBytes = 200
+)
+
+// TitlePlaceholder is replaced with the node's title in DocumentPrefix.
+const TitlePlaceholder = "{title}"
+
+// ChunkSizes returns the file-level chunk target, cap, and overlap in bytes,
+// substituting the defaults for unset (zero) fields.
+func (section EmbeddingsSection) ChunkSizes() (target, maxBytes, overlap int) {
+	return orDefault(section.ChunkTargetBytes, DefaultChunkTargetBytes),
+		orDefault(section.ChunkMaxBytes, DefaultChunkMaxBytes),
+		orDefault(section.ChunkOverlapBytes, DefaultChunkOverlapBytes)
+}
+
+// ResolvedDocumentHeader returns DocumentHeader, or DocumentHeaderFull when
+// unset.
+func (section EmbeddingsSection) ResolvedDocumentHeader() string {
+	if section.DocumentHeader == "" {
+		return DocumentHeaderFull
+	}
+
+	return section.DocumentHeader
+}
+
+func orDefault(configured, fallback int) int {
+	if configured <= 0 {
+		return fallback
+	}
+
+	return configured
 }
 
 // Cardinality enumerates the legal values for EdgeType.Cardinality.

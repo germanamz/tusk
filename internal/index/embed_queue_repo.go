@@ -91,6 +91,58 @@ func (repo *EmbedQueueRepo) EnqueueMany(nodeIDs []string) error {
 	return nil
 }
 
+// EnqueueAllEmbeddable queues an embed job for every node the drain embeds:
+// each file row, and each sub-unit leaf with a non-empty payload (sections
+// are never embedded, and an empty-payload leaf is dropped by the drain). A
+// row already queued is reset to a fresh, unleased job: whichever drainer held
+// it may be embedding under the settings that just changed, and clearing the
+// lease turns that drainer's Ack into a no-op so the row stays queued for an
+// up-to-date drainer. Returns how many rows it queued or reset.
+//
+// reindex calls it when the [embeddings] document settings change, so
+// unchanged files and leaves re-embed without being re-read; the drain then
+// skip-acks any node whose stored hash and vector key still match.
+func (repo *EmbedQueueRepo) EnqueueAllEmbeddable() (int, error) {
+	result, execErr := repo.db.Exec(`
+		INSERT INTO embed_queue (node_id, enqueued_at, attempts)
+		SELECT id, ?, 0 FROM nodes
+		WHERE kind = 'file'
+		   OR (kind = 'subunit' AND type != 'section' AND COALESCE(embed_payload, '') != '')
+		ON CONFLICT(node_id) DO UPDATE SET
+			leased_by           = NULL,
+			leased_until_ns     = NULL,
+			lease_started_at_ns = NULL,
+			attempts            = 0,
+			last_error          = NULL
+	`, time.Now().UnixNano())
+
+	if execErr != nil {
+		return 0, fmt.Errorf("embedQueueRepo: enqueue all embeddable: %w", execErr)
+	}
+
+	queued, _ := result.RowsAffected()
+
+	return int(queued), nil
+}
+
+// Release returns a row workerID holds to the queue unleased, without
+// spending an attempt (unlike Nack). A drainer that finds the [embeddings]
+// settings changed under it releases its claimed rows for an up-to-date
+// drainer. A no-op when workerID no longer holds the row.
+func (repo *EmbedQueueRepo) Release(nodeID, workerID string) error {
+	if _, execErr := repo.db.Exec(`
+		UPDATE embed_queue
+		SET    leased_by           = NULL,
+		       leased_until_ns     = NULL,
+		       lease_started_at_ns = NULL
+		WHERE  node_id = ? AND leased_by = ?
+	`, nodeID, workerID); execErr != nil {
+		return fmt.Errorf("embedQueueRepo: release %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
 // EnqueueReindex inserts a kind='reindex' row keyed by ReindexNodeIDPrefix+path.
 // Idempotent: ON CONFLICT(node_id) DO NOTHING handles two concurrent walks of
 // the same file. Returns an error when path itself begins with the reserved

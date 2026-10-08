@@ -44,6 +44,8 @@ Validation matches boot semantics, so a hot reload reaches the same in-memory st
 
 The `tusk_reload` response carries the new `manifest_epoch`, a `diff` (added/removed node-types, edge-types, behaviors), the `reindex` report, and any `validation_errors` / `warnings`. The CLI `tusk reload` has no previous manifest to diff against, so it prints the loaded schema summary instead; `--reindex` runs a synchronous reindex for the no-daemon case.
 
+**Embedding settings on reload.** The `tusk_reload` reindex walk runs the `[embeddings]` settings check (see [reindex](reindex.md)) but doesn't drain inline: after a settings change the queue is the whole vault, and the background drainer does it off `reindexMu`. The CLI `tusk reload` runs the same check even without `--reindex` (`reindex.ApplyEmbeddingSettings`), because converging siblings never reindex and nothing else would record the new settings; its output reports `embed_settings_requeued`. Each drainer tick carries its runtime snapshot's settings fingerprint, so a pass still running when a reload swaps the runtime stops at its next node and the next tick resumes under the new settings.
+
 ## Notes
 
 Workspace-config commands stay CLI-only in v1.c — `tusk pack add` has no MCP equivalent yet (carried as 7.c.1 §10 ledger #10). Structured warnings via stderr text-line parsing remains a v1 expediency (Plans 7, 7.b, 7.c.1 residuals).

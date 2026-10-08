@@ -72,6 +72,7 @@ func RunWatcher(ctx context.Context, config WatchConfig) error {
 			EmbeddingRepo:   rt.Embeddings,
 			Embedder:        rt.Embedder,
 			Chunker:         rt.Chunker,
+			Manifest:        rt.Manifest, // [embeddings] settings-change re-embed check
 			Meta:            rt.Meta,
 			FileStates:      rt.FileState,
 			PropertyDrift:   rt.PropertyDrift,

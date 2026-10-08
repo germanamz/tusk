@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -54,6 +55,15 @@ type DrainConfig struct {
 	// index.WorkerID() caches a single UUID per process, so two in-process
 	// drainers would otherwise share one identity and never contend for leases.
 	WorkerID string
+	// Meta and Fingerprint guard against embedding under superseded settings.
+	// Fingerprint is the DocumentFingerprint of the [embeddings] settings
+	// Embedder and Chunker were built from. When both are set and Meta's
+	// DocumentFingerprintKey holds a different non-empty value (reindex
+	// recorded newer settings, e.g. a tusk_reload or a CLI reindex while this
+	// daemon still holds the old manifest), the drain releases its claimed
+	// rows and stops instead of skip-acking, reusing, or writing anything.
+	Meta        *index.MetaRepo
+	Fingerprint string
 }
 
 // isSubUnit reports whether a node row represents a sub-unit (paragraph,
@@ -68,9 +78,10 @@ func isSubUnit(row *index.NodeRow) bool {
 }
 
 // embeddingsMatch reports whether the persisted rows already cover every new
-// chunk: same count, same chunk_idx coverage, same content_hash, same model.
-// Used by DrainQueue to skip re-embedding when content is unchanged.
-func embeddingsMatch(existing []index.EmbeddingRow, newHashes []string, model string) bool {
+// chunk: same count, same chunk_idx coverage, same content_hash, same vector
+// key (stored in the model column; see Embedder.VectorKey). Used by DrainQueue
+// to skip re-embedding when content is unchanged.
+func embeddingsMatch(existing []index.EmbeddingRow, newHashes []string, vectorKey string) bool {
 	if len(existing) != len(newHashes) {
 		return false
 	}
@@ -84,7 +95,7 @@ func embeddingsMatch(existing []index.EmbeddingRow, newHashes []string, model st
 	for chunkIdx, hash := range newHashes {
 		row, ok := byIdx[chunkIdx]
 
-		if !ok || row.ContentHash != hash || row.Model != model {
+		if !ok || row.ContentHash != hash || row.Model != vectorKey {
 			return false
 		}
 	}
@@ -217,6 +228,17 @@ func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
 		batchSucceeded, batchFailed, batchErr := drainBatch(ctx, config, workerID, batch)
 
 		drained += batchSucceeded
+
+		if errors.Is(batchErr, ErrSettingsSuperseded) {
+			// Hand back every row of the batch this drainer still holds (rows
+			// it never reached, too) so an up-to-date drainer can claim them
+			// now instead of after the lease expires.
+			for _, queued := range batch {
+				_ = config.Queue.Release(queued.NodeID, workerID)
+			}
+
+			return drained, ErrSettingsSuperseded
+		}
 
 		if batchErr != nil {
 			return drained, batchErr
@@ -366,6 +388,35 @@ func drainBatchConcurrent(ctx context.Context, config DrainConfig, workerID stri
 	return succeeded, failed, firstErr
 }
 
+// ErrSettingsSuperseded is returned by DrainQueue when it stopped because the
+// [embeddings] settings it was built with are no longer the ones reindex
+// recorded (see DrainConfig.Fingerprint). It is a stop, not a failure: the
+// claimed rows went back to the queue for an up-to-date drainer. Callers log
+// it once per episode rather than on every pass.
+var ErrSettingsSuperseded = errors.New("embed: [embeddings] settings changed since this process loaded tusk.toml; leaving the embed queue to an up-to-date process (reload this one, e.g. tusk_reload, to resume)")
+
+// settingsSuperseded reports whether reindex has recorded document settings
+// other than the ones this drain was built with. A meta read error counts as
+// not superseded: the guard must not stall draining on a transient error,
+// and the next node checks again.
+func settingsSuperseded(config DrainConfig) bool {
+	if config.Meta == nil || config.Fingerprint == "" {
+		return false
+	}
+
+	stored, getErr := config.Meta.Get(DocumentFingerprintKey)
+
+	return getErr == nil && stored != "" && stored != config.Fingerprint
+}
+
+// releaseSuperseded hands a claimed row back to the queue unleased, without
+// spending an attempt, and signals the drain to stop.
+func releaseSuperseded(config DrainConfig, workerID string, queued index.QueueRow) (nodeOutcome, error) {
+	_ = config.Queue.Release(queued.NodeID, workerID)
+
+	return outcomeSkipped, ErrSettingsSuperseded
+}
+
 // nodeOutcome is the verdict embedNode returns for one queued row. A non-nil
 // error from embedNode is fatal (aborts the whole drain) and is distinct from
 // outcomeFailed, which is a per-node failure the drain recovers from.
@@ -388,6 +439,14 @@ const (
 // it propagates out of DrainQueue. Per-node failures are absorbed via the
 // retry policy and reported as outcomeFailed.
 func embedNode(ctx context.Context, config DrainConfig, workerID string, queued index.QueueRow) (nodeOutcome, error) {
+	// Checked before the unchanged-skip and the reuse path as well as the
+	// embed: a drainer on superseded settings computes old-format hashes, which
+	// match the stored old vectors, so it would otherwise ack the row and the
+	// node would never re-embed under the new settings.
+	if settingsSuperseded(config) {
+		return releaseSuperseded(config, workerID, queued)
+	}
+
 	row, getErr := config.Nodes.Get(queued.NodeID)
 
 	if getErr != nil {
@@ -396,11 +455,13 @@ func embedNode(ctx context.Context, config DrainConfig, workerID string, queued 
 		return outcomeSkipped, nil
 	}
 
-	header, bodyChunks, payloadOutcome := buildChunkPayloads(config, workerID, queued, row)
+	source, payloadOutcome := buildChunkPayloads(config, workerID, queued, row)
 
 	if payloadOutcome != outcomeSucceeded {
 		return payloadOutcome, nil
 	}
+
+	bodyChunks := source.bodies
 
 	if len(bodyChunks) == 0 {
 		_ = config.Queue.Drop(queued.NodeID, workerID)
@@ -411,31 +472,39 @@ func embedNode(ctx context.Context, config DrainConfig, workerID string, queued 
 	if config.Logger != nil {
 		config.Logger.Debug("embed attempt",
 			"node_id", queued.NodeID,
-			"header_bytes", len(header),
+			"header_bytes", len(source.header),
 			"chunks", len(bodyChunks),
 		)
 	}
 
-	// Build the per-chunk payloads (header + chunk) and their content hashes.
+	// Build the per-chunk texts (document prefix + header + chunk) and hash
+	// exactly those bytes. Every [embeddings] setting that changes the text
+	// (document-prefix, a {title} edit, document-header, chunk sizes) changes
+	// the hash, so no vector embedded under other settings is skip-acked or
+	// reused. With those settings at their defaults the prefix is empty and the
+	// text is the header+chunk bytes tusk always hashed, so an existing index
+	// keeps matching.
+	format := config.Embedder.Format()
 	chunkPayloads := make([][]byte, len(bodyChunks))
 	chunkHashes := make([]string, len(bodyChunks))
 
 	for chunkIdx, bodyChunk := range bodyChunks {
-		payload := make([]byte, 0, len(header)+len(bodyChunk))
-		payload = append(payload, header...)
+		payload := make([]byte, 0, len(source.header)+len(bodyChunk))
+		payload = append(payload, source.header...)
 		payload = append(payload, bodyChunk...)
-		hash := sha256.Sum256(payload)
-		chunkPayloads[chunkIdx] = payload
+		text := format.Document(source.title, payload)
+		hash := sha256.Sum256(text)
+		chunkPayloads[chunkIdx] = text
 		chunkHashes[chunkIdx] = hex.EncodeToString(hash[:])
 	}
 
 	// Short-circuit when every chunk's payload hash already matches an existing
-	// row for this node under the same model. Reindex enqueues every seen node
-	// every pass, so this skip keeps unchanged content from re-embedding on
-	// every watcher tick.
+	// row for this node under the same vector key. Reindex enqueues every seen
+	// node every pass, so this skip keeps unchanged content from re-embedding
+	// on every watcher tick.
 	existingRows, existingErr := config.Embeddings.GetByNodeID(queued.NodeID)
 
-	if existingErr == nil && embeddingsMatch(existingRows, chunkHashes, config.Embedder.Model()) {
+	if existingErr == nil && embeddingsMatch(existingRows, chunkHashes, config.Embedder.VectorKey()) {
 		if config.Logger != nil {
 			config.Logger.Debug("embed skip unchanged",
 				"node_id", queued.NodeID,
@@ -459,7 +528,7 @@ func embedNode(ctx context.Context, config DrainConfig, workerID string, queued 
 		return reused, nil
 	}
 
-	return embedChunks(ctx, config, workerID, queued, header, chunkPayloads, chunkHashes)
+	return embedChunks(ctx, config, workerID, queued, bodyChunks, chunkPayloads, chunkHashes)
 }
 
 // pruneStaleTail drops any node_embeddings mappings left over from a longer
@@ -486,13 +555,22 @@ func pruneStaleTail(config DrainConfig, workerID string, queued index.QueueRow, 
 	return true
 }
 
-// buildChunkPayloads resolves a queued row into the embed header and body
-// chunks. Sub-unit rows embed their pre-synthesized payload as a single chunk;
-// file-level rows are read from disk, parsed, and chunked by config.Chunker. It
-// returns the header, the body chunks, and an outcome: outcomeSucceeded means
-// (header, chunks) are valid; any other outcome means the row was already
-// dropped or retried and the caller should return that outcome.
-func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueRow, row *index.NodeRow) ([]byte, [][]byte, nodeOutcome) {
+// chunkSource is what a queued row embeds: the header prepended to every chunk,
+// the title {title} renders as, and the body chunks. Sub-units have no header
+// and an empty title (so {title} renders as "none").
+type chunkSource struct {
+	header []byte
+	title  string
+	bodies [][]byte
+}
+
+// buildChunkPayloads resolves a queued row into its chunkSource. Sub-unit rows
+// embed their pre-synthesized payload as a single chunk; file-level rows are
+// read from disk, parsed, given the configured header, and chunked by
+// config.Chunker. The outcome is outcomeSucceeded when the source is valid;
+// any other outcome means the row was already dropped or retried and the
+// caller should return that outcome.
+func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueRow, row *index.NodeRow) (chunkSource, nodeOutcome) {
 	// Sub-unit rows carry their own pre-synthesized embed payload (set by the
 	// sub-unit sync in Task 3) — including the `<column-header>: <cell-text>`
 	// synthesis for table cells per spec §5.6. They are embedded as a single
@@ -517,10 +595,10 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 
 			_ = config.Queue.Drop(queued.NodeID, workerID)
 
-			return nil, nil, outcomeSkipped
+			return chunkSource{}, outcomeSkipped
 		}
 
-		return nil, ASTChunking{}.Chunk([]byte(payload)), outcomeSucceeded
+		return chunkSource{bodies: ASTChunking{}.Chunk([]byte(payload))}, outcomeSucceeded
 	}
 
 	content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
@@ -528,7 +606,7 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 	if readErr != nil {
 		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, readErr)
 
-		return nil, nil, outcomeFailed
+		return chunkSource{}, outcomeFailed
 	}
 
 	parsed, parseErr := node.ParseContentFile(row.Path, content)
@@ -536,16 +614,18 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 	if parseErr != nil {
 		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, parseErr)
 
-		return nil, nil, outcomeFailed
+		return chunkSource{}, outcomeFailed
 	}
 
-	header := BuildHeader(parsed)
-
-	return header, config.Chunker.Chunk(BuildBody(parsed)), outcomeSucceeded
+	return chunkSource{
+		header: config.Embedder.Format().Header(parsed),
+		title:  parsed.Title,
+		bodies: config.Chunker.Chunk(BuildBody(parsed)),
+	}, outcomeSucceeded
 }
 
 // tryReuse attaches the node to already-stored vectors by content hash when
-// every chunk's content already exists under the same model — the cross-node
+// every chunk's content already exists under the same vector key — the cross-node
 // de-duplication path that avoids calling the embedder for unchanged content.
 // Returns outcomeSucceeded (reused + acked), outcomeFailed (map error, retried/
 // dropped), or outcomeSkipped (not all chunks reusable; caller must embed).
@@ -555,7 +635,7 @@ func tryReuse(config DrainConfig, workerID string, queued index.QueueRow, chunkH
 	// Batch the per-chunk existence check into one IN-clause query. A query
 	// error degrades to "not reusable" (allReusable stays false), mirroring the
 	// prior per-chunk loop, which fell through to the embed path on any error.
-	existing, existsErr := config.Embeddings.ExistsByContentHashes(chunkHashes, config.Embedder.Model())
+	existing, existsErr := config.Embeddings.ExistsByContentHashes(chunkHashes, config.Embedder.VectorKey())
 
 	if existsErr != nil {
 		allReusable = false
@@ -574,7 +654,7 @@ func tryReuse(config DrainConfig, workerID string, queued index.QueueRow, chunkH
 	}
 
 	for chunkIdx, hash := range chunkHashes {
-		if mapErr := config.Embeddings.MapNodeChunk(queued.NodeID, chunkIdx, hash, config.Embedder.Model()); mapErr != nil {
+		if mapErr := config.Embeddings.MapNodeChunk(queued.NodeID, chunkIdx, hash, config.Embedder.VectorKey()); mapErr != nil {
 			retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, mapErr)
 
 			return outcomeFailed
@@ -598,11 +678,13 @@ func tryReuse(config DrainConfig, workerID string, queued index.QueueRow, chunkH
 	return outcomeSucceeded
 }
 
-// embedChunks runs the worker pool: it embeds every chunk concurrently (capped
-// at config.Workers), aborts the node on the first chunk error via the retry
-// policy, and on full success upserts every vector and acks the row. A returned
-// error is fatal (an upsert failure aborts the drain).
-func embedChunks(ctx context.Context, config DrainConfig, workerID string, queued index.QueueRow, header []byte, chunkPayloads [][]byte, chunkHashes []string) (nodeOutcome, error) {
+// embedChunks runs the worker pool: it embeds every chunk text concurrently
+// (capped at config.Workers), aborts the node on the first chunk error via the
+// retry policy, and on full success upserts every vector and acks the row.
+// bodies[i] is the chunk stored as chunkPayloads[i]'s body: the text minus its
+// prefix and header. A returned error is fatal (an upsert failure aborts the
+// drain).
+func embedChunks(ctx context.Context, config DrainConfig, workerID string, queued index.QueueRow, bodies, chunkPayloads [][]byte, chunkHashes []string) (nodeOutcome, error) {
 	workers := config.Workers
 
 	if workers < 1 {
@@ -648,11 +730,10 @@ func embedChunks(ctx context.Context, config DrainConfig, workerID string, queue
 				embedStart := time.Now()
 				vec, err := config.Embedder.Embed(nodeCtx, job.payload)
 				latency := time.Since(embedStart)
-				// header is nil for sub-units (len(header)==0), so body == payload in that case.
 				results <- embedResult{
 					chunkIdx:     job.chunkIdx,
 					vector:       vec,
-					body:         job.payload[len(header):], // body is payload minus header
+					body:         bodies[job.chunkIdx],
 					payloadBytes: len(job.payload),
 					latency:      latency,
 					err:          err,
@@ -724,6 +805,12 @@ func embedChunks(ctx context.Context, config DrainConfig, workerID string, queue
 		return outcomeFailed, nil
 	}
 
+	// The embed calls can be slow; settings recorded while they ran mean these
+	// vectors are already superseded, so don't write them.
+	if settingsSuperseded(config) {
+		return releaseSuperseded(config, workerID, queued)
+	}
+
 	sort.Slice(collected, func(left, right int) bool {
 		return collected[left].chunkIdx < collected[right].chunkIdx
 	})
@@ -732,7 +819,7 @@ func embedChunks(ctx context.Context, config DrainConfig, workerID string, queue
 		if upsertErr := config.Embeddings.Upsert(index.EmbeddingRow{
 			NodeID:      queued.NodeID,
 			ChunkIdx:    res.chunkIdx,
-			Model:       config.Embedder.Model(),
+			Model:       config.Embedder.VectorKey(),
 			ContentHash: chunkHashes[res.chunkIdx],
 			Vector:      res.vector,
 			Dim:         config.Embedder.Dim(),

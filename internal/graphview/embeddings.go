@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 )
 
@@ -51,14 +52,15 @@ func (srv *Server) handleEmbeddings(writer http.ResponseWriter, _ *http.Request)
 
 // buildEmbeddingsResponse aggregates raw EmbeddingRows into one mean-pooled,
 // L2-normalized vector per node. Rows must arrive ordered by node_id, chunk_idx.
-// Model and Dim are taken from the first row seen; nodes whose chunk vectors
-// have inconsistent lengths are skipped defensively. Nodes whose mean vector
-// has zero L2 norm are also omitted from Vectors.
+// Model (the display name, without any vector-key suffix) and Dim are taken
+// from the first row seen; nodes whose chunk vectors have inconsistent lengths
+// are skipped defensively. Nodes whose mean vector has zero L2 norm are also
+// omitted from Vectors.
 func buildEmbeddingsResponse(rows []index.EmbeddingRow) EmbeddingsResponse {
 	resp := EmbeddingsResponse{Vectors: map[string][]float32{}}
 
 	if len(rows) > 0 {
-		resp.Model = rows[0].Model
+		resp.Model = embed.DisplayModel(rows[0].Model)
 		resp.Dim = rows[0].Dim
 	}
 

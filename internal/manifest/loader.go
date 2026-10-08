@@ -803,6 +803,10 @@ func validate(loaded *Manifest) error {
 		if loaded.Embeddings.TimeoutSeconds < 0 {
 			return fmt.Errorf("manifest: embeddings.timeout-seconds must be >= 0 (got %d); zero or absent uses the default", loaded.Embeddings.TimeoutSeconds)
 		}
+
+		if modelErr := validateEmbeddingsModelSettings(loaded.Embeddings); modelErr != nil {
+			return modelErr
+		}
 	}
 
 	// Workers is validated independently of the provider: the embed/reindex
@@ -815,4 +819,72 @@ func validate(loaded *Manifest) error {
 	}
 
 	return nil
+}
+
+// validateEmbeddingsModelSettings checks the [embeddings] keys that shape
+// what the model sees: chunk sizes, num-ctx, the header mode, and the
+// prefixes. The chunk-size ordering is checked after defaults are filled in,
+// so lowering only chunk-max-bytes below the default target fails with an
+// error naming that default instead of producing a chunker that can never
+// reach its target.
+func validateEmbeddingsModelSettings(section EmbeddingsSection) error {
+	nonNegative := []struct {
+		key   string
+		value int
+	}{
+		{"chunk-target-bytes", section.ChunkTargetBytes},
+		{"chunk-max-bytes", section.ChunkMaxBytes},
+		{"chunk-overlap-bytes", section.ChunkOverlapBytes},
+		{"num-ctx", section.NumCtx},
+	}
+
+	for _, field := range nonNegative {
+		if field.value < 0 {
+			return fmt.Errorf("manifest: embeddings.%s must be >= 0 (got %d); zero or absent uses the default", field.key, field.value)
+		}
+	}
+
+	// '#' joins the model to its request options in the stored vector key
+	// (embed.VectorKey), so a model name containing it would be ambiguous.
+	// Ollama model references never contain one.
+	if strings.Contains(section.Model, "#") {
+		return fmt.Errorf("manifest: embeddings.model = %q must not contain '#' (it separates the model from its options in stored vector keys)", section.Model)
+	}
+
+	target, maxBytes, overlap := section.ChunkSizes()
+
+	if target > maxBytes {
+		return fmt.Errorf("manifest: embeddings.chunk-target-bytes (%d%s) must be <= chunk-max-bytes (%d%s); set both when lowering the cap for a short-context model",
+			target, defaultNote(section.ChunkTargetBytes), maxBytes, defaultNote(section.ChunkMaxBytes))
+	}
+
+	if overlap >= target {
+		return fmt.Errorf("manifest: embeddings.chunk-overlap-bytes (%d%s) must be < chunk-target-bytes (%d%s)",
+			overlap, defaultNote(section.ChunkOverlapBytes), target, defaultNote(section.ChunkTargetBytes))
+	}
+
+	switch section.DocumentHeader {
+	case "", DocumentHeaderFull, DocumentHeaderTitle, DocumentHeaderNone:
+	default:
+		return fmt.Errorf("manifest: embeddings.document-header = %q is not supported (want %s | %s | %s)",
+			section.DocumentHeader, DocumentHeaderFull, DocumentHeaderTitle, DocumentHeaderNone)
+	}
+
+	// {title} expands only in document-prefix. A query has no title, so the
+	// placeholder in query-prefix would reach the model as literal braces.
+	if strings.Contains(section.QueryPrefix, TitlePlaceholder) {
+		return fmt.Errorf("manifest: embeddings.query-prefix must not contain %s (only document-prefix expands it; a query has no title)", TitlePlaceholder)
+	}
+
+	return nil
+}
+
+// defaultNote labels a resolved chunk size that came from the default, so a
+// validation error explains where a number the user never wrote came from.
+func defaultNote(configured int) string {
+	if configured <= 0 {
+		return ", the default"
+	}
+
+	return ""
 }

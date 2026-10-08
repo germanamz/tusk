@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -20,6 +21,10 @@ type DrainerConfig struct {
 // snapshot WITHOUT holding the lock so a concurrent reset's write-lock is never
 // blocked by the (Ollama-bound) drain pass. When the runtime has no embedder
 // configured, RunDrainer is a no-op but still respects ctx cancellation.
+//
+// While this daemon's [embeddings] settings are stale (another process
+// recorded newer ones), every pass stops at once; that is logged once per
+// episode, not on every tick.
 func RunDrainer(ctx context.Context, config DrainerConfig) error {
 	interval := config.Interval
 
@@ -29,6 +34,8 @@ func RunDrainer(ctx context.Context, config DrainerConfig) error {
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	superseded := false
 
 	for {
 		select {
@@ -41,18 +48,19 @@ func RunDrainer(ctx context.Context, config DrainerConfig) error {
 				continue
 			}
 
-			drained, drainErr := embed.DrainQueue(ctx, embed.DrainConfig{
-				Root:             rt.Root,
-				Nodes:            rt.Nodes,
-				Queue:            rt.EmbedQueue,
-				Embeddings:       rt.Embeddings,
-				Embedder:         rt.Embedder,
-				Chunker:          rt.Chunker,
-				Workers:          rt.Workers,
-				EmbedConcurrency: rt.Workers,
-				TTL:              rt.LeaseTTL,
-				Logger:           config.Logger,
-			})
+			drained, drainErr := drainTick(ctx, rt, config.Logger)
+
+			if errors.Is(drainErr, embed.ErrSettingsSuperseded) {
+				if !superseded && config.Logger != nil {
+					config.Logger.Warn(drainErr.Error())
+				}
+
+				superseded = true
+
+				continue
+			}
+
+			superseded = false
 
 			if drainErr != nil && config.Logger != nil {
 				config.Logger.Warn("drainer error", "err", drainErr) // includes the benign "database is closed" if a reset swapped mid-pass
@@ -63,4 +71,32 @@ func RunDrainer(ctx context.Context, config DrainerConfig) error {
 			}
 		}
 	}
+}
+
+// drainTick runs one embed drain pass off a runtime snapshot. The pass carries
+// the snapshot's [embeddings] fingerprint, so a pass still running when a
+// reload swaps in new settings stops at its next node instead of embedding
+// the re-queued vault under the old ones; the next tick picks up the new
+// snapshot.
+func drainTick(ctx context.Context, rt *Runtime, logger *slog.Logger) (int, error) {
+	var fingerprint string
+
+	if rt.Manifest != nil && rt.Manifest.Embeddings.Provider != "" {
+		fingerprint = embed.DocumentFingerprint(rt.Manifest.Embeddings)
+	}
+
+	return embed.DrainQueue(ctx, embed.DrainConfig{
+		Root:             rt.Root,
+		Nodes:            rt.Nodes,
+		Queue:            rt.EmbedQueue,
+		Embeddings:       rt.Embeddings,
+		Embedder:         rt.Embedder,
+		Chunker:          rt.Chunker,
+		Workers:          rt.Workers,
+		EmbedConcurrency: rt.Workers,
+		TTL:              rt.LeaseTTL,
+		Logger:           logger,
+		Meta:             rt.Meta,
+		Fingerprint:      fingerprint,
+	})
 }

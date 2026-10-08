@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/mcp"
 	"github.com/germanamz/tusk/internal/node"
@@ -1892,8 +1893,10 @@ func (snippetStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32
 	return []float32{1, 0, 0}, nil
 }
 
-func (snippetStubEmbedder) Model() string { return "stub" }
-func (snippetStubEmbedder) Dim() int      { return 3 }
+func (snippetStubEmbedder) Model() string        { return "stub" }
+func (snippetStubEmbedder) VectorKey() string    { return "stub" }
+func (snippetStubEmbedder) Format() embed.Format { return embed.Format{} }
+func (snippetStubEmbedder) Dim() int             { return 3 }
 
 func TestTool_Query_SemanticIncludesSnippet(test *testing.T) {
 	rt := bootRuntime(test)

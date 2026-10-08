@@ -85,6 +85,35 @@ workers = 4
 
 The pool size is resolved once at process start; changes require a restart.
 
+### Embedding model settings — `[embeddings]`
+
+Every embedding model is trained differently, so the keys that shape what the model sees are configurable. All are optional, and with all of them absent tusk sends exactly what it always has.
+
+```toml
+[embeddings]
+query-prefix        = "search_query: "
+document-prefix     = "search_document: "
+document-header     = "full"
+chunk-target-bytes  = 1600
+chunk-max-bytes     = 4000
+chunk-overlap-bytes = 200
+num-ctx             = 2048
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `query-prefix` | string | `""` | Prepended to the semantic query string. Must not contain `{title}`. |
+| `document-prefix` | string | `""` | Prepended to every document text (file chunks and sub-unit leaves). `{title}` becomes the node's title, or `none` for an untitled file and for every sub-unit. |
+| `document-header` | string | `"full"` | Block at the start of each file chunk: `full` (type, title, properties), `title` (title line only), or `none`. |
+| `chunk-target-bytes` | int | `1600` | File-level chunk packing goal. |
+| `chunk-max-bytes` | int | `4000` | Hard cap per file-level chunk; also the threshold doctor's oversize checks use. |
+| `chunk-overlap-bytes` | int | `200` | Tail of each chunk carried into the next. |
+| `num-ctx` | int | `0` | Sent to Ollama as `options.num_ctx` when > 0; unset keeps the model's default window. |
+
+Zero or absent sizes mean the default. `Load` rejects negative sizes or `num-ctx`, an unknown `document-header`, `{title}` in `query-prefix`, a `#` in `model` (it separates the model from its options in stored vector keys), and resolved sizes that break `overlap < target <= max` (the error names any default it filled in, so lowering only `chunk-max-bytes` below the default target says so). Prefix and header bytes don't count toward the chunk budget.
+
+`EmbeddingsSection.ChunkSizes()` and `ResolvedDocumentHeader()` return the values with defaults filled in. Changing any key except `query-prefix` re-embeds every node on the next reindex; see `docs/packages/embed.md` and `docs/packages/reindex.md`.
+
 ### Graph cluster lens — `[graph.cluster]`
 
 The optional `[graph.cluster]` block configures how the `tusk web` graph view groups nodes. The resolver is `internal/manifest/graph_cluster.go`; the resolved struct is `Manifest.GraphCluster`.

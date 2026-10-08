@@ -575,6 +575,7 @@ func (srv *Server) reindexOnBoot(logger *slog.Logger) error {
 		EmbeddingRepo:   rt.Embeddings,
 		Embedder:        rt.Embedder,
 		Chunker:         rt.Chunker,
+		Manifest:        rt.Manifest, // [embeddings] settings-change re-embed check
 		Meta:            rt.Meta,
 		FileStates:      rt.FileState,
 		PropertyDrift:   rt.PropertyDrift,
