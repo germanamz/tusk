@@ -1,6 +1,10 @@
 package filter
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+	"unicode/utf8"
+)
 
 // Lexer tokenizes a filter expression.
 type Lexer struct {
@@ -49,7 +53,13 @@ func (lex *Lexer) Next() Token {
 		return lex.lexString()
 	}
 
-	return Token{Kind: TokenEOF, Pos: startPos}
+	// Anything else is outside the grammar. Returning EOF here would end the
+	// filter early and silently drop the rest of the input, so consume the
+	// whole rune and let the parser report it.
+	character, width := utf8.DecodeRuneInString(lex.input[lex.pos:])
+	lex.pos += width
+
+	return Token{Kind: TokenIllegal, Value: fmt.Sprintf("unexpected character %q", character), Pos: startPos}
 }
 
 // NextValue returns a value-position token: STRING or BARE_VALUE.
@@ -175,7 +185,7 @@ func (lex *Lexer) lexString() Token {
 		lex.pos++
 	}
 
-	return Token{Kind: TokenEOF, Pos: startPos}
+	return Token{Kind: TokenIllegal, Value: "unterminated string", Pos: startPos}
 }
 
 func isIdentStart(character byte) bool {

@@ -251,3 +251,52 @@ func TestLexer_ColonProducesTokenColon(test *testing.T) {
 		test.Errorf("second token kind = %v, want TokenColon", second.Kind)
 	}
 }
+
+// TestLexer_IllegalCharacter pins that a character the grammar doesn't know is
+// its own token, not an early end of input, and that the lexer moves past the
+// whole rune so the parser always makes progress (#760).
+func TestLexer_IllegalCharacter(test *testing.T) {
+	cases := []struct {
+		input   string
+		message string
+		nextPos int
+	}{
+		{"&", "unexpected character '&'", 1},
+		{"*rest", "unexpected character '*'", 1},
+		{"é", "unexpected character 'é'", 2},
+		{"\u00a0", `unexpected character '\u00a0'`, 2},
+	}
+
+	for _, testCase := range cases {
+		lexer := filter.NewLexer(testCase.input)
+		token := lexer.Next()
+
+		if token.Kind != filter.TokenIllegal || token.Value != testCase.message || token.Pos != 0 {
+			test.Errorf("input %q: got %+v, want ILLEGAL(%q) at 0", testCase.input, token, testCase.message)
+		}
+
+		if lexer.Pos() != testCase.nextPos {
+			test.Errorf("input %q: pos after illegal token = %d, want %d", testCase.input, lexer.Pos(), testCase.nextPos)
+		}
+	}
+}
+
+// TestLexer_UnterminatedString pins that a string with no closing quote is an
+// illegal token in both lexer modes rather than an early end of input (#760).
+func TestLexer_UnterminatedString(test *testing.T) {
+	cases := []struct {
+		name string
+		next func(lexer *filter.Lexer) filter.Token
+	}{
+		{"Next", (*filter.Lexer).Next},
+		{"NextValue", (*filter.Lexer).NextValue},
+	}
+
+	for _, testCase := range cases {
+		token := testCase.next(filter.NewLexer(`"open`))
+
+		if token.Kind != filter.TokenIllegal || token.Value != "unterminated string" || token.Pos != 0 {
+			test.Errorf("%s: got %+v, want ILLEGAL(\"unterminated string\") at 0", testCase.name, token)
+		}
+	}
+}

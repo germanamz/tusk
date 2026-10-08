@@ -139,11 +139,37 @@ func TestGoldenCLI_Query(test *testing.T) {
 			wantStderr: "--semantic requires [embeddings] block in tusk.toml\n",
 		},
 		{
-			name:               "a malformed filter is rejected",
-			manifest:           queryManifest,
-			args:               []string{"query", "type="},
-			wantErr:            true,
-			wantStderrContains: "filter parse:",
+			name:       "a malformed filter is rejected",
+			manifest:   queryManifest,
+			args:       []string{"query", "type="},
+			wantErr:    true,
+			wantStderr: "filter parse: expected value after operator at column 6\n",
+		},
+		{
+			// #760: an unrecognized character used to end the filter early, so
+			// this ran as `type=note` and listed every note with exit 0.
+			name:       "an unrecognized character between predicates is rejected",
+			manifest:   queryManifest,
+			setup:      queryFixture,
+			args:       []string{"query", "type=note & title=A"},
+			wantErr:    true,
+			wantStderr: "filter parse: unexpected character '&' at column 11\n",
+		},
+		{
+			// #760: this used to run as `path=notes/` and return zero rows.
+			name:       "an unrecognized character inside a bare value is rejected",
+			manifest:   queryManifest,
+			setup:      queryFixture,
+			args:       []string{"query", "path=notes/*"},
+			wantErr:    true,
+			wantStderr: "filter parse: unexpected character '*' at column 12\n",
+		},
+		{
+			name:       "an undeclared edge type is rejected",
+			manifest:   queryManifest,
+			args:       []string{"query", "nope->"},
+			wantErr:    true,
+			wantStderr: "filter validate: edge type \"nope\" not declared in manifest at column 1\n",
 		},
 		{
 			name:       "graph-expand hops out of range is rejected",

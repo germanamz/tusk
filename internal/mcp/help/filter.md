@@ -20,6 +20,12 @@ key=lo..hi            # range, inclusive
 Examples: `type=ticket`, `priority>=2`, `estimate=1..5`,
 `status!=done`.
 
+An unquoted value can hold letters, digits, `-`, `_`, `/`, `.` and `:`.
+Quote anything else: `title="Auth bug"`, `title="café"`. A character the
+grammar doesn't recognize is a parse error naming it and its column, so
+`type=note & status=open` fails instead of running as `type=note`. Join
+predicates with a space or `AND`, not `&`. There are no glob wildcards.
+
 ## Typed comparisons
 
 Ordering (`<`, `<=`, `>`, `>=`) and range (`lo..hi`) compare by the
