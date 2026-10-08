@@ -26,6 +26,10 @@ const (
 	TokenAnd
 	TokenOr
 	TokenNot
+	// TokenIllegal is input the lexer can't tokenize: a character outside the
+	// grammar or a string with no closing quote. Its Value describes the
+	// problem, ready to report as the parse error.
+	TokenIllegal
 )
 
 // Token is one unit produced by the lexer.

@@ -27,7 +27,7 @@ func (parser *Parser) Parse() (Expr, []ParseError) {
 	expr := parser.parseExpr()
 
 	if parser.peek().Kind != TokenEOF {
-		parser.appendErr(parser.peek().Pos, "unexpected trailing content")
+		parser.appendTokenErr(parser.peek(), "unexpected trailing content")
 	}
 
 	return expr, parser.errs
@@ -92,7 +92,7 @@ func (parser *Parser) parseAtom() Expr {
 		inner := parser.parseExpr()
 
 		if parser.peek().Kind != TokenRParen {
-			parser.appendErr(parser.peek().Pos, "expected )")
+			parser.appendTokenErr(parser.peek(), "expected )")
 		} else {
 			parser.advance()
 		}
@@ -114,14 +114,14 @@ func (parser *Parser) parsePredicate() Expr {
 			return parser.parseEdgePredicate(0)
 		}
 
-		parser.appendErr(first.Pos, "expected identifier")
+		parser.appendTokenErr(first, "expected identifier")
 		parser.advance()
 
 		return nil
 	}
 
 	if first.Kind != TokenIdent {
-		parser.appendErr(first.Pos, "expected identifier")
+		parser.appendTokenErr(first, "expected identifier")
 		parser.advance()
 
 		return nil
@@ -161,7 +161,7 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 
 	if arity == 0 {
 		token := parser.peek()
-		parser.appendErr(token.Pos, "expected edge type identifier")
+		parser.appendTokenErr(token, "expected edge type identifier")
 
 		return nil
 	}
@@ -177,7 +177,7 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 	case TokenArrowIn:
 		direction = DirectionIncoming
 	default:
-		parser.appendErr(arrowToken.Pos, "expected -> or <- after edge type")
+		parser.appendTokenErr(arrowToken, "expected -> or <- after edge type")
 
 		return nil
 	}
@@ -207,7 +207,7 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 		return pred
 	}
 
-	parser.appendErr(next.Pos, "expected inner predicate or end of edge predicate")
+	parser.appendTokenErr(next, "expected inner predicate or end of edge predicate")
 
 	return pred
 }
@@ -296,7 +296,7 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 	identToken := parser.advance()
 
 	if identToken.Kind != TokenIdent {
-		parser.appendErr(identToken.Pos, "expected property name")
+		parser.appendTokenErr(identToken, "expected property name")
 
 		return nil
 	}
@@ -305,15 +305,15 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 	op, opOK := opTokenToOp(opToken.Kind)
 
 	if !opOK {
-		parser.appendErr(opToken.Pos, "expected comparison operator (= != < <= > >=)")
+		parser.appendTokenErr(opToken, "expected comparison operator (= != < <= > >=)")
 
 		return nil
 	}
 
 	leftValueToken := parser.lexer.NextValue()
 
-	if leftValueToken.Kind == TokenEOF {
-		parser.appendErr(leftValueToken.Pos, "expected value after operator")
+	if !hasValue(leftValueToken) {
+		parser.appendTokenErr(leftValueToken, "expected value after operator")
 
 		return nil
 	}
@@ -322,8 +322,8 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 		parser.advance()
 		rightValueToken := parser.lexer.NextValue()
 
-		if rightValueToken.Kind == TokenEOF {
-			parser.appendErr(rightValueToken.Pos, "expected value after ..")
+		if !hasValue(rightValueToken) {
+			parser.appendTokenErr(rightValueToken, "expected value after ..")
 
 			return nil
 		}
@@ -365,7 +365,7 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 	separator := parser.advance()
 
 	if separator.Kind != TokenEQ && separator.Kind != TokenColon {
-		parser.appendErr(separator.Pos, "expected = or : after traversal-shortcut keyword")
+		parser.appendTokenErr(separator, "expected = or : after traversal-shortcut keyword")
 
 		return nil
 	}
@@ -391,8 +391,8 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 
 	valueToken := parser.lexer.NextValue()
 
-	if valueToken.Kind == TokenEOF {
-		parser.appendErr(valueToken.Pos, "expected value after =")
+	if !hasValue(valueToken) {
+		parser.appendTokenErr(valueToken, "expected value after =")
 
 		return nil
 	}
@@ -411,15 +411,15 @@ func (parser *Parser) parseModifiedSincePredicate() Expr {
 	separator := parser.advance()
 
 	if separator.Kind != TokenEQ && separator.Kind != TokenColon {
-		parser.appendErr(separator.Pos, "expected = or : after modified-since")
+		parser.appendTokenErr(separator, "expected = or : after modified-since")
 
 		return nil
 	}
 
 	valueToken := parser.lexer.NextValue()
 
-	if valueToken.Kind == TokenEOF {
-		parser.appendErr(valueToken.Pos, "expected value after modified-since:")
+	if !hasValue(valueToken) {
+		parser.appendTokenErr(valueToken, "expected value after modified-since:")
 
 		return nil
 	}
@@ -478,4 +478,21 @@ func (parser *Parser) advance() Token {
 
 func (parser *Parser) appendErr(pos int, message string) {
 	parser.errs = append(parser.errs, ParseError{Pos: pos, Message: message})
+}
+
+// appendTokenErr records message at token's position. An illegal token's own
+// description wins, since it names the actual problem (the character, or the
+// unclosed string) instead of what the parser hoped to see there.
+func (parser *Parser) appendTokenErr(token Token, message string) {
+	if token.Kind == TokenIllegal {
+		message = token.Value
+	}
+
+	parser.appendErr(token.Pos, message)
+}
+
+// hasValue reports whether a NextValue token carries a value, as opposed to
+// EOF (nothing value-shaped at this position) or an illegal token.
+func hasValue(token Token) bool {
+	return token.Kind == TokenString || token.Kind == TokenBareValue
 }

@@ -18,12 +18,15 @@ type ValidationError struct {
 	Hint    string
 }
 
-func (validationErr *ValidationError) Error() string {
+// Error has a value receiver so the ValidationError values Validate returns
+// format as the message, not as the bare struct. Callers add their own
+// "filter validate:" prefix.
+func (validationErr ValidationError) Error() string {
 	if validationErr.Hint != "" {
-		return fmt.Sprintf("filter: %s at column %d (%s)", validationErr.Message, validationErr.Pos+1, validationErr.Hint)
+		return fmt.Sprintf("%s at column %d (%s)", validationErr.Message, validationErr.Pos+1, validationErr.Hint)
 	}
 
-	return fmt.Sprintf("filter: %s at column %d", validationErr.Message, validationErr.Pos+1)
+	return fmt.Sprintf("%s at column %d", validationErr.Message, validationErr.Pos+1)
 }
 
 // Validate walks the AST and surfaces semantic problems against the manifest.

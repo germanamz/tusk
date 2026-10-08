@@ -8,6 +8,9 @@ type ParseError struct {
 	Message string
 }
 
-func (parseErr *ParseError) Error() string {
-	return fmt.Sprintf("filter: %s at column %d", parseErr.Message, parseErr.Pos+1)
+// Error has a value receiver so the ParseError values Parse returns format as
+// the message, not as the bare struct. Callers add their own "filter parse:"
+// prefix.
+func (parseErr ParseError) Error() string {
+	return fmt.Sprintf("%s at column %d", parseErr.Message, parseErr.Pos+1)
 }

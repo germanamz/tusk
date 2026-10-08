@@ -506,3 +506,40 @@ func TestParser_ColonShorthandStillWorks(test *testing.T) {
 		test.Errorf("NodeID = %q, want %q", shortcut.NodeID, "foo/bar")
 	}
 }
+
+// TestParser_RejectsUnrecognizedInput pins that no input is dropped silently: a
+// character the grammar doesn't know, or a string that never closes, is a
+// parse error at its own position instead of an early end of input (#760).
+func TestParser_RejectsUnrecognizedInput(test *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		pos     int
+		message string
+	}{
+		{"ampersand between predicates", "type=note & domain=technical", 10, "unexpected character '&'"},
+		{"glob in a bare value", "path=docs/technical/*", 20, "unexpected character '*'"},
+		{"leading character", "&", 0, "unexpected character '&'"},
+		{"non-ASCII in a bare value", "title=héllo", 7, "unexpected character 'é'"},
+		{"non-breaking space", "type=note\u00a0status=open", 9, `unexpected character '\u00a0'`},
+		{"inside parens", "(type=note & status=open)", 11, "unexpected character '&'"},
+		{"in operator position", "status&open", 6, "unexpected character '&'"},
+		{"after an edge arrow", "blocks->&", 8, "unexpected character '&'"},
+		{"unterminated string predicate", `type=note "open`, 10, "unterminated string"},
+		{"unterminated string value", `title="open`, 6, "unterminated string"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			_, errs := filter.NewParser(testCase.input).Parse()
+
+			if len(errs) == 0 {
+				test.Fatalf("input %q: no parse error", testCase.input)
+			}
+
+			if errs[0].Pos != testCase.pos || errs[0].Message != testCase.message {
+				test.Errorf("input %q: first error = %+v, want {Pos:%d Message:%q}", testCase.input, errs[0], testCase.pos, testCase.message)
+			}
+		})
+	}
+}
