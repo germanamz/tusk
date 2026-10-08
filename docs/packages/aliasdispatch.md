@@ -19,6 +19,8 @@ Dispatches manifest-declared aliases (`[alias.<name>]` blocks in `tusk.toml`) ag
 
 ## Notes
 
+A doctor alias returns the same issue shape and `error_count` / `warning_count` / `advice_count` as `tusk_doctor` (`DoctorIssuesPayload` builds both), and `tusk run <doctor-alias>` exits 1 when an error is present, like `tusk doctor`.
+
 Per-verb adapters are hand-written (no reflection). Each adapter has a `Build` closure that turns the alias's `Args map[string]any` into the typed `<Verb>Request`, and a `Run` closure that invokes the matching service entry point (`query.ListRun`, `query.Run`, `node.GetRun`, `index.EdgeListRun`, `doctor.RunWithMigration`, `status.Run`).
 
 TOML integers decode as `int64` when the destination is `map[string]any`; the adapter helpers (`optionalInt`, `optionalFloat`) coerce `int64` and exact-integer `float64` values to `int` so MCP callers (whose JSON numbers arrive as `float64`) and CLI callers (whose TOML numbers arrive as `int64`) both work.

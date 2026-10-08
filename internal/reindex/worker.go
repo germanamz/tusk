@@ -253,6 +253,31 @@ func DrainReindexQueue(ctx context.Context, cfg WorkerConfig) (DrainReport, erro
 // errors propagate as ordinary errors and trigger Nack/Drop.
 var errSkipFile = errors.New("reindex: skip file")
 
+// skipWithFault records fault as relPath's skip reason, so doctor reports the
+// file as a skipped-file error, and returns errSkipFile so the job is acked.
+func skipWithFault(cfg WorkerConfig, relPath string, fault error) error {
+	if cfg.FileStates != nil {
+		if recordErr := cfg.FileStates.RecordSkip(relPath, fault.Error()); recordErr != nil {
+			return recordErr
+		}
+	}
+
+	return errSkipFile
+}
+
+// skipWithoutFault clears any earlier skip record for relPath and returns
+// errSkipFile: the file vanished or is not a node, so a record left by an
+// earlier broken version would point doctor at a fault that no longer exists.
+func skipWithoutFault(cfg WorkerConfig, relPath string) error {
+	if cfg.FileStates != nil {
+		if clearErr := cfg.FileStates.ClearSkip(relPath); clearErr != nil {
+			return clearErr
+		}
+	}
+
+	return errSkipFile
+}
+
 // processReindexJob performs the per-file work for one reindex queue row:
 // reads the file, parses, upserts node + edges, runs workflow/property/ref
 // drift, applies sub-unit sync, and stamps file_state. Mirrors the BRIDGE
@@ -265,7 +290,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 
 	if readErr != nil {
 		if errors.Is(readErr, os.ErrNotExist) {
-			return errSkipFile
+			return skipWithoutFault(cfg, relPath)
 		}
 
 		return fmt.Errorf("reindex: read %s: %w", relPath, readErr)
@@ -275,7 +300,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 
 	if statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return errSkipFile
+			return skipWithoutFault(cfg, relPath)
 		}
 
 		return fmt.Errorf("reindex: stat %s: %w", relPath, statErr)
@@ -292,7 +317,14 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 			cfg.Logger.Warn("reindex skip: unparseable file", "path", relPath, "err", parseErr.Error())
 		}
 
-		return errSkipFile
+		// A file with no frontmatter or no type is not a node, which vaults rely
+		// on for plain markdown, so only a real failure is recorded for doctor
+		// (#759).
+		if errors.Is(parseErr, node.ErrMissingFrontmatter) || errors.Is(parseErr, node.ErrMissingType) {
+			return skipWithoutFault(cfg, relPath)
+		}
+
+		return skipWithFault(cfg, relPath, parseErr)
 	}
 
 	// Canonicalize any date the YAML parser produced as a time.Time (an unquoted
@@ -306,7 +338,11 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	}
 
 	if resolveErr := node.ResolveEdges(parsed, cfg.EdgeTypes); resolveErr != nil {
-		return errSkipFile
+		if cfg.Logger != nil {
+			cfg.Logger.Warn("reindex skip: bad edge value", "path", relPath, "err", resolveErr.Error())
+		}
+
+		return skipWithFault(cfg, relPath, resolveErr)
 	}
 
 	node.MaterializeWikilinks(parsed, cfg.EdgeTypes)
@@ -520,7 +556,11 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		}
 
 		if parseUnitsErr != nil {
-			return errSkipFile
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("reindex skip: sub-unit parse failed", "path", relPath, "err", parseUnitsErr.Error())
+			}
+
+			return skipWithFault(cfg, relPath, parseUnitsErr)
 		}
 
 		sync := &subunit.Sync{
@@ -554,6 +594,10 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 			LastSeenGen: cfg.Generation,
 		}); upsertErr != nil {
 			return upsertErr
+		}
+
+		if clearErr := cfg.FileStates.ClearSkip(parsed.Path); clearErr != nil {
+			return clearErr
 		}
 	}
 

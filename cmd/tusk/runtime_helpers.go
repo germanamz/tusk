@@ -98,6 +98,7 @@ func newAliasDeps(store *index.Index, loaded *manifest.Manifest, ws *workspace.W
 		WorkflowDrift:       index.NewWorkflowDriftRepo(store),
 		PropertyDrift:       index.NewPropertyDriftRepo(store),
 		Embeddings:          index.NewEmbeddingRepo(store),
+		FileStates:          index.NewFileStateRepo(store),
 		Meta:                index.NewMetaRepo(store),
 		Embedder:            embedder,
 		SemanticDefaultTake: 0,

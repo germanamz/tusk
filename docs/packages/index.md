@@ -7,17 +7,18 @@ status: stable
 
 # internal/index
 
-SQLite-backed index. Owns the schema (nodes, edges, embeddings, node_embeddings, embed_queue, workflow_drift, property_drift, meta) and the per-table repos. Sub-unit `nodes` rows carry a structural-address id (`<fileID>#S1.2P3`) and a `content_hash`; vectors are content-addressed — `embeddings` is keyed by `(content_hash, model)` and `node_embeddings` maps each node-chunk to its shared vector. Opens the DB with `_journal_mode=WAL` and `_busy_timeout=5000` so reindex, watcher, and MCP tool calls can share the file safely.
+SQLite-backed index. Owns the schema (nodes, edges, embeddings, node_embeddings, embed_queue, file_state, skipped_files, workflow_drift, property_drift, meta) and the per-table repos. Sub-unit `nodes` rows carry a structural-address id (`<fileID>#S1.2P3`) and a `content_hash`; vectors are content-addressed — `embeddings` is keyed by `(content_hash, model)` and `node_embeddings` maps each node-chunk to its shared vector. Opens the DB with `_journal_mode=WAL` and `_busy_timeout=5000` so reindex, watcher, and MCP tool calls can share the file safely.
 
 ## Public surface
 
 - `Open(path string) (*Store, error)` — opens or creates the DB.
 - `RemoveArtifacts(dbPath string) ([]string, error)` — deletes the DB file together with its `-wal`/`-shm` sidecars (absent files are not an error); returns the paths removed. Used by `internal/reset` and by `OpenOrRebuild`'s schema-mismatch rebuild so both drop the full artifact set rather than orphaning sidecars.
-- `NodeRepo`, `EdgeRepo`, `EmbeddingRepo`, `EmbedQueueRepo`, `DriftLog`, `PropertyDrift`, `MetaRepo` — narrow CRUD facades.
+- `NodeRepo`, `EdgeRepo`, `EmbeddingRepo`, `EmbedQueueRepo`, `FileStateRepo`, `DriftLog`, `PropertyDrift`, `MetaRepo` — narrow CRUD facades.
+- `FileStateRepo.RecordSkip` / `ClearSkip` / `ListSkips` — the `skipped_files` table: one row per file reindex acked without indexing because of a fault, with the error text. The methods live on `FileStateRepo` because the table is path-keyed and follows the file lifecycle, and `FileStates` is already wired into every reindex config.
 - `RefLookup` semantics live in `internal/node` but bind to `*NodeRepo` in production via `node.NewIndexRefLookup`.
 
 ## Notes
 
 WAL + busy_timeout means the watcher can write while a long-running `tusk_query` reads — but reindex's own ordering is what gates correctness, not the DB. See `internal/reindex` for the cross-pass resolution issue.
 
-`Open` applies a small set of idempotent migrations after the bootstrap schema — dropping the dead `manifest_snapshot`/`warnings` tables and the unused `idx_file_state_lease` index. Incompatible on-disk schemas are not migrated in place: `OpenOrRebuild` drops and rebuilds the DB from the authoritative `CREATE TABLE` DDL, keyed on `SchemaVersion`. The `edges` table carries no `ordinal` column — sibling ordering is derived from the source node's `OrderedBy` property at query time (see `internal/manifest`).
+`Open` applies a small set of idempotent migrations after the bootstrap schema — dropping the dead `manifest_snapshot`/`warnings` tables and the unused `idx_file_state_lease` index. A new table added as `CREATE TABLE IF NOT EXISTS` (like `skipped_files`) reaches existing indexes on their next `Open` with no `SchemaVersion` bump. Incompatible on-disk schemas are not migrated in place: `OpenOrRebuild` drops and rebuilds the DB from the authoritative `CREATE TABLE` DDL, keyed on `SchemaVersion`. The `edges` table carries no `ordinal` column — sibling ordering is derived from the source node's `OrderedBy` property at query time (see `internal/manifest`).

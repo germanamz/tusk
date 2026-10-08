@@ -76,10 +76,14 @@ func TestGoldenCLI_DoctorWorkflow(test *testing.T) {
 			args: []string{"doctor"},
 			// The message is the validator's full rendered Error — note the
 			// "declared states:" continuation line, which the old hardcoded
-			// doctor string (#497) could not produce.
-			wantStdout: "  [workflow-violation] tickets/demo: workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n" +
+			// doctor string (#497) could not produce. A workflow violation
+			// is an error, so the whole report prints and doctor exits 1.
+			wantStdout: "doctor: 1 error, 0 warnings, 0 advice\n" +
+				"  error    [workflow-violation] tickets/demo: workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n" +
 				"  declared states: active, completed, pending\n" +
 				goldenDoctorWorkflowTail,
+			wantStderr: "doctor: 1 error (--fail-on=error)\n",
+			wantErr:    true,
 		},
 	})
 }

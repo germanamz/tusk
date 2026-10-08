@@ -3,7 +3,6 @@ package aliasdispatch
 import (
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/status"
 )
@@ -66,19 +65,12 @@ func ResultPayload(result *DispatchResult) any {
 		}
 
 	case *doctor.Result:
-		envelope := map[string]any{
-			"issues":              typed.Report.Issues,
-			"embed_queue_depth":   typed.Report.EmbedQueueDepth,
-			"reindex_queue_depth": typed.Report.ReindexQueueDepth,
-		}
-
-		if len(typed.Report.AliasErrors) > 0 {
-			envelope["alias_errors"] = AliasErrorsPayload(typed.Report.AliasErrors)
-		}
+		envelope := DoctorIssuesPayload(typed.Report)
+		envelope["embed_queue_depth"] = typed.Report.EmbedQueueDepth
+		envelope["reindex_queue_depth"] = typed.Report.ReindexQueueDepth
 
 		if typed.Migration != nil {
 			envelope["migrated"] = typed.Migration.Migrated
-			envelope["skipped"] = typed.Migration.Skipped
 		}
 
 		return envelope
@@ -96,19 +88,23 @@ func ResultPayload(result *DispatchResult) any {
 	return result.Result
 }
 
-// AliasErrorsPayload renders manifest alias-validation errors as the
-// {name, message} maps the doctor result and the tusk_run / tusk_context
-// envelopes embed under "alias_errors". Callers keep their own len()>0 guard so
-// the empty-omits-the-key behavior stays at the call site.
-func AliasErrorsPayload(errs []manifest.AliasError) []map[string]any {
-	aliasErrors := make([]map[string]any, 0, len(errs))
+// DoctorIssuesPayload returns the issue part of every doctor JSON surface
+// (tusk_doctor and doctor aliases): the issues, ordered errors first with
+// their severities, and the per-severity counts. issues is never null.
+// Callers add their surface-specific keys to the returned map.
+func DoctorIssuesPayload(report *doctor.Report) map[string]any {
+	issues := report.Issues
 
-	for _, aliasErr := range errs {
-		aliasErrors = append(aliasErrors, map[string]any{
-			"name":    aliasErr.Name,
-			"message": aliasErr.Message,
-		})
+	if issues == nil {
+		issues = []doctor.Issue{}
 	}
 
-	return aliasErrors
+	counts := report.Counts()
+
+	return map[string]any{
+		"issues":        issues,
+		"error_count":   counts.Errors,
+		"warning_count": counts.Warnings,
+		"advice_count":  counts.Advice,
+	}
 }

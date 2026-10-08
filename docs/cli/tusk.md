@@ -120,7 +120,7 @@ CONFIGURATION
 
 * [tusk claude](tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
 * [tusk context](tusk_context.md)	 - Compose a warm-context digest from the manifest [context] block
-* [tusk doctor](tusk_doctor.md)	 - Surface validation warnings, dangling edges, and index health issues
+* [tusk doctor](tusk_doctor.md)	 - Check workspace and index health; exits 1 when an error is present
 * [tusk edge](tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
 * [tusk init](tusk_init.md)	 - Initialize a Tusk workspace in the current directory
 * [tusk mcp](tusk_mcp.md)	 - Run the long-running MCP server (stdio or SSE)

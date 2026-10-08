@@ -109,26 +109,25 @@ command = "no-such-verb"
 		test.Fatalf("tusk_doctor: %v", callErr)
 	}
 
-	aliasErrors, ok := body["alias_errors"].([]any)
-
-	if !ok {
-		test.Fatalf("alias_errors missing or wrong type: %T %v", body["alias_errors"], body)
-	}
+	aliasErrors := doctorIssuesOfKind(test, body, "alias-invalid")
 
 	if len(aliasErrors) != 1 {
-		test.Fatalf("alias_errors len = %d, want 1: %v", len(aliasErrors), aliasErrors)
+		test.Fatalf("alias-invalid issues = %v, want 1: %v", aliasErrors, body)
 	}
 
-	first, _ := aliasErrors[0].(map[string]any)
+	if aliasErrors[0]["node_id"] != "bad" || aliasErrors[0]["severity"] != "error" {
+		test.Errorf("alias-invalid issue = %v, want an error for alias bad", aliasErrors[0])
+	}
 
-	if first["name"] != "bad" {
-		test.Errorf("alias_errors[0].name = %v, want bad", first["name"])
+	if errorCount, _ := body["error_count"].(float64); errorCount != 1 {
+		test.Errorf("error_count = %v, want 1", body["error_count"])
 	}
 }
 
 // TestTool_Run_DoctorAlias_IncludesAliasErrors asserts that dispatching a
-// doctor alias via tusk_run surfaces alias_errors inside the envelope's
-// result block — parity with the direct tusk_doctor tool response.
+// doctor alias via tusk_run surfaces the alias-invalid issue and the counts
+// inside the envelope's result block — parity with the direct tusk_doctor tool
+// response.
 func TestTool_Run_DoctorAlias_IncludesAliasErrors(test *testing.T) {
 	rt := bootRuntimeWithAlias(test, `[alias.health]
 command = "doctor"
@@ -155,19 +154,13 @@ command = "no-such-verb"
 		test.Fatalf("result type = %T, want map[string]any", body["result"])
 	}
 
-	aliasErrors, hasField := result["alias_errors"].([]any)
+	aliasErrors := doctorIssuesOfKind(test, result, "alias-invalid")
 
-	if !hasField {
-		test.Fatalf("result missing alias_errors: %v", result)
+	if len(aliasErrors) != 1 || aliasErrors[0]["node_id"] != "bad" || aliasErrors[0]["severity"] != "error" {
+		test.Fatalf("alias-invalid issues = %v, want one error for alias bad: %v", aliasErrors, result)
 	}
 
-	if len(aliasErrors) != 1 {
-		test.Fatalf("alias_errors len = %d, want 1: %v", len(aliasErrors), aliasErrors)
-	}
-
-	first, _ := aliasErrors[0].(map[string]any)
-
-	if first["name"] != "bad" {
-		test.Errorf("alias_errors[0].name = %v, want bad", first["name"])
+	if errorCount, _ := result["error_count"].(float64); errorCount != 1 {
+		test.Errorf("error_count = %v, want 1", result["error_count"])
 	}
 }

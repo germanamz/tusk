@@ -21,8 +21,11 @@ type Result struct {
 //  1. Unless NoMigrate is set, call Migrate to rewrite legacy __cli__/__mcp__
 //     edge rows back into source frontmatter.
 //  2. Call Run to produce the diagnostic Report.
-//  3. When NoMigrate is set, append LegacyDrift issues so the user still sees
+//  3. Append the legacy rows migration left in place (Migration.Unmigrated)
+//     or, when NoMigrate is set, LegacyDrift issues so the user still sees
 //     pending migration work without it happening implicitly.
+//  4. Re-finalize so the appended issues carry severities and the report stays
+//     ordered errors first.
 //
 // Callers MUST hold the workspace lock — Migrate mutates source files.
 func RunWithMigration(req Request) (*Result, error) {
@@ -44,6 +47,10 @@ func RunWithMigration(req Request) (*Result, error) {
 		return nil, runErr
 	}
 
+	if result.Migration != nil {
+		report.Issues = append(report.Issues, result.Migration.Unmigrated...)
+	}
+
 	if req.NoMigrate {
 		legacyIssues, legacyErr := LegacyDrift(req.Cfg)
 
@@ -53,6 +60,8 @@ func RunWithMigration(req Request) (*Result, error) {
 
 		report.Issues = append(report.Issues, legacyIssues...)
 	}
+
+	finalizeIssues(report.Issues)
 
 	result.Report = report
 

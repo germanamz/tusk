@@ -33,14 +33,20 @@ priority: high
 		test.Fatalf("reindex failed")
 	}
 
-	stdout, _, ok := runCLISplit(root, "doctor")
+	stdout, stderr, ok := runCLISplit(root, "doctor")
 
-	if !ok {
-		test.Errorf("exit non-zero, want 0")
+	// A type-mismatch is an error, so doctor exits non-zero after printing the
+	// whole report (#759).
+	if ok {
+		test.Errorf("exit 0, want non-zero with a type-mismatch error present")
 	}
 
-	if !strings.Contains(stdout.String(), "type-mismatch") {
-		test.Errorf("stdout = %q, want mention of type-mismatch", stdout.String())
+	if !strings.Contains(stdout.String(), "error    [type-mismatch]") {
+		test.Errorf("stdout = %q, want an error-severity type-mismatch line", stdout.String())
+	}
+
+	if !strings.Contains(stderr.String(), "doctor: 1 error (--fail-on=error)") {
+		test.Errorf("stderr = %q, want the fail-on summary", stderr.String())
 	}
 
 	if !strings.Contains(stdout.String(), "tickets/bar") {
@@ -73,12 +79,13 @@ func TestDoctor_RendersWorkflowViolation(test *testing.T) {
 
 	stdout, _, ok := runCLISplit(root, "doctor")
 
-	if !ok {
-		test.Errorf("exit non-zero, want 0")
+	// A workflow violation is an error: doctor exits non-zero.
+	if ok {
+		test.Errorf("exit 0, want non-zero with a workflow-violation error present")
 	}
 
-	if !strings.Contains(stdout.String(), "workflow-violation") {
-		test.Errorf("stdout = %q, want mention of workflow-violation", stdout.String())
+	if !strings.Contains(stdout.String(), "error    [workflow-violation]") {
+		test.Errorf("stdout = %q, want an error-severity workflow-violation line", stdout.String())
 	}
 
 	if !strings.Contains(stdout.String(), "tickets/foo") {
@@ -457,8 +464,10 @@ func TestDoctor_AutoMigrateSkipsRowsWithMissingSourceFile(test *testing.T) {
 		test.Fatalf("doctor: %v\noutput:\n%s", execErr, output.String())
 	}
 
-	if !strings.Contains(output.String(), "skipped") {
-		test.Errorf("doctor should log a skip for missing source file; got:\n%s", output.String())
+	// The row migration left in place is a warning naming the missing source.
+	if !strings.Contains(output.String(), "  warning  [legacy-cli-edge] tickets/ghost: ") ||
+		!strings.Contains(output.String(), "source file tickets/ghost.md not found") {
+		test.Errorf("doctor should report the unmigrated row for the missing source file; got:\n%s", output.String())
 	}
 
 	// The legacy row must stay in place — no silent data loss.
@@ -524,9 +533,11 @@ func TestDoctor_SkipsUndeclaredEdgeTypeAndStillReports(test *testing.T) {
 		test.Errorf("doctor should still print the health report; got:\n%s", out)
 	}
 
-	// The un-migratable row is surfaced as a skip mentioning the edge type.
-	if !strings.Contains(out, "skipped") || !strings.Contains(out, "ghosttype") {
-		test.Errorf("doctor should report the undeclared edge type as skipped; got:\n%s", out)
+	// The un-migratable row is surfaced as a legacy-edge warning naming the
+	// undeclared edge type.
+	if !strings.Contains(out, "  warning  [legacy-cli-edge] tickets/a: ") ||
+		!strings.Contains(out, `edge type "ghosttype" not declared`) {
+		test.Errorf("doctor should report the undeclared edge type as an unmigrated row; got:\n%s", out)
 	}
 
 	// The declared row migrated into frontmatter.

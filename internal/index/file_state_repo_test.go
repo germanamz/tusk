@@ -240,3 +240,70 @@ func TestFileStateRepo_ListByGenLessThan_Empty(test *testing.T) {
 		test.Errorf("len = %d, want 0", len(results))
 	}
 }
+
+func TestFileStateRepo_RecordSkipUpsertsReason(test *testing.T) {
+	repo := newTestFileStateRepo(test)
+
+	if recordErr := repo.RecordSkip("docs/b.md", "first reason"); recordErr != nil {
+		test.Fatalf("RecordSkip: %v", recordErr)
+	}
+
+	if recordErr := repo.RecordSkip("docs/a.md", "yaml: bad"); recordErr != nil {
+		test.Fatalf("RecordSkip: %v", recordErr)
+	}
+
+	// Re-recording the same path replaces its reason rather than duplicating.
+	if recordErr := repo.RecordSkip("docs/b.md", "second reason"); recordErr != nil {
+		test.Fatalf("RecordSkip again: %v", recordErr)
+	}
+
+	skips, listErr := repo.ListSkips()
+
+	if listErr != nil {
+		test.Fatalf("ListSkips: %v", listErr)
+	}
+
+	if len(skips) != 2 {
+		test.Fatalf("len = %d, want 2: %+v", len(skips), skips)
+	}
+
+	if skips[0].Path != "docs/a.md" || skips[0].Reason != "yaml: bad" {
+		test.Errorf("skips[0] = %+v, want docs/a.md / yaml: bad", skips[0])
+	}
+
+	if skips[1].Path != "docs/b.md" || skips[1].Reason != "second reason" {
+		test.Errorf("skips[1] = %+v, want docs/b.md / second reason", skips[1])
+	}
+
+	if skips[0].ObservedAt == 0 {
+		test.Errorf("ObservedAt not stamped: %+v", skips[0])
+	}
+}
+
+func TestFileStateRepo_ClearSkip(test *testing.T) {
+	repo := newTestFileStateRepo(test)
+
+	if recordErr := repo.RecordSkip("docs/a.md", "yaml: bad"); recordErr != nil {
+		test.Fatalf("RecordSkip: %v", recordErr)
+	}
+
+	if clearErr := repo.ClearSkip("docs/a.md"); clearErr != nil {
+		test.Fatalf("ClearSkip: %v", clearErr)
+	}
+
+	// Clearing a path with no record is a no-op, not an error: the worker
+	// clears on every successful index without checking first.
+	if clearErr := repo.ClearSkip("docs/never.md"); clearErr != nil {
+		test.Fatalf("ClearSkip missing: %v", clearErr)
+	}
+
+	skips, listErr := repo.ListSkips()
+
+	if listErr != nil {
+		test.Fatalf("ListSkips: %v", listErr)
+	}
+
+	if len(skips) != 0 {
+		test.Errorf("skips = %+v, want none", skips)
+	}
+}

@@ -182,12 +182,13 @@ command = "node list"
 
 	out, runErr := runCLI("doctor")
 
-	if runErr != nil {
-		test.Fatalf("CLI: %v\n%s", runErr, out)
+	// An invalid [context] declaration is an error: doctor exits non-zero.
+	if runErr == nil {
+		test.Fatalf("doctor exited 0 with an invalid [context] block:\n%s", out)
 	}
 
-	if !strings.Contains(out, "context:") {
-		test.Errorf("doctor stdout missing 'context:' header:\n%s", out)
+	if !strings.Contains(out, "  error    [context-invalid] ") {
+		test.Errorf("doctor stdout missing the context-invalid error line:\n%s", out)
 	}
 
 	if !strings.Contains(out, "both recent") {
@@ -207,16 +208,13 @@ pinned = ["notes/ghost"]
 
 	out, runErr := runCLI("doctor")
 
-	if runErr != nil {
-		test.Fatalf("CLI: %v\n%s", runErr, out)
+	// A pin that no longer resolves is an error: doctor exits non-zero.
+	if runErr == nil {
+		test.Fatalf("doctor exited 0 with a missing pinned id:\n%s", out)
 	}
 
-	if !strings.Contains(out, "missing pinned") {
-		test.Errorf("doctor stdout missing 'missing pinned' line:\n%s", out)
-	}
-
-	if !strings.Contains(out, "notes/ghost") {
-		test.Errorf("doctor stdout missing 'notes/ghost':\n%s", out)
+	if !strings.Contains(out, "  error    [context-pinned-missing] notes/ghost: ") {
+		test.Errorf("doctor stdout missing the context-pinned-missing line for notes/ghost:\n%s", out)
 	}
 }
 

@@ -277,7 +277,7 @@ Runs fsnotify against the workspace and applies edits incrementally. Drains the 
 - Filtered through `.gitignore` + `[workspace] ignore` patterns.
 - `.tusk/` and `.git/` are always ignored.
 
-Off-schema content is **warned, not rejected** — a file with an unknown `type:` or a property violation still gets indexed (so it stays queryable) and surfaces in `tusk doctor`.
+Off-schema content is **warned, not rejected** — a file with an unknown `type:` or a property violation still gets indexed (so it stays queryable) and surfaces in `tusk doctor`. The exception is a file reindex cannot parse at all (frontmatter that does not decode, say): it stays out of the index, and `tusk doctor` reports it as a `skipped-file` error with the parse error. Plain markdown with no frontmatter or no `type:` is not a node and is never reported.
 
 ---
 
@@ -408,7 +408,7 @@ Or directly in `~/.claude.json`:
 | Tool | What it does |
 |------|--------------|
 | `tusk_status` | node counts by type, edge count, queue depth, last reindex |
-| `tusk_doctor` | validation warnings, dangling refs, embed-queue retries |
+| `tusk_doctor` | health check: every issue has a severity (`error` / `warning` / `advice`); `error_count > 0` means something is broken |
 | `tusk_node_get` / `tusk_node_list` | read by id or filter |
 | `tusk_node_render` | render a node's content as plain text (HTML tags / markdown markup stripped) |
 | `tusk_node_create` / `tusk_node_modify` / `tusk_node_move` / `tusk_node_delete` | write |
@@ -429,10 +429,12 @@ Workspace bootstrap (`tusk init`), the Claude Code plugin (`tusk claude …`) an
 
 ```bash
 tusk status     # node counts, edge count, embed-queue depth, last reindex timestamp
-tusk doctor     # validation warnings, dangling refs/wikilinks, embed-queue errors, embed stats
+tusk doctor     # health check; exits 1 when an error is present
 ```
 
-`doctor` is the place to look when:
+Every doctor finding has a severity, and the report lists errors first. An `error` means the vault or the index is wrong: a dangling link, a property that breaks its declaration, a file reindex could not parse, a pinned id left behind by a rename. A `warning` means things are correct but degraded, such as a node missing from semantic results or a type you never declared. `advice` is a hint. `tusk doctor` exits 1 when an error is present, so you (or an agent) can run it after every edit and treat a non-zero exit as "I broke something". `--fail-on=warning` fails on warnings too; `--fail-on=never` always exits 0.
+
+`doctor` is also the place to look when:
 
 - semantic queries seem to be missing nodes → check the embed-queue depth and last error
 - a wikilink points to nothing → dangling-ref warning surfaces it

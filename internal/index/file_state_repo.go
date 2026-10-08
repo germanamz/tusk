@@ -234,3 +234,72 @@ func (repo *FileStateRepo) ListByGenLessThan(gen int64) ([]FileStateRow, error) 
 
 	return out, nil
 }
+
+// SkipRow mirrors a row in the skipped_files table: a file reindex acked
+// without indexing because of a fault, with the error text as Reason.
+type SkipRow struct {
+	Path       string
+	Reason     string
+	ObservedAt int64
+}
+
+// RecordSkip records that reindex skipped path because of a fault, replacing
+// any earlier reason for the same path. observed_at is set to time.Now().
+func (repo *FileStateRepo) RecordSkip(path, reason string) error {
+	_, execErr := repo.db.Exec(`
+		INSERT INTO skipped_files (path, reason, observed_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			reason      = excluded.reason,
+			observed_at = excluded.observed_at
+	`, path, reason, time.Now().UnixNano())
+
+	if execErr != nil {
+		return fmt.Errorf("fileStateRepo: record skip %s: %w", path, execErr)
+	}
+
+	return nil
+}
+
+// ClearSkip removes the skip record for path. A path with no record is a
+// no-op, so callers clear unconditionally after indexing a file.
+func (repo *FileStateRepo) ClearSkip(path string) error {
+	if _, execErr := repo.db.Exec(`DELETE FROM skipped_files WHERE path = ?`, path); execErr != nil {
+		return fmt.Errorf("fileStateRepo: clear skip %s: %w", path, execErr)
+	}
+
+	return nil
+}
+
+// ListSkips returns every skip record, ordered by path.
+func (repo *FileStateRepo) ListSkips() ([]SkipRow, error) {
+	rows, queryErr := repo.db.Query(`
+		SELECT path, reason, observed_at
+		FROM skipped_files
+		ORDER BY path
+	`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("fileStateRepo: list skips: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var out []SkipRow
+
+	for rows.Next() {
+		var row SkipRow
+
+		if scanErr := rows.Scan(&row.Path, &row.Reason, &row.ObservedAt); scanErr != nil {
+			return nil, fmt.Errorf("fileStateRepo: list skips scan: %w", scanErr)
+		}
+
+		out = append(out, row)
+	}
+
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("fileStateRepo: list skips rows: %w", rowsErr)
+	}
+
+	return out, nil
+}

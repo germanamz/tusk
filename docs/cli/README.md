@@ -15,7 +15,7 @@ Edit the help strings, then run `make docs`.
     - [`tusk claude status`](tusk_claude_status.md) — Report the Claude Code plugin installed in this workspace
     - [`tusk claude uninstall`](tusk_claude_uninstall.md) — Remove the Claude Code plugin from this workspace
   - [`tusk context`](tusk_context.md) — Compose a warm-context digest from the manifest [context] block
-  - [`tusk doctor`](tusk_doctor.md) — Surface validation warnings, dangling edges, and index health issues
+  - [`tusk doctor`](tusk_doctor.md) — Check workspace and index health; exits 1 when an error is present
   - [`tusk edge`](tusk_edge.md) — Manage edges between nodes (add, remove, list)
     - [`tusk edge add`](tusk_edge_add.md) — Add a typed edge from one node to another
     - [`tusk edge list`](tusk_edge_list.md) — List edges, optionally filtered by source, target, or kind
