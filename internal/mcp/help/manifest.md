@@ -82,7 +82,8 @@ after. Changing `query-prefix` re-embeds nothing. Changing any other
 key re-embeds every node: call `tusk_reload` after editing so this
 server embeds under the new settings (the re-embed runs in the
 background; `tusk_status` shows the queue).
-`tusk_doctor` suggests prefixes for the models above when they're unset.
+`tusk_doctor` suggests prefixes for the models above when they're unset,
+including when only one of a two-sided pair is set.
 
 ## Packs
 
