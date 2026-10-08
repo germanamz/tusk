@@ -97,16 +97,18 @@ func TestGoldenMCP_DoctorWorkflowViolation(test *testing.T) {
 }
 
 // goldenMCPDoctorWorkflowViolation is goldenMCPDoctorClean with the issues array
-// carrying the seeded workflow-violation row. The message is the validator's
+// carrying the seeded workflow-violation row as an error (error_count 1). The
+// message is the validator's
 // fully-rendered detail (escaped \n + "declared states:" continuation) — the
 // structured MCP form of the #497 fix. Captured from a real run.
-const goldenMCPDoctorWorkflowViolation = `{"embed_queue_depth":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"empty_edge_types_no_op":false,"enabled":false,"hops":1,"invalid_edge_types":null,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[{"kind":"workflow-violation","message":"workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n  declared states: active, completed, pending","node_id":"tickets/demo"}],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"skipped":null,"skipped_count":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0}}`
+const goldenMCPDoctorWorkflowViolation = `{"advice_count":0,"embed_queue_depth":0,"error_count":1,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"empty_edge_types_no_op":false,"enabled":false,"hops":1,"invalid_edge_types":null,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[{"kind":"workflow-violation","severity":"error","node_id":"tickets/demo","message":"workflow \"kanban\": \"bogus\" is not a declared state for property \"status\"\n  declared states: active, completed, pending"}],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0},"warning_count":0}`
 
 // goldenMCPDoctorClean is tusk_doctor's clean-workspace envelope. Note mcp.Open
 // merges the builtin pack, so graph_expansion carries the same default edge
-// types as the CLI; nil slices marshal to null (migrated/skipped) and empty maps
-// to {} (count_by_kind) — captured from a real run, not fabricated.
-const goldenMCPDoctorClean = `{"embed_queue_depth":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"empty_edge_types_no_op":false,"enabled":false,"hops":1,"invalid_edge_types":null,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"skipped":null,"skipped_count":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0}}`
+// types as the CLI; nil slices marshal to null (migrated), issues is always an
+// array, and empty maps marshal to {} (count_by_kind) — captured from a real
+// run, not fabricated.
+const goldenMCPDoctorClean = `{"advice_count":0,"embed_queue_depth":0,"error_count":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"empty_edge_types_no_op":false,"enabled":false,"hops":1,"invalid_edge_types":null,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},"issues":[],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0},"warning_count":0}`
 
 // TestGoldenMCP_Help pins the small, deterministic help surface: the unknown
 // topic path, which always succeeds with plain text and the sorted index.

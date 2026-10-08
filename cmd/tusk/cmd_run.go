@@ -102,7 +102,17 @@ JSON when piped).`,
 				return dispatchErr
 			}
 
-			return renderAliasResult(cmd.OutOrStdout(), result, format)
+			if renderErr := renderAliasResult(cmd.OutOrStdout(), result, format); renderErr != nil {
+				return renderErr
+			}
+
+			// A doctor alias keeps doctor's contract in scripts: exit 1 when
+			// an error is present, in any output format.
+			if doctorResult, isDoctor := result.Result.(*doctor.Result); isDoctor {
+				return doctorFailure(doctorResult.Report, doctorFailOnError)
+			}
+
+			return nil
 		},
 	}
 
@@ -311,13 +321,7 @@ func renderAliasEdgeList(out io.Writer, result *index.EdgeListResult, _ outputFo
 }
 
 func renderAliasDoctor(out io.Writer, result *doctor.Result, _ outputFormat) error {
-	if len(result.Report.Issues) == 0 {
-		_, _ = fmt.Fprintln(out, "doctor: no issues")
-	}
-
-	for _, issue := range result.Report.Issues {
-		_, _ = fmt.Fprintf(out, "  [%s] %s: %s\n", issue.Kind, issue.NodeID, issue.Message)
-	}
+	renderDoctorIssues(out, result.Report)
 
 	_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", result.Report.EmbedQueueDepth)
 	_, _ = fmt.Fprintf(out, "reindex queue depth: %d\n", result.Report.ReindexQueueDepth)

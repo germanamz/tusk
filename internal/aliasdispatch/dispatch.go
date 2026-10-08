@@ -60,6 +60,7 @@ type Deps struct {
 	WorkflowDrift *index.WorkflowDriftRepo
 	PropertyDrift *index.PropertyDriftRepo
 	Embeddings    *index.EmbeddingRepo
+	FileStates    *index.FileStateRepo
 	Meta          *index.MetaRepo
 
 	Embedder embed.Embedder
@@ -380,6 +381,7 @@ func buildDoctorRequest(args map[string]any, deps Deps) (any, error) {
 			WorkflowDrift: deps.WorkflowDrift,
 			PropertyDrift: deps.PropertyDrift,
 			Embeddings:    deps.Embeddings,
+			FileStates:    deps.FileStates,
 			Manifest:      deps.Manifest,
 			Root:          deps.WorkspaceRoot,
 		},

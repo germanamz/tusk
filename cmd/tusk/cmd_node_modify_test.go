@@ -394,11 +394,12 @@ func TestNodeModify_WorkflowRecoveryWarnsAndPersistsDrift(test *testing.T) {
 		test.Errorf("stdout = %q, want success line", stdout.String())
 	}
 
-	// Drift should now be visible to `tusk doctor`.
+	// Drift should now be visible to `tusk doctor`, as an error that fails the
+	// check.
 	doctorOut, _, doctorOk := runCLISplit(root, "doctor")
 
-	if !doctorOk {
-		test.Errorf("doctor exit non-zero, want 0")
+	if doctorOk {
+		test.Errorf("doctor exit 0, want non-zero with a workflow-violation error present")
 	}
 
 	if !strings.Contains(doctorOut.String(), "workflow-violation") {

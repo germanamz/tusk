@@ -2,7 +2,7 @@
 .TH "TUSK" "1" "Jul 2026" "Tusk" "Tusk Manual"
 
 .SH NAME
-tusk-doctor - Surface validation warnings, dangling edges, and index health issues
+tusk-doctor - Check workspace and index health; exits 1 when an error is present
 
 
 .SH SYNOPSIS
@@ -13,12 +13,34 @@ tusk-doctor - Surface validation warnings, dangling edges, and index health issu
 Run health checks against the workspace and index.
 
 .PP
+Every finding has a severity, and the report lists errors first:
+  * error: the vault or the index is wrong (a dangling link, a property
+    that breaks its declaration, a file reindex could not parse).
+  * warning: correct but degraded (a node missing from semantic results,
+    an undeclared type, a no-op setting).
+  * advice: a hint that changes nothing about correctness.
+
+.PP
+Doctor exits 1 when an error is present, so "tusk doctor" works as a check
+after every edit. --fail-on=warning also fails on warnings; --fail-on=never
+always exits 0. Advice never fails the run.
+
+.PP
 Doctor reports:
-  * Off-schema nodes (type not declared in tusk.toml).
+  * Skipped files: files reindex could not index because their frontmatter
+    does not decode, an edge value has the wrong shape, or the path is a
+    reserved id. Plain markdown with no frontmatter or no type is not a node
+    and is never reported.
+  * Undeclared types: node types used by indexed files but not declared in
+    tusk.toml, whose properties go unvalidated. Skipped when tusk.toml
+    declares no node types at all.
   * Property drift (frontmatter values whose type does not match the
     manifest declaration). Drift for a deleted or renamed node is not
     reported — it is an orphan with no repair path.
-  * Dangling edges (edges whose target node no longer exists).
+  * Dangling edges (edges whose target node no longer exists), once per
+    file, with the sub-units that carry the same link.
+  * Invalid [alias] and [context] declarations, and [context.pinned] ids
+    that no longer resolve.
   * Embedding queue depth, and embed-retry rows (a failing embedder that
     keeps re-enqueueing) with their attempt count and last error.
   * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
@@ -43,6 +65,10 @@ they are not flagged as missing embeddings.
 
 
 .SH OPTIONS
+\fB--fail-on\fP="error"
+	exit 1 when an issue at this severity or worse is present: error, warning, or never
+
+.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for doctor
 
@@ -64,6 +90,12 @@ they are not flagged as missing embeddings.
 
   # Quick check before starting an MCP session
   tusk doctor && tusk mcp
+
+  # Strict check for CI: fail on warnings too
+  tusk doctor --fail-on=warning
+
+  # Report only; always exit 0
+  tusk doctor --fail-on=never
 
   # Diagnostic-only run; do not migrate legacy edge rows
   tusk doctor --no-migrate

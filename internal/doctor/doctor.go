@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -87,30 +88,54 @@ const (
 	// empty list. The walker adds no neighbors, so the feature contributes
 	// nothing — the sibling of the weight=0 no-op.
 	IssueGraphExpansionNoEdges = "graph-expansion-no-edges"
+
+	// IssueSkippedFile surfaces a file reindex acked without indexing because
+	// of a fault (undecodable frontmatter, a bad edge value, a sub-unit parse
+	// failure, a reserved id). NodeID is the file path: a file that never
+	// indexed has no node id. A file that is simply not a node (no frontmatter,
+	// no type) is never reported.
+	IssueSkippedFile = "skipped-file"
+
+	// IssueUndeclaredType surfaces a node type used by indexed files but not
+	// declared in the manifest. Such nodes are indexed with no property
+	// validation at all, so a typo like `type: notee` silently disables every
+	// check. One issue per type, with the node ids in Locations. Only checked
+	// when the manifest declares at least one node type: a vault with none is
+	// schemaless by choice.
+	IssueUndeclaredType = "undeclared-type"
+
+	// IssueAliasInvalid surfaces an [alias.<name>] declaration the manifest
+	// loader rejected. NodeID is the alias name.
+	IssueAliasInvalid = "alias-invalid"
+
+	// IssueContextInvalid surfaces an invalid [context] declaration.
+	IssueContextInvalid = "context-invalid"
+
+	// IssueContextPinnedMissing surfaces a [context.pinned] id that no longer
+	// resolves to a node (typically left behind by a rename). NodeID is the
+	// pinned id.
+	IssueContextPinnedMissing = "context-pinned-missing"
 )
 
-// Issue is a single problem the doctor surfaced.
+// Issue is a single problem the doctor surfaced. Severity is stamped from the
+// Kind when the report is finalized (see severityByKind); checks leave it
+// empty. Locations lists further ids where the same finding appears: the
+// sub-units carrying a dangling link, or the nodes using an undeclared type.
 type Issue struct {
-	Kind    string
-	NodeID  string
-	Message string
+	Kind      string   `json:"kind"`
+	Severity  string   `json:"severity"`
+	NodeID    string   `json:"node_id"`
+	Message   string   `json:"message"`
+	Locations []string `json:"locations,omitempty"`
 }
 
-// Report is the doctor's verdict.
+// Report is the doctor's verdict. Every finding is an Issue, ordered errors
+// first; Counts totals them per severity.
 type Report struct {
 	Issues            []Issue
 	EmbedQueueDepth   int // pending rows with kind='embed'
 	ReindexQueueDepth int // pending rows with kind='reindex'
 	EmbedStats        *EmbedStatsReport
-	// AliasErrors mirrors Manifest.AliasErrors for callers that want the
-	// typed list (CLI, MCP) instead of parsing them back out of Issues.
-	AliasErrors []manifest.AliasError
-	// ContextErrors mirrors Manifest.ContextErrors so CLI and MCP can
-	// surface invalid [context] declarations without re-parsing Issues.
-	ContextErrors []manifest.ContextError
-	// MissingPinnedIDs lists [context.pinned] entries that do not
-	// resolve to a node in the current index. Computed at Run time.
-	MissingPinnedIDs []string
 	// SubUnitPane is the typed sub-unit health summary (Plan 2 Task 6
 	// / spec §5.9). nil when the manifest opts out of sub-units AND no
 	// sub-unit rows exist in the index. When sub-units are disabled but
@@ -176,32 +201,31 @@ type Config struct {
 	WorkflowDrift *index.WorkflowDriftRepo // optional; nil = no workflow checks
 	PropertyDrift *index.PropertyDriftRepo // optional; nil = no property checks
 	Embeddings    *index.EmbeddingRepo
+	FileStates    *index.FileStateRepo // optional; nil = no skipped-file checks
 	Manifest      *manifest.Manifest
 	Root          string // workspace root; required for Migrate
 }
 
 // MigrationReport summarizes a Migrate call.
 type MigrationReport struct {
-	Migrated []string // human-readable lines, one per migrated edge row
-	Skipped  []string // human-readable lines, one per skipped legacy row
+	// Migrated holds one human-readable line per legacy edge row rewritten
+	// into source frontmatter: a log of actions taken, not a finding.
+	Migrated []string
+	// Unmigrated holds one legacy-cli-edge / legacy-mcp-edge Issue per legacy
+	// row left in place, naming why it could not be migrated.
+	// RunWithMigration folds them into the Report.
+	Unmigrated []Issue
 }
 
-// Run executes every check and returns the aggregate Report.
+// Run executes every check and returns the aggregate Report, its issues
+// stamped with severities and ordered errors first.
 func Run(config Config) (*Report, error) {
 	report := &Report{}
 
-	// Alias / context / sub-unit-conflict errors and missing pinned IDs
-	// each flow through their own typed Report field — AliasErrors,
-	// ContextErrors, SubUnitConflicts, MissingPinnedIDs — and every
-	// surface renders them from there. They are deliberately NOT mirrored
-	// into Report.Issues; doing so double-rendered every such error.
-	if config.Manifest != nil && len(config.Manifest.AliasErrors) > 0 {
-		report.AliasErrors = append(report.AliasErrors, config.Manifest.AliasErrors...)
-	}
-
-	if config.Manifest != nil && len(config.Manifest.ContextErrors) > 0 {
-		report.ContextErrors = append(report.ContextErrors, config.Manifest.ContextErrors...)
-	}
+	// Manifest-level findings (alias and [context] declaration errors, pins
+	// that no longer resolve) are Issues like everything else, so they count
+	// toward the severity totals and render once.
+	report.Issues = append(report.Issues, manifestIssues(config)...)
 
 	if config.Manifest != nil {
 		pane, issues := computeGraphExpansionPane(config.Manifest)
@@ -210,22 +234,17 @@ func Run(config Config) (*Report, error) {
 		report.Issues = append(report.Issues, issues...)
 	}
 
-	if config.Manifest != nil && config.Nodes != nil && config.Manifest.Context != nil {
-		missing := CheckPinnedNodes(config.Manifest, config.Nodes)
-
-		if len(missing) > 0 {
-			report.MissingPinnedIDs = missing
-		}
-	}
-
 	// Independent issue-only checks: each scans one repo and contributes
 	// Issues without reading anything an earlier block computed. Order
-	// among them is cosmetic (it fixes the Issue listing order).
+	// among them is cosmetic (it fixes the Issue listing order within a
+	// severity).
 	for _, check := range []func(Config) ([]Issue, error){
+		checkSkippedFiles,
 		checkDanglingEdges,
 		checkDerivedEdgeTypes,
 		checkWorkflowDrift,
 		checkPropertyDrift,
+		checkUndeclaredTypes,
 		checkEmbeddingDrift,
 		checkEmbeddingPrefixHint,
 		checkEmbedRetries,
@@ -254,7 +273,181 @@ func Run(config Config) (*Report, error) {
 		return nil, paneErr
 	}
 
+	finalizeIssues(report.Issues)
+
 	return report, nil
+}
+
+// declaresUserNodeTypes reports whether the manifest declares any node type
+// beyond the built-in sub-document types, which the loader merges into
+// NodeTypes whenever sub-units are enabled.
+func declaresUserNodeTypes(loaded *manifest.Manifest) bool {
+	builtin := manifest.SubdocumentNodeTypes()
+
+	for typeName := range loaded.NodeTypes {
+		if _, isBuiltin := builtin[typeName]; !isBuiltin {
+			return true
+		}
+	}
+
+	return false
+}
+
+// manifestIssues turns the manifest loader's alias and [context] rejections,
+// and every [context.pinned] id that no longer resolves, into Issues. No-op
+// without a manifest; the pinned check also needs the node repo.
+func manifestIssues(config Config) []Issue {
+	if config.Manifest == nil {
+		return nil
+	}
+
+	var issues []Issue
+
+	for _, aliasErr := range config.Manifest.AliasErrors {
+		issues = append(issues, Issue{
+			Kind:    IssueAliasInvalid,
+			NodeID:  aliasErr.Name,
+			Message: aliasErr.Message,
+		})
+	}
+
+	for _, contextErr := range config.Manifest.ContextErrors {
+		issues = append(issues, Issue{
+			Kind:    IssueContextInvalid,
+			Message: contextErr.Message,
+		})
+	}
+
+	for _, missingID := range CheckPinnedNodes(config.Manifest, config.Nodes) {
+		issues = append(issues, Issue{
+			Kind:    IssueContextPinnedMissing,
+			NodeID:  missingID,
+			Message: "pinned under [context] but no node with this id is indexed; update [context.pinned] in tusk.toml",
+		})
+	}
+
+	return issues
+}
+
+// checkSkippedFiles reports every file reindex recorded as skipped for a fault,
+// with the recorded error as the message. When the file's own node row is still
+// in the index (it indexed once, then broke), the message says so: queries keep
+// serving that last good version, which is the confusing part. No-op when the
+// file-state repo is absent.
+func checkSkippedFiles(config Config) ([]Issue, error) {
+	if config.FileStates == nil {
+		return nil, nil
+	}
+
+	skips, listErr := config.FileStates.ListSkips()
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	if len(skips) == 0 {
+		return nil, nil
+	}
+
+	staleRows := map[string]struct{}{}
+
+	if config.Nodes != nil {
+		ids := make([]string, 0, len(skips))
+
+		for _, skip := range skips {
+			ids = append(ids, index.NodeIDForPath(skip.Path))
+		}
+
+		rows, byIDErr := config.Nodes.ListByIDs(ids)
+
+		if byIDErr != nil {
+			return nil, byIDErr
+		}
+
+		// Match on the row's own path, not just the id: a reserved-id file like
+		// notes/y#S1.md derives the id of a sibling file's sub-unit, which is
+		// not a stale copy of this file.
+		for _, row := range rows {
+			if !row.ParentID.Valid {
+				staleRows[row.Path] = struct{}{}
+			}
+		}
+	}
+
+	issues := make([]Issue, 0, len(skips))
+
+	for _, skip := range skips {
+		message := skip.Reason
+
+		if _, stale := staleRows[skip.Path]; stale {
+			message += "; the index still serves the last version that parsed"
+		}
+
+		issues = append(issues, Issue{
+			Kind:    IssueSkippedFile,
+			NodeID:  skip.Path,
+			Message: message,
+		})
+	}
+
+	return issues, nil
+}
+
+// checkUndeclaredTypes reports each node type used by indexed file rows but
+// absent from the manifest, one issue per type with the node ids as Locations
+// (types and ids sorted). Such nodes skip property validation entirely. No-op
+// without a manifest or node repo, and when the manifest declares no node types
+// of its own: that vault is schemaless by choice (it is what `tusk init`
+// writes).
+func checkUndeclaredTypes(config Config) ([]Issue, error) {
+	if config.Manifest == nil || config.Nodes == nil || !declaresUserNodeTypes(config.Manifest) {
+		return nil, nil
+	}
+
+	rows, listErr := config.Nodes.List(index.ListFilter{})
+
+	if listErr != nil {
+		return nil, fmt.Errorf("doctor: list nodes: %w", listErr)
+	}
+
+	idsByType := map[string][]string{}
+
+	for _, row := range rows {
+		// Sub-unit types are structural; the user never declares them.
+		if row.ParentID.Valid {
+			continue
+		}
+
+		if _, declared := config.Manifest.NodeTypes[row.Type]; declared {
+			continue
+		}
+
+		idsByType[row.Type] = append(idsByType[row.Type], row.ID)
+	}
+
+	types := make([]string, 0, len(idsByType))
+
+	for typeName := range idsByType {
+		types = append(types, typeName)
+	}
+
+	sort.Strings(types)
+
+	issues := make([]Issue, 0, len(types))
+
+	for _, typeName := range types {
+		ids := idsByType[typeName]
+
+		sort.Strings(ids)
+
+		issues = append(issues, Issue{
+			Kind:      IssueUndeclaredType,
+			Message:   fmt.Sprintf("type %q is not declared in tusk.toml; %d node(s) of this type are indexed with no property validation", typeName, len(ids)),
+			Locations: ids,
+		})
+	}
+
+	return issues, nil
 }
 
 // checkDanglingEdges flags every edge whose target_id has no node row. No-op
@@ -771,8 +964,8 @@ func computeSubUnitPane(config Config) (*SubUnitPane, error) {
 
 // CheckPinnedNodes returns the IDs declared under [context.pinned] that
 // do not resolve to a node in the index. Returns nil for nil inputs or
-// when the manifest declares no Context block. Used by Run to populate
-// Report.MissingPinnedIDs and surface one Issue per missing ID.
+// when the manifest declares no Context block. Used by Run to surface one
+// context-pinned-missing Issue per missing ID.
 //
 // Pinned IDs are validated at doctor-run time rather than manifest-load
 // time because they depend on the live index (a node may have been
@@ -1037,9 +1230,9 @@ func Migrate(config Config) (*MigrationReport, error) {
 		sourcePaths[row.SourceID][row.SourcePath] = struct{}{}
 	}
 
-	// Surface every un-migratable row as skipped, in a deterministic order.
+	// Surface every un-migratable row as an issue, in a deterministic order.
 	// These rows stay in the index untouched.
-	report.Skipped = append(report.Skipped, unmigratableSkips(unmigratable)...)
+	report.Unmigrated = append(report.Unmigrated, unmigratableIssues(unmigratable)...)
 
 	if len(migratable) == 0 {
 		return report, nil
@@ -1062,9 +1255,8 @@ func Migrate(config Config) (*MigrationReport, error) {
 		if _, statErr := os.Stat(sourcePath); statErr != nil {
 			if errors.Is(statErr, fs.ErrNotExist) {
 				for _, row := range rows {
-					report.Skipped = append(report.Skipped,
-						fmt.Sprintf("%s [%s]: %s → %s (source file %s not found)",
-							row.Type, row.SourcePath, row.SourceID, row.TargetID, sourceRel))
+					report.Unmigrated = append(report.Unmigrated, legacyEdgeIssue(row,
+						fmt.Sprintf("source file %s not found; restore it or run `tusk edge remove` to clear the row", sourceRel)))
 				}
 
 				continue
@@ -1089,9 +1281,7 @@ func Migrate(config Config) (*MigrationReport, error) {
 
 		for _, row := range rows {
 			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, row.Type, row.TargetID, config.Manifest.EdgeTypes, config.Manifest.NodeTypes); writeErr != nil {
-				report.Skipped = append(report.Skipped,
-					fmt.Sprintf("%s [%s]: %s → %s (cannot migrate: %v)",
-						row.Type, row.SourcePath, row.SourceID, row.TargetID, writeErr))
+				report.Unmigrated = append(report.Unmigrated, legacyEdgeIssue(row, fmt.Sprintf("cannot migrate: %v", writeErr)))
 				keepByPath[row.SourcePath] = append(keepByPath[row.SourcePath], row)
 
 				continue
@@ -1126,12 +1316,12 @@ func Migrate(config Config) (*MigrationReport, error) {
 	return report, nil
 }
 
-// unmigratableSkips renders one deterministic skipped line per legacy edge row
-// whose type is no longer declared in the manifest. Such rows cannot be written
-// to frontmatter (frontmatter edges must be declared), so they are surfaced and
-// left in place — the user declares the type in tusk.toml or removes the row
-// with `tusk edge remove`.
-func unmigratableSkips(unmigratable map[string][]index.EdgeRow) []string {
+// unmigratableIssues returns one legacy-edge Issue per legacy edge row whose
+// type is no longer declared in the manifest, in a deterministic order. Such
+// rows cannot be written to frontmatter (frontmatter edges must be declared),
+// so they are surfaced and left in place — the user declares the type in
+// tusk.toml or removes the row with `tusk edge remove`.
+func unmigratableIssues(unmigratable map[string][]index.EdgeRow) []Issue {
 	rows := make([]index.EdgeRow, 0)
 
 	for _, group := range unmigratable {
@@ -1146,15 +1336,35 @@ func unmigratableSkips(unmigratable map[string][]index.EdgeRow) []string {
 		return edgeRowLess(rows[left], rows[right])
 	})
 
-	skips := make([]string, 0, len(rows))
+	issues := make([]Issue, 0, len(rows))
 
 	for _, row := range rows {
-		skips = append(skips,
-			fmt.Sprintf("%s [%s]: %s → %s (edge type %q not declared in manifest; declare it in tusk.toml or run `tusk edge remove` to clear it)",
-				row.Type, row.SourcePath, row.SourceID, row.TargetID, row.Type))
+		issues = append(issues, legacyEdgeIssue(row, undeclaredLegacyEdgeHint(row.Type)))
 	}
 
-	return skips
+	return issues
+}
+
+// undeclaredLegacyEdgeHint is the advice for a legacy row whose edge type is no
+// longer declared: migrating it is impossible, so point at the real fixes.
+func undeclaredLegacyEdgeHint(edgeType string) string {
+	return fmt.Sprintf("edge type %q not declared in manifest; declare it in tusk.toml or run `tusk edge remove` to clear it", edgeType)
+}
+
+// legacyEdgeIssue builds the legacy-cli-edge / legacy-mcp-edge Issue for a
+// legacy row, keyed on its sentinel source path, with hint saying what to do.
+func legacyEdgeIssue(row index.EdgeRow, hint string) Issue {
+	kind := IssueLegacyCLIEdge
+
+	if row.SourcePath == index.MCPSourcePath {
+		kind = IssueLegacyMCPEdge
+	}
+
+	return Issue{
+		Kind:    kind,
+		NodeID:  row.SourceID,
+		Message: fmt.Sprintf("%s: %s → %s (%s)", row.Type, row.SourceID, row.TargetID, hint),
+	}
 }
 
 // LegacyDrift returns one Issue per legacy CLI/MCP edge row currently in the
@@ -1195,17 +1405,6 @@ func LegacyDrift(config Config) ([]Issue, error) {
 	issues := make([]Issue, 0, len(legacy))
 
 	for _, row := range legacy {
-		var kind string
-
-		switch row.SourcePath {
-		case index.CLISourcePath:
-			kind = IssueLegacyCLIEdge
-		case index.MCPSourcePath:
-			kind = IssueLegacyMCPEdge
-		default:
-			continue
-		}
-
 		// A row whose edge type is no longer declared cannot be migrated into
 		// frontmatter, so the default "run doctor to migrate" advice would send
 		// the user in a circle (the migrate pass skips it). Point them at the
@@ -1214,32 +1413,29 @@ func LegacyDrift(config Config) ([]Issue, error) {
 
 		if config.Manifest != nil {
 			if _, declared := config.Manifest.EdgeTypes[row.Type]; !declared {
-				hint = fmt.Sprintf("edge type %q not declared in manifest; declare it in tusk.toml or run `tusk edge remove` to clear it", row.Type)
+				hint = undeclaredLegacyEdgeHint(row.Type)
 			}
 		}
 
-		issues = append(issues, Issue{
-			Kind:    kind,
-			NodeID:  row.SourceID,
-			Message: fmt.Sprintf("%s: %s → %s (%s)", row.Type, row.SourceID, row.TargetID, hint),
-		})
+		issues = append(issues, legacyEdgeIssue(row, hint))
 	}
 
 	return issues, nil
 }
 
-// newDanglingEdgeIssue builds the Issue for an edge whose target_id has no node
-// row. Shared by findDanglingEdges' cache-hit-negative and cache-miss branches.
-func newDanglingEdgeIssue(edge index.EdgeRow) Issue {
-	return Issue{
-		Kind:    IssueDanglingEdge,
-		NodeID:  edge.SourceID,
-		Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
-	}
+// danglingKey groups dangling edges into one finding: the source file (a
+// sub-unit's file is the id before '#'), the edge type, and the missing target.
+type danglingKey struct {
+	fileID   string
+	edgeType string
+	targetID string
 }
 
 // findDanglingEdges scans every edge and flags those whose target_id has no
-// node row.
+// node row. A link in a paragraph is carried by the file row and by every
+// sub-unit above it, so edges are grouped per (file, type, target): one Issue
+// at the file id, with the sub-unit ids carrying the same link as Locations
+// (sorted). Issues keep the order of each group's first edge in ListAll.
 func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, error) {
 	allEdges, listErr := edges.ListAll()
 
@@ -1275,14 +1471,35 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, e
 
 	var issues []Issue
 
-	// Iterate edges in ListAll order so the issue set and ordering match the
-	// prior per-edge existence-check path exactly.
+	groupIndex := map[danglingKey]int{}
+
 	for _, edge := range allEdges {
 		if _, ok := exists[edge.TargetID]; ok {
 			continue
 		}
 
-		issues = append(issues, newDanglingEdgeIssue(edge))
+		fileID, _, isSubUnit := strings.Cut(edge.SourceID, index.SubUnitIDSeparator)
+		key := danglingKey{fileID: fileID, edgeType: edge.Type, targetID: edge.TargetID}
+		position, seenGroup := groupIndex[key]
+
+		if !seenGroup {
+			position = len(issues)
+			groupIndex[key] = position
+
+			issues = append(issues, Issue{
+				Kind:    IssueDanglingEdge,
+				NodeID:  fileID,
+				Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
+			})
+		}
+
+		if isSubUnit && !slices.Contains(issues[position].Locations, edge.SourceID) {
+			issues[position].Locations = append(issues[position].Locations, edge.SourceID)
+		}
+	}
+
+	for position := range issues {
+		sort.Strings(issues[position].Locations)
 	}
 
 	return issues, nil

@@ -499,3 +499,40 @@ func TestOpen_TypeIndexServesTypeFilter(test *testing.T) {
 		test.Errorf("type=? plan does not use nodes_type_idx:\n%s", plan.String())
 	}
 }
+
+// TestOpen_AddsSkippedFilesToExistingIndex pins that an index created before
+// the skipped_files table existed gains it on the next Open, with no
+// SchemaVersion bump or rebuild.
+func TestOpen_AddsSkippedFilesToExistingIndex(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	if _, dropErr := store.DB().Exec(`DROP TABLE skipped_files`); dropErr != nil {
+		test.Fatalf("drop skipped_files: %v", dropErr)
+	}
+
+	store.Close()
+
+	reopened, reopenErr := index.Open(dbPath)
+
+	if reopenErr != nil {
+		test.Fatalf("reopen: %v", reopenErr)
+	}
+
+	defer reopened.Close()
+
+	tables, listErr := reopened.ListTables()
+
+	if listErr != nil {
+		test.Fatalf("ListTables: %v", listErr)
+	}
+
+	if !contains(tables, "skipped_files") {
+		test.Errorf("missing table %q in %v", "skipped_files", tables)
+	}
+}

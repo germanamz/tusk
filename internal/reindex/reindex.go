@@ -34,10 +34,12 @@ import (
 // re-embeds. Bump the value whenever edge derivation OR sub-unit parse/hash
 // meaning changes (e.g. a BOM/CRLF normalization, a property-in-diff turnover,
 // or a change to which units a document emits) so existing vaults heal on the
-// next reindex.
+// next reindex. Bump it too when the pass starts recording something a file
+// already on disk must be re-read to produce, such as the skipped_files records
+// doctor reports (#759): a broken file is otherwise never re-read.
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-07-11-special-char-file-ids"
+	edgeDerivationVersion    = "2026-10-08-skipped-file-records"
 )
 
 // nodeIDForPath derives a node id from a workspace-relative path, delegating to
@@ -414,6 +416,10 @@ func Run(config Config) (*Report, error) {
 				config.Logger.Warn("reindex skip: reserved id", "path", relPath, "reason", reason)
 			}
 
+			if recordErr := config.FileStates.RecordSkip(relPath, "reserved id: "+reason); recordErr != nil {
+				return recordErr
+			}
+
 			report.Skipped++
 
 			return nil
@@ -527,6 +533,13 @@ func Run(config Config) (*Report, error) {
 			if tombstoneErr := config.FileStates.Tombstone(candidate.Path); tombstoneErr != nil {
 				_ = release()
 				return nil, fmt.Errorf("reindex: tombstone %s: %w", candidate.Path, tombstoneErr)
+			}
+
+			// A file that was skipped for a fault and is now gone has nothing
+			// left to fix; drop its record so doctor stops reporting it (#759).
+			if clearErr := config.FileStates.ClearSkip(candidate.Path); clearErr != nil {
+				_ = release()
+				return nil, fmt.Errorf("reindex: clear skip %s: %w", candidate.Path, clearErr)
 			}
 
 			// A reserved-id path never owned a node row (the walk skips it), and

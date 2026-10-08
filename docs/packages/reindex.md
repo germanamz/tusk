@@ -16,6 +16,12 @@ Walks the workspace tree, parses every markdown file, validates against the mani
 - `Report` — `Indexed`, `Removed`, `Skipped`, `WorkflowViolations`, `PropertyViolations`, `RefDangling`, `RefAmbiguous`, `RefTypeMismatch`, `RefCycle`, `RefHealed`.
 - `HealRefDrift(ctx, WorkerConfig) (HealReport, error)` — re-resolves recorded ref drift after a sweep; the MCP drainer calls it after productive ticks.
 
+## Skipped files
+
+`Report.Skipped` counts every file acked without indexing, which mixes two cases. A file with no frontmatter or no `type` is simply not a node, and vaults rely on that for plain markdown. A file that fails for a fault is broken: frontmatter that does not decode, an edge value of the wrong shape (`ResolveEdges`), a sub-unit parse failure, or a reserved-id path (`#`, or a `reindex:` prefix). Only the faults are recorded, through `FileStateRepo.RecordSkip`, with the error text, and `tusk doctor` reports each as a `skipped-file` error. The record is cleared when the file indexes, vanishes before the worker reads it, parses as a non-node, or is tombstoned by the reaper. A file that indexed once and then broke keeps its last good node row; the record is what tells doctor so.
+
+Recording skips is also why `edgeDerivationVersion` was bumped: a broken file is stamped live in `file_state` by the walk, so the mtime+size check never re-reads it, and the forced pass after an upgrade is what records files that were already broken.
+
 ## Notes
 
 Ref resolution runs per file against the live index, so a file processed before its target has a node row records `ref_dangling` drift instead of an edge. The **ref-drift heal pass** makes this converge: after the sweep's drain, `Run` re-enqueues the file behind every ref-kind drift row and drains once more — by then every live file has a node row, so refs that dangled only for ordering reasons (fresh index) or because their target was created after the referencing file was last indexed resolve, write their edges, and clear their drift. Genuinely broken refs re-record drift and stay in the report. Async walks instead enqueue the drifted files for the background drainer, which heals after any tick that indexed something. Report ref counters reflect the post-heal end state of the pass.

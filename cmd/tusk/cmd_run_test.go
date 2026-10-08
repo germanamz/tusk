@@ -232,16 +232,13 @@ command = "no-such-verb"
 
 	out, runErr := runCLI("doctor")
 
-	if runErr != nil {
-		test.Fatalf("CLI: %v\n%s", runErr, out)
+	// An invalid alias is an error: doctor exits non-zero.
+	if runErr == nil {
+		test.Fatalf("doctor exited 0 with an invalid alias:\n%s", out)
 	}
 
-	if !strings.Contains(out, "aliases:") {
-		test.Errorf("stdout missing 'aliases:' header:\n%s", out)
-	}
-
-	if !strings.Contains(out, "bad:") {
-		test.Errorf("stdout missing alias name 'bad':\n%s", out)
+	if !strings.Contains(out, "  error    [alias-invalid] bad: ") {
+		test.Errorf("stdout missing the alias-invalid line for 'bad':\n%s", out)
 	}
 
 	if !strings.Contains(out, "unknown verb") {

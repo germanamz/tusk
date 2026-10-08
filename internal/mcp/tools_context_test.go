@@ -106,10 +106,14 @@ recent = "unknown-alias"
 		test.Fatalf("tusk_doctor: %v", callErr)
 	}
 
-	contextErrors, _ := body["context_errors"].([]any)
+	contextErrors := doctorIssuesOfKind(test, body, "context-invalid")
 
-	if len(contextErrors) == 0 {
-		test.Errorf("context_errors empty; want one: %v", body)
+	if len(contextErrors) == 0 || contextErrors[0]["severity"] != "error" {
+		test.Errorf("context-invalid issues = %v, want one error: %v", contextErrors, body)
+	}
+
+	if errorCount, _ := body["error_count"].(float64); errorCount < 1 {
+		test.Errorf("error_count = %v, want >= 1", body["error_count"])
 	}
 }
 
@@ -126,9 +130,33 @@ pinned = ["notes/ghost"]
 		test.Fatalf("tusk_doctor: %v", callErr)
 	}
 
-	missing, _ := body["missing_pinned_ids"].([]any)
+	missing := doctorIssuesOfKind(test, body, "context-pinned-missing")
 
-	if len(missing) != 1 {
-		test.Errorf("missing_pinned_ids len = %d, want 1: %v", len(missing), body)
+	if len(missing) != 1 || missing[0]["node_id"] != "notes/ghost" {
+		test.Errorf("context-pinned-missing issues = %v, want one for notes/ghost: %v", missing, body)
 	}
+}
+
+// doctorIssuesOfKind returns the tusk_doctor issues (from a decoded response
+// or a doctor alias result) whose kind matches.
+func doctorIssuesOfKind(test *testing.T, body map[string]any, kind string) []map[string]any {
+	test.Helper()
+
+	issues, ok := body["issues"].([]any)
+
+	if !ok {
+		test.Fatalf("issues missing or wrong type: %T %v", body["issues"], body)
+	}
+
+	var matched []map[string]any
+
+	for _, raw := range issues {
+		issue, _ := raw.(map[string]any)
+
+		if issue["kind"] == kind {
+			matched = append(matched, issue)
+		}
+	}
+
+	return matched
 }

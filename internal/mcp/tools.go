@@ -873,7 +873,7 @@ func registerQueryTool(srv *Server) {
 
 func registerDoctorTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_doctor",
-		mcpgo.WithDescription("Surface validation warnings and index health issues (dangling edges, embed-queue retries). Auto-migrates legacy __cli__/__mcp__ edge rows back into source frontmatter unless no_migrate is true."),
+		mcpgo.WithDescription("Check workspace and index health. Every issue carries a severity: error (the vault or index is wrong: dangling links, property violations, files reindex could not parse), warning (correct but degraded), or advice. error_count > 0 means something is broken; issues are listed errors first. Auto-migrates legacy __cli__/__mcp__ edge rows back into source frontmatter unless no_migrate is true."),
 		mcpgo.WithBoolean("no_migrate", mcpgo.Description("If true, skip the legacy CLI/MCP row migration pass (diagnostic-only run); legacy rows are surfaced as drift issues instead.")),
 	)
 
@@ -887,6 +887,7 @@ func registerDoctorTool(srv *Server) {
 			WorkflowDrift: srv.runtime.WorkflowDrift,
 			PropertyDrift: srv.runtime.PropertyDrift,
 			Embeddings:    srv.runtime.Embeddings,
+			FileStates:    srv.runtime.FileState,
 			Manifest:      srv.runtime.Manifest,
 			Root:          srv.runtime.Root,
 		}
@@ -900,47 +901,16 @@ func registerDoctorTool(srv *Server) {
 		report := runResult.Report
 		migrationReport := runResult.Migration
 
-		issues := make([]map[string]any, 0, len(report.Issues))
-
-		for _, issue := range report.Issues {
-			issues = append(issues, map[string]any{
-				"kind":    issue.Kind,
-				"node_id": issue.NodeID,
-				"message": issue.Message,
-			})
-		}
-
-		response := map[string]any{
-			"issues":              issues,
-			"embed_queue_depth":   report.EmbedQueueDepth,
-			"reindex_queue_depth": report.ReindexQueueDepth,
-		}
-
-		if len(report.AliasErrors) > 0 {
-			response["alias_errors"] = aliasErrorsPayload(report.AliasErrors)
-		}
-
-		if len(report.ContextErrors) > 0 {
-			contextErrors := make([]map[string]any, 0, len(report.ContextErrors))
-
-			for _, contextErr := range report.ContextErrors {
-				contextErrors = append(contextErrors, map[string]any{
-					"message": contextErr.Message,
-				})
-			}
-
-			response["context_errors"] = contextErrors
-		}
-
-		if len(report.MissingPinnedIDs) > 0 {
-			response["missing_pinned_ids"] = report.MissingPinnedIDs
-		}
+		// Every finding (alias and [context] errors, missing pins, legacy
+		// rows migration left in place) is an issue with a severity; the
+		// counts carry the verdict, so findings never set isError.
+		response := aliasdispatch.DoctorIssuesPayload(report)
+		response["embed_queue_depth"] = report.EmbedQueueDepth
+		response["reindex_queue_depth"] = report.ReindexQueueDepth
 
 		if migrationReport != nil {
 			response["migrated"] = migrationReport.Migrated
-			response["skipped"] = migrationReport.Skipped
 			response["migrated_count"] = len(migrationReport.Migrated)
-			response["skipped_count"] = len(migrationReport.Skipped)
 		}
 
 		if report.EmbedStats != nil {
@@ -1539,6 +1509,7 @@ func registerRunTool(srv *Server) {
 			WorkflowDrift:       srv.runtime.WorkflowDrift,
 			PropertyDrift:       srv.runtime.PropertyDrift,
 			Embeddings:          srv.runtime.Embeddings,
+			FileStates:          srv.runtime.FileState,
 			Meta:                srv.runtime.Meta,
 			Embedder:            srv.runtime.Embedder,
 			SemanticDefaultTake: 10,
@@ -1591,6 +1562,7 @@ func registerContextTool(srv *Server) {
 			WorkflowDrift:       srv.runtime.WorkflowDrift,
 			PropertyDrift:       srv.runtime.PropertyDrift,
 			Embeddings:          srv.runtime.Embeddings,
+			FileStates:          srv.runtime.FileState,
 			Meta:                srv.runtime.Meta,
 			Embedder:            srv.runtime.Embedder,
 			SemanticDefaultTake: 10,
@@ -2328,13 +2300,4 @@ func buildRefRejectionPayload(refErr *node.RefValidationError) map[string]any {
 		"ok":     false,
 		"errors": rendered,
 	}
-}
-
-// aliasErrorsPayload renders manifest alias-validation errors as the
-// {name, message} maps the doctor tool embeds under "alias_errors". Delegates
-// to aliasdispatch.AliasErrorsPayload so the shape stays shared with the
-// tusk_run / tusk_context envelopes. Callers keep their own len()>0 guard so
-// the empty-omits-the-key behavior stays at the call site.
-func aliasErrorsPayload(errs []manifest.AliasError) []map[string]any {
-	return aliasdispatch.AliasErrorsPayload(errs)
 }

@@ -132,6 +132,17 @@ CREATE TABLE IF NOT EXISTS file_state (
 CREATE INDEX IF NOT EXISTS idx_file_state_seen
 	ON file_state(last_seen_gen);
 
+-- skipped_files records each file reindex acked WITHOUT indexing because of a
+-- fault (undecodable frontmatter, an edge or sub-unit parse failure, a reserved
+-- id), with the error text. A file that is simply not a node (no frontmatter,
+-- no type) never gets a row. Doctor reports every row as a skipped-file error;
+-- the row is cleared when the file indexes, vanishes, or is reaped.
+CREATE TABLE IF NOT EXISTS skipped_files (
+	path        TEXT PRIMARY KEY,
+	reason      TEXT NOT NULL,
+	observed_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
