@@ -57,7 +57,28 @@ edge-type->     # follow outgoing edges
 edge-type<-     # follow incoming edges
 ```
 
-Chain for multi-hop: `mentions-> tagged-> type=tag`.
+On its own, the arrow matches nodes with at least one such edge. The
+term right after it constrains the node on the other end, and it can be
+any term the grammar accepts: a property predicate, `NOT <term>`, a
+parenthesized group, `modified-since:`, a hierarchy shortcut, or another
+traversal.
+
+```
+references-> type=spec                          # links to a spec
+references-> NOT domain=product                 # links to a non-product node
+references-> (domain=technical OR domain=wip)   # links to either domain
+references-> modified-since:7d                  # links to something changed this week
+references-> tree=docs/area                     # links into that subtree
+```
+
+The arrow takes one term, the way `AND` binds. `blocks-> status=open
+priority=high` finds high-priority nodes that block an open node. To put
+both conditions on the blocked node, group them:
+`blocks-> (status=open priority=high)`. For a `NOT` on the outer node
+after a bare traversal, write `blocks-> AND NOT status=done`.
+
+Chain for multi-hop: `mentions-> tagged-> type=tag`. A chain can be at
+most 5 hops deep, counting hops nested inside groups.
 
 ## Traversal shortcuts (hierarchy)
 

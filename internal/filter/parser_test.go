@@ -1,6 +1,7 @@
 package filter_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/filter"
@@ -253,6 +254,153 @@ func TestParser_MultiHopExceedsMaxDepth(test *testing.T) {
 
 	if len(errs) == 0 {
 		test.Fatalf("expected error for depth > 5")
+	}
+}
+
+// TestParser_MultiHopDepthCountsGroups pins that hops nested inside a group
+// count toward the same limit as a bare chain, so parentheses can't be used to
+// stack traversals past it. The over-limit case also guards against the parser
+// looping forever when the rejected hop is left unconsumed inside a group.
+func TestParser_MultiHopDepthCountsGroups(test *testing.T) {
+	if _, errs := filter.NewParser("a->(a->(a->(a->(a->x=1))))").Parse(); len(errs) > 0 {
+		test.Fatalf("five grouped hops: unexpected errors %v", errs)
+	}
+
+	_, errs := filter.NewParser("a->(a->(a->(a->(a->(a->x=1)))))").Parse()
+
+	if len(errs) == 0 || errs[0].Message != "multi-hop chain exceeds max depth 5" {
+		test.Fatalf("six grouped hops: errs = %v, want the max-depth error", errs)
+	}
+}
+
+// TestParser_EdgeInnerTerm pins that the term after an arrow parses with the
+// full predicate grammar: a group, a NOT, a recency check, or a hierarchy
+// shortcut constrains the edge's target instead of failing to parse, binding to
+// the outer node, or being read as a property literally named after the
+// keyword (#761).
+func TestParser_EdgeInnerTerm(test *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		check func(inner filter.Expr) bool
+	}{
+		{"group", "blocks->(status=open OR status=wip)", func(inner filter.Expr) bool {
+			_, ok := inner.(*filter.OrExpr)
+
+			return ok
+		}},
+		{"NOT", "blocks-> NOT status=done", func(inner filter.Expr) bool {
+			notExpr, ok := inner.(*filter.NotExpr)
+
+			if !ok {
+				return false
+			}
+
+			pred, isProperty := notExpr.Inner.(*filter.PropertyPredicate)
+
+			return isProperty && pred.Property == "status"
+		}},
+		{"modified-since", "blocks-> modified-since:7d", func(inner filter.Expr) bool {
+			pred, ok := inner.(*filter.ModifiedSincePredicate)
+
+			return ok && pred.Raw == "7d"
+		}},
+		{"tree shortcut", "blocks-> tree=epic", func(inner filter.Expr) bool {
+			shortcut, ok := inner.(*filter.TraversalShortcut)
+
+			return ok && shortcut.Kind == filter.ShortcutTree && shortcut.NodeID == "epic"
+		}},
+		{"qualified parent shortcut", "blocks-> parent:wbs=epic", func(inner filter.Expr) bool {
+			shortcut, ok := inner.(*filter.TraversalShortcut)
+
+			return ok && shortcut.Kind == filter.ShortcutParentOf && shortcut.Alias == "wbs" && shortcut.NodeID == "epic"
+		}},
+		{"root shortcut", "blocks-> root=epic", func(inner filter.Expr) bool {
+			shortcut, ok := inner.(*filter.TraversalShortcut)
+
+			return ok && shortcut.Kind == filter.ShortcutRoot
+		}},
+		{"user-namespace traversal", "blocks-> :tagged-> type=tag", func(inner filter.Expr) bool {
+			pred, ok := inner.(*filter.EdgePredicate)
+
+			return ok && pred.EdgeType == ":tagged"
+		}},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, errs := filter.NewParser(testCase.input).Parse()
+
+			if len(errs) > 0 {
+				test.Fatalf("input %q: errors %v", testCase.input, errs)
+			}
+
+			pred, ok := expr.(*filter.EdgePredicate)
+
+			if !ok {
+				test.Fatalf("input %q: got %T, want *EdgePredicate", testCase.input, expr)
+			}
+
+			if !testCase.check(pred.Inner) {
+				test.Errorf("input %q: inner = %#v", testCase.input, pred.Inner)
+			}
+		})
+	}
+}
+
+// TestParser_EdgeInnerBindsOneTerm pins that without parentheses the arrow
+// takes only the next term, the same way AND binds, so filters written before
+// #761 keep their meaning: what follows that term applies to the outer node.
+func TestParser_EdgeInnerBindsOneTerm(test *testing.T) {
+	cases := []struct {
+		name      string
+		input     string
+		wantInner string // %T of the edge's Inner, or "<nil>" for a bare traversal
+	}{
+		{"property then property", "blocks-> status=open priority=high", "*filter.PropertyPredicate"},
+		{"NOT term then property", "blocks-> NOT status=done priority=high", "*filter.NotExpr"},
+		{"bare traversal then AND NOT", "blocks-> AND NOT status=done", "<nil>"},
+		{"parenthesized bare traversal then NOT", "(blocks->) NOT status=done", "<nil>"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, errs := filter.NewParser(testCase.input).Parse()
+
+			if len(errs) > 0 {
+				test.Fatalf("input %q: errors %v", testCase.input, errs)
+			}
+
+			andExpr, ok := expr.(*filter.AndExpr)
+
+			if !ok {
+				test.Fatalf("input %q: got %T, want *AndExpr", testCase.input, expr)
+			}
+
+			edge, ok := andExpr.Left.(*filter.EdgePredicate)
+
+			if !ok {
+				test.Fatalf("input %q: left = %T, want *EdgePredicate", testCase.input, andExpr.Left)
+			}
+
+			if got := fmt.Sprintf("%T", edge.Inner); got != testCase.wantInner {
+				test.Errorf("input %q: inner = %s, want %s", testCase.input, got, testCase.wantInner)
+			}
+
+			if andExpr.Right == nil {
+				test.Errorf("input %q: right side of AND is nil", testCase.input)
+			}
+		})
+	}
+}
+
+// TestParser_EdgeInnerRejectsNonTerm pins that a token that can't start a term
+// after the arrow is a parse error, not the end of the traversal.
+func TestParser_EdgeInnerRejectsNonTerm(test *testing.T) {
+	_, errs := filter.NewParser("blocks-> =x").Parse()
+
+	if len(errs) == 0 || errs[0].Pos != 9 || errs[0].Message != "expected inner predicate or end of edge predicate" {
+		test.Fatalf("errs = %v, want inner-predicate error at 9", errs)
 	}
 }
 
