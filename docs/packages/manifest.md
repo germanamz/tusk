@@ -102,7 +102,7 @@ num-ctx             = 2048
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `query-prefix` | string | `""` | Prepended to the semantic query string. Must not contain `{title}`. |
+| `query-prefix` | string | `""` | Prepended to the semantic query string. Must not contain `{title}`. An explicit `""` behaves like absent but tells doctor's prefix hint you opted out. |
 | `document-prefix` | string | `""` | Prepended to every document text (file chunks and sub-unit leaves). `{title}` becomes the node's title, or `none` for an untitled file and for every sub-unit. |
 | `document-header` | string | `"full"` | Block at the start of each file chunk: `full` (type, title, properties), `title` (title line only), or `none`. |
 | `chunk-target-bytes` | int | `1600` | File-level chunk packing goal. |
@@ -112,7 +112,7 @@ num-ctx             = 2048
 
 Zero or absent sizes mean the default. `Load` rejects negative sizes or `num-ctx`, an unknown `document-header`, `{title}` in `query-prefix`, a `#` in `model` (it separates the model from its options in stored vector keys), and resolved sizes that break `overlap < target <= max` (the error names any default it filled in, so lowering only `chunk-max-bytes` below the default target says so). Prefix and header bytes don't count toward the chunk budget.
 
-`EmbeddingsSection.ChunkSizes()` and `ResolvedDocumentHeader()` return the values with defaults filled in. Changing any key except `query-prefix` re-embeds every node on the next reindex; see `docs/packages/embed.md` and `docs/packages/reindex.md`.
+`EmbeddingsSection.ChunkSizes()` and `ResolvedDocumentHeader()` return the values with defaults filled in. `Manifest.EmbeddingsKeyDefined(key)` reports whether a key is written in `tusk.toml` at all, so an explicit empty prefix (an opt-out) can be told apart from an absent one. Changing any key except `query-prefix` re-embeds every node on the next reindex; see `docs/packages/embed.md` and `docs/packages/reindex.md`.
 
 ### Graph cluster lens — `[graph.cluster]`
 

@@ -228,6 +228,19 @@ func (section EmbeddingsSection) ResolvedDocumentHeader() string {
 	return section.DocumentHeader
 }
 
+// EmbeddingsKeyDefined reports whether tusk.toml sets key under [embeddings]
+// explicitly, even to an empty string, which the plain field value can't
+// show. doctor treats an explicit `query-prefix = ""` as a deliberate opt-out
+// that silences its prefix hint. False for hand-built manifests (no decode
+// metadata).
+func (loaded *Manifest) EmbeddingsKeyDefined(key string) bool {
+	if loaded == nil || loaded.Meta == nil {
+		return false
+	}
+
+	return loaded.Meta.IsDefined("embeddings", key)
+}
+
 func orDefault(configured, fallback int) int {
 	if configured <= 0 {
 		return fallback

@@ -155,3 +155,21 @@ dim      = 768
 		test.Errorf("error should name embeddings.model and '#': %v", loadErr)
 	}
 }
+
+// TestManifest_EmbeddingsKeyDefined tells an explicit empty prefix (a user
+// opting out) from an absent one; doctor's prefix hint relies on it.
+func TestManifest_EmbeddingsKeyDefined(test *testing.T) {
+	loaded := loadTOMLFromString(test, embeddingsBase+"query-prefix = \"\"\n")
+
+	if !loaded.EmbeddingsKeyDefined("query-prefix") {
+		test.Errorf("explicit query-prefix = \"\" reported as undefined")
+	}
+
+	if loaded.EmbeddingsKeyDefined("document-prefix") {
+		test.Errorf("absent document-prefix reported as defined")
+	}
+
+	if (&manifest.Manifest{}).EmbeddingsKeyDefined("query-prefix") {
+		test.Errorf("a hand-built manifest has no decode metadata, so nothing is defined")
+	}
+}

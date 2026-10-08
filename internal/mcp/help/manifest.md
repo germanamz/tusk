@@ -83,7 +83,8 @@ key re-embeds every node: call `tusk_reload` after editing so this
 server embeds under the new settings (the re-embed runs in the
 background; `tusk_status` shows the queue).
 `tusk_doctor` suggests prefixes for the models above when they're unset,
-including when only one of a two-sided pair is set.
+including when only one of a two-sided pair is set. Setting a prefix
+explicitly to "" opts out and silences the suggestion for that side.
 
 ## Packs
 

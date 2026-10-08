@@ -2,6 +2,7 @@ package doctor_test
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -218,5 +219,91 @@ func TestRun_NoEmbeddingPrefixHintWithoutProvider(test *testing.T) {
 
 	if hints := issuesOfKind(report, doctor.IssueEmbeddingPrefixHint); len(hints) != 0 {
 		test.Errorf("hint fired with [embeddings] unconfigured: %+v", hints)
+	}
+}
+
+// loadEmbeddingsManifest loads a tusk.toml carrying extra under [embeddings],
+// so the decode metadata can tell an explicit "" from an absent key.
+func loadEmbeddingsManifest(test *testing.T, model, extra string) *manifest.Manifest {
+	test.Helper()
+
+	path := filepath.Join(test.TempDir(), "tusk.toml")
+	body := "[workspace]\nname = \"x\"\n\n[embeddings]\nprovider = \"ollama\"\nmodel = \"" + model +
+		"\"\nendpoint = \"http://localhost:11434\"\ndim = 768\n" + extra
+
+	if writeErr := os.WriteFile(path, []byte(body), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	loaded, loadErr := manifest.Load(path)
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	return loaded
+}
+
+// TestRun_EmbeddingPrefixHintSilencedByExplicitEmptyPrefix: a user who has
+// measured and decided against a prefix sets it to "" explicitly, which
+// silences the hint for that side; an absent key still triggers it.
+func TestRun_EmbeddingPrefixHintSilencedByExplicitEmptyPrefix(test *testing.T) {
+	cases := []struct {
+		name          string
+		model         string
+		extra         string
+		wantHint      bool
+		wantStrings   []string
+		rejectStrings []string
+	}{
+		{name: "both absent still hints, and says how to silence", model: "nomic-embed-text", wantHint: true, wantStrings: []string{`"search_query: "`, `"search_document: "`, `query-prefix = ""`, `document-prefix = ""`}},
+		{name: "both explicitly empty", model: "nomic-embed-text", extra: "query-prefix = \"\"\ndocument-prefix = \"\"\n"},
+		{name: "query explicitly empty, document absent", model: "nomic-embed-text", extra: "query-prefix = \"\"\n", wantHint: true, wantStrings: []string{`document-prefix = "search_document: "`, `document-prefix = ""`}, rejectStrings: []string{`query-prefix = "search_query: "`}},
+		{name: "document explicitly empty, query absent", model: "embeddinggemma", extra: "document-prefix = \"\"\n", wantHint: true, wantStrings: []string{`query-prefix = "task: search result | query: "`, `query-prefix = ""`}, rejectStrings: []string{"title: {title}"}},
+		{name: "query-only family explicitly empty", model: "mxbai-embed-large", extra: "query-prefix = \"\"\n"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			store := openDoctorStore(test)
+
+			report, runErr := doctor.Run(doctor.Config{
+				Nodes:      index.NewNodeRepo(store),
+				Edges:      index.NewEdgeRepo(store),
+				EmbedQueue: index.NewEmbedQueueRepo(store),
+				Embeddings: index.NewEmbeddingRepo(store),
+				Manifest:   loadEmbeddingsManifest(test, testCase.model, testCase.extra),
+			})
+
+			if runErr != nil {
+				test.Fatalf("Run: %v", runErr)
+			}
+
+			hints := issuesOfKind(report, doctor.IssueEmbeddingPrefixHint)
+
+			if !testCase.wantHint {
+				if len(hints) != 0 {
+					test.Errorf("hint not silenced: %+v", hints)
+				}
+
+				return
+			}
+
+			if len(hints) != 1 {
+				test.Fatalf("got %d prefix hints, want 1", len(hints))
+			}
+
+			for _, want := range testCase.wantStrings {
+				if !strings.Contains(hints[0].Message, want) {
+					test.Errorf("hint should contain %q: %s", want, hints[0].Message)
+				}
+			}
+
+			for _, reject := range testCase.rejectStrings {
+				if strings.Contains(hints[0].Message, reject) {
+					test.Errorf("hint should not contain %q: %s", reject, hints[0].Message)
+				}
+			}
+		})
 	}
 }
