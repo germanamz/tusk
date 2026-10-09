@@ -151,6 +151,10 @@ Doctor reports:
     reported — it is an orphan with no repair path.
   * Dangling edges (edges whose target node no longer exists), once per
     file, with the sub-units that carry the same link.
+  * Edges their edge type forbids: a source or target type outside the
+    type's from/to, or more than one target on a one-to-one or many-to-one
+    type. "tusk edge add" refuses these, but reindex indexes a hand-edited
+    file as written, so the edge stays queryable until it is fixed.
   * Invalid [alias] and [context] declarations, and [context.pinned] ids
     that no longer resolve.
   * Embedding queue depth, and embed-retry rows (a failing embedder that

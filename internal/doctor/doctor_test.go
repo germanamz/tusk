@@ -123,6 +123,187 @@ func TestRun_FlagsDerivedEdgeTypeMismatch(test *testing.T) {
 	}
 }
 
+// seedEdgeConstraintIndex indexes the given nodes and each source's edges, and
+// returns a doctor config over them with a manifest declaring edgeTypes.
+func seedEdgeConstraintIndex(test *testing.T, nodes []index.NodeRow, edges []index.EdgeRow, edgeTypes manifest.EdgeTypes) doctor.Config {
+	test.Helper()
+
+	store, closeStore := newTempIndex(test)
+	test.Cleanup(closeStore)
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+
+	for _, row := range nodes {
+		row.PropertiesJSON = "{}"
+		row.LastChecksum = "x"
+
+		var upsertErr error
+
+		if row.ParentID.Valid {
+			upsertErr = nodeRepo.BulkUpsert([]index.NodeRow{row}, "markdown")
+		} else {
+			upsertErr = nodeRepo.Upsert(row)
+		}
+
+		if upsertErr != nil {
+			test.Fatalf("upsert %s: %v", row.ID, upsertErr)
+		}
+	}
+
+	edgesBySource := map[string][]index.EdgeRow{}
+
+	for _, edge := range edges {
+		edgesBySource[edge.SourceID] = append(edgesBySource[edge.SourceID], edge)
+	}
+
+	for sourceID, sourceEdges := range edgesBySource {
+		if upsertErr := edgeRepo.UpsertAll(sourceID, sourceEdges[0].SourcePath, sourceEdges); upsertErr != nil {
+			test.Fatalf("upsert edges of %s: %v", sourceID, upsertErr)
+		}
+	}
+
+	return doctor.Config{
+		Nodes:      nodeRepo,
+		Edges:      edgeRepo,
+		EmbedQueue: index.NewEmbedQueueRepo(store),
+		Manifest: &manifest.Manifest{
+			NodeTypes: map[string]manifest.NodeType{"note": {}, "ticket": {}},
+			EdgeTypes: edgeTypes,
+		},
+	}
+}
+
+func TestRun_FlagsEdgeTypeViolations(test *testing.T) {
+	// A hand-edited file can declare an edge its edge type forbids; reindex
+	// indexes it anyway, so doctor is the only place it surfaces (#762).
+	// docs/n is a note carrying `blocks: [docs/a, docs/b]` (one finding for the
+	// source type, not one per target), docs/t blocks the note (a target
+	// finding), docs/a -> docs/b is legal. A dangling target belongs to
+	// dangling-edge, a sub-unit's copy of a body link is the file row's
+	// finding, and an edge type the manifest no longer declares has no
+	// constraints to check.
+	config := seedEdgeConstraintIndex(test,
+		[]index.NodeRow{
+			{ID: "docs/a", Type: "ticket", Path: "docs/a.md"},
+			{ID: "docs/b", Type: "ticket", Path: "docs/b.md"},
+			{ID: "docs/n", Type: "note", Path: "docs/n.md"},
+			{ID: "docs/n#S1", Type: "section", Path: "docs/n.md", ParentID: sql.NullString{String: "docs/n", Valid: true}},
+			{ID: "docs/t", Type: "ticket", Path: "docs/t.md"},
+		},
+		[]index.EdgeRow{
+			{Type: "blocks", SourceID: "docs/a", TargetID: "docs/b", SourcePath: "docs/a.md", Kind: "direct"},
+			{Type: "blocks", SourceID: "docs/n", TargetID: "docs/a", SourcePath: "docs/n.md", Kind: "direct"},
+			{Type: "blocks", SourceID: "docs/n", TargetID: "docs/b", SourcePath: "docs/n.md", Kind: "direct"},
+			{Type: "mentions", SourceID: "docs/n", TargetID: "docs/a", SourcePath: "docs/n.md", Kind: "direct"},
+			{Type: "blocks", SourceID: "docs/n#S1", TargetID: "docs/a", SourcePath: "docs/n.md", Kind: "direct"},
+			{Type: "blocks", SourceID: "docs/t", TargetID: "docs/missing", SourcePath: "docs/t.md", Kind: "direct"},
+			{Type: "blocks", SourceID: "docs/t", TargetID: "docs/n", SourcePath: "docs/t.md", Kind: "direct"},
+		},
+		manifest.EdgeTypes{
+			"blocks": {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToMany},
+		},
+	)
+
+	report, runErr := doctor.Run(config)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	want := []doctor.Issue{
+		{
+			Kind:     doctor.IssueEdgeTypeViolation,
+			Severity: doctor.SeverityError,
+			NodeID:   "docs/n",
+			Message:  `edge "blocks": source type "note" is not allowed (from: [ticket])`,
+		},
+		{
+			Kind:     doctor.IssueEdgeTypeViolation,
+			Severity: doctor.SeverityError,
+			NodeID:   "docs/t",
+			Message:  `edge "blocks" -> "docs/n": target type "note" is not allowed (to: [ticket])`,
+		},
+	}
+
+	got := issuesOfKind(report, doctor.IssueEdgeTypeViolation)
+
+	if len(got) != len(want) {
+		test.Fatalf("edge-type-violation issues = %+v, want %+v", got, want)
+	}
+
+	for position := range want {
+		if got[position].NodeID != want[position].NodeID || got[position].Message != want[position].Message || got[position].Severity != want[position].Severity {
+			test.Errorf("issue %d = %+v, want %+v", position, got[position], want[position])
+		}
+	}
+}
+
+func TestRun_FlagsEdgeCardinalityViolations(test *testing.T) {
+	// many-to-one and one-to-one allow one target per source, which is what
+	// `tusk edge add` enforces; a hand-edited list gets past reindex (#762).
+	// Many-valued types and single-target sources are fine.
+	config := seedEdgeConstraintIndex(test,
+		[]index.NodeRow{
+			{ID: "docs/a", Type: "ticket", Path: "docs/a.md"},
+			{ID: "docs/b", Type: "ticket", Path: "docs/b.md"},
+			{ID: "docs/c", Type: "ticket", Path: "docs/c.md"},
+			{ID: "docs/d", Type: "ticket", Path: "docs/d.md"},
+		},
+		[]index.EdgeRow{
+			{Type: "blocks", SourceID: "docs/c", TargetID: "docs/a", SourcePath: "docs/c.md", Kind: "direct"},
+			{Type: "blocks", SourceID: "docs/c", TargetID: "docs/b", SourcePath: "docs/c.md", Kind: "direct"},
+			{Type: "owner", SourceID: "docs/c", TargetID: "docs/a", SourcePath: "docs/c.md", Kind: "direct"},
+			{Type: "owner", SourceID: "docs/c", TargetID: "docs/b", SourcePath: "docs/c.md", Kind: "direct"},
+			{Type: "parent", SourceID: "docs/c", TargetID: "docs/a", SourcePath: "docs/c.md", Kind: "direct"},
+			{Type: "parent", SourceID: "docs/c", TargetID: "docs/b", SourcePath: "docs/c.md", Kind: "direct"},
+			{Type: "parent", SourceID: "docs/d", TargetID: "docs/a", SourcePath: "docs/d.md", Kind: "direct"},
+		},
+		manifest.EdgeTypes{
+			"blocks": {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToMany},
+			"owner":  {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityOneToOne},
+			"parent": {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToOne},
+		},
+	)
+
+	report, runErr := doctor.Run(config)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	want := []doctor.Issue{
+		{
+			Kind:     doctor.IssueEdgeCardinalityViolation,
+			Severity: doctor.SeverityError,
+			NodeID:   "docs/c",
+			Message:  `edge "owner" is one-to-one, so a source has one target; found 2: docs/a, docs/b`,
+		},
+		{
+			Kind:     doctor.IssueEdgeCardinalityViolation,
+			Severity: doctor.SeverityError,
+			NodeID:   "docs/c",
+			Message:  `edge "parent" is many-to-one, so a source has one target; found 2: docs/a, docs/b`,
+		},
+	}
+
+	got := issuesOfKind(report, doctor.IssueEdgeCardinalityViolation)
+
+	if len(got) != len(want) {
+		test.Fatalf("edge-cardinality-violation issues = %+v, want %+v", got, want)
+	}
+
+	for position := range want {
+		if got[position].NodeID != want[position].NodeID || got[position].Message != want[position].Message || got[position].Severity != want[position].Severity {
+			test.Errorf("issue %d = %+v, want %+v", position, got[position], want[position])
+		}
+	}
+
+	if others := len(report.Issues) - len(got); others != 0 {
+		test.Errorf("unexpected other issues: %+v", report.Issues)
+	}
+}
+
 func TestRun_ReportsQueueDepth(test *testing.T) {
 	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
 	defer store.Close()
