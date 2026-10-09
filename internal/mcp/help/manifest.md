@@ -48,7 +48,45 @@ aliases = ["recent-tickets"]
 [alias.<name>]                # invoked via tusk_run(alias)
 command = "query"             # query | node list | node get | edge list | doctor | status
 args    = ["type=ticket AND modified-since:7d"]
+
+[rule.<name>]                 # a convention tusk_doctor checks; see "Rules"
+description = "a product note lives under docs/product/"
+filter      = "type=note AND domain=product AND NOT path=docs/product/**"
+severity    = "error"         # error (default) | warning | advice
 ```
+
+## Rules
+
+A rule is a convention written as a filter that should match nothing.
+`tusk_doctor` runs every rule and reports each node the filter matches as
+one issue of kind `rule:<name>`, with the description as its message and
+the rule's severity. A rule at `error` fails `tusk doctor` the way a
+dangling link does.
+
+```toml
+[rule.product-links-stay-in-product]
+description = "a product page links only to product pages and the glossary"
+filter      = "domain=product AND references-> (type=note AND NOT domain=product AND NOT id=docs/glossary)"
+```
+
+Try the filter in `tusk_query` before declaring it; it's the same grammar.
+Two things differ:
+
+- A rule matches file nodes only. Sub-units share their file's `path`, so
+  in `tusk_query` a filter like `NOT path=docs/**` also returns every
+  section and paragraph of each matching file. A rule matches sub-units
+  only when its filter selects a sub-unit type (`type=section AND ...`).
+- A rule is validated more strictly than a query. When tusk.toml declares
+  node types, a `type=` value must be a declared type, a property must be
+  declared on a type in its `type=` scope, and an `=` / `!=` value of an
+  enum must be one of its values. A typo would otherwise match nothing,
+  and the rule would pass forever.
+
+A broken rule never stops the workspace from loading. `tusk_reload` lists
+it under `warnings`, and `tusk_doctor` reports it as a `rule-invalid`
+error. That covers a filter that does not parse or names something
+undeclared, a severity other than the three above, a misspelled key, and
+a value of the wrong type.
 
 ## Embedding model settings
 

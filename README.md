@@ -216,6 +216,23 @@ inverse     = "referenced-by"
 
 `ref` properties auto-materialize edge types of the same name — declaring `supersedes` as a `ref` to `decision` gives you a `supersedes` edge for free.
 
+### Rules: conventions doctor checks
+
+Types and edges cover what a node may contain. A vault usually has conventions on top of that, like "product notes live under `docs/product/`". Write one as a filter that should match nothing:
+
+```toml
+[rule.domain-matches-directory]
+description = "a product note lives under docs/product/"
+filter      = "type=note AND domain=product AND NOT path=docs/product/**"
+
+[rule.product-links-stay-in-product]
+description = "a product page links only to product pages and the glossary"
+filter      = "domain=product AND references-> (type=note AND NOT domain=product AND NOT id=docs/glossary)"
+severity    = "warning"   # error (the default) | warning | advice
+```
+
+`tusk doctor` runs every rule and reports each matching node as a `rule:<name>` issue at the rule's severity, so a broken convention fails it like a dangling link would. The filter is the same grammar `tusk query` takes, so you can try it there first. Two differences: a rule matches file nodes only (sub-units share their file's `path`) unless the filter selects a sub-unit type such as `type=section`, and a rule's filter must name declared types, properties and enum values, because a typo there would match nothing and pass forever. A rule that fails those checks doesn't stop anything from loading; `tusk reload` lists it under warnings and `tusk doctor` reports it as a `rule-invalid` error.
+
 Edited `tusk.toml` while a daemon is running? `tusk reload` (or the `tusk_reload` MCP tool) re-reads and validates the manifest, hot-swaps the schema in place — no restart — and converges any sibling daemons via the `.tusk/manifest-epoch` sentinel. It then reindexes to re-validate your content against the new schema. Validation matches startup, so a reload lands the same state a restart would.
 
 ### Type packs (built-in templates)
@@ -448,6 +465,7 @@ Every doctor finding has a severity, and the report lists errors first. An `erro
 - semantic queries seem to be missing nodes → check the embed-queue depth and last error
 - a wikilink points to nothing → dangling-ref warning surfaces it
 - a manifest change just landed → re-validate every affected node
+- a convention you declared as a `[rule.<name>]` is broken → each offending node is a `rule:<name>` issue
 
 ---
 

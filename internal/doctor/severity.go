@@ -37,6 +37,7 @@ var severityByKind = map[string]string{
 	IssueAliasInvalid:              SeverityError,
 	IssueContextInvalid:            SeverityError,
 	IssueContextPinnedMissing:      SeverityError,
+	IssueRuleInvalid:               SeverityError,
 
 	IssueUndeclaredProperty:        SeverityWarning,
 	IssueUndeclaredType:            SeverityWarning,
@@ -79,13 +80,17 @@ func severityRank(severity string) int {
 	}
 }
 
-// finalizeIssues stamps every issue's Severity from its Kind and orders the
-// list errors first, then warnings, then advice. The sort is stable, so the
-// check order holds within a severity. Idempotent: RunWithMigration calls it
-// again after appending migration issues.
+// finalizeIssues stamps the Severity of every issue a check left unset from
+// its Kind, and orders the list errors first, then warnings, then advice. A
+// check sets Severity itself only when it is not a property of the kind: a
+// rule violation carries its rule's severity. The sort is stable, so the check
+// order holds within a severity. Idempotent: RunWithMigration calls it again
+// after appending migration issues.
 func finalizeIssues(issues []Issue) {
 	for position := range issues {
-		issues[position].Severity, _ = SeverityFor(issues[position].Kind)
+		if issues[position].Severity == "" {
+			issues[position].Severity, _ = SeverityFor(issues[position].Kind)
+		}
 	}
 
 	sort.SliceStable(issues, func(left, right int) bool {

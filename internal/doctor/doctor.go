@@ -3,6 +3,7 @@
 package doctor
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -123,6 +124,12 @@ const (
 	// resolves to a node (typically left behind by a rename). NodeID is the
 	// pinned id.
 	IssueContextPinnedMissing = "context-pinned-missing"
+
+	// IssueRuleInvalid surfaces a [rule.<name>] declaration CompileRules
+	// rejected: an unknown key, a bad severity, no check, or a filter that
+	// fails to parse or validate. NodeID is the rule name. A rule's
+	// violations are reported under their own kind (see RuleKindPrefix).
+	IssueRuleInvalid = "rule-invalid"
 )
 
 // Issue is a single problem the doctor surfaced. Severity is stamped from the
@@ -210,6 +217,7 @@ type Config struct {
 	PropertyDrift *index.PropertyDriftRepo // optional; nil = no property checks
 	Embeddings    *index.EmbeddingRepo
 	FileStates    *index.FileStateRepo // optional; nil = no skipped-file checks
+	DB            *sql.DB              // optional; nil = [rule.<name>] declarations are validated but not run
 	Manifest      *manifest.Manifest
 	Root          string // workspace root; required for Migrate
 }
@@ -257,6 +265,7 @@ func Run(config Config) (*Report, error) {
 		checkEmbeddingDrift,
 		checkEmbeddingPrefixHint,
 		checkEmbedRetries,
+		checkRules,
 	} {
 		issues, checkErr := check(config)
 
@@ -285,21 +294,6 @@ func Run(config Config) (*Report, error) {
 	finalizeIssues(report.Issues)
 
 	return report, nil
-}
-
-// declaresUserNodeTypes reports whether the manifest declares any node type
-// beyond the built-in sub-document types, which the loader merges into
-// NodeTypes whenever sub-units are enabled.
-func declaresUserNodeTypes(loaded *manifest.Manifest) bool {
-	builtin := manifest.SubdocumentNodeTypes()
-
-	for typeName := range loaded.NodeTypes {
-		if _, isBuiltin := builtin[typeName]; !isBuiltin {
-			return true
-		}
-	}
-
-	return false
 }
 
 // manifestIssues turns the manifest loader's alias and [context] rejections,
@@ -409,7 +403,7 @@ func checkSkippedFiles(config Config) ([]Issue, error) {
 // of its own: that vault is schemaless by choice (it is what `tusk init`
 // writes).
 func checkUndeclaredTypes(config Config) ([]Issue, error) {
-	if config.Manifest == nil || config.Nodes == nil || !declaresUserNodeTypes(config.Manifest) {
+	if config.Manifest == nil || config.Nodes == nil || !config.Manifest.DeclaresUserNodeTypes() {
 		return nil, nil
 	}
 

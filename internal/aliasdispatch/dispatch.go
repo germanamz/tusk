@@ -382,6 +382,7 @@ func buildDoctorRequest(args map[string]any, deps Deps) (any, error) {
 			PropertyDrift: deps.PropertyDrift,
 			Embeddings:    deps.Embeddings,
 			FileStates:    deps.FileStates,
+			DB:            deps.Database,
 			Manifest:      deps.Manifest,
 			Root:          deps.WorkspaceRoot,
 		},

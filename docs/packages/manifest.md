@@ -19,6 +19,8 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `ValidateAliases(*Manifest, VerbIntrospector)` — secondary pass that resolves each alias's verb against `internal/cliregistry` and stamps invalid aliases into `Manifest.AliasErrors`. Never returns an error; failures are surfaced through `internal/doctor`.
 - `Context`, `ContextError` — types covering the `[context]` block consumed by `internal/contextcompose`. `Context.MaxBytes` (`max-bytes`) caps the block `tusk claude context` hands Claude Code; a negative value is a `ContextError` and falls back to the default.
 - `ValidateContext(*Manifest, VerbIntrospector)` — tertiary pass run after `ValidateAliases` that resolves `recent = "<name>"`, parses `[context.recent]` inline aliases, and prunes unknown `include` names. Surfaces problems via `Manifest.ContextErrors`; never fails.
+- `Rule` and `Manifest.Rules` — the `[rule.<name>]` declarations, keyed by name. `Load` only decodes them, one block at a time, so a value of the wrong type fails just that rule (`Rule.DecodeError`, naming the key and line) instead of the whole manifest. It also records `Rule.UnknownKeys`: any key inside the block that no field decodes, so a misspelling is reported rather than ignored. `internal/doctor` validates and runs them (`doctor.CompileRules`); a bad rule never fails the load.
+- `(*Manifest).DeclaresUserNodeTypes() bool` — whether the manifest declares a node type beyond the built-in sub-document types. Checks that validate against declared types skip a vault that declares none.
 
 ## Notes
 

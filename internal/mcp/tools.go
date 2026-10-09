@@ -888,6 +888,7 @@ func registerDoctorTool(srv *Server) {
 			PropertyDrift: srv.runtime.PropertyDrift,
 			Embeddings:    srv.runtime.Embeddings,
 			FileStates:    srv.runtime.FileState,
+			DB:            srv.runtime.Index.DB(),
 			Manifest:      srv.runtime.Manifest,
 			Root:          srv.runtime.Root,
 		}
@@ -1830,6 +1831,12 @@ func reloadToolHandler(ctx context.Context, request mcpgo.CallToolRequest, srv *
 	}
 	for _, contextErr := range fresh.Manifest.ContextErrors {
 		warnings = append(warnings, fmt.Sprintf("invalid context entry: %s", contextErr.Message))
+	}
+
+	_, ruleErrs := doctor.CompileRules(fresh.Manifest)
+
+	for _, ruleErr := range ruleErrs {
+		warnings = append(warnings, ruleErr.Error())
 	}
 
 	// Swap under the write-lock.

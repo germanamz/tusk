@@ -83,6 +83,10 @@ func Load(manifestPath string) (*Manifest, error) {
 		return nil, fmt.Errorf("manifest: decode context in %s: %w", manifestPath, contextErr)
 	}
 
+	if ruleErr := decodeRules(body, loaded); ruleErr != nil {
+		return nil, fmt.Errorf("manifest: decode rules in %s: %w", manifestPath, ruleErr)
+	}
+
 	if bothContextRecentForms {
 		loaded.ContextErrors = append(loaded.ContextErrors, ContextError{
 			Message: "context: both recent = \"...\" and [context.recent] are set; recent is treated as unset",
