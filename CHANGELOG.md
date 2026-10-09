@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.6.1](https://github.com/germanamz/tusk/compare/v2.6.0...v2.6.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **doctor:** make tusk doctor usable as a check ([#759](https://github.com/germanamz/tusk/issues/759)) ([#769](https://github.com/germanamz/tusk/issues/769)) ([cb47e9b](https://github.com/germanamz/tusk/commit/cb47e9b98c5c2310f507371a167a8c8a01e171c2))
+* **doctor:** report edges their edge type forbids ([#762](https://github.com/germanamz/tusk/issues/762)) ([#775](https://github.com/germanamz/tusk/issues/775)) ([b068941](https://github.com/germanamz/tusk/commit/b068941355b7c0efb052ba1f3f4d1f79f40fbc26))
+* **filter:** parse the term after an edge arrow with the full grammar ([#761](https://github.com/germanamz/tusk/issues/761)) ([#772](https://github.com/germanamz/tusk/issues/772)) ([50c7966](https://github.com/germanamz/tusk/commit/50c7966064ff8b593b37c4343e035d184740564c))
+* **filter:** reject unrecognized characters instead of truncating the filter ([#760](https://github.com/germanamz/tusk/issues/760)) ([#771](https://github.com/germanamz/tusk/issues/771)) ([0710634](https://github.com/germanamz/tusk/commit/07106344ca465c0f4bec20e28ede0b6c62a6f4df))
+
 ## [2.6.0](https://github.com/germanamz/tusk/compare/v2.5.0...v2.6.0) (2026-10-08)
 
 
