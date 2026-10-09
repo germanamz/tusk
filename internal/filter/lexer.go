@@ -217,11 +217,16 @@ func isIdentifier(text string) bool {
 	return true
 }
 
+// isBareValueChar reports whether character can appear in an unquoted value.
+// `*` and `?` are the path-pattern wildcards; the parser rejects them on any
+// property but path and id.
 func isBareValueChar(character byte) bool {
 	return isIdentContinue(character) ||
 		character == '/' ||
 		character == '.' ||
-		character == ':'
+		character == ':' ||
+		character == '*' ||
+		character == '?'
 }
 
 func keywordOrIdent(text string) TokenKind {

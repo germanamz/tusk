@@ -1,6 +1,10 @@
 package filter
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/germanamz/tusk/internal/pathglob"
+)
 
 // MaxTraversalDepth is the maximum number of hops allowed in a multi-hop chain.
 const MaxTraversalDepth = 5
@@ -331,11 +335,33 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 			return nil
 		}
 
+		for _, boundToken := range []Token{leftValueToken, rightValueToken} {
+			if isPatternToken(boundToken) {
+				parser.appendErr(boundToken.Pos, "a range bound can't be a pattern")
+
+				return nil
+			}
+		}
+
 		return &PropertyPredicate{
 			Property: identToken.Value,
 			Op:       OpRange,
 			Value:    RangeValue{Min: leftValueToken.Value, Max: rightValueToken.Value},
 			Pos:      identToken.Pos,
+		}
+	}
+
+	if isPatternToken(leftValueToken) {
+		if _, matchable := patternProperties[identToken.Value]; !matchable {
+			parser.appendErr(leftValueToken.Pos, "wildcards (* and ?) only match path and id; quote the value to compare it literally")
+
+			return nil
+		}
+
+		if op != OpEQ && op != OpNE {
+			parser.appendErr(leftValueToken.Pos, "a pattern only works with = or !=")
+
+			return nil
 		}
 	}
 
@@ -396,6 +422,12 @@ func (parser *Parser) parseTraversalShortcut() Expr {
 
 	if !hasValue(valueToken) {
 		parser.appendTokenErr(valueToken, "expected value after =")
+
+		return nil
+	}
+
+	if isPatternToken(valueToken) {
+		parser.appendErr(valueToken.Pos, "a hierarchy shortcut takes a node id, not a pattern")
 
 		return nil
 	}
@@ -498,4 +530,17 @@ func (parser *Parser) appendTokenErr(token Token, message string) {
 // EOF (nothing value-shaped at this position) or an illegal token.
 func hasValue(token Token) bool {
 	return token.Kind == TokenString || token.Kind == TokenBareValue
+}
+
+// patternProperties are the properties a glob pattern can match: the
+// workspace-relative path and the id derived from it.
+var patternProperties = map[string]struct{}{
+	"id":   {},
+	"path": {},
+}
+
+// isPatternToken reports whether a value token is a glob pattern. Only a bare
+// value can be one; quoting a value makes its `*` and `?` literal.
+func isPatternToken(token Token) bool {
+	return token.Kind == TokenBareValue && pathglob.IsPattern(token.Value)
 }

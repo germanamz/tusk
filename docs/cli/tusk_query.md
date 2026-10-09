@@ -19,7 +19,10 @@ Three modes, all driven by the same command:
     ranges use key=lo..hi. Ordering and range operators compare by the
     property's declared type: int numerically, date/datetime
     chronologically, enum by declared order (a value name or a 0-based
-    index). Edge traversal uses edge-type-> (outgoing) or edge-type<-
+    index). path and id also take glob patterns with = and !=: * stays
+    inside one folder, ? is one character, and a ** segment crosses
+    folders (e.g. path=docs/product/*, path=docs/**, id=**/index); quote
+    the value to match a literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<-
     (incoming) and may chain multi-hop. The one term after the arrow (a
     predicate, NOT term, or parenthesized group) constrains the linked
     node, e.g. blocks-> (status=open OR status=wip). Traversal shortcuts:

@@ -160,9 +160,37 @@ func TestGoldenCLI_Query(test *testing.T) {
 			name:       "an unrecognized character inside a bare value is rejected",
 			manifest:   queryManifest,
 			setup:      queryFixture,
-			args:       []string{"query", "path=notes/*"},
+			args:       []string{"query", "path=notes/#"},
 			wantErr:    true,
-			wantStderr: "filter parse: unexpected character '*' at column 12\n",
+			wantStderr: "filter parse: unexpected character '#' at column 12\n",
+		},
+		{
+			// #763: `*` stays inside one folder, so notes/deep/c.md is left out.
+			name:     "a path pattern selects one folder",
+			manifest: queryManifest,
+			setup:    nestedQueryFixture,
+			args:     []string{"query", "path=notes/*"},
+			wantStdout: "ID       TYPE  TITLE  PATH\n" +
+				"notes/a  note  A      notes/a.md\n" +
+				"notes/b  note  B      notes/b.md\n",
+		},
+		{
+			name:     "a ** pattern selects a whole subtree",
+			manifest: queryManifest,
+			setup:    nestedQueryFixture,
+			args:     []string{"query", "id=notes/**", "--sort", "+id"},
+			wantStdout: "ID            TYPE  TITLE  PATH\n" +
+				"notes/a       note  A      notes/a.md\n" +
+				"notes/b       note  B      notes/b.md\n" +
+				"notes/deep/c  note  C      notes/deep/c.md\n",
+		},
+		{
+			name:       "a wildcard on another property is rejected",
+			manifest:   queryManifest,
+			setup:      queryFixture,
+			args:       []string{"query", "title=A*"},
+			wantErr:    true,
+			wantStderr: "filter parse: wildcards (* and ?) only match path and id; quote the value to compare it literally at column 7\n",
 		},
 		{
 			name:       "an undeclared edge type is rejected",
@@ -198,5 +226,16 @@ func queryFixture(test *testing.T, root string) {
 
 	writeFile(test, root, "notes/a.md", goldenNoteA)
 	writeFile(test, root, "notes/b.md", goldenNoteB)
+	reindexWorkspace(test, root)
+}
+
+// nestedQueryFixture adds a note one folder below queryFixture's two, so a
+// path pattern's folder boundary shows in the rows.
+func nestedQueryFixture(test *testing.T, root string) {
+	test.Helper()
+
+	writeFile(test, root, "notes/a.md", goldenNoteA)
+	writeFile(test, root, "notes/b.md", goldenNoteB)
+	writeFile(test, root, "notes/deep/c.md", "---\ntype: note\ntitle: C\n---\n\nGamma.\n")
 	reindexWorkspace(test, root)
 }

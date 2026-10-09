@@ -20,11 +20,42 @@ key=lo..hi            # range, inclusive
 Examples: `type=ticket`, `priority>=2`, `estimate=1..5`,
 `status!=done`.
 
-An unquoted value can hold letters, digits, `-`, `_`, `/`, `.` and `:`.
-Quote anything else: `title="Auth bug"`, `title="café"`. A character the
-grammar doesn't recognize is a parse error naming it and its column, so
+An unquoted value can hold letters, digits, `-`, `_`, `/`, `.` and `:`,
+plus the path-pattern wildcards `*` and `?` (below). Quote anything else:
+`title="Auth bug"`, `title="café"`. A character the grammar doesn't
+recognize is a parse error naming it and its column, so
 `type=note & status=open` fails instead of running as `type=note`. Join
-predicates with a space or `AND`, not `&`. There are no glob wildcards.
+predicates with a space or `AND`, not `&`.
+
+## Path patterns
+
+`path` and `id` take glob patterns, so a filter can select a directory:
+
+```
+path=docs/product/*        # files directly in docs/product/
+path=docs/product/**       # everything under docs/product/, at any depth
+id=docs/*/index            # an index in each immediate subfolder of docs/
+id=**/readme               # every readme, the root one included
+path!=archive/**           # everything outside archive/
+type=note AND path=docs/product/*
+```
+
+The pattern matches the whole value, from the vault root. `*` matches
+anything except `/`, so it stays inside one folder, and `?` matches one
+character other than `/`. A `**` segment crosses folders: `a/**/b`
+matches `a/b` and `a/x/y/b`, and a trailing `/**` matches everything
+inside the folder. These are the wildcard rules `[workspace] ignore`
+uses. There are no `[...]` character classes.
+
+Sub-unit rows (paragraphs, sections) share their file's path and extend
+its id with `#…`, so a pattern matches them along with the file. Add
+`type=<node-type>` to keep to files, as in the last example.
+
+Patterns work with `=`, `:` and `!=`, including after an edge arrow
+(`references-> path=docs/**`) and as the scope of a semantic query.
+Wildcards on any other property, with `<`/`>`, in a `lo..hi` range or
+in `tree=`/`parent=`/`root=` are an error. Only an unquoted value is a
+pattern, so quote it to match a literal `*`: `path="odd/file*.md"`.
 
 ## Typed comparisons
 
