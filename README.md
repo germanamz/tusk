@@ -296,7 +296,7 @@ tusk query 'type:plan shipped-at>=2026-04-01'   # date ordering, chronological
 
 # Edge traversal: -> outgoing, <- incoming
 tusk query 'type=ticket blocks->type=ticket'        # tickets that block other tickets
-tusk query 'type=note <-references type=spec'      # notes referenced by specs
+tusk query 'type=note references<- type=spec'      # notes referenced by specs
 
 # The one term after the arrow constrains the linked node; group for more
 tusk query 'type=note references->(domain=technical OR domain=wip)'
