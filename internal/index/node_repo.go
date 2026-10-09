@@ -43,6 +43,14 @@ type NodeRow struct {
 	// sections. NULL for file-level rows. Drives the sync re-embed decision
 	// and doctor coverage. Schema column is `content_hash`.
 	ContentHash sql.NullString
+
+	// StartLine and EndLine are the 1-based, inclusive file lines a sub-unit
+	// covers, numbered under the workspace's line-numbering scheme. NULL for
+	// file rows, for sub-units whose parser keeps no source positions (HTML),
+	// and for rows written before the columns existed. Schema columns are
+	// `start_line` / `end_line`.
+	StartLine sql.NullInt64
+	EndLine   sql.NullInt64
 }
 
 // ListFilter narrows a NodeRepo.List call. Plan 1b supports type only.
@@ -69,9 +77,10 @@ const nodeUpsertFileSQL = `
 		id, type, path, title, properties_json,
 		last_mtime, last_size, last_checksum,
 		parent_id, ordinal, embed_payload, content_hash,
+		start_line, end_line,
 		kind, source
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', NULL)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', NULL)
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -84,6 +93,8 @@ const nodeUpsertFileSQL = `
 		ordinal         = excluded.ordinal,
 		embed_payload   = excluded.embed_payload,
 		content_hash    = excluded.content_hash,
+		start_line      = excluded.start_line,
+		end_line        = excluded.end_line,
 		kind            = 'file',
 		source          = NULL
 `
@@ -99,9 +110,10 @@ const nodeUpsertSubUnitSQL = `
 		id, type, path, title, properties_json,
 		last_mtime, last_size, last_checksum,
 		parent_id, ordinal, embed_payload, content_hash,
+		start_line, end_line,
 		kind, source
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', ?)
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -114,18 +126,21 @@ const nodeUpsertSubUnitSQL = `
 		ordinal         = excluded.ordinal,
 		embed_payload   = excluded.embed_payload,
 		content_hash    = excluded.content_hash,
+		start_line      = excluded.start_line,
+		end_line        = excluded.end_line,
 		kind            = 'subunit',
 		source          = excluded.source
 `
 
 // nodeUpsertArgs returns the positional bind arguments shared by
-// nodeUpsertFileSQL and nodeUpsertSubUnitSQL (both bind the same eleven
+// nodeUpsertFileSQL and nodeUpsertSubUnitSQL (both bind the same fourteen
 // columns; the two writers append `kind`/`source` as SQL literals).
 func nodeUpsertArgs(row NodeRow) []any {
 	return []any{
 		row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON,
 		row.LastMtime, row.LastSize, row.LastChecksum,
 		row.ParentID, row.Ordinal, row.EmbedPayload, row.ContentHash,
+		row.StartLine, row.EndLine,
 	}
 }
 
@@ -617,7 +632,8 @@ func (repo *NodeRepo) DeleteByPath(filePath string) error {
 // ListByParent so every scan path uses the same struct shape.
 const nodeSelectColumns = `SELECT id, type, path, title, properties_json,
 	last_mtime, last_size, last_checksum,
-	parent_id, ordinal, embed_payload, content_hash`
+	parent_id, ordinal, embed_payload, content_hash,
+	start_line, end_line`
 
 // queryNodes runs a SELECT that returns the standard NodeRow column set and
 // materializes the result slice.
@@ -658,6 +674,7 @@ func scanNodeRow(row rowScanner) (*NodeRow, error) {
 		&loaded.ID, &loaded.Type, &loaded.Path, &loaded.Title, &loaded.PropertiesJSON,
 		&loaded.LastMtime, &loaded.LastSize, &loaded.LastChecksum,
 		&loaded.ParentID, &loaded.Ordinal, &loaded.EmbedPayload, &loaded.ContentHash,
+		&loaded.StartLine, &loaded.EndLine,
 	)
 
 	if scanErr != nil {

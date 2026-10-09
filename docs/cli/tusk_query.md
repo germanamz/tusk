@@ -48,6 +48,16 @@ the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
 JSON regardless.
 
+Matched units: semantic rows always carry matched_units, the passages that
+matched. Each scored passage folds into its innermost section, so one finding
+is one row: the section's id, heading, and line range, with the passage's
+score and snippet. A passage before the first heading is its own row.
+--include units lists every file's sub-unit outline on structural queries.
+Every unit carries lines [start, end] (1-based, inclusive, counted from the
+top of the file; absent for HTML), numbered under [workspace] line-numbering.
+--max-units N keeps the first N units per file (best first on semantic rows,
+document order on the outline); units_total reports how many there were.
+
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
 id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
 (a table cell). Addresses stay stable under in-place edits and shift only when
@@ -91,6 +101,7 @@ tusk query <filter> [flags]
       --hops int              graph-expansion BFS depth (1 or 2; omit to inherit manifest)
       --include strings       expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)
       --json                  emit structured JSON (sugar for --format json)
+      --max-units int         keep at most N matched units per file (0 = all); units_total reports the count before the cut
       --min-score float       drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.
       --no-graph-expand       disable graph-expanded retrieval for this call (beats [query.graph-expansion] enabled=true)
       --semantic string       rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)

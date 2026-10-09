@@ -42,6 +42,14 @@ const (
 	edgeDerivationVersion    = "2026-10-08-skipped-file-records"
 )
 
+// lineNumberingKey stores the [workspace].line-numbering scheme the sub-unit
+// line ranges on disk were numbered with. When the configured scheme differs,
+// or the key is absent because the index predates line ranges, Run forces one
+// full re-process pass so every sub-unit is renumbered; the sync diff rewrites
+// only rows whose lines moved and never re-embeds. Stamped after the pass
+// succeeds.
+const lineNumberingKey = "line_numbering"
+
 // nodeIDForPath derives a node id from a workspace-relative path, delegating to
 // index.NodeIDForPath — the single id rule shared with the node parse dispatch.
 // Markdown keeps its historical bare-stem id (strips ".md"); every other
@@ -301,6 +309,24 @@ func Run(config Config) (*Report, error) {
 			config.Logger.Info("reindex: edge-derivation version changed; forcing full re-process",
 				"stored", derivationMarker,
 				"current", edgeDerivationVersion,
+			)
+		}
+	}
+
+	lineNumbering := string(config.Manifest.LineNumbering())
+	lineMarker, lineMarkerErr := config.Meta.Get(lineNumberingKey)
+
+	if lineMarkerErr != nil {
+		return nil, fmt.Errorf("reindex: read %s: %w", lineNumberingKey, lineMarkerErr)
+	}
+
+	if lineMarker != lineNumbering {
+		config.Force = true
+
+		if config.Logger != nil {
+			config.Logger.Info("reindex: line-numbering scheme changed; forcing full re-process",
+				"stored", lineMarker,
+				"current", lineNumbering,
 			)
 		}
 	}
@@ -721,6 +747,10 @@ func Run(config Config) (*Report, error) {
 
 	if setErr := config.Meta.Set(edgeDerivationVersionKey, edgeDerivationVersion); setErr != nil {
 		return nil, fmt.Errorf("reindex: record %s: %w", edgeDerivationVersionKey, setErr)
+	}
+
+	if setErr := config.Meta.Set(lineNumberingKey, lineNumbering); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", lineNumberingKey, setErr)
 	}
 
 	if config.Logger != nil {

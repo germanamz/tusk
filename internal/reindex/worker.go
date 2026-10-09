@@ -553,6 +553,10 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		default:
 			units, parseUnitsErr = subunit.Parse(parsed.Body)
 			subSource = "markdown"
+
+			// Number the spans against the whole file so line ranges count
+			// the frontmatter above the body.
+			subunit.AssignLines(units, content, parsed.BodyOffset, cfg.Manifest.LineNumbering())
 		}
 
 		if parseUnitsErr != nil {

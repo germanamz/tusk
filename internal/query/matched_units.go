@@ -2,7 +2,7 @@ package query
 
 import (
 	"encoding/json"
-	"sort"
+
 	"strings"
 
 	"github.com/germanamz/tusk/internal/filter"
@@ -13,14 +13,29 @@ import (
 // a structural projection (include = units) or as a semantic-rank hit. When
 // HasScore is false the Score and Snippet fields are absent from JSON output;
 // see the matched_units MarshalJSON method.
+//
+// A semantic hit is a pointer an agent follows into the file, so every unit
+// says where it is (StartLine/EndLine, emitted as `lines`) and a section says
+// what it is (Heading).
 type MatchedUnit struct {
 	ID       string `json:"id"`
 	Type     string `json:"type"`
 	ParentID string `json:"parent_id,omitempty"`
 
+	// Heading is a section row's heading text (its title column: markup
+	// stripped, capped at 120 runes). Empty on leaves.
+	Heading string `json:"heading,omitempty"`
+
 	// HeadingLevel is populated only for section rows (1-6). 0 elsewhere;
 	// the JSON marshaler omits the field for non-section rows.
 	HeadingLevel int `json:"heading_level,omitempty"`
+
+	// StartLine and EndLine are the 1-based, inclusive file lines the unit
+	// covers; JSON emits them as `lines: [start, end]`. 0 when unknown (HTML
+	// sub-units, or rows not yet renumbered by reindex), and `lines` is
+	// omitted.
+	StartLine int `json:"-"`
+	EndLine   int `json:"-"`
 
 	// Ordinal is the row's depth-first position within its parent file.
 	Ordinal int `json:"ordinal"`
@@ -49,7 +64,9 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		ID           string   `json:"id"`
 		Type         string   `json:"type"`
 		ParentID     string   `json:"parent_id,omitempty"`
+		Heading      string   `json:"heading,omitempty"`
 		HeadingLevel int      `json:"heading_level,omitempty"`
+		Lines        []int    `json:"lines,omitempty"`
 		Ordinal      int      `json:"ordinal"`
 		Score        *float64 `json:"score,omitempty"`
 		Snippet      string   `json:"snippet,omitempty"`
@@ -63,6 +80,7 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		ID:           unit.ID,
 		Type:         unit.Type,
 		ParentID:     unit.ParentID,
+		Heading:      unit.Heading,
 		HeadingLevel: unit.HeadingLevel,
 		Ordinal:      unit.Ordinal,
 		Snippet:      unit.Snippet,
@@ -77,22 +95,11 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		out.Score = &score
 	}
 
-	return json.Marshal(out)
-}
-
-// headingWeights are the fixed §5.7 multipliers used to aggregate a
-// section's score from its best descendant leaf score. Index 0 is unused;
-// headings are 1-indexed.
-var headingWeights = [7]float64{0, 1.00, 0.85, 0.70, 0.55, 0.40, 0.25}
-
-// HeadingWeight returns the §5.7 multiplier for a heading level. Out-of-
-// range levels return 0 so callers never multiply by an undefined weight.
-func HeadingWeight(level int) float64 {
-	if level < 1 || level > 6 {
-		return 0
+	if unit.StartLine > 0 && unit.EndLine > 0 {
+		out.Lines = []int{unit.StartLine, unit.EndLine}
 	}
 
-	return headingWeights[level]
+	return json.Marshal(out)
 }
 
 // LoadFileSubUnits returns the file's full sub-unit tree as MatchedUnits in
@@ -113,26 +120,63 @@ func LoadFileSubUnits(nodes *index.NodeRepo, fileID string) ([]MatchedUnit, erro
 	out := make([]MatchedUnit, 0, len(rows))
 
 	for _, row := range rows {
-		unit := MatchedUnit{
-			ID:      row.ID,
-			Type:    row.Type,
-			Ordinal: int(row.Ordinal.Int64),
-		}
-
-		if row.ParentID.Valid {
-			unit.ParentID = row.ParentID.String
-		}
-
-		if row.Type == "section" {
-			unit.HeadingLevel = readHeadingLevel(row.PropertiesJSON)
-		}
-
+		unit := newMatchedUnit(row)
 		unit.Snippet = filter.RenderSnippet(row.EmbedPayload.String, 200)
 
 		out = append(out, unit)
 	}
 
 	return out, nil
+}
+
+// newMatchedUnit projects a sub-unit row's identity and position onto a
+// MatchedUnit: id, type, parent, ordinal, line range, and for sections the
+// heading text and level. Score and snippet are left to the caller.
+func newMatchedUnit(row index.NodeRow) MatchedUnit {
+	unit := MatchedUnit{
+		ID:      row.ID,
+		Type:    row.Type,
+		Ordinal: int(row.Ordinal.Int64),
+	}
+
+	if row.ParentID.Valid {
+		unit.ParentID = row.ParentID.String
+	}
+
+	if row.Type == "section" {
+		unit.Heading = row.Title
+		unit.HeadingLevel = readHeadingLevel(row.PropertiesJSON)
+	}
+
+	if row.StartLine.Valid && row.EndLine.Valid {
+		unit.StartLine = int(row.StartLine.Int64)
+		unit.EndLine = int(row.EndLine.Int64)
+	}
+
+	return unit
+}
+
+// capUnits keeps the first limit units (0 means no cap) and returns them with
+// the count before the cap, which callers report as units_total so a reader
+// can tell how many were cut.
+func capUnits(units []MatchedUnit, limit int) ([]MatchedUnit, int) {
+	total := len(units)
+
+	if limit > 0 && total > limit {
+		units = units[:limit]
+	}
+
+	return units, total
+}
+
+// unitsLimit resolves the per-file unit cap: an explicit max-units wins,
+// otherwise fallback applies (0 = no cap).
+func unitsLimit(maxUnits, fallback int) int {
+	if maxUnits > 0 {
+		return maxUnits
+	}
+
+	return fallback
 }
 
 // readHeadingLevel parses a section's properties JSON and returns its
@@ -183,123 +227,4 @@ func fileIDFromSubUnit(id string) string {
 	}
 
 	return id
-}
-
-// groupSubUnitsByFile builds an index of every sub-unit row keyed by its
-// file id, plus a slice of section rows per file in document order. Used by
-// the semantic path to look up descendants when aggregating section scores.
-type subUnitIndex struct {
-	// rowsByID is every loaded sub-unit row keyed by its composite id.
-	rowsByID map[string]index.NodeRow
-	// childrenByParent maps a parent id (file or section) to its
-	// immediate child sub-unit ids in ordinal order.
-	childrenByParent map[string][]string
-}
-
-func newSubUnitIndex(rows []index.NodeRow) *subUnitIndex {
-	idx := &subUnitIndex{
-		rowsByID:         make(map[string]index.NodeRow, len(rows)),
-		childrenByParent: make(map[string][]string, len(rows)),
-	}
-
-	for _, row := range rows {
-		idx.rowsByID[row.ID] = row
-
-		if row.ParentID.Valid {
-			idx.childrenByParent[row.ParentID.String] = append(idx.childrenByParent[row.ParentID.String], row.ID)
-		}
-	}
-
-	for parentID := range idx.childrenByParent {
-		ids := idx.childrenByParent[parentID]
-		sort.SliceStable(ids, func(left, right int) bool {
-			return idx.rowsByID[ids[left]].Ordinal.Int64 < idx.rowsByID[ids[right]].Ordinal.Int64
-		})
-	}
-
-	return idx
-}
-
-// bestLeafUnder returns, in a single descendant walk, both the maximum leaf
-// score among the section's descendants and the id of the leaf achieving it.
-// leafScores is the map of scored leaf ids → cosine score. Sections are
-// skipped as scoring candidates (they're aggregated separately) but recursed
-// into. Returns ("", 0, false) when no descendant leaf was scored. On a score
-// tie the first leaf in depth-first (ordinal) order wins, matching the prior
-// separate bestLeafScoreUnder / bestDescendantLeafID walks.
-func (idx *subUnitIndex) bestLeafUnder(sectionID string, leafScores map[string]float64) (string, float64, bool) {
-	var (
-		bestID    string
-		bestScore float64
-		found     bool
-	)
-
-	var walk func(id string)
-	walk = func(id string) {
-		for _, childID := range idx.childrenByParent[id] {
-			child, ok := idx.rowsByID[childID]
-
-			if !ok {
-				continue
-			}
-
-			if child.Type == "section" {
-				walk(childID)
-
-				continue
-			}
-
-			score, scored := leafScores[childID]
-
-			if !scored {
-				continue
-			}
-
-			if !found || score > bestScore {
-				bestID = childID
-				bestScore = score
-				found = true
-			}
-		}
-	}
-
-	walk(sectionID)
-
-	return bestID, bestScore, found
-}
-
-// firstLeafSnippet returns the embed_payload of the first descendant leaf
-// (depth-first, ordinal-ordered). When preferredID is set and resolves to a
-// scored leaf, its body is preferred over the document-order first leaf.
-// Returns empty when the section has no descendant leaf.
-func (idx *subUnitIndex) firstLeafSnippet(sectionID, preferredID string) string {
-	if preferredID != "" {
-		if row, ok := idx.rowsByID[preferredID]; ok && row.Type != "section" {
-			return row.EmbedPayload.String
-		}
-	}
-
-	for _, childID := range idx.childrenByParent[sectionID] {
-		child, ok := idx.rowsByID[childID]
-
-		if !ok {
-			continue
-		}
-
-		if child.Type == "section" {
-			nested := idx.firstLeafSnippet(childID, "")
-
-			if nested != "" {
-				return nested
-			}
-
-			continue
-		}
-
-		if child.EmbedPayload.String != "" {
-			return child.EmbedPayload.String
-		}
-	}
-
-	return ""
 }

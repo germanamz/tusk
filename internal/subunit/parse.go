@@ -34,9 +34,13 @@ var markdownParser = goldmark.New(
 //
 // Hash collisions within the file are resolved before returning, so
 // every Unit.Hash is unique within the result.
+//
+// Every unit carries its byte span in source (StartOffset/EndOffset);
+// AssignLines turns spans into file line numbers.
 func Parse(source []byte) ([]Unit, error) {
-	source = normalizeLineEndings(source)
+	source, crlfAt := normalizeLineEndings(source)
 	doc := markdownParser.Parser().Parse(text.NewReader(source))
+	finder := newSpanFinder(source, doc, crlfAt)
 
 	var units []Unit
 
@@ -60,7 +64,7 @@ func Parse(source []byte) ([]Unit, error) {
 	// dispatch on kind ourselves so we can flatten blockquotes,
 	// skip table containers, etc.
 	for child := doc.FirstChild(); child != nil; child = child.NextSibling() {
-		walkBlock(source, child, ctx, &units, emit)
+		walkBlock(finder, child, ctx, &units, emit)
 	}
 
 	units = DisambiguateFallbackIDs(units)
@@ -68,16 +72,26 @@ func Parse(source []byte) ([]Unit, error) {
 	return units, nil
 }
 
+// spannedBlock returns a unit with the byte span of block already set.
+func spannedBlock(finder *spanFinder, block ast.Node, unit Unit) Unit {
+	start, end := finder.blockSpan(block)
+	finder.span(&unit, start, end)
+
+	return unit
+}
+
 // walkBlock dispatches one top-level (or section-descendant)
 // block-kind node. Section opening updates sectionStack; leaf kinds
 // emit a Unit.
 func walkBlock(
-	source []byte,
+	finder *spanFinder,
 	block ast.Node,
 	ctx *WalkCtx,
 	units *[]Unit,
 	emit func(Unit) int,
 ) {
+	source := finder.source
+
 	switch typed := block.(type) {
 	case *ast.Heading:
 		// Close any sections at or deeper than this heading
@@ -93,23 +107,25 @@ func walkBlock(
 			fullText = headingText + "\n" + bodyText
 		}
 
-		emit(Unit{
+		section := Unit{
 			Kind:    KindSection,
 			Address: addr,
 			Text:    fullText,
 			Properties: map[string]any{
 				"heading-level": typed.Level,
 			},
-		})
+		}
+		finder.span(&section, typed.Pos(), sectionEnd(finder, typed))
+		emit(section)
 
 		ctx.Push(typed.Level, addr)
 
 	case *ast.Paragraph:
-		emit(Unit{
+		emit(spannedBlock(finder, typed, Unit{
 			Kind:       KindParagraph,
 			Text:       normalizedText(source, typed),
 			Properties: map[string]any{},
-		})
+		}))
 
 	case *ast.TextBlock:
 		// A top-level TextBlock behaves like a paragraph (a
@@ -120,11 +136,11 @@ func walkBlock(
 		if strings.TrimSpace(txt) == "" {
 			return
 		}
-		emit(Unit{
+		emit(spannedBlock(finder, typed, Unit{
 			Kind:       KindParagraph,
 			Text:       txt,
 			Properties: map[string]any{},
-		})
+		}))
 
 	case *ast.List:
 		// Walk each list item directly. Nested lists inside a
@@ -132,39 +148,39 @@ func walkBlock(
 		// branch.
 		for li := typed.FirstChild(); li != nil; li = li.NextSibling() {
 			if item, ok := li.(*ast.ListItem); ok {
-				walkListItem(source, item, ctx, units, emit)
+				walkListItem(finder, item, ctx, units, emit)
 			}
 		}
 
 	case *ast.FencedCodeBlock:
-		emit(Unit{
+		emit(spannedBlock(finder, typed, Unit{
 			Kind: KindCodeBlock,
 			Text: string(typed.Lines().Value(source)),
 			Properties: map[string]any{
 				"lang": string(typed.Language(source)),
 			},
-		})
+		}))
 
 	case *ast.CodeBlock:
-		emit(Unit{
+		emit(spannedBlock(finder, typed, Unit{
 			Kind: KindCodeBlock,
 			Text: string(typed.Lines().Value(source)),
 			Properties: map[string]any{
 				"lang": "",
 			},
-		})
+		}))
 
 	case *ast.Blockquote:
 		// Flatten the entire blockquote (including any nested
 		// blockquotes) into a single unit per spec §5.1.
-		emit(Unit{
+		emit(spannedBlock(finder, typed, Unit{
 			Kind:       KindBlockquote,
 			Text:       flattenBlockquoteText(source, typed),
 			Properties: map[string]any{},
-		})
+		}))
 
 	case *extast.Table:
-		walkTable(source, typed, ctx, emit)
+		walkTable(finder, typed, ctx, emit)
 
 	case *ast.ThematicBreak, *ast.HTMLBlock:
 		// Horizontal rules and raw HTML blocks do not emit
@@ -184,14 +200,14 @@ func walkBlock(
 // (e.g., a sub-list, a code block inside a bullet, a blockquote
 // inside a bullet) as their own units.
 func walkListItem(
-	source []byte,
+	finder *spanFinder,
 	item *ast.ListItem,
 	ctx *WalkCtx,
 	units *[]Unit,
 	emit func(Unit) int,
 ) {
 	checked, hasCheckbox := extractCheckbox(item)
-	itemText := extractListItemText(source, item)
+	itemText := extractListItemText(finder.source, item)
 
 	// A bare bullet ("- ") is pure authoring scaffolding: no queryable or
 	// embeddable content. Emitting a node for it would embed an empty payload
@@ -206,11 +222,13 @@ func walkListItem(
 			props["checkbox"] = checked
 		}
 
-		emit(Unit{
+		listItem := Unit{
 			Kind:       KindListItem,
 			Text:       itemText,
 			Properties: props,
-		})
+		}
+		finder.span(&listItem, item.Pos(), listItemEnd(finder, item))
+		emit(listItem)
 	}
 
 	// Walk nested block children (sub-lists, code blocks,
@@ -221,20 +239,63 @@ func walkListItem(
 	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
 		switch child.(type) {
 		case *ast.List, *ast.FencedCodeBlock, *ast.CodeBlock, *ast.Blockquote:
-			walkBlock(source, child, ctx, units, emit)
+			walkBlock(finder, child, ctx, units, emit)
 		}
 	}
+}
+
+// listItemEnd returns the end of a list item's own text: its paragraph and
+// text-block children, the same blocks extractListItemText reads. Nested
+// lists, code, and quotes are units of their own with their own spans.
+func listItemEnd(finder *spanFinder, item *ast.ListItem) int {
+	end := -1
+
+	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+		switch child.(type) {
+		case *ast.Paragraph, *ast.TextBlock:
+			if _, childEnd := finder.blockSpan(child); childEnd > end {
+				end = childEnd
+			}
+		}
+	}
+
+	if end < 0 {
+		return finder.trimEnd(item.Pos(), finder.lineEnd(item.Pos()))
+	}
+
+	return end
+}
+
+// sectionEnd returns the end of a section: its heading plus every block up to
+// the next heading at the same or a shallower level, matching the text
+// sectionBodyText reads. An empty section ends with its heading.
+func sectionEnd(finder *spanFinder, heading *ast.Heading) int {
+	_, end := finder.blockSpan(heading)
+
+	for sib := heading.NextSibling(); sib != nil; sib = sib.NextSibling() {
+		if next, ok := sib.(*ast.Heading); ok && next.Level <= heading.Level {
+			break
+		}
+
+		if _, sibEnd := finder.blockSpan(sib); sibEnd > end {
+			end = sibEnd
+		}
+	}
+
+	return end
 }
 
 // walkTable iterates a table's header and body rows, emitting one
 // table-cell unit per cell. The table container itself does not emit
 // a unit (spec §5.1).
 func walkTable(
-	source []byte,
+	finder *spanFinder,
 	tbl *extast.Table,
 	ctx *WalkCtx,
 	emit func(Unit) int,
 ) {
+	source := finder.source
+
 	// One table index per table within the enclosing section; cells
 	// address as <path>T<k>R<row>C<col>.
 	tableIdx := ctx.NextTableIndex()
@@ -256,7 +317,7 @@ func walkTable(
 				}
 				txt := normalizedText(source, tc)
 				headers = append(headers, txt)
-				emit(Unit{
+				emit(spannedBlock(finder, tc, Unit{
 					Kind:    KindTableCell,
 					Address: TableCellAddress(path, tableIdx, rowIndex, col),
 					Text:    txt,
@@ -266,7 +327,7 @@ func walkTable(
 						"column":        col,
 						"column-header": "",
 					},
-				})
+				}))
 				col++
 			}
 			rowIndex++
@@ -284,7 +345,7 @@ func walkTable(
 					colHeader = headers[col]
 				}
 				payload := TableCellPayload(colHeader, txt)
-				emit(Unit{
+				emit(spannedBlock(finder, tc, Unit{
 					Kind:         KindTableCell,
 					Address:      TableCellAddress(path, tableIdx, rowIndex, col),
 					Text:         txt,
@@ -295,7 +356,7 @@ func walkTable(
 						"column":        col,
 						"column-header": colHeader,
 					},
-				})
+				}))
 				col++
 			}
 			rowIndex++
@@ -475,15 +536,35 @@ func extractListItemText(source []byte, item *ast.ListItem) string {
 // content hash than the equivalent LF file — breaking the CRLF/LF-stability
 // contract documented in hash.go (#682 item 3). Returns source unchanged when
 // it holds no carriage return, so the common LF-only path allocates nothing.
-func normalizeLineEndings(source []byte) []byte {
+//
+// The second result lists the output offset of every LF that replaced a CRLF
+// pair, ascending, so a span over the output can be mapped back to the bytes
+// on disk (a lone CR becomes LF in place, which shifts nothing).
+func normalizeLineEndings(source []byte) ([]byte, []int) {
 	if !bytes.ContainsRune(source, '\r') {
-		return source
+		return source, nil
 	}
 
-	out := bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))
-	out = bytes.ReplaceAll(out, []byte("\r"), []byte("\n"))
+	out := make([]byte, 0, len(source))
 
-	return out
+	var crlfAt []int
+
+	for index := 0; index < len(source); index++ {
+		if source[index] != '\r' {
+			out = append(out, source[index])
+
+			continue
+		}
+
+		if index+1 < len(source) && source[index+1] == '\n' {
+			crlfAt = append(crlfAt, len(out))
+			index++
+		}
+
+		out = append(out, '\n')
+	}
+
+	return out, crlfAt
 }
 
 // makeTitle returns a single-line excerpt of body suitable for the

@@ -56,6 +56,9 @@ func ParseFile(relPath string, content []byte) (*Node, error) {
 		Title:      title,
 		Properties: properties,
 		Body:       body,
+		// Every trim in splitFrontmatter cuts from the front, so body is
+		// always a suffix of content.
+		BodyOffset: len(content) - len(body),
 	}, nil
 }
 

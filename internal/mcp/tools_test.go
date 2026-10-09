@@ -2650,3 +2650,122 @@ func TestTool_Query_DirectSubUnitFilterReturnsRowsWithParentID(test *testing.T) 
 		test.Errorf("direct sub-unit result must not carry matched_units: %v", first)
 	}
 }
+
+// seedFivePassages upserts one note whose five passages sit before any
+// heading (so each is its own matched-unit row), every one embedded on the
+// stub query vector and positioned on its own line.
+func seedFivePassages(test *testing.T, rt *mcp.Runtime) {
+	test.Helper()
+
+	if err := rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/passages", Type: "note", Path: "notes/passages.md",
+		Title: "Passages", PropertiesJSON: "{}", LastChecksum: "x",
+	}); err != nil {
+		test.Fatalf("file upsert: %v", err)
+	}
+
+	rows := make([]index.NodeRow, 0, 5)
+
+	for offset := range 5 {
+		rows = append(rows, index.NodeRow{
+			ID: fmt.Sprintf("notes/passages#P%d", offset+1), Type: "paragraph", Path: "notes/passages.md",
+			PropertiesJSON: "{}", LastChecksum: "x",
+			ParentID:     sql.NullString{String: "notes/passages", Valid: true},
+			Ordinal:      sql.NullInt64{Int64: int64(offset), Valid: true},
+			EmbedPayload: sql.NullString{String: fmt.Sprintf("passage %d", offset+1), Valid: true},
+			StartLine:    sql.NullInt64{Int64: int64(5 + 2*offset), Valid: true},
+			EndLine:      sql.NullInt64{Int64: int64(5 + 2*offset), Valid: true},
+		})
+	}
+
+	if err := rt.Nodes.BulkUpsert(rows, "markdown"); err != nil {
+		test.Fatalf("sub bulk upsert: %v", err)
+	}
+
+	for _, row := range rows {
+		if err := rt.Embeddings.Upsert(index.EmbeddingRow{
+			NodeID: row.ID, Model: "stub", ContentHash: "h_" + row.ID,
+			Vector: []float32{1, 0, 0}, Dim: 3, Body: row.EmbedPayload.String,
+		}); err != nil {
+			test.Fatalf("embedding upsert %s: %v", row.ID, err)
+		}
+	}
+}
+
+func firstQueryResult(test *testing.T, srv *mcp.Server, args map[string]any) map[string]any {
+	test.Helper()
+
+	body, callErr := callTool(test, srv, "tusk_query", args)
+
+	if callErr != nil {
+		test.Fatalf("tusk_query %v: %v", args, callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 1 {
+		test.Fatalf("tusk_query %v: results = %v, want 1", args, body)
+	}
+
+	return results[0].(map[string]any)
+}
+
+// TestTool_Query_MaxUnitsBoundsMatchedUnits pins #765 item 3 on MCP: semantic
+// rows carry at most 3 matched units by default, units_total says how many
+// there were, max_units overrides the default, and the structural outline
+// (asked for with include=units) is not capped by the semantic default.
+func TestTool_Query_MaxUnitsBoundsMatchedUnits(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	seedFivePassages(test, rt)
+
+	srv := mcp.NewServer(rt)
+
+	cases := []struct {
+		name string
+		args map[string]any
+		want int
+	}{
+		{name: "semantic default", args: map[string]any{"filter": "type=note", "semantic": "passage"}, want: 3},
+		{name: "explicit max_units", args: map[string]any{"filter": "type=note", "semantic": "passage", "max_units": 4}, want: 4},
+		{name: "structural outline", args: map[string]any{"filter": "type=note", "include": []any{"units"}}, want: 5},
+	}
+
+	for _, testCase := range cases {
+		first := firstQueryResult(test, srv, testCase.args)
+		matched, _ := first["matched_units"].([]any)
+
+		if len(matched) != testCase.want {
+			test.Errorf("%s: matched_units = %d, want %d", testCase.name, len(matched), testCase.want)
+		}
+
+		if total, _ := first["units_total"].(float64); total != 5 {
+			test.Errorf("%s: units_total = %v, want 5", testCase.name, first["units_total"])
+		}
+
+		if unit, _ := matched[0].(map[string]any); unit["lines"] == nil {
+			test.Errorf("%s: first unit has no lines: %v", testCase.name, unit)
+		}
+	}
+}
+
+func TestTool_Query_RejectsBadMaxUnits(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	for _, value := range []any{-1, "three"} {
+		result := callToolRaw(test, srv, "tusk_query", map[string]any{
+			"filter":    "type=note",
+			"max_units": value,
+		})
+
+		if !result.IsError || !strings.Contains(fmtError(result).Error(), "max_units") {
+			test.Errorf("max_units=%v: result = %v, want a max_units tool error", value, fmtError(result))
+		}
+	}
+}

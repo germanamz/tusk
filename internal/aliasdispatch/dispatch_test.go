@@ -2,6 +2,7 @@ package aliasdispatch_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,6 +130,7 @@ func permissiveFlags() []manifest.FlagSpec {
 		{Name: "fields", Kind: "stringSlice"},
 		{Name: "semantic", Kind: "string"},
 		{Name: "min-score", Kind: "string"},
+		{Name: "max-units", Kind: "int"},
 		{Name: "from", Kind: "string"},
 		{Name: "to", Kind: "string"},
 		{Name: "type", Kind: "string"},
@@ -276,6 +278,45 @@ func TestDispatcher_Query(test *testing.T) {
 
 	if len(queryResult.Rows) != 1 {
 		test.Errorf("Rows len = %d, want 1", len(queryResult.Rows))
+	}
+}
+
+// TestDispatcher_QueryPassesMaxUnits: an alias's max-units reaches the query
+// and caps the include=units outline, with units_total keeping the full count.
+func TestDispatcher_QueryPassesMaxUnits(test *testing.T) {
+	deps := setupWorkspace(test)
+
+	var subUnits []index.NodeRow
+
+	for ordinal, address := range []string{"P1", "P2", "P3"} {
+		subUnits = append(subUnits, index.NodeRow{
+			ID: "notes/hello#" + address, Type: "paragraph", Path: "notes/hello.md",
+			PropertiesJSON: "{}", LastChecksum: "x",
+			ParentID: sql.NullString{String: "notes/hello", Valid: true},
+			Ordinal:  sql.NullInt64{Int64: int64(ordinal), Valid: true},
+		})
+	}
+
+	if upsertErr := deps.Nodes.BulkUpsert(subUnits, "markdown"); upsertErr != nil {
+		test.Fatalf("BulkUpsert: %v", upsertErr)
+	}
+
+	alias := validatedAlias(test, "query", map[string]any{
+		"filter":    "type=note",
+		"include":   []any{"units"},
+		"max-units": 2,
+	})
+
+	result, runErr := aliasdispatch.NewDispatcher(deps).Run(context.Background(), alias)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	row := result.Result.(*query.Result).Rows[0]
+
+	if len(row.MatchedUnits) != 2 || row.UnitsTotal != 3 {
+		test.Errorf("matched_units = %d (units_total %d), want 2 (3)", len(row.MatchedUnits), row.UnitsTotal)
 	}
 }
 

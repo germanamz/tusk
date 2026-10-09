@@ -69,6 +69,11 @@ type Deps struct {
 	// query.Run when the alias does not set take. CLI callers pass 0
 	// (unlimited); MCP callers pass 10.
 	SemanticDefaultTake int
+
+	// SemanticDefaultMaxUnits is the per-file matched-units cap passed into
+	// query.Run when the alias does not set max-units. CLI callers pass 0
+	// (unlimited); MCP callers pass 3.
+	SemanticDefaultMaxUnits int
 }
 
 // VerbAdapter binds one CLI/MCP verb to a build-then-run pair. Build turns
@@ -287,8 +292,9 @@ func buildQueryRequest(args map[string]any, deps Deps) (any, error) {
 	reader := &argReader{args: args}
 
 	req := query.Request{
-		WorkspaceRoot:       deps.WorkspaceRoot,
-		SemanticDefaultTake: deps.SemanticDefaultTake,
+		WorkspaceRoot:           deps.WorkspaceRoot,
+		SemanticDefaultTake:     deps.SemanticDefaultTake,
+		SemanticDefaultMaxUnits: deps.SemanticDefaultMaxUnits,
 	}
 	req.Filter = reader.String("filter")
 	req.Sort = reader.String("sort")
@@ -296,6 +302,7 @@ func buildQueryRequest(args map[string]any, deps Deps) (any, error) {
 	req.Skip = reader.Int("skip")
 	req.Semantic = reader.String("semantic")
 	req.MinScore = reader.Float("min-score")
+	req.MaxUnits = reader.Int("max-units")
 	req.Include = reader.StringSlice("include")
 	req.Fields = reader.StringSlice("fields")
 

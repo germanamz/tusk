@@ -632,6 +632,12 @@ func registerEdgeListTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+// semanticDefaultMaxUnits bounds the matched_units on each semantic row when
+// the caller sets no max_units. Semantic rows carry matched_units without
+// include=units, and an agent rarely needs more than the best few passages,
+// each of which costs context (#765).
+const semanticDefaultMaxUnits = 3
+
 func registerQueryTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_query",
 		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date). Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 10 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
@@ -641,7 +647,8 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
 		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum similarity score to include in semantic results (default 0.5). Lower this when an initial query misses. When graph expansion is active, this filters the blended final score, not the bare cosine.")),
-		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units (units = matched sub-units per file; semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units (units = each file's sub-unit outline on structural queries; semantic rows always carry matched_units; semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithNumber("max_units", mcpgo.Description("Cap matched_units per file (default 3 on semantic rows; the include=units outline is uncapped unless set). Each unit carries lines [start, end] and, for sections, its heading; units_total reports the count before the cap.")),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 		mcpgo.WithBoolean("graph_expand", mcpgo.Description("Override the workspace's graph-expansion enabled flag for this call (tri-state: omit to inherit, true to force-on, false to force-off).")),
@@ -688,6 +695,16 @@ func registerQueryTool(srv *Server) {
 			return toolError(minScoreErr), nil
 		}
 
+		maxUnits, maxUnitsErr := argIntOptionalStrict(request, "max_units", 0)
+
+		if maxUnitsErr != nil {
+			return toolError(maxUnitsErr), nil
+		}
+
+		if maxUnits < 0 {
+			return toolError(fmt.Errorf("max_units: must be >= 0 (got %d); omit it or pass 0 for the default", maxUnits)), nil
+		}
+
 		result, runErr := query.Run(ctx, query.Deps{
 			Database:   srv.runtime.Index.DB(),
 			Manifest:   srv.runtime.Manifest,
@@ -705,13 +722,15 @@ func registerQueryTool(srv *Server) {
 			// MCP keeps tool responses bounded by defaulting semantic page
 			// size to 10 and structural reads to 50 when take is unset (the CLI
 			// leaves both uncapped and returns every matching row).
-			SemanticDefaultTake:   10,
-			StructuralDefaultTake: 50,
-			Include:               includeRaw,
-			Fields:                fields,
-			WorkspaceRoot:         srv.runtime.Root,
-			GraphExpansion:        graphExpansion,
-			Explain:               explain,
+			SemanticDefaultTake:     10,
+			StructuralDefaultTake:   50,
+			MaxUnits:                maxUnits,
+			SemanticDefaultMaxUnits: semanticDefaultMaxUnits,
+			Include:                 includeRaw,
+			Fields:                  fields,
+			WorkspaceRoot:           srv.runtime.Root,
+			GraphExpansion:          graphExpansion,
+			Explain:                 explain,
 		})
 
 		if runErr != nil {
@@ -733,6 +752,7 @@ func registerQueryTool(srv *Server) {
 						Properties:   row.Properties,
 						Edges:        row.Edges,
 						MatchedUnits: row.MatchedUnits,
+						UnitsTotal:   row.UnitsTotal,
 					})
 				}
 			} else {
@@ -749,6 +769,7 @@ func registerQueryTool(srv *Server) {
 						Score:        scored.Score,
 						HasScore:     true,
 						MatchedUnits: scored.MatchedUnits,
+						UnitsTotal:   scored.UnitsTotal,
 						CosineScore:  scored.CosineScore,
 						GraphScore:   scored.GraphScore,
 						FinalScore:   scored.FinalScore,
@@ -784,6 +805,7 @@ func registerQueryTool(srv *Server) {
 
 				if row.MatchedUnits != nil {
 					entry["matched_units"] = row.MatchedUnits
+					entry["units_total"] = row.UnitsTotal
 				}
 
 				if row.Body != "" {
@@ -834,6 +856,7 @@ func registerQueryTool(srv *Server) {
 
 			if scored.MatchedUnits != nil {
 				entry["matched_units"] = scored.MatchedUnits
+				entry["units_total"] = scored.UnitsTotal
 			}
 
 			// Explain-trace fields are surfaced when the caller asked for
@@ -1500,20 +1523,21 @@ func registerRunTool(srv *Server) {
 		}
 
 		deps := aliasdispatch.Deps{
-			Database:            srv.runtime.Index.DB(),
-			Manifest:            srv.runtime.Manifest,
-			WorkspaceRoot:       srv.runtime.Root,
-			NodeService:         srv.runtime.NodeService,
-			Nodes:               srv.runtime.Nodes,
-			Edges:               srv.runtime.Edges,
-			EmbedQueue:          srv.runtime.EmbedQueue,
-			WorkflowDrift:       srv.runtime.WorkflowDrift,
-			PropertyDrift:       srv.runtime.PropertyDrift,
-			Embeddings:          srv.runtime.Embeddings,
-			FileStates:          srv.runtime.FileState,
-			Meta:                srv.runtime.Meta,
-			Embedder:            srv.runtime.Embedder,
-			SemanticDefaultTake: 10,
+			Database:                srv.runtime.Index.DB(),
+			Manifest:                srv.runtime.Manifest,
+			WorkspaceRoot:           srv.runtime.Root,
+			NodeService:             srv.runtime.NodeService,
+			Nodes:                   srv.runtime.Nodes,
+			Edges:                   srv.runtime.Edges,
+			EmbedQueue:              srv.runtime.EmbedQueue,
+			WorkflowDrift:           srv.runtime.WorkflowDrift,
+			PropertyDrift:           srv.runtime.PropertyDrift,
+			Embeddings:              srv.runtime.Embeddings,
+			FileStates:              srv.runtime.FileState,
+			Meta:                    srv.runtime.Meta,
+			Embedder:                srv.runtime.Embedder,
+			SemanticDefaultTake:     10,
+			SemanticDefaultMaxUnits: semanticDefaultMaxUnits,
 		}
 
 		dispatcher := aliasdispatch.NewDispatcher(deps)
@@ -1553,20 +1577,21 @@ func registerContextTool(srv *Server) {
 		format := argStringOptional(request, "format")
 
 		aliasDeps := aliasdispatch.Deps{
-			Database:            srv.runtime.Index.DB(),
-			Manifest:            srv.runtime.Manifest,
-			WorkspaceRoot:       srv.runtime.Root,
-			NodeService:         srv.runtime.NodeService,
-			Nodes:               srv.runtime.Nodes,
-			Edges:               srv.runtime.Edges,
-			EmbedQueue:          srv.runtime.EmbedQueue,
-			WorkflowDrift:       srv.runtime.WorkflowDrift,
-			PropertyDrift:       srv.runtime.PropertyDrift,
-			Embeddings:          srv.runtime.Embeddings,
-			FileStates:          srv.runtime.FileState,
-			Meta:                srv.runtime.Meta,
-			Embedder:            srv.runtime.Embedder,
-			SemanticDefaultTake: 10,
+			Database:                srv.runtime.Index.DB(),
+			Manifest:                srv.runtime.Manifest,
+			WorkspaceRoot:           srv.runtime.Root,
+			NodeService:             srv.runtime.NodeService,
+			Nodes:                   srv.runtime.Nodes,
+			Edges:                   srv.runtime.Edges,
+			EmbedQueue:              srv.runtime.EmbedQueue,
+			WorkflowDrift:           srv.runtime.WorkflowDrift,
+			PropertyDrift:           srv.runtime.PropertyDrift,
+			Embeddings:              srv.runtime.Embeddings,
+			FileStates:              srv.runtime.FileState,
+			Meta:                    srv.runtime.Meta,
+			Embedder:                srv.runtime.Embedder,
+			SemanticDefaultTake:     10,
+			SemanticDefaultMaxUnits: semanticDefaultMaxUnits,
 		}
 
 		dispatcher := aliasdispatch.NewDispatcher(aliasDeps)

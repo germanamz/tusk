@@ -93,6 +93,18 @@ type Unit struct {
 	// Title is a single-line excerpt of the unit's text, used as
 	// the `title` column on the `nodes` row.
 	Title string
+	// StartOffset and EndOffset are the unit's byte span in the source
+	// handed to Parse: StartOffset is the first byte of the unit's markup
+	// (heading marker, opening fence, list marker, first `>`), EndOffset is
+	// one past its last content byte (a closing fence counts; trailing
+	// whitespace never does). EndOffset is 0 when the parser cannot locate
+	// the unit, as with HTML, which keeps no source positions.
+	StartOffset int
+	EndOffset   int
+	// StartLine and EndLine are the 1-based, inclusive file lines the span
+	// covers, set by AssignLines. 0 means unknown and is stored as NULL.
+	StartLine int
+	EndLine   int
 }
 
 // EdgeSpec is a pure-data description of an outbound edge from a

@@ -301,3 +301,74 @@ func TestCompactEdgeRows_Fixture(test *testing.T) {
 		test.Errorf("compact edge output mismatch.\n--- want ---\n%s\n--- got ---\n%s", want, got)
 	}
 }
+
+// TestCompactNodeRows_MatchedUnitsHeadingAndLines: a unit line says what the
+// passage is (a section's heading) and where it is (its line range).
+func TestCompactNodeRows_MatchedUnitsHeadingAndLines(test *testing.T) {
+	rows := []CompactRow{{
+		ID: "docs/ledger", Type: "note", Title: "Ledger", Score: 0.82, HasScore: true,
+		MatchedUnits: []query.MatchedUnit{
+			{ID: "docs/ledger#S1.2", Type: "section", Heading: "Balances", HeadingLevel: 2, StartLine: 11, EndLine: 13, Score: 0.82, Snippet: "Balances are derived", HasScore: true},
+			{ID: "docs/ledger#P1", Type: "paragraph", StartLine: 9, EndLine: 9, Score: 0.5, Snippet: "Intro", HasScore: true},
+			{ID: "docs/page.html#P2", Type: "paragraph", Score: 0.4, Snippet: "No position", HasScore: true},
+		},
+	}}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	lines := strings.Split(buf.String(), "\n")
+
+	for _, want := range []struct {
+		line     int
+		fragment string
+	}{
+		{1, `section H2 "Balances"`},
+		{1, "L11-13"},
+		{2, "L9 "},
+	} {
+		if !strings.Contains(lines[want.line], want.fragment) {
+			test.Errorf("line %d = %q, want it to contain %q", want.line, lines[want.line], want.fragment)
+		}
+	}
+
+	if strings.Contains(lines[3], " L") {
+		test.Errorf("unpositioned unit line = %q, want no line column", lines[3])
+	}
+}
+
+// TestCompactNodeRows_MoreCountsUnitsTotal: the "(N more)" tail counts units
+// a max-units cap removed upstream, not only the ones the renderer hides.
+func TestCompactNodeRows_MoreCountsUnitsTotal(test *testing.T) {
+	cases := []struct {
+		shown, total int
+		want         string
+	}{
+		{shown: 3, total: 10, want: "(7 more)"},
+		{shown: 25, total: 40, want: "(20 more)"},
+		{shown: 25, total: 0, want: "(5 more)"},
+	}
+
+	for _, testCase := range cases {
+		units := make([]query.MatchedUnit, 0, testCase.shown)
+
+		for idx := range testCase.shown {
+			units = append(units, query.MatchedUnit{ID: "notes/big#u", Type: "paragraph", Ordinal: idx})
+		}
+
+		var buf bytes.Buffer
+
+		if err := CompactNodeRows(&buf, []CompactRow{{
+			ID: "notes/big", Type: "note", Title: "Big", MatchedUnits: units, UnitsTotal: testCase.total,
+		}}, CompactOpts{}); err != nil {
+			test.Fatalf("render: %v", err)
+		}
+
+		if !strings.Contains(buf.String(), testCase.want) {
+			test.Errorf("shown %d of %d: missing %s in %q", testCase.shown, testCase.total, testCase.want, buf.String())
+		}
+	}
+}

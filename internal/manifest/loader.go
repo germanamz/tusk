@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/germanamz/tusk/internal/linenum"
 )
 
 // validCardinalities lists the legal Cardinality values for runtime validation.
@@ -773,6 +775,10 @@ func validate(loaded *Manifest) error {
 		if len(edgeType.To) == 0 {
 			return fmt.Errorf("manifest: edge-type %q: to list must be non-empty", name)
 		}
+	}
+
+	if _, schemeErr := linenum.ParseScheme(loaded.Workspace.LineNumbering); schemeErr != nil {
+		return fmt.Errorf("manifest: workspace.%w", schemeErr)
 	}
 
 	if loaded.Embeddings.Provider != "" {

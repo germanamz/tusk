@@ -21,6 +21,7 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `ValidateContext(*Manifest, VerbIntrospector)` — tertiary pass run after `ValidateAliases` that resolves `recent = "<name>"`, parses `[context.recent]` inline aliases, and prunes unknown `include` names. Surfaces problems via `Manifest.ContextErrors`; never fails.
 - `Rule` and `Manifest.Rules` — the `[rule.<name>]` declarations, keyed by name. `Load` only decodes them, one block at a time, so a value of the wrong type fails just that rule (`Rule.DecodeError`, naming the key and line) instead of the whole manifest. It also records `Rule.UnknownKeys`: any key inside the block that no field decodes, so a misspelling is reported rather than ignored. `internal/doctor` validates and runs them (`doctor.CompileRules`); a bad rule never fails the load.
 - `(*Manifest).DeclaresUserNodeTypes() bool` — whether the manifest declares a node type beyond the built-in sub-document types. Checks that validate against declared types skip a vault that declares none.
+- `(*Manifest).LineNumbering() linenum.Scheme` — the `[workspace] line-numbering` scheme sub-unit line ranges are numbered with (`lf` when unset). `Load` rejects any value other than `lf`, `universal`, or `unicode`.
 
 ## Notes
 

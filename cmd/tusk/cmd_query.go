@@ -25,6 +25,7 @@ func newQueryCmd() *cobra.Command {
 		emitJSON      bool
 		semanticQuery string
 		minScore      float64
+		maxUnits      int
 		includeFlag   []string
 		fieldsFlag    []string
 		formatFlag    string
@@ -79,6 +80,16 @@ Use --format to pick compact or JSON output: with no --include/--fields
 the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
 JSON regardless.
+
+Matched units: semantic rows always carry matched_units, the passages that
+matched. Each scored passage folds into its innermost section, so one finding
+is one row: the section's id, heading, and line range, with the passage's
+score and snippet. A passage before the first heading is its own row.
+--include units lists every file's sub-unit outline on structural queries.
+Every unit carries lines [start, end] (1-based, inclusive, counted from the
+top of the file; absent for HTML), numbered under [workspace] line-numbering.
+--max-units N keeps the first N units per file (best first on semantic rows,
+document order on the outline); units_total reports how many there were.
 
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
 id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
@@ -169,9 +180,11 @@ the document is restructured.`,
 				Skip:     skip,
 				Semantic: semanticQuery,
 				MinScore: minScore,
+				MaxUnits: maxUnits,
 				// CLI preserves the legacy behavior of returning every ranked
 				// row when --take is unset; MCP applies a default page size
-				// of 10 to keep tool responses bounded.
+				// of 10 to keep tool responses bounded. Matched units follow
+				// the same split: uncapped here, 3 per file on MCP.
 				SemanticDefaultTake: 0,
 				Include:             includeFlag,
 				Fields:              fieldsFlag,
@@ -206,6 +219,7 @@ the document is restructured.`,
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
 	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.")
 	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)")
+	queryCmd.Flags().IntVar(&maxUnits, "max-units", 0, "keep at most N matched units per file (0 = all); units_total reports the count before the cut")
 	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
 	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)")
 	queryCmd.Flags().BoolVar(&graphExpand, "graph-expand", false, "enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)")
@@ -335,6 +349,7 @@ func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) e
 			Properties:   row.Properties,
 			Edges:        row.Edges,
 			MatchedUnits: row.MatchedUnits,
+			UnitsTotal:   row.UnitsTotal,
 		})
 	}
 
@@ -365,6 +380,7 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 				Score:        scored.Score,
 				HasScore:     true,
 				MatchedUnits: scored.MatchedUnits,
+				UnitsTotal:   scored.UnitsTotal,
 				CosineScore:  scored.CosineScore,
 				GraphScore:   scored.GraphScore,
 				FinalScore:   scored.FinalScore,

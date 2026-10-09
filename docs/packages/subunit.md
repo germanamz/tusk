@@ -11,7 +11,8 @@ Parses a markdown file body into sub-document units (sections, paragraphs, list 
 
 ## Public surface
 
-- `Parse(source []byte) ([]Unit, error)` — goldmark-backed walk producing a deterministic, depth-first `[]Unit`. Each unit carries its `Address`, `ContentHash`, `ParentAddress`, `Ordinal`, kind-specific `Properties`, and the synthesized `EmbedPayload`.
+- `Parse(source []byte) ([]Unit, error)` — goldmark-backed walk producing a deterministic, depth-first `[]Unit`. Each unit carries its `Address`, `ContentHash`, `ParentAddress`, `Ordinal`, kind-specific `Properties`, the synthesized `EmbedPayload`, and its byte span in `source` (`StartOffset` / `EndOffset`).
+- `AssignLines(units, file, bodyOffset, scheme)` — turns each unit's byte span into `StartLine` / `EndLine`, counted over the whole file under an `internal/linenum` scheme. `bodyOffset` is where the parsed body starts in the file (`node.Node.BodyOffset`), so frontmatter lines count.
 - `Unit` — one sub-document node. `Address` is the id suffix; `ContentHash` is the embed-payload fingerprint; `Hash` is the fallback id for kinds with no address rule.
 - `Sync.ApplyFile(ctx, fileRow, units)` — diffs the parsed units against existing rows **by address**, inserts/deletes/updates rows, rewrites `contains` edges, re-derives outbound wikilink edges for inserted and content-changed units, and enqueues embeds for new or content-changed leaves (sections are never enqueued).
 - `DeriveEdges` — wikilink extraction from a unit's text.
@@ -34,6 +35,18 @@ Examples: `notes/standup#S1.2P3`, `notes/standup#S1.1T1R2C0`, `notes/note#P1`.
 - **Leaf addresses are stable under in-place edits:** rewriting a paragraph keeps `S1.2P3`; its `content_hash` turns over, driving a re-embed.
 - **Addresses shift under restructure** (insert/delete/reorder a block, move a heading). Because vectors are content-addressed (`internal/index` + `internal/embed`), a shifted-but-unchanged unit reuses its vector with no model call.
 
+## Line ranges
+
+Every markdown unit records where it sits so a query hit can point into the file. Lines are 1-based and inclusive, and a range covers the lines the unit's text came from:
+
+- a section runs from its heading line (the text line of a setext heading) to the last line of its body, subsections included; an empty section is its heading, plus the underline for setext;
+- a paragraph covers its own lines; a list item runs from its marker to the end of its own text (nested lists and code are units of their own);
+- a fenced code block includes both fences, or runs to its last line when it is never closed; an indented code block and a blockquote cover their lines;
+- a table cell is its row's line;
+- trailing blank lines are never part of a range.
+
+goldmark records a start position on every block, so `Parse` derives spans from the AST. It keeps only a fenced block's content lines, so the parser finds the closing fence on the line after the content. A fence-looking line there that opens the next block (when the block's container closed first) is not taken as the closing fence. Spans are computed over the CRLF-normalized source and mapped back to the bytes on disk, and `AssignLines` numbers them under the workspace's `[workspace] line-numbering` scheme. Line numbers never feed a hash, so a passage that only moves never re-embeds. The HTML walker keeps no source positions (`x/net/html` has none), so HTML units carry no lines.
+
 ## content_hash
 
 Each sub-unit row stores `content_hash` = sha256 of the **embed payload** (for leaves — a table cell's payload is `"<column-header>: <cell-text>"`), or sha256 of the section's `Text` for sections — for the markdown walker that is the heading **plus the full descendant body** (sections are never embedded, but their outbound wikilink edges are derived from that full text — the hash must turn over on any edit inside the section or the sync diff would leave the section's edge set stale; the HTML walker's section `Text` is heading-only, and its section edges derive from that same text, so hash and edge set stay in lockstep on both paths). For leaves it drives the sync re-embed decision and is the key the embedding store dedupes on: identical content anywhere in the workspace is embedded once and shared.
@@ -44,6 +57,7 @@ Each sub-unit row stores `content_hash` = sha256 of the **embed payload** (for l
 
 - address only in the new set → insert the row; derive its outbound wikilink edges; enqueue an embed (leaves only).
 - address in both, `content_hash` changed → update the row; re-derive its outbound wikilink edges; re-enqueue the embed (leaves only).
+- address in both, only ordinal, properties, or line range changed → update the row; the payload is byte-identical, so the vector and edges still hold and nothing is re-enqueued. An edit above a passage shifts its lines this way, and rows written before line ranges existed (NULL lines) fill this way.
 - address in both, unchanged → leave the row untouched.
 - address only in the old set → delete the row (its edges and embedding mapping cascade away).
 

@@ -55,6 +55,18 @@ compact at a TTY and JSON when piped. --json (or --format json) forces
 JSON regardless.
 
 .PP
+Matched units: semantic rows always carry matched_units, the passages that
+matched. Each scored passage folds into its innermost section, so one finding
+is one row: the section's id, heading, and line range, with the passage's
+score and snippet. A passage before the first heading is its own row.
+--include units lists every file's sub-unit outline on structural queries.
+Every unit carries lines start, end
+\[la]1\-based, inclusive, counted from the
+top of the file; absent for HTML\[ra], numbered under [workspace] line-numbering.
+--max-units N keeps the first N units per file (best first on semantic rows,
+document order on the outline); units_total reports how many there were.
+
+.PP
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
 id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
 (a table cell). Addresses stay stable under in-place edits and shift only when
@@ -100,6 +112,10 @@ the document is restructured.
 .PP
 \fB--json\fP[=false]
 	emit structured JSON (sugar for --format json)
+
+.PP
+\fB--max-units\fP=0
+	keep at most N matched units per file (0 = all); units_total reports the count before the cut
 
 .PP
 \fB--min-score\fP=0

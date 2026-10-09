@@ -47,6 +47,10 @@ type CompactRow struct {
 	// path: the file row is followed by indented `→ #<hash>` lines for
 	// each matched sub-unit. See writeMatchedUnits.
 	MatchedUnits []query.MatchedUnit
+	// UnitsTotal is the file's unit count before a max-units cap cut
+	// MatchedUnits, so the `(N more)` tail counts those too. 0 means
+	// MatchedUnits is the whole set.
+	UnitsTotal int
 }
 
 // defaultMatchedUnitsLimit caps how many matched units the compact renderer
@@ -242,12 +246,14 @@ func writeBody(builder *strings.Builder, row CompactRow, fieldSet map[string]str
 // when MatchedUnits is non-empty (semantic group-by-parent or structural
 // include=units). Each unit renders as:
 //
-//	→ #<hash>   section H2   "snippet..."   0.86
+//	→ #S1.2   section H2 "Balances"   L11-13   "snippet..."   0.86
 //
-// Sections are decorated as `section H<n>`; leaves show their plain type
-// (paragraph, list-item, etc). When the unit has no Score (structural
-// path), the trailing score column is omitted. Long lists collapse to
-// `(N more)` past defaultMatchedUnitsLimit to keep agent output bounded.
+// Sections are decorated as `section H<n>` plus their quoted heading; leaves
+// show their plain type (paragraph, list-item, etc). The line column is
+// omitted for units without positions (HTML). When the unit has no Score
+// (structural path), the trailing score column is omitted. Long lists
+// collapse to `(N more)` past defaultMatchedUnitsLimit to keep agent output
+// bounded; the count includes units a max-units cap already removed.
 func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}) {
 	if !showField(fieldSet, "matched_units") && fieldSet != nil {
 		return
@@ -258,14 +264,13 @@ func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[st
 	}
 
 	units := row.MatchedUnits
+	total := max(row.UnitsTotal, len(units))
 
-	limit := defaultMatchedUnitsLimit
-	truncated := 0
-
-	if len(units) > limit {
-		truncated = len(units) - limit
-		units = units[:limit]
+	if len(units) > defaultMatchedUnitsLimit {
+		units = units[:defaultMatchedUnitsLimit]
 	}
+
+	truncated := total - len(units)
 
 	// Compute per-column widths over the units in this group so the
 	// arrow / id / decorated-type / snippet columns align.
@@ -282,6 +287,7 @@ func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[st
 
 	idWidth := maxWidth(displays, func(display matchedUnitDisplay) string { return display.idCol })
 	typeWidth := maxWidth(displays, func(display matchedUnitDisplay) string { return display.typeCol })
+	linesWidth := maxWidth(displays, func(display matchedUnitDisplay) string { return display.linesCol })
 	snippetWidth := maxWidth(displays, func(display matchedUnitDisplay) string { return display.snippetCol })
 
 	for index, display := range displays {
@@ -291,6 +297,11 @@ func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[st
 		line.WriteString(padRight(display.idCol, idWidth))
 		line.WriteString("  ")
 		line.WriteString(padRight(display.typeCol, typeWidth))
+
+		if linesWidth > 0 {
+			line.WriteString("  ")
+			line.WriteString(padRight(display.linesCol, linesWidth))
+		}
 
 		if snippetWidth > 0 {
 			line.WriteString("  ")
@@ -314,13 +325,16 @@ func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[st
 type matchedUnitDisplay struct {
 	idCol      string
 	typeCol    string
+	linesCol   string
 	snippetCol string
 }
 
 // formatMatchedUnit produces the per-column strings for a unit. The id
 // column is `#<hash>` when the unit id is composite (`<fileID>#<hash>`),
 // or the full id otherwise. The type column decorates sections with their
-// heading level. The snippet column wraps non-empty snippets in quotes.
+// heading level and quoted heading. The lines column is `L<start>-<end>`, or
+// `L<n>` for a one-line unit, and empty when the unit has no position. The
+// snippet column wraps non-empty snippets in quotes.
 func formatMatchedUnit(unit query.MatchedUnit) matchedUnitDisplay {
 	idCol := unit.ID
 
@@ -334,13 +348,27 @@ func formatMatchedUnit(unit query.MatchedUnit) matchedUnitDisplay {
 		typeCol = fmt.Sprintf("section H%d", unit.HeadingLevel)
 	}
 
+	if unit.Heading != "" {
+		typeCol += fmt.Sprintf(" %q", unit.Heading)
+	}
+
+	linesCol := ""
+
+	switch {
+	case unit.StartLine <= 0:
+	case unit.StartLine == unit.EndLine:
+		linesCol = fmt.Sprintf("L%d", unit.StartLine)
+	default:
+		linesCol = fmt.Sprintf("L%d-%d", unit.StartLine, unit.EndLine)
+	}
+
 	snippetCol := ""
 
 	if unit.Snippet != "" {
 		snippetCol = fmt.Sprintf("%q", unit.Snippet)
 	}
 
-	return matchedUnitDisplay{idCol: idCol, typeCol: typeCol, snippetCol: snippetCol}
+	return matchedUnitDisplay{idCol: idCol, typeCol: typeCol, linesCol: linesCol, snippetCol: snippetCol}
 }
 
 // writeEdges emits one indented line per edge using the spec §4.4 arrow form.

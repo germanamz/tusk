@@ -1,7 +1,11 @@
 // Package manifest defines the schema and loader for tusk.toml.
 package manifest
 
-import "github.com/BurntSushi/toml"
+import (
+	"github.com/BurntSushi/toml"
+
+	"github.com/germanamz/tusk/internal/linenum"
+)
 
 // EdgeTypes is a named map of edge-type declarations keyed by edge-type name.
 type EdgeTypes = map[string]EdgeType
@@ -155,6 +159,12 @@ type WorkspaceSection struct {
 	// true) from "explicit false". Consumers should call
 	// Manifest.SubUnitsEnabled instead of reading this directly.
 	SubUnitsRaw toml.Primitive `toml:"sub-units"`
+
+	// LineNumbering mirrors the on-disk `line-numbering` key: which line
+	// terminators count when sub-unit line ranges are numbered (see
+	// internal/linenum). Empty means linenum.DefaultScheme. Consumers should
+	// call Manifest.LineNumbering instead of reading this directly.
+	LineNumbering string `toml:"line-numbering"`
 }
 
 // EmbeddingsSection configures the active embedding provider.
@@ -316,6 +326,24 @@ func matchesTypeList(allowed []string, candidate string) bool {
 	}
 
 	return false
+}
+
+// LineNumbering returns the scheme sub-unit line ranges are numbered with.
+// An unset key, or a nil manifest, yields linenum.DefaultScheme. Load rejects
+// unknown values, so a loaded manifest never reaches the fallback; a hand-built
+// one with a bad value also gets the default.
+func (loaded *Manifest) LineNumbering() linenum.Scheme {
+	if loaded == nil {
+		return linenum.DefaultScheme
+	}
+
+	scheme, parseErr := linenum.ParseScheme(loaded.Workspace.LineNumbering)
+
+	if parseErr != nil {
+		return linenum.DefaultScheme
+	}
+
+	return scheme
 }
 
 // SubUnitsEnabled returns true when the workspace opts into sub-unit

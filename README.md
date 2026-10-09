@@ -339,6 +339,8 @@ tusk query '' --semantic "auth bug in password reset flow" --take 5
 tusk query 'path=docs/**' --semantic "billing totals"   # scoped to docs/ and below
 ```
 
+Each result carries `matched_units`, the passages that matched, best first. A passage folds into its innermost section, so one finding is one row: the section's id, `heading`, and `lines: [start, end]`, plus the passage's score and snippet. Lines are 1-based and counted from the top of the file, frontmatter included, so an agent can open the file at the passage instead of reading all of it (HTML units carry no lines). `--max-units N` keeps the best N per file, MCP keeps 3 unless told otherwise, and `units_total` says how many there were. `[workspace] line-numbering` decides what ends a line: `lf` (the default, matching sed and grep -n), `universal` (adds a lone CR, like most editors), or `unicode` (adds the Unicode line separators).
+
 #### Matching the embedding model
 
 Many embedding models are trained with an instruction prefix on each side, one for queries and another for documents. Ollama adds neither, so tusk lets you set them under `[embeddings]`, along with the chunk sizes and context window that suit the model:

@@ -10,6 +10,7 @@ no MCP tool to edit it — open the file directly, then call
 [workspace]
 name      = "my-brain"
 sub-units = true             # parse markdown headings into sub-unit nodes
+line-numbering = "lf"        # what ends a line in matched-unit `lines`
 
 [node-types.<name>]
 properties = [
@@ -87,6 +88,23 @@ it under `warnings`, and `tusk_doctor` reports it as a `rule-invalid`
 error. That covers a filter that does not parse or names something
 undeclared, a severity other than the three above, a misspelled key, and
 a value of the wrong type.
+
+## Line numbering
+
+`[workspace].line-numbering` picks which line terminators count when
+sub-unit `lines` are numbered, so the numbers match the tool you open
+files with. It never changes how a file is parsed.
+
+- `lf` (default): only LF ends a line; CRLF counts once. Matches sed,
+  grep -n, wc -l, cat -n and file-read tools.
+- `universal`: LF, CRLF, and a lone CR. Matches CommonMark and most
+  editors.
+- `unicode`: `universal` plus VT, FF, NEL (U+0085), LS (U+2028) and
+  PS (U+2029).
+
+The schemes only disagree on files with lone CRs or Unicode
+separators. Changing the value renumbers every sub-unit on the next
+reindex; nothing is re-embedded.
 
 ## Embedding model settings
 
