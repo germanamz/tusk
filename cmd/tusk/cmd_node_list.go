@@ -33,13 +33,15 @@ priority>=2); ranges use key=lo..hi. Ordering and range operators compare
 by the property's declared type: int numerically, date/datetime
 chronologically, enum by declared order (a value name or a 0-based index).
 Edge traversal uses edge-type-> (outgoing) or edge-type<- (incoming) and
-may chain multi-hop. Traversal shortcuts: tree=id, parent=id, root=id,
-each optionally qualified by a hierarchy alias (e.g. tree:wbs=id) set via
-hierarchy on an edge type in tusk.toml. Recency shortcut: modified-since:
-a duration or ISO date (e.g. modified-since:7d, modified-since:2026-05-23).
-Combine with AND, OR, NOT, and parens. (Both : and = bind property
-comparisons; pick whichever reads better.) Output is a tab-aligned table
-of id, type, title, path.
+may chain multi-hop. The one term after the arrow (a predicate, NOT term,
+or parenthesized group) constrains the linked node, e.g.
+blocks-> (status=open OR status=wip). Traversal shortcuts: tree=id,
+parent=id, root=id, each optionally qualified by a hierarchy alias (e.g.
+tree:wbs=id) set via hierarchy on an edge type in tusk.toml. Recency
+shortcut: modified-since: a duration or ISO date (e.g. modified-since:7d,
+modified-since:2026-05-23). Combine with AND, OR, NOT, and parens. (Both
+: and = bind property comparisons; pick whichever reads better.) Output
+is a tab-aligned table of id, type, title, path.
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit,
 and --skip M to paginate. Use --include to expand each row with body, edges,

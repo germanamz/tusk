@@ -31,7 +31,7 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 
 	state := &compileState{}
 
-	whereClause, whereParams, whereErr := state.compileWhere(expr)
+	whereClause, whereParams, whereErr := state.compileWhere(expr, 0)
 
 	if whereErr != nil {
 		return "", nil, whereErr
@@ -133,14 +133,14 @@ func recursiveDescendantsCTE(name string) string {
 // compileBinary compiles the two operands of an AND/OR node on the same state —
 // left first, so CTE numbering and the leftmost-OrderedBy-wins side effects are
 // preserved — and joins their SQL with joiner, left params before right.
-func (state *compileState) compileBinary(left, right Expr, joiner string) (string, []any, error) {
-	leftSQL, leftParams, leftErr := state.compileWhere(left)
+func (state *compileState) compileBinary(left, right Expr, joiner string, depth int) (string, []any, error) {
+	leftSQL, leftParams, leftErr := state.compileWhere(left, depth)
 
 	if leftErr != nil {
 		return "", nil, leftErr
 	}
 
-	rightSQL, rightParams, rightErr := state.compileWhere(right)
+	rightSQL, rightParams, rightErr := state.compileWhere(right, depth)
 
 	if rightErr != nil {
 		return "", nil, rightErr
@@ -149,18 +149,44 @@ func (state *compileState) compileBinary(left, right Expr, joiner string) (strin
 	return "(" + leftSQL + ") " + joiner + " (" + rightSQL + ")", append(leftParams, rightParams...), nil
 }
 
-func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
+// rowRef names the node row an expression at depth constrains: the outer
+// nodes table at depth 0, or the target alias n<depth-1> of the edge predicate
+// that encloses it.
+func rowRef(depth int) string {
+	if depth == 0 {
+		return "nodes"
+	}
+
+	return fmt.Sprintf("n%d", depth-1)
+}
+
+// columnPrefix is the column qualifier for the row at depth: none for the outer
+// nodes table, whose columns the top-level WHERE names bare, and "n<k>." for an
+// edge's target alias.
+func columnPrefix(depth int) string {
+	if depth == 0 {
+		return ""
+	}
+
+	return rowRef(depth) + "."
+}
+
+// compileWhere compiles expr against the row at depth (see rowRef). Every
+// expression kind compiles at any depth, so the term after an edge arrow can be
+// a group, a NOT, a shortcut, or a recency check as well as a property
+// comparison or another hop.
+func (state *compileState) compileWhere(expr Expr, depth int) (string, []any, error) {
 	if expr == nil {
 		return "1 = 1", nil, nil
 	}
 
 	switch typed := expr.(type) {
 	case *OrExpr:
-		return state.compileBinary(typed.Left, typed.Right, "OR")
+		return state.compileBinary(typed.Left, typed.Right, "OR", depth)
 	case *AndExpr:
-		return state.compileBinary(typed.Left, typed.Right, "AND")
+		return state.compileBinary(typed.Left, typed.Right, "AND", depth)
 	case *NotExpr:
-		inner, innerParams, innerErr := state.compileWhere(typed.Inner)
+		inner, innerParams, innerErr := state.compileWhere(typed.Inner, depth)
 
 		if innerErr != nil {
 			return "", nil, innerErr
@@ -168,14 +194,14 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 
 		return "NOT (" + inner + ")", innerParams, nil
 	case *PropertyPredicate:
-		return compileProperty(typed, "")
+		return compileProperty(typed, columnPrefix(depth))
 	case *ModifiedSincePredicate:
-		return compileModifiedSince(typed)
+		return compileModifiedSince(typed, columnPrefix(depth))
 	case *EdgePredicate:
-		return compileEdgePredicate(typed, 0)
+		return state.compileEdgePredicate(typed, depth)
 	case *TraversalShortcut:
 		state.cteCounter++
-		whereClause, ctes, cteParams, whereParams, traversalErr := compileTraversalShortcut(typed, state.cteCounter)
+		whereClause, ctes, cteParams, whereParams, traversalErr := compileTraversalShortcut(typed, rowRef(depth), state.cteCounter)
 
 		if traversalErr != nil {
 			return "", nil, traversalErr
@@ -188,7 +214,10 @@ func (state *compileState) compileWhere(expr Expr) (string, []any, error) {
 		state.ctes = append(state.ctes, ctes...)
 		state.cteParams = append(state.cteParams, cteParams...)
 
-		if typed.OrderedBy != "" && state.defaultOrderBy == "" {
+		// Only a top-level shortcut orders the result. Inside an edge predicate
+		// it constrains the edge's target, whose sibling order says nothing
+		// about the rows returned.
+		if depth == 0 && typed.OrderedBy != "" && state.defaultOrderBy == "" {
 			state.defaultOrderBy = fmt.Sprintf(
 				`COALESCE(json_extract(nodes.properties_json, '$."%s"'), 0), nodes.id`,
 				typed.OrderedBy,
@@ -208,13 +237,14 @@ var coreColumns = map[string]struct{}{
 	"title": {},
 }
 
-// compileModifiedSince emits a `last_mtime >= ?` comparison against the
-// nodes table. last_mtime is stored as unix nanoseconds (see
+// compileModifiedSince emits a `last_mtime >= ?` comparison against the row
+// columnPrefix names ("" for the nodes table, "<alias>." inside an edge
+// predicate). last_mtime is stored as unix nanoseconds (see
 // internal/index/index.go schema), so the threshold is converted with
 // UnixNano(). Either Duration or Since must be set by the validator;
 // emitting SQL without a resolved threshold mirrors the
 // TraversalShortcut.EdgeType check.
-func compileModifiedSince(predicate *ModifiedSincePredicate) (string, []any, error) {
+func compileModifiedSince(predicate *ModifiedSincePredicate, columnPrefix string) (string, []any, error) {
 	var thresholdNs int64
 
 	switch {
@@ -226,7 +256,7 @@ func compileModifiedSince(predicate *ModifiedSincePredicate) (string, []any, err
 		return "", nil, fmt.Errorf("compile: modified-since has unresolved value (validator must run before compile)")
 	}
 
-	return "last_mtime >= ?", []any{thresholdNs}, nil
+	return columnPrefix + "last_mtime >= ?", []any{thresholdNs}, nil
 }
 
 // compileTypeRef parses raw as a typeref and returns a SQL fragment plus
@@ -591,14 +621,15 @@ func enumOrderExpression(property string, values []string) string {
 	return builder.String()
 }
 
-func compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, error) {
+// compileEdgePredicate emits an EXISTS over the edges leaving (or entering) the
+// row at depth, joined to their far-end node as n<depth>. The inner term
+// compiles one level down, where rowRef resolves to that alias. Sibling hops at
+// the same depth reuse the alias names, which is safe because each sits in its
+// own EXISTS subquery.
+func (state *compileState) compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, error) {
 	edgeAlias := fmt.Sprintf("e%d", depth)
 	nodeAlias := fmt.Sprintf("n%d", depth)
-	parentRef := "nodes"
-
-	if depth > 0 {
-		parentRef = fmt.Sprintf("n%d", depth-1)
-	}
+	parentRef := rowRef(depth)
 
 	var sourceColumn, joinColumn string
 
@@ -622,29 +653,20 @@ func compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, e
 		return sql, edgeParams, nil
 	}
 
-	innerSQL, innerParams, innerErr := compileInnerOnAlias(predicate.Inner, nodeAlias, depth)
+	innerSQL, innerParams, innerErr := state.compileWhere(predicate.Inner, depth+1)
 
 	if innerErr != nil {
 		return "", nil, innerErr
 	}
 
-	sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s JOIN nodes %s ON %s WHERE %s AND %s AND %s)",
+	// The inner term is parenthesized because it can be a disjunction, and
+	// `… AND type = ? AND (a) OR (b)` would let the OR escape the edge join.
+	sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s JOIN nodes %s ON %s WHERE %s AND %s AND (%s))",
 		edgeAlias, nodeAlias, joinColumn, sourceColumn, edgeClause, innerSQL)
 
 	params := append(edgeParams, innerParams...)
 
 	return sql, params, nil
-}
-
-func compileInnerOnAlias(inner Expr, alias string, depth int) (string, []any, error) {
-	switch typed := inner.(type) {
-	case *PropertyPredicate:
-		return compileProperty(typed, alias+".")
-	case *EdgePredicate:
-		return compileEdgePredicate(typed, depth+1)
-	}
-
-	return "", nil, fmt.Errorf("compile: unsupported inner predicate type %T", inner)
 }
 
 // compileTraversalShortcut returns a WHERE-clause fragment, a slice of CTE
@@ -660,11 +682,14 @@ func compileInnerOnAlias(inner Expr, alias string, depth int) (string, []any, er
 // has no CTE (cteParams nil). Interleaving them in AST-traversal order is what
 // misbound the recursive shortcuts when they were not the leftmost leaf.
 //
+// rowRef names the node row the shortcut constrains: "nodes" at the top level,
+// or an edge predicate's target alias when the shortcut follows an arrow.
+//
 // The edge type is supplied by shortcut.EdgeType, populated by the
 // validator from the manifest. If empty, the validator did not run or the
 // AST was hand-constructed without resolution — return an error rather
 // than emit ambiguous SQL.
-func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (whereClause string, ctes []string, cteParams []any, whereParams []any, err error) {
+func compileTraversalShortcut(shortcut *TraversalShortcut, rowRef string, counter int) (whereClause string, ctes []string, cteParams []any, whereParams []any, err error) {
 	if shortcut.EdgeType == "" {
 		return "", nil, nil, nil, fmt.Errorf("compile: traversal shortcut has unresolved edge type (validator must run before compile)")
 	}
@@ -673,14 +698,14 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (whereCl
 
 	switch shortcut.Kind {
 	case ShortcutParentOf:
-		whereClause := "EXISTS (SELECT 1 FROM edges WHERE source_id = nodes.id AND type = ? AND target_id = ?)"
+		whereClause := fmt.Sprintf("EXISTS (SELECT 1 FROM edges WHERE source_id = %s.id AND type = ? AND target_id = ?)", rowRef)
 
 		return whereClause, nil, nil, []any{edge, shortcut.NodeID}, nil
 	case ShortcutTree:
 		cteName := fmt.Sprintf("descendants_%d", counter)
 		cteBody := recursiveDescendantsCTE(cteName)
 
-		whereClause := fmt.Sprintf("nodes.id IN (SELECT node_id FROM %s)", cteName)
+		whereClause := fmt.Sprintf("%s.id IN (SELECT node_id FROM %s)", rowRef, cteName)
 
 		return whereClause, []string{cteBody}, []any{shortcut.NodeID, edge, edge}, nil, nil
 	case ShortcutRoot:
@@ -701,7 +726,7 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, counter int) (whereCl
         WHERE edges.type = ? AND %s.depth < 5
 )`, descendantsName, ascendantsName, descendantsName, descendantsName, descendantsName, descendantsName)
 
-		whereClause := fmt.Sprintf("nodes.id IN (SELECT node_id FROM %s)", descendantsName)
+		whereClause := fmt.Sprintf("%s.id IN (SELECT node_id FROM %s)", rowRef, descendantsName)
 
 		return whereClause, []string{ascendantsBody, descendantsBody}, []any{shortcut.NodeID, edge, edge, shortcut.NodeID, edge}, nil, nil
 	}

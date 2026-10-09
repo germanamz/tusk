@@ -7,7 +7,7 @@ status: stable
 
 # internal/filter
 
-Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`), edge traversal (`edge-type->`, `edge-type<-`), traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
+Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`), edge traversal (`edge-type->`, `edge-type<-`) whose inner term can be anything the grammar accepts, traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
 
 ## Public surface
 
@@ -30,6 +30,12 @@ without a disambiguating `type=`.
 ## Notes
 
 The `+tag`/`-tag` shorthand in §10 of the master spec was dropped from v1.c. Composing the tags pack with the filter grammar uses explicit `tagged -> tag/<name>` predicates instead.
+
+### Edge inner term
+
+The arrow takes the single next term (`parseNot`), the same way `AND` binds: a predicate of any kind, `NOT <term>`, or a parenthesized group. `a-> x=1 y=2` is `(a-> x=1) AND y=2`; `a-> (x=1 y=2)` puts both on the target. `MaxTraversalDepth` counts hops nested in groups as well as bare chains.
+
+`compileWhere` takes a depth: 0 is the outer `nodes` table (bare column names), and depth `d` is the target alias `n<d-1>` of the enclosing edge predicate. Every expression kind compiles at any depth, and the edge predicate parenthesizes its inner SQL so a disjunction stays inside the edge join. A shortcut inside an edge predicate never sets the default `ORDER BY`, since its ordering property belongs to the traversal target.
 
 ### Traversal-shortcut hierarchy resolution
 

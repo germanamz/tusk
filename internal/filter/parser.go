@@ -10,6 +10,11 @@ type Parser struct {
 	lexer  *Lexer
 	buffer []Token
 	errs   []ParseError
+
+	// edgeDepth counts the edge predicates enclosing the term being parsed, so
+	// MaxTraversalDepth holds whether the hops chain directly (`a-> b-> x=1`)
+	// or sit inside a group (`a-> (b-> x=1 OR c-> y=2)`).
+	edgeDepth int
 }
 
 // NewParser constructs a Parser over input.
@@ -111,7 +116,7 @@ func (parser *Parser) parsePredicate() Expr {
 	// straight into the edge parser before the identifier check below.
 	if first.Kind == TokenColon {
 		if parser.peekEdgeTypeRefArity() > 0 {
-			return parser.parseEdgePredicate(0)
+			return parser.parseEdgePredicate()
 		}
 
 		parser.appendTokenErr(first, "expected identifier")
@@ -143,18 +148,18 @@ func (parser *Parser) parsePredicate() Expr {
 	}
 
 	if parser.peekEdgeTypeRefArity() > 0 {
-		return parser.parseEdgePredicate(0)
+		return parser.parseEdgePredicate()
 	}
 
 	return parser.parsePropertyPredicate()
 }
 
-func (parser *Parser) parseEdgePredicate(depth int) Expr {
-	if depth >= MaxTraversalDepth {
-		token := parser.peek()
-		parser.appendErr(token.Pos, fmt.Sprintf("multi-hop chain exceeds max depth %d", MaxTraversalDepth))
-
-		return nil
+func (parser *Parser) parseEdgePredicate() Expr {
+	// A hop past the limit is reported but still parsed. Returning without
+	// consuming it would hand the same tokens back to an enclosing group's
+	// parseAnd, which reads them as an implicit AND and lands here again.
+	if parser.edgeDepth >= MaxTraversalDepth {
+		parser.appendErr(parser.peek().Pos, fmt.Sprintf("multi-hop chain exceeds max depth %d", MaxTraversalDepth))
 	}
 
 	arity := parser.peekEdgeTypeRefArity()
@@ -191,18 +196,16 @@ func (parser *Parser) parseEdgePredicate(depth int) Expr {
 	next := parser.peek()
 
 	switch next.Kind {
-	case TokenEOF, TokenAnd, TokenOr, TokenNot, TokenRParen:
+	case TokenEOF, TokenAnd, TokenOr, TokenRParen:
 		return pred
-	}
-
-	if innerArity := parser.peekEdgeTypeRefArity(); innerArity > 0 {
-		pred.Inner = parser.parseEdgePredicate(depth + 1)
-
-		return pred
-	}
-
-	if next.Kind == TokenIdent {
-		pred.Inner = parser.parsePropertyPredicate()
+	case TokenIdent, TokenColon, TokenLParen, TokenNot:
+		// The arrow takes the single next term, the way AND does: any
+		// predicate, `NOT <term>`, or a parenthesized group. So
+		// `a-> x=1 y=2` stays `(a-> x=1) AND y=2`, and constraining the
+		// target by both takes `a-> (x=1 y=2)`.
+		parser.edgeDepth++
+		pred.Inner = parser.parseNot()
+		parser.edgeDepth--
 
 		return pred
 	}
