@@ -177,7 +177,7 @@ Edges are typed, declared in the manifest, and can be created two ways:
 - **Frontmatter** — the natural place. `parent: tickets/auth-epic` declares a `parent` edge.
 - **CLI / MCP** — `tusk edge add --type blocks --source tickets/a --target tickets/b`.
 
-Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time).
+Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time). A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
 
 ### The manifest defines the schema
 
@@ -277,7 +277,7 @@ Runs fsnotify against the workspace and applies edits incrementally. Drains the 
 - Filtered through `.gitignore` + `[workspace] ignore` patterns.
 - `.tusk/` and `.git/` are always ignored.
 
-Off-schema content is **warned, not rejected** — a file with an unknown `type:` or a property violation still gets indexed (so it stays queryable) and surfaces in `tusk doctor`. The exception is a file reindex cannot parse at all (frontmatter that does not decode, say): it stays out of the index, and `tusk doctor` reports it as a `skipped-file` error with the parse error. Plain markdown with no frontmatter or no `type:` is not a node and is never reported.
+Off-schema content is **warned, not rejected** — a file with an unknown `type:`, a property violation, or an edge its edge type forbids still gets indexed (so it stays queryable) and surfaces in `tusk doctor`. The exception is a file reindex cannot parse at all (frontmatter that does not decode, say): it stays out of the index, and `tusk doctor` reports it as a `skipped-file` error with the parse error. Plain markdown with no frontmatter or no `type:` is not a node and is never reported.
 
 ---
 

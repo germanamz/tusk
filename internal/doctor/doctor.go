@@ -30,6 +30,14 @@ const (
 	IssueRequiredMissing    = "required-missing"
 	IssueEnumViolation      = "enum-violation"
 
+	// IssueEdgeTypeViolation surfaces a direct edge whose source or target type
+	// is outside its edge type's `from` / `to`. IssueEdgeCardinalityViolation
+	// surfaces a source with more than one target on a one-to-one or
+	// many-to-one edge type. `tusk edge add` refuses both; reindex indexes a
+	// hand-edited file as written, so doctor is where they surface (#762).
+	IssueEdgeTypeViolation        = "edge-type-violation"
+	IssueEdgeCardinalityViolation = "edge-cardinality-violation"
+
 	IssueRefDangling     = "ref_dangling"
 	IssueRefAmbiguous    = "ref_ambiguous"
 	IssueRefTypeMismatch = "ref_type_mismatch"
@@ -242,6 +250,7 @@ func Run(config Config) (*Report, error) {
 		checkSkippedFiles,
 		checkDanglingEdges,
 		checkDerivedEdgeTypes,
+		checkEdgeConstraints,
 		checkWorkflowDrift,
 		checkPropertyDrift,
 		checkUndeclaredTypes,
@@ -569,6 +578,141 @@ func refPropertyTarget(nodeType manifest.NodeType, propName string) (string, boo
 	}
 
 	return "", false
+}
+
+// checkEdgeConstraints flags direct edges that break their edge type's
+// declaration: a source or target type outside `from` / `to`
+// (edge-type-violation), or more than one target per source on a one-to-one or
+// many-to-one type (edge-cardinality-violation). `tusk edge add` refuses both
+// and node create/modify refuse the type violation, but reindex indexes a
+// hand-edited file as written: the file is the source of truth, and dropping
+// the edge would hide it from queries (#762). The check reads the current edge table rather than a
+// reindex-time record because a target can change type after its source was
+// indexed.
+//
+// Only kind="direct" rows are checked: derived edges belong to the ref checks
+// (ref_type_mismatch) and structural edges are index plumbing. A row sourced by
+// a sub-unit repeats a body link the file row already carries, so the file
+// row's finding covers it. A source-type finding is reported once per source
+// and edge type rather than once per target. Cardinality constrains the source
+// side only, as `tusk edge add` does. An edge type the manifest no longer
+// declares has nothing to check against, and a missing target is a
+// dangling-edge.
+//
+// No-op when the manifest or either repo is absent.
+func checkEdgeConstraints(config Config) ([]Issue, error) {
+	if config.Edges == nil || config.Nodes == nil || config.Manifest == nil {
+		return nil, nil
+	}
+
+	allEdges, listErr := config.Edges.ListAll()
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	var checked []index.EdgeRow
+
+	ids := make([]string, 0, len(allEdges))
+	seen := map[string]struct{}{}
+
+	for _, edge := range allEdges {
+		if edge.Kind != "direct" || strings.Contains(edge.SourceID, index.SubUnitIDSeparator) {
+			continue
+		}
+
+		if _, declared := config.Manifest.EdgeTypes[edge.Type]; !declared {
+			continue
+		}
+
+		checked = append(checked, edge)
+
+		for _, id := range []string{edge.SourceID, edge.TargetID} {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+
+	if len(checked) == 0 {
+		return nil, nil
+	}
+
+	rows, byIDErr := config.Nodes.ListByIDs(ids)
+
+	if byIDErr != nil {
+		return nil, byIDErr
+	}
+
+	typeByID := make(map[string]string, len(rows))
+
+	for _, row := range rows {
+		typeByID[row.ID] = row.Type
+	}
+
+	var issues []Issue
+
+	// ListAll orders rows by (source_id, type, target_id), so one source's
+	// targets of one edge type are adjacent.
+	for start := 0; start < len(checked); {
+		end := start + 1
+
+		for end < len(checked) && checked[end].SourceID == checked[start].SourceID && checked[end].Type == checked[start].Type {
+			end++
+		}
+
+		issues = append(issues, edgeGroupIssues(config.Manifest.EdgeTypes[checked[start].Type], checked[start:end], typeByID)...)
+		start = end
+	}
+
+	return issues, nil
+}
+
+// edgeGroupIssues checks one source's edges of one edge type against the edge
+// type's declaration. typeByID holds the type of every live node the group
+// touches; a source or target absent from it is not type-checked.
+func edgeGroupIssues(edgeType manifest.EdgeType, group []index.EdgeRow, typeByID map[string]string) []Issue {
+	sourceID, edgeName := group[0].SourceID, group[0].Type
+
+	var issues []Issue
+
+	if sourceType, live := typeByID[sourceID]; live && !edgeType.AllowsSource(sourceType) {
+		issues = append(issues, Issue{
+			Kind:    IssueEdgeTypeViolation,
+			NodeID:  sourceID,
+			Message: fmt.Sprintf("edge %q: source type %q is not allowed (from: %v)", edgeName, sourceType, edgeType.From),
+		})
+	}
+
+	targets := make([]string, 0, len(group))
+
+	for _, edge := range group {
+		targets = append(targets, edge.TargetID)
+
+		if targetType, live := typeByID[edge.TargetID]; live && !edgeType.AllowsTarget(targetType) {
+			issues = append(issues, Issue{
+				Kind:    IssueEdgeTypeViolation,
+				NodeID:  sourceID,
+				Message: fmt.Sprintf("edge %q -> %q: target type %q is not allowed (to: %v)", edgeName, edge.TargetID, targetType, edgeType.To),
+			})
+		}
+	}
+
+	singleTarget := edgeType.Cardinality == manifest.CardinalityOneToOne || edgeType.Cardinality == manifest.CardinalityManyToOne
+
+	if singleTarget && len(targets) > 1 {
+		issues = append(issues, Issue{
+			Kind:   IssueEdgeCardinalityViolation,
+			NodeID: sourceID,
+			Message: fmt.Sprintf("edge %q is %s, so a source has one target; found %d: %s",
+				edgeName, edgeType.Cardinality, len(targets), strings.Join(targets, ", ")),
+		})
+	}
+
+	return issues
 }
 
 // liveNodeIDs returns the subset of ids that resolve to a node row, so drift
