@@ -157,6 +157,11 @@ Doctor reports:
     file as written, so the edge stays queryable until it is fixed.
   * Invalid [alias] and [context] declarations, and [context.pinned] ids
     that no longer resolve.
+  * Rules: every node a [rule.<name>] filter matches, reported as
+    rule:<name> at the rule's severity (error unless it sets one). A rule
+    matches file nodes only unless its filter selects a sub-unit type. A rule
+    that does not parse, or names a type, property or enum value tusk.toml
+    does not declare, is a rule-invalid error.
   * Embedding queue depth, and embed-retry rows (a failing embedder that
     keeps re-enqueueing) with their attempt count and last error.
   * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
@@ -228,6 +233,7 @@ they are not flagged as missing embeddings.`,
 					PropertyDrift: index.NewPropertyDriftRepo(store),
 					Embeddings:    index.NewEmbeddingRepo(store),
 					FileStates:    index.NewFileStateRepo(store),
+					DB:            store.DB(),
 					Manifest:      loaded,
 					Root:          ws.Root,
 				}

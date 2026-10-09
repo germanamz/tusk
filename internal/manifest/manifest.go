@@ -30,6 +30,11 @@ type Manifest struct {
 	// doctor; never raised as a load error.
 	AliasErrors []AliasError `toml:"-"`
 
+	// Rules holds the [rule.<name>] declarations keyed by rule name, decoded
+	// one block at a time by decodeRules but unvalidated.
+	// doctor.CompileRules validates them.
+	Rules map[string]Rule `toml:"-"`
+
 	// rawAliases holds the on-disk [alias.<name>] blocks captured during
 	// Load so ValidateAliases can introspect them. Internal to the
 	// manifest package; consumers read through Aliases instead.

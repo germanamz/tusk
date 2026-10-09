@@ -61,7 +61,8 @@ modeling vocabulary.
 - **The manifest is the contract.** Node types, edge types, property schemas,
   and behavior packs are declared in `tusk.toml`. Type packs (`vault`, `tags`,
   `kanban`, `dev`) splice in curated bundles so you do not declare everything by
-  hand.
+  hand. Conventions the schema can't express are declared too, as rules: a
+  filter that should match nothing, which `tusk doctor` runs and reports.
 - **Behaviors are opt-in engine logic.** v1 ships one behavior pack —
   `workflow`, a status finite-state machine validated on writes. A workspace
   with no packs is still a valid Tusk workspace: a markdown vault with retrieval.

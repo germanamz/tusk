@@ -15,7 +15,20 @@ Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk n
 - `Validate(Expr, manifest.Manifest) []ValidationError` — resolves each property
   predicate's declared type against the manifest (within its conjunctive `type=`
   scope) and stamps `ResolvedType`/`EnumValues` onto the AST for the compiler.
+- `ValidateStrict(Expr, manifest.Manifest) []ValidationError` — `Validate` plus
+  checks for names the manifest can vouch for, at every depth: a `type=` value is
+  a declared node type, a non-core property is declared on a node type in its
+  `type=` scope (or on any type when the scope is empty), and an `=` / `!=` value
+  of an `enum` or `list-of(enum)` property is one of its values. `Validate`
+  accepts all three so ad-hoc queries can reach undeclared frontmatter;
+  `internal/doctor` uses `ValidateStrict` for manifest rules, where a typo would
+  match nothing forever. A property scoped only to undeclared types gets no
+  property error, since the type error already covers it.
 - `Compile(Expr, CompileOptions) (string, []any, error)` — AST → parameterized SQL.
+  `CompileOptions.FilesOnly` wraps the WHERE clause as `(...) AND parent_id IS NULL`.
+- `OuterTypes(Expr) []string` — the node-type names that `type=` equalities select
+  at the outer level, through AND and OR but not under NOT or past an edge arrow.
+  Doctor uses it to decide whether a rule opts into sub-units.
 - `Lexer`, token kinds, AST node types — internal but exposed for tests.
 
 Ordering (`<`, `<=`, `>`, `>=`) and range (`lo..hi`) operators are type-aware:

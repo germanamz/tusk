@@ -31,11 +31,26 @@ func (validationErr ValidationError) Error() string {
 
 // Validate walks the AST and surfaces semantic problems against the manifest.
 func Validate(expr Expr, loaded manifest.Manifest) []ValidationError {
+	return validate(expr, loaded, false)
+}
+
+// ValidateStrict is Validate plus checks for names the manifest can vouch for,
+// at every depth: a `type=` value must be a declared node type, a non-core
+// property must be declared on a node type in its `type=` scope, and an `=` or
+// `!=` value of an enum property must be one of its values. Validate accepts
+// all three so ad-hoc queries can reach undeclared frontmatter; a manifest
+// rule uses ValidateStrict because a typo there would match nothing forever.
+// Callers decide when the manifest declares enough to validate against.
+func ValidateStrict(expr Expr, loaded manifest.Manifest) []ValidationError {
+	return validate(expr, loaded, true)
+}
+
+func validate(expr Expr, loaded manifest.Manifest, strict bool) []ValidationError {
 	if expr == nil {
 		return nil
 	}
 
-	collector := &validationCollector{manifest: loaded}
+	collector := &validationCollector{manifest: loaded, strict: strict}
 	collector.walk(expr, nil)
 
 	return collector.errors
@@ -88,6 +103,7 @@ type typeScope map[string]struct{}
 
 type validationCollector struct {
 	manifest manifest.Manifest
+	strict   bool
 	errors   []ValidationError
 }
 
@@ -114,13 +130,17 @@ func (collector *validationCollector) walk(expr Expr, scope typeScope) {
 		collector.walk(typed.Inner, scope)
 	case *PropertyPredicate:
 		collector.resolveProperty(typed, scope)
+
+		if collector.strict {
+			collector.checkDeclaredNames(typed, scope)
+		}
 	case *EdgePredicate:
 		ref, parseErr := typeref.Parse(typed.EdgeType)
 
 		if parseErr != nil {
 			collector.add(typed.Pos, fmt.Sprintf("edge type %q is not a valid type reference", typed.EdgeType), "")
 		} else if _, declared := collector.manifest.EdgeTypes[ref.Type]; !declared {
-			collector.add(typed.Pos, fmt.Sprintf("edge type %q not declared in manifest", ref.Type), suggestEdgeType(ref.Type, collector.manifest.EdgeTypes))
+			collector.add(typed.Pos, fmt.Sprintf("edge type %q not declared in manifest", ref.Type), suggestName(ref.Type, sortedKeys(collector.manifest.EdgeTypes)))
 		}
 
 		if typed.Inner != nil {
@@ -161,6 +181,34 @@ func collectConjunctiveTypes(expr Expr, scope typeScope) {
 				scope[ref.Type] = struct{}{}
 			}
 		}
+	}
+}
+
+// OuterTypes returns the sorted, distinct node-type names that `type=`
+// equalities at the outer level of expr select, walking through AND and OR but
+// not under NOT or past an edge arrow, where the name constrains something
+// other than the matched row. Nil when there are none.
+func OuterTypes(expr Expr) []string {
+	scope := typeScope{}
+	collectOuterTypes(expr, scope)
+
+	if len(scope) == 0 {
+		return nil
+	}
+
+	return sortedKeys(scope)
+}
+
+func collectOuterTypes(expr Expr, scope typeScope) {
+	switch typed := expr.(type) {
+	case *OrExpr:
+		collectOuterTypes(typed.Left, scope)
+		collectOuterTypes(typed.Right, scope)
+	case *AndExpr:
+		collectOuterTypes(typed.Left, scope)
+		collectOuterTypes(typed.Right, scope)
+	case *PropertyPredicate:
+		collectConjunctiveTypes(typed, scope)
 	}
 }
 
@@ -615,14 +663,30 @@ func suggestHierarchyCandidate(edges map[string]manifest.EdgeType) string {
 	return candidates[0]
 }
 
-func suggestEdgeType(unknown string, available map[string]manifest.EdgeType) string {
-	for name := range available {
+// suggestName returns a "did you mean" hint naming the first candidate within
+// one edit of unknown, or "" when none is. Candidates are tried in the order
+// given, so a sorted list keeps the hint deterministic.
+func suggestName(unknown string, candidates []string) string {
+	for _, name := range candidates {
 		if levenshteinAtMostOne(unknown, name) {
 			return fmt.Sprintf("did you mean %q?", name)
 		}
 	}
 
 	return ""
+}
+
+// sortedKeys returns the keys of a name-keyed manifest map in sorted order.
+func sortedKeys[Value any](declared map[string]Value) []string {
+	keys := make([]string, 0, len(declared))
+
+	for key := range declared {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 func levenshteinAtMostOne(left, right string) bool {

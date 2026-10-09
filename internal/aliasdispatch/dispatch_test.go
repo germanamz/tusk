@@ -348,6 +348,34 @@ func TestDispatcher_Doctor(test *testing.T) {
 	}
 }
 
+// The doctor alias runs [rule.<name>] declarations like `tusk doctor` does,
+// which needs the database handle passed through.
+func TestDispatcher_DoctorRunsManifestRules(test *testing.T) {
+	deps := setupWorkspace(test)
+	deps.Manifest.Rules = map[string]manifest.Rule{
+		"no-notes": {Description: "notes are not allowed here", Filter: "type=note"},
+	}
+
+	result, runErr := aliasdispatch.NewDispatcher(deps).Run(context.Background(), validatedAlias(test, "doctor", map[string]any{
+		"no-migrate": true,
+	}))
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	report := result.Result.(*doctor.Result).Report
+	want := doctor.Issue{Kind: "rule:no-notes", Severity: doctor.SeverityError, NodeID: "notes/hello", Message: "notes are not allowed here"}
+
+	for _, issue := range report.Issues {
+		if issue.Kind == want.Kind && issue.Severity == want.Severity && issue.NodeID == want.NodeID && issue.Message == want.Message {
+			return
+		}
+	}
+
+	test.Fatalf("issues = %+v, want %+v", report.Issues, want)
+}
+
 func TestDispatcher_Status(test *testing.T) {
 	deps := setupWorkspace(test)
 	dispatcher := aliasdispatch.NewDispatcher(deps)

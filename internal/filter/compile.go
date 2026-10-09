@@ -22,6 +22,11 @@ type CompileOptions struct {
 	SortKeys []SortKey
 	Take     int
 	Skip     int
+
+	// FilesOnly restricts the result to file nodes. Sub-units share their
+	// file's path, so a path filter otherwise returns every section and
+	// paragraph of each matching file too.
+	FilesOnly bool
 }
 
 // Compile turns an AST + options into parameterized SQL against the nodes table.
@@ -54,6 +59,11 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 	}
 
 	builder.WriteString(`SELECT id, type, path, title, properties_json, last_mtime, last_size, last_checksum, parent_id FROM nodes WHERE `)
+
+	if opts.FilesOnly {
+		whereClause = "(" + whereClause + ") AND parent_id IS NULL"
+	}
+
 	builder.WriteString(whereClause)
 
 	if len(opts.SortKeys) > 0 {

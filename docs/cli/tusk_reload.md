@@ -29,8 +29,9 @@ then does under the new settings ("embed_settings_requeued" in the output).
 
 Validation matches boot semantics: a TOML parse/structural error or
 behavior-engine build failure aborts the reload (exit non-zero, no epoch
-bump); dangling aliases and invalid [context] entries are dropped and
-reported as warnings while the swap still proceeds.
+bump); dangling aliases, invalid [context] entries and invalid [rule]
+declarations are dropped and reported as warnings while the swap still
+proceeds.
 
 ```
 tusk reload [flags]
